@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "cap": "CI=1 cap",
+    "cap": "CI=1 NODE_OPTIONS=\"--experimental-strip-types --disable-warning=ExperimentalWarning $NODE_OPTIONS\" cap",
     "icons": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/generate-icons.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p ."

@@ -26,7 +26,7 @@ scripts/
 *.test.ts             checks of the config and the native project
 ```
 
-Run Capacitor commands through the package script, which sets `CI=1` so the CLI stays non-interactive and sends no telemetry:
+Run Capacitor commands through the package script. It sets `CI=1`, so the CLI stays non-interactive and sends no telemetry. It also turns on Node's type stripping, which the CLI needs to load `capacitor.config.ts` with TypeScript 7 and which Node 22 enables by default only from 22.18:
 
 ```sh
 scripts/run.sh pnpm --filter @fxm/mobile cap sync android

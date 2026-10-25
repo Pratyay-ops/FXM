@@ -44,10 +44,23 @@ describe('the Android project', () => {
     )
   })
 
-  it('runs the Capacitor CLI non-interactively, so it sends no telemetry', () => {
-    // In a terminal, `cap` turns on its opt-out telemetry and stores a machine id in your home
-    // folder; CI=1 makes it non-interactive.
+  describe('the cap script', () => {
     const pkg = JSON.parse(read('package.json')) as { scripts: Record<string, string> }
-    expect(pkg.scripts.cap).toBe('CI=1 cap')
+    const cap = pkg.scripts.cap ?? ''
+
+    it('runs the Capacitor CLI non-interactively, so it sends no telemetry', () => {
+      // In a terminal, `cap` turns on its opt-out telemetry and stores a machine id in your home
+      // folder; CI=1 makes it non-interactive.
+      expect(cap).toMatch(/^CI=1 .* cap$/)
+    })
+
+    it('loads capacitor.config.ts on every Node 22 release the repo accepts', () => {
+      // TypeScript 7 has no transpileModule, so the CLI imports the config through Node's type
+      // stripping, which Node 22 turns on by default only from 22.18. The root engines field
+      // accepts 22.13 and later.
+      expect(cap).toContain(
+        'NODE_OPTIONS="--experimental-strip-types --disable-warning=ExperimentalWarning $NODE_OPTIONS"',
+      )
+    })
   })
 })
