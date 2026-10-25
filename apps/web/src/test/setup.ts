@@ -4,6 +4,7 @@ import 'fake-indexeddb/auto'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
+import { resetDownloads } from '../features/downloads/runtime'
 import { useLibraryViewStore } from '../features/library/view-store'
 import { usePlayerStore } from '../features/player/player-store'
 import { useSettingsStore } from '../features/settings/settings-store'
@@ -21,6 +22,8 @@ afterEach(async () => {
   useLibraryViewStore.setState(useLibraryViewStore.getInitialState(), true)
   localStorage.clear()
   delete document.documentElement.dataset.theme
-  // After cleanup(), so no live query still watches the database being deleted.
+  // After cleanup(), so no live query still watches the database being deleted. Downloads
+  // first: their manager writes to the library.
+  await resetDownloads()
   await resetLibrary()
 })
