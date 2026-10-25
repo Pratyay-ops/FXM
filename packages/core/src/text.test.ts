@@ -118,6 +118,18 @@ const TAGGED_PHRASES: ReadonlyArray<readonly [string, VersionTags]> = [
   ['Eng Ver.', tags(['english version'])],
   ['Versión en Español', tags(['spanish version'])],
   ['Version Française', tags(['french version'])],
+  ['Malayalam Version', tags(['malayalam version'])],
+  ['Kannada Ver.', tags(['kannada version'])],
+  ['Marathi Version', tags(['marathi version'])],
+  ['Gujarati Version', tags(['gujarati version'])],
+  ['Urdu Version', tags(['urdu version'])],
+  ['Bhojpuri Version', tags(['bhojpuri version'])],
+  ['Oriya Version', tags(['odia version'])],
+  ['Assamese Version', tags(['assamese version'])],
+  ['Farsi Version', tags(['persian version'])],
+  ['Tamil', tags(['tamil version'])],
+  ['Telugu', tags(['telugu version'])],
+  ['Español', tags(['spanish version'])],
   // Medium
   ['Radio Edit', tags([], ['radio edit'])],
   ['Radio Version', tags([], ['radio edit'])],
@@ -287,6 +299,10 @@ describe('splitTitle', () => {
     ['Song - Tiny Desk Concert', parts('Song', ['Tiny Desk Concert'])],
     ['Song - Tribute', parts('Song', ['Tribute'])],
     ['Bohemian Rhapsody - Live Aid', parts('Bohemian Rhapsody', ['Live Aid'])],
+    ['Srivalli - Telugu', parts('Srivalli', ['Telugu'])],
+    ['Song - Malayalam', parts('Song', ['Malayalam'])],
+    ['(Tamil) Song', parts('Song', ['Tamil'])],
+    ['Song - Tamil Nadu', parts('Song - Tamil Nadu')],
     ['Song - Recorded at Spotify Studios NYC', parts('Song', ['Recorded at Spotify Studios NYC'])],
     ['Song - Covered by Someone', parts('Song', ['Covered by Someone'])],
     ['Song - Album Version', parts('Song', ['Album Version'])],
@@ -492,6 +508,10 @@ describe('extractVersionTags', () => {
     '18D',
     'Halo Fi',
     'Never Gonna Give You Up',
+    'Tamil Nadu',
+    'Learn Spanish',
+    'Englishman',
+    'JP',
     // Katakana and Hangul tag words inside longer words of their script
     'ドライブ',
     '드라이브',
@@ -545,6 +565,15 @@ describe('extractVersionTags', () => {
     expect(
       extractVersionTags('Remix (Live at Wembley) [2011 Remaster] - Radio Edit - live remix'),
     ).toEqual(tags(['remix', 'live'], ['radio edit'], ['remaster']))
+  })
+
+  it.each([
+    ['Srivalli (Telugu)', tags(['telugu version'])],
+    ['Srivalli - Telugu', tags(['telugu version'])],
+    ['Srivalli [Malayalam] - Remix', tags(['malayalam version', 'remix'])],
+    ['Tamil Remix', tags(['remix'])],
+  ])('treats a qualifier that is only a language as a language version in %j', (text, expected) => {
+    expect(extractVersionTags(text)).toEqual(expected)
   })
 
   it('lets a longer phrase win over the words inside it', () => {

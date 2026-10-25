@@ -200,7 +200,8 @@ function titleWord(tagRule: TagRule): TagRule {
   return { ...tagRule, suffix: false }
 }
 
-const LANGUAGES = [
+/** Full language names: "<language> version", or a qualifier that is only the name. */
+const LANGUAGE_NAMES = [
   'english',
   'spanish',
   'french',
@@ -215,12 +216,31 @@ const LANGUAGES = [
   'hindi',
   'tamil',
   'telugu',
+  'malayalam',
+  'kannada',
+  'marathi',
+  'gujarati',
   'punjabi',
   'bengali',
+  'urdu',
+  'bhojpuri',
+  'odia',
+  'oriya',
+  'assamese',
+  'haryanvi',
+  'rajasthani',
+  'nepali',
+  'sinhala',
+  'sinhalese',
   'arabic',
+  'hebrew',
+  'persian',
+  'farsi',
   'russian',
+  'ukrainian',
   'turkish',
   'indonesian',
+  'malay',
   'thai',
   'vietnamese',
   'tagalog',
@@ -229,14 +249,16 @@ const LANGUAGES = [
   'dutch',
   'swedish',
   'greek',
-  'eng',
-  'jp',
-  'kr',
-  'cn',
 ].join('|')
 
-/** Abbreviations and Spanish, French and Portuguese spellings of the language names. */
-const LANGUAGE_NAMES: Readonly<Record<string, string>> = {
+/** Abbreviations that only count in "<abbreviation> version" or "<abbreviation> ver.". */
+const LANGUAGE_ABBREVIATIONS = 'eng|jp|kr|cn'
+
+/** Spanish, French, Portuguese, Italian and German names, as in "Versión en Español". */
+const LANGUAGE_SPELLINGS = 'espanol|ingles|frances|francais|francaise|portugues|italiano|aleman'
+
+/** Canonical names for the abbreviations, the other spellings and the alternative names. */
+const LANGUAGE_ALIASES: Readonly<Record<string, string>> = {
   eng: 'english',
   jp: 'japanese',
   kr: 'korean',
@@ -249,11 +271,22 @@ const LANGUAGE_NAMES: Readonly<Record<string, string>> = {
   portugues: 'portuguese',
   italiano: 'italian',
   aleman: 'german',
+  oriya: 'odia',
+  sinhalese: 'sinhala',
+  farsi: 'persian',
 }
+
+/**
+ * Where a qualifier that is only a language name may start and end: at the ends of the text,
+ * inside brackets, or between " - " separators, so "(Tamil)" and "Song - Telugu" count but
+ * "Tamil Nadu" and "Learn Spanish" do not.
+ */
+const LANGUAGE_ALONE_BEFORE = String.raw`(?<=^|[(\[{【〖]\s*|\s[-|~/]\s)`
+const LANGUAGE_ALONE_AFTER = String.raw`(?=\s*(?:$|[)\]}】〗]|\s[-|~/]\s))`
 
 function languageVersion(match: RegExpMatchArray): string {
   const name = match[1] ?? ''
-  return `${LANGUAGE_NAMES[name] ?? name} version`
+  return `${Object.hasOwn(LANGUAGE_ALIASES, name) ? LANGUAGE_ALIASES[name] : name} version`
 }
 
 /**
@@ -277,12 +310,21 @@ const TAG_RULES: readonly TagRule[] = [
   rule(
     'strong',
     languageVersion,
-    new RegExp(String.raw`(${LANGUAGES})(?: language)? (?:version|ver\.?)`, 'u'),
+    new RegExp(
+      String.raw`(${LANGUAGE_NAMES}|${LANGUAGE_ABBREVIATIONS})(?: language)? (?:version|ver\.?)`,
+      'u',
+    ),
   ),
+  rule('strong', languageVersion, new RegExp(`version (?:en )?(${LANGUAGE_SPELLINGS})`, 'u')),
+  // A qualifier that is only a language: a dubbed film song, as in "Srivalli (Telugu)".
   rule(
     'strong',
     languageVersion,
-    /version (?:en )?(espanol|ingles|frances|francais|francaise|portugues|italiano|aleman)/u,
+    new RegExp(
+      `${LANGUAGE_ALONE_BEFORE}(${LANGUAGE_NAMES}|${LANGUAGE_SPELLINGS})${LANGUAGE_ALONE_AFTER}`,
+      'u',
+    ),
+    'none',
   ),
   rule('strong', 'club mix', /club (?:mix|edit|version)/u),
   rule('strong', 'dub mix', /dub(?: (?:mix|version))?/u),
@@ -391,7 +433,8 @@ const TAG_RULES: readonly TagRule[] = [
  *   vocal", acoustic, stripped, "piano version", orchestral, symphonic, "sped up"/"speed up",
  *   slowed, reverb, nightcore, 8D, "bass boosted", daycore, lo-fi, chopped, screwed, demo,
  *   rehearsal, outtake, "alternate take", "take N", "early version", "Taylor's Version",
- *   re-recorded, "recorded at <place>", "<language> version"; also a cappella, dub, mashup,
+ *   re-recorded, "recorded at <place>", "<language> version" (Indian languages included, and a
+ *   qualifier that is only a language name, as in "(Telugu)"); also a cappella, dub, mashup,
  *   medley and reprise, and common Japanese, Korean, Chinese, Spanish and Portuguese words for
  *   live, cover, remix, karaoke, instrumental and acoustic
  * - **medium**, a different edit: radio/single/short/clean/video/TV edit or version, edit,
