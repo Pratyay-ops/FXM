@@ -13,7 +13,8 @@
 #                                      must all be plain files (no folders or links)
 #
 # The release workflow runs both (the checksums once every job's files are together); so does
-# make release-build. The zips are reproducible: sorted entries, fixed permissions, no extra
+# make release-build. Every package must have the release version, as on main and on develop
+# after make release-pr. The zips are reproducible: sorted entries, fixed permissions, no extra
 # attributes, and the commit's time as every file's date. Needs zip (preinstalled on macOS and
 # GitHub's runners) and the dependencies (make setup).
 set -euo pipefail
@@ -44,7 +45,12 @@ cd "$FXM_ROOT"
 version=$(fxm_release_current_version)
 fxm_release_require_version "$version"
 # Every file name and FXM Connect's manifest carry the version, so all packages must agree.
-"$here/release-version.sh" --check
+if ! "$here/release-version.sh" --check; then
+  fxm_die "release-build.sh builds the files of a release, so every package needs the release" \
+    "version: they agree on main and on develop after make release-pr. To try the build before" \
+    "then, set a version in a throwaway worktree (make wt-new, then scripts/release-version.sh" \
+    "x.y.z there) and never commit that change."
+fi
 out=${1:-dist/release}
 mkdir -p "$out"
 out=$(cd "$out" && pwd)

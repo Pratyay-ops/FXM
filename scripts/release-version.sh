@@ -120,7 +120,7 @@ if (mode === 'check') {
   } else {
     console.error(`These versions differ from package.json (${expected}):`)
     for (const target of wrong) show(target, target.current ?? '(none)', console.error)
-    console.error('Set them all with scripts/release-version.sh <x.y.z>.')
+    console.error('make release-pr sets them all when it prepares a release (scripts/release-version.sh <x.y.z>).')
     process.exit(1)
   }
 } else {

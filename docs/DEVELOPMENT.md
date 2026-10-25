@@ -71,7 +71,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make release-pr VERSION=x.y.z` | Open the release pull request from `develop` into `main` (`DRY_RUN=1`: only show the checks, the plan and the notes), see [Releases](#releases) |
-| `make release-notes` / `release-build` / `release-check` | Print the next release's notes, build its files into `dist/release/`, or lint the workflows and test the release scripts |
+| `make release-notes` / `release-build` / `release-check` | Print the next release's notes, build its files into `dist/release/` (once every package has the release version), or lint the workflows and test the release scripts |
 | `make clean` | Remove build output |
 | `make nuke` | Remove **all** installed tools, dependencies and caches |
 
@@ -96,7 +96,7 @@ A release goes from `develop` to `main` through a pull request, and a workflow p
 | `make release-pr VERSION=x.y.z DRY_RUN=1` | Run every check and print the plan and the release notes. Changes, commits and pushes nothing |
 | `make release-pr VERSION=x.y.z` | On a clean `develop` equal to `origin/develop`: set the version, regenerate `CHANGELOG.md`, commit `chore(release): vX.Y.Z`, push `develop` and open the pull request "Release vX.Y.Z" into `main`. It prints the URL and never merges. Run again with the version `develop` already has, it updates that release: `CHANGELOG.md`, the pull request's notes, or the pull request itself if it was closed |
 | `make release-notes` | Print the notes of the changes since the last release (`VERSION=x.y.z`: the notes of that release) |
-| `make release-build` | Build what a release ships into `dist/release/`, with `SHA256SUMS`: the web app, landing page and FXM Connect zips. Needs `zip` (preinstalled on macOS; `sudo apt install zip` on Debian and Ubuntu) |
+| `make release-build` | Build what a release ships into `dist/release/`, with `SHA256SUMS`: the web app, landing page and FXM Connect zips. Every package must have the release version, as on `main` and on `develop` after `make release-pr`. To try it before then, run `scripts/release-version.sh x.y.z` and the build in a throwaway worktree (`make wt-new`), and never commit that change. Needs `zip` (preinstalled on macOS; `sudo apt install zip` on Debian and Ubuntu) |
 | `make release-check` | Lint the GitHub workflows with actionlint and run the release scripts' offline tests. Run it after changing `.github/workflows/`, `cliff.toml` or `scripts/release-*.sh` |
 
 The scripts behind them work on their own too:
