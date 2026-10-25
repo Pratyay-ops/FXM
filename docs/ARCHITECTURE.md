@@ -33,7 +33,7 @@ FXM is built mainly for personal use by its owner and by anyone who runs it on t
 
 ### Non-goals
 
-- **A native iOS app.** On iOS the App Store is the only practical channel, its review guideline 5.2.3 names YouTube, and Apple's developer program costs USD 99 a year. In Safari, the web app plays free sources, plus the experimental Lite tier where it works (untested on Safari and iOS).
+- **A native iOS app.** Every channel that puts an app on other people's iPhones needs Apple's developer program (USD 99 a year): the App Store, TestFlight, ad hoc builds, and the EU's alternative marketplaces, which also need Apple's notarization (checked 2026-10-25). App Review guideline 5.2.3 names YouTube, so the App Store would likely refuse FXM. Without the program, a build installed from Xcode with a free Apple ID works on up to 3 devices and expires after 7 days. In Safari, the web app plays free sources, plus the experimental Lite tier where it works (untested on Safari and iOS).
 - **Spotify audio or any DRM-protected stream.** Spotify supplies metadata and recommendations only.
 - **Any server run by the project.**
 
@@ -129,7 +129,7 @@ State as of October 2026:
   - **Chrome Web Store:** refuses extensions that facilitate unauthorized streaming or downloading, and lists YouTube downloads as a common rejection reason (2026-07-20). FXM doesn't submit there by default. Its unpacked zip stays enabled only while Developer mode is on (since Chrome 134), updates by hand, and may be blocked in managed browsers.
   - **Edge Add-ons:** the same written rule, but laxer in practice: Video DownloadHelper's Edge build advertises YouTube downloads and has a Featured badge (2026-10-25).
   - **Firefox Add-ons (AMO):** hosts YouTube downloaders. Its policies apply however an add-on is distributed, self-distributed add-ons still need AMO signing, and Mozilla can block an add-on for every user with no override.
-  - **Safari:** on iOS, the App Store only (guideline 5.2.3 names YouTube). On macOS, extensions signed with a Developer ID and notarized can be distributed outside the App Store since Safari 18.4 (USD 99 a year).
+  - **Safari:** on iOS, extensions ship inside an app, so they need Apple's developer program like any iOS app (§1). On macOS, extensions signed with a Developer ID and notarized can be distributed outside the App Store since Safari 18.4 (USD 99 a year).
   - Manifest V3 forbids remote code and `eval` in extensions.
 - **Desktop webviews.** Tauri was verified component by component on macOS 15.5, not end to end:
   - **In the Tauri app:** the HTTP plugin's header behaviour, and InnerTube search and `/player` returning 200. No stream was resolved through it, because a locally generated session got `LOGIN_REQUIRED`.
@@ -141,7 +141,7 @@ State as of October 2026:
   - Capacitor 8.5.3's global CapacitorHttp fetch patch drops the Origin, Cookie and Referer headers, turns binary bodies into text or `{}`, and buffers non-GET responses.
   - Capacitor also installs a process-wide cookie handler backed by the WebView's cookie jar, so every `HttpURLConnection` request, `CapacitorHttp.request` included, sends and stores WebView cookies. FXM therefore uses its own OkHttp plugin with its own cookie jar.
   - Android 14 and later freeze cached apps. Whether a `mediaPlayback` foreground service keeps FXM's JavaScript re-resolution alive is an inference that 6.3 tests.
-  - **Developer verification** has been live since 2026-09-30 for apps from 7 participating stores in Brazil, Indonesia, Singapore and Thailand. Sideloading is unaffected until the 2027 global rollout (no month given). After it, installing an unregistered app needs an "advanced flow": developer mode, a one-time 24 h wait, and "Install anyway" on every install; updates fail when the flow is off. ADB stays exempt for now. Registration costs USD 25 once, plus government ID and proof of address.
+  - **Developer verification** has been live since 2026-09-30 for apps from 7 participating stores in Brazil, Indonesia, Singapore and Thailand. Sideloading is unaffected until the 2027 global rollout (no month given). After it, installing an unregistered app needs an "advanced flow": developer mode, a one-time 24 h wait, and "Install anyway" on every install; updates fail when the flow is off. ADB stays exempt for now. Registration costs USD 25 once, plus government ID and proof of address; Limited Distribution is free for up to 20 devices.
 - **Conversion.** ffmpeg-kit is retired, so conversion uses ffmpeg.wasm everywhere. The stock `@ffmpeg/core` 0.12.10 is GPL-2.0-or-later and its wasm file is 32,232,419 bytes (about 30.7 MiB), so FXM needs its own LGPL, audio-only build (§14).
 - **Cloudflare Pages** (docs updated 2026-08-25 and 2026-09-05). `_headers` allows up to 100 rules and 2,000 characters per line. A request inherits the headers of every matching rule, and a header applied twice is joined with commas. Each file may be up to 25 MiB, and a free site may have 20,000 files. Cloudflare may remove content without notice (terms updated 2026-09-28).
 
@@ -878,21 +878,21 @@ All imports respect the catalog mode, are paced by the request budget, save thei
 | Firefox Add-ons (AMO) | Hosts YouTube downloaders. No remote code; source upload if code is bundled; `data_collection_permissions` for new add-ons; self-distributed add-ons still need signing; Mozilla can block an add-on with no user override | The primary extension channel: unlisted signing in CI, then a listed submission (R.2) | Free |
 | Edge Add-ons | The same written rule as Chrome's, laxer in practice | Submit; acceptance unproven (R.2) | Free |
 | Chrome Web Store | Bans facilitating unauthorized streaming or downloading | Don't submit by default; ship the unpacked zip | USD 5 once, if ever tried |
-| Safari | iOS: App Store only (guideline 5.2.3 names YouTube). macOS: Developer ID extensions outside the App Store since Safari 18.4 | Not supported | USD 99 a year |
+| Safari and iOS | iOS: every channel to other people's devices (App Store, TestFlight, ad hoc, EU marketplaces with notarization) needs the developer program, and guideline 5.2.3 names YouTube; a free Apple ID's Xcode builds expire after 7 days (§1). macOS: Developer ID extensions outside the App Store since Safari 18.4 | Not supported | USD 99 a year |
 | macOS app | Free accounts can't notarize, and Gatekeeper rejects ad-hoc builds. Users go to System Settings > Privacy & Security > Open Anyway; the button lasts about an hour and needs the login password | Ad-hoc DMG plus an install guide | Free, or USD 99 a year to notarize |
 | Windows app | Unsigned installers get SmartScreen's "Run anyway", and Smart App Control blocks unsigned apps with no per-app override. Free signing through SignPath Foundation or OSSign, both discretionary. The Microsoft Store re-signs only MSIX, and Tauri emits MSI/NSIS. Azure Artifact Signing excludes individuals outside the US and Canada | Apply to SignPath and OSSign after the first release; otherwise unsigned, with docs | Free; a Certum open-source certificate (about €49–69) as a paid fallback |
 | Linux app | No OS signing. Opus needs GStreamer's base and good plugins; AAC needs gst-libav | AppImage, `.deb`, Flathub | Free |
 | Homebrew | Official casks that fail Gatekeeper are disabled from 2026-09-01 | Only with notarization | — |
 | winget | Validation doesn't require signing | Yes | Free |
 | Android APK | Google Play and the App Store ban such apps. F-Droid lists NewPipe and Spotube with the NonFreeNet anti-feature, and forbids downloading executable code without explicit opt-in consent | GitHub Releases, F-Droid, IzzyOnDroid, Obtainium. F-Droid builds make plugins and the resolver module opt-in and turn off FXM's own update check | Free |
-| Android developer verification | From the 2027 global rollout (§3) | Unregistered for now; revisit before the rollout | USD 25 once, plus ID and proof of address |
+| Android developer verification | From the 2027 global rollout (§3) | Unregistered for now; revisit before the rollout | USD 25 once, plus ID and proof of address; Limited Distribution is free for up to 20 devices |
 
 GitHub Packages isn't needed, because FXM has no server images.
 
 **Costs:** nothing is required. The optional items are:
 
 - Apple notarization (USD 99 a year). Without it, macOS users click "Open Anyway" once.
-- Android developer verification from 2027 (USD 25 once, plus ID).
+- Android developer verification from 2027 (USD 25 once, plus ID). Limited Distribution is free for up to 20 devices, which may cover personal use.
 - The Chrome Web Store (USD 5 once), if ever tried.
 - A Certum open-source certificate for Windows (about €49–69), if SignPath and OSSign decline.
 
