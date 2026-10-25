@@ -5,20 +5,28 @@
  *
  * Each call gets its own lightweight youtubei.js `Innertube`, bound to that call's
  * `ProviderContext` (its `fetch`, signal, language and region). Creating one makes no request:
- * the session data is built locally and then replaced in every request by the adapter, so the
- * locally made parts (a random user agent, a desktop browser's context) never leave the device,
- * and neither does any visitorData that YouTube did not issue.
+ * the session data is built locally and replaced in every request by the adapter. For the
+ * clients of the config, which every provider call uses, the request carries only FXM's client
+ * fields, so youtubei.js's locally made parts (a random user agent, a desktop browser's context)
+ * never leave the device, and neither does any visitorData that YouTube did not issue.
+ *
+ * youtubei.js is loaded on the first call that needs it, so it stays out of an app's first
+ * bundle: a bundler puts it in a chunk of its own.
  *
  * @module
  */
 
 import { FxmError, isFxmError, type ProviderContext } from '@fxm/core'
-import { Innertube } from 'youtubei.js'
+import type { Innertube } from 'youtubei.js'
 import { BUNDLED_YOUTUBE_CONFIG, type YouTubeClientConfig, type YouTubeConfig } from './config'
-import { isAbort } from './errors'
 import { asRecord, type JsonRecord } from './json'
 import { createInnerTubeFetch, type InnerTubeEndpoint, type Locale } from './request'
-import { VisitorData, type VisitorDataStore } from './visitor'
+import {
+  VisitorData,
+  type VisitorDataStore,
+  type VisitorLease,
+  type YouTubeVisitorData,
+} from './visitor'
 
 /** Options for {@link createYouTubeSession}. */
 export interface YouTubeSessionOptions {
@@ -30,8 +38,18 @@ export interface YouTubeSessionOptions {
   timeoutMs?: number
 }
 
-/** The clients a call can use: YouTube Music, or plain YouTube's web client. */
-export type YouTubeClientId = keyof YouTubeConfig['clients']
+/**
+ * Options for every provider factory (`createYouTubeProviders`, `createYouTubeMusicProvider` and
+ * `createYouTubeVideoProvider`): either the device's session, to share one visitorData between
+ * providers, or the options to create a session with. Not both, since a session's options are
+ * fixed when it is created.
+ */
+export type YouTubeProviderOptions =
+  | { readonly session: YouTubeSession }
+  | (YouTubeSessionOptions & { readonly session?: undefined })
+
+/** The clients a call can use: YouTube Music (`WEB_REMIX`), or plain YouTube's web client (`WEB`). */
+export type YouTubeClientId = 'music' | 'web'
 
 /** youtubei.js's names for the clients, which pick the payload extras it adds. */
 const YOUTUBEI_CLIENT: Readonly<Record<YouTubeClientId, string>> = {
@@ -49,8 +67,8 @@ const UNUSED_VISITOR_DATA = 'fxm-replaced-by-the-adapter'
 export interface YouTubeSession {
   /** The config in use. */
   readonly config: YouTubeConfig
-  /** The device's visitorData. */
-  readonly visitorData: VisitorData
+  /** The device's visitorData: the one in use, and a way to drop it. */
+  readonly visitorData: YouTubeVisitorData
   /**
    * Calls an InnerTube endpoint as `client` and returns the JSON response.
    *
@@ -65,11 +83,41 @@ export interface YouTubeSession {
   ): Promise<JsonRecord>
   /**
    * A youtubei.js `Innertube` whose requests take the CORS-simple shape and go through
-   * `ctx.fetch`, for code that needs more of youtubei.js, such as the stream resolver of stage
-   * 1.4. Bound to `ctx`: create one per call. `client` sets the name, version and host of every
-   * request; leave it out to keep the client fields youtubei.js writes.
+   * `ctx.fetch`, for code that needs more of youtubei.js. Bound to `ctx`: create one per call.
+   *
+   * `client` sets the name, version and host of every request, and then `context.client` holds
+   * only those fields, `hl`, `gl` and the visitorData. Without `client`, a request keeps the
+   * client fields youtubei.js writes for the client it asks for (with `YTMUSIC` or `WEB`, the
+   * config's version and host), minus its session fields: for any other client that means
+   * youtubei.js's random user agent and operating system fields go out with the request.
+   *
+   * A bot check rejects with `BotCheck` and drops the visitorData; an age gate or a private
+   * video (`LOGIN_REQUIRED` with its reason) comes back as YouTube's answer, for the caller to
+   * read.
    */
   innertube(ctx: ProviderContext, client?: YouTubeClientConfig): Promise<Innertube>
+}
+
+/** The visitorData behind each session that {@link createYouTubeSession} made. */
+const VISITOR_DATA = new WeakMap<YouTubeSession, VisitorData>()
+
+/**
+ * A lease on the session's visitorData, for code of this module that sends InnerTube requests
+ * itself rather than through `call` or `innertube`, such as the stream resolver. End every lease
+ * in a `finally` (see `VisitorLease`). After a bot check, call `session.visitorData.invalidate()`
+ * once, so the next lease asks YouTube for a fresh one.
+ *
+ * @throws FxmError `Unsupported` for a session that `createYouTubeSession` did not make.
+ */
+export async function leaseVisitorData(
+  session: YouTubeSession,
+  ctx: ProviderContext,
+): Promise<VisitorLease> {
+  const visitorData = VISITOR_DATA.get(session)
+  if (visitorData === undefined) {
+    throw new FxmError('Unsupported', 'This YouTube session was not made by createYouTubeSession')
+  }
+  return visitorData.lease(ctx)
 }
 
 /**
@@ -123,6 +171,21 @@ export function localeOf(ctx: ProviderContext): Locale {
   return { hl: innerTubeLanguage(ctx.locale), ...(gl === undefined ? {} : { gl }) }
 }
 
+/** youtubei.js, once a call has loaded it. */
+let youtubei: Promise<{ readonly Innertube: typeof Innertube }> | undefined
+
+/**
+ * Loads youtubei.js on first use. A failed load, e.g. a chunk the network lost, is a `Network`
+ * error, and the next call tries again.
+ */
+function loadYoutubei(): Promise<{ readonly Innertube: typeof Innertube }> {
+  youtubei ??= import('youtubei.js').catch((error: unknown) => {
+    youtubei = undefined
+    throw new FxmError('Network', 'Could not load youtubei.js', { cause: error })
+  })
+  return youtubei
+}
+
 /**
  * Creates a device's YouTube session. Share one between the `ytm` and `yt` providers so that
  * they use one visitorData.
@@ -139,6 +202,7 @@ export function createYouTubeSession(options: YouTubeSessionOptions = {}): YouTu
   async function innertube(ctx: ProviderContext, client?: YouTubeClientConfig): Promise<Innertube> {
     assertYouTubeReachable(ctx)
     const locale = localeOf(ctx)
+    const { Innertube } = await loadYoutubei()
     return Innertube.create({
       fetch: createInnerTubeFetch(ctx, {
         config,
@@ -157,7 +221,7 @@ export function createYouTubeSession(options: YouTubeSessionOptions = {}): YouTu
     })
   }
 
-  return {
+  const session: YouTubeSession = {
     config,
     visitorData,
     innertube,
@@ -174,11 +238,13 @@ export function createYouTubeSession(options: YouTubeSessionOptions = {}): YouTu
         }
         return json
       } catch (error) {
-        if (isFxmError(error) || isAbort(error, ctx.signal)) throw error
+        if (isFxmError(error) || ctx.signal?.aborted) throw error
         throw new FxmError('Parse', `youtubei.js could not make the ${endpoint} call`, {
           cause: error,
         })
       }
     },
   }
+  VISITOR_DATA.set(session, visitorData)
+  return session
 }

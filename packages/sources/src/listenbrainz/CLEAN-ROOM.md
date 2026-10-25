@@ -1,0 +1,16 @@
+# ListenBrainz clean-room log
+
+Every fact FXM's ListenBrainz code relies on, with its source and the date it was seen, as the [clean-room rule](../../../../docs/LEGAL.md#clean-room-rule) requires. ListenBrainz documents its labs API on the API's own pages; add a fact here before code relies on it.
+
+All checks ran from one residential connection in India on 2026-10-26 (IST; the evening of 2026-10-25 UTC), with the FXM web app's address as `Origin`; the labs API answers any origin alike.
+
+| Fact | Source | Date |
+|---|---|---|
+| The labs API (`labs.api.listenbrainz.org`, "MetaBrainz Dataset Hoster") lists its data sets on its home page, among them `acr-lookup` (MusicBrainz Artist Credit Recording lookup), `acrr-lookup`, `recording-search`, `similar-recordings` and `similar-artists`, each with a web form and a "JSON version" | <https://labs.api.listenbrainz.org/> | 2026-10-26 |
+| `acr-lookup` takes `artist_credit_name` and `recording_name`, and "performs a semi-exact string match on Artist Credit and Recording. The given parameters will have non-word characters removed, unaccented and lower cased". JSON at `/acr-lookup/json` with the same parameters | <https://labs.api.listenbrainz.org/acr-lookup> | 2026-10-26 |
+| `GET /acr-lookup/json?artist_credit_name=Radiohead&recording_name=Creep` answers `200` with `[{"index", "artist_credit_arg", "recording_arg", "artist_credit_name", "release_name", "recording_name", "artist_credit_id", "artist_mbids", "release_mbid", "recording_mbid"}]`: Radiohead `a74b1b7f-…`, release "Pablo Honey" `07aab296-…`. A lookup that finds nothing answers `200 []` | Own requests; `fixtures/acr-lookup-radiohead-creep.json` | 2026-10-26 |
+| `similar-artists` takes `artist_mbids` and an `algorithm`; the form offers six, among them `session_based_days_7500_session_300_contribution_5_threshold_10_limit_100_filter_True_skip_30`, FXM's default. JSON at `/similar-artists/json` | <https://labs.api.listenbrainz.org/similar-artists> | 2026-10-26 |
+| `GET /similar-artists/json?artist_mbids=<Radiohead>&algorithm=<above>` answers `200` with 100 entries `{"artist_mbid", "name", "comment", "type", "gender", "score", "reference_mbid"}`, sorted by `score` (a count; 11,156 at the top), without the artist itself. An unknown MBID answers `200 []` | Own requests; `fixtures/similar-artists-radiohead.json` (the first 25) | 2026-10-26 |
+| Labs answers send `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Methods: POST, OPTIONS, GET, HEAD`, `Access-Control-Allow-Headers: CONTENT-TYPE` and `Access-Control-Max-Age: 21600`, and no rate-limit headers | Own requests; `live.test.ts` checks the CORS header again | 2026-10-26 |
+| The main API's metadata lookup, `GET https://api.listenbrainz.org/1/metadata/lookup/?artist_name=Radiohead&recording_name=Creep`, answers `401 {"code":401,"error":"You need to provide an Authorization header."}`, so FXM does not use it. That answer carries `X-RateLimit-Limit: 30`, `X-RateLimit-Remaining` and `X-RateLimit-Reset-In` (seconds); FXM reads `X-RateLimit-Reset-In` on a 429 from the labs host too, as a fallback for `Retry-After` | Own request | 2026-10-26 |
+| LB Radio returns 401 without a user token | The research memo, [docs/research/2026-10-25-userside-memo.md](../../../../docs/research/2026-10-25-userside-memo.md) §7.2 | 2026-10-25 |

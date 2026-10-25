@@ -1,4 +1,6 @@
 include ':app'
+// FXM's native HTTP: the OkHttp client and the FxmHttp Capacitor plugin (stage 6.2).
+include ':fxm-http'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 

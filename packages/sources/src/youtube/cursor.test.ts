@@ -9,6 +9,8 @@ describe('cursors', () => {
     expect(decodeCursor(encodeCursor(playlist), 'playlist')).toEqual(playlist)
     const radio = { k: 'radio', s: 'track:zFYEYRcjK2g', c: 'token', seen: 'zFYEYRcjK2g' } as const
     expect(decodeCursor(encodeCursor(radio), 'radio')).toEqual(radio)
+    const firstPage = { k: 'radio', s: 'artist:UCr_iyUANcn9OX_yy9piYoLw', seen: '' } as const
+    expect(decodeCursor(encodeCursor(firstPage), 'radio')).toEqual(firstPage)
     expect(encodeCursor(search)).toMatch(/^[A-Za-z0-9_-]+$/)
   })
 
@@ -24,7 +26,8 @@ describe('cursors', () => {
       [encoded({ k: 'playlist', p: 'bad id!' }), 'playlist'],
       [encoded({ k: 'radio', s: 'track:zFYEYRcjK2g', c: 'c', seen: 'short' }), 'radio'],
       [encoded({ k: 'radio', s: 'video:x', c: 'c', seen: '' }), 'radio'],
-      [encoded({ k: 'radio', s: 'track:zFYEYRcjK2g', seen: '' }), 'radio'],
+      [encoded({ k: 'radio', s: 'track:zFYEYRcjK2g', c: '', seen: '' }), 'radio'],
+      [encoded({ k: 'radio', s: 'track:zFYEYRcjK2g', c: 7, seen: '' }), 'radio'],
       [encoded({ k: 'playlist', p: 'PL1' }), 'search'],
       [encoded({ k: 'other' }), 'search'],
       ['a'.repeat(9000), 'search'],

@@ -1,4 +1,4 @@
-import type { StreamOption } from '@fxm/core'
+import { type StreamOption, tierOf } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
 import type { JsonRecord } from '../json'
 import { BUNDLED_STREAM_CONFIG, type StreamRungConfig } from './config'
@@ -51,6 +51,7 @@ describe('stream options from a /player response', () => {
       itag: 251,
       label: 'Opus',
       contentLength: 4_034_850,
+      peakBitrateKbps: 150.2,
     })
     expect(aac).toMatchObject({
       label: 'AAC',
@@ -58,6 +59,7 @@ describe('stream options from a /player response', () => {
       container: 'm4a',
       media: 'audio',
       bitrateKbps: 129.6,
+      peakBitrateKbps: 131.2,
       sampleRateHz: 44_100,
       tier: 'high',
       contentLength: 3_865_089,
@@ -69,7 +71,7 @@ describe('stream options from a /player response', () => {
     ])
   })
 
-  it('takes the tier from the nominal bitrate, so a quiet Opus 251 stays high', () => {
+  it('takes the tier from the nominal (peak) bitrate, so a quiet Opus 251 stays high', () => {
     // The made-for-kids video's Opus 251 averages 111.7 kbps against a nominal 149 kbps.
     const kids = PLAYER_FIXTURES['android-kids'] as Json
     const opus = structuredClone((kids.streamingData as Json).adaptiveFormats as Json[]).find(
@@ -82,7 +84,14 @@ describe('stream options from a /player response', () => {
     ).url
     const found = options(withFormats(() => [{ ...opus, url }]))
     expect(found).toHaveLength(1)
-    expect(found[0]).toMatchObject({ itag: 251, bitrateKbps: 111.7, tier: 'high' })
+    expect(found[0]).toMatchObject({
+      itag: 251,
+      bitrateKbps: 111.7,
+      peakBitrateKbps: 149,
+      tier: 'high',
+    })
+    // `tierOf` of the average alone would say `normal`: the tier is read from the option.
+    expect(tierOf({ codec: 'opus', bitrateKbps: 111.7 })).toBe('normal')
   })
 
   it("reports itag 18 as a muxed video whose AAC track's bitrate comes from the config", () => {
@@ -103,6 +112,8 @@ describe('stream options from a /player response', () => {
       expiresAt: 1_792_979_495_000,
     })
     expect(muxed?.contentLength).toBeUndefined()
+    // The file's `bitrate` covers the picture too, so it says nothing about the audio.
+    expect(muxed?.peakBitrateKbps).toBeUndefined()
     const unknown = { ...BUNDLED_STREAM_CONFIG, muxedAudioKbps: {} }
     const [plain] = streamOptionsOf(
       PLAYER_FIXTURES['android-song'] as JsonRecord,

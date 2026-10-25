@@ -7,7 +7,7 @@
  * @module
  */
 
-import { FxmError } from '@fxm/core'
+import { TransportError } from './errors'
 import { findHostRule, INNERTUBE_API_PREFIX, parseUrl } from './hosts'
 
 /** The `Content-Type` of the simple shape: what `fetch` sends for a string body anyway. */
@@ -57,10 +57,10 @@ export interface SimpleInnerTubeRequest {
  *
  * `input` may be a URL string, a `URL` or a `Request`; as with `fetch`, `init.headers` replace
  * the request's headers and `init.body` its body. A payload that needs no change is sent as it
- * came, byte for byte. Rejects with an `Unsupported` `FxmError` when the URL is not an InnerTube
- * API URL (`/youtubei/v1/…` on `www.youtube.com`, `music.youtube.com` or
- * `youtubei.googleapis.com`), or when the body is not a JSON object, e.g. protobuf, which needs
- * a `Content-Type` that is not CORS-safelisted.
+ * came, byte for byte. Rejects with a `TransportError` (`bad-request`, an `Unsupported`
+ * `FxmError`) when the URL is not an InnerTube API URL (`/youtubei/v1/…` on `www.youtube.com`,
+ * `music.youtube.com` or `youtubei.googleapis.com`), or when the body is not a JSON object, e.g.
+ * protobuf, which needs a `Content-Type` that is not CORS-safelisted.
  */
 export async function toSimpleInnerTubeRequest(
   input: RequestInfo | URL,
@@ -72,7 +72,10 @@ export async function toSimpleInnerTubeRequest(
     findHostRule(url)?.hostClass !== 'innertube' ||
     !url.pathname.startsWith(INNERTUBE_API_PREFIX)
   ) {
-    throw new FxmError('Unsupported', `Not an InnerTube API URL: ${url.origin}${url.pathname}`)
+    throw new TransportError(
+      'bad-request',
+      `Not an InnerTube API URL: ${url.origin}${url.pathname}`,
+    )
   }
   url.hash = ''
   url.searchParams.set('prettyPrint', 'false')
@@ -110,9 +113,9 @@ export function requestUrl(input: RequestInfo | URL): string {
   return isRequestLike(input) ? input.url : String(input)
 }
 
-function noJsonBody(cause?: unknown): FxmError {
-  return new FxmError(
-    'Unsupported',
+function noJsonBody(cause?: unknown): TransportError {
+  return new TransportError(
+    'bad-request',
     'InnerTube requests must carry a JSON object as their body',
     cause === undefined ? {} : { cause },
   )
@@ -158,7 +161,10 @@ function withClientFields(text: string, headers: Headers): string {
   const context = payload.context ?? {}
   const client = isPlainObject(context) ? (context.client ?? {}) : undefined
   if (!isPlainObject(context) || !isPlainObject(client)) {
-    throw new FxmError('Unsupported', 'InnerTube payloads keep their client in context.client')
+    throw new TransportError(
+      'bad-request',
+      'InnerTube payloads keep their client in context.client',
+    )
   }
   let changed = false
   for (const [field, value] of moves) {

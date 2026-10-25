@@ -5,5 +5,5 @@
     "types": ["node"],
     "allowImportingTsExtensions": true
   },
-  "include": ["scripts", "e2e", "*.config.ts"]
+  "include": ["scripts", "store", "e2e", "*.config.ts"]
 }

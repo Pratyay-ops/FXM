@@ -24,8 +24,9 @@ export const UNAVAILABLE_STATES = ['age-restricted', 'made-for-kids', 'live', 'p
  * - `age-restricted`: YouTube wants a signed-in adult (`LOGIN_REQUIRED` with an age gate)
  * - `made-for-kids`: VISIONOS answers videos made for kids with `UNPLAYABLE`, "This video is not
  *   available"; the ANDROID client's itag 18 plays them (measured 2026-10-26)
- * - `live`: a live stream, a scheduled one that has not started, or a past one whose recording
- *   is not available: there is no fixed file to play
+ * - `live`: a live stream, a scheduled one that has not started, one that has just ended and
+ *   still plays from the live DVR, or a past one whose recording is not available: there is no
+ *   fixed file to play
  * - `premiere`: a premiere that has not started yet, or is airing as a live stream
  */
 export type UnavailableState = (typeof UNAVAILABLE_STATES)[number]
@@ -64,6 +65,9 @@ const PRIVATE_REASON = /\bprivate\b/iu
 
 /** A region restriction's reason. */
 const GEO_REASON = /\b(?:country|countries|region)\b/iu
+
+/** A past live stream's reason when its recording is not available. */
+const RECORDING_REASON = /\brecording\b/iu
 
 /** A text in YouTube's `simpleText` or `runs` form. */
 function textOf(value: unknown): string | undefined {
@@ -138,28 +142,42 @@ export function classifyPlayability(json: unknown, videoId: string): Playability
   }
   const botCheck = botCheckIn(json)
   if (botCheck !== undefined) return { kind: 'bot-check', reason: botCheck }
+  // Live now or scheduled: there is no fixed file, whatever else the answer says.
   if (
     details?.isUpcoming === true ||
     details?.isLive === true ||
-    details?.isPostLiveDvr === true ||
     status === 'LIVE_STREAM_OFFLINE'
   ) {
     return unavailable(premiereOrLive(json, details, reason))
   }
   if (status === 'OK') {
-    return answered === undefined ? { kind: 'mismatch', videoId: undefined } : { kind: 'ok' }
+    if (answered === undefined) return { kind: 'mismatch', videoId: undefined }
+    // A stream that has just ended, while YouTube still serves it from the live DVR.
+    return details?.isPostLiveDvr === true
+      ? unavailable(premiereOrLive(json, details, reason))
+      : { kind: 'ok' }
   }
   if (status === 'ERROR') return { kind: 'gone', status, reason }
-  if (status === 'UNPLAYABLE' && details?.isLiveContent === true) return unavailable('live')
+  // The video's own reasons come before the live-content fallback: a recording of a past stream
+  // may be blocked in the region, or made for kids, which itag 18 can play.
+  if (GEO_REASON.test(`${reason} ${subreason}`)) return { kind: 'geo-blocked', status, reason }
   if (status === 'UNPLAYABLE' && answered !== undefined && KIDS_REASON.test(reason)) {
     return unavailable('made-for-kids')
   }
-  if (GEO_REASON.test(`${reason} ${subreason}`)) return { kind: 'geo-blocked', status, reason }
+  if (
+    status === 'UNPLAYABLE' &&
+    (details?.isPostLiveDvr === true ||
+      (details?.isLiveContent === true && RECORDING_REASON.test(reason)))
+  ) {
+    return unavailable('live')
+  }
   return { kind: 'unplayable', status, reason }
 }
 
 /** Details of a {@link YouTubeUnplayableError}. */
 export interface UnplayableDetails {
+  /** The video that cannot play. */
+  readonly videoId: string
   /** The labelled state, when there is one. */
   readonly state?: UnavailableState
   /** YouTube's playability status, e.g. `UNPLAYABLE`, `ERROR` or `LOGIN_REQUIRED`. */
@@ -169,13 +187,49 @@ export interface UnplayableDetails {
 }
 
 /**
+ * A verdict on one video, in the shape of the playback policy's `PlayabilityVerdict` (stage
+ * 2.3, `@fxm/core`), which reads it from an error's `cause` with `playabilityVerdictOf`: the
+ * only signal Smart Replace acts on. YouTube's statuses map to its two: `ERROR` (the video
+ * does not exist, or no longer does) stays `ERROR`, and every other one (`UNPLAYABLE`,
+ * `LOGIN_REQUIRED` for an age gate or a private video, `OK` or `LIVE_STREAM_OFFLINE` for a live
+ * stream) is `UNPLAYABLE`: the video exists but cannot play here.
+ */
+export interface YouTubePlayabilityVerdict {
+  /** Always `playability`. */
+  readonly type: 'playability'
+  /** Always `ytm`, the source of every YouTube audio candidate. */
+  readonly source: 'ytm'
+  /** The videoId. */
+  readonly ref: string
+  /** The verdict. */
+  readonly status: 'UNPLAYABLE' | 'ERROR'
+  /** YouTube's reason, for logs, when it gave one. */
+  readonly reason?: string
+}
+
+/** The verdict a {@link YouTubeUnplayableError} carries as its `cause`. */
+export function verdictOf(details: UnplayableDetails): YouTubePlayabilityVerdict {
+  return {
+    type: 'playability',
+    source: 'ytm',
+    ref: details.videoId,
+    status: details.status === 'ERROR' ? 'ERROR' : 'UNPLAYABLE',
+    ...(details.reason === '' ? {} : { reason: details.reason }),
+  }
+}
+
+/**
  * The error for a video the ladder cannot play because of the video itself, not because of a
- * rung: an `FxmError` whose code is `Unavailable` (a labelled {@link UnavailableState}, or a
- * reason without one), `GeoBlocked` or `NotFound` (removed, private or never there). It carries
- * YouTube's own status, which a playback policy can use to tell a video-level failure (for
- * Smart Replace) from a ladder failure.
+ * rung: an `FxmError` whose code is `NotFound` (YouTube's `ERROR`: removed, or never there),
+ * `GeoBlocked`, or `Unavailable` (a labelled {@link UnavailableState}, a private video, or a
+ * reason without a label). Its `cause` is the {@link YouTubePlayabilityVerdict} that the
+ * playback policy's Smart Replace acts on; `state` is for labels, such as "Age-restricted", and
+ * `status` and `reason` are YouTube's own, for logs. Bot checks, rate limits, network failures
+ * and capped URLs never end in this error: they say nothing about the video.
  */
 export class YouTubeUnplayableError extends FxmError {
+  /** The video that cannot play. */
+  readonly videoId: string
   /** The labelled state, when there is one. */
   readonly state: UnavailableState | undefined
   /** YouTube's playability status. */
@@ -188,7 +242,8 @@ export class YouTubeUnplayableError extends FxmError {
     message: string,
     details: UnplayableDetails,
   ) {
-    super(code, message)
+    super(code, message, { cause: verdictOf(details) })
+    this.videoId = details.videoId
     this.state = details.state
     this.status = details.status
     this.reason = details.reason

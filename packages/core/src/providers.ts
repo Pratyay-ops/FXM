@@ -11,6 +11,7 @@
  */
 
 import type { EntityId, SourceId } from './ids'
+import type { MatchSourceExtras, MatchVerdict } from './matching/types'
 import type { CatalogMode } from './mode'
 import type {
   Album,
@@ -222,6 +223,16 @@ export interface MetadataProvider {
   /** The source this provider reads. */
   readonly id: SourceId
   /**
+   * When the app may call this provider:
+   *
+   * - `any` (also when absent): whenever it needs to, e.g. in a search across all sources
+   * - `explicit`: only for what the user explicitly asked of this source, such as a search with
+   *   this source picked or one of its pages they opened; never in a search across sources, for
+   *   suggestions or in the background. For sources with a small budget that every user shares,
+   *   such as Jamendo (35,000 requests a month for one `client_id`)
+   */
+  readonly requestPolicy?: 'any' | 'explicit'
+  /**
    * Searches the catalog, one page per requested type. Songs go to `tracks` and videos to
    * `videos`, which stays empty in `music` mode (see `SearchType`).
    */
@@ -277,8 +288,13 @@ export interface RecommendationProvider {
   radio(seed: RadioSeed, ctx: ProviderContext): Promise<Track[]>
   /**
    * The same radio one page at a time, for sources whose stations go on, such as YouTube Music's:
-   * the first page without a cursor, then each page's `nextCursor`, with the same seed. A page
-   * never repeats a track of the pages before it. The first page holds what `radio` returns.
+   * the first page without a cursor, then each page's `nextCursor`, with the same seed in the
+   * same catalog mode. Without a `limit`, the first page holds what `radio` returns; with one, a
+   * page holds at most `limit` tracks, and the pages after it go on with the rest.
+   *
+   * A page does not repeat the seed, nor a track that one of the recent pages returned: a cursor
+   * remembers only so many (YouTube Music's the last 200), so a consumer that must never repeat
+   * a track over a long session also de-duplicates with `entityKey`.
    */
   radioPage?(seed: RadioSeed, options: PageOptions, ctx: ProviderContext): Promise<Page<Track>>
   /** A home feed, e.g. Spotify's personal shelves when the user is logged in. */
@@ -358,6 +374,14 @@ export interface AudioCandidate {
    * Providers that do not compute them leave them out, and the matching engine fills them in.
    */
   signals?: MatchSignals
+  /**
+   * The matching engine's verdict, on the candidate it ranked first: the band it reaches with
+   * the user's Auto setting on, why it falls short of `auto`, and the matcher version. Apply the
+   * setting at play time with `effectiveMatchBand`, which also refuses an `auto` from another
+   * matcher version, so a stored candidate follows the setting and the engine as they change.
+   * Absent on alternatives and on candidates no engine ranked: those never play without asking.
+   */
+  verdict?: MatchVerdict
 }
 
 /** How a stream is delivered. `sabr` is YouTube's server-driven streaming protocol. */
@@ -401,7 +425,11 @@ export interface StreamOption {
   bitDepth?: number
   /**
    * Quality tier of the audio, usually from `tierOf`. Only a lossless codec is `lossless`, so
-   * YouTube audio (Opus or AAC) never is.
+   * YouTube audio (Opus or AAC) never is. A source whose formats are encoded to a stated
+   * bitrate may tier variable-bitrate audio by that nominal (peak) bitrate rather than by the
+   * average in `bitrateKbps`: YouTube's Opus 251 is `high` even when a quiet song averages
+   * below 120 kbps (ARCHITECTURE.md §7.3). Read the tier from here rather than computing it
+   * again from `bitrateKbps`.
    */
   tier: QualityTier
   /** How the stream is delivered. */
@@ -418,6 +446,13 @@ export interface StreamOption {
    * to say.
    */
   fullLength: FullLengthCheck
+  /**
+   * Whether the source lets this stream be downloaded and kept: `false` when it forbids that,
+   * e.g. a Jamendo track whose artist turned downloads off (`audiodownload_allowed`), which may
+   * still be streamed. Absent means allowed. Downloads skip an option whose value is `false`, so
+   * drop those before `pickStream(options, 'lossless')`; playback ignores the field.
+   */
+  downloadAllowed?: boolean
   /** Headers the request must send, e.g. a `Referer`. */
   requestHeaders?: Record<string, string>
   /**
@@ -441,8 +476,12 @@ export interface AudioSource {
    * playable in `ctx.mode` as it is (`isPlayable(candidate, ctx.mode)`, or `filterPlayable` on
    * the list): in Music mode a music-video track is matched to its song (the linked one when
    * `songForVideo` names it), and the video itself is never returned as a candidate.
+   *
+   * The track may carry what the matching engine reads beyond a `Track` (`MatchSourceExtras`:
+   * the release's label and type, and where its ISRC came from), so the caller passes along what
+   * an import or Spotify knows. A plain track fits too.
    */
-  match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
+  match(track: Track & MatchSourceExtras, ctx: ProviderContext): Promise<AudioCandidate[]>
   /**
    * Every stream option found for a candidate, best first as `compareStreams` orders them. It
    * never drops an option because of `prefs`: the same list serves playback, which applies the

@@ -1,7 +1,7 @@
 /**
  * Live checks of the stream ladder from Node, in the CORS-simple request shape: seven requests
  * to YouTube (one `sw.js_data` read, five `/player` calls and the first call of a Lite-style
- * session) and nine ranged GETs to googlevideo. They run only with `FXM_LIVE=1`, from a
+ * session) and six ranged GETs to googlevideo. They run only with `FXM_LIVE=1`, from a
  * residential connection (datacenter IPs get bot checks):
  *
  * ```sh
@@ -61,8 +61,14 @@ describe.skipIf(!live)('YouTube streams, live', { timeout: 120_000 }, () => {
       expect.arrayContaining([251, 140, 250, 249, 139]),
     )
     expect(options.every((option) => option.rung === 'visionos')).toBe(true)
-    expect(options.every((option) => option.fullLength === 'verified')).toBe(true)
-    expect(options[0]).toMatchObject({ itag: 251, codec: 'opus', tier: 'high', ipBound: true })
+    // The best Opus and the best AAC are probed; caps belong to a client, not a format.
+    const verified = options.filter((option) => option.fullLength === 'verified')
+    expect(verified.map((option) => option.itag).sort()).toEqual([140, 251])
+    expect(options.find((option) => option.itag === 251)).toMatchObject({
+      codec: 'opus',
+      tier: 'high',
+      ipBound: true,
+    })
     expect(options[0]?.expiresAt).toBeGreaterThan(Date.now() + 5 * 3_600_000)
 
     const calls = sent.splice(0)
@@ -75,7 +81,7 @@ describe.skipIf(!live)('YouTube streams, live', { timeout: 120_000 }, () => {
       expect(call.credentials).toBe('omit')
     }
     const probes = calls.filter((call) => call.url.hostname.endsWith('.googlevideo.com'))
-    expect(probes).toHaveLength(5)
+    expect(probes).toHaveLength(2)
     for (const probe of probes) {
       // A single range with a start is CORS-safelisted (Fetch standard), so no preflight.
       expect([...probe.headers.keys()]).toEqual(['range'])

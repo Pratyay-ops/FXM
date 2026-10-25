@@ -1,8 +1,8 @@
 /**
  * Records the fixtures in this folder from the live InnerTube, through the providers themselves,
  * so that every fixture answers exactly the request a provider sends. It runs only with both
- * `FXM_LIVE=1` and `FXM_RECORD=1`, makes 27 requests, and overwrites the fixtures when Vitest
- * updates snapshots:
+ * `FXM_LIVE=1` and `FXM_RECORD=1`, makes 29 requests, and overwrites the fixtures when Vitest
+ * updates snapshots (`-t <test name>` records one group only):
  *
  * ```sh
  * FXM_LIVE=1 FXM_RECORD=1 scripts/run.sh pnpm vitest run packages/sources/src/youtube/fixtures/record -u
@@ -67,6 +67,8 @@ describe.skipIf(!recording)('recording the YouTube fixtures', { timeout: 120_000
       capture.endpoint === endpoint &&
       Object.entries(fields).every(([key, value]) => capture.body[key] === value)
   const config = music.session.config
+  const clientName = (capture: Capture): unknown =>
+    (capture.body.context as { client?: { clientName?: unknown } } | undefined)?.client?.clientName
 
   it('records searches', async () => {
     const songs = await music.search('Radiohead Creep', { types: ['track'] }, all)
@@ -147,6 +149,25 @@ describe.skipIf(!recording)('recording the YouTube fixtures', { timeout: 120_000
       'radio-artist',
       (capture) =>
         capture.endpoint === 'next' && String(capture.body.playlistId).startsWith('RDEM'),
+    )
+  })
+
+  it('records the top result of an unfiltered search and a video description', async () => {
+    await music.topResult('Radiohead Creep', all)
+    await save(
+      'search-top',
+      (capture) =>
+        capture.endpoint === 'search' &&
+        capture.body.query === 'Radiohead Creep' &&
+        capture.body.params === undefined,
+    )
+    await music.getDescription(formatId('ytm', 'track', 'zFYEYRcjK2g'), all)
+    await save(
+      'next-web-creep',
+      (capture) =>
+        capture.endpoint === 'next' &&
+        capture.body.videoId === 'zFYEYRcjK2g' &&
+        clientName(capture) === config.clients.web.name,
     )
   })
 

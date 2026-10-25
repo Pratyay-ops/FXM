@@ -125,14 +125,40 @@ function isAudio(format: unknown): boolean {
   return String(asObject(format)?.mimeType).startsWith('audio/')
 }
 
-/** The offline slate of an upcoming stream: its start time and texts, without images. */
+/**
+ * A format's MIME type and codecs (`audio/webm; codecs="opus"`), which name the format, never
+ * the recording machine.
+ */
+const MIME_TYPE = /^(?:audio|video)\/[\w.+-]+(?:; codecs="[\w.+, -]+")?$/u
+
+/**
+ * Puts each format's recorded MIME type back after `sanitizeResponse`, whose IPv4 pattern reads
+ * a VP9 codec string (`vp09.00.40.08`) as an address. Only a value of the {@link MIME_TYPE} form
+ * is put back; anything else stays scrubbed.
+ */
+function keepMimeTypes(clean: unknown, recorded: unknown): void {
+  if (!Array.isArray(clean) || !Array.isArray(recorded)) return
+  for (const [index, format] of clean.entries()) {
+    const target = asObject(format)
+    const mimeType = asObject(recorded[index])?.mimeType
+    if (target !== undefined && typeof mimeType === 'string' && MIME_TYPE.test(mimeType)) {
+      target.mimeType = mimeType
+    }
+  }
+}
+
+/**
+ * The offline slate of an upcoming stream: its start time and main text ("Live in 3 days"),
+ * which tells a premiere from a stream. Its images go, and so does its subtitle, which gives the
+ * start in the time zone of the recording machine's IP address ("October 29 at 6:45 AM
+ * GMT-4"), which names a place.
+ */
 function sanitizeLiveStreamability(value: unknown): Json | undefined {
   const renderer = asObject(asObject(value)?.liveStreamabilityRenderer)
   if (renderer === undefined) return undefined
   const slate = pick(asObject(asObject(renderer.offlineSlate)?.liveStreamOfflineSlateRenderer), [
     'scheduledStartTime',
     'mainText',
-    'subtitleText',
   ])
   return {
     liveStreamabilityRenderer: {
@@ -144,7 +170,7 @@ function sanitizeLiveStreamability(value: unknown): Json | undefined {
 
 /**
  * A sanitized copy of a recorded `/player` response: the fields the resolver reads, with every
- * stream URL scrubbed, then `sanitizeResponse` for the rest.
+ * stream URL scrubbed, then `sanitizeResponse` for the rest, keeping the formats' MIME types.
  */
 export function sanitizePlayerResponse(json: unknown): unknown {
   const response = asObject(json) ?? {}
@@ -172,7 +198,7 @@ export function sanitizePlayerResponse(json: unknown): unknown {
     }
   }
   const videoDetails = pick(response.videoDetails, VIDEO_KEYS)
-  return sanitizeResponse({
+  const clean = sanitizeResponse({
     ...(response.responseContext === undefined
       ? {}
       : { responseContext: response.responseContext }),
@@ -180,4 +206,8 @@ export function sanitizePlayerResponse(json: unknown): unknown {
     ...(streamingData === undefined ? {} : { streamingData }),
     ...(videoDetails === undefined ? {} : { videoDetails }),
   })
+  const cleanStreaming = asObject(asObject(clean)?.streamingData)
+  keepMimeTypes(cleanStreaming?.formats, streamingData?.formats)
+  keepMimeTypes(cleanStreaming?.adaptiveFormats, streamingData?.adaptiveFormats)
+  return clean
 }
