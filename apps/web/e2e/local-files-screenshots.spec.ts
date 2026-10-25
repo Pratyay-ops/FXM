@@ -2,8 +2,9 @@ import { expect, type Page, test } from '@playwright/test'
 import { fillMusicFolder, songs, stubFolderPicker } from './local-files-fixture'
 
 // Visual check, not a test, like screenshots.spec.ts: `pnpm --filter @fxm/web screenshots` saves
-// the Local files tab (empty, then with songs, one playing) and "On this device" in search, at
-// three widths in both themes, to apps/web/screenshots/local-files-*.png (gitignored).
+// the Local files tab (empty, then with songs, one playing, then a folder that needs access
+// again) and "On this device" in search, at three widths in both themes, to
+// apps/web/screenshots/local-files-*.png (gitignored).
 test.skip(!process.env.FXM_SCREENSHOTS, 'Set FXM_SCREENSHOTS=1 (pnpm screenshots) to capture')
 test.describe.configure({ timeout: 120_000 })
 
@@ -41,5 +42,14 @@ for (const theme of ['dark', 'light'] as const) {
     await page.goto('search?q=drive')
     await expect(page.getByRole('heading', { name: 'On this device' })).toBeVisible()
     await captureWidths(page, `${theme}-search`)
+
+    // A later visit in which the browser wants to ask before FXM reads the folder again.
+    await page.addInitScript(() => {
+      const handle = (globalThis as { FileSystemHandle?: { prototype: object } }).FileSystemHandle
+      if (handle) Object.assign(handle.prototype, { queryPermission: async () => 'prompt' })
+    })
+    await page.goto('library?tab=local')
+    await expect(page.getByRole('button', { name: 'Allow access: Music' })).toBeVisible()
+    await captureWidths(page, `${theme}-needs-access`)
   })
 }

@@ -62,7 +62,7 @@ test('plays files chosen through the file input', async ({ page }) => {
       })),
     )
   await expect(songs(page).getByRole('listitem')).toHaveCount(3)
-  await expect(page.getByText('3 songs · until FXM reloads')).toBeVisible()
+  await expect(page.getByText('3 songs · until FXM reloads', { exact: true })).toBeVisible()
   await playAndCheck(page, 'Slow Tide')
 })
 
@@ -75,11 +75,59 @@ test('shows local files in search', async ({ page }) => {
   await expect(local.getByRole('button', { name: 'Pause Slow Tide' })).toBeVisible()
 })
 
+async function horizontalOverflow(page: Page) {
+  return page.evaluate(
+    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+  )
+}
+
 test('fits a phone screen', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 })
   await addTheFolder(page)
-  const overflow = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  )
-  expect(overflow).toBe(0)
+  expect(await horizontalOverflow(page)).toBe(0)
+})
+
+for (const viewport of [
+  { width: 320, height: 720 },
+  { width: 375, height: 667 },
+]) {
+  test(`shows songs on the first screen of a ${viewport.width} × ${viewport.height} phone`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport)
+    await addTheFolder(page)
+    await page.reload()
+    await expect(songs(page).getByRole('listitem')).toHaveCount(3)
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const firstSong = await songs(page).getByRole('listitem').first().boundingBox()
+    // The mini player's card, above the tab bar.
+    const player = await page.getByRole('region', { name: 'Player' }).locator('> div').boundingBox()
+    expect(firstSong).not.toBeNull()
+    expect(player).not.toBeNull()
+    expect((firstSong?.y ?? 0) + (firstSong?.height ?? 0)).toBeLessThanOrEqual(player?.y ?? 0)
+    // The selected tab is scrolled into its row.
+    const tab = await page.getByRole('tab', { name: 'Local files' }).boundingBox()
+    expect(tab?.x ?? -1).toBeGreaterThanOrEqual(0)
+    expect((tab?.x ?? 0) + (tab?.width ?? 0)).toBeLessThanOrEqual(viewport.width)
+    expect(await horizontalOverflow(page)).toBe(0)
+  })
+}
+
+test('keeps room for what a folder needs on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 })
+  await addTheFolder(page)
+  // A later visit in which the browser wants to ask before FXM reads the folder again.
+  await page.addInitScript(() => {
+    const handle = (globalThis as { FileSystemHandle?: { prototype: object } }).FileSystemHandle
+    if (handle) Object.assign(handle.prototype, { queryPermission: async () => 'prompt' })
+  })
+  await page.reload()
+  const status = page.getByText('FXM needs your permission to read this folder again')
+  await expect(status).toBeVisible()
+  expect((await status.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(200)
+  const allow = page.getByRole('button', { name: 'Allow access: Music' })
+  await expect(allow).toBeVisible()
+  // The button sits under the text, not beside it.
+  expect((await allow.boundingBox())?.y ?? 0).toBeGreaterThan((await status.boundingBox())?.y ?? 0)
+  expect(await horizontalOverflow(page)).toBe(0)
 })
