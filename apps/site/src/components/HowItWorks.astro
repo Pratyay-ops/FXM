@@ -1,10 +1,15 @@
 ---
+import { AVAILABLE } from '../config'
 import Icon from './Icon.astro'
 import Logo from './Logo.astro'
 
+const saved = AVAILABLE.downloads
+  ? 'Your library, history, settings and downloads are saved in your browser or in the app.'
+  : 'Your library, history and settings are saved in your browser or in the app.'
+
 const services = [
   'YouTube Music',
-  'Spotify, if on',
+  'Spotify (optional)',
   'Last.fm',
   'ListenBrainz',
   'LRCLIB',
@@ -46,8 +51,9 @@ const services = [
             <p>
               When you search or press play, FXM asks YouTube Music, Internet Archive, Jamendo and
               the other services directly from your device. Some of them, like YouTube Music, don't
-              answer other websites, so in a browser the FXM Connect extension makes those requests
-              for the web app. The desktop and Android apps don't need it.
+              answer other websites. In a browser, the FXM Connect extension lets the web app reach
+              them: it only adjusts a few headers on FXM's own requests and contains no
+              music-service code. The desktop and Android apps don't need it.
             </p>
           </div>
         </li>
@@ -55,10 +61,7 @@ const services = [
           <span class="num">3</span>
           <div>
             <h3>Your music stays with you</h3>
-            <p>
-              Your library, history, settings and downloads are saved in your browser or in the app.
-              There's nothing to sign up for and nothing for FXM to collect.
-            </p>
+            <p>{saved} There's nothing to sign up for and nothing for FXM to collect.</p>
           </div>
         </li>
       </ol>
@@ -66,7 +69,7 @@ const services = [
       <div
         class="diagram"
         role="img"
-        aria-label="Diagram: FXM runs on your device and talks directly to music services: YouTube Music, Spotify if you turn it on, Last.fm, ListenBrainz, LRCLIB, MusicBrainz, Internet Archive and Jamendo. Your library, history and downloads stay on your device. There are no FXM servers in between."
+        aria-label="Diagram: FXM runs on your device and talks directly to music services: YouTube Music, Spotify unless you switch it off, Last.fm, ListenBrainz, LRCLIB, MusicBrainz, Internet Archive and Jamendo. Your library and history stay on your device. There are no FXM servers in between."
       >
         <div class="box device">
           <div class="box-label">
@@ -82,7 +85,7 @@ const services = [
           </div>
           <div class="local">
             <Icon name="heart" size={16} />
-            Library, history and downloads stay here
+            Your library and history stay here
           </div>
         </div>
 
@@ -240,7 +243,7 @@ const services = [
   content: "";
   position: absolute;
   top: 0;
-  bottom: 0.4rem;
+  bottom: var(--space-2);
   left: 50%;
   border-left: 2px dashed var(--color-accent);
 }
@@ -249,10 +252,11 @@ const services = [
   content: "";
   position: absolute;
   bottom: 0;
-  left: calc(50% - 0.45rem);
+  left: 50%;
   border-top: 0.55rem solid var(--color-accent);
   border-right: 0.45rem solid transparent;
   border-left: 0.45rem solid transparent;
+  transform: translateX(-50%);
 }
 
 .link span {

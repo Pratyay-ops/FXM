@@ -1,43 +1,53 @@
 ---
+import { AVAILABLE } from '../../config'
 import Icon from '../Icon.astro'
 
-const features = ["Search Spotify's catalog", 'Related artists', 'Song radio']
+// Made-up artists, like every name in the illustrations.
+const related = [
+  { name: 'Mira Sol', art: 'art-4' },
+  { name: 'Kōda', art: 'art-3' },
+  { name: 'Nova Reyes', art: 'art-5' },
+]
+const account = AVAILABLE.spotifyAccount
+const label = [
+  "Illustration of FXM's Spotify settings. The Spotify integration is on, which is the default, and shows related artists from Spotify's catalog.",
+  account
+    ? 'A button connects a Spotify account to sync recommendations, liked songs and playlists.'
+    : 'Connecting a Spotify account to sync recommendations, liked songs and playlists is coming soon.',
+  "A note says that when the integration is off, FXM doesn't contact Spotify.",
+].join(' ')
 ---
 
-<div
-  class="demo"
-  role="img"
-  aria-label="FXM settings with the Spotify integration switched on: Spotify search, related artists and song radio are enabled, and a button connects a Spotify account to sync recommendations, liked songs and playlists."
->
+<div class="demo" role="img" aria-label={label}>
   <div class="label">Settings</div>
   <div class="setting">
     <span class="meta">
       <span class="title">Spotify integration</span>
-      <span class="desc">Use Spotify's catalog in FXM</span>
+      <span class="desc">On by default wherever FXM can reach Spotify</span>
     </span>
     <span class="switch"><span class="knob"></span></span>
   </div>
-  <div class="checks">
-    {features.map((feature) => (
-      <span class="check">
-        <Icon name="check" size={16} />
-        {feature}
-      </span>
-    ))}
+  <div class="related">
+    <div class="label">Related artists, from Spotify</div>
+    <div class="artists">
+      {related.map((artist) => (
+        <span class="artist">
+          <span class:list={['avatar', artist.art]}></span>
+          <span class="name">{artist.name}</span>
+        </span>
+      ))}
+    </div>
   </div>
   <div class="setting account">
     <span class="meta">
       <span class="title">Spotify account</span>
       <span class="desc">Sync recommendations, liked songs and playlists</span>
     </span>
-    <span class="connect">Connect</span>
+    {account ? <span class="pill">Connect</span> : <span class="pill soon">Coming soon</span>}
   </div>
-  <div class="setting off">
-    <span class="meta">
-      <span class="title">Prefer not to?</span>
-      <span class="desc">Switch it off and FXM doesn't contact Spotify.</span>
-    </span>
-    <span class="switch is-off"><span class="knob"></span></span>
+  <div class="note">
+    <Icon name="plug" size={16} />
+    Switch it off and FXM doesn't contact Spotify.
   </div>
 </div>
 
@@ -54,7 +64,7 @@ const features = ["Search Spotify's catalog", 'Related artists', 'Song radio']
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-3) var(--space-4);
   padding: var(--space-3) var(--space-4);
   border-radius: var(--radius-lg);
   background: var(--color-elevated);
@@ -64,6 +74,15 @@ const features = ["Search Spotify's catalog", 'Related artists', 'Song radio']
   display: grid;
   min-width: 0;
   line-height: 1.4;
+}
+
+/* On narrow cards the account button moves under the text instead of squeezing it. */
+.account {
+  flex-wrap: wrap;
+}
+
+.account .meta {
+  flex: 1 1 10rem;
 }
 
 .title {
@@ -76,53 +95,59 @@ const features = ["Search Spotify's catalog", 'Related artists', 'Song radio']
 }
 
 .switch {
-  position: relative;
+  display: flex;
   flex: none;
+  align-items: center;
+  justify-content: flex-end;
   width: 2.75rem;
   height: 1.6rem;
+  padding: var(--space-1);
   border-radius: var(--radius-full);
   background: var(--color-accent);
 }
 
 .knob {
-  position: absolute;
-  top: 0.2rem;
-  right: 0.2rem;
-  width: 1.2rem;
-  height: 1.2rem;
+  width: 1.1rem;
+  height: 1.1rem;
   border-radius: var(--radius-full);
   background: var(--color-on-accent);
 }
 
-.switch.is-off {
-  border: 1px solid var(--color-border-strong);
-  background: transparent;
+.related {
+  display: grid;
+  gap: var(--space-3);
+  padding-top: var(--space-1);
 }
 
-.switch.is-off .knob {
-  top: calc(0.2rem - 1px);
-  right: auto;
-  left: calc(0.2rem - 1px);
-  background: var(--color-text-muted);
+.artists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
 }
 
-.checks {
+.artist {
   display: grid;
   gap: var(--space-2);
-  padding: 0 var(--space-4);
+  justify-items: center;
+  min-width: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
 }
 
-.check {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
+.name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.check svg {
-  color: var(--color-accent);
+.avatar {
+  width: 3rem;
+  height: 3rem;
+  border-radius: var(--radius-full);
 }
 
-.connect {
+.pill {
   flex: none;
   padding: var(--space-1) var(--space-4);
   border: 1px solid var(--color-border-strong);
@@ -131,8 +156,23 @@ const features = ["Search Spotify's catalog", 'Related artists', 'Song radio']
   font-weight: 700;
 }
 
-.off {
+.pill.soon {
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.note {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
   border: 1px dashed var(--color-border-strong);
-  background: transparent;
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.note svg {
+  color: var(--color-accent);
 }
 </style>

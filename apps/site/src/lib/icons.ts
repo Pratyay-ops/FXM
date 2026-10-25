@@ -15,6 +15,8 @@ export const icons = {
   ban: { paths: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z', 'm5.7 5.7 12.6 12.6'] },
   browser: { paths: [frame, 'M3 8.5h18', 'M6.5 6.25h.01', 'M9 6.25h.01'] },
   check: { paths: ['m5 12.5 4.5 4.5L19 7.5'] },
+  circle: { paths: ['M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Z'] },
+  close: { paths: ['m6 6 12 12', 'M18 6 6 18'] },
   clock: { paths: ['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z', 'M12 7.5V12l3 2'] },
   code: { paths: ['m8.5 7-5 5 5 5', 'm15.5 7 5 5-5 5'] },
   download: { paths: ['M12 4v11', 'm7 10 5 5 5-5', 'M5 20h14'] },
@@ -37,6 +39,7 @@ export const icons = {
     ],
   },
   lyrics: { paths: ['M4 6.5h16', 'M4 11.5h16', 'M4 16.5h9'] },
+  menu: { paths: ['M4 7h16', 'M4 12h16', 'M4 17h16'] },
   monitor: {
     paths: [
       'M4 4.5h16a1 1 0 0 1 1 1V15a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5.5a1 1 0 0 1 1-1Z',

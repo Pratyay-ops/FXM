@@ -1,0 +1,20 @@
+---
+import Icon from './Icon.astro'
+
+/*
+ * The "Coming soon" badge, for anything AVAILABLE in src/config.ts doesn't mark as
+ * released. Put it inside the heading it belongs to (after the text), so screen readers
+ * announce it with the name.
+ */
+interface Props {
+  /** The parent's data-astro-cid-* scope attribute, so its scoped styles reach the badge. */
+  [attribute: `data-${string}`]: unknown
+}
+
+const attributes = Astro.props
+---
+
+<span {...attributes} class="badge badge-neutral soon"
+  ><Icon name="clock" size={14} />
+  Coming soon</span
+>
