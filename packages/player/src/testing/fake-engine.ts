@@ -1,0 +1,158 @@
+/**
+ * An engine that plays nothing: it records what the player asks of it and lets a test drive
+ * what happens (progress, the end, failures).
+ *
+ * @module
+ */
+
+import type { StreamOption } from '@fxm/core'
+import { Emitter } from '../emitter'
+import {
+  type Engine,
+  EngineError,
+  type EngineErrorType,
+  type EngineEventMap,
+  type EngineEventType,
+  type PlaybackSource,
+} from '../engine'
+
+/** One call the player made, with its arguments. */
+export interface FakeEngineCall {
+  /** The engine method. */
+  method: 'load' | 'play' | 'pause' | 'seek' | 'setVolume' | 'setMuted' | 'preload' | 'destroy'
+  /** Its arguments. */
+  args: unknown[]
+}
+
+/**
+ * A scriptable {@link Engine} for tests. By default `play()` reports `play` at once; set
+ * `playError` to make it fail instead (e.g. `autoplay-blocked`), or `startOnPlay` to `false` to
+ * stay silent until the test calls {@link FakeEngine.emit}.
+ */
+export class FakeEngine implements Engine {
+  /** Every call, in order. */
+  readonly calls: FakeEngineCall[] = []
+  /** What was loaded last. */
+  source: PlaybackSource | undefined
+  /** The last argument of `preload()`. */
+  preloaded: PlaybackSource | null | undefined
+  /** The playback position, in milliseconds. */
+  positionMs = 0
+  /** Whether playback is paused. */
+  paused = true
+  /** The volume, from 0 to 1. */
+  volume = 1
+  /** Whether the output is muted. */
+  muted = false
+  /** Whether `destroy()` was called. */
+  destroyed = false
+  /** When set, `play()` reports this failure instead of playing. */
+  playError: EngineErrorType | undefined
+  /** Whether `play()` reports `play` right away. */
+  startOnPlay = true
+  /** What `canPlay()` answers. Default: every stream. */
+  canPlayStream: (stream: StreamOption) => boolean = () => true
+  readonly #events = new Emitter<EngineEventMap>()
+
+  async load(source: PlaybackSource, startAtMs = 0): Promise<void> {
+    this.#record('load', source, startAtMs)
+    this.source = source
+    this.positionMs = startAtMs
+    this.paused = true
+  }
+
+  async play(): Promise<void> {
+    this.#record('play')
+    if (this.source === undefined || this.destroyed) return
+    if (this.playError !== undefined) {
+      this.fail(this.playError)
+      return
+    }
+    this.paused = false
+    if (this.startOnPlay) this.emit('play', undefined)
+  }
+
+  pause(): void {
+    this.#record('pause')
+    if (this.paused) return
+    this.paused = true
+    this.emit('pause', undefined)
+  }
+
+  seek(positionMs: number): void {
+    this.#record('seek', positionMs)
+    this.positionMs = positionMs
+  }
+
+  setVolume(volume: number): void {
+    this.#record('setVolume', volume)
+    this.volume = volume
+  }
+
+  setMuted(muted: boolean): void {
+    this.#record('setMuted', muted)
+    this.muted = muted
+  }
+
+  preload(source: PlaybackSource | null): void {
+    this.#record('preload', source)
+    this.preloaded = source
+  }
+
+  canPlay(stream: StreamOption): boolean {
+    return this.canPlayStream(stream)
+  }
+
+  on<K extends EngineEventType>(
+    type: K,
+    listener: (payload: EngineEventMap[K]) => void,
+  ): () => void {
+    return this.#events.on(type, listener)
+  }
+
+  destroy(): void {
+    this.#record('destroy')
+    this.destroyed = true
+    this.#events.clear()
+  }
+
+  // --- Driving the fake ----------------------------------------------------------------------
+
+  /** Reports an event to the player, as a real engine would. */
+  emit<K extends EngineEventType>(type: K, payload: EngineEventMap[K]): void {
+    this.#events.emit(type, payload)
+  }
+
+  /** Moves playback to `positionMs` and reports it. */
+  progress(positionMs: number): void {
+    this.positionMs = positionMs
+    this.emit('timeupdate', positionMs)
+  }
+
+  /** Plays to the end. */
+  end(): void {
+    this.paused = true
+    this.emit('ended', undefined)
+  }
+
+  /** Fails with an error of `type`. */
+  fail(type: EngineErrorType, message = `Fake ${type} failure`): void {
+    this.emit('error', new EngineError(type, message))
+  }
+
+  /** How many times `method` was called. */
+  count(method: FakeEngineCall['method']): number {
+    return this.calls.filter((call) => call.method === method).length
+  }
+
+  /** The URL of every stream loaded so far, in order. */
+  get loadedUrls(): string[] {
+    return this.calls.flatMap((call) =>
+      call.method === 'load' ? [(call.args[0] as PlaybackSource).stream.url] : [],
+    )
+  }
+
+  #record(method: FakeEngineCall['method'], ...args: unknown[]): void {
+    this.calls.push({ method, args })
+  }
+}
