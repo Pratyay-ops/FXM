@@ -25,8 +25,8 @@ remove_dependencies() {
 # `make apk` leaves the web app's mobile build, the web assets copied into the app and
 # Gradle's cache and output in a checkout. `clean.sh android` (make android-clean) removes
 # them from this checkout only; `build` and `all` from every checkout. Before `all` deletes
-# .tools/, it stops the Gradle daemons and the adb server running from there, so they cannot
-# write to it again when they exit.
+# .tools/, it stops the Gradle daemons running from there and the adb server (adb restarts it
+# on demand), so they cannot write to .tools/ again when they exit.
 remove_android_output() {
   (cd "$1/apps" && rm -rf web/dist-mobile mobile/android/.gradle mobile/android/build \
     mobile/android/app/build mobile/android/capacitor-cordova-android-plugins/build \

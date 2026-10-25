@@ -129,7 +129,7 @@ Use the repo-local `adb` through `scripts/run.sh` (or after `source scripts/env.
 
 From 2027, Google plans to require developer verification for apps installed outside the Play Store on certified Android devices: USD 25 and an ID for the publisher, or an ADB or "advanced" install flow for unverified apps. Debug builds installed with adb are expected to keep working. Stage 6.6 decides how FXM's release APKs handle it.
 
-**Cleaning up.** `make android-clean` removes this checkout's Android build output, and `make clean` does the same in every checkout. `make nuke` also stops any Gradle daemon and adb server running from `.tools/`, then deletes the JDK, the SDK, the Gradle caches and the keys with the rest of `.tools/`.
+**Cleaning up.** `make android-clean` removes this checkout's Android build output, and `make clean` does the same in every checkout. `make nuke` first stops the Gradle daemons running from `.tools/` and the adb server, which adb restarts whenever it next needs it. Then it deletes the JDK, the SDK, the Gradle caches and the keys with the rest of `.tools/`.
 
 **CI.** `.github/workflows/android.yml` runs `make android-setup` and `make apk` on ubuntu-latest for pushes and pull requests that touch `apps/mobile/`, `apps/web/`, `scripts/android-setup.sh` or the workflow itself, and on demand. It caches the JDK, the SDK and the Gradle home, and uploads `app-debug.apk` as a workflow artifact for 14 days.
 
