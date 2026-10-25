@@ -12,6 +12,7 @@ import {
   type LibraryBackup,
   parseBackup,
 } from './backup'
+import { SCHEMA_VERSION } from './database'
 import type { LibraryRepo } from './repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from './types'
 
@@ -137,7 +138,7 @@ describe('library backup', () => {
       version: BACKUP_VERSION,
       exportedAt: '2026-10-25T10:00:00.000Z',
       app: { name: 'FXM' },
-      schemaVersion: 2,
+      schemaVersion: SCHEMA_VERSION,
     })
     expect(backupFileName(new Date(2026, 9, 5))).toBe('fxm-library-2026-10-05.json')
     expect(backupBlob(backup).type).toBe('application/json')

@@ -6,6 +6,7 @@ import {
   type MatchCacheRecordV1,
   openDatabase,
   SCHEMA_V1,
+  SCHEMA_V2,
   SCHEMA_VERSION,
   TABLE_NAMES,
   upgradeMatchRecord,
@@ -144,7 +145,7 @@ describe('library database', () => {
     const repo = createLibraryRepo(db, { now: () => 1000 })
     await db.open()
 
-    expect(db.verno).toBe(2)
+    expect(db.verno).toBe(SCHEMA_VERSION)
     expect(await db.tracks.count()).toBe(2)
     expect(await repo.isLiked(track(1).id)).toBe(true)
     expect((await repo.getPlaylistList()).items.map((item) => item.id)).toEqual([
@@ -196,6 +197,65 @@ describe('library database', () => {
     expect((await repo.getConfirmedMatch(spotifyB, 'all'))?.ref).toBe('videoId')
     expect(await repo.getConfirmedMatch(spotifyC, 'music')).toBeUndefined()
     expect(await db.matchCache.where('sourceKey').equals(entityKey(spotifyB)).count()).toBe(1)
+    db.close()
+  })
+
+  it('computes the affinity of a version 2 library from its plays, likes and playlists', async () => {
+    const name = uniqueName()
+    const v2 = new Dexie(name)
+    v2.version(1).stores(SCHEMA_V1)
+    v2.version(2).stores(SCHEMA_V2)
+    const at = Date.UTC(2026, 9, 20)
+    const mine = formatId('local', 'playlist', 'mine')
+    await v2
+      .table('tracks')
+      .bulkPut([1, 2, 3].map((n) => ({ id: track(n).id, track: track(n), updatedAt: at })))
+    await v2.table('likes').put({ key: entityKey(track(1).id), trackId: track(1).id, likedAt: at })
+    await v2.table('playlists').bulkPut([
+      {
+        id: LIKED_PLAYLIST_ID,
+        system: 'liked',
+        name: 'Liked songs',
+        createdAt: 0,
+        updatedAt: at,
+        trackIds: [track(1).id],
+        addedAt: {},
+      },
+      {
+        id: DOWNLOADS_PLAYLIST_ID,
+        system: 'downloads',
+        name: 'Downloads',
+        createdAt: 0,
+        updatedAt: 0,
+        trackIds: [],
+        addedAt: {},
+      },
+      {
+        id: mine,
+        name: 'Mine',
+        createdAt: at,
+        updatedAt: at,
+        trackIds: [track(2).id],
+        addedAt: { [track(2).id]: at },
+      },
+    ])
+    await v2.table('history').bulkAdd([
+      { trackId: track(3).id, playedAt: at, playedMs: 183_000, completed: true, skipped: false },
+      { trackId: track(3).id, playedAt: at, playedMs: 18_300, completed: false, skipped: true },
+    ])
+    v2.close()
+
+    const db = openDatabase(name)
+    await db.open()
+    expect(db.verno).toBe(SCHEMA_VERSION)
+    const byId = Object.fromEntries((await db.affinity.toArray()).map((row) => [row.id, row]))
+    expect(byId['track|youtube:track:video0001']).toMatchObject({ score: 3, at, plays: 0 })
+    expect(byId['track|youtube:track:video0002']).toMatchObject({ score: 2, at })
+    expect(byId['track|youtube:track:video0003']).toMatchObject({ plays: 2, lastPlayedAt: at })
+    expect(byId['track|youtube:track:video0003']?.score).toBeCloseTo(1.1, 12)
+    expect(byId['track|youtube:track:video0003']?.skips).toBeCloseTo(0.9, 12)
+    expect(byId['artist|artist 3']).toMatchObject({ label: 'Artist 3', plays: 2 })
+    expect(Object.keys(byId)).toHaveLength(6)
     db.close()
   })
 

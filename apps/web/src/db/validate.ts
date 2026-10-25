@@ -65,6 +65,9 @@ const MAX_URL = 2048
 const MAX_SHORT_LIST = 100
 /** Most tracks one playlist may hold. */
 export const MAX_PLAYLIST_TRACKS = 100_000
+/** Most tags kept on a track, and the longest tag. */
+const MAX_TAGS = 20
+const MAX_TAG_LENGTH = 100
 /** Latest timestamp accepted: the largest valid `Date`. */
 const MAX_TIME = 8.64e15
 
@@ -220,6 +223,8 @@ export function sanitizeTrack(value: unknown): Track | null {
     }
     if (Object.keys(externalIds).length > 0) track.externalIds = externalIds
   }
+  const tags = listOf(value.tags, (tag) => trimmed(tag, MAX_TAG_LENGTH) ?? null, MAX_TAGS)
+  if (tags.length > 0) track.tags = tags
   return track
 }
 
@@ -424,8 +429,11 @@ export function sanitizeHistoryRecord(value: unknown): (HistoryEntry & { id?: nu
     skipped: value.skipped === true,
   }
   put(record, 'id', ordinal(value.id))
+  const durationMs = amount(value.durationMs)
+  if (durationMs !== undefined && durationMs > 0) record.durationMs = durationMs
   put(record, 'context', sanitizeContext(value.context))
   put(record, 'stream', sanitizeStream(value.stream))
+  put(record, 'importId', nonEmpty(value.importId, 100))
   return record
 }
 

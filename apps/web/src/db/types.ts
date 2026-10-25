@@ -10,20 +10,18 @@
  */
 
 import {
+  type AffinityEntry,
   type ArtistRef,
   type Artwork,
   type AudioCandidate,
   type CatalogMode,
-  type Codec,
-  type Container,
   type EntityId,
   formatId,
   type JsonValue,
   type MatchSignals,
+  type PlayContext,
+  type PlayStream,
   parseId,
-  type QualityTier,
-  type SourceId,
-  type StreamMedia,
   type Track,
 } from '@fxm/core'
 
@@ -178,37 +176,17 @@ export interface FollowRecord {
 /**
  * Where a play started, like the player's queue context: an album, a playlist, an artist, a
  * radio or a search. The type stays an open string so that newer contexts in a backup survive.
+ * The listening signals (stage 3.1) define it in `@fxm/core`.
  */
-export interface PlayContext {
-  /** The kind of list, e.g. `album`, `playlist`, `artist`, `radio` or `search`. */
-  type: string
-  /** What it links back to: an entity ID, or the query for a search. */
-  id: string
-  /** Display title, e.g. the album name. */
-  title?: string
-}
+export type { PlayContext }
 
-/** What actually played. */
-export interface StreamInfo {
-  /** The audio source that delivered it, e.g. `ytm` or `archive`. */
-  source: SourceId
-  /** The audio's own track ID when it differs from the played track, e.g. a matched song. */
-  audioId?: EntityId<'track'>
-  /** Audio codec. */
-  codec?: Codec
-  /** Container. */
-  container?: Container
-  /** Bitrate in kbps. */
-  bitrateKbps?: number
-  /** Quality tier. */
-  tier?: QualityTier
-  /** Audio only or a muxed video. */
-  media?: StreamMedia
-  /** Whether it played from a downloaded copy. */
-  offline?: boolean
-}
+/** What actually played: `PlayStream` from `@fxm/core`, which the listening signals share. */
+export type StreamInfo = PlayStream
 
-/** One play of a track, for Recently played and the listening signals (stage 3.1). */
+/**
+ * One play of a track: a play signal (stage 3.1, see `ListeningSignal` in `@fxm/core`). The
+ * history feeds Recently played and the listening affinity.
+ */
 export interface HistoryRecord {
   /** Auto-incremented by the database. */
   id: number
@@ -216,8 +194,10 @@ export interface HistoryRecord {
   trackId: EntityId<'track'>
   /** When playback started, as epoch milliseconds. */
   playedAt: number
-  /** How long it played, in milliseconds. */
+  /** How long it played, in milliseconds: listening time, without pauses and skipped parts. */
   playedMs: number
+  /** The track's length when it played, in milliseconds, when known. */
+  durationMs?: number
   /** Whether it played to the end. */
   completed: boolean
   /** Whether the user skipped it. */
@@ -226,6 +206,20 @@ export interface HistoryRecord {
   context?: PlayContext
   /** What actually played. */
   stream?: StreamInfo
+  /** The import that brought it in (an `importProgress` ID), for plays from another service. */
+  importId?: string
+}
+
+/**
+ * The listening affinity of one track, artist or tag (stage 3.1): a core `AffinityEntry`, kept
+ * up to date by the repository with every play, like and playlist change. It is derived from
+ * the history, the likes and the playlists, so backups leave it out and rebuild it.
+ */
+export interface AffinityRecord extends AffinityEntry {
+  /** `<kind>|<key>`, e.g. `artist|radiohead`: see `affinityId`. */
+  id: string
+  /** `affinityRank(entry)`, indexed with the kind, so the top entries read straight off it. */
+  rank: number
 }
 
 /** Reserved for settings that outgrow `localStorage`. Nothing uses it yet. */

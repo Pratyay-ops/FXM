@@ -1,6 +1,7 @@
 /**
  * JSON backups of the whole library: every table, custom orders included, plus the app's own
- * settings (catalog mode, theme) when the caller passes them.
+ * settings (catalog mode, theme) when the caller passes them. The listening affinity is left
+ * out: it is derived from the history, the likes and the playlists, and rebuilt on import.
  *
  * - **Export** reads every table in one transaction, so the file is a consistent snapshot.
  * - **Import** parses and validates first: anything that isn't an FXM backup, or comes from a
@@ -14,6 +15,7 @@
  */
 
 import { APP_NAME, APP_VERSION, type EntityId, entityKey, type JsonObject } from '@fxm/core'
+import { rebuildAffinity } from './affinity'
 import {
   ensureSystemRecords,
   type FxmDatabase,
@@ -381,7 +383,8 @@ async function writeReplaced(db: FxmDatabase, tables: BackupTables): Promise<voi
  *   tracks only the other one has. The list of playlists keeps its order here, and the
  *   backup's playlists that it lacks follow at the end. In the match cache a pin wins.
  *
- * The built-in playlists exist afterwards in both modes.
+ * The built-in playlists exist afterwards in both modes, and the listening affinity is
+ * recomputed from the library that results.
  */
 export async function importLibrary(
   repo: LibraryRepo,
@@ -396,6 +399,7 @@ export async function importLibrary(
       if (mode === 'replace') await writeReplaced(db, parsed.backup.tables)
       else await writeMerged(db, parsed.backup.tables)
       await ensureSystemRecords(db)
+      await rebuildAffinity(db)
     },
   )
 }
