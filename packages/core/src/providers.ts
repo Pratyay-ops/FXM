@@ -222,6 +222,16 @@ export interface MetadataProvider {
   /** The source this provider reads. */
   readonly id: SourceId
   /**
+   * When the app may call this provider:
+   *
+   * - `any` (also when absent): whenever it needs to, e.g. in a search across all sources
+   * - `explicit`: only for what the user explicitly asked of this source, such as a search with
+   *   this source picked or one of its pages they opened; never in a search across sources, for
+   *   suggestions or in the background. For sources with a small budget that every user shares,
+   *   such as Jamendo (35,000 requests a month for one `client_id`)
+   */
+  readonly requestPolicy?: 'any' | 'explicit'
+  /**
    * Searches the catalog, one page per requested type. Songs go to `tracks` and videos to
    * `videos`, which stays empty in `music` mode (see `SearchType`).
    */
@@ -412,6 +422,13 @@ export interface StreamOption {
    * to say.
    */
   fullLength: FullLengthCheck
+  /**
+   * Whether the source lets this stream be downloaded and kept: `false` when it forbids that,
+   * e.g. a Jamendo track whose artist turned downloads off (`audiodownload_allowed`), which may
+   * still be streamed. Absent means allowed. Downloads skip an option whose value is `false`, so
+   * drop those before `pickStream(options, 'lossless')`; playback ignores the field.
+   */
+  downloadAllowed?: boolean
   /** Headers the request must send, e.g. a `Referer`. */
   requestHeaders?: Record<string, string>
   /**

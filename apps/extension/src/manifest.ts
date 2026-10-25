@@ -9,7 +9,7 @@ import { buildRulesets, ruleHostPermissions } from './rules.ts'
 export type Browser = 'chromium' | 'firefox'
 
 /** Gecko add-on ID (needed for storage and signing on AMO). */
-export const FIREFOX_ADDON_ID = 'fxm-connect@fxm-music.pages.dev'
+export const FIREFOX_ADDON_ID = 'fxm-connect@fxmusic.pages.dev'
 
 /**
  * Oldest Firefox that runs FXM Connect. MV3 declarativeNetRequest arrived in 113,
@@ -120,7 +120,7 @@ export interface Manifest {
  * extension has host access to the request's initiator too, and the FXM entries must stay
  * exact-host patterns (never `*.`): DNR's initiatorDomains also matches sub-domains, so this
  * host access is what keeps the rules away from pages such as preview deployments at
- * <hash>.fxm-music.pages.dev.
+ * <hash>.fxmusic.pages.dev.
  */
 export function hostPermissions(origins: readonly string[]): string[] {
   return [...new Set([...origins.map(originMatchPattern), ...ruleHostPermissions()])]
