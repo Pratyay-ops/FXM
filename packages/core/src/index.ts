@@ -9,6 +9,7 @@ export const APP_TAGLINE = 'Free Cross-platform Media'
 
 export * from './errors'
 export * from './ids'
+export * from './lyrics'
 export * from './mode'
 export * from './model'
 export * from './providers'
