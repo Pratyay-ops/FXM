@@ -6,7 +6,7 @@ import { createStaticPlatform, TIER_CAPABILITIES } from './sources'
 
 const platform = createStaticPlatform(TIER_CAPABILITIES.full)
 const ctx = (mode: ProviderContext['mode'] = 'music', signal?: AbortSignal): ProviderContext =>
-  platform.context({ mode, ...(signal ? { signal } : {}) })
+  platform.context({ mode, priority: 'interactive', ...(signal ? { signal } : {}) })
 
 describe('the fake catalog', () => {
   it('searches each requested type, one page each', async () => {

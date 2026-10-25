@@ -275,6 +275,19 @@ describe('createSources', () => {
     expect(ctx.capabilities).toEqual(TIER_CAPABILITIES.lite)
     expect(sources.context({ mode: 'music' })).not.toHaveProperty('signal')
   })
+
+  it('tells the platform what each call is for: interactive unless the call says', () => {
+    // Stage 1.2's FxmPlatform draws YouTube requests from the budget at the call's priority,
+    // and throws without one.
+    const platform = createStaticPlatform(TIER_CAPABILITIES.full)
+    const context = vi.spyOn(platform, 'context')
+    const sources = createSources({ platform })
+
+    sources.context({ mode: 'music' })
+    sources.context({ mode: 'all', priority: 'bulk' })
+
+    expect(context.mock.calls.map(([options]) => options.priority)).toEqual(['interactive', 'bulk'])
+  })
 })
 
 describe('the Spotify switch', () => {

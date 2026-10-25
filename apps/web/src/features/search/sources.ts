@@ -42,10 +42,21 @@ export function tierOf(capabilities: NetworkCapabilities): Tier {
   return capabilities.youtube === 'simple' ? 'lite' : 'free'
 }
 
+/**
+ * What a provider call is for, highest first: the platform draws the call's YouTube requests
+ * from the shared request budget at this priority (`RequestPriority` in `@fxm/platform`).
+ */
+export type SourcePriority = 'current-track' | 'prefetch' | 'interactive' | 'bulk'
+
 /** What one provider call's context is built from. */
 export interface SourceContextOptions {
   /** The catalog mode. */
   mode: CatalogMode
+  /**
+   * What the call is for. Default `interactive`: search, suggestions and the pages the user
+   * opened, which is every call made here.
+   */
+  priority?: SourcePriority
   /** Cancels the call, e.g. when the user typed on. */
   signal?: AbortSignal
   /** Preferred language as a BCP 47 tag. */
@@ -67,8 +78,11 @@ export interface SourcesPlatform {
     /** Calls `listener` whenever the capabilities change; returns the unsubscribe function. */
     subscribe(listener: (capabilities: NetworkCapabilities) => void): () => void
   }
-  /** A context for one provider call, with the platform's `fetch` and current capabilities. */
-  context(options: SourceContextOptions): ProviderContext
+  /**
+   * A context for one provider call, with the platform's `fetch` for the call's priority and the
+   * current capabilities. The priority is always given: `FxmPlatform` throws without one.
+   */
+  context(options: SourceContextOptions & { priority: SourcePriority }): ProviderContext
 }
 
 /** A {@link SourcesPlatform} whose capabilities are set by hand: the stand-in and the fake. */
@@ -272,7 +286,8 @@ export function createSources(options: SourcesOptions = {}): Sources {
     setSpotifyEnabled(enabled) {
       spotifySwitch.getState().setEnabled(enabled)
     },
-    context: (contextOptions) => platform.context(contextOptions),
+    context: ({ priority = 'interactive', ...contextOptions }) =>
+      platform.context({ ...contextOptions, priority }),
   }
 }
 
