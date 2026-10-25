@@ -4,7 +4,7 @@
  */
 
 /** Production origin, without a trailing slash. */
-export const SITE_URL = 'https://fxm-music.pages.dev'
+export const SITE_URL = 'https://fxmusic.pages.dev'
 
 /** The web player. It is built by apps/web and served next to this site at deploy time. */
 export const APP_PATH = '/app/'
@@ -44,7 +44,7 @@ export type Feature =
 export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   /** Home feed with quick picks, daily mixes and endless radio: stages 3.3 and 3.4 (M2) */
   homeFeed: false,
-  /** Song radio from YouTube Music and Spotify: stage 3.2 (M2) */
+  /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */
   radio: false,
   /** Connecting a Spotify account to sync recommendations, likes and playlists: 3.5 (M2) */
   spotifyAccount: false,

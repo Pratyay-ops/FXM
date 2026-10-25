@@ -277,7 +277,7 @@ function responseHeaders(spec: CorsRuleSpec, origin: string): HeaderOperation[] 
 function condition(spec: CorsRuleSpec, initiator: string): DnrRule['condition'] {
   return {
     // initiatorDomains also matches sub-domains, such as the preview deployments at
-    // <hash>.fxm-music.pages.dev. Browsers only modify headers for an initiator the extension
+    // <hash>.fxmusic.pages.dev. Browsers only modify headers for an initiator the extension
     // has host access to, and hostPermissions() in manifest.ts grants it for the exact FXM host
     // only: that is what keeps the rules away from those sub-domains.
     initiatorDomains: [initiator],

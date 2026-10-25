@@ -1,0 +1,11 @@
+{
+  "errors": [
+    {
+      "message": "missing variable `$uri`: for required GraphQL type `ID!`",
+      "extensions": {
+        "name": "uri",
+        "code": "VALIDATION_INVALID_TYPE_VARIABLE"
+      }
+    }
+  ]
+}

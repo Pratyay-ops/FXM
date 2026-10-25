@@ -8,7 +8,7 @@
 export const EXTENSION_NAME = 'FXM Connect'
 
 /** Pages of the deployed FXM web app. Every rule, the content script and the bridge are scoped to them. */
-export const PRODUCTION_ORIGINS = ['https://fxm-music.pages.dev'] as const
+export const PRODUCTION_ORIGINS = ['https://fxmusic.pages.dev'] as const
 
 /**
  * Local web app servers (the Vite dev server and `vite preview`). Only the development build
@@ -17,7 +17,7 @@ export const PRODUCTION_ORIGINS = ['https://fxm-music.pages.dev'] as const
 export const DEVELOPMENT_ORIGINS = ['http://localhost:5173', 'http://localhost:4173'] as const
 
 /** Where the options page sends people. */
-export const APP_URL = 'https://fxm-music.pages.dev/app/'
+export const APP_URL = 'https://fxmusic.pages.dev/app/'
 
 /**
  * Capabilities announced in the `fxm-connect:pong` reply. The first four name the groups of
