@@ -1,0 +1,229 @@
+---
+import DownloadsDemo from './demos/DownloadsDemo.astro'
+import FeedDemo from './demos/FeedDemo.astro'
+import ModesDemo from './demos/ModesDemo.astro'
+import SpotifyDemo from './demos/SpotifyDemo.astro'
+import Icon from './Icon.astro'
+
+const extras = [
+  {
+    icon: 'lyrics',
+    title: 'Synced lyrics',
+    text: 'Lyrics that follow along with the song, line by line, from LRCLIB.',
+  },
+  {
+    icon: 'install',
+    title: 'Installable web app',
+    text: 'Install the web app (a PWA) and it opens in its own window, like any other app.',
+  },
+  {
+    icon: 'embed',
+    title: 'Embeddable mini-player',
+    text: 'Put a small FXM player for a song or a playlist on your own website.',
+    soon: true,
+  },
+  {
+    icon: 'library',
+    title: 'Free music, no extension needed',
+    text: 'Without FXM Connect, the web app still plays free music from Internet Archive and Jamendo, and invites you to add the extension for YouTube Music.',
+  },
+] as const
+---
+
+<section id="features" class="section" aria-labelledby="features-title">
+  <div class="container">
+    <div class="section-head">
+      <p class="eyebrow">Features</p>
+      <h2 id="features-title">A music player that is on your side</h2>
+      <p class="lead">
+        Practically any song, a home feed made for you and downloads in the format you choose, in
+        one free app with no ads from FXM and nothing to sign up for.
+      </p>
+    </div>
+
+    <div class="rows">
+      <div class="row">
+        <div class="text">
+          <span class="icon-tile"><Icon name="music" /></span>
+          <h3>Practically any song, in two modes</h3>
+          <p>
+            Search and play practically any song from YouTube Music. Pick the mode that suits you:
+          </p>
+          <dl class="modes">
+            <div>
+              <dt>Music</dt>
+              <dd>Only songs from the YouTube Music catalog: clean album audio.</dd>
+            </div>
+            <div>
+              <dt>Music + Video</dt>
+              <dd>
+                Also any YouTube video, such as covers, live sets and remixes, played as music.
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <ModesDemo />
+      </div>
+
+      <div class="row">
+        <div class="text">
+          <span class="icon-tile"><Icon name="sparkles" /></span>
+          <h3>A home feed made for you, on your device</h3>
+          <p>
+            Quick picks, daily mixes and endless radio, put together on your device from YouTube
+            Music radio, Spotify (if you turn it on), Last.fm and ListenBrainz.
+          </p>
+          <p>
+            Your listening history is kept on your device, not on an FXM server. There isn't one.
+          </p>
+        </div>
+        <FeedDemo />
+      </div>
+
+      <div class="row">
+        <div class="text">
+          <span class="icon-tile"><Icon name="plug" /></span>
+          <h3>Spotify, if you want it</h3>
+          <p>
+            Switch on the Spotify integration to search Spotify's catalog and get related artists
+            and song radio from it. Connect your Spotify account to sync your recommendations, liked
+            songs and playlists.
+          </p>
+          <p>It's your choice: leave it off and FXM doesn't talk to Spotify at all.</p>
+        </div>
+        <SpotifyDemo />
+      </div>
+
+      <div class="row">
+        <div class="text">
+          <span class="icon-tile"><Icon name="download" /></span>
+          <h3>Download in the format you want</h3>
+          <p>
+            Save any track for offline listening as Original, FLAC, ALAC, WAV, MP3, AAC or Opus,
+            with tags and cover art.
+          </p>
+          <p>
+            You get real lossless FLAC where the source has it (Internet Archive, Jamendo).
+            Conversions from lossy sources are labelled honestly, so you always know what you have.
+          </p>
+        </div>
+        <DownloadsDemo />
+      </div>
+    </div>
+
+    <ul class="extras bare-list">
+      {extras.map((extra) => (
+        <li class="extra card">
+          <span class="icon-tile">
+            <Icon name={extra.icon} />
+          </span>
+          <h3>
+            {extra.title}
+            {'soon' in extra && <span class="badge">Coming soon</span>}
+          </h3>
+          <p>{extra.text}</p>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<style>
+.rows {
+  display: grid;
+  gap: clamp(var(--space-16), 10vw, 7rem);
+}
+
+.row {
+  display: grid;
+  gap: var(--space-8);
+  align-items: center;
+}
+
+.text {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+  max-width: 34rem;
+}
+
+.text h3 {
+  margin-top: var(--space-2);
+  font-size: clamp(var(--text-xl), 1.1rem + 0.8vw, var(--text-2xl));
+}
+
+.text p {
+  color: var(--color-text-muted);
+}
+
+.modes {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.modes div {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--color-accent-soft);
+}
+
+.modes dt {
+  font-weight: 700;
+}
+
+.modes dd {
+  color: var(--color-text-muted);
+}
+
+.extras {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: clamp(var(--space-16), 10vw, 7rem);
+}
+
+.extra {
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  padding: var(--space-6);
+}
+
+.extra h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.extra p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+@media (min-width: 40rem) {
+  .extras {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 48rem) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(var(--space-8), 5vw, var(--space-16));
+  }
+
+  .row:nth-child(even) .text {
+    order: 2;
+  }
+}
+
+@media (min-width: 64rem) {
+  .extras {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+</style>

@@ -1,0 +1,113 @@
+---
+import { APP_PATH, REPO_URL } from '../config'
+import Icon from './Icon.astro'
+import Logo from './Logo.astro'
+
+const links = [
+  { href: '/#features', label: 'Features' },
+  { href: '/#how-it-works', label: 'How it works' },
+  { href: '/#get', label: 'Download' },
+  { href: '/#faq', label: 'FAQ' },
+]
+---
+
+<header class="site-header">
+  <div class="container inner">
+    <a class="brand" href="/" aria-label="FXM home">
+      <Logo id="header" size={30} />
+      <span class="wordmark" aria-hidden="true">FXM</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <ul class="bare-list">
+        {links.map((link) => (
+          <li>
+            <a href={link.href}>{link.label}</a>
+          </li>
+        ))}
+        <li>
+          <a href={REPO_URL}>GitHub</a>
+        </li>
+      </ul>
+    </nav>
+    <a class="button button-primary cta" href={APP_PATH}>
+      Open web app
+      <Icon name="arrow-right" size={18} />
+    </a>
+  </div>
+</header>
+
+<style>
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-header);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  backdrop-filter: saturate(160%) blur(14px);
+}
+
+.inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  height: var(--header-height);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-right: auto;
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.brand:hover {
+  color: var(--color-text);
+}
+
+.wordmark {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.nav {
+  display: none;
+}
+
+.nav ul {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch);
+  padding-inline: var(--space-3);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  text-decoration: none;
+}
+
+.nav a:hover {
+  color: var(--color-text);
+}
+
+.cta {
+  min-height: 2.5rem;
+  padding-inline: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+@media (min-width: 52rem) {
+  .nav {
+    display: block;
+  }
+}
+</style>

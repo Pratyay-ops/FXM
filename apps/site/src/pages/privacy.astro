@@ -1,0 +1,138 @@
+---
+import { ISSUES_URL } from '../config'
+import Document from '../layouts/Document.astro'
+
+const services = [
+  {
+    name: 'YouTube',
+    url: 'https://www.youtube.com',
+    use: 'YouTube Music and YouTube: search, song and video details, audio and radio.',
+  },
+  {
+    name: 'Spotify',
+    url: 'https://www.spotify.com',
+    use: 'Only if you switch the integration on: search, related artists and song radio. If you connect your Spotify account, also your recommendations, liked songs and playlists.',
+  },
+  { name: 'LRCLIB', url: 'https://lrclib.net', use: 'Synced lyrics.' },
+  {
+    name: 'MusicBrainz',
+    url: 'https://musicbrainz.org',
+    use: 'Song, album and artist information.',
+  },
+  {
+    name: 'ListenBrainz',
+    url: 'https://listenbrainz.org',
+    use: 'Recommendations for your home feed.',
+  },
+  { name: 'Last.fm', url: 'https://www.last.fm', use: 'Recommendations for your home feed.' },
+  {
+    name: 'Internet Archive',
+    url: 'https://archive.org',
+    use: 'Free music, including lossless FLAC.',
+  },
+  { name: 'Jamendo', url: 'https://www.jamendo.com', use: 'Free music, including lossless FLAC.' },
+]
+---
+
+<Document
+  title="Privacy · FXM"
+  description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device. Here is which services your device talks to, and why."
+  heading="Privacy"
+  lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device."
+  updated="2026-10-25"
+>
+  <h2>The short version</h2>
+  <ul>
+    <li>
+      <strong>No analytics or tracking.</strong>
+      This website and the FXM apps contain no analytics, trackers or ad scripts.
+    </li>
+    <li>
+      <strong>No accounts.</strong>
+      There is nothing to sign up for, so FXM never has your name, email address or password.
+    </li>
+    <li>
+      <strong>No cookies set by FXM.</strong>
+      FXM doesn't use cookies. Services you sign in to, such as Spotify, may set their own.
+    </li>
+    <li>
+      <strong>No FXM servers.</strong>
+      Searches and plays don't pass through FXM, so FXM can't see what you look for or listen to.
+    </li>
+  </ul>
+
+  <h2>Where your data lives</h2>
+  <p>
+    Your library (likes and playlists), listening history, settings and downloads are stored on your
+    device: in your browser's storage for the web app, or in the app's own storage on desktop and
+    Android. FXM can't see them.
+  </p>
+  <p>Clearing this site's data in your browser, or uninstalling the app, deletes them for good.</p>
+
+  <h2>Services your device talks to</h2>
+  <p>
+    FXM gets music, information and lyrics straight from the services below. Your device connects to
+    them directly; in the web app, some of these requests go through the FXM Connect extension in
+    your browser. As with any website you visit, they receive your IP address and the requests made
+    for you, such as a search or the song you're playing, and their own privacy policies apply.
+  </p>
+  <dl class="services">
+    {services.map((service) => (
+      <div>
+        <dt>
+          <a href={service.url}>{service.name}</a>
+        </dt>
+        <dd>{service.use}</dd>
+      </div>
+    ))}
+  </dl>
+
+  <h2>This website and app downloads</h2>
+  <p>
+    This website and the web app are static files hosted on Cloudflare Pages, and app downloads are
+    published on GitHub Releases. Like any host, Cloudflare and GitHub handle the network requests
+    needed to deliver those files, under their own privacy policies. FXM doesn't add analytics or
+    tracking to either.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    If the way FXM handles data ever changes, this page will be updated and the date at the top will
+    change.
+  </p>
+
+  <h2>Questions</h2>
+  <p>Ask on the <a href={ISSUES_URL}>FXM issue tracker on GitHub</a>.</p>
+</Document>
+
+<style>
+.services {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.services div {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+.services dt {
+  font-weight: 700;
+}
+
+.services dd {
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 40rem) {
+  .services div {
+    grid-template-columns: 10rem minmax(0, 1fr);
+    gap: var(--space-4);
+  }
+}
+</style>

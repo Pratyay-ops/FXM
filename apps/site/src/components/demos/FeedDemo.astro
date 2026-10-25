@@ -1,0 +1,192 @@
+---
+import Icon from '../Icon.astro'
+
+const picks = [
+  { title: 'Static Bloom', artist: 'June Avenue', art: 'art-3' },
+  { title: 'Glasshouse', artist: 'Nova Reyes', art: 'art-4' },
+  { title: 'Low Tide Hours', artist: 'Marlow & Sea', art: 'art-2' },
+]
+const mixes = [
+  { number: 1, art: 'art-5' },
+  { number: 2, art: 'art-1' },
+  { number: 3, art: 'art-2' },
+]
+---
+
+<div
+  class="demo"
+  role="img"
+  aria-label="A home feed with three quick picks, three daily mixes and an endless radio station based on a song."
+>
+  <div class="head">
+    <span class="hello">Made for you</span>
+    <span class="today">Today</span>
+  </div>
+  <div class="label">Quick picks</div>
+  <div class="picks">
+    {picks.map((pick) => (
+      <div class="pick">
+        <span class:list={['art', pick.art]} />
+        <span class="meta">
+          <span class="title">{pick.title}</span>
+          <span class="artist">{pick.artist}</span>
+        </span>
+        <Icon name="play" size={18} class="play" />
+      </div>
+    ))}
+  </div>
+  <div class="label">Daily mixes</div>
+  <div class="mixes">
+    {mixes.map((mix) => (
+      <span class:list={['mix', mix.art]}>
+        <span class="mix-kicker">Daily Mix</span>
+        <span class="mix-number">{mix.number}</span>
+      </span>
+    ))}
+  </div>
+  <div class="radio">
+    <span class="radio-icon"><Icon name="radio" size={18} /></span>
+    <span class="meta">
+      <span class="title">Endless radio</span>
+      <span class="artist">Based on Paper Lanterns · keeps going</span>
+    </span>
+  </div>
+</div>
+
+<style>
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.hello {
+  font-size: var(--text-xl);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.today {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.label {
+  margin-bottom: calc(-1 * var(--space-2));
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.picks {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.pick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius-lg);
+}
+
+.pick:first-child {
+  background: var(--color-elevated);
+}
+
+.art {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-md);
+}
+
+.meta {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.title,
+.artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  font-weight: 650;
+}
+
+.artist {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.pick :global(.play) {
+  color: var(--color-text-muted);
+}
+
+.pick:first-child :global(.play) {
+  color: var(--color-accent);
+}
+
+.mixes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.mix {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  aspect-ratio: 1;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  color: var(--mark-bars);
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 1px 8px var(--shadow-color);
+}
+
+.mix-kicker {
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mix-number {
+  font-size: var(--text-3xl);
+  letter-spacing: -0.03em;
+}
+
+.radio .artist {
+  white-space: normal;
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-soft);
+}
+
+.radio-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+</style>

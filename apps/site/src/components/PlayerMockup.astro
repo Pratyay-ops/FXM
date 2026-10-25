@@ -1,0 +1,479 @@
+---
+import Icon from './Icon.astro'
+
+/*
+ * A CSS illustration of the player (no screenshots exist yet). Songs, artists and
+ * lyrics are made up. It scales with its container like an image: sizes are in em, and
+ * the base font size follows the container width.
+ */
+const picks = [
+  { title: 'Paper Lanterns', artist: 'Quiet Harbor', art: 'art-1' },
+  { title: 'Low Tide Hours', artist: 'Marlow & Sea', art: 'art-2' },
+  { title: 'Static Bloom', artist: 'June Avenue', art: 'art-3' },
+  { title: 'Glasshouse', artist: 'Nova Reyes', art: 'art-4' },
+]
+const mixes = [
+  { title: 'Daily Mix 1', artists: 'Quiet Harbor, Nova Reyes', art: 'art-5' },
+  { title: 'Daily Mix 2', artists: 'June Avenue, Kōda', art: 'art-2' },
+  { title: 'Daily Mix 3', artists: 'Marlow & Sea, Mira Sol', art: 'art-3' },
+]
+const lyrics = [
+  { text: 'Out on the harbor', state: 'past' },
+  { text: 'lanterns on the water', state: 'past' },
+  { text: 'carry what we said', state: 'current' },
+  { text: 'light the harbor', state: 'next' },
+  { text: 'light the way home', state: 'next' },
+  { text: 'till the morning', state: 'later' },
+]
+---
+
+<figure
+  class="mock"
+  role="img"
+  aria-label="Illustration of the FXM player: a search bar with the Music mode switch, quick picks, daily mixes, synced lyrics and a song playing."
+>
+  <div class="window">
+    <div class="topbar">
+      <div class="search">
+        <Icon name="search" size={16} />
+        <span>Search songs, albums, artists</span>
+      </div>
+      <div class="modes">
+        <span class="mode on">Music</span>
+        <span class="mode">Music + Video</span>
+      </div>
+    </div>
+
+    <div class="body">
+      <div class="content">
+        <div class="greeting">Good evening</div>
+        <div class="shelf-title">Quick picks</div>
+        <div class="picks">
+          {picks.map((pick) => (
+            <div class="pick">
+              <span class:list={['art', pick.art]} />
+              <span class="meta">
+                <span class="title">{pick.title}</span>
+                <span class="artist">{pick.artist}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+        <div class="shelf-title">Your daily mixes</div>
+        <div class="mixes">
+          {mixes.map((mix) => (
+            <div class="mix">
+              <span class:list={['art', 'cover', mix.art]}>
+                <span class="cover-label">{mix.title}</span>
+              </span>
+              <span class="artist">{mix.artists}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div class="lyrics">
+        <div class="lyrics-title">
+          <Icon name="lyrics" size={14} />
+          Lyrics
+        </div>
+        <div class="lines">
+          {lyrics.map((line) => <div class:list={['line', line.state]}>{line.text}</div>)}
+        </div>
+        <div class="lyrics-source">Synced lyrics from LRCLIB</div>
+      </div>
+    </div>
+
+    <div class="player">
+      <span class="art art-1 now-art"></span>
+      <span class="meta">
+        <span class="title">
+          Paper Lanterns
+          <span class="eq"><span></span><span></span><span></span></span>
+        </span>
+        <span class="artist">Quiet Harbor</span>
+      </span>
+      <span class="controls">
+        <Icon name="skip-back" size={16} />
+        <span class="play"><Icon name="pause" size={16} /></span>
+        <Icon name="skip-forward" size={16} />
+      </span>
+      <span class="progress">
+        <span class="time">1:12</span>
+        <span class="track"><span class="fill"></span></span>
+        <span class="time">3:41</span>
+      </span>
+    </div>
+  </div>
+</figure>
+
+<style>
+.mock {
+  container-type: inline-size;
+  margin: 0;
+}
+
+.window {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 1.25em;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xl);
+  font-size: clamp(0.625rem, 0.43rem + 1.1cqi, 0.875rem);
+}
+
+/* Top bar */
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6em;
+  padding: 1em 1.1em;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.search {
+  display: flex;
+  flex: 1 1 14em;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+  padding: 0.55em 0.9em;
+  border-radius: 999px;
+  background: var(--color-elevated);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.search span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.modes {
+  display: flex;
+  gap: 0.2em;
+  padding: 0.2em;
+  border-radius: 999px;
+  background: var(--color-elevated);
+  font-size: 0.92em;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.mode {
+  padding: 0.35em 0.8em;
+  border-radius: 999px;
+  color: var(--color-text-muted);
+}
+
+.mode.on {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+/* Home feed, with a lyrics panel on wide containers */
+.body {
+  display: grid;
+}
+
+.content {
+  min-width: 0;
+  padding: 1.1em 1.1em 1.3em;
+}
+
+.greeting {
+  font-size: 1.6em;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.shelf-title {
+  margin: 1em 0 0.6em;
+  color: var(--color-text-muted);
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.picks {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6em;
+}
+
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  min-width: 0;
+  padding: 0.45em;
+  border-radius: 0.75em;
+  background: var(--color-elevated);
+}
+
+.art {
+  display: block;
+  flex: none;
+  width: 3em;
+  height: 3em;
+  border-radius: 0.5em;
+}
+
+.meta {
+  display: grid;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.title,
+.artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  font-weight: 650;
+}
+
+.artist {
+  color: var(--color-text-muted);
+  font-size: 0.9em;
+}
+
+.mixes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8em;
+}
+
+.mix {
+  display: grid;
+  gap: 0.45em;
+  min-width: 0;
+}
+
+.cover {
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  padding: 0.6em;
+  border-radius: 0.75em;
+}
+
+.cover-label {
+  color: var(--mark-bars);
+  font-size: 1.05em;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  text-shadow: 0 1px 8px var(--shadow-color);
+}
+
+.lyrics {
+  display: none;
+}
+
+@container (min-width: 32rem) {
+  .body {
+    grid-template-columns: minmax(0, 1fr) 13em;
+  }
+
+  .lyrics {
+    display: flex;
+    flex-direction: column;
+    gap: 1em;
+    padding: 1.3em 1.1em;
+    border-left: 1px solid var(--color-border);
+    background: linear-gradient(180deg, var(--color-accent-soft), transparent 80%);
+  }
+}
+
+.lyrics-title {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+  color: var(--color-accent);
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.lyrics-title svg {
+  width: 1.2em;
+  height: 1.2em;
+}
+
+.lines {
+  display: grid;
+  gap: 0.6em;
+  margin-block: auto;
+}
+
+.lyrics-source {
+  color: var(--color-text-muted);
+  font-size: 0.8em;
+}
+
+.line {
+  color: var(--color-text-muted);
+  font-size: 1.05em;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.line.past {
+  opacity: 0.55;
+}
+
+.line.later {
+  opacity: 0.35;
+}
+
+.line.current {
+  color: var(--color-text);
+  font-size: 1.3em;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* Player bar */
+.player {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6em 0.8em;
+  padding: 0.9em 1.1em 1em;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-elevated);
+}
+
+.now-art {
+  width: 3.2em;
+  height: 3.2em;
+}
+
+.player .title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 0.9em;
+  color: var(--color-text);
+}
+
+.controls svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.play {
+  display: grid;
+  place-items: center;
+  width: 2.6em;
+  height: 2.6em;
+  border-radius: 999px;
+  background: var(--color-text);
+  color: var(--color-background);
+}
+
+.play svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.progress {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 0.7em;
+  color: var(--color-text-muted);
+  font-size: 0.82em;
+  font-variant-numeric: tabular-nums;
+}
+
+.track {
+  position: relative;
+  flex: 1;
+  height: 0.35em;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 33%;
+  border-radius: inherit;
+  background: var(--color-accent);
+}
+
+.fill::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -0.45em;
+  width: 0.9em;
+  height: 0.9em;
+  border-radius: 999px;
+  background: var(--color-text);
+  transform: translateY(-50%);
+}
+
+/* Playing indicator (frozen when reduced motion is on, see global.css) */
+.eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 0.12em;
+  height: 0.9em;
+}
+
+.eq span {
+  width: 0.18em;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--color-accent);
+  transform-origin: bottom;
+  animation: eq 1.1s ease-in-out infinite;
+}
+
+.eq span:nth-child(2) {
+  animation-delay: -0.35s;
+}
+
+.eq span:nth-child(3) {
+  animation-delay: -0.7s;
+}
+
+@keyframes eq {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+  }
+
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eq span {
+    animation: none;
+    transform: scaleY(0.7);
+  }
+}
+</style>

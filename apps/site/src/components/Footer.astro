@@ -1,0 +1,171 @@
+---
+import { APP_PATH, ISSUES_URL, LICENSE_URL, RELEASES_URL, REPO_URL } from '../config'
+import Logo from './Logo.astro'
+
+const year = new Date().getFullYear()
+
+const columns = [
+  {
+    title: 'FXM',
+    links: [
+      { href: APP_PATH, label: 'Open web app' },
+      { href: '/#get', label: 'Download' },
+      { href: '/#faq', label: 'FAQ' },
+    ],
+  },
+  {
+    title: 'Project',
+    links: [
+      { href: REPO_URL, label: 'Source code on GitHub' },
+      { href: RELEASES_URL, label: 'Releases' },
+      { href: ISSUES_URL, label: 'Report a problem' },
+    ],
+  },
+  {
+    title: 'Legal',
+    links: [
+      { href: '/privacy', label: 'Privacy' },
+      { href: '/disclaimer', label: 'Disclaimer' },
+      { href: LICENSE_URL, label: 'Apache-2.0 license' },
+    ],
+  },
+]
+---
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="top">
+      <div class="about">
+        <a class="brand" href="/" aria-label="FXM home">
+          <Logo id="footer" size={28} />
+          <span class="wordmark" aria-hidden="true">FXM</span>
+        </a>
+        <p>
+          Free Cross-platform Media: a free, open-source music player for the web, desktop and
+          Android.
+        </p>
+      </div>
+      <nav class="columns" aria-label="Footer">
+        {columns.map((column) => (
+          <div class="column">
+            <h2>{column.title}</h2>
+            <ul class="bare-list">
+              {column.links.map((link) => (
+                <li>
+                  <a href={link.href}>{link.label}</a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </nav>
+    </div>
+    <div class="bottom">
+      <p>
+        FXM is an independent open-source project. It is not affiliated with or endorsed by YouTube,
+        Google, Spotify or any music service.
+      </p>
+      <p>© {year} FXM contributors</p>
+    </div>
+  </div>
+</footer>
+
+<style>
+.site-footer {
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.top {
+  display: grid;
+  gap: var(--space-10);
+  padding-block: var(--space-16) var(--space-10);
+}
+
+.about {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+  max-width: 22rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-self: start;
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.brand:hover {
+  color: var(--color-text);
+}
+
+.wordmark {
+  font-size: var(--text-lg);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.columns {
+  display: grid;
+  gap: var(--space-8);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.column h2 {
+  margin-bottom: var(--space-3);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.column ul {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.column a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.column a:hover {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.bottom {
+  display: grid;
+  gap: var(--space-2);
+  padding-block: var(--space-6) var(--space-10);
+  border-top: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+}
+
+@media (min-width: 40rem) {
+  .columns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) {
+  .top {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  }
+
+  .bottom {
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    gap: var(--space-8);
+  }
+}
+</style>

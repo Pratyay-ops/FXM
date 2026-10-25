@@ -1,0 +1,292 @@
+---
+import { APP_PATH, RELEASES_URL } from '../config'
+import Icon from './Icon.astro'
+---
+
+<section id="get" class="section" aria-labelledby="get-title">
+  <div class="container">
+    <div class="section-head center">
+      <p class="eyebrow">Get FXM</p>
+      <h2 id="get-title">Pick where you listen</h2>
+      <p class="lead">
+        FXM is in early development. Releases are published on GitHub as each app becomes ready.
+      </p>
+    </div>
+
+    <div class="cards">
+      <div class="card get-card web" id="get-web">
+        <div class="card-top">
+          <span class="icon-tile"><Icon name="browser" /></span>
+          <span class="badges">
+            <span class="badge for-you" hidden>For this device</span>
+            <span class="badge">Early preview</span>
+          </span>
+        </div>
+        <h3>Web app + FXM Connect</h3>
+        <p>
+          Runs in your browser. Add the free FXM Connect extension to search and play from YouTube
+          Music.
+        </p>
+        <ol class="install">
+          <li>Download the FXM Connect zip from the latest GitHub release and unzip it.</li>
+          <li>
+            Open your browser's extensions page and turn on Developer mode:
+            <code>chrome://extensions</code>, <code>edge://extensions</code> or
+            <code>brave://extensions</code>.
+          </li>
+          <li>Choose <strong>Load unpacked</strong> and select the unzipped folder.</li>
+        </ol>
+        <p class="fine">For Chrome, Edge and Brave. A Firefox add-on is coming.</p>
+        <div class="actions">
+          <a class="button button-primary" href={APP_PATH}>
+            Open web app
+            <Icon name="arrow-right" />
+          </a>
+          <a class="button button-secondary" href={RELEASES_URL}>Get FXM Connect on GitHub</a>
+        </div>
+        <p class="no-extension">
+          <Icon name="library" size={20} />
+          <span>
+            No extension yet? The web app still plays free music from Internet Archive and Jamendo.
+          </span>
+        </p>
+      </div>
+
+      <div class="card get-card" id="get-desktop">
+        <div class="card-top">
+          <span class="icon-tile"><Icon name="monitor" /></span>
+          <span class="badges">
+            <span class="badge for-you" hidden>For this device</span>
+            <span class="badge badge-neutral">
+              <Icon name="clock" size={14} />
+              Coming soon
+            </span>
+          </span>
+        </div>
+        <h3>Desktop app</h3>
+        <p>For macOS, Windows and Linux, with everything built in: no extension needed.</p>
+        <ul class="platforms bare-list">
+          <li>macOS</li>
+          <li>Windows</li>
+          <li>Linux</li>
+        </ul>
+        <div class="actions">
+          <a class="button button-secondary" href={RELEASES_URL}>Desktop releases on GitHub</a>
+        </div>
+      </div>
+
+      <div class="card get-card" id="get-android">
+        <div class="card-top">
+          <span class="icon-tile"><Icon name="phone" /></span>
+          <span class="badges">
+            <span class="badge for-you" hidden>For this device</span>
+            <span class="badge badge-neutral">
+              <Icon name="clock" size={14} />
+              Coming soon
+            </span>
+          </span>
+        </div>
+        <h3>Android app</h3>
+        <p>
+          An APK you install from GitHub Releases, with everything built in: no extension needed.
+        </p>
+        <ul class="platforms bare-list">
+          <li>Android APK</li>
+        </ul>
+        <div class="actions">
+          <a class="button button-secondary" href={RELEASES_URL}>Android releases on GitHub</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+import { cardForPlatform, detectPlatform } from '../lib/platform'
+
+// Suggest the card for this device and point the Download buttons at it.
+const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
+const card = cardForPlatform(
+  detectPlatform({
+    userAgent: nav.userAgent,
+    platformHint: nav.userAgentData?.platform,
+    maxTouchPoints: nav.maxTouchPoints,
+  }),
+)
+const target = card && document.getElementById(`get-${card}`)
+if (target) {
+  target.classList.add('is-suggested')
+  target.querySelector('.for-you')?.removeAttribute('hidden')
+  for (const link of document.querySelectorAll<HTMLAnchorElement>('[data-download-link]')) {
+    link.setAttribute('href', `#${target.id}`)
+  }
+}
+</script>
+
+<style>
+.cards {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.get-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  transition: border-color var(--duration-fast) var(--ease-standard);
+}
+
+.get-card.is-suggested {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 4px var(--color-accent-soft);
+}
+
+.card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.badge[hidden] {
+  display: none;
+}
+
+.for-you {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.get-card h3 {
+  margin-top: var(--space-2);
+}
+
+.get-card > p {
+  color: var(--color-text-muted);
+}
+
+.install {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: var(--space-5);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.install li::marker {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.install strong {
+  color: var(--color-text);
+}
+
+.install code {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+.get-card > .fine {
+  font-size: var(--text-sm);
+}
+
+.no-extension {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.no-extension svg {
+  margin-top: 0.05rem;
+  color: var(--color-accent);
+}
+
+.platforms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.platforms li {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-full);
+  background: var(--color-elevated);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+.actions .button {
+  flex: 1 1 auto;
+}
+
+/* In the web card the buttons follow the steps, and the note takes the spare space. */
+.web .actions {
+  margin-top: 0;
+}
+
+.web .no-extension {
+  margin-top: auto;
+}
+
+@media (max-width: 30rem) {
+  .actions .button {
+    padding-inline: var(--space-4);
+    font-size: var(--text-sm);
+  }
+}
+
+@media (min-width: 30rem) {
+  .get-card {
+    padding: var(--space-6);
+  }
+}
+
+@media (min-width: 48rem) {
+  .cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .web {
+    grid-column: 1 / -1;
+  }
+
+  .web .actions .button {
+    flex: 0 1 auto;
+  }
+}
+
+@media (min-width: 64rem) {
+  /* The web app on the left, the two apps that are coming stacked on the right */
+  .cards {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
+
+  .web {
+    grid-column: 1;
+    grid-row: span 2;
+  }
+}
+</style>
