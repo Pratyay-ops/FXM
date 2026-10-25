@@ -43,6 +43,12 @@ conventional_commits = true
 # Drops commits that are not Conventional Commits: merges, "Initial commit" and the like.
 filter_unconventional = true
 split_commits = false
+# The notes go into the release pull request and the GitHub Release, where "@name" notifies
+# that GitHub user or team. An npm scope such as @fxm/core or @playwright/test is not meant to,
+# so any @name that isn't part of a word or an e-mail address goes into a code span.
+commit_preprocessors = [
+  { pattern = '(?m)(^|[^\w`])(@[\w-]+(?:\.[\w-]+)*(?:/[\w-]+(?:\.[\w-]+)*)?)', replace = '${1}`${2}`' },
+]
 # Groups in the order the template prints them; the HTML comments only sort them.
 commit_parsers = [
   # Bookkeeping, not changes: merge commits, the plan's status updates and the release commit.

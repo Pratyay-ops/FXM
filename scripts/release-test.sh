@@ -261,6 +261,8 @@ git -C "$work" switch -q develop
 git -C "$work" merge -q --no-ff feat/side -m "feat: a merge commit that looks conventional"
 commit "$work" "style: tidy whitespace"
 commit "$work" "chore(release): v0.0.9"
+commit "$work" "build(deps): bump @playwright/test from 1.0.0 to 2.0.0"
+commit "$work" "fix(core): answer user@example.com"
 notes=$tmp/notes.md
 (cd "$work" && scripts/release-notes.sh 0.1.0) >"$notes"
 expect "groups commits by type" has "$notes" "### Features"
@@ -272,6 +274,9 @@ expect "skips docs(plan) bookkeeping" lacks "$notes" "Mark 1.1 done"
 expect "skips merge commits" lacks "$notes" "looks conventional"
 expect "skips the release commit" lacks "$notes" "0.0.9"
 expect "skips unconventional commits" lacks "$notes" "Initial commit"
+expect "puts @names in code spans, so the notes notify nobody" \
+  has "$notes" '**deps:** Bump `@playwright/test` from 1.0.0 to 2.0.0'
+expect "but leaves e-mail addresses alone" has "$notes" "**core:** Answer user@example.com ("
 expect "has no version heading" test -z "$(grep '^## ' "$notes" || true)"
 run "$work" scripts/release-notes.sh --changelog 0.1.0
 expect "regenerates CHANGELOG.md" has "$work/CHANGELOG.md" \
