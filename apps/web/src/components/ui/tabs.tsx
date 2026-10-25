@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useRef } from 'react'
+import { type KeyboardEvent, type ReactNode, useEffect, useRef } from 'react'
 import { cn } from '../../lib/cn'
 
 export interface TabItem<V extends string> {
@@ -22,7 +22,8 @@ const panelId = (id: string) => `${id}-panel`
 
 /**
  * Chip-style tabs following the WAI-ARIA tabs pattern: one tab stop, arrow keys,
- * Home and End move between tabs, and selection follows focus.
+ * Home and End move between tabs, and selection follows focus. On narrow screens the
+ * row scrolls sideways, and the selected tab is scrolled into it.
  */
 export function Tabs<V extends string>({
   label,
@@ -33,6 +34,32 @@ export function Tabs<V extends string>({
   className,
 }: TabsProps<V>) {
   const tabs = useRef(new Map<V, HTMLButtonElement>())
+  const list = useRef<HTMLDivElement>(null)
+
+  // A tab chosen by a link (`?tab=local`) can sit past the edge of a phone's screen: scroll it
+  // into the row when it is chosen and when the row changes size (a phone turned, say). Only the
+  // row scrolls, never the page, so a restored scroll position stays where it was.
+  useEffect(() => {
+    const row = list.current
+    if (!row) return
+    const reveal = () => {
+      const tab = tabs.current.get(value)
+      if (!tab) return
+      const rowBox = row.getBoundingClientRect()
+      const tabBox = tab.getBoundingClientRect()
+      const padding = Number.parseFloat(getComputedStyle(row).paddingLeft) || 0
+      if (tabBox.left < rowBox.left + padding) {
+        row.scrollLeft -= rowBox.left + padding - tabBox.left
+      } else if (tabBox.right > rowBox.right - padding) {
+        row.scrollLeft += tabBox.right - (rowBox.right - padding)
+      }
+    }
+    reveal()
+    if (typeof ResizeObserver !== 'function') return
+    const observer = new ResizeObserver(reveal)
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [value])
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const targets: Record<string, number> = {
@@ -52,6 +79,7 @@ export function Tabs<V extends string>({
 
   return (
     <div
+      ref={list}
       role="tablist"
       aria-label={label}
       className={cn(
