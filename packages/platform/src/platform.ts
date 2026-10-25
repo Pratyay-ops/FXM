@@ -12,6 +12,7 @@ import { type CapabilityMonitor, createCapabilityMonitor } from './capabilities'
 import { createCapacitorTransport } from './capacitor'
 import type { Clock } from './clock'
 import { type ConnectClient, type ConnectWindow, createConnectClient } from './connect'
+import { createDesktopFetch, isTauriRuntime } from './desktop'
 import { createLiteTier, type KillSwitches, type LiteTier, type SandboxTransport } from './lite'
 import type { NativeHttp } from './native'
 import { createNodeTransport } from './node'
@@ -85,7 +86,10 @@ export interface PlatformOptions {
   sandbox?: SandboxTransport
   /** The remote kill switches, read whenever they matter. */
   killSwitches?: () => KillSwitches
-  /** Desktop and Android: the native HTTP of stage 7.2 or 6.2. Without it, the stub transport. */
+  /**
+   * Desktop and Android: the native HTTP of stage 7.2 or 6.2. Without it, the stub transport,
+   * except in the desktop app, whose runtime brings `createDesktopFetch()`.
+   */
   nativeHttp?: NativeHttp
   /** Desktop and Android: whether a logged-in Spotify token source exists (7.4 and 6.5). */
   nativeSpotifyLogin?: boolean
@@ -181,9 +185,12 @@ function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptio
     storage,
     ...(options.clock === undefined ? {} : { clock: options.clock }),
   })
+  const nativeHttp =
+    options.nativeHttp ??
+    (environment === 'tauri' && isTauriRuntime() ? createDesktopFetch() : undefined)
   const transportOptions = {
     budget,
-    ...(options.nativeHttp === undefined ? {} : { http: options.nativeHttp }),
+    ...(nativeHttp === undefined ? {} : { http: nativeHttp }),
     ...(options.userHosts === undefined ? {} : { userHosts: options.userHosts }),
     ...(options.userAgent === undefined ? {} : { userAgent: options.userAgent }),
     ...(options.fetch === undefined ? {} : { webFetch: options.fetch }),
@@ -194,7 +201,7 @@ function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptio
       : createCapacitorTransport(transportOptions)
   const capabilities = createCapabilityMonitor({
     platform: ENVIRONMENT_PLATFORMS[environment],
-    nativeTransport: options.nativeHttp !== undefined,
+    nativeTransport: nativeHttp !== undefined,
     nativeSpotifyLogin: options.nativeSpotifyLogin === true,
   })
   return { transport, budget, capabilities }
@@ -225,7 +232,8 @@ function nodePieces(options: PlatformOptions): Pieces {
  *
  * - **browser:** the web transport with FXM Connect and, given `sandbox`, the Lite tier;
  * - **tauri** and **capacitor:** the native transport given `nativeHttp`, else the stub that
- *   reaches only CORS-friendly hosts;
+ *   reaches only CORS-friendly hosts. In the desktop app itself, `nativeHttp` defaults to
+ *   `createDesktopFetch()`;
  * - **node:** the Node transport, with full access.
  *
  * Every environment has one request budget, which every InnerTube call draws from.

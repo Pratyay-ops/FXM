@@ -44,7 +44,7 @@ On the web, what FXM reaches depends on the tier:
 | Last.fm station JSON | — | — | ✅ |
 | Capabilities | `youtube: 'none'` | `youtube: 'simple'` | `youtube: 'full'`, `mediaBytes: true` |
 
-`<audio src>` plays googlevideo URLs on every tier: playback needs no `fetch`. The desktop and Android apps reach everything once their native HTTP exists (stages 7.2 and 6.2), and Node always does.
+`<audio src>` plays googlevideo URLs on every tier: playback needs no `fetch`. The desktop app reaches everything through its native HTTP (stage 7.2), the Android app will once stage 6.2 supplies its own, and Node always does.
 
 A refused request rejects with an `Unsupported` `FxmError` that names what is missing, before any budget is spent. Every request goes out with `credentials: 'omit'`, and no transport sends a caller's `Origin` or `Cookie` header.
 
@@ -122,7 +122,7 @@ Anonymous tokens need no bridge: with FXM Connect the page fetches `open.spotify
 `resolveCapabilities(inputs)` is the pure rule, `detectCapabilities(options)` runs it once, and `createCapabilityMonitor(options)` keeps the result current and has `subscribe`:
 
 - **Web:** FXM Connect `present` with feature `youtube` gives `youtube: 'full'`, plus `mediaBytes` with `googlevideo`. Otherwise `'simple'` once the Lite self-test passed and no kill switch is set, else `'none'`. Spotify is `anonymous` with feature `spotify` and `account` with `spotify-login` as well, otherwise `unreachable`.
-- **Desktop and Android:** `full`, media bytes, and Spotify `anonymous` (or `account` with a login token source) once their native HTTP exists. Until stages 7.2 and 6.2 supply it, their transports are stubs and they honestly report `youtube: 'none'` and Spotify `unreachable`.
+- **Desktop and Android:** `full`, media bytes, and Spotify `anonymous` (or `account` with a login token source) once their native HTTP exists: in the desktop app, `createPlatform()` brings stage 7.2's by itself. Without one (Android until stage 6.2), their transports are stubs and they honestly report `youtube: 'none'` and Spotify `unreachable`.
 - `mediaBytes` is only ever `true` with `youtube: 'full'`, as `NetworkCapabilities` requires.
 
 Detection follows the architecture's order: FXM Connect first, and the Lite self-test only when it gives no full access. The self-test runs once per session (it draws one slot from the budget); `lite.check({ force: true })` runs it again, and `capabilities.refresh()` re-evaluates after the kill switches changed.
@@ -142,12 +142,29 @@ Desktop and Android reach every host directly through a `NativeHttp` function: `
 
 With `userAgent`, YouTube and Spotify requests that carry no `User-Agent` get that browser one: Spotify refuses non-browser agents.
 
-- **Tauri (stage 7.2):** `createTauriTransport({ http })`, where `http` wraps `@tauri-apps/plugin-http` built with `unsafe-headers`, which removes the `Origin` header for an empty value. Redirects must stay within the plugin's scope.
+- **Tauri (stage 7.2):** `createTauriTransport({ http: createDesktopFetch() })`, which `createPlatform()` sets up by itself when it finds Tauri's runtime (`isTauriRuntime()`). See [Desktop](#desktop).
 - **Capacitor (stage 6.2):** `createCapacitorTransport({ http })`, where `http` wraps FXM's OkHttp plugin with its own cookie jar. Never Capacitor's global `CapacitorHttp` patch or `CapacitorHttp.request`: the patch drops headers and corrupts binary bodies, and both send WebView cookies.
 
 Without `http`, both are stubs: CORS-friendly hosts through the webview's own `fetch` (on Android the unpatched one, `unpatchedFetch()`), and an `Unsupported` error naming the missing stage for everything else.
 
 `createNodeTransport()` reaches everything directly with Node's `fetch`, with the same allow-list, request shape and budget, for tests and the live smoke tests (`FXM_LIVE=1`).
+
+## Desktop
+
+`createDesktopFetch()` (`src/desktop.ts`) is the desktop app's `NativeHttp`. It loads Tauri's bindings (`@tauri-apps/plugin-http` and `@tauri-apps/api`) on its first request, so a browser never downloads them, and sends:
+
+- **Hosts in the table** through Tauri's HTTP plugin, whose scope in the app's `capabilities/default.json` lists exactly those hosts and whose `scopeRedirects` setting checks every redirect against it. A refused address, a redirect's included, rejects with an `Unsupported` `FxmError`; a network failure with a `TypeError`, and an abort with the signal's reason, as `fetch` does.
+- **Any other host** through the app's `user_host_fetch` Rust command, which reaches only hosts the user approved, by `GET` or `HEAD`, over HTTPS, to public addresses, with at most 8 MiB in 30 s. Its refusals reject with an `Unsupported` `FxmError` (`Parse` for a response that is too large).
+
+It enforces the header policy once more at the last step, whatever the caller sent:
+
+- `origin` is `''` (no `Origin` header, which needs the plugin's `unsafe-headers` feature) unless it is the `https:` origin of a real site, such as Spotify's: the webview's own origin (`tauri://localhost`, `http(s)://tauri.localhost`, a dev server's) never goes out (`siteOrigin`);
+- a request that names no User-Agent gets a browser's for YouTube and Spotify (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS) and FXM's own for every other host (`fxmUserAgent`), never the plugin's `tauri-plugin-http/<version>`, which Spotify refuses;
+- headers go only in `init.headers`, as a plain object; `Cookie` is never sent, and `Set-Cookie` never reaches the caller.
+
+`createDesktopUserHosts()` is the client for the approved hosts: `refresh()` and `current()` read the list, which Rust keeps, `revoke(host)` shrinks it, and `approve(host)` asks the user in a native dialog. Only that dialog can grow the list, so no page script can make FXM contact a new host. Pass `userHosts: () => hosts.current()` to `createPlatform()`, so the transport routes those hosts.
+
+The app side, its scope, permissions and content security policy are in [apps/desktop/README.md](../../apps/desktop/README.md#network).
 
 ## Test helpers
 
@@ -172,6 +189,7 @@ scripts/run.sh pnpm --filter @fxm/platform typecheck
 | `src/platform.ts` | `detectEnvironment`, `createPlatform`, `FxmPlatform.context` |
 | `src/transport.ts` | The shared transport core: classification, request forms, budget draws, bot-check reports |
 | `src/web.ts`, `src/node.ts`, `src/native.ts`, `src/tauri.ts`, `src/capacitor.ts` | One transport per environment, and the native contract |
+| `src/desktop.ts` | The desktop app's native HTTP and its approved hosts (stage 7.2) |
 | `src/hosts.ts`, `src/cors.ts`, `src/innertube.ts` | The host table, the CORS safelist and the InnerTube request shape |
 | `src/budget.ts` | The shared request budget |
 | `src/connect.ts` | FXM Connect detection and the bridge client |

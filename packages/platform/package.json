@@ -14,7 +14,9 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@fxm/core": "workspace:*"
+    "@fxm/core": "workspace:*",
+    "@tauri-apps/api": "^2.12.3",
+    "@tauri-apps/plugin-http": "^2.8.2"
   },
   "devDependencies": {
     "happy-dom": "^20.14.6"
