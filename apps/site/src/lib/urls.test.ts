@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { canonicalUrl, publicPath, routeForFile } from './urls'
 
-const SITE = 'https://fxm-music.pages.dev'
+const SITE = 'https://fxmusic.pages.dev'
 
 describe('publicPath', () => {
   it.each([
