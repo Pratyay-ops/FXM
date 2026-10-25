@@ -5,7 +5,10 @@ import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
 import { useLibraryViewStore } from '../features/library/view-store'
+import { setLyricsProvider } from '../features/lyrics/lyrics-source'
+import { resetPlayback } from '../features/now-playing/playback'
 import { usePlayerStore } from '../features/player/player-store'
+import { useQueueReviewStore } from '../features/queue/review-store'
 import { useFeedbackStore } from '../features/search/feedback'
 import { useSettingsStore } from '../features/settings/settings-store'
 
@@ -18,11 +21,15 @@ afterEach(async () => {
   vi.restoreAllMocks()
   // The stores are app-wide singletons: give every test a fresh start.
   useSettingsStore.setState(useSettingsStore.getInitialState(), true)
-  usePlayerStore.setState(usePlayerStore.getInitialState(), true)
+  useQueueReviewStore.setState(useQueueReviewStore.getInitialState(), true)
   useLibraryViewStore.setState(useLibraryViewStore.getInitialState(), true)
   // The shell's toast: no confirmation carries over into the next test.
   useFeedbackStore.setState(useFeedbackStore.getInitialState(), true)
   localStorage.clear()
+  // After clearing storage, so the next player restores nothing.
+  resetPlayback()
+  setLyricsProvider(undefined)
+  usePlayerStore.setState(usePlayerStore.getInitialState(), true)
   delete document.documentElement.dataset.theme
   // After cleanup(), so no live query still watches the database being deleted.
   await resetLibrary()
