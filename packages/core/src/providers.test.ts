@@ -576,3 +576,31 @@ describe('stream options', () => {
     expect([withFunction.playback, withBytes.playback]).toHaveLength(2)
   })
 })
+
+describe('paged radio', () => {
+  /** A station that goes on: page `n` holds tracks `n` and `n + 1`, the seed never among them. */
+  const station: RecommendationProvider = {
+    id: 'ytm',
+    async radio(seed, ctx) {
+      const page = await this.radioPage?.(seed, {}, ctx)
+      return page?.items ?? []
+    },
+    async radioPage(_seed, options) {
+      const page = Number(options.cursor ?? '0')
+      const track = (n: number): Track => ({ ...song, id: formatId('ytm', 'track', `song${n}`) })
+      return { items: [track(2 * page + 2), track(2 * page + 3)], nextCursor: String(page + 1) }
+    },
+  }
+
+  it('lets a provider page its radio, with radio returning the first page', async () => {
+    const ids = (tracks: Track[] = []) => tracks.map((track) => parseId(track.id).nativeId)
+    const first = await station.radioPage?.(song, {}, context('music'))
+    const cursor = first?.nextCursor ?? ''
+    const second = await station.radioPage?.(song, { cursor }, context('music'))
+    expect([ids(first?.items), ids(second?.items)]).toEqual([
+      ['song2', 'song3'],
+      ['song4', 'song5'],
+    ])
+    expect(await station.radio(song, context('music'))).toEqual(first?.items)
+  })
+})

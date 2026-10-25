@@ -275,6 +275,12 @@ export interface RecommendationProvider {
    * seeds from other sources.
    */
   radio(seed: RadioSeed, ctx: ProviderContext): Promise<Track[]>
+  /**
+   * The same radio one page at a time, for sources whose stations go on, such as YouTube Music's:
+   * the first page without a cursor, then each page's `nextCursor`, with the same seed. A page
+   * never repeats a track of the pages before it. The first page holds what `radio` returns.
+   */
+  radioPage?(seed: RadioSeed, options: PageOptions, ctx: ProviderContext): Promise<Page<Track>>
   /** A home feed, e.g. Spotify's personal shelves when the user is logged in. */
   home?(ctx: ProviderContext): Promise<Shelf[]>
 }
