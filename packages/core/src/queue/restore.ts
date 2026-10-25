@@ -141,8 +141,11 @@ function cleanExternalIds(value: unknown): Partial<Record<SourceId, string>> | u
  * A clean {@link Track}, or `undefined` when a required field is missing or malformed: the ID
  * (whose source must be `source`), the title, the artists, the artwork and the kind. A malformed
  * optional field is dropped on its own; unknown fields are never copied.
+ *
+ * {@link restoreQueue} uses it for every item; other stores of tracks, such as the library's
+ * backups, use it too, so a track is checked the same way wherever it is read back.
  */
-function cleanTrack(value: unknown): Track | undefined {
+export function cleanTrack(value: unknown): Track | undefined {
   if (!isRecord(value) || !isTrackId(value.id) || !isSourceId(value.source)) return undefined
   if (parseId(value.id).source !== value.source) return undefined
   if (!isString(value.title) || !isTrackKind(value.kind)) return undefined
@@ -173,7 +176,7 @@ function cleanTrack(value: unknown): Track | undefined {
 }
 
 /** Clean {@link MatchSignals}, or `undefined` when the two required flags are missing. */
-function cleanSignals(value: unknown): MatchSignals | undefined {
+export function cleanSignals(value: unknown): MatchSignals | undefined {
   if (!isRecord(value) || !isBoolean(value.isrcVerified) || !isBoolean(value.sourceAlbumMatch)) {
     return undefined
   }
@@ -190,7 +193,7 @@ function cleanSignals(value: unknown): MatchSignals | undefined {
  * A clean {@link AudioCandidate}, or `undefined` when a required field is missing or malformed
  * (the confidence must be between 0 and 1). Malformed optional fields are dropped on their own.
  */
-function cleanCandidate(value: unknown): AudioCandidate | undefined {
+export function cleanCandidate(value: unknown): AudioCandidate | undefined {
   if (!isRecord(value) || !isSourceId(value.source) || !isNonEmptyString(value.ref)) {
     return undefined
   }
@@ -212,8 +215,11 @@ function cleanCandidate(value: unknown): AudioCandidate | undefined {
   }
 }
 
-/** A clean copy of a {@link QueueContext}, or `undefined` when `value` is not a valid one. */
-function cleanContext(value: unknown): QueueContext | undefined {
+/**
+ * A clean copy of a {@link QueueContext} with only that type's fields, or `undefined` when
+ * `value` is not a valid one.
+ */
+export function cleanContext(value: unknown): QueueContext | undefined {
   if (!isRecord(value) || !isString(value.title)) return undefined
   const { title } = value
   switch (value.type) {

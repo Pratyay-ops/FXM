@@ -24,6 +24,11 @@ async function openMoreMenu(user: ReturnType<typeof renderCatalog>['user'], name
   return screen.findByRole('menu')
 }
 
+/** What the live regions on the page say: the toast, and the sidebar's drag announcements. */
+function statusTexts(): string[] {
+  return screen.queryAllByRole('status').map((element) => element.textContent ?? '')
+}
+
 describe('Album page', () => {
   it('shows the album with its badges, byline and numbered tracks', async () => {
     renderCatalog(NEON_HARBOR)
@@ -95,11 +100,11 @@ describe('Album page', () => {
 
     let menu = await openMoreMenu(user, 'Neon Harbor')
     await user.click(within(menu).getByRole('menuitem', { name: 'Play next' }))
-    expect(screen.getByRole('status')).toHaveTextContent('10 songs play next')
+    expect(statusTexts()).toContain('10 songs play next')
 
     menu = await openMoreMenu(user, 'Neon Harbor')
     await user.click(within(menu).getByRole('menuitem', { name: 'Add to queue' }))
-    expect(screen.getByRole('status')).toHaveTextContent('Added 10 songs to the queue')
+    expect(statusTexts()).toContain('Added 10 songs to the queue')
 
     menu = await openMoreMenu(user, 'Neon Harbor')
     await user.click(within(menu).getByRole('menuitem', { name: 'Add to playlist…' }))
@@ -108,7 +113,7 @@ describe('Album page', () => {
     await user.click(await within(dialog).findByRole('button', { name: /^Workout/ }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.getByRole('status')).toHaveTextContent('Added 10 songs to Workout')
+    expect(statusTexts()).toContain('Added 10 songs to Workout')
     expect(actions.log.map((entry) => entry.action)).toEqual([
       'playNext',
       'addToQueue',
@@ -129,7 +134,7 @@ describe('Album page', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(actions.log).toMatchObject([{ action: 'createPlaylist', name: 'Harbor nights' }])
-    expect(screen.getByRole('status')).toHaveTextContent('Created Harbor nights with 10 songs')
+    expect(statusTexts()).toContain('Created Harbor nights with 10 songs')
   })
 
   it('closes the add-to-playlist dialog with the page that opened it', async () => {
