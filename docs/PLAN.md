@@ -105,7 +105,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **1.3** | YouTube Music + YouTube metadata provider | `feat/1.3-youtube` | 1.1b | 🟡 |
 | **1.4** | YouTube stream resolver: direct rungs | `feat/1.4-youtube-streams` | 1.2, 1.3 | 🟡 |
 | **1.5** | Spotify provider (switchable; anonymous and logged-in tokens) | `feat/1.5-spotify` | 1.1b | 🟡 |
-| **1.6** | Free and lossless sources: Internet Archive, Jamendo, MusicBrainz | `feat/1.6-free-sources` | 1.1b | 🟡 |
+| **1.6** | Free and lossless sources: Internet Archive, Jamendo, MusicBrainz | `feat/1.6-free-sources` | 1.1b | ✅ |
 | **1.7** | Matching engine | `feat/1.7-matching` | 1.1b | 🟡 |
 | **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | ✅ |
 | **1.9** | FXM Connect browser extension | `feat/1.9-connect-extension` | 0.4 | ✅ |
@@ -343,7 +343,7 @@ Built in and switchable (Decision 1, option A). A clean-room implementation from
 - A live smoke test from Node with a browser User-Agent covers search, artist, album (`getAlbum` was never tested anonymously), related artists, track and artist radio, and ISRC lookup.
 - Fixtures cover the 401, 403 User-Agent, 412 and 429 paths, and the secret failures: a missing secret, malformed JSON, an expired version (HTTP 400) and an unreachable URL.
 
-### 1.6 Free and lossless sources
+### 1.6 Free and lossless sources ✅
 
 **Branch** `feat/1.6-free-sources` · **Depends on** 1.1b · **Scope** `packages/sources/src/{archive,jamendo,musicbrainz}/**`
 
