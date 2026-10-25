@@ -47,5 +47,61 @@
       ],
       "trackCounts": ["song", "songs", "track", "tracks", "video", "videos", "episode", "episodes"]
     }
+  },
+  "streams": {
+    "rungs": [
+      {
+        "id": "visionos",
+        "kind": "direct",
+        "enabled": true,
+        "client": { "name": "VISIONOS", "version": "1.02", "host": "www.youtube.com" },
+        "itags": [251, 140, 250, 249, 139]
+      },
+      {
+        "id": "ios",
+        "kind": "direct",
+        "enabled": false,
+        "client": {
+          "name": "IOS",
+          "version": "20.11.6",
+          "host": "www.youtube.com",
+          "fields": {
+            "deviceMake": "Apple",
+            "deviceModel": "iPhone10,4",
+            "osName": "iOS",
+            "osVersion": "16.7.7.20H330"
+          }
+        },
+        "itags": [140, 139]
+      },
+      {
+        "id": "android-vr",
+        "kind": "direct",
+        "enabled": false,
+        "client": {
+          "name": "ANDROID_VR",
+          "version": "1.65.10",
+          "host": "www.youtube.com",
+          "fields": {
+            "deviceMake": "Oculus",
+            "deviceModel": "Quest 3",
+            "osName": "Android",
+            "osVersion": "12L",
+            "androidSdkVersion": 32
+          }
+        },
+        "itags": [251, 140, 250, 249, 139]
+      },
+      {
+        "id": "android-muxed",
+        "kind": "direct",
+        "enabled": true,
+        "fallback": true,
+        "client": { "name": "ANDROID", "version": "21.26.364", "host": "www.youtube.com" },
+        "itags": [18],
+        "tries": ["made-for-kids"]
+      }
+    ],
+    "muxedAudioKbps": { "18": 128 }
   }
 }
