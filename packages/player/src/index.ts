@@ -12,6 +12,7 @@ export {
   type PlaySupport,
 } from './engine'
 export { formatTime } from './format-time'
+export * from './lifecycle'
 export {
   connectMediaSession,
   type FxmMediaSessionAction,
