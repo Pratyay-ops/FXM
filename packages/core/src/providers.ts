@@ -122,7 +122,10 @@ export interface ProviderContext {
   platform: Platform
   /** What the network stack can reach. */
   capabilities: NetworkCapabilities
-  /** The catalog mode; providers filter their track results with `applyModeFilter`. */
+  /**
+   * The catalog mode. Providers filter the tracks they list with `applyModeFilter`, and audio
+   * sources return only candidates that pass `isPlayable`.
+   */
   mode: CatalogMode
   /** Preferred language as a BCP 47 tag, e.g. `en-IN`. */
   locale?: string
