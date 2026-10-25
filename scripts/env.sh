@@ -53,7 +53,12 @@ export PIP_CACHE_DIR="$FXM_TOOLS/pip/cache"
 export GRADLE_USER_HOME="$FXM_TOOLS/gradle"
 export ANDROID_HOME="$FXM_TOOLS/android-sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export ANDROID_USER_HOME="$FXM_TOOLS/android-user"
+# Android tools keep their settings, keys and caches in ANDROID_USER_HOME, a .android folder.
+# The Android Gradle plugin's analytics ignore it and read ANDROID_PREFS_ROOT, which the plugin
+# accepts only as the folder holding that .android. ANDROID_SDK_HOME (deprecated) would compete.
+export ANDROID_PREFS_ROOT="$FXM_TOOLS/android-user"
+export ANDROID_USER_HOME="$ANDROID_PREFS_ROOT/.android"
+unset ANDROID_SDK_HOME
 _fxm_local_jdk=
 if [ -d "$FXM_TOOLS/jdk/Contents/Home" ]; then
   _fxm_local_jdk="$FXM_TOOLS/jdk/Contents/Home"
