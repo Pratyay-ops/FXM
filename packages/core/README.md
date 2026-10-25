@@ -17,7 +17,7 @@ Everything is re-exported from `src/index.ts`, so import from `@fxm/core`.
 
 | Module | What it holds |
 |---|---|
-| `ids.ts` | `SourceId` (`ytm`, `yt`, `spotify`, `archive`, `jamendo`, `local`, `jiosaavn`), `EntityKind`, and the branded `EntityId<K>` = `<source>:<kind>:<nativeId>`. `formatId` builds one. `parseId` splits one: it never returns `null` for a branded ID and never throws for anything else. `isEntityId` checks untrusted values. `entityKey` and `sameEntity` de-duplicate, and `normalizeIsrc` gives the canonical ISRC. Native IDs may contain `:`. |
+| `ids.ts` | `SourceId`: a built-in source (`BuiltInSourceId`: `ytm`, `yt`, `spotify`, `archive`, `jamendo`, `local`) or a runtime plugin's (`PluginSourceId`, `plugin.<name>`, checked by `isPluginSourceId`). `EntityKind`, and the branded `EntityId<K>` = `<source>:<kind>:<nativeId>`. `formatId` builds one. `parseId` splits one: it never returns `null` for a branded ID and never throws for anything else. `isEntityId` checks untrusted values. `entityKey` and `sameEntity` de-duplicate, and `normalizeIsrc` gives the canonical ISRC. Native IDs may contain `:`. |
 | `model.ts` | `Track` (with `kind`: `song`, `music-video`, `video`, `episode`), `Album`, `Artist`, `Playlist`, `Artwork`, `ArtistRef`, `AlbumRef`, `Page<T>`, home-feed `Shelf`s, and `SearchResults`, where songs (`tracks`) and videos (`videos`) are paged separately. Also the `isTrackSeed` guard. |
 | `mode.ts` | `CatalogMode` (`music` = "Music", `all` = "Music + Video") and the one policy every feature goes through: `modePolicy` (`playable`, `needs-song-match`, `hidden`). `applyModeFilter` filters lists to show; `isPlayable` and `filterPlayable` filter what is about to play, such as audio candidates. In Music mode an official music video must be mapped to its song first, and other videos are hidden. |
 | `quality.ts` | `Codec`, `Container`, `QualityTier` with `tierOf` (documented per-codec thresholds), and `compareStreams` and `pickStream` to rank streams and apply a tier ceiling. `DownloadFormat` with `DOWNLOAD_FORMATS` and `describeConversion` (honest labels such as "FLAC (converted from Opus, same quality as the source)"). `QualityPrefs` with `DEFAULT_QUALITY_PREFS` (read-only), `DEFAULT_MP3_KBPS`, `sanitizeQualityPrefs` and the value guards. |
@@ -35,14 +35,20 @@ Likes, follows, history, playlists and the caches are keyed by IDs that several 
 | `spotify` | The 22-character base62 ID, never a `spotify:track:…` URI or an open.spotify.com URL |
 | `archive` | The item identifier for albums, and `<identifier>/<file path>` for tracks |
 | `jamendo` | Jamendo's numeric ID, in decimal |
-| `jiosaavn` | JioSaavn's own ID |
 | `local` | An ID that the local-files feature chooses, stable across rescans of the same file |
+| `plugin.<name>` | Whatever the plugin chooses, opaque to FXM: it is never parsed, normalized or merged with another source's IDs, so the plugin itself must spell each entity's ID one way only |
 
 YouTube Music and plain YouTube share one ID space. An item gets `ytm` when it came from YouTube Music, whatever its kind (a song, an official video, or an upload found there), and `yt` only when it came from plain YouTube. The same video can therefore have both IDs, and `entityKey` gives them one key (`youtube:track:<videoId>`) for storage and de-duplication.
 
 Audio follows the same rules. An `AudioCandidate`'s `source` is the audio source that resolves it, and `formatId(source, 'track', ref)` is its track ID. YouTube has a single audio source, `ytm`, for every videoId.
 
 ISRCs are stored in their canonical form, 12 upper-case characters without separators (`GBARL9300135`), through `normalizeIsrc`.
+
+### Plugin sources
+
+Runtime plugins (a later stage) add sources of their own. A plugin source ID is `plugin.` and the plugin's name, such as `plugin.radio-garden`. The name follows the rule for a DNS label: 1 to 63 lower-case ASCII letters, digits and hyphens, neither starting nor ending with a hyphen. So it has one spelling only, never contains the `:` that separates the parts of an ID, and can never take the ID of a built-in source, present or future.
+
+`isSourceId`, `formatId`, `parseId` and `isEntityId` accept the six built-in sources, spelled exactly, and any plugin source whose name is well formed. A plugin's native IDs are opaque (see the table above), so `entityKey` keys every plugin ID by itself and never merges it with another source's.
 
 ### Choosing a stream
 

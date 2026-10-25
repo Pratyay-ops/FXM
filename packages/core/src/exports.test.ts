@@ -4,7 +4,7 @@ import * as core from './index'
 describe('the @fxm/core entry point', () => {
   it.each([
     ['ids', ['SOURCE_IDS', 'ENTITY_KINDS', 'formatId', 'parseId', 'isEntityId', 'isSourceId']],
-    ['id helpers', ['entityKey', 'sameEntity', 'normalizeIsrc']],
+    ['id helpers', ['entityKey', 'sameEntity', 'normalizeIsrc', 'isPluginSourceId']],
     ['model', ['isTrackSeed']],
     ['mode', ['CATALOG_MODES', 'CATALOG_MODE_LABELS', 'modePolicy', 'applyModeFilter']],
     ['mode helpers', ['DEFAULT_CATALOG_MODE', 'isVideoKind', 'isCatalogMode']],

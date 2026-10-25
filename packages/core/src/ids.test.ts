@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
+  type BuiltInSourceId,
   ENTITY_KINDS,
   type EntityId,
   type EntityIdParts,
@@ -8,16 +9,49 @@ import {
   formatId,
   isEntityId,
   isEntityKind,
+  isPluginSourceId,
   isSourceId,
   normalizeIsrc,
+  type PluginSourceId,
   parseId,
   SOURCE_IDS,
   type SourceId,
   sameEntity,
 } from './ids'
 
+/** Plugin source IDs at the edges of the name rule. */
+const PLUGIN_SOURCES = [
+  'plugin.example',
+  'plugin.radio-garden',
+  'plugin.a',
+  'plugin.0',
+  'plugin.my-source2',
+  'plugin.a--b',
+  `plugin.${'a'.repeat(63)}`,
+] as const satisfies readonly PluginSourceId[]
+
+/** Malformed plugin source IDs, and why. */
+const MALFORMED_PLUGIN_SOURCES = [
+  ['plugin', 'no name and no dot'],
+  ['plugin.', 'an empty name'],
+  ['plugin.Radio', 'an upper-case letter'],
+  ['Plugin.radio', 'an upper-case prefix'],
+  ['plugin.-radio', 'a leading hyphen'],
+  ['plugin.radio-', 'a trailing hyphen'],
+  ['plugin.radio.garden', 'a dot in the name'],
+  ['plugin.radio_garden', 'an underscore'],
+  ['plugin.radio garden', 'a space'],
+  [' plugin.radio', 'leading whitespace'],
+  ['plugin.radio\n', 'a trailing newline'],
+  ['plugin.rädio', 'a non-ASCII letter'],
+  ['plugin..radio', 'two dots'],
+  ['plugins.radio', 'another prefix'],
+  ['xplugin.radio', 'text before the prefix'],
+  [`plugin.${'a'.repeat(64)}`, 'a name over 63 characters'],
+] as const
+
 describe('formatId and parseId', () => {
-  const combinations = SOURCE_IDS.flatMap((source) =>
+  const combinations = [...SOURCE_IDS, ...PLUGIN_SOURCES].flatMap((source) =>
     ENTITY_KINDS.map((kind) => [source, kind] as const),
   )
 
@@ -34,7 +68,8 @@ describe('formatId and parseId', () => {
     ['an Internet Archive file', 'archive', 'track', 'gd1977-05-08/d1t01.flac'],
     ['a trailing colon', 'yt', 'playlist', 'PL123:'],
     ['spaces', 'local', 'album', '/Users/me/My Music/Album'],
-    ['non-Latin text', 'jiosaavn', 'album', 'केसरिया'],
+    ['non-Latin text', 'plugin.example', 'album', 'केसरिया'],
+    ['colons in a plugin ID', 'plugin.radio-garden', 'track', 'station:42:live'],
   ] as const)('keeps a native ID with %s verbatim', (_label, source, kind, nativeId) => {
     const id = formatId(source, kind, nativeId)
     expect(id).toBe(`${source}:${kind}:${nativeId}`)
@@ -63,8 +98,15 @@ describe('formatId and parseId', () => {
     ['ytm:Track:abc', 'a kind in the wrong case'],
     ['ytm:track abc', 'a space instead of a colon'],
     ['toString:track:abc', 'an inherited property name as source'],
+    ['jiosaavn:track:abc', 'a removed source'],
+    ['plugin.radio:song:abc', 'a plugin source with an unknown kind'],
+    ['plugin.radio:track:', 'a plugin source with an empty native ID'],
   ])('returns null for %j (%s)', (input) => {
     expect(parseId(input)).toBeNull()
+  })
+
+  it.each(MALFORMED_PLUGIN_SOURCES)('returns null for the plugin source %j (%s)', (source) => {
+    expect(parseId(`${source}:track:abc`)).toBeNull()
   })
 
   it.each([undefined, null, 42, {}, ['ytm', 'track', 'abc']])(
@@ -76,7 +118,11 @@ describe('formatId and parseId', () => {
 
   it.each([
     ['an unknown source', 'youtube', 'track', 'abc'],
+    ['a removed source', 'jiosaavn', 'track', 'abc'],
+    ['a plugin source without a name', 'plugin.', 'track', 'abc'],
+    ['a plugin source with a colon in its name', 'plugin.a:b', 'track', 'abc'],
     ['an unknown kind', 'ytm', 'song', 'abc'],
+    ['an unknown kind from a plugin source', 'plugin.radio', 'song', 'abc'],
     ['an empty native ID', 'ytm', 'track', ''],
     ['a non-string native ID', 'ytm', 'track', 42],
   ])('refuses to format %s', (_label, source, kind, nativeId) => {
@@ -90,6 +136,7 @@ describe('isEntityId', () => {
   it('accepts well-formed IDs', () => {
     expect(isEntityId('ytm:track:abc')).toBe(true)
     expect(isEntityId('spotify:artist:0OdUWJ0sBjDrqHygGUXeCF')).toBe(true)
+    expect(isEntityId('plugin.radio-garden:playlist:x:y')).toBe(true)
   })
 
   it('checks the kind when one is given', () => {
@@ -97,12 +144,19 @@ describe('isEntityId', () => {
     expect(isEntityId('ytm:album:abc', 'track')).toBe(false)
   })
 
-  it.each(['ytm:track:', 'nope', '', 42, null, undefined, { id: 'ytm:track:abc' }])(
-    'rejects %j',
-    (value) => {
-      expect(isEntityId(value)).toBe(false)
-    },
-  )
+  it.each([
+    'ytm:track:',
+    'nope',
+    '',
+    42,
+    null,
+    undefined,
+    { id: 'ytm:track:abc' },
+    'jiosaavn:track:abc',
+    'plugin.Radio:track:abc',
+  ])('rejects %j', (value) => {
+    expect(isEntityId(value)).toBe(false)
+  })
 
   it('narrows unknown values to branded IDs', () => {
     const value: unknown = 'ytm:track:abc'
@@ -120,16 +174,58 @@ describe('isSourceId and isEntityKind', () => {
     expect(isEntityKind(kind)).toBe(true)
   })
 
-  it.each(['youtube', 'saavn', 'YTM', '', 'constructor', 7, null])('rejects %j', (value) => {
-    expect(isSourceId(value)).toBe(false)
-    expect(isEntityKind(value)).toBe(false)
-  })
+  it.each(['youtube', 'saavn', 'jiosaavn', 'YTM', '', 'constructor', 7, null])(
+    'rejects %j',
+    (value) => {
+      expect(isSourceId(value)).toBe(false)
+      expect(isEntityKind(value)).toBe(false)
+    },
+  )
 
-  it('lists every source and kind of the brief', () => {
+  it('lists every built-in source and kind', () => {
     expect([...SOURCE_IDS].sort()).toEqual(
-      ['archive', 'jamendo', 'jiosaavn', 'local', 'spotify', 'yt', 'ytm'].sort(),
+      ['archive', 'jamendo', 'local', 'spotify', 'yt', 'ytm'].sort(),
     )
     expect(ENTITY_KINDS).toEqual(['track', 'album', 'artist', 'playlist'])
+  })
+
+  it('no longer knows JioSaavn, at compile time or at run time', () => {
+    // @ts-expect-error JioSaavn was removed from the plan
+    const removed: SourceId = 'jiosaavn'
+    expect(isSourceId(removed)).toBe(false)
+    expect(() => formatId(removed, 'track', 'abc')).toThrow(RangeError)
+  })
+})
+
+describe('plugin sources', () => {
+  it.each(PLUGIN_SOURCES)('accepts the plugin source %s', (source) => {
+    expect(isPluginSourceId(source)).toBe(true)
+    expect(isSourceId(source)).toBe(true)
+  })
+
+  it.each(MALFORMED_PLUGIN_SOURCES)('rejects %j (%s)', (source) => {
+    expect(isPluginSourceId(source)).toBe(false)
+    expect(isSourceId(source)).toBe(false)
+  })
+
+  it.each([...SOURCE_IDS, 'toString', 42, null, undefined, { source: 'plugin.radio' }])(
+    'does not take %j for a plugin source',
+    (value) => {
+      expect(isPluginSourceId(value)).toBe(false)
+    },
+  )
+
+  it('keeps the built-in sources and the plugin sources apart in the types', () => {
+    expectTypeOf<SourceId>().toEqualTypeOf<BuiltInSourceId | `plugin.${string}`>()
+    expectTypeOf<PluginSourceId>().toEqualTypeOf<`plugin.${string}`>()
+    const source = 'plugin.radio' as SourceId
+    if (isPluginSourceId(source)) expectTypeOf(source).toEqualTypeOf<PluginSourceId>()
+    else expectTypeOf(source).toEqualTypeOf<BuiltInSourceId>()
+    const stored: unknown = 'plugin.radio'
+    if (isSourceId(stored)) expectTypeOf(stored).toEqualTypeOf<SourceId>()
+    expectTypeOf(formatId('plugin.radio', 'track', 'x')).toEqualTypeOf<EntityId<'track'>>()
+    // @ts-expect-error a plugin source needs the plugin. prefix
+    expect(() => formatId('radio', 'track', 'x')).toThrow(RangeError)
   })
 })
 
@@ -172,6 +268,8 @@ describe('entityKey and sameEntity', () => {
     ['spotify', 'track', '4uLU6hMCjMI75M1A2tKUQC', 'spotify:track:4uLU6hMCjMI75M1A2tKUQC'],
     ['archive', 'track', 'gd1977/d1t01.flac', 'archive:track:gd1977/d1t01.flac'],
     ['local', 'album', 'ytm:album:x', 'local:album:ytm:album:x'],
+    ['plugin.example', 'track', 'dQw4w9WgXcQ', 'plugin.example:track:dQw4w9WgXcQ'],
+    ['plugin.youtube', 'track', 'dQw4w9WgXcQ', 'plugin.youtube:track:dQw4w9WgXcQ'],
   ] as const)('keys %s:%s:%s as %s', (source, kind, nativeId, key) => {
     expect(entityKey(formatId(source, kind, nativeId))).toBe(key)
   })
@@ -189,10 +287,18 @@ describe('entityKey and sameEntity', () => {
     ['another source', 'spotify', 'track', 'abc'],
     ['another native ID', 'yt', 'track', 'abd'],
     ['a native ID in another case', 'ytm', 'track', 'ABC'],
+    ['a plugin source and the same native ID', 'plugin.example', 'track', 'abc'],
   ] as const)('keeps an ID with %s apart', (_label, source, kind, nativeId) => {
     expect(sameEntity(formatId('ytm', 'track', 'abc'), formatId(source, kind, nativeId))).toBe(
       false,
     )
+  })
+
+  it('never merges a plugin source with another source', () => {
+    const plugin = formatId('plugin.example', 'track', 'abc')
+    expect(sameEntity(plugin, formatId('plugin.example', 'track', 'abc'))).toBe(true)
+    expect(sameEntity(plugin, formatId('plugin.other', 'track', 'abc'))).toBe(false)
+    expect(sameEntity(plugin, formatId('yt', 'track', 'abc'))).toBe(false)
   })
 
   it('returns keys that are not entity IDs', () => {

@@ -40,7 +40,7 @@ export interface AlbumRef {
  * What a track is, which drives the catalog-mode policy (see `modePolicy`):
  *
  * - `song`: a catalog song, i.e. official album audio. YouTube Music songs (`musicVideoType`
- *   `ATV`) and every audio track from Spotify, Internet Archive, Jamendo, JioSaavn or local files
+ *   `ATV`) and every audio track from Spotify, Internet Archive, Jamendo or local files
  * - `music-video`: an official music video (`OMV` / `OFFICIAL_SOURCE_MUSIC`)
  * - `video`: any other YouTube video (`UGC`, or no `musicVideoType`): covers, live sets, uploads
  * - `episode`: a podcast episode (hidden for now)

@@ -2,6 +2,12 @@
  * Source-qualified entity IDs of the form `<source>:<kind>:<nativeId>`, for example
  * `ytm:track:dQw4w9WgXcQ` or `spotify:album:4aawyAB9vmqN3uQ7FjRGTy`, and canonical ISRCs.
  *
+ * ## Sources
+ *
+ * A source is either built in (the {@link SOURCE_IDS}) or added by a runtime plugin, whose
+ * source ID is `plugin.<name>` (see {@link PluginSourceId}). The prefix keeps the two apart, so
+ * a plugin can never take the ID of a built-in source, present or future.
+ *
  * ## Canonical native IDs
  *
  * Likes, follows, history, playlists and the caches are keyed by these IDs, and several providers
@@ -14,8 +20,10 @@
  *   open.spotify.com URL
  * - `archive`: the item identifier for albums, and `<identifier>/<file path>` for tracks
  * - `jamendo`: Jamendo's numeric ID, in decimal
- * - `jiosaavn`: JioSaavn's own ID
  * - `local`: an ID that the local-files feature chooses, stable across rescans of the same file
+ * - `plugin.<name>`: whatever the plugin chooses. FXM treats it as opaque: it never parses,
+ *   normalizes or merges it with another source's IDs, so the plugin itself must spell each
+ *   entity's ID one way only
  *
  * YouTube Music and plain YouTube share one ID space. An item gets `ytm` when it came from
  * YouTube Music, whatever its kind (a song, an official video, or an upload found there), and
@@ -25,19 +33,14 @@
  * @module
  */
 
-/** Every source FXM can read from. The order carries no meaning. */
-export const SOURCE_IDS = [
-  'ytm',
-  'yt',
-  'spotify',
-  'archive',
-  'jamendo',
-  'local',
-  'jiosaavn',
-] as const
+/**
+ * Every source built into FXM. The order carries no meaning. Runtime plugins add sources of
+ * their own (see {@link PluginSourceId}).
+ */
+export const SOURCE_IDS = ['ytm', 'yt', 'spotify', 'archive', 'jamendo', 'local'] as const
 
 /**
- * A source FXM reads from:
+ * A source built into FXM:
  *
  * - `ytm`: YouTube Music songs, albums, artists and playlists
  * - `yt`: plain YouTube videos, channels and playlists
@@ -45,9 +48,22 @@ export const SOURCE_IDS = [
  * - `archive`: Internet Archive
  * - `jamendo`: Jamendo
  * - `local`: files on the user's device
- * - `jiosaavn`: JioSaavn
  */
-export type SourceId = (typeof SOURCE_IDS)[number]
+export type BuiltInSourceId = (typeof SOURCE_IDS)[number]
+
+/**
+ * The source ID of a runtime plugin: `plugin.` and the plugin's name, e.g. `plugin.radio-garden`.
+ * The name follows the rule for a DNS label: 1 to 63 lower-case ASCII letters, digits and
+ * hyphens, neither starting nor ending with a hyphen. So it has one spelling only and never
+ * contains the `:` that separates the parts of an {@link EntityId}. The type accepts any
+ * `plugin.` string; {@link isPluginSourceId} checks the name.
+ *
+ * A plugin's native IDs are opaque to FXM (see the module documentation).
+ */
+export type PluginSourceId = `plugin.${string}`
+
+/** A source FXM reads from: a {@link BuiltInSourceId} or a {@link PluginSourceId}. */
+export type SourceId = BuiltInSourceId | PluginSourceId
 
 /** Every kind of entity an {@link EntityId} can name. */
 export const ENTITY_KINDS = ['track', 'album', 'artist', 'playlist'] as const
@@ -79,9 +95,27 @@ export interface EntityIdParts<K extends EntityKind = EntityKind> {
   nativeId: string
 }
 
-/** Whether `value` is one of the {@link SOURCE_IDS}. */
+/** `plugin.` and a name like a DNS label: see {@link PluginSourceId}. */
+const PLUGIN_SOURCE_ID = /^plugin\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u
+
+/**
+ * Whether `value` is a {@link SourceId}: one of the built-in {@link SOURCE_IDS}, or a plugin
+ * source with a well-formed name (see {@link isPluginSourceId}).
+ */
 export function isSourceId(value: unknown): value is SourceId {
-  return typeof value === 'string' && (SOURCE_IDS as readonly string[]).includes(value)
+  return (
+    typeof value === 'string' &&
+    ((SOURCE_IDS as readonly string[]).includes(value) || PLUGIN_SOURCE_ID.test(value))
+  )
+}
+
+/**
+ * Whether `value` is a well-formed {@link PluginSourceId}: `plugin.` and a name of 1 to 63
+ * lower-case ASCII letters, digits and hyphens that neither starts nor ends with a hyphen, such
+ * as `plugin.radio-garden`.
+ */
+export function isPluginSourceId(value: unknown): value is PluginSourceId {
+  return typeof value === 'string' && PLUGIN_SOURCE_ID.test(value)
 }
 
 /** Whether `value` is one of the {@link ENTITY_KINDS}. */
@@ -93,10 +127,12 @@ export function isEntityKind(value: unknown): value is EntityKind {
  * Builds an {@link EntityId} from its parts. The native ID is kept verbatim, so it may contain
  * `:` (e.g. a local file path); {@link parseId} splits only on the first two colons. Pass it in
  * its source's canonical form (see the module documentation): a Spotify ID, for example, is the
- * bare base62 ID and never a `spotify:track:…` URI.
+ * bare base62 ID and never a `spotify:track:…` URI. A plugin source's native ID is passed as the
+ * plugin gives it.
  *
- * @throws RangeError when the source or kind is unknown or the native ID is empty. Those are
- * programming errors, and refusing them guarantees that every formatted ID parses back.
+ * @throws RangeError when the source is neither built in nor a well-formed plugin source, the
+ * kind is unknown or the native ID is empty. Those are programming errors, and refusing them
+ * guarantees that every formatted ID parses back.
  */
 export function formatId<K extends EntityKind>(
   source: SourceId,
@@ -120,7 +156,8 @@ export function parseId<K extends EntityKind>(id: EntityId<K>): EntityIdParts<K>
 /**
  * Splits a value that may be an ID into its parts. Only the first two `:` separate parts, so the
  * native ID may contain more colons. Returns `null`, and never throws, when the value is not a
- * string, the source or kind is unknown, or the native ID is empty.
+ * string, the source is not a {@link SourceId} (built in, or a plugin source with a well-formed
+ * name), the kind is unknown, or the native ID is empty.
  */
 export function parseId(id: unknown): EntityIdParts | null
 export function parseId(id: unknown): EntityIdParts | null {
@@ -151,8 +188,10 @@ export function isEntityId<K extends EntityKind = EntityKind>(
 /**
  * The key to store and de-duplicate an entity under: equal for IDs that name the same entity.
  * `ytm` and `yt` share one ID space, so `ytm:track:dQw4w9WgXcQ` and `yt:track:dQw4w9WgXcQ` both
- * have the key `youtube:track:dQw4w9WgXcQ`; any other ID is its own key. The key is only for
- * comparing and storing: it is not an `EntityId` and need not parse as one.
+ * have the key `youtube:track:dQw4w9WgXcQ`; any other ID is its own key. That includes a plugin
+ * source's IDs, which are opaque, so they never share a key with another source's, even when the
+ * native IDs look alike. The key is only for comparing and storing: it is not an `EntityId` and
+ * need not parse as one.
  */
 export function entityKey(id: EntityId): string {
   const source = id.slice(0, id.indexOf(':'))
