@@ -1,0 +1,24 @@
+{
+  "video": false,
+  "artist-credit": [
+    {
+      "name": "Radiohead",
+      "artist": {
+        "type-id": "e431f5f6-b5d2-343d-8b36-72607fffb74b",
+        "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+        "country": "GB",
+        "type": "Group",
+        "disambiguation": "",
+        "name": "Radiohead",
+        "sort-name": "Radiohead"
+      },
+      "joinphrase": ""
+    }
+  ],
+  "first-release-date": "1992-09-21",
+  "disambiguation": "You’re so fucking special",
+  "isrcs": ["GBAYE9200070"],
+  "title": "Creep",
+  "id": "70595637-9310-45f2-a266-58f8de4874a7",
+  "length": 236666
+}
