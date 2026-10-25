@@ -1,7 +1,8 @@
 /**
- * The Android launcher icons and splash icon, drawn from the FXM mark. Edit this file, then
- * run `scripts/run.sh pnpm --filter @fxm/mobile icons` to rewrite the resources; icons.test.ts
- * fails while the committed files differ from what this module produces.
+ * The Android launcher icons, the splash icon and the media notification's small icon, drawn
+ * from the FXM mark. Edit this file, then run `scripts/run.sh pnpm --filter @fxm/mobile icons`
+ * to rewrite the resources; icons.test.ts fails while the committed files differ from what this
+ * module produces.
  */
 import type { Image } from './png.ts'
 
@@ -222,6 +223,46 @@ function legacyIcon(pixels: number, round: boolean): Image {
   const tile = tileBox(placement)
   const shape = round ? insideCircle(24, 24, tile.width / 2) : insideBox(tile)
   return render(pixels, 48, [{ inside: shape, paint: linearGradient(tile) }, barsLayer(placement)])
+}
+
+// --- The notification's small icon ------------------------------------------------------
+
+/** Where the native player's notification icon goes, relative to apps/mobile/android. */
+export const NOTIFICATION_ICON_PATH = 'fxm-player/src/main/res/drawable/fxm_notification_icon.xml'
+
+/** Android's status-bar icons: a 24-unit grid whose outer 2 units stay empty. */
+const STATUS_BAR = { size: 24, padding: 2 } as const
+
+/**
+ * The media notification's small icon (stage 6.3): the mark's five bars without the tile, white
+ * on transparent, centred in the status bar's live area. Android draws only its alpha.
+ */
+export function notificationIcon(): string {
+  const left = Math.min(...MARK.bars.map((bar) => bar.x))
+  const right = Math.max(...MARK.bars.map((bar) => bar.x + MARK.barWidth))
+  const top = Math.min(...MARK.bars.map((bar) => bar.y))
+  const bottom = Math.max(...MARK.bars.map((bar) => bar.y + bar.height))
+  const live = STATUS_BAR.size - 2 * STATUS_BAR.padding
+  const scale = live / Math.max(right - left, bottom - top)
+  const dx = (STATUS_BAR.size - (right - left) * scale) / 2 - left * scale
+  const dy = (STATUS_BAR.size - (bottom - top) * scale) / 2 - top * scale
+  const data = MARK.bars
+    .map((bar) =>
+      boxPath({
+        x: dx + bar.x * scale,
+        y: dy + bar.y * scale,
+        width: MARK.barWidth * scale,
+        height: bar.height * scale,
+        radius: (MARK.barWidth / 2) * scale,
+      }),
+    )
+    .join('')
+  return (
+    `${XML_HEADER}<vector xmlns:android="http://schemas.android.com/apk/res/android"\n` +
+    `    android:width="${STATUS_BAR.size}dp"\n    android:height="${STATUS_BAR.size}dp"\n` +
+    `    android:viewportWidth="${STATUS_BAR.size}"\n    android:viewportHeight="${STATUS_BAR.size}">\n` +
+    `    <path\n        android:fillColor="#ffffff"\n        android:pathData="${data}" />\n</vector>\n`
+  )
 }
 
 // --- Everything together ----------------------------------------------------------------
