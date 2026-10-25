@@ -1,14 +1,60 @@
-import { ListMusic } from 'lucide-react'
+import { CircleAlert, ListMusic } from 'lucide-react'
 import { Link, useLocation, useSearchParams } from 'react-router'
 import { Artwork } from '../../components/ui/artwork'
 import { iconButtonClasses } from '../../components/ui/icon-button'
 import { cn } from '../../lib/cn'
+import { useCurrentItem, usePlayerState } from '../now-playing/playback'
+import { TrackArtwork } from '../now-playing/track-artwork'
 import { CATALOG_MODE_OPTIONS } from '../settings/options'
 import { useSettingsStore } from '../settings/settings-store'
 import { LikeButton, PlayerControls, PlayPauseButton, SeekBar, VolumeControl } from './controls'
-import { PLACEHOLDER_TRACK, usePlayerStore } from './player-store'
+import { usePlayerStore } from './player-store'
 
-const NOW_PLAYING_LABEL = `Open now playing: ${PLACEHOLDER_TRACK.title} by ${PLACEHOLDER_TRACK.artist}`
+/**
+ * The current track as the bars show it, or "Not playing" while the queue is empty. When
+ * playback stopped on a problem, the bars say "Couldn’t play" instead of the artists (Now
+ * playing says why, and the app's announcer tells screen readers).
+ */
+function useNowPlaying() {
+  const item = useCurrentItem()
+  const failed = usePlayerState((state) => state.error !== undefined)
+  if (item === undefined) {
+    return { title: 'Not playing', artists: '', failed: false, label: 'Open now playing' }
+  }
+  const { title } = item.track
+  const artists = item.track.artists.map((artist) => artist.name).join(', ')
+  const label = `Open now playing: ${title} by ${artists}`
+  return { title, artists, failed, label: failed ? `${label}. Couldn’t play` : label }
+}
+
+/** The bars' second line: the artists, or that the track couldn't play. */
+function Subtitle({ artists, failed }: { artists: string; failed: boolean }) {
+  if (!failed) return <span className="block truncate text-xs text-text-muted">{artists}</span>
+  return (
+    <span className="flex items-center gap-1 text-xs font-semibold text-danger">
+      <CircleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+      <span className="truncate">Couldn’t play</span>
+    </span>
+  )
+}
+
+/** The current track's cover, or a neutral placeholder while nothing plays. */
+function BarArtwork({ size, className }: { size: number; className: string }) {
+  const item = useCurrentItem()
+  const rounded = size < 48 ? 'sm' : 'md'
+  if (item === undefined) {
+    return <Artwork seed="fxm-now-playing" rounded={rounded} className={className} />
+  }
+  return (
+    <TrackArtwork
+      images={item.track.artwork}
+      seed={item.track.id}
+      size={size}
+      rounded={rounded}
+      className={className}
+    />
+  )
+}
 
 /**
  * Shows the catalog mode in use; links to Settings, where it is changed. Below
@@ -54,6 +100,7 @@ function QueueButton() {
 
 /** The persistent player along the bottom from 768px up. */
 export function PlayerBar() {
+  const { title, artists, failed, label } = useNowPlaying()
   return (
     <section
       aria-label="Player"
@@ -64,17 +111,15 @@ export function PlayerBar() {
         <div className="flex min-w-0 items-center gap-1">
           <Link
             to="/now-playing"
-            aria-label={NOW_PLAYING_LABEL}
+            aria-label={label}
             className="group flex min-w-0 items-center gap-3 rounded-md pr-1"
           >
-            <Artwork seed={PLACEHOLDER_TRACK.seed} className="size-14 shadow-md" />
+            <BarArtwork size={56} className="size-14 shadow-md" />
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold group-hover:underline">
-                {PLACEHOLDER_TRACK.title}
+                {title}
               </span>
-              <span className="block truncate text-xs text-text-muted">
-                {PLACEHOLDER_TRACK.artist}
-              </span>
+              <Subtitle artists={artists} failed={failed} />
             </span>
           </Link>
           <LikeButton />
@@ -97,6 +142,7 @@ export function PlayerBar() {
 
 /** Compact player above the tab bar on phones; tapping it opens Now Playing. */
 export function MiniPlayer() {
+  const { title, artists, failed, label } = useNowPlaying()
   const position = usePlayerStore((state) => state.position)
   const duration = usePlayerStore((state) => state.duration)
   const progress = duration > 0 ? (position / duration) * 100 : 0
@@ -108,16 +154,14 @@ export function MiniPlayer() {
       <div className="relative flex h-mini items-center gap-1 overflow-hidden rounded-lg bg-elevated pr-1 pl-2 shadow-lg">
         <Link
           to="/now-playing"
-          aria-label={NOW_PLAYING_LABEL}
+          aria-label={label}
           // Inset focus ring: the card clips anything drawn outside it.
           className="flex min-w-0 flex-1 items-center gap-3 self-stretch rounded-md focus-visible:-outline-offset-2"
         >
-          <Artwork seed={PLACEHOLDER_TRACK.seed} rounded="sm" className="size-10" />
+          <BarArtwork size={40} className="size-10" />
           <span className="min-w-0">
-            <span className="block truncate text-sm font-semibold">{PLACEHOLDER_TRACK.title}</span>
-            <span className="block truncate text-xs text-text-muted">
-              {PLACEHOLDER_TRACK.artist}
-            </span>
+            <span className="block truncate text-sm font-semibold">{title}</span>
+            <Subtitle artists={artists} failed={failed} />
           </span>
         </Link>
         <LikeButton />

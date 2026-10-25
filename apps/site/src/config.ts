@@ -44,7 +44,7 @@ export type Feature =
 export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   /** Home feed with quick picks, daily mixes and endless radio: stages 3.3 and 3.4 (M2) */
   homeFeed: false,
-  /** Song radio from YouTube Music and Spotify: stage 3.2 (M2) */
+  /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */
   radio: false,
   /** Connecting a Spotify account to sync recommendations, likes and playlists: 3.5 (M2) */
   spotifyAccount: false,
@@ -58,6 +58,9 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   android: false,
   /** The desktop app for macOS, Windows and Linux: 7.5 (M6) */
   desktop: false,
-  /** FXM Connect as a signed Firefox add-on: R.2 */
+  /**
+   * FXM Connect as a Firefox add-on signed by Mozilla, the .xpi on GitHub Releases: R.2. Turn it
+   * on once a release carries the signed file (apps/extension/README.md, "Store channels").
+   */
   firefox: false,
 }

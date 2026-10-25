@@ -42,6 +42,8 @@ function jsonFetch(body: unknown = TOKEN_JSON, status = 200) {
 
 interface SetupOptions {
   login?: boolean
+  /** Firefox's consent for the login (consent.ts); left out, as in Chromium. */
+  consent?: boolean
   settings?: Pick<SettingsStore, 'read'>
   origins?: readonly string[]
   fetch?: FetchLike
@@ -64,6 +66,9 @@ function setup(options: SetupOptions = {}) {
     runtimeId: RUNTIME_ID,
     origins: options.origins ?? fxmOrigins(false),
     settings,
+    ...(options.consent !== undefined
+      ? { consent: { granted: async () => options.consent === true } }
+      : {}),
     session: options.session,
     dnr: options.dnr,
     fetch,
@@ -207,6 +212,38 @@ describe('Spotify token relay', () => {
       id: 9,
       code: 'bad-request',
     })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
+describe("Firefox's consent for the login", () => {
+  it('serves tokens only while Firefox reports the consent as granted', async () => {
+    const withdrawn = setup({ login: true, consent: false })
+    expect(await withdrawn.bridge.handle(token('w'), PAGE)).toEqual({
+      type: MESSAGE.error,
+      id: 'w',
+      code: 'login-disabled',
+    })
+    expect(await withdrawn.bridge.handle({ type: MESSAGE.loginStatus }, PAGE)).toEqual({
+      type: MESSAGE.loginStatus,
+      enabled: false,
+    })
+    expect(withdrawn.fetch).not.toHaveBeenCalled()
+    // The server time needs no login, so it needs no consent either.
+    expect(await withdrawn.bridge.handle(serverTime('t'), PAGE)).toMatchObject({
+      type: MESSAGE.response,
+    })
+
+    const granted = setup({ login: true, consent: true })
+    expect(await granted.bridge.handle(token('g'), PAGE)).toMatchObject({
+      type: MESSAGE.response,
+      id: 'g',
+    })
+  })
+
+  it('never turns the login on by itself: the setting still decides', async () => {
+    const { bridge, fetch } = setup({ login: false, consent: true })
+    expect(await bridge.handle(token(), PAGE)).toMatchObject({ code: 'login-disabled' })
     expect(fetch).not.toHaveBeenCalled()
   })
 })

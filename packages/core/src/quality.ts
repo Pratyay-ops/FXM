@@ -80,7 +80,10 @@ export const LOSSY_TIER_THRESHOLDS: Readonly<
 export interface AudioQuality {
   /** The audio codec. */
   codec: Codec
-  /** Average bitrate in kbps, when known. */
+  /**
+   * Average bitrate in kbps, when known. For variable-bitrate audio encoded to a stated bitrate,
+   * a source may pass that nominal (peak) bitrate instead (see `StreamOption.tier`).
+   */
   bitrateKbps?: number
 }
 

@@ -10,6 +10,7 @@ describe('the @fxm/core entry point', () => {
     ['reading', ['currentQueueItem', 'upcomingQueueItems', 'nextQueueItem', 'hasNextQueueItem']],
     ['randomness', ['fisherYatesShuffle', 'createSeededRandom']],
     ['restoring', ['restoreQueue', 'isQueueContext', 'QUEUE_CONTEXT_TYPES']],
+    ['cleaners', ['cleanTrack', 'cleanCandidate', 'cleanSignals', 'cleanContext']],
   ])('re-exports the %s', (_group, names) => {
     for (const name of names) expect(core).toHaveProperty(name)
   })

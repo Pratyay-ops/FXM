@@ -120,6 +120,7 @@ git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`,
 ```sh
 make android-setup   # once: JDK, Android SDK and its licenses (about 500 MB of downloads)
 make apk             # builds the debug APK
+make android-test    # runs the native unit tests (JVM, offline, no device needed)
 ```
 
 `make apk` builds the web app with base `/` (`build:mobile`), copies it into the native project (`cap sync android`) and runs Gradle's `assembleDebug`, without a Gradle daemon left running. The APK lands in **`apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`**. The first build downloads Gradle and the Android libraries; later builds take about half a minute.
@@ -157,7 +158,7 @@ From 2027, Google plans to require developer verification for apps installed out
 
 **Cleaning up.** `make android-clean` removes this checkout's Android build output, and `make clean` does the same in every checkout. `make nuke` first stops the Gradle daemons running from `.tools/` and the adb server, which adb restarts whenever it next needs it. Then it deletes the JDK, the SDK, the Gradle caches and the keys with the rest of `.tools/`.
 
-**CI.** `.github/workflows/android.yml` runs `make android-setup` and `make apk` on ubuntu-latest, on demand and for pushes and pull requests that touch the app or anything its build uses: `apps/mobile/`, `apps/web/`, `packages/`, `scripts/`, the `Makefile`, `.nvmrc`, the root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.base.json` or the workflow itself. It fails when the build changes the committed project in `apps/mobile/android`. After a Capacitor upgrade, for example, `cap sync` rewrites `capacitor.settings.gradle`, so commit what `make apk` regenerated. The workflow caches the JDK, the SDK and the Gradle home, and uploads `app-debug.apk` as a workflow artifact for 14 days.
+**CI.** `.github/workflows/android.yml` runs `make android-setup`, `make apk` and `make android-test` on ubuntu-latest, on demand and for pushes and pull requests that touch the app or anything its build uses: `apps/mobile/`, `apps/web/`, `packages/`, `scripts/`, the `Makefile`, `.nvmrc`, the root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.base.json` or the workflow itself. It fails when the build changes the committed project in `apps/mobile/android`. After a Capacitor upgrade, for example, `cap sync` rewrites `capacitor.settings.gradle`, so commit what `make apk` regenerated. The workflow caches the JDK, the SDK and the Gradle home, and uploads `app-debug.apk` as a workflow artifact for 14 days.
 
 **Upgrading**
 

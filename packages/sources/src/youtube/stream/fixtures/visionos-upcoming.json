@@ -1,0 +1,42 @@
+{
+  "responseContext": {
+    "visitorData": "CgtGWE1fZml4dHVyZSiAgICAgICAgIAB"
+  },
+  "playabilityStatus": {
+    "status": "LIVE_STREAM_OFFLINE",
+    "reason": "This live event will begin in 3 days.",
+    "playableInEmbed": true,
+    "liveStreamability": {
+      "liveStreamabilityRenderer": {
+        "videoId": "hv867HnY4j4",
+        "pollDelayMs": "15000",
+        "offlineSlate": {
+          "liveStreamOfflineSlateRenderer": {
+            "scheduledStartTime": "1793270700",
+            "mainText": {
+              "runs": [
+                {
+                  "text": "Live in "
+                },
+                {
+                  "text": "3 days"
+                }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "videoDetails": {
+    "videoId": "hv867HnY4j4",
+    "title": "U.S. Spacewalk 100",
+    "lengthSeconds": "0",
+    "channelId": "UCLA_DiR1FfKNvjuUpBHmylQ",
+    "author": "NASA",
+    "isLiveContent": true,
+    "isUpcoming": true,
+    "isLowLatencyLiveStream": false,
+    "isPrivate": false
+  }
+}
