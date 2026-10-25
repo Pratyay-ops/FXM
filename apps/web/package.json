@@ -17,7 +17,8 @@
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e",
     "test": "vitest run",
     "e2e": "playwright test",
-    "screenshots": "FXM_SCREENSHOTS=1 playwright test screenshots"
+    "screenshots": "FXM_SCREENSHOTS=1 playwright test screenshots",
+    "e2e:embed": "playwright install --no-shell chromium firefox && vite build -c vite.embed.config.ts --mode e2e --outDir ../dist-embed-e2e && playwright test -c e2e/embed/playwright.config.ts"
   },
   "dependencies": {
     "@fxm/core": "workspace:*",
