@@ -937,9 +937,10 @@ export class Player {
   #fail(item: QueueItem, error: Error, stream: StreamOption | undefined): void {
     const playing = this.#wantsPlayback()
     const positionMs = this.#state.positionMs
+    const started = this.#loaded?.stream === stream && this.#loaded?.played === true
     this.#cancel()
     const failure: StreamFailure =
-      stream === undefined ? { error, positionMs } : { error, stream, positionMs }
+      stream === undefined ? { error, positionMs } : { error, stream, positionMs, started }
     this.#lastFailure = { uid: item.uid, failure }
     if (!playing) {
       this.#commit({ buffering: false })
