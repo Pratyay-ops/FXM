@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom/vitest'
+// An in-memory IndexedDB for the library database (Dexie), one per test file.
+import 'fake-indexeddb/auto'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
+import { resetLibrary } from '../db/repo'
 import { usePlayerStore } from '../features/player/player-store'
 import { useSettingsStore } from '../features/settings/settings-store'
 
@@ -8,7 +11,7 @@ import { useSettingsStore } from '../features/settings/settings-store'
 // busy machine. Waiting longer only delays real failures.
 configure({ asyncUtilTimeout: 5_000 })
 
-afterEach(() => {
+afterEach(async () => {
   cleanup()
   vi.restoreAllMocks()
   // The stores are app-wide singletons: give every test a fresh start.
@@ -16,4 +19,6 @@ afterEach(() => {
   usePlayerStore.setState(usePlayerStore.getInitialState(), true)
   localStorage.clear()
   delete document.documentElement.dataset.theme
+  // After cleanup(), so no live query still watches the database being deleted.
+  await resetLibrary()
 })
