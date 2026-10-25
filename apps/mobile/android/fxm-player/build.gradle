@@ -1,0 +1,48 @@
+// FXM's native player (stage 6.3): a Media3 MediaSessionService that plays a queue of resolved
+// streams in a mediaPlayback foreground service, with the media notification and lock-screen
+// controls, and the FxmPlayer Capacitor plugin that connects it to the web app's player.
+// Media3 fetches through fxm-http's shared OkHttp client. See README.md next to this file.
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace = "io.github.pratyayops.fxm.player"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    testOptions {
+        unitTests.all {
+            testLogging {
+                events 'failed'
+                exceptionFormat 'full'
+            }
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+    implementation project(':fxm-http')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.media3:media3-exoplayer:$media3Version"
+    implementation "androidx.media3:media3-session:$media3Version"
+    // Media3's data source on OkHttp, built on fxm-http's client: never DefaultHttpDataSource,
+    // whose HttpURLConnection sends the WebView's cookies through Capacitor's cookie handler.
+    implementation "androidx.media3:media3-datasource-okhttp:$media3Version"
+
+    testImplementation "junit:junit:$junitVersion"
+    // The real org.json for the message tests (android.jar only has stubs of it).
+    testImplementation "org.json:json:$orgJsonVersion"
+}

@@ -1,6 +1,8 @@
 include ':app'
 // FXM's native HTTP: the OkHttp client and the FxmHttp Capacitor plugin (stage 6.2).
 include ':fxm-http'
+// FXM's native player: Media3 in a foreground service and the FxmPlayer plugin (stage 6.3).
+include ':fxm-player'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 

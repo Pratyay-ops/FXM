@@ -51,7 +51,7 @@ Errors carry a `code` from `FXM_HTTP_ERROR_CODES` (generated into `BridgeErrorCo
 
 ## Media3 (stage 6.3)
 
-Build the data source on the shared client, never on `DefaultHttpDataSource`, which uses `HttpURLConnection` and so the WebView's cookies:
+The native player ([`fxm-player`](../fxm-player/README.md)) builds its data sources, for the audio and for the notification's artwork, on the shared client, never on `DefaultHttpDataSource`, which uses `HttpURLConnection` and so the WebView's cookies:
 
 ```kotlin
 val dataSource = OkHttpDataSource.Factory(FxmHttp.client(context))
