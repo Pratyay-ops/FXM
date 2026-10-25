@@ -1,4 +1,4 @@
-import { createQueue, currentItem, setQueue } from '@fxm/core'
+import { createQueue, currentQueueItem, setQueue } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
 import { FakeEngine, FakeResolver, testStream, testTrack, testTracks } from './index'
 
@@ -63,7 +63,7 @@ describe('FakeResolver', () => {
   it('resolves every item to a test stream by default and records the requests', async () => {
     const resolver = new FakeResolver()
     const queue = setQueue(createQueue(), testTracks('a', 'b'))
-    const item = currentItem(queue)
+    const item = currentQueueItem(queue)
     if (item === undefined) throw new Error('empty queue')
     const signal = new AbortController().signal
     const resolved = await resolver.resolve(item, { reason: 'play', attempt: 0, signal })

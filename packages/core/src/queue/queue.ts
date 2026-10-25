@@ -8,17 +8,24 @@
  *
  * - **Play order.** `items` is the order things play in: the shuffled order while shuffle is
  *   on. `index` points at the current item. Items before it are the played part, which
- *   {@link skipToPrevious} walks back through.
- * - **History.** `history` lists the items that have been current, most recent last. Turning
- *   shuffle on keeps them, in that order, before the current item, so "previous" still goes back
- *   to what actually played. Turning shuffle off restores the original order.
- * - **Mode.** Tracks the catalog mode hides never enter the queue. Items that need a song match
- *   (an official music video in Music mode) stay: the playback policy maps them to their song
- *   and records the result as the item's `candidate`.
+ *   {@link skipToPrevious} walks back through; a jump while shuffled keeps it that way (see
+ *   {@link jumpInQueue}).
+ * - **Played items.** `playedUids` lists the items that have been current, most recent last.
+ *   Turning shuffle on keeps them, in that order, before the current item, so "previous" still
+ *   goes back to what actually played. Turning shuffle off restores the original order. This is
+ *   the queue's own record for "previous", not the listening history the library keeps.
+ * - **Mode.** Tracks the catalog mode hides never enter the queue. Items that play another
+ *   track in Music mode stay: an official music video that links its song (verdict
+ *   `plays-linked-song`) and one that needs a song match (`needs-song-match`). The playback
+ *   policy plays the linked or matched song and records it as the item's `candidate`.
+ *
+ * The names say what they act on (`setQueueShuffle`, `nextQueueItem`, …) because `@fxm/core`
+ * exports everything from one entry point.
  *
  * @module
  */
 
+import type { EntityId } from '../ids'
 import { applyModeFilter, type CatalogMode, isCatalogMode, isPlayable, modePolicy } from '../mode'
 import type { Track } from '../model'
 import type { AudioCandidate } from '../providers'
@@ -43,33 +50,53 @@ export function isRepeatMode(value: unknown): value is RepeatMode {
 }
 
 /** Every {@link QueueContextType}. */
-export const QUEUE_CONTEXT_TYPES = ['album', 'playlist', 'artist', 'radio', 'search'] as const
+export const QUEUE_CONTEXT_TYPES = [
+  'album',
+  'playlist',
+  'artist',
+  'radio',
+  'search',
+  'library',
+] as const
 
 /** What kind of list a queue was started from. */
 export type QueueContextType = (typeof QUEUE_CONTEXT_TYPES)[number]
 
-/** What a queue was started from, shown as "Playing from …". */
-export interface QueueContext {
-  /** The kind of list. */
-  readonly type: QueueContextType
-  /**
-   * What to link back to: the album, playlist or artist ID for those types, the seed's ID (a
-   * track or an artist) for `radio`, and the query for `search`.
-   */
-  readonly id: string
-  /** Display title, e.g. the album name or the query. */
-  readonly title: string
-}
+/**
+ * What a queue was started from, shown as "Playing from …" and linked back to. One shape per
+ * type, so the link target is typed:
+ *
+ * - `album`, `playlist`, `artist`: the catalog entity's `id`
+ * - `radio`: the `seed` the station started from, a track or an artist
+ * - `search`: the `query`
+ * - `library`: a list in the user's library that has no catalog ID, such as Liked songs,
+ *   Downloads, a playlist made in FXM or local files. `id` is the library's own key for it
+ *
+ * `title` is what to show, e.g. the album name or the query.
+ */
+export type QueueContext =
+  | { readonly type: 'album'; readonly id: EntityId<'album'>; readonly title: string }
+  | { readonly type: 'playlist'; readonly id: EntityId<'playlist'>; readonly title: string }
+  | { readonly type: 'artist'; readonly id: EntityId<'artist'>; readonly title: string }
+  | { readonly type: 'radio'; readonly seed: EntityId<'track' | 'artist'>; readonly title: string }
+  | { readonly type: 'search'; readonly query: string; readonly title: string }
+  | { readonly type: 'library'; readonly id: string; readonly title: string }
 
 /** One entry of the queue. The same track can be queued more than once. */
 export interface QueueItem {
-  /** Identifies this entry within its queue, so duplicates of a track stay apart. */
+  /**
+   * Identifies this entry within its queue, so duplicates of a track stay apart. uids are
+   * comparable only within one queue and the queues built from it by this module's functions:
+   * a restored or newly created queue numbers its items from 0 again.
+   */
   readonly uid: number
   /** The track to play. */
   readonly track: Track
   /**
-   * The audio chosen for the track, once the playback policy has matched one. For an item that
-   * needs a song match it is the matched song. Always playable in the queue's mode.
+   * The audio to play for the track, once the playback policy has resolved one, or the
+   * version the user picked. For a music video in Music mode it is the song: the one the video
+   * links (verdict `plays-linked-song`) or the one the matching engine mapped it to
+   * (`needs-song-match`). Always playable in the queue's mode.
    */
   readonly candidate?: AudioCandidate
 }
@@ -80,7 +107,7 @@ export interface QueueItem {
  *
  * - `index` is `-1` exactly when `items` is empty, else a valid index into `items`
  * - every `uid` is unique and below `nextUid`
- * - `history` holds the uids of items in the queue, each at most once, never the current one
+ * - `playedUids` holds the uids of items in the queue, each at most once, never the current one
  * - `unshuffled` is present exactly when `shuffle` is on, and holds every item's uid once
  * - no item is hidden by `mode`, except the current one after a mode change, until another item
  *   becomes current
@@ -90,8 +117,11 @@ export interface QueueState {
   readonly items: readonly QueueItem[]
   /** The current item's position in `items`, or `-1` when the queue is empty. */
   readonly index: number
-  /** uids of the items that have been current, oldest first, without the current one. */
-  readonly history: readonly number[]
+  /**
+   * uids of the items that have been current, oldest first, without the current one. Only for
+   * "previous" and shuffling; the library keeps the listening history.
+   */
+  readonly playedUids: readonly number[]
   /** What the queue was started from, when known. */
   readonly context?: QueueContext
   /** The catalog mode that decides which tracks may join. */
@@ -114,6 +144,24 @@ export interface QueueOptions {
   repeat?: RepeatMode
   /** Whether new queues start shuffled. Default: `false`. */
   shuffle?: boolean
+}
+
+/** Options for {@link setQueue}. */
+export interface SetQueueOptions {
+  /**
+   * Index into the tracks of the one to start with. Fractions are truncated and out-of-range
+   * values are clamped. Default: the first track, or a random one when the queue is shuffled.
+   */
+  startIndex?: number
+  /** What the tracks come from. Leaving it out clears the previous context. */
+  context?: QueueContext
+  /**
+   * Turns shuffle on or off, for this queue and the ones after it, like the shuffle button.
+   * Default: the queue's current setting.
+   */
+  shuffle?: boolean
+  /** Randomness for shuffling and for a random start. Default: `Math.random`. */
+  random?: RandomSource
 }
 
 /**
@@ -147,6 +195,16 @@ function isItemIndex(state: QueueState, index: number): boolean {
   return Number.isInteger(index) && index >= 0 && index < state.items.length
 }
 
+/**
+ * A uniform random index in `[0, size)`. Values outside `[0, 1)` from a faulty source are
+ * clamped instead of producing an index out of range.
+ */
+function randomIndex(random: RandomSource, size: number): number {
+  const value = random()
+  const index = Math.floor((Number.isFinite(value) ? value : 0) * size)
+  return Math.min(Math.max(index, 0), size - 1)
+}
+
 /** New items for `tracks`, numbered from the state's `nextUid`. */
 function createItems(
   state: QueueState,
@@ -162,7 +220,7 @@ export function createQueue(options: QueueOptions = {}): QueueState {
   return {
     items: [],
     index: -1,
-    history: [],
+    playedUids: [],
     mode: isCatalogMode(options.mode) ? options.mode : 'music',
     repeat: isRepeatMode(options.repeat) ? options.repeat : 'off',
     shuffle,
@@ -172,12 +230,15 @@ export function createQueue(options: QueueOptions = {}): QueueState {
 }
 
 /** The current item, or `undefined` when the queue is empty. */
-export function currentItem(state: QueueState): QueueItem | undefined {
+export function currentQueueItem(state: QueueState): QueueItem | undefined {
   return state.items[state.index]
 }
 
-/** The items after the current one, in play order. */
-export function upcomingItems(state: QueueState): readonly QueueItem[] {
+/**
+ * The items after the current one, in play order. It does not wrap around for repeat `all`, so
+ * at the last item it is empty even though {@link nextQueueItem} is the first one again.
+ */
+export function upcomingQueueItems(state: QueueState): readonly QueueItem[] {
   return state.index < 0 ? [] : state.items.slice(state.index + 1)
 }
 
@@ -193,68 +254,79 @@ function nextIndex(state: QueueState): number | undefined {
  * repeat off. With repeat on, the item after the last is the first (in a one-item queue, the
  * current item itself).
  */
-export function nextItem(state: QueueState): QueueItem | undefined {
+export function nextQueueItem(state: QueueState): QueueItem | undefined {
   const index = nextIndex(state)
   return index === undefined ? undefined : state.items[index]
 }
 
-/** Whether {@link skipToNext} would move, i.e. there is a {@link nextItem}. */
-export function hasNextItem(state: QueueState): boolean {
+/** Whether {@link skipToNext} would move, i.e. there is a {@link nextQueueItem}. */
+export function hasNextQueueItem(state: QueueState): boolean {
   return nextIndex(state) !== undefined
 }
 
 /**
- * Makes `target` current and records the item it replaces in the history. An item the mode
- * hides (kept only because it was current during a mode switch, see {@link setQueueMode}) leaves
- * the queue instead, now that it is done.
+ * Makes `target` current and records the item it replaces as played. An item the mode hides
+ * (kept only because it was current during a mode switch, see {@link setQueueMode}) leaves the
+ * queue instead, now that it is done.
  */
 function moveTo(state: QueueState, target: number): QueueState {
   const from = state.items[state.index]
   const to = state.items[target]
   if (from === undefined || to === undefined || from === to) return update(state, { index: target })
-  const history = state.history.filter((uid) => uid !== from.uid && uid !== to.uid)
+  const playedUids = state.playedUids.filter((uid) => uid !== from.uid && uid !== to.uid)
   if (modePolicy(from.track, state.mode) !== 'hidden') {
-    return update(state, { index: target, history: [...history, from.uid] })
+    return update(state, { index: target, playedUids: [...playedUids, from.uid] })
   }
   const items = state.items.filter((item) => item !== from)
   return update(state, {
     items,
     index: items.indexOf(to),
-    history,
+    playedUids,
     unshuffled: state.unshuffled?.filter((uid) => uid !== from.uid),
   })
 }
 
 /**
- * Replaces the queue with `tracks` and makes the one at `startIndex` current. Tracks the mode
- * hides are left out. If the start track is one of them, the queue starts at the next track the
- * mode keeps (or the last one before it). The history is cleared, and repeat, shuffle and mode
- * carry over. While shuffle is on, the start track comes first and the rest are shuffled with
- * `random`; turning shuffle off later restores the order of `tracks`.
+ * Replaces the queue with `tracks`. Tracks the mode hides are left out. The played items are
+ * cleared; repeat and mode carry over, and so does shuffle unless `options.shuffle` sets it.
  *
- * @param startIndex Index into `tracks`. Fractions are truncated and out-of-range values are
- * clamped.
- * @param context What the tracks come from. Leaving it out clears the previous context.
+ * - **Start.** The track at `options.startIndex` becomes current. If the mode hides it, the
+ *   queue starts at the next track the mode keeps (or the last one before it). Without a start
+ *   index it is the first track, or a random kept track while the queue is shuffled.
+ * - **Shuffle.** While shuffle is on, the start track comes first and the rest are shuffled with
+ *   `options.random`; turning shuffle off later restores the order of `tracks`.
  */
 export function setQueue(
   state: QueueState,
   tracks: readonly Track[],
-  startIndex = 0,
-  context?: QueueContext,
-  random: RandomSource = Math.random,
+  options: SetQueueOptions = {},
 ): QueueState {
-  const start = Math.min(Math.max(Math.trunc(startIndex) || 0, 0), tracks.length - 1)
+  const random = options.random ?? Math.random
+  const shuffle = options.shuffle ?? state.shuffle
   const keptIndexes: number[] = []
   tracks.forEach((track, index) => {
     if (modePolicy(track, state.mode) !== 'hidden') keptIndexes.push(index)
   })
-  let current = keptIndexes.findIndex((index) => index >= start)
-  if (current < 0) current = keptIndexes.length - 1
+  let current = 0
+  if (options.startIndex !== undefined) {
+    const start = Math.min(Math.max(Math.trunc(options.startIndex) || 0, 0), tracks.length - 1)
+    current = keptIndexes.findIndex((index) => index >= start)
+    if (current < 0) current = keptIndexes.length - 1
+  } else if (shuffle && keptIndexes.length > 0) {
+    current = randomIndex(random, keptIndexes.length)
+  }
   const kept = keptIndexes.map((index) => tracks[index] as Track)
   const { items, nextUid } = createItems(state, kept)
-  const base: QueuePatch = { items, index: current, history: [], context, nextUid }
-  if (!state.shuffle) return update(state, base)
   const first = items[current]
+  const base: QueuePatch = {
+    items,
+    index: first === undefined ? -1 : current,
+    playedUids: [],
+    context: options.context,
+    shuffle,
+    nextUid,
+  }
+  if (!shuffle) return update(state, { ...base, unshuffled: undefined })
   if (first === undefined) return update(state, { ...base, unshuffled: [] })
   const others = items.filter((_, index) => index !== current)
   return update(state, {
@@ -275,7 +347,7 @@ export function playNext(state: QueueState, tracks: readonly Track[]): QueueStat
   if (kept.length === 0) return state
   const { items: added, nextUid } = createItems(state, kept)
   const addedUids = added.map(uidOf)
-  const current = currentItem(state)
+  const current = currentQueueItem(state)
   if (current === undefined) {
     return update(state, {
       items: added,
@@ -328,7 +400,7 @@ export function removeFromQueue(state: QueueState, index: number): QueueState {
   return update(state, {
     items,
     index: current,
-    history: state.history.filter((uid) => uid !== removed.uid && uid !== currentUid),
+    playedUids: state.playedUids.filter((uid) => uid !== removed.uid && uid !== currentUid),
     unshuffled: state.unshuffled?.filter((uid) => uid !== removed.uid),
   })
 }
@@ -343,7 +415,7 @@ export function moveInQueue(state: QueueState, from: number, to: number): QueueS
   const items = [...state.items]
   const [moved] = items.splice(from, 1)
   if (moved !== undefined) items.splice(to, 0, moved)
-  const currentUid = currentItem(state)?.uid
+  const currentUid = currentQueueItem(state)?.uid
   return update(state, { items, index: items.findIndex((item) => item.uid === currentUid) })
 }
 
@@ -354,7 +426,7 @@ export function clearUpcoming(state: QueueState): QueueState {
   const kept = new Set(items.map(uidOf))
   return update(state, {
     items,
-    history: state.history.filter((uid) => kept.has(uid)),
+    playedUids: state.playedUids.filter((uid) => kept.has(uid)),
     unshuffled: state.unshuffled?.filter((uid) => kept.has(uid)),
   })
 }
@@ -362,7 +434,7 @@ export function clearUpcoming(state: QueueState): QueueState {
 /**
  * Moves to the next item. After the last item it wraps to the first when repeat is `all` or
  * `one` (skipping always moves, even with repeat `one`), and changes nothing when repeat is
- * `off`. Use {@link hasNextItem} to tell those apart.
+ * `off`. Use {@link hasNextQueueItem} to tell those apart.
  */
 export function skipToNext(state: QueueState): QueueState {
   const target = nextIndex(state)
@@ -386,29 +458,49 @@ export function skipToPrevious(state: QueueState, positionMs = 0): QueueState {
   return state
 }
 
-/** Makes the item at `index` (in play order) current. An invalid index changes nothing. */
-export function jumpTo(state: QueueState, index: number): QueueState {
+/**
+ * Makes the item at `index` (in play order) current. An invalid index changes nothing.
+ *
+ * While shuffle is on, the item first moves to just after the current one, so the items before
+ * the new current item are still the ones that played: "previous" goes back to the item that was
+ * playing, and the items jumped over still play later. Without shuffle the order stays, as in an
+ * album, and "previous" goes to the item before.
+ */
+export function jumpInQueue(state: QueueState, index: number): QueueState {
   if (!isItemIndex(state, index) || index === state.index) return state
-  return moveTo(state, index)
+  const target = state.items[index]
+  const current = state.items[state.index]
+  if (
+    !state.shuffle ||
+    index === state.index + 1 ||
+    target === undefined ||
+    current === undefined
+  ) {
+    return moveTo(state, index)
+  }
+  const items = state.items.filter((item) => item !== target)
+  const at = items.indexOf(current) + 1
+  items.splice(at, 0, target)
+  return moveTo(update(state, { items, index: at - 1 }), at)
 }
 
 /**
  * Turns shuffle on or off.
  *
- * - **On:** the items that already played (the history, oldest first) come first, then the
- *   current item, then every other item in random order (Fisher-Yates with `random`). So
- *   "previous" still goes back to what played, and everything not yet heard plays before any
- *   repeat. The current item keeps playing.
+ * - **On:** the items that already played (oldest first) come first, then the current item,
+ *   then every other item in random order (Fisher-Yates with `random`). So "previous" still goes
+ *   back to what played, and everything not yet heard plays before any repeat. The current item
+ *   keeps playing.
  * - **Off:** the original order comes back, including items added while shuffled, minus the
  *   ones removed. The current item keeps playing at its original position.
  */
-export function setShuffle(
+export function setQueueShuffle(
   state: QueueState,
   shuffle: boolean,
   random: RandomSource = Math.random,
 ): QueueState {
   if (shuffle === state.shuffle) return state
-  const current = currentItem(state)
+  const current = currentQueueItem(state)
   if (!shuffle) {
     const order = new Map((state.unshuffled ?? []).map((uid, position) => [uid, position]))
     const rank = (item: QueueItem) => order.get(item.uid) ?? Number.MAX_SAFE_INTEGER
@@ -419,7 +511,7 @@ export function setShuffle(
   const unshuffled = state.items.map(uidOf)
   if (current === undefined) return update(state, { shuffle: true, unshuffled })
   const byUid = new Map(state.items.map((item) => [item.uid, item]))
-  const playedUids = new Set(state.history.filter((uid) => uid !== current.uid))
+  const playedUids = new Set(state.playedUids.filter((uid) => uid !== current.uid))
   const played = [...playedUids].flatMap((uid) => byUid.get(uid) ?? [])
   const rest = state.items.filter((item) => item !== current && !playedUids.has(item.uid))
   return update(state, {
@@ -431,7 +523,7 @@ export function setShuffle(
 }
 
 /** Sets how the queue repeats. An invalid value changes nothing. */
-export function setRepeat(state: QueueState, repeat: RepeatMode): QueueState {
+export function setQueueRepeat(state: QueueState, repeat: RepeatMode): QueueState {
   return isRepeatMode(repeat) && repeat !== state.repeat ? update(state, { repeat }) : state
 }
 
@@ -450,7 +542,7 @@ function dropUnplayableCandidate(item: QueueItem, mode: CatalogMode): QueueItem 
 export function setQueueMode(state: QueueState, mode: CatalogMode): QueueState {
   const next: CatalogMode = isCatalogMode(mode) ? mode : 'music'
   if (next === state.mode) return state
-  const current = currentItem(state)
+  const current = currentQueueItem(state)
   const items = state.items
     .filter((item) => item === current || modePolicy(item.track, next) !== 'hidden')
     .map((item) => dropUnplayableCandidate(item, next))
@@ -459,17 +551,18 @@ export function setQueueMode(state: QueueState, mode: CatalogMode): QueueState {
     mode: next,
     items,
     index: current === undefined ? -1 : items.findIndex((item) => item.uid === current.uid),
-    history: state.history.filter((uid) => kept.has(uid)),
+    playedUids: state.playedUids.filter((uid) => kept.has(uid)),
     unshuffled: state.unshuffled?.filter((uid) => kept.has(uid)),
   })
 }
 
 /**
- * Records the audio candidate chosen for the item with `uid`, or clears it when `candidate` is
- * left out. A candidate the queue's mode does not let play is ignored (the mode may have changed
- * while it was being matched), and so is an unknown uid.
+ * Records the audio candidate for the item with `uid`: the one the playback policy resolved, or
+ * the version the user picked. Leaving `candidate` out clears it. A candidate the queue's mode
+ * does not let play is ignored (the mode may have changed while it was being matched), and so
+ * is an unknown uid.
  */
-export function setCandidate(
+export function setQueueCandidate(
   state: QueueState,
   uid: number,
   candidate?: AudioCandidate,

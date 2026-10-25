@@ -50,9 +50,9 @@ export function currentTitle(state: QueueState): string | undefined {
   return state.items[state.index]?.track.title
 }
 
-/** The titles of the history entries, oldest first. */
-export function historyTitles(state: QueueState): string[] {
-  return state.history.map(
+/** The titles of the played items, oldest first. */
+export function playedTitles(state: QueueState): string[] {
+  return state.playedUids.map(
     (uid) => state.items.find((item) => item.uid === uid)?.track.title ?? `missing ${uid}`,
   )
 }

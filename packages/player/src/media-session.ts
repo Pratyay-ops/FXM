@@ -8,7 +8,7 @@
  * @module
  */
 
-import { type Artwork, currentItem, type Track } from '@fxm/core'
+import { type Artwork, currentQueueItem, type Track } from '@fxm/core'
 import type { Player, PlayerState, PlayerStatus } from './player'
 
 /** The actions FXM handles, in the order they are registered. */
@@ -169,7 +169,11 @@ export function connectMediaSession(
     if (typeof session.setPositionState !== 'function') return
     const { durationMs, positionMs } = state
     try {
-      if (durationMs === undefined || !(durationMs > 0) || currentItem(state.queue) === undefined) {
+      if (
+        durationMs === undefined ||
+        !(durationMs > 0) ||
+        currentQueueItem(state.queue) === undefined
+      ) {
         session.setPositionState()
         return
       }
@@ -182,7 +186,7 @@ export function connectMediaSession(
   }
 
   const update = (state: PlayerState, previous?: PlayerState) => {
-    const item = currentItem(state.queue)
+    const item = currentQueueItem(state.queue)
     let immediate = previous === undefined
     if (item?.uid !== shownUid || item?.track !== shownTrack) {
       shownUid = item?.uid

@@ -1,4 +1,4 @@
-import { currentItem, FxmError, isFxmError } from '@fxm/core'
+import { currentQueueItem, FxmError, isFxmError } from '@fxm/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { isEngineError } from './engine'
 import { Player, type PlayerOptions } from './player'
@@ -25,7 +25,7 @@ async function drain(): Promise<void> {
   await vi.runAllTimersAsync()
 }
 
-const current = (player: Player) => currentItem(player.getState().queue)?.track.title
+const current = (player: Player) => currentQueueItem(player.getState().queue)?.track.title
 const url = (name: string) => `https://media.test/${name}`
 const loadStarts = (engine: FakeEngine) =>
   engine.calls.filter((call) => call.method === 'load').map((call) => call.args[1])

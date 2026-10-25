@@ -14,11 +14,11 @@ import {
   type CatalogMode,
   clearUpcoming,
   createQueue,
-  currentItem,
-  hasNextItem,
-  jumpTo,
+  currentQueueItem,
+  hasNextQueueItem,
+  jumpInQueue,
   moveInQueue,
-  nextItem,
+  nextQueueItem,
   playNext,
   type QueueContext,
   type QueueItem,
@@ -28,15 +28,15 @@ import {
   type RepeatMode,
   removeFromQueue,
   type StreamOption,
-  setCandidate,
   setQueue,
+  setQueueCandidate,
   setQueueMode,
-  setRepeat,
-  setShuffle,
+  setQueueRepeat,
+  setQueueShuffle,
   skipToNext,
   skipToPrevious,
   type Track,
-  upcomingItems,
+  upcomingQueueItems,
 } from '@fxm/core'
 import { callSafely, Emitter, type Listener } from './emitter'
 import { type Engine, EngineError } from './engine'
@@ -69,7 +69,7 @@ export interface PlayerError {
 
 /** A snapshot of the player, replaced (never changed) on every update. */
 export interface PlayerState {
-  /** The queue. `currentItem(state.queue)` is the track playing or selected. */
+  /** The queue. `currentQueueItem(state.queue)` is the track playing or selected. */
   readonly queue: QueueState
   /** What the player is doing. */
   readonly status: PlayerStatus
@@ -325,9 +325,13 @@ export class Player {
   ): Promise<void> {
     if (this.#destroyed) return
     this.#userAction()
-    const queue = setQueue(this.#state.queue, tracks, startIndex, context, this.#random)
+    const queue = setQueue(this.#state.queue, tracks, {
+      startIndex,
+      ...(context === undefined ? {} : { context }),
+      random: this.#random,
+    })
     this.#changeQueue(queue)
-    if (currentItem(queue) === undefined) {
+    if (currentQueueItem(queue) === undefined) {
       this.#commit({ status: 'idle', buffering: false })
       return
     }
@@ -348,7 +352,7 @@ export class Player {
     this.#cancelPreload()
     const restored = setQueueMode(queue, this.#state.queue.mode)
     this.#changeQueue(restored)
-    const item = currentItem(restored)
+    const item = currentQueueItem(restored)
     this.#commit({
       status: item === undefined ? 'idle' : 'paused',
       buffering: false,
@@ -386,12 +390,12 @@ export class Player {
 
   /** Turns shuffle on or off. The current track keeps playing. */
   setShuffle(shuffle: boolean): void {
-    this.#edit(setShuffle(this.#state.queue, shuffle, this.#random))
+    this.#edit(setQueueShuffle(this.#state.queue, shuffle, this.#random))
   }
 
   /** Sets how the queue repeats. */
   setRepeat(repeat: RepeatMode): void {
-    this.#edit(setRepeat(this.#state.queue, repeat))
+    this.#edit(setQueueRepeat(this.#state.queue, repeat))
   }
 
   /** Switches the catalog mode. The current track keeps playing. */
@@ -410,17 +414,18 @@ export class Player {
     if (this.#destroyed) return
     const { queue, status } = this.#state
     if (index !== undefined && index !== queue.index) {
-      const jumped = jumpTo(queue, index)
+      const jumped = jumpInQueue(queue, index)
       if (jumped === queue) return
       this.#userAction()
       this.#changeQueue(jumped)
       await this.#load({ autoplay: true })
       return
     }
-    if (currentItem(queue) === undefined || status === 'loading' || status === 'playing') return
+    if (currentQueueItem(queue) === undefined || status === 'loading' || status === 'playing')
+      return
     this.#userAction()
     if (status === 'ended') {
-      const next = hasNextItem(queue) ? skipToNext(queue) : queue
+      const next = hasNextQueueItem(queue) ? skipToNext(queue) : queue
       if (this.#changeQueue(next)) await this.#load({ autoplay: true })
       else await this.#restart(true)
       return
@@ -464,7 +469,7 @@ export class Player {
   async next(): Promise<void> {
     if (this.#destroyed) return
     const { queue, status } = this.#state
-    if (!hasNextItem(queue)) return
+    if (!hasNextQueueItem(queue)) return
     this.#userAction()
     const autoplay = status !== 'paused'
     if (!this.#changeQueue(skipToNext(queue))) await this.#restart(autoplay)
@@ -479,7 +484,7 @@ export class Player {
   async previous(): Promise<void> {
     if (this.#destroyed) return
     const { queue, status, positionMs } = this.#state
-    if (currentItem(queue) === undefined) return
+    if (currentQueueItem(queue) === undefined) return
     this.#userAction()
     const autoplay = status !== 'paused'
     if (!this.#changeQueue(skipToPrevious(queue, positionMs))) await this.#restart(autoplay)
@@ -490,7 +495,7 @@ export class Player {
   /** Moves to `positionMs` within the current track, clamped to the track. */
   seek(positionMs: number): void {
     if (this.#destroyed || !Number.isFinite(positionMs)) return
-    if (currentItem(this.#state.queue) === undefined) return
+    if (currentQueueItem(this.#state.queue) === undefined) return
     const { durationMs, status } = this.#state
     const target = Math.max(
       0,
@@ -507,7 +512,7 @@ export class Player {
 
   /** Pauses and goes back to the start of the current track. */
   stop(): void {
-    if (this.#destroyed || currentItem(this.#state.queue) === undefined) return
+    if (this.#destroyed || currentQueueItem(this.#state.queue) === undefined) return
     this.pause()
     this.#seekTo(0)
     const { status } = this.#state
@@ -560,8 +565,8 @@ export class Player {
   #changeQueue(queue: QueueState): boolean {
     const before = this.#state.queue
     if (queue === before) return false
-    const previous = currentItem(before)
-    const item = currentItem(queue)
+    const previous = currentQueueItem(before)
+    const item = currentQueueItem(queue)
     if (previous?.uid === item?.uid) {
       this.#commit({ queue })
       this.#syncPreload()
@@ -588,7 +593,7 @@ export class Player {
     if (this.#destroyed) return
     const wasPlaying = this.#wantsPlayback()
     if (!this.#changeQueue(queue)) return
-    if (currentItem(queue) === undefined) this.#commit({ status: 'idle' })
+    if (currentQueueItem(queue) === undefined) this.#commit({ status: 'idle' })
     else if (wasPlaying) void this.#load({ autoplay: true })
     else this.#commit({ status: 'paused' })
   }
@@ -634,7 +639,7 @@ export class Player {
   async #load(request: LoadRequest): Promise<void> {
     this.#cancel()
     const token = this.#token
-    const item = currentItem(this.#state.queue)
+    const item = currentQueueItem(this.#state.queue)
     if (item === undefined) {
       this.#commit({ status: 'idle', buffering: false })
       return
@@ -656,7 +661,7 @@ export class Player {
     }
     if (token !== this.#token) return
     if (resolved.candidate !== undefined) {
-      this.#changeQueue(setCandidate(this.#state.queue, item.uid, resolved.candidate))
+      this.#changeQueue(setQueueCandidate(this.#state.queue, item.uid, resolved.candidate))
     }
     const { stream } = resolved
     if (this.#engine.canPlay?.(stream) === false) {
@@ -669,7 +674,10 @@ export class Player {
     this.#healthyAtMs = startAtMs + HEALTHY_AFTER_MS
     this.#commit({ stream })
     try {
-      await this.#engine.load({ stream, item: currentItem(this.#state.queue) ?? item }, startAtMs)
+      await this.#engine.load(
+        { stream, item: currentQueueItem(this.#state.queue) ?? item },
+        startAtMs,
+      )
     } catch (error) {
       if (token === this.#token) this.#fail(item, toError(error), stream)
       return
@@ -744,7 +752,7 @@ export class Player {
       return
     }
     const { queue } = this.#state
-    if (!hasNextItem(queue)) {
+    if (!hasNextQueueItem(queue)) {
       this.#commit({
         status: 'error',
         buffering: false,
@@ -788,7 +796,7 @@ export class Player {
     this.#stallTimer = setTimeout(() => {
       this.#stallTimer = undefined
       const loaded = this.#loaded
-      const item = currentItem(this.#state.queue)
+      const item = currentQueueItem(this.#state.queue)
       if (loaded === undefined || item === undefined || !this.#wantsPlayback()) return
       this.#fail(item, new EngineError('network', `No audio for ${timeoutMs} ms`), loaded.stream)
     }, timeoutMs)
@@ -812,8 +820,8 @@ export class Player {
   #maybePreload(): void {
     if (!this.#config.preload || this.#loaded === undefined) return
     const { queue, positionMs, durationMs } = this.#state
-    const current = currentItem(queue)
-    const next = nextItem(queue)
+    const current = currentQueueItem(queue)
+    const next = nextQueueItem(queue)
     if (queue.repeat === 'one' || current === undefined || next === undefined) return
     if (next.uid === current.uid || this.#preload?.uid === next.uid) return
     const totalMs = durationMs ?? current.track.durationMs
@@ -834,7 +842,7 @@ export class Player {
         // Nothing prepared: the item resolves again when it plays.
       },
     )
-    if (this.#onPreload !== undefined) callSafely(this.#onPreload, next, upcomingItems(queue))
+    if (this.#onPreload !== undefined) callSafely(this.#onPreload, next, upcomingQueueItems(queue))
   }
 
   /** Hands the preparation for `item` to its load, which then owns its cancellation. */
@@ -859,7 +867,8 @@ export class Player {
     const preload = this.#preload
     if (preload === undefined) return
     const { queue } = this.#state
-    if (preload.uid === currentItem(queue)?.uid || preload.uid === nextItem(queue)?.uid) return
+    if (preload.uid === currentQueueItem(queue)?.uid || preload.uid === nextQueueItem(queue)?.uid)
+      return
     this.#cancelPreload()
   }
 
@@ -905,7 +914,7 @@ export class Player {
       void this.#restart(true)
       return
     }
-    if (!hasNextItem(queue)) {
+    if (!hasNextQueueItem(queue)) {
       const { durationMs, positionMs } = this.#state
       this.#commit({ status: 'ended', buffering: false, positionMs: durationMs ?? positionMs })
       this.#events.emit('queueend', undefined)
@@ -917,7 +926,7 @@ export class Player {
 
   #onError(error: EngineError): void {
     const loaded = this.#loaded
-    const item = currentItem(this.#state.queue)
+    const item = currentQueueItem(this.#state.queue)
     if (loaded === undefined || item === undefined) return
     if (error.type === 'autoplay-blocked') {
       this.#clearStallTimer()

@@ -1,4 +1,4 @@
-import { currentItem } from '@fxm/core'
+import { currentQueueItem } from '@fxm/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   connectMediaSession,
@@ -59,7 +59,7 @@ async function flush(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
-const current = (player: Player) => currentItem(player.getState().queue)?.track.title
+const current = (player: Player) => currentQueueItem(player.getState().queue)?.track.title
 const position = (state: MediaPositionState | undefined) => state?.position
 
 afterEach(() => {

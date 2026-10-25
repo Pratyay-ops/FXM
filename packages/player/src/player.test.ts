@@ -1,7 +1,8 @@
 import {
   type AudioCandidate,
   createSeededRandom,
-  currentItem,
+  currentQueueItem,
+  formatId,
   restoreQueue,
   type Track,
 } from '@fxm/core'
@@ -32,7 +33,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-const current = (player: Player) => currentItem(player.getState().queue)?.track.title
+const current = (player: Player) => currentQueueItem(player.getState().queue)?.track.title
 const titles = (player: Player) => player.getState().queue.items.map((item) => item.track.title)
 const url = (name: string) => `https://media.test/${name}`
 const abc = testTracks('a', 'b', 'c')
@@ -74,7 +75,8 @@ describe('Player: starting playback', () => {
     player.on('trackchange', ({ item, previous }) => {
       changes.push(`${previous?.track.title} -> ${item?.track.title}`)
     })
-    await player.setQueue(abc, 1, { type: 'album', id: 'ytm:album:MPREb_x', title: 'X' })
+    const context = { type: 'album', id: formatId('ytm', 'album', 'MPREb_x'), title: 'X' } as const
+    await player.setQueue(abc, 1, context)
     expect(current(player)).toBe('b')
     expect(changes).toEqual(['undefined -> b'])
     expect(resolver.requests).toHaveLength(1)
@@ -127,7 +129,7 @@ describe('Player: starting playback', () => {
     const { player, resolver } = setup()
     resolver.handler = () => ({ stream: testStream('song'), candidate: chosen })
     await player.setQueue([testTrack('m', { kind: 'music-video' })])
-    expect(currentItem(player.getState().queue)?.candidate).toEqual(chosen)
+    expect(currentQueueItem(player.getState().queue)?.candidate).toEqual(chosen)
     expect(player.getState().status).toBe('playing')
   })
 
