@@ -73,9 +73,9 @@ export type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise
 /**
  * The `fetch` a provider must use for every request; providers never touch the global one.
  * The platform injects it: `window.fetch` in a browser page (YouTube and Spotify answer it only
- * through the FXM Connect extension, apart from the CORS-simple InnerTube calls of the `simple`
- * YouTube tier, see {@link YouTubeAccess}), the Tauri HTTP plugin's `fetch` on desktop, a
- * native-HTTP wrapper on Android, or Node's `fetch` in tests and scripts.
+ * through the FXM Connect extension; the `simple` YouTube tier sends its InnerTube calls from a
+ * sandboxed document instead, see {@link YouTubeAccess}), the Tauri HTTP plugin's `fetch` on
+ * desktop, a native-HTTP wrapper on Android, or Node's `fetch` in tests and scripts.
  *
  * In any program that has a global `fetch` (DOM, web worker or Node types) this is exactly
  * `typeof fetch`, so every implementation above can be passed as is. `@fxm/core` itself loads
@@ -428,9 +428,9 @@ export interface AudioSource {
    *
    * Every option says whether its URL delivers the whole file (`fullLength`). Where the bytes
    * can be read (`ctx.capabilities.mediaBytes`), a resolver whose source may cap URLs, such as
-   * YouTube's, probes the end of the file; elsewhere its options are `unverified`. An option
-   * found `capped` may stay in the list so that the caller can tell why nothing plays, but it
-   * comes last, and `pickStream` never picks it.
+   * YouTube's, probes the end of the file; where they cannot, its options are `unverified`. An
+   * option found `capped` may stay in the list so that the caller can tell why nothing plays,
+   * but it comes last, and `pickStream` never picks it.
    */
   resolve(
     candidate: AudioCandidate,

@@ -50,25 +50,6 @@ Runtime plugins (a later stage) add sources of their own. A plugin source ID is 
 
 `isSourceId`, `formatId`, `parseId` and `isEntityId` accept the six built-in sources, spelled exactly, and any plugin source whose name is well formed. A plugin's native IDs are opaque (see the table above), so `entityKey` keys every plugin ID by itself and never merges it with another source's.
 
-### Choosing a stream
-
-`AudioSource.resolve` returns every `StreamOption` it found, best first, and never drops one because of the preferences, because the same list serves playback and downloads. The caller decides:
-
-- **Playback** removes the options the player cannot decode, then calls `pickStream(options, prefs.streaming.wifi)` (or `.cellular`). The tier is a ceiling: it plays the best option at or below it, and the lowest option above it when nothing is at or below it.
-- **Downloads** take the best option, such as a real FLAC original, with `pickStream(options, 'lossless')`, and label any conversion with `describeConversion`.
-
-**Capped URLs.** YouTube caps the stream URLs of most of its clients: they answer 403 after roughly 0.4–2 MiB, and only some are served in full. So wherever the bytes can be read (`capabilities.mediaBytes`), the resolver probes the last 64 KB of the file, and every option records the outcome in the required `fullLength` field:
-
-| `fullLength` | Meaning |
-|---|---|
-| `verified` | The end-of-file range probe succeeded |
-| `unverified` | No probe: the bytes can't be read (the `simple` YouTube tier) or the resolver didn't probe. Sources that never cap their URLs, such as Internet Archive, are `unverified` too unless probed |
-| `capped` | A probe showed that the URL stops early. It must never be played or downloaded: `compareStreams` ranks it after every other option, and `pickStream` never picks it, so playback and downloads both skip it |
-
-**Muxed video.** The required `media` field is `audio` or `muxed-video`. YouTube's last-resort rung is itag 18, a 360p MP4 whose AAC track FXM plays, or extracts for a download. Its `codec`, `bitrateKbps` and `tier` describe that audio track (AAC at about 96 kbps is `normal`), and its `container` is the video file's.
-
-For SABR streams, `url` holds the server ABR streaming URL, and `playback` carries the session parameters as JSON.
-
 ### Music videos in Music mode
 
 Music mode plays songs only, so an official music video never plays as itself there. What happens depends on whether its source links it to its song:
@@ -97,6 +78,25 @@ YouTube Music's album pages link official videos to their songs, so the YouTube 
 | `account` | FXM Connect with the session bridge the user turned on, the desktop and Android login windows | A logged-in token source as well. Whether the user is logged in is up to `AccountProvider.status` |
 
 The user's Spotify on/off switch is an app setting, not a capability: FXM uses Spotify only when the switch is on and `spotify` is not `unreachable`. `mediaBytes` is always `false` when `youtube` is `simple` or `none`.
+
+### Choosing a stream
+
+`AudioSource.resolve` returns every `StreamOption` it found, best first, and never drops one because of the preferences, because the same list serves playback and downloads. The caller decides:
+
+- **Playback** removes the options the player cannot decode, then calls `pickStream(options, prefs.streaming.wifi)` (or `.cellular`). The tier is a ceiling: it plays the best option at or below it, and the lowest option above it when nothing is at or below it.
+- **Downloads** take the best option, such as a real FLAC original, with `pickStream(options, 'lossless')`, and label any conversion with `describeConversion`.
+
+**Capped URLs.** YouTube caps the stream URLs of most of its clients: they answer 403 after roughly 0.4–2 MiB, and only some are served in full. So wherever the bytes can be read (`capabilities.mediaBytes`), the resolver probes the last 64 KB of the file, and every option records the outcome in the required `fullLength` field:
+
+| `fullLength` | Meaning |
+|---|---|
+| `verified` | The end-of-file range probe succeeded |
+| `unverified` | No probe: the bytes can't be read (the `simple` YouTube tier) or the resolver didn't probe. Sources that never cap their URLs, such as Internet Archive, are `unverified` too unless probed |
+| `capped` | A probe showed that the URL stops early. It must never be played or downloaded: `compareStreams` ranks it after every other option, and `pickStream` never picks it, so playback and downloads both skip it |
+
+**Muxed video.** The required `media` field is `audio` or `muxed-video`. YouTube's last-resort rung is itag 18, a 360p MP4 whose AAC track FXM plays, or extracts for a download. Its `codec`, `bitrateKbps` and `tier` describe that audio track (AAC at about 96 kbps is `normal`), and its `container` is the video file's.
+
+For SABR streams, `url` holds the server ABR streaming URL, and `playback` carries the session parameters as JSON.
 
 ### The injected `Fetch`
 
