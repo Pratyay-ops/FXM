@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { create } from 'zustand'
 
 /** How long a message stays on screen. */
@@ -8,9 +8,8 @@ interface FeedbackState {
   /** The message on screen, or `''`. */
   message: string
   /**
-   * When the message goes, as a `Date.now()` time. The toast can unmount before then (the user
-   * opened a page without one): a toast that mounts later shows the message only for what is
-   * left of its time, and not at all once that has passed.
+   * When the message goes, as a `Date.now()` time. From then on the toast never shows it, even
+   * before its timer runs: a message keeps its own time across pages and never comes back later.
    */
   until: number
   /** Changes with every message, so the same text shown twice restarts its timer. */
@@ -36,7 +35,9 @@ export function showFeedback(message: string): void {
 
 /**
  * The confirmation toast, above the player bar (or the phone's mini player and tab bar). The
- * live region is always in the page, so screen readers announce each new message.
+ * shell renders it once, for every page: the catalog pages and the library (stage 2.6) both
+ * confirm here. The live region is always in the page, so screen readers announce each new
+ * message.
  */
 export function FeedbackToast() {
   const message = useFeedbackStore((state) => state.message)
@@ -63,15 +64,16 @@ function Toast({
   until: number
   onTimeout: () => void
 }) {
-  // Read once, when the toast mounts: a message left over from a page before may have expired.
-  const [expired] = useState(() => until <= Date.now())
   useEffect(() => {
     const timer = setTimeout(onTimeout, Math.max(0, until - Date.now()))
     return () => clearTimeout(timer)
   }, [until, onTimeout])
-  if (expired) return null
+  // Checked on every render, not only when the toast mounts: the shell keeps the toast across
+  // pages, and a message whose time passed before its timer ran (a background tab throttles
+  // timers) must not show again when the next page renders.
+  if (until <= Date.now()) return null
   return (
-    <p className="max-w-sm rounded-lg bg-text px-4 py-3 text-center text-sm font-semibold text-background shadow-lg transition-[opacity,translate] duration-200 starting:translate-y-2 starting:opacity-0">
+    <p className="max-w-sm rounded-lg bg-text px-4 py-3 text-center text-sm font-semibold text-background shadow-lg transition-[opacity,translate] duration-200 starting:translate-y-2 starting:opacity-0 forced-colors:border">
       {message}
     </p>
   )

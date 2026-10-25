@@ -6,6 +6,7 @@ import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
 import { useLibraryViewStore } from '../features/library/view-store'
 import { usePlayerStore } from '../features/player/player-store'
+import { useFeedbackStore } from '../features/search/feedback'
 import { useSettingsStore } from '../features/settings/settings-store'
 
 // findBy* and waitFor give up after 1 s by default, shorter than a lazy page's import on a
@@ -19,6 +20,8 @@ afterEach(async () => {
   useSettingsStore.setState(useSettingsStore.getInitialState(), true)
   usePlayerStore.setState(usePlayerStore.getInitialState(), true)
   useLibraryViewStore.setState(useLibraryViewStore.getInitialState(), true)
+  // The shell's toast: no confirmation carries over into the next test.
+  useFeedbackStore.setState(useFeedbackStore.getInitialState(), true)
   localStorage.clear()
   delete document.documentElement.dataset.theme
   // After cleanup(), so no live query still watches the database being deleted.

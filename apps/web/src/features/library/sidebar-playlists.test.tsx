@@ -1,8 +1,11 @@
 import { screen, waitFor, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { renderApp } from '../../test/render'
-import { STATUS_VISIBLE_MS } from './status'
+import { FEEDBACK_MS } from '../search/feedback'
+import { renderCatalog, resetCatalogState } from '../search/testing'
+
+afterEach(() => resetCatalogState())
 
 function stubRowLayout() {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
@@ -88,7 +91,7 @@ describe('Sidebar playlists', { timeout: 30_000 }, () => {
 
     // Opened a while later, the Library page doesn't show it again.
     const now = Date.now.bind(Date)
-    vi.spyOn(Date, 'now').mockImplementation(() => now() + STATUS_VISIBLE_MS + 1000)
+    vi.spyOn(Date, 'now').mockImplementation(() => now() + FEEDBACK_MS + 1000)
     await user.click(
       within(screen.getAllByRole('navigation', { name: 'Main' })[0] as HTMLElement).getByRole(
         'link',
@@ -97,6 +100,35 @@ describe('Sidebar playlists', { timeout: 30_000 }, () => {
     )
     expect(await screen.findByRole('heading', { level: 1, name: 'Your library' })).toBeVisible()
     expect(screen.queryByText('Created Road trip (copy)')).not.toBeInTheDocument()
+  })
+
+  it('confirms in the same toast as the catalog pages, never in a second one', async () => {
+    await getLibrary().createPlaylist({ name: 'Road trip' })
+    const { user } = renderCatalog('/album/ytm:alb-neon-harbor')
+    await user.click(
+      await screen.findByRole(
+        'button',
+        { name: 'More options for Neon Harbor' },
+        { timeout: 5000 },
+      ),
+    )
+    await user.click(await screen.findByRole('menuitem', { name: 'Add to queue' }))
+    // The live regions with something to say (the sidebar's drag announcer is one, silent here).
+    const speaking = () =>
+      screen.queryAllByRole('status').filter((region) => region.textContent !== '')
+    const [toast, ...others] = speaking()
+    expect(toast).toHaveTextContent('Added 10 songs to the queue')
+    expect(others).toEqual([])
+
+    await user.click(
+      await waitFor(() =>
+        sidebarPlaylists().getByRole('button', { name: 'More options for Road trip' }),
+      ),
+    )
+    await user.click(await screen.findByRole('menuitem', { name: 'Duplicate' }))
+    // The library's confirmation takes the catalog's place in the same toast.
+    await waitFor(() => expect(toast).toHaveTextContent('Created Road trip (copy)'))
+    expect(speaking()).toEqual([toast])
   })
 
   it('gives focus to the next playlist after deleting one from the sidebar', async () => {
