@@ -12,7 +12,14 @@
 
 import { normalizeIsrc } from '@fxm/core'
 import type { IAudioMetadata, IOptions } from 'music-metadata'
-import { AUDIO_EXTENSIONS, audioFormatOf, extensionOf } from './format'
+import {
+  AUDIO_EXTENSIONS,
+  audioFormatOf,
+  extensionOf,
+  isWaveExtensible,
+  type ParsedFormat,
+  waveSubFormat,
+} from './format'
 import type { LocalAudioFormat, LocalTags, SkipReason } from './types'
 
 /**
@@ -82,7 +89,18 @@ async function parse(parseBlob: Parser['parseBlob'], file: Blob, type: string, e
     const reason: SkipReason = unsupported ? 'unsupported' : 'unreadable'
     return { failure: { reason, message: messageOf(error) } } satisfies Parsed
   }
-  const result = audioFormatOf(metadata.format, extension)
+  let parsed: ParsedFormat = metadata.format
+  if (isWaveExtensible(parsed)) {
+    // The tag reader has no name for this header: the SubFormat in the `fmt ` chunk says what
+    // the audio is (PCM in every 24-bit or 96 kHz WAV ffmpeg writes).
+    const fmt = await waveFormatChunk(file)
+    const sub = fmt === undefined ? undefined : waveSubFormat(fmt)
+    if (sub !== undefined) {
+      parsed = { ...parsed, codec: sub.codec }
+      if (sub.validBits !== undefined) parsed.bitsPerSample = sub.validBits
+    }
+  }
+  const result = audioFormatOf(parsed, extension)
   if ('unsupported' in result) {
     return {
       metadata,
@@ -114,6 +132,31 @@ export const readTags: ReadTags = async (file, name) => {
   const cover = selectCover(metadata.common.picture)
   if (cover === null || cover.data.length === 0) return { ok: true, tags, format }
   return { ok: true, tags, format, picture: { data: cover.data, format: cover.format } }
+}
+
+/** RIFF chunks looked at before the `fmt ` chunk, at most: it normally comes first. */
+const MAX_WAVE_CHUNKS = 64
+
+/**
+ * The body of a WAV file's `fmt ` chunk (its first 64 bytes, enough for WAVEFORMATEXTENSIBLE),
+ * found by walking the RIFF chunks from the start: 8 bytes per chunk are read, never the audio.
+ */
+export async function waveFormatChunk(file: Blob): Promise<Uint8Array | undefined> {
+  // After "RIFF", the file size and "WAVE": chunks of a four-character ID, a 32-bit size and the
+  // body, padded to an even length.
+  let at = 12
+  for (let chunk = 0; chunk < MAX_WAVE_CHUNKS && at + 8 <= file.size; chunk++) {
+    const header = new Uint8Array(await file.slice(at, at + 8).arrayBuffer())
+    const id = String.fromCharCode(...header.subarray(0, 4))
+    const size = new DataView(header.buffer).getUint32(4, true)
+    if (id === 'fmt ') {
+      return new Uint8Array(await file.slice(at + 8, at + 8 + Math.min(size, 64)).arrayBuffer())
+    }
+    // The format comes before the audio: past it, there is none.
+    if (id === 'data') return undefined
+    at += 8 + size + (size % 2)
+  }
+  return undefined
 }
 
 /** Bytes read from the end of an Ogg file to find its last page. */

@@ -8,9 +8,12 @@ import {
   formatName,
   isAudioFileName,
   isLossless,
+  isWaveExtensible,
   type ParsedFormat,
   qualityLabel,
+  waveSubFormat,
 } from './format'
+import { wavFormatChunk } from './testing/audio-files'
 
 describe('which files FXM reads', () => {
   it.each([
@@ -200,6 +203,53 @@ describe('audioFormatOf', () => {
         'mp3',
       ),
     ).toEqual({ codec: 'mp3', container: 'mp3', tier: 'normal' })
+  })
+})
+
+describe('extensible WAVs', () => {
+  it('recognizes the tag reader’s name for the extensible header', () => {
+    expect(isWaveExtensible({ container: 'WAVE', codec: 'non-PCM (65534)' })).toBe(true)
+    expect(isWaveExtensible({ container: 'WAVE', codec: 'PCM' })).toBe(false)
+    expect(isWaveExtensible({ container: 'Ogg', codec: 'non-PCM (65534)' })).toBe(false)
+  })
+
+  it('reads PCM and float from the SubFormat GUID, with the valid bits', () => {
+    expect(waveSubFormat(wavFormatChunk({ extensible: true, bitsPerSample: 24 }))).toEqual({
+      codec: 'PCM',
+      validBits: 24,
+    })
+    expect(
+      waveSubFormat(wavFormatChunk({ extensible: true, bitsPerSample: 32, validBits: 20 })),
+    ).toEqual({ codec: 'PCM', validBits: 20 })
+    expect(
+      waveSubFormat(wavFormatChunk({ extensible: true, float: true, bitsPerSample: 32 })),
+    ).toEqual({ codec: 'IEEE_FLOAT', validBits: 32 })
+  })
+
+  it('knows no other SubFormat, and no header that isn’t extensible', () => {
+    const mp3 = wavFormatChunk({ extensible: true })
+    mp3.set([0x55, 0x00], 24)
+    expect(waveSubFormat(mp3)).toBeUndefined()
+    // Ambisonics: format tag 1, but another GUID family.
+    const ambisonic = wavFormatChunk({ extensible: true })
+    ambisonic.set([0x21, 0x07], 28)
+    expect(waveSubFormat(ambisonic)).toBeUndefined()
+    expect(waveSubFormat(wavFormatChunk({ bitsPerSample: 24 }))).toBeUndefined()
+    expect(waveSubFormat(new Uint8Array(12))).toBeUndefined()
+  })
+
+  it('labels a 24-bit, 96 kHz WAV lossless with its resolution', () => {
+    const result = audioFormatOf(
+      { container: 'WAVE', codec: 'PCM', bitsPerSample: 24, sampleRate: 96_000 },
+      'wav',
+    )
+    if (!('format' in result)) throw new Error(result.unsupported)
+    expect(result.format.tier).toBe('lossless')
+    expect(qualityLabel(result.format)).toBe('WAV · 24-bit · 96 kHz')
+    // Left unread, the extensible header is no format FXM plays.
+    expect(audioFormatOf({ container: 'WAVE', codec: 'non-PCM (65534)' }, 'wav')).toHaveProperty(
+      'unsupported',
+    )
   })
 })
 

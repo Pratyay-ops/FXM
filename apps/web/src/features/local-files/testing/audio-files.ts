@@ -217,8 +217,19 @@ export interface WavOptions {
   picture?: TestPicture
   seconds?: number
   sampleRate?: number
-  bitsPerSample?: 16 | 24
+  bitsPerSample?: 16 | 24 | 32
   channels?: 1 | 2
+  /** 32-bit float samples (format tag 3, or its SubFormat when extensible) instead of integers. */
+  float?: boolean
+  /**
+   * Writes the header as WAVE_FORMAT_EXTENSIBLE (format tag 0xFFFE, with the format in a
+   * SubFormat GUID), as ffmpeg does for anything above 16-bit or 48 kHz.
+   */
+  extensible?: boolean
+  /** With `extensible`: the bits of each sample that hold audio. Default: all of them. */
+  validBits?: number
+  /** Chunks written before the `fmt ` chunk, e.g. `JUNK` padding. */
+  leading?: { id: string; data: Uint8Array }[]
 }
 
 function riffChunk(id: string, data: Uint8Array): Uint8Array {
@@ -226,7 +237,41 @@ function riffChunk(id: string, data: Uint8Array): Uint8Array {
   return concat(latin1(id), u32le(data.length), padded)
 }
 
-/** A PCM WAV of silence, with an `id3 ` chunk when it has tags. */
+/**
+ * The body of a WAV's `fmt ` chunk: WAVEFORMAT, or WAVEFORMATEXTENSIBLE with `extensible`, whose
+ * SubFormat is the format tag in the GUID `xxxxxxxx-0000-0010-8000-00aa00389b71`.
+ */
+export function wavFormatChunk({
+  sampleRate = 8000,
+  bitsPerSample = 16,
+  channels = 1,
+  float = false,
+  extensible = false,
+  validBits = bitsPerSample,
+}: Pick<
+  WavOptions,
+  'sampleRate' | 'bitsPerSample' | 'channels' | 'float' | 'extensible' | 'validBits'
+> = {}): Uint8Array<ArrayBuffer> {
+  const blockAlign = (channels * bitsPerSample) / 8
+  const tag = float ? 3 : 1
+  const base = concat(
+    u16le(extensible ? 0xfffe : tag),
+    u16le(channels),
+    u32le(sampleRate),
+    u32le(sampleRate * blockAlign),
+    u16le(blockAlign),
+    u16le(bitsPerSample),
+  )
+  if (!extensible) return base
+  // cbSize, valid bits, the speaker mask (front centre, or front left and right), SubFormat.
+  const subFormat = concat(
+    u32le(tag),
+    Uint8Array.of(0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71),
+  )
+  return concat(base, u16le(22), u16le(validBits), u32le(channels === 1 ? 0x4 : 0x3), subFormat)
+}
+
+/** A WAV of silence, with an `id3 ` chunk when it has tags. */
 export function wavFile({
   tags,
   picture,
@@ -234,18 +279,26 @@ export function wavFile({
   sampleRate = 8000,
   bitsPerSample = 16,
   channels = 1,
+  float = false,
+  extensible = false,
+  validBits = bitsPerSample,
+  leading = [],
 }: WavOptions = {}): Uint8Array<ArrayBuffer> {
   const blockAlign = (channels * bitsPerSample) / 8
-  const format = concat(
-    u16le(1),
-    u16le(channels),
-    u32le(sampleRate),
-    u32le(sampleRate * blockAlign),
-    u16le(blockAlign),
-    u16le(bitsPerSample),
-  )
+  const format = wavFormatChunk({
+    sampleRate,
+    bitsPerSample,
+    channels,
+    float,
+    extensible,
+    validBits,
+  })
   const data = new Uint8Array(Math.round(seconds * sampleRate) * blockAlign)
-  const chunks = [riffChunk('fmt ', format), riffChunk('data', data)]
+  const chunks = [
+    ...leading.map((chunk) => riffChunk(chunk.id, chunk.data)),
+    riffChunk('fmt ', format),
+    riffChunk('data', data),
+  ]
   if (tags !== undefined || picture !== undefined)
     chunks.push(riffChunk('id3 ', id3Tag(tags ?? {}, picture)))
   const body = concat(latin1('WAVE'), ...chunks)

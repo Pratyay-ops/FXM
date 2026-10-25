@@ -63,13 +63,58 @@ const MP3_CODECS = new Set([
   'mpeglayer3',
 ])
 
+/**
+ * The codec name music-metadata 12 gives a WAV whose `fmt ` chunk has the format tag
+ * WAVE_FORMAT_EXTENSIBLE (0xFFFE), lower case. ffmpeg and most other tools write that header for
+ * anything above 16-bit or 48 kHz and for more than two channels; the real format is the
+ * chunk's SubFormat GUID ({@link waveSubFormat}).
+ */
+export const WAVE_EXTENSIBLE_CODEC = 'non-pcm (65534)'
+
+/** Whether the tag reader found an extensible WAV, whose format is in its SubFormat GUID. */
+export function isWaveExtensible(parsed: Pick<ParsedFormat, 'container' | 'codec'>): boolean {
+  return (
+    parsed.container?.trim().toLowerCase() === 'wave' &&
+    parsed.codec?.trim().toLowerCase() === WAVE_EXTENSIBLE_CODEC
+  )
+}
+
+/**
+ * What every SubFormat GUID of a WAVE format tag shares after the tag itself:
+ * `xxxxxxxx-0000-0010-8000-00aa00389b71`, from byte 4 of the GUID on.
+ */
+const SUBFORMAT_TAIL = [0x00, 0x00, 0x10, 0x00, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71]
+
+/** The WAV formats browsers play, by format tag, as the tag reader names them. */
+const WAVE_FORMATS: Readonly<Record<number, string>> = { 1: 'PCM', 3: 'IEEE_FLOAT' }
+
+/**
+ * The audio of an extensible WAV, from the body of its `fmt ` chunk (WAVEFORMATEXTENSIBLE):
+ * `PCM` or `IEEE_FLOAT` when its SubFormat GUID is theirs, with the bits per sample that hold
+ * audio (a 24-bit file may store each sample in 32 bits). `undefined` for any other format, such
+ * as Ambisonics or compressed audio, and for a chunk that isn't extensible.
+ */
+export function waveSubFormat(fmt: Uint8Array): { codec: string; validBits?: number } | undefined {
+  // The 16-byte WAVEFORMAT, then cbSize (22), the valid bits, the channel mask and the 16-byte
+  // GUID at byte 24, whose first field is the format tag as a 32-bit number.
+  if (fmt.length < 40) return undefined
+  const view = new DataView(fmt.buffer, fmt.byteOffset, fmt.byteLength)
+  if (view.getUint16(0, true) !== 0xfffe || view.getUint16(26, true) !== 0) return undefined
+  if (SUBFORMAT_TAIL.some((byte, index) => fmt[28 + index] !== byte)) return undefined
+  const codec = WAVE_FORMATS[view.getUint16(24, true)]
+  if (codec === undefined) return undefined
+  const validBits = view.getUint16(18, true)
+  return validBits > 0 && validBits <= view.getUint16(14, true) ? { codec, validBits } : { codec }
+}
+
 /** The core codec for the tag reader's codec name, or `undefined` for one FXM doesn't play. */
 export function codecOf(name: string | undefined): Codec | undefined {
   const codec = name?.trim().toLowerCase()
   if (codec === undefined || codec === '') return undefined
   if (codec === 'flac') return 'flac'
   if (codec === 'alac') return 'alac'
-  // Uncompressed WAV audio, as integers or floats.
+  // Uncompressed WAV audio, as integers or floats. An extensible WAV is named after its
+  // SubFormat by `readTags` first (see `waveSubFormat`); unread, it stays unknown here.
   if (codec === 'pcm' || codec === 'ieee_float') return 'pcm'
   if (codec === 'opus') return 'opus'
   if (codec === 'vorbis i' || codec === 'vorbis') return 'vorbis'

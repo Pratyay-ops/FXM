@@ -94,6 +94,52 @@ describe('readTags', () => {
     })
   })
 
+  it('reads an extensible WAV, as ffmpeg writes 24-bit and 96 kHz ones, as lossless', async () => {
+    const result = await read(
+      wavFile({
+        tags: { title: 'High Tide' },
+        extensible: true,
+        bitsPerSample: 24,
+        sampleRate: 96_000,
+        seconds: 0.25,
+      }),
+      'high tide.wav',
+    )
+    expect(result.tags).toMatchObject({ title: 'High Tide', durationMs: 250 })
+    expect(result.format).toEqual({
+      codec: 'pcm',
+      container: 'wav',
+      tier: 'lossless',
+      bitrateKbps: 2304,
+      sampleRateHz: 96_000,
+      bitDepth: 24,
+    })
+  })
+
+  it('reads extensible WAVs of floats, of 24 bits in 32 and after other chunks', async () => {
+    const float = await read(
+      wavFile({ extensible: true, float: true, bitsPerSample: 32, sampleRate: 48_000 }),
+      'float.wav',
+    )
+    expect(float.format).toMatchObject({ codec: 'pcm', tier: 'lossless', bitDepth: 32 })
+    const padded = await read(
+      wavFile({
+        extensible: true,
+        bitsPerSample: 32,
+        validBits: 24,
+        sampleRate: 88_200,
+        leading: [{ id: 'JUNK', data: new Uint8Array(29) }],
+      }),
+      'padded.wav',
+    )
+    expect(padded.format).toMatchObject({
+      codec: 'pcm',
+      tier: 'lossless',
+      sampleRateHz: 88_200,
+      bitDepth: 24,
+    })
+  })
+
   it('reads ALAC in M4A as lossless, and AAC in M4A as lossy', async () => {
     const alac = await read(
       m4aFile({ codec: 'alac', tags: TAGS, picture: COVER, bitsPerSample: 24 }),
