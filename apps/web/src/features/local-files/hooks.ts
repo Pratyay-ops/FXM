@@ -7,14 +7,17 @@
  */
 
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useStore } from 'zustand'
 import type { Live } from '../../db/hooks'
 import { CHECKING, getLocalFiles, type LocalFiles, type RootStatus } from './local-files'
+import { type BlockedRoot, blockedRootsOf } from './root-status'
 import { type LocalTrack, toLocalTracks } from './tracks'
 import type { LocalPictureRecord, LocalRootRecord } from './types'
 
 const LOADING = { status: 'loading' } as const
+
+const NONE_BLOCKED: ReadonlyMap<string, BlockedRoot> = new Map()
 
 /** The app's local files. */
 export function useLocalFiles(): LocalFiles {
@@ -81,4 +84,22 @@ export function useRootStatuses(): Readonly<Record<string, RootStatus>> {
 /** One root's status in this visit. */
 export function useRootStatus(rootId: string): RootStatus {
   return useStore(getLocalFiles().store, (state) => state.statuses[rootId] ?? CHECKING)
+}
+
+/**
+ * The roots whose songs can't play right now (see `blockedRootsOf`), by root ID. Checks every
+ * root once when mounted, so the statuses are known wherever local songs are listed.
+ */
+export function useBlockedRoots(): ReadonlyMap<string, BlockedRoot> {
+  const files = useLocalFiles()
+  const roots = useLocalRoots()
+  const statuses = useRootStatuses()
+  useEffect(() => {
+    // A database the browser blocks shows as the lists' error state.
+    files.checkRoots().catch(() => {})
+  }, [files])
+  return useMemo(
+    () => (roots.status === 'ready' ? blockedRootsOf(roots.data, statuses) : NONE_BLOCKED),
+    [roots, statuses],
+  )
 }

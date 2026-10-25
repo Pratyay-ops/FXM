@@ -8,7 +8,14 @@ import { countLabel } from '../library/format'
 import { AddToPlaylistDialog } from '../library/playlist-dialogs'
 import { MenuPopup } from '../library/ui/menu'
 import { getLocalPlayer, usePlayingTrack } from './player'
-import { LocalTrackRow, playFrom, rowFields, toggleLike, trackMenuItems } from './track-row'
+import {
+  type BlockedRoots,
+  LocalTrackRow,
+  playFrom,
+  rowFields,
+  toggleLike,
+  trackMenuItems,
+} from './track-row'
 import type { LocalTrack } from './tracks'
 
 /** How many rows a list shows at first, and how many more each "Show more" adds. */
@@ -21,8 +28,8 @@ export interface LocalTrackListProps {
   context: QueueContext
   /** The list's accessible name, e.g. "Songs in local files". */
   label: string
-  /** Roots whose files can't be read right now: their rows are dimmed. */
-  unavailableRoots?: ReadonlySet<string>
+  /** Roots whose songs can't play right now: their rows say why, and stay out of queues. */
+  blocked?: BlockedRoots
   /** Rows shown at first. */
   pageSize?: number
 }
@@ -45,7 +52,7 @@ export function LocalTrackList({
   tracks,
   context,
   label,
-  unavailableRoots,
+  blocked,
   pageSize = LIST_PAGE_SIZE,
 }: LocalTrackListProps) {
   const [shown, setShown] = useState(pageSize)
@@ -59,17 +66,17 @@ export function LocalTrackList({
   )
   // The row callbacks read the latest list through a ref, so they never change and a scan that
   // adds files, or a new track playing, re-renders only the rows whose values changed.
-  const latest = useRef({ tracks, byId, context, playingId: playing.id })
-  latest.current = { tracks, byId, context, playingId: playing.id }
+  const latest = useRef({ tracks, byId, context, blocked, playingId: playing.id })
+  latest.current = { tracks, byId, context, blocked, playingId: playing.id }
 
   const play = useCallback((id: string) => {
-    const { tracks: list, byId: items, context: from, playingId } = latest.current
+    const { tracks: list, byId: items, context: from, blocked: off, playingId } = latest.current
     if (playingId === id) {
       void getLocalPlayer().toggle()
       return
     }
     const item = items.get(id)
-    if (item !== undefined) playFrom(list, item, from)
+    if (item !== undefined) playFrom(list, item, from, off)
   }, [])
 
   const like = useCallback((id: string) => {
@@ -101,7 +108,7 @@ export function LocalTrackList({
             current={playing.id === item.track.id}
             playing={playing.playing}
             liked={liked.has(entityKey(item.track.id))}
-            dimmed={unavailableRoots?.has(item.file.rootId) ?? false}
+            blocked={blocked?.get(item.file.rootId)?.badge}
             menuOpen={menu?.id === item.track.id}
             onPlay={play}
             onToggleLike={like}
@@ -127,6 +134,7 @@ export function LocalTrackList({
           items={trackMenuItems(menuItem, {
             liked: liked.has(entityKey(menuItem.track.id)),
             onAddToPlaylist: (track) => setAdding([track]),
+            ...(blocked === undefined ? {} : { blocked }),
           })}
           label={`More options for ${menuItem.track.title}`}
           onClose={closeMenu}

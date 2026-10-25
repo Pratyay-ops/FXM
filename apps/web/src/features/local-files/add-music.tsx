@@ -1,41 +1,95 @@
-import { FilePlus2, FolderPlus } from 'lucide-react'
+import { FilePlus2, FolderPlus, Plus } from 'lucide-react'
 import { type ReactNode, useCallback, useRef } from 'react'
 import { buttonClasses } from '../../components/ui/button'
-import { cn } from '../../lib/cn'
 import { showStatus } from '../library/status'
+import { Menu, type MenuItem } from '../library/ui/menu'
 import { AUDIO_EXTENSIONS } from './format'
 import { useLocalFiles } from './hooks'
-import type { AddFolderResult, AddPickedResult } from './local-files'
+import type { AddFolderResult, AddPickedResult, LocalFiles } from './local-files'
 import { localFailureText } from './messages'
+import { needsAttention, scanSummary, statusText } from './root-status'
+import type { LocalRootRecord } from './types'
 
-/** What the files input accepts: audio types, plus the extensions some systems don't type. */
+/** What the file inputs accept: audio types, plus the extensions some systems don't type. */
 const ACCEPT = [
   'audio/*',
   ...Object.keys(AUDIO_EXTENSIONS).map((extension) => `.${extension}`),
 ].join(',')
 
-function announcePicked(result: AddPickedResult): void {
-  if (result.status === 'empty') showStatus('None of those files is a format FXM can play')
+/**
+ * Says what the scan of a root just added found, once it is over ("Added “Music”: 8 songs"),
+ * or why it failed. Nothing when the user stopped it.
+ */
+async function announceScan(
+  files: LocalFiles,
+  root: LocalRootRecord,
+  verb: 'Added' | 'Found',
+): Promise<void> {
+  const outcome = await files.whenScanned(root.id)
+  if (outcome === undefined) {
+    const status = files.statusOf(root.id)
+    if (needsAttention(status)) showStatus(`“${root.name}”: ${statusText(root, status, 0)}`)
+    return
+  }
+  if (outcome.status === 'cancelled') return
+  showStatus(scanSummary(root, outcome, await files.repo.countFiles(root.id), verb))
 }
 
-function announceFolder(result: AddFolderResult): void {
-  if (result.status === 'exists') {
-    showStatus(`“${result.root.name}” is already in Local files. Looking for changes`)
-  } else if (result.status === 'inside') {
-    showStatus(`That folder is already part of “${result.root.name}”`)
+/** Says what adding a folder did, now or once its scan is over. */
+export function announceFolder(files: LocalFiles, result: AddFolderResult): void {
+  switch (result.status) {
+    case 'exists':
+      showStatus(`“${result.root.name}” is already in Local files. Looking for changes`)
+      break
+    case 'inside':
+      showStatus(`That folder is already part of “${result.root.name}”`)
+      break
+    case 'added':
+    case 'replaced':
+      announceScan(files, result.root, result.status === 'added' ? 'Added' : 'Found').catch(
+        () => {},
+      )
+      break
+    default:
   }
+}
+
+/** Says what adding chosen files did, once their scan is over. */
+export function announcePicked(files: LocalFiles, result: AddPickedResult): void {
+  if (result.status === 'empty') {
+    showStatus('None of those files is a format FXM can play')
+    return
+  }
+  announceScan(files, result.root, result.status === 'added' ? 'Added' : 'Found').catch(() => {})
+}
+
+/**
+ * Opens the folder picker and adds the folder it gives (or, with `replace`, makes it that
+ * root's folder). Call it straight from a click: the picker opens only during one.
+ */
+export function addFolder(files: LocalFiles, options: { replace?: string } = {}): void {
+  files.addFolder(options).then(
+    (result) => announceFolder(files, result),
+    (error: unknown) => showStatus(localFailureText(error)),
+  )
+}
+
+/** The file inputs FXM uses where it can't keep a folder; see {@link usePickers}. */
+export interface Pickers {
+  /** The hidden inputs: render them once. */
+  inputs: ReactNode
+  /** Opens the folder input. Call it from a click. */
+  chooseFolder: () => void
+  /** Opens the files input. Call it from a click. */
+  chooseFiles: () => void
 }
 
 /**
  * The file inputs FXM uses where it can't keep a folder: one for a whole folder
- * (`webkitdirectory`), one for single files. Render `inputs` once; `chooseFolder` and
- * `chooseFiles` open them, from a click.
+ * (`webkitdirectory`), one for single files. Where a browser can't pick folders (iOS, for one),
+ * the folder input takes several music files instead.
  */
-export function usePickers(): {
-  inputs: ReactNode
-  chooseFolder: () => void
-  chooseFiles: () => void
-} {
+export function usePickers(): Pickers {
   const files = useLocalFiles()
   const folderInput = useRef<HTMLInputElement | null>(null)
   const filesInput = useRef<HTMLInputElement | null>(null)
@@ -46,9 +100,10 @@ export function usePickers(): {
       // Cleared, so choosing the same files again still reports a change.
       input.value = ''
       if (chosen.length === 0) return
-      files
-        .addPicked(chosen)
-        .then(announcePicked, (error: unknown) => showStatus(localFailureText(error)))
+      files.addPicked(chosen).then(
+        (result) => announcePicked(files, result),
+        (error: unknown) => showStatus(localFailureText(error)),
+      )
     },
     [files],
   )
@@ -62,6 +117,8 @@ export function usePickers(): {
           if (input) input.webkitdirectory = true
         }}
         type="file"
+        multiple
+        accept={ACCEPT}
         hidden
         tabIndex={-1}
         aria-hidden="true"
@@ -88,50 +145,75 @@ export function usePickers(): {
   }
 }
 
-/**
- * The buttons that add music: "Add a folder" where the browser can keep access to it (Chromium),
- * else "Choose a folder"; and "Choose files" everywhere.
- */
-export function AddMusicActions({
-  primary = true,
-  align = 'center',
-}: {
-  /** Whether "Add a folder" is the page's main action (the empty state) or a quiet one. */
-  primary?: boolean
-  /** `end`: at the start on phones, at the end of the row from 640 px (beside a heading). */
-  align?: 'center' | 'end'
-}) {
-  const files = useLocalFiles()
-  const pickers = usePickers()
+/** The ways this browser adds music, for the buttons and the menu. */
+function addOptions(files: LocalFiles, pickers: Pickers) {
   const keep = files.canKeepFolders()
-  const addFolder = () => {
-    // No await before this: the picker opens only during the click.
-    files.addFolder().then(announceFolder, (error: unknown) => showStatus(localFailureText(error)))
+  const folders = keep || files.canChooseFolders()
+  return {
+    folder: folders
+      ? {
+          label: keep ? 'Add a folder' : 'Choose a folder',
+          onClick: keep ? () => addFolder(files) : pickers.chooseFolder,
+        }
+      : undefined,
+    files: { label: folders ? 'Choose files' : 'Choose music files', onClick: pickers.chooseFiles },
   }
+}
+
+/**
+ * The buttons that add the first music: "Add a folder" where the browser can keep access to it
+ * (Chromium), else "Choose a folder"; and "Choose files". Where a browser can't pick folders at
+ * all, only "Choose music files".
+ */
+export function AddMusicActions({ pickers }: { pickers: Pickers }) {
+  const files = useLocalFiles()
+  const options = addOptions(files, pickers)
   return (
-    <div
-      className={cn(
-        'flex flex-wrap items-center gap-3',
-        align === 'center' ? 'justify-center' : 'justify-start sm:justify-end',
+    <div className="flex flex-wrap items-center justify-center gap-3">
+      {options.folder && (
+        <button type="button" className={buttonClasses()} onClick={options.folder.onClick}>
+          <FolderPlus aria-hidden="true" />
+          {options.folder.label}
+        </button>
       )}
-    >
       <button
         type="button"
-        className={buttonClasses({ variant: primary ? 'primary' : 'secondary' })}
-        onClick={keep ? addFolder : pickers.chooseFolder}
-      >
-        <FolderPlus aria-hidden="true" />
-        {keep ? 'Add a folder' : 'Choose a folder'}
-      </button>
-      <button
-        type="button"
-        className={buttonClasses({ variant: primary ? 'secondary' : 'ghost' })}
-        onClick={pickers.chooseFiles}
+        className={buttonClasses({ variant: options.folder ? 'secondary' : 'primary' })}
+        onClick={options.files.onClick}
       >
         <FilePlus2 aria-hidden="true" />
-        Choose files
+        {options.files.label}
       </button>
-      {pickers.inputs}
     </div>
+  )
+}
+
+/** "Add music": the same choices as {@link AddMusicActions}, as one menu button (icon only on phones). */
+export function AddMusicMenu({ pickers }: { pickers: Pickers }) {
+  const files = useLocalFiles()
+  const options = addOptions(files, pickers)
+  const items: MenuItem[] = [
+    ...(options.folder
+      ? [
+          {
+            id: 'folder',
+            label: options.folder.label,
+            icon: FolderPlus,
+            onSelect: options.folder.onClick,
+          },
+        ]
+      : []),
+    { id: 'files', label: options.files.label, icon: FilePlus2, onSelect: options.files.onClick },
+  ]
+  return (
+    <Menu
+      label="Add music"
+      items={items}
+      align="end"
+      className={buttonClasses({ variant: 'secondary', className: 'max-sm:w-touch max-sm:px-0' })}
+    >
+      <Plus aria-hidden="true" />
+      <span className="max-sm:sr-only">Add music</span>
+    </Menu>
   )
 }
