@@ -1,4 +1,4 @@
-import { History, ListMusic, Pause, Play, Trash2, X } from 'lucide-react'
+import { History, ListMusic, Pause, Play, RotateCcw, Trash2, X } from 'lucide-react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { useLive } from '../../db/hooks'
@@ -17,6 +17,7 @@ import {
   pauseImport,
   removeImport,
   resumeImport,
+  retryFailedSongs,
   useImportRunner,
 } from './runner'
 import type { ImportServicesAccess } from './services'
@@ -43,8 +44,20 @@ export function ImportActions({
   const canResume = status === 'paused' || status === 'interrupted'
   const canPause = status === 'running' || status === 'pending'
   const finished = status === 'done' || status === 'cancelled' || status === 'failed'
+  const canRetry = record.failed > 0 && status !== 'cancelled' && !canPause
   return (
     <div className="flex flex-wrap gap-2">
+      {canRetry && (
+        <button
+          type="button"
+          className={small}
+          aria-label={`Try the ${countLabel(record.failed, 'failed song')} of ${label} again`}
+          onClick={() => act(async () => retryFailedSongs(record.id, await services.get()))}
+        >
+          <RotateCcw aria-hidden="true" />
+          Retry {record.failed.toLocaleString('en')} failed
+        </button>
+      )}
       {canResume && (
         <button
           type="button"

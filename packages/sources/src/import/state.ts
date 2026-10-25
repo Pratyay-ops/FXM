@@ -120,6 +120,20 @@ export function importCounts(state: ImportState): ImportCounts {
   return counts
 }
 
+/**
+ * Puts the rows that failed back in the queue, in place, so the next run tries them again.
+ * Returns how many.
+ */
+export function retryFailedRows(state: ImportState): number {
+  let count = 0
+  state.results.forEach((result, index) => {
+    if (result?.outcome !== 'failed') return
+    state.results[index] = null
+    count++
+  })
+  return count
+}
+
 /** The first row still waiting, or the number of rows when none is. */
 export function firstPendingRow(state: ImportState): number {
   const index = state.results.indexOf(null)

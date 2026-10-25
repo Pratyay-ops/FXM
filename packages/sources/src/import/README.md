@@ -77,6 +77,7 @@ A catalog row whose decision the library's match cache already holds is not sear
 - `applyReview(state, index, { action: 'confirm', ref } | { action: 'skip' }, now)` records the user's decision and says what the library must do: `pin` the candidate as the audio of the row's catalog track (`pinMatch`), or `place` the song into the playlist (`before` the next row's track), or nothing for a skip.
 - `importCounts(state)` gives the progress record's counts; `rowStatus` and `needsReview` say where a row stands.
 - `importReport(state, label)` is the match report: per row the status, the verdict, the confidence, the match, the ISRC (verified or not), where the ISRC or length came from, whether it ran without a length, and why it did not reach Auto; with the totals (`isrcVerified`, `noDuration`, `musicBrainz`, `likely`, …). `reportToCsv` (RFC 4180, with formula-looking cells defused) and `reportToJson` turn it into files.
+- `retryFailedRows(state)` puts the rows that failed back in the queue for the next run.
 - `sanitizeImportState(value)` reads saved progress back, refusing anything this version cannot resume.
 
 ## The YouTube touch-point

@@ -25,6 +25,7 @@ import {
   type ParsedImport,
   type ReviewDecision,
   type ReviewEffect,
+  retryFailedRows,
   runImport,
   sanitizeImportState,
 } from '@fxm/sources/import'
@@ -347,6 +348,25 @@ export async function resumeImport(id: string, services: ImportServices): Promis
   queue.push(id)
   publishQueue()
   void drain(services)
+}
+
+/**
+ * Tries an import's failed songs again: they go back in its queue, and the import resumes.
+ * Returns how many. Nothing happens while the import runs in this tab.
+ */
+export function retryFailedSongs(id: string, services: ImportServices): Promise<number> {
+  return withLock(id, async () => {
+    if (active?.id === id) return 0
+    const repo = getLibrary()
+    const { state } = await stateOf(repo, id)
+    const count = retryFailedRows(state)
+    if (count === 0) return 0
+    await repo.updateImport(id, { ...progressOf(state), status: 'pending', error: '' })
+    if (!queue.includes(id)) queue.push(id)
+    publishQueue()
+    void drain(services)
+    return count
+  })
 }
 
 /** Pauses an import; its progress is kept. */

@@ -363,6 +363,8 @@ export async function runImport(
     if (track === null) return failed('The song could not be read')
     const loaded = rowWithTrack(row, track)
     state.rows[index] = loaded
+    // Saved with the next save, so a resumed import does not load the track again.
+    unsaved++
     const ready = track
     await viaSink(() => sink.saveTrack(ready))
     await viaSink(() => sink.placeTrack(ready, nextPlaylistTrack(state, index)))

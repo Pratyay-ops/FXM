@@ -16,6 +16,7 @@ import {
   pauseImport,
   resetImportRunner,
   resumeImport,
+  retryFailedSongs,
   reviewRow,
   startImports,
 } from './runner'
@@ -260,6 +261,33 @@ describe('pausing and resuming', () => {
     const failed = await finished(record.id)
     expect(failed.status).toBe('failed')
     expect(failed.error).toMatch(/can’t be read/u)
+  })
+})
+
+describe('retrying', () => {
+  it('tries the failed songs of an import again', async () => {
+    const known = song('knownsong01', 'Known Song', 'Known Band', { seconds: 200 })
+    const rows = [{ title: '', artists: [], trackId: known.id }]
+    const parsed: ParsedImport = {
+      kind: 'm3u',
+      label: 'm3u',
+      collections: [{ name: 'Links', rows }],
+      plays: [],
+      follows: [],
+      skipped: noSkips(),
+    }
+    // The first attempt finds no such video; the second one does.
+    const [id] = (await startImports(parsed, {}, 'music', fakeServices())).importIds
+    const first = await finished(id as string)
+    expect(first).toMatchObject({ status: 'done', failed: 1 })
+    expect(
+      await retryFailedSongs(
+        id as string,
+        fakeServices({ youtube: fakeYouTube({ catalog: [known] }) }),
+      ),
+    ).toBe(1)
+    const second = await finished(id as string)
+    expect(second).toMatchObject({ status: 'done', failed: 0, matched: 1 })
   })
 })
 

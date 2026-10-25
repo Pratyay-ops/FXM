@@ -101,6 +101,7 @@ export {
   type ReviewDecision,
   type ReviewEffect,
   type RowStatus,
+  retryFailedRows,
   rowStatus,
   sanitizeImportState,
 } from './state'

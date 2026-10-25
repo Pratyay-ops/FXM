@@ -11,6 +11,7 @@ import {
   needsReview,
   nextPlaylistTrack,
   playlistTrackIdOf,
+  retryFailedRows,
   rowStatus,
   sanitizeImportState,
 } from './state'
@@ -109,6 +110,15 @@ describe('import state', () => {
     expect(rowStatus(state.results[0])).toBe('skipped')
     expect(() => applyReview(state, 3, { action: 'skip' }, 13)).toThrow(RangeError)
     expect(() => applyReview(state, 1, { action: 'confirm', ref: 'nope' }, 13)).toThrow(RangeError)
+  })
+
+  it('puts failed rows back in the queue', () => {
+    const state = stateWithResults()
+    state.results[3] = { outcome: 'failed', error: 'Network' }
+    expect(retryFailedRows(state)).toBe(1)
+    expect(state.results[3]).toBeNull()
+    expect(firstPendingRow(state)).toBe(3)
+    expect(retryFailedRows(state)).toBe(0)
   })
 
   it('places a song before the next row that has a playlist track', () => {
