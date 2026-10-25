@@ -20,14 +20,17 @@
  *   `LyricLine.words`. Text before the first word timestamp starts with the line. A word
  *   timestamp followed by no text marks where the word before it ends (`LyricWord.endMs`).
  *   On a line with several line timestamps, the word times belong to the one nearest the first
- *   word, and the copies at the other timestamps are shifted with them.
+ *   word, and the copies at the other timestamps are shifted with them, up to 10,000 word
+ *   timings per line of the file; past that, only the copy the word times belong to has words.
  * - **Formatting:** CRLF, CR or LF line breaks, a byte order mark, blank lines and spaces around
  *   text.
  *
- * A file with at least one timed line gives synced lyrics: untimed text lines are dropped, and a
- * timed line without text is kept as an empty line, which marks a pause. A file without timed
- * lines is plain text: every line is kept, with runs of blank lines folded into one empty line
- * (a stanza break) and none at either end.
+ * A file with timed lines gives synced lyrics: its few untimed text lines (credits, stray text)
+ * are dropped, and a timed line without text is kept as an empty line, which marks a pause.
+ * Any other file is plain text, including one whose untimed text lines outnumber its timed lines
+ * (plain lyrics with stray timestamps). Plain text keeps every line in the file's order, without
+ * timestamps, with runs of blank lines folded into one empty line (a stanza break) and none at
+ * either end. The `plain` option reads any file that way.
  *
  * @module
  */
@@ -133,26 +136,42 @@ function wordsOf(segments: readonly Segment[], lineTimeMs: number, shiftMs: numb
   return words
 }
 
-/** The time in `times` nearest to `target`, the first one on a tie. */
-function nearest(times: readonly number[], target: number): number {
-  let best = times[0] ?? target
-  for (const time of times) if (Math.abs(time - target) < Math.abs(best - target)) best = time
+/** The index of the time in `times` nearest to `target`, the first one on a tie. */
+function nearestIndex(times: readonly number[], target: number): number {
+  let best = 0
+  for (let index = 1; index < times.length; index++) {
+    const distance = Math.abs((times[index] ?? 0) - target)
+    if (distance < Math.abs((times[best] ?? 0) - target)) best = index
+  }
   return best
 }
 
 /** A line of synced lyrics, which always has a start time. */
 type TimedLine = LyricLine & { timeMs: number }
 
+/**
+ * The most word timings one line of the file may expand to. Its words are copied to each of its
+ * line timestamps, so a hostile line with thousands of both would make millions; past this,
+ * only the copy at the timestamp the word times belong to keeps them.
+ */
+const MAX_WORD_COPIES = 10_000
+
 /** The lines for a text that carries the line timestamps `times`. */
 function timedLines(text: string, times: readonly number[]): TimedLine[] {
   const segments = wordSegments(text)
   if (segments === null) return times.map((timeMs) => ({ timeMs, text }))
   const firstWordMs = segments.find((segment) => segment.timeMs !== undefined)?.timeMs ?? 0
-  const reference = nearest(times, firstWordMs)
-  return times.map((timeMs) => {
-    const words = wordsOf(segments, timeMs, timeMs - reference)
-    if (words.length === 0) return { timeMs, text: '' }
-    return { timeMs, text: words.map((word) => word.text).join(''), words }
+  // The word times belong to the line timestamp nearest the first word; the other copies shift.
+  const home = nearestIndex(times, firstWordMs)
+  const reference = times[home] ?? 0
+  const homeWords = wordsOf(segments, reference, 0)
+  if (homeWords.length === 0) return times.map((timeMs) => ({ timeMs, text: '' }))
+  const lineText = homeWords.map((word) => word.text).join('')
+  const copyWords = times.length * segments.length <= MAX_WORD_COPIES
+  return times.map((timeMs, index) => {
+    if (index === home) return { timeMs, text: lineText, words: homeWords }
+    if (!copyWords) return { timeMs, text: lineText }
+    return { timeMs, text: lineText, words: wordsOf(segments, timeMs, timeMs - reference) }
   })
 }
 
@@ -221,23 +240,38 @@ function readTag(metadata: LyricsMetadata, key: string, value: string): number |
   return undefined
 }
 
+/** Options for {@link parseLrc}. */
+export interface ParseLrcOptions {
+  /**
+   * Read the text as plain lyrics even when it has timestamps: every text line is kept once, in
+   * the file's order, without its line and word timestamps. For lyrics that are not known to
+   * keep time with the recording that plays.
+   */
+  plain?: boolean
+}
+
 /**
- * Parses LRC text into {@link Lyrics}: synced when at least one line has a timestamp, plain
- * otherwise. See the module documentation for everything it understands. It never throws: any
- * text gives lyrics, possibly without lines.
+ * Parses LRC text into {@link Lyrics}: synced when the text has timed lines, plain when it has
+ * none or its untimed text lines outnumber them. See the module documentation for everything it
+ * understands. It never throws: any text gives lyrics, possibly without lines.
  *
  * Every time in the result already includes the file's `[offset:]`, so the lines are in time
  * order and `lineAt` can search them as they are.
  *
  * @param text LRC or plain text, e.g. LRCLIB's `syncedLyrics` or `plainLyrics`.
  * @param source Where the lyrics came from, for {@link Lyrics.source}.
+ * @param options `plain: true` reads the text as plain lyrics, timestamps or not.
  */
-export function parseLrc(text: string, source = 'lrc'): Lyrics {
+export function parseLrc(text: string, source = 'lrc', options: ParseLrcOptions = {}): Lyrics {
   const metadata: LyricsMetadata = {}
   let offsetMs = 0
+  /** The lines of synced lyrics: one per line timestamp. */
   const timed: TimedLine[] = []
-  const untimed: string[] = []
-  const input = typeof text === 'string' ? text.replace(/^﻿/u, '') : ''
+  /** Every line of the file that is not an ID tag, without timestamps, for plain lyrics. */
+  const texts: string[] = []
+  let timedCount = 0
+  let untimedCount = 0
+  const input = typeof text === 'string' ? text.replace(/^\uFEFF/u, '') : ''
   for (const rawLine of input.split(LINE_BREAK)) {
     const line = rawLine.trim()
     const tag = ID_TAG.exec(line)
@@ -247,13 +281,23 @@ export function parseLrc(text: string, source = 'lrc'): Lyrics {
       continue
     }
     const { times, rest } = lineStamps(line)
-    if (times.length === 0) untimed.push(line)
-    else timed.push(...timedLines(rest, times))
+    if (times.length === 0) {
+      texts.push(line)
+      // Blank lines and tags LRC does not define, such as [x-custom:value], are not text.
+      if (line !== '' && tag === null) untimedCount++
+      continue
+    }
+    timedCount++
+    const copies = timedLines(rest, times)
+    // One push per line: spreading a line with many timestamps would overflow the call stack.
+    for (const copy of copies) timed.push(copy)
+    texts.push(copies[0]?.text ?? '')
   }
-  const synced = timed.length > 0
+  // Untimed text that outnumbers the timed lines is plain text with stray timestamps.
+  const synced = options.plain !== true && timedCount > 0 && untimedCount <= timedCount
   const lyrics: Lyrics = {
     synced,
-    lines: synced ? finishSynced(timed, offsetMs) : plainLines(untimed),
+    lines: synced ? finishSynced(timed, offsetMs) : plainLines(texts),
     source,
   }
   if (Object.keys(metadata).length > 0) lyrics.metadata = metadata
@@ -274,9 +318,14 @@ function formatTime(timeMs: number): string {
   return `${minutes}:${seconds}.${fraction}`
 }
 
-/** Text that fits on one LRC line: line breaks become spaces. */
+/**
+ * Text that fits on one LRC line: each run of whitespace that holds a line break becomes one
+ * space. Linear in the text's length: `\s+` takes a whole run at once, where a pattern that
+ * starts with `\s*` would backtrack through long runs of spaces from every position in them.
+ */
 function oneLine(text: string): string {
-  return text.replace(/\s*[\r\n]+\s*/gu, ' ')
+  if (!/[\r\n]/u.test(text)) return text
+  return text.replace(/\s+/gu, (space) => (/[\r\n]/u.test(space) ? ' ' : space))
 }
 
 /** A timed line's text after its timestamp, with word timestamps when it has words. */
@@ -294,7 +343,9 @@ function lineBody(line: LyricLine): string {
 
 /**
  * Writes lyrics as LRC text, one line per {@link LyricLine}, ending with a line break (or
- * empty when there is nothing to write). {@link parseLrc} reads the result back to equal lyrics:
+ * empty when there is nothing to write). {@link parseLrc} reads the result back to equal lyrics,
+ * unless a plain line reads as an LRC tag or timestamp (`[ti:x]`), which LRC cannot write as
+ * text; only a timed line whose timestamps plain parsing dropped can give one:
  *
  * - metadata first, as `[ti:]`, `[ar:]`, `[al:]` and `[length:]`;
  * - synced lyrics as `[mm:ss.xx]text`, with `<mm:ss.xx>` word timestamps for lines that have

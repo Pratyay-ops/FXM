@@ -304,7 +304,7 @@ const SAMPLES: ReadonlyArray<[name: string, text: string, lyrics: Omit<Lyrics, '
   ],
   [
     'CRLF line breaks and a byte order mark',
-    '﻿[ti:Song]\r\n[00:01.00]One\r\n[00:02.00]Two\r\n',
+    '\uFEFF[ti:Song]\r\n[00:01.00]One\r\n[00:02.00]Two\r\n',
     {
       synced: true,
       lines: [
@@ -348,6 +348,48 @@ const SAMPLES: ReadonlyArray<[name: string, text: string, lyrics: Omit<Lyrics, '
         { timeMs: 2_000, text: 'Two' },
       ],
     },
+  ],
+  [
+    'more untimed text lines than timed ones',
+    'Credits: someone\n[00:01.00]One\nstray text\n[00:02.00]Two\nmore text',
+    {
+      synced: false,
+      lines: [
+        { text: 'Credits: someone' },
+        { text: 'One' },
+        { text: 'stray text' },
+        { text: 'Two' },
+        { text: 'more text' },
+      ],
+    },
+  ],
+  [
+    'plain text with a stray timestamp',
+    'Line 1\nLine 2\n[00:10.00]Line 3\nLine 4\n\nLine 5',
+    {
+      synced: false,
+      lines: [
+        { text: 'Line 1' },
+        { text: 'Line 2' },
+        { text: 'Line 3' },
+        { text: 'Line 4' },
+        { text: '' },
+        { text: 'Line 5' },
+      ],
+    },
+  ],
+  [
+    'plain text with a stray line of enhanced LRC',
+    'One\nTwo\n[00:05.00][00:09.00]<00:05.00>Three <00:05.50>four\nFive',
+    {
+      synced: false,
+      lines: [{ text: 'One' }, { text: 'Two' }, { text: 'Three four' }, { text: 'Five' }],
+    },
+  ],
+  [
+    'tags LRC does not define, which are not text',
+    '[x-trans:a]\n[kuwo:b]\n[00:01.00]One',
+    { synced: true, lines: [{ timeMs: 1_000, text: 'One' }] },
   ],
   [
     'lines that start together, which keep their order',
@@ -405,6 +447,92 @@ describe('parseLrc', () => {
 
   it('never throws on input that is not text', () => {
     expect(parseLrc(null as unknown as string)).toEqual({ synced: false, lines: [], source: 'lrc' })
+  })
+
+  it('has a real byte order mark in the sample that tests it', () => {
+    const sample = SAMPLES.find(([name]) => name.includes('byte order mark'))
+    expect(sample?.[1].charCodeAt(0)).toBe(0xfeff)
+  })
+
+  it('reads timed lyrics as plain text when asked', () => {
+    const text = [
+      '[ti:Song]',
+      '[offset:500]',
+      '[00:01.00]One',
+      '[00:02.00]',
+      '[00:03.00][00:09.00]<00:03.00>Two <00:03.50>words<00:04.00>',
+      '[Chorus: Lead]',
+      'Credits',
+    ].join('\n')
+    expect(parseLrc(text, 'test', { plain: true })).toEqual({
+      synced: false,
+      lines: [
+        { text: 'One' },
+        { text: '' },
+        { text: 'Two words' },
+        { text: '[Chorus: Lead]' },
+        { text: 'Credits' },
+      ],
+      source: 'test',
+      metadata: { title: 'Song' },
+    })
+    for (const [, sample] of SAMPLES) {
+      const plain = parseLrc(sample, 'lrc', { plain: true })
+      expect(plain.synced).toBe(false)
+      if (!parseLrc(sample).synced) expect(plain).toEqual(parseLrc(sample))
+    }
+  })
+
+  it('reads a line with 200,000 timestamps', () => {
+    const text = `${'[00:01.00]'.repeat(200_000)}Again`
+    const { synced, lines } = parseLrc(text)
+    expect(synced).toBe(true)
+    expect(lines).toHaveLength(200_000)
+    expect(lines[199_999]).toEqual({ timeMs: 1_000, text: 'Again' })
+    expect(parseLrc(text, 'lrc', { plain: true }).lines).toEqual([{ text: 'Again' }])
+  })
+
+  it('copies word timing to the other timestamps of a line for 10,000 words at most', () => {
+    const hostile = `${'[00:00.00]'.repeat(2_000)}${'<00:00.00>w '.repeat(2_000)}`
+    const started = Date.now()
+    const { lines } = parseLrc(hostile)
+    // Copying every word would make 4,000,000 of them and take seconds.
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(lines).toHaveLength(2_000)
+    expect(lines.filter((line) => line.words !== undefined)).toHaveLength(1)
+    expect(lines[0]?.words).toHaveLength(2_000)
+    expect(new Set(lines.map((line) => line.text)).size).toBe(1)
+
+    const justOver = `${'[00:01.00]'.repeat(101)}${'<00:01.00>w '.repeat(100)}`
+    const justUnder = `${'[00:01.00]'.repeat(99)}${'<00:01.00>w '.repeat(100)}`
+    const withWords = (text: string) => parseLrc(text).lines.filter((line) => line.words).length
+    expect([withWords(justOver), withWords(justUnder)]).toEqual([1, 99])
+    for (const text of [hostile, justOver]) {
+      const lyrics = parseLrc(text)
+      expect(parseLrc(serializeLrc(lyrics))).toEqual(lyrics)
+    }
+  })
+
+  it('reads long runs of spaces in linear time', () => {
+    const spaces = ' '.repeat(50_000)
+    const started = Date.now()
+    const synced = parseLrc(
+      [
+        `[00:01.00]a${spaces}b`,
+        `[00:02.00]<00:02.00>c${spaces}<00:03.00>d`,
+        `[00:03.00]<${spaces}1:2${spaces}x`,
+        `[00:04.00${spaces}x`,
+      ].join('\n'),
+    )
+    const plain = parseLrc([`[${spaces}x`, `[ti${spaces}x]`, `x${spaces}y`].join('\n'))
+    // Linear work takes a few milliseconds; backtracking through the spaces takes seconds.
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(synced.lines.map((line) => line.text)).toEqual([
+      `a${spaces}b`,
+      'c d',
+      `<${spaces}1:2${spaces}x`,
+    ])
+    expect(plain.lines).toHaveLength(3)
   })
 
   it('joins the words of every enhanced line into its text', () => {
@@ -535,5 +663,29 @@ describe('serializeLrc', () => {
 
   it('writes nothing for lyrics without lines or metadata', () => {
     expect(serializeLrc({ synced: false, lines: [], source: 'test' })).toBe('')
+  })
+
+  it('writes long runs of spaces in linear time', () => {
+    const spaces = ' '.repeat(50_000)
+    const started = Date.now()
+    const written = serializeLrc({
+      synced: true,
+      lines: [
+        { timeMs: 1_000, text: `a${spaces}b` },
+        { timeMs: 2_000, text: `c${spaces}d \n ${spaces}e` },
+        { timeMs: 3_000, text: 'f', words: [{ timeMs: 3_000, text: `f${spaces}g${spaces}` }] },
+      ],
+      source: 'test',
+      metadata: { title: `t${spaces}u` },
+    })
+    // Linear work takes a few milliseconds; backtracking through the spaces takes seconds.
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(written.split('\n')).toEqual([
+      `[ti:t${spaces}u]`,
+      `[00:01.00]a${spaces}b`,
+      `[00:02.00]c${spaces}d e`,
+      `[00:03.00]<00:03.00>f${spaces}g${spaces}`,
+      '',
+    ])
   })
 })
