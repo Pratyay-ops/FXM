@@ -51,8 +51,8 @@ flowchart LR
 
 | ID | Stage | Branch | Depends on | Status |
 |---|---|---|---|---|
-| **0.1** | Plan, architecture and workflow docs | `docs/0.1-plan` | — | 🟡 |
-| **0.2** | Isolated toolchain (pnpm, uv, `.tools/`, `make nuke`) | `chore/0.2-toolchain` | 0.1 | ⬜ |
+| **0.1** | Plan, architecture and workflow docs | `docs/0.1-plan` | — | ✅ |
+| **0.2** | Isolated toolchain (pnpm, uv, `.tools/`, `make nuke`) | `chore/0.2-toolchain` | 0.1 | 🟡 |
 | **0.3** | Monorepo scaffold | `chore/0.3-monorepo` | 0.2 | ⬜ |
 | **0.4** | Continuous integration | `ci/0.4-ci` | 0.3 | ⬜ |
 | **1.1** | Core domain model, interfaces, mode policy | `feat/1.1-core-model` | 0.4 | ⬜ |
