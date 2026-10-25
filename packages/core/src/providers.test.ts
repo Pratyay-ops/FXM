@@ -1,7 +1,14 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { FxmError } from './errors'
 import { type EntityId, formatId, parseId } from './ids'
-import { applyModeFilter, filterPlayable, isPlayable, isVideoKind } from './mode'
+import {
+  applyModeFilter,
+  filterPlayable,
+  isPlayable,
+  isVideoKind,
+  modePolicy,
+  songForVideo,
+} from './mode'
 import { isTrackSeed, type SearchResults, type SearchType, type Track } from './model'
 import type {
   AbortSignalLike,
@@ -11,15 +18,25 @@ import type {
   Fetch,
   JsonObject,
   LyricsProvider,
+  MatchSignals,
   MetadataProvider,
   MinimalAbortSignal,
   MinimalFetch,
+  NetworkCapabilities,
   ProviderContext,
   RadioSeed,
   RecommendationProvider,
+  SpotifyAccess,
   StreamOption,
+  YouTubeAccess,
 } from './providers'
-import { compareStreams, DEFAULT_QUALITY_PREFS, pickStream, tierOf } from './quality'
+import {
+  compareStreams,
+  DEFAULT_QUALITY_PREFS,
+  type FullLengthCheck,
+  pickStream,
+  tierOf,
+} from './quality'
 
 const song: Track = {
   id: formatId('ytm', 'track', 'song1'),
@@ -49,19 +66,35 @@ function fakeFetch(body: unknown, urls: string[] = []): Fetch {
   }
 }
 
-function context(mode: ProviderContext['mode'], fetch: Fetch = fakeFetch({})): ProviderContext {
-  return {
-    fetch,
-    platform: 'web',
-    capabilities: { youtube: true, spotify: false, mediaBytes: false, fileSystem: false },
-    mode,
-  }
+/** The web app's Lite tier: YouTube calls work, its media bytes cannot be read, no Spotify. */
+const LITE: NetworkCapabilities = {
+  youtube: 'simple',
+  spotify: 'unreachable',
+  mediaBytes: false,
+  fileSystem: false,
+}
+
+/** The web app with FXM Connect: everything, including the media bytes. */
+const CONNECT: NetworkCapabilities = {
+  youtube: 'full',
+  spotify: 'anonymous',
+  mediaBytes: true,
+  fileSystem: false,
+}
+
+function context(
+  mode: ProviderContext['mode'],
+  fetch: Fetch = fakeFetch({}),
+  capabilities: NetworkCapabilities = LITE,
+): ProviderContext {
+  return { fetch, platform: 'web', capabilities, mode }
 }
 
 /** An in-memory catalog implementing the provider interfaces. */
 const catalog: MetadataProvider & RecommendationProvider = {
   id: 'ytm',
   async search(query, options, ctx) {
+    if (ctx.capabilities.youtube === 'none') throw new FxmError('Unsupported', 'No YouTube here')
     const matches = [song, video].filter((track) => track.title.includes(query))
     const limit = options.limit ?? 20
     const results: SearchResults = {}
@@ -106,6 +139,21 @@ function youtubeIdOf(seed: RadioSeed): string | undefined {
   return isTrackSeed(seed) ? seed.externalIds?.ytm : undefined
 }
 
+/** A format in the fake player response. `capped` stands in for what an end-of-file probe finds. */
+type FakeFormat = {
+  itag: number
+  codec: 'opus' | 'aac'
+  bitrate: number
+  muxed?: boolean
+  capped?: boolean
+}
+
+/** What an end-of-file range probe says about a URL, where the bytes can be read at all. */
+function probe(capped: boolean, ctx: ProviderContext): FullLengthCheck {
+  if (!ctx.capabilities.mediaBytes) return 'unverified'
+  return capped ? 'capped' : 'verified'
+}
+
 const youtubeAudio: AudioSource = {
   id: 'ytm',
   async match(track) {
@@ -123,27 +171,46 @@ const youtubeAudio: AudioSource = {
   },
   async resolve(candidate, ctx) {
     const response = await ctx.fetch(`https://example.test/player?v=${candidate.ref}`)
-    const { formats } = (await response.json()) as {
-      formats: Array<{ itag: number; codec: 'opus' | 'aac'; bitrate: number }>
-    }
+    const { formats } = (await response.json()) as { formats: FakeFormat[] }
     const options = formats.map(
-      ({ itag, codec, bitrate }): StreamOption => ({
+      ({ itag, codec, bitrate, muxed = false, capped = false }): StreamOption => ({
         url: `https://example.test/${candidate.ref}/${itag}`,
         codec,
         container: codec === 'opus' ? 'webm' : 'mp4',
+        media: muxed ? 'muxed-video' : 'audio',
         bitrateKbps: bitrate,
         tier: tierOf({ codec, bitrateKbps: bitrate }),
         protocol: 'progressive',
         expiresAt: Date.now() + 6 * 3_600_000,
         ipBound: true,
+        fullLength: probe(capped, ctx),
       }),
     )
-    // Every usable option, best first; the caller applies the preferences.
+    // Every option found, best first and capped ones last; the caller applies the preferences.
     return options.sort(compareStreams)
   },
 }
 
-/** Offers a music video itself only where the mode plays videos, and its song everywhere. */
+/** Matches `song` and resolves its candidate against a player response offering `formats`. */
+async function resolveSong(
+  formats: FakeFormat[],
+  capabilities: NetworkCapabilities,
+): Promise<StreamOption[]> {
+  const ctx = context('music', fakeFetch({ formats }), capabilities)
+  const [candidate] = await youtubeAudio.match(song, ctx)
+  if (!candidate) throw new Error('expected a candidate')
+  return youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
+}
+
+/** The itags of resolved options, in order. */
+function itags(options: readonly StreamOption[]): Array<string | undefined> {
+  return options.map((option) => option.url.split('/').at(-1))
+}
+
+/**
+ * Offers a music video itself only where the mode plays videos, and its song everywhere: the
+ * linked song when the video has one, else what a text match found.
+ */
 const videoAwareAudio: AudioSource = {
   id: 'ytm',
   async match(track, ctx) {
@@ -156,13 +223,11 @@ const videoAwareAudio: AudioSource = {
       confidence: 1,
       evidence: ['same video'],
     }
-    const song: AudioCandidate = {
-      ...self,
-      ref: 'song1',
-      kind: 'song',
-      confidence: 0.91,
-      evidence: ['title 0.97', 'artist 1.00'],
-    }
+    const linked = songForVideo(track)
+    const song: AudioCandidate =
+      linked === undefined
+        ? { ...self, ref: 'song1', kind: 'song', confidence: 0.91, evidence: ['title 0.97'] }
+        : { ...self, ref: parseId(linked).nativeId, kind: 'song', evidence: ['song link'] }
     return filterPlayable([self, song], ctx.mode)
   },
   async resolve() {
@@ -218,6 +283,15 @@ describe('provider interfaces', () => {
     })
   })
 
+  it('reads from the context how far the platform reaches YouTube', async () => {
+    const plainPage: NetworkCapabilities = { ...LITE, youtube: 'none' }
+    await expect(
+      catalog.search('', { types: ['track'] }, context('music', fakeFetch({}), plainPage)),
+    ).rejects.toMatchObject({ code: 'Unsupported' })
+    const results = await catalog.search('', { types: ['track'] }, context('music'))
+    expect(results.tracks?.items).toEqual([song])
+  })
+
   it('suggests queries when the provider can', async () => {
     expect(await catalog.suggest?.('never', context('music'))).toEqual([
       'never remix',
@@ -255,9 +329,73 @@ describe('provider interfaces', () => {
     expect(urls).toEqual(['https://example.test/player?v=song1'])
     expect(options.map((option) => option.url.split('/').at(-1))).toEqual(['251', '140', '249'])
     expect(options[0]).toMatchObject({ codec: 'opus', tier: 'high', ipBound: true })
+    // The Lite tier cannot read the bytes, so nothing was probed.
+    expect(options.every((option) => option.fullLength === 'unverified')).toBe(true)
+    expect(options.every((option) => option.media === 'audio')).toBe(true)
     // Playback applies the tier ceiling of the current connection to the full list.
     expect(pickStream(options, DEFAULT_QUALITY_PREFS.streaming.wifi)?.url).toMatch(/251$/)
     expect(pickStream(options, 'low')?.url).toMatch(/249$/)
+  })
+
+  it('probes where the bytes are readable and never chooses a capped URL', async () => {
+    const formats: FakeFormat[] = [
+      { itag: 251, codec: 'opus', bitrate: 141, capped: true },
+      { itag: 140, codec: 'aac', bitrate: 128 },
+      { itag: 18, codec: 'aac', bitrate: 96, muxed: true },
+    ]
+    const options = await resolveSong(formats, CONNECT)
+    const summary = options.map((option) => [option.url.split('/').at(-1), option.fullLength])
+    expect(summary).toEqual([
+      ['140', 'verified'],
+      ['18', 'verified'],
+      ['251', 'capped'],
+    ])
+    // Neither playback nor a download, which wants the best option, gets the capped Opus.
+    expect(pickStream(options, 'high')?.url).toMatch(/140$/)
+    expect(pickStream(options, 'lossless')?.url).toMatch(/140$/)
+  })
+
+  it.each([
+    ['the Lite tier, which cannot probe', LITE, 'unverified'],
+    ['FXM Connect, which probes', CONNECT, 'verified'],
+  ] as const)(
+    'streams audio only, not muxed itag 18 of the same tier, on mobile data in %s',
+    async (_label, capabilities, fullLength) => {
+      const formats: FakeFormat[] = [
+        { itag: 251, codec: 'opus', bitrate: 141 },
+        { itag: 140, codec: 'aac', bitrate: 128 },
+        { itag: 250, codec: 'opus', bitrate: 70 },
+        { itag: 249, codec: 'opus', bitrate: 50 },
+        { itag: 18, codec: 'aac', bitrate: 96, muxed: true },
+      ]
+      const options = await resolveSong(formats, capabilities)
+      expect(itags(options)).toEqual(['251', '140', '250', '18', '249'])
+      expect(options.every((option) => option.fullLength === fullLength)).toBe(true)
+      // Opus 250 and the AAC track of itag 18 are both normal: the audio-only stream wins.
+      const cellular = pickStream(options, DEFAULT_QUALITY_PREFS.streaming.cellular)
+      expect(cellular).toMatchObject({ media: 'audio', tier: 'normal', codec: 'opus' })
+      expect(itags(cellular ? [cellular] : [])).toEqual(['250'])
+    },
+  )
+
+  it('falls back to the audio track of muxed itag 18 when every audio URL is capped', async () => {
+    const formats: FakeFormat[] = [
+      { itag: 251, codec: 'opus', bitrate: 141, capped: true },
+      { itag: 140, codec: 'aac', bitrate: 128, capped: true },
+      { itag: 250, codec: 'opus', bitrate: 70, capped: true },
+      { itag: 18, codec: 'aac', bitrate: 96, muxed: true },
+    ]
+    const options = await resolveSong(formats, CONNECT)
+    const fallback = pickStream(options, 'high')
+    expect(fallback).toMatchObject({ media: 'muxed-video', codec: 'aac', container: 'mp4' })
+    // Its tier is the AAC track's, whatever the video adds.
+    expect(fallback?.tier).toBe('normal')
+    // Playback under any ceiling, and a download, which wants the best option, all take it.
+    for (const ceiling of ['lossless', 'normal', 'low'] as const) {
+      expect(pickStream(options, ceiling)).toBe(fallback)
+    }
+    const allCapped = options.map((option): StreamOption => ({ ...option, fullLength: 'capped' }))
+    expect(pickStream(allCapped, 'high')).toBeUndefined()
   })
 
   it('never returns a candidate that the mode cannot play as it is', async () => {
@@ -271,6 +409,20 @@ describe('provider interfaces', () => {
     expect(music.map((candidate) => candidate.ref)).toEqual(['song1'])
     expect(all.map((candidate) => candidate.ref)).toEqual(['omv1', 'song1'])
     expect(music.every((candidate) => isPlayable(candidate, 'music'))).toBe(true)
+  })
+
+  it('maps a music video straight to the song it links to', async () => {
+    const linkedVideo: Track = {
+      ...song,
+      id: formatId('ytm', 'track', 'omv2'),
+      kind: 'music-video',
+      songId: formatId('ytm', 'track', 'atv2'),
+    }
+    expect(modePolicy(linkedVideo, 'music')).toBe('plays-linked-song')
+    const music = await videoAwareAudio.match(linkedVideo, context('music'))
+    expect(music).toMatchObject([{ ref: 'atv2', kind: 'song', evidence: ['song link'] }])
+    const all = await videoAwareAudio.match(linkedVideo, context('all'))
+    expect(all.map((candidate) => candidate.ref)).toEqual(['omv2', 'atv2'])
   })
 
   it('finds lyrics and account status', async () => {
@@ -287,6 +439,87 @@ describe('provider interfaces', () => {
     // `AbortSignal`, as type-tests/platform.ts checks.
     expectTypeOf<Fetch>().toEqualTypeOf<MinimalFetch>()
     expectTypeOf<AbortSignalLike>().toEqualTypeOf<MinimalAbortSignal>()
+  })
+})
+
+describe('audio candidates', () => {
+  it('come without signals from providers that do not compute them', async () => {
+    const [candidate] = await youtubeAudio.match(song, context('music'))
+    expect(candidate).toBeDefined()
+    expect(candidate && 'signals' in candidate).toBe(false)
+  })
+
+  it('carry the signals the matching engine fills in, and survive JSON', async () => {
+    const [candidate] = await youtubeAudio.match(song, context('music'))
+    if (!candidate) throw new Error('expected a candidate')
+    const signals = {
+      isrcVerified: true,
+      releaseId: 'MPREb_abc',
+      releaseYear: 1987,
+      label: 'RCA',
+      sourceAlbumMatch: true,
+    } satisfies MatchSignals
+    const checked: AudioCandidate = {
+      ...candidate,
+      evidence: [...candidate.evidence, 'isrc'],
+      signals,
+    }
+    // The release ID is a native ID of the candidate's source, like `ref`.
+    expect(formatId(checked.source, 'album', signals.releaseId)).toBe('ytm:album:MPREb_abc')
+    // The match cache can store a candidate as it is.
+    expect(JSON.parse(JSON.stringify(checked))).toEqual(checked)
+  })
+
+  it('always state the two checks and leave unknown release details out', () => {
+    expectTypeOf<MatchSignals['isrcVerified']>().toEqualTypeOf<boolean>()
+    expectTypeOf<MatchSignals['sourceAlbumMatch']>().toEqualTypeOf<boolean>()
+    expectTypeOf<AudioCandidate['signals']>().toEqualTypeOf<MatchSignals | undefined>()
+    expectTypeOf<AudioCandidate['evidence']>().toEqualTypeOf<string[]>()
+    const unknownRelease: MatchSignals = { isrcVerified: false, sourceAlbumMatch: false }
+    // @ts-expect-error the ISRC check is always stated
+    const noIsrc: MatchSignals = { sourceAlbumMatch: true }
+    // @ts-expect-error leave an unknown year out instead of setting it to undefined
+    const undefinedYear: MatchSignals = { ...unknownRelease, releaseYear: undefined }
+    expect([noIsrc.isrcVerified, undefinedYear.releaseYear]).toEqual([undefined, undefined])
+  })
+})
+
+describe('network capabilities', () => {
+  it('grade YouTube and Spotify instead of a yes or no', () => {
+    expectTypeOf<YouTubeAccess>().toEqualTypeOf<'none' | 'simple' | 'full'>()
+    expectTypeOf<SpotifyAccess>().toEqualTypeOf<'unreachable' | 'anonymous' | 'account'>()
+    expectTypeOf<NetworkCapabilities['youtube']>().toEqualTypeOf<YouTubeAccess>()
+    expectTypeOf<NetworkCapabilities['spotify']>().toEqualTypeOf<SpotifyAccess>()
+    // @ts-expect-error a boolean no longer says how far YouTube can be reached
+    const yesOrNo: NetworkCapabilities = { ...LITE, youtube: true }
+    expect(yesOrNo.youtube).toBe(true)
+  })
+
+  it('let only full YouTube access read media bytes', () => {
+    // @ts-expect-error the simple tier can never read googlevideo's bytes
+    const simple: NetworkCapabilities = { ...CONNECT, youtube: 'simple' }
+    // @ts-expect-error nor can a platform without YouTube
+    const none: NetworkCapabilities = { ...CONNECT, youtube: 'none' }
+    const fullWithoutBytes: NetworkCapabilities = { ...CONNECT, mediaBytes: false }
+    expect([simple.mediaBytes, none.mediaBytes, fullWithoutBytes.mediaBytes]).toEqual([
+      true,
+      true,
+      false,
+    ])
+    const capabilities = context('music').capabilities
+    if (capabilities.youtube === 'full') expectTypeOf(capabilities.mediaBytes).toBeBoolean()
+    else expectTypeOf(capabilities.mediaBytes).toEqualTypeOf<false>()
+  })
+
+  it('can be built from what a platform detects at run time', () => {
+    const detect = (youtube: YouTubeAccess, canReadBytes: boolean): NetworkCapabilities => {
+      const common = { spotify: 'anonymous', fileSystem: false } as const
+      return youtube === 'full'
+        ? { ...common, youtube, mediaBytes: canReadBytes }
+        : { ...common, youtube, mediaBytes: false }
+    }
+    expect(detect('simple', true)).toEqual({ ...LITE, spotify: 'anonymous' })
+    expect(detect('full', true)).toEqual(CONNECT)
   })
 })
 
@@ -309,12 +542,26 @@ describe('stream options', () => {
     url: 'https://example.test/sabr?expire=1',
     codec: 'opus',
     container: 'webm',
+    media: 'audio',
     bitrateKbps: 141,
     tier: 'high',
     protocol: 'sabr',
     ipBound: true,
+    fullLength: 'unverified',
     playback: session,
   }
+
+  it('must say whether the URL delivers the whole file and what the file holds', () => {
+    expectTypeOf<StreamOption['fullLength']>().toEqualTypeOf<'verified' | 'unverified' | 'capped'>()
+    expectTypeOf<StreamOption['media']>().toEqualTypeOf<'audio' | 'muxed-video'>()
+    const { fullLength: _fullLength, ...withoutLength } = sabr
+    // @ts-expect-error every resolver says whether the URL delivers the whole file
+    const unprobed: StreamOption = withoutLength
+    const { media: _media, ...withoutMedia } = sabr
+    // @ts-expect-error every resolver says whether the file is audio or a muxed video
+    const unlabelled: StreamOption = withoutMedia
+    expect([unprobed.fullLength, unlabelled.media]).toEqual([undefined, undefined])
+  })
 
   it('carry the protocol data of a SABR stream as JSON', () => {
     expect(JSON.parse(JSON.stringify(sabr))).toEqual(sabr)

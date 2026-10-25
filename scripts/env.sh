@@ -122,3 +122,11 @@ _fxm_path_prepend "$FXM_TOOLS/bin"
 export PATH
 unset -f _fxm_path_prepend
 unset _fxm_local_jdk
+
+# Settings for this machine only, never committed: for example fewer test workers while
+# several worktrees run checks at once (export VITEST_MAX_WORKERS=3). The file lives in
+# .tools/, so every worktree reads it and `make nuke` deletes it.
+if [ -f "$FXM_TOOLS/env.local.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$FXM_TOOLS/env.local.sh"
+fi

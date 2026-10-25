@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { type EntityKind, formatId } from './ids'
+import { type EntityId, type EntityKind, formatId } from './ids'
 import {
   type Album,
   type Artist,
@@ -46,6 +46,21 @@ describe('Track', () => {
       externalIds: { spotify: '4uLU6hMCjMI75M1A2tKUQC' },
     }
     expect(full.externalIds?.spotify).toBe('4uLU6hMCjMI75M1A2tKUQC')
+  })
+
+  it('links an official music video to its song', () => {
+    const video: Track = {
+      ...minimal,
+      id: formatId('ytm', 'track', 'omv1'),
+      title: 'Never Gonna Give You Up (Official Video)',
+      kind: 'music-video',
+      songId: minimal.id,
+    }
+    expect(video.songId).toBe('ytm:track:dQw4w9WgXcQ')
+    expectTypeOf<Track['songId']>().toEqualTypeOf<EntityId<'track'> | undefined>()
+    // @ts-expect-error the link names a track, never an album
+    const toAlbum: Track = { ...video, songId: formatId('ytm', 'album', 'MPREb_abc') }
+    expect(toAlbum.songId).toBe('ytm:album:MPREb_abc')
   })
 
   it('rejects explicit undefined in optional fields (exactOptionalPropertyTypes)', () => {

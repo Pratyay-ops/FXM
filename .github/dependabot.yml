@@ -14,6 +14,14 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: build
+    ignore:
+      # react-router 8 needs Node >= 22.22; the toolchain runs the Node 22 pinned in .nvmrc
+      # (22.20 today). Upgrade once .nvmrc moves to 22.22+ (follow-up from stage 2.1).
+      - dependency-name: react-router
+        update-types: ['version-update:semver-major']
+      # @types/node follows the Node major in .nvmrc, not the newest Node.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
 
   # Rust crates of the desktop app (stage 7.1). Merge a minor bump of the tauri crate together
   # with the matching @tauri-apps/api bump from npm: tauri build refuses mismatched versions.
