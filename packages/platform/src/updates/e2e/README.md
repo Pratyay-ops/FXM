@@ -15,4 +15,14 @@ scripts/run.sh pnpm --filter @fxm/platform test:e2e
 
 Chromium stands in for WebView2 (Windows) and Android System WebView. For WebKit, which stands in for WKWebView (macOS) and WebKitGTK (Linux), install it once (`playwright install webkit`) and set `FXM_E2E_WEBKIT=1`. The server listens on `127.0.0.1:6020` and fails if the port is taken; set `FXM_E2E_PORT` to use another.
 
-The real desktop app adds what this test can't: the Tauri webview and native HTTP of stage 7.2. Checking it there is listed as pending in the stage report until 7.2 and the app's use of the YouTube host have merged.
+## In the desktop app itself
+
+`desktop.mjs` runs the same harness as the frontend of the real desktop shell (`apps/desktop`, Tauri 2), so the module is checked and loaded by the system webview, from `tauri://localhost`, under the app's own Content Security Policy:
+
+```sh
+make desktop-setup   # once: the Rust toolchain
+scripts/run.sh node --experimental-strip-types --disable-warning=ExperimentalWarning \
+  packages/platform/src/updates/e2e/desktop.mjs
+```
+
+It builds a debug app (about two and a half minutes the first time, seconds after that), opens a small window for a few seconds and prints the app's report. Only the frontend and `connect-src` (which also allows the local server) differ from the app's configuration; the real app will fetch updates through its native HTTP (stage 7.2). Run on 2026-10-26 on macOS 15 (WKWebView): the bundled parser failed, the signed update was verified with WebCrypto's Ed25519, loaded from a `blob:` URL, and the same provider then resolved the song. On Windows (WebView2) and Linux (WebKitGTK) it hasn't been run yet.

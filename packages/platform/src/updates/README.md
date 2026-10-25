@@ -146,7 +146,7 @@ The signed files live in `apps/site/public/updates/` once the owner publishes th
 - `format.test.ts`, `verify.test.ts`, `keys.test.ts`: the format, signing, both verification engines (a forged, flipped or relabelled signature, an unknown key, a changed statement, the wrong artifact, a lying or missing WebCrypto), and key checks, including small-order keys and the placeholder.
 - `updater.test.ts`: restore and check against a fake site: bad signatures, rollback attempts (also after the stored copy is lost), unreachable hosts and timeouts, HTTP errors, damaged or oversized files, versions that fail to load, a failing store, F-Droid opt-in and opt-out, and the fallbacks to the next URL, the last good version and the bundled copy.
 - `youtube.test.ts`: the real module bundle, built as `scripts/sign-module.sh` builds it, fixing a deliberately broken bundled parser after a signed update, and still fixed after a restart without a request; a changed or foreign-signed module, a build with only the placeholder key and an F-Droid build without the opt-in all leave the bundled copy in place.
-- `e2e/`: the same flow in real browser engines under the desktop app's Content Security Policy, loading the module from a `blob:` URL (not part of `make test`; see `e2e/README.md`).
+- `e2e/`: the same flow in real browser engines under the desktop app's Content Security Policy, loading the module from a `blob:` URL, and in the desktop app itself (`e2e/desktop.mjs`, run on macOS on 2026-10-26). Neither is part of `make test`; see `e2e/README.md`.
 - `live.test.ts` (`make live-smoke`): what the site publishes verifies and loads; skipped while the key is the placeholder.
 
 ```sh

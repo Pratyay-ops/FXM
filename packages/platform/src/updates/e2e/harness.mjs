@@ -2,7 +2,8 @@
  * The e2e harness page: an app whose bundled YouTube module has a deliberately broken parser
  * (the e2e builds it with `brokenFormatParser()`), the updater the desktop and Android apps use,
  * and a fake YouTube with the recorded answers for one song. `window.fxmRun` resolves the song,
- * checks the update URL, resolves it again and reports what happened.
+ * checks the update URL, resolves it again and reports what happened. This package is marked
+ * free of side effects, so importers use the export, not only the global.
  */
 import { DEFAULT_QUALITY_PREFS } from '@fxm/core'
 import { createYouTubeModuleHost } from '@fxm/sources/youtube/module'
@@ -34,9 +35,13 @@ async function resolveSong(youtube) {
   }
 }
 
-window.fxmRun = async (updatesPath) => {
+/** Resolves the song, checks `updatesPath` for a signed module, resolves again, and reports. */
+export async function fxmRun(updatesPath, progress = () => {}) {
+  progress('starting the app’s YouTube host')
   const youtube = createYouTubeModuleHost()
+  progress('resolving with the bundled module')
   const before = await resolveSong(youtube)
+  progress('checking for a signed module')
   const updater = createUpdater({
     artifacts: [codeArtifact(youtube.updates.module)],
     fetch: (url, init) => fetch(url, init),
@@ -46,6 +51,7 @@ window.fxmRun = async (updatesPath) => {
     state: memoryStorage(),
   })
   const report = await updater.check()
+  progress('resolving again')
   const after = await resolveSong(youtube)
   return {
     before,
@@ -57,3 +63,6 @@ window.fxmRun = async (updatesPath) => {
     engine: await createSignatureVerifier().engine(),
   }
 }
+
+// The Playwright test calls it from the page.
+window.fxmRun = fxmRun
