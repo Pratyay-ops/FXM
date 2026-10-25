@@ -91,7 +91,10 @@ describe('createPagesServer', () => {
 
   it('finds files by the decoded path but matches rules against the path as sent', async () => {
     const base = await serve(
-      site('/privacy\n  Content-Security-Policy: page\n/%*\n  Content-Security-Policy: encoded\n'),
+      // Cloudflare decodes rule paths: `/%25*` is the rule for the paths that start with `/%`.
+      site(
+        '/privacy\n  Content-Security-Policy: page\n/%25*\n  Content-Security-Policy: encoded\n',
+      ),
     )
     const encoded = await fetchRaw(new URL('/%70rivacy', base))
     expect(encoded.status).toBe(200)

@@ -6,6 +6,10 @@
  *   starts a comment, and a line over 2,000 characters is ignored. At most 100 rules count.
  * - A path matches the request's pathname; `*` matches anything (one per rule) and `:name`
  *   matches one path segment.
+ * - Cloudflare percent-decodes a rule's path, but matches it against the request's path as
+ *   sent, still encoded (measured 2026-10-26 on a deployment: a rule `/zza%41` applied to
+ *   `/zzaA` and not to `/zza%41`, `/zzg%25*` applied to `/zzg%25x`, and a path with an invalid
+ *   escape such as `/zzb%*` to nothing). So a `%` in a rule path is written as `%25`.
  * - A request gets the headers of every rule that matches, in file order. The first rule to
  *   set a header replaces Cloudflare's default; a later one appends, which joins the values
  *   with a comma. That is why `make dist` never lets two rules match one path.
@@ -19,7 +23,10 @@ export const MAX_RULES = 100
 export const MAX_LINE_LENGTH = 2000
 
 export interface HeaderRule {
-  /** A path pattern: an exact path, or a prefix followed by one `*`. */
+  /**
+   * A path pattern: an exact path, a prefix followed by one `*`, or an encoded-path rule (see
+   * rulesOverlap). As Cloudflare reads it: a `%` here is a literal one, written `%25` in the file.
+   */
   readonly path: string
   /** Header names as written, with their values, in order. */
   readonly headers: readonly (readonly [name: string, value: string])[]
@@ -34,6 +41,20 @@ export interface ParsedRule {
 
 const INDENT = '  '
 
+/** A rule path as written in the file: Cloudflare decodes it, so `%` must be `%25`. */
+export function encodeRulePath(path: string): string {
+  return path.replaceAll('%', '%25')
+}
+
+/** A rule path as Cloudflare reads it, or undefined when it can't be decoded (then it ignores it). */
+export function decodeRulePath(written: string): string | undefined {
+  try {
+    return decodeURIComponent(written)
+  } catch {
+    return undefined
+  }
+}
+
 /** Writes rules as a `_headers` file. */
 export function serializeHeaders(
   rules: readonly HeaderRule[],
@@ -42,7 +63,7 @@ export function serializeHeaders(
   const lines = comment.map((line) => (line ? `# ${line}` : '#'))
   for (const rule of rules) {
     if (lines.length > 0) lines.push('')
-    lines.push(rule.path)
+    lines.push(encodeRulePath(rule.path))
     for (const [name, value] of rule.headers) lines.push(`${INDENT}${name}: ${value}`)
   }
   return `${lines.join('\n')}\n`
@@ -100,7 +121,13 @@ export function parseHeaders(text: string): { rules: ParsedRule[]; invalid: stri
         skipping = true
         continue
       }
-      current = { path: line, headers: new Map(), line: number }
+      const path = decodeRulePath(line)
+      if (path === undefined) {
+        invalid.push(`line ${number}: an invalid percent-escape, Cloudflare ignores it: ${line}`)
+        skipping = true
+        continue
+      }
+      current = { path, headers: new Map(), line: number }
       skipping = false
       continue
     }

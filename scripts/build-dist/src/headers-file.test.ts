@@ -34,6 +34,15 @@ describe('serializeHeaders and parseHeaders', () => {
     ])
   })
 
+  it('write a % in a path as %25, and decode paths as Cloudflare does', () => {
+    const text = serializeHeaders([{ path: '/:name%*', headers: [['A', 'b']] }])
+    expect(text).toBe('/:name%25*\n  A: b\n')
+    expect(parseHeaders(text).rules.map((rule) => rule.path)).toEqual(['/:name%*'])
+    const { rules, invalid } = parseHeaders('/zza%41\n  A: b\n/zzb%*\n  A: b\n')
+    expect(rules.map((rule) => rule.path)).toEqual(['/zzaA'])
+    expect(invalid).toEqual(['line 3: an invalid percent-escape, Cloudflare ignores it: /zzb%*'])
+  })
+
   it('join a header repeated within a rule with a comma, as Cloudflare does', () => {
     const { rules } = parseHeaders('/a\n  X-Robots-Tag: noindex\n  X-Robots-Tag: nosnippet\n')
     expect(rules[0]?.headers.get('x-robots-tag')).toBe('noindex, nosnippet')

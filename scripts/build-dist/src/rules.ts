@@ -405,6 +405,12 @@ export function validateRules(rules: readonly HeaderRule[], files: readonly stri
   if (parsed.rules.length !== rules.length) {
     errors.push(`the _headers file reads back as ${parsed.rules.length} rules, not ${rules.length}`)
   }
+  parsed.rules.forEach((read, index) => {
+    const written = rules[index]?.path
+    if (written !== undefined && read.path !== written) {
+      errors.push(`the rule for ${written} reads back as ${read.path}`)
+    }
+  })
   for (const path of probePaths(files)) {
     const matches = matchingRules(rules, path)
     if (matches.length !== 1) {

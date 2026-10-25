@@ -118,8 +118,8 @@ describe('checkDeployment', () => {
     cpSync(dir, deployed, { recursive: true })
     const headers = readFileSync(join(dir, '_headers'), 'utf8')
     // What Pages did before make dist wrote these rules: the file, with Cloudflare's defaults.
-    const withoutEncoded = headers.replace(/\n\/(sandbox\/)?(:name)?%\*\n( {2}.*\n)+/g, '\n')
-    expect(withoutEncoded).not.toContain('%*')
+    const withoutEncoded = headers.replace(/\n\/(sandbox\/)?(:name)?%25\*\n( {2}.*\n)+/g, '\n')
+    expect(withoutEncoded).not.toContain('%25*')
     writeFileSync(join(deployed, '_headers'), withoutEncoded)
     const problems = await checkDeployment(
       await serve(deployed),
