@@ -356,9 +356,21 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@fxm/sources':
+        specifier: workspace:*
+        version: link:../sources
+      '@playwright/test':
+        specifier: ^1.64.0
+        version: 1.64.0
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
       happy-dom:
         specifier: ^20.14.6
         version: 20.14.6
+      rolldown:
+        specifier: ^1.2.13
+        version: 1.2.13
 
   packages/player:
     dependencies:

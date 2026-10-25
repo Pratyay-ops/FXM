@@ -11,7 +11,7 @@ FXM has no servers: all of this runs on the user's device. Providers only ever u
 ## Quick start
 
 ```ts
-import { createKillSwitchStore, createPlatform } from '@fxm/platform'
+import { createKillSwitchStore, createPlatform, createSandboxTransport } from '@fxm/platform'
 
 const killSwitches = createKillSwitchStore() // set it whenever the remote config changes
 
@@ -19,7 +19,7 @@ const killSwitches = createKillSwitchStore() // set it whenever the remote confi
 // Resolves once FXM Connect detection is done (at most 800 ms); the Lite self-test, a round
 // trip to YouTube, goes on in the background.
 const platform = await createPlatform({
-  sandbox, // the Lite tier's sandbox documents (stage 1.10); leave out for no Lite tier
+  sandbox: createSandboxTransport(), // the Lite tier's sandbox documents; leave out for no Lite tier
   killSwitches, // or a function: () => remoteConfig.killSwitches
 })
 
@@ -72,8 +72,10 @@ A request a transport refuses rejects before anything is sent, with an `FxmError
 | `BudgetError` | `RateLimited` | The budget refused the call: `reason` is `paused`, `reserve` or `spacing`, and `retryAfterMs` says when a slot is expected |
 | `ConnectBridgeError` | per code | FXM Connect's bridge refused (see below) |
 | `FxmError` | `BotCheck` | A YouTube request was sent to Google's "unusual traffic" page |
+| `SandboxRefusedError`, a `TransportError` with `reason: 'bad-request'` or `'redirect'` | `Unsupported` | Lite: a sandbox document refused the request before sending it, or did not follow a redirect. `sandboxCode` says why, e.g. `preflight` ([the sandbox's errors](src/sandbox/README.md#errors)) |
+| `SandboxFailedError` | `Network`, `Parse` | Lite: a sandbox request failed once sent: no complete response in time (`timeout`), a network or CORS failure (`network`), or a response over the cap (`too-large`, `Parse`) |
 
-`isTransportError(error, reason?)`, `isRouteUnavailable(error)` and `isBudgetError(error, reason?)` also recognize errors from a second copy of the package. Programming errors (an unknown priority, a negative wait limit) throw a `RangeError`.
+`isTransportError(error, reason?)`, `isRouteUnavailable(error)`, `isBudgetError(error, reason?)` and `isSandboxError(error, sandboxCode?)` also recognize errors from a second copy of the package. Programming errors (an unknown priority, a negative wait limit) throw a `RangeError`.
 
 ## Hosts
 
@@ -200,6 +202,8 @@ Detection follows the architecture's order: FXM Connect first, and the Lite self
 
 `killSwitches` is a function or a `KillSwitchSource` (`get()` and `subscribe()`); `createKillSwitchStore()` is one the app sets whenever a new remote config arrives.
 
+`createSandboxTransport()` (`src/sandbox/`) is the implementation: it frames each document on first use, hidden, with `sandbox="allow-scripts"` and a random token in the URL's fragment that the document must send back, and talks to it over a private `MessagePort`. Refused requests reject with a `SandboxRefusedError` (a `TransportError`), failed ones with a `SandboxFailedError` (`Network` or `Parse`). Both documents are generated from `src/sandbox/document.ts` into `apps/web/sandbox/`. How they stay opaque, what each sends, their errors and protocol, the browser tests, and the 2026-10-26 test record (Chromium 156 and Firefox 157 played a song to its end through the sandbox, with stage 1.3's search and 1.4's resolver; Safari not tested) are in [src/sandbox/README.md](src/sandbox/README.md).
+
 ## Native transports
 
 Desktop and Android reach every host directly through a `NativeHttp` function: `(url, init) => Promise<Response>`. On top of it, `createNativeTransport` applies the routing, the budget, the header policy and the redirect checks. `init` carries:
@@ -243,6 +247,7 @@ Tests that need a page create their own happy-dom `Window` at the FXM origin: in
 scripts/run.sh pnpm vitest run packages/platform                      # this package's tests
 scripts/run.sh pnpm vitest run --coverage --coverage.include='packages/platform/src/**' packages/platform
 scripts/run.sh pnpm --filter @fxm/platform typecheck
+scripts/run.sh pnpm --filter @fxm/platform test:e2e                 # the sandbox documents in Chromium and Firefox
 ```
 
 ## Layout
@@ -263,7 +268,8 @@ scripts/run.sh pnpm --filter @fxm/platform typecheck
 | `src/capabilities.ts` | Capability rules, detection and the monitor |
 | `src/clock.ts`, `src/storage.ts` | Injectable time and key-value storage |
 | `src/testing/` | The test helpers |
+| `src/sandbox/` | The Lite tier's sandbox documents and `createSandboxTransport` (stage 1.10, [its README](src/sandbox/README.md)) |
 
-`src/sandbox/` (stage 1.10), `src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
+`src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
 
 See [ARCHITECTURE.md §8](../../docs/ARCHITECTURE.md#8-platforms-and-network-transports).
