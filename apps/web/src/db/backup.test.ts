@@ -12,13 +12,13 @@ import {
   type LibraryBackup,
   parseBackup,
 } from './backup'
-import type { LibraryRepo } from './repo'
+import { SCHEMA_VERSION } from './database'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from './types'
 
 const spotify = formatId('spotify', 'track', '4uLU6hMCjMI75M1A2tKUQC')
 
 /** A library with something in every table and a custom order everywhere. */
-async function richLibrary(repo: LibraryRepo) {
+async function richLibrary(repo: ReturnType<typeof testRepo>) {
   const mix = await repo.createPlaylist({ name: 'Mix', description: 'Mine', tracks: tracks(6) })
   const road = await repo.createPlaylist({ name: 'Road trip', tracks: [track(7), track(8)] })
   await repo.moveItems(mix, [track(6).id, track(2).id], 'top')
@@ -54,9 +54,28 @@ async function richLibrary(repo: LibraryRepo) {
     playedMs: 10_000,
     completed: false,
     skipped: true,
-    context: { type: 'playlist', id: mix, title: 'Mix' },
+    context: { type: 'library', id: mix, title: 'Mix' },
     stream: { source: 'ytm', codec: 'opus', container: 'webm', bitrateKbps: 160, tier: 'high' },
   })
+  // Every kind of queue context, each with only its own fields.
+  const contexts = [
+    { type: 'album', id: formatId('ytm', 'album', 'MPREb_1'), title: 'Record' },
+    { type: 'playlist', id: formatId('ytm', 'playlist', 'PL1'), title: 'Hits' },
+    { type: 'artist', id: formatId('ytm', 'artist', 'UC1'), title: 'Band' },
+    { type: 'radio', seed: track(3).id, title: 'Song 3 radio' },
+    { type: 'search', query: 'copper sun', title: 'copper sun' },
+    { type: 'library', id: LIKED_PLAYLIST_ID, title: 'Liked songs' },
+  ] as const
+  for (const [index, context] of contexts.entries()) {
+    await repo.recordPlay({
+      track: track(3),
+      playedAt: 10_000 + index,
+      playedMs: 5000,
+      completed: false,
+      skipped: false,
+      context,
+    })
+  }
   const candidate = {
     source: 'ytm' as const,
     ref: 'song',
@@ -106,6 +125,16 @@ describe('library backup', () => {
 
     const after = await exportLibrary(restored)
     expect(after.tables).toEqual(before.tables)
+    expect(after.tables.history.map((entry) => entry.context?.type)).toEqual([
+      undefined,
+      'library',
+      'album',
+      'playlist',
+      'artist',
+      'radio',
+      'search',
+      'library',
+    ])
     expect(parsed.backup.appSettings).toEqual({ catalogMode: 'all', theme: 'light' })
     expect({
       playlists: await restored.getOrder(PLAYLISTS_ORDER_ID),
@@ -262,6 +291,18 @@ describe('library backup', () => {
     expect(fail(JSON.stringify({ format: BACKUP_FORMAT, version: 1, tables: {} }))).toBe('parsed')
   })
 
+  it('refuses a backup written by a newer database schema, which could lose data', () => {
+    const backup = (schemaVersion: unknown) =>
+      JSON.stringify({ format: BACKUP_FORMAT, version: 1, schemaVersion, tables: {} })
+    expect(() => parseBackup(backup(SCHEMA_VERSION + 1))).toThrow(
+      expect.objectContaining({ code: 'too-new' }),
+    )
+    expect(parseBackup(backup(SCHEMA_VERSION)).backup.schemaVersion).toBe(SCHEMA_VERSION)
+    expect(parseBackup(backup(1)).backup.schemaVersion).toBe(1)
+    // Files from before schemas were recorded, or with a broken number, read as version 0.
+    expect(parseBackup(backup('2')).backup.schemaVersion).toBe(0)
+  })
+
   it('drops invalid records, counts them and never trusts derived fields', async () => {
     const id = formatId('local', 'playlist', 'p1')
     const text = JSON.stringify({
@@ -277,6 +318,8 @@ describe('library backup', () => {
             }),
             updatedAt: 2,
           },
+          // A YouTube Music ID that claims to come from Spotify.
+          { track: track(3, { source: 'spotify' }), updatedAt: 3 },
         ],
         likes: [{ key: 'forged', trackId: track(1).id, likedAt: 3 }, { trackId: 42 }],
         playlists: [
@@ -291,7 +334,15 @@ describe('library backup', () => {
           { id: formatId('ytm', 'playlist', 'PL1'), name: 'Not local', trackIds: [] },
         ],
         orders: [{ id: 'other', order: [] }],
-        history: [{ trackId: track(1).id, playedAt: -5 }],
+        history: [
+          { trackId: track(1).id, playedAt: -5 },
+          {
+            trackId: track(1).id,
+            playedAt: 7,
+            context: { type: 'search', query: 'q', title: 'q', id: 'smuggled', extra: 1 },
+          },
+          { trackId: track(1).id, playedAt: 8, context: { type: 'radio', id: 'x', title: 'r' } },
+        ],
         matchCache: [
           {
             sourceTrackId: spotify,
@@ -308,9 +359,10 @@ describe('library backup', () => {
 
     const { backup, skipped, summary } = parseBackup(text)
 
-    // A track without an ID, a like without a track, a playlist of another source, an order
-    // that isn't the playlists list, and a play at a negative time.
-    expect(skipped).toBe(5)
+    // A track without an ID, a track whose ID names another source, a like without a track, a
+    // playlist of another source, an order that isn't the playlists list, and a play at a
+    // negative time.
+    expect(skipped).toBe(6)
     expect(backup.tables.tracks.map((row) => row.id)).toEqual([track(1).id, track(2).id])
     expect(backup.tables.tracks[1]?.track.artwork).toEqual([{ url: 'https://x.dev/a.png' }])
     expect(backup.tables.likes).toEqual([
@@ -328,7 +380,12 @@ describe('library backup', () => {
       key: `${spotify}|music`,
       userPinned: false,
     })
-    expect(summary).toEqual({ playlists: 1, likes: 1, follows: 0, plays: 0, tracks: 2 })
+    // A play keeps a valid context with only its type's fields, and loses an invalid one.
+    expect(backup.tables.history.map((entry) => entry.context)).toEqual([
+      { type: 'search', query: 'q', title: 'q' },
+      undefined,
+    ])
+    expect(summary).toEqual({ playlists: 1, likes: 1, follows: 0, plays: 2, tracks: 2 })
 
     const repo = testRepo()
     await importLibrary(repo, { backup, skipped, summary }, 'replace')
