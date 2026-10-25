@@ -1,7 +1,14 @@
 // @vitest-environment node
 // Build-time config: no DOM.
 import { describe, expect, it } from 'vitest'
-import { PLANNED_APP_CSP, PWA_REVALIDATE_PATHS, parseCsp, pwaCspProblems } from './host.ts'
+import {
+  APP_HEADERS,
+  headersRevision,
+  PLANNED_APP_CSP,
+  PWA_REVALIDATE_PATHS,
+  parseCsp,
+  pwaCspProblems,
+} from './host.ts'
 
 describe('what the PWA needs from the host', () => {
   // Integration with 2.8: check the /app/* rule its _headers generator writes here instead.
@@ -45,5 +52,32 @@ describe('what the PWA needs from the host', () => {
       '/app/manifest.webmanifest',
       '/app/index.html',
     ])
+  })
+
+  it('sends the /app/* rule of docs/PLAN.md §2.8 until 2.8 provides its own', () => {
+    expect(APP_HEADERS).toEqual({
+      'Content-Security-Policy': PLANNED_APP_CSP,
+      'Referrer-Policy': 'no-referrer',
+      'X-Content-Type-Options': 'nosniff',
+    })
+  })
+})
+
+describe('headersRevision', () => {
+  it('changes with any header, so a new policy ships a new service worker', () => {
+    const revision = headersRevision(APP_HEADERS)
+    expect(revision).toMatch(/^[0-9a-f]{12}$/)
+    expect(headersRevision({ ...APP_HEADERS })).toBe(revision)
+    expect(
+      headersRevision({
+        ...APP_HEADERS,
+        'Content-Security-Policy': `${PLANNED_APP_CSP}; upgrade-insecure-requests`,
+      }),
+    ).not.toBe(revision)
+    expect(headersRevision({ ...APP_HEADERS, 'Referrer-Policy': 'same-origin' })).not.toBe(revision)
+  })
+
+  it('ignores the order of the headers and the case of their names', () => {
+    expect(headersRevision({ A: '1', b: '2' })).toBe(headersRevision({ B: '2', a: '1' }))
   })
 })

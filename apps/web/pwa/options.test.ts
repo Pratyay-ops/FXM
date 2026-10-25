@@ -4,7 +4,13 @@ import type { ResolvedConfig } from 'vite'
 import type { VitePWAOptions } from 'vite-plugin-pwa'
 import { describe, expect, it } from 'vitest'
 import { APP_BASE } from './manifest.ts'
-import { CACHE_ID, PRECACHE_IGNORES, PRECACHE_PATTERNS, pwaOptions } from './options.ts'
+import {
+  CACHE_ID,
+  PRECACHE_IGNORES,
+  PRECACHE_PATTERNS,
+  pwaOptions,
+  revisionPageWithHeaders,
+} from './options.ts'
 
 const options = pwaOptions()
 const workbox = options.workbox ?? {}
@@ -89,5 +95,33 @@ describe('PWA plugin options', () => {
 
   it('keeps the icons out of the plugin, which would list them twice', () => {
     expect(options.includeManifestIcons).toBe(false)
+  })
+
+  it("folds the host's header rule into the page's revision", async () => {
+    expect(workbox.manifestTransforms).toBeUndefined()
+    const transforms = pwaOptions(APP_BASE, { headersRevision: 'h1' }).workbox?.manifestTransforms
+    expect(transforms).toHaveLength(1)
+
+    const entries = [
+      { url: 'index.html', revision: 'abc', size: 1 },
+      { url: 'assets/index-abc123.js', revision: null, size: 2 },
+      { url: 'manifest.webmanifest', revision: 'def', size: 3 },
+    ]
+    const result = await transforms?.[0]?.(entries)
+    expect(result?.manifest).toEqual([
+      { url: 'index.html', revision: 'abc-h1', size: 1 },
+      { url: 'assets/index-abc123.js', revision: null, size: 2 },
+      { url: 'manifest.webmanifest', revision: 'def', size: 3 },
+    ])
+  })
+})
+
+describe('revisionPageWithHeaders', () => {
+  it('gives the page a new revision when only the headers change', async () => {
+    const page = [{ url: 'index.html', revision: 'same-content', size: 1 }]
+    const before = await revisionPageWithHeaders('old-rule')(page)
+    const after = await revisionPageWithHeaders('new-rule')(page)
+    expect(before.manifest[0]?.revision).not.toBe(after.manifest[0]?.revision)
+    expect(before.warnings).toEqual([])
   })
 })
