@@ -133,6 +133,20 @@ describe('generateRules', () => {
     expect(() => generateRules(folder(files))).toThrow(message)
   })
 
+  it("allows a page's own files by a relative URL, under 'self'", () => {
+    const rules = generateRules(
+      folder({
+        'docs/index.html': page(
+          '',
+          '<script src="app.js"></script><link rel="stylesheet" href="./a.css">',
+        ),
+      }),
+    )
+    expect(csp(rules, '/docs/')).toBe(
+      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    )
+  })
+
   it('reports every problem at once', () => {
     const error = (() => {
       try {

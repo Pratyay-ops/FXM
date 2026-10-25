@@ -52,7 +52,7 @@ case $status in
   1)
     fxm_info "Creating the Cloudflare Pages project $PROJECT (production branch $PRODUCTION_BRANCH)"
     if ! node "$wrangler" pages project create "$PROJECT" --production-branch "$PRODUCTION_BRANCH"; then
-      # Measured 2026-10-25: other names worked on the same account and token, only this one
+      # Measured 2026-10-26: other names worked on the same account and token, only this one
       # failed, with "An unknown error occurred [code: 8000000]".
       fxm_die "Cloudflare refused to create the Pages project $PROJECT. Code 8000000 while the account can create other projects most likely means the name is taken inside the account, by a Worker named $PROJECT or by a deleted Pages project of that name. Check Workers & Pages in the Cloudflare dashboard, or ask Cloudflare support to release the name."
     fi

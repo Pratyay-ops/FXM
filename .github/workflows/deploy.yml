@@ -156,7 +156,7 @@ jobs:
           scripts/run.sh pnpm install --frozen-lockfile --filter @fxm/deploy
 
       # A new project's certificate for its sub-domains, which every deployment's own address
-      # uses, arrives a few minutes after its first deploy (2.5 minutes, measured 2026-10-25).
+      # uses, arrives a few minutes after its first deploy (2.5 minutes, measured 2026-10-26).
       # Later deploys answer at once.
       - name: Wait for the deployment to answer
         env:
