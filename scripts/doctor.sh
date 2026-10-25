@@ -87,6 +87,37 @@ else
   opt ffmpeg "not found (only the self-hosted server in stage 7.1 needs it)"
 fi
 
+# Desktop app (stage 7.1): the repo-local Rust toolchain, then the OS packages Tauri
+# needs, which can't live in the repo. Reads the toolchain directly, so rustup never
+# starts a download from here.
+rust_toolchain_file="$FXM_ROOT/apps/desktop/src-tauri/rust-toolchain.toml"
+rust_channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$rust_toolchain_file" 2>/dev/null)
+rust_toolchain=$(find "$RUSTUP_HOME/toolchains" -maxdepth 1 -name "$rust_channel-*" 2>/dev/null | head -1)
+if [ -n "$rust_channel" ] && [ -x "$rust_toolchain/bin/rustc" ]; then
+  ok rust "$("$rust_toolchain/bin/rustc" --version | cut -d' ' -f1-2), rustup in $(short "$CARGO_HOME/bin")"
+else
+  opt rust "not installed: 'make rust-setup' (desktop app)"
+fi
+case "$(uname -s)" in
+  Darwin)
+    if clt=$(xcode-select -p 2>/dev/null); then
+      ok desktop "Xcode Command Line Tools ($clt)"
+    else
+      opt desktop "Xcode Command Line Tools missing: 'xcode-select --install' (desktop app)"
+    fi
+    ;;
+  Linux)
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists webkit2gtk-4.1; then
+      ok desktop "webkit2gtk-4.1 $(pkg-config --modversion webkit2gtk-4.1)"
+    else
+      opt desktop "webkit2gtk-4.1 not found: see 'Desktop app' in docs/DEVELOPMENT.md"
+    fi
+    ;;
+  *)
+    opt desktop "needs the MSVC Build Tools and WebView2: see 'Desktop app' in docs/DEVELOPMENT.md"
+    ;;
+esac
+
 echo
 if [ "$failed" -ne 0 ]; then
   fxm_die "Some required checks failed"

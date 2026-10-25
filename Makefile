@@ -96,3 +96,35 @@ clean: ## Remove build output (keeps dependencies and tools)
 
 nuke: ## Remove ALL installed tools, deps and caches (main checkout and worktrees)
 	@scripts/clean.sh all
+
+# --- Desktop app (Tauri 2; "Desktop app" in docs/DEVELOPMENT.md) --------------
+# Rust lives in .tools/ (make rust-setup); `make check` never needs it.
+
+.PHONY: rust-setup desktop-setup desktop-dev desktop-build desktop-dmg desktop-check
+
+# Locally, macOS builds only FXM.app: the DMG step can drive Finder windows (desktop-dmg).
+DESKTOP_BUNDLES = $(if $(filter Darwin,$(shell uname -s)),--bundles app,)
+DESKTOP_CARGO = cd apps/desktop/src-tauri && "$(CURDIR)/$(RUN)" cargo
+
+rust-setup: ## Install the pinned Rust toolchain into .tools (desktop app)
+	@scripts/install-rust.sh
+
+desktop-setup: rust-setup install ## Set up the desktop app: Rust toolchain plus dependencies
+
+desktop-dev: ## Run the desktop app on the web dev server (port 5260, hot reload)
+	@scripts/install-rust.sh --check
+	@$(RUN) pnpm --filter @fxm/desktop tauri dev
+
+desktop-build: ## Build the desktop app (FXM.app on macOS; all bundles elsewhere)
+	@scripts/install-rust.sh --check
+	@$(RUN) pnpm --filter @fxm/desktop tauri build $(DESKTOP_BUNDLES) -- --locked
+
+desktop-dmg: ## macOS: build FXM.app and the .dmg, without Finder windows
+	@scripts/install-rust.sh --check
+	@CI=true $(RUN) pnpm --filter @fxm/desktop tauri build --bundles dmg -- --locked
+
+desktop-check: ## Check the desktop Rust code: rustfmt, clippy, cargo test
+	@scripts/install-rust.sh --check
+	@$(DESKTOP_CARGO) fmt --check
+	@$(DESKTOP_CARGO) clippy --locked --all-targets -- -D warnings
+	@$(DESKTOP_CARGO) test --locked

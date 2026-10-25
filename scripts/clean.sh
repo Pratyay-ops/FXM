@@ -72,6 +72,14 @@ while IFS= read -r checkout; do
   fi
 done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
 
+# Desktop app (stage 7.1): Cargo's target directory (several GB per checkout), the
+# generated capability schemas and the web build the app embeds. Both modes remove them.
+while IFS= read -r checkout; do
+  [ -d "$checkout" ] || continue
+  (cd "$checkout" && rm -rf apps/desktop/src-tauri/target apps/desktop/src-tauri/gen/schemas \
+    apps/web/dist-desktop)
+done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
+
 if [ "$mode" = build ]; then
   fxm_info "Removed build output"
   exit 0

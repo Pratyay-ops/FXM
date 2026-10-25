@@ -49,6 +49,11 @@ export UV_PYTHON_PREFERENCE=only-managed
 export UV_NO_MODIFY_PATH=1
 export PIP_CACHE_DIR="$FXM_TOOLS/pip/cache"
 
+# Rust (stage 7.1, the desktop app): rustup, its toolchains and Cargo's registry. The
+# toolchain version is pinned in apps/desktop/src-tauri/rust-toolchain.toml.
+export RUSTUP_HOME="$FXM_TOOLS/rustup"
+export CARGO_HOME="$FXM_TOOLS/cargo"
+
 # Android (stage 6.1 installs the JDK and SDK here).
 export GRADLE_USER_HOME="$FXM_TOOLS/gradle"
 export ANDROID_HOME="$FXM_TOOLS/android-sdk"
@@ -95,6 +100,9 @@ _fxm_path_prepend() {
   rest=${rest%:}
   PATH="$1${rest:+:$rest}"
 }
+if [ -d "$CARGO_HOME/bin" ]; then
+  _fxm_path_prepend "$CARGO_HOME/bin"
+fi
 if [ -d "$ANDROID_HOME/platform-tools" ]; then
   _fxm_path_prepend "$ANDROID_HOME/platform-tools"
 fi
