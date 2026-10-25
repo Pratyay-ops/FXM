@@ -28,7 +28,7 @@ usage="usage: deploy.sh develop | main [--candidate]"
 branch=${1:-}
 mode=${2:-}
 case "$branch $mode" in
-  "develop " | "main ") pages_branch=$branch ;;
+  "develop " | "main " | "ci/2.8-deploy ") pages_branch=$branch ;;
   "main --candidate") pages_branch=$CANDIDATE_BRANCH ;;
   *) fxm_die "$usage (got: ${*:-nothing})" ;;
 esac
