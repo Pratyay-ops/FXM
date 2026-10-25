@@ -1,0 +1,601 @@
+{
+  "contents": {
+    "singleColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "endpoint": {
+              "browseEndpoint": {
+                "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                "params": "EghmZWF0dXJlZA%3D%3D"
+              }
+            },
+            "title": "Home",
+            "selected": true,
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicCarouselShelfRenderer": {
+                      "header": {
+                        "musicCarouselShelfBasicHeaderRenderer": {
+                          "title": {
+                            "runs": [
+                              {
+                                "text": "Videos",
+                                "navigationEndpoint": {
+                                  "browseEndpoint": {
+                                    "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                                    "params": "6gPgAUdxVUJXcFlCQ3BNQkNpUjVkRjl3WVdkbFgzTnVZWEJ6YUc5MFgyMTFjMmxqWDNCaFoyVmZjbVZuYVc5dVlXd1NIMmMwU3psclJ6Vk1YMUZqWlVGRVEyMTJjWEZZWTJKd2JXeEJWa2hHZUc4YVNnQUFaVzRBQVVsT0FBRkpUZ0FCQUVaRmJYVnphV05mWkdWMFlXbHNYMkZ5ZEdsemRBQUJBVU1BQUFFQUFBRUJBRlZEUWtoNVJYVjNZM3BtUkMxbGVFRlpRWEJ2WDJjMmR3QUI4dHF6cWdvR1FBRklBRkFM"
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "moreContentButton": {
+                            "buttonRenderer": {
+                              "style": "STYLE_TEXT",
+                              "text": {
+                                "runs": [
+                                  {
+                                    "text": "More"
+                                  }
+                                ]
+                              },
+                              "navigationEndpoint": {
+                                "browseEndpoint": {
+                                  "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                                  "params": "6gPgAUdxVUJXcFlCQ3BNQkNpUjVkRjl3WVdkbFgzTnVZWEJ6YUc5MFgyMTFjMmxqWDNCaFoyVmZjbVZuYVc5dVlXd1NIMmMwU3psclJ6Vk1YMUZqWlVGRVEyMTJjWEZZWTJKd2JXeEJWa2hHZUc4YVNnQUFaVzRBQVVsT0FBRkpUZ0FCQUVaRmJYVnphV05mWkdWMFlXbHNYMkZ5ZEdsemRBQUJBVU1BQUFFQUFBRUJBRlZEUWtoNVJYVjNZM3BtUkMxbGVFRlpRWEJ2WDJjMmR3QUI4dHF6cWdvR1FBRklBRkFM"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      "contents": [
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/v1cYPOovh_c/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kjOgnBF6L8cJk_uR7ALoTpCtcRxA",
+                                      "width": 400,
+                                      "height": 225
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/vi/v1cYPOovh_c/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3m4It1Fn1O8TBjd9mx5Z1riswp_VQ",
+                                      "width": 800,
+                                      "height": 450
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "SUBHASHREE (Audio)"
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Abhi Nandan",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "70K views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "watchEndpoint": {
+                                "videoId": "v1cYPOovh_c",
+                                "watchEndpointMusicSupportedConfigs": {
+                                  "watchEndpointMusicConfig": {
+                                    "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                                  }
+                                }
+                              }
+                            },
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/vfmvNYugTRE/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kdNKhJKUlsIhYiLqGpdu5KEtQZIg",
+                                      "width": 400,
+                                      "height": 225
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/vi/vfmvNYugTRE/hqdefault.jpg?sqp=-oaymwEWCOADEI4CIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lRSz7fvQCgKflYh8eBIhG3tWPORw",
+                                      "width": 480,
+                                      "height": 270
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Abhi Nandan - Bhag Chale (Official Video)"
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Abhi Nandan",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "3.6K views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "watchEndpoint": {
+                                "videoId": "vfmvNYugTRE",
+                                "watchEndpointMusicSupportedConfigs": {
+                                  "watchEndpointMusicConfig": {
+                                    "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                                  }
+                                }
+                              }
+                            },
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/5PIPvMm4nzU/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lL2gRKXZp_1b5WSPPAjuW4pwARlQ",
+                                      "width": 400,
+                                      "height": 225
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/vi/5PIPvMm4nzU/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3lN__8mUd5iziatF_mUHf4TDpIQrQ",
+                                      "width": 800,
+                                      "height": 450
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Abhi Nandan - Bhag Chale (Official Audio)"
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Abhi Nandan",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "823 views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "watchEndpoint": {
+                                "videoId": "5PIPvMm4nzU",
+                                "watchEndpointMusicSupportedConfigs": {
+                                  "watchEndpointMusicConfig": {
+                                    "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                                  }
+                                }
+                              }
+                            },
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/P2A_RqJazws/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3ngsRedeyj-qeyHopf_WgTnOqSAUg",
+                                      "width": 400,
+                                      "height": 225
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/vi/P2A_RqJazws/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3kUo3QDNmBGvJ00qJuZo9-eP74Z-w",
+                                      "width": 800,
+                                      "height": 450
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "Boulevard of Broken Dreams - Hindi Edition | If Green Day was Indian"
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Abhi Nandan",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "5.8K views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "watchEndpoint": {
+                                "videoId": "P2A_RqJazws",
+                                "watchEndpointMusicSupportedConfigs": {
+                                  "watchEndpointMusicConfig": {
+                                    "musicVideoType": "MUSIC_VIDEO_TYPE_UGC"
+                                  }
+                                }
+                              }
+                            },
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "itemSize": "COLLECTION_STYLE_ITEM_SIZE_MEDIUM"
+                    }
+                  },
+                  {
+                    "musicCarouselShelfRenderer": {
+                      "header": {
+                        "musicCarouselShelfBasicHeaderRenderer": {
+                          "title": {
+                            "runs": [
+                              {
+                                "text": "Playlists"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      "contents": [
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/P2A_RqJazws/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3ngsRedeyj-qeyHopf_WgTnOqSAUg",
+                                      "width": 400,
+                                      "height": 225
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/vi/P2A_RqJazws/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3kUo3QDNmBGvJ00qJuZo9-eP74Z-w",
+                                      "width": 800,
+                                      "height": 450
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "HINDI VERSIONS",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "VLPL_UwkJ_gWGeWoIO0a2e46C6BpRlnFxdsZ",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Playlist"
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "Abhi Nandan",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "1.1K views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPL_UwkJ_gWGeWoIO0a2e46C6BpRlnFxdsZ",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            },
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://i.ytimg.com/vi/hoHSJ5wzF28/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lxO7RWAj7daXn3dlPQ3GVTv_EfCA",
+                                      "width": 400,
+                                      "height": 225
+                                    },
+                                    {
+                                      "url": "https://i.ytimg.com/vi/hoHSJ5wzF28/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3kwiCpHPfBzmoeqo2mPrh-0Sey8yg",
+                                      "width": 800,
+                                      "height": 450
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "title": {
+                              "runs": [
+                                {
+                                  "text": "MY ORIGINAL SONGS",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "VLPL_UwkJ_gWGeXzWNtjBo21n-czvaCdhpMT",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "subtitle": {
+                              "runs": [
+                                {
+                                  "text": "Playlist"
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "Abhi Nandan",
+                                  "navigationEndpoint": {
+                                    "browseEndpoint": {
+                                      "browseId": "UCBHyEuwczfD-exAYApo_g6w",
+                                      "browseEndpointContextSupportedConfigs": {
+                                        "browseEndpointContextMusicConfig": {
+                                          "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                        }
+                                      }
+                                    }
+                                  }
+                                },
+                                {
+                                  "text": " • "
+                                },
+                                {
+                                  "text": "269 views"
+                                }
+                              ]
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPL_UwkJ_gWGeXzWNtjBo21n-czvaCdhpMT",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            },
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "itemSize": "COLLECTION_STYLE_ITEM_SIZE_MEDIUM"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "header": {
+    "musicVisualHeaderRenderer": {
+      "title": {
+        "runs": [
+          {
+            "text": "Abhi Nandan"
+          }
+        ]
+      },
+      "thumbnail": {
+        "musicThumbnailRenderer": {
+          "thumbnail": {
+            "thumbnails": [
+              {
+                "url": "https://yt3.googleusercontent.com/KOwoR3NoGOLWRWpsnVLBOYMkkVRNG305R-7vGFmrwrhexX_bJ4Hfw_0xvq48hopFNG2zEcctEA=w540-h225-p-l90-rj",
+                "width": 540,
+                "height": 225
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/KOwoR3NoGOLWRWpsnVLBOYMkkVRNG305R-7vGFmrwrhexX_bJ4Hfw_0xvq48hopFNG2zEcctEA=w816-h340-p-l90-rj",
+                "width": 816,
+                "height": 340
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/KOwoR3NoGOLWRWpsnVLBOYMkkVRNG305R-7vGFmrwrhexX_bJ4Hfw_0xvq48hopFNG2zEcctEA=w1440-h600-p-l90-rj",
+                "width": 1440,
+                "height": 600
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/KOwoR3NoGOLWRWpsnVLBOYMkkVRNG305R-7vGFmrwrhexX_bJ4Hfw_0xvq48hopFNG2zEcctEA=w1920-h800-p-l90-rj",
+                "width": 1920,
+                "height": 800
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/KOwoR3NoGOLWRWpsnVLBOYMkkVRNG305R-7vGFmrwrhexX_bJ4Hfw_0xvq48hopFNG2zEcctEA=w2560-h1066-p-l90-rj",
+                "width": 2560,
+                "height": 1066
+              }
+            ]
+          }
+        }
+      },
+      "menu": {
+        "menuRenderer": {}
+      },
+      "foregroundThumbnail": {
+        "musicThumbnailRenderer": {
+          "thumbnail": {
+            "thumbnails": [
+              {
+                "url": "https://yt3.googleusercontent.com/Ldl-lpxlY1MYkC0vvJgIiyj4xUqo8JfAM5mAdRAVocsu2iUrUuUvnz51MKwfYD_i3hPBBpSJ=w60-c-h60-k-c0x00ffffff-no-l90-rj",
+                "width": 60,
+                "height": 60
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/Ldl-lpxlY1MYkC0vvJgIiyj4xUqo8JfAM5mAdRAVocsu2iUrUuUvnz51MKwfYD_i3hPBBpSJ=w120-c-h120-k-c0x00ffffff-no-l90-rj",
+                "width": 120,
+                "height": 120
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/Ldl-lpxlY1MYkC0vvJgIiyj4xUqo8JfAM5mAdRAVocsu2iUrUuUvnz51MKwfYD_i3hPBBpSJ=w226-c-h226-k-c0x00ffffff-no-l90-rj",
+                "width": 226,
+                "height": 226
+              },
+              {
+                "url": "https://yt3.googleusercontent.com/Ldl-lpxlY1MYkC0vvJgIiyj4xUqo8JfAM5mAdRAVocsu2iUrUuUvnz51MKwfYD_i3hPBBpSJ=w544-c-h544-k-c0x00ffffff-no-l90-rj",
+                "width": 544,
+                "height": 544
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "microformat": {
+    "microformatDataRenderer": {
+      "title": "Abhi Nandan",
+      "urlCanonical": "https://music.youtube.com/@abhi_nonedone"
+    }
+  }
+}
