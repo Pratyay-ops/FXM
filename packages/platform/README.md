@@ -153,16 +153,26 @@ Without `http`, both are stubs: CORS-friendly hosts through the webview's own `f
 
 `createDesktopFetch()` (`src/desktop.ts`) is the desktop app's `NativeHttp`. It loads Tauri's bindings (`@tauri-apps/plugin-http` and `@tauri-apps/api`) on its first request, so a browser never downloads them, and sends:
 
-- **Hosts in the table** through Tauri's HTTP plugin, whose scope in the app's `capabilities/default.json` lists exactly those hosts and whose `scopeRedirects` setting checks every redirect against it. A refused address, a redirect's included, rejects with an `Unsupported` `FxmError`; a network failure with a `TypeError`, and an abort with the signal's reason, as `fetch` does.
-- **Any other host** through the app's `user_host_fetch` Rust command, which reaches only hosts the user approved, by `GET` or `HEAD`, over HTTPS, to public addresses, with at most 8 MiB in 30 s. Its refusals reject with an `Unsupported` `FxmError` (`Parse` for a response that is too large).
+- **Hosts in the table** through Tauri's HTTP plugin, whose scope in the app's `capabilities/default.json` lists exactly those hosts and whose `scopeRedirects` setting checks every redirect against it. A refused address, a redirect's included, rejects with an `Unsupported` `FxmError`; a network failure with a `TypeError`, and an abort with the signal's reason, as `fetch` does. Reading the body fails the same way: the plugin's own stream errors with bare strings, which `createDesktopFetch()` turns into the signal's reason or a `TypeError`.
+- **Any other host** through the app's `user_host_fetch` Rust command, which reaches only hosts the user approved, by `GET` or `HEAD`, over HTTPS, to public addresses, never through a proxy, with at most 8 MiB in 30 s. Its refusals reject with an `Unsupported` `FxmError` (`Parse` for a response that is too large).
+
+Error messages name a URL only by its scheme, host and path (`describeUrl`, `redactUrls`): a googlevideo URL's query carries the user's IP address and signatures. The plugin's own error stays in `cause`.
 
 It enforces the header policy once more at the last step, whatever the caller sent:
 
 - `origin` is `''` (no `Origin` header, which needs the plugin's `unsafe-headers` feature) unless it is the `https:` origin of a real site, such as Spotify's: the webview's own origin (`tauri://localhost`, `http(s)://tauri.localhost`, a dev server's) never goes out (`siteOrigin`);
-- a request that names no User-Agent gets a browser's for YouTube and Spotify (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS) and FXM's own for every other host (`fxmUserAgent`), never the plugin's `tauri-plugin-http/<version>`, which Spotify refuses;
-- headers go only in `init.headers`, as a plain object; `Cookie` is never sent, and `Set-Cookie` never reaches the caller.
+- a request that names no User-Agent gets one by service (`sendsBrowserAgent`), never the plugin's `tauri-plugin-http/<version>`, which Spotify refuses:
 
-`createDesktopUserHosts()` is the client for the approved hosts: `refresh()` and `current()` read the list, which Rust keeps, `revoke(host)` shrinks it, and `approve(host)` asks the user in a native dialog. Only that dialog can grow the list, so no page script can make FXM contact a new host. Pass `userHosts: () => hosts.current()` to `createPlatform()`, so the transport routes those hosts.
+  | Hosts | User-Agent |
+  |---|---|
+  | Every host YouTube (Google) or Spotify runs: InnerTube, googlevideo, Spotify's API hosts and their image servers `i.ytimg.com`, `*.ggpht.com` and `i.scdn.co`; Last.fm's web player | A browser's (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS), as on the web, so FXM's traffic doesn't stand out from the same address's other requests |
+  | Services that ask apps to name themselves: MusicBrainz, Cover Art Archive, ListenBrainz, the Last.fm API, LRCLIB, Internet Archive, Jamendo, iTunes Search, SponsorBlock | FXM's own (`fxmUserAgent`) |
+
+- headers go only in `init.headers`, as a plain object; `Cookie` and `Host` are never sent, and `Set-Cookie` never reaches the caller.
+
+These rules bind whatever calls `ctx.fetch`. Page script that calls Tauri's IPC itself bypasses this module; the desktop app's isolation hook applies the `Origin`, `Cookie` and `Host` rules to every request to the plugin and drops its per-request `proxy` option (see [apps/desktop/README.md](../../apps/desktop/README.md#what-page-script-can-reach)).
+
+`createDesktopUserHosts()` is the client for the approved hosts: `refresh()` and `current()` read the list, which Rust keeps, `revoke(host)` shrinks it, and `approve(host)` asks the user in a native dialog. Only that dialog can grow the list, so no page script can make `user_host_fetch` reach a host the user didn't approve. That binds this command only: the app's README lists what else page script can reach. Rust asks only while FXM's window is in front, at most once every 10 seconds after the last answer, and never again about a host the user refused this session; on macOS and Windows "Don't Allow" is the default button. Pass `userHosts: () => hosts.current()` to `createPlatform()`, so the transport routes those hosts.
 
 The app side, its scope, permissions and content security policy are in [apps/desktop/README.md](../../apps/desktop/README.md#network).
 
