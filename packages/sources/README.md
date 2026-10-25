@@ -7,6 +7,8 @@ import { fetchWithTimeout } from '@fxm/sources/shared'
 // later: '@fxm/sources/youtube', '@fxm/sources/jiosaavn', '@fxm/sources/archive', …
 ```
 
+`@fxm/sources/import` is the one folder that is not a provider: imports of other apps' playlists, Spotify's data export and links, matched with the providers' help (see its README).
+
 The wildcard `exports` entry (`./*` → `./src/*/index.ts`) means a new provider never edits a shared index file, so parallel stages don't conflict.
 
 **Rules**

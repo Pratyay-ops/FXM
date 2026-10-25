@@ -6,12 +6,14 @@
  * stopped. A data export's listening history becomes listening signals.
  *
  * ```ts
- * import { parseExportFiles, parsePlaylistFile } from '@fxm/sources/import'
+ * import { createImportState, parseExportFiles, runImport } from '@fxm/sources/import'
  *
  * const parsed = await parseExportFiles([{ name: file.name, bytes }])
+ * const state = createImportState(parsed.kind, 'music', parsed.collections[0])
+ * const end = await runImport(state, environment, sink, { signal })
  * ```
  *
- * See `CLEAN-ROOM.md` for the file formats.
+ * See the README in this folder for the whole flow, and `CLEAN-ROOM.md` for the file formats.
  *
  * @module
  */
@@ -32,8 +34,49 @@ export {
   youtubePlaylistId,
   youtubeTrackId,
 } from './links'
+export {
+  type ImportSpotify,
+  type LoadOptions,
+  loadLinkImport,
+  loadSpotifyImport,
+  loadYouTubeImport,
+  PAGE_SPACING_MS,
+  rowFromTrack,
+} from './load'
+export { type ImportMusicBrainz, MUSICBRAINZ_BATCH, wantsLookup } from './lookup'
 export { decodeText, describeFileName, MAX_M3U_LENGTH, parseM3uImport } from './m3u'
+export {
+  candidateTrackId,
+  MAX_ALTERNATIVES,
+  type MatchRowInput,
+  matchRow,
+  matchSourceOf,
+  needsLoad,
+  planRow,
+  type RowPlan,
+  trackOfCandidate,
+} from './match'
+export {
+  csvField,
+  type ImportReport,
+  type ImportReportMatch,
+  type ImportReportRow,
+  type ImportReportTotals,
+  importReport,
+  reportToCsv,
+  reportToJson,
+} from './report'
 export { catalogTrackOf, MAX_IMPORT_ROWS } from './rows'
+export {
+  type CachedMatch,
+  type ImportEnvironment,
+  type ImportMatchDecision,
+  type ImportRunEnd,
+  type ImportRunStatus,
+  type ImportSink,
+  type RunImportOptions,
+  runImport,
+} from './run'
 export {
   type ExportFile,
   type ExportFileKind,
@@ -44,6 +87,23 @@ export {
   parseEndTime,
   parseSpotifyExport,
 } from './spotify-export'
+export {
+  applyReview,
+  createImportState,
+  firstPendingRow,
+  type ImportCounts,
+  importCounts,
+  initialPlaylistTracks,
+  isLikelyMatch,
+  needsReview,
+  nextPlaylistTrack,
+  playlistTrackIdOf,
+  type ReviewDecision,
+  type ReviewEffect,
+  type RowStatus,
+  rowStatus,
+  sanitizeImportState,
+} from './state'
 export {
   type CandidateExtras,
   IMPORT_KINDS,
@@ -64,4 +124,13 @@ export {
   type RowReview,
   type StoredRow,
 } from './types'
+export {
+  createYouTubeImport,
+  type ImportYouTube,
+  MATCH_SEARCH_LIMIT,
+  YOUTUBE_IMPORT_UNAVAILABLE,
+  YOUTUBE_UNAVAILABLE_MESSAGE,
+  type YouTubeImportProvider,
+  type YouTubeImportProviders,
+} from './youtube'
 export { isZip, type ReadZipOptions, readZip, type ZipFile } from './zip'
