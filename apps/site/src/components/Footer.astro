@@ -96,6 +96,7 @@ const columns = [
   align-items: center;
   gap: var(--space-2);
   justify-self: start;
+  min-height: var(--touch);
   border-radius: var(--radius-md);
   color: var(--color-text);
   text-decoration: none;
@@ -118,7 +119,7 @@ const columns = [
 }
 
 .column h2 {
-  margin-bottom: var(--space-3);
+  margin-bottom: var(--space-1);
   color: var(--color-text);
   font-size: var(--text-sm);
   font-weight: 700;
@@ -127,13 +128,14 @@ const columns = [
 
 .column ul {
   display: grid;
-  gap: var(--space-1);
 }
 
+/* 44 px rows on phones and tablets, so every link is easy to tap */
 .column a {
   display: inline-flex;
   align-items: center;
-  min-height: 2rem;
+  min-width: var(--touch);
+  min-height: var(--touch);
   color: var(--color-text-muted);
   text-decoration: none;
 }
@@ -158,6 +160,14 @@ const columns = [
 }
 
 @media (min-width: 64rem) {
+  .column ul {
+    gap: var(--space-1);
+  }
+
+  .column a {
+    min-height: var(--space-8);
+  }
+
   .top {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
   }

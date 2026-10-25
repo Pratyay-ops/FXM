@@ -8,6 +8,7 @@ const links = [
   { href: '/#how-it-works', label: 'How it works' },
   { href: '/#get', label: 'Download' },
   { href: '/#faq', label: 'FAQ' },
+  { href: REPO_URL, label: 'GitHub' },
 ]
 ---
 
@@ -18,23 +19,59 @@ const links = [
       <span class="wordmark" aria-hidden="true">FXM</span>
     </a>
     <nav class="nav" aria-label="Main">
-      <ul class="bare-list">
+      <ul class="bare-list links">
         {links.map((link) => (
           <li>
             <a href={link.href}>{link.label}</a>
           </li>
         ))}
-        <li>
-          <a href={REPO_URL}>GitHub</a>
-        </li>
       </ul>
+      {/* Small screens: the same links behind a menu button that works without JavaScript */}
+      <details class="menu" data-menu>
+        <summary class="menu-button">
+          <Icon name="menu" size={22} class="when-closed" />
+          <Icon name="close" size={22} class="when-open" />
+          <span class="sr-only">Menu</span>
+        </summary>
+        <ul class="bare-list menu-panel">
+          {links.map((link) => (
+            <li>
+              <a href={link.href}>{link.label}</a>
+            </li>
+          ))}
+        </ul>
+      </details>
     </nav>
     <a class="button button-primary cta" href={APP_PATH}>
       Open web app
-      <Icon name="arrow-right" size={18} />
+      <Icon name="arrow-right" size={18} class="cta-arrow" />
     </a>
   </div>
 </header>
+
+<script>
+// Progressive enhancement for the small-screen menu: close it once a link is chosen (an
+// in-page link would otherwise leave it open over the section), on Escape and on a
+// click anywhere else.
+const menu = document.querySelector<HTMLDetailsElement>('details[data-menu]')
+if (menu) {
+  const summary = menu.querySelector('summary')
+  menu.addEventListener('click', (event) => {
+    if (event.target instanceof Element && event.target.closest('a')) menu.open = false
+  })
+  document.addEventListener('click', (event) => {
+    if (menu.open && event.target instanceof Node && !menu.contains(event.target)) {
+      menu.open = false
+    }
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && menu.open) {
+      menu.open = false
+      summary?.focus()
+    }
+  })
+}
+</script>
 
 <style>
 .site-header {
@@ -50,7 +87,7 @@ const links = [
 .inner {
   display: flex;
   align-items: center;
-  gap: var(--space-4);
+  gap: var(--space-2);
   height: var(--header-height);
 }
 
@@ -58,6 +95,7 @@ const links = [
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: var(--touch);
   margin-right: auto;
   border-radius: var(--radius-md);
   color: var(--color-text);
@@ -74,40 +112,135 @@ const links = [
   letter-spacing: -0.02em;
 }
 
-.nav {
+/* Inline links from 48rem; a menu button below that */
+.links {
   display: none;
 }
 
-.nav ul {
-  display: flex;
+.links {
   gap: var(--space-1);
 }
 
-.nav a {
-  display: inline-flex;
+.links a,
+.menu-panel a {
+  display: flex;
   align-items: center;
   min-height: var(--touch);
-  padding-inline: var(--space-3);
+  text-decoration: none;
+}
+
+.links a {
+  padding-inline: var(--space-2);
   border-radius: var(--radius-full);
   color: var(--color-text-muted);
   font-size: var(--text-sm);
   font-weight: 550;
-  text-decoration: none;
 }
 
-.nav a:hover {
+.links a:hover {
   color: var(--color-text);
 }
 
+.menu-button {
+  display: grid;
+  place-items: center;
+  width: var(--touch);
+  height: var(--touch);
+  border-radius: var(--radius-full);
+  color: var(--color-text);
+  list-style: none;
+  cursor: pointer;
+}
+
+.menu-button::-webkit-details-marker {
+  display: none;
+}
+
+.menu-button:hover,
+.menu[open] .menu-button {
+  background: var(--color-elevated);
+}
+
+.menu-button > :global(svg) {
+  grid-area: 1 / 1;
+}
+
+.menu :global(.when-open),
+.menu[open] :global(.when-closed) {
+  display: none;
+}
+
+.menu[open] :global(.when-open) {
+  display: block;
+}
+
+/* Opens under the header, across the whole width */
+.menu-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  display: grid;
+  padding: var(--space-2) var(--gutter) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.menu-panel li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.menu-panel a {
+  min-height: var(--space-12);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.menu-panel a:hover {
+  color: var(--color-accent);
+}
+
 .cta {
-  min-height: 2.5rem;
+  min-height: var(--touch);
   padding-inline: var(--space-4);
   font-size: var(--text-sm);
 }
 
-@media (min-width: 52rem) {
-  .nav {
-    display: block;
+/* Room for the logo, the menu button and the button on a 320 px screen */
+@media (max-width: 24rem) {
+  .cta {
+    padding-inline: var(--space-3);
+  }
+
+  .cta :global(.cta-arrow) {
+    display: none;
+  }
+}
+
+@media (min-width: 30rem) {
+  .inner {
+    gap: var(--space-3);
+  }
+}
+
+@media (min-width: 48rem) {
+  .inner {
+    gap: var(--space-4);
+  }
+
+  .links {
+    display: flex;
+  }
+
+  .menu {
+    display: none;
+  }
+}
+
+@media (min-width: 64rem) {
+  .links a {
+    padding-inline: var(--space-3);
   }
 }
 </style>

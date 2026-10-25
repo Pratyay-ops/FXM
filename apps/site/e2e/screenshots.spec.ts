@@ -5,6 +5,8 @@ import { type Page, test } from '@playwright/test'
 // also saved in slices, and the home page section by section, which are easier to
 // review than one very tall image.
 test.skip(!process.env.FXM_SCREENSHOTS, 'Set FXM_SCREENSHOTS=1 (pnpm screenshots) to capture')
+// Each test saves dozens of images; leave room for a busy machine.
+test.describe.configure({ timeout: 180_000 })
 
 const WIDTHS = [320, 768, 1280] as const
 const THEMES = ['dark', 'light'] as const
@@ -57,6 +59,13 @@ for (const theme of THEMES) {
           const section = sections.nth(index)
           const id = (await section.getAttribute('id')) ?? 'section'
           await section.screenshot({ path: `${prefix}-home-${index + 1}-${id}.png` })
+        }
+
+        if (width < 768) {
+          // The menu that replaces the header links on small screens, open
+          await page.goto('/privacy')
+          await page.locator('.menu summary').click()
+          await page.screenshot({ path: `${prefix}-menu.png` })
         }
       })
     })

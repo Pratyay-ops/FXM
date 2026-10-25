@@ -156,3 +156,70 @@ test.describe('the Download button', () => {
     })
   })
 })
+
+test.describe('the main menu', () => {
+  test('opens from a button on a phone and closes after a link', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 720 })
+    await page.goto('/')
+    const nav = page.getByRole('navigation', { name: 'Main' })
+    await expect(nav.locator('.links')).toBeHidden()
+    await nav.locator('summary').click()
+    const features = nav.locator('.menu-panel').getByRole('link', { name: 'Features' })
+    await expect(features).toBeVisible()
+    await features.click()
+    await expect(page).toHaveURL(/#features$/)
+    await expect(features).toBeHidden()
+  })
+
+  test('closes on Escape and gives focus back to its button', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 720 })
+    await page.goto('/privacy')
+    const button = page.locator('.menu summary')
+    await button.click()
+    await expect(page.locator('.menu-panel')).toBeVisible()
+    await page.locator('.menu-panel a').first().focus()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('.menu-panel')).toBeHidden()
+    await expect(button).toBeFocused()
+  })
+
+  for (const width of [768, 1280]) {
+    test(`shows the links in the header at ${width} px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await page.goto('/privacy')
+      const nav = page.getByRole('navigation', { name: 'Main' })
+      for (const name of ['Features', 'How it works', 'Download', 'FAQ', 'GitHub']) {
+        await expect(nav.locator('.links').getByRole('link', { name })).toBeVisible()
+      }
+      await expect(nav.locator('.menu')).toBeHidden()
+      // Everything fits on one line.
+      const overflow = await page.evaluate(() => {
+        const inner = document.querySelector('.site-header .inner')
+        return inner ? inner.scrollWidth - inner.clientWidth : -1
+      })
+      expect(overflow).toBe(0)
+    })
+  }
+})
+
+test('links and buttons are at least 44 px tall on a phone', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 })
+  for (const path of ['/', '/privacy', '/disclaimer']) {
+    await page.goto(path)
+    await page.locator('.menu summary').click()
+    const small = await page.evaluate(() =>
+      [
+        ...document.querySelectorAll<HTMLElement>(
+          'header a, header summary, footer a, .button, .services a',
+        ),
+      ]
+        .filter((element) => element.getClientRects().length > 0)
+        .map((element) => ({
+          name: element.textContent?.trim() || element.getAttribute('aria-label'),
+          height: Math.round(element.getBoundingClientRect().height),
+        }))
+        .filter((target) => target.height < 44),
+    )
+    expect(small, path).toEqual([])
+  }
+})
