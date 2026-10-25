@@ -8,9 +8,9 @@ FXM is built stage by stage from [PLAN.md](PLAN.md). Several people or AI agents
 
 | Branch | Purpose | Deploys to | Receives merges from |
 |---|---|---|---|
-| `main` | Production. Always releasable | `fxm-music.pages.dev`, and the APK release on `v*` tags | `develop` (releases), `hotfix/*` |
+| `main` | Production. Always releasable. **Protected**: pull requests only, the CI check `make check` must pass on an up-to-date branch, merge commits only, no force-push or deletion | `fxm-music.pages.dev`; a GitHub Release on every `v*` tag | release PRs from `develop`, `hotfix/*` PRs |
 | `develop` | Integration. Every finished stage lands here | `develop.fxm-music.pages.dev` (preview) | stage branches |
-| `feat/<id>-<slug>` | One plan stage, e.g. `feat/1.4-jiosaavn` | — | — |
+| `feat/<id>-<slug>` | One plan stage, e.g. `feat/1.5-spotify` | — | — |
 | `fix/…` `docs/…` `chore/…` `ci/…` `refactor/…` `test/…` | Work that isn't a feature, same naming | — | — |
 | `hotfix/<slug>` | Urgent production fix, branched from `main` | — | — |
 
@@ -34,7 +34,7 @@ flowchart LR
 ```
 
 1. **Ready.** Every stage in "Depends on" is ✅ on `develop`.
-2. **Start.** `make wt-new BRANCH=feat/1.4-jiosaavn`. This creates `../FXM-worktrees/feat-1.4-jiosaavn` on a new branch from `origin/develop`, then installs dependencies. The pnpm store is shared, so this takes seconds.
+2. **Start.** `make wt-new BRANCH=feat/1.5-spotify`. This creates `../FXM-worktrees/feat-1.5-spotify` on a new branch from `origin/develop`, then installs dependencies. The pnpm store is shared, so this takes seconds.
 3. **Work** only inside the stage's **Scope** paths. Make small, focused commits.
 4. **Verify.** `make check` (format/lint, typecheck, tests, build) must pass.
 5. **Sync.** Run `git fetch origin && git rebase origin/develop`, then `make check` again. If `pnpm-lock.yaml` conflicts, run `make install` (pnpm resolves lockfile conflicts) and continue the rebase.
@@ -46,7 +46,12 @@ flowchart LR
    make check && git push origin develop
    ```
 8. **Close.** In a separate commit on `develop` (`docs(plan): mark <id> done`), mark the stage ✅ in PLAN.md. Then delete the branch locally and on the remote, and run `make wt-remove BRANCH=<branch>`.
-9. **Release** at each milestone: merge `develop` into `main` with `--no-ff`, tag `vX.Y.0`, and push with tags.
+9. **Release** at each milestone. `main` is protected, so releases always go through a pull request:
+   ```sh
+   gh pr create --base main --head develop --title "Release vX.Y.0" --body "<notes>"
+   gh pr checks --watch && gh pr merge --merge
+   ```
+   The release pipeline (stage R.1) then tags `vX.Y.0` and publishes the GitHub Release. Until R.1 lands, tag the merge commit by hand. A `hotfix/*` branch follows the same path into `main` and is then merged back into `develop`.
 
 Sequential work by a single agent may skip the worktree and use the main checkout with a normal branch. The other steps are the same.
 
@@ -72,15 +77,15 @@ These rules keep parallel branches from conflicting:
 Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, in the imperative and at most 72 characters.
 
 - **Types:** `feat`, `fix`, `docs`, `chore`, `ci`, `build`, `refactor`, `test`, `perf`.
-- **Scopes:** `core`, `sources`, `player`, `web`, `gateway`, `site`, `mobile`, `server`, `plan`, `tooling`, `ci`.
+- **Scopes:** `core`, `platform`, `sources`, `player`, `web`, `site`, `extension`, `desktop`, `mobile`, `release`, `plan`, `tooling`, `ci`.
 - The body explains **why** when that isn't obvious.
 - **No `Co-Authored-By` or other attribution trailers.** This is a project rule.
 
 ```
-feat(sources): add JioSaavn search and 320 kbps stream resolution
+feat(sources): resolve YouTube audio with the VISIONOS client first
 
-JioSaavn gives ad-free AAC 320 on the web, which the playback policy
-prefers over the YouTube embedded player in Music mode.
+VISIONOS returns direct Opus URLs without a PO token today, so it avoids
+deciphering and SABR for most songs; the other rungs remain as fallbacks.
 ```
 
 ---
@@ -89,20 +94,39 @@ prefers over the YouTube embedded player in Music mode.
 
 | Command | What it does |
 |---|---|
-| `make wt-new BRANCH=feat/1.4-jiosaavn` | Create the branch from `origin/develop`, add a worktree in `../FXM-worktrees/`, install deps |
+| `make wt-new BRANCH=feat/1.5-spotify` | Create the branch from `origin/develop`, add a worktree in `../FXM-worktrees/`, install deps |
 | `make wt-new BRANCH=… BASE=<ref>` | Same, but branch from another ref. Only use this to stack on an unmerged stage when you really must |
 | `make wt-list` | List all worktrees and their branches |
-| `make wt-remove BRANCH=feat/1.4-jiosaavn` | Remove that worktree. Refuses if it has uncommitted changes |
+| `make wt-remove BRANCH=feat/1.5-spotify` | Remove that worktree. Refuses if it has uncommitted changes |
 
-All worktrees share the main checkout's `.tools/` folder (pnpm and its store, uv and Python, JDK, Android SDK). New worktrees therefore download nothing twice, and `make nuke` cleans everything in one place.
+All worktrees share the main checkout's `.tools/` folder (pnpm and its store, uv and Python, the GitHub CLI and its login, and later the JDK, Android SDK and Rust). New worktrees therefore download nothing twice, and `make nuke` cleans everything in one place.
 
 ---
 
-## 6. Pull requests (optional)
+## 6. GitHub CLI and pull requests
 
-Merges currently happen locally, since this machine has no GitHub CLI. To switch to a PR-based flow with review:
+- The GitHub CLI is installed in `.tools/bin` (`make gh-setup`). It is logged in with `--insecure-storage`, so its token lives in `.tools/gh` and `make nuke` removes it.
+- **Stage branches** merge into `develop` locally with `--no-ff`, after `make check` and a green CI run on the branch. `develop` is intentionally unprotected.
+- **Releases and hotfixes** reach `main` only through pull requests. The `Protect main` ruleset enforces this.
+- **Dependabot** opens weekly grouped PRs against `develop`. Merge them when CI is green.
 
-1. Install the GitHub CLI into `.tools/bin` with `make gh-setup`. Its login token is also stored in `.tools/`.
-2. Run `gh auth login`.
-3. Step 7 becomes `gh pr create --base develop`, then merge once CI is green.
-4. Recommended in GitHub settings: protect `main` and `develop` (require the CI check, disallow force-push). Consider making `develop` the default branch for PRs.
+---
+
+## 7. How the orchestrator runs stages
+
+The orchestrator (Claude Code) turns each wave of ready stages into a **Claude Code workflow**:
+
+1. **Implement.** One agent per stage, in its own worktree and branch, following the stage brief.
+2. **Review.** Independent reviewer agents, one lens each: correctness, API design, UX through screenshots, security, content or plan conformance.
+3. **Fix and verify.** The implementer fixes blockers and major issues. A verifier then checks that `make check` passes, that the branch is pushed with no attribution trailers, and that the issues are resolved. Up to three rounds.
+4. **Integrate.** The orchestrator merges into `develop` once CI on the branch is green, marks the stage ✅ and starts the stages that became ready.
+
+Research questions run as their own workflows: research agents, adversarial fact-checkers, then a synthesized decision memo.
+
+**Watchdog.** A background monitor notifies the orchestrator when:
+
+- a workflow agent finishes or goes silent for 20 minutes;
+- a branch is pushed;
+- a CI run completes.
+
+So progress happens without anyone polling.
