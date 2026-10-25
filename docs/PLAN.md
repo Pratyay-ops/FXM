@@ -120,7 +120,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | 🟡 |
 | **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | 🟡 |
 | **2.7** | Tiers, onboarding and install guides | `feat/2.7-connect-onboarding` | 2.1, 1.2, 1.6, 1.9, 1.10 | ⬜ |
-| **2.8** | Static deploy to `fxm-music.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 5.3, R.1, R.4, 1.10, 1.12 | 🟡 |
+| **2.8** | Static deploy to `fxmusic.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 5.3, R.1, R.4, 1.10, 1.12 | 🟡 |
 | **3.1** | Listening signals and affinity | `feat/3.1-signals` | 2.2, 2.6 | 🟡 |
 | **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | 🟡 |
 | **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | ⬜ |
@@ -694,7 +694,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
   - the embed at `/embed/`;
   - the sandbox documents at `/sandbox/`;
   - a generated `_headers` file.
-- One host, the Cloudflare Pages project `fxm-music`: `develop` deploys to the preview, the `main` release deploys to production.
+- One host, the Cloudflare Pages project `fxmusic`: `develop` deploys to the preview, the `main` release deploys to production.
 - Owner actions: a free Cloudflare account, and the GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 - **Header rules.** No two rules match the same path. Every rule also sets `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
 
@@ -718,13 +718,13 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
   - The `sha256-…` hashes, here and in the sandbox rules, are computed at build: for the app, the inline theme script in `apps/web/index.html`.
   - `media-src https:` covers googlevideo, Internet Archive's redirect hosts (`ia*.us.archive.org`), Jamendo's storage hosts and a user's Invidious proxy. Page script can't read media responses.
   - The Spotify hosts are there because Spotify is built in (Decision 1, option A). The secret source goes through `userhost.html`, and `clienttoken` is not needed today.
-  - `no-referrer`: today, googlevideo requests from the page carry `Referer: https://fxm-music.pages.dev/` (measured 2026-10-25), which would let YouTube single out FXM traffic. googlevideo serves requests that have no Referer (measured).
+  - `no-referrer`: today, googlevideo requests from the page carry `Referer: https://fxmusic.pages.dev/` (measured 2026-10-25), which would let YouTube single out FXM traffic. googlevideo serves requests that have no Referer (measured).
 
 - **Why no rules overlap.** On Cloudflare, a request inherits every matching rule's headers, and a header applied twice is joined with commas (docs updated 2026-08-25). Two CSPs would both be enforced, and `eval.html` couldn't evaluate. Cloudflare's `! Header` removal is not relied on.
 
 **Done when:**
 
-- **Playback with FXM Connect.** `https://fxm-music.pages.dev/app/` with FXM Connect plays a YouTube Music song in both modes, and Spotify search works.
+- **Playback with FXM Connect.** `https://fxmusic.pages.dev/app/` with FXM Connect plays a YouTube Music song in both modes, and Spotify search works.
 - **Playback in Lite.** Without FXM Connect, Lite plays one in Chromium, and 2.8 turns on `AVAILABLE.lite`. If Lite's kill switch is on at the time, the result is recorded and the flag stays off.
 - **Free sources.** An Internet Archive track and a Jamendo track play on the deployed site, with and without FXM Connect.
 - **Header checks.** A script fetches each path and confirms exactly one `Content-Security-Policy` header with the expected directives, and that googlevideo requests carry no Referer.

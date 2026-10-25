@@ -44,7 +44,7 @@ Every request carries `client_id` and `format=json`; track requests also `audiof
 
 ## CORS (measured 2026-10-25)
 
-| URL | Answer to a request with `Origin: https://fxm-music.pages.dev` |
+| URL | Answer to a request with `Origin: https://fxmusic.pages.dev` |
 |---|---|
 | `api.jamendo.com/v3.0/tracks/?client_id=…` | 200, `Access-Control-Allow-Origin: *`, also when Jamendo refuses the ID (code 5 in the body) |
 | The same without `client_id` | 200, **no** CORS headers: a page cannot read it (FXM never sends one) |

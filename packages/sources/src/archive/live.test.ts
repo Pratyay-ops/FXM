@@ -23,7 +23,7 @@ const env = (globalThis as { process?: { env?: Record<string, string | undefined
 const live = env?.FXM_LIVE === '1'
 
 const NIN = 'nineinchnails_ghosts_I_IV'
-const ORIGIN = 'https://fxm-music.pages.dev'
+const ORIGIN = 'https://fxmusic.pages.dev'
 
 describe.skipIf(!live)('Internet Archive, live', { timeout: 60_000 }, () => {
   const archive = createArchiveSource({ readFlacHeader: true })

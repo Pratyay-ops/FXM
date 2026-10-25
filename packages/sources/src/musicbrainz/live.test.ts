@@ -60,7 +60,7 @@ describe.skipIf(!live)('MusicBrainz, live', { timeout: 60_000 }, () => {
   it('lets any web page read its answers', async () => {
     const response = await queue.run(() =>
       fetch(`https://musicbrainz.org/ws/2/isrc/${CREEP_ISRC}?fmt=json`, {
-        headers: { Origin: 'https://fxm-music.pages.dev', 'User-Agent': MUSICBRAINZ_USER_AGENT },
+        headers: { Origin: 'https://fxmusic.pages.dev', 'User-Agent': MUSICBRAINZ_USER_AGENT },
       }),
     )
     await response.body?.cancel()

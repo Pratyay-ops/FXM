@@ -19,7 +19,7 @@ exports[`Chromium manifest > matches the reviewed manifest 1`] = `
         "content.js",
       ],
       "matches": [
-        "https://fxm-music.pages.dev/*",
+        "https://fxmusic.pages.dev/*",
       ],
       "run_at": "document_start",
     },
@@ -31,14 +31,14 @@ exports[`Chromium manifest > matches the reviewed manifest 1`] = `
     "rule_resources": [
       {
         "enabled": true,
-        "id": "fxm_music_pages_dev",
+        "id": "fxmusic_pages_dev",
         "path": "rules.json",
       },
     ],
   },
   "description": "Only lets the FXM web app reach music services from your own browser. Collects no data and runs no remote code.",
   "host_permissions": [
-    "https://fxm-music.pages.dev/*",
+    "https://fxmusic.pages.dev/*",
     "https://www.youtube.com/*",
     "https://music.youtube.com/*",
     "https://youtubei.googleapis.com/*",
@@ -91,7 +91,7 @@ exports[`Firefox manifest > matches the reviewed manifest 1`] = `
           "none",
         ],
       },
-      "id": "fxm-connect@fxm-music.pages.dev",
+      "id": "fxm-connect@fxmusic.pages.dev",
       "strict_min_version": "140.0",
     },
   },
@@ -102,7 +102,7 @@ exports[`Firefox manifest > matches the reviewed manifest 1`] = `
         "content.js",
       ],
       "matches": [
-        "https://fxm-music.pages.dev/*",
+        "https://fxmusic.pages.dev/*",
       ],
       "run_at": "document_start",
     },
@@ -114,14 +114,14 @@ exports[`Firefox manifest > matches the reviewed manifest 1`] = `
     "rule_resources": [
       {
         "enabled": true,
-        "id": "fxm_music_pages_dev",
+        "id": "fxmusic_pages_dev",
         "path": "rules.json",
       },
     ],
   },
   "description": "Only lets the FXM web app reach music services from your own browser. Collects no data and runs no remote code.",
   "host_permissions": [
-    "https://fxm-music.pages.dev/*",
+    "https://fxmusic.pages.dev/*",
     "https://www.youtube.com/*",
     "https://music.youtube.com/*",
     "https://youtubei.googleapis.com/*",

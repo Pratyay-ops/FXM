@@ -36,7 +36,7 @@ mediatype:(audio OR etree) AND format:flac AND NOT access-restricted-item:true A
 
 ## CORS (measured 2026-10-25)
 
-| URL | Answer to a request with `Origin: https://fxm-music.pages.dev` |
+| URL | Answer to a request with `Origin: https://fxmusic.pages.dev` |
 |---|---|
 | `archive.org/advancedsearch.php` | 200, `Access-Control-Allow-Origin: *` |
 | `archive.org/metadata/<identifier>` | 200, `Access-Control-Allow-Origin: *` (`{}` for an unknown item) |

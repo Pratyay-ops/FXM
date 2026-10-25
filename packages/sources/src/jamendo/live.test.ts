@@ -42,7 +42,7 @@ describe.skipIf(!live)('Jamendo, live', { timeout: 60_000 }, () => {
     const [best] = options
     expect(best).toMatchObject({ codec: 'flac', tier: 'lossless' })
     const head = await fetch(best?.url ?? '', {
-      headers: { Range: 'bytes=0-41', Origin: 'https://fxm-music.pages.dev' },
+      headers: { Range: 'bytes=0-41', Origin: 'https://fxmusic.pages.dev' },
     })
     const bytes = new Uint8Array(await head.arrayBuffer())
     expect(head.status).toBe(206)
@@ -53,7 +53,7 @@ describe.skipIf(!live)('Jamendo, live', { timeout: 60_000 }, () => {
   it('lets any web page read its answers when a client_id is sent', async () => {
     const response = await fetch(
       `https://api.jamendo.com/v3.0/tracks/?client_id=${encodeURIComponent(clientId)}&format=json&limit=1`,
-      { headers: { Origin: 'https://fxm-music.pages.dev' } },
+      { headers: { Origin: 'https://fxmusic.pages.dev' } },
     )
     await response.body?.cancel()
     expect(response.headers.get('access-control-allow-origin')).toBe('*')
