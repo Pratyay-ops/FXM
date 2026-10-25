@@ -197,7 +197,7 @@ export const STATIC_FILE_POLICY: Policy = [
 
 /** Sent with every response, next to its policy (docs/PLAN.md, header rules). */
 export const COMMON_HEADERS: readonly (readonly [name: string, value: string])[] = [
-  // googlevideo requests from the page would otherwise carry Referer: https://fxm-music.pages.dev/
+  // googlevideo requests from the page would otherwise carry Referer: https://fxmusic.pages.dev/
   ['Referrer-Policy', 'no-referrer'],
   ['X-Content-Type-Options', 'nosniff'],
 ]

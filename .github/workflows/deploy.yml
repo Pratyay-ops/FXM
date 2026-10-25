@@ -1,8 +1,8 @@
 name: Deploy
 
 # Composes the static site with make dist on every push, and deploys it to the Cloudflare Pages
-# project fxm-music (docs/PLAN.md, stage 2.8): develop to the preview, develop.fxm-music.pages.dev,
-# and main, where releases land, to production, fxm-music.pages.dev.
+# project fxmusic (docs/PLAN.md, stage 2.8): develop to the preview, develop.fxmusic.pages.dev,
+# and main, where releases land, to production, fxmusic.pages.dev.
 #
 #   dist     make dist: the site, the web app, _headers and the third-party notices, with the
 #            licence, header and privacy checks. On every branch, so a stage branch finds out

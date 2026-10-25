@@ -1,6 +1,6 @@
 # @fxm/deploy: make dist and the deploy checks
 
-`make dist` composes everything Cloudflare Pages serves at `https://fxm-music.pages.dev` into one folder, `dist/pages/`, and the deploy workflow uploads that folder (docs/PLAN.md, stage 2.8). There are no Pages Functions and no Worker: only static files and a generated `_headers` file.
+`make dist` composes everything Cloudflare Pages serves at `https://fxmusic.pages.dev` into one folder, `dist/pages/`, and the deploy workflow uploads that folder (docs/PLAN.md, stage 2.8). There are no Pages Functions and no Worker: only static files and a generated `_headers` file.
 
 ```
 dist/pages/
@@ -21,7 +21,7 @@ Run them from the repository root.
 |---|---|
 | `make dist` | Builds the site and the app, composes `dist/pages/` and runs every check below. Takes a few seconds once the dependencies are installed |
 | `scripts/run.sh pnpm --filter @fxm/deploy preview` | Serves `dist/pages/` the way Cloudflare Pages does (redirects, 404 pages, `_headers`) at `http://127.0.0.1:5800` (`FXM_PREVIEW_PORT` to change it; the port is strict) |
-| `scripts/run.sh pnpm --filter @fxm/deploy check:headers <url>` | The header check of a deployment (below), for example `https://develop.fxm-music.pages.dev` |
+| `scripts/run.sh pnpm --filter @fxm/deploy check:headers <url>` | The header check of a deployment (below), for example `https://develop.fxmusic.pages.dev` |
 | `scripts/run.sh pnpm --filter @fxm/deploy e2e` | The browser checks: against `FXM_DEPLOY_URL` if set, otherwise against `dist/pages/` served on port 5800. Needs Chromium from `.tools/playwright` (`scripts/run.sh pnpm --filter @fxm/deploy exec playwright install chromium`) |
 
 `make test` runs this package's unit tests with everything else; they need no network and no build.
@@ -63,13 +63,13 @@ A stage that makes the web app contact a new service adds it to `APP_SERVICES` i
 
 ## Deploying
 
-`.github/workflows/deploy.yml` runs `make dist` on every push. A push to `develop` deploys to the preview at `https://develop.fxm-music.pages.dev`; a push to `main`, which only release pull requests and hotfixes reach, deploys to production at `https://fxm-music.pages.dev`. `workflow_dispatch` redeploys a branch by hand.
+`.github/workflows/deploy.yml` runs `make dist` on every push. A push to `develop` deploys to the preview at `https://develop.fxmusic.pages.dev`; a push to `main`, which only release pull requests and hotfixes reach, deploys to production at `https://fxmusic.pages.dev`. `workflow_dispatch` redeploys a branch by hand.
 
 - **Owner setup:** a free Cloudflare account and two repository secrets, `CLOUDFLARE_API_TOKEN` (a token with Account > Cloudflare Pages > Edit) and `CLOUDFLARE_ACCOUNT_ID`.
-- **The Pages project** is `fxm-music`, with `main` as its production branch, deployed by direct upload (`wrangler pages deploy`). The first deploy creates it. Use Pages, not Workers, even though Cloudflare's dashboard and wrangler suggest Workers for new static projects; since wrangler 4.108 an AI agent running `wrangler pages` on its own machine is redirected to Workers unless the project exists, which is one more reason deploys run only in CI.
+- **The Pages project** is `fxmusic`, with `main` as its production branch, deployed by direct upload (`wrangler pages deploy`). The first deploy creates it. Use Pages, not Workers, even though Cloudflare's dashboard and wrangler suggest Workers for new static projects; since wrangler 4.108 an AI agent running `wrangler pages` on its own machine is redirected to Workers unless the project exists, which is one more reason deploys run only in CI.
 - **The token** is only in the deploy job, which runs nothing but `scripts/build-dist-wrangler/deploy.sh` and wrangler. wrangler is pinned with its own lockfile in `scripts/build-dist-wrangler/` (a separate pnpm root, so `make setup` never downloads its 200 MB of binaries) and installed without a cache.
 - **After each deploy** the verify job runs the header check and the browser checks against the new deployment's own address. On a project's first deploy it first waits for that address to answer: the certificate for a new project's sub-domains arrived 2.5 minutes after its first deploy (measured 2026-10-26).
-- **If the project can't be created**, Cloudflare answers with its generic error 8000000. On 2026-10-26 that happened for `fxm-music` only, while the same account and token created other projects, which points at the name being taken inside the account: a Worker named `fxm-music`, or a deleted Pages project of that name. Free the name in the dashboard (Workers & Pages) or ask Cloudflare support with the error's cf-ray, then re-run the workflow. `FXM_PAGES_PROJECT` makes `deploy.sh` use another project, to try the pipeline without touching `fxm-music`.
+- **If the project can't be created**, Cloudflare answers with its generic error 8000000. That is how the first name was refused on 2026-10-26, while the same account and token created other projects: the name was taken (ARCHITECTURE.md D24), so FXM uses `fxmusic`. `FXM_PAGES_PROJECT` makes `deploy.sh` use another project, to try the pipeline without touching `fxmusic`.
 
 ### Checking a deployment
 
@@ -78,7 +78,7 @@ A stage that makes the web app contact a new service adds it to `APP_SERVICES` i
 
 ### Previews and FXM Connect
 
-FXM Connect trusts only `https://fxm-music.pages.dev` (plus localhost in its dev build), so the develop preview runs without it: free sources and Lite only. Adding the exact preview origin to the dev build is possible but not done: DNR's `initiatorDomains` also matches sub-domains, so the production ruleset would need `excludedInitiatorDomains` for the preview first, and every develop merge would gain the dev build's trust. Test FXM Connect with its dev build against `vite preview` on port 4173, and on production after a release.
+FXM Connect trusts only `https://fxmusic.pages.dev` (plus localhost in its dev build), so the develop preview runs without it: free sources and Lite only. Adding the exact preview origin to the dev build is possible but not done: DNR's `initiatorDomains` also matches sub-domains, so the production ruleset would need `excludedInitiatorDomains` for the preview first, and every develop merge would gain the dev build's trust. Test FXM Connect with its dev build against `vite preview` on port 4173, and on production after a release.
 
 ## Layout
 

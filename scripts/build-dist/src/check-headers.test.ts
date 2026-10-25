@@ -105,7 +105,7 @@ describe('checkDeployment', () => {
 describe('responseProblems', () => {
   const probe = probesFor(composed()).find((candidate) => candidate.path === '/sandbox/innertube')
   if (!probe) throw new Error('no sandbox probe')
-  const base = new URL('https://fxm-music.pages.dev/')
+  const base = new URL('https://fxmusic.pages.dev/')
   const headers = [...probe.rule.headers] as [string, string][]
 
   it('accepts exactly the expected headers', () => {
