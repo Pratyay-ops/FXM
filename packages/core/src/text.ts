@@ -311,9 +311,17 @@ export function extractVersionTags(text: string): VersionTags {
   const claimed: Array<readonly [number, number]> = []
   const found: Array<{ at: number; level: TagLevel; tag: string }> = []
   for (const { level, tag, re } of TAG_RULES) {
-    for (const match of normalized.matchAll(re)) {
+    // The shared global regex is reused through exec: matchAll would clone it on every call,
+    // which made this function several times slower. Nothing here can run in between.
+    re.lastIndex = 0
+    for (let match = re.exec(normalized); match !== null; match = re.exec(normalized)) {
       const start = match.index
       const end = start + match[0].length
+      if (end === start) {
+        // No rule matches empty text, but never loop forever if one ever does.
+        re.lastIndex = end + 1
+        continue
+      }
       if (claimed.some(([from, to]) => start < to && end > from)) continue
       claimed.push([start, end])
       found.push({ at: start, level, tag: typeof tag === 'string' ? tag : tag(match) })
