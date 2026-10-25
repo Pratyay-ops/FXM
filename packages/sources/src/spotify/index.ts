@@ -5,17 +5,20 @@
  * and Android apps, Node in tests. Spotify supplies metadata only, never audio.
  *
  * ```ts
- * import { createSpotifyProvider, isSpotifyAvailable } from '@fxm/sources/spotify'
+ * import { createSpotifyProvider, sanitizeSpotifySettings } from '@fxm/sources/spotify'
  *
- * const spotify = createSpotifyProvider({ isEnabled: () => settings.spotify.enabled })
- * if (isSpotifyAvailable(ctx, settings.spotify)) {
+ * const spotify = createSpotifyProvider({
+ *   isEnabled: () => sanitizeSpotifySettings(stored.spotify).enabled,
+ *   isAccountEnabled: () => sanitizeSpotifySettings(stored.spotify).account,
+ * })
+ * if (spotify.isAvailable(ctx)) {
  *   const results = await spotify.search('radiohead creep', { types: ['track', 'artist'] }, ctx)
  *   const radio = await spotify.radio(results.tracks?.items[0] ?? artistRef, ctx)
  * }
  * ```
  *
- * See the README in this folder: how it works, the clean-room log of every persisted-query hash,
- * the runtime config sources and the risks.
+ * See the README in this folder: how it works, privacy, the clean-room log of every
+ * persisted-query hash, the runtime config sources and the risks.
  *
  * @module
  */
@@ -25,6 +28,7 @@ export {
   loadSpotifyConfig,
   parseSpotifyConfig,
   SPOTIFY_OPERATIONS,
+  SPOTIFY_SECRET_SOURCE_HOSTS,
   type SpotifyConfig,
   type SpotifyEndpoints,
   type SpotifyOperationConfig,
@@ -33,20 +37,26 @@ export {
 export {
   isSpotifyError,
   SPOTIFY_ERROR_REASONS,
+  SPOTIFY_REASON_CODES,
   SpotifyError,
   type SpotifyErrorReason,
 } from './errors'
 export {
-  base62ToHex,
-  entityIdFromUri,
-  hexToBase62,
+  gidToSpotifyId,
   isSpotifyId,
   parseSpotifyLink,
   parseSpotifyUri,
   type SpotifyRef,
+  spotifyEntityIdFromLink,
+  spotifyEntityIdFromUri,
+  spotifyIdToGid,
   spotifyUri,
 } from './ids'
-export type { HomeSectionPage, SpotifyTrackDetails } from './mapping'
+export type {
+  SpotifyHomeSectionPage,
+  SpotifyLikedTrack,
+  SpotifyTrackDetails,
+} from './mapping'
 export {
   createSpotifyProvider,
   DEFAULT_SPOTIFY_CACHE_TTLS,
@@ -56,18 +66,21 @@ export {
   type SpotifyProviderOptions,
 } from './provider'
 export {
-  createSecretProvider,
-  deriveTotpKey,
-  type ParsedSecret,
-  parseSecretJson,
-  type SecretProvider,
-  type SecretProviderOptions,
-  type SecretSource,
-  type TotpSecret,
+  checkSpotifySecretSource,
+  createSpotifySecretProvider,
+  deriveSpotifyTotpKey,
+  type ParsedSpotifySecret,
+  parseSpotifySecretJson,
+  parseSpotifySecretSource,
+  type SpotifySecretLoadOptions,
+  type SpotifySecretProvider,
+  type SpotifySecretProviderOptions,
+  type SpotifySecretSource,
+  type SpotifyTotpSecret,
 } from './secret'
 export {
-  canUseSpotifyAccount,
   DEFAULT_SPOTIFY_SETTINGS,
+  hasSpotifyLoginSource,
   isSpotifyAvailable,
   isSpotifyReachable,
   type SpotifySettings,
@@ -75,8 +88,7 @@ export {
 } from './settings'
 export type {
   SessionTokenSource,
-  SpotifyAccessToken,
+  SpotifySecretPause,
   SpotifyTokenParams,
-  TokenEndpointResponse,
-  TokenKind,
+  SpotifyTokenResponse,
 } from './token'

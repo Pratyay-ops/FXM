@@ -21,7 +21,7 @@
 
 import type { ProviderContext } from '@fxm/core'
 import type { SpotifyConfig, SpotifyOperationName } from './config'
-import { SpotifyError } from './errors'
+import { isSpotifyError, SpotifyError } from './errors'
 import type { SpotifyHttp, SpotifyRequest } from './http'
 import type { OperationRegistry } from './operations'
 import type { TokenKind, TokenManager } from './token'
@@ -31,14 +31,16 @@ export type JsonRecord = Record<string, unknown>
 
 /** What {@link SpotifyClient} needs. */
 export interface SpotifyClientOptions {
-  /** Endpoints. */
-  config: SpotifyConfig
+  /** The current config, for the endpoints. */
+  config: () => SpotifyConfig
   /** The transport. */
   http: SpotifyHttp
   /** Access tokens. */
   tokens: TokenManager
   /** Operation hashes and broken marks. */
   operations: OperationRegistry
+  /** Called when Spotify answers `403 Client/request not allowed`. */
+  onClientRejected?: () => void
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -94,6 +96,7 @@ export class SpotifyClient {
   ): Promise<JsonRecord> {
     const { operations, config } = this.#o
     const sha256Hash = operations.hashOf(operation)
+    const what = `The Spotify operation ${operation}`
     const body = JSON.stringify({
       variables,
       operationName: operation,
@@ -101,7 +104,7 @@ export class SpotifyClient {
     })
     const response = await this.#authorized(
       (token) => ({
-        url: config.endpoints.pathfinder,
+        url: config().endpoints.pathfinder,
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -109,39 +112,33 @@ export class SpotifyClient {
           Accept: 'application/json',
         },
         body,
-        what: `The Spotify operation ${operation}`,
+        what,
       }),
       ctx,
       kind,
     )
-    const json = await readJson(response, `The Spotify operation ${operation}`, ctx)
+    const json = await readJson(response, what, ctx)
     const errors = graphQLErrors(json)
     if (response.status === 412 || (response.status === 400 && isSchemaMismatch(errors))) {
       operations.markBroken(operation)
       throw new SpotifyError(
-        'Unavailable',
         'operation-broken',
         `Spotify rejected the operation ${operation} (HTTP ${response.status}); ` +
           'it needs a newer config',
       )
     }
-    if (!response.ok) throw statusError(response.status, json, `The Spotify operation ${operation}`)
+    if (!response.ok) throw this.#statusError(response.status, json, what)
     const data = isRecord(json) ? json.data : undefined
     if (isRecord(data)) return data
     if (errors.length > 0) {
       const mismatch = isSchemaMismatch(errors)
       if (mismatch) operations.markBroken(operation)
       throw new SpotifyError(
-        'Unavailable',
         mismatch ? 'operation-broken' : 'graphql',
-        `The Spotify operation ${operation} failed: ${errorText(errors)}`,
+        `${what} failed: ${errorText(errors)}`,
       )
     }
-    throw new SpotifyError(
-      'Parse',
-      'bad-response',
-      `The Spotify operation ${operation} sent no data`,
-    )
+    throw new SpotifyError('bad-response', `${what} sent no data`)
   }
 
   /**
@@ -155,7 +152,7 @@ export class SpotifyClient {
     ctx: ProviderContext,
     kind: TokenKind = 'anonymous',
   ): Promise<unknown> {
-    const url = `${this.#o.config.endpoints.spclient}${path}`
+    const url = `${this.#o.config().endpoints.spclient}${path}`
     const what = `spclient ${path.split('?')[0]?.split('/').slice(0, 3).join('/') ?? ''}`
     const response = await this.#authorized(
       (token) => ({
@@ -167,8 +164,8 @@ export class SpotifyClient {
       kind,
     )
     const json = await readJson(response, what, ctx)
-    if (!response.ok) throw statusError(response.status, json, what)
-    if (json === undefined) throw new SpotifyError('Parse', 'bad-response', `${what} sent no JSON`)
+    if (!response.ok) throw this.#statusError(response.status, json, what)
+    if (json === undefined) throw new SpotifyError('bad-response', `${what} sent no JSON`)
     return json
   }
 
@@ -186,13 +183,16 @@ export class SpotifyClient {
       tokens.invalidate(kind, token.accessToken)
       await response.body?.cancel().catch(() => undefined)
       if (attempt >= 1) {
-        throw new SpotifyError(
-          'AuthRequired',
-          'token-rejected',
-          'Spotify answered 401 to a freshly minted token',
-        )
+        throw new SpotifyError('token-rejected', 'Spotify answered 401 to a freshly minted token')
       }
     }
+  }
+
+  /** The typed error of an unsuccessful status, reporting a refused client. */
+  #statusError(status: number, body: unknown, what: string): SpotifyError {
+    const error = statusError(status, body, what)
+    if (isSpotifyError(error, 'client-rejected')) this.#o.onClientRejected?.()
+    return error
   }
 }
 
@@ -209,13 +209,13 @@ async function readJson(response: Response, what: string, ctx: ProviderContext):
     text = await response.text()
   } catch {
     if (ctx.signal?.aborted) throw ctx.signal.reason
-    throw new SpotifyError('Network', 'network', `${what}: the response could not be read`)
+    throw new SpotifyError('network', `${what}: the response could not be read`)
   }
   if (text.trim() === '') return undefined
   try {
     return JSON.parse(text)
   } catch {
-    if (response.ok) throw new SpotifyError('Parse', 'bad-response', `${what} sent malformed JSON`)
+    if (response.ok) throw new SpotifyError('bad-response', `${what} sent malformed JSON`)
     return text
   }
 }
@@ -226,18 +226,17 @@ function statusError(status: number, body: unknown, what: string): SpotifyError 
     const message = isRecord(body) && isRecord(body.error) ? body.error.message : body
     if (typeof message === 'string' && /client\/request not allowed/iu.test(message)) {
       return new SpotifyError(
-        'Unsupported',
         'client-rejected',
         `${what}: Spotify refused this client (403 Client/request not allowed); ` +
           'native transports must send a browser User-Agent',
       )
     }
-    return new SpotifyError('Unavailable', 'forbidden', `${what} answered HTTP 403`)
+    return new SpotifyError('forbidden', `${what} answered HTTP 403`)
   }
-  if (status === 404) return new SpotifyError('NotFound', 'not-found', `${what} answered HTTP 404`)
+  if (status === 404) return new SpotifyError('not-found', `${what} answered HTTP 404`)
   const errors = graphQLErrors(body)
   if (errors.length > 0) {
-    return new SpotifyError('Unavailable', 'graphql', `${what} failed: ${errorText(errors)}`)
+    return new SpotifyError('graphql', `${what} failed: ${errorText(errors)}`)
   }
-  return new SpotifyError('Unavailable', 'http', `${what} answered HTTP ${status}`)
+  return new SpotifyError('http', `${what} answered HTTP ${status}`)
 }

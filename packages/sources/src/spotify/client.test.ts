@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SpotifyClient } from './client'
 import { DEFAULT_SPOTIFY_CONFIG } from './config'
 import { isSpotifyError, type SpotifyErrorReason } from './errors'
@@ -13,26 +13,33 @@ import {
 } from './fixtures/testing'
 import { SpotifyHttp } from './http'
 import { OperationRegistry } from './operations'
-import { createSecretProvider } from './secret'
+import { createSpotifySecretProvider } from './secret'
 import { TokenManager } from './token'
 
 function setup(options: FakeSpotifyOptions = {}) {
   const clock = options.clock ?? fakeClock()
   const spotify = fakeSpotify({ ...options, clock })
   const http = new SpotifyHttp({
-    userAgent: DEFAULT_SPOTIFY_CONFIG.userAgent,
+    userAgent: () => DEFAULT_SPOTIFY_CONFIG.userAgent,
     now: clock.now,
     sleep: async () => {},
   })
   const tokens = new TokenManager({
-    config: DEFAULT_SPOTIFY_CONFIG,
+    config: () => DEFAULT_SPOTIFY_CONFIG,
     http,
-    secrets: createSecretProvider({ sources: [{ url: SECRET_URL }], now: clock.now }),
+    secrets: createSpotifySecretProvider({ sources: [{ url: SECRET_URL }], now: clock.now }),
     now: clock.now,
   })
   const operations = new OperationRegistry(DEFAULT_SPOTIFY_CONFIG)
-  const client = new SpotifyClient({ config: DEFAULT_SPOTIFY_CONFIG, http, tokens, operations })
-  return { spotify, client, operations, ctx: contextFor(spotify.fetch) }
+  const onClientRejected = vi.fn()
+  const client = new SpotifyClient({
+    config: () => DEFAULT_SPOTIFY_CONFIG,
+    http,
+    tokens,
+    operations,
+    onClientRejected,
+  })
+  return { spotify, client, operations, onClientRejected, ctx: contextFor(spotify.fetch) }
 }
 
 async function failure(promise: Promise<unknown>): Promise<Error> {
@@ -93,7 +100,7 @@ describe('SpotifyClient.query', () => {
   })
 
   it('reports a refused User-Agent with its own error and no retry', async () => {
-    const { spotify, client, ctx } = setup({
+    const { spotify, client, onClientRejected, ctx } = setup({
       graphql: { getTrack: () => json(fixtures.error403Client, { status: 403 }) },
     })
     const error = await failure(client.query('getTrack', { uri: 'x' }, ctx))
@@ -101,6 +108,7 @@ describe('SpotifyClient.query', () => {
     expect(error).toMatchObject({ code: 'Unsupported' })
     expect(error.message).toMatch(/browser User-Agent/u)
     expect(spotify.callsOf('graphql')).toHaveLength(1)
+    expect(onClientRejected).toHaveBeenCalledTimes(1)
   })
 
   it('marks an operation broken after a 412 and stops calling it', async () => {
@@ -179,7 +187,7 @@ describe('SpotifyClient.query', () => {
   it('uses the account token when asked', async () => {
     const { client, ctx } = setup()
     const error = await failure(client.query('home', {}, ctx, 'account'))
-    expect(isSpotifyError(error, 'account-unavailable')).toBe(true)
+    expect(isSpotifyError(error, 'account-unsupported')).toBe(true)
   })
 })
 

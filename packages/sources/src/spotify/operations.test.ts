@@ -25,7 +25,7 @@ describe('OperationRegistry', () => {
     } catch (e) {
       error = e
     }
-    expect(isSpotifyError(error, 'operation-unavailable')).toBe(true)
+    expect(isSpotifyError(error, 'operation-unsupported')).toBe(true)
     expect(error).toMatchObject({ code: 'Unsupported' })
     expect(registry.hashOf('getTrack')).toMatch(/^[0-9a-f]{64}$/u)
   })
@@ -45,5 +45,25 @@ describe('OperationRegistry', () => {
     expect(onChange).toHaveBeenCalledTimes(3)
     expect(registry.broken()).toEqual([])
     expect(registry.isAvailable('home')).toBe(true)
+  })
+
+  it('forgets a broken mark when a newer config changes that hash', () => {
+    const onChange = vi.fn()
+    const registry = new OperationRegistry(DEFAULT_SPOTIFY_CONFIG, onChange)
+    registry.markBroken('getTrack')
+    registry.markBroken('getAlbum')
+    const operations = {
+      ...DEFAULT_SPOTIFY_CONFIG.operations,
+      getTrack: { sha256Hash: 'a'.repeat(64) },
+    }
+    const newer = parseSpotifyConfig({ ...DEFAULT_SPOTIFY_CONFIG, version: 2, operations })
+    onChange.mockClear()
+    registry.setConfig(newer)
+    expect(registry.broken()).toEqual(['getAlbum'])
+    expect(registry.hashOf('getTrack')).toBe('a'.repeat(64))
+    expect(onChange).toHaveBeenCalledTimes(1)
+    // Nothing changes for the operations that are still broken.
+    registry.setConfig(newer)
+    expect(onChange).toHaveBeenCalledTimes(1)
   })
 })

@@ -26,7 +26,7 @@ function transport(options: Partial<SpotifyHttpOptions> = {}) {
   const waits: number[] = []
   const onPause = vi.fn()
   const http = new SpotifyHttp({
-    userAgent: UA,
+    userAgent: () => UA,
     now: clock.now,
     random: () => 0.5,
     sleep: async (ms) => {
@@ -198,7 +198,7 @@ describe('SpotifyHttp', () => {
     controller.abort(new DOMException('stop', 'AbortError'))
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' })
     const waiting = new AbortController()
-    const retrying = new SpotifyHttp({ userAgent: UA, baseDelayMs: 5_000 }).request(
+    const retrying = new SpotifyHttp({ userAgent: () => UA, baseDelayMs: 5_000 }).request(
       REQUEST,
       contextFor(sequence(() => json({}, { status: 503 })).fetch, { signal: waiting.signal }),
     )

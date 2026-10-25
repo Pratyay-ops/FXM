@@ -2,6 +2,10 @@
  * A small in-memory cache with per-entry lifetimes, an injectable clock and a size bound, which
  * also shares one load between concurrent callers of the same key. Failures are never cached.
  *
+ * Values are plain data (the provider's tracks, albums, pages and shelves). Every caller gets
+ * its own deep copy, also the caller whose load filled the entry, so sorting a list in place or
+ * appending "load more" items to a page can never change what other callers get.
+ *
  * @module
  */
 
@@ -20,6 +24,11 @@ interface Entry {
   expiresAt: number
 }
 
+/** A deep copy of plain data. */
+function copy<V>(value: V): V {
+  return value === null || typeof value !== 'object' ? value : structuredClone(value)
+}
+
 /** An in-memory cache whose entries expire. */
 export class TtlCache {
   readonly #now: () => number
@@ -32,7 +41,7 @@ export class TtlCache {
     this.#maxEntries = options.maxEntries ?? 500
   }
 
-  /** The fresh value under `key`, or `undefined`. */
+  /** A copy of the fresh value under `key`, or `undefined`. */
   get<V>(key: string): V | undefined {
     const entry = this.#entries.get(key)
     if (!entry) return undefined
@@ -40,7 +49,7 @@ export class TtlCache {
       this.#entries.delete(key)
       return undefined
     }
-    return entry.value as V
+    return copy(entry.value as V)
   }
 
   /** Stores `value` under `key` for `ttlMs` (nothing is stored when `ttlMs` is not positive). */
@@ -71,10 +80,10 @@ export class TtlCache {
   }
 
   /**
-   * The fresh value under `key`, else the result of `load`, stored for `ttlMs`. Concurrent calls
-   * for one key share a single load. When a shared load fails with something other than an
-   * `FxmError` (the abort of the caller that started it) while `signal` has not aborted, this
-   * caller loads again with its own `load`.
+   * A copy of the fresh value under `key`, else of the result of `load`, stored for `ttlMs`.
+   * Concurrent calls for one key share a single load. When a shared load fails with something
+   * other than an `FxmError` (the abort of the caller that started it) while `signal` has not
+   * aborted, this caller loads again with its own `load`.
    */
   async getOrLoad<V>(
     key: string,
@@ -87,7 +96,7 @@ export class TtlCache {
     const shared = this.#loading.get(key) as Promise<V> | undefined
     if (shared) {
       try {
-        return await shared
+        return copy(await shared)
       } catch (error) {
         if (isFxmError(error) || signal?.aborted) throw error
       }
@@ -101,6 +110,6 @@ export class TtlCache {
       if (this.#loading.get(key) === promise) this.#loading.delete(key)
     }
     promise.then(settle, settle)
-    return promise
+    return copy(await promise)
   }
 }

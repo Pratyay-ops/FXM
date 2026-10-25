@@ -25,11 +25,15 @@ import type {
   Track,
 } from '@fxm/core'
 import { normalizeIsrc } from '@fxm/core'
-import { entityIdFromUri, parseSpotifyUri } from './ids'
+import { parseSpotifyUri, spotifyEntityIdFromUri } from './ids'
 
 type JsonRecord = Record<string, unknown>
 
-/** Facts about a track that only spclient's `metadata/4` has. */
+/**
+ * Facts about a track that only spclient's `metadata/4` has. The ISRC belongs to the recording;
+ * the label, release date and album type belong to the release (the album) Spotify lists the
+ * track on.
+ */
 export interface SpotifyTrackDetails {
   /** The ISRC, canonical (see `normalizeIsrc`). */
   isrc?: string
@@ -37,8 +41,18 @@ export interface SpotifyTrackDetails {
   label?: string
   /** The album's release date as ISO 8601, possibly partial. */
   releaseDate?: string
+  /** What kind of release the album is: album, single, EP or compilation. */
+  albumType?: AlbumType
   /** Popularity from 0 to 100. */
   popularity?: number
+}
+
+/** A liked song from the user's library, with when it was liked. */
+export interface SpotifyLikedTrack {
+  /** The song. */
+  track: Track
+  /** When the user liked it, as ISO 8601, when Spotify says. */
+  addedAt?: string
 }
 
 // --- Safe accessors ---------------------------------------------------------------------
@@ -168,7 +182,7 @@ function mapArtistRefs(...lists: unknown[]): ArtistRef[] {
     for (const item of list(at(items, 'items'))) {
       const name = text(at(item, 'profile', 'name')) ?? text(at(item, 'name'))
       if (!name) continue
-      const id = entityIdFromUri('artist', at(item, 'uri'))
+      const id = spotifyEntityIdFromUri('artist', at(item, 'uri'))
       refs.push(id ? { id, name } : { name })
     }
   }
@@ -180,6 +194,12 @@ const ALBUM_TYPES: Readonly<Record<string, AlbumType>> = {
   SINGLE: 'single',
   EP: 'ep',
   COMPILATION: 'compilation',
+}
+
+/** The album type Spotify spells `ALBUM`, `SINGLE`, `EP` or `COMPILATION` (any case). */
+function albumTypeOf(value: unknown): AlbumType | undefined {
+  const key = text(value)?.toUpperCase()
+  return key !== undefined && Object.hasOwn(ALBUM_TYPES, key) ? ALBUM_TYPES[key] : undefined
 }
 
 function explicitOf(track: JsonRecord): boolean | undefined {
@@ -211,12 +231,12 @@ export function mapTrack(value: unknown, context: TrackContext = {}): Track | un
   if (!isRecord(value)) return undefined
   const typename = text(value.__typename)
   if (typename !== undefined && typename !== 'Track') return undefined
-  const id = entityIdFromUri('track', value.uri)
+  const id = spotifyEntityIdFromUri('track', value.uri)
   const title = text(value.name)
   if (!id || !title) return undefined
   const nativeId = id.slice('spotify:track:'.length)
   const albumData = isRecord(value.albumOfTrack) ? value.albumOfTrack : undefined
-  const albumId = entityIdFromUri('album', albumData?.uri)
+  const albumId = spotifyEntityIdFromUri('album', albumData?.uri)
   const albumName = text(albumData?.name)
   const album: AlbumRef | undefined = albumName
     ? albumId
@@ -257,12 +277,12 @@ export function mapAlbum(value: unknown): Album | undefined {
   if (!isRecord(value)) return undefined
   const typename = text(value.__typename)
   if (typename !== undefined && typename !== 'Album') return undefined
-  const id = entityIdFromUri('album', value.uri)
+  const id = spotifyEntityIdFromUri('album', value.uri)
   const name = text(value.name)
   if (!id || !name) return undefined
   const artwork = mapArtwork(at(value, 'coverArt', 'sources'))
   const releaseDate = mapDate(value.date)
-  const type = ALBUM_TYPES[text(value.type) ?? text(value.albumType) ?? '']
+  const type = albumTypeOf(value.type) ?? albumTypeOf(value.albumType)
   const trackPage = value.tracksV2 ?? value.tracks
   let tracks: Track[] | undefined
   if (isRecord(value.tracksV2)) {
@@ -293,7 +313,7 @@ export function mapArtist(value: unknown): Artist | undefined {
   if (!isRecord(value)) return undefined
   const typename = text(value.__typename)
   if (typename !== undefined && typename !== 'Artist') return undefined
-  const id = entityIdFromUri('artist', value.uri)
+  const id = spotifyEntityIdFromUri('artist', value.uri)
   const name = text(at(value, 'profile', 'name'))
   if (!id || !name) return undefined
   const discography = at(value, 'discography')
@@ -378,7 +398,7 @@ export function mapPlaylist(
   if (!isRecord(value)) return undefined
   const typename = text(value.__typename)
   if (typename !== undefined && typename !== 'Playlist') return undefined
-  const id = entityIdFromUri('playlist', value.uri)
+  const id = spotifyEntityIdFromUri('playlist', value.uri)
   const name = text(value.name)
   if (!id || !name) return undefined
   const ownerData = at(value, 'ownerV2', 'data')
@@ -511,7 +531,7 @@ export function mapHome(home: unknown): Shelf[] {
 }
 
 /** One page of a home section, from `homeSection`'s `homeSections`. */
-export interface HomeSectionPage {
+export interface SpotifyHomeSectionPage {
   /** The section as a shelf, holding this page's items. */
   shelf: Shelf
   /** The cursor of the next page; absent on the last one. */
@@ -521,12 +541,12 @@ export interface HomeSectionPage {
 }
 
 /** The page of the one section in a `homeSection` answer, or `undefined` when there is none. */
-export function mapHomeSection(homeSections: unknown): HomeSectionPage | undefined {
+export function mapHomeSection(homeSections: unknown): SpotifyHomeSectionPage | undefined {
   const section = list(at(homeSections, 'sections'))[0]
   const shelf = mapShelf(section)
   if (!shelf) return undefined
   const next = count(at(section, 'sectionItems', 'pagingInfo', 'nextOffset'))
-  return defined<HomeSectionPage>({
+  return defined<SpotifyHomeSectionPage>({
     shelf,
     nextCursor: next !== undefined && next > 0 ? String(next) : undefined,
     total: count(at(section, 'sectionItems', 'totalCount')),
@@ -536,13 +556,20 @@ export function mapHomeSection(homeSections: unknown): HomeSectionPage | undefin
 // --- Library (logged in) ----------------------------------------------------------------
 
 /**
- * A liked song from `fetchLibraryTracks`: `{ addedAt, track: { _uri, data: { … } } }`, where
- * the track's URI sits on the wrapper.
+ * A liked song from `fetchLibraryTracks`: `{ addedAt: { isoString }, track: { _uri, data } }`,
+ * where the track's URI sits on the wrapper.
  */
-export function mapLibraryTrack(item: unknown): Track | undefined {
+export function mapLibraryTrack(item: unknown): SpotifyLikedTrack | undefined {
   const wrapper = at(item, 'track')
   const data = at(wrapper, 'data')
-  return isRecord(data) ? mapTrack({ uri: at(wrapper, '_uri'), ...data }) : undefined
+  const track = isRecord(data) ? mapTrack({ uri: at(wrapper, '_uri'), ...data }) : undefined
+  if (!track) return undefined
+  const added = at(item, 'addedAt')
+  const addedAt = text(isRecord(added) ? added.isoString : added)
+  return defined<SpotifyLikedTrack>({
+    track,
+    addedAt: addedAt !== undefined && !Number.isNaN(Date.parse(addedAt)) ? addedAt : undefined,
+  })
 }
 
 /** A playlist from a `libraryV3` item: `{ item: { _uri, data: { __typename: 'Playlist' } } }`. */
@@ -560,12 +587,12 @@ export function mapLibraryTracks(
   data: unknown,
   offset: number,
   limit: number,
-): Page<Track> | undefined {
+): Page<SpotifyLikedTrack> | undefined {
   const page = at(data, 'me', 'library', 'tracks')
   if (text(at(page, '__typename')) !== 'UserLibraryTrackPage') return undefined
   const items = list(at(page, 'items'))
     .map(mapLibraryTrack)
-    .filter((track): track is Track => track !== undefined)
+    .filter((liked): liked is SpotifyLikedTrack => liked !== undefined)
   return pageOf(items, offset, limit, count(at(page, 'totalCount')))
 }
 
@@ -611,7 +638,7 @@ export function unionOf(
 
 // --- spclient ---------------------------------------------------------------------------
 
-/** The ISRC, label, release date and popularity in a `metadata/4/track` answer. */
+/** The ISRC, label, release date, album type and popularity in a `metadata/4/track` answer. */
 export function mapTrackDetails(value: unknown): SpotifyTrackDetails {
   const isrcEntry = list(at(value, 'external_id')).find(
     (entry) => text(at(entry, 'type'))?.toLowerCase() === 'isrc',
@@ -621,6 +648,7 @@ export function mapTrackDetails(value: unknown): SpotifyTrackDetails {
     isrc: normalizeIsrc(at(isrcEntry, 'id')) ?? undefined,
     label: text(at(value, 'album', 'label'))?.trim(),
     releaseDate: mapDate(at(value, 'album', 'date')),
+    albumType: albumTypeOf(at(value, 'album', 'type')),
     popularity: popularity !== undefined && popularity <= 100 ? popularity : undefined,
   })
 }

@@ -7,6 +7,7 @@ import {
   type Track,
 } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
+import { DEFAULT_SPOTIFY_CONFIG, parseSpotifyConfig } from './config'
 import { isSpotifyError, type SpotifyErrorReason } from './errors'
 import {
   CREEP_ID,
@@ -22,7 +23,7 @@ import {
   RADIOHEAD_ID,
   SECRET_URL,
 } from './fixtures/testing'
-import { hexToBase62 } from './ids'
+import { gidToSpotifyId } from './ids'
 import { createSpotifyProvider, type SpotifyProviderOptions } from './provider'
 import type { SessionTokenSource } from './token'
 
@@ -67,6 +68,16 @@ function loggedIn(clock: FakeClock, token = 'account-token') {
     },
   }))
   return { requestToken }
+}
+
+/** Provider options for a platform with a login source and the account connected. */
+function withAccount(session: SessionTokenSource): SpotifyProviderOptions {
+  return { session, isAccountEnabled: () => true }
+}
+
+/** A provider context on a platform with a login source. */
+function accountContext(spotify: { fetch: typeof fetch }): ProviderContext {
+  return contextFor(spotify.fetch, { capabilities: capabilities('account') })
 }
 
 async function failure(promise: Promise<unknown>): Promise<Error> {
@@ -141,6 +152,15 @@ describe('gating', () => {
     )
     expectReason(error, 'foreign-id')
   })
+
+  it('says whether Spotify is available from its own switch and the platform', () => {
+    let enabled = true
+    const { provider, ctx } = setup({ provider: { isEnabled: () => enabled } })
+    expect(provider.isAvailable(ctx)).toBe(true)
+    expect(provider.isAvailable({ capabilities: capabilities('unreachable') })).toBe(false)
+    enabled = false
+    expect(provider.isAvailable(ctx)).toBe(false)
+  })
 })
 
 describe('search', () => {
@@ -203,13 +223,48 @@ describe('search', () => {
     expect(spotify.calls).toHaveLength(0)
   })
 
-  it('caps the page size, and refuses cursors it did not make', async () => {
+  it('caps the page size, and refuses cursors it did not make with a typed error', async () => {
     const { provider, spotify, ctx } = setup()
     await provider.search('creep', { types: ['track'], limit: 500 }, ctx)
     expect(spotify.callsOf('graphql')[0]?.variables).toMatchObject({ limit: 50 })
-    await expect(
+    for (const call of [
       provider.search('creep', { types: ['track'], cursor: 'abc' }, ctx),
-    ).rejects.toThrow(RangeError)
+      provider.getPlaylistTracks(creepRadio, { cursor: '-1' }, ctx),
+      provider.getHomeSection('spotify:section:abc', { cursor: '1e3' }, ctx),
+    ]) {
+      const error = await failure(call)
+      expectReason(error, 'bad-cursor')
+      expect(error).toMatchObject({ code: 'Unsupported' })
+    }
+    expect(spotify.callsOf('graphql')).toHaveLength(1)
+  })
+
+  it('gives every missing type its own empty page', async () => {
+    const { provider, ctx } = setup()
+    const results = await provider.search('   ', { types: ['album', 'artist', 'playlist'] }, ctx)
+    expect(results.albums).toEqual({ items: [] })
+    expect(results.albums).not.toBe(results.artists)
+    expect(results.artists).not.toBe(results.playlists)
+  })
+
+  it('uses the typed searches when the config has no searchDesktop', async () => {
+    const operations = Object.fromEntries(
+      Object.entries(DEFAULT_SPOTIFY_CONFIG.operations).filter(
+        ([name]) => name !== 'searchDesktop',
+      ),
+    )
+    const config = parseSpotifyConfig({ ...DEFAULT_SPOTIFY_CONFIG, operations })
+    const { provider, spotify, ctx } = setup({ provider: { config } })
+    const results = await provider.search('radiohead', { types: ['track', 'artist'] }, ctx)
+    // The typed searches run concurrently.
+    expect(
+      spotify
+        .callsOf('graphql')
+        .map((c) => c.operationName)
+        .sort(),
+    ).toEqual(['searchArtists', 'searchTracks'])
+    expect(results.tracks?.items.length).toBeGreaterThan(0)
+    expect(results.artists?.items.length).toBeGreaterThan(0)
   })
 
   it('sends a browser User-Agent from native apps', async () => {
@@ -264,7 +319,7 @@ describe('entities', () => {
             totalCount: total,
             items: Array.from({ length: Math.min(50, total - offset) }, (_, i) => {
               const n = offset + i + 1
-              const id = hexToBase62(n.toString(16).padStart(32, '0'))
+              const id = gidToSpotifyId(n.toString(16).padStart(32, '0'))
               return { track: { uri: `spotify:track:${id}`, name: `Track ${n}`, trackNumber: n } }
             }),
           },
@@ -342,6 +397,27 @@ describe('entities', () => {
     })
     expect(page.items).toHaveLength(3)
     expect(page).not.toHaveProperty('nextCursor')
+  })
+
+  it('hands every caller its own copy, so changing a result never changes the cache', async () => {
+    const { provider, spotify, ctx } = setup()
+    const [a, b] = await Promise.all([
+      provider.getAlbum(pabloHoney, ctx),
+      provider.getAlbum(pabloHoney, ctx),
+    ])
+    expect(a).not.toBe(b)
+    a.tracks?.reverse()
+    a.name = 'Changed'
+    const again = await provider.getAlbum(pabloHoney, ctx)
+    expect(again.name).toBe('Pablo Honey')
+    expect(again.tracks?.map((t) => t.title)).toEqual(['You', 'Creep', 'How Do You?'])
+    const results = await provider.search('creep', { types: ['album', 'artist'] }, ctx)
+    const albums = results.albums?.items ?? []
+    albums.push(...albums)
+    const cached = await provider.search('creep', { types: ['album', 'artist'] }, ctx)
+    expect(cached.albums?.items).toHaveLength(2)
+    expect(spotify.callsOf('graphql', 'getAlbum')).toHaveLength(1)
+    expect(spotify.callsOf('graphql', 'searchDesktop')).toHaveLength(1)
   })
 })
 
@@ -458,15 +534,23 @@ describe('home', () => {
     expect(call?.token).toBe('fixture-token-1')
   })
 
-  it('loads the personal home feed with the account token when logged in', async () => {
+  it('loads the personal home feed with the account token when connected', async () => {
     const clock = fakeClock()
     const session = loggedIn(clock)
-    const { provider, spotify } = setup({ spotify: { clock }, provider: { session } })
-    const ctx = contextFor(spotify.fetch, { capabilities: capabilities('account') })
-    await provider.home(ctx)
+    const { provider, spotify } = setup({ spotify: { clock }, provider: withAccount(session) })
+    await provider.home(accountContext(spotify))
     expect(spotify.callsOf('graphql', 'home')[0]?.token).toBe('account-token')
     expect(session.requestToken.mock.calls[0]?.[0]).toMatchObject({ reason: 'transport' })
     expect(spotify.callsOf('token')).toHaveLength(0)
+  })
+
+  it('leaves the account alone until the user connects it in FXM', async () => {
+    const clock = fakeClock()
+    const session = loggedIn(clock)
+    const { provider, spotify } = setup({ spotify: { clock }, provider: { session } })
+    await provider.home(accountContext(spotify))
+    expect(spotify.callsOf('graphql', 'home')[0]?.token).toBe('fixture-token-1')
+    expect(session.requestToken).not.toHaveBeenCalled()
   })
 
   it('falls back to the generic feed when the user is not logged in', async () => {
@@ -476,13 +560,42 @@ describe('home', () => {
         json: { accessToken: 'x', accessTokenExpirationTimestampMs: 0, isAnonymous: true },
       }),
     }
-    const { provider, spotify } = setup({ provider: { session } })
-    const ctx = contextFor(spotify.fetch, { capabilities: capabilities('account') })
-    await provider.home(ctx)
+    const { provider, spotify } = setup({ provider: withAccount(session) })
+    await provider.home(accountContext(spotify))
     expect(spotify.callsOf('graphql', 'home')[0]?.token).toBe('fixture-token-1')
   })
 
-  it('loads a page of a section', async () => {
+  it('falls back to the generic feed when the login is switched off near the token expiry', async () => {
+    const clock = fakeClock()
+    let off = false
+    const requestToken = vi.fn<SessionTokenSource['requestToken']>(async () => {
+      if (off) throw new FxmError('AuthRequired', 'login-disabled')
+      return {
+        status: 200,
+        json: {
+          accessToken: 'account-token',
+          accessTokenExpirationTimestampMs: clock.now() + HOUR,
+          isAnonymous: false,
+        },
+      }
+    })
+    const { provider, spotify } = setup({
+      spotify: { clock },
+      provider: withAccount({ requestToken }),
+    })
+    const ctx = accountContext(spotify)
+    await provider.home(ctx)
+    clock.advance(59 * MINUTE + 30_000)
+    off = true
+    await provider.home(ctx)
+    expect(spotify.callsOf('graphql', 'home').map((c) => c.token)).toEqual([
+      'account-token',
+      'fixture-token-1',
+    ])
+    expect(await provider.status(ctx)).toEqual({ connected: false })
+  })
+
+  it('loads a page of a section, and refuses IDs that are not Spotify sections', async () => {
     const { provider, spotify, ctx } = setup()
     const page = await provider.getHomeSection(
       'spotify:section:0JQ5DAnM3wGh0gz1MXnu3C',
@@ -497,7 +610,11 @@ describe('home', () => {
       sectionItemsLimit: 20,
       homeEndUserIntegration: 'INTEGRATION_WEB_PLAYER',
     })
-    expectReason(await failure(provider.getHomeSection('spotify:track:x', {}, ctx)), 'not-found')
+    expectReason(await failure(provider.getHomeSection('spotify:track:x', {}, ctx)), 'foreign-id')
+    expectReason(
+      await failure(provider.getHomeSection('spotify:section:no-dashes', {}, ctx)),
+      'not-found',
+    )
     const empty = setup({
       spotify: {
         graphql: { homeSection: () => json({ data: { homeSections: { sections: [] } } }) },
@@ -512,10 +629,24 @@ describe('home', () => {
 
 describe('account', () => {
   it('is not connected without a login source, and asks nothing', async () => {
-    const { provider, spotify } = setup()
-    const ctx = contextFor(spotify.fetch, { capabilities: capabilities('account') })
-    expect(await provider.status(ctx)).toEqual({ connected: false })
+    const { provider, spotify } = setup({ provider: { isAccountEnabled: () => true } })
+    expect(await provider.status(accountContext(spotify))).toEqual({ connected: false })
     expect(spotify.calls).toHaveLength(0)
+  })
+
+  it('is not connected, and asks nothing, until the user connects the account', async () => {
+    const clock = fakeClock()
+    const session = loggedIn(clock)
+    let account = false
+    const { provider, spotify } = setup({
+      spotify: { clock },
+      provider: { session, isAccountEnabled: () => account },
+    })
+    const ctx = accountContext(spotify)
+    expect(await provider.status(ctx)).toEqual({ connected: false })
+    expect(session.requestToken).not.toHaveBeenCalled()
+    account = true
+    expect(await provider.status(ctx)).toMatchObject({ connected: true })
   })
 
   it('is connected, with the display name, when the session is logged in', async () => {
@@ -527,9 +658,9 @@ describe('account', () => {
           profileAttributes: () => json({ data: { me: { profile: { name: 'Fixture User' } } } }),
         },
       },
-      provider: { session: loggedIn(clock) },
+      provider: withAccount(loggedIn(clock)),
     })
-    const ctx = contextFor(spotify.fetch, { capabilities: capabilities('account') })
+    const ctx = accountContext(spotify)
     expect(await provider.status(ctx)).toEqual({ connected: true, displayName: 'Fixture User' })
     expect(spotify.callsOf('graphql', 'profileAttributes')[0]?.token).toBe('account-token')
     // The name is cached.
@@ -537,90 +668,155 @@ describe('account', () => {
     expect(spotify.callsOf('graphql', 'profileAttributes')).toHaveLength(1)
   })
 
+  it('reads the profile again once the account token changes', async () => {
+    const clock = fakeClock()
+    let n = 0
+    const requestToken = vi.fn<SessionTokenSource['requestToken']>(async () => ({
+      status: 200,
+      json: {
+        accessToken: `account-token-${++n}`,
+        accessTokenExpirationTimestampMs: clock.now() + HOUR,
+        isAnonymous: false,
+      },
+    }))
+    const { provider, spotify } = setup({
+      spotify: {
+        clock,
+        graphql: {
+          profileAttributes: () => json({ data: { me: { profile: { name: `User ${n}` } } } }),
+        },
+      },
+      provider: withAccount({ requestToken }),
+    })
+    const ctx = accountContext(spotify)
+    expect(await provider.status(ctx)).toEqual({ connected: true, displayName: 'User 1' })
+    clock.advance(HOUR)
+    // Another account may be logged in now: its name, not the cached one.
+    expect(await provider.status(ctx)).toEqual({ connected: true, displayName: 'User 2' })
+  })
+
   it('is connected without a name when the profile cannot be read', async () => {
     const clock = fakeClock()
     const { provider, spotify } = setup({
       spotify: { clock, graphql: { profileAttributes: () => json({}, { status: 404 }) } },
-      provider: { session: loggedIn(clock) },
+      provider: withAccount(loggedIn(clock)),
     })
-    const ctx = contextFor(spotify.fetch, { capabilities: capabilities('account') })
-    expect(await provider.status(ctx)).toEqual({ connected: true })
+    expect(await provider.status(accountContext(spotify))).toEqual({ connected: true })
   })
 
   it('is not connected when the session is logged out or the bridge refuses', async () => {
     const loggedOut: SessionTokenSource = {
       requestToken: async () => ({ status: 401, json: null }),
     }
-    const a = setup({ provider: { session: loggedOut } })
-    expect(await a.provider.status({ ...a.ctx, capabilities: capabilities('account') })).toEqual({
-      connected: false,
-    })
-    const refused: SessionTokenSource = {
-      requestToken: async () => {
-        throw new FxmError('AuthRequired', 'login-disabled')
-      },
+    const a = setup({ provider: withAccount(loggedOut) })
+    expect(await a.provider.status(accountContext(a.spotify))).toEqual({ connected: false })
+    for (const refusal of [
+      new FxmError('AuthRequired', 'login-disabled'),
+      new FxmError('Unsupported', 'private-tab'),
+    ]) {
+      const refused: SessionTokenSource = { requestToken: () => Promise.reject(refusal) }
+      const b = setup({ provider: withAccount(refused) })
+      expect(await b.provider.status(accountContext(b.spotify))).toEqual({ connected: false })
     }
-    const b = setup({ provider: { session: refused } })
-    expect(await b.provider.status({ ...b.ctx, capabilities: capabilities('account') })).toEqual({
-      connected: false,
-    })
   })
 
-  it('passes other failures of the session through', async () => {
-    const broken: SessionTokenSource = {
-      requestToken: async () => {
-        throw new FxmError('Network', 'bridge unreachable')
-      },
+  it('reports other failures of the session as typed errors', async () => {
+    for (const thrown of [new FxmError('Network', 'bridge unreachable'), new TypeError('gone')]) {
+      const broken: SessionTokenSource = { requestToken: () => Promise.reject(thrown) }
+      const { provider, spotify } = setup({ provider: withAccount(broken) })
+      const error = await failure(provider.status(accountContext(spotify)))
+      expectReason(error, 'network')
+      expect(error.cause).toBe(thrown)
     }
-    const { provider, ctx } = setup({ provider: { session: broken } })
-    await expect(
-      provider.status({ ...ctx, capabilities: capabilities('account') }),
-    ).rejects.toThrow('bridge unreachable')
   })
 
-  it('forgets the account on disconnect', async () => {
+  it('stops using the account on disconnect, until connect', async () => {
     const clock = fakeClock()
     const session = loggedIn(clock)
-    const { provider, spotify } = setup({ spotify: { clock }, provider: { session } })
-    const ctx = contextFor(spotify.fetch, { capabilities: capabilities('account') })
+    const { provider, spotify } = setup({ spotify: { clock }, provider: withAccount(session) })
+    const ctx = accountContext(spotify)
     await provider.home(ctx)
     provider.disconnect()
+    expect(await provider.status(ctx)).toEqual({ connected: false })
+    await provider.home(ctx)
+    expectReason(await failure(provider.getLibraryPlaylists({}, ctx)), 'account-disabled')
+    expect(session.requestToken).toHaveBeenCalledTimes(1)
+    expect(spotify.callsOf('graphql', 'home').map((c) => c.token)).toEqual([
+      'account-token',
+      'fixture-token-1',
+    ])
+    provider.connect()
     await provider.home(ctx)
     expect(session.requestToken).toHaveBeenCalledTimes(2)
-    expect(spotify.callsOf('graphql', 'home')).toHaveLength(2)
+    expect(spotify.callsOf('graphql', 'home').at(-1)?.token).toBe('account-token')
+  })
+
+  it('asks the login source again at once after connect', async () => {
+    const clock = fakeClock()
+    let loggedOut = true
+    const requestToken = vi.fn<SessionTokenSource['requestToken']>(async () => ({
+      status: 200,
+      json: {
+        accessToken: 'account-token',
+        accessTokenExpirationTimestampMs: clock.now() + HOUR,
+        isAnonymous: loggedOut,
+      },
+    }))
+    const { provider, spotify } = setup({
+      spotify: { clock },
+      provider: withAccount({ requestToken }),
+    })
+    const ctx = accountContext(spotify)
+    expect(await provider.status(ctx)).toEqual({ connected: false })
+    loggedOut = false
+    // The logged-out answer is remembered for a minute...
+    expect(await provider.status(ctx)).toEqual({ connected: false })
+    expect(requestToken).toHaveBeenCalledTimes(1)
+    // ...unless the app says the user just logged in.
+    provider.connect()
+    expect(await provider.status(ctx)).toMatchObject({ connected: true })
+    expect(requestToken).toHaveBeenCalledTimes(2)
   })
 })
 
 describe('library (logged in)', () => {
-  it('reads liked songs and saved playlists with the account token', async () => {
+  const library = {
+    fetchLibraryTracks: () =>
+      json({
+        data: {
+          me: {
+            library: {
+              tracks: {
+                __typename: 'UserLibraryTrackPage',
+                totalCount: 1,
+                items: [
+                  {
+                    addedAt: { isoString: '2026-10-01T10:00:00Z' },
+                    track: { _uri: CREEP_ID, data: fixtures.getTrack.data.trackUnion },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      }),
+    libraryV3: () =>
+      json({
+        data: { me: { libraryV3: { __typename: 'LibraryPage', items: [], totalCount: 0 } } },
+      }),
+  }
+
+  it('reads liked songs, with when they were liked, and saved playlists', async () => {
     const clock = fakeClock()
     const { provider, spotify } = setup({
-      spotify: {
-        clock,
-        graphql: {
-          fetchLibraryTracks: () =>
-            json({
-              data: {
-                me: {
-                  library: {
-                    tracks: { __typename: 'UserLibraryTrackPage', items: [], totalCount: 0 },
-                  },
-                },
-              },
-            }),
-          libraryV3: () =>
-            json({
-              data: { me: { libraryV3: { __typename: 'LibraryPage', items: [], totalCount: 0 } } },
-            }),
-        },
-      },
-      provider: { session: loggedIn(clock) },
+      spotify: { clock, graphql: library },
+      provider: withAccount(loggedIn(clock)),
     })
-    const ctx = contextFor(spotify.fetch, { capabilities: capabilities('account') })
-    expect(await provider.getLibraryTracks({ limit: 20, cursor: '40' }, ctx)).toEqual({
-      items: [],
-      total: 0,
-    })
+    const ctx = accountContext(spotify)
+    const liked = await provider.getLibraryTracks({ limit: 20, cursor: '40' }, ctx)
+    expect(liked.items.map(({ track, addedAt }) => [track.id, addedAt])).toEqual([
+      [CREEP_ID, '2026-10-01T10:00:00Z'],
+    ])
     expect(await provider.getLibraryPlaylists({}, ctx)).toEqual({ items: [], total: 0 })
     const [tracksCall] = spotify.callsOf('graphql', 'fetchLibraryTracks')
     expect(tracksCall?.variables).toEqual({ offset: 40, limit: 20 })
@@ -633,9 +829,32 @@ describe('library (logged in)', () => {
     })
   })
 
-  it('needs a login', async () => {
+  it('needs a login source and a connected account', async () => {
     const { provider, ctx } = setup()
-    expectReason(await failure(provider.getLibraryTracks({}, ctx)), 'account-unavailable')
+    expectReason(await failure(provider.getLibraryTracks({}, ctx)), 'account-unsupported')
+    const clock = fakeClock()
+    const off = setup({ spotify: { clock }, provider: { session: loggedIn(clock) } })
+    expectReason(
+      await failure(off.provider.getLibraryTracks({}, accountContext(off.spotify))),
+      'account-disabled',
+    )
+    expect(off.spotify.calls).toHaveLength(0)
+  })
+
+  it('stops reading the library once the platform loses the account capability', async () => {
+    const clock = fakeClock()
+    const session = loggedIn(clock)
+    const { provider, spotify } = setup({
+      spotify: { clock, graphql: library },
+      provider: withAccount(session),
+    })
+    await provider.getLibraryTracks({}, accountContext(spotify))
+    // E.g. the user turned off "Use my Spotify login" in FXM Connect.
+    const anonymous = contextFor(spotify.fetch)
+    expect(await provider.status(anonymous)).toEqual({ connected: false })
+    expectReason(await failure(provider.getLibraryTracks({}, anonymous)), 'account-unsupported')
+    expectReason(await failure(provider.getLibraryPlaylists({}, anonymous)), 'account-unsupported')
+    expect(spotify.calls.filter((c) => c.token === 'account-token')).toHaveLength(1)
   })
 
   it('refuses answers that are not library pages', async () => {
@@ -649,21 +868,22 @@ describe('library (logged in)', () => {
             json({ data: { me: { libraryV3: { __typename: 'LibraryInvalidFilterIdError' } } } }),
         },
       },
-      provider: { session: loggedIn(clock) },
+      provider: withAccount(loggedIn(clock)),
     })
-    const ctx = contextFor(spotify.fetch, { capabilities: capabilities('account') })
+    const ctx = accountContext(spotify)
     expectReason(await failure(provider.getLibraryTracks({}, ctx)), 'bad-response')
     expectReason(await failure(provider.getLibraryPlaylists({}, ctx)), 'bad-response')
   })
 })
 
 describe('track details', () => {
-  it('reads the ISRC, label and date from spclient by the hex gid', async () => {
+  it('reads the ISRC, label, date and album type from spclient by the hex gid', async () => {
     const { provider, spotify, ctx } = setup()
     expect(await provider.getTrackDetails(creep, ctx)).toEqual({
       isrc: 'GBAYE9200070',
       label: 'XL Recordings',
       releaseDate: '1993-02-22',
+      albumType: 'album',
       popularity: 93,
     })
     const [call] = spotify.callsOf('spclient')
@@ -671,20 +891,26 @@ describe('track details', () => {
     expect(call?.url.searchParams.get('market')).toBe('from_token')
   })
 
-  it('adds what it lacks to a track, and includes a known ISRC in getTrack', async () => {
+  it('adds what a Spotify track lacks, and includes a known ISRC in getTrack', async () => {
     const { provider, spotify, ctx } = setup()
     const track = await provider.getTrack(creep, ctx)
     const enriched = await provider.enrichTrack({ ...track, releaseDate: '1993' }, ctx)
     expect(enriched).toMatchObject({ isrc: 'GBAYE9200070', popularity: 93, releaseDate: '1993' })
     expect((await provider.getTrack(creep, ctx)).isrc).toBe('GBAYE9200070')
-    const foreign = await provider.enrichTrack(
-      youtubeTrack({ externalIds: { spotify: '70LcF31zb1H0PyJoS1Sx1r' }, isrc: 'USABC0000001' }),
-      ctx,
-    )
-    expect(foreign.isrc).toBe('USABC0000001')
     const plain = youtubeTrack()
     expect(await provider.enrichTrack(plain, ctx)).toBe(plain)
     expect(spotify.callsOf('spclient')).toHaveLength(1)
+  })
+
+  it("adds only the ISRC to another source's track, not Spotify's release facts", async () => {
+    const { provider, ctx } = setup()
+    const compilation = youtubeTrack({ externalIds: { spotify: '70LcF31zb1H0PyJoS1Sx1r' } })
+    const enriched = await provider.enrichTrack(compilation, ctx)
+    expect(enriched.isrc).toBe('GBAYE9200070')
+    expect(enriched).not.toHaveProperty('releaseDate')
+    expect(enriched).not.toHaveProperty('popularity')
+    const known = await provider.enrichTrack({ ...compilation, isrc: 'USABC0000001' }, ctx)
+    expect(known.isrc).toBe('USABC0000001')
   })
 })
 
@@ -715,18 +941,43 @@ describe('resilience', () => {
     expect((await provider.getTrack(creep, ctx)).title).toBe('Creep')
   })
 
-  it('reports a broken operation and keeps the others working', async () => {
-    const { provider, ctx } = setup({
+  it('does not pause Spotify when an early token refresh is rate limited', async () => {
+    const clock = fakeClock()
+    let issued = 0
+    const { provider, spotify, ctx } = setup({
+      spotify: {
+        clock,
+        token: () =>
+          ++issued > 1
+            ? json({}, { status: 429 })
+            : json({
+                accessToken: 'still-good',
+                accessTokenExpirationTimestampMs: clock.now() + HOUR,
+                isAnonymous: true,
+              }),
+      },
+    })
+    await provider.getTrack(creep, ctx)
+    clock.advance(HOUR - 30_000)
+    expect((await provider.getArtist(radiohead, ctx)).name).toBe('Radiohead')
+    expect(spotify.callsOf('token')).toHaveLength(2)
+    expect(spotify.callsOf('graphql', 'queryArtistOverview')[0]?.token).toBe('still-good')
+    expect(provider.health()).toEqual({ brokenOperations: [] })
+  })
+
+  it('answers with the typed searches when searchDesktop breaks', async () => {
+    const { provider, spotify, ctx } = setup({
       spotify: { graphql: { searchDesktop: () => json('Invalid query hash', { status: 412 }) } },
     })
-    expectReason(
-      await failure(provider.search('creep', { types: ['track', 'album'] }, ctx)),
-      'operation-broken',
-    )
+    const first = await provider.search('creep', { types: ['track', 'album'] }, ctx)
+    expect(first.tracks?.items).toHaveLength(2)
+    expect(first.albums?.items).toHaveLength(2)
     expect(provider.health().brokenOperations).toEqual(['searchDesktop'])
-    expect((await provider.search('creep', { types: ['track'] }, ctx)).tracks?.items).toHaveLength(
-      2,
-    )
+    const second = await provider.search('creep', { types: ['track', 'artist'] }, ctx)
+    expect(second.artists?.items.length).toBeGreaterThan(0)
+    const operations = spotify.callsOf('graphql').map((c) => c.operationName)
+    expect(operations[0]).toBe('searchDesktop')
+    expect(operations.slice(1).sort()).toEqual(['searchAlbums', 'searchArtists', 'searchTracks'])
     provider.resetOperations()
     expect(provider.health().brokenOperations).toEqual([])
   })
@@ -745,18 +996,105 @@ describe('resilience', () => {
       },
     })
     expectReason(await failure(provider.getTrack(creep, ctx)), 'secret-rejected')
-    expect(provider.health().secretPausedUntil).toBeGreaterThan(0)
+    expect(provider.health().secretPaused).toMatchObject({ reason: 'secret-rejected' })
     provider.setSecretSources([{ json: JSON.stringify({ '9': [1, 2, 3, 4, 5, 6] }) }])
-    expect(provider.health().secretPausedUntil).toBeUndefined()
+    expect(provider.health().secretPaused).toBeUndefined()
     expect((await provider.getTrack(creep, ctx)).title).toBe('Creep')
     expect(spotify.callsOf('token').at(-1)?.url.searchParams.get('totpVer')).toBe('9')
   })
 
-  it('reports a refused User-Agent', async () => {
-    const { provider, ctx } = setup({
+  it('pauses and says so when no secret source can be read', async () => {
+    const { provider, spotify, clock, onHealthChange, ctx } = setup({
+      spotify: { secret: () => json({ message: 'gone' }, { status: 404 }) },
+    })
+    expectReason(await failure(provider.getTrack(creep, ctx)), 'secret-unavailable')
+    expect(provider.health()).toEqual({
+      secretPaused: { until: clock.now() + MINUTE, reason: 'secret-unavailable' },
+      brokenOperations: [],
+    })
+    expect(onHealthChange).toHaveBeenLastCalledWith(provider.health())
+    // Every call fails at once now, without asking the secret source again.
+    for (let i = 0; i < 5; i++) {
+      expectReason(await failure(provider.getArtist(radiohead, ctx)), 'secret-unavailable')
+    }
+    expect(spotify.callsOf('secret')).toHaveLength(1)
+    expect(spotify.callsOf('token')).toHaveLength(0)
+    provider.resume()
+    expect(provider.health()).toEqual({ brokenOperations: [] })
+  })
+
+  it('keeps a rate-limit pause when the secret sources change', async () => {
+    const { provider, spotify, ctx } = setup({
+      spotify: {
+        graphql: { getTrack: () => json({}, { status: 429, headers: { 'retry-after': '3600' } }) },
+      },
+    })
+    expectReason(await failure(provider.getTrack(creep, ctx)), 'paused')
+    const pausedUntil = provider.health().pausedUntil
+    provider.setSecretSources([{ json: JSON.stringify({ '9': [1, 2, 3] }) }])
+    expect(provider.health().pausedUntil).toBe(pausedUntil)
+    expectReason(await failure(provider.getArtist(radiohead, ctx)), 'paused')
+    expect(spotify.callsOf('graphql')).toHaveLength(1)
+  })
+
+  it('checks new secret sources before using them, and can go back to the defaults', async () => {
+    const { provider, spotify, ctx } = setup()
+    for (const url of ['http://secrets.example.test/s.json', 'https://192.168.1.1/admin.json']) {
+      expect(() => provider.setSecretSources([{ url }])).toThrow(TypeError)
+    }
+    // Nothing changed: the configured source still serves the secret.
+    await provider.getTrack(creep, ctx)
+    expect(spotify.callsOf('secret')).toHaveLength(1)
+    // Back to the bundled sources, on GitHub, which the offline fake refuses to reach.
+    const fresh = setup()
+    fresh.provider.setSecretSources()
+    const error = await failure(fresh.provider.getTrack(creep, fresh.ctx))
+    expectReason(error, 'secret-unavailable')
+    expect(error.message).toContain('raw.githubusercontent.com')
+  })
+
+  it('reports a refused User-Agent, also in its health', async () => {
+    const { provider, onHealthChange, ctx } = setup({
       spotify: { graphql: { getTrack: () => json(fixtures.error403Client, { status: 403 }) } },
     })
     expectReason(await failure(provider.getTrack(creep, ctx)), 'client-rejected')
+    expect(provider.health()).toEqual({ clientRejected: true, brokenOperations: [] })
+    expect(onHealthChange).toHaveBeenLastCalledWith({ clientRejected: true, brokenOperations: [] })
+    provider.resume()
+    expect(provider.health()).toEqual({ brokenOperations: [] })
+  })
+
+  it('applies a newer config to the running provider', async () => {
+    const { provider, spotify, ctx } = setup({
+      spotify: {
+        graphql: {
+          getTrack: (_variables, call) =>
+            call.sha256Hash === 'a'.repeat(64)
+              ? json(fixtures.getTrack)
+              : json('Invalid query hash', { status: 412 }),
+        },
+      },
+    })
+    expectReason(await failure(provider.getTrack(creep, ctx)), 'operation-broken')
+    expect(provider.health().brokenOperations).toEqual(['getTrack'])
+    const newer = parseSpotifyConfig({
+      ...DEFAULT_SPOTIFY_CONFIG,
+      version: DEFAULT_SPOTIFY_CONFIG.version + 1,
+      userAgent: 'Mozilla/5.0 (fixture) Chrome/151.0.0.0',
+      operations: {
+        ...DEFAULT_SPOTIFY_CONFIG.operations,
+        getTrack: { sha256Hash: 'a'.repeat(64) },
+      },
+    })
+    provider.setConfig(newer)
+    expect(provider.health().brokenOperations).toEqual([])
+    const desktop = contextFor(spotify.fetch, { platform: 'desktop' })
+    expect((await provider.getTrack(creep, desktop)).title).toBe('Creep')
+    const last = spotify.callsOf('graphql', 'getTrack').at(-1)
+    expect(last?.headers.get('user-agent')).toBe('Mozilla/5.0 (fixture) Chrome/151.0.0.0')
+    // The token minted before the change is still used.
+    expect(spotify.callsOf('token')).toHaveLength(1)
+    expect(() => provider.setConfig({ ...newer, userAgent: '' })).toThrow(TypeError)
   })
 })
 
@@ -845,7 +1183,7 @@ describe('caching', () => {
   }
 
   it('takes other lifetimes from the options', async () => {
-    const s = setup({ provider: { cacheTtlMs: { search: MINUTE } } })
+    const s = setup({ provider: { cacheTtls: { search: MINUTE } } })
     await s.provider.search('creep', { types: ['track'] }, s.ctx)
     s.clock.advance(MINUTE)
     await s.provider.search('creep', { types: ['track'] }, s.ctx)

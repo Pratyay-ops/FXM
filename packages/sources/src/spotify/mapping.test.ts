@@ -110,6 +110,15 @@ describe('mapAlbum', () => {
     expect(album?.tracks?.[0]?.artwork.length).toBe(3)
   })
 
+  it('reads only the album types it knows, whatever the case', () => {
+    const album = (type: string) =>
+      mapAlbum({ __typename: 'Album', uri: PABLO_HONEY_ID, name: 'Pablo Honey', type })
+    expect(album('Compilation')?.type).toBe('compilation')
+    for (const type of ['constructor', 'toString', 'PODCAST']) {
+      expect(album(type), type).not.toHaveProperty('type')
+    }
+  })
+
   it('maps search results without tracks', () => {
     const albums = mapSearch(fixtures.searchDesktop.data.searchV2, 0, 5).albums
     expect(albums?.items.map((a) => [a.name, a.type, a.releaseDate])).toEqual([
@@ -291,8 +300,11 @@ describe('spclient answers', () => {
       isrc: 'GBAYE9200070',
       label: 'XL Recordings',
       releaseDate: '1993-02-22',
+      albumType: 'album',
       popularity: 93,
     })
+    expect(mapTrackDetails({ album: { type: 'single' } })).toEqual({ albumType: 'single' })
+    expect(mapTrackDetails({ album: { type: 'constructor' } })).toEqual({})
     expect(mapTrackDetails({ external_id: [{ type: 'isrc', id: 'not an isrc' }] })).toEqual({})
   })
 
@@ -338,7 +350,28 @@ describe('library answers (shaped after the web player, not recorded)', () => {
       0,
       50,
     )
-    expect(page?.items.map((t) => [t.id, t.title, t.explicit])).toEqual([[CREEP_ID, 'Creep', true]])
+    expect(page?.items.map(({ track }) => [track.id, track.title, track.explicit])).toEqual([
+      [CREEP_ID, 'Creep', true],
+    ])
+    expect(page?.items[0]?.addedAt).toBe('2026-10-01T10:00:00Z')
+    const undated = mapLibraryTracks(
+      {
+        me: {
+          library: {
+            tracks: {
+              __typename: 'UserLibraryTrackPage',
+              items: [
+                { ...libraryTrack, addedAt: 'not a date' },
+                { ...libraryTrack, addedAt: undefined },
+              ],
+            },
+          },
+        },
+      },
+      0,
+      50,
+    )
+    expect(undated?.items.map((liked) => Object.keys(liked))).toEqual([['track'], ['track']])
     expect(page).toMatchObject({ nextCursor: '50', total: 120 })
     expect(mapLibraryTracks({ me: { library: { tracks: { __typename: 'Error' } } } }, 0, 50)).toBe(
       undefined,

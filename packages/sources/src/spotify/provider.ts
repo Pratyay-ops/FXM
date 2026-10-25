@@ -3,7 +3,10 @@
  * recommendations (track and artist radio, the home feed) and a minimal account status, read from
  * Spotify's web-player APIs on the user's own device through `ctx.fetch`.
  *
- * One instance holds the tokens, caches and pause state, so the app creates one and keeps it.
+ * One instance holds the tokens, caches and pause state, so the app creates one and keeps it,
+ * and applies settings and newer configs to it (`setSecretSources`, `setConfig`, `connect`,
+ * `disconnect`). Every result is the caller's own copy: changing it never changes what the
+ * provider has cached.
  *
  * @module
  */
@@ -39,13 +42,17 @@ import {
 } from '@fxm/core'
 import { TtlCache } from './cache'
 import { type JsonRecord, SpotifyClient } from './client'
-import { DEFAULT_SPOTIFY_CONFIG, type SpotifyConfig, type SpotifyOperationName } from './config'
+import {
+  DEFAULT_SPOTIFY_CONFIG,
+  parseSpotifyConfig,
+  type SpotifyConfig,
+  type SpotifyOperationName,
+} from './config'
 import { isSpotifyError, SpotifyError } from './errors'
 import { SpotifyHttp } from './http'
-import { base62ToHex, isSpotifyId, spotifyIdOf, spotifyUri } from './ids'
+import { isSpotifyId, spotifyIdOf, spotifyIdToGid, spotifyUri } from './ids'
 import {
   albumTracksOnPage,
-  type HomeSectionPage,
   mapAlbum,
   mapArtist,
   mapHome,
@@ -59,14 +66,26 @@ import {
   mapTrack,
   mapTrackDetails,
   radioPlaylistId,
+  type SpotifyHomeSectionPage,
+  type SpotifyLikedTrack,
   type SpotifySearchPages,
   type SpotifyTrackDetails,
   unionOf,
 } from './mapping'
 import { OperationRegistry } from './operations'
-import { createSecretProvider, type SecretProvider, type SecretSource } from './secret'
+import {
+  checkSpotifySecretSource,
+  createSpotifySecretProvider,
+  type SpotifySecretProvider,
+  type SpotifySecretSource,
+} from './secret'
 import { isSpotifyReachable } from './settings'
-import { type SessionTokenSource, type TokenKind, TokenManager } from './token'
+import {
+  type SessionTokenSource,
+  type SpotifySecretPause,
+  type TokenKind,
+  TokenManager,
+} from './token'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -98,8 +117,18 @@ export const DEFAULT_SPOTIFY_CACHE_TTLS: Readonly<SpotifyCacheTtls> = Object.fre
 export interface SpotifyHealth {
   /** While Spotify is paused after repeated rate limits or server errors: when it resumes. */
   pausedUntil?: number
-  /** While minting is paused because the TOTP secret was refused: when it is tried again. */
-  secretPausedUntil?: number
+  /**
+   * While minting is paused because of the TOTP secret: until when, and why. With
+   * `secret-unavailable` no secret source could be read ("Spotify is paused: its secret source
+   * can't be reached"); with `secret-rejected` Spotify refused every secret FXM found ("Spotify
+   * is paused: its secret stopped working"). Offer to enter another source in either case.
+   */
+  secretPaused?: SpotifySecretPause
+  /**
+   * Spotify answered `403 Client/request not allowed`: it refuses this client, on native
+   * transports its User-Agent. Calls keep failing until a newer config or app fixes it.
+   */
+  clientRejected?: true
   /** The operations Spotify rejected this session; they need a newer config. */
   brokenOperations: SpotifyOperationName[]
 }
@@ -108,23 +137,38 @@ export interface SpotifyHealth {
 export interface SpotifyProviderOptions {
   /** The config: endpoints, secret sources, User-Agent and hashes. Default: the bundled one. */
   config?: SpotifyConfig
+  /**
+   * The user's switch, Settings → Spotify (e.g. `() => sanitizeSpotifySettings(stored).enabled`).
+   * Wire it: the default, always on, ignores a stored `enabled: false`.
+   */
+  isEnabled?: () => boolean
   /** The source of logged-in tokens on this platform (the FXM Connect bridge, a login window). */
   session?: SessionTokenSource
+  /**
+   * Settings → Spotify → Connect your account: whether the user's own login may be used (e.g.
+   * `() => sanitizeSpotifySettings(stored).account`). Default: never, so the account stays
+   * unused until the app wires its opt-in.
+   */
+  isAccountEnabled?: () => boolean
   /** A custom secret provider. Default: one over `secretSources`. */
-  secrets?: SecretProvider
-  /** The secret sources of the default secret provider. Default: the config's URLs. */
-  secretSources?: readonly SecretSource[]
-  /** The `fetch` the default secret provider uses for URLs. Default: `ctx.fetch`. */
+  secrets?: SpotifySecretProvider
+  /**
+   * The secret sources of the default secret provider, e.g. from Settings. Default: the config's
+   * URLs. An invalid source makes the constructor throw a `TypeError`.
+   */
+  secretSources?: readonly SpotifySecretSource[]
+  /**
+   * The `fetch` the default secret provider uses for URLs. Default: `ctx.fetch`. The web app
+   * passes one that goes through its sandboxed user-host document.
+   */
   secretFetch?: ProviderContext['fetch']
-  /** The user's switch (Settings → Spotify). Default: always on. */
-  isEnabled?: () => boolean
   /** Whether to send the browser User-Agent. Default: on native transports only. */
   sendUserAgent?: (ctx: ProviderContext) => boolean
-  /** Cache lifetimes. Default {@link DEFAULT_SPOTIFY_CACHE_TTLS}. */
-  cacheTtlMs?: Partial<SpotifyCacheTtls>
+  /** Cache lifetimes, in milliseconds. Default {@link DEFAULT_SPOTIFY_CACHE_TTLS}. */
+  cacheTtls?: Partial<SpotifyCacheTtls>
   /**
-   * Whether a radio seed from another source without a Spotify ID may be looked up by title and
-   * artist (one search). Default true.
+   * Whether a radio seed from another source without a Spotify ID may be looked up by its title
+   * and artist (one Spotify search, which sends them to Spotify). Default true.
    */
   lookupForeignSeeds?: boolean
   /** The IANA time zone the home feed is localized for. Default: the device's. */
@@ -135,13 +179,14 @@ export interface SpotifyProviderOptions {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
   /** A random number in [0, 1), for jitter. Default `Math.random`. */
   random?: () => number
-  /** Per-request timeout. Default 15 s. */
+  /** Per-request timeout for Spotify. Default 15 s. The secret source has its own (5 s). */
   timeoutMs?: number
   /** Retries after a 429 or 5xx answer. Default 3. */
   maxRetries?: number
   /**
-   * How long Spotify pauses after persistent 429 or 5xx answers, and how long minting pauses
-   * after the TOTP secret was refused twice. Default 5 minutes.
+   * How long Spotify pauses after persistent 429 or 5xx answers, how long minting pauses after
+   * the TOTP secret was refused, and the longest pause after failed secret loads. Default
+   * 5 minutes.
    */
   pauseMs?: number
   /** Called whenever {@link SpotifyProvider.health} changes. */
@@ -174,6 +219,9 @@ const SEARCH_FLAGS = {
   includeEpisodeContentRatingsV2: false,
 }
 
+/** The cache keys of answers that belong to the user's account. */
+const PERSONAL_KEYS = ['home:account', 'home-section:account', 'profile']
+
 function clampLimit(limit: number | undefined, fallback: number, max: number): number {
   if (limit === undefined || !Number.isFinite(limit)) return fallback
   return Math.min(max, Math.max(1, Math.floor(limit)))
@@ -182,12 +230,18 @@ function clampLimit(limit: number | undefined, fallback: number, max: number): n
 /**
  * The offset in a cursor this provider returned (a decimal offset).
  *
- * @throws RangeError for anything else.
+ * @throws SpotifyError `bad-cursor` for anything else, e.g. a damaged cursor from storage.
  */
 function offsetOf(cursor: string | undefined): number {
   if (cursor === undefined) return 0
-  if (!/^\d{1,9}$/u.test(cursor)) throw new RangeError('Not a Spotify page cursor')
+  if (typeof cursor !== 'string' || !/^\d{1,9}$/u.test(cursor)) {
+    throw new SpotifyError('bad-cursor', 'Not a Spotify page cursor; load the first page again')
+  }
   return Number(cursor)
+}
+
+function emptyPage<T>(): Page<T> {
+  return { items: [] }
 }
 
 function filterTracks(page: Page<Track>, mode: CatalogMode): Page<Track> {
@@ -211,13 +265,24 @@ function titleCore(title: string, artist: string): string {
   return splitTitle(rest).core
 }
 
+/** Whether a failure says the account cannot be used for this call. */
+function isAccountFailure(error: unknown): boolean {
+  return (
+    isFxmError(error, 'AuthRequired') ||
+    isSpotifyError(error, 'account-unsupported') ||
+    isSpotifyError(error, 'account-disabled')
+  )
+}
+
 /** Spotify, as a metadata, recommendation and account provider. */
 export class SpotifyProvider implements MetadataProvider, RecommendationProvider, AccountProvider {
   /** The source this provider reads. */
   readonly id = 'spotify'
 
-  readonly #config: SpotifyConfig
-  readonly #secrets: SecretProvider
+  #config: SpotifyConfig
+  readonly #secrets: SpotifySecretProvider
+  /** Whether the secret sources follow the config: none were given or set. */
+  #defaultSecretSources: boolean
   readonly #http: SpotifyHttp
   readonly #tokens: TokenManager
   readonly #operations: OperationRegistry
@@ -225,97 +290,190 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
   readonly #cache: TtlCache
   readonly #ttl: SpotifyCacheTtls
   readonly #isEnabled: () => boolean
+  readonly #isAccountEnabled: () => boolean
   readonly #lookupForeignSeeds: boolean
   readonly #timeZone: () => string
   readonly #onHealthChange: ((health: SpotifyHealth) => void) | undefined
+  #disconnected = false
+  #clientRejected = false
 
+  /** @throws TypeError when `config` or a secret source is not valid. */
   constructor(options: SpotifyProviderOptions = {}) {
     const now = options.now ?? Date.now
-    const notify = () => this.#onHealthChange?.(this.health())
-    this.#config = options.config ?? DEFAULT_SPOTIFY_CONFIG
+    const notify = () => this.#notify()
+    this.#config = options.config ? parseSpotifyConfig(options.config) : DEFAULT_SPOTIFY_CONFIG
     this.#onHealthChange = options.onHealthChange
     this.#isEnabled = options.isEnabled ?? (() => true)
+    this.#isAccountEnabled = options.isAccountEnabled ?? (() => false)
     this.#lookupForeignSeeds = options.lookupForeignSeeds ?? true
     this.#timeZone = options.timeZone ?? defaultTimeZone
-    this.#ttl = { ...DEFAULT_SPOTIFY_CACHE_TTLS, ...options.cacheTtlMs }
+    this.#ttl = { ...DEFAULT_SPOTIFY_CACHE_TTLS, ...options.cacheTtls }
     this.#cache = new TtlCache({ now })
+    this.#defaultSecretSources = options.secrets === undefined && !options.secretSources
     this.#secrets =
       options.secrets ??
-      createSecretProvider({
-        sources: options.secretSources ?? this.#config.secretSources.map((url) => ({ url })),
+      createSpotifySecretProvider({
+        sources: options.secretSources ?? this.#configSecretSources(),
         now,
         ...(options.secretFetch ? { fetch: options.secretFetch } : {}),
-        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
       })
     this.#http = new SpotifyHttp({
-      userAgent: this.#config.userAgent,
+      userAgent: () => this.#config.userAgent,
       now,
       onPause: notify,
       ...pick(options, ['sendUserAgent', 'sleep', 'random', 'timeoutMs', 'maxRetries', 'pauseMs']),
     })
+    const markClientRejected = () => {
+      if (this.#clientRejected) return
+      this.#clientRejected = true
+      notify()
+    }
     this.#tokens = new TokenManager({
-      config: this.#config,
+      config: () => this.#config,
       http: this.#http,
       secrets: this.#secrets,
       now,
+      isAccountEnabled: () => !this.#disconnected && this.#isAccountEnabled(),
       onSecretPause: notify,
+      onClientRejected: markClientRejected,
+      onAccountChange: () => this.#clearPersonal(),
       ...(options.session ? { session: options.session } : {}),
       ...(options.pauseMs === undefined ? {} : { secretPauseMs: options.pauseMs }),
     })
     this.#operations = new OperationRegistry(this.#config, notify)
     this.#client = new SpotifyClient({
-      config: this.#config,
+      config: () => this.#config,
       http: this.#http,
       tokens: this.#tokens,
       operations: this.#operations,
+      onClientRejected: markClientRejected,
     })
   }
 
   // --- State ----------------------------------------------------------------------------
 
-  /** Pauses and broken operations, for the UI ("Spotify is paused: …"). */
+  /**
+   * Whether FXM should use Spotify now: the user's switch (`isEnabled`) is on and the platform
+   * can reach Spotify. Use it to decide whether to show Spotify results, radio and the source
+   * switch; it agrees with the provider's own check on every call.
+   */
+  isAvailable(ctx: Pick<ProviderContext, 'capabilities'>): boolean {
+    return this.#isEnabled() && isSpotifyReachable(ctx)
+  }
+
+  /** Pauses, a refused client and broken operations, for the UI ("Spotify is paused: …"). */
   health(): SpotifyHealth {
     const pausedUntil = this.#http.pausedUntil
-    const secretPausedUntil = this.#tokens.secretPausedUntil
+    const secretPaused = this.#tokens.secretPause
     return {
       ...(pausedUntil === undefined ? {} : { pausedUntil }),
-      ...(secretPausedUntil === undefined ? {} : { secretPausedUntil }),
+      ...(secretPaused === undefined ? {} : { secretPaused: { ...secretPaused } }),
+      ...(this.#clientRejected ? { clientRejected: true as const } : {}),
       brokenOperations: this.#operations.broken(),
     }
   }
 
-  /** Ends both pauses early, e.g. when the user taps "Try again". */
+  /**
+   * Ends both pauses early and forgets a refused client, e.g. when the user taps "Try again".
+   * Broken operations stay broken (see {@link SpotifyProvider.resetOperations}).
+   */
   resume(): void {
     this.#http.resume()
     this.#tokens.resumeSecret()
-    this.#onHealthChange?.(this.health())
+    this.#clientRejected = false
+    this.#notify()
   }
 
-  /** Forgets which operations broke, e.g. after loading a newer config into a new provider. */
+  /**
+   * Forgets which operations broke, so FXM calls them again, e.g. from a "Try again" button.
+   * {@link SpotifyProvider.setConfig} already clears the marks of the operations whose hash it
+   * changes.
+   */
   resetOperations(): void {
     this.#operations.reset()
   }
 
-  /** Uses other secret sources from now on, e.g. a URL or JSON from Settings, and resumes. */
-  setSecretSources(sources: readonly SecretSource[]): void {
-    this.#secrets.setSources(sources)
-    this.resume()
+  /**
+   * Uses a newer config from now on, e.g. the result of `loadSpotifyConfig`: its endpoints,
+   * User-Agent and hashes. Operations whose hash changed lose their broken mark. When the default
+   * secret sources changed and the user set none of their own, the cached secret is dropped.
+   * Tokens, caches and the pauses are kept; a refused client is forgotten, since a new
+   * User-Agent may fix it.
+   *
+   * @throws TypeError when `config` is not valid (see `parseSpotifyConfig`).
+   */
+  setConfig(config: SpotifyConfig): void {
+    const previous = this.#config
+    const next = parseSpotifyConfig(config)
+    this.#config = next
+    this.#operations.setConfig(next)
+    const sources = (c: SpotifyConfig) => c.secretSources.join('\n')
+    if (this.#defaultSecretSources && sources(previous) !== sources(next)) {
+      this.#secrets.setSources(this.#configSecretSources())
+    }
+    this.#clientRejected = false
+    this.#notify()
   }
 
-  /** Forgets the account token and every personal answer, e.g. on "Disconnect". */
-  disconnect(): void {
+  /**
+   * Uses other secret sources from now on, e.g. a URL or JSON from Settings (see
+   * `parseSpotifySecretSource`), or the config's default sources when called without any, and
+   * ends a secret pause. A pause after Spotify's rate limits stays: a new secret does not change
+   * them.
+   *
+   * @throws TypeError when a source is not valid; nothing changes then.
+   */
+  setSecretSources(sources?: readonly SpotifySecretSource[]): void {
+    const checked = sources ? sources.map(checkSpotifySecretSource) : this.#configSecretSources()
+    this.#secrets.setSources(checked)
+    this.#defaultSecretSources = sources === undefined
+    this.#tokens.resumeSecret()
+    this.#notify()
+  }
+
+  /**
+   * Allows the account again after {@link SpotifyProvider.disconnect}, and forgets a remembered
+   * logged-out answer, so the next call asks the login source at once. Call it when the user
+   * turns Settings → Spotify → Connect your account on, and right after they logged in to
+   * Spotify. `isAccountEnabled` must say yes too.
+   */
+  connect(): void {
+    this.#disconnected = false
     this.#tokens.clear('account')
-    this.#cache.clear('home:account')
-    this.#cache.clear('home-section:account')
-    this.#cache.clear('profile')
+    this.#clearPersonal()
+  }
+
+  /**
+   * Stops using the account at once (Settings → Spotify → Disconnect): forgets the account
+   * token, the remembered login state and every personal answer, and refuses account calls with
+   * `account-disabled` until {@link SpotifyProvider.connect}. Store the setting as off too, so
+   * `isAccountEnabled` agrees after a restart.
+   */
+  disconnect(): void {
+    this.#disconnected = true
+    this.#tokens.clear('account')
+    this.#clearPersonal()
+  }
+
+  #notify(): void {
+    this.#onHealthChange?.(this.health())
+  }
+
+  #clearPersonal(): void {
+    for (const key of PERSONAL_KEYS) this.#cache.clear(key)
+  }
+
+  #configSecretSources(): SpotifySecretSource[] {
+    return this.#config.secretSources.map((url) => ({ url }))
   }
 
   // --- MetadataProvider -----------------------------------------------------------------
 
   /**
    * Searches Spotify, one page per requested type. Several types on a first page take one
-   * `searchDesktop` call; a single type, or a later page, takes that type's own search. Spotify
-   * has no videos for FXM, so `video` is always an empty page.
+   * `searchDesktop` call; a single type, a later page, or a `searchDesktop` that is broken or
+   * missing from the config takes each type's own search. Spotify has no videos for FXM, so
+   * `video` is always an empty page.
    */
   async search(
     query: string,
@@ -330,48 +488,75 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
     const offset = offsetOf(options.cursor)
     let pages: SpotifySearchPages = {}
     if (term !== '' && kinds.length > 0) {
-      if (kinds.length === 1 || offset > 0) {
-        const parts = await Promise.all(
-          kinds.map((kind) => this.#typedSearch(kind, term, offset, limit, ctx)),
-        )
-        for (const part of parts) Object.assign(pages, part)
-      } else {
-        pages = await this.#desktopSearch(term, limit, ctx)
-      }
+      const desktop =
+        kinds.length > 1 && offset === 0 && this.#operations.isAvailable('searchDesktop')
+      pages = desktop
+        ? await this.#desktopSearch(kinds, term, limit, ctx)
+        : await this.#typedSearches(kinds, term, offset, limit, ctx)
     }
-    const empty = { items: [] }
     return {
-      ...(types.has('track') ? { tracks: filterTracks(pages.tracks ?? empty, ctx.mode) } : {}),
-      ...(types.has('video') ? { videos: { items: [] } } : {}),
-      ...(types.has('album') ? { albums: pages.albums ?? empty } : {}),
-      ...(types.has('artist') ? { artists: pages.artists ?? empty } : {}),
-      ...(types.has('playlist') ? { playlists: pages.playlists ?? empty } : {}),
+      ...(types.has('track')
+        ? { tracks: filterTracks(pages.tracks ?? emptyPage(), ctx.mode) }
+        : {}),
+      ...(types.has('video') ? { videos: emptyPage() } : {}),
+      ...(types.has('album') ? { albums: pages.albums ?? emptyPage() } : {}),
+      ...(types.has('artist') ? { artists: pages.artists ?? emptyPage() } : {}),
+      ...(types.has('playlist') ? { playlists: pages.playlists ?? emptyPage() } : {}),
     }
   }
 
-  #desktopSearch(term: string, limit: number, ctx: ProviderContext): Promise<SpotifySearchPages> {
-    return this.#cache.getOrLoad(
-      `search:all:${limit}:${term}`,
-      this.#ttl.search,
-      async () => {
-        const data = await this.#client.query(
-          'searchDesktop',
-          {
-            searchTerm: term,
-            offset: 0,
-            limit,
-            numberOfTopResults: 5,
-            includeArtistHasConcertsField: false,
-            isPrefix: null,
-            sectionFilters: ['GENERIC'],
-            ...SEARCH_FLAGS,
-          },
-          ctx,
-        )
-        return mapSearch(this.#expectRecord(data.searchV2, 'searchDesktop'), 0, limit)
-      },
-      ctx.signal,
+  async #desktopSearch(
+    kinds: readonly SearchKind[],
+    term: string,
+    limit: number,
+    ctx: ProviderContext,
+  ): Promise<SpotifySearchPages> {
+    try {
+      return await this.#cache.getOrLoad(
+        `search:all:${limit}:${term}`,
+        this.#ttl.search,
+        async () => {
+          const data = await this.#client.query(
+            'searchDesktop',
+            {
+              searchTerm: term,
+              offset: 0,
+              limit,
+              numberOfTopResults: 5,
+              includeArtistHasConcertsField: false,
+              isPrefix: null,
+              sectionFilters: ['GENERIC'],
+              ...SEARCH_FLAGS,
+            },
+            ctx,
+          )
+          return mapSearch(this.#expectRecord(data.searchV2, 'searchDesktop'), 0, limit)
+        },
+        ctx.signal,
+      )
+    } catch (error) {
+      // Spotify rejected searchDesktop (or the config lacks it): the typed searches still work.
+      if (
+        isSpotifyError(error, 'operation-broken') ||
+        isSpotifyError(error, 'operation-unsupported')
+      ) {
+        return this.#typedSearches(kinds, term, 0, limit, ctx)
+      }
+      throw error
+    }
+  }
+
+  async #typedSearches(
+    kinds: readonly SearchKind[],
+    term: string,
+    offset: number,
+    limit: number,
+    ctx: ProviderContext,
+  ): Promise<SpotifySearchPages> {
+    const parts = await Promise.all(
+      kinds.map((kind) => this.#typedSearch(kind, term, offset, limit, ctx)),
     )
+    return Object.assign({}, ...parts) as SpotifySearchPages
   }
 
   /** A typed search, whose answer holds only that type's page. */
@@ -515,7 +700,7 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
       this.#ttl.entity,
       async () => {
         const playlist = await this.#fetchPlaylist(nativeId, offset, limit, ctx)
-        return playlist.tracks ?? { items: [] }
+        return playlist.tracks ?? emptyPage<Track>()
       },
       ctx.signal,
     )
@@ -566,9 +751,7 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
           ctx,
         )
         const playlistId = radioPlaylistId(answer)
-        if (!playlistId) {
-          throw new SpotifyError('NotFound', 'not-found', `Spotify has no radio for ${uri}`)
-        }
+        if (!playlistId) throw new SpotifyError('not-found', `Spotify has no radio for ${uri}`)
         const playlist = await this.#fetchPlaylist(playlistId, 0, PLAYLIST_PAGE, ctx)
         return playlist.tracks?.items ?? []
       },
@@ -582,33 +765,34 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
   }
 
   /**
-   * Spotify's home feed as shelves: the personal one when the user is logged in (and the
-   * platform has a login), else the generic one for the user's market.
+   * Spotify's home feed as shelves: the personal one when the account is connected and logged
+   * in, else the generic one for the user's market.
    */
   async home(ctx: ProviderContext): Promise<Shelf[]> {
     this.#gate(ctx)
-    const kind = await this.#homeTokenKind(ctx)
-    const shelves = await this.#cache.getOrLoad(
-      `home:${kind}`,
-      this.#ttl.home,
-      async () => {
-        const data = await this.#client.query(
-          'home',
-          {
-            includeHomeChapterVideoCards: false,
-            homeEndUserIntegration: 'INTEGRATION_WEB_PLAYER',
-            timeZone: this.#timeZone(),
-            sp_t: '',
-            facet: '',
-            sectionItemsLimit: 10,
-            includeEpisodeContentRatingsV2: false,
-          },
-          ctx,
-          kind,
-        )
-        return mapHome(this.#expectRecord(data.home, 'home'))
-      },
-      ctx.signal,
+    const shelves = await this.#withHomeToken(ctx, (kind) =>
+      this.#cache.getOrLoad(
+        `home:${kind}`,
+        this.#ttl.home,
+        async () => {
+          const data = await this.#client.query(
+            'home',
+            {
+              includeHomeChapterVideoCards: false,
+              homeEndUserIntegration: 'INTEGRATION_WEB_PLAYER',
+              timeZone: this.#timeZone(),
+              sp_t: '',
+              facet: '',
+              sectionItemsLimit: 10,
+              includeEpisodeContentRatingsV2: false,
+            },
+            ctx,
+            kind,
+          )
+          return mapHome(this.#expectRecord(data.home, 'home'))
+        },
+        ctx.signal,
+      ),
     )
     return shelves.map((shelf) => filterShelf(shelf, ctx.mode))
   }
@@ -616,45 +800,50 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
   /**
    * One page of a home section (a shelf's `id`, `spotify:section:…`), for its "Show all" view.
    * Pages hold 20 items by default (at most 50).
+   *
+   * @throws SpotifyError `foreign-id` for an ID that is not a Spotify section, `not-found` for a
+   * malformed one or a section Spotify does not have, `bad-cursor` for a cursor it did not make.
    */
   async getHomeSection(
     sectionId: string,
     options: PageOptions,
     ctx: ProviderContext,
-  ): Promise<HomeSectionPage> {
+  ): Promise<SpotifyHomeSectionPage> {
     this.#gate(ctx)
+    if (typeof sectionId !== 'string' || !sectionId.startsWith('spotify:section:')) {
+      throw new SpotifyError('foreign-id', `Not a Spotify home section: ${String(sectionId)}`)
+    }
     if (!/^spotify:section:[0-9A-Za-z]+$/u.test(sectionId)) {
-      throw new SpotifyError('NotFound', 'not-found', `Not a Spotify home section: ${sectionId}`)
+      throw new SpotifyError('not-found', `Malformed Spotify home section: ${sectionId}`)
     }
     const limit = clampLimit(options.limit, 20, 50)
     const offset = offsetOf(options.cursor)
-    const kind = await this.#homeTokenKind(ctx)
-    const page = await this.#cache.getOrLoad(
-      `home-section:${kind}:${sectionId}:${offset}:${limit}`,
-      this.#ttl.home,
-      async () => {
-        const data = await this.#client.query(
-          'homeSection',
-          {
-            includeHomeChapterVideoCards: false,
-            uri: sectionId,
-            homeEndUserIntegration: 'INTEGRATION_WEB_PLAYER',
-            timeZone: this.#timeZone(),
-            sp_t: '',
-            sectionItemsOffset: offset,
-            sectionItemsLimit: limit,
-            includeEpisodeContentRatingsV2: false,
-          },
-          ctx,
-          kind,
-        )
-        const section = mapHomeSection(data.homeSections)
-        if (!section) {
-          throw new SpotifyError('NotFound', 'not-found', `Spotify has no section ${sectionId}`)
-        }
-        return section
-      },
-      ctx.signal,
+    const page = await this.#withHomeToken(ctx, (kind) =>
+      this.#cache.getOrLoad(
+        `home-section:${kind}:${sectionId}:${offset}:${limit}`,
+        this.#ttl.home,
+        async () => {
+          const data = await this.#client.query(
+            'homeSection',
+            {
+              includeHomeChapterVideoCards: false,
+              uri: sectionId,
+              homeEndUserIntegration: 'INTEGRATION_WEB_PLAYER',
+              timeZone: this.#timeZone(),
+              sp_t: '',
+              sectionItemsOffset: offset,
+              sectionItemsLimit: limit,
+              includeEpisodeContentRatingsV2: false,
+            },
+            ctx,
+            kind,
+          )
+          const section = mapHomeSection(data.homeSections)
+          if (!section) throw new SpotifyError('not-found', `Spotify has no section ${sectionId}`)
+          return section
+        },
+        ctx.signal,
+      ),
     )
     return { ...page, shelf: filterShelf(page.shelf, ctx.mode) }
   }
@@ -663,19 +852,17 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
 
   /**
    * Whether the user is logged in to Spotify through this platform's login (FXM Connect's
-   * bridge, a login window), with the account's display name when Spotify gives it. Without a
-   * login source, or while Spotify is off or unreachable, it answers "not connected".
+   * bridge, a login window), with the account's display name when Spotify gives it. While
+   * Spotify is off or unreachable, the platform has no login source, or the account is not
+   * connected in FXM (`isAccountEnabled`, `disconnect`), it answers "not connected" without a
+   * request.
    */
   async status(ctx: ProviderContext): Promise<AccountStatus> {
-    if (!this.#isEnabled() || !isSpotifyReachable(ctx) || !this.#tokens.hasSession(ctx)) {
-      return { connected: false }
-    }
+    if (!this.isAvailable(ctx) || !this.#tokens.canUseAccount(ctx)) return { connected: false }
     try {
       await this.#tokens.get('account', ctx)
     } catch (error) {
-      if (isFxmError(error, 'AuthRequired') || isSpotifyError(error, 'account-unavailable')) {
-        return { connected: false }
-      }
+      if (!ctx.signal?.aborted && isAccountFailure(error)) return { connected: false }
       throw error
     }
     const displayName = await this.#displayName(ctx)
@@ -700,24 +887,32 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
   // --- Library (logged in) --------------------------------------------------------------
 
   /**
-   * One page of the user's liked songs (at most 50), newest first. Needs a login.
+   * One page of the user's liked songs (at most 50), newest first, each with when it was liked.
+   * Needs a connected account; without one it fails before any request.
    *
-   * Implemented from the request and field paths of Spotify's own web player; not yet checked
-   * against a live logged-in session (stage 3.5 does).
+   * @experimental Built from the request and field paths of Spotify's own web player, but not
+   * yet checked against a live logged-in session. Stage 3.5 confirms it and may change it.
    */
-  async getLibraryTracks(options: PageOptions, ctx: ProviderContext): Promise<Page<Track>> {
+  async getLibraryTracks(
+    options: PageOptions,
+    ctx: ProviderContext,
+  ): Promise<Page<SpotifyLikedTrack>> {
     this.#gate(ctx)
     const limit = clampLimit(options.limit, 50, 50)
     const offset = offsetOf(options.cursor)
     const data = await this.#client.query('fetchLibraryTracks', { offset, limit }, ctx, 'account')
     const page = mapLibraryTracks(data, offset, limit)
-    if (!page) throw new SpotifyError('Parse', 'bad-response', 'fetchLibraryTracks sent no tracks')
-    return filterTracks(page, ctx.mode)
+    if (!page) throw new SpotifyError('bad-response', 'fetchLibraryTracks sent no tracks')
+    const items = page.items.filter((liked) => applyModeFilter([liked.track], ctx.mode).length > 0)
+    return { ...page, items }
   }
 
   /**
    * One page of the playlists in the user's library (at most 50), folders flattened. Needs a
-   * login. Like {@link SpotifyProvider.getLibraryTracks}, not yet checked against a live session.
+   * connected account; without one it fails before any request.
+   *
+   * @experimental Like {@link SpotifyProvider.getLibraryTracks}, not yet checked against a live
+   * logged-in session.
    */
   async getLibraryPlaylists(options: PageOptions, ctx: ProviderContext): Promise<Page<Playlist>> {
     this.#gate(ctx)
@@ -740,15 +935,17 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
       'account',
     )
     const page = mapLibraryPlaylists(data, offset, limit)
-    if (!page) throw new SpotifyError('Parse', 'bad-response', 'libraryV3 sent no library page')
+    if (!page) throw new SpotifyError('bad-response', 'libraryV3 sent no library page')
     return page
   }
 
   // --- Track details (ISRC, label, release date) ----------------------------------------
 
   /**
-   * The ISRC, label, release date and popularity of a Spotify track, from spclient. One request
-   * per track, cached for a day: call it only for tracks being played, prefetched or imported.
+   * The ISRC, label, release date, album type and popularity of a Spotify track, from spclient.
+   * One request per track, cached for a day: call it only for tracks being played, prefetched or
+   * imported. The matching engine reads them alongside the track:
+   * `{ ...track, ...(await spotify.getTrackDetails(track.id, ctx)) }`.
    */
   async getTrackDetails(id: EntityId<'track'>, ctx: ProviderContext): Promise<SpotifyTrackDetails> {
     this.#gate(ctx)
@@ -759,7 +956,7 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
       async () =>
         mapTrackDetails(
           await this.#client.spclient(
-            `/metadata/4/track/${base62ToHex(nativeId)}?market=from_token`,
+            `/metadata/4/track/${spotifyIdToGid(nativeId)}?market=from_token`,
             ctx,
           ),
         ),
@@ -768,44 +965,56 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
   }
 
   /**
-   * `track` with what {@link SpotifyProvider.getTrackDetails} adds and it lacks: the ISRC, the
-   * release date and the popularity. A track of another source uses its `externalIds.spotify`;
-   * one without a Spotify ID comes back unchanged.
+   * `track` with what {@link SpotifyProvider.getTrackDetails} adds and it lacks. A Spotify track
+   * gets the ISRC, the release date and the popularity. A track of another source, found through
+   * its `externalIds.spotify`, gets only the ISRC: that names the recording, while the release
+   * date and popularity belong to the release Spotify lists it on, which may not be the
+   * compilation or remaster the other source has. A track without a Spotify ID comes back
+   * unchanged.
    */
   async enrichTrack(track: Track, ctx: ProviderContext): Promise<Track> {
     const own = track.source === 'spotify' ? parseId(track.id)?.nativeId : undefined
-    const nativeId = isSpotifyId(own) ? own : track.externalIds?.spotify
+    const ownId = isSpotifyId(own)
+    const nativeId = ownId ? own : track.externalIds?.spotify
     if (!isSpotifyId(nativeId)) return track
     const details = await this.getTrackDetails(formatId('spotify', 'track', nativeId), ctx)
-    return withDetails(track, details)
+    return withDetails(track, details, ownId)
   }
 
   #withKnownDetails(track: Track): Track {
     const nativeId = track.id.slice('spotify:track:'.length)
     const details = this.#cache.get<SpotifyTrackDetails>(`details:${nativeId}`)
-    return details ? withDetails(track, details) : track
+    return details ? withDetails(track, details, true) : track
   }
 
   // --- Helpers --------------------------------------------------------------------------
 
   #gate(ctx: ProviderContext): void {
     if (!this.#isEnabled()) {
-      throw new SpotifyError('Unsupported', 'disabled', 'Spotify is switched off in the settings')
+      throw new SpotifyError('disabled', 'Spotify is switched off in the settings')
     }
     if (!isSpotifyReachable(ctx)) {
-      throw new SpotifyError('Unsupported', 'unreachable', 'This platform cannot reach Spotify')
+      throw new SpotifyError('unreachable', 'This platform cannot reach Spotify')
     }
   }
 
-  /** The token the home feed uses: the account's when logged in, else anonymous. */
-  async #homeTokenKind(ctx: ProviderContext): Promise<TokenKind> {
-    if (!this.#tokens.hasSession(ctx)) return 'anonymous'
+  /**
+   * Runs a home call with the account's token when the account is connected and logged in,
+   * else anonymously, also when the account turns out to be unusable during the call.
+   */
+  async #withHomeToken<T>(ctx: ProviderContext, load: (kind: TokenKind) => Promise<T>): Promise<T> {
+    if (!this.#tokens.canUseAccount(ctx)) return load('anonymous')
     try {
       await this.#tokens.get('account', ctx)
-      return 'account'
     } catch (error) {
       if (ctx.signal?.aborted) throw error
-      return 'anonymous'
+      return load('anonymous')
+    }
+    try {
+      return await load('account')
+    } catch (error) {
+      if (ctx.signal?.aborted || !isAccountFailure(error)) throw error
+      return load('anonymous')
     }
   }
 
@@ -819,17 +1028,13 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
     const found = unionOf(union, typename)
     if (!found.found) {
       if (found.typename === 'NotFound') {
-        throw new SpotifyError('NotFound', 'not-found', `Spotify has no ${what}`)
+        throw new SpotifyError('not-found', `Spotify has no ${what}`)
       }
-      throw new SpotifyError(
-        'Unavailable',
-        'graphql',
-        `Spotify answered ${found.typename} for ${what}`,
-      )
+      throw new SpotifyError('graphql', `Spotify answered ${found.typename} for ${what}`)
     }
     const entity = map(union)
     if (entity === undefined) {
-      throw new SpotifyError('Parse', 'bad-response', `Spotify sent an unreadable ${what}`)
+      throw new SpotifyError('bad-response', `Spotify sent an unreadable ${what}`)
     }
     return entity
   }
@@ -838,7 +1043,7 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
       return value as JsonRecord
     }
-    throw new SpotifyError('Parse', 'bad-response', `${operation} sent an unexpected answer`)
+    throw new SpotifyError('bad-response', `${operation} sent an unexpected answer`)
   }
 
   async #seedUri(seed: RadioSeed, ctx: ProviderContext): Promise<string> {
@@ -884,20 +1089,23 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
 
 function unsupportedSeed(name: string): SpotifyError {
   return new SpotifyError(
-    'Unsupported',
     'unsupported-seed',
     `No Spotify track or artist matches the radio seed "${name}"`,
   )
 }
 
-function withDetails(track: Track, details: SpotifyTrackDetails): Track {
+/**
+ * `track` with the details it lacks: always the ISRC (a property of the recording); the release
+ * date and popularity only when `release` says the details describe the track's own release.
+ */
+function withDetails(track: Track, details: SpotifyTrackDetails, release: boolean): Track {
   return {
     ...track,
     ...(details.isrc !== undefined && track.isrc === undefined ? { isrc: details.isrc } : {}),
-    ...(details.releaseDate !== undefined && track.releaseDate === undefined
+    ...(release && details.releaseDate !== undefined && track.releaseDate === undefined
       ? { releaseDate: details.releaseDate }
       : {}),
-    ...(details.popularity !== undefined && track.popularity === undefined
+    ...(release && details.popularity !== undefined && track.popularity === undefined
       ? { popularity: details.popularity }
       : {}),
   }
@@ -924,7 +1132,11 @@ function pick<T extends object, K extends keyof T>(
   return picked
 }
 
-/** Creates the Spotify provider. Create one per app and keep it: it holds tokens and caches. */
+/**
+ * Creates the Spotify provider. Create one per app and keep it: it holds tokens and caches.
+ *
+ * @throws TypeError when `options.config` or a secret source is not valid.
+ */
 export function createSpotifyProvider(options: SpotifyProviderOptions = {}): SpotifyProvider {
   return new SpotifyProvider(options)
 }

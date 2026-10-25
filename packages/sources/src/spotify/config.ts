@@ -5,9 +5,10 @@
  *
  * Each hash was found in Spotify's own web-player files before any code used it; the clean-room
  * log in this folder's README records where and when. An operation without a cleanly sourced hash
- * is simply absent, and calls that need it fail with `Unsupported` (`operation-unavailable`).
+ * is simply absent, and calls that need it fail with `Unsupported` (`operation-unsupported`).
  * A newer config, e.g. fetched from FXM's static site, replaces the bundled one through
- * {@link loadSpotifyConfig}, so a Spotify hash change ships without an app release.
+ * {@link loadSpotifyConfig} and `SpotifyProvider.setConfig`, so a Spotify hash change ships
+ * without an app release.
  *
  * @module
  */
@@ -66,7 +67,8 @@ export interface SpotifyConfig {
   readonly endpoints: SpotifyEndpoints
   /**
    * Where the TOTP secret is fetched from by default, tried in order: `https:` URLs of
-   * community-maintained JSON files. Users may replace them with another URL or pasted JSON.
+   * community-maintained JSON files on {@link SPOTIFY_SECRET_SOURCE_HOSTS}. Users may replace
+   * them with another URL or pasted JSON in Settings.
    */
   readonly secretSources: readonly string[]
   /** The User-Agent native transports send, because Spotify refuses non-browser clients. */
@@ -75,13 +77,48 @@ export interface SpotifyConfig {
   readonly operations: Readonly<Partial<Record<SpotifyOperationName, SpotifyOperationConfig>>>
 }
 
+/**
+ * The only hosts a config may name as secret sources: GitHub's raw-file hosts, where the
+ * community secret lists live. A config can therefore not make every FXM install contact an
+ * arbitrary host. A secret source the user enters in Settings may be on any public host.
+ */
+export const SPOTIFY_SECRET_SOURCE_HOSTS: readonly string[] = Object.freeze([
+  'raw.githubusercontent.com',
+  'gist.githubusercontent.com',
+])
+
 const HASH = /^[0-9a-f]{64}$/u
+/** Printable ASCII only: a header value must not carry control characters or line breaks. */
+const USER_AGENT = /^[\x20-\x7e]{1,512}$/u
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-function httpsUrl(value: unknown, what: string, spotifyOnly: boolean): string {
+/** What {@link checkHttpsUrl} requires beyond `https:` and no user name or password. */
+export interface UrlRules {
+  /** `spotify`: a `spotify.com` host other than the official Web API; or exactly these hosts. */
+  hosts?: 'spotify' | readonly string[]
+  /** Refuse `localhost` and IP literals, e.g. a home router's admin page. */
+  publicHost?: boolean
+}
+
+function isLocalOrIpHost(host: string): boolean {
+  return (
+    host === 'localhost' ||
+    host.endsWith('.localhost') ||
+    host.startsWith('[') ||
+    /^\d{1,3}(?:\.\d{1,3}){3}$/u.test(host)
+  )
+}
+
+/**
+ * Checks a URL from a config or from the user's settings and returns it normalized (without a
+ * trailing slash). It must be `https:`, carry no user name or password, and follow `rules`.
+ *
+ * @throws TypeError naming `what` when it does not.
+ */
+export function checkHttpsUrl(value: unknown, what: string, rules: UrlRules = {}): string {
   let url: URL
   try {
     url = new URL(String(value))
@@ -89,13 +126,23 @@ function httpsUrl(value: unknown, what: string, spotifyOnly: boolean): string {
     throw new TypeError(`${what} is not a URL`)
   }
   if (url.protocol !== 'https:') throw new TypeError(`${what} must use https`)
-  const host = url.hostname
-  if (spotifyOnly && host !== 'spotify.com' && !host.endsWith('.spotify.com')) {
-    throw new TypeError(`${what} must be on a spotify.com host`)
+  if (url.username !== '' || url.password !== '') {
+    throw new TypeError(`${what} must not contain a user name or password`)
   }
-  if (spotifyOnly && host === 'api.spotify.com') {
-    // The official Web API answers web-player tokens with 429: FXM never calls it.
-    throw new TypeError(`${what} must not be the official Web API (api.spotify.com)`)
+  const host = url.hostname
+  if (rules.publicHost && isLocalOrIpHost(host)) {
+    throw new TypeError(`${what} must name a public host, not localhost or an IP address`)
+  }
+  if (rules.hosts === 'spotify') {
+    if (host !== 'spotify.com' && !host.endsWith('.spotify.com')) {
+      throw new TypeError(`${what} must be on a spotify.com host`)
+    }
+    if (host === 'api.spotify.com') {
+      // The official Web API answers web-player tokens with 429: FXM never calls it.
+      throw new TypeError(`${what} must not be the official Web API (api.spotify.com)`)
+    }
+  } else if (rules.hosts !== undefined && !rules.hosts.includes(host)) {
+    throw new TypeError(`${what} must be on one of ${rules.hosts.join(', ')}`)
   }
   return url.href.replace(/\/$/u, '')
 }
@@ -106,8 +153,10 @@ function httpsUrl(value: unknown, what: string, spotifyOnly: boolean): string {
  *
  * @throws TypeError when a field is missing or malformed: a version that is not a positive
  * integer, an endpoint that is not `https:` on a `spotify.com` host (the bearer token goes
- * there) or that is the official Web API, a secret source that is not `https:`, an empty
- * User-Agent, or a hash that is not 64 lower-case hex digits.
+ * there) or that is the official Web API, a secret source that is not `https:` on
+ * {@link SPOTIFY_SECRET_SOURCE_HOSTS}, a User-Agent that is not 1 to 512 printable ASCII
+ * characters, or a hash that is not 64 lower-case hex digits. No URL may carry a user name or
+ * password.
  */
 export function parseSpotifyConfig(value: unknown): SpotifyConfig {
   if (!isRecord(value)) throw new TypeError('The Spotify config must be an object')
@@ -117,8 +166,9 @@ export function parseSpotifyConfig(value: unknown): SpotifyConfig {
   }
   if (!isRecord(endpoints)) throw new TypeError('The Spotify config needs endpoints')
   if (!Array.isArray(secretSources)) throw new TypeError('secretSources must be a list of URLs')
-  if (typeof userAgent !== 'string' || userAgent.trim() === '') {
-    throw new TypeError('userAgent must be a non-empty string')
+  const agent = typeof userAgent === 'string' ? userAgent.trim() : ''
+  if (!USER_AGENT.test(agent)) {
+    throw new TypeError('userAgent must be 1 to 512 printable ASCII characters')
   }
   if (!isRecord(operations)) throw new TypeError('operations must be an object')
   const parsedOperations: Partial<Record<SpotifyOperationName, SpotifyOperationConfig>> = {}
@@ -133,19 +183,22 @@ export function parseSpotifyConfig(value: unknown): SpotifyConfig {
       ...(typeof entry.observedIn === 'string' ? { observedIn: entry.observedIn } : {}),
     })
   }
+  const spotify = { hosts: 'spotify' } as const
   return Object.freeze({
     version: version as number,
     ...(typeof updated === 'string' ? { updated } : {}),
     endpoints: Object.freeze({
-      token: httpsUrl(endpoints.token, 'endpoints.token', true),
-      serverTime: httpsUrl(endpoints.serverTime, 'endpoints.serverTime', true),
-      pathfinder: httpsUrl(endpoints.pathfinder, 'endpoints.pathfinder', true),
-      spclient: httpsUrl(endpoints.spclient, 'endpoints.spclient', true),
+      token: checkHttpsUrl(endpoints.token, 'endpoints.token', spotify),
+      serverTime: checkHttpsUrl(endpoints.serverTime, 'endpoints.serverTime', spotify),
+      pathfinder: checkHttpsUrl(endpoints.pathfinder, 'endpoints.pathfinder', spotify),
+      spclient: checkHttpsUrl(endpoints.spclient, 'endpoints.spclient', spotify),
     }),
     secretSources: Object.freeze(
-      secretSources.map((url, index) => httpsUrl(url, `secretSources[${index}]`, false)),
+      secretSources.map((url, index) =>
+        checkHttpsUrl(url, `secretSources[${index}]`, { hosts: SPOTIFY_SECRET_SOURCE_HOSTS }),
+      ),
     ),
-    userAgent: userAgent.trim(),
+    userAgent: agent,
     operations: Object.freeze(parsedOperations),
   })
 }
@@ -156,6 +209,13 @@ export const DEFAULT_SPOTIFY_CONFIG: SpotifyConfig = parseSpotifyConfig(bundled)
 /**
  * The config to use: `candidate` when it is valid and at least as new as `fallback` (by
  * `version`), otherwise `fallback`. Never throws, so a broken download cannot break Spotify.
+ * Apply the result with `SpotifyProvider.setConfig`.
+ *
+ * The checks bound what a config can do (Spotify hosts only for the endpoints, GitHub's raw-file
+ * hosts only for the secret sources, a plain User-Agent), but they cannot tell a genuine config
+ * from a forged one. The web app loads the config from its own origin, like its code. The
+ * desktop and Android apps must verify the config's signature (stage 1.13) before they pass it
+ * in, and keep the bundled config when the check fails.
  */
 export function loadSpotifyConfig(
   candidate: unknown,

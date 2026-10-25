@@ -8,6 +8,10 @@
  * 5 minutes): until then every request fails at once with `RateLimited` (`paused`), so FXM backs
  * off instead of hammering Spotify. Other statuses are returned for the caller to interpret.
  *
+ * A web page can read `Retry-After` only when the response exposes it to the page
+ * (`Access-Control-Expose-Headers`), which FXM Connect's Spotify rules do not do yet. There the
+ * header reads as absent and the exponential backoff applies.
+ *
  * @module
  */
 
@@ -17,8 +21,8 @@ import { eitherSignal } from './signals'
 
 /** Options for {@link SpotifyHttp}. */
 export interface SpotifyHttpOptions {
-  /** The browser User-Agent to send from native transports. */
-  userAgent: string
+  /** The browser User-Agent to send from native transports (read for every request). */
+  userAgent: () => string
   /**
    * Whether to send `userAgent` for a call. Default: on native transports only
    * (`ctx.platform` is not `web`).
@@ -142,7 +146,6 @@ export class SpotifyHttp {
     const remaining = this.#pausedUntil - this.#options.now()
     if (remaining > 0) {
       throw new SpotifyError(
-        'RateLimited',
         'paused',
         `Spotify is paused for ${Math.ceil(remaining / 1000)} s after repeated rate limits ` +
           'or server errors',
@@ -176,7 +179,6 @@ export class SpotifyHttp {
         this.pause(Math.max(o.pauseMs, retryAfter ?? 0))
         const remaining = Math.max(0, this.#pausedUntil - o.now())
         throw new SpotifyError(
-          'RateLimited',
           'paused',
           `${request.what} answered HTTP ${response.status}; ` +
             `Spotify is paused for ${Math.ceil(remaining / 1000)} s`,
@@ -190,7 +192,7 @@ export class SpotifyHttp {
   async #send(request: SpotifyRequest, ctx: ProviderContext): Promise<Response> {
     const o = this.#options
     const headers: Record<string, string> = { ...request.headers }
-    if (o.sendUserAgent(ctx)) headers['User-Agent'] = o.userAgent
+    if (o.sendUserAgent(ctx)) headers['User-Agent'] = o.userAgent()
     const timeout = AbortSignal.timeout(o.timeoutMs)
     const signal = eitherSignal(ctx.signal, timeout)
     try {
@@ -204,14 +206,10 @@ export class SpotifyHttp {
     } catch (error) {
       if (ctx.signal?.aborted) throw ctx.signal.reason
       if (timeout.aborted) {
-        throw new SpotifyError(
-          'Network',
-          'network',
-          `${request.what} timed out after ${o.timeoutMs} ms`,
-        )
+        throw new SpotifyError('network', `${request.what} timed out after ${o.timeoutMs} ms`)
       }
       const detail = redact(error instanceof Error ? error.message : String(error))
-      throw new SpotifyError('Network', 'network', `${request.what} failed: ${detail}`)
+      throw new SpotifyError('network', `${request.what} failed: ${detail}`)
     }
   }
 }

@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  checkHttpsUrl,
   DEFAULT_SPOTIFY_CONFIG,
   loadSpotifyConfig,
   parseSpotifyConfig,
   SPOTIFY_OPERATIONS,
+  SPOTIFY_SECRET_SOURCE_HOSTS,
 } from './config'
 import bundled from './spotify-config.json'
 
@@ -29,7 +31,10 @@ describe('the bundled config', () => {
       expect(new URL(url).hostname).toMatch(/(^|\.)spotify\.com$/u)
     }
     expect(DEFAULT_SPOTIFY_CONFIG.secretSources.length).toBeGreaterThan(0)
-    for (const url of DEFAULT_SPOTIFY_CONFIG.secretSources) expect(url).toMatch(/^https:\/\//u)
+    for (const url of DEFAULT_SPOTIFY_CONFIG.secretSources) {
+      expect(url).toMatch(/^https:\/\//u)
+      expect(SPOTIFY_SECRET_SOURCE_HOSTS).toContain(new URL(url).hostname)
+    }
     expect(JSON.stringify(bundled)).not.toMatch(/"secret"\s*:/u)
     expect(DEFAULT_SPOTIFY_CONFIG.userAgent).toMatch(/^Mozilla\/5\.0 /u)
   })
@@ -90,11 +95,31 @@ describe('parseSpotifyConfig', () => {
       /https/u,
     ],
     [
+      'a secret source on another host',
+      (c) => Object.assign(c, { secretSources: ['https://tracker.example/secret.json'] }),
+      /raw\.githubusercontent\.com/u,
+    ],
+    [
       'secret sources that are not a list',
       (c) => Object.assign(c, { secretSources: 'x' }),
       /list/u,
     ],
+    [
+      'a URL with a user name and password',
+      (c) => Object.assign(c.endpoints, { token: 'https://user:pass@open.spotify.com/api/token' }),
+      /user name or password/u,
+    ],
     ['an empty User-Agent', (c) => Object.assign(c, { userAgent: ' ' }), /userAgent/u],
+    [
+      'a User-Agent with a line break',
+      (c) => Object.assign(c, { userAgent: 'Mozilla/5.0\r\nX-Evil: 1' }),
+      /printable ASCII/u,
+    ],
+    [
+      'a User-Agent that is too long',
+      (c) => Object.assign(c, { userAgent: `Mozilla/5.0 ${'x'.repeat(512)}` }),
+      /512/u,
+    ],
     ['no operations', (c) => Object.assign(c, { operations: [] }), /operations/u],
     [
       'a malformed hash',
@@ -116,6 +141,24 @@ describe('parseSpotifyConfig', () => {
     const config = copy()
     Object.assign(config.endpoints, { spclient: 'https://SPCLIENT.wg.spotify.com/' })
     expect(parseSpotifyConfig(config).endpoints.spclient).toBe('https://spclient.wg.spotify.com')
+  })
+})
+
+describe('checkHttpsUrl', () => {
+  it('can require a public host', () => {
+    const rules = { publicHost: true }
+    expect(checkHttpsUrl('https://example.org/s.json', 'x', rules)).toBe(
+      'https://example.org/s.json',
+    )
+    for (const url of [
+      'https://localhost/s.json',
+      'https://app.localhost/s.json',
+      'https://192.168.1.1/router-admin.json',
+      'https://2130706433/s.json',
+      'https://[::1]/s.json',
+    ]) {
+      expect(() => checkHttpsUrl(url, 'x', rules), url).toThrow(/public host/u)
+    }
   })
 })
 
