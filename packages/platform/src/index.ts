@@ -9,6 +9,22 @@
  * @module
  */
 
+export {
+  type AndroidHttp,
+  type AndroidHttpOptions,
+  androidHttpIfAvailable,
+  createAndroidHttp,
+  FXM_HTTP_ERROR_CODES,
+  FXM_HTTP_MAX_READ_BYTES,
+  FXM_HTTP_PLUGIN,
+  FXM_HTTP_READ_BYTES,
+  type FxmHttpChunk,
+  type FxmHttpErrorCode,
+  type FxmHttpPlugin,
+  type FxmHttpRequest,
+  type FxmHttpResponseHead,
+  fxmHttpErrorCode,
+} from './android-http'
 export type {
   AcquireOptions,
   BotCheckCause,
