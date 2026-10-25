@@ -49,6 +49,11 @@ const services: Service[] = [
     use: 'Free music, including lossless FLAC.',
   },
   { name: 'Jamendo', url: 'https://www.jamendo.com', use: 'Free music, including lossless FLAC.' },
+  {
+    name: 'SponsorBlock',
+    url: 'https://sponsor.ajay.app',
+    use: "Only if you turn it on (it's off by default), in Music + Video mode: which parts of a music video aren't music, such as an intro or a skit, so FXM can skip them. FXM sends only the first four characters of a hash of the video's ID, which a great many videos share, so SponsorBlock can't tell which video you play.",
+  },
 ]
 
 const cookies = `FXM doesn't set cookies or use them to follow you. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, FXM uses your Spotify login as described in`
@@ -64,7 +69,7 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
   description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device. Here is which services your device talks to, and why."
   heading="Privacy"
   lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device."
-  updated="2026-10-25"
+  updated="2026-10-26"
 >
   <h2>The short version</h2>
   <ul>
