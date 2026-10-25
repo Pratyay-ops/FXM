@@ -1,4 +1,4 @@
-import { type Page, test } from '@playwright/test'
+import { expect, type Page, test } from '@playwright/test'
 
 // Visual check, not a test: `pnpm --filter @fxm/web screenshots` saves every page at
 // several widths in both themes to apps/web/screenshots/ (gitignored).
@@ -14,8 +14,8 @@ const PAGES = [
   ['search', 'search'],
   ['results', 'search?q=daft%20punk'],
   ['library', 'library'],
-  ['album', 'album/MPREb_42'],
-  ['artist', 'artist/UC-daft'],
+  ['album', 'album/ytm:MPREb_42'],
+  ['artist', 'artist/ytm:UC-daft'],
   ['playlist', 'playlist/liked'],
   ['now-playing', 'now-playing'],
   ['settings', 'settings'],
@@ -80,6 +80,65 @@ for (const theme of THEMES) {
     })
   }
 }
+
+// Search and browse with the fake catalog (src/features/search/dev-fakes.ts): `pnpm screenshots`
+// builds with VITE_FXM_FAKE_CATALOG=on, and `?fake=<tier>` picks the tier. Each entry names the
+// text that shows the page has loaded.
+const CATALOG_WIDTHS = [320, 768, 1280] as const
+const CATALOG_PAGES = [
+  ['results', 'search?q=harbor&fake=full', 'Afterglow Avenue'],
+  ['results-lite', 'search?q=owl&fake=lite', 'Rooftop Radio'],
+  ['results-free', 'search?q=owl&fake=free', 'Set up YouTube Music'],
+  ['album', 'album/ytm:alb-neon-harbor?fake=full', 'Last Ferry Home'],
+  ['artist', 'artist/ytm:art-nova-lane?fake=full', 'Fans also like'],
+  ['playlist', 'playlist/ytm:pl-late-night-drive?fake=full', 'Neon Prayer'],
+  ['album-free', 'album/ytm:alb-neon-harbor?fake=free', 'This album is on YouTube Music'],
+  ['spotify-unreachable', 'album/spotify:alb-owl-hours?fake=lite', 'This album is on Spotify'],
+] as const
+
+for (const theme of THEMES) {
+  for (const width of CATALOG_WIDTHS) {
+    test.describe(`catalog, ${theme} at ${width}px`, () => {
+      test.use(viewport(width))
+
+      test('captures search and browse with the fake catalog', async ({ page }) => {
+        await seedSettings(page, 'music', theme)
+        for (const [name, path, ready] of CATALOG_PAGES) {
+          await page.goto(path)
+          await page.getByText(ready).first().waitFor()
+          const overflow = await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          )
+          expect(overflow, `${path} overflows horizontally`).toBeLessThanOrEqual(0)
+          await page.screenshot({
+            path: `screenshots/${theme}-${width}-catalog-${name}.png`,
+            fullPage: true,
+          })
+        }
+
+        await page.goto('album/ytm:alb-neon-harbor?fake=full')
+        await page.getByRole('button', { name: 'More options for Neon Harbor' }).click()
+        await page.getByRole('menu').waitFor()
+        await page.screenshot({ path: `screenshots/${theme}-${width}-catalog-menu.png` })
+        await page.getByRole('menuitem', { name: 'Add to playlist…' }).click()
+        await page.getByRole('button', { name: /^Workout/ }).waitFor()
+        await page.screenshot({ path: `screenshots/${theme}-${width}-catalog-dialog.png` })
+      })
+    })
+  }
+}
+
+test.describe('catalog in Music + Video mode at 1280px', () => {
+  test.use(viewport(1280))
+
+  test('captures video results', async ({ page }) => {
+    await seedSettings(page, 'all', 'dark')
+    await page.goto('search?q=paper%20moons&fake=full')
+    await page.getByRole('tab', { name: 'Videos' }).click()
+    await page.getByText('Live at the Lantern').first().waitFor()
+    await page.screenshot({ path: 'screenshots/dark-1280-all-catalog-videos.png' })
+  })
+})
 
 test.describe('forced colors (Windows High Contrast) at 1280px', () => {
   test.use({ ...viewport(1280), forcedColors: 'active' })
