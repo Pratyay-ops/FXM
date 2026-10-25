@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
 
 // Paths are relative to the /app/ base URL (see playwright.config.ts).
@@ -6,13 +7,50 @@ const PAGES = [
   'search',
   'search?q=lofi%20beats',
   'library',
+  'library?tab=liked',
+  'library?tab=recent',
   'album/MPREb_42',
   'artist/UC-daft',
   'playlist/liked',
+  'playlist/local:playlist:liked',
   'now-playing',
   'settings',
   'no-such-page',
 ]
+
+/** A library backup with three playlists, likes, follows and plays (fictional songs). */
+const LIBRARY_BACKUP = fileURLToPath(new URL('./fixtures/library-backup.json', import.meta.url))
+const ROAD_TRIP = 'playlist/local:playlist:6f1c2d3e-0000-4000-8000-000000000001'
+
+/** Restores the fixture library through the Backup dialog, replacing what is there. */
+async function restoreLibrary(page: Page) {
+  await page.goto('library')
+  await page.getByRole('main').getByRole('button', { name: 'Backup' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Back up your library' })
+  await dialog.getByLabel('Choose a backup file').setInputFiles(LIBRARY_BACKUP)
+  await dialog.getByRole('radio', { name: /Replace/ }).check()
+  await dialog.getByRole('button', { name: 'Replace my library' }).click()
+  await expect(page.getByText('Library replaced from the backup')).toBeVisible()
+}
+
+/** Scrolls a playlist's first song to the middle of the window. */
+async function centerList(page: Page, name: string) {
+  await page
+    .getByRole('list', { name: `Songs in ${name}` })
+    .getByRole('listitem')
+    .first()
+    .evaluate((row) => row.scrollIntoView({ block: 'center' }))
+}
+
+/** The song titles of a playlist, in the order shown. */
+function songOrder(page: Page, name: string) {
+  return page
+    .getByRole('list', { name: `Songs in ${name}` })
+    .getByRole('button', { name: /^More options for / })
+    .evaluateAll((buttons) =>
+      buttons.map((button) => button.getAttribute('aria-label')?.replace('More options for ', '')),
+    )
+}
 
 const GREETING = /^Good (morning|afternoon|evening)$/
 
@@ -115,6 +153,68 @@ test('keeps the catalog mode and theme across a reload', async ({ page }) => {
   await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await expect(page.getByRole('link', { name: /Catalog mode: Music \+ Video/ })).toBeVisible()
+})
+
+test('keeps a custom order made by keyboard and by the menu across a reload', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto(ROAD_TRIP)
+  await expect(page.getByRole('heading', { level: 1, name: 'Road trip' })).toBeVisible()
+  expect((await songOrder(page, 'Road trip')).slice(0, 3)).toEqual([
+    'Midnight Drive',
+    'Copper Sun',
+    'Gravity Letters',
+  ])
+
+  // Pick the first song up with Space, move it two places down, drop it. Like a screen reader
+  // user, wait for each announcement before the next key.
+  await centerList(page, 'Road trip')
+  const handle = page.getByRole('button', { name: 'Reorder Midnight Drive' })
+  await handle.focus()
+  await page.keyboard.press('Space')
+  await expect(page.getByText('Picked up Midnight Drive, at position 1 of 8.')).toBeAttached()
+  await expect(handle).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByText('Midnight Drive moved to position 2 of 8.')).toBeAttached()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByText('Midnight Drive moved to position 3 of 8.')).toBeAttached()
+  await page.keyboard.press('Space')
+  await expect(page.getByText('Midnight Drive dropped at position 3 of 8.')).toBeAttached()
+  await expect
+    .poll(async () => (await songOrder(page, 'Road trip')).slice(0, 3))
+    .toEqual(['Copper Sun', 'Gravity Letters', 'Midnight Drive'])
+
+  await page.getByRole('button', { name: 'More options for Quiet Machines' }).click()
+  await page.getByRole('menuitem', { name: 'Move to top' }).click()
+  await expect.poll(async () => (await songOrder(page, 'Road trip'))[0]).toBe('Quiet Machines')
+
+  await page.reload()
+  await expect
+    .poll(async () => (await songOrder(page, 'Road trip')).slice(0, 4))
+    .toEqual(['Quiet Machines', 'Copper Sun', 'Gravity Letters', 'Midnight Drive'])
+})
+
+test('drags a song with the mouse into a new place', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto(ROAD_TRIP)
+  const list = page.getByRole('list', { name: 'Songs in Road trip' })
+  // Drag in the middle of the window: near its edges the page scrolls along.
+  await centerList(page, 'Road trip')
+  const handle = list.getByRole('button', { name: 'Reorder Midnight Drive' })
+  const target = list.getByRole('listitem').nth(3)
+  const from = await handle.boundingBox()
+  const to = await target.boundingBox()
+  if (!from || !to) throw new Error('The list is not laid out')
+
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(from.x + from.width / 2, to.y + to.height / 2, { steps: 12 })
+  await page.mouse.up()
+
+  await expect
+    .poll(async () => (await songOrder(page, 'Road trip')).slice(0, 4))
+    .toEqual(['Copper Sun', 'Gravity Letters', 'Northern Lights (Live)', 'Midnight Drive'])
+  await page.reload()
+  await expect.poll(async () => (await songOrder(page, 'Road trip'))[3]).toBe('Midnight Drive')
 })
 
 test.describe('on a short desktop window', () => {

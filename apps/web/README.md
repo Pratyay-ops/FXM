@@ -2,7 +2,7 @@
 
 The FXM web player: a React app served from `/app/`, which later also becomes the installable web applet (stage 5.1) and the shell of the Android app (stage 6.1). Everything runs in the browser: there is no FXM backend.
 
-This stage (2.1) is the **shell**: routing, layout, design system, settings and placeholder pages. Search results, playback and the library plug into it in later stages.
+Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB. Search results and playback plug into it in later stages.
 
 ## Run it
 
@@ -20,7 +20,7 @@ End-to-end tests and screenshots use Playwright and are **not** part of `make ch
 
 ```sh
 scripts/run.sh pnpm --filter @fxm/web exec playwright install chromium
-scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test: navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px
+scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test: navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px, playlist order by keyboard and mouse across reloads
 scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, plus Music + Video and forced colors, in apps/web/screenshots/
 ```
 
@@ -38,12 +38,14 @@ src/
     media/              collection header, card/track/video placeholders
     ui/                 design-system pieces: buttons, IconButton, SegmentedControl, Tabs,
                         RangeSlider, Skeleton, EmptyState, ErrorState, Artwork, Logo
+  db/                   the library database: schema and migrations, repository, live-query
+                        hooks, ordering, match cache, backups (see src/db/README.md)
   features/<name>/      one folder per feature: home, search, library, album, artist,
                         playlist, now-playing, player (bar, controls, store), settings
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
-e2e/                    Playwright smoke test and screenshot capture
+e2e/                    Playwright smoke test and screenshot capture; fixtures/ holds a library backup to restore
 ```
 
 Later stages own their feature folders (`features/search`, `features/now-playing`, `features/library`, …, see [PLAN.md](../../docs/PLAN.md)), so the shell rarely needs to change.
@@ -52,7 +54,9 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 
 - **Routing:** React Router 7 in data mode (`createBrowserRouter`, library mode, no framework plugin), which is what makes `errorElement` and lazy route modules work. The basename is `import.meta.env.BASE_URL` unchanged (`base: '/app/'` in `vite.config.ts`): with the trailing slash, links to Home point at `/app/`, which Vite serves (`/app` is a 404 there). Home and Search ship with the shell; the other pages are lazy chunks. React Router 8 needs Node 22.22+, newer than the toolchain's Node, so it is a later upgrade.
 - **Layout:** desktop (1024 px+) has the sidebar, top bar and player bar; tablets (768–1023 px) get an icon rail; phones (< 768 px) get a top bar with the page title, a mini player and a tab bar. The page scrolls with the window, so mobile browser bars collapse and `<ScrollRestoration>` works. Bottom bars pad for `env(safe-area-inset-bottom)`. `--shell-top` and `--shell-bottom` (in `styles/index.css`) hold the height the bars cover; `html` uses them as `scroll-padding`, so keyboard focus never lands behind a bar. Page content and the top bar row share `max-w-page`.
-- **State:** Zustand. `features/settings/settings-store.ts` persists `{ catalogMode, theme }` to `localStorage` under `fxm.settings.v1`; invalid or unreadable data falls back to the defaults, and other open tabs follow changes. `features/player/player-store.ts` is placeholder UI state: every control responds, nothing plays. TanStack Query is set up with no queries yet.
+- **State:** Zustand. `features/settings/settings-store.ts` persists `{ catalogMode, theme }` to `localStorage` under `fxm.settings.v1`; invalid or unreadable data falls back to the defaults, and other open tabs follow changes. `features/player/player-store.ts` is placeholder UI state: every control responds, nothing plays. TanStack Query is set up for data from the network, with no queries yet.
+- **Library:** IndexedDB through Dexie, in `src/db/` (its [README](src/db/README.md) has the schema, migrations and why orders are stored as they are). Pages read with live queries (`src/db/hooks.ts`), so every view of a playlist, the sidebar and the like buttons update together, in every tab. `features/library/` holds the Library page (`/library?tab=…`: Playlists, Liked songs, Downloads, Artists, Albums, Recently played), the page of a local playlist (`/playlist/local:playlist:…`, chosen by `app/playlist-route.tsx`; other sources' playlists stay with `features/playlist`), the sidebar's playlists and the backup dialog.
+- **Ordering:** every playlist, Liked songs and Downloads included, and the list of playlists keep a custom order the user controls: drag and drop on dnd-kit (pointer, touch and keyboard: Space picks a row up, the arrow keys move it, Space drops it, Escape cancels), Move up, down, to top and to bottom in each row's menu, multi-select moves, **Shuffle order** (a permanent random order, with Undo until the next change) and sort views by title, artist, album, date added or duration that "Save as custom order" makes permanent. In the sidebar a row drags by itself (with the mouse after a few pixels, by a long press on touch); its menu has the moves. Long lists skip the drag animations, and their rows re-render only when their own data changes.
 - **Theme:** dark by default, plus light and system. `data-theme` on `<html>` switches the tokens; the inline script in `index.html` applies the saved theme before React loads (a content security policy must allow it by hash).
 - **Errors:** page errors render inside the shell with "Try again" (`RouteError`); a broken shell falls back to a full-page error, and `AppErrorBoundary` wraps everything. Error screens are announced to screen readers (`role="alert"`).
 - **Accessibility:** a skip link focuses `<main>` without touching the history, `RouteAnnouncer` tells screen readers which page a link opened, and forced colors (Windows High Contrast) keep sliders, segmented controls and tabs readable.
@@ -84,4 +88,5 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 - Selection shown only by a fill disappears in forced colors: add a `forced-colors:` style in system colors (see `SegmentedControl` and `Tabs`).
 - Respect reduced motion: transitions and animations are shortened globally, skeletons stop shimmering.
 - Respect the catalog mode wherever results appear: `useSettingsStore((s) => s.catalogMode)`. Music shows catalog songs only; Music + Video also shows videos, played as music.
-- Tests use `renderApp(path)` from `src/test/render.tsx`, which renders the real providers and routes with a memory router. Stores and `localStorage` are reset after every test. Behaviour that depends on the browser history (basename, back and forward, the skip link) is tested with the real browser router in `src/app/router.test.tsx`.
+- Tests use `renderApp(path)` from `src/test/render.tsx`, which renders the real providers and routes with a memory router. Stores, `localStorage` and the library database (fake-indexeddb) are reset after every test. Behaviour that depends on the browser history (basename, back and forward, the skip link) is tested with the real browser router in `src/app/router.test.tsx`.
+- Read and write the library only through the repository: `getLibrary()` for writes, the hooks in `src/db/hooks.ts` for reads. Never open Dexie tables directly. Seed tests with `getLibrary()`, or use `testRepo()` and `track()` from `src/test/library-fixtures.ts`. happy-dom lays nothing out, so drag-and-drop tests give rows positions first (see `stubRowLayout` in `features/library/library-page.test.tsx`).

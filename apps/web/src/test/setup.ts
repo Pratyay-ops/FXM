@@ -4,6 +4,7 @@ import 'fake-indexeddb/auto'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
+import { useLibraryViewStore } from '../features/library/view-store'
 import { usePlayerStore } from '../features/player/player-store'
 import { useSettingsStore } from '../features/settings/settings-store'
 
@@ -17,6 +18,7 @@ afterEach(async () => {
   // The stores are app-wide singletons: give every test a fresh start.
   useSettingsStore.setState(useSettingsStore.getInitialState(), true)
   usePlayerStore.setState(usePlayerStore.getInitialState(), true)
+  useLibraryViewStore.setState(useLibraryViewStore.getInitialState(), true)
   localStorage.clear()
   delete document.documentElement.dataset.theme
   // After cleanup(), so no live query still watches the database being deleted.

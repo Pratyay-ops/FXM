@@ -1,0 +1,18 @@
+import type { Track } from '@fxm/core'
+import { useCallback } from 'react'
+import { useIsLiked } from '../../db/hooks'
+import { getLibrary } from '../../db/repo'
+
+/**
+ * Whether `track` is liked, and a toggle that likes it (to the top of Liked songs) or removes
+ * the like. Every like button shows the same state, because it is read live from the library.
+ */
+export function useTrackLike(track: Track): { liked: boolean; toggle: () => void } {
+  const liked = useIsLiked(track.id)
+  const toggle = useCallback(() => {
+    getLibrary()
+      .toggleLike(track)
+      .catch((error: unknown) => console.error('The like could not be saved', error))
+  }, [track])
+  return { liked, toggle }
+}

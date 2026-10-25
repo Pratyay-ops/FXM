@@ -31,13 +31,14 @@ describe('app layout', () => {
     expect(sidebar.getByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current')
   })
 
-  it('lists the placeholder playlists in the sidebar', async () => {
-    renderApp('/playlist/liked')
+  it('lists the playlists of the library in the sidebar, the open one marked', async () => {
+    renderApp('/playlist/local:playlist:liked')
     const sidebar = within(mainNavs()[0] as HTMLElement)
     expect(await sidebar.findByRole('link', { name: /Liked songs/ })).toHaveAttribute(
       'aria-current',
       'page',
     )
+    expect(sidebar.getByRole('link', { name: /Downloads/ })).not.toHaveAttribute('aria-current')
   })
 
   it('has banner, main and player landmarks', async () => {
