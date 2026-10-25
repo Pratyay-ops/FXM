@@ -81,11 +81,6 @@ if [ -f "$wrapper" ]; then
   fi
 fi
 if [ -d "$ANDROID_HOME/platform-tools" ]; then ok android "$(short "$ANDROID_HOME")"; else opt android "not installed: 'make android-setup' (stage 6.1)"; fi
-if command -v ffmpeg >/dev/null 2>&1; then
-  ok ffmpeg "$(ffmpeg -version | head -1 | cut -d' ' -f1-3) (system, used by the self-hosted server)"
-else
-  opt ffmpeg "not found (only the self-hosted server in stage 7.1 needs it)"
-fi
 
 # Desktop app (stage 7.1): the repo-local Rust toolchain, then the OS packages Tauri
 # needs, which can't live in the repo. Reads the toolchain directly, so rustup never
