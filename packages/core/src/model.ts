@@ -40,8 +40,9 @@ export interface AlbumRef {
  * What a track is, which drives the catalog-mode policy (see `modePolicy`):
  *
  * - `song`: a catalog song, i.e. official album audio. YouTube Music songs (`musicVideoType`
- *   `ATV`) and every audio track from Spotify, Internet Archive, Jamendo, JioSaavn or local files
- * - `music-video`: an official music video (`OMV` / `OFFICIAL_SOURCE_MUSIC`)
+ *   `ATV`) and every audio track from Spotify, Internet Archive, Jamendo or local files
+ * - `music-video`: an official music video (`OMV` / `OFFICIAL_SOURCE_MUSIC`), which may link
+ *   the song it is the video of (`Track.songId`)
  * - `video`: any other YouTube video (`UGC`, or no `musicVideoType`): covers, live sets, uploads
  * - `episode`: a podcast episode (hidden for now)
  */
@@ -73,6 +74,16 @@ export interface Track {
   isrc?: string
   /** Song, music video, video or episode. */
   kind: TrackKind
+  /**
+   * For an official music video (`kind` `music-video`): the song it is the video of, when the
+   * source links the two, e.g. `ytm:track:<videoId of the song>`. Never the video's own ID, nor
+   * its videoId under the other YouTube prefix: `songForVideo` ignores such a link, so leave it
+   * out when an album page lists the video itself. YouTube Music's album pages link official
+   * videos to their songs, so the YouTube provider sets it from them; anonymous search and `next`
+   * results carry no such link, so it is often absent. Music mode plays a linked video as this
+   * song (see `songForVideo` and `modePolicy`). Tracks of other kinds leave it out.
+   */
+  songId?: EntityId<'track'>
   /** Position on its disc, starting at 1. */
   trackNumber?: number
   /** Disc number, starting at 1. */

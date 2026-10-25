@@ -24,7 +24,14 @@ import type {
   Track,
   TrackKind,
 } from './model'
-import type { Codec, Container, QualityPrefs, QualityTier } from './quality'
+import type {
+  Codec,
+  Container,
+  FullLengthCheck,
+  QualityPrefs,
+  QualityTier,
+  StreamMedia,
+} from './quality'
 
 /**
  * The parts of `RequestInit` that providers use. Only relevant where the program has no global
@@ -71,10 +78,12 @@ export interface MinimalResponse {
 export type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise<MinimalResponse>
 
 /**
- * The `fetch` a provider must use for every request; providers never touch the global one.
- * The platform injects it: `window.fetch` in a browser page (YouTube and Spotify answer only
- * when the FXM Connect extension is installed), the Tauri HTTP plugin's `fetch` on desktop, a
- * native-HTTP wrapper on Android, or Node's `fetch` in tests and scripts.
+ * The `fetch` a provider must use for every request, as `ctx.fetch`, on every platform and tier;
+ * providers never touch the global one. The platform injects it: in a browser page, a `fetch`
+ * built on `window.fetch` (YouTube and Spotify answer it only through the FXM Connect extension,
+ * and in the `simple` YouTube tier it routes InnerTube requests through a sandboxed document,
+ * see {@link YouTubeAccess}), the Tauri HTTP plugin's `fetch` on desktop, a native-HTTP wrapper
+ * on Android, or Node's `fetch` in tests and scripts.
  *
  * In any program that has a global `fetch` (DOM, web worker or Node types) this is exactly
  * `typeof fetch`, so every implementation above can be passed as is. `@fxm/core` itself loads
@@ -102,17 +111,73 @@ export type AbortSignalLike = typeof globalThis extends { AbortSignal: { prototy
 /** The app FXM runs in. */
 export type Platform = 'web' | 'desktop' | 'android'
 
-/** What the platform's network stack can do, which decides the providers and pipes on offer. */
-export interface NetworkCapabilities {
-  /** Can call YouTube and YouTube Music (desktop, Android, or web with FXM Connect). */
-  youtube: boolean
-  /** Can call Spotify (desktop, Android, or web with FXM Connect). */
-  spotify: boolean
-  /** Can read media bytes from googlevideo.com, which downloads of YouTube audio need. */
-  mediaBytes: boolean
+/**
+ * How far the platform reaches YouTube and YouTube Music. Each level allows everything the one
+ * before it does:
+ *
+ * - `none`: no YouTube at all (a plain web page without the Lite tier)
+ * - `simple`: the web app's experimental Lite tier, which needs no install. InnerTube calls
+ *   (search, browse, `next` and `player`) work as CORS-simple POSTs from a sandboxed document
+ *   with an opaque origin, but googlevideo's bytes cannot be read: no downloads, no end-of-file
+ *   range probes and no equalizer, and the resolver's deciphering and PO-token rungs are
+ *   unavailable, as is its SABR rung, which reads googlevideo's bytes. Audio plays through
+ *   `<audio src>` directly. Providers must keep their InnerTube requests CORS-simple here: a
+ *   `text/plain` POST body and no custom headers, so visitorData goes in the request body
+ *   rather than in an `X-Goog-Visitor-Id` header
+ * - `full`: everything, including reading media bytes: the web app with FXM Connect, the desktop
+ *   app or the Android app
+ */
+export type YouTubeAccess = 'none' | 'simple' | 'full'
+
+/**
+ * How far the platform reaches Spotify. Each level allows everything the one before it does:
+ *
+ * - `unreachable`: no Spotify at all (a plain web page, the Lite tier included)
+ * - `anonymous`: anonymous web-player tokens can be fetched
+ * - `account`: a logged-in token source exists too: FXM Connect's session bridge once the user
+ *   has turned it on, or a login window on desktop and Android. Whether the user is logged in
+ *   is up to `AccountProvider.status`
+ *
+ * This is separate from the user's Spotify on/off switch, which lives in the app settings: FXM
+ * uses Spotify only when the switch is on and Spotify is not `unreachable`.
+ */
+export type SpotifyAccess = 'unreachable' | 'anonymous' | 'account'
+
+/** What {@link NetworkCapabilities} hold whatever the platform's YouTube access. */
+interface CommonCapabilities {
+  /**
+   * How far Spotify can be reached: `unreachable`, `anonymous` or `account`, whatever the user's
+   * Spotify switch says.
+   */
+  spotify: SpotifyAccess
   /** Can write files outside browser storage. */
   fileSystem: boolean
 }
+
+/**
+ * What the platform's network stack can do, which decides the providers and pipes on offer.
+ *
+ * It is a union on `youtube`, so that only `full` YouTube access can claim to read media bytes:
+ * with `none` or `simple`, `mediaBytes` is always `false`. A platform that works out its access
+ * at run time therefore checks `youtube === 'full'` before it sets `mediaBytes` to anything but
+ * `false`.
+ */
+export type NetworkCapabilities =
+  | (CommonCapabilities & {
+      /** How far YouTube and YouTube Music can be reached: not at all, or in the `simple` tier. */
+      youtube: 'none' | 'simple'
+      /** Always `false`: googlevideo's bytes can be read only with `full` YouTube access. */
+      mediaBytes: false
+    })
+  | (CommonCapabilities & {
+      /** How far YouTube and YouTube Music can be reached: `full`, everything. */
+      youtube: 'full'
+      /**
+       * Can read media bytes from googlevideo.com, which downloads of YouTube audio, end-of-file
+       * range probes and an equalizer on YouTube audio need. Normally `true`.
+       */
+      mediaBytes: boolean
+    })
 
 /** Everything a provider call needs to know about where it runs. Passed to every call. */
 export interface ProviderContext {
@@ -196,7 +261,8 @@ export interface MetadataProvider {
  * title and artist, or it rejects with an `Unsupported` `FxmError`.
  *
  * In Music mode, seed radio with a song: map an official music video to its song first (the
- * matching engine does that), because radio from a video drifts into videos.
+ * linked one from `songForVideo`, else the one the matching engine finds), because radio from a
+ * video drifts into videos.
  */
 export type RadioSeed = Track | ArtistRef
 
@@ -211,6 +277,40 @@ export interface RecommendationProvider {
   radio(seed: RadioSeed, ctx: ProviderContext): Promise<Track[]>
   /** A home feed, e.g. Spotify's personal shelves when the user is logged in. */
   home?(ctx: ProviderContext): Promise<Shelf[]>
+}
+
+/**
+ * What is known about an {@link AudioCandidate} beyond how alike its title, artists and duration
+ * are to the track's: the facts the matching engine weighs before it lets a candidate play
+ * without asking.
+ */
+export interface MatchSignals {
+  /**
+   * Whether the candidate is known to be the recording with the track's ISRC: its own ISRC is
+   * the track's, or an ISRC search found it and it passed the matching engine's ISRC check.
+   * `false` when either ISRC is unknown, they differ, or nothing was checked.
+   */
+  isrcVerified: boolean
+  /**
+   * The release (album, single or EP) the candidate comes from, as a native ID in its source's
+   * canonical form, like `ref`, so `formatId(source, 'album', releaseId)` is the album's ID: for
+   * YouTube Music, the album's browseId (`MPREb_…`).
+   */
+  releaseId?: string
+  /**
+   * The year that release came out, e.g. `2009` for a 2009 remaster of a 1967 recording, so
+   * re-releases and re-recordings can be told apart.
+   */
+  releaseYear?: number
+  /** The record label that issued the release, as the source spells it. */
+  label?: string
+  /**
+   * Whether the candidate comes from the same album as the track being matched, e.g. the
+   * Spotify track's album on YouTube Music. `false` when either album is unknown or they differ.
+   * The matching engine relies on it, for example, before it auto-plays a classical work, whose
+   * title alone fits many recordings.
+   */
+  sourceAlbumMatch: boolean
 }
 
 /**
@@ -244,9 +344,14 @@ export interface AudioCandidate {
   confidence: number
   /**
    * Why it matched, for debugging and the source switcher, e.g. `isrc`, `title 0.97`,
-   * `duration -1.2s`.
+   * `duration -1.2s`. Text for people: code reads `signals`.
    */
   evidence: string[]
+  /**
+   * The facts beyond text similarity: ISRC, release and album (see {@link MatchSignals}).
+   * Providers that do not compute them leave them out, and the matching engine fills them in.
+   */
+  signals?: MatchSignals
 }
 
 /** How a stream is delivered. `sabr` is YouTube's server-driven streaming protocol. */
@@ -261,7 +366,11 @@ export type JsonValue = string | number | boolean | null | readonly JsonValue[] 
  */
 export type JsonObject = { readonly [key: string]: JsonValue }
 
-/** One concrete way to play a candidate. */
+/**
+ * One concrete way to play a candidate. The codec, bitrate, sample rate, bit depth and tier
+ * always describe the audio, even when the file is a video with an audio track (`media`
+ * `muxed-video`).
+ */
 export interface StreamOption {
   /**
    * Where the player gets the audio: the media URL for `progressive`, the manifest URL for `hls`
@@ -270,15 +379,24 @@ export interface StreamOption {
   url: string
   /** Audio codec. */
   codec: Codec
-  /** Container format. */
+  /** Container format of the file, e.g. `mp4` for a muxed video. */
   container: Container
-  /** Average bitrate in kbps. */
+  /**
+   * Audio only, or a video file whose audio track FXM plays or extracts (see `StreamMedia`).
+   * Required, so that no resolver forgets to say. A muxed video costs more data, so
+   * `compareStreams` ranks it after the audio-only options of its tier.
+   */
+  media: StreamMedia
+  /** Average bitrate of the audio in kbps. */
   bitrateKbps?: number
   /** Sample rate in Hz. */
   sampleRateHz?: number
   /** Bits per sample, for lossless streams. */
   bitDepth?: number
-  /** Quality tier, usually from `tierOf`. */
+  /**
+   * Quality tier of the audio, usually from `tierOf`. Only a lossless codec is `lossless`, so
+   * YouTube audio (Opus or AAC) never is.
+   */
   tier: QualityTier
   /** How the stream is delivered. */
   protocol: StreamProtocol
@@ -286,6 +404,14 @@ export interface StreamOption {
   expiresAt?: number
   /** Whether the URL only works from the IP address that resolved it (true for YouTube). */
   ipBound: boolean
+  /**
+   * Whether the URL is known to deliver the whole file (see `FullLengthCheck`): `verified` after
+   * an end-of-file range probe, `unverified` when the bytes cannot be read or were not probed,
+   * and `capped` when a probe showed that the URL stops early. A capped option must never be
+   * played or downloaded, so `pickStream` never picks one. Required, so that no resolver forgets
+   * to say.
+   */
+  fullLength: FullLengthCheck
   /** Headers the request must send, e.g. a `Referer`. */
   requestHeaders?: Record<string, string>
   /**
@@ -307,16 +433,23 @@ export interface AudioSource {
   /**
    * Candidates for `track`, best first. Empty when the source has nothing. Every candidate is
    * playable in `ctx.mode` as it is (`isPlayable(candidate, ctx.mode)`, or `filterPlayable` on
-   * the list): in Music mode a music-video track is matched to its song, and the video itself is
-   * never returned as a candidate.
+   * the list): in Music mode a music-video track is matched to its song (the linked one when
+   * `songForVideo` names it), and the video itself is never returned as a candidate.
    */
   match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
   /**
-   * Every usable stream option for a candidate, best first as `compareStreams` orders them. It
+   * Every stream option found for a candidate, best first as `compareStreams` orders them. It
    * never drops an option because of `prefs`: the same list serves playback, which applies the
    * tier ceiling of the current connection with `pickStream`, and downloads, which want the best
-   * option (e.g. a real FLAC original). `prefs` is only a hint for ordering options of equal
-   * quality, e.g. putting first the codec that `prefs.download.format` needs no conversion for.
+   * option (e.g. a real FLAC original, `pickStream(options, 'lossless')`). `prefs` is only a hint
+   * for ordering options of equal quality, e.g. putting first the codec that
+   * `prefs.download.format` needs no conversion for.
+   *
+   * Every option says whether its URL delivers the whole file (`fullLength`). Where the bytes
+   * can be read (`ctx.capabilities.mediaBytes`), a resolver whose source may cap URLs, such as
+   * YouTube's, probes the end of the file; where they cannot, its options are `unverified`. An
+   * option found `capped` may stay in the list so that the caller can tell why nothing plays,
+   * but it comes last, and `pickStream` never picks it.
    */
   resolve(
     candidate: AudioCandidate,
