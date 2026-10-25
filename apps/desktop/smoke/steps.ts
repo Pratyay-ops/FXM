@@ -40,6 +40,12 @@ export class Pending extends Error {
   override readonly name = 'Pending'
 }
 
+/**
+ * Runs one step and records its result: `run` returns the step's value and a detail for the
+ * report. Resolves with the value, or `undefined` when the step failed or waits.
+ */
+export type RunStep = <T>(name: string, run: () => Promise<[T, string]>) => Promise<T | undefined>
+
 /** A YouTube Music song found by a search. */
 export interface FoundSong {
   readonly videoId: string
@@ -91,6 +97,8 @@ export interface SmokeOptions {
   readonly now?: () => number
   /** Called with each step's result as soon as it is known, for progress. */
   readonly onStep?: (result: StepResult) => void
+  /** Steps to run after these, such as stage 7.3's playback steps (`playback-steps.ts`). */
+  readonly extraSteps?: (step: RunStep) => Promise<void>
 }
 
 /** The service worker data of www.youtube.com, which carries a server-issued visitorData. */
@@ -227,6 +235,8 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
           return [true, `${durationS.toFixed(1)} s`]
         },
   )
+
+  await options.extraSteps?.(step)
 
   return { ok: steps.every((result) => result.status !== 'failed'), steps }
 }

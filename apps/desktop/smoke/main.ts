@@ -7,8 +7,13 @@
  */
 
 import { createPlatform } from '@fxm/platform'
+import { connectMediaSession, mimeTypeOf } from '@fxm/player'
 import { emit } from '@tauri-apps/api/event'
+import { createDesktopPlayback, type DesktopPlayback, PLAYBACK_LOCK, pageLocks } from '../bridge'
+import { type PlaybackEnvironment, runPlaybackSteps } from './playback-steps'
 import { htmlAudioPlayer } from './player'
+import { FREE_PLAYLIST, youtubeSongs } from './playlists'
+import { appQueuePlayer, type PlaybackSample } from './queue-player'
 import { runSmoke, type SmokeReport } from './steps'
 import { interimYouTube } from './youtube'
 
@@ -29,10 +34,42 @@ function log(line: string): void {
 addEventListener('error', (event) => log(`page error: ${event.message}`))
 addEventListener('unhandledrejection', (event) => log(`unhandled: ${String(event.reason)}`))
 
+/** Where the app runs, from the shell and from the webview itself (stage 7.3). */
+async function playbackEnvironment(desktop: DesktopPlayback): Promise<PlaybackEnvironment> {
+  const shell = (await desktop.ready) ?? (await desktop.shell.environment())
+  const audio = document.createElement('audio')
+  const canPlay = (codec: 'opus' | 'aac', container: 'webm' | 'm4a') =>
+    audio.canPlayType(mimeTypeOf({ codec, container }) ?? '')
+  return {
+    shell,
+    canPlayType: { opus: canPlay('opus', 'webm'), aac: canPlay('aac', 'm4a') },
+    mediaSession: 'mediaSession' in navigator,
+    webLocks: pageLocks() !== undefined,
+    visibility: document.visibilityState,
+  }
+}
+
+/** Whether the playback lock is held, and what the Media Session shows, right now. */
+async function samplePage(): Promise<PlaybackSample> {
+  let webLock: boolean | undefined
+  if (typeof navigator.locks?.query === 'function') {
+    const { held = [] } = await navigator.locks.query()
+    webLock = held.some((lock) => lock.name === PLAYBACK_LOCK)
+  }
+  const mediaSessionTitle =
+    'mediaSession' in navigator ? (navigator.mediaSession.metadata?.title ?? '') : undefined
+  return {
+    ...(webLock === undefined ? {} : { webLock }),
+    ...(mediaSessionTitle === undefined ? {} : { mediaSessionTitle }),
+    visibility: document.visibilityState,
+  }
+}
+
 async function smoke(): Promise<SmokeReport> {
   log(`started in ${navigator.userAgent}`)
   const platform = await createPlatform()
   log(`platform ${platform.environment}: ${JSON.stringify(platform.capabilities.current)}`)
+  const desktop = createDesktopPlayback({ onError: (error) => log(`desktop: ${String(error)}`) })
   try {
     return await runSmoke({
       context: () => platform.context({ mode: 'music', priority: 'interactive' }),
@@ -42,8 +79,31 @@ async function smoke(): Promise<SmokeReport> {
       query: 'Radiohead Creep',
       freeTrack: FREE_TRACK,
       onStep: (step) => log(`${step.status} ${step.name}: ${step.detail}`),
+      // Stage 7.3: three tracks in a row through the app's player, in this hidden window.
+      extraSteps: (step) =>
+        runPlaybackSteps(step, {
+          environment: () => playbackEnvironment(desktop),
+          playlists: [
+            { label: 'YouTube Music songs', build: youtubeSongs },
+            { label: FREE_PLAYLIST.label, build: async () => FREE_PLAYLIST },
+          ],
+          player: appQueuePlayer({
+            context: () => platform.context({ mode: 'music', priority: 'current-track' }),
+            createEngine: () => desktop.createEngine(),
+            playerOptions: desktop.playerOptions,
+            lifecycleOptions: desktop.lifecycleOptions,
+            connect: (player) => {
+              const disconnects = [desktop.connect(player), connectMediaSession(player)]
+              return () => {
+                for (const disconnect of disconnects) disconnect()
+              }
+            },
+            sample: samplePage,
+          }),
+        }),
     })
   } finally {
+    desktop.dispose()
     platform.dispose()
   }
 }
