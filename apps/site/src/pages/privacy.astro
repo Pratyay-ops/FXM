@@ -36,12 +36,22 @@ const services: Service[] = [
   {
     name: 'ListenBrainz',
     url: 'https://listenbrainz.org',
-    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}.`,
+    use: `Recommendations for your home feed, and finding a song's album for its cover${soon(AVAILABLE.homeFeed)}.`,
   },
   {
     name: 'Last.fm',
     url: 'https://www.last.fm',
-    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}.`,
+    use: `Recommendations for your home feed and radio: similar artists, and in the apps and the web app with FXM Connect, Last.fm's stations${soon(AVAILABLE.homeFeed)}.`,
+  },
+  {
+    name: 'Cover Art Archive',
+    url: 'https://coverartarchive.org',
+    use: `Album covers for songs whose source has none${soon(AVAILABLE.homeFeed)}. Covers load from the Internet Archive's servers.`,
+  },
+  {
+    name: "Apple's iTunes Search",
+    url: 'https://performance-partners.apple.com/search-api',
+    use: `Album covers for songs that neither their source nor the Cover Art Archive has one for${soon(AVAILABLE.homeFeed)}.`,
   },
   {
     name: 'Internet Archive',
@@ -64,7 +74,7 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
   description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device. Here is which services your device talks to, and why."
   heading="Privacy"
   lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device."
-  updated="2026-10-25"
+  updated="2026-10-26"
 >
   <h2>The short version</h2>
   <ul>
