@@ -13,6 +13,7 @@ import { importPath } from './paths'
 import {
   cancelImport,
   HISTORY_IMPORT_KIND,
+  type ImportActivity,
   pauseImport,
   removeImport,
   resumeImport,
@@ -92,6 +93,24 @@ export function ImportActions({
   )
 }
 
+/** One line on where an import stands; a stop that needs the user stands out. */
+export function ImportStatusLine({
+  record,
+  status,
+  activity,
+}: {
+  record: ImportProgressRecord
+  status: ShownStatus
+  activity: ImportActivity | null
+}) {
+  const alarming = status === 'failed' || (status === 'paused' && Boolean(record.error))
+  return (
+    <p className={cn('text-sm', alarming ? 'text-danger' : 'text-text-muted')}>
+      {statusText(record, status, activity ?? {})}
+    </p>
+  )
+}
+
 /** A progress bar for an import. */
 export function ImportProgress({ record }: { record: ImportProgressRecord }) {
   const share = record.total === 0 ? 1 : record.done / record.total
@@ -141,16 +160,7 @@ function ImportCard({
         </div>
       </div>
       <ImportProgress record={record} />
-      <p
-        className={cn(
-          'text-sm',
-          status === 'failed' || (status === 'paused' && record.error)
-            ? 'text-danger'
-            : 'text-text-muted',
-        )}
-      >
-        {statusText(record, status, activity ?? {})}
-      </p>
+      <ImportStatusLine record={record} status={status} activity={activity} />
       <div className="flex flex-wrap items-center gap-2">
         {!history && (
           <Link

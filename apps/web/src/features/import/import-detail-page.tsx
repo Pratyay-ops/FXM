@@ -21,8 +21,8 @@ import { countLabel } from '../library/format'
 import { playlistPath } from '../library/paths'
 import { failureText } from '../library/playlist-dialogs'
 import { StatusToast, showStatus } from '../library/status'
-import { countsText, kindLabel, lengthText, shownStatus, statusText } from './format'
-import { ImportActions, ImportProgress } from './import-list'
+import { countsText, kindLabel, lengthText, shownStatus } from './format'
+import { ImportActions, ImportProgress, ImportStatusLine } from './import-list'
 import { IMPORT_PATH } from './paths'
 import { ReviewItem } from './review-item'
 import { confirmLikelyMatches, loadImportState, reviewRow, useImportRunner } from './runner'
@@ -162,6 +162,11 @@ function ReviewRows({ id, state }: { id: string; state: ImportState }) {
   }
   return (
     <div className="space-y-3">
+      <p className="max-w-prose text-sm text-text-muted">
+        “Use this song” plays your choice from now on. “Skip” leaves a song as it is: one from
+        Spotify or YouTube stays in the playlist and asks again when you play it, and one from a
+        file stays out of the playlist.
+      </p>
       <ul className="space-y-3">
         {indices.slice(0, shown).map((index) => {
           const row = state.rows[index]
@@ -320,7 +325,7 @@ export function ImportDetailPage() {
       </div>
       <div className="space-y-3">
         <ImportProgress record={record} />
-        <p className="text-sm text-text-muted">{statusText(record, status, activity ?? {})}</p>
+        <ImportStatusLine record={record} status={status} activity={activity} />
         <div className="flex flex-wrap items-center gap-2">
           {record.playlistId !== undefined && (
             <Link

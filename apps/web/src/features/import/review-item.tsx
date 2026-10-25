@@ -132,7 +132,11 @@ export function ReviewItem({
           ))}
         </fieldset>
       ) : (
-        <p className="text-sm text-text-muted">Nothing close enough was found.</p>
+        <p className="text-sm text-text-muted">
+          Nothing close enough was found.
+          {(row.kind === 'video' || row.kind === 'music-video') &&
+            ' The video stays in the playlist and plays in the Music + Video mode.'}
+        </p>
       )}
       {result.noDuration && (
         <p className="text-xs text-text-muted">
