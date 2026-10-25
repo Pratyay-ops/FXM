@@ -65,6 +65,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make build` | Build every app |
 | `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
 | `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
+| `make dist` | Compose what Cloudflare Pages serves (the site, the web app, `_headers`, the third-party notices) into `dist/pages/`, with its licence, header and privacy checks |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make clean` | Remove build output |
@@ -85,6 +86,8 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
+
+`.github/workflows/deploy.yml` runs `make dist` on every push, then deploys `develop` to the preview (`https://develop.fxm-music.pages.dev`) and `main` to production (`https://fxm-music.pages.dev`), the Cloudflare Pages project `fxm-music`, and checks each deployment's headers. How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md).
 
 ## Android app
 
