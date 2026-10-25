@@ -170,7 +170,15 @@ flowchart LR
 | `fxm-site-x.y.z.zip` | The landing page, served from `/`. Unzipped into one folder with the web app, it gives the site's layout |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |
 
-Anyone can check a download: `sha256sum --check --ignore-missing SHA256SUMS` compares it with the checksums, and `gh attestation verify <file> --repo Pratyay-ops/FXM` checks that this repository's release workflow built it. The zips are built reproducibly: sorted entries, fixed permissions and the commit's date on every file.
+Anyone can check a download. `sha256sum --check --ignore-missing SHA256SUMS` compares it with the checksums, and this checks that FXM's release workflow, run for `main` on GitHub's own runners, built it:
+
+```sh
+gh attestation verify <file> --repo Pratyay-ops/FXM \
+  --cert-identity https://github.com/Pratyay-ops/FXM/.github/workflows/release.yml@refs/heads/main \
+  --deny-self-hosted-runners
+```
+
+`--repo` alone would accept an attestation from any workflow in the repository, on any branch. The zips are built reproducibly: sorted entries, fixed permissions and the commit's date on every file.
 
 **Notes and changelog.** git-cliff (`cliff.toml`) turns the Conventional Commits since the previous release into the notes, grouped as Features, Bug fixes, Performance, Refactoring, Documentation, Tests, CI, Build and Chores, plus Other for any other type. It leaves out merge commits, `docs(plan)` status updates, `chore(release)` commits and anything that isn't a Conventional Commit. Commit subjects become the release notes, so write them for the people who will read them. `CHANGELOG.md` lists every released version, newest first, and changes only in release commits.
 

@@ -596,7 +596,9 @@ expect "and a table of the files from the catalog" has "$GH_STUB_DIR/release-not
   "| \`fxm-web-0.1.0.zip\` | The web app for self-hosting"
 expect "that ends with SHA256SUMS" \
   test "$(grep '^| `' "$GH_STUB_DIR/release-notes.md" | tail -1 | cut -d'`' -f2)" = SHA256SUMS
-expect "and how to verify them" has "$GH_STUB_DIR/release-notes.md" "gh attestation verify"
+expect "and how to verify them against the release workflow on main" \
+  has "$GH_STUB_DIR/release-notes.md" \
+  "--cert-identity https://github.com/test/fxm/.github/workflows/release.yml@refs/heads/main"
 publish 0.1.0 "$sha"
 expect "a re-run leaves a published release alone" \
   test "$status" -eq 0 -a "$(grep -c '^release create' "$GH_STUB_DIR/calls.log")" = 1

@@ -80,6 +80,10 @@ describe() {
   fi
 }
 
+# Who may have signed the attestations: release.yml, run for main. --repo alone would accept an
+# attestation from any workflow on any branch of the repository.
+identity="https://github.com/$repo/.github/workflows/release.yml@refs/heads/main"
+
 body=$(mktemp)
 trap 'rm -f "$sums" "$body"' EXIT
 cp "$notes" "$body"
@@ -99,9 +103,18 @@ fxm_release_fit "$body" 115000 \
   done
   echo
   echo "Install FXM Connect with the [steps in its README](https://github.com/$repo/blob/$tag/apps/extension/README.md#install)."
-  echo "To verify a download, \`sha256sum --check --ignore-missing SHA256SUMS\` compares it with the"
-  echo "checksums, and \`gh attestation verify <file> --repo $repo\` checks that this repository's"
-  echo "release workflow built it."
+  echo
+  echo "To verify a download, run these in its folder:"
+  echo
+  echo '```sh'
+  echo "sha256sum --check --ignore-missing SHA256SUMS"
+  echo "gh attestation verify <file> --repo $repo \\"
+  echo "  --cert-identity $identity \\"
+  echo "  --deny-self-hosted-runners"
+  echo '```'
+  echo
+  echo "The first compares the file with its checksum. The second checks that FXM's release"
+  echo "workflow, run for \`main\` on GitHub's own runners, built it."
 } >>"$body"
 
 gh release create "$tag" --repo "$repo" --verify-tag --title "FXM $tag" --notes-file "$body" \
