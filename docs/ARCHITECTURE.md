@@ -920,10 +920,10 @@ The key that signs the config and resolver module is never available to the depl
   - YouTube player-JS evaluation, BotGuard and plugins (8.3) run only in the isolated evaluator (§10).
 - **Signed updates:** desktop and Android accept only a config and resolver module signed with a key that the deploy job never holds (§10).
 - **Secrets:** no tokens, cookies or Spotify TOTP secrets in git, logs or test fixtures.
-- **License:** Apache-2.0. FXM is implemented clean-room from protocol facts, on MIT and BSD libraries (youtubei.js, bgutils-js, googlevideo, mp4box.js). A clean-room log records where each protocol fact came from (R.4).
+- **License:** Apache-2.0. FXM is implemented clean-room from protocol facts, on MIT and BSD libraries (youtubei.js, bgutils-js, googlevideo, mp4box.js). A clean-room log records where each protocol fact came from (R.4; the rule and the log index are in [LEGAL.md](LEGAL.md)).
   - The conversion core must be FXM's own LGPL build of ffmpeg.wasm; the stock core is GPL.
   - No code is copied from GPL, AGPL or unlicensed projects: Bloomee (GPL-2.0), Spotube (BSD-4-Clause / AGPL), the Spotify plugin (AGPL), bloom-factory (unlicensed), NewPipeExtractor (GPL-3.0).
-- **Trademarks:** no YouTube or Spotify logos, brand colours or "Spot…" names, plus a non-affiliation notice (R.4).
+- **Trademarks:** no YouTube or Spotify logos, brand colours or "Spot…" names, plus a non-affiliation notice (R.4; see [LEGAL.md](LEGAL.md)).
 
 ---
 

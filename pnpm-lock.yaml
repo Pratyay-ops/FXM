@@ -344,6 +344,10 @@ importers:
       '@fxm/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      happy-dom:
+        specifier: ^20.14.6
+        version: 20.14.6
 
   packages/sources:
     dependencies:

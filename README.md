@@ -30,6 +30,11 @@ Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube]
 - [Roadmap](docs/PLAN.md): milestones and stages, with status
 - [Workflow](docs/WORKFLOW.md): branches, worktrees, releases, parallel agents, commit rules
 - [Development](docs/DEVELOPMENT.md): setup, where tools are installed, removing everything
+- [Legal](docs/LEGAL.md): notices, trademark rules, the takedown playbook and the clean-room rule
+
+## Legal
+
+FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google or Spotify, and it hosts no music. You are responsible for following the terms of the services you use with FXM and the laws where you live. Send notices and takedown requests through the [issue tracker](https://github.com/Pratyay-ops/FXM/issues), and report security problems privately as the [security policy](.github/SECURITY.md) explains. [docs/LEGAL.md](docs/LEGAL.md) and the site's [disclaimer page](https://fxm-music.pages.dev/disclaimer) have the details.
 
 ## License
 

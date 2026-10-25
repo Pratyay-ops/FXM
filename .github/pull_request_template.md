@@ -15,4 +15,5 @@
 - [ ] New logic has offline tests (fixtures); live tests only behind `FXM_LIVE=1`
 - [ ] Catalog mode (Music / Music + Video) is respected where relevant
 - [ ] Docs updated; no secrets committed
+- [ ] Public text (site, app strings, extension, bundle or store descriptions) follows the trademark rules in `docs/LEGAL.md`: no YouTube or Spotify logos, brand colours or lookalike names
 - [ ] Conventional Commit messages, no co-author trailers
