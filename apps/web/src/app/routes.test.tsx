@@ -22,8 +22,9 @@ describe('routes', () => {
     ['/', /^Good (morning|afternoon|evening)$/],
     ['/search', 'Search'],
     ['/library', 'Your library'],
-    ['/album/MPREb_123', 'Album MPREb_123'],
-    ['/artist/UC-abc', 'Artist UC-abc'],
+    // No YouTube until the platform is wired in: the pages show the onboarding entry point.
+    ['/album/ytm:MPREb_123', 'This album is on YouTube Music'],
+    ['/artist/ytm:UC-abc', 'This artist is on YouTube Music'],
     ['/playlist/liked', 'Playlist liked'],
     ['/now-playing', 'Now playing'],
     ['/settings', 'Settings'],
