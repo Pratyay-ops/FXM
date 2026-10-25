@@ -265,9 +265,15 @@ importers:
       '@fxm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@fxm/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player
+      '@fxm/sources':
+        specifier: workspace:*
+        version: link:../../packages/sources
       '@tanstack/react-query':
         specifier: ^5.104.1
         version: 5.104.1(react@19.3.0)

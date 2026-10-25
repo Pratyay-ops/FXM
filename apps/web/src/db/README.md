@@ -28,7 +28,7 @@ Pages read through `hooks.ts` and write through `getLibrary()` (the app's reposi
 | `history` | auto-increment | One row per play: track, start, time played, the track's length, completed, skipped, context, stream, and the import it came from |
 | `settings` | setting name | Reserved: the app's settings stay in `localStorage` for now |
 | `matchCache` | `<entityKey(sourceTrackId)>\|<mode>` | The matching engine's decision for a source track in a catalog mode (below) |
-| `importProgress` | a random ID | How far an import got, so it can resume (stage 3.6) |
+| `importProgress` | a random ID | How far an import got, so it can resume (stage 3.6). Its `state` is the import's progress, an `ImportState` of `@fxm/sources/import`: the rows, a decision per row and what was looked up |
 | `affinity` | `<kind>\|<key>` | The listening affinity of every track, artist and tag (below), indexed by `[kind+rank]` |
 
 `ytm` and `yt` IDs of one video share an `entityKey`, so a like, a follow or a playlist entry counts once whichever prefix a provider used.

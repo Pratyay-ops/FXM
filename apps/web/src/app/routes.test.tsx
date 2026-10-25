@@ -26,6 +26,7 @@ describe('routes', () => {
     ['/artist/UC-abc', 'Artist UC-abc'],
     ['/playlist/liked', 'Playlist liked'],
     ['/now-playing', 'Now playing'],
+    ['/import', 'Import music'],
     ['/settings', 'Settings'],
     ['/no/such/page', 'Page not found'],
   ])('renders %s', async (path, name) => {

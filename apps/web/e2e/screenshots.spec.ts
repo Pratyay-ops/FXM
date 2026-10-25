@@ -21,6 +21,7 @@ const PAGES = [
   ['artist', 'artist/UC-daft'],
   ['playlist', 'playlist/liked'],
   ['now-playing', 'now-playing'],
+  ['import', 'import'],
   ['settings', 'settings'],
   ['not-found', 'no-such-page'],
 ] as const

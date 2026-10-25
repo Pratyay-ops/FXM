@@ -2,7 +2,7 @@
 
 The FXM web player: a React app served from `/app/`, which later also becomes the installable web applet (stage 5.1) and the shell of the Android app (stage 6.1). Everything runs in the browser: there is no FXM backend.
 
-Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB. Search results and playback plug into it in later stages.
+Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB. Search results and playback plug into it in later stages. Stage 3.6 added **imports** (`/import`): Spotify's data download, CSV and M3U files, and Spotify and YouTube links become playlists, matched in the background and reviewed by the user (`src/features/import/README.md`).
 
 ## Run it
 
@@ -42,7 +42,7 @@ src/
                         hooks, ordering, match cache, backups (see src/db/README.md)
   features/<name>/      one folder per feature: home, search, library, album, artist,
                         playlist, now-playing, player (bar, controls, store), settings,
-                        signals (records the player's plays)
+                        signals (records the player's plays), import (imports and their reviews)
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper

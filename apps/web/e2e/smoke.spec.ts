@@ -14,6 +14,7 @@ const PAGES = [
   'playlist/liked',
   'playlist/local:playlist:liked',
   'now-playing',
+  'import',
   'settings',
   'no-such-page',
 ]
