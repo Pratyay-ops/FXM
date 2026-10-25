@@ -11,6 +11,7 @@ import type {
   Fetch,
   JsonObject,
   LyricsProvider,
+  MatchSignals,
   MetadataProvider,
   MinimalAbortSignal,
   MinimalFetch,
@@ -379,6 +380,48 @@ describe('provider interfaces', () => {
     // `AbortSignal`, as type-tests/platform.ts checks.
     expectTypeOf<Fetch>().toEqualTypeOf<MinimalFetch>()
     expectTypeOf<AbortSignalLike>().toEqualTypeOf<MinimalAbortSignal>()
+  })
+})
+
+describe('audio candidates', () => {
+  it('come without signals from providers that do not compute them', async () => {
+    const [candidate] = await youtubeAudio.match(song, context('music'))
+    expect(candidate).toBeDefined()
+    expect(candidate && 'signals' in candidate).toBe(false)
+  })
+
+  it('carry the signals the matching engine fills in, and survive JSON', async () => {
+    const [candidate] = await youtubeAudio.match(song, context('music'))
+    if (!candidate) throw new Error('expected a candidate')
+    const signals = {
+      isrcVerified: true,
+      releaseId: 'MPREb_abc',
+      releaseYear: 1987,
+      label: 'RCA',
+      sourceAlbumMatch: true,
+    } satisfies MatchSignals
+    const checked: AudioCandidate = {
+      ...candidate,
+      evidence: [...candidate.evidence, 'isrc'],
+      signals,
+    }
+    // The release ID is a native ID of the candidate's source, like `ref`.
+    expect(formatId(checked.source, 'album', signals.releaseId)).toBe('ytm:album:MPREb_abc')
+    // The match cache can store a candidate as it is.
+    expect(JSON.parse(JSON.stringify(checked))).toEqual(checked)
+  })
+
+  it('always state the two checks and leave unknown release details out', () => {
+    expectTypeOf<MatchSignals['isrcVerified']>().toEqualTypeOf<boolean>()
+    expectTypeOf<MatchSignals['sourceAlbumMatch']>().toEqualTypeOf<boolean>()
+    expectTypeOf<AudioCandidate['signals']>().toEqualTypeOf<MatchSignals | undefined>()
+    expectTypeOf<AudioCandidate['evidence']>().toEqualTypeOf<string[]>()
+    const unknownRelease: MatchSignals = { isrcVerified: false, sourceAlbumMatch: false }
+    // @ts-expect-error the ISRC check is always stated
+    const noIsrc: MatchSignals = { sourceAlbumMatch: true }
+    // @ts-expect-error leave an unknown year out instead of setting it to undefined
+    const undefinedYear: MatchSignals = { ...unknownRelease, releaseYear: undefined }
+    expect([noIsrc.isrcVerified, undefinedYear.releaseYear]).toEqual([undefined, undefined])
   })
 })
 

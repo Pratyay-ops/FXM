@@ -251,6 +251,40 @@ export interface RecommendationProvider {
 }
 
 /**
+ * What is known about an {@link AudioCandidate} beyond how alike its title, artists and duration
+ * are to the track's: the facts the matching engine weighs before it lets a candidate play
+ * without asking.
+ */
+export interface MatchSignals {
+  /**
+   * Whether the candidate is known to be the recording with the track's ISRC: its own ISRC is
+   * the track's, or an ISRC search found it and it passed the matching engine's ISRC check.
+   * `false` when either ISRC is unknown, they differ, or nothing was checked.
+   */
+  isrcVerified: boolean
+  /**
+   * The release (album, single or EP) the candidate comes from, as a native ID in its source's
+   * canonical form, like `ref`, so `formatId(source, 'album', releaseId)` is the album's ID: for
+   * YouTube Music, the album's browseId (`MPREb_…`).
+   */
+  releaseId?: string
+  /**
+   * The year that release came out, e.g. `2009` for a 2009 remaster of a 1967 recording, so
+   * re-releases and re-recordings can be told apart.
+   */
+  releaseYear?: number
+  /** The record label that issued the release, as the source spells it. */
+  label?: string
+  /**
+   * Whether the candidate comes from the same album as the track being matched, e.g. the
+   * Spotify track's album on YouTube Music. `false` when either album is unknown or they differ.
+   * The matching engine relies on it, for example, before it auto-plays a classical work, whose
+   * title alone fits many recordings.
+   */
+  sourceAlbumMatch: boolean
+}
+
+/**
  * One place a track's audio may be found, as returned by {@link AudioSource.match}. It still
  * has to be resolved into stream URLs.
  */
@@ -281,9 +315,14 @@ export interface AudioCandidate {
   confidence: number
   /**
    * Why it matched, for debugging and the source switcher, e.g. `isrc`, `title 0.97`,
-   * `duration -1.2s`.
+   * `duration -1.2s`. Text for people: code reads `signals`.
    */
   evidence: string[]
+  /**
+   * The facts beyond text similarity: ISRC, release and album (see {@link MatchSignals}).
+   * Providers that do not compute them leave them out, and the matching engine fills them in.
+   */
+  signals?: MatchSignals
 }
 
 /** How a stream is delivered. `sabr` is YouTube's server-driven streaming protocol. */
