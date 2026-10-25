@@ -1,0 +1,311 @@
+{
+  "id": "sp:0tW2gwaRzFQQrgr2UCO56G",
+  "split": "held-out",
+  "categories": ["mainstream", "regional"],
+  "provenance": ["Top 50 - India #1 (playlist:37i9dQZEVXbLZ52XmnySJg), read 2026-10-25"],
+  "spotify": {
+    "id": "0tW2gwaRzFQQrgr2UCO56G",
+    "popularity": 85,
+    "albumType": "single"
+  },
+  "variants": [
+    {
+      "slice": "spotify",
+      "source": {
+        "title": "Alfaaz",
+        "artists": [
+          {
+            "name": "Hamza Malik"
+          },
+          {
+            "name": "Zain Zohaib"
+          }
+        ],
+        "album": {
+          "name": "Alfaaz"
+        },
+        "durationMs": 184373,
+        "isrc": "QT8JC2687797",
+        "isrcOrigin": "catalog",
+        "explicit": false,
+        "releaseDate": "2026-07-23",
+        "label": "Chakor",
+        "albumType": "single"
+      }
+    },
+    {
+      "slice": "data-export",
+      "source": {
+        "title": "Alfaaz",
+        "artists": [
+          {
+            "name": "Hamza Malik"
+          },
+          {
+            "name": "Zain Zohaib"
+          }
+        ],
+        "album": {
+          "name": "Alfaaz"
+        },
+        "isrc": "QT8JC2687797",
+        "isrcOrigin": "musicbrainz-exact",
+        "durationMs": 184373
+      }
+    },
+    {
+      "slice": "musicbrainz-exact",
+      "source": {
+        "title": "Alfaaz",
+        "artists": [
+          {
+            "name": "Hamza Malik"
+          },
+          {
+            "name": "Zain Zohaib"
+          }
+        ],
+        "durationMs": 184373,
+        "isrc": "QT8JC2687797",
+        "isrcOrigin": "musicbrainz-exact",
+        "releaseDate": "2026-07-23"
+      }
+    },
+    {
+      "slice": "musicbrainz-fuzzy",
+      "source": {
+        "title": "Alfaaz",
+        "artists": [
+          {
+            "name": "Hamza Malik"
+          },
+          {
+            "name": "Zain Zohaib"
+          }
+        ],
+        "album": {
+          "name": "Alfaaz"
+        },
+        "durationMs": 184373,
+        "explicit": false,
+        "isrc": "QT8JC2687797",
+        "isrcOrigin": "musicbrainz-fuzzy"
+      }
+    }
+  ],
+  "musicBrainz": {
+    "exact": {
+      "recording": "81540ccf-2a21-4c09-8478-78c706a2f63b",
+      "title": "Alfaaz",
+      "artists": ["Hamza Malik", "Zain Zohaib"],
+      "lengthMs": 184373,
+      "isrcs": ["QT8JC2687797"],
+      "firstReleaseDate": "2026-07-23"
+    },
+    "fuzzy": {
+      "recording": "81540ccf-2a21-4c09-8478-78c706a2f63b",
+      "isrcs": ["QT8JC2687797"]
+    }
+  },
+  "recording": {
+    "recordedAt": ["2026-10-25"],
+    "items": {
+      "Vug4YLiIsaU": {
+        "kind": "song",
+        "title": "Alfaaz",
+        "artists": ["Hamza Malik", "Zain Zohaib"],
+        "album": "Alfaaz",
+        "albumId": "MPREb_NcelD0q9t1P",
+        "durationMs": 185000
+      },
+      "paE_AZeFhaM": {
+        "kind": "song",
+        "title": "Alfaaz - Vocals",
+        "artists": ["Hamza Malik", "Zain Zohaib"],
+        "album": "Alfaaz - Vocals",
+        "albumId": "MPREb_Bd4VfPH9ngQ",
+        "durationMs": 173000
+      },
+      "Uy2EiEyo6Lo": {
+        "kind": "song",
+        "title": "Alfaaz - Acoustic",
+        "artists": ["Hamza Malik", "Zain Zohaib", "Atif Khan"],
+        "album": "Alfaaz - Acoustic",
+        "albumId": "MPREb_rNZfqWgAqGc",
+        "durationMs": 236000
+      },
+      "y29j6crxKgw": {
+        "kind": "song",
+        "title": "Oh Sahib (Original Sountrack Of Abdullahpur Ka Devdas)",
+        "artists": ["Zain Zohaib", "Adnan Dhool"],
+        "album": "Oh Sahib (Original Sountrack Of Abdullahpur Ka Devdas)",
+        "albumId": "MPREb_wLnPvTHzcM4",
+        "durationMs": 195000
+      },
+      "cStOvI74hQo": {
+        "kind": "song",
+        "title": "Dekha Hi Nahi",
+        "artists": ["Osho Jain"],
+        "album": "Uff",
+        "albumId": "MPREb_JMVSKYifK5M",
+        "durationMs": 222000
+      },
+      "2ABvyMARIos": {
+        "kind": "song",
+        "title": "Alfaaz",
+        "artists": ["Arayan Jai", "Raj Nandini Sharma"],
+        "album": "Alfaaz",
+        "albumId": "MPREb_eXopxiQZOBP",
+        "durationMs": 193000
+      },
+      "zs_wPri3X-g": {
+        "kind": "song",
+        "title": "Tak Tak",
+        "artists": ["Zain Zohaib"],
+        "album": "Tak Tak",
+        "albumId": "MPREb_zedVJ1DdAns",
+        "durationMs": 284000
+      },
+      "1mwGIx2NJeQ": {
+        "kind": "song",
+        "title": "Sardaar Aya",
+        "artists": ["Zain Zohaib"],
+        "album": "Sardaar Aya",
+        "albumId": "MPREb_GF6UM5cJesg",
+        "durationMs": 244000
+      },
+      "aH0BcVvcjyQ": {
+        "kind": "song",
+        "title": "Khair",
+        "artists": ["Zain Zohaib"],
+        "album": "Khair",
+        "albumId": "MPREb_aCKgAEqYJi0",
+        "durationMs": 233000
+      },
+      "1blksm0D-BU": {
+        "kind": "song",
+        "title": "Half Way (feat. Harsakhiyan)",
+        "artists": ["Zain Zohaib"],
+        "album": "Half Way",
+        "albumId": "MPREb_X5Hx7cobc9g",
+        "durationMs": 237000
+      },
+      "_KvMXcl5Ano": {
+        "kind": "song",
+        "title": "Ranjheya Ve",
+        "artists": ["Zain Zohaib"],
+        "album": "Ranjheya Ve",
+        "albumId": "MPREb_YfEahF2CsJw",
+        "durationMs": 279000
+      },
+      "dgA78WcmH4c": {
+        "kind": "song",
+        "title": "Tere Bin Nahi Laage (Male Version)",
+        "artists": ["Uzair Jaswal"],
+        "album": "Ek Paheli Leela (Original Motion Picture Soundtrack)",
+        "albumId": "MPREb_DEZIxX1jfw9",
+        "durationMs": 223000
+      },
+      "pcwlhNJ8gk0": {
+        "kind": "song",
+        "title": "Shayar",
+        "artists": ["Faris Shafi", "Zain Zohaib", "Velo Sound Station"],
+        "album": "Shayar",
+        "albumId": "MPREb_2gjvoh7WGNa",
+        "durationMs": 254000
+      },
+      "gERhTfmlzB4": {
+        "kind": "song",
+        "title": "Khazan E Rehmat",
+        "artists": ["Zain Zohaib"],
+        "album": "Khazan E Rehmat",
+        "albumId": "MPREb_n9PtLBPsKvl",
+        "durationMs": 472000
+      },
+      "WerKhNA-uP4": {
+        "kind": "song",
+        "title": "Tu Mera Dil",
+        "artists": ["Zain Zohaib"],
+        "album": "Tu Mera Dil",
+        "albumId": "MPREb_E7qkggxM7kO",
+        "durationMs": 157000
+      },
+      "ZdVtIKDRh48": {
+        "kind": "song",
+        "title": "Veham",
+        "artists": ["ahtesham"],
+        "album": "Veham",
+        "albumId": "MPREb_3gREwiFJTMp",
+        "durationMs": 137000
+      },
+      "pM8WS4Zikp0": {
+        "kind": "song",
+        "title": "Hoon Khara",
+        "artists": ["Zain Zohaib"],
+        "album": "Hoon Khara",
+        "albumId": "MPREb_bV2uoirbaAY",
+        "durationMs": 385000
+      },
+      "t6vm8h5BDxo": {
+        "kind": "song",
+        "title": "Sajjan Raazi",
+        "artists": ["Satinder Sartaaj"],
+        "album": "Hazaarey Wala Munda",
+        "albumId": "MPREb_wD0Ei6rwVub",
+        "durationMs": 333000
+      },
+      "63prSlVkCLU": {
+        "kind": "song",
+        "title": "Talaash",
+        "artists": ["Zain Zohaib"],
+        "album": "Talaash",
+        "albumId": "MPREb_Dwr0JqwRSgR",
+        "durationMs": 191000
+      },
+      "ZyUUvNI_J7U": {
+        "kind": "song",
+        "title": "Ali Ali",
+        "artists": ["Zain Zohaib"],
+        "album": "Ali Ali",
+        "albumId": "MPREb_F3G1fDq9ZES",
+        "durationMs": 224000
+      }
+    },
+    "pages": {
+      "isrc-songs/1/QT8JC2687797": {
+        "items": ["Vug4YLiIsaU"]
+      },
+      "songs/Hamza Malik Zain Zohaib Alfaaz": {
+        "items": [
+          "Vug4YLiIsaU",
+          "paE_AZeFhaM",
+          "Uy2EiEyo6Lo",
+          "y29j6crxKgw",
+          "cStOvI74hQo",
+          "2ABvyMARIos",
+          "zs_wPri3X-g",
+          "1mwGIx2NJeQ",
+          "aH0BcVvcjyQ",
+          "1blksm0D-BU",
+          "_KvMXcl5Ano",
+          "dgA78WcmH4c",
+          "pcwlhNJ8gk0",
+          "gERhTfmlzB4",
+          "WerKhNA-uP4",
+          "ZdVtIKDRh48",
+          "pM8WS4Zikp0",
+          "t6vm8h5BDxo",
+          "63prSlVkCLU",
+          "ZyUUvNI_J7U"
+        ]
+      }
+    }
+  },
+  "labels": {
+    "Vug4YLiIsaU": {
+      "label": "exact",
+      "by": "rule",
+      "evidence": ["length +0.6 s", "found by the ISRC search for QT8JC2687797 (#1, attempt 1)"]
+    }
+  }
+}
