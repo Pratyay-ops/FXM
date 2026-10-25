@@ -1,15 +1,17 @@
 /**
  * Sanitizing recorded InnerTube responses before they become fixtures. A response can carry the
- * recording machine's IP address (in `initplayback` URLs and `sw.js_data`), its visitorData and
- * tracking tokens, and commenters' names and texts. The sanitizer keeps the catalog data the
- * parsers read and drops or replaces everything else:
+ * recording machine's IP address (in `initplayback` and stream URLs, often percent-encoded, and
+ * in `sw.js_data`), its visitorData and tracking tokens, and commenters' names and texts. The
+ * sanitizer keeps the catalog data the parsers read and drops or replaces everything else:
  *
  * - tracking and logging fields, accessibility labels, styling, `frameworkUpdates`,
  *   `responseContext` (apart from a visitorData, which becomes {@link FAKE_VISITOR_DATA}) and
  *   `microformat` (apart from its title and canonical URL);
  * - every menu item but "View song credits", like buttons and dialogs, and every
  *   `watchEndpointSupportedOnesieConfig`;
- * - every IPv4 or IPv6 address, replaced with one from the documentation ranges;
+ * - every IPv4 or IPv6 address, written plainly or percent-encoded, IPv6 also compressed (`::`),
+ *   and the value of every `ip=` URL parameter: replaced with an address from the documentation
+ *   ranges, {@link DOC_IPV4} or {@link DOC_IPV6};
  * - long texts, cut to {@link MAX_TEXT} characters.
  *
  * {@link truncateItems} then keeps long lists short.
@@ -107,11 +109,39 @@ const DROPPED_KEYS = new Set([
   'watchEndpointSupportedOnesieConfig',
 ])
 
-const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/gu
-const IPV6 = /\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b/giu
+/** The IPv4 address every fixture carries instead of a real one (RFC 5737). */
+export const DOC_IPV4 = '192.0.2.1'
+
+/** The IPv6 address every fixture carries instead of a real one (RFC 3849). */
+export const DOC_IPV6 = '2001:db8::1'
+
+/** One group of an IPv6 address, and the separator of the groups, plain or percent-encoded. */
+const HEX = '[0-9a-f]{1,4}'
+const COLON = '(?::|%3a)'
+
+/**
+ * An IPv4 address, its dots plain or percent-encoded. It may follow a percent escape
+ * (`ip%3D106%2E…`), but not stand inside a longer number or word, such as a version.
+ */
+export const IPV4 = /(?<![\d.])(?:\d{1,3}(?:\.|%2e)){3}\d{1,3}(?![\w.])/giu
+
+/**
+ * An IPv6 address: eight groups, or fewer around one `::`, the colons plain or percent-encoded.
+ * Without a `::` it needs at least three colons, so times such as `1:02:03` never match.
+ */
+export const IPV6 = new RegExp(
+  `(?:${HEX}${COLON}){7}${HEX}|(?:${HEX}${COLON}){1,6}${COLON}(?:${HEX}(?:${COLON}${HEX}){0,5})?|(?:${HEX}${COLON}){3,6}${HEX}`,
+  'giu',
+)
+
+/**
+ * The value of an `ip` URL parameter, plain or percent-encoded (`&ip=…`, `%3Fip%3D…`), up to the
+ * next parameter.
+ */
+const IP_PARAMETER = /((?:[?&]|%3f|%26)ip(?:=|%3d))(?:(?!%26)[^&"\s])*/giu
 
 function scrub(text: string): string {
-  return text.replace(IPV4, '192.0.2.1').replace(IPV6, '2001:db8::1')
+  return text.replace(IP_PARAMETER, `$1${DOC_IPV4}`).replace(IPV6, DOC_IPV6).replace(IPV4, DOC_IPV4)
 }
 
 /** Whether a menu item is the "View song credits" link (`MPTC<videoId>`), the one FXM reads. */
