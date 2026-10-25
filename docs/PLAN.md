@@ -99,13 +99,13 @@ flowchart LR
 | **5.1** | PWA "web applet" | `feat/5.1-pwa` | 2.5 | ⬜ |
 | **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3 | ⬜ |
 | **5.3** | Landing page | `feat/5.3-site` | 0.4 | 🟡 |
-| **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | ⬜ |
+| **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | 🟡 |
 | **6.2** | Android native fetch (YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | ⬜ |
 | **6.3** | Native player (Media3) | `feat/6.3-native-player` | 6.1, 2.3 | ⬜ |
 | **6.4** | Native downloads + device music | `feat/6.4-native-downloads` | 6.3, 4.1 | ⬜ |
 | **6.5** | Spotify login on Android | `feat/6.5-android-spotify-login` | 6.2, 3.5 | ⬜ |
 | **6.6** | Signed APK release | `ci/6.6-apk-release` | 6.3, R.1 | ⬜ |
-| **7.1** | Desktop shell (Tauri 2, Rust toolchain in `.tools/`) | `feat/7.1-desktop-shell` | 2.1 | ⬜ |
+| **7.1** | Desktop shell (Tauri 2, Rust toolchain in `.tools/`) | `feat/7.1-desktop-shell` | 2.1 | 🟡 |
 | **7.2** | Desktop native fetch | `feat/7.2-desktop-fetch` | 7.1, 1.2, 1.4 | ⬜ |
 | **7.3** | Desktop playback and OS integration | `feat/7.3-desktop-playback` | 7.2, 2.3 | ⬜ |
 | **7.4** | Desktop downloads + Spotify login window | `feat/7.4-desktop-downloads` | 7.2, 4.1, 3.5 | ⬜ |
