@@ -372,6 +372,11 @@ export function parseSpotifyExport(files: readonly ExportFile[]): ParsedImport {
     if (library.liked.length > 0) collections.push({ name: LIKED_SONGS_NAME, rows: library.liked })
     follows.push(...library.follows)
   }
+  // A play of a track the playlists or liked songs name shares that row's metadata, so the
+  // library keeps one description of it (with its album) whichever it saves last.
+  for (const row of collections.flatMap((collection) => collection.rows)) {
+    if (row.trackId !== undefined) book.track(row.trackId, row.title, row.artists, row.album)
+  }
   const plays: ImportPlay[] = []
   if (byKind.has('extended-history')) {
     for (const file of sorted('extended-history')) {

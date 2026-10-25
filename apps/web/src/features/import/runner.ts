@@ -12,7 +12,7 @@
  * @module
  */
 
-import type { CatalogMode } from '@fxm/core'
+import type { CatalogMode, Track } from '@fxm/core'
 import {
   applyReview,
   createImportState,
@@ -160,6 +160,20 @@ export async function startImports(
   return started
 }
 
+/**
+ * The tracks a new import's playlist starts with. A track a file only names (by its Spotify
+ * URI) keeps the library's own description when it has one, since saving the playlist saves
+ * its tracks; a track loaded from a catalog just now is the freshest there is.
+ */
+async function startingTracks(repo: LibraryRepo, collection: ImportCollection): Promise<Track[]> {
+  const loaded = new Set(collection.rows.flatMap((row) => (row.track ? [row.track.id] : [])))
+  return Promise.all(
+    initialPlaylistTracks(collection).map(async (track) =>
+      loaded.has(track.id) ? track : ((await repo.getTrack(track.id)) ?? track),
+    ),
+  )
+}
+
 /** Creates one playlist and its progress record, waiting to run. */
 async function createImport(
   repo: LibraryRepo,
@@ -169,7 +183,7 @@ async function createImport(
 ): Promise<string> {
   const playlistId = await repo.createPlaylist({
     name: collection.name,
-    tracks: initialPlaylistTracks(collection),
+    tracks: await startingTracks(repo, collection),
     ...(collection.description === undefined ? {} : { description: collection.description }),
   })
   const state = createImportState(parsed.kind, mode, collection)
@@ -186,7 +200,8 @@ async function createImport(
 /**
  * Records a data export's listening history as plays (listening signals), in batches. A play the
  * library already has (the same track at the same start) is not recorded twice, so importing
- * the same export again only fills in what is missing.
+ * the same export again only fills in what is missing. A track the library already describes
+ * keeps that description (with its artwork, say), since recording a play saves its track.
  */
 async function recordHistory(repo: LibraryRepo, parsed: ParsedImport): Promise<string> {
   const record = await repo.startImport({
@@ -194,12 +209,19 @@ async function recordHistory(repo: LibraryRepo, parsed: ParsedImport): Promise<s
     label: 'Listening history from Spotify',
     total: parsed.plays.length,
   })
+  const tracks = new Map<string, Track>()
   let done = 0
   for (let start = 0; start < parsed.plays.length; start += PLAYS_PER_BATCH) {
     const batch = parsed.plays.slice(start, start + PLAYS_PER_BATCH)
+    const unknown = [...new Set(batch.map((play) => play.track.id))].filter((id) => !tracks.has(id))
+    const cached = await Promise.all(unknown.map((id) => repo.getTrack(id)))
+    unknown.forEach((id, index) => {
+      const track = cached[index]
+      if (track !== undefined) tracks.set(id, track)
+    })
     await repo.recordPlays(
       batch.map((play) => ({
-        track: play.track,
+        track: tracks.get(play.track.id) ?? play.track,
         playedAt: play.playedAt,
         playedMs: play.playedMs,
         completed: play.completed,

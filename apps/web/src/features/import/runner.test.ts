@@ -85,7 +85,11 @@ describe('startImports', () => {
   })
 
   it('records a data download’s listening history and follows its saved albums and artists', async () => {
-    const creep = spotifyTrack(1, 'Creep', 'Radiohead', { album: 'Pablo Honey' })
+    // As a data export describes it: no artwork.
+    const creep = {
+      ...spotifyTrack(1, 'Creep', 'Radiohead', { album: 'Pablo Honey' }),
+      artwork: [],
+    }
     const parsed: ParsedImport = {
       kind: 'spotify-export',
       label: 'Spotify data export',
@@ -123,8 +127,12 @@ describe('startImports', () => {
       ],
       skipped: noSkips(),
     }
+    // The library already describes the track, with artwork: the history keeps that.
+    const known = { ...creep, artwork: [{ url: 'https://i.scdn.co/image/creep', width: 300 }] }
+    await getLibrary().saveTracks([known])
     const started = await startImports(parsed, {}, 'music', fakeServices())
     expect(started).toMatchObject({ importIds: [], followed: 2 })
+    expect((await getLibrary().getTrack(creep.id))?.artwork).toEqual(known.artwork)
     const repo = getLibrary()
     const history = await repo.history()
     expect(history).toHaveLength(2)
@@ -145,6 +153,23 @@ describe('startImports', () => {
     // Importing the same download again records nothing twice.
     await startImports(parsed, { follows: false }, 'music', fakeServices())
     expect(await repo.history()).toHaveLength(2)
+  })
+
+  it('keeps the library’s own description of a track a file only names', async () => {
+    const known = spotifyTrack(7, 'Known', 'Band', { album: 'Album', seconds: 200 })
+    await getLibrary().saveTracks([known])
+    const parsed: ParsedImport = {
+      kind: 'csv',
+      label: 'x.csv',
+      collections: [
+        { name: 'File', rows: [{ title: 'known', artists: ['band'], trackId: known.id }] },
+      ],
+      plays: [],
+      follows: [],
+      skipped: noSkips(),
+    }
+    await startImports(parsed, {}, 'music', fakeServices())
+    expect(await getLibrary().getTrack(known.id)).toEqual(known)
   })
 
   it('creates only the chosen playlists, under the names the user gave', async () => {

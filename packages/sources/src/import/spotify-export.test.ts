@@ -261,6 +261,8 @@ describe('parseSpotifyExport', () => {
       externalIds: { spotify: '70LcF31zb1H0PyJoS1Sx1r' },
     })
     expect(parsed.plays.every((play) => !play.completed && !play.skipped)).toBe(true)
+    // The play of a track a playlist names shares the playlist row's album.
+    expect(parsed.plays[1]?.track.album).toEqual({ name: 'Pablo Honey' })
     expect(parsed.skipped).toMatchObject({ shortPlays: 1, unknownPlays: 1 })
   })
 
