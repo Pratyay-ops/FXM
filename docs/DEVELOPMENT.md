@@ -10,7 +10,6 @@ Only these live on your machine:
 |---|---|
 | git, make, curl, tar, openssl | Preinstalled on macOS and most Linux distributions |
 | Node.js 22 | Version pinned in `.nvmrc`. With [nvm](https://github.com/nvm-sh/nvm): `nvm install && nvm use` |
-| ffmpeg *(optional)* | Only for the self-hosted server (stage 7.1) |
 
 ## Quick start
 
@@ -127,7 +126,7 @@ Android tools normally write to `~/.android`, `~/.gradle` and `~/.m2`. `scripts/
 
 Use the repo-local `adb` through `scripts/run.sh` (or after `source scripts/env.sh`). `./gradlew installDebug` and Android Studio start adb without the wrapper, which creates `~/.android`. Every machine, and every CI run, signs debug builds with its own key in `.tools/android-user`, and `make nuke` deletes it. Android refuses to update an app with a different signature, so run `scripts/run.sh adb uninstall io.github.pratyayops.fxm` first, which also deletes the app's data.
 
-From 2027, Google plans to require developer verification for apps installed outside the Play Store on certified Android devices: USD 25 and an ID for the publisher, or an ADB or "advanced" install flow for unverified apps. Debug builds installed with adb are expected to keep working. Stage 6.6 decides how FXM's release APKs handle it.
+From 2027, Google plans to require developer verification for apps installed outside the Play Store on certified Android devices: USD 25 and an ID for the publisher (Limited Distribution, for up to 20 devices, is free), or an ADB or "advanced" install flow for unverified apps. Debug builds installed with adb are expected to keep working. FXM stays unregistered for now (an owner decision, 2026-10-25) and revisits verification before the rollout; stage 6.6 documents the install flow for release APKs.
 
 **Cleaning up.** `make android-clean` removes this checkout's Android build output, and `make clean` does the same in every checkout. `make nuke` first stops the Gradle daemons running from `.tools/` and the adb server, which adb restarts whenever it next needs it. Then it deletes the JDK, the SDK, the Gradle caches and the keys with the rest of `.tools/`.
 
@@ -170,7 +169,7 @@ Tauri compiles against each operating system's native toolchain and webview. The
 
 The first build compiles about 300 crates and takes a few minutes. Release builds use link-time optimization for a small app (`FXM.app` is about 7.5 MB), so even a rebuild takes a few minutes. Use `make desktop-dev` while working.
 
-The content security policy only applies to release builds: `make desktop-dev` loads the Vite dev server directly. Stage 7.2 may need `'unsafe-eval'` in its `script-src` for the YouTube deciphering evaluator.
+The content security policy only applies to release builds: `make desktop-dev` loads the Vite dev server directly. It has no `'unsafe-eval'`, and stage 7.2 doesn't add it: YouTube deciphering runs in a separate, hidden evaluator webview with its own policy (stage 1.11). Only if that webview can't work may 1.11 add `'unsafe-eval'` here, recorded in the app's README.
 
 ### Where things are installed
 
