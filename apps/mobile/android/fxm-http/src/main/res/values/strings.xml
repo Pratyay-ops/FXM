@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The system dialog that approves a server outside FXM's host table (HostApprovals.kt).
+         %1$s is the server's name, or several names on separate lines. -->
+    <plurals name="fxm_http_approve_title">
+        <item quantity="one">Allow FXM to contact this server?</item>
+        <item quantity="other">Allow FXM to contact these servers?</item>
+    </plurals>
+    <plurals name="fxm_http_approve_message">
+        <item quantity="one">%1$s\n\nFXM will connect to it directly from this device. Only allow a server you added in FXM\'s settings and trust.</item>
+        <item quantity="other">%1$s\n\nFXM will connect to them directly from this device. Only allow servers you added in FXM\'s settings and trust.</item>
+    </plurals>
+    <string name="fxm_http_approve_allow">Allow</string>
+    <string name="fxm_http_approve_deny">Don\'t allow</string>
+</resources>

@@ -2,6 +2,7 @@
  * Manifest V3 for Chromium-based browsers and Firefox, generated from config.ts and rules.ts.
  */
 import { EXTENSION_NAME, fxmOrigins } from './config.ts'
+import { LOGIN_DATA_COLLECTION } from './consent.ts'
 import { originMatchPattern } from './origins.ts'
 import { buildRulesets, ruleHostPermissions } from './rules.ts'
 
@@ -19,6 +20,13 @@ export const FIREFOX_ADDON_ID = 'fxm-connect@fxmusic.pages.dev'
 export const FIREFOX_MIN_VERSION = '140.0'
 
 /**
+ * Oldest Firefox for Android that runs FXM Connect: `data_collection_permissions` arrived there in
+ * 142. Declaring `gecko_android` also tells AMO that the add-on works on Android, so its listing
+ * offers it there.
+ */
+export const FIREFOX_ANDROID_MIN_VERSION = '142.0'
+
+/**
  * Oldest Chromium that runs FXM Connect. `initiatorDomains`/`requestDomains` arrived in 101 and
  * `storage.session` in 102; 120 is a conservative floor with every feature used here.
  */
@@ -31,7 +39,7 @@ export const ICON_SIZES = [16, 32, 48, 128] as const
 export const MAX_DESCRIPTION_LENGTH = 132
 
 const PURPOSE = 'Only lets the FXM web app reach music services from your own browser.'
-const DESCRIPTION = `${PURPOSE} Collects no data and runs no remote code.`
+const DESCRIPTION = `${PURPOSE} No analytics, no tracking and no remote code.`
 const DEV_DESCRIPTION = `Development build: also allows localhost. ${PURPOSE}`
 
 /**
@@ -110,8 +118,12 @@ export interface Manifest {
     gecko: {
       id: string
       strict_min_version: string
-      data_collection_permissions: { required: ['none'] }
+      data_collection_permissions: {
+        required: ['none']
+        optional: [typeof LOGIN_DATA_COLLECTION]
+      }
     }
+    gecko_android: { strict_min_version: string }
   }
 }
 
@@ -164,8 +176,14 @@ export function buildManifest({ browser, version, dev }: ManifestOptions): Manif
             gecko: {
               id: FIREFOX_ADDON_ID,
               strict_min_version: FIREFOX_MIN_VERSION,
-              data_collection_permissions: { required: ['none'] },
+              // Nothing goes to the developer. The opt-in login bridge hands the token of the
+              // user's Spotify login to the FXM page, which Firefox asks consent for (consent.ts).
+              data_collection_permissions: {
+                required: ['none'],
+                optional: [LOGIN_DATA_COLLECTION],
+              },
             },
+            gecko_android: { strict_min_version: FIREFOX_ANDROID_MIN_VERSION },
           },
         }),
   }
