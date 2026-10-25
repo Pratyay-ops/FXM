@@ -5,7 +5,14 @@
  * @module
  */
 
-import type { CatalogMode, LyricsProvider, ProviderContext, QueueItem, Track } from '@fxm/core'
+import {
+  type CatalogMode,
+  isPlayable,
+  type LyricsProvider,
+  type ProviderContext,
+  type QueueItem,
+  type Track,
+} from '@fxm/core'
 import { createLrclibProvider } from '@fxm/sources/lrclib'
 import { isMatched } from '../now-playing/stream-label'
 
@@ -44,26 +51,48 @@ export function lyricsContext(mode: CatalogMode, signal: AbortSignal): ProviderC
 }
 
 /**
+ * How far apart two lengths may be and still find the same lyrics: LRCLIB matches the whole
+ * seconds it gets within ±2 s.
+ */
+const SAME_LENGTH_MS = 2000
+
+/**
  * The track to look lyrics up for, so that synced lyrics keep time with what plays:
  *
  * - the track itself, when it plays its own audio;
  * - a track matched to audio from another catalog (a Spotify track's YouTube Music song) keeps
- *   its own title, artists and album, which are cleaner, but takes the duration of the audio;
+ *   its own title, artists and album, which are cleaner. It takes the duration of the audio
+ *   only when that is clearly another length: a match a second longer finds the same lyrics,
+ *   so the lookup made before the match was known stays good;
  * - an official video that plays its song in Music mode looks up the song: its title, artists
  *   and duration (the video's own carry "(Official Video)", a channel name and an intro).
  */
 export function lyricsTrackFor(item: QueueItem): Track {
   const { track, candidate } = item
   if (candidate === undefined || !isMatched(track, candidate)) return track
-  const duration = candidate.durationMs === undefined ? {} : { durationMs: candidate.durationMs }
   if (track.kind === 'music-video' && candidate.kind === 'song') {
     const { durationMs: _videoDuration, ...rest } = track
     return {
       ...rest,
       title: candidate.title,
       artists: candidate.artists.map((name) => ({ name })),
-      ...duration,
+      ...(candidate.durationMs === undefined ? {} : { durationMs: candidate.durationMs }),
     }
   }
-  return { ...track, ...duration }
+  const own = track.durationMs
+  const audio = candidate.durationMs
+  if (audio === undefined || (own !== undefined && Math.abs(audio - own) <= SAME_LENGTH_MS)) {
+    return track
+  }
+  return { ...track, durationMs: audio }
+}
+
+/**
+ * Whether the player has yet to find what `item` plays, which decides what to look up: a
+ * Spotify track (metadata only, so it plays through a match) or an official video in Music
+ * mode (which plays its song), before a candidate is recorded.
+ */
+export function awaitsMatch(item: QueueItem, mode: CatalogMode): boolean {
+  if (item.candidate !== undefined) return false
+  return item.track.source === 'spotify' || !isPlayable(item.track, mode)
 }
