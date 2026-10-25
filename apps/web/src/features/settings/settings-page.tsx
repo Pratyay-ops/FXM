@@ -5,6 +5,7 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { useSettingsStore } from './settings-store'
@@ -102,6 +103,10 @@ export function SettingsPage() {
             className="w-full md:w-auto"
           />
         </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title="Sync">
+        <SyncSettings />
       </SettingsSection>
 
       <SettingsSection title="About">
