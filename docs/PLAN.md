@@ -78,7 +78,7 @@ flowchart LR
 | **1.7** | Matching engine | `feat/1.7-matching` | 1.1 | ⬜ |
 | **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | ⬜ |
 | **1.9** | FXM Connect browser extension | `feat/1.9-connect-extension` | 0.4 | 🟡 |
-| **2.1** | Web app shell and settings | `feat/2.1-web-shell` | 0.4 | 🟡 |
+| **2.1** | Web app shell and settings | `feat/2.1-web-shell` | 0.4 | ✅ |
 | **2.2** | Player core: queue, direct audio, Media Session | `feat/2.2-player-core` | 1.1 | ⬜ |
 | **2.3** | Playback policy and stream lifecycle | `feat/2.3-playback-policy` | 2.2, 1.4, 1.7 | ⬜ |
 | **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | ⬜ |
@@ -301,7 +301,7 @@ A clean-room implementation from protocol facts. **Do not copy code or fixtures*
 
 ## Phase 2: Web player (→ M1)
 
-### 2.1 Web app shell and settings 🟡
+### 2.1 Web app shell and settings ✅
 
 **Branch** `feat/2.1-web-shell` · **Depends on** 0.4 · **Scope** `apps/web/**`
 
