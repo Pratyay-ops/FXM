@@ -11,10 +11,11 @@
     "build:mobile": "vite build --base=/ --outDir dist-mobile",
     "build:desktop": "vite build --base=/ --outDir dist-desktop",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e && tsc --noEmit -p pwa",
     "test": "vitest run",
     "e2e": "playwright test",
-    "screenshots": "FXM_SCREENSHOTS=1 playwright test screenshots"
+    "screenshots": "FXM_SCREENSHOTS=1 playwright test screenshots",
+    "icons": "node scripts/render-icons.ts"
   },
   "dependencies": {
     "@fxm/core": "workspace:*",
@@ -24,6 +25,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^7.18.4",
+    "workbox-window": "^7.4.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -40,6 +42,7 @@
     "happy-dom": "^20.14.6",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.4",
+    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.0.3"
   }
 }
