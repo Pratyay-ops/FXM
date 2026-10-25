@@ -111,9 +111,10 @@ fxm_release_published() {
 fxm_release_catalog() {
   cat <<'EOF'
 release-bundles|fxm-connect-chromium-<version>.zip|FXM Connect for Chrome, Edge, Brave and other Chromium browsers
-release-bundles|fxm-connect-firefox-<version>.zip|FXM Connect for Firefox
+release-bundles|fxm-connect-firefox-<version>.zip|FXM Connect for Firefox, unsigned: the same files as the `.xpi`, for review or a temporary install
 release-bundles|fxm-web-<version>.zip|The web app for self-hosting: its files are in `app/`, served from `/app/`
 release-bundles|fxm-site-<version>.zip|The landing page for self-hosting, served from `/`
+release-firefox|fxm-connect-firefox-<version>.xpi|FXM Connect for Firefox, signed by Mozilla: install it from Firefox's Add-ons Manager
 EOF
 }
 

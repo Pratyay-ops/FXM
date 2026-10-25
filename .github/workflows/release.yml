@@ -6,9 +6,19 @@ name: Release
 #
 #   plan     reads the version and decides whether to release (scripts/release-plan.sh)
 #   bundles  builds the web app, landing page and FXM Connect zips (scripts/release-build.sh)
+#   firefox  has FXM Connect signed on Firefox Add-ons (AMO) and passes on the signed XPI
+#            (apps/extension/store/firefox.ts)
 #   publish  collects the artifact jobs' files (scripts/release-collect.sh), writes SHA256SUMS,
 #            attests every file's build provenance, creates tag vX.Y.Z and publishes the
 #            release with git-cliff notes (scripts/release-publish.sh)
+#   edge     once the release is out, submits its FXM Connect zip to Edge Add-ons
+#            (apps/extension/store/edge.ts)
+#
+# The firefox and edge jobs need secrets that the owner adds (apps/extension/README.md, "Store
+# channels"): AMO_API_KEY and AMO_API_SECRET, and EDGE_PRODUCT_ID, EDGE_CLIENT_ID and
+# EDGE_API_KEY. Without them they skip their work with a notice, and the release goes out
+# without the signed XPI or the Edge submission. The repository variable AMO_CHANNEL picks
+# AMO's channel: unlisted (the default), listed or off.
 #
 # Every job builds the commit the run was started for (plan's sha is always github.sha), which
 # is also the commit the attestations name. Re-running is safe: a published release stops at
@@ -17,7 +27,7 @@ name: Release
 # run, so a tag pushed by hand never gets a commit built and published. Builds start from a
 # clean runner, without caches, so nothing from other runs reaches the files.
 #
-# Adding artifacts (the APK in 6.6, desktop installers in 7.5, the signed XPI in R.2):
+# Adding artifacts (the APK in 6.6, desktop installers in 7.5; the firefox job is one):
 #   1. Add a job that needs plan, runs `if: needs.plan.outputs.release == 'true'`, checks out
 #      needs.plan.outputs.sha and uploads its files as an artifact named release-<name>. The
 #      files sit at the artifact's root (no folders) and carry the version in their names.
@@ -94,9 +104,75 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  firefox:
+    name: Signed Firefox add-on
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    # web-ext waits up to 20 minutes for AMO to sign an unlisted version.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # Without the AMO API keys, or with AMO_CHANNEL set to off, this says so and the steps
+      # below are skipped: the job succeeds and the release has no signed XPI.
+      - name: Check the AMO settings
+        id: plan
+        env:
+          AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
+          AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+          AMO_CHANNEL: ${{ vars.AMO_CHANNEL }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/extension/store/firefox.ts plan
+
+      - name: Set up toolchain and dependencies (frozen lockfile)
+        if: steps.plan.outputs.sign == 'true'
+        run: make ci-setup
+
+      - name: Build FXM Connect for Firefox
+        if: steps.plan.outputs.sign == 'true'
+        run: |
+          scripts/release-version.sh --check
+          FXM_EXTENSION_DEV=0 scripts/run.sh pnpm --filter @fxm/extension build
+
+      # Lints the build with AMO's rules, packs the source code for AMO's reviewers, signs with
+      # web-ext (or fetches the version AMO already has, on a re-run) and checks the signed file
+      # against the build.
+      - name: Sign it on Firefox Add-ons
+        id: sign
+        if: steps.plan.outputs.sign == 'true'
+        env:
+          AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
+          AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+          AMO_CHANNEL: ${{ vars.AMO_CHANNEL }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: >-
+          scripts/run.sh pnpm --filter @fxm/extension --silent store:firefox sign
+          --version "$VERSION" --out "$GITHUB_WORKSPACE/dist/release-firefox"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.sign.outputs.signed == 'true'
+        with:
+          name: release-firefox
+          path: dist/release-firefox/
+          if-no-files-found: error
+          retention-days: 30
+
   publish:
     name: Publish ${{ needs.plan.outputs.tag }}
-    needs: [plan, bundles]
+    needs: [plan, bundles, firefox]
     # No artifact job may fail or be cancelled. A job that can skip itself on purpose doesn't
     # block, as long as its download step below runs only `if: needs.<job>.result == 'success'`.
     if: >-
@@ -123,6 +199,13 @@ jobs:
           name: release-bundles
           path: dist/artifacts/release-bundles
 
+      # Only when AMO signed this version: the firefox job may skip its work on purpose.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.firefox.outputs.signed == 'true'
+        with:
+          name: release-firefox
+          path: dist/artifacts/release-firefox
+
       - name: Collect the release files
         env:
           VERSION: ${{ needs.plan.outputs.version }}
@@ -146,3 +229,58 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           SHA: ${{ needs.plan.outputs.sha }}
         run: scripts/release-publish.sh "$VERSION" "$SHA" dist/release "$RUNNER_TEMP/notes.md"
+
+  edge:
+    name: Edge Add-ons submission
+    needs: [plan, publish]
+    # After the release is published, so that a store never gets a version GitHub doesn't have.
+    if: >-
+      ${{ !cancelled() && needs.plan.outputs.release == 'true'
+      && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # Without the three Edge secrets this says so and the steps below are skipped. The Edge
+      # Add-ons API can only update an extension that the owner first published in Partner
+      # Center.
+      - name: Check the Edge settings
+        id: plan
+        env:
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/extension/store/edge.ts plan
+
+      # The Chromium zip exactly as the release published it.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.plan.outputs.submit == 'true'
+        with:
+          name: release-bundles
+          path: dist/artifacts/release-bundles
+
+      # Uploads the zip as the draft's package and submits it for certification, which takes up
+      # to seven business days; the job doesn't wait for the outcome.
+      - name: Submit FXM Connect to Edge Add-ons
+        if: steps.plan.outputs.submit == 'true'
+        env:
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/extension/store/edge.ts submit --version "$VERSION"
+          --zip "dist/artifacts/release-bundles/fxm-connect-chromium-$VERSION.zip"
