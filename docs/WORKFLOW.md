@@ -8,8 +8,8 @@ FXM is built stage by stage from [PLAN.md](PLAN.md). Several people or AI agents
 
 | Branch | Purpose | Deploys to | Receives merges from |
 |---|---|---|---|
-| `main` | Production. Always releasable. **Protected**: pull requests only, the CI check `make check` must pass on an up-to-date branch, merge commits only, no force-push or deletion | `fxm-music.pages.dev`; a GitHub Release and a `vX.Y.Z` tag for every new version | release PRs from `develop`, `hotfix/*` PRs |
-| `develop` | Integration. Every finished stage lands here | `develop.fxm-music.pages.dev` (preview) | stage branches |
+| `main` | Production. Always releasable. **Protected**: pull requests only, the CI check `make check` must pass on an up-to-date branch, merge commits only, no force-push or deletion | `fxmusic.pages.dev`; a GitHub Release and a `vX.Y.Z` tag for every new version | release PRs from `develop`, `hotfix/*` PRs |
+| `develop` | Integration. Every finished stage lands here | `develop.fxmusic.pages.dev` (preview) | stage branches |
 | `feat/<id>-<slug>` | One plan stage, e.g. `feat/1.5-spotify` | — | — |
 | `fix/…` `docs/…` `chore/…` `ci/…` `refactor/…` `test/…` | Work that isn't a feature, same naming | — | — |
 | `hotfix/<slug>` | Urgent production fix, branched from `main` | — | — |

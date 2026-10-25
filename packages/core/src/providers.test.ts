@@ -433,6 +433,11 @@ describe('provider interfaces', () => {
 
   it('types IDs, candidates and the platform hooks', () => {
     expectTypeOf<Parameters<MetadataProvider['getAlbum']>[0]>().toEqualTypeOf<EntityId<'album'>>()
+    // A provider says when the app may call it; absent means any time.
+    expectTypeOf<MetadataProvider['requestPolicy']>().toEqualTypeOf<
+      'any' | 'explicit' | undefined
+    >()
+    expect(catalog.requestPolicy ?? 'any').toBe('any')
     expectTypeOf<AudioCandidate['confidence']>().toEqualTypeOf<number>()
     // @fxm/core loads only the ES library, so here the platform types use their fallbacks.
     // In programs with DOM, web worker or Node types they are exactly `typeof fetch` and
@@ -563,6 +568,27 @@ describe('stream options', () => {
     expect([unprobed.fullLength, unlabelled.media]).toEqual([undefined, undefined])
   })
 
+  it('may say that the source forbids downloading them, which downloads filter on', () => {
+    expectTypeOf<StreamOption['downloadAllowed']>().toEqualTypeOf<boolean | undefined>()
+    const flac: StreamOption = {
+      url: 'https://example.test/track.flac',
+      codec: 'flac',
+      container: 'flac',
+      media: 'audio',
+      tier: 'lossless',
+      protocol: 'progressive',
+      ipBound: false,
+      fullLength: 'unverified',
+      downloadAllowed: false,
+    }
+    const mp3: StreamOption = { ...flac, url: 'https://example.test/track.mp3', codec: 'mp3' }
+    const { downloadAllowed: _allowed, ...allowed } = mp3
+    const options = [flac, { ...allowed, container: 'mp3' as const, tier: 'high' as const }]
+    expect(pickStream(options, 'lossless')?.url).toBe(flac.url)
+    const downloadable = options.filter((option) => option.downloadAllowed !== false)
+    expect(pickStream(downloadable, 'lossless')?.url).toBe(mp3.url)
+  })
+
   it('carry the protocol data of a SABR stream as JSON', () => {
     expect(JSON.parse(JSON.stringify(sabr))).toEqual(sabr)
     expectTypeOf<SabrSession>().toExtend<JsonObject>()
@@ -574,5 +600,33 @@ describe('stream options', () => {
     // @ts-expect-error neither do bytes
     const withBytes: StreamOption = { ...sabr, playback: { init: new Uint8Array(2) } }
     expect([withFunction.playback, withBytes.playback]).toHaveLength(2)
+  })
+})
+
+describe('paged radio', () => {
+  /** A station that goes on: page `n` holds tracks `n` and `n + 1`, the seed never among them. */
+  const station: RecommendationProvider = {
+    id: 'ytm',
+    async radio(seed, ctx) {
+      const page = await this.radioPage?.(seed, {}, ctx)
+      return page?.items ?? []
+    },
+    async radioPage(_seed, options) {
+      const page = Number(options.cursor ?? '0')
+      const track = (n: number): Track => ({ ...song, id: formatId('ytm', 'track', `song${n}`) })
+      return { items: [track(2 * page + 2), track(2 * page + 3)], nextCursor: String(page + 1) }
+    },
+  }
+
+  it('lets a provider page its radio, with radio returning the first page', async () => {
+    const ids = (tracks: Track[] = []) => tracks.map((track) => parseId(track.id).nativeId)
+    const first = await station.radioPage?.(song, {}, context('music'))
+    const cursor = first?.nextCursor ?? ''
+    const second = await station.radioPage?.(song, { cursor }, context('music'))
+    expect([ids(first?.items), ids(second?.items)]).toEqual([
+      ['song2', 'song3'],
+      ['song4', 'song5'],
+    ])
+    expect(await station.radio(song, context('music'))).toEqual(first?.items)
   })
 })

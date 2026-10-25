@@ -1,0 +1,22 @@
+{
+  "name": "@fxm/platform",
+  "version": "0.0.0",
+  "private": true,
+  "description": "FXM platform adapters: network transports, FXM Connect detection, capability detection and the shared YouTube request budget",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@fxm/core": "workspace:*"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.14.6"
+  }
+}

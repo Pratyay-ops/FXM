@@ -1,0 +1,35 @@
+{
+  "headers": {
+    "status": "success",
+    "code": 0,
+    "error_message": "",
+    "warnings": "",
+    "results_count": 2
+  },
+  "results": [
+    {
+      "id": "368084",
+      "name": "mañana será tarde",
+      "releasedate": "2021-04-11",
+      "artist_id": "421168",
+      "artist_name": "fankel",
+      "image": "https://usercontent.jamendo.com?type=album&id=368084&width=300&trackid=1848357",
+      "zip": "",
+      "shorturl": "https://jamen.do/a/368084",
+      "shareurl": "https://www.jamendo.com/album/368084",
+      "zip_allowed": false
+    },
+    {
+      "id": "452525",
+      "name": "Queensland [High Energy Funk Instrumental]",
+      "releasedate": "2021-08-24",
+      "artist_id": "540929",
+      "artist_name": "Lofi Lopez",
+      "image": "https://usercontent.jamendo.com?type=album&id=452525&width=300&trackid=1880336",
+      "zip": "",
+      "shorturl": "https://jamen.do/a/452525",
+      "shareurl": "https://www.jamendo.com/album/452525",
+      "zip_allowed": false
+    }
+  ]
+}

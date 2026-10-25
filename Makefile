@@ -39,6 +39,11 @@ dev: ## Start the web app dev server
 
 lint: ## Check formatting and lint rules (Biome)
 	@$(RUN) pnpm run lint
+	@if git grep -niI -e 'fxm-music\.pages\.de[v]' -e 'fxm_music_pages_de[v]' -- . ':!docs/research/' \
+	  || git grep -nwI 'fxm-musi[c]' -- . ':!docs/research/' ':!docs/ARCHITECTURE.md' ':!Makefile'; then \
+	  echo "FXM moved to fxmusic.pages.dev and the Pages project fxmusic (fxm-music was taken, see ARCHITECTURE.md D24): update the lines above."; \
+	  exit 1; \
+	fi
 
 format: ## Fix formatting and safe lint issues (Biome)
 	@$(RUN) pnpm run format
