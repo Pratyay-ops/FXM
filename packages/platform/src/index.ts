@@ -6,6 +6,7 @@
  * @module
  */
 
+export * from './android-http'
 export * from './budget'
 export * from './capabilities'
 export * from './capacitor'

@@ -44,7 +44,7 @@ On the web, what FXM reaches depends on the tier:
 | Last.fm station JSON | — | — | ✅ |
 | Capabilities | `youtube: 'none'` | `youtube: 'simple'` | `youtube: 'full'`, `mediaBytes: true` |
 
-`<audio src>` plays googlevideo URLs on every tier: playback needs no `fetch`. The desktop and Android apps reach everything once their native HTTP exists (stages 7.2 and 6.2), and Node always does.
+`<audio src>` plays googlevideo URLs on every tier: playback needs no `fetch`. The Android app reaches everything through its native HTTP (stage 6.2), the desktop app once its own exists (stage 7.2), and Node always does.
 
 A refused request rejects with an `Unsupported` `FxmError` that names what is missing, before any budget is spent. Every request goes out with `credentials: 'omit'`, and no transport sends a caller's `Origin` or `Cookie` header.
 
@@ -122,7 +122,7 @@ Anonymous tokens need no bridge: with FXM Connect the page fetches `open.spotify
 `resolveCapabilities(inputs)` is the pure rule, `detectCapabilities(options)` runs it once, and `createCapabilityMonitor(options)` keeps the result current and has `subscribe`:
 
 - **Web:** FXM Connect `present` with feature `youtube` gives `youtube: 'full'`, plus `mediaBytes` with `googlevideo`. Otherwise `'simple'` once the Lite self-test passed and no kill switch is set, else `'none'`. Spotify is `anonymous` with feature `spotify` and `account` with `spotify-login` as well, otherwise `unreachable`.
-- **Desktop and Android:** `full`, media bytes, and Spotify `anonymous` (or `account` with a login token source) once their native HTTP exists. Until stages 7.2 and 6.2 supply it, their transports are stubs and they honestly report `youtube: 'none'` and Spotify `unreachable`.
+- **Desktop and Android:** `full`, media bytes, and Spotify `anonymous` (or `account` with a login token source) once their native HTTP exists: on Android the `FxmHttp` plugin (stage 6.2). Without it, as on the desktop until stage 7.2, their transports are stubs and they honestly report `youtube: 'none'` and Spotify `unreachable`.
 - `mediaBytes` is only ever `true` with `youtube: 'full'`, as `NetworkCapabilities` requires.
 
 Detection follows the architecture's order: FXM Connect first, and the Lite self-test only when it gives no full access. The self-test runs once per session (it draws one slot from the budget); `lite.check({ force: true })` runs it again, and `capabilities.refresh()` re-evaluates after the kill switches changed.
@@ -143,7 +143,9 @@ Desktop and Android reach every host directly through a `NativeHttp` function: `
 With `userAgent`, YouTube and Spotify requests that carry no `User-Agent` get that browser one: Spotify refuses non-browser agents.
 
 - **Tauri (stage 7.2):** `createTauriTransport({ http })`, where `http` wraps `@tauri-apps/plugin-http` built with `unsafe-headers`, which removes the `Origin` header for an empty value. Redirects must stay within the plugin's scope.
-- **Capacitor (stage 6.2):** `createCapacitorTransport({ http })`, where `http` wraps FXM's OkHttp plugin with its own cookie jar. Never Capacitor's global `CapacitorHttp` patch or `CapacitorHttp.request`: the patch drops headers and corrupts binary bodies, and both send WebView cookies.
+- **Capacitor (stage 6.2):** `createCapacitorTransport({ http: createAndroidHttp() })`. `createAndroidHttp` (`src/android-http.ts`) is the `NativeHttp` over `FxmHttp`, FXM's OkHttp plugin in `apps/mobile/android/fxm-http`, which has its own cookie jar and is shared with the Media3 player. `createPlatform` uses it by itself on Android when the app has the plugin (`androidHttpIfAvailable`). Never Capacitor's global `CapacitorHttp` patch or `CapacitorHttp.request`: the patch drops headers and corrupts binary bodies, and both send WebView cookies.
+
+  The response resolves once its headers are in and its body streams: JavaScript pulls base64 chunks of up to 256 KiB from the plugin, so any byte survives the bridge. Aborting cancels the native call. Failures are as in `fetch` (`TypeError`), except that refusals by the plugin's own copy of FXM's rules (a host off the table, an `Origin` a host may not receive) are `Unsupported` `FxmError`s. A request to a host the user added but has not approved shows a system dialog once, and is retried if they allow it; `approveHosts`, `approvedHosts` and `revokeHosts` on the returned function serve Settings. The bridge protocol and the native rules are in the module's [README](../../apps/mobile/android/fxm-http/README.md).
 
 Without `http`, both are stubs: CORS-friendly hosts through the webview's own `fetch` (on Android the unpatched one, `unpatchedFetch()`), and an `Unsupported` error naming the missing stage for everything else.
 
@@ -156,6 +158,7 @@ Without `http`, both are stubs: CORS-friendly hosts through the webview's own `f
 - `createFakeClock()`: a `Clock` whose time only the test moves; `advanceAsync` lets promises settle between timers.
 - `createFakeSandbox()`: a `SandboxTransport` that refuses requests the real sandbox could not send (not CORS-simple, or not one of the allowed InnerTube paths) and records the rest.
 - `installFakeConnect(window)`: marks a page and answers pings and bridge requests the way FXM Connect's content script does.
+- `createFakeFxmHttp(options)`: the Android app's `FxmHttp` plugin, answering from a handler that returns a `Response`; it streams bodies in chunks, honours aborts and asks for approval of hosts off the table. `fxmHttpError(code)` makes the errors the plugin rejects with.
 
 Tests that need a page create their own happy-dom `Window` at the FXM origin: in Vitest's global happy-dom environment, a message's `event.source` is not the page's `window`. happy-dom delivers `postMessage` on real timers, so the clients take an injectable `clock` for their timeouts.
 
@@ -172,6 +175,7 @@ scripts/run.sh pnpm --filter @fxm/platform typecheck
 | `src/platform.ts` | `detectEnvironment`, `createPlatform`, `FxmPlatform.context` |
 | `src/transport.ts` | The shared transport core: classification, request forms, budget draws, bot-check reports |
 | `src/web.ts`, `src/node.ts`, `src/native.ts`, `src/tauri.ts`, `src/capacitor.ts` | One transport per environment, and the native contract |
+| `src/android-http.ts` | The Android app's native HTTP over the `FxmHttp` plugin (stage 6.2) |
 | `src/hosts.ts`, `src/cors.ts`, `src/innertube.ts` | The host table, the CORS safelist and the InnerTube request shape |
 | `src/budget.ts` | The shared request budget |
 | `src/connect.ts` | FXM Connect detection and the bridge client |
