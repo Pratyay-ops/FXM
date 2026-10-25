@@ -47,6 +47,20 @@ describe('modePolicy', () => {
       'needs-song-match',
     )
   })
+
+  const inherited = ['toString', '__proto__', 'constructor', 'hasOwnProperty', 'valueOf']
+
+  it.each(inherited)('hides a track whose kind is the inherited name %j', (name) => {
+    for (const mode of CATALOG_MODES) {
+      expect(modePolicy({ kind: name as TrackKind }, mode)).toBe('hidden')
+    }
+  })
+
+  it.each(inherited)('applies the Music rules to the inherited mode name %j', (name) => {
+    for (const kind of KINDS) {
+      expect(modePolicy({ kind }, name as CatalogMode)).toBe(modePolicy({ kind }, 'music'))
+    }
+  })
 })
 
 describe('applyModeFilter', () => {
@@ -76,6 +90,12 @@ describe('applyModeFilter', () => {
 
   it('handles an empty list', () => {
     expect(applyModeFilter([], 'music')).toEqual([])
+  })
+
+  it('drops items whose kind is an inherited name', () => {
+    const bad = [{ kind: 'toString' }, { kind: '__proto__' }, { kind: 'song' }] as const
+    const kept = applyModeFilter(bad as unknown as ReadonlyArray<{ kind: TrackKind }>, 'music')
+    expect(kept).toEqual([{ kind: 'song' }])
   })
 })
 

@@ -69,11 +69,12 @@ const POLICY: Readonly<Record<CatalogMode, Readonly<Record<TrackKind, ModeVerdic
  * | `episode`     | `hidden`           | `hidden`   |
  *
  * It fails closed on bad data, for example a stale value read from storage: an unknown mode
- * gets the `music` rules and an unknown kind is `hidden`.
+ * gets the `music` rules and an unknown kind is `hidden`. Only real kinds and modes count, never
+ * names inherited from `Object.prototype` such as `toString`.
  */
 export function modePolicy(track: Pick<Track, 'kind'>, mode: CatalogMode): ModeVerdict {
-  const rules = POLICY[mode] ?? POLICY.music
-  return rules[track.kind] ?? 'hidden'
+  const rules = isCatalogMode(mode) ? POLICY[mode] : POLICY.music
+  return Object.hasOwn(rules, track.kind) ? rules[track.kind] : 'hidden'
 }
 
 /**

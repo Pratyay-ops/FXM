@@ -84,25 +84,31 @@ export interface AudioQuality {
  * | vorbis | >= 160 | >= 96    | below 96  |
  *
  * Lossless codecs are always `lossless`. An unknown bitrate (missing, zero, negative or not a
- * finite number) counts as `normal`.
+ * finite number) counts as `normal`, and so does an unknown codec, which only bad data can hold.
  */
 export function tierOf({ codec, bitrateKbps }: AudioQuality): QualityTier {
   if (isLosslessCodec(codec)) return 'lossless'
-  // Unknown codecs can only come from bad data; they get the same answer as an unknown bitrate.
-  const thresholds = LOSSY_TIER_THRESHOLDS[codec]
-  if (!thresholds || bitrateKbps === undefined) return 'normal'
+  if (!Object.hasOwn(LOSSY_TIER_THRESHOLDS, codec) || bitrateKbps === undefined) return 'normal'
   if (!Number.isFinite(bitrateKbps) || bitrateKbps <= 0) return 'normal'
+  const thresholds = LOSSY_TIER_THRESHOLDS[codec]
   if (bitrateKbps >= thresholds.high) return 'high'
   if (bitrateKbps >= thresholds.normal) return 'normal'
   return 'low'
 }
 
+/** Position of a tier in {@link QUALITY_TIERS}; an unknown tier ranks below `low`. */
+function tierRank(tier: QualityTier): number {
+  const rank = QUALITY_TIERS.indexOf(tier)
+  return rank < 0 ? QUALITY_TIERS.length : rank
+}
+
 /**
  * Orders two tiers for sorting, best first: negative when `a` is better than `b`, positive when
- * it is worse, 0 when equal. `options.sort((x, y) => compareTiers(x.tier, y.tier))`.
+ * it is worse, 0 when equal. `options.sort((x, y) => compareTiers(x.tier, y.tier))`. An unknown
+ * tier from bad data sorts after `low`.
  */
 export function compareTiers(a: QualityTier, b: QualityTier): number {
-  return QUALITY_TIERS.indexOf(a) - QUALITY_TIERS.indexOf(b)
+  return tierRank(a) - tierRank(b)
 }
 
 /**

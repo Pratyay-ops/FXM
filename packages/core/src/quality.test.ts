@@ -82,9 +82,13 @@ describe('tierOf', () => {
     },
   )
 
-  it('treats an unknown codec from bad data like an unknown bitrate', () => {
-    expect(tierOf({ codec: 'ac3' as Codec, bitrateKbps: 640 })).toBe('normal')
-  })
+  it.each(['ac3', 'toString', '__proto__', 'constructor', 'hasOwnProperty'])(
+    'treats the unknown codec %j from bad data like an unknown bitrate',
+    (codec) => {
+      expect(tierOf({ codec: codec as Codec, bitrateKbps: 640 })).toBe('normal')
+      expect(tierOf({ codec: codec as Codec, bitrateKbps: 8 })).toBe('normal')
+    },
+  )
 
   it('documents the thresholds it uses', () => {
     expect(LOSSY_TIER_THRESHOLDS).toEqual({
@@ -108,6 +112,12 @@ describe('compareTiers', () => {
     expect(compareTiers('high', 'high')).toBe(0)
     expect(compareTiers('lossless', 'low')).toBeLessThan(0)
     expect(compareTiers('low', 'normal')).toBeGreaterThan(0)
+  })
+
+  it('sorts an unknown tier from bad data last', () => {
+    const tiers = ['bogus', 'low', 'toString', 'lossless'] as QualityTier[]
+    expect(tiers.sort(compareTiers).slice(0, 2)).toEqual(['lossless', 'low'])
+    expect(compareTiers('bogus' as QualityTier, 'low')).toBeGreaterThan(0)
   })
 })
 
