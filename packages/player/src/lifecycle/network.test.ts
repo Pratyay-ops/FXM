@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 describe('createBrowserNetworkMonitor', () => {
-  it('moves to a new network on online, offline and connection changes', () => {
+  it('moves to a new network on online, offline and a change of connection type', () => {
     const target = new EventTarget()
     const link = connection('wifi')
     const monitor = createBrowserNetworkMonitor({ target, connection: link })
@@ -26,9 +26,40 @@ describe('createBrowserNetworkMonitor', () => {
     const first = monitor.id
     target.dispatchEvent(new Event('offline'))
     target.dispatchEvent(new Event('online'))
+    link.type = 'cellular'
     link.dispatchEvent(new Event('change'))
     expect(changes).toHaveLength(3)
     expect(new Set([first, ...changes]).size).toBe(4)
+  })
+
+  it('stays on the network when a change only moves the estimates', () => {
+    const target = new EventTarget()
+    const link = connection('wifi')
+    const monitor = createBrowserNetworkMonitor({ target, connection: link })
+    const changes: string[] = []
+    monitor.subscribe(() => changes.push(monitor.id))
+    const first = monitor.id
+    link.dispatchEvent(new Event('change'))
+    // Desktop Chromium has no type at all: only online and offline count there.
+    const untyped = connection()
+    const desktop = createBrowserNetworkMonitor({ target: new EventTarget(), connection: untyped })
+    const before = desktop.id
+    untyped.dispatchEvent(new Event('change'))
+    expect(changes).toEqual([])
+    expect(monitor.id).toBe(first)
+    expect(desktop.id).toBe(before)
+  })
+
+  it('compares a later change with the type seen at the last change, online included', () => {
+    const target = new EventTarget()
+    const link = connection('wifi')
+    const monitor = createBrowserNetworkMonitor({ target, connection: link })
+    const changes: string[] = []
+    monitor.subscribe(() => changes.push(monitor.id))
+    link.type = 'cellular'
+    target.dispatchEvent(new Event('online'))
+    link.dispatchEvent(new Event('change'))
+    expect(changes).toHaveLength(1)
   })
 
   it('knows mobile data from the connection type', () => {

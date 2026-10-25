@@ -19,7 +19,7 @@ function request(overrides: Partial<StreamSourceRequest> = {}): StreamSourceRequ
     ctx: testContext('full'),
     prefs: DEFAULT_QUALITY_PREFS,
     rung: 'top',
-    priority: 'playback',
+    priority: 'current-track',
     signal: new AbortController().signal,
     ...overrides,
   }
@@ -68,9 +68,20 @@ describe('FakeStreamSource', () => {
   it('caps, rejects and gives verdicts by rule', async () => {
     const source = new FakeStreamSource()
     source.capped.add('a')
+    // Like the real ladder, the whole ladder falls through to itag 18 past a capped top rung.
+    const top = await source.resolve(testCandidate('a'), request())
+    expect(top.map((stream) => [stream.media, stream.fullLength])).toEqual([
+      ['muxed-video', 'verified'],
+      ['audio', 'capped'],
+      ['audio', 'capped'],
+    ])
+    expect(top.map((stream) => source.rungOf(stream))).toEqual(['fallback', 'top', 'top'])
+    source.fallThrough = false
     expect((await source.resolve(testCandidate('a'), request()))[0]?.fullLength).toBe('capped')
     const fallback = await source.resolve(testCandidate('a'), request({ rung: 'fallback' }))
     expect(fallback[0]).toMatchObject({ fullLength: 'verified', media: 'muxed-video' })
+    const lite = await source.resolve(testCandidate('a'), request({ ctx: testContext('lite') }))
+    expect(lite.map((stream) => stream.fullLength)).toEqual(['unverified', 'unverified'])
     source.errors.set('b', new FxmError('Network', 'x'))
     await expect(source.resolve(testCandidate('b'), request())).rejects.toThrow('x')
     source.verdicts.set('c', 'ERROR')
@@ -92,6 +103,29 @@ describe('FakeStreamSource', () => {
     expect(await source.checkStatus(stream)).toBe(403)
     expect(source.checked).toEqual([stream.url])
   })
+
+  it('records the failed rungs reported, and reads a state off an error', () => {
+    const source = new FakeStreamSource()
+    const [stream] = ladderStreams('a', { rung: 'top', fullLength: 'unverified', serial: 1 })
+    if (stream === undefined) throw new Error('no stream')
+    source.reportFailure(stream, {
+      facts: {
+        kind: 'unsupported',
+        started: false,
+        fullLength: 'unverified',
+        rung: 'top',
+        cached: false,
+        hasFallback: true,
+        forbiddenCount: 0,
+      },
+      recovery: { target: 'fallback', flushAll: false, avoidFormat: false, reason: 'probe-failed' },
+    })
+    expect(source.reports).toEqual([{ url: stream.url, reason: 'probe-failed' }])
+    const aged = Object.assign(new FxmError('Unavailable', 'age'), { state: 'age-restricted' })
+    expect(source.stateOf(aged)).toBe('age-restricted')
+    expect(source.stateOf(new FxmError('Unavailable', 'x'))).toBeUndefined()
+    expect(source.stateOf(null)).toBeUndefined()
+  })
 })
 
 describe('FakeMatcher', () => {
@@ -107,7 +141,7 @@ describe('FakeMatcher', () => {
     const base = {
       target: 'song',
       ctx: testContext(),
-      priority: 'playback',
+      priority: 'current-track',
       signal: new AbortController().signal,
     } as const
     expect(await matcher.match(track, { ...base, exclude: [] })).toEqual({

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { checkSite, type Problem } from './build-check'
 
-const SITE = 'https://fxm-music.pages.dev'
+const SITE = 'https://fxmusic.pages.dev'
 
 interface PageOptions {
   route?: string

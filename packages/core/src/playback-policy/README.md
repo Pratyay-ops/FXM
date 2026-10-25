@@ -4,8 +4,8 @@ The pure rules behind playback (stage 2.3): which audio plays a track, which str
 
 | Module | What it holds |
 |---|---|
-| `settings.ts` | `PlaybackSettings` ("prefer lossless", "Play best guesses", Invidious), `DEFAULT_PLAYBACK_SETTINGS` (all off), `sanitizePlaybackSettings`. The matching engine's bands as the policy reads them (`PlaybackBand`: `auto`, `suggest`, `none`), `MatchTarget` (`song`, `lossless`) and `mayPlayMatch` |
-| `order.ts` | `planPlayback`, the order of preference, and the candidates built from a track: `ownCandidate`, `linkedSongCandidate`. `candidateKey` and `sameCandidate` compare audio; `canReachAudio` says whether the tier reaches a source's audio |
+| `settings.ts` | `PlaybackSettings` ("prefer lossless", "Play best guesses", Invidious), `DEFAULT_PLAYBACK_SETTINGS` (all off), `sanitizePlaybackSettings`. `MatchTarget` (`song`, `lossless`) and `mayPlayMatch`, over the matching engine's own bands (`MatchBand` from [`../matching`](../matching/README.md): `auto`, `suggest`, `none`) |
+| `order.ts` | `planPlayback`, the order of preference, and the candidates built from a track: `ownCandidate`, `linkedSongCandidate`. `candidateKey` and `sameCandidate` compare audio, `isAudioCandidate` checks one read from storage, `audioSourceOf` names the source that resolves it (`ytm` for any YouTube video), and `canReachAudio` says whether the tier reaches a source's audio |
 | `streams.ts` | `choosePlaybackStream`, the format choice; `streamsUsableUntil` and `URL_REFRESH_MARGIN_MS` for the URL cache |
 | `quality-settings.ts` | The quality settings beside the tier ceilings (stage 4.3): `StreamingSettings` (which connection's ceiling to follow, the data saver), `DEFAULT_STREAMING_SETTINGS`, `sanitizeStreamingSettings`, `connectionFromType`; `streamingProfile`, the ceiling, audio-only preference and probe scope in effect; `ProbePlan`, how a resolver probes, and `probeChosenStream`, which probes only the stream that will play |
 | `recovery.ts` | `planStreamRecovery`, what to do after a stream failed, and `httpStatusOf` |
@@ -16,8 +16,8 @@ The pure rules behind playback (stage 2.3): which audio plays a track, which str
 `planPlayback` lists the steps that find audio for one queue item ([ARCHITECTURE.md §7.4](../../../../docs/ARCHITECTURE.md#74-playback-priority)):
 
 1. An offline copy (a download).
-2. With a pin, only the pinned candidate, then Invidious. The user's choice always wins, and a pin is never swapped for another version behind the user's back.
-3. The candidate recorded on the queue item: a match the policy confirmed earlier, or the version the user picked.
+2. The user's choice, then Invidious, and nothing else: the version the user picked for this queue item (`picked`, right after the pick and while it plays), else the track's pin. The user's choice always wins, and it is never swapped for another version behind the user's back.
+3. The candidate recorded on the queue item: a match the policy confirmed earlier, or a version the app recorded. A match recorded there plays unasked only while the match cache confirms it (a pin or an `auto` decision); otherwise it is a guess like any other.
 4. With "prefer lossless" on, a lossless match on Internet Archive or Jamendo, for a track that is not itself from a free source.
 5. The track's own audio: a YouTube Music song through the resolution ladder, an Internet Archive or Jamendo item, a local file. For an official music video in Music mode, the song its source links (`songForVideo`), then its matched song. A track from a catalog without audio, such as Spotify, gets its matched song.
 6. With Invidious on, the YouTube audio found by then, through the instance the user entered.
@@ -36,6 +36,8 @@ Within YouTube, the ladder (1.4) tries VISIONOS, any enabled experimental rungs 
 | `suggest` song (a best guess) | Only after an explicit user action (a tap, a jump, "previous", play on it), or with "Play best guesses" on. Otherwise a queue skips it and marks it "needs review" |
 | `none` | Never |
 | `lossless` match | First only when ISRC-verified or `auto`; otherwise the song plays |
+
+The band is the matching engine's, with the user's Auto setting applied (`effectiveMatchBand`).
 
 ## Choosing a stream
 
@@ -81,6 +83,7 @@ A resolver judges a rung by the `outcome`:
 | 403 on a fresh URL, the first on this rung | The same rung, fresh: once, before changing rung |
 | 403 again | The fallback rung (itag 18); from the fallback rung, the top again |
 | Could not decode | Another format of the same resolution |
+| Refused before its first `play`, with a `verified` URL or a readable 2xx status | Another format of the same resolution: the URL works, so its format is what failed |
 | An `unverified` URL fails before its first `play` | The fallback rung: a failed probe. From the fallback rung, the top again |
 | A `verified` URL fails before its first `play` | The same rung, fresh: the end-of-file probe proved it is not capped |
 | A failure or a stall after playing | The same rung, fresh |
@@ -98,17 +101,17 @@ So both probe paths end the same way. Where bytes are readable (FXM Connect, des
 | `UNPLAYABLE` or `ERROR` for the matched video, and another video resolved recently on this network | `replace`: match again without it |
 | The same verdict, but nothing else resolves | `keep-match`: the IP address may be flagged |
 | Ladder failures, bot checks, network errors, offline periods, 403s after an IP change | `keep-match`: they say nothing about the match |
-| Anything, for a pin | `keep-pin`: pins are never swapped or deleted by FXM |
+| Anything, for the user's choice (a pin, or the version just picked for the item) | `keep-pin`: the user's choices are never swapped or deleted by FXM |
 | The track's own video | `not-a-match`: there is no match to replace |
 
-A resolver reports a verdict with `unplayableError({ source, ref, status })`: an `FxmError` coded `NotFound` for `ERROR` and `Unavailable` for `UNPLAYABLE`, carrying a `PlayabilityVerdict` as its `cause`. `playabilityVerdictOf` reads it back and fails closed on anything else. The YouTube ladder (1.4) reports YouTube's `playabilityStatus` this way.
+A resolver reports a verdict with `unplayableError({ source, ref, status, reason, state })`: an `FxmError` coded `NotFound` for `ERROR` and `Unavailable` for `UNPLAYABLE`, carrying a `PlayabilityVerdict` as its `cause`, with the source's reason and, when it gave one, a labelled `state` (1.4's `made-for-kids`, for example). `playabilityVerdictOf` reads it back and fails closed on anything else. The YouTube ladder (1.4) reports YouTube's `playabilityStatus` with its own `YouTubeUnplayableError` (coded `NotFound`, `GeoBlocked` or `Unavailable`), whose `cause` is such a verdict; its labelled state is on the error (`unavailableStateOf`), not in the verdict.
 
 ## Playback problems
 
 When nothing plays, the resolver rejects with `playbackProblemError(problem)`: an `FxmError` coded `Unavailable`, which the player skips at once, with a `PlaybackProblem` as its `cause`:
 
 - `needs-review`: a Suggest-band guess was held back, with the guess and the alternatives;
-- `unavailable`, with a reason (`no-match`, `unplayable`, `pinned-unplayable`, `no-stream`, `no-source`) and any alternatives.
+- `unavailable`, with a reason (`no-match`, `unplayable`, `pinned-unplayable`, `no-stream`, `no-source`) and any alternatives. When a source refused the audio, it also says why: the source's error `code` (`NotFound` for removed or private, `GeoBlocked`, `Unavailable`), its labelled `state` if it gave one (1.4's `age-restricted`, `made-for-kids`, `live`, `premiere`) and its own words (`detail`), so the app shows a labelled state rather than a silent failure.
 
 The app reads it from the player's `trackfailed` event with `playbackProblemOf(error)`, to show "needs review" or "Unavailable" with the alternatives and a manual search.
 

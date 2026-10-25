@@ -9,6 +9,7 @@ import {
 } from '@fxm/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EngineError } from '../engine'
+import type { Player } from '../player'
 import { testTrack } from '../testing/fixtures'
 import type { MemoryMatchStore } from './adapters'
 import { ladderUrl, settle, setup, useFakeClock } from './test-harness'
@@ -26,7 +27,14 @@ const x = testCandidate('x')
 const y = testCandidate('y')
 
 function stored(matches: MemoryMatchStore, track: Track, target: MatchTarget = 'song') {
-  return matches.get({ trackId: track.id, mode: 'music', target })
+  return matches.get({ sourceTrackId: track.id, mode: 'music', target })
+}
+
+/** The uid of the current queue item. */
+function currentUid(player: Player): number {
+  const item = currentQueueItem(player.getState().queue)
+  if (item === undefined) throw new Error('no current item')
+  return item.uid
 }
 
 /** The refs each matcher call excluded. */
@@ -57,7 +65,7 @@ describe('Smart Replace: it fires on a playability verdict while other videos re
     expect(await stored(matches, spotify)).toMatchObject({
       candidate: y,
       band: 'auto',
-      pinned: false,
+      userPinned: false,
     })
     expect(events.replaced).toEqual([{ track: spotify, from: x, to: y }])
   })
@@ -85,6 +93,27 @@ describe('Smart Replace: it fires on a playability verdict while other videos re
     expect(events.replaced).toEqual([{ track: spotify, from: x, to: y }])
   })
 
+  it('resolves the next track afresh when its cached URL is the only proof, after a pause', async () => {
+    const { lifecycle, player, youtube, matcher, recorded } = setupMatched()
+    const c = testTrack('c')
+    await player.setQueue([testTrack('a'), spotify, c])
+    const upcoming = player.getState().queue.items[2]
+    if (upcoming === undefined) throw new Error('short queue')
+    lifecycle.prefetch([upcoming])
+    await settle()
+    // Half an hour later, c's URL is still cached, but it no longer proves anything.
+    player.pause()
+    await settle(31 * 60_000)
+    youtube.verdicts.set('x', 'UNPLAYABLE')
+    await player.play(1)
+    expect(youtube.log).toEqual(['a:top', 'c:top', 'x:top', 'c:top', 'y:top'])
+    expect(exclusions(matcher.calls)).toEqual([[], ['x']])
+    expect(recorded()).toEqual(y)
+    // The fresh resolution of c is cached for when it plays.
+    await player.next()
+    expect(youtube.callsFor('c')).toBe(2)
+  })
+
   it('checks that other videos still resolve by resolving the next track', async () => {
     const { player, youtube, recorded } = setupMatched()
     youtube.verdicts.set('x', 'UNPLAYABLE')
@@ -106,7 +135,7 @@ describe('Smart Replace: it fires on a playability verdict while other videos re
     expect(recorded()).toEqual(y)
   })
 
-  it('reports the track unavailable when nothing replaces the match, and forgets the match', async () => {
+  it('reports the track unavailable when nothing replaces the match, and stores that', async () => {
     const { player, youtube, matcher, matches, failed } = setup()
     matcher.rank(spotify, 'song', [{ candidate: x, band: 'auto' }])
     youtube.verdicts.set('x', 'UNPLAYABLE')
@@ -115,8 +144,12 @@ describe('Smart Replace: it fires on a playability verdict while other videos re
     expect(playbackProblemOf(failed.at(-1))).toMatchObject({
       type: 'unavailable',
       reason: 'unplayable',
+      code: 'Unavailable',
+      detail: 'ytm item x is UNPLAYABLE',
     })
-    expect(await stored(matches, spotify)).toBeUndefined()
+    const decision = await stored(matches, spotify)
+    expect(decision).toMatchObject({ band: 'none', userPinned: false })
+    expect(decision).not.toHaveProperty('candidate')
   })
 
   it('holds a Suggest-band replacement back for review', async () => {
@@ -216,27 +249,47 @@ describe('Smart Replace: matches survive failures that say nothing about them', 
 describe('Smart Replace: pins are protected', () => {
   it('never replaces or deletes a pin whose video is gone', async () => {
     const { lifecycle, player, youtube, matcher, matches, failed, events } = setupMatched()
-    await lifecycle.confirmMatch(spotify, x)
+    await lifecycle.pinMatch(spotify, x)
     youtube.verdicts.set('x', 'UNPLAYABLE')
     await player.setQueue([testTrack('a'), spotify])
     await player.next()
     expect(matcher.calls).toHaveLength(0)
-    expect(await stored(matches, spotify)).toMatchObject({ candidate: x, pinned: true })
+    expect(await stored(matches, spotify)).toMatchObject({ candidate: x, userPinned: true })
     expect(playbackProblemOf(failed.at(-1))).toMatchObject({ reason: 'pinned-unplayable' })
     expect(events.replaced).toEqual([])
   })
 
-  it('pins the version the user picks with "Not the right version?"', async () => {
-    const { player, matches, youtube, recorded } = setupMatched()
+  it('pins a version only when the user asks: pinMatch, not a version pick', async () => {
+    const { lifecycle, player, matches, youtube, recorded } = setupMatched()
     await player.setQueue([testTrack('a'), spotify])
     await player.next()
-    const item = currentQueueItem(player.getState().queue)
-    if (item === undefined) throw new Error('no current item')
-    player.setCandidate(item.uid, y)
+    player.setCandidate(currentUid(player), y)
     await settle()
-    expect(await stored(matches, spotify)).toMatchObject({ candidate: y, pinned: true })
+    // The pick plays on this item, and the match cache still holds the engine's decision.
     expect(recorded()).toEqual(y)
     expect(youtube.log.at(-1)).toBe('y:top')
+    expect(await stored(matches, spotify)).toMatchObject({ candidate: x, userPinned: false })
+    await lifecycle.pinMatch(spotify, y)
+    expect(await stored(matches, spotify)).toMatchObject({
+      candidate: y,
+      alternatives: [x],
+      evidence: ['pinned by the user'],
+      userPinned: true,
+    })
+  })
+
+  it('never swaps the version the user just picked, even when its video is gone', async () => {
+    const { player, youtube, matcher, failed, events } = setupMatched()
+    const z = testCandidate('z')
+    await player.setQueue([testTrack('a'), spotify])
+    await player.next()
+    youtube.verdicts.set('z', 'UNPLAYABLE')
+    player.setCandidate(currentUid(player), z)
+    await settle()
+    expect(matcher.calls).toHaveLength(1)
+    expect(youtube.callsFor('x')).toBe(1)
+    expect(playbackProblemOf(failed.at(-1))).toMatchObject({ reason: 'pinned-unplayable' })
+    expect(events.replaced).toEqual([])
   })
 
   it('plays a pin first, before the recorded candidate and the matching engine', async () => {
@@ -244,7 +297,7 @@ describe('Smart Replace: pins are protected', () => {
     await player.setQueue([testTrack('a'), spotify])
     await player.next()
     expect(recorded()).toEqual(x)
-    await lifecycle.confirmMatch(spotify, y)
+    await lifecycle.pinMatch(spotify, y)
     await player.previous()
     await player.next()
     expect(recorded()).toEqual(y)
@@ -258,7 +311,7 @@ describe('Smart Replace: pins are protected', () => {
     await player.next()
     expect(recorded()).toEqual(y)
     youtube.verdicts.delete('x')
-    await lifecycle.confirmMatch(spotify, x)
+    await lifecycle.pinMatch(spotify, x)
     await player.previous()
     await player.next()
     expect(recorded()).toEqual(x)

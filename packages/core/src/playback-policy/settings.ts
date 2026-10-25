@@ -1,9 +1,11 @@
 /**
- * The settings that change what the playback policy plays, the matching engine's bands as the
- * policy reads them, and the rule for when a match may play.
+ * The settings that change what the playback policy plays, and the rule for when a match may
+ * play. The bands are the matching engine's own (`MatchBand`, from `../matching`).
  *
  * @module
  */
+
+import type { MatchBand } from '../matching/types'
 
 /** The settings that change what the playback policy plays. Validate stored copies with {@link sanitizePlaybackSettings}. */
 export interface PlaybackSettings {
@@ -55,29 +57,6 @@ export function sanitizePlaybackSettings(value: unknown): PlaybackSettings {
   }
 }
 
-/** Every {@link PlaybackBand}, most confident first. */
-export const PLAYBACK_BANDS = ['auto', 'suggest', 'none'] as const
-
-/**
- * How sure the matching engine is that a match is the right recording, as the playback policy
- * acts on it:
- *
- * - `auto`: sure enough to play without asking
- * - `suggest`: a best guess. It plays only after an explicit user action, or with "Play best
- *   guesses" on; a queue skips it and marks it "needs review"
- * - `none`: no candidate came close. Nothing plays; the app shows alternatives and a manual
- *   search
- *
- * The matching engine decides the band. The Auto band also depends on a setting that the
- * matching evaluation controls, so with it off every match is at most `suggest`.
- */
-export type PlaybackBand = (typeof PLAYBACK_BANDS)[number]
-
-/** Whether `value` is a {@link PlaybackBand}, e.g. to validate a stored match. */
-export function isPlaybackBand(value: unknown): value is PlaybackBand {
-  return typeof value === 'string' && (PLAYBACK_BANDS as readonly string[]).includes(value)
-}
-
 /**
  * What the playback policy looks for when a track has no audio of its own, or when "prefer
  * lossless" is on:
@@ -92,8 +71,11 @@ export type MatchTarget = 'song' | 'lossless'
 export interface MatchPlayFacts {
   /** What the match was looked for as. */
   target: MatchTarget
-  /** The match's band. */
-  band: PlaybackBand
+  /**
+   * The match's band, after the user's Auto setting (`effectiveMatchBand`): `auto` plays without
+   * asking, `suggest` is a best guess, `none` never plays.
+   */
+  band: MatchBand
   /** Whether the matching engine verified the candidate by its ISRC (`MatchSignals.isrcVerified`). */
   isrcVerified: boolean
   /**

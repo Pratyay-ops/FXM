@@ -1,0 +1,31 @@
+{
+  "resultCount": 2,
+  "results": [
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 1759207835,
+      "collectionId": 1827784790,
+      "artistName": "The Doraemons",
+      "collectionName": "Pablo Honey",
+      "releaseDate": "2025-07-20T07:00:00Z",
+      "country": "USA",
+      "primaryGenreName": "Alternative",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/4b/ab/99/4bab99c0-323e-2cc4-f6d9-3bf476524da6/artwork.jpg/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/4b/ab/99/4bab99c0-323e-2cc4-f6d9-3bf476524da6/artwork.jpg/100x100bb.jpg"
+    },
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 1086921017,
+      "collectionId": 1519123975,
+      "artistName": "boy pablo",
+      "collectionName": "Honey - Single",
+      "releaseDate": "2020-07-13T07:00:00Z",
+      "country": "USA",
+      "primaryGenreName": "Indie Rock",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/d9/b8/36/d9b83691-1546-96a2-756d-c5fff6a25ebf/192641516245_Cover.jpg/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/d9/b8/36/d9b83691-1546-96a2-756d-c5fff6a25ebf/192641516245_Cover.jpg/100x100bb.jpg"
+    }
+  ]
+}

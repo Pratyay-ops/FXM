@@ -12,10 +12,10 @@
  * @module
  */
 
-import { FxmError, isFxmError } from '../errors'
+import { FXM_ERROR_CODES, FxmError, type FxmErrorCode, isFxmError } from '../errors'
 import { type EntityId, isEntityId, isSourceId, type SourceId } from '../ids'
 import type { AudioCandidate } from '../providers'
-import { sameCandidate } from './order'
+import { isAudioCandidate, sameCandidate } from './order'
 
 /** The playability statuses that are a verdict on the item itself. */
 export const UNPLAYABLE_STATUSES = ['UNPLAYABLE', 'ERROR'] as const
@@ -43,6 +43,11 @@ export interface PlayabilityVerdict {
   readonly status: UnplayableStatus
   /** The source's reason, for logs, e.g. "Video unavailable". */
   readonly reason?: string
+  /**
+   * A labelled state the source gave the item, so the app can say why it cannot play, e.g. the
+   * YouTube ladder's (1.4) `made-for-kids`.
+   */
+  readonly state?: string
 }
 
 /**
@@ -75,7 +80,7 @@ export function playabilityVerdictOf(error: unknown): PlayabilityVerdict | undef
   if (!isFxmError(error)) return undefined
   const cause = asRecord(error.cause)
   if (cause?.type !== 'playability' || !isSourceId(cause.source)) return undefined
-  const { ref, status, reason } = cause
+  const { ref, status, reason, state } = cause
   if (typeof ref !== 'string' || ref === '') return undefined
   if (typeof status !== 'string' || !(UNPLAYABLE_STATUSES as readonly string[]).includes(status)) {
     return undefined
@@ -86,6 +91,7 @@ export function playabilityVerdictOf(error: unknown): PlayabilityVerdict | undef
     ref,
     status: status as UnplayableStatus,
     ...(typeof reason === 'string' ? { reason } : {}),
+    ...(typeof state === 'string' && state !== '' ? { state } : {}),
   }
 }
 
@@ -93,9 +99,10 @@ export function playabilityVerdictOf(error: unknown): PlayabilityVerdict | undef
  * Why an item is unavailable:
  *
  * - `no-match`: the matching engine found nothing close enough
- * - `unplayable`: the source says the audio is gone (removed, blocked in the region), and
- *   nothing replaced it
- * - `pinned-unplayable`: the version the user pinned is gone. FXM never swaps a pin by itself
+ * - `unplayable`: the source refused the audio (removed, private, blocked in the region,
+ *   age-restricted, live), and nothing replaced it. The problem's `code` and `state` say why
+ * - `pinned-unplayable`: the version the user chose is refused: their pin, or the version they
+ *   just picked for the item. FXM never swaps the user's choice by itself
  * - `no-stream`: the sources returned no stream the player can play
  * - `no-source`: nothing on this platform can play the track's audio
  */
@@ -142,6 +149,18 @@ export type PlaybackProblem =
       readonly reason: UnavailableReason
       /** Other candidates the user may pick, best first. Often empty. */
       readonly alternatives: readonly AudioCandidate[]
+      /**
+       * When a source refused the audio, its error code: `NotFound` (removed or private),
+       * `GeoBlocked` (blocked in the user's region) or `Unavailable`.
+       */
+      readonly code?: FxmErrorCode
+      /**
+       * When a source refused the audio, its labelled state, if it gave one, e.g. the YouTube
+       * ladder's (1.4) `age-restricted`, `made-for-kids`, `live` or `premiere`.
+       */
+      readonly state?: string
+      /** When a source refused the audio, its own words, for logs, e.g. "Video unavailable". */
+      readonly detail?: string
     }
 
 /**
@@ -150,18 +169,25 @@ export type PlaybackProblem =
  * with {@link playbackProblemOf}.
  */
 export function playbackProblemError(problem: PlaybackProblem): FxmError {
-  const message =
-    problem.type === 'needs-review'
-      ? `${problem.trackId} needs review: its best match is a guess`
-      : `${problem.trackId} is unavailable (${problem.reason})`
-  return new FxmError('Unavailable', message, { cause: problem })
+  return new FxmError('Unavailable', describeProblem(problem), { cause: problem })
 }
 
-function isCandidateLike(value: unknown): value is AudioCandidate {
-  const candidate = asRecord(value)
-  return (
-    candidate !== undefined && isSourceId(candidate.source) && typeof candidate.ref === 'string'
-  )
+/** The message of a {@link playbackProblemError}, for logs. */
+function describeProblem(problem: PlaybackProblem): string {
+  if (problem.type === 'needs-review') {
+    return `${problem.trackId} needs review: its best match is a guess`
+  }
+  const why = [problem.reason, problem.code, problem.state].filter(Boolean).join(', ')
+  const detail = problem.detail === undefined ? '' : `: ${problem.detail}`
+  return `${problem.trackId} is unavailable (${why})${detail}`
+}
+
+function isErrorCode(value: unknown): value is FxmErrorCode {
+  return typeof value === 'string' && (FXM_ERROR_CODES as readonly string[]).includes(value)
+}
+
+function isText(value: unknown): value is string {
+  return typeof value === 'string' && value !== ''
 }
 
 /**
@@ -174,18 +200,21 @@ export function playbackProblemOf(error: unknown): PlaybackProblem | undefined {
   const cause = asRecord(error.cause)
   if (cause === undefined || !isEntityId(cause.trackId, 'track')) return undefined
   const alternatives = Array.isArray(cause.alternatives)
-    ? (cause.alternatives as unknown[]).filter(isCandidateLike)
+    ? (cause.alternatives as unknown[]).filter(isAudioCandidate)
     : []
-  if (cause.type === 'needs-review' && isCandidateLike(cause.guess)) {
+  if (cause.type === 'needs-review' && isAudioCandidate(cause.guess)) {
     return { type: 'needs-review', trackId: cause.trackId, guess: cause.guess, alternatives }
   }
-  const { reason } = cause
+  const { reason, code, state, detail } = cause
   if (cause.type === 'unavailable' && UNAVAILABLE_REASONS.includes(reason as UnavailableReason)) {
     return {
       type: 'unavailable',
       trackId: cause.trackId,
       reason: reason as UnavailableReason,
       alternatives,
+      ...(isErrorCode(code) ? { code } : {}),
+      ...(isText(state) ? { state } : {}),
+      ...(isText(detail) ? { detail } : {}),
     }
   }
   return undefined

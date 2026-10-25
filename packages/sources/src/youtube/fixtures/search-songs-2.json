@@ -1,0 +1,896 @@
+{
+  "continuationContents": {
+    "musicShelfContinuation": {
+      "contents": [
+        {
+          "musicResponsiveListItemRenderer": {
+            "thumbnail": {
+              "musicThumbnailRenderer": {
+                "thumbnail": {
+                  "thumbnails": [
+                    {
+                      "url": "https://yt3.googleusercontent.com/jI0EkNWnFjyqXuh7c8Sy-q39ah7kc19AbjV196GCAVn_E1Cc9GJ77dsBQtTzf9g-kH69v8dKS7FSJs00=w60-h60-l90-rj",
+                      "width": 60,
+                      "height": 60
+                    },
+                    {
+                      "url": "https://yt3.googleusercontent.com/jI0EkNWnFjyqXuh7c8Sy-q39ah7kc19AbjV196GCAVn_E1Cc9GJ77dsBQtTzf9g-kH69v8dKS7FSJs00=w120-h120-l90-rj",
+                      "width": 120,
+                      "height": 120
+                    }
+                  ]
+                }
+              }
+            },
+            "overlay": {
+              "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                  "musicPlayButtonRenderer": {
+                    "playNavigationEndpoint": {
+                      "watchEndpoint": {
+                        "videoId": "du1ArWHDH_Q",
+                        "watchEndpointMusicSupportedConfigs": {
+                          "watchEndpointMusicConfig": {
+                            "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "flexColumns": [
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Creep (Acoustic)",
+                        "navigationEndpoint": {
+                          "watchEndpoint": {
+                            "videoId": "du1ArWHDH_Q",
+                            "watchEndpointMusicSupportedConfigs": {
+                              "watchEndpointMusicConfig": {
+                                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Brand New Rockers",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "UC5CyPLt7YNxSkMSk6ZNb6dA",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "A Tribute to Radiohead",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "MPREb_YXwVFQ1UBFi",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "4:20"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "1.1M plays"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "menu": {
+              "menuRenderer": {
+                "items": [
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "View song credits"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "PEOPLE_GROUP"
+                      },
+                      "navigationEndpoint": {
+                        "browseEndpoint": {
+                          "browseId": "MPTCdu1ArWHDH_Q",
+                          "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                              "pageType": "MUSIC_PAGE_TYPE_TRACK_CREDITS"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "playlistItemData": {
+              "videoId": "du1ArWHDH_Q"
+            }
+          }
+        },
+        {
+          "musicResponsiveListItemRenderer": {
+            "thumbnail": {
+              "musicThumbnailRenderer": {
+                "thumbnail": {
+                  "thumbnails": [
+                    {
+                      "url": "https://yt3.googleusercontent.com/erQ_ztHgRm0UREixmmfV3uZY3l2HvP4kNIwZBoo4VLaqhzD1ylRFPvo_4OZDT71RNBltxmOQ-XB24wtn=w60-h60-l90-rj",
+                      "width": 60,
+                      "height": 60
+                    },
+                    {
+                      "url": "https://yt3.googleusercontent.com/erQ_ztHgRm0UREixmmfV3uZY3l2HvP4kNIwZBoo4VLaqhzD1ylRFPvo_4OZDT71RNBltxmOQ-XB24wtn=w120-h120-l90-rj",
+                      "width": 120,
+                      "height": 120
+                    }
+                  ]
+                }
+              }
+            },
+            "overlay": {
+              "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                  "musicPlayButtonRenderer": {
+                    "playNavigationEndpoint": {
+                      "watchEndpoint": {
+                        "videoId": "ZUiWu8EhF_4",
+                        "watchEndpointMusicSupportedConfigs": {
+                          "watchEndpointMusicConfig": {
+                            "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "flexColumns": [
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Creep (Key of D) [Originally Performed by Radiohead] (Acoustic Guitar Karaoke)",
+                        "navigationEndpoint": {
+                          "watchEndpoint": {
+                            "videoId": "ZUiWu8EhF_4",
+                            "watchEndpointMusicSupportedConfigs": {
+                              "watchEndpointMusicConfig": {
+                                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Sing2Guitar",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "UC9y6O3cN-AHkoxtLhAc1ZBg",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "Creep (Acoustic Guitar Karaoke Instrumentals)",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "MPREb_fV7KNKu3OHU",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "4:09"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "7.2K plays"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "menu": {
+              "menuRenderer": {
+                "items": [
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "View song credits"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "PEOPLE_GROUP"
+                      },
+                      "navigationEndpoint": {
+                        "browseEndpoint": {
+                          "browseId": "MPTCZUiWu8EhF_4",
+                          "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                              "pageType": "MUSIC_PAGE_TYPE_TRACK_CREDITS"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "playlistItemData": {
+              "videoId": "ZUiWu8EhF_4"
+            }
+          }
+        },
+        {
+          "musicResponsiveListItemRenderer": {
+            "thumbnail": {
+              "musicThumbnailRenderer": {
+                "thumbnail": {
+                  "thumbnails": [
+                    {
+                      "url": "https://yt3.googleusercontent.com/NtNyUb0l1KxrogeUpdPkoNGC9V4Z7U1MdIUCpDNC28qjFeviN5RNCxnDEFo3P_eyQhbje9gDR0H_Ye1sgw=w60-h60-l90-rj",
+                      "width": 60,
+                      "height": 60
+                    },
+                    {
+                      "url": "https://yt3.googleusercontent.com/NtNyUb0l1KxrogeUpdPkoNGC9V4Z7U1MdIUCpDNC28qjFeviN5RNCxnDEFo3P_eyQhbje9gDR0H_Ye1sgw=w120-h120-l90-rj",
+                      "width": 120,
+                      "height": 120
+                    }
+                  ]
+                }
+              }
+            },
+            "overlay": {
+              "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                  "musicPlayButtonRenderer": {
+                    "playNavigationEndpoint": {
+                      "watchEndpoint": {
+                        "videoId": "9Aq6nK0X2KA",
+                        "watchEndpointMusicSupportedConfigs": {
+                          "watchEndpointMusicConfig": {
+                            "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "flexColumns": [
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Creep (Piano Version)",
+                        "navigationEndpoint": {
+                          "watchEndpoint": {
+                            "videoId": "9Aq6nK0X2KA",
+                            "watchEndpointMusicSupportedConfigs": {
+                              "watchEndpointMusicConfig": {
+                                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Riyandi Kusuma",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "UCKYS0Wu4XF7foTmgav-fGuA",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "Piano Collection, Vol. 11",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "MPREb_hvsQsLl8n1Q",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "4:16"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "63K plays"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "menu": {
+              "menuRenderer": {
+                "items": []
+              }
+            },
+            "playlistItemData": {
+              "videoId": "9Aq6nK0X2KA"
+            }
+          }
+        },
+        {
+          "musicResponsiveListItemRenderer": {
+            "thumbnail": {
+              "musicThumbnailRenderer": {
+                "thumbnail": {
+                  "thumbnails": [
+                    {
+                      "url": "https://yt3.googleusercontent.com/9tBC7ByqsD4r2fH0ACMQB0hPhJBi8Zt1QDeV0C-I2nwcfwscrVifg1LNcQLYWT_fsmuL2DodWx8Phj4z=w60-h60-l90-rj",
+                      "width": 60,
+                      "height": 60
+                    },
+                    {
+                      "url": "https://yt3.googleusercontent.com/9tBC7ByqsD4r2fH0ACMQB0hPhJBi8Zt1QDeV0C-I2nwcfwscrVifg1LNcQLYWT_fsmuL2DodWx8Phj4z=w120-h120-l90-rj",
+                      "width": 120,
+                      "height": 120
+                    }
+                  ]
+                }
+              }
+            },
+            "overlay": {
+              "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                  "musicPlayButtonRenderer": {
+                    "playNavigationEndpoint": {
+                      "watchEndpoint": {
+                        "videoId": "IDB5rNDB4JY",
+                        "watchEndpointMusicSupportedConfigs": {
+                          "watchEndpointMusicConfig": {
+                            "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "flexColumns": [
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Creep",
+                        "navigationEndpoint": {
+                          "watchEndpoint": {
+                            "videoId": "IDB5rNDB4JY",
+                            "watchEndpointMusicSupportedConfigs": {
+                              "watchEndpointMusicConfig": {
+                                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Macy Gray",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "UCpY6l0OvVuMy3npgysbPOgA",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "Covered (Bonus Track Version)",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "MPREb_Vtq8QMBc4ZU",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "4:19"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "1M plays"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "menu": {
+              "menuRenderer": {
+                "items": [
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "View song credits"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "PEOPLE_GROUP"
+                      },
+                      "navigationEndpoint": {
+                        "browseEndpoint": {
+                          "browseId": "MPTCIDB5rNDB4JY",
+                          "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                              "pageType": "MUSIC_PAGE_TYPE_TRACK_CREDITS"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "playlistItemData": {
+              "videoId": "IDB5rNDB4JY"
+            }
+          }
+        },
+        {
+          "musicResponsiveListItemRenderer": {
+            "thumbnail": {
+              "musicThumbnailRenderer": {
+                "thumbnail": {
+                  "thumbnails": [
+                    {
+                      "url": "https://yt3.googleusercontent.com/Dqi1ugFbR2fVlgAqHsaSGyF-VCnqINMMwaYyWd4JPrfZU5Lvg7emehKSzCHYPhumVOGf1qLvp0S5t6s=w60-h60-l90-rj",
+                      "width": 60,
+                      "height": 60
+                    },
+                    {
+                      "url": "https://yt3.googleusercontent.com/Dqi1ugFbR2fVlgAqHsaSGyF-VCnqINMMwaYyWd4JPrfZU5Lvg7emehKSzCHYPhumVOGf1qLvp0S5t6s=w120-h120-l90-rj",
+                      "width": 120,
+                      "height": 120
+                    }
+                  ]
+                }
+              }
+            },
+            "overlay": {
+              "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                  "musicPlayButtonRenderer": {
+                    "playNavigationEndpoint": {
+                      "watchEndpoint": {
+                        "videoId": "bkmExTtkg7Y",
+                        "watchEndpointMusicSupportedConfigs": {
+                          "watchEndpointMusicConfig": {
+                            "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "flexColumns": [
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Creep (Slowed + Reverb)",
+                        "navigationEndpoint": {
+                          "watchEndpoint": {
+                            "videoId": "bkmExTtkg7Y",
+                            "watchEndpointMusicSupportedConfigs": {
+                              "watchEndpointMusicConfig": {
+                                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "bbygirl",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "UC86g_QDp_8OJDExz9LTHkwQ",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "Creep",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "MPREb_FlaA7l5p9HB",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "4:43"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "45K plays"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "menu": {
+              "menuRenderer": {
+                "items": [
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "View song credits"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "PEOPLE_GROUP"
+                      },
+                      "navigationEndpoint": {
+                        "browseEndpoint": {
+                          "browseId": "MPTCbkmExTtkg7Y",
+                          "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                              "pageType": "MUSIC_PAGE_TYPE_TRACK_CREDITS"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "playlistItemData": {
+              "videoId": "bkmExTtkg7Y"
+            }
+          }
+        },
+        {
+          "musicResponsiveListItemRenderer": {
+            "thumbnail": {
+              "musicThumbnailRenderer": {
+                "thumbnail": {
+                  "thumbnails": [
+                    {
+                      "url": "https://yt3.googleusercontent.com/yZwuttdspx_Mtk7oufZPJG4m9sdERxsvjSm_Q6E5NQXPjZqUE_Rip036V9l0iOujjSdpMHDIxfXa2-I=w60-h60-l90-rj",
+                      "width": 60,
+                      "height": 60
+                    },
+                    {
+                      "url": "https://yt3.googleusercontent.com/yZwuttdspx_Mtk7oufZPJG4m9sdERxsvjSm_Q6E5NQXPjZqUE_Rip036V9l0iOujjSdpMHDIxfXa2-I=w120-h120-l90-rj",
+                      "width": 120,
+                      "height": 120
+                    }
+                  ]
+                }
+              }
+            },
+            "overlay": {
+              "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                  "musicPlayButtonRenderer": {
+                    "playNavigationEndpoint": {
+                      "watchEndpoint": {
+                        "videoId": "PDWi63JxA8Q",
+                        "watchEndpointMusicSupportedConfigs": {
+                          "watchEndpointMusicConfig": {
+                            "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "flexColumns": [
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "Creep - Radiohead (Female Key - Piano Karaoke)",
+                        "navigationEndpoint": {
+                          "watchEndpoint": {
+                            "videoId": "PDWi63JxA8Q",
+                            "watchEndpointMusicSupportedConfigs": {
+                              "watchEndpointMusicConfig": {
+                                "musicVideoType": "MUSIC_VIDEO_TYPE_ATV"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "KaraoKeysPH",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "UCq43uBLuq59E6JwiTvR5vcg",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "Creep - Radiohead (Piano Karaoke)",
+                        "navigationEndpoint": {
+                          "browseEndpoint": {
+                            "browseId": "MPREb_KAJGGupFrAS",
+                            "browseEndpointContextSupportedConfigs": {
+                              "browseEndpointContextMusicConfig": {
+                                "pageType": "MUSIC_PAGE_TYPE_ALBUM"
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "text": " • "
+                      },
+                      {
+                        "text": "5:07"
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                  "text": {
+                    "runs": [
+                      {
+                        "text": "893 plays"
+                      }
+                    ]
+                  }
+                }
+              }
+            ],
+            "menu": {
+              "menuRenderer": {
+                "items": [
+                  {
+                    "menuNavigationItemRenderer": {
+                      "text": {
+                        "runs": [
+                          {
+                            "text": "View song credits"
+                          }
+                        ]
+                      },
+                      "icon": {
+                        "iconType": "PEOPLE_GROUP"
+                      },
+                      "navigationEndpoint": {
+                        "browseEndpoint": {
+                          "browseId": "MPTCPDWi63JxA8Q",
+                          "browseEndpointContextSupportedConfigs": {
+                            "browseEndpointContextMusicConfig": {
+                              "pageType": "MUSIC_PAGE_TYPE_TRACK_CREDITS"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "playlistItemData": {
+              "videoId": "PDWi63JxA8Q"
+            }
+          }
+        }
+      ],
+      "continuations": [
+        {
+          "nextContinuationData": {
+            "continuation": "ErQDEg9SYWRpb2hlYWQgQ3JlZXAaoANFZ1dLQVFJSUFVZ29haEFRRUJBSkVBUVFBeEFGRUFvUUZSQVJnZ0VMWkhVeFFYSlhTRVJJWDFHQ0FRdGFWV2xYZFRoRmFFWmZOSUlCQ3psQmNUWnVTekJZTWt0QmdnRUxTVVJDTlhKT1JFSTBTbG1DQVF0aWEyMUZlRlIwYTJjM1dZSUJDMUJFVjJrMk0wcDRRVGhSZ2dFTFRVMVFlWEo2TUVwdk9XZUNBUXRpZGw4M1VFVlZkakZ0WjRJQkMwbzFhVWRCTjNwblZGcFJnZ0VMVEVsc2FuQkpkSGRvVmxtQ0FRdHRNbkp4UkdwdFVWZzFRWUlCQ3pVd09ISllVRWxpVnpobmdnRUxla2hxV1d0MFgyRjZiRTJDQVFzM0xXUkRNR2M1VkZsQlk0SUJDMlpwWWxFMU5FcDVSMnc0Z2dFTFVEZE9PVkYyTm1WMldtdUNBUXRGZUZGcFQwVjJlRTgxWTRJQkMwbExWbEZpY0RaMExVMXpnZ0VMYjNOeVZtWkNiRFozYm5lQ0FRdGtWbEJUVDNsRVdEZDJZdyUzRCUzRBjx6tAu"
+          }
+        }
+      ],
+      "autoReloadWhenEmpty": false
+    }
+  },
+  "header": {
+    "musicHeaderRenderer": {
+      "header": {}
+    }
+  }
+}

@@ -92,6 +92,50 @@ describe('queues skip Suggest-band guesses and mark them "needs review"', () => 
   })
 })
 
+describe('a guess the app records on a queue item is still a guess', () => {
+  it('skips a guess recorded on a queued item when the queue reaches it by itself', async () => {
+    const { player, engine, youtube, failed, current } = setupGuess()
+    await player.setQueue([a, guessed, c])
+    const item = player.getState().queue.items[1]
+    if (item === undefined) throw new Error('short queue')
+    // Recording a version is no pin, and no user action on this item either.
+    player.setCandidate(item.uid, guess)
+    engine.end()
+    await settle()
+    expect(current()).toBe('c')
+    expect(youtube.callsFor('guess')).toBe(0)
+    expect(playbackProblemOf(failed[0])).toMatchObject({ type: 'needs-review', guess })
+  })
+
+  it('plays it when the user jumps to it, as "Play this best guess" does', async () => {
+    const { lifecycle, player, engine, current } = setupGuess()
+    await player.setQueue([a, guessed, c])
+    engine.end()
+    await settle()
+    expect(current()).toBe('c')
+    const item = player.getState().queue.items[1]
+    if (item === undefined) throw new Error('short queue')
+    player.setCandidate(item.uid, other)
+    await player.play(1)
+    expect(current()).toBe('S')
+    expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('other', 251, 3))
+    // Playing a guess approves nothing: the track still needs review.
+    expect(lifecycle.reviews().map((review) => review.track)).toEqual([guessed])
+  })
+
+  it('plays it unattended with "Play best guesses" on', async () => {
+    const { player, engine, current } = setupGuess({ settings: { playBestGuesses: true } })
+    await player.setQueue([a, guessed, c])
+    const item = player.getState().queue.items[1]
+    if (item === undefined) throw new Error('short queue')
+    player.setCandidate(item.uid, other)
+    engine.end()
+    await settle()
+    expect(current()).toBe('S')
+    expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('other', 251, 2))
+  })
+})
+
 describe('a Suggest-band guess plays after an explicit user action', () => {
   it('plays when the user taps it', async () => {
     const { player, engine, recorded } = setupGuess()
@@ -150,7 +194,7 @@ describe('a Suggest-band guess plays after an explicit user action', () => {
     const { lifecycle, player } = setupGuess()
     await player.setQueue([guessed])
     expect(lifecycle.reviews().map((review) => review.guess)).toEqual([guess])
-    await lifecycle.confirmMatch(guessed, guess)
+    await lifecycle.pinMatch(guessed, guess)
     expect(lifecycle.reviews()).toEqual([])
   })
 })
@@ -170,7 +214,7 @@ describe('guesses that play without asking', () => {
 
   it('plays a confirmed guess unattended, as the item’s audio', async () => {
     const { lifecycle, player, engine, current, recorded } = setupGuess()
-    await lifecycle.confirmMatch(guessed, guess)
+    await lifecycle.pinMatch(guessed, guess)
     await player.setQueue([a, guessed, c])
     engine.end()
     await settle()
