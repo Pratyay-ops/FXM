@@ -120,7 +120,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | ✅ |
 | **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | 🟡 |
 | **2.7** | Tiers, onboarding and install guides | `feat/2.7-connect-onboarding` | 2.1, 1.2, 1.6, 1.9, 1.10 | 🟡 |
-| **2.8** | Static deploy to `fxmusic.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 2.9, 5.3, R.1, R.4, 1.10, 1.12 | 🟡 |
+| **2.8** | Static deploy to `fxmusic.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 2.9, 5.3, R.1, R.4, 1.10 | 🟡 |
 | **2.9** | App composition: real providers, resolver and player | `feat/2.9-app-wiring` | 1.4, 2.3, 2.4, 2.6 | 🟡 |
 | **3.1** | Listening signals and affinity | `feat/3.1-signals` | 2.2, 2.6 | 🟡 |
 | **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | 🟡 |
@@ -708,7 +708,7 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
 
 ### 2.8 Static deploy
 
-**Branch** `ci/2.8-deploy` · **Depends on** 2.4, 2.5, 2.6, 2.7, 5.3, R.1, R.4, 1.10, 1.12 (the report committed, not a pass) · **Scope** `.github/workflows/deploy.yml`, `scripts/build-dist*`, and in `apps/site/src/` the `lite` flag and any service missing from the privacy page
+**Branch** `ci/2.8-deploy` · **Depends on** 2.4, 2.5, 2.6, 2.7, 2.9, 5.3, R.1, R.4, 1.10. Not 1.12: the owner decided on 2026-10-26 that v0.1.0 ships without waiting for the matching evaluation's 3-hour recording, with Auto off, so matches play when tapped · **Scope** `.github/workflows/deploy.yml`, `scripts/build-dist*`, and in `apps/site/src/` the `lite` flag and any service missing from the privacy page
 
 - `make dist` composes one folder, with **no Functions**:
   - the site at `/`;
