@@ -1,21 +1,26 @@
-import { CircleArrowDown } from 'lucide-react'
 import { buttonClasses } from '../../components/ui/button'
+import { moveFocus } from './focus'
 import { type InstallHint, promptInstall, useInstallHint } from './install'
+import { InstallIcon } from './install-icon'
 
 /** What the "Install app" setting says, for each way of installing. */
 export const INSTALL_HELP: Readonly<Record<InstallHint, string>> = {
   installed: "You're using FXM as an installed app.",
+  added: 'FXM is installed. Open it from your dock, taskbar or home screen.',
   prompt: 'Opens FXM in its own window, from your dock, taskbar or home screen.',
   ios: 'Tap Share in your browser, then Add to Home Screen.',
   'mac-safari': 'In Safari, choose File, then Add to Dock.',
   browser: 'If your browser can install web apps, choose Install in its menu or address bar.',
 }
 
-/** The help text of the "Install app" setting: how to install FXM in this browser. */
+/**
+ * The help text of the "Install app" setting: how to install FXM in this browser. It takes
+ * focus when the Install button goes (the offer is used up), and announces what changed.
+ */
 export function InstallHelp({ id }: { id?: string }) {
   const hint = useInstallHint()
   return (
-    <p id={id} className="text-sm text-text-muted">
+    <p id={id} tabIndex={-1} aria-live="polite" className="text-sm text-text-muted outline-none">
       {INSTALL_HELP[hint]}
     </p>
   )
@@ -30,9 +35,13 @@ export function InstallAction({ describedBy }: { describedBy?: string }) {
       type="button"
       aria-describedby={describedBy}
       className={buttonClasses({ className: 'w-full md:w-auto' })}
-      onClick={() => void promptInstall()}
+      onClick={() => {
+        // The click uses the offer up and removes this button: keep focus in the setting.
+        moveFocus(describedBy ? document.getElementById(describedBy) : null)
+        void promptInstall()
+      }}
     >
-      <CircleArrowDown aria-hidden="true" />
+      <InstallIcon />
       Install
     </button>
   )

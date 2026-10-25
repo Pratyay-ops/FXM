@@ -1,6 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
-import { type InstallContext, installHint, listenForInstallPrompt, promptInstall } from './install'
-import { type InstallChoice, type InstallPromptEvent, usePwaStore } from './pwa-store'
+import {
+  INSTALL_SNOOZE_MS,
+  type InstallContext,
+  installHint,
+  listenForInstallPrompt,
+  promptInstall,
+  snoozeInstallOffer,
+} from './install'
+import {
+  type InstallChoice,
+  type InstallPromptEvent,
+  PWA_STORAGE_KEY,
+  usePwaStore,
+} from './pwa-store'
 
 /** A stand-in for Chromium's `beforeinstallprompt` event. */
 function installEvent(outcome: InstallChoice['outcome'] = 'accepted') {
@@ -32,13 +44,13 @@ describe('listenForInstallPrompt', () => {
     stop()
   })
 
-  it('drops the offer once FXM is installed', () => {
+  it('drops the offer once FXM is installed, and remembers the install', () => {
     const stop = listenForInstallPrompt()
     window.dispatchEvent(installEvent().event)
 
     window.dispatchEvent(new Event('appinstalled'))
 
-    expect(usePwaStore.getState().installPrompt).toBeUndefined()
+    expect(usePwaStore.getState()).toMatchObject({ installPrompt: undefined, installedHere: true })
     stop()
   })
 
@@ -58,17 +70,29 @@ describe('promptInstall', () => {
 
     expect(prompt).toHaveBeenCalledOnce()
     // An offer works once.
-    expect(usePwaStore.getState().installPrompt).toBeUndefined()
+    expect(usePwaStore.getState()).toMatchObject({ installPrompt: undefined, installedHere: true })
+    expect(usePwaStore.getState().installSnoozedUntil).toBe(0)
   })
 
-  it('reports a dismissed dialog, and one that failed to open', async () => {
+  it('puts the offer off for a month when the user says no', async () => {
     usePwaStore.setState({ installPrompt: installEvent('dismissed').event })
-    await expect(promptInstall()).resolves.toBe('dismissed')
 
+    await expect(promptInstall(usePwaStore, () => 1_000)).resolves.toBe('dismissed')
+
+    expect(usePwaStore.getState()).toMatchObject({
+      installSnoozedUntil: 1_000 + INSTALL_SNOOZE_MS,
+      installedHere: false,
+    })
+  })
+
+  it('reports a dialog that failed to open, without putting the offer off', async () => {
     const { event, prompt } = installEvent()
     prompt.mockRejectedValueOnce(new DOMException('No user gesture', 'NotAllowedError'))
     usePwaStore.setState({ installPrompt: event })
+
     await expect(promptInstall()).resolves.toBe('dismissed')
+
+    expect(usePwaStore.getState().installSnoozedUntil).toBe(0)
   })
 
   it('does nothing without an offer', async () => {
@@ -95,6 +119,42 @@ const UA = {
     'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36',
 }
 
+describe('the install snooze', () => {
+  it('lasts 30 days and is stored for the next visit', () => {
+    snoozeInstallOffer(usePwaStore, 5_000)
+
+    expect(INSTALL_SNOOZE_MS).toBe(30 * 24 * 60 * 60 * 1000)
+    expect(JSON.parse(localStorage.getItem(PWA_STORAGE_KEY) ?? '{}')).toEqual({
+      state: { installSnoozedUntil: 5_000 + INSTALL_SNOOZE_MS },
+      version: 1,
+    })
+  })
+
+  it('reads a stored snooze back, and ignores a broken one', async () => {
+    localStorage.setItem(
+      PWA_STORAGE_KEY,
+      JSON.stringify({ state: { installSnoozedUntil: 42 }, version: 1 }),
+    )
+    await usePwaStore.persist.rehydrate()
+    expect(usePwaStore.getState().installSnoozedUntil).toBe(42)
+
+    localStorage.setItem(
+      PWA_STORAGE_KEY,
+      JSON.stringify({ state: { installSnoozedUntil: 'soon' }, version: 1 }),
+    )
+    await usePwaStore.persist.rehydrate()
+    expect(usePwaStore.getState().installSnoozedUntil).toBe(0)
+  })
+
+  it('stores nothing but the snooze', () => {
+    usePwaStore.setState({ updateReady: true, installedHere: true })
+    expect(JSON.parse(localStorage.getItem(PWA_STORAGE_KEY) ?? '{}')).toEqual({
+      state: { installSnoozedUntil: 0 },
+      version: 1,
+    })
+  })
+})
+
 const context = (overrides: Partial<InstallContext>): InstallContext => ({
   runningAsApp: false,
   canPrompt: false,
@@ -106,6 +166,7 @@ const context = (overrides: Partial<InstallContext>): InstallContext => ({
 describe('installHint', () => {
   it.each([
     ['an installed app', context({ runningAsApp: true, canPrompt: true }), 'installed'],
+    ['a tab FXM was just installed from', context({ installedHere: true }), 'added'],
     ['Edge with an offer', context({ canPrompt: true }), 'prompt'],
     [
       'Chrome on Android with an offer',

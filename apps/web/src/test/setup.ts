@@ -9,9 +9,15 @@ import { useSettingsStore } from '../features/settings/settings-store'
 // busy machine. Waiting longer only delays real failures.
 configure({ asyncUtilTimeout: 5_000 })
 
+// Like the web build, which serves the app from /app/ (Vitest's own base is /). The installable
+// web app's UI shows only there; tests of the Android and desktop builds stub '/'.
+const WEB_BUILD_BASE = '/app/'
+vi.stubEnv('BASE_URL', WEB_BUILD_BASE)
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.stubEnv('BASE_URL', WEB_BUILD_BASE)
   // The stores are app-wide singletons: give every test a fresh start.
   useSettingsStore.setState(useSettingsStore.getInitialState(), true)
   usePlayerStore.setState(usePlayerStore.getInitialState(), true)
@@ -21,4 +27,5 @@ afterEach(() => {
   localStorage.clear()
   delete document.documentElement.dataset.theme
   delete document.documentElement.dataset.titlebar
+  document.documentElement.removeAttribute('style')
 })

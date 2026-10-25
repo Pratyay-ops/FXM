@@ -1,4 +1,5 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, Settings } from 'lucide-react'
+import { useRef } from 'react'
 import { Link, NavLink, useNavigate } from 'react-router'
 import { InstallButton } from '../../features/pwa/install-button'
 import { cn } from '../../lib/cn'
@@ -59,7 +60,8 @@ function PhoneHeading({ handle }: { handle: RouteHandle | undefined }) {
         />
       )}
       {isHome ? (
-        <Wordmark className="ml-1" />
+        // min-w-0: with large text the wordmark shrinks instead of running into the buttons.
+        <Wordmark className="ml-1 min-w-0 truncate" />
       ) : (
         <span className="ml-1 truncate text-lg font-bold">{handle?.title}</span>
       )}
@@ -67,26 +69,32 @@ function PhoneHeading({ handle }: { handle: RouteHandle | undefined }) {
   )
 }
 
-/** Sticky top bar; it turns translucent with a border once the page scrolls. */
+/**
+ * Sticky top bar; it turns translucent with a border once the page scrolls. In an installed
+ * desktop window with Window Controls Overlay it is the window's title bar: `titlebar-drag` and
+ * `titlebar-row` (styles/index.css) make it drag the window and keep clear of the window buttons.
+ */
 export function TopBar({ handle }: { handle: RouteHandle | undefined }) {
   const scrolled = useScrolled()
+  const settingsLink = useRef<HTMLAnchorElement>(null)
   return (
     <header
       className={cn(
-        'sticky top-0 z-30 border-b pt-[var(--safe-top)] transition-colors duration-200',
+        'titlebar-drag sticky top-0 z-30 border-b pt-[var(--safe-top)] transition-colors duration-200',
         scrolled ? 'border-border bg-background/80 backdrop-blur-xl' : 'border-transparent',
       )}
     >
       {/* Same width and gutters as the page below, so both line up on wide screens. */}
       <div className="px-gutter">
-        <div className="mx-auto flex h-14 w-full max-w-page items-center gap-2 md:h-topbar md:gap-4">
+        <div className="titlebar-row mx-auto flex h-14 w-full max-w-page items-center gap-2 md:h-topbar md:gap-4">
           <PhoneHeading handle={handle} />
           <div className="hidden min-w-0 flex-1 items-center gap-3 md:flex lg:gap-4">
             <HistoryButtons />
             <SearchField shortcut className="w-full max-w-md" />
           </div>
-          <InstallButton />
+          <InstallButton focusAfter={settingsLink} />
           <NavLink
+            ref={settingsLink}
             to="/settings"
             aria-label="Settings"
             className={({ isActive }) => iconButtonClasses({ highlighted: isActive })}

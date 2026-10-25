@@ -5,13 +5,10 @@
  */
 
 import type { ManifestOptions } from 'vite-plugin-pwa'
+import { APP_BASE } from './base.ts'
 import { ICON_FILES } from './icons.ts'
 
-/**
- * Where production serves the player; the landing page owns `/` (docs/ARCHITECTURE.md §1).
- * It is Vite's `base`, the service worker's scope and the installed app's identity.
- */
-export const APP_BASE = '/app/'
+export { APP_BASE }
 
 /** The app's name: `APP_NAME` in @fxm/core, which config code can't import (a test compares). */
 export const APP_TITLE = 'FXM'
@@ -28,8 +25,8 @@ export const BACKGROUND_COLOR = '#0b0b0f'
  *
  * - `id` names the installed app. Browsers use it to recognise an installation, so it must
  *   never change once FXM is published.
- * - `display_override` asks for Window Controls Overlay on desktop, where the page draws its
- *   own title bar (src/features/pwa/title-bar.tsx); everywhere else it is a standalone window.
+ * - `display_override` asks for Window Controls Overlay on desktop, where the page's top bar
+ *   is the title bar (src/features/pwa/title-bar.ts); everywhere else it is a standalone window.
  * - `launch_handler` focuses the open window instead of starting a second player, and hands it
  *   the launch URL (src/features/pwa/launch-queue.ts), so the music keeps playing.
  */

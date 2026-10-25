@@ -6,6 +6,7 @@ import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
+import { isInstallableWebApp } from '../pwa/web-app'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { useSettingsStore } from './settings-store'
@@ -107,15 +108,18 @@ export function SettingsPage() {
         </SettingRow>
       </SettingsSection>
 
-      <SettingsSection title="App">
-        <SettingRow
-          label="Install app"
-          labelId={installLabelId}
-          help={<InstallHelp id={installHelpId} />}
-        >
-          <InstallAction describedBy={installHelpId} />
-        </SettingRow>
-      </SettingsSection>
+      {/* Only the web build installs; the Android and desktop apps are installed already. */}
+      {isInstallableWebApp() && (
+        <SettingsSection title="App">
+          <SettingRow
+            label="Install app"
+            labelId={installLabelId}
+            help={<InstallHelp id={installHelpId} />}
+          >
+            <InstallAction describedBy={installHelpId} />
+          </SettingRow>
+        </SettingsSection>
+      )}
 
       <SettingsSection title="About">
         <div className="flex flex-col gap-5 p-4 sm:flex-row sm:items-center sm:p-5">

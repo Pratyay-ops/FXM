@@ -1,28 +1,31 @@
-import { CircleArrowDown } from 'lucide-react'
-import { cn } from '../../lib/cn'
-import { promptInstall, useRunningAsApp } from './install'
-import { usePwaStore } from './pwa-store'
+import type { RefObject } from 'react'
+import { moveFocus } from './focus'
+import { promptInstall, useInstallOffer } from './install'
+import { InstallIcon } from './install-icon'
 
 /**
- * "Install app" in the top bar, while the browser offers to install FXM (Chromium's
- * `beforeinstallprompt`). An icon on phones, a labelled pill from 768px.
+ * "Install app" in the top bar from 768px, while the browser offers to install FXM (Chromium's
+ * `beforeinstallprompt`) and the user hasn't put the offer off. Phones get the offer on the Home
+ * page instead (`InstallCard`), where it doesn't crowd the page title.
+ *
+ * The offer is used up by the click, so the button goes: focus moves to `focusAfter` (the top
+ * bar's Settings link) first.
  */
-export function InstallButton() {
-  const canPrompt = usePwaStore((state) => state.installPrompt !== undefined)
-  const runningAsApp = useRunningAsApp()
-  if (!canPrompt || runningAsApp) return null
+export function InstallButton({ focusAfter }: { focusAfter?: RefObject<HTMLElement | null> }) {
+  const offer = useInstallOffer()
+  if (!offer) return null
   return (
     <button
       type="button"
-      onClick={() => void promptInstall()}
-      className={cn(
-        'inline-flex size-touch shrink-0 items-center justify-center gap-2 rounded-full text-text-muted transition-colors hover:bg-text/8 hover:text-text [&_svg]:size-5',
-        // From 768px a pill with its label: 44px tall below 1024px and on touch screens.
-        'md:w-auto md:bg-elevated md:px-4 md:text-sm md:font-semibold md:text-text md:hover:bg-elevated-hover lg:h-9 lg:pointer-coarse:h-touch md:[&_svg]:size-4',
-      )}
+      onClick={() => {
+        moveFocus(focusAfter?.current)
+        void promptInstall()
+      }}
+      // A pill with its label: 44px tall below 1024px and on touch screens.
+      className="hidden h-touch shrink-0 items-center justify-center gap-2 rounded-full bg-elevated px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors hover:bg-elevated-hover md:inline-flex lg:h-9 lg:pointer-coarse:h-touch [&_svg]:size-4 [&_svg]:shrink-0"
     >
-      <CircleArrowDown aria-hidden="true" />
-      <span className="max-md:sr-only">Install app</span>
+      <InstallIcon />
+      Install app
     </button>
   )
 }
