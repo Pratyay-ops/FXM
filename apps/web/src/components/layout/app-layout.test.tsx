@@ -133,8 +133,9 @@ describe('app layout', () => {
   it('keeps the play buttons of collection pages apart from the queue', async () => {
     const { player } = setupTestPlayback()
     await player.setQueue([testTrack('Creep')])
-    const { user } = renderApp('/album/one')
-    await screen.findByRole('heading', { level: 1, name: 'Album one' })
+    // The library's playlists are the placeholders left until stage 2.6.
+    const { user } = renderApp('/playlist/liked')
+    await screen.findByRole('heading', { level: 1, name: 'Playlist liked' })
     const main = within(screen.getByRole('main'))
 
     await user.click(main.getByRole('button', { name: 'Play' }))
