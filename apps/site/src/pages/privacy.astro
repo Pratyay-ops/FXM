@@ -57,6 +57,8 @@ const downloads = AVAILABLE.downloads
   : 'Downloads will be stored there too, once they arrive.'
 const spotifyLogin = `Connecting your Spotify account is optional${AVAILABLE.spotifyAccount ? '' : ' and coming soon'}. If you do, FXM uses your Spotify login to get an access token from Spotify.`
 const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates, and fetch FXM's YouTube settings file from this website when they start.`
+const webAppUpdates =
+  'The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself.'
 ---
 
 <Document
@@ -64,7 +66,7 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
   description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device. Here is which services your device talks to, and why."
   heading="Privacy"
   lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device."
-  updated="2026-10-25"
+  updated="2026-10-26"
 >
   <h2>The short version</h2>
   <ul>
@@ -161,6 +163,7 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
     network requests needed to deliver those files, under their own privacy policies. FXM doesn't
     add analytics or tracking to either.
   </p>
+  <p>{webAppUpdates}</p>
   <p>{updates}</p>
 
   <h2>Changes</h2>
