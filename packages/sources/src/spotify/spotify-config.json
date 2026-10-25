@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "updated": "2026-10-25",
+  "endpoints": {
+    "token": "https://open.spotify.com/api/token",
+    "serverTime": "https://open.spotify.com/api/server-time",
+    "pathfinder": "https://api-partner.spotify.com/pathfinder/v2/query",
+    "spclient": "https://spclient.wg.spotify.com"
+  },
+  "secretSources": [
+    "https://raw.githubusercontent.com/xyloflake/spot-secrets-go/refs/heads/main/secrets/secretDict.json",
+    "https://raw.githubusercontent.com/CycloneAddons/spotify-token-generator/main/secrets/secretDict.json"
+  ],
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
+  "operations": {
+    "searchDesktop": {
+      "sha256Hash": "eef7cc54888d91bdd6802623477873caa3948ae173a0c34fd86827b267e94c03",
+      "observedIn": "xpui-routes-search.2aa27db9.js"
+    },
+    "searchTracks": {
+      "sha256Hash": "b02683192a98dde7966b5e6655a79eeb62713eab703eda9902c932818dd52751",
+      "observedIn": "xpui-routes-search.2aa27db9.js"
+    },
+    "searchAlbums": {
+      "sha256Hash": "202cb3305e31e5a0767ba7925f28bd728cf8f8b0217e6da43909056071cd70e9",
+      "observedIn": "xpui-routes-search.2aa27db9.js"
+    },
+    "searchArtists": {
+      "sha256Hash": "7bf95d754fdbe32c8b161fbbe54d1ae50974900df4dce4c8f1afcbcad153224d",
+      "observedIn": "xpui-routes-search.2aa27db9.js"
+    },
+    "searchPlaylists": {
+      "sha256Hash": "d520014e748f9ea44f7707d8df1819867ac1205e8b7f3e28f22fe5fc858921b1",
+      "observedIn": "xpui-routes-search.2aa27db9.js"
+    },
+    "getTrack": {
+      "sha256Hash": "fe16b8083eec2305854db612ca75589bcb71e009dc7a4d014f29bd534a4c01f5",
+      "observedIn": "web-player.f954508a.js"
+    },
+    "getAlbum": {
+      "sha256Hash": "0b6ce3511e1b02e4a40fa95440f992acbe85080eb308af9194322d708fc1914f",
+      "observedIn": "web-player.f954508a.js"
+    },
+    "queryArtistOverview": {
+      "sha256Hash": "9f8134ef565e78621f1e1793555bd6633c5ac144ae0f89604ed3ae3f80b3c8e6",
+      "observedIn": "web-player.f954508a.js"
+    },
+    "queryArtistRelated": {
+      "sha256Hash": "3d031d6cb22a2aa7c8d203d49b49df731f58b1e2799cc38d9876d58771aa66f3",
+      "observedIn": "xpui-routes-artist.2459ba1a.js"
+    },
+    "fetchPlaylist": {
+      "sha256Hash": "21ea11a6ac75a5f3e01fd365d29c18e0a4a8b7dc09f89bbb5d73910190c6acaf",
+      "observedIn": "web-player.f954508a.js"
+    },
+    "home": {
+      "sha256Hash": "5fb7da7a03ee2776c0670856609cb85a189a3cecc36cc160b91cde79063b9cf1",
+      "observedIn": "web-player.f954508a.js"
+    },
+    "homeSection": {
+      "sha256Hash": "5fb7da7a03ee2776c0670856609cb85a189a3cecc36cc160b91cde79063b9cf1",
+      "observedIn": "web-player.f954508a.js"
+    },
+    "libraryV3": {
+      "sha256Hash": "390c78e5b951029bad359785e69b07b536a509c581cbcd0aded5e5067f187455",
+      "observedIn": "web-player.f954508a.js"
+    },
+    "fetchLibraryTracks": {
+      "sha256Hash": "087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240",
+      "observedIn": "web-player.f954508a.js"
+    },
+    "profileAttributes": {
+      "sha256Hash": "08ffb4730af3746e04a8301396f20875dbbce10c75243803091a9274eacc8ac0",
+      "observedIn": "web-player.f954508a.js"
+    }
+  }
+}

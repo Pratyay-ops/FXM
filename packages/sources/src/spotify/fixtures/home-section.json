@@ -1,0 +1,140 @@
+{
+  "data": {
+    "homeSections": {
+      "__typename": "HomeSectionCollection",
+      "sections": [
+        {
+          "__typename": "HomeSection",
+          "data": {
+            "__typename": "HomeGenericSectionData",
+            "headerEntity": {
+              "__typename": "UnknownType"
+            },
+            "subtitle": {
+              "transformedLabel": "",
+              "translatedBaseText": null
+            },
+            "title": {
+              "transformedLabel": "Popular artists",
+              "translatedBaseText": "Popular artists"
+            }
+          },
+          "sectionItems": {
+            "items": [
+              {
+                "content": {
+                  "__typename": "ArtistResponseWrapper",
+                  "data": {
+                    "__typename": "Artist",
+                    "profile": {
+                      "name": "Pritam"
+                    },
+                    "uri": "spotify:artist:1wRPtKGflJrBx9BmLsSwlU",
+                    "visuals": {
+                      "avatarImage": {
+                        "sources": [
+                          {
+                            "height": 640,
+                            "url": "https://i.scdn.co/image/ab6761610000e5ebcb6926f44f620555ba444fca",
+                            "width": 640
+                          },
+                          {
+                            "height": 160,
+                            "url": "https://i.scdn.co/image/ab6761610000f178cb6926f44f620555ba444fca",
+                            "width": 160
+                          },
+                          {
+                            "height": 320,
+                            "url": "https://i.scdn.co/image/ab67616100005174cb6926f44f620555ba444fca",
+                            "width": 320
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "data": null,
+                "uri": "spotify:artist:1wRPtKGflJrBx9BmLsSwlU"
+              },
+              {
+                "content": {
+                  "__typename": "ArtistResponseWrapper",
+                  "data": {
+                    "__typename": "Artist",
+                    "profile": {
+                      "name": "A.R. Rahman"
+                    },
+                    "uri": "spotify:artist:1mYsTxnqsietFxj1OgoGbG",
+                    "visuals": {
+                      "avatarImage": {
+                        "sources": [
+                          {
+                            "height": 640,
+                            "url": "https://i.scdn.co/image/ab6761610000e5ebb19af0ea736c6228d6eb539c",
+                            "width": 640
+                          },
+                          {
+                            "height": 160,
+                            "url": "https://i.scdn.co/image/ab6761610000f178b19af0ea736c6228d6eb539c",
+                            "width": 160
+                          },
+                          {
+                            "height": 320,
+                            "url": "https://i.scdn.co/image/ab67616100005174b19af0ea736c6228d6eb539c",
+                            "width": 320
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "data": null,
+                "uri": "spotify:artist:1mYsTxnqsietFxj1OgoGbG"
+              },
+              {
+                "content": {
+                  "__typename": "ArtistResponseWrapper",
+                  "data": {
+                    "__typename": "Artist",
+                    "profile": {
+                      "name": "Arijit Singh"
+                    },
+                    "uri": "spotify:artist:4YRxDV8wJFPHPTeXepOstw",
+                    "visuals": {
+                      "avatarImage": {
+                        "sources": [
+                          {
+                            "height": 640,
+                            "url": "https://i.scdn.co/image/ab6761610000e5ebadfb0b2df04b77e43b5f7375",
+                            "width": 640
+                          },
+                          {
+                            "height": 160,
+                            "url": "https://i.scdn.co/image/ab6761610000f178adfb0b2df04b77e43b5f7375",
+                            "width": 160
+                          },
+                          {
+                            "height": 320,
+                            "url": "https://i.scdn.co/image/ab67616100005174adfb0b2df04b77e43b5f7375",
+                            "width": 320
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "data": null,
+                "uri": "spotify:artist:4YRxDV8wJFPHPTeXepOstw"
+              }
+            ],
+            "pagingInfo": {
+              "nextOffset": 20
+            },
+            "totalCount": 50
+          },
+          "uri": "spotify:section:0JQ5DAnM3wGh0gz1MXnu3C"
+        }
+      ]
+    }
+  }
+}
