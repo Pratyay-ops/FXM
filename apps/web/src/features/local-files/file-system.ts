@@ -108,7 +108,7 @@ export async function pickDirectory(): Promise<FileSystemDirectoryHandle | null>
     throw new FxmError('Unsupported', 'This browser cannot keep access to a folder')
   }
   try {
-    return await picker.call(globalThis, { id: 'fxm-music', mode: 'read', startIn: 'music' })
+    return await picker.call(globalThis, { id: 'fxm-local-files', mode: 'read', startIn: 'music' })
   } catch (error) {
     if (isAbortError(error)) return null
     throw error
