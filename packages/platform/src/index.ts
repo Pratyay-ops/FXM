@@ -7,6 +7,7 @@
 
 export * from './budget'
 export * from './clock'
+export * from './connect'
 export * from './cors'
 export * from './hosts'
 export * from './innertube'
