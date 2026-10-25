@@ -79,12 +79,21 @@ export WRANGLER_SEND_METRICS=false
 export ASTRO_TELEMETRY_DISABLED=1
 export DO_NOT_TRACK=1
 
-# PATH: .tools/bin first, then the local JDK and Android tools when installed.
+# PATH: .tools/bin first, then the local JDK and Android tools when installed. Each folder moves
+# to the front even when PATH has it already, as after an earlier `source scripts/env.sh`: the
+# Android tools installed since then must not end up before .tools/bin, because the SDK's own
+# adb would then shadow the wrapper there and write its key to ~/.android.
 _fxm_path_prepend() {
-  case ":$PATH:" in
-    *":$1:"*) ;;
-    *) PATH="$1:$PATH" ;;
-  esac
+  local rest=":$PATH:"
+  while :; do
+    case $rest in
+      *":$1:"*) rest=${rest//":$1:"/:} ;;
+      *) break ;;
+    esac
+  done
+  rest=${rest#:}
+  rest=${rest%:}
+  PATH="$1${rest:+:$rest}"
 }
 if [ -d "$ANDROID_HOME/platform-tools" ]; then
   _fxm_path_prepend "$ANDROID_HOME/platform-tools"
