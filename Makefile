@@ -9,7 +9,7 @@ RUN := scripts/run.sh
 
 .DEFAULT_GOAL := help
 .PHONY: help setup install doctor py-setup gh-setup dev lint format typecheck test coverage build check \
-	ci-setup ci wt-new wt-list wt-remove clean nuke
+	extension ci-setup ci wt-new wt-list wt-remove clean nuke
 
 help: ## List available commands
 	@echo "FXM commands (docs/DEVELOPMENT.md has the details):"
@@ -56,6 +56,9 @@ build: ## Build every app
 	@$(RUN) pnpm run build
 
 check: lint typecheck test build ## Everything a stage must pass before merging
+
+extension: ## Build the FXM Connect extension and its zips (FXM_EXTENSION_DEV=1: dev build)
+	@$(RUN) pnpm --filter @fxm/extension build
 
 ci-setup: ## CI only: setup with a frozen lockfile
 	@scripts/setup.sh --frozen-lockfile
