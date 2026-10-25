@@ -115,10 +115,10 @@ Run by the stage 2.9 agent on 2026-10-26 (IST), from a residential connection in
 | Search | "ramones blitzkrieg bop" (YouTube Music) | "nine inch nails ghosts" (Internet Archive in "Search in") |
 | Played | "Blitzkrieg Bop", Ramones: VISIONOS's AAC 140 after both end-of-file probes (Opus 251 and AAC 140) answered 206. One `bytes=0-` request, answered 206, delivered the whole 2,178,857-byte file; `playing` after 0.5 s, position 15, 30 … 120 s at the 15 s samples, `ended` at 134.5 of 134.5 s | "1 Ghosts I", Nine Inch Nails: the 320 kbps MP3, after the `archive.org/download` redirect. 20 s of play, then a seek to 12 s before the end (a `bytes=6258688-` request, 206), `ended` at 168.7 s |
 | Next track | 30 s before the end the lifecycle resolved the next three songs (3 `/player` calls, 6 probes) and the second `<audio>` preloaded the next one (Opus 251); it played the moment the first ended: "Blitzkrieg Bop (From "Jimmy Neutron: Boy Genius")", Geek Music | "2 Ghosts I", preloaded, played the moment the first ended |
-| Requests | InnerTube: 7 (`sw.js_data`, one suggestions call, one search, four `/player`). googlevideo: 10, 4.86 MB | archive.org: 1 search, 4 item metadata, the files (about 9 MB with the cover art) |
+| Requests | YouTube: 7 (`sw.js_data`, then one suggestions call, one search and four `/player` calls to InnerTube). googlevideo: 10, 4.86 MB | archive.org: 1 search, 4 item metadata, the files (about 9 MB with the cover art) |
 
 Seen along the way, for later stages:
 
-- The first YouTube attempt stopped at about a minute: a file edit in `apps/web` made the dev server reload the page mid-song. The run above had no edits.
+- The first YouTube attempt stopped about a minute in, when the page searched again by itself: most likely the dev server reloading it after a file edit in `apps/web`. The run above had no edits.
 - After a page load, this development build answered FXM Connect's ping later than the platform's 800 ms wait (it switches to the localhost origin's ruleset first, and its service worker may be asleep), so the page showed the Free tier's "Search needs YouTube Music access" for about 3 s before it switched to the Full tier by itself. The release build has one origin and switches nothing.
 - The ladder chose AAC 140 over Opus 251 for this song: it ranks by average bitrate, the decision stage 1.4's README leaves open, and this Chromium plays AAC.
