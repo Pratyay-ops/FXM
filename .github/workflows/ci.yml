@@ -41,3 +41,7 @@ jobs:
 
       - name: Lint, typecheck, test, build
         run: make check
+
+      # The release workflow only runs on main, so its scripts are tested here, offline.
+      - name: Lint the workflows and test the release scripts
+        run: make release-check

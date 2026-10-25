@@ -10,7 +10,7 @@ FXM hosts no music and has no servers of its own. Its apps run on the user's dev
 
 Users are responsible for how they use FXM, including following the terms of the services they use with it and the laws where they live. FXM is provided as is, without warranties or conditions of any kind, under the [Apache License 2.0](../LICENSE).
 
-The same notice is in the [README](../README.md#legal) and on the site's [disclaimer page](https://fxm-music.pages.dev/disclaimer) (source: [`apps/site/src/pages/disclaimer.astro`](../apps/site/src/pages/disclaimer.astro)). Change all three together.
+The same notice is in the [README](../README.md#legal) and on the site's [disclaimer page](https://fxmusic.pages.dev/disclaimer) (source: [`apps/site/src/pages/disclaimer.astro`](../apps/site/src/pages/disclaimer.astro)). Change all three together.
 
 ## Contacts
 
@@ -106,7 +106,7 @@ Every link in this playbook was checked on 2026-10-26.
 ## Security
 
 - **Policy:** [`.github/SECURITY.md`](../.github/SECURITY.md). Reports go through GitHub's private vulnerability reporting.
-- **security.txt** ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116.html)): served at `https://fxm-music.pages.dev/.well-known/security.txt` from [`apps/site/public/.well-known/security.txt`](../apps/site/public/.well-known/security.txt).
+- **security.txt** ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116.html)): served at `https://fxmusic.pages.dev/.well-known/security.txt` from [`apps/site/public/.well-known/security.txt`](../apps/site/public/.well-known/security.txt).
   - Its `Expires` is 2027-10-25T00:00:00Z. Before then, set a new date at most a year ahead. Update `Canonical` if the site moves.
   - The site build copies it to `apps/site/dist/.well-known/`. The deploy (2.8) must keep that folder when it puts the site together, as the [site's README](../apps/site/README.md#deploying-with-the-web-app) notes: a shell glob such as `dist/*` skips folders whose names start with a dot.
   - Cloudflare Pages serves `/.well-known/` files: other `pages.dev` projects serve theirs as `text/plain; charset=utf-8`, and `wrangler pages deploy` doesn't skip dot-folders (checked on 2026-10-26).

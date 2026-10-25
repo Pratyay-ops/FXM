@@ -4,6 +4,8 @@ The FXM web player: a React app served from `/app/`, which later also becomes th
 
 Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB. Search results and playback plug into it in later stages.
 
+Search and the album, artist and playlist pages (stage 2.4), with the app's single place for music sources (providers, tier and the Spotify switch) and the fake catalog for development and tests, are described in [src/features/search/README.md](src/features/search/README.md).
+
 ## Run it
 
 From the repository root (tools run through `make` or `scripts/run.sh`, see [DEVELOPMENT.md](../../docs/DEVELOPMENT.md)):
@@ -21,7 +23,7 @@ End-to-end tests and screenshots use Playwright and are **not** part of `make ch
 ```sh
 scripts/run.sh pnpm --filter @fxm/web exec playwright install chromium
 scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test: navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px, playlist order by keyboard and mouse across reloads, menus by keyboard (also with reduced motion), focus when rows leave a list, sidebar confirmations on any page
-scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, plus Music + Video and forced colors, in apps/web/screenshots/
+scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, plus Music + Video, forced colors, the library restored from a backup and search and browse with the fake catalog, in apps/web/screenshots/
 ```
 
 Every run builds this checkout and starts its own `vite preview` on port 4173 with `--strictPort`. If the port is busy, for example with another worktree's preview, the run fails instead of testing that server: set `FXM_E2E_PORT` to a free port. Screenshots and Playwright output are gitignored.
@@ -88,5 +90,6 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 - Selection shown only by a fill disappears in forced colors: add a `forced-colors:` style in system colors (see `SegmentedControl` and `Tabs`).
 - Respect reduced motion: transitions and animations are shortened globally, skeletons stop shimmering. That rule gives every property a 0.01 ms transition, `visibility` included, so something shown by removing `visibility: hidden` stays hidden for a few frames, and `focus()` on it does nothing: hide what must take focus right away with `opacity` (see `MenuPopup`).
 - Respect the catalog mode wherever results appear: `useSettingsStore((s) => s.catalogMode)`. Music shows catalog songs only; Music + Video also shows videos, played as music.
+- Read sources, the tier and the Spotify switch from the sources module (`useSourcesSnapshot()` in `features/search`), never from a provider or the platform directly, and link to album, artist and playlist pages with `albumPath`, `artistPath` and `playlistPath`.
 - Tests use `renderApp(path)` from `src/test/render.tsx`, which renders the real providers and routes with a memory router. Stores, `localStorage` and the library database (fake-indexeddb) are reset after every test. Behaviour that depends on the browser history (basename, back and forward, the skip link) is tested with the real browser router in `src/app/router.test.tsx`.
 - Read and write the library only through the repository: `getLibrary()` for writes, the hooks in `src/db/hooks.ts` for reads. Never open Dexie tables directly. Seed tests with `getLibrary()`, or use `testRepo()` and `track()` from `src/test/library-fixtures.ts`. happy-dom lays nothing out, so drag-and-drop tests give rows positions first (see `stubRowLayout` in `features/library/library-page.test.tsx`).
