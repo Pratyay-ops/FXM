@@ -6,8 +6,10 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
+import { serializePolicy, sha256Source } from './csp.ts'
+import type { InventoryEntry } from './licenses.ts'
 import type { Part } from './parts.ts'
-import { APP_SERVICES } from './policies.ts'
+import { APP_SERVICES, isSandboxDocument, SANDBOX_DOCUMENTS } from './policies.ts'
 
 const made: string[] = []
 
@@ -90,18 +92,26 @@ export function bundle(
   return { [file]: 'console.log(1)\n', ...sourceMap(outDir, `${file}.map`, sources) }
 }
 
-/** A part that writes files: `files` gets the part's output folder. */
+/**
+ * A part that writes files: `files` gets the part's output folder. `inventory` is what its
+ * bundler would record (src/bundle-inventory.ts).
+ */
 export function fakePart(
   part: Pick<Part, 'name' | 'mount'> & Partial<Omit<Part, 'build'>>,
   files: (outDir: string) => Record<string, string>,
+  inventory?: (outDir: string) => readonly InventoryEntry[],
 ): Part {
   return {
     required: false,
     spa: false,
     sourceMaps: true,
     ...part,
-    build(outDir) {
+    build(outDir, { inventoryFile }) {
       writeFiles(outDir, files(outDir))
+      const entries = inventory?.(outDir) ?? []
+      if (entries.length > 0) {
+        writeFileSync(inventoryFile, entries.map((entry) => `${JSON.stringify(entry)}\n`).join(''))
+      }
       return true
     },
   }
@@ -172,17 +182,34 @@ export function fakeAppPart(
   }))
 }
 
-/** 1.10 and 1.11's sandbox documents, each with one inline script. */
+/** The script of a fake sandbox document. */
+export const sandboxScript = (name: string) => `addEventListener('message', () => {}) // ${name}`
+
+/**
+ * A sandbox document the way 1.10 builds them: one inline script, and its policy without
+ * `sandbox` in a meta element before it (`meta: false` leaves the meta element out).
+ */
+export function sandboxDocument(
+  name: string,
+  script = sandboxScript(name),
+  { meta = true } = {},
+): string {
+  if (!isSandboxDocument(name)) throw new Error(`${name} is not a sandbox document`)
+  const policy = SANDBOX_DOCUMENTS[name]([sha256Source(script)]).filter(
+    ([directive]) => directive !== 'sandbox',
+  )
+  const element = meta
+    ? `<meta http-equiv="Content-Security-Policy" content="${serializePolicy(policy)}">`
+    : ''
+  return `<!doctype html><meta charset="utf-8">${element}<title>${name}</title><script>${script}</script>`
+}
+
+/** 1.10 and 1.11's sandbox documents. */
 export function fakeSandboxPart(
   names: readonly string[] = ['innertube.html', 'userhost.html', 'eval.html'],
 ): Part {
   return fakePart({ name: 'sandbox', mount: 'sandbox', sourceMaps: false }, () =>
-    Object.fromEntries(
-      names.map((name) => [
-        name,
-        `<!doctype html><meta charset="utf-8"><title>${name}</title><script>addEventListener('message', () => {}) // ${name}</script>`,
-      ]),
-    ),
+    Object.fromEntries(names.map((name) => [name, sandboxDocument(name)])),
   )
 }
 

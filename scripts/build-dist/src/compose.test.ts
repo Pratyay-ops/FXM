@@ -11,14 +11,17 @@ import { listFiles } from './rules.ts'
 import {
   APP_THEME_SCRIPT,
   absentPart,
+  bundle,
   type FakePackage,
   fakeAppPart,
   fakeEmbedPart,
   fakePart,
   fakeSandboxPart,
   fakeSitePart,
+  installPackage,
   privacyPage,
   removeTempDirs,
+  sandboxDocument,
   tempDir,
   writeFiles,
 } from './testing.ts'
@@ -144,7 +147,7 @@ describe('compose', () => {
   it('copies the sandbox documents from apps/web/sandbox once 1.10 adds them', () => {
     const root = tempDir()
     writeFiles(root, {
-      'apps/web/sandbox/innertube.html': '<!doctype html><title>x</title><script>inner()</script>',
+      'apps/web/sandbox/innertube.html': sandboxDocument('innertube.html', 'inner()'),
       'apps/web/sandbox/notes.md': 'not a document',
     })
     const { outDir } = run(root, [fakeSitePart(root), fakeAppPart(root), sandboxPart])
@@ -182,6 +185,50 @@ describe('compose', () => {
     ).toEqual([
       'embed: assets/e.js has no source map, so its packages are unknown',
       'sandbox ships helper.js, but builds no source maps to show which packages it contains',
+    ])
+  })
+
+  it('lists the packages a build takes stylesheets and assets from, from its inventory', () => {
+    const root = tempDir()
+    const fonts = installPackage(root, { name: 'fonts', version: '1.0.0', license: 'OFL-1.1' })
+    const codec = installPackage(root, { name: 'codec', version: '2.0.0', license: 'GPL-2.0' })
+    const app = fakePart(
+      { name: 'app', mount: 'app', spa: true, required: true },
+      (outDir) => ({
+        'index.html': '<!doctype html><title>a</title><h1>a</h1>',
+        ...bundle(outDir, 'assets/index.js', [join(root, 'apps/web/src/app.ts')]),
+        'assets/font.woff2': 'font',
+        'assets/codec.wasm': 'codec',
+        'assets/own.wasm': 'own',
+      }),
+      () => [
+        {
+          environment: 'client',
+          modules: [fonts.replace(/index\.js$/, 'font.css')],
+          assets: [
+            { fileName: 'assets/font.woff2', sources: [fonts.replace(/index\.js$/, 'font.woff2')] },
+            { fileName: 'assets/codec.wasm', sources: [codec.replace(/index\.js$/, 'codec.wasm')] },
+            { fileName: 'assets/own.wasm', sources: [join(root, 'apps/web/public/own.wasm')] },
+          ],
+        },
+      ],
+    )
+    writeFiles(root, { 'apps/web/src/app.ts': 'export {}\n' })
+    const problems = problemsOf(() => run(root, [fakeSitePart(root), app]))
+    expect(problems).toHaveLength(2)
+    expect(problems[0]).toMatch(/^app ships assets\/own\.wasm, WebAssembly from no npm package/)
+    expect(problems[1]).toBe(
+      'codec@2.0.0 (in app): GPL-2.0 is GPL or AGPL, which FXM must not ship (ARCHITECTURE.md §17)',
+    )
+  })
+
+  it('refuses a document without source maps whose inline code looks bundled', () => {
+    const root = tempDir()
+    const sandbox = fakePart({ name: 'sandbox', mount: 'sandbox', sourceMaps: false }, () => ({
+      'eval.html': sandboxDocument('eval.html', '/*! interpreter v1.0.0 | MIT */ run()'),
+    }))
+    expect(problemsOf(() => run(root, [fakeSitePart(root), fakeAppPart(root), sandbox]))).toEqual([
+      'sandbox: eval.html inlines code with a licence notice ("/*!"), but builds no source maps to show which packages it contains',
     ])
   })
 

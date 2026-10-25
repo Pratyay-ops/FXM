@@ -15,11 +15,16 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { serializeHeaders } from './headers-file.ts'
+import { scanPage } from './html.ts'
 import {
   addPackagesFromBanners,
+  addPackagesFromInventory,
   addPackagesFromSourceMaps,
   type BundledPackage,
+  binaryProblems,
+  inlineCodeProblems,
   licenseProblems,
+  readInventory,
   renderNotices,
 } from './licenses.ts'
 import type { BuildContext, Part } from './parts.ts'
@@ -72,7 +77,8 @@ export function compose(options: ComposeOptions): ComposeResult {
   rmSync(stagingDir, { recursive: true, force: true })
   const pagesDir = join(stagingDir, 'pages')
   mkdirSync(pagesDir, { recursive: true })
-  const context: BuildContext = { root, run: options.run, log }
+  mkdirSync(join(stagingDir, 'inventory'), { recursive: true })
+  const inventoryOf = (part: Part) => join(stagingDir, 'inventory', `${part.name}.jsonl`)
 
   const built: Part[] = []
   const skipped: string[] = []
@@ -80,6 +86,7 @@ export function compose(options: ComposeOptions): ComposeResult {
     const dir = join(stagingDir, 'parts', part.name)
     mkdirSync(dir, { recursive: true })
     log(`Building ${part.name}${part.mount ? ` for /${part.mount}/` : ' for /'}`)
+    const context: BuildContext = { root, run: options.run, log, inventoryFile: inventoryOf(part) }
     if (!part.build(dir, context)) {
       if (part.required)
         throw new DistError(`Can't compose dist`, [`${part.name} is required but was not built`])
@@ -114,8 +121,19 @@ export function compose(options: ComposeOptions): ComposeResult {
         `${part.name}: ${unattributed.length} generated module(s) without a file, e.g. ${unattributed[0]}`,
       )
     }
+    // Stylesheets, fonts, images and WebAssembly the build took from packages.
+    const origins = addPackagesFromInventory(readInventory(inventoryOf(part)), part.name, packages)
     const stylesheets = files.filter((file) => file.endsWith('.css')).map((file) => join(dir, file))
     addPackagesFromBanners(stylesheets, part.name, root, packages)
+    problems.push(...binaryProblems(part.name, dir, files, origins))
+    if (!part.sourceMaps) {
+      for (const document of files.filter((file) => file.endsWith('.html'))) {
+        const scan = scanPage(readFileSync(join(dir, document), 'utf8'))
+        for (const code of [...scan.inlineScripts, ...scan.inlineStyles]) {
+          problems.push(...inlineCodeProblems(part.name, document, code))
+        }
+      }
+    }
   }
   problems.push(...licenseProblems(packages.values()))
   if (problems.length > 0) throw new DistError('The build ships code FXM may not ship', problems)
