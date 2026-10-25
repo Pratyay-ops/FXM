@@ -2,7 +2,6 @@ import type { QueueContext } from '@fxm/core'
 import { useId, useMemo } from 'react'
 import { Link } from 'react-router'
 import { countLabel } from '../library/format'
-import { StatusToast } from '../library/status'
 import { useBlockedRoots, useLocalTracks } from './hooks'
 import { LocalTrackList } from './track-list'
 import { useFailureToasts } from './track-row'
@@ -53,7 +52,6 @@ export function LocalSearchSection({ query }: { query: string }) {
         label="Songs on this device"
         blocked={blocked}
       />
-      <StatusToast />
     </section>
   )
 }

@@ -305,7 +305,7 @@ describe('the Local files tab', () => {
     const { user } = renderApp('/library?tab=local')
     await user.click(await screen.findByRole('button', { name: 'Like Afterglow' }))
     await waitFor(async () => {
-      const [file] = await getLibrary().db.likes.toArray()
+      const [file] = (await getLibrary().snapshot()).likes
       expect(file?.trackId).toMatch(/^local:track:/)
     })
     expect(
