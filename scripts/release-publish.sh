@@ -3,13 +3,14 @@
 #
 #   release-publish.sh <x.y.z> <commit> <dir> <notes.md>
 #
-# Creates tag vX.Y.Z at the commit unless it is already there, deletes a draft release that a
-# failed run left behind, then publishes the release with the notes, a list of the files and
-# every file in <dir> as an asset. gh uploads the assets to a draft and publishes it after the
-# last upload, so a release never shows up half uploaded. Re-running is safe: a published
-# release is left alone, and a tag that points at another commit stops it. A failed GitHub API
-# request stops it too, instead of reading as "no release" or "no tag". Needs gh with GH_TOKEN
-# (contents: write) and GITHUB_REPOSITORY (owner/repo).
+# <dir> holds plain files only, and <dir>/SHA256SUMS must match them exactly (release-build.sh
+# --checksums). Creates tag vX.Y.Z at the commit unless it is already there, deletes a draft
+# release that a failed run left behind, then publishes the release with the notes, a list of
+# the files and every file in <dir> as an asset. gh uploads the assets to a draft and publishes
+# it after the last upload, so a release never shows up half uploaded. Re-running is safe: a
+# published release is left alone, and a tag that points at another commit stops it. A failed
+# GitHub API request stops it too, instead of reading as "no release" or "no tag". Needs gh with
+# GH_TOKEN (contents: write) and GITHUB_REPOSITORY (owner/repo).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 source "$here/env.sh"
@@ -28,10 +29,17 @@ fxm_release_require_version "$version"
 repo=${GITHUB_REPOSITORY:?GITHUB_REPOSITORY must name the repository, e.g. Pratyay-ops/FXM}
 tag=v$version
 
+# Only plain files, all of them listed in SHA256SUMS with the right checksum: what the
+# attestations cover is exactly what gets published.
+sums=$(mktemp)
+trap 'rm -f "$sums"' EXIT
+fxm_release_sums "$dir" >"$sums"
+cmp -s "$sums" "$dir/SHA256SUMS" ||
+  fxm_die "$dir/SHA256SUMS does not match the files in $dir: scripts/release-build.sh --checksums $dir"
 # The release files, with SHA256SUMS last.
 files=()
 for file in "$dir"/*; do
-  if [ -f "$file" ] && [ "$file" != "$dir/SHA256SUMS" ]; then files+=("$file"); fi
+  if [ "$file" != "$dir/SHA256SUMS" ]; then files+=("$file"); fi
 done
 files+=("$dir/SHA256SUMS")
 
@@ -63,19 +71,17 @@ for id in $drafts; do
   fxm_info "Deleted draft release $id that an earlier run left behind"
 done
 
+# The files' descriptions come from fxm_release_catalog (scripts/release-lib.sh).
 describe() {
-  case "$1" in
-    fxm-connect-chromium-*.zip) echo "FXM Connect for Chrome, Edge, Brave and other Chromium browsers" ;;
-    fxm-connect-firefox-*.zip) echo "FXM Connect for Firefox" ;;
-    fxm-web-*.zip) echo "The web app for self-hosting: its files are in \`app/\`, served from \`/app/\`" ;;
-    fxm-site-*.zip) echo "The landing page for self-hosting, served from \`/\`" ;;
-    SHA256SUMS) echo "SHA-256 checksums of the other files" ;;
-    *) echo "" ;;
-  esac
+  if [ "$1" = SHA256SUMS ]; then
+    echo "SHA-256 checksums of the other files"
+  else
+    fxm_release_lookup "" "$1" "$version" || true
+  fi
 }
 
 body=$(mktemp)
-trap 'rm -f "$body"' EXIT
+trap 'rm -f "$sums" "$body"' EXIT
 cp "$notes" "$body"
 fxm_release_fit "$body" 115000 \
   "The full list is in [CHANGELOG.md](https://github.com/$repo/blob/$tag/CHANGELOG.md)."

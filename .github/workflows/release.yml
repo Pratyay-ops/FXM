@@ -6,8 +6,9 @@ name: Release
 #
 #   plan     reads the version and decides whether to release (scripts/release-plan.sh)
 #   bundles  builds the web app, landing page and FXM Connect zips (scripts/release-build.sh)
-#   publish  writes SHA256SUMS, attests every file's build provenance, creates tag vX.Y.Z and
-#            publishes the release with git-cliff notes (scripts/release-publish.sh)
+#   publish  collects the artifact jobs' files (scripts/release-collect.sh), writes SHA256SUMS,
+#            attests every file's build provenance, creates tag vX.Y.Z and publishes the
+#            release with git-cliff notes (scripts/release-publish.sh)
 #
 # Every job builds the commit the run was started for (plan's sha is always github.sha), which
 # is also the commit the attestations name. Re-running is safe: a published release stops at
@@ -16,10 +17,15 @@ name: Release
 # run, so a tag pushed by hand never gets a commit built and published. Builds start from a
 # clean runner, without caches, so nothing from other runs reaches the files.
 #
-# Adding artifacts (the APK in 6.6, desktop installers in 7.5, the signed XPI in R.2): add a job
-# that needs plan, runs `if: needs.plan.outputs.release == 'true'`, checks out
-# needs.plan.outputs.sha and uploads its files as an artifact named release-<name>. Then add it
-# to publish's needs. Publish checksums, attests and attaches everything named release-*.
+# Adding artifacts (the APK in 6.6, desktop installers in 7.5, the signed XPI in R.2):
+#   1. Add a job that needs plan, runs `if: needs.plan.outputs.release == 'true'`, checks out
+#      needs.plan.outputs.sha and uploads its files as an artifact named release-<name>. The
+#      files sit at the artifact's root (no folders) and carry the version in their names.
+#   2. List those files for release-<name> in fxm_release_catalog (scripts/release-lib.sh):
+#      the collect step refuses any file that the catalog doesn't list for its artifact, so a
+#      job can never replace another job's files.
+#   3. Add the job to publish's needs, and a download step for release-<name> next to the
+#      release-bundles one (each artifact into its own folder under dist/artifacts).
 
 on:
   push:
@@ -91,7 +97,8 @@ jobs:
   publish:
     name: Publish ${{ needs.plan.outputs.tag }}
     needs: [plan, bundles]
-    # Every artifact job must succeed; one that skips itself on purpose doesn't block.
+    # No artifact job may fail or be cancelled. A job that can skip itself on purpose doesn't
+    # block, as long as its download step below runs only `if: needs.<job>.result == 'success'`.
     if: >-
       ${{ !cancelled() && needs.plan.outputs.release == 'true'
       && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
@@ -109,11 +116,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # One download per artifact, by name, each into its own folder: merged into one folder,
+      # an artifact could silently overwrite another's file of the same name.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: release-*
-          path: dist/release
-          merge-multiple: true
+          name: release-bundles
+          path: dist/artifacts/release-bundles
+
+      - name: Collect the release files
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: scripts/release-collect.sh "$VERSION" dist/artifacts dist/release
 
       - name: Write SHA256SUMS
         run: scripts/release-build.sh --checksums dist/release

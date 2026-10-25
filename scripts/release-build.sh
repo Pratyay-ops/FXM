@@ -9,7 +9,8 @@
 #
 #   release-build.sh [dir]             builds them into dir (default dist/release), skipping apps
 #                                      that don't exist yet
-#   release-build.sh --checksums dir   writes dir/SHA256SUMS for every other file in dir
+#   release-build.sh --checksums dir   writes dir/SHA256SUMS for every other file in dir, which
+#                                      must all be plain files (no folders or links)
 #
 # The release workflow runs both (the checksums once every job's files are together); so does
 # make release-build. The zips are reproducible: sorted entries, fixed permissions, no extra
@@ -22,17 +23,9 @@ source "$here/lib.sh"
 source "$here/release-lib.sh"
 
 write_checksums() {
-  local dir=$1 list file
-  [ -d "$dir" ] || fxm_die "no such folder: $dir"
+  local dir=$1 list
   list=$(mktemp)
-  (
-    cd "$dir"
-    for file in *; do
-      if [ -f "$file" ] && [ "$file" != SHA256SUMS ]; then
-        printf '%s  %s\n' "$(fxm_sha256 "$file")" "$file"
-      fi
-    done
-  ) | LC_ALL=C sort -k2 >"$list"
+  fxm_release_sums "$dir" >"$list"
   [ -s "$list" ] || fxm_die "no files to checksum in $dir"
   mv "$list" "$dir/SHA256SUMS"
   chmod 0644 "$dir/SHA256SUMS"

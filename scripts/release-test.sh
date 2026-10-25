@@ -209,6 +209,16 @@ for i in $(seq 1 2000); do echo "- entry $i, long enough to need many lines of n
 fxm_release_fit "$big" 20000 "See CHANGELOG.md."
 expect "cuts notes to GitHub's size limit" \
   test "$(wc -c <"$big")" -le 20000 -a "$(tail -1 "$big")" = "See CHANGELOG.md."
+catalog_ok() {
+  fxm_release_lookup release-bundles fxm-web-0.1.0.zip 0.1.0 >/dev/null &&
+    fxm_release_lookup release-bundles fxm-connect-firefox-0.1.0.zip 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-bundles fxm-web-0x1x0.zip 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-other fxm-web-0.1.0.zip 0.1.0 >/dev/null &&
+    ! fxm_release_lookup "" SHA256SUMS 0.1.0 >/dev/null
+}
+expect "the catalog matches release files by artifact and exact version" catalog_ok
+expect "every file in the catalog carries the version" \
+  test -z "$(fxm_release_catalog | cut -d'|' -f2 | grep -v '<version>' || true)"
 
 echo "release-version.sh"
 work=$(new_repo version)
@@ -468,6 +478,79 @@ expect "versions that disagree stop the release" test "$status" -ne 0
 git -C "$work" checkout -q -- apps/web/package.json
 unset GITHUB_OUTPUT
 
+echo "release-collect.sh"
+work=$(new_repo collect)
+pristine=$tmp/collect/pristine
+mkdir -p "$pristine/release-bundles"
+for app in web site connect-chromium connect-firefox; do
+  echo "$app" >"$pristine/release-bundles/fxm-$app-0.1.0.zip"
+done
+# new_case: a fresh copy of the pristine artifacts in $case_dir/artifacts, to collect into
+# $case_dir/out.
+cases=0
+new_case() {
+  cases=$((cases + 1))
+  case_dir=$tmp/collect/case-$cases
+  mkdir -p "$case_dir"
+  cp -R "$pristine" "$case_dir/artifacts"
+}
+collect() { run "$work" scripts/release-collect.sh 0.1.0 "$case_dir/artifacts" "$case_dir/out"; }
+new_case
+collect
+expect "gathers the artifacts' files into one folder" \
+  test "$status" -eq 0 -a "$(find "$case_dir/out" -type f | wc -l | tr -d ' ')" = 4
+expect "unchanged" test "$(cat "$case_dir/out/fxm-site-0.1.0.zip")" = site
+# refuses_file <description> <file to add to release-bundles> <message>
+refuses_file() {
+  new_case
+  echo stowaway >"$case_dir/artifacts/release-bundles/$2"
+  collect
+  if [ "$status" -ne 0 ] && says "$3"; then ok "$1"; else bad "$1"; fi
+}
+refuses_file "refuses a file without the version" install.sh "does not carry the version 0.1.0"
+refuses_file "refuses a file of another version" fxm-web-0.0.9.zip "does not carry the version"
+refuses_file "refuses a file that the catalog doesn't list" fxm-extra-0.1.0.zip \
+  "is not a file that release-bundles may publish"
+refuses_file "looks at dot files too" .fxm-0.1.0.zip "is not a file that release-bundles may publish"
+new_case
+mkdir "$case_dir/artifacts/release-bundles/bundle"
+echo dmg >"$case_dir/artifacts/release-bundles/bundle/fxm-desktop-0.1.0.dmg"
+collect
+expect "refuses a folder inside an artifact" \
+  test "$status" -ne 0 -a -n "$(grep 'must contain flat files' <<<"$out")"
+new_case
+ln -s fxm-web-0.1.0.zip "$case_dir/artifacts/release-bundles/fxm-connect-0.1.0.zip"
+collect
+expect "refuses a link" test "$status" -ne 0 -a -n "$(grep 'is not a plain file' <<<"$out")"
+new_case
+mkdir "$case_dir/artifacts/release-extra"
+echo extra >"$case_dir/artifacts/release-extra/fxm-web-0.1.0.zip"
+collect
+expect "refuses an artifact that the catalog doesn't know" \
+  test "$status" -ne 0 -a -n "$(grep 'unknown artifact release-extra' <<<"$out")"
+# Even when the catalog lets two artifacts publish the same name, neither replaces the other.
+cat >>"$work/scripts/release-lib.sh" <<'EOF'
+fxm_release_catalog() {
+  printf '%s\n' 'release-bundles|fxm-*-<version>.zip|Bundles' 'release-extra|fxm-web-<version>.zip|Web'
+}
+EOF
+new_case
+mkdir "$case_dir/artifacts/release-extra"
+echo extra >"$case_dir/artifacts/release-extra/fxm-web-0.1.0.zip"
+collect
+expect "refuses a file name that two artifacts publish" \
+  test "$status" -ne 0 -a -n "$(grep 'fxm-web-0.1.0.zip comes from more than one artifact' <<<"$out")"
+new_case
+mkdir "$case_dir/artifacts/release-extra"
+collect
+expect "refuses an empty artifact" \
+  test "$status" -ne 0 -a -n "$(grep 'artifact release-extra has no files' <<<"$out")"
+new_case
+mkdir "$case_dir/out" && echo old >"$case_dir/out/fxm-web-0.0.9.zip"
+collect
+expect "refuses a folder that isn't empty" \
+  test "$status" -ne 0 -a -n "$(grep 'is not empty' <<<"$out")"
+
 echo "release-build.sh --checksums and release-publish.sh"
 work=$(new_repo publish)
 export GH_STUB_DIR=$tmp/publish/gh
@@ -480,9 +563,24 @@ expect "writes SHA256SUMS" test "$status" -eq 0 -a "$(wc -l <"$files/SHA256SUMS"
 if command -v sha256sum >/dev/null 2>&1; then verify=(sha256sum -c); else verify=(shasum -a 256 -c); fi
 sums_pass() { (cd "$1" && "${verify[@]}" SHA256SUMS >/dev/null 2>&1); }
 expect "in the format sha256sum --check reads" sums_pass "$files"
-cp -R "$files" "$tmp/publish/changed"
-echo changed >>"$tmp/publish/changed/fxm-web-0.1.0.zip"
-expect "so that a changed file fails the check" not sums_pass "$tmp/publish/changed"
+# copy_files <name>: a copy of the release files, SHA256SUMS included, in $copy.
+copy_files() {
+  copy=$tmp/publish/$1
+  cp -R "$files" "$copy"
+}
+copy_files changed
+echo changed >>"$copy/fxm-web-0.1.0.zip"
+expect "so that a changed file fails the check" not sums_pass "$copy"
+copy_files with-folder
+mkdir "$copy/bundle" && echo dmg >"$copy/bundle/FXM.dmg"
+run "$work" scripts/release-build.sh --checksums "$copy"
+expect "refuses a folder among the files" \
+  test "$status" -ne 0 -a -n "$(grep 'is not a plain file' <<<"$out")"
+expect "and leaves SHA256SUMS as it was" cmp -s "$files/SHA256SUMS" "$copy/SHA256SUMS"
+copy_files with-link
+ln -s fxm-web-0.1.0.zip "$copy/fxm-site-0.1.0.zip"
+run "$work" scripts/release-build.sh --checksums "$copy"
+expect "and a link" test "$status" -ne 0 -a -n "$(grep 'is not a plain file' <<<"$out")"
 printf '### Features\n\n- **core:** Add a thing\n' >"$tmp/publish/notes.md"
 sha=$(git -C "$work" rev-parse HEAD)
 # publish <x.y.z> <commit> [dir]
@@ -494,7 +592,8 @@ expect "publishes the release" test -s "$GH_STUB_DIR/released/v0.1.0"
 expect "with every file, SHA256SUMS included" test "$(sort "$GH_STUB_DIR/release-files.txt" |
   tr '\n' ' ')" = "SHA256SUMS fxm-connect-chromium-0.1.0.zip fxm-web-0.1.0.zip "
 expect "with the notes" has "$GH_STUB_DIR/release-notes.md" "- **core:** Add a thing"
-expect "and a table of the files" has "$GH_STUB_DIR/release-notes.md" "| \`fxm-web-0.1.0.zip\` |"
+expect "and a table of the files from the catalog" has "$GH_STUB_DIR/release-notes.md" \
+  "| \`fxm-web-0.1.0.zip\` | The web app for self-hosting"
 expect "that ends with SHA256SUMS" \
   test "$(grep '^| `' "$GH_STUB_DIR/release-notes.md" | tail -1 | cut -d'`' -f2)" = SHA256SUMS
 expect "and how to verify them" has "$GH_STUB_DIR/release-notes.md" "gh attestation verify"
@@ -534,6 +633,12 @@ publish 0.5.0 "$sha"
 expect "stops before publishing when GitHub can't list the drafts" \
   test "$status" -ne 0 -a ! -s "$GH_STUB_DIR/released/v0.5.0"
 : >"$GH_STUB_DIR/broken"
+copy_files tampered
+echo changed >>"$copy/fxm-web-0.1.0.zip"
+publish 0.6.0 "$sha" "$copy"
+stopped "refuses files that SHA256SUMS doesn't match" 0.6.0
+publish 0.6.0 "$sha" "$tmp/publish/with-folder"
+stopped "refuses a folder among the files" 0.6.0
 mkdir "$tmp/publish/no-sums"
 cp "$files"/*.zip "$tmp/publish/no-sums/"
 publish 0.6.0 "$sha" "$tmp/publish/no-sums"

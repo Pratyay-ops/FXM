@@ -102,6 +102,64 @@ fxm_release_published() {
   [ -n "$id" ]
 }
 
+# The files a release may publish, one per line: the artifact that carries it (the name of the
+# artifact job's upload in .github/workflows/release.yml), its file name with <version> for the
+# version (a glob, so a later job can match several files), and what it is, for the release's
+# file table. scripts/release-collect.sh refuses every other file, so no artifact job can add
+# or replace another job's files. A stage that adds an artifact job (the APK in 6.6, desktop
+# installers in 7.5, the signed XPI in R.2) adds its files here.
+fxm_release_catalog() {
+  cat <<'EOF'
+release-bundles|fxm-connect-chromium-<version>.zip|FXM Connect for Chrome, Edge, Brave and other Chromium browsers
+release-bundles|fxm-connect-firefox-<version>.zip|FXM Connect for Firefox
+release-bundles|fxm-web-<version>.zip|The web app for self-hosting: its files are in `app/`, served from `/app/`
+release-bundles|fxm-site-<version>.zip|The landing page for self-hosting, served from `/`
+EOF
+}
+
+# fxm_release_lookup <artifact or ""> <file name> <version>: prints the catalog's description of
+# the file and succeeds when the catalog lists it (for that artifact, unless it is "").
+fxm_release_lookup() {
+  local artifact pattern description
+  while IFS='|' read -r artifact pattern description; do
+    if [ -n "$1" ] && [ "$artifact" != "$1" ]; then continue; fi
+    # Unquoted on purpose: the pattern is a glob.
+    case "$2" in
+      ${pattern//<version>/$3})
+        printf '%s\n' "$description"
+        return 0
+        ;;
+    esac
+  done < <(fxm_release_catalog)
+  return 1
+}
+
+# fxm_release_check_flat <dir>: fails unless everything in dir is a plain file. Release files
+# sit at the top of the folder: a folder or a link there would be neither checksummed nor
+# published. Names that start with a dot are ignored.
+fxm_release_check_flat() {
+  local path
+  for path in "$1"/*; do
+    if [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
+      fxm_die "$path is not a plain file: release files sit at the top of their folder," \
+        "without folders or links (release-* artifacts must contain flat files)"
+    fi
+  done
+}
+
+# fxm_release_sums <dir>: prints SHA256SUMS for the files in dir (SHA256SUMS itself left out),
+# sorted by name, in the format `sha256sum --check` reads.
+fxm_release_sums() {
+  local dir=$1 file
+  [ -d "$dir" ] || fxm_die "no such folder: $dir"
+  fxm_release_check_flat "$dir"
+  for file in "$dir"/*; do
+    if [ -f "$file" ] && [ "$file" != "$dir/SHA256SUMS" ]; then
+      printf '%s  %s\n' "$(fxm_sha256 "$file")" "${file##*/}"
+    fi
+  done | LC_ALL=C sort -k2
+}
+
 # fxm_release_fit <file> <max bytes> <note>: cuts the file at a line boundary so that it, plus
 # the note on a line of its own, stays under the limit (GitHub caps pull request bodies at
 # 65536 characters and release notes at 125000). Leaves a short enough file alone.

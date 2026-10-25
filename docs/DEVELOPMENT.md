@@ -103,6 +103,7 @@ The scripts behind them work on their own too:
 
 - `scripts/release-version.sh x.y.z` sets the version: the root and every workspace `package.json` (FXM Connect's manifest and the Android `versionName` come from theirs) and `APP_VERSION` in `packages/core/src/index.ts`. `--dry-run` shows the changes, `--check` fails unless every package agrees.
 - `scripts/release-notes.sh [x.y.z]` prints release notes, and `--changelog x.y.z` regenerates `CHANGELOG.md`. git-cliff reads `cliff.toml` and runs offline.
+- `release.yml` runs the rest: `release-plan.sh` decides whether to release, `release-collect.sh` gathers the artifact jobs' files and refuses any that `fxm_release_catalog` in `scripts/release-lib.sh` doesn't list for that job, and `release-publish.sh` tags and publishes.
 
 git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`, installed on first use. `.github/workflows/release.yml` runs on every push to `main` and publishes a release when the version has none yet. Like `ci.yml`, it pins its actions to commit SHAs, and it builds without caches.
 

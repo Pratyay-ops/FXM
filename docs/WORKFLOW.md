@@ -153,7 +153,7 @@ flowchart LR
 
    While the pull request is open, merge nothing else into `develop`: whatever `develop` holds when the pull request is merged is what gets released.
 3. **Merge** once `make check` is green, with a merge commit (the only method `main` allows): `gh pr checks <url> --watch`, then `gh pr merge <url> --merge`.
-4. **Publish.** The push to `main` runs `release.yml`. When the version has no published release yet, it builds the release files from the merge commit, writes `SHA256SUMS`, creates build-provenance attestations, tags the commit `v0.2.0` and publishes the GitHub Release with the version's notes and the files. On any other push to `main` it stops after its first job.
+4. **Publish.** The push to `main` runs `release.yml`. When the version has no published release yet, it builds the release files from the merge commit and gathers them; each build job may publish only the files listed for it in `fxm_release_catalog` (`scripts/release-lib.sh`). Then it writes `SHA256SUMS`, creates build-provenance attestations, tags the commit `v0.2.0` and publishes the GitHub Release with the version's notes and the files. On any other push to `main` it stops after its first job.
 5. **Merge `main` back into `develop`**, so that the next release starts from the tagged commit. `make release-pr` refuses to run until this is done:
    ```sh
    git switch develop && git pull --ff-only
@@ -161,7 +161,7 @@ flowchart LR
    git push origin develop
    ```
 
-**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6), the desktop installers (7.5) and the signed Firefox add-on (R.2).
+**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6), the desktop installers (7.5) and the signed Firefox add-on (R.2). The header of `release.yml` says how to add a job.
 
 | File | Contents |
 |---|---|
@@ -174,7 +174,7 @@ Anyone can check a download: `sha256sum --check --ignore-missing SHA256SUMS` com
 
 **Notes and changelog.** git-cliff (`cliff.toml`) turns the Conventional Commits since the previous release into the notes, grouped as Features, Bug fixes, Performance, Refactoring, Documentation, Tests, CI, Build and Chores, plus Other for any other type. It leaves out merge commits, `docs(plan)` status updates, `chore(release)` commits and anything that isn't a Conventional Commit. Commit subjects become the release notes, so write them for the people who will read them. `CHANGELOG.md` lists every released version, newest first, and changes only in release commits.
 
-**When something fails.** Re-run the failed run from the Actions tab (failed jobs or all jobs). Repeating it is safe, and a re-run builds the commit it started with. A version that is already published ends at the first job, and a draft release left by a failed upload is replaced. A tag without a release, left by a run that failed after tagging, is finished by re-running that run. Every other run refuses the tag, because it points at another commit than the one the run builds. Tags are not protected, so this keeps a tag pushed by hand from getting an unreviewed commit built and published. To release from the newer commit instead, delete the tag (`git push origin :refs/tags/v0.2.0`) and run the workflow again. The workflow also stops when a GitHub API request fails, when the packages' versions disagree, or when the version is not higher than every earlier release. If `make release-pr` fails after its commit, it prints the commands that finish the job.
+**When something fails.** Re-run the failed run from the Actions tab (failed jobs or all jobs). Repeating it is safe, and a re-run builds the commit it started with. A version that is already published ends at the first job, and a draft release left by a failed upload is replaced. A tag without a release, left by a run that failed after tagging, is finished by re-running that run. Every other run refuses the tag, because it points at another commit than the one the run builds. Tags are not protected, so this keeps a tag pushed by hand from getting an unreviewed commit built and published. To release from the newer commit instead, delete the tag (`git push origin :refs/tags/v0.2.0`) and run the workflow again. The workflow also stops when a GitHub API request fails, when the packages' versions disagree, when the version is not higher than every earlier release, or when a build job delivers a file that isn't listed for it. If `make release-pr` fails after its commit, it prints the commands that finish the job.
 
 **Hotfix releases.** A `hotfix/<slug>` branch from `main` releases a patch version by hand, the same way:
 
