@@ -7,6 +7,7 @@ import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
+import { QualitySection } from './quality-section'
 import { SettingRow, SettingsSection } from './settings-layout'
 import { useSettingsStore } from './settings-store'
 
@@ -41,6 +42,8 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      <QualitySection />
 
       <SettingsSection title="Appearance">
         <SettingRow
