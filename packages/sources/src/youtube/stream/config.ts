@@ -18,11 +18,17 @@ import bundledConfig from '../youtube-config.json'
 import { UNAVAILABLE_STATES, type UnavailableState } from './playability'
 
 /**
- * How a rung gets its stream URLs. Stage 1.4 implements `direct`: one `/player` call whose
- * response carries playable URLs, with no deciphering, PO token or SABR. Rungs of other kinds,
- * which stage 1.11 adds, are left out by builds that do not know them.
+ * How a rung gets its stream URLs:
+ *
+ * - `direct` (stage 1.4): one `/player` call whose response carries playable URLs, with no
+ *   deciphering, PO token or SABR;
+ * - `deciphered`, `attested` and `sabr` (stage 1.11, experimental, see `advanced/README.md`):
+ *   URLs deciphered with the player script, the same plus a web PO token, and YouTube's SABR
+ *   protocol. The resolver tries them only through its `advanced` hook.
+ *
+ * Rungs of kinds a build does not know are left out.
  */
-export const STREAM_RUNG_KINDS = ['direct'] as const
+export const STREAM_RUNG_KINDS = ['direct', 'deciphered', 'attested', 'sabr'] as const
 
 /** One of the {@link STREAM_RUNG_KINDS}. */
 export type StreamRungKind = (typeof STREAM_RUNG_KINDS)[number]

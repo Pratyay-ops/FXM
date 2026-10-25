@@ -29,16 +29,21 @@ function parseError(input: unknown): string {
 }
 
 describe('the stream config', () => {
-  it('ships the ladder: VISIONOS, then itag 18, with ANDROID_VR and IOS listed but off', () => {
+  it('ships the ladder: VISIONOS, then itag 18, with the experimental, ANDROID_VR and IOS rungs off', () => {
     const config = BUNDLED_STREAM_CONFIG
     expect(config.revision).toBe(BUNDLED_YOUTUBE_CONFIG.revision)
-    expect(config.rungs.map((rung) => [rung.id, rung.enabled])).toEqual([
-      ['visionos', true],
-      ['ios', false],
-      ['android-vr', false],
-      ['android-muxed', true],
+    expect(config.rungs.map((rung) => [rung.id, rung.kind, rung.enabled])).toEqual([
+      ['visionos', 'direct', true],
+      ['tv-samsung', 'deciphered', false],
+      ['mweb', 'attested', false],
+      ['web-remix', 'attested', false],
+      ['web-sabr', 'sabr', false],
+      ['ios', 'direct', false],
+      ['android-vr', 'direct', false],
+      ['android-muxed', 'direct', true],
     ])
-    const [visionos, ios, vr, muxed] = config.rungs
+    const rung = (id: string) => config.rungs.find((entry) => entry.id === id)
+    const [visionos, ios, vr, muxed] = ['visionos', 'ios', 'android-vr', 'android-muxed'].map(rung)
     expect(visionos?.client).toEqual({
       name: 'VISIONOS',
       version: '1.02',
@@ -119,20 +124,17 @@ describe('the stream config', () => {
   it('leaves out rungs of kinds this build does not know, and needs one it does', () => {
     const newer = variant((streams) => {
       ;(streams.rungs as Json[]).splice(1, 0, {
-        id: 'tv-deciphered',
-        kind: 'deciphered',
+        id: 'tv-future',
+        kind: 'future-kind',
         enabled: true,
         future: { anything: 1 },
       })
     })
-    expect(parseStreamConfig(newer).rungs.map((rung) => rung.id)).toEqual([
-      'visionos',
-      'ios',
-      'android-vr',
-      'android-muxed',
-    ])
+    expect(parseStreamConfig(newer).rungs.map((rung) => rung.id)).toEqual(
+      BUNDLED_STREAM_CONFIG.rungs.map((rung) => rung.id),
+    )
     const none = variant((streams) => {
-      for (const rung of streams.rungs as Json[]) rung.kind = 'sabr'
+      for (const rung of streams.rungs as Json[]) rung.kind = 'future-kind'
     })
     expect(parseError(none)).toContain('no rung this build can use')
   })

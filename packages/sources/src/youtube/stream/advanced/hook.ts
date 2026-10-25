@@ -1,0 +1,48 @@
+/**
+ * The hook through which the resolver of `../resolver.ts` tries the experimental rungs: rungs
+ * of the kinds `deciphered`, `attested` and `sabr`. The resolver keeps everything the rungs have
+ * in common (the ladder, health, bot checks, playability, the end-of-file probe); the hook adds
+ * what differs: a rung's extra `/player` fields, and how its stream options come out of a
+ * playable answer. `createAdvancedRungs()` (`rungs.ts`) implements it.
+ *
+ * @module
+ */
+
+import type { ProviderContext } from '@fxm/core'
+import type { JsonRecord } from '../../json'
+import type { StreamConfig, StreamRungConfig } from '../config'
+import type { YouTubeStreamOption } from '../formats'
+
+/** What a rung adds to its `/player` call. */
+export interface AdvancedPlayerCall {
+  /** More top-level payload fields, such as the `playbackContext` with a `signatureTimestamp`. */
+  readonly payload?: JsonRecord
+  /** More request headers, such as the client's `User-Agent` where the transport sends it. */
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+/** The resolver's hook for rungs whose kind is not `direct`. */
+export interface AdvancedRungs {
+  /**
+   * The IDs of the rungs among `rungs` that can be tried in `ctx` (its tier, platform and the
+   * evaluator it has). The resolver leaves the others out of the ladder, as if they were off.
+   */
+  supported(rungs: readonly StreamRungConfig[], ctx: ProviderContext): Promise<ReadonlySet<string>>
+  /** Prepares the `/player` call of `rung` for `videoId`. */
+  prepare(
+    ctx: ProviderContext,
+    rung: StreamRungConfig,
+    videoId: string,
+  ): Promise<AdvancedPlayerCall>
+  /**
+   * The stream options in a playable `/player` answer of `rung`, unprobed: deciphered direct URLs
+   * (`progressive`), which the resolver then probes like any other, or one SABR option.
+   */
+  streamOptions(
+    ctx: ProviderContext,
+    rung: StreamRungConfig,
+    response: JsonRecord,
+    videoId: string,
+    config: StreamConfig,
+  ): Promise<YouTubeStreamOption[]>
+}

@@ -25,6 +25,8 @@ It is also exported from `@fxm/sources/youtube/stream`. Everything runs on the u
 | `android-vr` | ANDROID_VR 1.65.10, with its device fields | Opus and AAC | Off: its URLs are capped (403 from about 1 MiB, measured 2026-10-25) |
 | `android-muxed` | ANDROID 21.26.364 | itag 18, a 360p H.264 video with an AAC track: "AAC from 360p video" (`media: 'muxed-video'`) | On, and opts in to videos made for kids |
 
+Stage 1.11 adds experimental rungs between VISIONOS and IOS: `tv-samsung` (deciphered), `mweb` and `web-remix` (deciphered, with a web PO token) and `web-sabr` (SABR). All ship off, and the ladder tries them only through the `advanced` option of `createYouTubeAudioSource`; see [advanced/README.md](advanced/README.md).
+
 The first rung that yields a playable URL wins. Rung order, on/off flags, clients, formats and opt-ins all come from the `streams` section of `../youtube-config.json` (below), so a config can change them without new code. ANDROID's adaptive formats are SABR-only; its muxed itag 18 is a direct URL served to the last byte. Never the YouTube embed or IFrame player.
 
 A rung that failed for a reason of its own goes to the back of the ladder for a while (see [Health and memory](#health-and-memory)).

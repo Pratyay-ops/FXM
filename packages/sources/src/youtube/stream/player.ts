@@ -38,6 +38,14 @@ export interface PlayerCallOptions {
   readonly priority: StreamRequestPriority
   /** How long one request may take, in milliseconds. */
   readonly timeoutMs: number
+  /**
+   * More top-level fields for the payload, such as the `playbackContext` with the
+   * `signatureTimestamp` that deciphered rungs send (stage 1.11). They never replace `context`
+   * or `videoId`.
+   */
+  readonly payload?: JsonRecord
+  /** More request headers, such as a client's `User-Agent` where the transport sends it. */
+  readonly headers?: Readonly<Record<string, string>>
 }
 
 /** The outcome of one `/player` call. */
@@ -47,8 +55,13 @@ export type PlayerAnswer =
   /** YouTube answered with a bot check page or status instead of JSON. */
   | { readonly botCheck: string; readonly sentVisitorData: boolean }
 
-/** The body of a `/player` call for `videoId` as `client`. */
-export function playerPayload(client: StreamClientConfig, videoId: string): JsonRecord {
+/** The body of a `/player` call for `videoId` as `client`, with any `extra` top-level fields. */
+export function playerPayload(
+  client: StreamClientConfig,
+  videoId: string,
+  extra: JsonRecord = {},
+): JsonRecord {
+  const { context: _context, videoId: _videoId, ...more } = extra
   return {
     context: {
       client: { clientName: client.name, clientVersion: client.version, ...client.fields },
@@ -57,6 +70,7 @@ export function playerPayload(client: StreamClientConfig, videoId: string): Json
     // The answers the official clients send once the user has accepted a content warning.
     contentCheckOk: true,
     racyCheckOk: true,
+    ...more,
   }
 }
 
@@ -68,6 +82,7 @@ async function send(
   ctx: ProviderContext,
   request: SimpleInnerTubeRequest,
   options: PlayerCallOptions,
+  headers: Readonly<Record<string, string>> = {},
 ): Promise<JsonRecord> {
   const what = describeRequest(request)
   let response: Response
@@ -75,6 +90,7 @@ async function send(
   try {
     response = await fetchWithTimeout(ctx.fetch, request.url, {
       ...request.init,
+      headers: { ...headers, ...request.init.headers },
       timeoutMs: options.timeoutMs,
       ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
     })
@@ -170,7 +186,7 @@ export async function callPlayer(
     await options.budget.acquire(options.priority, ctx.signal ? { signal: ctx.signal } : {})
     const request = toSimpleInnerTubeRequest(
       `https://${client.host}/youtubei/v1/player`,
-      JSON.stringify(playerPayload(client, videoId)),
+      JSON.stringify(playerPayload(client, videoId, options.payload)),
       {
         // A stream client is not one of the config's metadata clients, so the request keeps
         // the client fields of the payload and goes to the stream client's host.
@@ -180,7 +196,7 @@ export async function callPlayer(
         ...(lease.visitorData === undefined ? {} : { visitorData: lease.visitorData }),
       },
     )
-    const json = await send(ctx, request, options)
+    const json = await send(ctx, request, options, options.headers)
     issued = at(json, 'responseContext', 'visitorData')
     return { json, sentVisitorData }
   } catch (error) {

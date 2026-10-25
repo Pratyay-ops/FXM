@@ -27,6 +27,7 @@ import {
   type YouTubeSession,
   type YouTubeSessionOptions,
 } from '../session'
+import type { AdvancedPlayerCall, AdvancedRungs } from './advanced/hook'
 import { type StreamBudget, type StreamRequestPriority, UNMETERED_STREAM_BUDGET } from './budget'
 import { BUNDLED_STREAM_CONFIG, type StreamConfig, type StreamRungConfig } from './config'
 import { isYouTubeStreamOption, streamOptionsOf, type YouTubeStreamOption } from './formats'
@@ -65,6 +66,11 @@ export interface YouTubeAudioSourceOptions extends YouTubeSessionOptions {
   probeTimeoutMs?: number
   /** The clock, for tests. */
   now?: () => number
+  /**
+   * The experimental rungs (stage 1.11, `createAdvancedRungs()` of `./advanced`). Without it,
+   * rungs whose kind is not `direct` are never tried.
+   */
+  advanced?: AdvancedRungs
 }
 
 /** Options for one {@link YouTubeAudioSource.resolve} call. */
@@ -185,6 +191,7 @@ export function createYouTubeAudioSource(
 ): YouTubeAudioSource {
   const session = options.session ?? createYouTubeSession(options)
   const budget = options.budget ?? UNMETERED_STREAM_BUDGET
+  const { advanced } = options
   const now = options.now ?? Date.now
   const playerTimeoutMs = options.playerTimeoutMs ?? 20_000
   const probeTimeoutMs = options.probeTimeoutMs ?? 10_000
@@ -207,14 +214,20 @@ export function createYouTubeAudioSource(
     return new Set(failures?.keys())
   }
 
-  /** The rungs to try, in order: the healthy ones first, the cooling ones after. */
+  /**
+   * The rungs to try, in order: the healthy ones first, the cooling ones after. A rung whose kind
+   * is not `direct` is tried only when the advanced hook supports it here (`supported`).
+   */
   function ladderFor(
     config: StreamConfig,
     scope: string,
     videoId: string,
     skip: ReadonlySet<string>,
+    supported: ReadonlySet<string>,
   ): StreamRungConfig[] {
-    const enabled = config.rungs.filter((rung) => rung.enabled)
+    const enabled = config.rungs.filter(
+      (rung) => rung.enabled && (rung.kind === 'direct' || supported.has(rung.id)),
+    )
     if (enabled.length === 0) {
       throw new FxmError('Unsupported', 'Every YouTube stream rung is switched off in the config')
     }
@@ -260,6 +273,8 @@ export function createYouTubeAudioSource(
     if (!ctx.capabilities.mediaBytes) return [...found]
     return Promise.all(
       found.map(async (option) => {
+        // Only a file can be probed at its end; a SABR session has no file.
+        if (option.protocol !== 'progressive') return option
         const result = await probeEndOfFile(ctx, option.url, {
           timeoutMs: probeTimeoutMs,
           ...(option.contentLength === undefined ? {} : { contentLength: option.contentLength }),
@@ -306,6 +321,26 @@ export function createYouTubeAudioSource(
       )
     }
 
+    // An experimental rung's own steps (the player script, BotGuard, the evaluator) failing
+    // counts against the rung, like an unreadable answer; the ladder goes on.
+    const advancedFailure = (error: unknown) => {
+      if (ctx.signal?.aborted || isFxmError(error, 'RateLimited')) throw error
+      return fail(
+        'error',
+        isFxmError(error)
+          ? error
+          : new FxmError('Parse', `The ${rung.id} rung failed`, { cause: error }),
+      )
+    }
+    let call: AdvancedPlayerCall = {}
+    if (rung.kind !== 'direct') {
+      try {
+        call = (await advanced?.prepare(ctx, rung, videoId)) ?? {}
+      } catch (error) {
+        return advancedFailure(error)
+      }
+    }
+
     let answer: Awaited<ReturnType<typeof callPlayer>>
     try {
       answer = await callPlayer(ctx, rung.client, videoId, {
@@ -313,6 +348,8 @@ export function createYouTubeAudioSource(
         budget,
         priority,
         timeoutMs: playerTimeoutMs,
+        ...(call.payload === undefined ? {} : { payload: call.payload }),
+        ...(call.headers === undefined ? {} : { headers: call.headers }),
       })
     } catch (error) {
       if (isFxmError(error, 'Parse')) return fail('error', error)
@@ -354,7 +391,16 @@ export function createYouTubeAudioSource(
         break
     }
 
-    const found = streamOptionsOf(answer.json, videoId, rung, config, now())
+    let found: YouTubeStreamOption[]
+    if (rung.kind === 'direct') {
+      found = streamOptionsOf(answer.json, videoId, rung, config, now())
+    } else {
+      try {
+        found = (await advanced?.streamOptions(ctx, rung, answer.json, videoId, config)) ?? []
+      } catch (error) {
+        return advancedFailure(error)
+      }
+    }
     if (found.length === 0) {
       return fail(
         'no-formats',
@@ -441,7 +487,13 @@ export function createYouTubeAudioSource(
       ctx.signal?.throwIfAborted()
       await book.ready()
       const config = configOf()
-      const ladder = ladderFor(config, scopeOf(ctx), videoId, new Set(resolveOptions.skipRungs))
+      const experimental = config.rungs.filter((rung) => rung.enabled && rung.kind !== 'direct')
+      const supported =
+        advanced === undefined || experimental.length === 0
+          ? new Set<string>()
+          : await advanced.supported(experimental, ctx)
+      const skip = new Set(resolveOptions.skipRungs)
+      const ladder = ladderFor(config, scopeOf(ctx), videoId, skip, supported)
       const priority = resolveOptions.priority ?? 'current-track'
       const attempt: Attempt = {
         refreshed: false,

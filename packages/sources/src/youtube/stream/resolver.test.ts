@@ -568,6 +568,10 @@ describe('the Lite fallback and rung memory', () => {
     const health = await audio.health(ctx)
     expect(health.rungs.map((rung) => [rung.rung, rung.lastFailure])).toEqual([
       ['visionos', 'playback'],
+      ['tv-samsung', undefined],
+      ['mweb', undefined],
+      ['web-remix', undefined],
+      ['web-sabr', undefined],
       ['ios', undefined],
       ['android-vr', undefined],
       ['android-muxed', 'playback'],
