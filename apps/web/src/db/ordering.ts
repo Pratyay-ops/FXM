@@ -1,6 +1,7 @@
 /**
- * Pure functions over saved orders: moving items (one or a selection), shuffling the saved
- * order and reconciling a stored order with what a list actually holds.
+ * Pure functions over saved orders: moving items (one or a selection) and reconciling a stored
+ * order with what a list actually holds. Shuffle order uses `fisherYatesShuffle` from
+ * `@fxm/core`, with an injectable random source.
  *
  * Orders are arrays of keys (track or playlist IDs). A playlist stores its whole order as one
  * array in its own record, so any change, from moving one song to shuffling 5,000, is a single
@@ -18,9 +19,6 @@
  *   (a drop target in a drag and drop)
  */
 export type MoveTarget = 'top' | 'bottom' | 'up' | 'down' | { before: string | null }
-
-/** A source of random numbers in `[0, 1)`, like `Math.random`. Inject a seeded one in tests. */
-export type RandomSource = () => number
 
 /**
  * `order` with the items in `keys` moved to `target`. Moving items keep their relative order,
@@ -73,47 +71,6 @@ export function moveKeys<K extends string>(
   if (anchor < 0) return [...rest, ...selected]
   const at = rest.indexOf(result[anchor] as K)
   return [...rest.slice(0, at), ...selected, ...rest.slice(at)]
-}
-
-/**
- * A uniform random index in `[0, size)`. Values outside `[0, 1)` from a faulty source are
- * clamped instead of producing an index out of range.
- */
-function randomIndex(random: RandomSource, size: number): number {
-  const value = random()
-  const index = Math.floor((Number.isFinite(value) ? value : 0) * size)
-  return Math.min(Math.max(index, 0), size - 1)
-}
-
-/**
- * A shuffled copy of `items` (Fisher-Yates): with a uniform `random`, every order is equally
- * likely. `items` is never changed. This shuffles a saved order for good ("Shuffle order"); it
- * has nothing to do with shuffle playback.
- */
-export function shuffleKeys<T>(items: readonly T[], random: RandomSource = Math.random): T[] {
-  const result = [...items]
-  for (let index = result.length - 1; index > 0; index--) {
-    const other = randomIndex(random, index + 1)
-    const item = result[index] as T
-    result[index] = result[other] as T
-    result[other] = item
-  }
-  return result
-}
-
-/**
- * A fast seeded random source (Mulberry32): the same seed always gives the same sequence. For
- * reproducible shuffles in tests, never for anything that needs to be unpredictable.
- */
-export function createSeededRandom(seed: number): RandomSource {
-  let state = seed >>> 0
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let t = state
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
 }
 
 /**

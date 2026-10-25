@@ -17,9 +17,11 @@ import {
   type CatalogMode,
   type EntityId,
   entityKey,
+  fisherYatesShuffle,
   formatId,
   type Playlist,
   parseId,
+  type RandomSource,
   type Track,
 } from '@fxm/core'
 import { Dexie } from 'dexie'
@@ -32,14 +34,7 @@ import {
   pinnedRecord,
   recordFromDecision,
 } from './match-cache'
-import {
-  type MoveTarget,
-  moveKeys,
-  type RandomSource,
-  reconcileOrder,
-  sameOrder,
-  shuffleKeys,
-} from './ordering'
+import { type MoveTarget, moveKeys, reconcileOrder, sameOrder } from './ordering'
 import {
   DB_NAME,
   DOWNLOADS_PLAYLIST_ID,
@@ -730,9 +725,9 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
         const list = await openList(listId)
         if (list.order.length < 2) return false
         // A shuffle that lands on the same order would look like nothing happened.
-        let next = shuffleKeys(list.order, random)
+        let next = fisherYatesShuffle(list.order, random)
         for (let attempt = 0; attempt < 5 && sameOrder(next, list.order); attempt++) {
-          next = shuffleKeys(list.order, random)
+          next = fisherYatesShuffle(list.order, random)
         }
         if (sameOrder(next, list.order)) return false
         await list.save(next, { action: 'shuffle', order: list.order })

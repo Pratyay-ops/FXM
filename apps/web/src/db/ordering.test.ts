@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createSeededRandom, moveKeys, reconcileOrder, sameOrder, shuffleKeys } from './ordering'
+import { moveKeys, reconcileOrder, sameOrder } from './ordering'
 
 const order = ['a', 'b', 'c', 'd', 'e', 'f']
 
@@ -67,56 +67,6 @@ describe('moveKeys', () => {
     expect(moved).toHaveLength(5000)
     expect(new Set(moved).size).toBe(5000)
     expect(moved.slice(0, 5)).toEqual(['k0', 'k1', 'k3', 'k2', 'k4'])
-  })
-})
-
-describe('shuffleKeys', () => {
-  it('is a permutation and leaves the input alone', () => {
-    const input = Array.from({ length: 100 }, (_, index) => index)
-    const shuffled = shuffleKeys(input, createSeededRandom(7))
-    expect([...shuffled].sort((a, b) => a - b)).toEqual(input)
-    expect(shuffled).not.toEqual(input)
-    expect(input[0]).toBe(0)
-  })
-
-  it('is reproducible with a seeded random source', () => {
-    expect(shuffleKeys(order, createSeededRandom(42))).toEqual(
-      shuffleKeys(order, createSeededRandom(42)),
-    )
-  })
-
-  it('swaps as Fisher-Yates does: index i with a random index up to i', () => {
-    // random() = 0 always picks index 0: [a,b,c] -> swap(2,0) -> [c,b,a] -> swap(1,0) -> [b,c,a]
-    expect(shuffleKeys(['a', 'b', 'c'], () => 0)).toEqual(['b', 'c', 'a'])
-    // random() just below 1 always picks i itself: nothing moves.
-    expect(shuffleKeys(['a', 'b', 'c'], () => 0.999)).toEqual(['a', 'b', 'c'])
-  })
-
-  it('treats a faulty random source as 0 instead of indexing out of range', () => {
-    expect(shuffleKeys(['a', 'b'], () => Number.NaN)).toEqual(['b', 'a'])
-    expect(shuffleKeys(['a', 'b'], () => 7)).toEqual(['a', 'b'])
-  })
-
-  it('gives every order of three items about equally often', () => {
-    const random = createSeededRandom(1)
-    const counts = new Map<string, number>()
-    for (let run = 0; run < 6000; run++) {
-      const key = shuffleKeys(['a', 'b', 'c'], random).join('')
-      counts.set(key, (counts.get(key) ?? 0) + 1)
-    }
-    expect(counts.size).toBe(6)
-    for (const count of counts.values()) expect(count).toBeGreaterThan(850)
-  })
-})
-
-describe('createSeededRandom', () => {
-  it('returns numbers in [0, 1)', () => {
-    const random = createSeededRandom(123)
-    for (let index = 0; index < 1000; index++) {
-      const value = random()
-      expect(value).toBeGreaterThanOrEqual(0)
-      expect(value).toBeLessThan(1)
-    }
   })
 })
 

@@ -8,7 +8,7 @@ FXM keeps the library on the device, in IndexedDB, through [Dexie](https://dexie
 | `database.ts` | The versioned schema, the migrations and `openDatabase()` |
 | `repo.ts` | The repository: **the only code that reads or writes the tables** |
 | `hooks.ts` | React hooks that run the repository's reads as live queries |
-| `ordering.ts` | Pure functions over saved orders: moves, Shuffle order, reconciling |
+| `ordering.ts` | Pure functions over saved orders: moves and reconciling. Shuffle order uses `fisherYatesShuffle` from `@fxm/core` with an injectable random source |
 | `match-cache.ts` | Pure rules of the match cache: keys, confirmation, expiry, pins |
 | `validate.ts` | Guards that clean records from outside the app (backups, later imports) |
 | `backup.ts` | JSON backup export and import |

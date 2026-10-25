@@ -1,7 +1,6 @@
-import { type AudioCandidate, type EntityId, formatId } from '@fxm/core'
+import { type AudioCandidate, createSeededRandom, type EntityId, formatId } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import { testRepo, track, tracks } from '../test/library-fixtures'
-import { createSeededRandom } from './ordering'
 import { LibraryError, randomUuid } from './repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID, MATCH_TTL_MS, PLAYLISTS_ORDER_ID } from './types'
 

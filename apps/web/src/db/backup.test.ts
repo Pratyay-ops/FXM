@@ -1,4 +1,4 @@
-import { formatId } from '@fxm/core'
+import { createSeededRandom, formatId } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
 import { testRepo, track, tracks } from '../test/library-fixtures'
 import {
@@ -12,7 +12,6 @@ import {
   type LibraryBackup,
   parseBackup,
 } from './backup'
-import { createSeededRandom } from './ordering'
 import type { LibraryRepo } from './repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from './types'
 

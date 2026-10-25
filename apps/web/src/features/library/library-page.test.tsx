@@ -1,7 +1,6 @@
-import type { EntityId } from '@fxm/core'
+import { createSeededRandom, type EntityId, fisherYatesShuffle } from '@fxm/core'
 import { screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { createSeededRandom, shuffleKeys } from '../../db/ordering'
 import { getLibrary, resetLibrary } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from '../../db/types'
 import { track, tracks } from '../../test/library-fixtures'
@@ -192,7 +191,7 @@ describe('Library page', { timeout: 30_000 }, () => {
     await resetLibrary({ random: createSeededRandom(5) })
     const id = await playlistWith('Mix', 8)
     const original = tracks(8).map((item) => item.id)
-    const expected = shuffleKeys(original, createSeededRandom(5))
+    const expected = fisherYatesShuffle(original, createSeededRandom(5))
     const { user } = renderApp(playlistPath(id))
     const list = await songs('Mix')
 
