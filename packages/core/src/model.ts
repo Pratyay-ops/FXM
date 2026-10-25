@@ -76,11 +76,12 @@ export interface Track {
   kind: TrackKind
   /**
    * For an official music video (`kind` `music-video`): the song it is the video of, when the
-   * source links the two, e.g. `ytm:track:<videoId of the song>`. Never the video's own ID.
-   * YouTube Music's album pages link official videos to their songs, so the YouTube provider sets
-   * it from them; anonymous search and `next` results carry no such link, so it is often absent.
-   * Music mode plays a linked video as this song (see `songForVideo` and `modePolicy`). Tracks
-   * of other kinds leave it out.
+   * source links the two, e.g. `ytm:track:<videoId of the song>`. Never the video's own ID, nor
+   * its videoId under the other YouTube prefix: `songForVideo` ignores such a link, so leave it
+   * out when an album page lists the video itself. YouTube Music's album pages link official
+   * videos to their songs, so the YouTube provider sets it from them; anonymous search and `next`
+   * results carry no such link, so it is often absent. Music mode plays a linked video as this
+   * song (see `songForVideo` and `modePolicy`). Tracks of other kinds leave it out.
    */
   songId?: EntityId<'track'>
   /** Position on its disc, starting at 1. */

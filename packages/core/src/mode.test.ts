@@ -10,11 +10,13 @@ import {
   isCatalogMode,
   isPlayable,
   isVideoKind,
+  type ModeInput,
   type ModeVerdict,
   modePolicy,
   songForVideo,
 } from './mode'
 import type { Track, TrackKind } from './model'
+import type { AudioCandidate } from './providers'
 
 const KINDS = ['song', 'music-video', 'video', 'episode'] as const satisfies readonly TrackKind[]
 
@@ -83,7 +85,7 @@ describe('modePolicy', () => {
     ['null', null],
     ['an object', { id: 'ytm:track:song1' }],
   ])('treats a song link that is %s as none', (_label, songId) => {
-    const video = { kind: 'music-video', songId } as unknown as Pick<Track, 'kind' | 'songId'>
+    const video = { kind: 'music-video', songId } as unknown as ModeInput
     expect(songForVideo(video)).toBeUndefined()
     expect(modePolicy(video, 'music')).toBe('needs-song-match')
     expect(modePolicy(video, 'all')).toBe('playable')
@@ -125,6 +127,52 @@ describe('songForVideo', () => {
   it('takes a link to a song from another source', () => {
     const spotifySong = formatId('spotify', 'track', '4uLU6hMCjMI75M1A2tKUQC')
     expect(songForVideo({ kind: 'music-video', songId: spotifySong })).toBe(spotifySong)
+  })
+
+  it.each([
+    ['its own ID', 'ytm', 'ytm'],
+    ['its videoId under the yt prefix', 'ytm', 'yt'],
+    ['its videoId under the ytm prefix', 'yt', 'ytm'],
+    ['its own plain YouTube ID', 'yt', 'yt'],
+  ] as const)('ignores a link to the video itself: %s', (_label, source, linkSource) => {
+    const video = {
+      id: formatId(source, 'track', 'omv1'),
+      kind: 'music-video',
+      songId: formatId(linkSource, 'track', 'omv1'),
+    } as const
+    expect(songForVideo(video)).toBeUndefined()
+    expect(modePolicy(video, 'music')).toBe('needs-song-match')
+    expect(modePolicy(video, 'all')).toBe('playable')
+    expect(applyModeFilter([video], 'music')).toEqual([video])
+    expect(filterPlayable([video], 'music')).toEqual([])
+  })
+
+  it('keeps a link from a video with its own ID to another videoId', () => {
+    const video = { id: formatId('yt', 'track', 'omv1'), kind: 'music-video' } as const
+    expect(songForVideo({ ...video, songId: SONG_ID })).toBe(SONG_ID)
+    expect(modePolicy({ ...video, songId: SONG_ID }, 'music')).toBe('plays-linked-song')
+  })
+
+  it.each([
+    ['a bare videoId', 'omv1'],
+    ['an album ID', 'ytm:album:MPREb_abc'],
+    ['an ID of a removed source', 'jiosaavn:track:omv1'],
+    ['a number', 42],
+    ['null', null],
+  ])('voids the link of a video whose own ID is %s, which cannot be compared', (_label, id) => {
+    const video = { id, kind: 'music-video', songId: SONG_ID } as unknown as ModeInput
+    expect(songForVideo(video)).toBeUndefined()
+    expect(modePolicy(video, 'music')).toBe('needs-song-match')
+  })
+
+  it('reads whole tracks, audio candidates and bare kinds alike', () => {
+    expectTypeOf<Track>().toExtend<ModeInput>()
+    expectTypeOf<AudioCandidate>().toExtend<ModeInput>()
+    expectTypeOf<{ readonly kind: 'song' }>().toExtend<ModeInput>()
+    const albumId = formatId('ytm', 'album', 'MPREb_abc')
+    // @ts-expect-error an item's own ID is a track ID
+    const misnamed: ModeInput = { kind: 'music-video', id: albumId, songId: SONG_ID }
+    expect(songForVideo(misnamed)).toBeUndefined()
   })
 
   it('reads whole tracks, so Music mode plays a linked video as its song', () => {
