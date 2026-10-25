@@ -326,6 +326,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
       happy-dom:
         specifier: ^20.14.6
         version: 20.14.6
