@@ -1,0 +1,10 @@
+{
+  "headers": {
+    "status": "failed",
+    "code": 6,
+    "error_message": "Jamendo Api Rate Limit Exceeded Error",
+    "warnings": "",
+    "results_count": 0
+  },
+  "results": []
+}
