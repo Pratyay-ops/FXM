@@ -5,5 +5,5 @@
     "types": ["node"],
     "allowImportingTsExtensions": true
   },
-  "include": ["tools"]
+  "include": ["tools", "e2e"]
 }
