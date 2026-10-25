@@ -406,7 +406,7 @@ describe('stripPresentationNoise', () => {
     ['Song (Lyrics & Translation)', 'Song'],
     ['Song | Lyrics', 'Song'],
     ['Song - Lyrics', 'Song'],
-    ['Song Lyrics', 'Song'],
+    ['Artist - Song Lyrics', 'Artist - Song'],
     ['Artist - Song (Official Music Video) // Lyrics', 'Artist - Song'],
     ['Song [M/V]', 'Song'],
     ['【MV】Song', 'Song'],
@@ -417,7 +417,16 @@ describe('stripPresentationNoise', () => {
     ['Song [HD]', 'Song'],
     ['Song (HQ)', 'Song'],
     ['Song [4K]', 'Song'],
-    ['Song HD', 'Song'],
+    ['Song (Official Video) HD', 'Song'],
+    ['Song (Official Video) HD (Lyrics) 4K', 'Song'],
+    ["(I Can't Get No) Satisfaction Lyrics", "(I Can't Get No) Satisfaction"],
+    ["BTS 'Dynamite' MV", "BTS 'Dynamite'"],
+    ['YOASOBI「アイドル」 MV', 'YOASOBI「アイドル」'],
+    ['Paper Lyrics (Official Video)', 'Paper Lyrics'],
+    ['Song (Official Video in HD)', 'Song'],
+    ['Song [Official Video] in HD', 'Song'],
+    ['Song in 4K', 'Song'],
+    ['Song in Full HD', 'Song'],
     ['Song (Letra)', 'Song'],
     ['Song (Letra/Lyrics)', 'Song'],
     ['Song (Tradução)', 'Song'],
@@ -448,6 +457,8 @@ describe('stripPresentationNoise', () => {
     ['Song (Lyrics) (Sped Up)', 'Song (Sped Up)'],
     ['Song (Official Video) [HD] (Remix)', 'Song (Remix)'],
     ['Song [4K Remaster]', 'Song [4K Remaster]'],
+    ['Song (Official Music Video Remastered)', 'Song (Remastered)'],
+    ['Song (Official Video in HD) [Live]', 'Song [Live]'],
     ['Song (Official Live Video)', 'Song (Official Live Video)'],
   ])('keeps version information in %j', (title, expected) => {
     expect(stripPresentationNoise(title)).toBe(expected)
@@ -464,12 +475,21 @@ describe('stripPresentationNoise', () => {
     'Official',
     'Kesariya | Brahmastra | Arijit Singh',
     'Kesariya|Brahmastra',
+    // A noise word at the end goes only when something before it shows decoration.
+    'Song Lyrics',
+    'Song HD',
+    'Paper Lyrics',
+    'Mr. HD',
+    "Don't Stop Me Now HD",
+    'Spin 4K',
   ])('leaves the title %j alone', (title) => {
     expect(stripPresentationNoise(title)).toBe(title)
   })
 
   it('tidies whitespace and handles empty input', () => {
     expect(stripPresentationNoise('  Song   (Lyrics)  ')).toBe('Song')
+    expect(stripPresentationNoise('Song ( Live )')).toBe('Song (Live)')
+    expect(stripPresentationNoise('Song \u{E000}(Lyrics)')).toBe('Song')
     expect(stripPresentationNoise('')).toBe('')
     expect(stripPresentationNoise('   ')).toBe('')
   })

@@ -485,6 +485,13 @@ function hasVersionTag(text: string): boolean {
 
 // --- stripPresentationNoise -----------------------------------------------------------------
 
+/**
+ * Stands in for removed noise until the end of {@link stripPresentationNoise}, so that noise
+ * words at the end can tell that they follow removed noise. A private-use character, which no
+ * title holds (any in the input are dropped first).
+ */
+const REMOVED = '\u{E000}'
+
 /** Phrases that are presentation noise wherever they appear. */
 const NOISE_PHRASES = words(
   new RegExp(
@@ -494,6 +501,7 @@ const NOISE_PHRASES = words(
       String.raw`(?:v[ií]deo\s*clipe?|v[ií]deo|[aá]udio|clipe?)\s+oficial`,
       String.raw`full\s+(?:video|audio)(?:\s+song)?|full\s+song|(?:video|audio)\s+song|lyrical\s+video`,
       String.raw`(?:with|w/)\s+lyrics|con\s+letra`,
+      String.raw`in\s+(?:full\s+)?(?:hd|hq|4k)`,
     ].join('|'),
     'u',
   ),
@@ -528,13 +536,32 @@ const NOISE_SEPARATOR = /(\s+[-\u2013\u2014~](?=\s)|\s*[|\uFF5C]\s*|\s+\/\/(?=\s
 /** A "Lyrical:" or "MV |" label in front of the title. */
 const LEADING_LABEL = /^(?:lyrical|lyrics?|letra|mv|m\/v)\s*[-:\uFF1A|\uFF5C]\s*/iu
 
-/** Unambiguous noise words at the very end, after a space: "Song Lyrics", "Song HD". */
-const TRAILING_NOISE = /(?:\s+(?:lyrics?|letra|lirik|hd|hq|4k|mv|m\/v))+$/iu
+/** A noise word that is unambiguous at the end of a decorated title. */
+const TRAILING_WORD = String.raw`(?:lyrics?|letra|lirik|hd|hq|4k|mv|m\/v)`
+
+/** Noise words at the very end, after a space, maybe mixed with removed noise: "… HD". */
+const TRAILING_NOISE = new RegExp(
+  String.raw`\s+${TRAILING_WORD}(?:[\s\u{E000}]+${TRAILING_WORD})*[\s\u{E000}]*$`,
+  'iu',
+)
+
+/**
+ * What shows that a title is decorated, so that noise words after it can go: removed noise, a
+ * bracket, a quotation mark (not an apostrophe inside a word) or a separator such as " - ".
+ */
+const DECORATION =
+  /[\u{E000}()[\]{}（）［］【】〖〗「」『』"\u{201C}\u{201D}]|(?<!\p{L})['\u{2018}\u{2019}]|['\u{2018}\u{2019}](?!\p{L})|\s[-\u{2013}\u{2014}~|\u{FF5C}]\s|\s\/\/\s/u
+
+/** Space just inside a bracket, left behind by removed noise: "( Remastered)". */
+const SPACE_INSIDE_BRACKETS = /([([{（［【〖])\s+|\s+([)\]}）］】〗])/gu
+
+/** Nothing but whitespace, punctuation, symbols and removed noise. */
+const NOTHING_LEFT = /^[\s\p{P}\p{S}\u{E000}]*$/u
 
 /** Whether `text` holds nothing but noise phrases, `tokens`, joining words and punctuation. */
 function isOnlyNoise(text: string, tokens: RegExp): boolean {
   const rest = text.replace(NOISE_PHRASES, ' ').replace(tokens, ' ').replace(FILLER, ' ')
-  return /^[\s\p{P}\p{S}]*$/u.test(rest)
+  return NOTHING_LEFT.test(rest)
 }
 
 /**
@@ -558,26 +585,34 @@ function dropNoiseSegments(text: string): string {
  * "audio", "HD" / "HQ" / "4K", "letra", "tradução" / "traducao", "lirik" and "explicit" /
  * "clean", plus a few close variants ("video oficial", "full video song").
  *
- * Phrases such as "Official Music Video" go wherever they are. Single words go only when they
- * make up a whole bracketed group ("Song (Audio)"), a whole " - " / " | " segment ("Song |
- * Lyrics"), or, for the unambiguous ones, the end of the title ("Song HD"), so titles like
- * "Clean" or "Audio" survive. Version information stays: "Song (Official Live Video)" keeps its
- * group because "Live" matters. The result keeps the original case; if nothing would be left,
- * the original title comes back (with whitespace tidied).
+ * Phrases such as "Official Music Video" or "in HD" go wherever they are. Single words go only
+ * when they make up a whole bracketed group ("Song (Audio)"), a whole " - " / " | " segment
+ * ("Song | Lyrics"), or, for the unambiguous ones, the end of a title that is visibly decorated
+ * before them: by removed noise, a bracket, a quotation mark or a separator ("Artist - Song
+ * Lyrics", "Song (Official Video) HD"). So titles like "Clean", "Audio", "Paper Lyrics" or
+ * "Mr. HD" survive. Version information stays: "Song (Official Live Video)" keeps its group
+ * because "Live" matters, and "Song (Official Video Remastered)" becomes "Song (Remastered)".
+ * The result keeps the original case; if nothing would be left, the original title comes back
+ * (with whitespace tidied).
  */
 export function stripPresentationNoise(title: string): string {
   const original = tidy(title)
-  let text = original.replace(NOISE_PHRASES, ' ')
+  let text = original.replaceAll(REMOVED, '').replace(NOISE_PHRASES, REMOVED)
   // Twice, so a group that only held a removed group goes too: "(Official Video (HD))".
   for (let pass = 0; pass < 2; pass++) {
     text = text.replace(NOISE_GROUP, (group: string, ...captures: unknown[]) => {
       // One of the seven bracket captures took part; the others are undefined.
       const content = captures.slice(0, 7).find((capture) => typeof capture === 'string')
-      return isOnlyNoise(String(content ?? ''), GROUP_NOISE) ? ' ' : group
+      return isOnlyNoise(String(content ?? ''), GROUP_NOISE) ? REMOVED : group
     })
   }
-  text = dropNoiseSegments(text).replace(LEADING_LABEL, '').replace(TRAILING_NOISE, '')
-  text = tidy(text).replace(EDGE_PUNCTUATION, '')
+  text = dropNoiseSegments(text).replace(LEADING_LABEL, '')
+  const trailing = TRAILING_NOISE.exec(text)
+  if (trailing !== null && DECORATION.test(text.slice(0, trailing.index))) {
+    text = text.slice(0, trailing.index)
+  }
+  text = tidy(text.replaceAll(REMOVED, ' ')).replace(SPACE_INSIDE_BRACKETS, '$1$2')
+  text = text.replace(EDGE_PUNCTUATION, '')
   return text === '' ? original : text
 }
 
