@@ -1,4 +1,5 @@
 import { type Page, test } from '@playwright/test'
+import { seedNowPlaying } from './now-playing-seed'
 
 // Visual check, not a test: `pnpm --filter @fxm/web screenshots` saves every page at
 // several widths in both themes to apps/web/screenshots/ (gitignored).
@@ -81,6 +82,51 @@ for (const theme of THEMES) {
   }
 }
 
+// Now playing in use: a saved queue with a match, a best guess to review and synced lyrics
+// (now-playing-seed.ts), plus its dialogs.
+const NOW_PLAYING_WIDTHS = [320, 768, 1280] as const
+
+async function captureNowPlaying(page: Page, prefix: string) {
+  const shoot = (name: string) => page.screenshot({ path: `screenshots/${prefix}-${name}.png` })
+  // Phones show the panels under the track: scroll the tabs up to the top bar.
+  const scrollToPanels = () =>
+    page.getByRole('tablist', { name: 'Now playing panels' }).evaluate((tabs) => {
+      tabs.scrollIntoView({ block: 'start' })
+    })
+
+  await page.goto('now-playing')
+  await page.getByRole('button', { name: 'Hold the light a little longer' }).first().waitFor()
+  await shoot('now-playing')
+  await scrollToPanels()
+  await shoot('now-playing-lyrics')
+  await page.getByRole('button', { name: 'YouTube Music', exact: true }).click()
+  await page.getByRole('button', { name: 'Not the right version?' }).click()
+  await page.getByRole('dialog', { name: 'Choose the right version' }).waitFor()
+  await shoot('now-playing-versions')
+
+  await page.goto('now-playing?tab=queue')
+  await page.getByRole('heading', { name: 'Next up' }).waitFor()
+  await scrollToPanels()
+  await shoot('now-playing-queue')
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
+  await page.getByRole('dialog', { name: 'Review best guesses' }).waitFor()
+  await shoot('now-playing-review')
+}
+
+for (const theme of THEMES) {
+  for (const width of NOW_PLAYING_WIDTHS) {
+    test.describe(`${theme} at ${width}px with a queue`, () => {
+      test.use(viewport(width))
+
+      test('captures Now playing in use', async ({ page }) => {
+        await seedSettings(page, 'music', theme)
+        await seedNowPlaying(page)
+        await captureNowPlaying(page, `${theme}-${width}`)
+      })
+    })
+  }
+}
+
 test.describe('forced colors (Windows High Contrast) at 1280px', () => {
   test.use({ ...viewport(1280), forcedColors: 'active' })
 
@@ -95,5 +141,13 @@ test.describe('forced colors (Windows High Contrast) at 1280px', () => {
       ],
       'forced-colors-1280',
     )
+  })
+
+  test('captures Now playing in use: the badges, the queue, the switch and the lyrics', async ({
+    page,
+  }) => {
+    await seedSettings(page, 'music', 'dark')
+    await seedNowPlaying(page)
+    await captureNowPlaying(page, 'forced-colors-1280')
   })
 })
