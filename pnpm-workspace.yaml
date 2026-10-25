@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+
+# Supply-chain safety: only install versions that have been public for at
+# least 14 days (in minutes). Applies to transitive dependencies too.
+minimumReleaseAge: 20160
+
+engineStrict: true

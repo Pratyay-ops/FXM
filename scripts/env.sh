@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # FXM toolchain environment.
 #
-# Every `make` recipe sources this file first (the Makefile sets BASH_ENV), and
-# you can source it from an interactive bash or zsh shell:
+# Every script in scripts/ sources this file, `make` runs tools through
+# scripts/run.sh (which sources it), and you can source it from an interactive
+# bash or zsh shell:
 #
 #   source scripts/env.sh
 #
