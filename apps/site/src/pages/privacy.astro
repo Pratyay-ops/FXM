@@ -1,0 +1,225 @@
+---
+import { AVAILABLE, ISSUES_URL, REPO_URL } from '../config'
+import Document from '../layouts/Document.astro'
+
+/** " (coming soon)" after anything AVAILABLE in src/config.ts doesn't mark as released. */
+const soon = (released: boolean) => (released ? '' : ' (coming soon)')
+
+interface Service {
+  name: string
+  /** The service's home page; left out when there is no single site to name. */
+  url?: string
+  use: string
+}
+
+const services: Service[] = [
+  {
+    name: 'YouTube',
+    url: 'https://www.youtube.com',
+    use: `YouTube Music and YouTube: search, song and video details, audio, and radio${soon(AVAILABLE.radio)}. For some songs, also Google's BotGuard service, to get the token YouTube asks for before it plays them.`,
+  },
+  {
+    name: 'Spotify',
+    url: 'https://www.spotify.com',
+    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, and song radio${soon(AVAILABLE.radio)}. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account.`,
+  },
+  {
+    name: 'Spotify key source',
+    use: "When the Spotify integration is on: a community-maintained file with the current key of Spotify's web player, which FXM needs to get an anonymous Spotify token.",
+  },
+  { name: 'LRCLIB', url: 'https://lrclib.net', use: 'Synced lyrics.' },
+  {
+    name: 'MusicBrainz',
+    url: 'https://musicbrainz.org',
+    use: 'Song, album and artist information.',
+  },
+  {
+    name: 'ListenBrainz',
+    url: 'https://listenbrainz.org',
+    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}.`,
+  },
+  {
+    name: 'Last.fm',
+    url: 'https://www.last.fm',
+    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}.`,
+  },
+  {
+    name: 'Internet Archive',
+    url: 'https://archive.org',
+    use: 'Free music, including lossless FLAC.',
+  },
+  { name: 'Jamendo', url: 'https://www.jamendo.com', use: 'Free music, including lossless FLAC.' },
+]
+
+const cookies = `FXM doesn't set cookies or use them to follow you. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, FXM uses your Spotify login as described in`
+const downloads = AVAILABLE.downloads
+  ? 'So are your downloads.'
+  : 'Downloads will be stored there too, once they arrive.'
+const spotifyLogin = `Connecting your Spotify account is optional${AVAILABLE.spotifyAccount ? '' : ' and coming soon'}. If you do, FXM uses your Spotify login to get an access token from Spotify.`
+const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates, and fetch FXM's YouTube settings file from this website when they start.`
+---
+
+<Document
+  title="Privacy · FXM"
+  description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device. Here is which services your device talks to, and why."
+  heading="Privacy"
+  lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device."
+  updated="2026-10-25"
+>
+  <h2>The short version</h2>
+  <ul>
+    <li>
+      <strong>No analytics or tracking.</strong>
+      This website and the FXM apps contain no analytics, trackers or ad scripts.
+    </li>
+    <li>
+      <strong>No accounts.</strong>
+      There is nothing to sign up for, so FXM never has your name, email address or password.
+    </li>
+    <li>
+      <strong>No cookies set by FXM.</strong>
+      {cookies}
+      <a href="#spotify-login">Your Spotify login</a>.
+    </li>
+    <li>
+      <strong>No FXM servers.</strong>
+      Searches and plays don't pass through FXM, so FXM can't see what you look for or listen to.
+    </li>
+  </ul>
+
+  <h2>Where your data lives</h2>
+  <p>
+    Your library (likes and playlists), listening history and settings are stored on your device: in
+    your browser's storage for the web app, or in the app's own storage on desktop and Android.
+    {downloads}
+    FXM can't see any of it.
+  </p>
+  <p>Clearing this site's data in your browser, or uninstalling the app, deletes it for good.</p>
+
+  <h2>Services your device talks to</h2>
+  <p>
+    FXM gets music, information and lyrics straight from the services below. Your device connects to
+    them directly; in the web app, FXM Connect adjusts some of these requests so the services
+    answer. As with any website you visit, they receive your IP address and the requests made for
+    you, such as a search or the song you're playing, and their own privacy policies apply.
+  </p>
+  <dl class="services">
+    {services.map((service) => (
+      <div>
+        <dt>{service.url ? <a href={service.url}>{service.name}</a> : service.name}</dt>
+        <dd>{service.use}</dd>
+      </div>
+    ))}
+  </dl>
+
+  <h2 id="spotify-login">Your Spotify login</h2>
+  <p>{spotifyLogin} FXM never sees your password.</p>
+  <ul>
+    <li>
+      In the browser, FXM Connect's <strong>Use my Spotify login from this browser</strong> option,
+      which is off by default, lets your browser send your Spotify cookies with that one token
+      request. FXM Connect never reads or stores them.
+    </li>
+    <li>
+      In the desktop and Android apps, you sign in on Spotify's own login page, in a window of the
+      app. Your login stays on your device, in protected storage.
+    </li>
+  </ul>
+  <p>
+    Spotify then knows that these requests come from your account. Disconnecting in Settings removes
+    the token from FXM.
+  </p>
+
+  <h2 id="fxm-connect">FXM Connect</h2>
+  <p>
+    FXM Connect is the small browser extension that lets the web app reach YouTube and Spotify. You
+    install it from a zip file, so your browser doesn't ask you to approve its permissions. Here is
+    what it does:
+  </p>
+  <ul>
+    <li>
+      It works only with FXM's own pages. Its rules apply only to requests those pages make to the
+      services above, and it can't read or change what you do on other sites.
+    </li>
+    <li>
+      It adjusts a few headers on those requests so the services answer, and removes your cookies
+      from them.
+    </li>
+    <li>It runs only the code it was installed with and never downloads code from the internet.</li>
+    <li>It collects nothing: no analytics and no telemetry.</li>
+    <li>Its Spotify login option is off by default.</li>
+  </ul>
+  <p>
+    Its source code, with the full list of its permissions, is in the
+    <a href={REPO_URL}>FXM repository on GitHub</a>.
+  </p>
+
+  <h2>This website and app downloads</h2>
+  <p>
+    This website and the web app are static files hosted on Cloudflare Pages, and FXM Connect and
+    the apps are published on GitHub Releases. Like any host, Cloudflare and GitHub handle the
+    network requests needed to deliver those files, under their own privacy policies. FXM doesn't
+    add analytics or tracking to either.
+  </p>
+  <p>{updates}</p>
+
+  <h2>Changes</h2>
+  <p>
+    If the way FXM handles data ever changes, this page will be updated and the date at the top will
+    change.
+  </p>
+
+  <h2>Questions</h2>
+  <p>Ask on the <a href={ISSUES_URL}>FXM issue tracker on GitHub</a>.</p>
+</Document>
+
+<style>
+.services {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.services div {
+  display: grid;
+  padding: var(--space-1) var(--space-5) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+/* Each name is a 44 px row, so the links are easy to tap. */
+.services dt {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch);
+  font-weight: 700;
+}
+
+.services dt a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--touch);
+}
+
+.services dd {
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 40rem) {
+  .services div {
+    grid-template-columns: 10rem minmax(0, 1fr);
+    gap: var(--space-4);
+    padding-block: var(--space-1);
+  }
+
+  /* The name sits at the top, level with the first line of the description. */
+  .services dt {
+    align-self: start;
+  }
+
+  .services dd {
+    padding-block: var(--space-2);
+  }
+}
+</style>

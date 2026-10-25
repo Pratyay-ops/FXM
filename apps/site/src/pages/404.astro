@@ -1,0 +1,78 @@
+---
+import Icon from '../components/Icon.astro'
+import { APP_PATH } from '../config'
+import Base from '../layouts/Base.astro'
+---
+
+<Base
+  title="Page not found · FXM"
+  description="This page doesn't exist or has moved. Go back to the FXM home page or open the web app."
+  noindex
+>
+  <section class="not-found" aria-labelledby="not-found-title">
+    <div class="container inner">
+      <p class="code" aria-hidden="true">404</p>
+      <h1 id="not-found-title">Page not found</h1>
+      <p class="lead">
+        This page doesn't exist or has moved. The music is still playing elsewhere.
+      </p>
+      <div class="button-row">
+        <a class="button button-primary" href="/">Go to the home page</a>
+        <a class="button button-secondary" href={APP_PATH}>
+          Open web app
+          <Icon name="arrow-right" />
+        </a>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style>
+.not-found {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding-block: clamp(var(--space-16), 12vw, var(--space-36));
+}
+
+.not-found::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: radial-gradient(45% 60% at 50% 0%, var(--color-glow), transparent 70%);
+}
+
+.inner {
+  display: grid;
+  gap: var(--space-5);
+  justify-items: center;
+  text-align: center;
+}
+
+.code {
+  background: linear-gradient(180deg, var(--color-accent) 0%, transparent 115%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: clamp(5rem, 3rem + 10vw, 9rem);
+  font-weight: 850;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.lead {
+  max-width: 30rem;
+}
+
+.button-row {
+  justify-content: center;
+}
+
+@media (max-width: 30rem) {
+  .button-row {
+    display: grid;
+    width: 100%;
+  }
+}
+</style>

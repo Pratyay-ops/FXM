@@ -1,0 +1,199 @@
+---
+import { APP_PATH, AVAILABLE } from '../config'
+import { comingSoon, joinList, unreleased } from '../lib/copy'
+import Icon from './Icon.astro'
+import PlayerMockup from './PlayerMockup.astro'
+
+// What the web app does today, then what is still to come (AVAILABLE in src/config.ts).
+const upcoming = comingSoon(
+  unreleased([
+    [AVAILABLE.homeFeed, 'a home feed made for you'],
+    [AVAILABLE.downloads, 'downloads in any format'],
+  ]),
+)
+const apps = unreleased([
+  [AVAILABLE.desktop, 'desktop'],
+  [AVAILABLE.android, 'Android'],
+])
+const appsNote =
+  apps.length === 0
+    ? ''
+    : `The ${joinList(apps)} ${apps.length === 1 ? 'app is' : 'apps are'} coming soon.`
+
+const highlights = [
+  { icon: 'code', text: 'Free and open source' },
+  { icon: 'ban', text: 'No ads from FXM' },
+  { icon: 'user-off', text: 'No accounts' },
+  { icon: 'eye-off', text: 'No tracking' },
+] as const
+---
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="container grid">
+    <div class="copy">
+      <p class="status">
+        <span class="dot" aria-hidden="true"></span>
+        In early development
+      </p>
+      <h1 id="hero-title">Practically any song. <span class="accent">Free and private.</span></h1>
+      <p class="lead">
+        FXM is a free, open-source music player for the web, desktop and Android. Search and play
+        practically any song from YouTube Music, with synced lyrics and your own library.
+        {upcoming}
+      </p>
+      <div class="button-row">
+        <a class="button button-primary button-large" href={APP_PATH}>
+          Open web app
+          <Icon name="arrow-right" />
+        </a>
+        <a class="button button-secondary button-large" href="#get" data-download-link>
+          Download
+          <Icon name="download" />
+        </a>
+      </div>
+      <p class="note">
+        In the browser, YouTube Music and Spotify need the free FXM Connect extension.
+        {appsNote}
+      </p>
+    </div>
+    <div class="visual">
+      <PlayerMockup />
+    </div>
+  </div>
+
+  <div class="container">
+    <ul class="highlights bare-list">
+      {highlights.map((item) => (
+        <li>
+          <Icon name={item.icon} size={20} />
+          {item.text}
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<style>
+.hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding-block: clamp(var(--space-10), var(--space-6) + 5vw, var(--space-24)) 0;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background:
+    radial-gradient(60% 45% at 78% 22%, var(--color-glow), transparent 70%),
+    radial-gradient(45% 35% at 8% 0%, var(--color-accent-soft), transparent 70%);
+  pointer-events: none;
+}
+
+.grid {
+  display: grid;
+  gap: clamp(var(--space-12), 8vw, var(--space-16));
+  align-items: center;
+}
+
+.copy {
+  display: grid;
+  gap: var(--space-6);
+  justify-items: start;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-accent-line);
+  border-radius: var(--radius-full);
+  background: var(--color-accent-soft);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px var(--color-accent-soft);
+}
+
+h1 {
+  max-width: 15ch;
+}
+
+.accent {
+  display: block;
+  background: linear-gradient(100deg, var(--color-accent) 10%, var(--color-accent-hover) 90%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.lead {
+  max-width: 36rem;
+}
+
+.note {
+  max-width: 34rem;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.visual {
+  width: 100%;
+  max-width: 38rem;
+  justify-self: center;
+}
+
+.highlights {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  margin-top: clamp(var(--space-12), 6vw, var(--space-20));
+  padding-top: var(--space-8);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+.highlights li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.highlights svg {
+  color: var(--color-accent);
+}
+
+@media (max-width: 30rem) {
+  .button-row {
+    display: grid;
+    width: 100%;
+  }
+}
+
+@media (min-width: 48rem) {
+  .highlights {
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 64rem) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr);
+  }
+
+  .visual {
+    max-width: none;
+  }
+}
+</style>

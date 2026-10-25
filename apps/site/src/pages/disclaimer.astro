@@ -1,0 +1,49 @@
+---
+import { ISSUES_URL, LICENSE_URL } from '../config'
+import Document from '../layouts/Document.astro'
+---
+
+<Document
+  title="Disclaimer · FXM"
+  description="FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google, Spotify or any music service. Provided as is, for personal use."
+  heading="Disclaimer"
+  lead="FXM is an independent, open-source music player. Here is what that means for you."
+  updated="2026-10-25"
+>
+  <h2>An independent project</h2>
+  <p>
+    FXM is an independent open-source project. It is not affiliated with, endorsed by or sponsored
+    by YouTube, Google, Spotify or any other music service.
+  </p>
+
+  <h2>A player, not a music service</h2>
+  <p>
+    FXM has no servers and doesn't host, store or distribute any music. It connects your device
+    directly to the services you choose.
+  </p>
+
+  <h2>Provided as is, for personal use</h2>
+  <p>
+    FXM is provided “as is”, without warranties or conditions of any kind, as described in the
+    <a href={LICENSE_URL}>Apache License 2.0</a>. It is meant for personal use.
+  </p>
+
+  <h2>Your responsibility</h2>
+  <p>
+    You are responsible for how you use FXM, including complying with the terms of the services you
+    use and the laws where you live.
+  </p>
+
+  <h2>Trademarks</h2>
+  <p>
+    YouTube and Google are trademarks of Google LLC. Spotify is a trademark of Spotify AB. All other
+    trademarks belong to their respective owners. FXM names these services only to say which ones it
+    works with, and doesn't use their logos.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    If you think something on this website infringes your rights, please tell us on the
+    <a href={ISSUES_URL}>FXM issue tracker on GitHub</a>.
+  </p>
+</Document>

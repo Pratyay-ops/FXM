@@ -1,0 +1,296 @@
+---
+import { AVAILABLE } from '../config'
+import ComingSoon from './ComingSoon.astro'
+import DownloadsDemo from './demos/DownloadsDemo.astro'
+import FeedDemo from './demos/FeedDemo.astro'
+import ModesDemo from './demos/ModesDemo.astro'
+import SpotifyDemo from './demos/SpotifyDemo.astro'
+import Icon from './Icon.astro'
+
+const spotify = [
+  { text: "Search Spotify's catalog", available: true },
+  { text: 'Related artists', available: true },
+  { text: 'Song radio', available: AVAILABLE.radio },
+  {
+    text: 'Connect your Spotify account to sync your recommendations, liked songs and playlists',
+    available: AVAILABLE.spotifyAccount,
+  },
+]
+
+const extras = [
+  {
+    icon: 'lyrics',
+    title: 'Synced lyrics',
+    text: 'Lyrics that follow along with the song, line by line, from LRCLIB.',
+    available: true,
+  },
+  {
+    icon: 'install',
+    title: 'Installable web app',
+    text: 'Install the web app (a PWA) and it opens in its own window, like any other app.',
+    available: AVAILABLE.pwa,
+  },
+  {
+    icon: 'embed',
+    title: 'Embeddable mini-player',
+    text: 'Put a small FXM player for a song or a playlist on your own website.',
+    available: AVAILABLE.embed,
+  },
+  {
+    icon: 'library',
+    title: 'Free music, no extension needed',
+    text: 'Without FXM Connect, the web app still plays free music from Internet Archive and Jamendo, and invites you to add the extension for YouTube Music and Spotify.',
+    available: true,
+  },
+] as const
+---
+
+<section id="features" class="section" aria-labelledby="features-title">
+  <div class="container">
+    <div class="section-head">
+      <p class="eyebrow">Features</p>
+      <h2 id="features-title">A music player that is on your side</h2>
+      <p class="lead">
+        Practically any song, in one free app with no ads from FXM and nothing to sign up for. FXM
+        is in early development: anything marked Coming soon is on its way.
+      </p>
+    </div>
+
+    <div class="rows">
+      <div class="row">
+        <div class="text">
+          <span class="icon-tile"><Icon name="music" /></span>
+          <h3>Practically any song, in two modes</h3>
+          <p>
+            Search and play practically any song from YouTube Music. Pick the mode that suits you:
+          </p>
+          <dl class="modes">
+            <div>
+              <dt>Music</dt>
+              <dd>Only songs from the YouTube Music catalog: clean album audio.</dd>
+            </div>
+            <div>
+              <dt>Music + Video</dt>
+              <dd>
+                Also any YouTube video, such as covers, live sets and remixes, played as music.
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <ModesDemo />
+      </div>
+
+      <div class="row">
+        <div class="text">
+          <span class="icon-tile"><Icon name="sparkles" /></span>
+          <h3>A home feed made for you, on your device {!AVAILABLE.homeFeed && <ComingSoon />}</h3>
+          <p>
+            Quick picks, daily mixes and endless radio, put together on your device from YouTube
+            Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz.
+          </p>
+          <p>
+            Your listening history is kept on your device, not on an FXM server. There isn't one.
+          </p>
+        </div>
+        <FeedDemo />
+      </div>
+
+      <div class="row">
+        <div class="text">
+          <span class="icon-tile"><Icon name="plug" /></span>
+          <h3>Spotify, built in</h3>
+          <p>
+            Spotify is built in and on wherever FXM can reach it. In the web app, that takes FXM
+            Connect.
+          </p>
+          <ul class="checklist bare-list">
+            {spotify.map((item) => (
+              <li class:list={{ soon: !item.available }}>
+                <Icon name={item.available ? 'check' : 'circle'} size={18} />
+                <span>
+                  {item.text}
+                  {!item.available && <ComingSoon />}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p>Prefer not to? Switch it off in Settings and FXM doesn't talk to Spotify at all.</p>
+        </div>
+        <SpotifyDemo />
+      </div>
+
+      <div class="row">
+        <div class="text">
+          <span class="icon-tile"><Icon name="download" /></span>
+          <h3>
+            Download in the format you want
+            {!AVAILABLE.downloads && <ComingSoon />}
+          </h3>
+          <p>
+            Save any track for offline listening as Original, FLAC, ALAC, WAV, MP3, AAC or Opus,
+            with tags and cover art. In the web app, downloading from YouTube Music takes FXM
+            Connect; free sources download in any browser.
+          </p>
+          <p>
+            You get real lossless FLAC where the source has it (Internet Archive, Jamendo).
+            Conversions from lossy sources are labelled honestly, so you always know what you have.
+          </p>
+        </div>
+        <DownloadsDemo />
+      </div>
+    </div>
+
+    <ul class="extras bare-list">
+      {extras.map((extra) => (
+        <li class="extra card">
+          <span class="icon-tile">
+            <Icon name={extra.icon} />
+          </span>
+          <h3>
+            {extra.title}
+            {!extra.available && <ComingSoon />}
+          </h3>
+          <p>{extra.text}</p>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<style>
+.rows {
+  display: grid;
+  gap: clamp(var(--space-16), 10vw, var(--space-28));
+}
+
+.row {
+  display: grid;
+  gap: var(--space-8);
+  align-items: center;
+}
+
+.text {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+  max-width: 34rem;
+}
+
+.text h3 {
+  margin-top: var(--space-2);
+  font-size: clamp(var(--text-xl), 1.1rem + 0.8vw, var(--text-2xl));
+}
+
+/* Coming soon badges sit in the line of text they belong to, without making it taller. */
+.text .badge {
+  margin-block: calc(-1 * var(--space-1));
+  vertical-align: middle;
+}
+
+.text p {
+  color: var(--color-text-muted);
+}
+
+.checklist {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.checklist svg {
+  margin-top: var(--space-1);
+  color: var(--color-accent);
+}
+
+.checklist .soon {
+  color: var(--color-text-muted);
+}
+
+.checklist .soon > svg {
+  color: var(--color-text-muted);
+}
+
+.checklist .badge {
+  margin-inline-start: var(--space-1);
+}
+
+.modes {
+  display: grid;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.modes div {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--color-accent-soft);
+}
+
+.modes dt {
+  font-weight: 700;
+}
+
+.modes dd {
+  color: var(--color-text-muted);
+}
+
+.extras {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: clamp(var(--space-16), 10vw, var(--space-28));
+}
+
+.extra {
+  position: relative;
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  padding: var(--space-6);
+}
+
+.extra h3 {
+  margin-top: var(--space-2);
+  font-size: var(--text-lg);
+}
+
+/* Part of the heading for screen readers, shown in the corner next to the icon */
+.extra .badge {
+  position: absolute;
+  top: calc(var(--space-6) + var(--space-2));
+  right: var(--space-6);
+}
+
+.extra p {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+@media (min-width: 40rem) {
+  .extras {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 48rem) {
+  .row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(var(--space-8), 5vw, var(--space-16));
+  }
+
+  .row:nth-child(even) .text {
+    order: 2;
+  }
+}
+
+@media (min-width: 64rem) {
+  .extras {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+</style>
