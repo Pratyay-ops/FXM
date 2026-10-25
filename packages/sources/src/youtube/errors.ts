@@ -68,17 +68,20 @@ export interface FailedRequest {
 }
 
 /**
- * The error for an InnerTube response that is not 2xx:
+ * The error for an InnerTube response that is not 2xx. InnerTube answers a missing album, video,
+ * playlist or channel with HTTP 200 and an empty page, which the parsers report as `NotFound`; an
+ * error status is about the request itself. An invalid client version, for one, gets HTTP 404
+ * `NOT_FOUND` (measured 2026-10-26), which must not read as a missing entity:
  *
  * - 429, and 503 with `Retry-After`: `RateLimited`, with `retryAfterMs` from the header
  * - a bot check page or message (`Sign in to confirm you're not a bot`): `BotCheck`
- * - 404 and 410: `NotFound`
- * - 400 whose error status is `NOT_FOUND`, or `INVALID_ARGUMENT` for a request that names one
- *   entity and nothing else: `NotFound`
- * - any other 400, such as `FAILED_PRECONDITION` for an outdated client version or
- *   `INVALID_ARGUMENT` for stale `params`: `Parse`, because YouTube refused the request's shape,
- *   which a newer config fixes. The message names the status.
+ * - 400 `INVALID_ARGUMENT` for a request that names one entity and nothing else: `NotFound`, since
+ *   YouTube refused the ID itself
  * - 401: `AuthRequired`; 403: `Unsupported`, because InnerTube refuses the page's origin
+ * - 408: `Network`
+ * - any other 4xx, such as 404 `NOT_FOUND` for an unknown client version or 400
+ *   `FAILED_PRECONDITION`: `Parse`, because YouTube refused the request, which a newer config
+ *   fixes. The message names YouTube's status.
  * - anything else, 5xx included: `Network`, which is worth retrying later
  */
 export function httpError(
@@ -96,18 +99,19 @@ export function httpError(
     return new FxmError('RateLimited', detail, retryAfterMs === undefined ? {} : { retryAfterMs })
   }
   if (BOT_CHECK_TEXT.test(body)) return new FxmError('BotCheck', detail)
-  return new FxmError(httpCode(status, error.status, request.entity), detail)
+  const code = httpCode(status, error.status, request.entity)
+  return new FxmError(code, code === 'Parse' ? `${detail} (${REFUSED})` : detail)
 }
 
+/** What a refused request means for the user of the error. */
+const REFUSED = 'YouTube refused the request; the YouTube config may be outdated'
+
 function httpCode(status: number, errorStatus: string | undefined, entity: boolean): FxmErrorCode {
-  if (status === 404 || status === 410) return 'NotFound'
-  if (status === 400) {
-    const missing = errorStatus === 'NOT_FOUND' || (errorStatus === 'INVALID_ARGUMENT' && entity)
-    return missing ? 'NotFound' : 'Parse'
-  }
+  if (status === 400 && errorStatus === 'INVALID_ARGUMENT' && entity) return 'NotFound'
   if (status === 401) return 'AuthRequired'
   if (status === 403) return 'Unsupported'
-  return 'Network'
+  if (status === 408) return 'Network'
+  return status >= 400 && status < 500 ? 'Parse' : 'Network'
 }
 
 /** The texts of a playability status: its reason, its messages and its error screen's. */

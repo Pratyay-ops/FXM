@@ -15,8 +15,18 @@ const list = { what: 'search "x"', entity: false }
 type FailedKind = 'entity' | 'list'
 
 /** An InnerTube error body with a status, as YouTube writes them. */
-const failed = (status: string, message = 'Request contains an invalid argument.') =>
-  JSON.stringify({ error: { code: 400, message, status } })
+const failed = (status: string, message = 'Request contains an invalid argument.', code = 400) =>
+  JSON.stringify({ error: { code, message, status } })
+
+/** YouTube's answer to an invalid client version (`next` as `WEB_REMIX` `0.1`, 2026-10-26). */
+const UNKNOWN_CLIENT = JSON.stringify({
+  error: {
+    code: 404,
+    message: 'Requested entity was not found.',
+    errors: [{ message: 'Requested entity was not found.', domain: 'global', reason: 'notFound' }],
+    status: 'NOT_FOUND',
+  },
+})
 
 describe('Retry-After', () => {
   it('reads delta seconds and HTTP dates', () => {
@@ -38,14 +48,15 @@ describe('HTTP errors', () => {
     [429, null, '<html>unusual traffic</html>', 'list', 'RateLimited'],
     [503, '5', '{}', 'list', 'RateLimited'],
     [503, null, '{}', 'list', 'Network'],
-    [404, null, '{}', 'entity', 'NotFound'],
-    [410, null, '{}', 'list', 'NotFound'],
+    [404, null, UNKNOWN_CLIENT, 'entity', 'Parse'],
+    [404, null, '{}', 'list', 'Parse'],
+    [410, null, '{}', 'entity', 'Parse'],
     [400, null, failed('INVALID_ARGUMENT'), 'entity', 'NotFound'],
     [400, null, failed('INVALID_ARGUMENT'), 'list', 'Parse'],
-    [400, null, failed('NOT_FOUND', 'Requested entity was not found.'), 'entity', 'NotFound'],
-    [400, null, failed('NOT_FOUND', 'Requested entity was not found.'), 'list', 'NotFound'],
+    [400, null, failed('NOT_FOUND', 'Requested entity was not found.'), 'entity', 'Parse'],
     [400, null, failed('FAILED_PRECONDITION', 'Precondition check failed.'), 'entity', 'Parse'],
     [400, null, '<html>Bad Request</html>', 'entity', 'Parse'],
+    [408, null, '', 'list', 'Network'],
     [401, null, '{}', 'list', 'AuthRequired'],
     [403, null, '{"error":{"status":"PERMISSION_DENIED"}}', 'list', 'Unsupported'],
     [403, null, "Sign in to confirm you're not a bot", 'list', 'BotCheck'],
@@ -63,8 +74,11 @@ describe('HTTP errors', () => {
     expect(invalid.message).toBe(
       'YouTube answered browse MPREb_x with HTTP 400 (INVALID_ARGUMENT): Bad id.',
     )
-    const outdated = httpError(400, null, failed('FAILED_PRECONDITION'), entity, NOW)
-    expect(outdated.message).toContain('(FAILED_PRECONDITION)')
+    const outdated = httpError(404, null, UNKNOWN_CLIENT, entity, NOW)
+    expect(outdated.message).toBe(
+      'YouTube answered browse MPREb_x with HTTP 404 (NOT_FOUND): Requested entity was not found. ' +
+        '(YouTube refused the request; the YouTube config may be outdated)',
+    )
     const long = httpError(500, null, 'x'.repeat(1000), list, NOW)
     expect(long.message.length).toBeLessThan(250)
   })
@@ -281,15 +295,8 @@ describe('errors through the providers', () => {
     expect(youtube.requests).toEqual([])
   })
 
-  it('an outdated config: a 400 that refuses the request rather than the entity', async () => {
-    const youtube = fakeInnerTube(
-      on(
-        'next',
-        {},
-        { error: { message: 'Precondition check failed.', status: 'FAILED_PRECONDITION' } },
-        { status: 400 },
-      ),
-    )
+  it('an outdated config: an error status that refuses the request, not the entity', async () => {
+    const youtube = fakeInnerTube(() => new Response(UNKNOWN_CLIENT, { status: 404 }))
     const ctx = context(youtube.fetch, { capabilities: SIMPLE })
     await expect(music.getTrack(formatId('ytm', 'track', 'zFYEYRcjK2g'), ctx)).rejects.toSatisfy(
       (error) => isFxmError(error, 'Parse'),
