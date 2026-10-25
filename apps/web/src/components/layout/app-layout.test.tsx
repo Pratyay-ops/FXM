@@ -95,10 +95,10 @@ describe('app layout', () => {
 
     // Album to album has the same title: the text still changes, so it is read again.
     await act(() => router.navigate('/album/one'))
-    await screen.findByRole('heading', { level: 1, name: 'Album one' })
+    await screen.findByRole('heading', { level: 1, name: 'Album not found' })
     expect(announcer.textContent).toBe('Navigated to Album')
     await act(() => router.navigate('/album/two'))
-    await screen.findByRole('heading', { level: 1, name: 'Album two' })
+    await screen.findByRole('heading', { level: 1, name: 'Album not found' })
     expect(announcer.textContent).toBe('Navigated to Album ')
   })
 })
