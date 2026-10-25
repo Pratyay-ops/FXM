@@ -104,7 +104,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **1.2** | Platform transports, capability detection and request budget | `feat/1.2-platform` | 1.1b | 🟡 |
 | **1.3** | YouTube Music + YouTube metadata provider | `feat/1.3-youtube` | 1.1b | 🟡 |
 | **1.4** | YouTube stream resolver: direct rungs | `feat/1.4-youtube-streams` | 1.2, 1.3 | 🟡 |
-| **1.5** | Spotify provider (switchable; anonymous and logged-in tokens) | `feat/1.5-spotify` | 1.1b | 🟡 |
+| **1.5** | Spotify provider (switchable; anonymous and logged-in tokens) | `feat/1.5-spotify` | 1.1b | ✅ |
 | **1.6** | Free and lossless sources: Internet Archive, Jamendo, MusicBrainz | `feat/1.6-free-sources` | 1.1b | ✅ |
 | **1.7** | Matching engine | `feat/1.7-matching` | 1.1b | 🟡 |
 | **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | ✅ |
@@ -306,7 +306,7 @@ It merged on 2026-10-25 with three details the stages after it rely on: `signals
 - With `FXM_LIVE=1` from Node on a residential IP, a YouTube Music song resolves to a VISIONOS URL that passes the end-of-file probe, and to an itag 18 URL when VISIONOS is disabled.
 - Fixtures cover capped URLs (403 past 1 MiB), `LOGIN_REQUIRED`, the unavailable states and mismatched IDs.
 
-### 1.5 Spotify provider
+### 1.5 Spotify provider ✅
 
 **Branch** `feat/1.5-spotify` · **Depends on** 1.1b · **Scope** `packages/sources/src/spotify/**`
 
