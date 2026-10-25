@@ -116,11 +116,11 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **2.1** | Web app shell and settings | `feat/2.1-web-shell` | 0.4 | ✅ |
 | **2.2** | Player core: queue, direct audio, Media Session | `feat/2.2-player-core` | 1.1b | 🟡 |
 | **2.3** | Playback policy and stream lifecycle | `feat/2.3-playback-policy` | 2.2, 1.4, 1.7 | ⬜ |
-| **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | ⬜ |
+| **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | 🟡 |
 | **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | ⬜ |
 | **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | 🟡 |
 | **2.7** | Tiers, onboarding and install guides | `feat/2.7-connect-onboarding` | 2.1, 1.2, 1.6, 1.9, 1.10 | ⬜ |
-| **2.8** | Static deploy to `fxm-music.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 5.3, R.1, R.4, 1.10, 1.12 | ⬜ |
+| **2.8** | Static deploy to `fxm-music.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 5.3, R.1, R.4, 1.10, 1.12 | 🟡 |
 | **3.1** | Listening signals and affinity | `feat/3.1-signals` | 2.2, 2.6 | ⬜ |
 | **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | ⬜ |
 | **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | ⬜ |
@@ -149,7 +149,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **R.1** | Release pipeline (release PR, tags, notes, checksums, attestations) | `ci/r1-release-pipeline` | 0.4, 1.9 | 🟡 |
 | **R.2** | Extension store channels: Firefox Add-ons and Edge Add-ons | `ci/r2-extension-stores` | R.1 | ⬜ |
 | **R.3** | More channels: F-Droid/IzzyOnDroid/Obtainium, Flathub, winget (Homebrew only if notarized) | `chore/r3-channels` | 6.6, 7.5 | ⬜ |
-| **R.4** | Legal notices and clean-room log | `docs/r4-legal-notices` | 0.4, 5.3 | 🟡 |
+| **R.4** | Legal notices and clean-room log | `docs/r4-legal-notices` | 0.4, 5.3 | ✅ |
 | **8.1** | Audio effects: EQ, crossfade, sleep timer, speed, loudness | `feat/8.1-audio-fx` | 2.3, 6.3, 7.3 | ⬜ |
 | **8.2** | Scrobbling (Last.fm, ListenBrainz) | `feat/8.2-scrobbling` | 3.1 | ⬜ |
 | **8.3** | Plugin system for sources and resolvers | `feat/8.3-plugins` | 1.4, 1.5, 1.11 | ⬜ |
@@ -776,7 +776,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - A Flathub manifest and a winget manifest for the desktop app.
 - A Homebrew cask only if the app is notarized: Homebrew disables official casks that fail Gatekeeper from 2026-09-01. Under Decision 3 (option B) there is no notarization for now.
 
-### R.4 Legal notices and clean-room log
+### R.4 Legal notices and clean-room log ✅
 
 **Branch** `docs/r4-legal-notices` · **Depends on** 0.4, 5.3 · **Scope** `docs/LEGAL.md`, `apps/site/src/pages/disclaimer.astro`, `apps/site/public/.well-known/security.txt`, the notice section of `README.md`
 
