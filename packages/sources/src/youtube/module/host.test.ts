@@ -1,4 +1,4 @@
-import { isFxmError } from '@fxm/core'
+import { FxmError, isFxmError } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import bundledConfig from '../youtube-config.json'
 import type { YouTubeModule, YouTubeModuleOptions } from './api'
@@ -8,6 +8,7 @@ import { desktopContext, fakeYouTube } from './testing'
 import {
   YOUTUBE_CONFIG_FILE,
   YOUTUBE_CONFIG_KIND,
+  YOUTUBE_CONFIG_SCHEMA,
   YOUTUBE_MODULE_FILE,
   YOUTUBE_MODULE_KIND,
 } from './version'
@@ -63,7 +64,7 @@ describe('createYouTubeModuleHost', () => {
     expect(host.providers()).toBe(host.providers())
   })
 
-  it('describes the two update artifacts', () => {
+  it('describes the two update artifacts, the config under its schema', () => {
     const host = createYouTubeModuleHost()
     expect(host.updates.module).toMatchObject({
       kind: YOUTUBE_MODULE_KIND,
@@ -74,7 +75,16 @@ describe('createYouTubeModuleHost', () => {
     expect(host.updates.config).toMatchObject({
       kind: YOUTUBE_CONFIG_KIND,
       file: YOUTUBE_CONFIG_FILE,
+      api: YOUTUBE_CONFIG_SCHEMA,
       bundledVersion: bundledConfig.revision,
+    })
+    expect(host.updates.module.inUse()).toEqual({
+      version: youtubeModule.version,
+      origin: 'bundled',
+    })
+    expect(host.updates.config.inUse()).toEqual({
+      version: bundledConfig.revision,
+      origin: 'bundled',
     })
   })
 
@@ -84,10 +94,13 @@ describe('createYouTubeModuleHost', () => {
     const youtube = fakeYouTube()
     const ctx = desktopContext(youtube.fetch)
     const { music } = host
+    // A method taken from the live provider follows the module in use too.
+    const { search } = host.music
     await music.search('Radiohead Creep', { types: ['track'] }, ctx)
     host.updates.module.activate(fakeModule(2, served), FETCHED)
     await music.search('Radiohead Creep', { types: ['track'] }, ctx)
-    expect(served).toEqual([1, 2])
+    await search('Radiohead Creep', { types: ['track'] }, ctx)
+    expect(served).toEqual([1, 2, 2])
     expect(host.current()).toMatchObject({ moduleOrigin: 'fetched', configOrigin: 'module' })
     expect(host.current().module.version).toBe(2)
   })
@@ -98,7 +111,7 @@ describe('createYouTubeModuleHost', () => {
     expect(music.id).toBe('ytm')
     expect(video.id).toBe('yt')
     expect(audio.id).toBe('ytm')
-    expect(music.session).toBe(host.providers().session)
+    expect(music.search).toBe(music.search)
     expect('search' in music).toBe(true)
     expect(Object.keys(audio)).toContain('resolve')
     expect(() => {
@@ -121,17 +134,32 @@ describe('createYouTubeModuleHost', () => {
       ['no module', {}],
       ['another contract', { youtubeModule: { ...youtubeModule, version: 2, api: 2 } }],
       ['another version than signed', { youtubeModule: fakeModule(3, []) }],
-    ])('refuses %s', (_, exports) => {
-      expect(isFxmError(accept(exports), 'Parse')).toBe(true)
-    })
-
-    it('refuses a module that can’t read its own config or start', () => {
-      const broken = fakeModule(2, [], {
-        create: () => {
-          throw new Error('boom')
+      [
+        'a module that reads its own config as another revision',
+        { youtubeModule: fakeModule(2, [], { checkConfig: () => 99 }) },
+      ],
+      [
+        'a module that can’t start',
+        {
+          youtubeModule: fakeModule(2, [], {
+            create: () => {
+              throw new Error('boom')
+            },
+          }),
         },
-      })
-      expect(accept({ youtubeModule: broken })).toEqual(new Error('boom'))
+      ],
+      [
+        'a module that throws Unsupported, which is still its own fault',
+        {
+          youtubeModule: fakeModule(2, [], {
+            create: () => {
+              throw new FxmError('Unsupported', 'Not here')
+            },
+          }),
+        },
+      ],
+    ])('refuses %s as Parse, so the updater remembers it', (_, exports) => {
+      expect(isFxmError(accept(exports), 'Parse')).toBe(true)
     })
 
     it('switches back to the bundled module', () => {
@@ -139,10 +167,28 @@ describe('createYouTubeModuleHost', () => {
       const subject = createYouTubeModuleHost()
       subject.subscribe(listener)
       subject.updates.module.activate(fakeModule(2, []), FETCHED)
+      expect(subject.updates.module.inUse()).toEqual({ version: 2, origin: 'fetched' })
       subject.updates.module.useBundled()
       expect(subject.current().module).toBe(youtubeModule)
       expect(subject.current().moduleOrigin).toBe('bundled')
       expect(listener).toHaveBeenCalledTimes(2)
+    })
+
+    it('switches completely or not at all', () => {
+      const subject = createYouTubeModuleHost()
+      const before = subject.current()
+      const blind = fakeModule(2, [], {
+        checkConfig: () => {
+          throw new FxmError('Parse', 'Reads no config')
+        },
+      })
+      expect(caught(() => subject.updates.module.activate(blind, FETCHED))).toBeInstanceOf(Error)
+      expect(subject.current()).toBe(before)
+      expect(subject.updates.module.inUse()).toEqual({ version: 1, origin: 'bundled' })
+      // The next good update is not affected by the refused one.
+      const document = { ...bundledConfig, revision: 5 }
+      subject.updates.config.activate({ document, revision: 5 }, FETCHED)
+      expect(subject.current()).toMatchObject({ module: youtubeModule, configRevision: 5 })
     })
   })
 
@@ -165,25 +211,43 @@ describe('createYouTubeModuleHost', () => {
       }
     })
 
-    it('waits, unused, for a module that can read it', () => {
+    it('that the module in use can’t read is refused as Unsupported, which isn’t remembered', () => {
       const host = createYouTubeModuleHost()
-      // A config for a newer module: the module in use refuses its hosts, say.
       const future = { ...bundledConfig, revision: 6, defaultHost: 'future.example' }
-      const value = host.updates.config.accept(future, { version: 6 })
-      host.updates.config.activate(value, FETCHED)
-      expect(host.current()).toMatchObject({
-        configRevision: bundledConfig.revision,
-        configOrigin: 'bundled',
+      const error = caught(() => host.updates.config.accept(future, { version: 6 }))
+      expect(isFxmError(error, 'Unsupported')).toBe(true)
+      // A module that reads it takes it.
+      host.updates.module.activate(
+        fakeModule(2, [], {
+          checkConfig: (candidate) => (candidate as { revision: number }).revision,
+          create: () => youtubeModule.create({ config: youtubeModule.config }),
+        }),
+        FETCHED,
+      )
+      expect(host.updates.config.accept(future, { version: 6 })).toEqual({
+        document: future,
+        revision: 6,
       })
-      const newer = fakeModule(2, [], {
-        checkConfig: (candidate) => (candidate as { revision: number }).revision,
-      })
-      host.updates.module.activate(newer, FETCHED)
-      expect(host.current()).toMatchObject({
-        config: future,
-        configRevision: 6,
-        configOrigin: 'fetched',
-      })
+    })
+
+    it('that doesn’t start the module in use is refused as Parse', () => {
+      const host = createYouTubeModuleHost()
+      host.updates.module.activate(
+        fakeModule(2, [], {
+          create: (options) => {
+            if ((options.config as { revision: number }).revision === 7) throw new Error('boom')
+            return youtubeModule.create(options)
+          },
+        }),
+        FETCHED,
+      )
+      const document = { ...bundledConfig, revision: 7 }
+      expect(
+        isFxmError(
+          caught(() => host.updates.config.accept(document, { version: 7 })),
+          'Parse',
+        ),
+      ).toBe(true)
     })
 
     it('replaces the config in use with a newer one, and reverts to it', () => {
@@ -196,8 +260,8 @@ describe('createYouTubeModuleHost', () => {
         configRevision: 5,
         configOrigin: 'fetched',
       })
+      expect(host.updates.config.inUse()).toEqual({ version: 5, origin: 'fetched' })
       expect(host.providers()).not.toBe(before)
-      expect(host.providers().session.config.revision).toBe(5)
       host.updates.config.useBundled()
       expect(host.current()).toMatchObject({
         configRevision: bundledConfig.revision,
@@ -210,6 +274,8 @@ describe('createYouTubeModuleHost', () => {
       const own = { ...bundledConfig, revision: 7 }
       host.updates.module.activate(fakeModule(2, [], { config: own }), FETCHED)
       expect(host.current()).toMatchObject({ configRevision: 7, configOrigin: 'module' })
+      // The module brought it, so it counts as fetched for the updater.
+      expect(host.updates.config.inUse()).toEqual({ version: 7, origin: 'fetched' })
       host.updates.config.activate(
         { document: { ...bundledConfig, revision: 5 }, revision: 5 },
         FETCHED,
@@ -265,8 +331,10 @@ describe('createYouTubeModuleHost', () => {
     expect(second).toHaveBeenCalledOnce()
   })
 
-  it('falls back to the bundled module when a downloaded one fails to start', async () => {
+  it('goes back to the bundled module when a downloaded one fails to start, and says so', async () => {
     const host = createYouTubeModuleHost()
+    const failures: [number, string][] = []
+    host.updates.module.watch((version, reason) => failures.push([version, reason]))
     const failing = fakeModule(2, [], {
       create: () => {
         throw new Error('This module is broken')
@@ -281,6 +349,28 @@ describe('createYouTubeModuleHost', () => {
     )
     expect(tracks?.items.length).toBeGreaterThan(0)
     expect(host.current().module).toBe(youtubeModule)
+    expect(host.updates.module.inUse()).toEqual({ version: 1, origin: 'bundled' })
+    expect(failures).toEqual([[2, 'This module is broken']])
+  })
+
+  it('drops a config update that doesn’t start the module, and says so', () => {
+    const host = createYouTubeModuleHost({
+      bundled: fakeModule(1, [], {
+        create: (options) => {
+          if ((options.config as { revision: number }).revision === 5) throw new Error('boom')
+          return youtubeModule.create(options)
+        },
+      }),
+    })
+    const failures: number[] = []
+    host.updates.config.watch((revision) => failures.push(revision))
+    host.updates.config.activate(
+      { document: { ...bundledConfig, revision: 5 }, revision: 5 },
+      FETCHED,
+    )
+    expect(host.providers().music.id).toBe('ytm')
+    expect(host.current()).toMatchObject({ configRevision: bundledConfig.revision })
+    expect(failures).toEqual([5])
   })
 
   it('fails when the bundled module itself can’t start', () => {

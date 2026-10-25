@@ -113,7 +113,7 @@ The `streams` section of `../youtube-config.json`, read by `parseStreamConfig(do
 }
 ```
 
-The parser checks every field: hosts must be InnerTube hosts (`INNERTUBE_HOSTS`), client fields are limited to `deviceMake`, `deviceModel`, `osName`, `osVersion`, `platform`, `androidSdkVersion` and `userAgent`, and rung IDs are unique. `pickStreamConfig(candidate, current)` takes a newer valid document (a higher `revision`) and otherwise keeps the current one; pass the source a function (`streamConfig: () => current`) to switch without losing its health. Stage 1.13 adds signature checks.
+The parser checks every field: hosts must be InnerTube hosts (`INNERTUBE_HOSTS`), client fields are limited to `deviceMake`, `deviceModel`, `osName`, `osVersion`, `platform`, `androidSdkVersion` and `userAgent`, and rung IDs are unique. `pickStreamConfig(candidate, current)` takes a newer valid document (a higher `revision`) and otherwise keeps the current one; pass the source a function (`streamConfig: () => current`) to switch without losing its health. It checks no signature, so give it only trusted documents: a config from the network comes through [`youtube/module`](../module/README.md)'s host and `@fxm/platform`'s updater, which verify it first.
 
 ## The request budget
 

@@ -2,16 +2,26 @@
  * Builds the YouTube module: `entry.ts` and everything it uses (the YouTube providers,
  * youtubei.js, `@fxm/core`) as one self-contained ES module, `youtube-module-<api>.js`, which
  * exports `youtubeModule`. It has no imports, no chunks and no assets, so it runs from a `blob:`
- * URL. `scripts/sign-module.sh` builds and signs it; tests build it to check the real bundle.
+ * URL. It opens with the licence notices of everything bundled into it, so the file carries them
+ * wherever it goes. The same sources and lockfile give the same bytes, so anyone can rebuild a
+ * published module and compare. `scripts/sign-module.sh` builds and signs it; tests build it to
+ * check the real bundle.
  *
  * Plain JavaScript with types in `build.d.mts`, because the YouTube code's own TypeScript setup
  * has no Node types. Node runs it with type stripping, which also lets it read `version.ts`.
  */
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 import { YOUTUBE_MODULE_API, YOUTUBE_MODULE_FILE, YOUTUBE_MODULE_VERSION } from './version.ts'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
+/** FXM's licence, the Apache License 2.0, which also covers the bundled Apache-licensed code. */
+const FXM_LICENSE = fileURLToPath(new URL('../../../../../LICENSE', import.meta.url))
+const SOURCE = 'https://github.com/Pratyay-ops/FXM'
+const NODE_MODULES = '/node_modules/'
+const LICENSE_FILE = /^(?:licen[cs]e|copying)(?:[.-].*)?$/iu
 
 /**
  * A plugin that gives the module another version. Only tests use it: a published module takes
@@ -57,6 +67,102 @@ export function brokenFormatParser() {
 }
 
 /**
+ * The bundled npm packages, by folder: each with the bundled files from it, in order.
+ *
+ * @param {readonly string[]} moduleIds
+ * @returns {Map<string, string[]>}
+ */
+function bundledPackages(moduleIds) {
+  const packages = new Map()
+  for (const raw of [...moduleIds].sort()) {
+    if (raw.startsWith('\0')) continue
+    const id = raw.split('?')[0] ?? raw
+    const at = id.lastIndexOf(NODE_MODULES)
+    if (at === -1) continue
+    const parts = id.slice(at + NODE_MODULES.length).split('/')
+    const name = parts[0]?.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]
+    const root = `${id.slice(0, at)}${NODE_MODULES}${name}`
+    packages.set(root, [...(packages.get(root) ?? []), id])
+  }
+  return packages
+}
+
+/**
+ * The comment a file starts with, without its comment marks.
+ *
+ * @param {string} code
+ */
+function leadingComment(code) {
+  const lines = []
+  for (const line of code.split('\n')) {
+    const match = /^\s*\/\/ ?(.*)$/u.exec(line)
+    if (match === null) break
+    lines.push(match[1] ?? '')
+  }
+  if (lines.length > 0) return lines.join('\n').trim()
+  const block = /^\s*\/\*([\s\S]*?)\*\//u.exec(code)
+  return (block?.[1] ?? '')
+    .split('\n')
+    .map((line) => line.replace(/^\s*\* ?/u, ''))
+    .join('\n')
+    .trim()
+}
+
+/**
+ * A package's licence notices: its licence files or, for a package that ships none (such as
+ * `@bufbuild/protobuf`), the copyright headers of its bundled files.
+ *
+ * @param {string} root
+ * @param {readonly string[]} files
+ */
+async function noticesOf(root, files) {
+  const names = (await readdir(root)).filter((name) => LICENSE_FILE.test(name)).sort()
+  if (names.length > 0) {
+    const texts = await Promise.all(names.map((name) => readFile(join(root, name), 'utf8')))
+    return texts.map((text) => text.trim()).join('\n\n')
+  }
+  const notices = new Set()
+  for (const file of files) {
+    const header = leadingComment(await readFile(file, 'utf8'))
+    if (/copyright/iu.test(header)) notices.add(header)
+  }
+  if (notices.size === 0) throw new Error(`No licence notice found for the bundled ${root}`)
+  return [...notices].join('\n\n')
+}
+
+/**
+ * The licence banner the module opens with: what it is, then the notices of each bundled
+ * package, then FXM's licence. A `/*!` comment, which minifiers keep.
+ *
+ * @param {readonly string[]} moduleIds
+ * @param {number} version
+ */
+async function licenseBanner(moduleIds, version) {
+  const sections = []
+  for (const [root, files] of bundledPackages(moduleIds)) {
+    const {
+      name,
+      version: packageVersion,
+      license,
+    } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+    sections.push(`== ${name} ${packageVersion}: ${license} ==\n\n${await noticesOf(root, files)}`)
+  }
+  sections.sort()
+  const text = [
+    `FXM YouTube resolver module, version ${version}, contract ${YOUTUBE_MODULE_API}: ${SOURCE}`,
+    'FXM’s own code in this file (its packages/core and packages/sources) is licensed under the Apache License 2.0, whose text ends this notice. The file also contains the software below, each under the notices that follow its name.',
+    ...sections,
+    `== Apache License 2.0 ==\n\n${(await readFile(FXM_LICENSE, 'utf8')).trim()}`,
+  ].join('\n\n')
+  const body = text
+    .replaceAll('*/', '* /')
+    .split('\n')
+    .map((line) => ` * ${line}`.trimEnd())
+    .join('\n')
+  return `/*!\n${body}\n */\n`
+}
+
+/**
  * Builds the module and returns its code. With `outDir`, also writes it there.
  *
  * @param {import('./build.d.mts').BuildOptions} [options]
@@ -75,9 +181,9 @@ export async function buildYouTubeModule(options = {}) {
     publicDir: false,
     plugins,
     build: {
-      outDir: options.outDir ?? 'dist',
+      outDir: 'dist',
       emptyOutDir: false,
-      write: options.outDir !== undefined,
+      write: false,
       copyPublicDir: false,
       sourcemap: false,
       reportCompressedSize: false,
@@ -105,11 +211,11 @@ export async function buildYouTubeModule(options = {}) {
   if (!chunk.exports.includes('youtubeModule')) {
     throw new Error('The module must export youtubeModule')
   }
-  return {
-    fileName: YOUTUBE_MODULE_FILE,
-    api: YOUTUBE_MODULE_API,
-    version,
-    code: chunk.code,
-    bytes: new TextEncoder().encode(chunk.code),
+  const code = `${await licenseBanner(chunk.moduleIds, version)}${chunk.code}`
+  const bytes = new TextEncoder().encode(code)
+  if (options.outDir !== undefined) {
+    await mkdir(options.outDir, { recursive: true })
+    await writeFile(join(options.outDir, YOUTUBE_MODULE_FILE), bytes)
   }
+  return { fileName: YOUTUBE_MODULE_FILE, api: YOUTUBE_MODULE_API, version, code, bytes }
 }

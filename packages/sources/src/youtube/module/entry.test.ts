@@ -68,9 +68,11 @@ describe('youtubeModule', () => {
     expect(providers.music.id).toBe('ytm')
     expect(providers.video.id).toBe('yt')
     expect(providers.audio.id).toBe('ytm')
-    expect(providers.music.session).toBe(providers.session)
-    expect(providers.video.session).toBe(providers.session)
-    expect(providers.audio.session).toBe(providers.session)
+    // Only the contract's providers cross; the session they share stays inside the module.
+    expect(Object.keys(providers).sort()).toEqual(['audio', 'music', 'video'])
+    const sessionOf = (provider: object) => (provider as { session?: unknown }).session
+    expect(sessionOf(providers.video)).toBe(sessionOf(providers.music))
+    expect(sessionOf(providers.audio)).toBe(sessionOf(providers.music))
     expect(youtube.requests).toEqual([])
   })
 

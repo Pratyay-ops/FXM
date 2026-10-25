@@ -5,7 +5,8 @@
  *
  * Everything YouTube-specific is inside: the metadata providers (youtubei.js and FXM's parsers),
  * the stream ladder, the request shape and the config checks. The module reaches the network
- * only through the `ctx.fetch` each call gets, so the platform's host allow-lists still apply.
+ * only through the `ctx.fetch` each call gets, so the platform's host allow-lists apply to it;
+ * `bundle.test.ts` checks this by making every other way out throw while the bundle works.
  *
  * @module
  */
@@ -56,6 +57,7 @@ export const youtubeModule: YouTubeModule = Object.freeze({
       ...(options.budget === undefined ? {} : { budget: options.budget }),
       ...(options.timeoutMs === undefined ? {} : { playerTimeoutMs: options.timeoutMs }),
     })
-    return { ...providers, audio }
+    // Only what the contract names: youtubei.js's session stays inside the module.
+    return { music: providers.music, video: providers.video, audio }
   },
 } satisfies YouTubeModule)

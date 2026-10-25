@@ -44,8 +44,8 @@ export interface YouTubeAudioSourceOptions extends YouTubeSessionOptions {
   session?: YouTubeSession
   /**
    * The ladder's config: a value, or a function that returns the one in use, so that a newer
-   * config (see `pickStreamConfig`) takes effect without a new source. The bundled one by
-   * default.
+   * trusted config (bundled, or verified by `@fxm/platform`'s updater; see `pickStreamConfig`)
+   * takes effect without a new source. The bundled one by default.
    */
   streamConfig?: StreamConfig | (() => StreamConfig)
   /**

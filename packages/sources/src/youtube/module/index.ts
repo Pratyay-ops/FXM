@@ -11,32 +11,41 @@
  * const options = await youtube.audio.resolve(candidate, ctx, prefs)
  * ```
  *
+ * The module's build and test helpers have entry points of their own:
+ * `@fxm/sources/youtube/module/build` and `@fxm/sources/youtube/module/testing`.
+ *
  * @module
  */
 
 export {
   isYouTubeModule,
   type YouTubeModule,
+  type YouTubeModuleAudio,
+  type YouTubeModuleMusic,
   type YouTubeModuleOptions,
   type YouTubeModuleProviders,
+  type YouTubeModuleVideo,
 } from './api'
 export { youtubeModule } from './entry'
 export {
+  type ActivationInfo,
   createYouTubeModuleHost,
+  type FailureListener,
   type SignedVersion,
-  type UpdateActivation,
+  type UpdateOrigin,
+  type VersionInUse,
+  type YouTubeConfigArtifactSpec,
   type YouTubeConfigDocument,
   type YouTubeConfigOrigin,
-  type YouTubeConfigUpdate,
+  type YouTubeModuleArtifactSpec,
   type YouTubeModuleHost,
   type YouTubeModuleHostOptions,
-  type YouTubeModuleOrigin,
   type YouTubeModuleState,
-  type YouTubeModuleUpdate,
 } from './host'
 export {
   YOUTUBE_CONFIG_FILE,
   YOUTUBE_CONFIG_KIND,
+  YOUTUBE_CONFIG_SCHEMA,
   YOUTUBE_MODULE_API,
   YOUTUBE_MODULE_FILE,
   YOUTUBE_MODULE_KIND,

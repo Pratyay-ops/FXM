@@ -2,12 +2,13 @@
  * The stream ladder's config: which rungs exist, in which order, which are on, which InnerTube
  * client each one calls and which formats it offers. It lives in the `streams` section of
  * `youtube-config.json`, next to the metadata config of `../config.ts`, so one versioned
- * document (shipped with the app, or a newer one fetched from the static site) can reorder,
- * disable or update the rungs without new code.
+ * document (shipped with the app, or a newer signed one fetched from the static site) can
+ * reorder, disable or update the rungs without new code.
  *
  * {@link parseStreamConfig} reads that section of a whole config document. Like the metadata
  * config, it checks every field and refuses any host outside `INNERTUBE_HOSTS`, so a config can
- * change values but never send a request to another host. Stage 1.13 adds signature checks.
+ * change values but never send a request to another host. A config from the network must have
+ * its signature checked first: the apps take one only through `youtube/module`'s host.
  *
  * @module
  */
@@ -261,10 +262,12 @@ export interface StreamConfigChoice {
 }
 
 /**
- * Chooses between the stream config in use and a candidate document, e.g. one fetched from the
- * static site: the candidate wins only when its `streams` section is valid and its `revision`
- * is higher. It never throws, so a broken or older document leaves the current config in place,
- * and `reason` says why. Hand the same document to `pickYouTubeConfig` for the metadata part.
+ * Chooses between the stream config in use and a candidate document that is already trusted
+ * (bundled, or verified by `@fxm/platform`'s updater): the candidate wins only when its
+ * `streams` section is valid and its `revision` is higher. It never throws, so a broken or older
+ * document leaves the current config in place, and `reason` says why. Hand the same document to
+ * `pickYouTubeConfig` for the metadata part. It checks no signature: never pass it a document
+ * straight from the network.
  */
 export function pickStreamConfig(
   candidate: unknown,

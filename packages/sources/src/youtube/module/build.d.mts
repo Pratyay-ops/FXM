@@ -8,7 +8,7 @@ export type ModulePlugin = object
 
 /** Options for {@link buildYouTubeModule}. */
 export interface BuildOptions {
-  /** Also write the file into this folder. Default: build in memory only. */
+  /** Also write the file into this folder (relative to the current one). Default: memory only. */
   readonly outDir?: string
   /** Minify the output. Default `true`. */
   readonly minify?: boolean
@@ -26,7 +26,7 @@ export interface BuiltModule {
   readonly api: number
   /** Its version. */
   readonly version: number
-  /** Its code. */
+  /** Its code, starting with the licence notices of everything bundled into it. */
   readonly code: string
   /** Its code as UTF-8 bytes, as they are signed and published. */
   readonly bytes: Uint8Array<ArrayBuffer>

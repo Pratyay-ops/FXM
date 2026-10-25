@@ -2,11 +2,13 @@
  * The YouTube client config: client names and versions, the hosts each client calls, search
  * filter parameters, the radio parameters and a few display labels. It is data only, so a YouTube
  * change that needs new values ships as a new `youtube-config.json` (a static redeploy, or a
- * config fetched from the static site) instead of new code.
+ * signed config fetched from the static site) instead of new code.
  *
  * Every config goes through {@link parseYouTubeConfig}, which checks the schema and that every
  * host is one of the {@link INNERTUBE_HOSTS}: a config can change values, but never send a
- * request to another host. Stage 1.13 adds signature checks on top.
+ * request to another host. A config from the network must have its signature checked first:
+ * the apps take one only through `youtube/module`'s host (`updates.config`) and
+ * `@fxm/platform`'s updater.
  *
  * @module
  */
@@ -262,9 +264,11 @@ export interface ConfigChoice {
 }
 
 /**
- * Chooses between the config in use and a candidate, e.g. one fetched from the static site: the
- * candidate wins only when it is valid and has a higher `revision`. It never throws, so a broken
- * or older config leaves the current one in place, and `reason` says why.
+ * Chooses between the config in use and a candidate that is already trusted (bundled, or
+ * verified by `@fxm/platform`'s updater): the candidate wins only when it is valid and has a
+ * higher `revision`. It never throws, so a broken or older config leaves the current one in
+ * place, and `reason` says why. It checks no signature: never pass it a config straight from the
+ * network; the apps take those through `youtube/module`'s host.
  */
 export function pickYouTubeConfig(
   candidate: unknown,
