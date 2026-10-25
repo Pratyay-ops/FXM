@@ -31,6 +31,13 @@ export interface StreamFailure {
   stream?: StreamOption
   /** Where playback was, in milliseconds; the player resumes there. */
   positionMs: number
+  /**
+   * Whether the failed stream had started playing: the engine reported `play` for it. `false`
+   * for a failure before the first `play` event, which in the Lite tier, where the bytes cannot
+   * be read, is how a capped URL shows: the media element's first request is the probe. Present
+   * whenever `stream` is.
+   */
+  started?: boolean
 }
 
 /** The details of one resolution. */
