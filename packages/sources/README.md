@@ -34,7 +34,7 @@ const { tracks } = await music.search('Radiohead Creep', { types: ['track'] }, c
 const radio = await music.radioPage(tracks.items[0], {}, ctx) // then { cursor: radio.nextCursor }
 ```
 
-Both providers reject with an `Unsupported` `FxmError`, before any request, when `ctx.capabilities.youtube` is `none`. Stream resolution is stage 1.4; it gets a youtubei.js `Innertube` with the same request shape from `session.innertube(ctx)`.
+Both providers reject with an `Unsupported` `FxmError`, before any request, when `ctx.capabilities.youtube` is `none`. Stream resolution, on the same session, is `createYouTubeAudioSource()` in [`youtube/stream/`](src/youtube/stream/README.md).
 
 ### Request shape
 
