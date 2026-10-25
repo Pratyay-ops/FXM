@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { EntityId, SourceId } from './ids'
+import type { EntityId, EntityKind, SourceId } from './ids'
 
 /** One size of a cover image or photo. */
 export interface Artwork {
@@ -182,16 +182,31 @@ export interface Page<T> {
   total?: number
 }
 
-/** The kinds of results a search can ask for. */
-export type SearchType = 'track' | 'album' | 'artist' | 'playlist'
+/**
+ * The kinds of results a search can ask for: every {@link EntityKind}, plus `video`. Songs and
+ * videos are separate types, so each has its own page and cursor:
+ *
+ * - `track`: songs (kind `song`), i.e. YouTube Music catalog songs and the tracks of non-YouTube
+ *   sources, in both modes
+ * - `video`: official music videos and other videos (kinds `music-video` and `video`). Only
+ *   Music + Video mode shows them, so request this type only in `all` mode; in `music` mode a
+ *   provider answers it with an empty page
+ * - `album`, `artist` and `playlist`
+ */
+export type SearchType = EntityKind | 'video'
 
 /**
  * The results of one search: one page per requested type. A type that was not requested is
  * absent; a requested type with no results is an empty page.
  */
 export interface SearchResults {
-  /** Tracks, already filtered by the catalog mode. */
+  /** Songs (kind `song` only), for the `track` type. Never holds videos. */
   tracks?: Page<Track>
+  /**
+   * Official music videos and other videos (kinds `music-video` and `video`), for the `video`
+   * type. Always an empty page in `music` mode.
+   */
+  videos?: Page<Track>
   /** Albums. */
   albums?: Page<Album>
   /** Artists. */

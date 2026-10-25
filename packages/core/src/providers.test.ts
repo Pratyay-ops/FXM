@@ -1,8 +1,8 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { FxmError } from './errors'
 import { type EntityId, formatId, parseId } from './ids'
-import { applyModeFilter, filterPlayable, isPlayable } from './mode'
-import type { Track } from './model'
+import { applyModeFilter, filterPlayable, isPlayable, isVideoKind } from './mode'
+import type { SearchResults, SearchType, Track } from './model'
 import type {
   AbortSignalLike,
   AccountProvider,
@@ -61,8 +61,19 @@ const catalog: MetadataProvider & RecommendationProvider = {
   id: 'ytm',
   async search(query, options, ctx) {
     const matches = [song, video].filter((track) => track.title.includes(query))
-    const tracks = applyModeFilter(matches, ctx.mode).slice(0, options.limit ?? 20)
-    return options.types.includes('track') ? { tracks: { items: tracks } } : {}
+    const limit = options.limit ?? 20
+    const results: SearchResults = {}
+    if (options.types.includes('track')) {
+      results.tracks = { items: matches.filter((track) => track.kind === 'song').slice(0, limit) }
+    }
+    if (options.types.includes('video')) {
+      const videos = ctx.mode === 'all' ? matches.filter((track) => isVideoKind(track.kind)) : []
+      results.videos = { items: videos.slice(0, limit) }
+    }
+    return results
+  },
+  async suggest(query) {
+    return query === '' ? [] : [`${query} remix`, `${query} live`]
   },
   async getTrack(id) {
     const track = [song, video].find((candidate) => candidate.id === id)
@@ -166,11 +177,23 @@ const account: AccountProvider = {
 
 describe('provider interfaces', () => {
   it('search and radio respect the catalog mode through the context', async () => {
-    const music = await catalog.search('', { types: ['track'] }, context('music'))
-    const all = await catalog.search('', { types: ['track'], limit: 5 }, context('all'))
-    expect(music.tracks?.items.map((track) => track.kind)).toEqual(['song'])
-    expect(all.tracks?.items.map((track) => track.kind)).toEqual(['song', 'video'])
+    const types = ['track', 'video'] as const
+    const music = await catalog.search('', { types }, context('music'))
+    const all = await catalog.search('', { types, limit: 5 }, context('all'))
+    const kinds = (results: SearchResults, type: 'tracks' | 'videos') =>
+      results[type]?.items.map((track) => track.kind)
+    expect([kinds(music, 'tracks'), kinds(music, 'videos')]).toEqual([['song'], []])
+    expect([kinds(all, 'tracks'), kinds(all, 'videos')]).toEqual([['song'], ['video']])
+    expect(await catalog.search('', { types: ['album'] }, context('all'))).toEqual({})
     expect(await catalog.radio({ name: 'Artist' }, context('music'))).toEqual([song])
+  })
+
+  it('suggests queries when the provider can', async () => {
+    expect(await catalog.suggest?.('never', context('music'))).toEqual([
+      'never remix',
+      'never live',
+    ])
+    expectTypeOf<SearchType>().toEqualTypeOf<'track' | 'album' | 'artist' | 'playlist' | 'video'>()
   })
 
   it('loads entities by typed ID and rejects unknown ones with FxmError', async () => {

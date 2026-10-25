@@ -139,8 +139,8 @@ export interface PageOptions {
 /** Options for {@link MetadataProvider.search}. */
 export interface SearchOptions extends PageOptions {
   /**
-   * The result types to return, one page each. To load more of one type, search again with
-   * only that type and the `cursor` of its page.
+   * The result types to return, one page each. Request `video` only in `all` mode. To load more
+   * of one type, search again with only that type and the `cursor` of its page.
    */
   types: readonly SearchType[]
 }
@@ -149,8 +149,16 @@ export interface SearchOptions extends PageOptions {
 export interface MetadataProvider {
   /** The source this provider reads. */
   readonly id: SourceId
-  /** Searches the catalog. Track results respect `ctx.mode`. */
+  /**
+   * Searches the catalog, one page per requested type. Songs go to `tracks` and videos to
+   * `videos`, which stays empty in `music` mode (see `SearchType`).
+   */
   search(query: string, options: SearchOptions, ctx: ProviderContext): Promise<SearchResults>
+  /**
+   * Completions for a partial query, best first, for the search box while the user types.
+   * Empty when the source has none.
+   */
+  suggest?(query: string, ctx: ProviderContext): Promise<string[]>
   /** Loads one track. Rejects with `NotFound` when it does not exist. */
   getTrack(id: EntityId<'track'>, ctx: ProviderContext): Promise<Track>
   /** Loads an album with its tracks. */

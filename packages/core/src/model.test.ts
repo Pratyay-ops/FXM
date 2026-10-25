@@ -1,11 +1,12 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
-import { formatId } from './ids'
+import { type EntityKind, formatId } from './ids'
 import type {
   Album,
   Artist,
   Page,
   Playlist,
   SearchResults,
+  SearchType,
   Shelf,
   ShelfItem,
   Track,
@@ -88,6 +89,19 @@ describe('collections', () => {
     const results: SearchResults = { tracks: { items: [minimal] }, artists: { items: [artist] } }
     expect(playlist.tracks?.items).toHaveLength(1)
     expect(results.albums).toBeUndefined()
+  })
+
+  it('pages songs and videos separately in search results', () => {
+    const officialVideo: Track = { ...minimal, kind: 'music-video' }
+    const results: SearchResults = {
+      tracks: { items: [minimal], nextCursor: 'songs-2' },
+      videos: { items: [officialVideo], nextCursor: 'videos-2' },
+    }
+    expect([results.tracks?.nextCursor, results.videos?.nextCursor]).toEqual([
+      'songs-2',
+      'videos-2',
+    ])
+    expectTypeOf<SearchType>().toEqualTypeOf<EntityKind | 'video'>()
   })
 
   it('tags shelf items so the UI can switch on their type', () => {
