@@ -1,0 +1,99 @@
+{
+  "created": 1792946521,
+  "d1": "ia600703.us.archive.org",
+  "dir": "/9/items/gd1977-06-09.28614.sbeok.flac16",
+  "item_last_updated": 1780372299,
+  "metadata": {
+    "identifier": "gd1977-06-09.28614.sbeok.flac16",
+    "title": "Grateful Dead Live at Winterland Arena on 1977-06-09",
+    "creator": "Grateful Dead",
+    "mediatype": "etree",
+    "collection": ["GratefulDead", "etree", "stream_only"],
+    "date": "1977-06-09",
+    "year": "1977",
+    "subject": "Live concert",
+    "access-restricted-item": "true"
+  },
+  "files": [
+    {
+      "name": "gd77-06-09d1t01.flac",
+      "source": "original",
+      "track": "1",
+      "creator": "Grateful Dead",
+      "album": "1977-06-09 - Winterland Arena",
+      "title": "Mississippi Half-Step Uptown Toodeloo",
+      "format": "Flac",
+      "size": "72636094",
+      "length": "675.7",
+      "private": "true",
+      "height": "0",
+      "width": "0",
+      "external-identifier": "urn:acoustid:71062a2e-ed9a-48f8-80ed-1f5bb742492f"
+    },
+    {
+      "name": "gd77-06-09d1t01.mp3",
+      "source": "derivative",
+      "creator": "Grateful Dead",
+      "title": "Mississippi Half-Step Uptown Toodeloo",
+      "track": "1",
+      "album": "1977-06-09 - Winterland Arena",
+      "bitrate": "187",
+      "length": "11:15",
+      "format": "VBR MP3",
+      "original": "gd77-06-09d1t01.flac",
+      "size": "15822848",
+      "height": "0",
+      "width": "0"
+    },
+    {
+      "name": "gd77-06-09d1t01.ogg",
+      "source": "derivative",
+      "format": "Ogg Vorbis",
+      "original": "gd77-06-09d1t01.flac",
+      "size": "7925229",
+      "length": "675.71",
+      "height": "0",
+      "width": "0"
+    },
+    {
+      "name": "gd77-06-09d1t02.flac",
+      "source": "original",
+      "track": "2",
+      "creator": "Grateful Dead",
+      "album": "1977-06-09 - Winterland Arena",
+      "title": "Jack Straw",
+      "format": "Flac",
+      "size": "36629448",
+      "length": "343.76",
+      "private": "true",
+      "height": "0",
+      "width": "0",
+      "external-identifier": "urn:acoustid:4af2f247-6b65-49b8-9e42-84c552175d88"
+    },
+    {
+      "name": "gd77-06-09d1t02.mp3",
+      "source": "derivative",
+      "creator": "Grateful Dead",
+      "title": "Jack Straw",
+      "track": "2",
+      "album": "1977-06-09 - Winterland Arena",
+      "bitrate": "187",
+      "length": "05:43",
+      "format": "VBR MP3",
+      "original": "gd77-06-09d1t02.flac",
+      "size": "8051200",
+      "height": "0",
+      "width": "0"
+    },
+    {
+      "name": "gd77-06-09d1t02.ogg",
+      "source": "derivative",
+      "format": "Ogg Vorbis",
+      "original": "gd77-06-09d1t02.flac",
+      "size": "4011689",
+      "length": "343.76",
+      "height": "0",
+      "width": "0"
+    }
+  ]
+}
