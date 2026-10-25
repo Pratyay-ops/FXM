@@ -8,6 +8,12 @@
 #   3. Commits "chore(release): vX.Y.Z" on develop and pushes develop.
 #   4. Opens the pull request "Release vX.Y.Z" with the version's notes and prints its URL.
 #
+# Run with the version of a release that is under way (develop already has it, and it has no
+# tag yet), it updates that release instead: after a fix reached develop while the pull request
+# was open, after the pull request was closed, or after a failed push or pull request step. It
+# sets the version in any package that lacks it, regenerates CHANGELOG.md, commits and pushes
+# them if they changed, then updates the open pull request's notes, or opens it again.
+#
 # It never merges. DRY_RUN=1 runs the checks and prints the plan and the notes without changing,
 # committing or pushing anything; a failed check is reported instead of stopping it. Merging the
 # pull request makes .github/workflows/release.yml tag the merge commit and publish the release
@@ -94,8 +100,13 @@ else
 fi
 
 current=$(fxm_release_current_version)
+update=false
 if fxm_release_newer "$version" "$current" 2>/dev/null; then
   pass "$version is higher than the current version $current"
+elif [ "$version" = "$current" ] && [ "$version" != 0.0.0 ] &&
+  ! git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+  update=true
+  pass "develop already has version $version, which has no tag yet: this updates its release"
 else
   problem "$version is not higher than the current version $current"
 fi
@@ -116,12 +127,20 @@ else
   pass "the GitHub CLI is logged in"
 fi
 
+# The open pull request from develop into main, as "<url> <title>" lines. A fork's branch may
+# be called develop too, so only this repository's own branch counts.
+pr_url=
 if $gh_ready; then
-  open_pr=$(gh pr list --base main --head develop --state open --json url --jq '.[].url')
-  if [ -z "$open_pr" ]; then
+  open_prs=$(gh pr list --base main --head develop --state open --json url,title,isCrossRepository \
+    --jq '.[] | select(.isCrossRepository | not) | .url + " " + .title')
+  if [ -z "$open_prs" ]; then
     pass "no release pull request is open"
+  elif $update && [ "$(printf '%s\n' "$open_prs" | wc -l | tr -d ' ')" = 1 ] &&
+    [ "${open_prs#* }" = "Release $tag" ]; then
+    pr_url=${open_prs%% *}
+    pass "the pull request \"Release $tag\" is open, so its notes get updated: $pr_url"
   else
-    problem "a pull request from develop into main is already open: $open_pr"
+    problem "a pull request from develop into main is already open: ${open_prs%% *}"
   fi
 fi
 
@@ -129,6 +148,10 @@ if "$here/install-git-cliff.sh" >/dev/null; then
   pass "git-cliff is installed"
 else
   fxm_die "could not install git-cliff"
+fi
+
+if ! $dry_run && [ "$problems" -gt 0 ]; then
+  fxm_die "$problems check(s) failed: fix them and run make release-pr again"
 fi
 
 notes=$work/notes.md
@@ -150,13 +173,28 @@ fxm_release_fit "$body" 65000 \
 
 if $dry_run; then
   echo
-  echo "Plan"
-  echo "  1. Set the version (scripts/release-version.sh $version):"
+  if $update; then
+    echo "Plan (update the $tag release that is under way)"
+    echo "  1. Set the version where it differs (scripts/release-version.sh $version):"
+  else
+    echo "Plan"
+    echo "  1. Set the version (scripts/release-version.sh $version):"
+  fi
   "$here/release-version.sh" --dry-run "$version" | sed 's/^/   /'
   echo "  2. Regenerate CHANGELOG.md with git-cliff: $tag gets $entries entries"
-  echo "  3. Commit \"chore(release): $tag\" on develop"
-  echo "  4. Push develop to origin"
-  echo "  5. Open the pull request develop → main \"Release $tag\" with the notes below"
+  if $update; then
+    echo "  3. If either changed, commit \"chore(release): $tag\" on develop and push develop"
+  else
+    echo "  3. Commit \"chore(release): $tag\" on develop"
+    echo "  4. Push develop to origin"
+  fi
+  if [ -n "$pr_url" ]; then
+    echo "  4. Update the notes of the pull request $pr_url to the ones below"
+  elif $update; then
+    echo "  4. Open the pull request develop → main \"Release $tag\" with the notes below"
+  else
+    echo "  5. Open the pull request develop → main \"Release $tag\" with the notes below"
+  fi
   echo
   echo "Notes for $tag"
   echo
@@ -170,34 +208,51 @@ if $dry_run; then
   exit 0
 fi
 
-[ "$problems" -eq 0 ] || fxm_die "$problems check(s) failed: fix them and run make release-pr again"
-
 echo
 step=changes
 "$here/release-version.sh" "$version"
 "$here/release-notes.sh" --changelog "$version"
-git add -A
-git commit --quiet -m "chore(release): $tag" \
-  -m "Sets every package version, APP_VERSION and the FXM Connect manifest
+if [ -n "$(git status --porcelain)" ]; then
+  git add -A
+  if $update; then
+    git commit --quiet -m "chore(release): $tag" \
+      -m "Regenerates CHANGELOG.md, and sets the version in any package that
+lacked it, because develop changed while the $tag release was under way:
+CHANGELOG.md then lists every change the release brings."
+  else
+    git commit --quiet -m "chore(release): $tag" \
+      -m "Sets every package version, APP_VERSION and the FXM Connect manifest
 to $version and regenerates CHANGELOG.md, so the release pull request
 into main carries the $tag notes."
-step=committed
-fxm_info "Committed $(git log -1 --format='%h %s')"
+  fi
+  step=committed
+  fxm_info "Committed $(git log -1 --format='%h %s')"
+  git push --quiet origin HEAD:refs/heads/develop ||
+    fxm_die "Push failed, so the release commit is only on your develop. Push it with" \
+      "git push origin develop, then run make release-pr VERSION=$version again to finish."
+  fxm_info "Pushed develop"
+else
+  step=committed
+  fxm_info "The versions and CHANGELOG.md are up to date: nothing to commit"
+fi
 
-retry_pr="gh pr create --base main --head develop --title \"Release $tag\""
-retry_pr+=" --body-file <(scripts/release-notes.sh $version)"
-git push --quiet origin HEAD:refs/heads/develop ||
-  fxm_die "Push failed, so the release commit is only on your develop." \
-    "Push it with git push origin develop, then open the pull request: $retry_pr"
-fxm_info "Pushed develop"
-
-url=$(gh pr create --base main --head develop --title "Release $tag" --body-file "$body") ||
-  fxm_die "Opening the pull request failed. develop is pushed, so open it with: $retry_pr"
-fxm_info "Release pull request: $url"
+retry="develop is pushed, so run make release-pr VERSION=$version again to finish."
+if [ -n "$pr_url" ]; then
+  gh pr edit "$pr_url" --body-file "$body" >/dev/null ||
+    fxm_die "Updating the pull request's notes failed. $retry"
+  url=$pr_url
+  fxm_info "Updated the notes of the release pull request: $url"
+else
+  url=$(gh pr create --base main --head develop --title "Release $tag" --body-file "$body") ||
+    fxm_die "Opening the pull request failed. $retry"
+  fxm_info "Release pull request: $url"
+fi
 cat <<EOF
 
 Next:
   1. Wait for CI:  gh pr checks $url --watch
+     If develop needs a fix first, push it to develop and run make release-pr VERSION=$version
+     again: it brings CHANGELOG.md and the notes up to date.
   2. Merge it with a merge commit:  gh pr merge $url --merge
      The release workflow then tags $tag and publishes the GitHub Release.
   3. Once it is published, merge main back into develop, so the next release builds on it:

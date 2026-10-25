@@ -392,6 +392,45 @@ expect "with the notes" has "$GH_STUB_DIR/pr-body.md" "- **core:** Add a thing"
 expect "prints the pull request URL" says "Release pull request: https://github.com/test/fxm/pull/7"
 expect "leaves a clean tree" test -z "$(git -C "$work" status --porcelain)"
 expect "never merges" lacks "$GH_STUB_DIR/calls.log" "pr merge"
+# Run again with the same version, it updates the release that is under way.
+commit "$work" "fix(core): a late fix"
+git -C "$work" push -q origin develop
+before=$(git -C "$work" rev-parse HEAD)
+echo "https://github.com/test/fxm/pull/7 Release v0.1.0" >"$GH_STUB_DIR/open-pr"
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "DRY_RUN=1 with the same version plans an update" \
+  test "$status" -eq 0 -a -n "$(grep 'update the v0.1.0 release that is under way' <<<"$out")"
+run "$work" scripts/release-pr.sh 0.1.0
+expect "the same version again updates the release under way" test "$status" -eq 0
+expect "with another chore(release) commit" \
+  test "$(git -C "$work" log -1 --format=%s)" = "chore(release): v0.1.0" \
+  -a "$(git -C "$work" rev-parse HEAD~1)" = "$before"
+expect "whose CHANGELOG.md lists the late fix" has "$work/CHANGELOG.md" "**core:** A late fix"
+expect "pushed to develop" \
+  test "$(git -C "$tmp/pr/origin.git" rev-parse develop)" = "$(git -C "$work" rev-parse HEAD)"
+expect "and new notes on the open pull request" \
+  has "$GH_STUB_DIR/calls.log" "pr edit https://github.com/test/fxm/pull/7 --body-file"
+expect "that list the late fix" has "$GH_STUB_DIR/pr-body.md" "**core:** A late fix"
+expect "instead of a second pull request" \
+  test "$(grep -c '^pr create' "$GH_STUB_DIR/calls.log")" = 1
+: >"$GH_STUB_DIR/open-pr"
+run "$work" scripts/release-pr.sh 0.1.0
+expect "after the pull request was closed, opens it again" \
+  test "$status" -eq 0 -a "$(grep -c '^pr create' "$GH_STUB_DIR/calls.log")" = 2
+echo "https://github.com/test/fxm/pull/9 Sync develop" >"$GH_STUB_DIR/open-pr"
+run "$work" scripts/release-pr.sh 0.1.0
+if [ "$status" -ne 0 ] && says "already open: https://github.com/test/fxm/pull/9" &&
+  lacks "$GH_STUB_DIR/calls.log" "pr edit https://github.com/test/fxm/pull/9"; then
+  ok "refuses to update a pull request that is not the release's"
+else
+  bad "refuses to update a pull request that is not the release's"
+fi
+: >"$GH_STUB_DIR/open-pr"
+git -C "$work" tag v0.1.0
+run "$work" scripts/release-pr.sh 0.1.0
+expect "refuses the version once it is tagged" \
+  test "$status" -ne 0 -a -n "$(grep 'not higher than the current version 0.1.0' <<<"$out")"
+git -C "$work" tag -d v0.1.0 >/dev/null
 
 echo "release-plan.sh"
 work=$(new_repo plan)
