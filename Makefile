@@ -91,13 +91,17 @@ wt-remove: ## Remove a stage worktree: make wt-remove BRANCH=feat/1.4-jiosaavn
 
 # --- Releases (docs/WORKFLOW.md, "Releases") -----------------------------------
 
-.PHONY: release-pr release-notes
+.PHONY: release-pr release-notes release-build
 
 release-pr: ## Open the release PR develop → main: make release-pr VERSION=x.y.z (DRY_RUN=1: plan only)
 	@DRY_RUN="$(DRY_RUN)" scripts/release-pr.sh "$(VERSION)"
 
 release-notes: ## Print the next release's notes (VERSION=x.y.z: that version's)
 	@scripts/release-notes.sh $(VERSION)
+
+release-build: ## Build what a release ships into dist/release, with SHA256SUMS
+	@scripts/release-build.sh dist/release
+	@scripts/release-build.sh --checksums dist/release
 
 # --- Cleanup -------------------------------------------------------------------
 
