@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { AVAILABLE } from '../config'
 import { cardForPlatform, detectPlatform, type Platform } from './platform'
 
 // Real user agents (Chromium's reduced format where it applies).
@@ -44,13 +45,54 @@ describe('detectPlatform', () => {
 })
 
 describe('cardForPlatform', () => {
-  it('suggests the app for the platform, or the web app where there is none', () => {
-    expect(cardForPlatform('android')).toBe('android')
-    expect(cardForPlatform('windows')).toBe('desktop')
-    expect(cardForPlatform('macos')).toBe('desktop')
-    expect(cardForPlatform('linux')).toBe('desktop')
-    expect(cardForPlatform('ios')).toBe('web')
-    expect(cardForPlatform('chromeos')).toBe('web')
-    expect(cardForPlatform(null)).toBeNull()
+  const none = { desktop: false, android: false }
+  const both = { desktop: true, android: true }
+  const platforms: (Platform | null)[] = [
+    'android',
+    'ios',
+    'chromeos',
+    'windows',
+    'macos',
+    'linux',
+    null,
+  ]
+
+  it.each([
+    ['nothing', none],
+    ['everything', both],
+    ['what src/config.ts says', AVAILABLE],
+  ])('never suggests an app that is not out (released: %s)', (_name, released) => {
+    for (const platform of platforms) {
+      const card = cardForPlatform(platform, released)
+      expect(card === null || card === 'web' || released[card]).toBe(true)
+    }
+  })
+
+  it('sends computers to the web app and FXM Connect until the desktop app is out', () => {
+    for (const platform of ['windows', 'macos', 'linux', 'chromeos'] as const) {
+      expect(cardForPlatform(platform, none)).toBe('web')
+    }
+  })
+
+  it('suggests nothing on phones while there is no app for them', () => {
+    expect(cardForPlatform('android', none)).toBeNull()
+    expect(cardForPlatform('ios', none)).toBeNull()
+  })
+
+  it('suggests the apps once they are released', () => {
+    expect(cardForPlatform('windows', both)).toBe('desktop')
+    expect(cardForPlatform('macos', both)).toBe('desktop')
+    expect(cardForPlatform('linux', both)).toBe('desktop')
+    expect(cardForPlatform('android', both)).toBe('android')
+  })
+
+  it('keeps Chromebooks on the web app and iPhones without a suggestion', () => {
+    expect(cardForPlatform('chromeos', both)).toBe('web')
+    expect(cardForPlatform('ios', both)).toBeNull()
+  })
+
+  it('suggests nothing for an unknown device', () => {
+    expect(cardForPlatform(null, none)).toBeNull()
+    expect(cardForPlatform(null, both)).toBeNull()
   })
 })

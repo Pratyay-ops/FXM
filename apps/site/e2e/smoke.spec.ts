@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, type Page, test } from '@playwright/test'
+import { AVAILABLE } from '../src/config'
 
 // Browser checks on the production build: `pnpm --filter @fxm/site e2e`. They need
 // Chromium from .tools/playwright, so `make test` does not run them.
@@ -16,6 +17,7 @@ const USER_AGENTS = {
     'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
   windows:
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+  mac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
   iphone:
     'Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Mobile/15E148 Safari/604.1',
   bot: 'Mozilla/5.0 (compatible; ExampleBot/1.0)',
@@ -100,21 +102,33 @@ test('stops the playing animation when reduced motion is on', async ({ page }) =
 })
 
 test.describe('the Download button', () => {
+  // Only cards with something to download are suggested (AVAILABLE in src/config.ts).
+  const computer = AVAILABLE.desktop ? 'get-desktop' : 'get-web'
   for (const [device, userAgent, card] of [
-    ['an Android phone', USER_AGENTS.android, 'get-android'],
-    ['a Windows PC', USER_AGENTS.windows, 'get-desktop'],
-    ['an iPhone', USER_AGENTS.iphone, 'get-web'],
+    ['a Windows PC', USER_AGENTS.windows, computer],
+    ['a Mac', USER_AGENTS.mac, computer],
+    ['an Android phone', USER_AGENTS.android, AVAILABLE.android ? 'get-android' : null],
+    ['an iPhone', USER_AGENTS.iphone, null],
   ] as const) {
     test.describe(`on ${device}`, () => {
       test.use({ userAgent })
 
-      test(`points to #${card}`, async ({ page }) => {
-        await page.goto('/')
-        await expect(page.locator('[data-download-link]')).toHaveAttribute('href', `#${card}`)
-        await expect(page.locator(`#${card}`)).toHaveClass(/is-suggested/)
-        await expect(page.locator(`#${card} .for-you`)).toBeVisible()
-        await expect(page.locator('.is-suggested')).toHaveCount(1)
-      })
+      if (card) {
+        test(`points to #${card}`, async ({ page }) => {
+          await page.goto('/')
+          await expect(page.locator('[data-download-link]')).toHaveAttribute('href', `#${card}`)
+          await expect(page.locator(`#${card}`)).toHaveClass(/is-suggested/)
+          await expect(page.locator(`#${card} .for-you`)).toBeVisible()
+          await expect(page.locator('.is-suggested')).toHaveCount(1)
+        })
+      } else {
+        test('points to all the options', async ({ page }) => {
+          await page.goto('/')
+          await expect(page.locator('[data-download-link]')).toHaveAttribute('href', '#get')
+          await expect(page.locator('.is-suggested')).toHaveCount(0)
+          await expect(page.locator('.for-you').first()).toBeHidden()
+        })
+      }
     })
   }
 

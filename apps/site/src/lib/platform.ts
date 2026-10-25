@@ -1,7 +1,7 @@
 /**
- * Picks the "Get FXM" card that fits the visitor's device. Used by the only script on
- * the site (src/components/GetFxm.astro), which is a progressive enhancement: without
- * it, the Download buttons simply scroll to all three cards.
+ * Picks the "Get FXM" card that fits the visitor's device. Used by the script in
+ * src/components/GetFxm.astro, which is a progressive enhancement: without it, the
+ * Download buttons simply scroll to all three cards.
  */
 
 export type Platform = 'android' | 'ios' | 'chromeos' | 'windows' | 'macos' | 'linux'
@@ -48,21 +48,35 @@ export function detectPlatform({
   return HINTS[platformHint.trim().toLowerCase()] ?? null
 }
 
+/** Which apps are out: AVAILABLE in src/config.ts. */
+export interface ReleasedApps {
+  desktop: boolean
+  android: boolean
+}
+
 /**
- * The card to suggest. iPhone and iPad have no FXM app and Chromebooks run the
- * browser extension, so both get the web app.
+ * The card to suggest, or null to leave all three to the visitor. Only released apps
+ * are suggested, so nobody is sent to a "Coming soon" card:
+ *
+ * - Computers get the desktop app once it is out, and the web app with FXM Connect
+ *   (Chrome, Edge or Brave on a computer) until then. Chromebooks always get the web app.
+ * - Android phones get the APK once it is out, and no suggestion until then: FXM Connect
+ *   can't be added to a phone's browser.
+ * - iPhone and iPad get no suggestion: there is no app and no FXM Connect for them.
  */
-export function cardForPlatform(platform: Platform | null): DownloadCard | null {
+export function cardForPlatform(
+  platform: Platform | null,
+  released: ReleasedApps,
+): DownloadCard | null {
   switch (platform) {
-    case 'android':
-      return 'android'
     case 'windows':
     case 'macos':
     case 'linux':
-      return 'desktop'
-    case 'ios':
+      return released.desktop ? 'desktop' : 'web'
     case 'chromeos':
       return 'web'
+    case 'android':
+      return released.android ? 'android' : null
     default:
       return null
   }

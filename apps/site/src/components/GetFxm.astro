@@ -1,5 +1,6 @@
 ---
-import { APP_PATH, RELEASES_URL } from '../config'
+import { APP_PATH, AVAILABLE, RELEASES_URL } from '../config'
+import ComingSoon from './ComingSoon.astro'
 import Icon from './Icon.astro'
 ---
 
@@ -15,28 +16,37 @@ import Icon from './Icon.astro'
 
     <div class="cards">
       <div class="card get-card web" id="get-web">
-        <div class="card-top">
-          <span class="icon-tile"><Icon name="browser" /></span>
-          <span class="badges">
+        <div class="card-head">
+          <h3>Web app + FXM Connect</h3>
+          <div class="badges">
             <span class="badge for-you" hidden>For this device</span>
             <span class="badge">Early preview</span>
-          </span>
+          </div>
+          <span class="icon-tile"><Icon name="browser" /></span>
         </div>
-        <h3>Web app + FXM Connect</h3>
         <p>
-          Runs in your browser. Add the free FXM Connect extension to search and play from YouTube
-          Music.
+          Runs in your browser. Add the free FXM Connect extension to use YouTube Music and Spotify.
         </p>
         <ol class="install">
-          <li>Download the FXM Connect zip from the latest GitHub release and unzip it.</li>
           <li>
-            Open your browser's extensions page and turn on Developer mode:
-            <code>chrome://extensions</code>, <code>edge://extensions</code> or
-            <code>brave://extensions</code>.
+            Download the Chromium zip (<code>fxm-connect-chromium-….zip</code>) from the latest
+            GitHub release and unzip it into a folder you'll keep.
           </li>
-          <li>Choose <strong>Load unpacked</strong> and select the unzipped folder.</li>
+          <li>
+            Type <code>chrome://extensions</code> in the address bar (<code>edge://extensions</code>
+            in Edge, <code>brave://extensions</code> in Brave) and turn on
+            <strong>Developer mode</strong>.
+          </li>
+          <li>Choose <strong>Load unpacked</strong>, pick that folder, then reload the web app.</li>
         </ol>
-        <p class="fine">For Chrome, Edge and Brave. A Firefox add-on is coming.</p>
+        <p class="fine">
+          For Chrome, Edge and Brave 120 or later, on a computer.
+          {!AVAILABLE.firefox && 'A Firefox add-on is coming.'}
+        </p>
+        <p class="fine">
+          FXM Connect doesn't update itself. When the web app says a new version is out, unzip it
+          over the same folder and press <strong>Reload</strong> on the extension's card.
+        </p>
         <div class="actions">
           <a class="button button-primary" href={APP_PATH}>
             Open web app
@@ -47,23 +57,26 @@ import Icon from './Icon.astro'
         <p class="no-extension">
           <Icon name="library" size={20} />
           <span>
-            No extension yet? The web app still plays free music from Internet Archive and Jamendo.
+            No extension, or on a phone or tablet? The web app still plays free music from Internet
+            Archive and Jamendo.
           </span>
         </p>
       </div>
 
       <div class="card get-card" id="get-desktop">
-        <div class="card-top">
+        <div class="card-head">
+          <h3>Desktop app</h3>
+          <div class="badges">
+            {AVAILABLE.desktop ? (
+              <span class="badge for-you" hidden>
+                For this device
+              </span>
+            ) : (
+              <ComingSoon />
+            )}
+          </div>
           <span class="icon-tile"><Icon name="monitor" /></span>
-          <span class="badges">
-            <span class="badge for-you" hidden>For this device</span>
-            <span class="badge badge-neutral">
-              <Icon name="clock" size={14} />
-              Coming soon
-            </span>
-          </span>
         </div>
-        <h3>Desktop app</h3>
         <p>For macOS, Windows and Linux, with everything built in: no extension needed.</p>
         <ul class="platforms bare-list">
           <li>macOS</li>
@@ -71,22 +84,26 @@ import Icon from './Icon.astro'
           <li>Linux</li>
         </ul>
         <div class="actions">
-          <a class="button button-secondary" href={RELEASES_URL}>Desktop releases on GitHub</a>
+          <a class="button button-secondary" href={RELEASES_URL}>
+            {AVAILABLE.desktop ? 'Download for desktop' : 'Follow releases on GitHub'}
+          </a>
         </div>
       </div>
 
       <div class="card get-card" id="get-android">
-        <div class="card-top">
+        <div class="card-head">
+          <h3>Android app</h3>
+          <div class="badges">
+            {AVAILABLE.android ? (
+              <span class="badge for-you" hidden>
+                For this device
+              </span>
+            ) : (
+              <ComingSoon />
+            )}
+          </div>
           <span class="icon-tile"><Icon name="phone" /></span>
-          <span class="badges">
-            <span class="badge for-you" hidden>For this device</span>
-            <span class="badge badge-neutral">
-              <Icon name="clock" size={14} />
-              Coming soon
-            </span>
-          </span>
         </div>
-        <h3>Android app</h3>
         <p>
           An APK you install from GitHub Releases, with everything built in: no extension needed.
         </p>
@@ -94,7 +111,9 @@ import Icon from './Icon.astro'
           <li>Android APK</li>
         </ul>
         <div class="actions">
-          <a class="button button-secondary" href={RELEASES_URL}>Android releases on GitHub</a>
+          <a class="button button-secondary" href={RELEASES_URL}>
+            {AVAILABLE.android ? 'Download the APK' : 'Follow releases on GitHub'}
+          </a>
         </div>
       </div>
     </div>
@@ -102,9 +121,11 @@ import Icon from './Icon.astro'
 </section>
 
 <script>
+import { AVAILABLE } from '../config'
 import { cardForPlatform, detectPlatform } from '../lib/platform'
 
-// Suggest the card for this device and point the Download buttons at it.
+// Suggest the card for this device when it has something to download today, and point
+// the Download buttons at it. Otherwise they keep showing all three cards.
 const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
 const card = cardForPlatform(
   detectPlatform({
@@ -112,6 +133,7 @@ const card = cardForPlatform(
     platformHint: nav.userAgentData?.platform,
     maxTouchPoints: nav.maxTouchPoints,
   }),
+  AVAILABLE,
 )
 const target = card && document.getElementById(`get-${card}`)
 if (target) {
@@ -142,15 +164,28 @@ if (target) {
   box-shadow: 0 0 0 4px var(--color-accent-soft);
 }
 
-.card-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
+/* The heading comes first for screen readers; the icon and status badges sit above it. */
+.card-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    "icon badges"
+    "title title";
+  align-items: start;
+  gap: var(--space-6) var(--space-3);
+}
+
+.card-head .icon-tile {
+  grid-area: icon;
+}
+
+.card-head h3 {
+  grid-area: title;
 }
 
 .badges {
   display: flex;
+  grid-area: badges;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
@@ -164,10 +199,6 @@ if (target) {
   border-color: var(--color-accent);
   background: var(--color-accent);
   color: var(--color-on-accent);
-}
-
-.get-card h3 {
-  margin-top: var(--space-2);
 }
 
 .get-card > p {
@@ -211,7 +242,6 @@ if (target) {
 }
 
 .no-extension svg {
-  margin-top: 0.05rem;
   color: var(--color-accent);
 }
 
