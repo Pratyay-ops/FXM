@@ -35,7 +35,7 @@ const { tracks } = await music.search('Radiohead Creep', { types: ['track'] }, c
 const radio = await music.radioPage(tracks.items[0], {}, ctx) // then { cursor: radio.nextCursor }
 ```
 
-The factories take either the device's `session` (to share one visitorData) or the options to create one, not both. Both providers reject with an `Unsupported` `FxmError`, before any request, when `ctx.capabilities.youtube` is `none`.
+The factories take either the device's `session` (to share one visitorData) or the options to create one, not both. Both providers reject with an `Unsupported` `FxmError`, before any request, when `ctx.capabilities.youtube` is `none`. Stream resolution, on the same session, is `createYouTubeAudioSource()` in [`youtube/stream/`](src/youtube/stream/README.md).
 
 `@fxm/sources/youtube` exports the consumer API: the factories, the provider and session types, the config API and the classification helpers. The request plumbing (`request.ts`, `visitor.ts`, `errors.ts`) stays inside the folder, where the stream resolver of stage 1.4 imports it directly: `session.innertube(ctx)` gives a youtubei.js `Innertube` with the same request shape, and code that sends its own requests shapes them with `toSimpleInnerTubeRequest` and takes the visitorData with `leaseVisitorData(session, ctx)`.
 

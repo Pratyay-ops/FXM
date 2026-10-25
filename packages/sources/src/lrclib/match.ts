@@ -16,13 +16,16 @@
 import {
   extractVersionTags,
   type Lyrics,
-  normalizeText,
   parseLrc,
   splitTitle,
   stripPresentationNoise,
   type Track,
 } from '@fxm/core'
+import { cleanArtist, comparable, similarity } from '../shared/names'
 import type { LrclibRecord } from './api'
+
+/** The name comparison primitives, which live in `shared/names.ts` for every matcher. */
+export { cleanArtist, comparable, similarity }
 
 /**
  * Synced lyrics are only trusted when the record's duration is within this many seconds of the
@@ -80,41 +83,6 @@ export interface RecordMatch {
   durationDiff?: number
 }
 
-/** Text reduced for comparison: normalized, `&` read as "and", without punctuation. */
-export function comparable(text: string): string {
-  return normalizeText(text)
-    .replace(/&/gu, ' and ')
-    .replace(/['.]/gu, '')
-    .replace(/[\p{P}\p{S}\s]+/gu, ' ')
-    .trim()
-}
-
-/**
- * Similarity of two {@link comparable} strings from 0 to 1: the Sørensen-Dice coefficient of
- * their character pairs, spaces ignored, so "taylorswift" equals "taylor swift".
- */
-export function similarity(a: string, b: string): number {
-  const left = Array.from(a.replace(/ /gu, ''))
-  const right = Array.from(b.replace(/ /gu, ''))
-  if (left.join('') === right.join('')) return left.length > 0 ? 1 : 0
-  if (left.length < 2 || right.length < 2) return 0
-  const pairs = new Map<string, number>()
-  for (let i = 1; i < left.length; i++) {
-    const pair = `${left[i - 1]}${left[i]}`
-    pairs.set(pair, (pairs.get(pair) ?? 0) + 1)
-  }
-  let shared = 0
-  for (let i = 1; i < right.length; i++) {
-    const pair = `${right[i - 1]}${right[i]}`
-    const count = pairs.get(pair) ?? 0
-    if (count > 0) {
-      shared++
-      pairs.set(pair, count - 1)
-    }
-  }
-  return (2 * shared) / (left.length - 1 + right.length - 1)
-}
-
 /**
  * `text` with each run of whitespace folded into one space, and trimmed. Patterns that start with
  * `\s*` or `\s+` backtrack through a long run of spaces from every position in it, so text from
@@ -122,16 +90,6 @@ export function similarity(a: string, b: string): number {
  */
 function foldSpaces(text: string): string {
   return text.replace(/\s+/gu, ' ').trim()
-}
-
-/** An artist name without YouTube's channel suffixes: "RadioheadVEVO", "Radiohead - Topic". */
-export function cleanArtist(name: string): string {
-  const folded = foldSpaces(name)
-  const cleaned = folded
-    .replace(/\s+-\s+topic$/iu, '')
-    .replace(/(?<=\S)\s*vevo$/iu, '')
-    .trim()
-  return cleaned === '' ? folded : cleaned
 }
 
 /** Separators between the names of an artist credit: "A, B & C", "A feat. B", "A x B". */
