@@ -1,0 +1,126 @@
+/**
+ * Manifest V3 for Chromium-based browsers and Firefox, generated from config.ts and rules.ts.
+ */
+import { EXTENSION_NAME, fxmOrigins } from './config.ts'
+import { originMatchPattern } from './origins.ts'
+import { buildRulesets, ruleHostPermissions } from './rules.ts'
+
+/** Browser families the build targets. */
+export type Browser = 'chromium' | 'firefox'
+
+/** Gecko add-on ID (needed for storage and signing on AMO). */
+export const FIREFOX_ADDON_ID = 'fxm-connect@fxm-music.pages.dev'
+
+/**
+ * Oldest Firefox that runs FXM Connect. MV3 declarativeNetRequest arrived in 113,
+ * `storage.session` in 115, and `data_collection_permissions` (required for new AMO listings)
+ * in 140.
+ */
+export const FIREFOX_MIN_VERSION = '140.0'
+
+/**
+ * Oldest Chromium that runs FXM Connect. `initiatorDomains`/`requestDomains` arrived in 101 and
+ * `storage.session` in 102; 120 is a conservative floor with every feature used here.
+ */
+export const CHROMIUM_MIN_VERSION = '120'
+
+/** Icon sizes shipped in `icons/icon-<size>.png`. */
+export const ICON_SIZES = [16, 32, 48, 128] as const
+
+/** Chrome Web Store limit for the description. */
+export const MAX_DESCRIPTION_LENGTH = 132
+
+const PURPOSE = 'Only lets the FXM web app reach music services from your own browser.'
+const DESCRIPTION = `${PURPOSE} Collects no data and runs no remote code.`
+const DEV_DESCRIPTION = `Development build: also allows localhost. ${PURPOSE}`
+
+/** Permissions besides host access: static header rules and the options toggle. */
+export const PERMISSIONS = ['declarativeNetRequest', 'storage'] as const
+
+export interface ManifestOptions {
+  browser: Browser
+  version: string
+  /** Development build: also allows the localhost FXM origins. */
+  dev: boolean
+}
+
+type IconMap = Record<`${(typeof ICON_SIZES)[number]}`, string>
+
+/** The fields FXM Connect writes; key order matches the generated file. */
+export interface Manifest {
+  manifest_version: 3
+  name: string
+  version: string
+  description: string
+  icons: IconMap
+  action: { default_title: string; default_icon: Partial<IconMap> }
+  background: { service_worker: string } | { scripts: string[] }
+  content_scripts: {
+    matches: string[]
+    js: string[]
+    run_at: 'document_start'
+    all_frames: false
+  }[]
+  options_ui: { page: string; open_in_tab: true }
+  permissions: string[]
+  host_permissions: string[]
+  declarative_net_request: {
+    rule_resources: { id: string; enabled: boolean; path: string }[]
+  }
+  minimum_chrome_version?: string
+  browser_specific_settings?: {
+    gecko: {
+      id: string
+      strict_min_version: string
+      data_collection_permissions: { required: ['none'] }
+    }
+  }
+}
+
+/** host_permissions: the FXM pages first (DNR needs host access to the initiator too), then the services. */
+export function hostPermissions(origins: readonly string[]): string[] {
+  return [...new Set([...origins.map(originMatchPattern), ...ruleHostPermissions()])]
+}
+
+function icons(sizes: readonly number[]): Record<string, string> {
+  return Object.fromEntries(sizes.map((size) => [String(size), `icons/icon-${size}.png`]))
+}
+
+/** Builds manifest.json for one browser and variant. */
+export function buildManifest({ browser, version, dev }: ManifestOptions): Manifest {
+  const origins = fxmOrigins(dev)
+  const matches = [...new Set(origins.map(originMatchPattern))]
+  const name = dev ? `${EXTENSION_NAME} (dev)` : EXTENSION_NAME
+  return {
+    manifest_version: 3,
+    name,
+    version,
+    description: dev ? DEV_DESCRIPTION : DESCRIPTION,
+    icons: icons(ICON_SIZES) as IconMap,
+    action: { default_title: name, default_icon: icons([16, 32]) },
+    background:
+      browser === 'chromium' ? { service_worker: 'background.js' } : { scripts: ['background.js'] },
+    content_scripts: [{ matches, js: ['content.js'], run_at: 'document_start', all_frames: false }],
+    options_ui: { page: 'options.html', open_in_tab: true },
+    permissions: [...PERMISSIONS],
+    host_permissions: hostPermissions(origins),
+    declarative_net_request: {
+      rule_resources: buildRulesets(origins).map(({ id, enabled, path }) => ({
+        id,
+        enabled,
+        path,
+      })),
+    },
+    ...(browser === 'chromium'
+      ? { minimum_chrome_version: CHROMIUM_MIN_VERSION }
+      : {
+          browser_specific_settings: {
+            gecko: {
+              id: FIREFOX_ADDON_ID,
+              strict_min_version: FIREFOX_MIN_VERSION,
+              data_collection_permissions: { required: ['none'] },
+            },
+          },
+        }),
+  }
+}

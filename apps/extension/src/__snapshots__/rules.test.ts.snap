@@ -1,0 +1,656 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CORS rules for the production origin > matches the reviewed rules.json 1`] = `
+[
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://www.youtube.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://www.youtube.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "content-type, authorization, x-goog-visitor-id, x-youtube-client-name, x-youtube-client-version, x-goog-api-format-version, x-origin, x-youtube-bootstrap-logged-in, x-browser-validation",
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "content-length",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "www.youtube.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 1,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://music.youtube.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://music.youtube.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "content-type, authorization, x-goog-visitor-id, x-youtube-client-name, x-youtube-client-version, x-goog-api-format-version, x-origin, x-youtube-bootstrap-logged-in, x-browser-validation",
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "content-length",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "music.youtube.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 2,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://www.youtube.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://www.youtube.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "content-type, authorization, x-goog-visitor-id, x-youtube-client-name, x-youtube-client-version, x-goog-api-format-version, x-origin, x-youtube-bootstrap-logged-in, x-browser-validation",
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "content-length",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "youtubei.googleapis.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 3,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "content-length, content-range, accept-ranges, content-type",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "excludedRequestMethods": [
+        "options",
+      ],
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "googlevideo.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "media",
+      ],
+    },
+    "id": 4,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://www.youtube.com",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "content-length, content-range, accept-ranges, content-type",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "googlevideo.com",
+      ],
+      "requestMethods": [
+        "options",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 5,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://open.spotify.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://open.spotify.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "authorization, content-type, client-token, app-platform, spotify-app-version, accept",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+      "urlFilter": "|https://open.spotify.com/api/token^",
+    },
+    "id": 6,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://open.spotify.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://open.spotify.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "authorization, content-type, client-token, app-platform, spotify-app-version, accept",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+      "urlFilter": "|https://open.spotify.com/api/server-time^",
+    },
+    "id": 7,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://open.spotify.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://open.spotify.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "authorization, content-type, client-token, app-platform, spotify-app-version, accept",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "clienttoken.spotify.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 8,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "authorization, content-type, client-token, app-platform, spotify-app-version, accept",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "api-partner.spotify.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 9,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "authorization, content-type, client-token, app-platform, spotify-app-version, accept",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "spclient.wg.spotify.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 10,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+      "urlFilter": "|https://www.last.fm/player/station/",
+    },
+    "id": 11,
+    "priority": 1,
+  },
+]
+`;
