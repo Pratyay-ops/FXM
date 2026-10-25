@@ -19,6 +19,7 @@ describe('@fxm/sources/scrobble', () => {
         'LastfmScrobbleClient',
         'ListenBrainzScrobbleClient',
         'MAX_QUEUED_SCROBBLES',
+        'MAX_REJECTIONS_IN_A_ROW',
         'SCROBBLE_LISTEN_CAP_MS',
         'SCROBBLE_SERVICES',
         'SCROBBLE_SERVICE_NAMES',

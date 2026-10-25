@@ -62,6 +62,8 @@ describe.skipIf(!live)('ListenBrainz, live', { timeout: 30_000 }, () => {
       headers: { Origin: ORIGIN, Authorization: `Token ${LISTENBRAINZ_TEST_TOKEN}` },
     })
     expect(response.status).toBe(200)
+    // Answered by the host asked: the clients send with `redirect: 'error'`.
+    expect(response.redirected).toBe(false)
     expect(response.headers.get('access-control-allow-origin')).toBe('*')
     expect(response.headers.get('access-control-expose-headers')).toMatch(/X-RateLimit-Reset-In/i)
     expect(await response.json()).toMatchObject({ valid: false })
@@ -92,6 +94,7 @@ describe.skipIf(!live)('Last.fm, live', { timeout: 30_000 }, () => {
         format: 'json',
       }),
     })
+    expect(response.redirected).toBe(false)
     expect(response.headers.get('access-control-allow-origin')).toBe('*')
     expect(await response.json()).toMatchObject({ error: 10 })
     const client = new LastfmScrobbleClient(LASTFM_TEST_CREDENTIALS)

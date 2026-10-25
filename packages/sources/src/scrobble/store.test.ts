@@ -35,6 +35,15 @@ describe('createMemoryScrobbleStore', () => {
     expect(entry?.scrobble).toEqual(creepScrobble())
   })
 
+  it('keeps the user each entry was queued for', async () => {
+    const store = createMemoryScrobbleStore()
+    await store.add('lastfm', scrobbles.slice(0, 1), 10, 'someone')
+    await store.add('lastfm', scrobbles.slice(1, 2), 10)
+    const [first, second] = await store.peek('lastfm', 2)
+    expect(first).toMatchObject({ user: 'someone', scrobble: scrobbles[0] })
+    expect(second).not.toHaveProperty('user')
+  })
+
   it('empties one queue and skips IDs that are gone', async () => {
     const store = createMemoryScrobbleStore()
     await store.add('lastfm', scrobbles, 10)

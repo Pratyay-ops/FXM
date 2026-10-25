@@ -3,10 +3,11 @@
  * and `GET /1/validate-token`, through the injected `fetch`.
  *
  * The user pastes the token from their ListenBrainz settings; it stays on the device and only
- * ever travels in the `Authorization` header, never in a URL. ListenBrainz answers any origin
- * (`Access-Control-Allow-Origin: *`) and its preflights allow `Authorization` and
- * `Content-Type`, so the web app reaches it on every tier, without FXM Connect. See
- * CLEAN-ROOM.md for where each fact comes from.
+ * ever travels in the `Authorization` header, never in a URL. Requests go with
+ * `redirect: 'error'`, so a redirect can never carry the token or the listens to another
+ * address. ListenBrainz answers any origin (`Access-Control-Allow-Origin: *`) and its preflights
+ * allow `Authorization` and `Content-Type`, so the web app reaches it on every tier, without
+ * FXM Connect. See CLEAN-ROOM.md for where each fact comes from.
  *
  * @module
  */
@@ -221,6 +222,8 @@ export class ListenBrainzScrobbleClient {
       response = await fetchWithTimeout(ctx.fetch, url, {
         ...init,
         credentials: 'omit',
+        // ListenBrainz never redirects its API; a redirect must not resend a listen elsewhere.
+        redirect: 'error',
         timeoutMs: this.timeoutMs,
         ...(signal === undefined ? {} : { signal }),
       })
@@ -289,6 +292,8 @@ export interface ListenBrainzTargetOptions {
   paused?: boolean
   /** Which credentials these are, as the app identifies them (see `ScrobbleTarget.account`). */
   account?: string
+  /** The ListenBrainz user the token belongs to (see `ScrobbleTarget.user`). */
+  user?: string
 }
 
 /** ListenBrainz as a scrobbler target. */
@@ -302,6 +307,7 @@ export function listenBrainzTarget(
     batchSize: LISTENBRAINZ_BATCH_SIZE,
     paused: options.paused === true,
     ...(options.account === undefined ? {} : { account: options.account }),
+    ...(options.user === undefined ? {} : { user: options.user }),
     nowPlaying: (track, ctx) => client.playingNow(track, ctx),
     submit: (scrobbles, ctx) => client.submit(scrobbles, ctx),
   }

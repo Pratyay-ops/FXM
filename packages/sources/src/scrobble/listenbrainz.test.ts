@@ -112,6 +112,7 @@ describe('ListenBrainzScrobbleClient.validateToken', () => {
     expect(call?.headers.get('authorization')).toBe(`Token ${LISTENBRAINZ_TEST_TOKEN}`)
     expect(call?.headers.has('user-agent')).toBe(false)
     expect(call?.init?.credentials).toBe('omit')
+    expect(call?.init?.redirect).toBe('error')
   })
 
   it('says when ListenBrainz does not know the token (recorded answer)', async () => {
@@ -154,7 +155,10 @@ describe('ListenBrainzScrobbleClient.submit', () => {
       listen_type: 'import',
       payload: [listenOf(first), listenOf(second)],
     })
-    for (const call of calls) expect(call.url.href).not.toContain(LISTENBRAINZ_TEST_TOKEN)
+    for (const call of calls) {
+      expect(call.url.href).not.toContain(LISTENBRAINZ_TEST_TOKEN)
+      expect(call.init?.redirect).toBe('error')
+    }
   })
 
   it('sends playing-now listens without a start', async () => {
@@ -279,6 +283,8 @@ describe('listenBrainzTarget', () => {
     expect(calls.map((call) => bodyOf(call).listen_type)).toEqual(['single', 'playing_now'])
     expect(listenBrainzTarget(listenbrainz, { paused: true }).paused).toBe(true)
     expect(target).not.toHaveProperty('account')
+    expect(target).not.toHaveProperty('user')
     expect(listenBrainzTarget(listenbrainz, { account: 'token' }).account).toBe('token')
+    expect(listenBrainzTarget(listenbrainz, { user: 'someone' }).user).toBe('someone')
   })
 })

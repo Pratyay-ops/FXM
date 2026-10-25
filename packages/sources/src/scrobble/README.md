@@ -55,7 +55,7 @@ Both APIs answer any origin with `Access-Control-Allow-Origin: *` (checked 2026-
 | Also | `duration_played`, `isrc`, `spotify_id` (as a URL) when known; `media_player` and `submission_client` "FXM" with its version | `chosenByUser=0` for plays from a radio, which FXM chose; nothing otherwise, as Last.fm asks when in doubt |
 | Credentials | the user token in `Authorization: Token …` | `api_key`, `sk` and `api_sig` in the body |
 
-Nothing else goes out: no `music_service` or `origin_url`, which would publish where FXM got the audio. Every request uses `credentials: 'omit'`.
+Nothing else goes out: no `music_service` or `origin_url`, which would publish where FXM got the audio. Every request uses `credentials: 'omit'` and `redirect: 'error'`: neither API redirects, and a redirect must never resend a token, a session key or a listen to another address. A redirect fails the request as a temporary network error.
 
 **Credentials never appear in URLs or messages.** The token travels only in the `Authorization` header; Last.fm's session key, signature and key only in `POST` bodies, and its shared secret never leaves the device: it only signs. Error messages are FXM's own words with the service's error code, never the service's text, which could echo a parameter. The one token in a URL is Last.fm's one-time request token, in the address of its authorization page, as its protocol requires: it expires within an hour and is used up once the session exists.
 
@@ -74,10 +74,12 @@ Nothing else goes out: no `music_service` or `origin_url`, which would publish w
 
 - **Now playing:** sent after a play has run for 3 seconds (`nowPlayingDelayMs`), so skipping through a queue sends nothing; never retried, as Last.fm asks, and never queued.
 - **Scrobbles:** queued for each service whose rules the play meets, then sent oldest first: up to 50 per request to Last.fm (its limit), 100 to ListenBrainz as one `single` listen or an `import`. Each queue keeps at most 5,000 (`maxQueued`); the oldest go first.
+- **Users:** each scrobble is queued for the user connected to its service (`target.user`, e.g. their name there), and only ever sent to that user: a target of anyone else drops it. So when one person disconnects and another connects on the same device, no play of the first reaches the second's profile, even one still on its way to the queue. A play is also never queued for a service that was disconnected, or connected for someone else, while it was being queued for another one.
 - **Requests** of one client go one at a time: at least 1 s apart on ListenBrainz ("never make more than ONE call per second"), 250 ms on Last.fm. When ListenBrainz's `X-RateLimit-Remaining` reaches 0, the next request waits for `X-RateLimit-Reset-In`.
 - **Offline** (`online()` says so), nothing is sent; `retryNow()` sends at once, e.g. on the browser's `online` event.
 - **Tabs** share the queue; `exclusive` runs each flush under a lock (a Web Lock in the web app), so no entry is sent twice.
-- **Storage** may hold anything: entries that `sanitizeScrobble` refuses are dropped, and a store that fails counts as a temporary failure.
+- **Storage** may hold anything: entries that `sanitizeScrobble` refuses are dropped. A scrobble the store can't save (storage blocked or full) waits in memory instead and is sent like the others, but lost if the program ends first; `status` says so (`storageError`, `unsaved`) until the store saves one again. A store that fails to read is tried again at the next flush, without holding up what waits in memory.
+- **Retries:** one timer flushes again when the earliest wait ends. A wait that ended while another service's queue was still being sent is tried as soon as that flush is over, and a rate limit that asks for no wait at all gets a second.
 
 ### Failures
 
@@ -85,19 +87,21 @@ Every failure is a `ScrobbleError` (an `FxmError`) whose `failure` says what the
 
 | `failure` | When | The queue |
 |---|---|---|
-| `temporary` | Network errors and timeouts (`Network`), HTTP 5xx and other statuses, an unreadable answer (`Parse`), Last.fm errors 11 and 16 | keeps the scrobbles and tries again after 30 s, doubling to at most an hour, plus up to 30 % jitter |
+| `temporary` | Network errors, timeouts and redirects (`Network`), HTTP 5xx and other statuses, an unreadable answer (`Parse`), Last.fm errors 8, 11 and 16, and any other Last.fm error that comes with HTTP 500 or more | keeps the scrobbles and tries again after 30 s, doubling to at most an hour, plus up to 30 % jitter |
 | `rate-limited` | HTTP 429, Last.fm error 29 | keeps them and waits as long as the service asked (`retryAfterMs`); `retryNow` doesn't cut that short |
 | `refused` | ListenBrainz HTTP 401; Last.fm errors 4, 9, 10, 13, 14, 15, 26 | keeps them and calls `onRefused(service, error, target)`: the app pauses the service (`target.paused`) until the user connects again. Plays keep joining its queue meanwhile |
-| `rejected` | ListenBrainz HTTP 400 and 413; every other Last.fm error ("should not be retried") | sends the batch again one scrobble at a time, and drops only the ones still rejected |
+| `rejected` | ListenBrainz HTTP 400 and 413; every other Last.fm error ("should not be retried") | sends the batch again one scrobble at a time, and drops only the ones still rejected. The third rejection in a row (`MAX_REJECTIONS_IN_A_ROW`) stops that: a service that rejects every scrobble is failing (an outage, a change of its API), so the rest stay, and it waits as after a temporary failure |
 
 Filtered scrobbles are not failures: Last.fm takes them but leaves them out ("ignored", with a code: 1 artist, 2 track, 3 too old, 4 too new, 5 daily limit), and they count as done. An answer without an error that FXM can't read counts a batch as accepted, so it is never sent twice.
 
-`status(service)` reports, for this program, what was sent, ignored and dropped, when the next try is due and the last error; `subscribe` signals every change. `forget(service)` empties a queue, e.g. on disconnecting.
+Last.fm's list of error codes says to try again on 8 ("Most likely the backend service failed"), which its scrobbling guide counts among the codes not to retry; FXM keeps the scrobbles (see CLEAN-ROOM.md).
+
+`status(service)` reports, for this program, what was sent, ignored and dropped, what waits in memory, when the next try is due, the last error and a failing store; `subscribe` signals every change. `forget(service)` empties a queue and what waits in memory, e.g. on disconnecting; it rejects when the store can't empty the queue.
 
 ## Tests
 
-- **Offline** (`*.test.ts` except `live.test.ts`): the rules, the track cleanup, MD5, signing, both clients' requests and every error path, the gate, the memory store and the scrobbler's queue, batches, retries, refusals, isolation of rejected scrobbles, now playing, offline and locks, on fake clocks. `fixtures/` holds the services' answers to made-up credentials, recorded on 2026-10-26, and `.synthetic` answers built from the documented samples, because recording successful ones needs an account (see CLEAN-ROOM.md).
-- **Live** (`live.test.ts`), only with `FXM_LIVE=1`: five requests with made-up credentials, which write nothing anywhere: both services' CORS headers and their answers to unknown credentials. With credentials of your own in the environment (never commit them), it also validates a ListenBrainz token (`FXM_LISTENBRAINZ_TOKEN`) and gets a Last.fm request token (`FXM_LASTFM_API_KEY`, `FXM_LASTFM_SECRET`), and announces a track as playing now (with `FXM_LASTFM_SESSION_KEY` for Last.fm), which adds nothing to the profile's history. It never submits a listen.
+- **Offline** (`*.test.ts` except `live.test.ts`): the rules, the track cleanup, MD5, signing, both clients' requests and every error path, the gate, the memory store and the scrobbler's queue, batches, retries, refusals, isolation of rejected scrobbles and a service that rejects everything, users, a store that fails, now playing, offline and locks, on fake clocks. `fixtures/` holds the services' answers to made-up credentials, recorded on 2026-10-26, and `.synthetic` answers built from the documented samples, because recording successful ones needs an account (see CLEAN-ROOM.md).
+- **Live** (`live.test.ts`), only with `FXM_LIVE=1`: five requests with made-up credentials, which write nothing anywhere: both services' CORS headers, their answers to unknown credentials, and that they answer without a redirect. With credentials of your own in the environment (never commit them), it also validates a ListenBrainz token (`FXM_LISTENBRAINZ_TOKEN`) and gets a Last.fm request token (`FXM_LASTFM_API_KEY`, `FXM_LASTFM_SECRET`), and announces a track as playing now (with `FXM_LASTFM_SESSION_KEY` for Last.fm), which adds nothing to the profile's history. It never submits a listen.
 
   ```sh
   FXM_LIVE=1 scripts/run.sh pnpm exec vitest run packages/sources/src/scrobble/live.test.ts

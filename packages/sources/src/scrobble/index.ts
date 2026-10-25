@@ -62,6 +62,7 @@ export {
 } from './rules'
 export {
   MAX_QUEUED_SCROBBLES,
+  MAX_REJECTIONS_IN_A_ROW,
   type PlayStart,
   Scrobbler,
   type ScrobblerOptions,

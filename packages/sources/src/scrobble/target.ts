@@ -39,6 +39,13 @@ export interface ScrobbleTarget {
    * still the ones it holds, e.g. after another tab connected again meanwhile.
    */
   readonly account?: string
+  /**
+   * Whose profile it sends to, e.g. the user's name on the service. Each scrobble is queued for
+   * the user its play was heard by and only ever sent to that user: a target of anyone else
+   * drops it. So when one person disconnects and another connects on the same device, nothing
+   * of the first reaches the second's profile, whatever was still on its way.
+   */
+  readonly user?: string
   /** Tells the service what is playing now. Never retried. */
   nowPlaying(track: ScrobbleTrack, ctx: ScrobbleContext): Promise<void>
   /**

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ScrobbleError } from './errors'
 import { creep, playOf, T0 } from './fixtures/testing'
 import { LASTFM_RULES, LISTENBRAINZ_RULES, type ScrobbleRules } from './rules'
-import { Scrobbler, type ScrobblerOptions } from './scrobbler'
+import { MAX_REJECTIONS_IN_A_ROW, Scrobbler, type ScrobblerOptions } from './scrobbler'
 import { createMemoryScrobbleStore, type ScrobbleStore } from './store'
 import type { ScrobbleTarget, SubmitReport } from './target'
 import type { Scrobble, ScrobbleServiceId, ScrobbleTrack } from './types'
@@ -20,7 +20,10 @@ function fakeTarget(
   options: { rules?: ScrobbleRules; batchSize?: number } = {},
 ) {
   const fake = {
+    /** Whether it is among the scrobbler's targets. */
+    connected: true,
     paused: false,
+    user: undefined as string | undefined,
     sent: [] as Scrobble[][],
     nowPlaying: [] as ScrobbleTrack[],
     submit: accept,
@@ -32,6 +35,7 @@ function fakeTarget(
         batchSize: options.batchSize ?? 50,
         paused: fake.paused,
         account: `${service} account`,
+        ...(fake.user === undefined ? {} : { user: fake.user }),
         nowPlaying: async (track) => {
           fake.nowPlaying.push(track)
           return fake.nowPlayingResult()
@@ -59,7 +63,8 @@ function setup(options: Partial<ScrobblerOptions> = {}, batchSize = 50) {
   let online = true
   const scrobbler = new Scrobbler({
     store,
-    targets: () => [listenbrainz.target, lastfm.target],
+    targets: () =>
+      [listenbrainz, lastfm].filter((fake) => fake.connected).map((fake) => fake.target),
     context: () => ({ fetch: globalThis.fetch }),
     onRefused: (service, _error, target) => {
       refused.push(service)
@@ -282,21 +287,132 @@ describe('Scrobbler retries', () => {
     expect(scrobbler.status('lastfm').dropped).toBe(1)
   })
 
-  it('backs off when the store fails, without losing the scrobble', async () => {
+  it('tries a store that fails to read again at the next flush, without losing anything', async () => {
     const { scrobbler, lastfm, listenbrainz, store } = setup()
     const peek = store.peek.bind(store)
     let failing = true
     vi.spyOn(store, 'peek').mockImplementation((service, limit) =>
       failing && service === 'lastfm'
-        ? Promise.reject(new Error('QuotaExceededError'))
+        ? Promise.reject(new Error('UnknownError'))
         : peek(service, limit),
     )
     await scrobbler.playEnded(play(1))
-    expect(scrobbler.status('lastfm')).toMatchObject({ lastError: 'QuotaExceededError' })
+    expect(scrobbler.status('lastfm')).toMatchObject({ storageError: 'UnknownError' })
+    // A store failure isn't the service's: nothing waits, and nothing keeps a timer going.
+    expect(scrobbler.status('lastfm')).not.toHaveProperty('retryAt')
+    expect(vi.getTimerCount()).toBe(0)
     expect(listenbrainz.titles()).toEqual([['Song 1']])
     failing = false
-    await vi.advanceTimersByTimeAsync(30_000)
+    await scrobbler.flush()
     expect(lastfm.titles()).toEqual([['Song 1']])
+  })
+
+  it('keeps a scrobble the store cannot save in memory, and sends it all the same', async () => {
+    const memory = createMemoryScrobbleStore()
+    const full = async (): Promise<number> => {
+      throw new Error('QuotaExceededError')
+    }
+    const store: ScrobbleStore = { ...memory, add: full }
+    const { scrobbler, lastfm, listenbrainz, setOnline } = setup({ store })
+    setOnline(false)
+    await expect(scrobbler.playEnded(play(1))).resolves.toBeUndefined()
+    expect(scrobbler.status('lastfm')).toMatchObject({
+      unsaved: 1,
+      storageError: 'QuotaExceededError',
+    })
+    expect(await scrobbler.pending('lastfm')).toBe(1)
+    setOnline(true)
+    await scrobbler.retryNow()
+    expect(lastfm.titles()).toEqual([['Song 1']])
+    expect(listenbrainz.titles()).toEqual([['Song 1']])
+    expect(scrobbler.status('lastfm')).toMatchObject({ sent: 1, unsaved: 0 })
+    // Online, the next one goes out at once; once the store saves again, the warning goes.
+    await scrobbler.playEnded(play(2))
+    expect(lastfm.titles()).toEqual([['Song 1'], ['Song 2']])
+    store.add = memory.add
+    await scrobbler.playEnded(play(3))
+    expect(scrobbler.status('lastfm')).not.toHaveProperty('storageError')
+    expect(lastfm.titles().at(-1)).toEqual(['Song 3'])
+  })
+
+  it('stops dropping scrobbles when the service rejects one after another', async () => {
+    const { scrobbler, lastfm, listenbrainz, store, setOnline } = setup()
+    lastfm.submit = () => {
+      throw new ScrobbleError('lastfm', 'rejected', 'Last.fm answered with error 6', {
+        serviceCode: 6,
+      })
+    }
+    setOnline(false)
+    for (let n = 1; n <= 120; n++) await scrobbler.playEnded(play(n))
+    setOnline(true)
+    await scrobbler.retryNow()
+    // A batch, then one at a time: the first rejections drop their scrobble, and the last one
+    // in a row says the service is failing, not them.
+    expect(MAX_REJECTIONS_IN_A_ROW).toBe(3)
+    expect(lastfm.sent.map((batch) => batch.length)).toEqual([50, 1, 1, 1])
+    expect(scrobbler.status('lastfm')).toMatchObject({
+      dropped: 2,
+      retryAt: Date.now() + 30_000,
+      lastError: 'Last.fm answered with error 6',
+    })
+    expect(await store.count('lastfm')).toBe(118)
+    expect(await store.count('listenbrainz')).toBe(0)
+    expect(listenbrainz.sent).toHaveLength(3)
+
+    // Once the service takes scrobbles again, everything kept goes out.
+    lastfm.submit = accept
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(await store.count('lastfm')).toBe(0)
+    expect(scrobbler.status('lastfm')).toMatchObject({ sent: 118, dropped: 2 })
+  })
+
+  it('tries a service again at once when its wait ended during a longer flush', async () => {
+    const { scrobbler, lastfm, listenbrainz } = setup()
+    listenbrainz.submit = () => {
+      throw new ScrobbleError('listenbrainz', 'temporary', 'ListenBrainz answered HTTP 502')
+    }
+    // Last.fm's queue takes 40 seconds, longer than ListenBrainz's first wait.
+    lastfm.submit = (batch) =>
+      new Promise((resolve) => setTimeout(() => resolve(accept(batch)), 40_000))
+    const ended = scrobbler.playEnded(play(1))
+    await vi.advanceTimersByTimeAsync(35_000)
+    expect(listenbrainz.sent).toHaveLength(1)
+    listenbrainz.submit = accept
+    await vi.advanceTimersByTimeAsync(5000)
+    await ended
+    // The retry is due at once (fake timers run a 0 ms timer set during a tick 1 ms later).
+    await vi.advanceTimersByTimeAsync(1)
+    expect(listenbrainz.sent).toHaveLength(2)
+    expect(scrobbler.status('listenbrainz')).toMatchObject({ sent: 1 })
+  })
+
+  it('waits a second when a rate limit asks for no wait at all', async () => {
+    const { scrobbler, listenbrainz } = setup()
+    listenbrainz.submit = () => {
+      throw new ScrobbleError('listenbrainz', 'rate-limited', 'ListenBrainz answered HTTP 429', {
+        retryAfterMs: 0,
+      })
+    }
+    await scrobbler.playEnded(play(1))
+    expect(scrobbler.status('listenbrainz').retryAt).toBe(Date.now() + 1000)
+    listenbrainz.submit = accept
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(listenbrainz.sent).toHaveLength(2)
+    expect(scrobbler.status('listenbrainz')).toMatchObject({ sent: 1 })
+  })
+
+  it('ends the wait of a paused service, so no timer keeps firing for it', async () => {
+    const { scrobbler, lastfm } = setup()
+    lastfm.submit = () => {
+      throw new ScrobbleError('lastfm', 'temporary', 'Last.fm answered HTTP 502')
+    }
+    await scrobbler.playEnded(play(1))
+    expect(vi.getTimerCount()).toBe(1)
+    lastfm.paused = true
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(scrobbler.status('lastfm')).not.toHaveProperty('retryAt')
+    expect(vi.getTimerCount()).toBe(0)
+    expect(lastfm.sent).toHaveLength(1)
   })
 
   it('sends nothing while offline, and everything once back online', async () => {
@@ -309,6 +425,84 @@ describe('Scrobbler retries', () => {
     await scrobbler.retryNow()
     expect(lastfm.titles()).toEqual([['Song 1']])
     expect(listenbrainz.titles()).toEqual([['Song 1']])
+  })
+})
+
+describe('Scrobbler users', () => {
+  it('sends a scrobble only to the user it was queued for', async () => {
+    const { scrobbler, lastfm, store, setOnline } = setup()
+    lastfm.user = 'alice'
+    setOnline(false)
+    await scrobbler.playEnded(play(1))
+    // Alice's play is still queued when Bob connects, e.g. her Disconnect couldn't empty it.
+    lastfm.user = 'bob'
+    await scrobbler.playEnded(play(2))
+    setOnline(true)
+    await scrobbler.retryNow()
+    expect(lastfm.titles()).toEqual([['Song 2']])
+    expect(scrobbler.status('lastfm')).toMatchObject({ sent: 1, dropped: 1 })
+    // A scrobble queued for nobody in particular isn't Bob's either.
+    await store.add('lastfm', [{ track: { artists: ['A'], title: 'Nobody' }, startedAt: T0 }], 10)
+    await scrobbler.flush()
+    expect(lastfm.titles()).toEqual([['Song 2']])
+    expect(await store.count('lastfm')).toBe(0)
+  })
+
+  it('queues nothing for a service disconnected, or taken over, while a play is queued', async () => {
+    const memory = createMemoryScrobbleStore()
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const store: ScrobbleStore = {
+      ...memory,
+      add: async (service, scrobbles, max, user) => {
+        // ListenBrainz's entry is being written...
+        if (service === 'listenbrainz') await held
+        return memory.add(service, scrobbles, max, user)
+      },
+    }
+    const { scrobbler, lastfm, listenbrainz } = setup({ store })
+    lastfm.user = 'alice'
+    listenbrainz.user = 'alice'
+    const ended = scrobbler.playEnded(play(1))
+    // ...when Alice disconnects Last.fm, and Bob connects his own account.
+    lastfm.connected = false
+    await scrobbler.forget('lastfm')
+    lastfm.connected = true
+    lastfm.user = 'bob'
+    release()
+    await ended
+    expect(listenbrainz.titles()).toEqual([['Song 1']])
+    expect(lastfm.sent).toEqual([])
+    expect(await store.count('lastfm')).toBe(0)
+  })
+
+  it("stops sending for an account taken over meanwhile, and keeps the new one's plays", async () => {
+    const { scrobbler, lastfm, listenbrainz, store, setOnline } = setup({}, 1)
+    listenbrainz.connected = false
+    lastfm.user = 'alice'
+    setOnline(false)
+    await scrobbler.playEnded(play(1))
+    await scrobbler.playEnded(play(2))
+    let release = () => {}
+    lastfm.submit = (batch) =>
+      new Promise((resolve) => {
+        release = () => resolve(accept(batch))
+      })
+    setOnline(true)
+    const flushed = scrobbler.retryNow()
+    await vi.advanceTimersByTimeAsync(0)
+    // Song 1 is on its way when Alice disconnects, and Bob connects and plays Song 3.
+    lastfm.user = 'bob'
+    lastfm.submit = accept
+    const ended = scrobbler.playEnded(play(3))
+    release()
+    await flushed
+    await ended
+    expect(lastfm.titles()).toEqual([['Song 1'], ['Song 3']])
+    expect(scrobbler.status('lastfm').dropped).toBe(1)
+    expect(await store.count('lastfm')).toBe(0)
   })
 })
 
@@ -444,7 +638,31 @@ describe('Scrobbler bookkeeping', () => {
       sent: 0,
       ignored: 0,
       dropped: 0,
+      unsaved: 0,
     })
+  })
+
+  it('forgets what waits in memory too, and says when the store cannot empty the queue', async () => {
+    const memory = createMemoryScrobbleStore()
+    const store: ScrobbleStore = {
+      ...memory,
+      add: async () => {
+        throw new Error('QuotaExceededError')
+      },
+      clear: async () => {
+        throw new Error('UnknownError')
+      },
+    }
+    const { scrobbler, setOnline } = setup({ store })
+    setOnline(false)
+    await scrobbler.playEnded(play(1))
+    expect(scrobbler.status('lastfm').unsaved).toBe(1)
+    const listener = vi.fn()
+    scrobbler.subscribe(listener)
+    await expect(scrobbler.forget('lastfm')).rejects.toThrow('UnknownError')
+    expect(listener).toHaveBeenCalled()
+    expect(scrobbler.status('lastfm').unsaved).toBe(0)
+    expect(await scrobbler.pending('lastfm')).toBe(0)
   })
 
   it('tells subscribers about changes until they unsubscribe', async () => {

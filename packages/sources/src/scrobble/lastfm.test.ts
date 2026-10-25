@@ -41,6 +41,7 @@ function expectSignedPost(call: Call | undefined): Record<string, string> {
   expect(call?.method).toBe('POST')
   expect(call?.url.href).toBe(LASTFM_API_URL)
   expect(call?.init?.credentials).toBe('omit')
+  expect(call?.init?.redirect).toBe('error')
   const form = call ? formOf(call) : {}
   const { api_sig, format, ...signed } = form
   expect(format).toBe('json')
@@ -241,9 +242,28 @@ describe('scrobbleReport', () => {
 describe('Last.fm errors', () => {
   it('sorts error codes by what the queue should do', () => {
     expect([9, 4, 10, 13, 14, 15, 26].map(lastfmFailureOf)).toEqual(Array(7).fill('refused'))
-    expect([11, 16].map(lastfmFailureOf)).toEqual(['temporary', 'temporary'])
+    // 8: "Most likely the backend service failed. Please try again."
+    expect([8, 11, 16].map(lastfmFailureOf)).toEqual(Array(3).fill('temporary'))
     expect(lastfmFailureOf(29)).toBe('rate-limited')
-    expect([2, 3, 5, 6, 7, 8, 99].map(lastfmFailureOf)).toEqual(Array(7).fill('rejected'))
+    expect([2, 3, 5, 6, 7, 99].map(lastfmFailureOf)).toEqual(Array(6).fill('rejected'))
+  })
+
+  it('never takes a server error as a rejection, unless it refuses or limits', async () => {
+    const cases: [status: number, code: number, expected: object][] = [
+      [500, 8, { failure: 'temporary', serviceCode: 8 }],
+      [503, 6, { failure: 'temporary', serviceCode: 6 }],
+      [502, 99, { failure: 'temporary', serviceCode: 99 }],
+      [500, 9, { failure: 'refused', serviceCode: 9 }],
+      [503, 29, { failure: 'rate-limited', serviceCode: 29 }],
+      [400, 6, { failure: 'rejected', serviceCode: 6 }],
+      [200, 8, { failure: 'temporary', serviceCode: 8 }],
+    ]
+    for (const [status, code, expected] of cases) {
+      const { lastfm, ctx } = client(() =>
+        json({ message: 'Operation failed', error: code }, { status }),
+      )
+      expect(await failure(lastfm.scrobble('sk', [creepScrobble()], ctx))).toMatchObject(expected)
+    }
   })
 
   it('reads the error in the body whatever the HTTP status', async () => {
@@ -346,7 +366,9 @@ describe('lastfmTarget', () => {
     ])
     expect(lastfmTarget(lastfm, 'sk', { paused: true }).paused).toBe(true)
     expect(target).not.toHaveProperty('account')
+    expect(target).not.toHaveProperty('user')
     expect(lastfmTarget(lastfm, 'sk', { account: 'sk' }).account).toBe('sk')
+    expect(lastfmTarget(lastfm, 'sk', { user: 'someone' }).user).toBe('someone')
   })
 })
 

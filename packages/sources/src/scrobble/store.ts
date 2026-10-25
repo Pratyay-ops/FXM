@@ -13,6 +13,11 @@ export interface StoredScrobble {
   /** The entry's ID. IDs grow in the order entries joined their queue. */
   id: number
   /**
+   * Whose profile it was queued for (`ScrobbleTarget.user`), when it was queued for someone.
+   * The scrobbler sends it to that user only.
+   */
+  user?: string
+  /**
    * The scrobble as it was stored. Storage may hold anything (an older version, another tab, a
    * bad disk wrote it), so the scrobbler checks it with `sanitizeScrobble` before sending.
    */
@@ -25,11 +30,17 @@ export interface StoredScrobble {
  */
 export interface ScrobbleStore {
   /**
-   * Appends `scrobbles` to the end of `service`'s queue, then drops its oldest entries beyond
-   * `max`. Resolves with how many it dropped.
+   * Appends `scrobbles` to the end of `service`'s queue, queued for `user` when given (each
+   * entry keeps it), then drops the queue's oldest entries beyond `max`. Resolves with how many
+   * it dropped.
    */
-  add(service: ScrobbleServiceId, scrobbles: readonly Scrobble[], max: number): Promise<number>
-  /** Up to `limit` entries from the front of `service`'s queue, oldest first. */
+  add(
+    service: ScrobbleServiceId,
+    scrobbles: readonly Scrobble[],
+    max: number,
+    user?: string,
+  ): Promise<number>
+  /** Up to `limit` entries from the front of `service`'s queue, oldest first, with their user. */
   peek(service: ScrobbleServiceId, limit: number): Promise<StoredScrobble[]>
   /** Removes entries by ID; IDs that are gone already are skipped. */
   remove(ids: readonly number[]): Promise<void>
@@ -52,10 +63,12 @@ export function createMemoryScrobbleStore(): ScrobbleStore {
     return queue
   }
   return {
-    async add(service, scrobbles, max) {
+    async add(service, scrobbles, max, user) {
       const queue = queueOf(service)
       for (const scrobble of scrobbles) {
-        queue.push({ id: ++lastId, scrobble: structuredClone(scrobble) })
+        const entry: StoredScrobble = { id: ++lastId, scrobble: structuredClone(scrobble) }
+        if (user !== undefined) entry.user = user
+        queue.push(entry)
       }
       const dropped = Math.max(0, queue.length - Math.max(0, max))
       queue.splice(0, dropped)
@@ -64,7 +77,7 @@ export function createMemoryScrobbleStore(): ScrobbleStore {
     async peek(service, limit) {
       return queueOf(service)
         .slice(0, Math.max(0, limit))
-        .map((entry) => ({ id: entry.id, scrobble: structuredClone(entry.scrobble) }))
+        .map((entry) => ({ ...entry, scrobble: structuredClone(entry.scrobble) }))
     },
     async remove(ids) {
       const gone = new Set(ids)

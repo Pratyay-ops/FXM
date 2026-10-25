@@ -5,8 +5,9 @@
  * Last.fm signs every call with the API account's shared secret, which FXM never ships: the
  * user creates an API account of their own and enters its key and secret, which stay on the
  * device. Every request is a `POST` whose parameters, signature and session key travel in the
- * body, never in the URL, with `credentials: 'omit'`. The body is form-encoded, so the request
- * is CORS-simple: Last.fm answers any origin (`Access-Control-Allow-Origin: *`), and the web app
+ * body, never in the URL, with `credentials: 'omit'` and `redirect: 'error'`, so a redirect can
+ * never carry them to another address. The body is form-encoded, so the request is
+ * CORS-simple: Last.fm answers any origin (`Access-Control-Allow-Origin: *`), and the web app
  * reaches it on every tier, without FXM Connect. See CLEAN-ROOM.md for where each fact comes
  * from.
  *
@@ -42,7 +43,7 @@ export const LASTFM_ERRORS = Object.freeze({
   authenticationFailed: 4,
   /** A required parameter is missing or invalid. */
   invalidParameters: 6,
-  /** "Operation failed - Something else went wrong". */
+  /** "Operation failed - Most likely the backend service failed. Please try again." */
   operationFailed: 8,
   /** The session key is invalid: the user revoked it. Re-authenticate. */
   invalidSession: 9,
@@ -84,7 +85,10 @@ const ERROR_TEXT: Readonly<Record<number, string>> = {
   29: 'rate limit exceeded',
 }
 
-/** What a Last.fm error code means for the request's scrobbles (see `ScrobbleFailure`). */
+/**
+ * What a Last.fm error code means for the request's scrobbles (see `ScrobbleFailure`). An
+ * answer with an HTTP status of 500 or more is never `rejected` (see `LastfmScrobbleClient`).
+ */
 export function lastfmFailureOf(code: number): ScrobbleFailure {
   switch (code) {
     case LASTFM_ERRORS.authenticationFailed:
@@ -95,7 +99,9 @@ export function lastfmFailureOf(code: number): ScrobbleFailure {
     case LASTFM_ERRORS.tokenExpired:
     case LASTFM_ERRORS.suspendedApiKey:
       return 'refused'
-    // The only codes Last.fm says to retry a scrobble on.
+    // The scrobbling guide says to retry on 11 and 16; the list of error codes also says
+    // "Please try again" for 8, where "most likely the backend service failed".
+    case LASTFM_ERRORS.operationFailed:
     case LASTFM_ERRORS.serviceOffline:
     case LASTFM_ERRORS.temporaryError:
       return 'temporary'
@@ -311,6 +317,8 @@ export class LastfmScrobbleClient {
         method: 'POST',
         body,
         credentials: 'omit',
+        // Last.fm never redirects its API; a redirect must not resend the body elsewhere.
+        redirect: 'error',
         timeoutMs: this.timeoutMs,
         ...(signal === undefined ? {} : { signal }),
       })
@@ -347,9 +355,14 @@ export class LastfmScrobbleClient {
     return answer
   }
 
-  /** The error for Last.fm's `error` code. */
+  /**
+   * The error for Last.fm's `error` code. A server error (HTTP 500 or more) is the server's,
+   * whatever the code: unless it refuses the credentials or asks FXM to wait, the scrobbles stay
+   * for a later try.
+   */
   private failed(code: number, response: Response): ScrobbleError {
-    const failure = lastfmFailureOf(code)
+    const coded = lastfmFailureOf(code)
+    const failure = coded === 'rejected' && response.status >= 500 ? 'temporary' : coded
     const waitMs = failure === 'rate-limited' ? retryAfterMs(response.headers) : undefined
     if (waitMs !== undefined) this.gate.holdUntil(Date.now() + waitMs)
     return new ScrobbleError(
@@ -398,6 +411,8 @@ export interface LastfmTargetOptions {
   paused?: boolean
   /** Which credentials these are, as the app identifies them (see `ScrobbleTarget.account`). */
   account?: string
+  /** The Last.fm user the session belongs to (see `ScrobbleTarget.user`). */
+  user?: string
 }
 
 /** Last.fm as a scrobbler target, for the session `sessionKey` of `client`'s API account. */
@@ -412,6 +427,7 @@ export function lastfmTarget(
     batchSize: LASTFM_BATCH_SIZE,
     paused: options.paused === true,
     ...(options.account === undefined ? {} : { account: options.account }),
+    ...(options.user === undefined ? {} : { user: options.user }),
     nowPlaying: (track, ctx) => client.updateNowPlaying(sessionKey, track, ctx),
     submit: (scrobbles, ctx) => client.scrobble(sessionKey, scrobbles, ctx),
   }
