@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   createDesktopShell,
+  PLAYBACK_STATES,
   parseEnvironment,
   SHELL_COMMANDS,
   SHELL_EVENTS,
   type ShellBindings,
+  wellFormed,
 } from './shell'
 
 /** Tauri's bindings, faked: `invoke` answers from `answers`, `listen` records handlers. */
@@ -43,14 +45,24 @@ describe('createDesktopShell', () => {
   it('tells the shell what plays, leaving out what the player does not know', async () => {
     const tauri = fakeTauri()
     const shell = createDesktopShell({ bindings: tauri.bindings })
-    await shell.setNowPlaying({ playing: true, title: 'Creep', artist: 'Radiohead' })
-    await shell.setNowPlaying({ playing: false })
+    await shell.setNowPlaying({ state: 'playing', title: 'Creep', artist: 'Radiohead' })
+    await shell.setNowPlaying({ state: 'paused' })
     expect(tauri.bindings.invoke).toHaveBeenNthCalledWith(1, SHELL_COMMANDS.setNowPlaying, {
-      now: { playing: true, title: 'Creep', artist: 'Radiohead' },
+      now: { state: 'playing', title: 'Creep', artist: 'Radiohead' },
     })
     expect(tauri.bindings.invoke).toHaveBeenNthCalledWith(2, SHELL_COMMANDS.setNowPlaying, {
-      now: { playing: false },
+      now: { state: 'paused' },
     })
+  })
+
+  it('sends well-formed text, which Rust’s JSON parser accepts', async () => {
+    const tauri = fakeTauri()
+    const shell = createDesktopShell({ bindings: tauri.bindings })
+    await shell.setNowPlaying({ state: 'error', title: 'Cut \ud83c', artist: '\udfb5 & Co' })
+    expect(tauri.bindings.invoke).toHaveBeenCalledWith(SHELL_COMMANDS.setNowPlaying, {
+      now: { state: 'error', title: 'Cut \ufffd', artist: '\ufffd & Co' },
+    })
+    expect(PLAYBACK_STATES).toEqual(['playing', 'paused', 'error'])
   })
 
   it('asks where the app runs', async () => {
@@ -116,8 +128,8 @@ describe('createDesktopShell', () => {
       .mockResolvedValue(tauri.bindings)
     const onError = vi.fn()
     const shell = createDesktopShell({ bindings: load, onError })
-    await expect(shell.setNowPlaying({ playing: false })).rejects.toThrow('not in Tauri')
-    await shell.setNowPlaying({ playing: false })
+    await expect(shell.setNowPlaying({ state: 'paused' })).rejects.toThrow('not in Tauri')
+    await shell.setNowPlaying({ state: 'paused' })
     await shell.environment()
     expect(load).toHaveBeenCalledTimes(2)
     expect(onError).not.toHaveBeenCalled()
@@ -134,6 +146,17 @@ describe('createDesktopShell', () => {
     shell.onMediaAction(() => {})
     await flush()
     expect(onError).toHaveBeenCalledWith(new Error('no runtime'))
+  })
+})
+
+describe('wellFormed', () => {
+  it('replaces lone surrogates and keeps everything else', () => {
+    expect(wellFormed('Creep – Radiohead 🎵')).toBe('Creep – Radiohead 🎵')
+    expect(wellFormed('a\ud83c')).toBe('a\ufffd')
+    expect(wellFormed('\udfb5b')).toBe('\ufffdb')
+    expect(wellFormed('\udfb5\ud83c')).toBe('\ufffd\ufffd')
+    expect(wellFormed('\ud83c\udfb5\ud83c')).toBe('🎵\ufffd')
+    expect(wellFormed('')).toBe('')
   })
 })
 

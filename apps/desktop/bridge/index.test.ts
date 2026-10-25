@@ -120,14 +120,14 @@ describe('createDesktopPlayback', () => {
     const disconnect = desktop.connect(player)
     await player.setQueue(testTracks('a', 'b'))
     await settle()
-    expect(fake.shown.at(-1)).toEqual({ playing: true, title: 'a', artist: 'a artist' })
+    expect(fake.shown.at(-1)).toEqual({ state: 'playing', title: 'a', artist: 'a artist' })
     expect(held()).toBe(1)
     fake.click('toggle')
     await settle()
     expect(player.getState().status).toBe('paused')
     expect(held()).toBe(0)
     disconnect()
-    expect(fake.shown.at(-1)).toEqual({ playing: false })
+    expect(fake.shown.at(-1)).toEqual({ state: 'paused' })
   })
 
   it('moves the lifecycle to a new network when the shell says so, until disposed', () => {
@@ -146,7 +146,7 @@ describe('createDesktopPlayback', () => {
 describe('re-resolving after about 5 hours', () => {
   it('keeps a one-hour margin before the 6-hour expiry of YouTube’s URLs', () => {
     expect(DESKTOP_URL_REFRESH_MARGIN_MS).toBe(HOUR)
-    expect(DESKTOP_PLAYER_OPTIONS).toEqual({ refreshBeforeExpiryMs: HOUR })
+    expect(DESKTOP_PLAYER_OPTIONS.refreshBeforeExpiryMs).toBe(HOUR)
     expect(FAKE_URL_LIFETIME_MS - DESKTOP_URL_REFRESH_MARGIN_MS).toBe(5 * HOUR)
   })
 

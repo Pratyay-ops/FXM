@@ -8,7 +8,8 @@
 //!
 //! - Play/Pause, Next and Previous go to the web app's player as a [`MEDIA_ACTION_EVENT`]
 //!   event, and what the menu shows comes back through the `set_now_playing` command
-//!   ([`crate::playback`]).
+//!   ([`crate::playback`]): the track, and whether it plays, is paused or stopped on an error.
+//!   After an error the first line shows the window, which says what went wrong.
 //! - A click on the icon shows the window on Windows; on macOS it opens the menu, as menu bar
 //!   items do, and Linux status areas always open the menu.
 
@@ -36,7 +37,8 @@ pub const MEDIA_ACTION_EVENT: &str = "fxm-media-action";
 /// The ids of the tray menu's items. Prefixed, so no item of another menu can share one: the
 /// menu event handler sees the events of every menu, the macOS app menu's included.
 pub mod item {
-    /// The current track, or that nothing plays. Disabled: it only informs.
+    /// The current track and what the player does with it, or that nothing plays. Disabled, so
+    /// it only informs, unless playback stopped on an error: then it shows the window.
     pub const NOW_PLAYING: &str = "fxm-tray-now-playing";
     /// Play or pause.
     pub const PLAY_PAUSE: &str = "fxm-tray-play-pause";
@@ -87,9 +89,10 @@ pub struct Tray<R: Runtime> {
 
 impl<R: Runtime> Tray<R> {
     /// Shows `now` in the menu and the tooltip. The media items are disabled while nothing is
-    /// queued.
+    /// queued, and the first line is enabled only when playback stopped on an error.
     pub fn show(&self, now: &NowPlaying) -> tauri::Result<()> {
         self.now_playing.set_text(menu_text(&now.summary()))?;
+        self.now_playing.set_enabled(now.needs_attention())?;
         self.play_pause.set_text(now.play_pause_label())?;
         for media in [&self.play_pause, &self.next, &self.previous] {
             media.set_enabled(now.has_track())?;
@@ -183,7 +186,8 @@ fn tray_supported() -> bool {
 /// anything that isn't the tray's is ignored.
 fn on_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
     match id {
-        item::SHOW => show_main_window(app),
+        // The first line is enabled, and so clickable, only after an error: the window says why.
+        item::SHOW | item::NOW_PLAYING => show_main_window(app),
         item::QUIT => app.exit(0),
         _ => {
             if let Some(action) = MediaAction::from_item(id) {

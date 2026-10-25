@@ -60,7 +60,10 @@ export interface DesktopPlayback {
   environment(): DesktopEnvironment | undefined
   /** Resolves with the environment once the shell has answered, or `undefined` if it failed. */
   readonly ready: Promise<DesktopEnvironment | undefined>
-  /** For `new Player(...)`: resolve again streams loaded about 5 hours ago. */
+  /**
+   * For `new Player(...)`: resolve again streams loaded about 5 hours ago, and retry a song whose
+   * probe got no answer rather than skip it (`desktopClassifyFailure`).
+   */
   readonly playerOptions: typeof DESKTOP_PLAYER_OPTIONS
   /**
    * For `new StreamLifecycle(...)`: URLs leave the cache when they are about 5 hours old, and

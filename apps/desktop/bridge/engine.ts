@@ -8,8 +8,10 @@
  *   through Rust, so the YouTube resolver probes the end of every file before it offers a URL
  *   (`fullLength` `verified`), and a capped URL is never played. An IP-bound URL that is still
  *   `unverified` (its probe failed to answer) is refused like a capped one: the playback policy
- *   then takes the fallback rung (itag 18), then resolves again. Free sources (Internet Archive,
- *   Jamendo) are not IP-bound, never capped and never probed, so they play as they are.
+ *   then takes the fallback rung (itag 18), then resolves again. When no rung's probe answers,
+ *   the song has `no-stream`, which the desktop player retries rather than skips
+ *   (`desktopClassifyFailure` in `options.ts`). Free sources (Internet Archive, Jamendo) are not
+ *   IP-bound, never capped and never probed, so they play as they are.
  * - **The codec per `canPlayType`, AAC on macOS before 15.4.** The policy plays Opus 251 only
  *   where the engine says `probably`, otherwise AAC 140. WebKit plays Opus in WebM only from
  *   macOS 15.4, so on earlier versions an Opus stream counts as `maybe` at best, whatever the

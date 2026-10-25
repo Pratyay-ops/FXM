@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { MEDIA_ACTIONS, PLAYBACK_LOCK, SHELL_COMMANDS, SHELL_EVENTS } from '../bridge'
+import {
+  MEDIA_ACTIONS,
+  PLAYBACK_LOCK,
+  PLAYBACK_STATES,
+  SHELL_COMMANDS,
+  SHELL_EVENTS,
+} from '../bridge'
 
 // Keeps the bridge (bridge/) in step with the desktop shell's Rust side (src-tauri/src/), whose
 // sources are read as text, so this runs in `make test` without a Rust toolchain.
@@ -12,6 +18,13 @@ const rust = (file: string) => withoutComments(read(`../src-tauri/src/${file}`))
 /** The string value of `pub const NAME: &str = "…";` in a Rust source. */
 function rustConst(source: string, name: string): string | undefined {
   return new RegExp(`pub const ${name}: &str = "([^"]*)";`).exec(source)?.[1]
+}
+
+/** The variants of a fieldless `pub enum`, in lower case, as serde names them. */
+function enumVariants(source: string, name: string): string[] {
+  const body = new RegExp(String.raw`pub enum ${name} \{([^}]*)\}`).exec(source)?.[1] ?? ''
+  // Each variant on a line of its own, after its documentation and attributes.
+  return [...body.matchAll(/^\s*(\w+),$/gm)].map(([, variant = '']) => variant.toLowerCase())
 }
 
 /** The arguments of a Rust command, as the web app names them (Tauri expects camelCase). */
@@ -34,9 +47,7 @@ describe('the bridge and the shell agree on', () => {
   it('the media actions, which Rust sends in lower case', () => {
     const tray = rust('tray.rs')
     expect(tray).toMatch(/#\[serde\(rename_all = "lowercase"\)\]\s*pub enum MediaAction/)
-    const variants = /pub enum MediaAction \{([^}]*)\}/.exec(tray)?.[1] ?? ''
-    const names = [...variants.matchAll(/^\s*(\w+),$/gm)].map(([, name]) => name?.toLowerCase())
-    expect(names).toEqual([...MEDIA_ACTIONS])
+    expect(enumVariants(tray, 'MediaAction')).toEqual([...MEDIA_ACTIONS])
   })
 
   it('the event that says the network changed', () => {
@@ -59,10 +70,16 @@ describe('the bridge and the shell agree on', () => {
     )
     const fields = /pub struct NowPlaying \{([^}]*)\}/.exec(playback)?.[1] ?? ''
     expect([...fields.matchAll(/pub (\w+):/g)].map(([, name]) => name)).toEqual([
-      'playing',
+      'state',
       'title',
       'artist',
     ])
+  })
+
+  it('the states of the player, which Rust reads in lower case', () => {
+    const playback = rust('playback.rs')
+    expect(playback).toMatch(/#\[serde\(rename_all = "lowercase"\)\]\s*pub enum PlayState/)
+    expect(enumVariants(playback, 'PlayState')).toEqual([...PLAYBACK_STATES])
   })
 
   it('the fields of the environment, which Rust writes in camelCase', () => {

@@ -2,8 +2,8 @@
 //! shows for it.
 //!
 //! The web app's player sends [`NowPlaying`] with the `set_now_playing` command whenever it
-//! changes. The tray menu's labels follow it ([`crate::tray`]), and so does the close button,
-//! which keeps FXM running in the tray while music plays ([`crate::window`]).
+//! changes. The tray's menu and tooltip follow it ([`crate::tray`]), and so does the close
+//! button, which keeps FXM running in the tray while music plays ([`crate::window`]).
 
 use std::sync::{
     Mutex, PoisonError,
@@ -28,12 +28,30 @@ pub const FIELD_MAX_CHARS: usize = 300;
 /// What the tray shows when no track is queued.
 pub const NOTHING_PLAYING: &str = "Nothing playing";
 
+/// What the tray's menu shows when playback stopped on an error: choosing it shows the window,
+/// which says why.
+pub const CANT_PLAY: &str = "Can't play: open FXM to see why";
+
+/// What the web app's player is doing. Read in lower case: `"playing"`, `"paused"`, `"error"`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlayState {
+    /// Audio plays, or the next track loads.
+    Playing,
+    /// Paused, stopped, ended or not started.
+    #[default]
+    Paused,
+    /// Playback stopped on a failure the user must look at in FXM's window, such as a bot check
+    /// or too many tracks that failed in a row.
+    Error,
+}
+
 /// What the web app's player is doing, as the tray shows it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct NowPlaying {
-    /// Whether audio plays or is about to: the player is `playing` or `loading`.
-    pub playing: bool,
+    /// What the player is doing.
+    pub state: PlayState,
     /// The current track's title, when the queue has one.
     #[serde(default)]
     pub title: Option<String>,
@@ -45,17 +63,15 @@ pub struct NowPlaying {
 impl NowPlaying {
     /// The same state with its text made safe to show: no control characters such as line
     /// breaks, no surrounding spaces, at most [`FIELD_MAX_CHARS`] each, and no empty fields. A
-    /// queue without a title has no track, so it plays nothing.
+    /// queue without a title has no track, so it is [`PlayState::Paused`] with nothing in it.
     pub fn sanitized(self) -> Self {
-        let title = self.title.as_deref().and_then(clean_field);
-        let artist = title
-            .as_ref()
-            .and(self.artist.as_deref())
-            .and_then(clean_field);
+        let Some(title) = self.title.as_deref().and_then(clean_field) else {
+            return Self::default();
+        };
         Self {
-            playing: self.playing && title.is_some(),
-            title,
-            artist,
+            state: self.state,
+            artist: self.artist.as_deref().and_then(clean_field),
+            title: Some(title),
         }
     }
 
@@ -64,27 +80,50 @@ impl NowPlaying {
         self.title.is_some()
     }
 
+    /// Whether music plays: the player plays or loads a track.
+    pub fn is_playing(&self) -> bool {
+        self.state == PlayState::Playing && self.has_track()
+    }
+
+    /// Whether playback stopped on an error that FXM's window explains: the menu's first line
+    /// then shows the window.
+    pub fn needs_attention(&self) -> bool {
+        self.state == PlayState::Error && self.has_track()
+    }
+
     /// The label of the play/pause item: what choosing it does.
     pub fn play_pause_label(&self) -> &'static str {
-        if self.playing { "Pause" } else { "Play" }
+        if self.is_playing() { "Pause" } else { "Play" }
     }
 
-    /// The current track as one line, `Title – Artist`, at most [`MENU_TEXT_MAX_CHARS`]
-    /// characters, or [`NOTHING_PLAYING`].
+    /// The menu's first line, at most [`MENU_TEXT_MAX_CHARS`] characters: `Title – Artist`
+    /// while it plays, `Paused · Title – Artist`, [`CANT_PLAY`] after an error, or
+    /// [`NOTHING_PLAYING`].
     pub fn summary(&self) -> String {
-        match self.track_line() {
-            Some(line) => truncate_chars(&line, MENU_TEXT_MAX_CHARS),
-            None => NOTHING_PLAYING.to_owned(),
-        }
+        let Some(line) = self.track_line() else {
+            return NOTHING_PLAYING.to_owned();
+        };
+        let summary = match self.state {
+            PlayState::Playing => line,
+            PlayState::Paused => format!("Paused · {line}"),
+            PlayState::Error => CANT_PLAY.to_owned(),
+        };
+        truncate_chars(&summary, MENU_TEXT_MAX_CHARS)
     }
 
-    /// The tray icon's tooltip: `FXM`, or `FXM: Title – Artist` while a track is queued, at most
-    /// [`TOOLTIP_MAX_UNITS`] UTF-16 code units.
+    /// The tray icon's tooltip, at most [`TOOLTIP_MAX_UNITS`] UTF-16 code units: `FXM`, or
+    /// `FXM: Title – Artist`, `FXM: Paused · Title – Artist` or `FXM: Can't play Title – Artist`
+    /// while a track is queued.
     pub fn tooltip(&self) -> String {
-        match self.track_line() {
-            Some(line) => truncate_utf16(&format!("FXM: {line}"), TOOLTIP_MAX_UNITS),
-            None => "FXM".to_owned(),
-        }
+        let Some(line) = self.track_line() else {
+            return "FXM".to_owned();
+        };
+        let tooltip = match self.state {
+            PlayState::Playing => format!("FXM: {line}"),
+            PlayState::Paused => format!("FXM: Paused · {line}"),
+            PlayState::Error => format!("FXM: Can't play {line}"),
+        };
+        truncate_utf16(&tooltip, TOOLTIP_MAX_UNITS)
     }
 
     /// `Title – Artist`, or the title alone, while a track is queued.
@@ -170,7 +209,7 @@ impl Playback {
     /// Records `now`, sanitized, and returns it.
     pub fn set(&self, now: NowPlaying) -> NowPlaying {
         let now = now.sanitized();
-        self.playing.store(now.playing, Ordering::Release);
+        self.playing.store(now.is_playing(), Ordering::Release);
         *self.now.lock().unwrap_or_else(PoisonError::into_inner) = now.clone();
         now
     }
@@ -195,9 +234,13 @@ pub fn set_now_playing<R: Runtime>(
 mod tests {
     use super::*;
 
-    fn now(playing: bool, title: Option<&str>, artist: Option<&str>) -> NowPlaying {
+    const PLAYING: PlayState = PlayState::Playing;
+    const PAUSED: PlayState = PlayState::Paused;
+    const ERROR: PlayState = PlayState::Error;
+
+    fn now(state: PlayState, title: Option<&str>, artist: Option<&str>) -> NowPlaying {
         NowPlaying {
-            playing,
+            state,
             title: title.map(str::to_owned),
             artist: artist.map(str::to_owned),
         }
@@ -206,20 +249,33 @@ mod tests {
     #[test]
     fn reads_the_web_apps_camel_case_state_and_refuses_unknown_fields() {
         let parsed: NowPlaying =
-            serde_json::from_str(r#"{"playing":true,"title":"Creep","artist":"Radiohead"}"#)
+            serde_json::from_str(r#"{"state":"playing","title":"Creep","artist":"Radiohead"}"#)
                 .expect("valid state");
-        assert_eq!(parsed, now(true, Some("Creep"), Some("Radiohead")));
-        let empty: NowPlaying = serde_json::from_str(r#"{"playing":false}"#).expect("valid state");
+        assert_eq!(parsed, now(PLAYING, Some("Creep"), Some("Radiohead")));
+        let empty: NowPlaying = serde_json::from_str(r#"{"state":"paused"}"#).expect("valid");
         assert_eq!(empty, NowPlaying::default());
-        assert!(serde_json::from_str::<NowPlaying>(r#"{"playing":true,"url":"x"}"#).is_err());
+        let error: NowPlaying =
+            serde_json::from_str(r#"{"state":"error","title":"Creep"}"#).expect("valid state");
+        assert_eq!(error, now(ERROR, Some("Creep"), None));
+        for refused in [
+            r#"{"state":"playing","url":"x"}"#,
+            r#"{"state":"stopped"}"#,
+            r#"{"playing":true}"#,
+            r#"{"title":"Creep"}"#,
+        ] {
+            assert!(
+                serde_json::from_str::<NowPlaying>(refused).is_err(),
+                "{refused}"
+            );
+        }
     }
 
     #[test]
     fn sanitizing_drops_control_characters_spaces_and_empty_fields() {
-        let clean = now(true, Some("  Line\none\t"), Some("\u{7}")).sanitized();
-        assert_eq!(clean, now(true, Some("Line one"), None));
+        let clean = now(PLAYING, Some("  Line\none\t"), Some("\u{7}")).sanitized();
+        assert_eq!(clean, now(PLAYING, Some("Line one"), None));
         let long = "a".repeat(FIELD_MAX_CHARS + 50);
-        let capped = now(false, Some(&long), None).sanitized();
+        let capped = now(PAUSED, Some(&long), None).sanitized();
         assert_eq!(
             capped.title.map(|title| title.chars().count()),
             Some(FIELD_MAX_CHARS)
@@ -228,46 +284,62 @@ mod tests {
 
     #[test]
     fn a_queue_without_a_title_plays_nothing_and_has_no_artist() {
-        assert_eq!(
-            now(true, Some("   "), Some("Radiohead")).sanitized(),
-            NowPlaying::default()
-        );
+        for state in [PLAYING, PAUSED, ERROR] {
+            let empty = now(state, Some("   "), Some("Radiohead")).sanitized();
+            assert_eq!(empty, NowPlaying::default());
+            assert!(!empty.is_playing() && !empty.needs_attention());
+        }
         assert!(!NowPlaying::default().has_track());
-        assert!(now(false, Some("Creep"), None).sanitized().has_track());
+        assert!(now(PAUSED, Some("Creep"), None).sanitized().has_track());
     }
 
     #[test]
     fn the_play_pause_item_says_what_it_does() {
-        assert_eq!(now(true, Some("Creep"), None).play_pause_label(), "Pause");
-        assert_eq!(now(false, Some("Creep"), None).play_pause_label(), "Play");
+        assert_eq!(
+            now(PLAYING, Some("Creep"), None).play_pause_label(),
+            "Pause"
+        );
+        assert_eq!(now(PAUSED, Some("Creep"), None).play_pause_label(), "Play");
+        assert_eq!(now(ERROR, Some("Creep"), None).play_pause_label(), "Play");
     }
 
     #[test]
-    fn the_summary_names_the_track_or_says_nothing_plays() {
-        assert_eq!(
-            now(true, Some("Creep"), Some("Radiohead")).summary(),
-            "Creep – Radiohead"
-        );
-        assert_eq!(now(true, Some("Creep"), None).summary(), "Creep");
+    fn only_an_error_asks_for_attention() {
+        assert!(now(ERROR, Some("Creep"), None).needs_attention());
+        assert!(!now(PLAYING, Some("Creep"), None).needs_attention());
+        assert!(!now(PAUSED, Some("Creep"), None).needs_attention());
+    }
+
+    #[test]
+    fn the_summary_says_what_the_player_does_with_which_track() {
+        let creep = |state| now(state, Some("Creep"), Some("Radiohead")).summary();
+        assert_eq!(creep(PLAYING), "Creep – Radiohead");
+        assert_eq!(creep(PAUSED), "Paused · Creep – Radiohead");
+        assert_eq!(creep(ERROR), CANT_PLAY);
+        assert_eq!(now(PLAYING, Some("Creep"), None).summary(), "Creep");
         assert_eq!(NowPlaying::default().summary(), NOTHING_PLAYING);
-        let long = now(true, Some(&"a".repeat(100)), None).summary();
+        assert!(CANT_PLAY.chars().count() <= MENU_TEXT_MAX_CHARS);
+        let long = now(PLAYING, Some(&"a".repeat(100)), None).summary();
         assert_eq!(long.chars().count(), MENU_TEXT_MAX_CHARS);
         assert!(long.ends_with("a…"), "{long}");
+        let paused = now(PAUSED, Some(&"a".repeat(100)), None).summary();
+        assert_eq!(paused.chars().count(), MENU_TEXT_MAX_CHARS);
+        assert!(paused.starts_with("Paused · a"), "{paused}");
         // A cut right after a space drops the space before the ellipsis.
         let title = format!("{} {}", "x".repeat(MENU_TEXT_MAX_CHARS - 2), "y".repeat(20));
-        let words = now(true, Some(&title), Some("Artist")).summary();
+        let words = now(PLAYING, Some(&title), Some("Artist")).summary();
         assert_eq!(words, format!("{}…", "x".repeat(MENU_TEXT_MAX_CHARS - 2)));
     }
 
     #[test]
-    fn the_tooltip_fits_windows_and_names_the_track() {
+    fn the_tooltip_fits_windows_and_says_what_the_player_does() {
         assert_eq!(NowPlaying::default().tooltip(), "FXM");
-        assert_eq!(
-            now(false, Some("Creep"), Some("Radiohead")).tooltip(),
-            "FXM: Creep – Radiohead"
-        );
+        let creep = |state| now(state, Some("Creep"), Some("Radiohead")).tooltip();
+        assert_eq!(creep(PLAYING), "FXM: Creep – Radiohead");
+        assert_eq!(creep(PAUSED), "FXM: Paused · Creep – Radiohead");
+        assert_eq!(creep(ERROR), "FXM: Can't play Creep – Radiohead");
         // Characters outside the Basic Multilingual Plane take two UTF-16 code units each.
-        let tooltip = now(true, Some(&"🎵".repeat(100)), None).tooltip();
+        let tooltip = now(PLAYING, Some(&"🎵".repeat(100)), None).tooltip();
         assert!(tooltip.encode_utf16().count() <= TOOLTIP_MAX_UNITS);
         assert!(tooltip.ends_with('…'));
     }
@@ -290,11 +362,13 @@ mod tests {
     fn playback_remembers_the_sanitized_state() {
         let playback = Playback::default();
         assert!(!playback.is_playing());
-        let stored = playback.set(now(true, Some(" Creep "), Some("Radiohead")));
-        assert_eq!(stored, now(true, Some("Creep"), Some("Radiohead")));
+        let stored = playback.set(now(PLAYING, Some(" Creep "), Some("Radiohead")));
+        assert_eq!(stored, now(PLAYING, Some("Creep"), Some("Radiohead")));
         assert!(playback.is_playing());
         assert_eq!(playback.now(), stored);
-        playback.set(now(true, None, None));
+        playback.set(now(ERROR, Some("Creep"), None));
+        assert!(!playback.is_playing(), "stopped on an error");
+        playback.set(now(PLAYING, None, None));
         assert!(!playback.is_playing(), "nothing queued, nothing plays");
     }
 }

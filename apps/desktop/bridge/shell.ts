@@ -30,14 +30,41 @@ export type MediaAction = 'toggle' | 'next' | 'previous'
 /** Every {@link MediaAction}. */
 export const MEDIA_ACTIONS: readonly MediaAction[] = ['toggle', 'next', 'previous']
 
+/**
+ * What the player is doing, as the tray shows it:
+ *
+ * - `playing`: audio plays, or the next track loads (the player is `playing` or `loading`)
+ * - `error`: playback stopped on a failure the user must look at in FXM's window, such as a
+ *   bot check, or too many tracks that failed in a row
+ * - `paused`: anything else: paused, stopped, ended or not started
+ */
+export type PlaybackState = 'playing' | 'paused' | 'error'
+
+/** Every {@link PlaybackState}. */
+export const PLAYBACK_STATES: readonly PlaybackState[] = ['playing', 'paused', 'error']
+
 /** What the player is doing, as the tray menu shows it. */
 export interface NowPlaying {
-  /** Whether audio plays or is about to: the player is `playing` or `loading`. */
-  readonly playing: boolean
+  /** What the player is doing. Without a track, always `paused`. */
+  readonly state: PlaybackState
   /** The current track's title, while the queue has one. */
   readonly title?: string
   /** The current track's artists, as one line. */
   readonly artist?: string
+}
+
+/** A valid surrogate pair (kept), or a lone surrogate (replaced). */
+const SURROGATES = /([\uD800-\uDBFF][\uDC00-\uDFFF])|[\uD800-\uDFFF]/g
+
+/**
+ * `text` with each lone UTF-16 surrogate replaced by U+FFFD, the replacement character. Tauri's
+ * IPC sends JSON, which keeps a lone surrogate as an escape such as `\ud83c`, and Rust's JSON
+ * parser refuses one, so the whole command would fail: a title cut in the middle of an emoji
+ * would never reach the tray. (`String.prototype.toWellFormed` does the same, but WebKit has it
+ * only from Safari 16.4.)
+ */
+export function wellFormed(text: string): string {
+  return text.replace(SURROGATES, (_match, pair: string | undefined) => pair ?? '�')
 }
 
 /** Where the desktop app runs, as its Rust side reports it. */
@@ -85,7 +112,10 @@ export async function loadShellBindings(): Promise<ShellBindings> {
 export interface DesktopShell {
   /** Where the app runs. */
   environment(): Promise<DesktopEnvironment>
-  /** Tells the shell what the player is doing, for the tray menu and the close button. */
+  /**
+   * Tells the shell what the player is doing, for the tray's menu and tooltip and for the close
+   * button. Lone surrogates in the text become U+FFFD on the way ({@link wellFormed}).
+   */
   setNowPlaying(now: NowPlaying): Promise<void>
   /** Calls `listener` with each media action from the tray. Returns a function that stops it. */
   onMediaAction(listener: (action: MediaAction) => void): () => void
@@ -173,9 +203,9 @@ export function createDesktopShell(options: DesktopShellOptions = {}): DesktopSh
       const { invoke } = await bindings()
       await invoke<void>(SHELL_COMMANDS.setNowPlaying, {
         now: {
-          playing: now.playing,
-          ...(now.title === undefined ? {} : { title: now.title }),
-          ...(now.artist === undefined ? {} : { artist: now.artist }),
+          state: now.state,
+          ...(now.title === undefined ? {} : { title: wellFormed(now.title) }),
+          ...(now.artist === undefined ? {} : { artist: wellFormed(now.artist) }),
         },
       })
     },
