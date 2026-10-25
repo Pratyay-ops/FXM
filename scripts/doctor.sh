@@ -98,6 +98,24 @@ if [ -n "$rust_channel" ] && [ -x "$rust_toolchain/bin/rustc" ]; then
 else
   opt rust "not installed: 'make rust-setup' (desktop app)"
 fi
+# env.sh clears Rust overrides from the environment, but Cargo also reads .cargo/config.toml
+# in every folder above the checkout, whatever CARGO_HOME says: ~/.cargo/config.toml too when
+# the checkout is in your home folder. Only a warning, as it matters only for desktop builds.
+cargo_config_dir=$(dirname "$FXM_ROOT")
+while :; do
+  for cargo_config in "$cargo_config_dir/.cargo/config.toml" "$cargo_config_dir/.cargo/config"; do
+    if [ -f "$cargo_config" ] &&
+      grep -Eq '^[^#]*(target-dir|rustc-wrapper|rustc-workspace-wrapper)[[:space:]]*=' \
+        "$cargo_config"; then
+      shown=${cargo_config#"$HOME"/}
+      [ "$shown" = "$cargo_config" ] || shown="~/$shown"
+      printf '  \033[33m!\033[0m %-10s %s\n' rust \
+        "$shown sets target-dir or a rustc wrapper: desktop builds would write outside the repo"
+    fi
+  done
+  [ "$cargo_config_dir" != / ] || break
+  cargo_config_dir=$(dirname "$cargo_config_dir")
+done
 case "$(uname -s)" in
   Darwin)
     if clt=$(xcode-select -p 2>/dev/null); then

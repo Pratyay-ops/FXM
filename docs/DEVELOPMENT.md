@@ -185,6 +185,8 @@ The content security policy only applies to release builds: `make desktop-dev` l
 
 `scripts/env.sh` sets `RUSTUP_HOME` and `CARGO_HOME` to `.tools/` and puts `.tools/cargo/bin` on `PATH`. rustup is installed with `--no-modify-path`, so nothing goes into `~/.cargo`, `~/.rustup` or your shell profile. To use rust-analyzer, start your editor from a shell that sourced `scripts/env.sh`.
 
+`env.sh` also clears the variables a Rust setup of your own may export (`CARGO_TARGET_DIR`, `RUSTUP_TOOLCHAIN`, `RUSTC_WRAPPER` and their Cargo equivalents), so builds use the pinned toolchain and stay in the repository. Cargo still reads `.cargo/config.toml` in every folder above the checkout, so also `~/.cargo/config.toml` when the checkout is in your home folder. `make doctor` warns when one of those sets `target-dir` or a rustc wrapper such as sccache.
+
 Running the app stores its own data where every installed app does, for example `~/Library/Application Support/io.github.pratyayops.fxm` and `~/Library/WebKit/io.github.pratyayops.fxm` on macOS: the window position and the web app's storage. That is user data, not tooling, so `make nuke` keeps it. Delete those folders to reset the app.
 
 ### Removing it
