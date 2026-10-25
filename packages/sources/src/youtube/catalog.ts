@@ -1,7 +1,7 @@
 /**
  * What the `ytm` and `yt` providers share: calling InnerTube through the session, the pages that
- * both read from YouTube Music (tracks, playlists, artist pages, suggestions), paging with
- * cursors and limits, and the catalog-mode filter on every list.
+ * both read from YouTube Music (tracks, playlists, artist pages, suggestions), video
+ * descriptions, paging with cursors and limits, and the catalog-mode filter on every list.
  *
  * A page is cut to its `limit` first and filtered by the catalog mode after, so it may hold fewer
  * items than the limit, or none, and still have a `nextCursor`: only a missing `nextCursor` ends
@@ -39,6 +39,7 @@ import type { ListPage } from './parse/lists'
 import { parsePlaylistContinuation, parsePlaylistPage } from './parse/playlist'
 import { parseQueue, type QueuePage } from './parse/queue'
 import { parseSuggestions } from './parse/suggestions'
+import { parseDescription } from './parse/web'
 import type { InnerTubeEndpoint } from './request'
 import {
   assertYouTubeReachable,
@@ -255,6 +256,15 @@ export class YouTubeCatalog {
     )
     if (track === undefined) throw new FxmError('NotFound', `YouTube has no video ${videoId}`)
     return track
+  }
+
+  /**
+   * The description under a video (see `parseDescription`), from plain YouTube's watch page:
+   * one `next` request with the `WEB` client. `undefined` when it has none.
+   */
+  async description(id: EntityId<'track'>, ctx: ProviderContext): Promise<string | undefined> {
+    const videoId = nativeYouTubeId(id, 'track')
+    return parseDescription(await this.call(ctx, 'web', 'next', { videoId }))
   }
 
   /** An artist or channel page. */

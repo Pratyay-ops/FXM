@@ -7,8 +7,8 @@
  * - tracking and logging fields, accessibility labels, styling, `frameworkUpdates`,
  *   `responseContext` (apart from a visitorData, which becomes {@link FAKE_VISITOR_DATA}) and
  *   `microformat` (apart from its title and canonical URL);
- * - every menu item but "View song credits", like buttons and dialogs, and every
- *   `watchEndpointSupportedOnesieConfig`;
+ * - every menu item but "View song credits", like buttons and dialogs, comments, a watch page's
+ *   related videos and autoplay list, and every `watchEndpointSupportedOnesieConfig`;
  * - every IPv4 or IPv6 address, written plainly or percent-encoded, IPv6 also compressed (`::`),
  *   and the value of every `ip=` URL parameter: replaced with an address from the documentation
  *   ranges, {@link DOC_IPV4} or {@link DOC_IPV6};
@@ -35,6 +35,7 @@ const DROPPED_KEYS = new Set([
   'adSlots',
   'annotations',
   'aspectRatio',
+  'autoplay',
   'attestation',
   'avatar',
   'background',
@@ -46,6 +47,9 @@ const DROPPED_KEYS = new Set([
   'chipCloudRenderer',
   'clickTrackingParams',
   'collapsedItemCount',
+  'commentRenderer',
+  'commentThreadRenderer',
+  'commentsEntryPointHeaderRenderer',
   'contentPosition',
   'contentsMultiSelectable',
   'customIndexColumn',
@@ -84,6 +88,7 @@ const DROPPED_KEYS = new Set([
   'rippleTarget',
   'searchHeaderRenderer',
   'searchVideoResultEntityKey',
+  'secondaryResults',
   'serializedContextData',
   'serializedShareEntity',
   'serviceTrackingParams',
@@ -96,6 +101,8 @@ const DROPPED_KEYS = new Set([
   'styleRuns',
   'subHeaderChipCloud',
   'subscriptionButton',
+  'teaserAvatar',
+  'teaserContent',
   'thumbnailCrop',
   'thumbnailOverlay',
   'thumbnailOverlays',
@@ -211,6 +218,7 @@ export function sanitizeResponse(json: unknown): unknown {
 
 /** The item renderers whose lists {@link truncateItems} shortens. */
 const ITEM_RENDERERS = new Set([
+  'itemSectionRenderer',
   'musicResponsiveListItemRenderer',
   'musicTwoRowItemRenderer',
   'playlistPanelVideoRenderer',
@@ -263,6 +271,7 @@ export const KEPT_ITEMS: Readonly<Record<string, number>> = {
   'search-albums': 6,
   'search-artists': 6,
   'search-playlists': 6,
+  'search-top': 6,
   'web-search-videos': 8,
   'web-search-channels': 5,
   'web-search-playlists': 3,

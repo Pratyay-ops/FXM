@@ -63,6 +63,16 @@ describe('the fixture sanitizer', () => {
     })
   })
 
+  it('drops comments and a watch page’s related videos', () => {
+    expect(
+      sanitizeResponse({
+        contents: { teaserContent: { simpleText: 'a comment' }, keep: 1 },
+        secondaryResults: { results: [] },
+        autoplay: { autoplay: {} },
+      }),
+    ).toEqual({ contents: { keep: 1 } })
+  })
+
   it('keeps only the "View song credits" items of menus, and cuts long texts', () => {
     const credits = {
       menuNavigationItemRenderer: {

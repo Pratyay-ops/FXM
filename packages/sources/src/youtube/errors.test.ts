@@ -202,6 +202,8 @@ describe('errors through the providers', () => {
       music.getTrack(id, plain),
       music.radio({ name: 'x' }, plain),
       music.suggest('x', plain),
+      music.topResult('x', plain),
+      music.getDescription(id, plain),
       video.search('x', { types: ['video'] }, plain),
       video.getAlbum(formatId('yt', 'album', 'MPREb_x'), plain),
     ]) {

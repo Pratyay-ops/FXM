@@ -47,6 +47,11 @@ export interface YouTubeVideoProvider extends MetadataProvider {
     options: PageOptions,
     ctx: ProviderContext,
   ): Promise<Page<Track>>
+  /**
+   * The description under a video, e.g. its uploader's text. `undefined` when it has none. One
+   * request.
+   */
+  getDescription(id: EntityId<'track'>, ctx: ProviderContext): Promise<string | undefined>
 }
 
 /** The plain YouTube search filter of each type it has. */
@@ -105,6 +110,10 @@ export function createYouTubeVideoProvider(
 
     getTrack(id, ctx) {
       return catalog.run(ctx, id, () => catalog.track(id, ctx))
+    },
+
+    getDescription(id, ctx) {
+      return catalog.run(ctx, id, () => catalog.description(id, ctx))
     },
 
     getAlbum(id, ctx) {

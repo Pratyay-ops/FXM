@@ -37,7 +37,11 @@ export {
   type YouTubeLabels,
 } from './config'
 export type { YouTubeSource } from './ids'
-export { createYouTubeMusicProvider, type YouTubeMusicProvider } from './music'
+export {
+  createYouTubeMusicProvider,
+  type TopResult,
+  type YouTubeMusicProvider,
+} from './music'
 export { kindOfMusicVideoType, MUSIC_VIDEO_TYPES } from './parse/classify'
 export type { InnerTubeEndpoint } from './request'
 export {

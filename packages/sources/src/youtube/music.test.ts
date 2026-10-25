@@ -13,6 +13,7 @@ import albumPabloHoney from './fixtures/album-pablo-honey.json'
 import artistRadiohead from './fixtures/artist-radiohead.json'
 import nextCreepSong from './fixtures/next-creep-song.json'
 import nextCreepVideo from './fixtures/next-creep-video.json'
+import nextWebCreep from './fixtures/next-web-creep.json'
 import playlistBSides from './fixtures/playlist-b-sides.json'
 import playlistOlak from './fixtures/playlist-olak-pablo-honey.json'
 import playlistPopular from './fixtures/playlist-popular.json'
@@ -25,6 +26,7 @@ import searchArtists from './fixtures/search-artists.json'
 import searchPlaylists from './fixtures/search-playlists.json'
 import searchSongs from './fixtures/search-songs.json'
 import searchSongs2 from './fixtures/search-songs-2.json'
+import searchTop from './fixtures/search-top.json'
 import searchVideos from './fixtures/search-videos.json'
 import suggest from './fixtures/suggest.json'
 import {
@@ -34,6 +36,7 @@ import {
   json,
   on,
   preflightReason,
+  type Recorded,
   type Route,
   SIMPLE,
 } from './fixtures/testing'
@@ -47,8 +50,22 @@ const RADIOHEAD = formatId('ytm', 'artist', 'UCr_iyUANcn9OX_yy9piYoLw')
 const CREEP_SONG = formatId('ytm', 'track', 'zFYEYRcjK2g')
 const CREEP_VIDEO = formatId('ytm', 'track', 'XFkzRNyygfk')
 
+/** The client a request presents itself as, e.g. `WEB_REMIX`. */
+function clientOf(request: Recorded): unknown {
+  return (request.body.context as { client?: { clientName?: unknown } } | undefined)?.client
+    ?.clientName
+}
+
 /** The fake YouTube Music every test talks to: each fixture answers its own request. */
 const routes: Route[] = [
+  (request) =>
+    endpointOf(request) === 'search' &&
+    typeof request.body.query === 'string' &&
+    request.body.params === undefined
+      ? json(searchTop)
+      : undefined,
+  (request) =>
+    endpointOf(request) === 'next' && clientOf(request) === 'WEB' ? json(nextWebCreep) : undefined,
   on('search', { params: params.music.songs }, searchSongs),
   (request) =>
     endpointOf(request) === 'search' && typeof request.body.continuation === 'string'
@@ -244,6 +261,154 @@ describe('YouTube Music search', () => {
     expect(youtube.requests[0]?.body).toMatchObject({ input: 'radioh' })
   })
 })
+
+describe('YouTube Music top results', () => {
+  /** The unfiltered search fixture with its card's title linking `endpoint` instead. */
+  function withCard(change: (card: CardJson) => void): unknown {
+    const copy = structuredClone(searchTop) as unknown as SearchJson
+    const card =
+      copy.contents.tabbedSearchResultsRenderer.tabs[0]?.tabRenderer.content.sectionListRenderer
+        .contents[0]?.musicCardShelfRenderer
+    if (card === undefined) throw new Error('the fixture has no card')
+    change(card)
+    return copy
+  }
+
+  it('reads the card above the results of an unfiltered search', async () => {
+    const { music, ctx, youtube } = setup('all')
+    const top = await music.topResult('  Radiohead Creep ', ctx)
+    expect(top).toMatchObject({
+      type: 'track',
+      track: {
+        id: CREEP_VIDEO,
+        kind: 'music-video',
+        title: 'Creep',
+        artists: [{ id: RADIOHEAD, name: 'Radiohead' }],
+        durationMs: 237_000,
+      },
+    })
+    expect(youtube.requests).toHaveLength(1)
+    expect(youtube.requests[0]?.body).toMatchObject({ query: 'Radiohead Creep' })
+    expect(youtube.requests[0]?.body).not.toHaveProperty('params')
+  })
+
+  it('keeps an official video in Music mode, for its song to be matched, and hides others', async () => {
+    const music = setup('music')
+    expect(await music.music.topResult('Radiohead Creep', music.ctx)).toMatchObject({
+      type: 'track',
+      track: { kind: 'music-video' },
+    })
+    expect(modePolicy({ kind: 'music-video' }, 'music')).toBe('needs-song-match')
+    const upload = withCard((card) => {
+      const config =
+        card.title.runs[0]?.navigationEndpoint.watchEndpoint?.watchEndpointMusicSupportedConfigs
+          ?.watchEndpointMusicConfig
+      if (config) config.musicVideoType = 'MUSIC_VIDEO_TYPE_UGC'
+    })
+    for (const mode of ['music', 'all'] as const) {
+      const youtube = fakeInnerTube(on('search', { query: 'x' }, upload))
+      const provider = createYouTubeMusicProvider()
+      const top = await provider.topResult(
+        'x',
+        context(youtube.fetch, { mode, capabilities: SIMPLE }),
+      )
+      expect(top?.type === 'track' ? top.track.kind : top).toBe(
+        mode === 'music' ? undefined : 'video',
+      )
+    }
+  })
+
+  it('reads an artist card by the page its title links to', async () => {
+    const artist = withCard((card) => {
+      const run = card.title.runs[0]
+      if (run) {
+        run.text = 'Radiohead'
+        run.navigationEndpoint = {
+          browseEndpoint: {
+            browseId: 'UCr_iyUANcn9OX_yy9piYoLw',
+            browseEndpointContextSupportedConfigs: {
+              browseEndpointContextMusicConfig: { pageType: 'MUSIC_PAGE_TYPE_ARTIST' },
+            },
+          },
+        }
+      }
+    })
+    const youtube = fakeInnerTube(on('search', { query: 'Radiohead' }, artist))
+    const music = createYouTubeMusicProvider()
+    const ctx = context(youtube.fetch, { mode: 'music', capabilities: SIMPLE })
+    expect(await music.topResult('Radiohead', ctx)).toMatchObject({
+      type: 'artist',
+      artist: { id: RADIOHEAD, name: 'Radiohead' },
+    })
+  })
+
+  it('has none for an empty query, without asking YouTube, nor for an answer without a card', async () => {
+    const { music, ctx, youtube } = setup()
+    expect(await music.topResult('  ', ctx)).toBeUndefined()
+    expect(youtube.requests).toEqual([])
+    const cardless = withCard(() => {}) as SearchJson
+    cardless.contents.tabbedSearchResultsRenderer.tabs[0]?.tabRenderer.content.sectionListRenderer.contents.shift()
+    const empty = fakeInnerTube(on('search', { query: 'x' }, cardless))
+    const provider = createYouTubeMusicProvider()
+    expect(
+      await provider.topResult('x', context(empty.fetch, { capabilities: SIMPLE })),
+    ).toBeUndefined()
+  })
+})
+
+describe('YouTube Music descriptions', () => {
+  it('reads a song’s label and release date from its plain YouTube watch page', async () => {
+    const { music, ctx, youtube } = setup('music')
+    const description = await music.getDescription(CREEP_SONG, ctx)
+    expect(description).toMatch(/^Provided to YouTube by Beggars Group Digital Ltd\./)
+    expect(description).toContain('℗ 1992 XL Recordings Ltd')
+    expect(description).toContain('Released on: 1993-02-22')
+    expect(youtube.requests[0]?.url.href).toBe(
+      'https://www.youtube.com/youtubei/v1/next?prettyPrint=false',
+    )
+    expect(youtube.requests[0]?.body).toMatchObject({
+      context: { client: { clientName: 'WEB' } },
+      videoId: 'zFYEYRcjK2g',
+    })
+  })
+
+  it('has none when the watch page shows none', async () => {
+    const youtube = fakeInnerTube(
+      on('next', {}, { contents: { twoColumnWatchNextResults: { results: { results: {} } } } }),
+    )
+    const music = createYouTubeMusicProvider()
+    const ctx = context(youtube.fetch, { capabilities: SIMPLE })
+    expect(await music.getDescription(formatId('ytm', 'track', 'aaaaaaaaaaa'), ctx)).toBeUndefined()
+  })
+})
+
+interface CardJson {
+  title: {
+    runs: {
+      text: string
+      navigationEndpoint: {
+        watchEndpoint?: {
+          watchEndpointMusicSupportedConfigs?: {
+            watchEndpointMusicConfig?: { musicVideoType?: string }
+          }
+        }
+        browseEndpoint?: unknown
+      }
+    }[]
+  }
+}
+
+interface SearchJson {
+  contents: {
+    tabbedSearchResultsRenderer: {
+      tabs: {
+        tabRenderer: {
+          content: { sectionListRenderer: { contents: { musicCardShelfRenderer?: CardJson }[] } }
+        }
+      }[]
+    }
+  }
+}
 
 describe('YouTube Music tracks', () => {
   it('loads a song with its album and year from next', async () => {

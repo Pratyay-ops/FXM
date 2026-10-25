@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { BUNDLED_YOUTUBE_CONFIG } from './config'
 import channelUploader from './fixtures/channel-uploader.json'
 import nextUpload from './fixtures/next-upload.json'
+import nextWebCreep from './fixtures/next-web-creep.json'
 import playlistBSides from './fixtures/playlist-b-sides.json'
 import suggest from './fixtures/suggest.json'
 import { context, endpointOf, fakeInnerTube, json, on, SIMPLE } from './fixtures/testing'
@@ -25,6 +26,7 @@ function setup(mode: 'music' | 'all' = 'all') {
         : undefined,
     on('music/get_search_suggestions', {}, suggest),
     on('next', { videoId: 'vX8ISGJXa8s' }, nextUpload),
+    on('next', { videoId: 'zFYEYRcjK2g' }, nextWebCreep),
     on('browse', { browseId: 'UCBHyEuwczfD-exAYApo_g6w' }, channelUploader),
     on('browse', { browseId: 'VLPLNfe5eb0vdozpNx650kvCDhFjteIpW-L2' }, playlistBSides),
   )
@@ -128,6 +130,16 @@ describe('plain YouTube entities', () => {
       video.getAlbum(formatId('yt', 'album', 'MPREb_DciERiuADkS'), ctx),
     ).rejects.toSatisfy((error) => isFxmError(error, 'Unsupported'))
     expect(youtube.requests).toEqual([])
+  })
+
+  it('reads a video’s description from its watch page', async () => {
+    const { video, ctx, youtube } = setup()
+    const description = await video.getDescription(formatId('yt', 'track', 'zFYEYRcjK2g'), ctx)
+    expect(description).toMatch(/^Provided to YouTube by Beggars Group Digital Ltd\./)
+    expect(youtube.requests[0]?.body).toMatchObject({
+      context: { client: { clientName: 'WEB' } },
+      videoId: 'zFYEYRcjK2g',
+    })
   })
 
   it('loads a channel with its videos and no albums, all hidden in Music mode', async () => {

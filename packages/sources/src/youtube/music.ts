@@ -38,8 +38,15 @@ import { onAlbum, parseAlbumPage } from './parse/album'
 import type { Item, TrackRow } from './parse/items'
 import { parsePlaylistContinuation, parsePlaylistPage } from './parse/playlist'
 import { parseQueue, parseQueueContinuation, type QueuePage } from './parse/queue'
-import { parseMusicSearch } from './parse/search'
+import { parseMusicSearch, parseTopResult } from './parse/search'
 import { createYouTubeSession, type YouTubeProviderOptions, type YouTubeSession } from './session'
+
+/** The top result of an unfiltered YouTube Music search, the card above the other results. */
+export type TopResult =
+  | { readonly type: 'track'; readonly track: Track }
+  | { readonly type: 'album'; readonly album: Album }
+  | { readonly type: 'artist'; readonly artist: Artist }
+  | { readonly type: 'playlist'; readonly playlist: Playlist }
 
 /** YouTube Music as a metadata and recommendation provider. */
 export interface YouTubeMusicProvider extends MetadataProvider, RecommendationProvider {
@@ -60,6 +67,18 @@ export interface YouTubeMusicProvider extends MetadataProvider, RecommendationPr
    * returned. A cursor belongs to its seed and catalog mode.
    */
   radioPage(seed: RadioSeed, options: PageOptions, ctx: ProviderContext): Promise<Page<Track>>
+  /**
+   * The top result of an unfiltered search for `query`: the card YouTube Music shows above the
+   * other results, e.g. the recording an ISRC names. `undefined` when there is none, or when it
+   * is a track that the catalog mode hides. One request.
+   */
+  topResult(query: string, ctx: ProviderContext): Promise<TopResult | undefined>
+  /**
+   * The description under a video, e.g. a song's auto-generated "Provided to YouTube by …" text
+   * with its label, ℗ line and release date. `undefined` when it has none. One request, to
+   * plain YouTube's watch page.
+   */
+  getDescription(id: EntityId<'track'>, ctx: ProviderContext): Promise<string | undefined>
 }
 
 /** The search filter of each result type. */
@@ -244,8 +263,22 @@ export function createYouTubeMusicProvider(
       return catalog.run(ctx, `suggestions for "${query}"`, () => catalog.suggestions(query, ctx))
     },
 
+    topResult(query, ctx) {
+      return catalog.run(ctx, `the top result for "${query}"`, async () => {
+        const trimmed = query.trim()
+        if (trimmed === '') return undefined
+        const json = await catalog.call(ctx, 'music', 'search', { query: trimmed })
+        const item = parseTopResult(json, catalog.mapOf(ctx))
+        return item === undefined ? undefined : topResultOf(item, ctx.mode)
+      })
+    },
+
     getTrack(id, ctx) {
       return catalog.run(ctx, id, () => catalog.track(id, ctx))
+    },
+
+    getDescription(id, ctx) {
+      return catalog.run(ctx, id, () => catalog.description(id, ctx))
     },
 
     getAlbum(id, ctx) {
@@ -381,6 +414,22 @@ function pick(items: readonly Item[], type: 'album' | 'artist' | 'playlist'): un
     else if (item.type === 'playlist') picked.push(item.playlist)
   }
   return picked
+}
+
+/** A top result as the provider returns it: a track only when the mode shows it. */
+function topResultOf(item: Item, mode: CatalogMode): TopResult | undefined {
+  switch (item.type) {
+    case 'track': {
+      const [track] = applyModeFilter([item.row.track], mode)
+      return track === undefined ? undefined : { type: 'track', track }
+    }
+    case 'album':
+      return { type: 'album', album: item.album }
+    case 'artist':
+      return { type: 'artist', artist: item.artist }
+    case 'playlist':
+      return { type: 'playlist', playlist: item.playlist }
+  }
 }
 
 /** The song an album row's "View song credits" item names, unless it is the row itself. */
