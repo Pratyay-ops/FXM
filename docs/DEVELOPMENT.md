@@ -97,7 +97,7 @@ A release goes from `develop` to `main` through a pull request, and a workflow p
 | `make release-pr VERSION=x.y.z` | On a clean `develop` equal to `origin/develop`: set the version, regenerate `CHANGELOG.md`, commit `chore(release): vX.Y.Z`, push `develop` and open the pull request "Release vX.Y.Z" into `main`. It prints the URL and never merges. Run again with the version `develop` already has, it updates that release: `CHANGELOG.md`, the pull request's notes, or the pull request itself if it was closed |
 | `make release-notes` | Print the notes of the changes since the last release (`VERSION=x.y.z`: the notes of that release) |
 | `make release-build` | Build what a release ships into `dist/release/`, with `SHA256SUMS`: the web app, landing page and FXM Connect zips. Every package must have the release version, as on `main` and on `develop` after `make release-pr`. To try it before then, run `scripts/release-version.sh x.y.z` and the build in a throwaway worktree (`make wt-new`), and never commit that change. Needs `zip` (preinstalled on macOS; `sudo apt install zip` on Debian and Ubuntu) |
-| `make release-check` | Lint the GitHub workflows with actionlint and run the release scripts' offline tests. Run it after changing `.github/workflows/`, `cliff.toml` or `scripts/release-*.sh` |
+| `make release-check` | Lint the GitHub workflows with actionlint and run the release scripts' offline tests. CI runs it after `make check`; run it yourself after changing `.github/workflows/`, `cliff.toml` or `scripts/release-*.sh` |
 
 The scripts behind them work on their own too:
 
@@ -109,7 +109,7 @@ git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`,
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
+`.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`, then `make release-check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
 
 ## Android app
 

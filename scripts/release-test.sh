@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Offline tests for the release scripts (make release-check). Each group runs this checkout's
-# scripts inside a throwaway repository whose origin is a local bare repository, with a
-# stand-in for gh that records its calls and answers from files. Nothing reaches GitHub, and
-# your git configuration is not read. The only download is git-cliff, when .tools lacks it.
+# Offline tests for the release scripts (make release-check, which CI runs after make check).
+# Each group runs this checkout's scripts inside a throwaway repository whose origin is a local
+# bare repository, with a stand-in for gh that records its calls and answers from files.
+# Nothing reaches GitHub, and your git configuration is not read. The only download is
+# git-cliff, when .tools lacks it.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 source "$here/env.sh"

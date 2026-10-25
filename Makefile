@@ -103,9 +103,12 @@ release-build: ## Build what a release ships into dist/release, with SHA256SUMS
 	@scripts/release-build.sh dist/release
 	@scripts/release-build.sh --checksums dist/release
 
+# actionlint's optional shellcheck and pyflakes checks stay off: they would use whatever copy is
+# on the PATH (GitHub's runners have shellcheck, a Mac usually doesn't), so CI and a local run
+# could disagree. CI runs this target after make check.
 release-check: ## Lint the GitHub workflows (actionlint) and test the release scripts offline
 	@scripts/install-actionlint.sh
-	@$(RUN) actionlint
+	@$(RUN) actionlint -shellcheck= -pyflakes=
 	@scripts/release-test.sh
 
 # --- Cleanup -------------------------------------------------------------------
