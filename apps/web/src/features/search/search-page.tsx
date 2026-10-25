@@ -1,33 +1,24 @@
-import { Info } from 'lucide-react'
-import { useId, useState } from 'react'
+import { FlaskConical } from 'lucide-react'
+import { useId } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { SearchField } from '../../components/layout/search-field'
-import { CardGrid, SongList, VideoGrid } from '../../components/media/placeholders'
 import { Artwork } from '../../components/ui/artwork'
 import { PageTitle } from '../../components/ui/page'
-import { type TabItem, TabPanel, Tabs } from '../../components/ui/tabs'
+import { SegmentedControl } from '../../components/ui/segmented-control'
 import { seedGradient } from '../../lib/seed'
 import { CatalogModeControl } from '../settings/catalog-mode-control'
 import { type CatalogMode, useSettingsStore } from '../settings/settings-store'
-
-export type SearchTab = 'songs' | 'albums' | 'artists' | 'playlists' | 'videos'
-
-const MUSIC_TABS: readonly TabItem<SearchTab>[] = [
-  { value: 'songs', label: 'Songs' },
-  { value: 'albums', label: 'Albums' },
-  { value: 'artists', label: 'Artists' },
-  { value: 'playlists', label: 'Playlists' },
-]
-
-/** Result tabs per catalog mode: videos exist only in Music + Video mode. */
-export const SEARCH_TABS: Readonly<Record<CatalogMode, readonly TabItem<SearchTab>[]>> = {
-  music: MUSIC_TABS,
-  all: [...MUSIC_TABS, { value: 'videos', label: 'Videos' }],
-}
+import { CatalogOverlays } from './catalog/overlays'
+import { ONBOARDING_URL } from './onboarding'
+import { SearchResults, useSearchSource } from './search-results'
+import { searchTiming, useSearchView } from './search-view'
+import { isYouTubeSource, sourceLabel } from './sources'
+import { useSourcesSnapshot } from './sources-context'
+import { useDebouncedValue } from './use-debounced-value'
 
 const MODE_HINTS: Readonly<Record<CatalogMode, string>> = {
-  music: 'Songs from the YouTube Music catalog only.',
-  all: 'Also covers, live sets, remixes and any YouTube video.',
+  music: 'Songs only, from every source.',
+  all: 'Also music videos, covers, live sets and any YouTube video, played as music.',
 }
 
 const GENRES = [
@@ -75,62 +66,79 @@ function BrowseAll() {
   )
 }
 
-function ResultsPlaceholder({ tab }: { tab: SearchTab }) {
-  switch (tab) {
-    case 'songs':
-      return <SongList count={8} />
-    case 'artists':
-      return <CardGrid count={10} shape="circle" />
-    case 'videos':
-      return <VideoGrid count={6} />
-    default:
-      return <CardGrid count={10} />
-  }
-}
-
-function Results({ query, catalogMode }: { query: string; catalogMode: CatalogMode }) {
-  const [tab, setTab] = useState<SearchTab>('songs')
-  const tabsId = useId()
-  const headingId = useId()
-  const tabs = SEARCH_TABS[catalogMode]
-  // Switching to Music mode while on Videos falls back to Songs.
-  const activeTab = tabs.some((item) => item.value === tab) ? tab : 'songs'
-
+/** Explains the Lite tier where it matters: on YouTube results, which lack downloads and EQ. */
+function LiteNote() {
   return (
-    <section aria-labelledby={headingId} className="space-y-4">
-      <h2 id={headingId} className="text-xl font-bold tracking-tight break-words md:text-2xl">
-        Results for “{query}”
-      </h2>
-      <Tabs label="Result type" items={tabs} value={activeTab} onChange={setTab} id={tabsId} />
-      <TabPanel id={tabsId} value={activeTab} className="space-y-4">
-        <p className="flex items-start gap-2 text-sm text-text-muted">
-          <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          Results appear here once FXM's music sources are connected.
-        </p>
-        <ResultsPlaceholder tab={activeTab} />
-      </TabPanel>
-    </section>
+    <p className="flex items-start gap-2 text-sm text-text-muted">
+      <FlaskConical aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <span>
+        Lite mode, experimental: YouTube Music without an install, but no downloads or equalizer.{' '}
+        <a
+          href={ONBOARDING_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="font-semibold whitespace-nowrap text-text underline underline-offset-2"
+        >
+          Get FXM Connect
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      </span>
+    </p>
   )
 }
 
-export function SearchPage() {
-  const [params] = useSearchParams()
-  const query = (params.get('q') ?? '').trim()
+/** The mode chip, the source switch (when there is more than one source) and the tier note. */
+function SearchFilters() {
   const catalogMode = useSettingsStore((state) => state.catalogMode)
+  const { capabilities } = useSourcesSnapshot()
+  const { source, options } = useSearchSource()
+  const setSource = useSearchView((state) => state.setSource)
   const hintId = useId()
-
+  const sourceLabelId = useId()
   return (
-    <div className="space-y-6 pt-2 md:pt-4">
-      <PageTitle hideOnPhone>Search</PageTitle>
-      {/* From 768px the search box lives in the top bar. */}
-      <SearchField className="md:hidden" />
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <CatalogModeControl variant="chip" describedBy={hintId} />
         <p id={hintId} className="text-sm text-text-muted">
           {MODE_HINTS[catalogMode]}
         </p>
       </div>
-      {query ? <Results query={query} catalogMode={catalogMode} /> : <BrowseAll />}
+      {options.length > 1 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p id={sourceLabelId} className="text-sm font-semibold text-text-muted">
+            Search in
+          </p>
+          <SegmentedControl
+            label="Search in"
+            labelledBy={sourceLabelId}
+            size="sm"
+            value={source}
+            options={options.map((option) => ({ value: option, label: sourceLabel(option) }))}
+            onChange={setSource}
+          />
+        </div>
+      )}
+      {capabilities.youtube === 'simple' && isYouTubeSource(source) && <LiteNote />}
+    </div>
+  )
+}
+
+export function SearchPage() {
+  const [params] = useSearchParams()
+  const query = (params.get('q') ?? '').trim()
+  // Here, not in the results: they mount on the first keystroke, which must not search yet.
+  // A query in the URL from the start (a link, Back) is searched at once.
+  const typed = useDebouncedValue(query, searchTiming.suggestionsDelayMs)
+  const searched = useDebouncedValue(query, searchTiming.resultsDelayMs)
+
+  return (
+    <div className="space-y-6 pt-2 md:pt-4">
+      <PageTitle hideOnPhone>Search</PageTitle>
+      {/* From 768px the search box lives in the top bar. */}
+      <SearchField className="md:hidden" />
+      <SearchFilters />
+      {query ? <SearchResults query={query} typed={typed} searched={searched} /> : <BrowseAll />}
+      <CatalogOverlays />
     </div>
   )
 }
