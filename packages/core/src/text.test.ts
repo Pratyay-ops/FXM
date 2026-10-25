@@ -449,6 +449,15 @@ describe('extractVersionTags', () => {
     '18D',
     'Halo Fi',
     'Never Gonna Give You Up',
+    // Katakana and Hangul tag words inside longer words of their script
+    'ドライブ',
+    '드라이브',
+    'ライブラリ',
+    'ﾄﾞﾗｲﾌﾞ',
+    'ディスカバー',
+    '디스커버리',
+    'インストール',
+    '歌ってみたい',
   ])('finds no tag in %j', (text) => {
     expect(extractVersionTags(text)).toEqual(tags())
   })
@@ -471,6 +480,20 @@ describe('extractVersionTags', () => {
     ["Σ' αγαπώ (Live)", tags(['live'])],
     ['アイドル', tags()],
     ['आज फिर तुमपे प्यार आया है', tags()],
+    // Katakana and Hangul compounds with Han, punctuation or another known word
+    ['インストゥルメンタル', tags(['instrumental'])],
+    ['カバーソング', tags(['cover'])],
+    ['カバー曲', tags(['cover'])],
+    ['커버곡', tags(['cover'])],
+    ['アコースティックライブ', tags(['acoustic', 'live'])],
+    ['スタジオライブ', tags(['live'])],
+    ['ライブバージョン', tags(['live'])],
+    ['ライブ・バージョン', tags(['live'])],
+    ['라이브영상', tags(['live'])],
+    ['리믹스 버전', tags(['remix'])],
+    ['オフボーカル', tags(['off vocal'])],
+    ['TVサイズ版', tags([], ['tv size'])],
+    ['アニメサイズ', tags([], ['tv size'])],
   ])('handles the non-Latin title %j', (text, expected) => {
     expect(extractVersionTags(text)).toEqual(expected)
   })

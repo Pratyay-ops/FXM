@@ -115,9 +115,79 @@ interface TagRule {
   re: RegExp
 }
 
-/** A tag rule. Latin patterns match whole words; CJK ones (`wholeWords` false) match anywhere. */
-function rule(level: TagLevel, tag: TagRule['tag'], re: RegExp, wholeWords = true): TagRule {
-  return { level, tag, re: wholeWords ? words(re) : new RegExp(re.source, 'gu') }
+/** Katakana, plus the prolonged sound mark ー, which is Script=Common but only written in kana. */
+const KATAKANA = String.raw`[\p{Script=Katakana}\u{30FC}]`
+/** Hangul syllables and letters. */
+const HANGUL = String.raw`\p{Script=Hangul}`
+
+/**
+ * Katakana words that may touch a katakana tag word in one run of katakana: the tag words and a
+ * few words that keep the meaning, such as "version", "song" and "studio". Any other katakana
+ * next to a tag word makes it part of another word: "ドライブ" (drive) is not "ライブ" (live), and
+ * "ディスカバー" (discover) is not "カバー" (cover).
+ */
+const KANA_NEIGHBORS = [
+  'ライブ',
+  'カバー',
+  'リミックス',
+  'カラオケ',
+  'インストゥルメンタル',
+  'インスト',
+  'アコースティック',
+  'オフボーカル',
+  'バージョン',
+  'ヴァージョン',
+  'ソング',
+  'ツアー',
+  'ビデオ',
+  'スタジオ',
+  'オンライン',
+].join('|')
+
+/** The same for Hangul: "드라이브" (drive) is not "라이브" (live), but "커버곡" is a cover song. */
+const HANGUL_NEIGHBORS = [
+  '라이브',
+  '커버',
+  '리믹스',
+  '노래방',
+  '어쿠스틱',
+  '버전',
+  '곡',
+  '영상',
+].join('|')
+
+/** Before a katakana tag word: no katakana, unless it ends a neighboring word. */
+const KANA_BEFORE = `(?:(?<!${KATAKANA})|(?<=${KANA_NEIGHBORS}))`
+/** After a katakana tag word: no katakana, unless it starts a neighboring word. */
+const KANA_AFTER = `(?:(?!${KATAKANA})|(?=${KANA_NEIGHBORS}))`
+
+/** Where a tag pattern may start and end. */
+type Boundary = 'word' | 'katakana' | 'hangul' | 'none'
+
+const BOUNDARIES: Readonly<Record<Boundary, readonly [before: string, after: string]>> = {
+  // Whole words of any script: "live" is not in "Alive".
+  word: [BEFORE, AFTER],
+  // Whole katakana words: Han, hiragana, punctuation and other scripts may touch them, as in
+  // "ライブ映像" (live footage), but other katakana may not, except a neighboring word.
+  katakana: [KANA_BEFORE, KANA_AFTER],
+  // Whole Hangul words, with the same exception.
+  hangul: [
+    `(?:(?<!${HANGUL})|(?<=${HANGUL_NEIGHBORS}))`,
+    `(?:(?!${HANGUL})|(?=${HANGUL_NEIGHBORS}))`,
+  ],
+  // The pattern brings its own boundaries, or needs none (distinctive Han phrases).
+  none: ['', ''],
+}
+
+/** A tag rule whose pattern only matches between the given boundaries. */
+function rule(
+  level: TagLevel,
+  tag: TagRule['tag'],
+  re: RegExp,
+  boundary: Boundary = 'word',
+): TagRule {
+  const [before, after] = BOUNDARIES[boundary]
+  return { level, tag, re: new RegExp(`${before}(?:${re.source})${after}`, 'gu') }
 }
 
 const LANGUAGES = [
@@ -189,7 +259,7 @@ const TAG_RULES: readonly TagRule[] = [
   rule('strong', 'backing track', /backing tracks?/u),
   rule('strong', 'minus one', /minus (?:one|1)/u),
   rule('strong', 'off vocal', /off[- ]?vocals?/u),
-  rule('strong', 'off vocal', /オフボーカル/u, false),
+  rule('strong', 'off vocal', /オフボーカル/u, 'katakana'),
   rule('strong', 'piano version', /piano (?:version|ver\.?|edition|arrangement)/u),
   rule('strong', 'alternate take', /alt(?:ernat(?:e|ive))?\.? (?:take|version)/u),
   rule('strong', 'early version', /early (?:version|take)/u),
@@ -226,10 +296,12 @@ const TAG_RULES: readonly TagRule[] = [
   rule('medium', 'video edit', /video (?:edit|version)/u),
   rule('medium', 'tv edit', /tv (?:edit|version|ver\.?)/u),
   rule('medium', 'tv size', /(?:tv|anime)[- ]?size/u),
-  rule('medium', 'tv size', /(?:tv|アニメ) ?サイズ/u, false),
+  rule('medium', 'tv size', new RegExp(`${BEFORE}tv ?サイズ${KANA_AFTER}`, 'u'), 'none'),
+  rule('medium', 'tv size', /アニメ ?サイズ/u, 'katakana'),
   // Strong, one word.
   rule('strong', 'live', /live(?:stream)?|en vivo|ao vivo|en directo/u),
-  rule('strong', 'live', /ライブ|라이브/u, false),
+  rule('strong', 'live', /ライブ/u, 'katakana'),
+  rule('strong', 'live', /라이브/u, 'hangul'),
   rule('strong', 'live', /@(?=\s+\S)/u),
   rule('strong', 'unplugged', /unplugged/u),
   rule('strong', 'concert', /concerts?/u),
@@ -242,19 +314,27 @@ const TAG_RULES: readonly TagRule[] = [
   rule('strong', 'session', /sessions?/u),
   rule('strong', 'performance', /performs|performing|performance/u),
   rule('strong', 'remix', /remix(?:e[sd])?|rmx|re-mix/u),
-  rule('strong', 'remix', /リミックス|리믹스/u, false),
+  rule('strong', 'remix', /リミックス/u, 'katakana'),
+  rule('strong', 'remix', /리믹스/u, 'hangul'),
   rule('strong', 'rework', /re-?work(?:ed)?|refix/u),
   rule('strong', 'bootleg', /bootleg/u),
   rule('strong', 'extended', /extended(?! play)(?: (?:mix|version|edit|cut))?/u),
   rule('strong', 'cover', /cover version|covered by|covers?|кавер/u),
-  rule('strong', 'cover', /カバー|커버|歌ってみた|翻唱/u, false),
+  rule('strong', 'cover', /カバー/u, 'katakana'),
+  rule('strong', 'cover', /커버/u, 'hangul'),
+  // "Tried singing it", the usual title of a cover; "歌ってみたい" (want to try) is not one.
+  rule('strong', 'cover', /歌ってみた(?!\p{Script=Hiragana})|翻唱/u, 'none'),
   rule('strong', 'karaoke', /karaoke/u),
-  rule('strong', 'karaoke', /カラオケ|노래방|卡拉ok/u, false),
+  rule('strong', 'karaoke', /カラオケ/u, 'katakana'),
+  rule('strong', 'karaoke', /노래방/u, 'hangul'),
+  rule('strong', 'karaoke', /卡拉ok/u, 'none'),
   rule('strong', 'tribute', /tribute/u),
   rule('strong', 'instrumental', /instrumentals?|inst\.?/u),
-  rule('strong', 'instrumental', /インスト|伴奏/u, false),
+  rule('strong', 'instrumental', /インストゥルメンタル|インスト/u, 'katakana'),
+  rule('strong', 'instrumental', /伴奏/u, 'none'),
   rule('strong', 'acoustic', /acoustic|acustic[oa]/u),
-  rule('strong', 'acoustic', /アコースティック|어쿠스틱/u, false),
+  rule('strong', 'acoustic', /アコースティック/u, 'katakana'),
+  rule('strong', 'acoustic', /어쿠스틱/u, 'hangul'),
   rule('strong', 'stripped', /stripped(?: (?:back|down))?/u),
   rule('strong', 'orchestral', /orchestral/u),
   rule('strong', 'symphonic', /symphonic/u),
@@ -303,8 +383,11 @@ const TAG_RULES: readonly TagRule[] = [
  *   anniversary, deluxe, mono, stereo, Dolby Atmos, spatial
  *
  * Words only count as whole words, so "Alive" is not live, "Coverage" not cover and
- * "Demonstration" not demo. Pass the qualifiers from {@link splitTitle} rather than a whole
- * title when you can: words of the title proper count too ("Live Forever" has `live`).
+ * "Demonstration" not demo. Katakana and Hangul words must be whole words of their script too:
+ * "ドライブ" (drive) is not live and "ディスカバー" (discover) not cover, while "ライブ映像" (live
+ * footage) and "アコースティックライブ" (acoustic live) count. Pass the qualifiers from
+ * {@link splitTitle} rather than a whole title when you can: words of the title proper count too
+ * ("Live Forever" has `live`).
  */
 export function extractVersionTags(text: string): VersionTags {
   const normalized = normalizeText(text)
