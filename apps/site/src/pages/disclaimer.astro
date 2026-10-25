@@ -1,6 +1,10 @@
 ---
-import { ISSUES_URL, LICENSE_URL } from '../config'
+import { ISSUES_URL, LICENSE_URL, REPO_URL } from '../config'
 import Document from '../layouts/Document.astro'
+
+// Security problems go to GitHub's private vulnerability reporting, which the policy explains.
+const reportUrl = `${REPO_URL}/security/advisories/new`
+const securityPolicyUrl = `${REPO_URL}/blob/main/.github/SECURITY.md`
 ---
 
 <Document
@@ -8,7 +12,7 @@ import Document from '../layouts/Document.astro'
   description="FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google, Spotify or any music service. Provided as is, for personal use."
   heading="Disclaimer"
   lead="FXM is an independent, open-source music player. Here is what that means for you."
-  updated="2026-10-25"
+  updated="2026-10-26"
 >
   <h2>An independent project</h2>
   <p>
@@ -18,8 +22,8 @@ import Document from '../layouts/Document.astro'
 
   <h2>A player, not a music service</h2>
   <p>
-    FXM has no servers and doesn't host, store or distribute any music. It connects your device
-    directly to the services you choose.
+    FXM doesn't host or distribute any music, and it has no servers of its own. The apps run on your
+    device and connect it directly to the music services FXM works with.
   </p>
 
   <h2>Provided as is, for personal use</h2>
@@ -30,20 +34,33 @@ import Document from '../layouts/Document.astro'
 
   <h2>Your responsibility</h2>
   <p>
-    You are responsible for how you use FXM, including complying with the terms of the services you
-    use and the laws where you live.
+    You are responsible for how you use FXM, including following the terms of the services you use
+    with it and the laws where you live. Nothing on this website is legal advice: if you aren't sure
+    what is allowed, read those terms or ask a lawyer.
   </p>
 
   <h2>Trademarks</h2>
   <p>
     YouTube and Google are trademarks of Google LLC. Spotify is a trademark of Spotify AB. All other
     trademarks belong to their respective owners. FXM names these services only to say which ones it
-    works with, and doesn't use their logos.
+    works with, and doesn't use their logos or brand colours.
   </p>
 
   <h2>Contact</h2>
-  <p>
-    If you think something on this website infringes your rights, please tell us on the
-    <a href={ISSUES_URL}>FXM issue tracker on GitHub</a>.
-  </p>
+  <ul>
+    <li>
+      <strong>Notices and takedown requests.</strong>
+      If you think FXM or this website infringes your rights, open an issue on the
+      <a href={ISSUES_URL}>FXM issue tracker on GitHub</a>
+      and say which part of FXM it is about. Issues are public, so leave out anything you don't want
+      published.
+    </li>
+    <li>
+      <strong>Security problems.</strong>
+      Please don't report them in a public issue. Report them privately through
+      <a href={reportUrl}>GitHub's private vulnerability reporting</a>, as the
+      <a href={securityPolicyUrl}>FXM security policy</a>
+      describes.
+    </li>
+  </ul>
 </Document>

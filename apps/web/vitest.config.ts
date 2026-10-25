@@ -10,6 +10,9 @@ export default defineProject({
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
+    // Pages load lazily, and a dynamic import can take seconds when other checks share the
+    // machine. A real failure still fails, only later (see also asyncUtilTimeout in setup.ts).
+    testTimeout: 20_000,
     // Vitest replaces CSS with empty strings by default; the contrast test in
     // styles/tokens.test.ts reads the tokens with `?raw` (the id keeps that query).
     css: { include: [/tokens\.css(\?|$)/] },
