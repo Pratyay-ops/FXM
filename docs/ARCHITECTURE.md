@@ -183,7 +183,7 @@ Regular YouTube search results are always videos. One pure function in `packages
 **Other sources in the modes:**
 
 - **Last.fm station items** carry YouTube IDs. In Music mode each ID is classified before it is queued, at the cost of one InnerTube call from the request budget: a song plays, an official video goes through the video-to-song rule, and anything else is skipped. When the budget is short, station items serve only as artist-and-title seeds for a song search. In Music + Video, IDs play directly.
-- **SponsorBlock (Music + Video only, opt-in).** Skips `music_offtopic` segments on video items. It uses the hash-prefix endpoint (`/api/skipSegments/<first 4 hex characters of sha256(videoID)>`), so SponsorBlock can't tell which video plays. Its data is CC BY-NC-SA 4.0 and is attributed in Settings and About. The first Music + Video session offers it, and Settings and the privacy page name the service.
+- **SponsorBlock (Music + Video only, opt-in; stage 8.7).** Skips `music_offtopic` segments on video items. It uses the hash-prefix endpoint (`/api/skipSegments/<first 4 hex characters of sha256(videoID)>`), so SponsorBlock can't tell which video plays. Its data is CC BY-NC-SA 4.0 and is attributed in Settings and About. The first Music + Video session offers it, and Settings and the privacy page name the service.
 
 ---
 
@@ -454,16 +454,17 @@ The UI adapts to what each platform can do:
 | Jamendo | `*` | Public `client_id`; the non-commercial tier allows 35,000 API requests a month, shared by everyone using one ID | Free audio, FLAC where offered | Direct; only for explicit searches or "prefer lossless"; cached |
 | LRCLIB | `*` | None | Lyrics | Direct |
 | MusicBrainz | `*` (also on 503 responses) | None. Browsers send their own User-Agent; desktop and Android send a descriptive one | ISRCs (exact via URL relationships, fuzzy as a hint), metadata | Direct, at most 1 request per second |
-| Cover Art Archive | `*` | None | Artwork | Direct |
+| Cover Art Archive | `*` | None | Artwork gaps (3.2) | Direct |
 | ListenBrainz | `*` | User token for LB Radio and scrobbling | Similar artists, scrobbling | Direct |
 | Last.fm API | `*` | API key; shared secret for scrobbling | Similar artists, scrobbling | Direct |
 | Last.fm station JSON | None | None | Personal stations with YouTube IDs | Connect or native |
-| iTunes Search | `*` | None | Artwork and metadata gaps | Direct |
-| SponsorBlock | `*` (hash-prefix endpoint) | None | Opt-in skipping of the non-music parts of videos | Direct |
-| Deezer API | No ACAO (JSONP only) | None | Optional ISRC cross-check | Native only |
+| iTunes Search | `*` | None | Artwork gaps (3.2) | Direct |
+| SponsorBlock | `*` (hash-prefix endpoint) | None | Opt-in skipping of the non-music parts of videos (8.7) | Direct |
 | Invidious | 1 of 4 official instances, intermittently | — | An opt-in user instance (proxied audio) | `userhost.html` on the web; native elsewhere |
 
-Not used: the YouTube Data API v3 (100 searches a day per key), Piped (dead) and JioSaavn (thin catalog, dropped in revision 2).
+Not used: the YouTube Data API v3 (100 searches a day per key), Piped (dead) and JioSaavn (thin catalog, dropped in revision 2). The Deezer API (no CORS, JSONP only) could cross-check ISRCs on desktop and Android later; no stage plans it.
+
+The site's privacy page names every service the apps contact, and the web app's CSP allows only the hosts of services that shipped stages use ([PLAN.md, Definition of done](PLAN.md#definition-of-done-every-stage)).
 
 **API keys in clients.** FXM ships only identifiers meant to be public (the Jamendo `client_id`, a Last.fm API key), each overridable in Settings, and checks before shipping whether their terms allow one key shared by every user. It never ships secrets: the user supplies the Last.fm shared secret that signs scrobbles.
 
@@ -559,7 +560,7 @@ Client names, versions, user agents, search parameters, rung order and flags, an
 - **Libraries** (youtubei.js 18.3.0, googlevideo 5.0.1, bgutils-js 4.0.3) ship by redeploy on the web, and inside the module where possible on desktop and Android. Otherwise they need app updates, which the desktop updater and the Android update check deliver.
 - **Early warnings:** commits to yt-dlp and NewPipeExtractor, youtubei.js releases, bloom-factory releases.
 
-**Self-test.** Users can run "resolve and play one song" from Settings > Diagnostics. CI's `FXM_LIVE=1` runs are advisory: GitHub-hosted runners use datacenter IPs that hit bot checks, so a failure there proves little and a pass even less. The real smoke test runs on a residential connection, on a schedule on the owner's own machine (not a server) and before each release.
+**Self-test.** Users can run "resolve and play one song" from Settings > Diagnostics (2.7). CI's `FXM_LIVE=1` runs are advisory: GitHub-hosted runners use datacenter IPs that hit bot checks, so a failure there proves little and a pass even less. The real smoke test runs on a residential connection, on a schedule on the owner's own machine (not a server) and before each release.
 
 ### Playback and URL lifecycle
 
@@ -760,7 +761,7 @@ All personal data stays on the device. Every source respects the current catalog
 - **Followed artists.** Their top songs.
 - **The user's Spotify data export.** Its streaming history becomes on-device listening signals (3.6).
 
-Cover Art Archive and iTunes Search fill artwork gaps.
+Cover Art Archive and iTunes Search fill artwork gaps (3.2).
 
 ### Ranking
 
@@ -908,7 +909,7 @@ The key that signs the config and resolver module is never available to the depl
 
 ## 17. Security, privacy, licensing
 
-- **Privacy:** no accounts, analytics or telemetry. Data stays on the device, and backups are files the user creates. SponsorBlock is opt-in, uses the hash-prefix endpoint, and is named in Settings and on the privacy page. Every page sends `Referrer-Policy: no-referrer`, so googlevideo requests don't carry `Referer: https://fxm-music.pages.dev/`.
+- **Privacy:** no accounts, analytics or telemetry. Data stays on the device, and backups are files the user creates. The site's privacy page names every service the apps contact (§8). SponsorBlock (8.7) is opt-in, uses the hash-prefix endpoint, and is named in Settings and on the privacy page. Every page sends `Referrer-Policy: no-referrer`, so googlevideo requests don't carry `Referer: https://fxm-music.pages.dev/`.
 - **Extension:** FXM Connect only serves the FXM origin. It never sets wildcard CORS, never sends credentials except through the opt-in Spotify token bridge, and contains no remote code.
 - **Web app:** a strict Content Security Policy and no third-party scripts. Its CSP never contains `'unsafe-eval'`.
 - **Sandbox documents** (`/sandbox/innertube.html`, `userhost.html`, `eval.html`):
