@@ -15,6 +15,22 @@ updates:
     commit-message:
       prefix: build
 
+  # Rust crates of the desktop app (stage 7.1). Merge a minor bump of the tauri crate together
+  # with the matching @tauri-apps/api bump from npm: tauri build refuses mismatched versions.
+  - package-ecosystem: cargo
+    directory: /apps/desktop/src-tauri
+    target-branch: develop
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop
