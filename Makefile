@@ -89,6 +89,16 @@ wt-list: ## List worktrees and their branches
 wt-remove: ## Remove a stage worktree: make wt-remove BRANCH=feat/1.4-jiosaavn
 	@scripts/worktree.sh remove "$(BRANCH)"
 
+# --- Releases (docs/WORKFLOW.md, "Releases") -----------------------------------
+
+.PHONY: release-pr release-notes
+
+release-pr: ## Open the release PR develop → main: make release-pr VERSION=x.y.z (DRY_RUN=1: plan only)
+	@DRY_RUN="$(DRY_RUN)" scripts/release-pr.sh "$(VERSION)"
+
+release-notes: ## Print the next release's notes (VERSION=x.y.z: that version's)
+	@scripts/release-notes.sh $(VERSION)
+
 # --- Cleanup -------------------------------------------------------------------
 
 clean: ## Remove build output (keeps dependencies and tools)
