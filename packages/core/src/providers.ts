@@ -245,9 +245,21 @@ export interface AudioCandidate {
 /** How a stream is delivered. `sabr` is YouTube's server-driven streaming protocol. */
 export type StreamProtocol = 'progressive' | 'hls' | 'dash' | 'sabr'
 
+/** A JSON value: data that survives `JSON.stringify` and `JSON.parse` unchanged. */
+export type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject
+
+/**
+ * A JSON object. Declare a payload meant for it with a `type` alias: an `interface` has no
+ * index signature, so TypeScript does not accept it here.
+ */
+export type JsonObject = { readonly [key: string]: JsonValue }
+
 /** One concrete way to play a candidate. */
 export interface StreamOption {
-  /** Stream URL, or the manifest URL for `hls` and `dash`. */
+  /**
+   * Where the player gets the audio: the media URL for `progressive`, the manifest URL for `hls`
+   * and `dash`, and the server ABR streaming URL (`serverAbrStreamingUrl`) for `sabr`.
+   */
   url: string
   /** Audio codec. */
   codec: Codec
@@ -269,6 +281,13 @@ export interface StreamOption {
   ipBound: boolean
   /** Headers the request must send, e.g. a `Referer`. */
   requestHeaders?: Record<string, string>
+  /**
+   * Protocol-specific data the player needs besides the URL, as JSON so that it can cross a
+   * worker or native bridge. For `sabr` it holds the session parameters, such as the ustreamer
+   * config, a PO token, the client and the chosen formats; the resolver that produces it defines
+   * the shape, and the player validates it. The other protocols usually leave it out.
+   */
+  playback?: JsonObject
 }
 
 /**

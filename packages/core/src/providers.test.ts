@@ -9,6 +9,7 @@ import type {
   AudioCandidate,
   AudioSource,
   Fetch,
+  JsonObject,
   LyricsProvider,
   MetadataProvider,
   MinimalAbortSignal,
@@ -286,5 +287,45 @@ describe('provider interfaces', () => {
     // `AbortSignal`.
     expectTypeOf<Fetch>().toEqualTypeOf<MinimalFetch>()
     expectTypeOf<AbortSignalLike>().toEqualTypeOf<MinimalAbortSignal>()
+  })
+})
+
+describe('stream options', () => {
+  /** What a SABR resolver might hand its player, declared as a type alias. */
+  type SabrSession = {
+    ustreamerConfig: string
+    poToken?: string
+    client: { name: string; version: string }
+    formats: Array<{ itag: number; lastModified: string }>
+  }
+
+  const session: SabrSession = {
+    ustreamerConfig: 'CgIQBg',
+    client: { name: 'WEB', version: '2.20261020' },
+    formats: [{ itag: 251, lastModified: '1700000000000000' }],
+  }
+
+  const sabr: StreamOption = {
+    url: 'https://example.test/sabr?expire=1',
+    codec: 'opus',
+    container: 'webm',
+    bitrateKbps: 141,
+    tier: 'high',
+    protocol: 'sabr',
+    ipBound: true,
+    playback: session,
+  }
+
+  it('carry the protocol data of a SABR stream as JSON', () => {
+    expect(JSON.parse(JSON.stringify(sabr))).toEqual(sabr)
+    expectTypeOf<SabrSession>().toExtend<JsonObject>()
+  })
+
+  it('accept only JSON in the protocol data', () => {
+    // @ts-expect-error a function does not survive JSON
+    const withFunction: StreamOption = { ...sabr, playback: { ready: () => true } }
+    // @ts-expect-error neither do bytes
+    const withBytes: StreamOption = { ...sabr, playback: { init: new Uint8Array(2) } }
+    expect([withFunction.playback, withBytes.playback]).toHaveLength(2)
   })
 })
