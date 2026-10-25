@@ -6,6 +6,8 @@ This stage (2.1) is the **shell**: routing, layout, design system, settings and 
 
 Search and the album, artist and playlist pages (stage 2.4), with the app's single place for music sources (providers, tier and the Spotify switch) and the fake catalog for development and tests, are described in [src/features/search/README.md](src/features/search/README.md).
 
+Stage 2.9 makes it play: the composition root in `src/app/services` builds the real platform, providers, stream lifecycle and player and plugs them into those pages (see [Playing music](#playing-music) and [its README](src/app/services/README.md)).
+
 ## Run it
 
 From the repository root (tools run through `make` or `scripts/run.sh`, see [DEVELOPMENT.md](../../docs/DEVELOPMENT.md)):
@@ -26,7 +28,7 @@ scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test: navigation, Bac
 scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, plus Music + Video, forced colors and search and browse with the fake catalog, in apps/web/screenshots/
 ```
 
-Every run builds this checkout and starts its own `vite preview` on port 4173 with `--strictPort`. If the port is busy, for example with another worktree's preview, the run fails instead of testing that server: set `FXM_E2E_PORT` to a free port. Screenshots and Playwright output are gitignored.
+`e2e/playback.spec.ts` runs with them: search, play and the next track through the real composition in Chromium, with every request outside the app answered from recorded fixtures and the streams played as short WAV tones. Every run builds this checkout and starts its own `vite preview` on port 4173 with `--strictPort`. If the port is busy, for example with another worktree's preview, the run fails instead of testing that server: set `FXM_E2E_PORT` to a free port. Screenshots and Playwright output are gitignored.
 
 ## Layout
 
@@ -34,7 +36,8 @@ Every run builds this checkout and starts its own `vite preview` on port 4173 wi
 index.html              viewport, theme-color, inline SVG favicon, theme script that runs before the first paint
 src/
   main.tsx              creates the browser router and renders <App>
-  app/                  App (providers), routes, router, query client, error screens, 404
+  app/                  App (providers), routes, router, query client, error screens, 404;
+                        services/: the composition root (platform, providers, lifecycle, player)
   components/
     layout/             AppLayout, Sidebar, TopBar, BottomNav, SearchField, RouteAnnouncer, route metadata
     media/              collection header, card/track/video placeholders
@@ -88,3 +91,34 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 - Respect the catalog mode wherever results appear: `useSettingsStore((s) => s.catalogMode)`. Music shows catalog songs only; Music + Video also shows videos, played as music.
 - Read sources, the tier and the Spotify switch from the sources module (`useSourcesSnapshot()` in `features/search`), never from a provider or the platform directly, and link to album, artist and playlist pages with `albumPath`, `artistPath` and `playlistPath`.
 - Tests use `renderApp(path)` from `src/test/render.tsx`, which renders the real providers and routes with a memory router. Stores and `localStorage` are reset after every test. Behaviour that depends on the browser history (basename, back and forward, the skip link) is tested with the real browser router in `src/app/router.test.tsx`.
+
+## Playing music
+
+`main.tsx` starts the app's services (`src/app/services`, stage 2.9) before the first render: the platform of stage 1.2 (FXM Connect's answer takes a few milliseconds), then the providers in the sources registry and the player behind the catalog pages' play buttons. Provider code loads on first use; YouTube's starts loading as soon as the platform can reach it. What each tier gets and where the stages still to merge plug in are in [the services README](src/app/services/README.md). The development-only fake catalog (`?fake=full` and the like) still replaces all of it for its tab.
+
+Until stage 2.5 lands, the player bar keeps its placeholder title, but its controls (play, pause, previous, next, seek, volume, shuffle, repeat) act on the real player, and the system media controls show what plays.
+
+### Check it locally with FXM Connect
+
+1. `make extension FXM_EXTENSION_DEV=1`, then load `apps/extension/dist/dev/chromium` as an unpacked extension (Developer mode on, "Load unpacked"). The development build lets `http://localhost:5173` and `http://localhost:4173` use it.
+2. `make dev`, then open http://localhost:5173/app/search?q=blitzkrieg%20bop.
+3. Play a song: it plays through VISIONOS (or itag 18) after the end-of-file probe. Pick "Internet Archive" in "Search in" and play a track there too.
+
+Without the extension the same page is the Free tier: YouTube Music shows how to reach it, and Internet Archive still plays.
+
+### Manual run with FXM Connect (2026-10-26)
+
+Run by the stage 2.9 agent on 2026-10-26 (IST), from a residential connection in India, against the real services. The FXM Connect development build (`make extension FXM_EXTENSION_DEV=1`) was loaded into Playwright's Chromium 156.0.8078.4 in new headless mode with a temporary profile. The dev server ran on port 6400 (`vite --port 6400 --strictPort`) rather than 5173, because other worktrees share that machine, so the build's `http://localhost:5173` origin was rewritten to `:6400` in a throwaway copy of `apps/extension/dist/dev/chromium`. Headless Chromium has no sound device, so nothing was heard: what played is shown by the media element's events, its position moving in real time (sampled every 15 s), and the bytes received (DevTools protocol).
+
+| | YouTube Music | Internet Archive |
+|---|---|---|
+| Search | "ramones blitzkrieg bop" (YouTube Music) | "nine inch nails ghosts" (Internet Archive in "Search in") |
+| Played | "Blitzkrieg Bop", Ramones: VISIONOS's AAC 140 after both end-of-file probes (Opus 251 and AAC 140) answered 206. One `bytes=0-` request, answered 206, delivered the whole 2,178,857-byte file; `playing` after 0.5 s, position 15, 30 … 120 s at the 15 s samples, `ended` at 134.5 of 134.5 s | "1 Ghosts I", Nine Inch Nails: the 320 kbps MP3, after the `archive.org/download` redirect. 20 s of play, then a seek to 12 s before the end (a `bytes=6258688-` request, 206), `ended` at 168.7 s |
+| Next track | 30 s before the end the lifecycle resolved the next three songs (3 `/player` calls, 6 probes) and the second `<audio>` preloaded the next one (Opus 251); it played the moment the first ended: "Blitzkrieg Bop (From "Jimmy Neutron: Boy Genius")", Geek Music | "2 Ghosts I", preloaded, played the moment the first ended |
+| Requests | InnerTube: 7 (`sw.js_data`, one suggestions call, one search, four `/player`). googlevideo: 10, 4.86 MB | archive.org: 1 search, 4 item metadata, the files (about 9 MB with the cover art) |
+
+Seen along the way, for later stages:
+
+- The first YouTube attempt stopped at about a minute: a file edit in `apps/web` made the dev server reload the page mid-song. The run above had no edits.
+- After a page load, this development build answered FXM Connect's ping later than the platform's 800 ms wait (it switches to the localhost origin's ruleset first, and its service worker may be asleep), so the page showed the Free tier's "Search needs YouTube Music access" for about 3 s before it switched to the Full tier by itself. The release build has one origin and switches nothing.
+- The ladder chose AAC 140 over Opus 251 for this song: it ranks by average bitrate, the decision stage 1.4's README leaves open, and this Chromium plays AAC.
