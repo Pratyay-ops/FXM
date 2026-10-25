@@ -19,7 +19,7 @@ import { fetchWithTimeout } from '../../shared'
 import { httpError, isBotCheckPage, requestFailure } from '../errors'
 import { asRecord, at, type JsonRecord } from '../json'
 import { describeRequest, type SimpleInnerTubeRequest, toSimpleInnerTubeRequest } from '../request'
-import { innerTubeRegion, type YouTubeSession } from '../session'
+import { innerTubeRegion, leaseVisitorData, type YouTubeSession } from '../session'
 import type { VisitorLease } from '../visitor'
 import type { StreamBudget, StreamRequestPriority } from './budget'
 import type { StreamClientConfig } from './config'
@@ -223,12 +223,12 @@ export async function callPlayer(
 ): Promise<PlayerAnswer> {
   const { session } = options
   await acquire(ctx, options)
-  let lease = await session.visitorData.lease(ctx)
+  let lease = await leaseVisitorData(session, ctx)
   if (lease.visitorData === undefined) {
     // The slot just taken goes to the call that asks for a visitorData; `/player` takes another.
     await primeVisitorData(ctx, lease, options)
     await acquire(ctx, options)
-    lease = await session.visitorData.lease(ctx)
+    lease = await leaseVisitorData(session, ctx)
   }
   const sentVisitorData = lease.visitorData !== undefined
   let issued: unknown
