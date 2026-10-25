@@ -103,6 +103,11 @@ export interface SegmentSkip {
 export interface SegmentSkipperEventMap {
   /** The skipper jumped past a segment. */
   skip: SegmentSkip
+  /**
+   * `undo()` can no longer undo this skip, the last one: it was undone, the user moved playback,
+   * or the track changed or started over. A newer skip replaces it without this event.
+   */
+  undoexpire: SegmentSkip
 }
 
 /** A skipper connected to a player, as {@link connectSegmentSkipper} returns it. */
@@ -115,7 +120,8 @@ export interface SegmentSkipper {
   /**
    * Goes back to where the last skip in the current item jumped from, and leaves that segment
    * alone until the track starts over. Returns whether there was such a skip: not after the
-   * track changed, nor after the user moved playback since.
+   * track changed, nor after the user moved playback since (`undoexpire` says when that
+   * happens).
    */
   undo(): boolean
   /** The current item's segments as the skipper applies them, e.g. to mark them. */
@@ -141,6 +147,11 @@ const END_LEAD_MS = 100
 
 function isTime(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+/** Whether playback moves on: playing, and not waiting for data. */
+function moving(state: PlayerState): boolean {
+  return state.status === 'playing' && !state.buffering
 }
 
 function config(options: Partial<SegmentSkipperConfig>): SegmentSkipperConfig {
@@ -255,7 +266,10 @@ class Skipper implements SegmentSkipper {
   /** The starts of the segments the user undid, until the track starts over. */
   readonly #undone = new Set<number>()
   #lastSkip: { uid: number; skip: SegmentSkip } | undefined
-  /** When the player last reported a new position, by `now`. */
+  /**
+   * When the player last reported a new position, or playback last started or stopped moving,
+   * by `now`: the position moves on from there only while playback moves.
+   */
   #reportedAt = 0
   /** Whether the skipper is seeking itself, so its own `seek` events don't count as the user's. */
   #seeking = false
@@ -302,6 +316,7 @@ class Skipper implements SegmentSkipper {
     this.#undone.add(last.skip.segment.startMs)
     this.#seek(last.skip.fromMs)
     this.#queueCheck()
+    this.#events.emit('undoexpire', last.skip)
     return true
   }
 
@@ -330,7 +345,11 @@ class Skipper implements SegmentSkipper {
 
   #onState(state: PlayerState, previous: PlayerState): void {
     if (this.#disconnected) return
-    if (state.positionMs !== previous.positionMs) this.#reportedAt = this.#now()
+    // Time paused, loading or waiting for data is no playback: the clock starts again where
+    // playback stopped, or started, moving.
+    if (state.positionMs !== previous.positionMs || moving(state) !== moving(previous)) {
+      this.#reportedAt = this.#now()
+    }
     const item = currentQueueItem(state.queue)
     const current = this.#item
     // A new current item arrives with `trackchange`, right after this state.
@@ -348,16 +367,19 @@ class Skipper implements SegmentSkipper {
 
   #onTrackChange(item: QueueItem | undefined, cause: TrackChangeCause): void {
     if (this.#disconnected) return
+    const expired = this.#lastSkip
     // A restored queue numbers its items afresh, so a prepared uid may name another item.
     if (cause === 'restore') this.#dropPrepared()
     this.#switchTo(item, true)
     // The restored position arrives right after this event.
     this.#placeOnCheck = cause === 'restore' && item !== undefined
     this.#queueCheck()
+    if (expired !== undefined) this.#events.emit('undoexpire', expired.skip)
   }
 
   #onSeek(positionMs: number, cause: SeekCause): void {
     if (this.#disconnected || this.#seeking) return
+    const expired = this.#lastSkip
     this.#lastSkip = undefined
     this.#placeOnCheck = false
     if (cause === 'user') {
@@ -369,6 +391,7 @@ class Skipper implements SegmentSkipper {
     }
     this.#clearTimer()
     this.#queueCheck()
+    if (expired !== undefined) this.#events.emit('undoexpire', expired.skip)
   }
 
   /** Asks for the segments of the item the player prepares next. */
@@ -592,7 +615,11 @@ class Skipper implements SegmentSkipper {
  *
  * A segment that runs to the end of the track ends it: the skipper seeks to a moment before the
  * end, and the player moves on as at any end (repeat one plays it again). The skipper announces
- * each skip with the `skip` event, e.g. for an "Undo" button.
+ * each skip with the `skip` event, e.g. for an "Undo" button, and `undoexpire` once `undo()` can
+ * no longer undo it.
+ *
+ * It times a skip by the position the player last reported plus the time playback has moved
+ * since, never counting time paused, loading or waiting for data.
  */
 export function connectSegmentSkipper(
   player: SkipperPlayer,

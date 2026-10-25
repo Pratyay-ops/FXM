@@ -89,6 +89,14 @@ async function playing(
   await settle()
 }
 
+/** Plays on for `ms`, reporting the position every 250 ms, as an audio element does. */
+async function playOn(context: ReturnType<typeof setup>, ms: number): Promise<void> {
+  for (let elapsed = 0; elapsed < ms; elapsed += 250) {
+    await settle(250)
+    context.engine.progress(context.engine.positionMs + 250)
+  }
+}
+
 beforeEach(() => {
   vi.useFakeTimers()
 })
@@ -169,6 +177,42 @@ describe('connectSegmentSkipper', () => {
     expect(context.engineSeeks()).toEqual([])
     await settle(301)
     expect(context.engineSeeks()).toEqual([70_000])
+  })
+
+  it("doesn't count time paused as playback when it times a skip", async () => {
+    for (const [pausedAtMs, pausedForMs] of [
+      [55_000, 4850],
+      [30_000, 29_900],
+    ] as const) {
+      const context = setup({ segments: { a: [seg(60, 70)] } })
+      await playing(context)
+      context.engine.progress(pausedAtMs)
+      await settle()
+      context.player.pause()
+      await settle(pausedForMs)
+      await context.player.play()
+
+      // Playback reaches 60 s after as long again as it had to go when it paused.
+      await playOn(context, 60_000 - pausedAtMs - 250)
+      await settle(249)
+      expect(context.engineSeeks()).toEqual([])
+      await settle(1)
+      expect(context.skipLog()).toEqual(['60000 -> 70000'])
+    }
+  })
+
+  it("doesn't count time waiting for data as playback when it times a skip", async () => {
+    const context = setup({ segments: { a: [seg(60, 70)] } })
+    await playing(context)
+    context.engine.progress(59_000)
+    context.engine.emit('waiting', undefined)
+    await settle(850)
+    context.engine.emit('play', undefined)
+
+    await settle(999)
+    expect(context.engineSeeks()).toEqual([])
+    await settle(1)
+    expect(context.skipLog()).toEqual(['60000 -> 70000'])
   })
 
   it('sets no timer while waiting for data, and none far ahead', async () => {
@@ -258,6 +302,49 @@ describe('connectSegmentSkipper', () => {
       await context.player.previous() // more than 3 s in: starts b over
       await settle()
       expect(context.skipper.undo()).toBe(false)
+    })
+
+    it('says when the last skip can no longer be undone, but not when a newer one replaces it', async () => {
+      const context = setup({
+        segments: { a: [seg(10, 20), seg(30, 40), seg(50, 60), seg(120, 130)], b: [seg(10, 20)] },
+      })
+      const expired: string[] = []
+      context.skipper.on('undoexpire', ({ item, fromMs }) => {
+        expired.push(`${item.track.title} ${fromMs}`)
+      })
+      await playing(context, [a, b])
+
+      context.engine.progress(10_100)
+      await settle()
+      context.engine.progress(30_100)
+      await settle()
+      expect(context.skips).toHaveLength(2)
+      expect(expired).toEqual([])
+
+      // Undone.
+      expect(context.skipper.undo()).toBe(true)
+      expect(expired).toEqual(['a 30100'])
+
+      // The user moved playback.
+      context.engine.progress(50_100)
+      await settle()
+      context.player.seek(100_000)
+      expect(expired).toEqual(['a 30100', 'a 50100'])
+
+      // The track changed.
+      context.engine.progress(120_100)
+      await settle()
+      await context.player.next()
+      await settle()
+      expect(expired).toEqual(['a 30100', 'a 50100', 'a 120100'])
+
+      // The track started over: "previous" more than 3 s in.
+      context.engine.progress(10_100)
+      await settle()
+      await context.player.previous()
+      await settle()
+      expect(expired).toEqual(['a 30100', 'a 50100', 'a 120100', 'b 10100'])
+      expect(context.skips).toHaveLength(5)
     })
 
     it('has nothing to undo after the track changed', async () => {

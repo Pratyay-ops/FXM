@@ -194,6 +194,7 @@ const skipper = connectSegmentSkipper(player, {
   segmentsFor: async (item, signal) => (skippingOn() ? lookUp(item, signal) : []),
 })
 skipper.on('skip', ({ item, fromMs, toMs }) => showUndo())
+skipper.on('undoexpire', () => hideUndo())
 // After the setting changes: skipper.refresh(). For an "Undo" button: skipper.undo().
 ```
 
@@ -202,7 +203,7 @@ skipper.on('skip', ({ item, fromMs, toMs }) => showUndo())
 **How it skips.** While a track plays or loads to play, never while paused:
 
 - When playback is inside a segment, it seeks to the segment's end at once. A segment at the start of a track is skipped while the track is still loading, when its segments are known by then, so the engine starts after it.
-- When a segment starts within `lookaheadMs` (1 s), a timer skips it right at its start, counting the time since the last position report, rather than at the first report inside it (about every 250 ms from an audio element).
+- When a segment starts within `lookaheadMs` (1 s), a timer skips it right at its start, rather than at the first position report inside it (about every 250 ms from an audio element). It counts the time since the last report only while playback moves: time paused, loading or waiting for data doesn't count, so a resumed track never skips early.
 - A segment that runs to the end of the track ends it: the skipper seeks to 100 ms before the end, and the player moves on as at any end, so repeat one plays it again. It waits for the track to play first: a media element started at its very end would restart from the top.
 
 **What it leaves alone:**
@@ -211,7 +212,7 @@ skipper.on('skip', ({ item, fromMs, toMs }) => showUndo())
 - a segment whose skip the user undid (`undo()` goes back to where the skip jumped from), until the track starts over (repeat, or "previous" restarting it);
 - the segment a restored queue stopped in: that position is where the user left it.
 
-Its own seeks never count as the user's. `undo()` returns `false` once the track changed or the user moved playback since the skip.
+Its own seeks never count as the user's. `undo()` returns `false` once the track changed or started over, or the user moved playback since the skip; the `undoexpire` event announces that moment for the last skip (and for an undone one), e.g. to take an "Undo" button away. A newer skip replaces the last one without it.
 
 **Which segments apply** (`activeSkipSegments`, also exported): times that aren't finite numbers are dropped, and so are segments whose `mediaDurationMs` differs from the track's duration by more than `durationToleranceMs` (2 s), because they were marked on another cut. The rest are clamped to the track; what is shorter than `minSegmentMs` (1 s) is dropped; segments less than `mergeGapMs` (1 s) apart become one; a last segment ending within `endSnapMs` (1 s) of the end runs to the end. When less than `minPlayedMs` (10 s) of the track would be left, nothing is skipped in it: a track that ends as soon as it starts looks broken, and with repeat one it would loop. The duration is the player's: the engine's, or the track's metadata until then.
 
@@ -245,7 +246,7 @@ The tests run offline in happy-dom (`vitest.config.ts`) with fake timers, and no
 - preloading, choosing another version and overlapping requests;
 - the direct audio engine's element handling, including unlocking;
 - the Media Session calls;
-- the segment skipper: skips at load, on reports and by timer, the user's seeks, undo, restarts and repeats, restored queues, the end of the track, asking again and ahead, failures and disconnecting (`segment-skipper.test.ts`).
+- the segment skipper: skips at load, on reports and by timer (also after a pause or a wait for data), the user's seeks, undo and when it expires, restarts and repeats, restored queues, the end of the track, asking again and ahead, failures and disconnecting (`segment-skipper.test.ts`).
 
 Coverage of the facade is about 99 % of lines, and of the queue 100 %.
 
