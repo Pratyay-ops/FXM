@@ -1,0 +1,184 @@
+import { describe, expect, expectTypeOf, it } from 'vitest'
+import { FxmError } from './errors'
+import { type EntityId, formatId, parseId } from './ids'
+import { applyModeFilter } from './mode'
+import type { Track } from './model'
+import type {
+  AbortSignalLike,
+  AccountProvider,
+  AudioCandidate,
+  AudioSource,
+  Fetch,
+  LyricsProvider,
+  MetadataProvider,
+  MinimalAbortSignal,
+  MinimalFetch,
+  ProviderContext,
+  RecommendationProvider,
+  StreamOption,
+} from './providers'
+import { DEFAULT_QUALITY_PREFS, tierOf } from './quality'
+
+const song: Track = {
+  id: formatId('ytm', 'track', 'song1'),
+  source: 'ytm',
+  title: 'Song',
+  artists: [{ name: 'Artist' }],
+  artwork: [],
+  kind: 'song',
+}
+const video: Track = { ...song, id: formatId('yt', 'track', 'vid1'), source: 'yt', kind: 'video' }
+
+/** A fetch that answers every request with `body` as JSON and records the URLs. */
+function fakeFetch(body: unknown, urls: string[] = []): Fetch {
+  return async (input) => {
+    urls.push(input)
+    const text = JSON.stringify(body)
+    return {
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      url: input,
+      headers: { get: () => 'application/json' },
+      text: async () => text,
+      json: async () => JSON.parse(text) as unknown,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    }
+  }
+}
+
+function context(mode: ProviderContext['mode'], fetch: Fetch = fakeFetch({})): ProviderContext {
+  return {
+    fetch,
+    platform: 'web',
+    capabilities: { youtube: true, spotify: false, mediaBytes: false, fileSystem: false },
+    mode,
+  }
+}
+
+/** An in-memory catalog implementing the provider interfaces. */
+const catalog: MetadataProvider & RecommendationProvider = {
+  id: 'ytm',
+  async search(query, options, ctx) {
+    const matches = [song, video].filter((track) => track.title.includes(query))
+    const tracks = applyModeFilter(matches, ctx.mode).slice(0, options.limit ?? 20)
+    return options.types.includes('track') ? { tracks: { items: tracks } } : {}
+  },
+  async getTrack(id) {
+    const track = [song, video].find((candidate) => candidate.id === id)
+    if (!track) throw new FxmError('NotFound', `No track ${id}`)
+    return track
+  },
+  async getAlbum(id) {
+    return { id, source: 'ytm', name: 'Album', artists: [], artwork: [], tracks: [song] }
+  },
+  async getArtist(id) {
+    return { id, source: 'ytm', name: 'Artist', artwork: [] }
+  },
+  async getPlaylist(id) {
+    return { id, source: 'ytm', name: 'Playlist', artwork: [], tracks: { items: [song] } }
+  },
+  async radio(seed, ctx) {
+    const seedTitle = 'title' in seed ? seed.title : seed.name
+    return applyModeFilter([song, video], ctx.mode).filter((track) => track.title !== seedTitle)
+  },
+}
+
+const youtubeAudio: AudioSource = {
+  id: 'ytm',
+  async match(track) {
+    return [
+      {
+        source: 'ytm',
+        ref: parseId(track.id)?.nativeId ?? '',
+        kind: 'song',
+        title: track.title,
+        artists: track.artists.map((artist) => artist.name),
+        confidence: 0.98,
+        evidence: ['title 1.00', 'duration -0.4s'],
+      },
+    ]
+  },
+  async resolve(candidate, ctx, prefs) {
+    const response = await ctx.fetch(`https://example.test/player?v=${candidate.ref}`)
+    const { bitrate } = (await response.json()) as { bitrate: number }
+    const option: StreamOption = {
+      url: `https://example.test/${candidate.ref}.webm`,
+      codec: 'opus',
+      container: 'webm',
+      bitrateKbps: bitrate,
+      tier: tierOf({ codec: 'opus', bitrateKbps: bitrate }),
+      protocol: 'progressive',
+      expiresAt: Date.now() + 6 * 3_600_000,
+      ipBound: true,
+    }
+    return prefs.streaming.wifi === 'low' ? [] : [option]
+  },
+}
+
+const lyrics: LyricsProvider = {
+  id: 'lrclib',
+  async getLyrics(track) {
+    return track.kind === 'song'
+      ? { synced: true, lines: [{ timeMs: 0, text: 'La la' }], source: 'lrclib' }
+      : null
+  },
+}
+
+const account: AccountProvider = {
+  id: 'spotify',
+  async status() {
+    return { connected: false }
+  },
+}
+
+describe('provider interfaces', () => {
+  it('search and radio respect the catalog mode through the context', async () => {
+    const music = await catalog.search('', { types: ['track'] }, context('music'))
+    const all = await catalog.search('', { types: ['track'], limit: 5 }, context('all'))
+    expect(music.tracks?.items.map((track) => track.kind)).toEqual(['song'])
+    expect(all.tracks?.items.map((track) => track.kind)).toEqual(['song', 'video'])
+    expect(await catalog.radio({ name: 'Artist' }, context('music'))).toEqual([song])
+  })
+
+  it('loads entities by typed ID and rejects unknown ones with FxmError', async () => {
+    expect(await catalog.getTrack(song.id, context('all'))).toBe(song)
+    await expect(
+      catalog.getTrack(formatId('ytm', 'track', 'missing'), context('all')),
+    ).rejects.toMatchObject({ code: 'NotFound' })
+    const album = await catalog.getAlbum(formatId('ytm', 'album', 'a1'), context('all'))
+    const artist = await catalog.getArtist(formatId('ytm', 'artist', 'r1'), context('all'))
+    const playlist = await catalog.getPlaylist(formatId('ytm', 'playlist', 'p1'), context('all'))
+    expect([album.tracks?.length, artist.name, playlist.tracks?.items.length]).toEqual([
+      1,
+      'Artist',
+      1,
+    ])
+  })
+
+  it('matches then resolves audio through the injected fetch', async () => {
+    const urls: string[] = []
+    const ctx = context('music', fakeFetch({ bitrate: 141 }, urls))
+    const [candidate] = await youtubeAudio.match(song, ctx)
+    if (!candidate) throw new Error('expected a candidate')
+    const [stream] = await youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
+    expect(urls).toEqual(['https://example.test/player?v=song1'])
+    expect(stream).toMatchObject({ codec: 'opus', tier: 'high', ipBound: true })
+  })
+
+  it('finds lyrics and account status', async () => {
+    expect((await lyrics.getLyrics(song, context('all')))?.synced).toBe(true)
+    expect(await lyrics.getLyrics(video, context('all'))).toBeNull()
+    expect(await account.status(context('all'))).toEqual({ connected: false })
+  })
+
+  it('types IDs, candidates and the platform hooks', () => {
+    expectTypeOf<Parameters<MetadataProvider['getAlbum']>[0]>().toEqualTypeOf<EntityId<'album'>>()
+    expectTypeOf<AudioCandidate['confidence']>().toEqualTypeOf<number>()
+    // @fxm/core loads only the ES library, so here the platform types use their fallbacks.
+    // In programs with DOM, web worker or Node types they are exactly `typeof fetch` and
+    // `AbortSignal`.
+    expectTypeOf<Fetch>().toEqualTypeOf<MinimalFetch>()
+    expectTypeOf<AbortSignalLike>().toEqualTypeOf<MinimalAbortSignal>()
+  })
+})
