@@ -139,24 +139,41 @@ export type YouTubeAccess = 'none' | 'simple' | 'full'
  */
 export type SpotifyAccess = 'unreachable' | 'anonymous' | 'account'
 
-/** What the platform's network stack can do, which decides the providers and pipes on offer. */
-export interface NetworkCapabilities {
-  /** How far YouTube and YouTube Music can be reached: `none`, `simple` or `full`. */
-  youtube: YouTubeAccess
+/** What {@link NetworkCapabilities} hold whatever the platform's YouTube access. */
+interface CommonCapabilities {
   /**
    * How far Spotify can be reached: `unreachable`, `anonymous` or `account`, whatever the user's
    * Spotify switch says.
    */
   spotify: SpotifyAccess
-  /**
-   * Can read media bytes from googlevideo.com, which downloads of YouTube audio, end-of-file range
-   * probes and an equalizer on YouTube audio need. Always `false` when `youtube` is `simple` or
-   * `none`; normally `true` with `full`.
-   */
-  mediaBytes: boolean
   /** Can write files outside browser storage. */
   fileSystem: boolean
 }
+
+/**
+ * What the platform's network stack can do, which decides the providers and pipes on offer.
+ *
+ * It is a union on `youtube`, so that only `full` YouTube access can claim to read media bytes:
+ * with `none` or `simple`, `mediaBytes` is always `false`. A platform that works out its access
+ * at run time therefore checks `youtube === 'full'` before it sets `mediaBytes` to anything but
+ * `false`.
+ */
+export type NetworkCapabilities =
+  | (CommonCapabilities & {
+      /** How far YouTube and YouTube Music can be reached: not at all, or in the `simple` tier. */
+      youtube: 'none' | 'simple'
+      /** Always `false`: googlevideo's bytes can be read only with `full` YouTube access. */
+      mediaBytes: false
+    })
+  | (CommonCapabilities & {
+      /** How far YouTube and YouTube Music can be reached: `full`, everything. */
+      youtube: 'full'
+      /**
+       * Can read media bytes from googlevideo.com, which downloads of YouTube audio, end-of-file
+       * range probes and an equalizer on YouTube audio need. Normally `true`.
+       */
+      mediaBytes: boolean
+    })
 
 /** Everything a provider call needs to know about where it runs. Passed to every call. */
 export interface ProviderContext {

@@ -494,6 +494,33 @@ describe('network capabilities', () => {
     const yesOrNo: NetworkCapabilities = { ...LITE, youtube: true }
     expect(yesOrNo.youtube).toBe(true)
   })
+
+  it('let only full YouTube access read media bytes', () => {
+    // @ts-expect-error the simple tier can never read googlevideo's bytes
+    const simple: NetworkCapabilities = { ...CONNECT, youtube: 'simple' }
+    // @ts-expect-error nor can a platform without YouTube
+    const none: NetworkCapabilities = { ...CONNECT, youtube: 'none' }
+    const fullWithoutBytes: NetworkCapabilities = { ...CONNECT, mediaBytes: false }
+    expect([simple.mediaBytes, none.mediaBytes, fullWithoutBytes.mediaBytes]).toEqual([
+      true,
+      true,
+      false,
+    ])
+    const capabilities = context('music').capabilities
+    if (capabilities.youtube === 'full') expectTypeOf(capabilities.mediaBytes).toBeBoolean()
+    else expectTypeOf(capabilities.mediaBytes).toEqualTypeOf<false>()
+  })
+
+  it('can be built from what a platform detects at run time', () => {
+    const detect = (youtube: YouTubeAccess, canReadBytes: boolean): NetworkCapabilities => {
+      const common = { spotify: 'anonymous', fileSystem: false } as const
+      return youtube === 'full'
+        ? { ...common, youtube, mediaBytes: canReadBytes }
+        : { ...common, youtube, mediaBytes: false }
+    }
+    expect(detect('simple', true)).toEqual({ ...LITE, spotify: 'anonymous' })
+    expect(detect('full', true)).toEqual(CONNECT)
+  })
 })
 
 describe('stream options', () => {

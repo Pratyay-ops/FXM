@@ -81,7 +81,7 @@ The linked song is a track like any other: load it and check it with `isPlayable
 | `anonymous` | FXM Connect without its session bridge | Anonymous web-player tokens |
 | `account` | FXM Connect with the session bridge the user turned on, the desktop and Android login windows | A logged-in token source as well. Whether the user is logged in is up to `AccountProvider.status` |
 
-The user's Spotify on/off switch is an app setting, not a capability: FXM uses Spotify only when the switch is on and `spotify` is not `unreachable`. `mediaBytes` is always `false` when `youtube` is `simple` or `none`.
+The user's Spotify on/off switch is an app setting, not a capability: FXM uses Spotify only when the switch is on and `spotify` is not `unreachable`. `mediaBytes` is always `false` when `youtube` is `simple` or `none`, and the type enforces it: `NetworkCapabilities` is a union on `youtube`, in which only `full` lets `mediaBytes` be `true`.
 
 ### Choosing a stream
 
