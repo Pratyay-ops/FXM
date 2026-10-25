@@ -95,11 +95,11 @@ Failures are `FxmError`s the player knows what to do with: a file gone from disk
 
 ## Until other stages merge
 
-Built while the stages below were in progress, behind one seam each:
+Built while the stages below were in progress, behind one seam each. All three have merged into `develop` since; wiring the seams is still to do:
 
-- **The app's player (2.5).** The player bar is still the shell's placeholder, so `getLocalPlayer()` makes a player of its own (direct audio engine, `withLocalFiles(NO_STREAMS)`, Media Session). When 2.5 merges: `getLocalPlayer()` returns 2.5's `getPlayer()`, `subscribeLocalPlayer` its `subscribePlayer`, and 2.5's `createAppPolicy()` wraps its resolver with `withLocalFiles(…)`.
-- **The playback policy (2.3).** Register `createLocalAudioSource()` as the offline copy (ARCHITECTURE §7.4). Its `match` also finds a local file with a catalog track's ISRC, so a song the user owns, perhaps in FLAC, can play from their own copy.
-- **Search (2.4).** Register `createLocalMetadataProvider()` with 2.4's sources registry (source `local`, labelled "This device"); its album and artist pages then work for local albums and artists. Until then the search page shows `LocalSearchSection`.
+- **The app's player (2.5).** The player bar shows the app's player now, but local files still play through a player of their own (`getLocalPlayer()`: direct audio engine, `withLocalFiles(NO_STREAMS)`, Media Session), which the bars don't show. To wire it: `getLocalPlayer()` returns `getPlayer()` from `features/now-playing/playback.ts`, `subscribeLocalPlayer` its `subscribePlayer`, and `createAppPolicy()` in `features/now-playing/playback-policy.ts` wraps its resolver with `withLocalFiles(…)`.
+- **The playback policy (2.3).** Register `createLocalAudioSource()` as the offline copy (ARCHITECTURE §7.4) once the app's policy is 2.3's (`createAppPolicy()` still returns the pending stand-in). Its `match` also finds a local file with a catalog track's ISRC, so a song the user owns, perhaps in FLAC, can play from their own copy.
+- **Search (2.4).** Register `createLocalMetadataProvider()` with the app's sources (`appSources.register(…)` in `features/search/sources-context.tsx`; source `local`, labelled "This device"); its album and artist pages then work for local albums and artists. Until then the search page shows `LocalSearchSection` above the catalog's results.
 
 ## Tests
 

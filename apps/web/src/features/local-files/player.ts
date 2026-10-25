@@ -8,7 +8,7 @@
  *
  * **Until stage 2.5 wires the app's player** (`features/now-playing/playback.ts`, not merged
  * when this was written), the feature makes its own: a direct-audio engine, the local resolver
- * and the system media controls. When 2.5 merges, the integration replaces two things and
+ * and the system media controls. 2.5 has merged since; wiring it in replaces two things and
  * nothing else in this feature changes:
  *
  * 1. `getLocalPlayer()` returns 2.5's `getPlayer()`, and `subscribeLocalPlayer` its
