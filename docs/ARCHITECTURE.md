@@ -394,7 +394,7 @@ On the web, YouTube downloads need a connected FXM server, because the embedded 
 | D4 | Metadata providers separate from audio sources, joined by a matching engine | Spotube/Bloomee lesson: resilience and best pipe per platform |
 | D5 | Recommendations computed on device | Privacy, zero server cost, Spotify API closed |
 | D6 | `youtubei.js` (MIT) over NewPipeExtractor (GPL-3.0) | Keeps the project Apache-2.0 |
-| D7 | pnpm (via corepack), Biome, Vitest, uv for Python | Fast, few dependencies, reproducible |
+| D7 | pnpm (pinned standalone binary), Biome, Vitest, uv for Python | Fast, few dependencies, reproducible. Corepack can't run pnpm 12 and leaves Node from v25 |
 | D8 | All toolchains inside the repo (`.tools/`, `.venv/`, `node_modules/`), removed by `make nuke` | Owner's requirement: nothing global, everything deletable |
 | D9 | Two catalog modes, Music vs Music + Video, enforced by one core policy | Owner's requirement; avoids the songs-vs-videos mix-up common in open-source players |
 | D10 | Web plays YouTube through the official, visible embedded player; ad-free pipes are preferred when available | The only free, policy-compliant way to play any YouTube song in a plain website |

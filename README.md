@@ -26,6 +26,7 @@ Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube]
 - [Architecture](docs/ARCHITECTURE.md): how FXM works and why
 - [Roadmap](docs/PLAN.md): milestones and stages, with status
 - [Workflow](docs/WORKFLOW.md): branches, worktrees, parallel agents, commit rules
+- [Development](docs/DEVELOPMENT.md): setup, where tools are installed, removing everything
 
 ## License
 

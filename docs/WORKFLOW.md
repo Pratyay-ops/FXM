@@ -90,10 +90,11 @@ prefers over the YouTube embedded player in Music mode.
 | Command | What it does |
 |---|---|
 | `make wt-new BRANCH=feat/1.4-jiosaavn` | Create the branch from `origin/develop`, add a worktree in `../FXM-worktrees/`, install deps |
+| `make wt-new BRANCH=… BASE=<ref>` | Same, but branch from another ref. Only use this to stack on an unmerged stage when you really must |
 | `make wt-list` | List all worktrees and their branches |
 | `make wt-remove BRANCH=feat/1.4-jiosaavn` | Remove that worktree. Refuses if it has uncommitted changes |
 
-All worktrees share the main checkout's `.tools/` folder (pnpm store, corepack, uv, JDK, Android SDK). New worktrees therefore download nothing twice, and `make nuke` cleans everything in one place.
+All worktrees share the main checkout's `.tools/` folder (pnpm and its store, uv and Python, JDK, Android SDK). New worktrees therefore download nothing twice, and `make nuke` cleans everything in one place.
 
 ---
 
