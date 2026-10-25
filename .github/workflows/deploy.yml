@@ -70,7 +70,7 @@ jobs:
           REF: ${{ github.ref }}
         run: |
           case "$REF" in
-            refs/heads/develop | refs/heads/main | refs/heads/ci/2.8-deploy) deploy=true ;;
+            refs/heads/develop | refs/heads/main) deploy=true ;;
             *) deploy=false ;;
           esac
           echo "deploy=$deploy" >>"$GITHUB_OUTPUT"
@@ -92,8 +92,7 @@ jobs:
     # The branch test repeats the dist job's on purpose: this job holds the secrets.
     if: >-
       needs.dist.outputs.deploy == 'true' &&
-      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' ||
-      github.ref == 'refs/heads/ci/2.8-deploy')
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
