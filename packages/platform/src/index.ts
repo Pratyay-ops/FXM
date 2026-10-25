@@ -120,13 +120,16 @@ export { createPlatform, detectEnvironment, ENVIRONMENT_PLATFORMS } from './plat
 export type {
   BrowserSandboxTransport,
   SandboxDocumentOptions,
+  SandboxError,
+  SandboxErrorCode,
   SandboxHostWindow,
   SandboxTransportOptions,
 } from './sandbox'
 export {
   createSandboxTransport,
   isSandboxError,
-  SandboxError,
+  SandboxFailedError,
+  SandboxRefusedError,
   sandboxDocumentHeader,
   sandboxDocumentPolicy,
 } from './sandbox'

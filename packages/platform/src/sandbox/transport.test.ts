@@ -2,6 +2,7 @@ import { isFxmError } from '@fxm/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createRequestBudget } from '../budget'
 import { detectCapabilities } from '../capabilities'
+import { isTransportError } from '../errors'
 import { createLiteTier } from '../lite'
 import { createFakeClock } from '../testing/fake-clock'
 import { createWebTransport } from '../web'
@@ -9,11 +10,17 @@ import {
   INNERTUBE_DOCUMENT_POLICY,
   SANDBOX_MESSAGE,
   SANDBOX_PROTOCOL,
+  SANDBOX_TOKEN_PATTERN,
   type SandboxScope,
-  USER_HOST_DOCUMENT_POLICY,
 } from './document'
 import { isSandboxError } from './errors'
-import { createFakePage, FAKE_FXM_ORIGIN, type FakePage, type FakePageOptions } from './testing'
+import {
+  createFakePage,
+  FAKE_FXM_ORIGIN,
+  type FakeFrame,
+  type FakePage,
+  type FakePageOptions,
+} from './testing'
 import {
   createSandboxTransport,
   defaultSelfTestRequest,
@@ -27,6 +34,10 @@ const PLAYER = 'https://www.youtube.com/youtubei/v1/player?prettyPrint=false'
 const INSTANCE = 'https://invidious.example:8443/api/v1/stats'
 const BODY = JSON.stringify({ context: { client: { clientName: 'WEB_REMIX' } }, query: 'creep' })
 const TEXT = { 'content-type': 'text/plain;charset=UTF-8' }
+/** A token for documents framed by hand. */
+const TOKEN = 'fedcba9876543210fedcba9876543210'
+/** A token nobody gave out. */
+const GUESS = '0'.repeat(32)
 
 /** An InnerTube request in the simple shape, with changes. */
 const simple = (
@@ -45,6 +56,14 @@ const simple = (
       ...(signal === undefined ? {} : { signal }),
     },
   }) as Parameters<ReturnType<typeof createSandboxTransport>['innerTube']>[0]
+
+/** The answer a browser hands over for a redirect fetched with `redirect: 'manual'`. */
+const opaqueRedirect = () =>
+  Object.defineProperty(new Response(null, { status: 200 }), 'type', { value: 'opaqueredirect' })
+
+/** A frame's URL without its fragment, and the token in the fragment. */
+const urlOf = (frame: FakeFrame | undefined) => (frame?.src ?? '').split('#')[0]
+const tokenOf = (frame: FakeFrame | undefined) => (frame?.src ?? '').split('#')[1]
 
 const cleanups: (() => void)[] = []
 afterEach(() => {
@@ -81,25 +100,66 @@ function heldNetwork() {
 }
 
 /**
+ * A hand-made document: it says hello with `hello`'s changes, and once it has the port it says
+ * `ready` with `ready`'s token (the token from its URL by default, none when `ready` is `null`),
+ * then hands every message on the port to `onPort`.
+ */
+function customDocument(
+  options: {
+    hello?: Record<string, unknown>
+    ready?: string | null
+    onPort?: (port: MessagePort, data: Record<string, unknown>) => void
+  } = {},
+): (scope: SandboxScope) => void {
+  return (scope: SandboxScope) => {
+    const { origin, hash } = new URL(scope.location?.href ?? '')
+    const token = hash.slice(1)
+    scope.addEventListener('message', (event) => {
+      const port = event.ports[0]
+      if (port === undefined) return
+      port.addEventListener('message', (message) => options.onPort?.(port, message.data))
+      port.start()
+      if (options.ready !== null) {
+        port.postMessage({ type: SANDBOX_MESSAGE.ready, token: options.ready ?? token })
+      }
+    })
+    scope.parent?.postMessage(
+      {
+        type: SANDBOX_MESSAGE.hello,
+        protocol: SANDBOX_PROTOCOL,
+        document: 'innertube',
+        token,
+        ...options.hello,
+      },
+      origin,
+    )
+  }
+}
+
+/**
  * Connects to a fake page's document the way the transport does, but by hand, so tests can send
  * messages the transport would never send.
  */
 async function rawConnect(page: FakePage, path = '/sandbox/innertube.html') {
   const frame = page.window.document.createElement('iframe')
   frame.setAttribute('sandbox', 'allow-scripts')
-  frame.src = `${FAKE_FXM_ORIGIN}${path}`
+  frame.src = `${FAKE_FXM_ORIGIN}${path}#${TOKEN}`
   const hello = new Promise<MessageEvent>((resolve) => {
     page.window.addEventListener('message', resolve, { once: true })
   })
   page.window.document.body.appendChild(frame)
   const event = await hello
   const { port1, port2 } = new MessageChannel()
+  const ready = new Promise<unknown>((resolve) => {
+    port1.addEventListener('message', (message) => resolve(message.data), { once: true })
+  })
+  port1.start()
   frame.contentWindow?.postMessage(
     { type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL },
     '*',
     [port2],
   )
-  port1.start()
+  expect(await ready).toEqual({ type: SANDBOX_MESSAGE.ready, token: TOKEN })
   cleanups.push(() => {
     port1.close()
     frame.remove()
@@ -125,14 +185,15 @@ describe('createSandboxTransport', () => {
     expect(isFxmError(error, 'Unsupported')).toBe(true)
   })
 
-  it('frames nothing until the first request, then innertube.html once, opaque and hidden', async () => {
+  it('frames nothing until the first request, then innertube.html once, opaque, hidden and with a token', async () => {
     const { page, sandbox } = setup()
     expect(page.frames).toEqual([])
     await sandbox.innerTube(simple())
     await sandbox.innerTube(simple(PLAYER))
     expect(page.frames).toHaveLength(1)
     const [frame] = page.frames
-    expect(frame?.src).toBe(`${FAKE_FXM_ORIGIN}/sandbox/innertube.html`)
+    expect(urlOf(frame)).toBe(`${FAKE_FXM_ORIGIN}/sandbox/innertube.html`)
+    expect(tokenOf(frame)).toMatch(SANDBOX_TOKEN_PATTERN)
     expect(frame?.hidden).toBe(true)
     expect(Object.fromEntries(frame?.attributes ?? [])).toMatchObject({
       sandbox: 'allow-scripts',
@@ -150,6 +211,7 @@ describe('createSandboxTransport', () => {
     const response = await sandbox.innerTube(simple())
     expect(response.status).toBe(200)
     expect(response.headers.get('x-mock')).toBe('yes')
+    expect(response.redirected).toBe(false)
     expect(await response.json()).toEqual({ responseContext: {}, url: SEARCH })
     expect(page.requests).toHaveLength(1)
     const [request] = page.requests
@@ -160,7 +222,7 @@ describe('createSandboxTransport', () => {
       body: BODY,
       credentials: 'omit',
       mode: 'cors',
-      redirect: 'error',
+      redirect: 'manual',
       referrerPolicy: 'no-referrer',
     })
   })
@@ -196,11 +258,11 @@ describe('createSandboxTransport', () => {
     ])
     const empty = await sandbox.innerTube(simple())
     expect([empty.status, empty.body]).toEqual([204, null])
-    const redirected = await sandbox.innerTube(simple())
-    expect(redirected.url).toBe(SEARCH)
+    const withUrl = await sandbox.innerTube(simple())
+    expect(withUrl.url).toBe(SEARCH)
   })
 
-  it('refuses other hosts, paths and preflighted shapes at once, framing nothing', async () => {
+  it('refuses other hosts, paths and preflighted shapes at once as TransportErrors, framing nothing', async () => {
     const { page, sandbox } = setup()
     const cases: [ReturnType<typeof simple>, string][] = [
       [simple('https://www.google.com/youtubei/v1/search'), 'forbidden-host'],
@@ -211,14 +273,16 @@ describe('createSandboxTransport', () => {
       [simple(SEARCH, { headers: { 'x-goog-visitor-id': 'v' } }), 'preflight'],
       [simple(SEARCH, { method: 'PUT' }), 'preflight'],
       [simple(SEARCH, { method: 'GET' }), 'forbidden-method'],
+      [simple(SEARCH, { body: 'x'.repeat(1024 * 1024 + 1) }), 'request-too-large'],
     ]
     for (const [request, code] of cases) {
       const error = await rejection(sandbox.innerTube(request))
-      expect([request.url, isSandboxError(error, code), isFxmError(error, 'Unsupported')]).toEqual([
-        request.url,
-        true,
-        true,
-      ])
+      expect([
+        request.url.slice(0, 60),
+        isSandboxError(error, code),
+        isTransportError(error, 'bad-request'),
+        isFxmError(error, 'Unsupported'),
+      ]).toEqual([request.url.slice(0, 60), true, true, true])
     }
     expect(page.frames).toEqual([])
     expect(page.requests).toEqual([])
@@ -231,6 +295,7 @@ describe('createSandboxTransport', () => {
       type: SANDBOX_MESSAGE.hello,
       protocol: SANDBOX_PROTOCOL,
       document: 'innertube',
+      token: TOKEN,
     })
     expect(event.origin).toBe('null')
     const post = { method: 'POST', headers: TEXT, body: BODY }
@@ -250,12 +315,12 @@ describe('createSandboxTransport', () => {
       'preflight',
       'preflight',
       'forbidden-method',
-      'too-large',
+      'request-too-large',
     ])
     expect(page.requests).toEqual([])
 
     const userHost = await rawConnect(page, '/sandbox/userhost.html')
-    expect(userHost.event.data).toMatchObject({ document: 'userhost' })
+    expect(userHost.event.data).toMatchObject({ document: 'userhost', token: TOKEN })
     const refused = [
       await userHost.ask({ url: INSTANCE, method: 'POST', body: 'x' }),
       await userHost.ask({ url: INSTANCE, method: 'GET', headers: { accept: 'x' } }),
@@ -294,15 +359,9 @@ describe('createSandboxTransport', () => {
     const { page, sandbox } = setup(
       {
         // The first document connects but never answers; the second is the real one.
-        documents: (url) => {
+        documents: () => {
           loads += 1
-          if (loads > 1) return 'innertube'
-          return (scope: SandboxScope) => {
-            scope.parent?.postMessage(
-              { type: SANDBOX_MESSAGE.hello, protocol: SANDBOX_PROTOCOL, document: 'innertube' },
-              url.origin,
-            )
-          }
+          return loads > 1 ? 'innertube' : customDocument()
         },
       },
       { clock, innerTube: { timeoutMs: 1000 } },
@@ -321,7 +380,7 @@ describe('createSandboxTransport', () => {
     expect(page.frames).toHaveLength(2)
   })
 
-  it('gives up on a document that does not load, and tries again later', async () => {
+  it('gives up on a document that does not load, and frames a new one with a new token', async () => {
     const clock = createFakeClock(0)
     let silent = true
     const { page, sandbox } = setup(
@@ -334,11 +393,13 @@ describe('createSandboxTransport', () => {
     clock.advance(SANDBOX_LOAD_TIMEOUT_MS)
     const error = await rejection(request)
     expect(isSandboxError(error, 'timeout') && isFxmError(error, 'Network')).toBe(true)
-    expect(await selfTest).toBe(false)
+    expect(await selfTest).toBe('unreachable')
     expect(page.frames[0]?.connected).toBe(false)
     silent = false
-    expect(await sandbox.selfTest()).toBe(true)
+    expect(await sandbox.selfTest()).toBe('pass')
     expect(page.frames).toHaveLength(2)
+    expect(tokenOf(page.frames[1])).toMatch(SANDBOX_TOKEN_PATTERN)
+    expect(tokenOf(page.frames[1])).not.toBe(tokenOf(page.frames[0]))
   })
 
   it('takes a hello only from its own frame, from an opaque origin, in its protocol', async () => {
@@ -355,7 +416,12 @@ describe('createSandboxTransport', () => {
     const request = sandbox.innerTube(simple())
     await page.settle()
     const frame = page.frames[0]
-    const hello = { type: SANDBOX_MESSAGE.hello, protocol: SANDBOX_PROTOCOL, document: 'innertube' }
+    const hello = {
+      type: SANDBOX_MESSAGE.hello,
+      protocol: SANDBOX_PROTOCOL,
+      document: 'innertube',
+      token: tokenOf(frame),
+    }
     page.deliver(hello, { origin: 'null', source: {} })
     page.deliver(hello, { origin: FAKE_FXM_ORIGIN, source: frame?.window })
     page.deliver({ ...hello, type: 'fxm-sandbox:hi' }, { origin: 'null', source: frame?.window })
@@ -366,17 +432,93 @@ describe('createSandboxTransport', () => {
     expect(isSandboxError(await rejection(request), 'timeout')).toBe(true)
 
     // A document of another protocol, or the other document, is refused.
-    for (const wrong of [
-      { ...hello, protocol: 2 },
-      { ...hello, document: 'userhost' },
-    ]) {
+    for (const wrong of [{ protocol: 1 }, { document: 'userhost' }]) {
       const next = sandbox.innerTube(simple())
       await page.settle()
-      page.deliver(wrong, { origin: 'null', source: page.frames.at(-1)?.window })
+      const current = page.frames.at(-1)
+      page.deliver(
+        { ...hello, token: tokenOf(current), ...wrong },
+        { origin: 'null', source: current?.window },
+      )
       const error = await rejection(next)
       expect(isFxmError(error, 'Unsupported')).toBe(true)
-      expect(page.frames.at(-1)?.connected).toBe(false)
+      expect(current?.connected).toBe(false)
     }
+    expect(seen).toEqual([])
+  })
+
+  it('refuses a hello without the frame’s token, and sends that document nothing', async () => {
+    const seen: unknown[] = []
+    const hellos = [{ token: undefined }, { token: GUESS }, { token: TOKEN.toUpperCase() }]
+    let loads = 0
+    const { page, sandbox } = setup({
+      documents: () => {
+        const hello = hellos[loads] ?? {}
+        loads += 1
+        return (scope: SandboxScope) => {
+          scope.addEventListener('message', (event) => seen.push(event.data))
+          customDocument({ hello })(scope)
+        }
+      },
+    })
+    for (let index = 0; index < hellos.length; index += 1) {
+      const error = await rejection(sandbox.innerTube(simple()))
+      expect(isSandboxError(error, 'network') && isFxmError(error, 'Network')).toBe(true)
+      expect(String((error as Error).message)).toMatch(/did not frame/)
+      expect(page.frames[index]?.connected).toBe(false)
+    }
+    // No connect, no port and no request ever reached those documents.
+    expect(seen).toEqual([])
+    expect(page.requests).toEqual([])
+  })
+
+  it('sends nothing on the port until the document’s token comes back on it', async () => {
+    const clock = createFakeClock(0)
+    // Each says hello with the frame's token, as the real document would, but the port reaches a
+    // document that does not know the token, as if swapped into the frame after the hello.
+    const variants: { readonly ready: string | null; readonly forge?: true }[] = [
+      { ready: GUESS },
+      { ready: null, forge: true },
+      { ready: null },
+    ]
+    const onPort: unknown[] = []
+    let loads = 0
+    const { page, sandbox } = setup(
+      {
+        documents: () => {
+          const variant = variants[loads] ?? { ready: null }
+          loads += 1
+          return (scope: SandboxScope) => {
+            customDocument({
+              ready: variant.ready,
+              onPort: (_port, data) => onPort.push(data),
+            })(scope)
+            if (variant.forge) {
+              scope.addEventListener('message', (event) => {
+                event.ports[0]?.postMessage({
+                  type: SANDBOX_MESSAGE.response,
+                  id: 'forged',
+                  status: 200,
+                  body: new TextEncoder().encode('{"forged":true}').buffer,
+                })
+              })
+            }
+          }
+        },
+      },
+      { clock, loadTimeoutMs: 1000 },
+    )
+    for (let index = 0; index < variants.length; index += 1) {
+      const failure = rejection(sandbox.innerTube(simple()))
+      await page.settle()
+      // The silent one is given up when the load timer fires.
+      clock.advance(1000)
+      const error = await failure
+      expect(isSandboxError(error) && isFxmError(error, 'Network')).toBe(true)
+      expect(page.frames[index]?.connected).toBe(false)
+    }
+    expect(onPort).toEqual([])
+    expect(page.requests).toEqual([])
   })
 
   it('ignores replies from anything but the document’s port, and malformed ones', async () => {
@@ -400,42 +542,58 @@ describe('createSandboxTransport', () => {
           status: 200,
           statusText: 'Ok\n',
           url: 7,
+          redirected: 'yes',
           headers: [['x-ok', 'yes'], ['bad name', 'x'], ['x-number', 1], 'x', ['x-ok', 'twice']],
           body: new TextEncoder().encode('{}').buffer,
+        }),
+      (port, request) =>
+        port.postMessage({
+          type: SANDBOX_MESSAGE.response,
+          id: request.id,
+          status: 200,
+          url: 'https://music.youtube.com/youtubei/v1/search',
+          redirected: true,
+          body: new ArrayBuffer(0),
         }),
       (port, request) => port.postMessage({ type: SANDBOX_MESSAGE.error, id: request.id, code: 7 }),
       (port, request) =>
         port.postMessage({ type: SANDBOX_MESSAGE.error, id: request.id, code: 'brand-new' }),
+      (port, request) =>
+        port.postMessage({ type: SANDBOX_MESSAGE.error, id: request.id, code: 'redirect' }),
     ]
     const { sandbox } = setup({
-      documents: (url) => (scope: SandboxScope) => {
-        scope.addEventListener('message', (event) => {
-          const port = event.ports[0]
-          if (port === undefined) return
-          port.addEventListener('message', (message) => replies.shift()?.(port, message.data))
-          port.start()
-        })
-        scope.parent?.postMessage(
-          { type: SANDBOX_MESSAGE.hello, protocol: SANDBOX_PROTOCOL, document: 'innertube' },
-          url.origin,
-        )
-      },
+      documents: () =>
+        customDocument({
+          onPort: (port, data) => {
+            if (data.type === SANDBOX_MESSAGE.request) replies.shift()?.(port, data)
+          },
+        }),
     })
     const malformed = await rejection(sandbox.innerTube(simple()))
     expect(isSandboxError(malformed, 'network')).toBe(true)
     const tooBig = await rejection(sandbox.innerTube(simple()))
     expect(isSandboxError(tooBig, 'network')).toBe(true)
     const odd = await sandbox.innerTube(simple())
-    expect([odd.status, odd.statusText, odd.url, odd.headers.get('x-ok')]).toEqual([
+    expect([odd.status, odd.statusText, odd.url, odd.redirected, odd.headers.get('x-ok')]).toEqual([
       200,
       '',
       '',
+      false,
       'yes, twice',
+    ])
+    const redirected = await sandbox.innerTube(simple())
+    expect([redirected.url, redirected.redirected]).toEqual([
+      'https://music.youtube.com/youtubei/v1/search',
+      true,
     ])
     const noCode = await rejection(sandbox.innerTube(simple()))
     expect(isSandboxError(noCode, 'network')).toBe(true)
     const unknown = await rejection(sandbox.innerTube(simple()))
     expect(isSandboxError(unknown, 'brand-new') && isFxmError(unknown, 'Network')).toBe(true)
+    const redirect = await rejection(sandbox.innerTube(simple()))
+    expect(isSandboxError(redirect, 'redirect') && isTransportError(redirect, 'redirect')).toBe(
+      true,
+    )
   })
 
   it('passes cancellation on to the document', async () => {
@@ -462,25 +620,35 @@ describe('createSandboxTransport', () => {
     await vi.waitFor(() => expect(held[0]?.init.signal?.aborted).toBe(true))
   })
 
-  it('fetches from user hosts through userhost.html: GET or HEAD, no headers', async () => {
+  it('fetches from user hosts through userhost.html: GET or HEAD, no headers, no redirects', async () => {
+    const answers = [
+      () => Response.json({ software: { name: 'invidious' } }),
+      () => new Response(null, { status: 200 }),
+      opaqueRedirect,
+    ]
     const { page, sandbox } = setup({
-      network: async () => Response.json({ software: { name: 'invidious' } }),
+      network: async () => (answers.shift() as () => Response)(),
     })
     const response = await sandbox.userHost(INSTANCE, { method: 'GET' })
     expect(await response.json()).toEqual({ software: { name: 'invidious' } })
     await sandbox.userHost(INSTANCE, { method: 'HEAD' })
     expect(page.frames).toHaveLength(1)
-    expect(page.frames[0]?.src).toBe(`${FAKE_FXM_ORIGIN}/sandbox/userhost.html`)
-    expect(page.requests.map(({ init }) => init)).toMatchObject([
-      { method: 'GET', headers: {}, credentials: 'omit', redirect: 'follow' },
-      { method: 'HEAD', headers: {}, credentials: 'omit', redirect: 'follow' },
+    expect(urlOf(page.frames[0])).toBe(`${FAKE_FXM_ORIGIN}/sandbox/userhost.html`)
+    // A redirect is never followed, so the second host never hears of the request.
+    const redirect = await rejection(sandbox.userHost(INSTANCE, { method: 'GET' }))
+    expect(isSandboxError(redirect, 'redirect') && isTransportError(redirect, 'redirect')).toBe(
+      true,
+    )
+    expect(page.requests.map(({ url, init }) => [url, init])).toMatchObject([
+      [INSTANCE, { method: 'GET', headers: {}, credentials: 'omit', redirect: 'manual' }],
+      [INSTANCE, { method: 'HEAD', headers: {}, credentials: 'omit', redirect: 'manual' }],
+      [INSTANCE, { method: 'GET', headers: {}, credentials: 'omit', redirect: 'manual' }],
     ])
     expect(page.requests[0]?.init.body).toBeUndefined()
     const post = await rejection(sandbox.userHost(INSTANCE, { method: 'POST' as 'GET' }))
     expect(isSandboxError(post, 'forbidden-method')).toBe(true)
     const http = await rejection(sandbox.userHost('http://invidious.example/', { method: 'GET' }))
     expect(isSandboxError(http, 'forbidden-host')).toBe(true)
-    expect(USER_HOST_DOCUMENT_POLICY.redirect).toBe('follow')
   })
 
   it('frames documents from the page’s own origin only', async () => {
@@ -491,15 +659,16 @@ describe('createSandboxTransport', () => {
     })
     cleanups.push(() => elsewhere.dispose())
     expect(isFxmError(await rejection(elsewhere.innerTube(simple())), 'Unsupported')).toBe(true)
-    expect(await elsewhere.selfTest()).toBe(false)
+    expect(await elsewhere.selfTest()).toBe('refused')
     const relative = createSandboxTransport({
       window: page.window,
-      innerTube: { url: '/preview/sandbox/innertube.html' },
+      innerTube: { url: '/preview/sandbox/innertube.html#old-fragment' },
     })
     cleanups.push(() => relative.dispose())
     void relative.innerTube(simple()).catch(() => undefined)
     await vi.waitFor(() => expect(page.frames).toHaveLength(1))
-    expect(page.frames[0]?.src).toBe(`${FAKE_FXM_ORIGIN}/preview/sandbox/innertube.html`)
+    expect(urlOf(page.frames[0])).toBe(`${FAKE_FXM_ORIGIN}/preview/sandbox/innertube.html`)
+    expect(tokenOf(page.frames[0])).toMatch(SANDBOX_TOKEN_PATTERN)
   })
 
   it('removes its frames and refuses everything once disposed', async () => {
@@ -514,12 +683,27 @@ describe('createSandboxTransport', () => {
     expect(isFxmError(await rejection(sandbox.innerTube(simple())), 'Unsupported')).toBe(true)
     expect(page.frames).toHaveLength(1)
   })
+
+  it('rejects a request made just before dispose() on a connected document', async () => {
+    const clock = createFakeClock(0)
+    const { page, sandbox } = setup({}, { clock })
+    expect((await sandbox.innerTube(simple())).status).toBe(200)
+    const request = sandbox.innerTube(simple())
+    sandbox.dispose()
+    const settled = vi.fn()
+    request.then(settled, settled)
+    // Long past every timer: the request must have ended by then, not hang.
+    clock.advance(120_000)
+    await vi.waitFor(() => expect(settled).toHaveBeenCalledOnce())
+    expect(isFxmError(await rejection(request), 'Unsupported')).toBe(true)
+    expect(page.requests).toHaveLength(1)
+  })
 })
 
 describe('selfTest', () => {
   it('sends one real request, by default a YouTube Music suggestion request', async () => {
     const { page, sandbox } = setup()
-    expect(await sandbox.selfTest()).toBe(true)
+    expect(await sandbox.selfTest()).toBe('pass')
     expect(page.requests).toHaveLength(1)
     const expected = defaultSelfTestRequest()
     expect(page.requests[0]?.url).toBe(expected.url)
@@ -529,32 +713,83 @@ describe('selfTest', () => {
     })
   })
 
-  it('passes only for a usable answer', async () => {
-    const answers = [
-      () => Response.json({ responseContext: {} }, { status: 403 }),
-      () => Response.json({ error: { code: 400 } }),
-      () => new Response('<html>'),
-      () => Response.json([]),
-    ]
-    const { sandbox } = setup({ network: async () => (answers.shift() as () => Response)() })
-    for (let index = 0; index < 4; index += 1) expect(await sandbox.selfTest()).toBe(false)
-    const failing = setup({
-      network: async () => {
-        throw new TypeError('Failed to fetch')
-      },
-    })
-    expect(await failing.sandbox.selfTest()).toBe(false)
+  it.each([
+    ['a usable answer', () => Response.json({ responseContext: {} }), 'pass'],
+    ['403', () => Response.json({ responseContext: {} }, { status: 403 }), 'refused'],
+    ['400', () => Response.json({ error: { code: 400 } }, { status: 400 }), 'refused'],
+    ['404', () => new Response('Not Found', { status: 404 }), 'refused'],
+    ['429', () => new Response('Too Many Requests', { status: 429 }), 'unreachable'],
+    ['500', () => new Response('Internal Server Error', { status: 500 }), 'unreachable'],
+    ['503', () => new Response('Service Unavailable', { status: 503 }), 'unreachable'],
+    ['an error body', () => Response.json({ error: { code: 400 } }), 'refused'],
+    ['HTML', () => new Response('<html>'), 'refused'],
+    ['a JSON array', () => Response.json([]), 'refused'],
+    ['a malformed context', () => Response.json({ responseContext: 'x' }), 'refused'],
+  ])('reads %s as %s', async (_name, answer, verdict) => {
+    const { sandbox } = setup({ network: async () => answer() })
+    expect(await sandbox.selfTest()).toBe(verdict)
+  })
+
+  it('reads a network failure once the document loaded as refused, unless offline', async () => {
+    const network = async () => {
+      throw new TypeError('Failed to fetch')
+    }
+    expect(await setup({ network }).sandbox.selfTest()).toBe('refused')
+    expect(await setup({ network, online: false }).sandbox.selfTest()).toBe('unreachable')
+  })
+
+  it('reads a document that did not load, a timeout and a redirect as unreachable', async () => {
+    const clock = createFakeClock(0)
+    const silent = setup({ documents: () => 'silent' }, { clock })
+    const unloaded = silent.sandbox.selfTest()
+    await silent.page.settle()
+    clock.advance(SANDBOX_LOAD_TIMEOUT_MS)
+    expect(await unloaded).toBe('unreachable')
+
+    const { network } = heldNetwork()
+    const slow = setup({ network, timers: clock }, { clock, innerTube: { timeoutMs: 1000 } })
+    const timedOut = slow.sandbox.selfTest()
+    await vi.waitFor(() => expect(slow.page.requests).toHaveLength(1))
+    clock.advance(1000)
+    expect(await timedOut).toBe('unreachable')
+
+    expect(await setup({ network: async () => opaqueRedirect() }).sandbox.selfTest()).toBe(
+      'unreachable',
+    )
+    // A document that is not the one framed says nothing about InnerTube.
+    const swapped = setup({ documents: () => customDocument({ hello: { token: GUESS } }) })
+    expect(await swapped.sandbox.selfTest()).toBe('unreachable')
+  })
+
+  it('reads definite failures as refused', async () => {
+    const tooLarge = setup(
+      { network: async () => new Response(new Uint8Array(64)) },
+      { innerTube: { maxResponseBytes: 16 } },
+    )
+    expect(await tooLarge.sandbox.selfTest()).toBe('refused')
+    const outsideTheAllowlist = setup({}, { selfTestRequest: simple('https://example.com/') })
+    expect(await outsideTheAllowlist.sandbox.selfTest()).toBe('refused')
+    expect(outsideTheAllowlist.page.frames).toEqual([])
+    const otherProtocol = setup({ documents: () => customDocument({ hello: { protocol: 1 } }) })
+    expect(await otherProtocol.sandbox.selfTest()).toBe('refused')
   })
 
   it('sends the request the app gives, and rejects only when cancelled', async () => {
     const request = simple(PLAYER)
     const { page, sandbox } = setup({}, { selfTestRequest: request })
-    expect(await sandbox.selfTest()).toBe(true)
+    expect(await sandbox.selfTest()).toBe('pass')
     const built = setup({}, { selfTestRequest: async () => simple(SEARCH) })
-    expect(await built.sandbox.selfTest()).toBe(true)
+    expect(await built.sandbox.selfTest()).toBe('pass')
     expect([page.requests[0]?.url, built.page.requests[0]?.url]).toEqual([PLAYER, SEARCH])
-    const broken = setup({}, { selfTestRequest: simple('https://example.com/') })
-    expect(await broken.sandbox.selfTest()).toBe(false)
+    const unbuilt = setup(
+      {},
+      {
+        selfTestRequest: () => {
+          throw new Error('No YouTube config yet')
+        },
+      },
+    )
+    expect(await unbuilt.sandbox.selfTest()).toBe('unreachable')
     const { held, network } = heldNetwork()
     const cancelled = setup({ network })
     const controller = new AbortController()
@@ -611,7 +846,11 @@ describe('with the Lite tier and the web transport', () => {
     let killed = true
     const { page, sandbox } = setup()
     const lite = createLiteTier({ sandbox, killSwitches: () => ({ lite: killed }) })
-    const transport = createWebTransport({ fetch: vi.fn() as unknown as typeof fetch, lite })
+    const transport = createWebTransport({
+      fetch: vi.fn() as unknown as typeof fetch,
+      lite,
+      budget: createRequestBudget(),
+    })
     expect(await detectCapabilities({ platform: 'web', lite })).toMatchObject({ youtube: 'none' })
     expect(page.frames).toEqual([])
     expect(
@@ -636,7 +875,7 @@ describe('with the Lite tier and the web transport', () => {
     expect(page.requests).toHaveLength(2)
   })
 
-  it('reports no Lite when InnerTube stops answering the sandbox', async () => {
+  it('reports no Lite when InnerTube stops answering the sandbox, for the session', async () => {
     const { sandbox } = setup({
       network: async () => {
         throw new TypeError('Failed to fetch')
@@ -644,5 +883,19 @@ describe('with the Lite tier and the web transport', () => {
     })
     const lite = createLiteTier({ sandbox })
     expect(await detectCapabilities({ platform: 'web', lite })).toMatchObject({ youtube: 'none' })
+    expect(lite.state).toBe('refused')
+  })
+
+  it('refuses a user host’s redirect as a TransportError, reaching no second host', async () => {
+    const { page, sandbox } = setup({ network: async () => opaqueRedirect() })
+    const transport = createWebTransport({
+      fetch: vi.fn() as unknown as typeof fetch,
+      lite: createLiteTier({ sandbox }),
+      budget: createRequestBudget(),
+      userHosts: () => ['invidious.example:8443'],
+    })
+    const error = await rejection(transport.fetch(INSTANCE))
+    expect(isTransportError(error, 'redirect') && isSandboxError(error, 'redirect')).toBe(true)
+    expect(page.requests.map(({ url }) => url)).toEqual([INSTANCE])
   })
 })
