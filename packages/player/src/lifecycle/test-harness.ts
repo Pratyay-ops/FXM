@@ -21,7 +21,12 @@ import { vi } from 'vitest'
 import { Player, type PlayerOptions } from '../player'
 import type { ResolveRequest } from '../resolver'
 import { FakeEngine } from '../testing/fake-engine'
-import { createMemoryMatchStore, type OfflineStore, type StreamSource } from './adapters'
+import {
+  createMemoryMatchStore,
+  type OfflineStore,
+  type ResolvePriority,
+  type StreamSource,
+} from './adapters'
 import {
   type LifecycleEventMap,
   StreamLifecycle,
@@ -74,11 +79,19 @@ export function setup(options: SetupOptions = {}) {
   const settings: PlaybackSettings = { ...DEFAULT_PLAYBACK_SETTINGS, ...options.settings }
   let prefs: QualityPrefs = sanitizeQualityPrefs(DEFAULT_QUALITY_PREFS)
   let ctx: ProviderContext = testContext(options.tier ?? 'full')
+  /** The budget priority of every `fetch` call, in order. */
+  const fetches: ResolvePriority[] = []
   const lifecycle = new StreamLifecycle({
     sources: [youtube, ...(options.sources ?? [])],
     matcher,
     matches,
-    context: () => ctx,
+    context: (priority) => ({
+      ...ctx,
+      fetch: async () => {
+        fetches.push(priority)
+        throw new Error('The tests never reach the network')
+      },
+    }),
     settings: () => settings,
     qualityPrefs: () => prefs,
     network,
@@ -110,6 +123,7 @@ export function setup(options: SetupOptions = {}) {
     settings,
     events,
     failed,
+    fetches,
     /** Switches the tier, e.g. when FXM Connect appears. */
     setTier(tier: keyof typeof TEST_CAPABILITIES) {
       ctx = testContext(tier, { mode: ctx.mode })
@@ -144,7 +158,13 @@ export function ladderUrl(ref: string, itag: number, serial: number): string {
   return `https://media.test/${ref}/${itag}?n=${serial}`
 }
 
-/** A `play` request, as the player sends it, for calling the lifecycle directly. */
-export function playRequest(signal: AbortSignal = new AbortController().signal): ResolveRequest {
-  return { reason: 'play', attempt: 0, signal, canPlay: () => 'probably' }
+/**
+ * A `play` request for calling the lifecycle directly, like one from a player that does not
+ * say whether the user asked for the item.
+ */
+export function playRequest(
+  signal: AbortSignal = new AbortController().signal,
+  overrides: Partial<ResolveRequest> = {},
+): ResolveRequest {
+  return { reason: 'play', attempt: 0, signal, canPlay: () => 'probably', ...overrides }
 }

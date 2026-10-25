@@ -2,20 +2,25 @@
  * The stream lifecycle (stage 2.3): the `StreamResolver` the player asks for every stream. It
  * applies the playback policy from `@fxm/core` and keeps the state around it:
  *
- * - the order of preference: an offline copy, the pin or the recorded candidate, a lossless
- *   match with "prefer lossless", the track's own audio or its matched song, Invidious, and
- *   "Unavailable" (`planPlayback`)
+ * - the order of preference: an offline copy, the user's choice (the version picked for the
+ *   item, else the track's pin) or the recorded candidate, a lossless match with "prefer
+ *   lossless", the track's own audio or its matched song, Invidious, and "Unavailable"
+ *   (`planPlayback`)
  * - Suggest-band guesses play only after an explicit user action or with "Play best guesses";
- *   otherwise the queue skips them, marked "needs review"
+ *   otherwise the queue skips them, marked "needs review". A guess the app recorded on a queue
+ *   item counts as one, too
+ * - the matching engine's decisions, "nothing came close" included, in the match store. Pins
+ *   change only when the user asks (`pinMatch`, `unpinMatch`)
  * - the URL cache, per audio candidate and per network, flushed on network changes and on a 403
  *   for a cached URL
  * - probing: a failed probe (an end-of-file probe that found the URL capped, or in the Lite
  *   tier a failure of the media element's first request) falls back to the source's last-resort
- *   rung, then resolves again (`planStreamRecovery`)
+ *   rung, then resolves again (`planStreamRecovery`), and the source hears of it
  * - re-resolution on expiry, 401, 403, 410, stalls and media errors; the player resumes at the
  *   same position
  * - prefetching the next tracks, and sharing resolutions that are in flight
- * - Smart Replace, only on a playability verdict while other videos resolve, never for a pin
+ * - Smart Replace, only on a playability verdict while other videos resolve, never for the
+ *   user's choice
  * - the format choice per `canPlayType`
  *
  * The player itself does the retries with backoff and the circuit breaker after 4 failed
@@ -26,6 +31,7 @@
 
 import {
   type AudioCandidate,
+  audioSourceOf,
   type CatalogMode,
   candidateKey,
   canReachAudio,
@@ -34,17 +40,21 @@ import {
   DEFAULT_PLAYBACK_SETTINGS,
   DEFAULT_QUALITY_PREFS,
   entityKey,
+  type Fetch,
   FxmError,
   type FxmErrorCode,
   httpStatusOf,
+  isAudioCandidate,
   isFxmError,
   isPlayable,
   isYouTubeCandidate,
   type LadderRung,
   linkedSongCandidate,
+  type MatchBand,
   type MatchTarget,
   mayPlayMatch,
   ownCandidate,
+  type PlayabilityVerdict,
   type PlaybackProblem,
   type PlaybackSettings,
   type PlaybackStep,
@@ -56,8 +66,8 @@ import {
   playbackProblemOf,
   type QualityPrefs,
   type QueueItem,
-  type SmartReplaceAction,
   type SourceId,
+  type StreamFailureFacts,
   type StreamFailureKind,
   type StreamOption,
   sameCandidate,
@@ -74,7 +84,6 @@ import type { Player, TrackChangeCause } from '../player'
 import type { ResolvedStream, ResolveRequest, StreamFailure, StreamResolver } from '../resolver'
 import {
   createMemoryMatchStore,
-  isStoredMatch,
   type MatchKey,
   type MatchOutcome,
   type MatchStore,
@@ -82,7 +91,9 @@ import {
   type OfflineStore,
   type ResolvePriority,
   type StoredMatch,
+  type StreamFailureReport,
   type StreamSource,
+  sanitizeStoredMatch,
   type TrackMatcher,
 } from './adapters'
 import { InFlight } from './in-flight'
@@ -98,7 +109,7 @@ export interface StreamLifecycleOptions {
   sources: readonly StreamSource[]
   /** Finds songs and lossless copies for tracks (1.7). Without one, only stored matches play. */
   matcher?: TrackMatcher
-  /** Where matches are kept (2.6). Default: in memory. */
+  /** Where the matching decisions are kept (2.6). Default: in memory. */
   matches?: MatchStore
   /** Offline copies (4.1). */
   offline?: OfflineStore
@@ -107,8 +118,12 @@ export interface StreamLifecycleOptions {
    * while the `useInvidious` setting is on.
    */
   invidious?: StreamSource
-  /** The provider context for every call, read afresh each time: the tier can change. */
-  context: () => ProviderContext
+  /**
+   * The provider context for calls at a request-budget priority, read afresh each time: the
+   * tier can change. Its `fetch` must draw on the budget at `priority`, e.g. with 1.2's
+   * transport: `(priority) => ({ ...ctx, fetch: transport.withPriority(priority) })`.
+   */
+  context: (priority: ResolvePriority) => ProviderContext
   /** The user's quality settings. Default: `DEFAULT_QUALITY_PREFS`. */
   qualityPrefs?: () => QualityPrefs
   /** The user's playback settings. Default: `DEFAULT_PLAYBACK_SETTINGS`. */
@@ -128,8 +143,10 @@ export interface StreamLifecycleOptions {
    * Smart Replace. Default: 30 minutes.
    */
   evidenceWindowMs?: number
-  /** How long an unpinned stored match counts before it is matched again. Default: 30 days. */
+  /** How long an engine's `auto` or `suggest` decision counts before it is matched again. Default: 30 days. */
   maxMatchAgeMs?: number
+  /** How long an engine's decision that nothing came close counts. Default: 1 day. */
+  maxMissAgeMs?: number
   /** How many times Smart Replace may replace a track's match within one resolution. Default: 2. */
   maxReplacements?: number
 }
@@ -141,14 +158,15 @@ export const LIFECYCLE_DEFAULTS = Object.freeze({
   maxUrlAgeMs: 60 * 60_000,
   evidenceWindowMs: 30 * 60_000,
   maxMatchAgeMs: 30 * 24 * 60 * 60_000,
+  maxMissAgeMs: 24 * 60 * 60_000,
   maxReplacements: 2,
 })
 
 /**
  * A track whose match needs the user's review: its best match is a Suggest-band guess they have
  * not confirmed, whether a queue skipped it or a tap let it play. It stays listed until the user
- * confirms a version ({@link StreamLifecycle.confirmMatch}) or a later match lands in the Auto
- * band; the queue panel shows the ones in the queue.
+ * pins a version ({@link StreamLifecycle.pinMatch}) or a later match lands in the Auto band; the
+ * queue panel shows the ones in the queue.
  */
 export interface ReviewItem {
   /** The track. */
@@ -175,7 +193,7 @@ export interface LifecycleEventMap {
 /** What the lifecycle reads from the player it serves (see {@link StreamLifecycle.attach}). */
 export type LifecyclePlayer = Pick<Player, 'getState' | 'subscribe' | 'on'>
 
-/** Track changes after which the new item counts as asked for by the user. */
+/** Track changes after which the new item counts as asked for, when a request does not say. */
 const EXPLICIT_CAUSES: ReadonlySet<TrackChangeCause> = new Set([
   'queue',
   'jump',
@@ -208,6 +226,15 @@ const UNAVAILABLE_ORDER: readonly UnavailableReason[] = [
 /** The most evidence entries kept. */
 const MAX_EVIDENCE = 32
 
+/** The most version picks remembered, one per queue item. */
+const MAX_PICKS = 64
+
+/**
+ * How long a 403 counts toward changing rung: about one failure episode, the player's retries
+ * of one item. A 403 hours later starts over on the same rung.
+ */
+const FORBIDDEN_EPISODE_MS = 10 * 60_000
+
 /** The channel of resolutions through the user's Invidious instance (see {@link resolutionKey}). */
 const INVIDIOUS = 'invidious'
 
@@ -219,6 +246,8 @@ interface Issued {
   /** Whether it came from the URL cache. */
   readonly cached: boolean
   readonly network: string
+  /** The flush generation it was resolved in: a flush since makes it a stream of the past. */
+  readonly generation: number
   /** The source's ID, or {@link INVIDIOUS}. */
   readonly channel: string
   /** The {@link resolutionKey} of the resolution it came from. */
@@ -230,23 +259,40 @@ interface Resolution {
   readonly options: readonly StreamOption[]
   readonly cached: boolean
   readonly network: string
+  readonly generation: number
   readonly channel: string
   readonly key: string
 }
 
 /** How one run of the policy goes. */
 interface RunOptions {
+  /** The context at the run's priority, with its mode and signal. */
   readonly ctx: ProviderContext
+  /** The queue's catalog mode. */
+  readonly mode: CatalogMode
   /** Whether the user asked for this item just now. */
   readonly explicit: boolean
+  /** Whether the recorded candidate is the version the user picked for this item. */
+  readonly picked: boolean
   readonly priority: ResolvePriority
   readonly canPlay: (stream: StreamOption) => PlaySupport
   readonly signal: AbortSignal
   readonly skipOffline: boolean
 }
 
+/** Why a source refused an item, for "Unavailable". */
+interface Refusal {
+  readonly code: FxmErrorCode
+  readonly state?: string
+  readonly detail?: string
+}
+
 /** What one run of the policy collected while it went through the steps. */
 interface RunState {
+  /** The stored song decision, as the run found it. */
+  readonly song: StoredMatch | undefined
+  /** Whether the run ends with the user's Invidious instance. */
+  readonly invidious: boolean
   /** Candidates tried in this run, by key. */
   readonly tried: Set<string>
   /** Problems of steps that found nothing. */
@@ -259,14 +305,34 @@ interface RunState {
   replaced: AudioCandidate | undefined
   /** The first YouTube candidate that may play, for Invidious. */
   youtube: { candidate: AudioCandidate; record: boolean } | undefined
+  /** A failure a retry may fix, kept while Invidious may still play the YouTube audio. */
+  deferred: { error: unknown } | undefined
+  /** The first refusal of the item by a source. */
+  refusal: Refusal | undefined
+}
+
+/** A match the run found, stored or new. */
+interface Found {
+  readonly band: MatchBand
+  readonly candidate: AudioCandidate
+  readonly alternatives: readonly AudioCandidate[]
+  readonly pinned: boolean
+  /** The stored match that Smart Replace found gone, which this one replaces. */
+  readonly replaces: AudioCandidate | undefined
 }
 
 /** A recent successful resolution, proof that a source still resolves on a network. */
 interface Evidence {
   readonly network: string
-  readonly source: string
+  /** The audio source (`ytm` for every YouTube video). */
+  readonly source: SourceId
   readonly key: string
   readonly at: number
+}
+
+/** The request-budget priority of work in flight, which a more urgent caller raises. */
+interface SharedPriority {
+  value: ResolvePriority
 }
 
 function trackKey(track: Track): string {
@@ -281,6 +347,7 @@ function formatOf(stream: StreamOption): string {
 function failureKind(error: Error): StreamFailureKind {
   if (isEngineError(error, 'expired') || isFxmError(error, 'Expired')) return 'expired'
   if (isEngineError(error, 'decode')) return 'decode'
+  if (isEngineError(error, 'unsupported')) return 'unsupported'
   return 'media'
 }
 
@@ -297,26 +364,34 @@ function aborted(signal: AbortSignal, error: unknown): boolean {
   return signal.aborted && (error === signal.reason || !isFxmError(error))
 }
 
+/** The candidate as its audio source names it: `ytm` for a video named with either prefix. */
+function asAudio(candidate: AudioCandidate): AudioCandidate {
+  const source = audioSourceOf(candidate.source)
+  return source === candidate.source ? candidate : { ...candidate, source }
+}
+
 /**
  * Resolves queue items into streams for the player, following the playback policy. Pass it to
  * the player as its resolver, then {@link attach} the player:
  *
  * ```ts
- * const lifecycle = new StreamLifecycle({ sources, matcher, context: () => ctx, network })
+ * const lifecycle = new StreamLifecycle({ sources, matcher, context, network })
  * const player = new Player({ engine, resolver: lifecycle })
  * lifecycle.attach(player)
  * ```
  *
- * Attaching tells the lifecycle which item the user asked for (a Suggest-band guess plays only
- * then) and lets it prefetch the next tracks when the player announces `preload`.
+ * Attaching lets the lifecycle prefetch the next tracks when the player announces `preload`,
+ * and lets Smart Replace check the next tracks. The player says on every request whether the
+ * user asked for the item (`ResolveRequest.explicit`); for a player that does not, attaching
+ * also lets the lifecycle work that out.
  */
 export class StreamLifecycle implements StreamResolver {
-  readonly #sources: ReadonlyMap<string, StreamSource>
+  readonly #sources: ReadonlyMap<SourceId, StreamSource>
   readonly #matcher: TrackMatcher | undefined
   readonly #matches: MatchStore
   readonly #offline: OfflineStore | undefined
   readonly #invidious: StreamSource | undefined
-  readonly #context: () => ProviderContext
+  readonly #context: (priority: ResolvePriority) => ProviderContext
   readonly #prefs: () => QualityPrefs
   readonly #settings: () => PlaybackSettings
   readonly #network: NetworkMonitor
@@ -327,12 +402,15 @@ export class StreamLifecycle implements StreamResolver {
     maxUrlAgeMs: number
     evidenceWindowMs: number
     maxMatchAgeMs: number
+    maxMissAgeMs: number
     maxReplacements: number
   }
   readonly #events = new Emitter<LifecycleEventMap>()
   readonly #cache = new UrlCache()
   readonly #resolving = new InFlight<readonly StreamOption[]>()
   readonly #matching = new InFlight<MatchOutcome>()
+  /** The priority of each piece of work in flight, by its key. */
+  readonly #priorities = new Map<string, SharedPriority>()
   /** The streams handed to the player, each a copy of its option. */
   readonly #issued = new WeakMap<StreamOption, Issued>()
   /** Signed URLs that failed on the current network, and offline copies that failed. */
@@ -341,18 +419,23 @@ export class StreamLifecycle implements StreamResolver {
   readonly #badFormats = new Map<string, Set<string>>()
   /** The rung to resolve each candidate on, per network and candidate key; `top` when absent. */
   readonly #rungs = new Map<string, LadderRung>()
-  /** 403s per network, candidate key and rung. */
-  readonly #forbidden = new Map<string, number>()
+  /** 403s per network, candidate key and rung, and when the last one came. */
+  readonly #forbidden = new Map<string, { count: number; at: number }>()
   /** Candidates Smart Replace found gone, per track key. */
   readonly #dead = new Map<string, Map<string, AudioCandidate>>()
   /** Items that need review, per track key. */
   readonly #reviews = new Map<string, ReviewItem>()
+  /** The version the user picked for a queue item, as its candidate key, by the item's uid. */
+  readonly #picks = new Map<number, string>()
   #evidence: Evidence[] = []
-  /** The uid of the item the user asked for, while it is current. */
+  /** Increments on every flush, so work from before it is never cached or trusted. */
+  #generation = 0
+  /** The uid of the item the user asked for, while it is current, for requests that do not say. */
   #explicitUid: number | undefined
   #canPlay: (stream: StreamOption) => PlaySupport = guessSupport
   #player: LifecyclePlayer | undefined
   #detachPlayer: (() => void) | undefined
+  #warnedUnattached = false
   #prefetchGeneration = 0
   readonly #prefetchAbort = new AbortController()
   readonly #stopNetwork: () => void
@@ -376,6 +459,7 @@ export class StreamLifecycle implements StreamResolver {
       maxUrlAgeMs: nonNegative(options.maxUrlAgeMs, d.maxUrlAgeMs),
       evidenceWindowMs: nonNegative(options.evidenceWindowMs, d.evidenceWindowMs),
       maxMatchAgeMs: nonNegative(options.maxMatchAgeMs, d.maxMatchAgeMs),
+      maxMissAgeMs: nonNegative(options.maxMissAgeMs, d.maxMissAgeMs),
       maxReplacements: Math.floor(nonNegative(options.maxReplacements, d.maxReplacements)),
     }
     this.#stopNetwork = this.#network.subscribe(() => this.#flush('network'))
@@ -386,29 +470,34 @@ export class StreamLifecycle implements StreamResolver {
   /** Resolves the stream to play `item` (see `StreamResolver`). */
   async resolve(item: QueueItem, request: ResolveRequest): Promise<ResolvedStream> {
     if (this.#destroyed) throw new Error('The stream lifecycle was destroyed')
+    this.#warnUnattached()
     this.#canPlay = request.canPlay
-    const ctx = this.#ctx(request.signal)
+    const priority: ResolvePriority = request.reason === 'preload' ? 'prefetch' : 'current-track'
+    const base = this.#context(priority)
+    const mode = request.mode ?? base.mode
+    const ctx: ProviderContext = { ...base, mode, signal: request.signal }
     if (request.failure !== undefined) await this.#recover(request.failure, ctx, request.signal)
-    const replace = request.reason === 'replace'
-    if (replace && item.candidate !== undefined) {
-      await this.#pin(item.track, item.candidate, ctx.mode)
-    }
+    const picked = this.#isPick(item, request)
     return this.#run(item, {
       ctx,
+      mode,
       explicit: this.#isExplicit(item, request),
-      priority: request.reason === 'preload' ? 'prefetch' : 'playback',
+      picked,
+      priority,
       canPlay: request.canPlay,
       signal: request.signal,
-      skipOffline: replace,
+      skipOffline: picked,
     })
   }
 
   // --- The player ----------------------------------------------------------------------------
 
   /**
-   * Follows `player`: which item the user asked for (a tap, a jump, "previous", a restored
-   * queue, or play on a paused or stopped item), so that its Suggest-band guess may play, and
-   * its `preload` events, to prefetch the next tracks. Returns a function that stops following.
+   * Follows `player`: its `preload` events, to prefetch the next tracks, and its queue, so that
+   * Smart Replace can check that the next videos resolve. For requests that do not say whether
+   * the user asked for the item, it also follows which item that is (a tap, a jump, "previous",
+   * a restored queue, or play on a paused or stopped item). Returns a function that stops
+   * following.
    */
   attach(player: LifecyclePlayer): () => void {
     this.#detachPlayer?.()
@@ -461,11 +550,51 @@ export class StreamLifecycle implements StreamResolver {
   // --- Matches and reviews -------------------------------------------------------------------
 
   /**
-   * Pins `candidate` as the audio for `track`: the user's pick, e.g. a guess they confirmed in
-   * the review. A pin always plays first and is never swapped or deleted by the lifecycle.
+   * Pins `candidate` as the audio for `track` in the current catalog mode: the user's pick in
+   * "Not the right version?", or a guess they confirmed in the review. A pin plays first from
+   * now on, and the lifecycle never swaps or deletes it by itself. Choosing the track's own
+   * audio needs no pin: it removes the pin of another version instead. Queue items keep the
+   * candidate recorded on them; `Player.setCandidate` changes those.
    */
-  async confirmMatch(track: Track, candidate: AudioCandidate): Promise<void> {
-    await this.#pin(track, candidate, this.#context().mode)
+  async pinMatch(track: Track, candidate: AudioCandidate): Promise<void> {
+    if (this.#destroyed) return
+    const mode = this.#mode()
+    const key: MatchKey = { sourceTrackId: track.id, mode, target: 'song' }
+    const own = ownCandidate(track)
+    if (own !== undefined && sameCandidate(own, candidate)) {
+      await this.#unpin(key)
+      this.#clearReview(track)
+      return
+    }
+    if (!isAudioCandidate(candidate) || !isPlayable(candidate, mode)) return
+    this.#dead.get(trackKey(track))?.delete(candidateKey(candidate))
+    const stored = await this.#stored(key)
+    const previous = stored?.candidate === undefined ? [] : [stored.candidate]
+    await this.#store(key, {
+      // The band the engine gave this very candidate, when it was the engine's pick.
+      band:
+        stored?.candidate !== undefined && sameCandidate(stored.candidate, candidate)
+          ? stored.band
+          : 'none',
+      candidate,
+      alternatives: [...previous, ...(stored?.alternatives ?? [])].filter(
+        (other) => !sameCandidate(other, candidate),
+      ),
+      ...(candidate.signals === undefined ? {} : { signals: candidate.signals }),
+      evidence: ['pinned by the user'],
+      userPinned: true,
+      decidedAt: this.#now(),
+    })
+    this.#clearReview(track)
+  }
+
+  /**
+   * Removes the user's pin for `track` in the current catalog mode ("reset to automatic"), so
+   * the policy decides again. Queue items keep the candidate recorded on them.
+   */
+  async unpinMatch(track: Track): Promise<void> {
+    if (this.#destroyed) return
+    await this.#unpin({ sourceTrackId: track.id, mode: this.#mode(), target: 'song' })
   }
 
   /** The items whose match needs the user's review, in the order they were found. */
@@ -498,18 +627,31 @@ export class StreamLifecycle implements StreamResolver {
     this.#cache.clear()
     this.#resolving.clear()
     this.#matching.clear()
+    this.#priorities.clear()
     this.#events.clear()
   }
 
   // --- Running the policy --------------------------------------------------------------------
 
-  #ctx(signal: AbortSignal): ProviderContext {
-    return { ...this.#context(), signal }
+  /** The catalog mode: the attached player's queue's, else the provider context's. */
+  #mode(): CatalogMode {
+    return this.#player?.getState().queue.mode ?? this.#context('current-track').mode
+  }
+
+  #warnUnattached(): void {
+    if (this.#player !== undefined || this.#warnedUnattached) return
+    this.#warnedUnattached = true
+    console.warn(
+      'StreamLifecycle: no player is attached, so it prefetches nothing and Smart Replace ' +
+        'cannot check the next tracks. Call lifecycle.attach(player).',
+    )
   }
 
   #isExplicit(item: QueueItem, request: ResolveRequest): boolean {
     if (request.reason === 'replace') return true
     if (request.reason === 'preload') return false
+    if (request.explicit !== undefined) return request.explicit
+    // A player that does not say: work it out from the player attached.
     // The player never retries an item it skipped as unavailable or needing review by itself:
     // only when the user plays it again.
     const failure = request.failure
@@ -519,17 +661,40 @@ export class StreamLifecycle implements StreamResolver {
     return this.#explicitUid === item.uid
   }
 
+  /**
+   * Whether the candidate recorded on `item` is the version the user picked for it: picked
+   * just now (`replace`), or earlier while it is still the one recorded, e.g. on a retry.
+   */
+  #isPick(item: QueueItem, request: ResolveRequest): boolean {
+    if (request.reason !== 'replace') return this.#pickOf(item)
+    this.#picks.delete(item.uid)
+    if (item.candidate === undefined) return false
+    this.#picks.set(item.uid, candidateKey(item.candidate))
+    for (const uid of this.#picks.keys()) {
+      if (this.#picks.size <= MAX_PICKS) break
+      this.#picks.delete(uid)
+    }
+    return true
+  }
+
+  #pickOf(item: QueueItem): boolean {
+    const { candidate } = item
+    return candidate !== undefined && this.#picks.get(item.uid) === candidateKey(candidate)
+  }
+
   /** Goes through the policy's steps for `item` until one gives a stream. */
   async #run(item: QueueItem, options: RunOptions): Promise<ResolvedStream> {
     const { track } = item
-    const { ctx } = options
+    const { mode } = options
     const settings = this.#settings()
-    const pin = await this.#stored({ trackId: track.id, mode: ctx.mode, target: 'song' })
+    const song = await this.#stored({ sourceTrackId: track.id, mode, target: 'song' })
+    const pinned = song?.userPinned === true ? song.candidate : undefined
     const steps = planPlayback({
       track,
-      mode: ctx.mode,
+      mode,
       ...(item.candidate === undefined ? {} : { recorded: item.candidate }),
-      ...(pin?.pinned === true ? { pinned: pin.candidate } : {}),
+      ...(pinned === undefined ? {} : { pinned }),
+      picked: options.picked,
       settings: {
         ...settings,
         useInvidious: settings.useInvidious && this.#invidious !== undefined,
@@ -537,12 +702,16 @@ export class StreamLifecycle implements StreamResolver {
       skipOffline: options.skipOffline,
     })
     const state: RunState = {
+      song,
+      invidious: steps.some((step) => step.type === 'invidious'),
       tried: new Set(),
       problems: [],
       stops: [],
       alternatives: [],
       replaced: undefined,
       youtube: undefined,
+      deferred: undefined,
+      refusal: undefined,
     }
     for (const step of steps) {
       options.signal.throwIfAborted()
@@ -558,32 +727,83 @@ export class StreamLifecycle implements StreamResolver {
     options: RunOptions,
     state: RunState,
   ): Promise<ResolvedStream | undefined> {
+    const { track } = item
     switch (step.type) {
       case 'offline':
-        return this.#tryOffline(item.track, options)
+        return this.#tryOffline(track, options)
       case 'candidate': {
-        const role =
-          step.origin === 'recorded' ? this.#roleOf(item.track, step.candidate) : step.origin
-        return this.#tryCandidate(item.track, step.candidate, options, state, {
-          role: role === 'pinned' ? 'match' : role,
-          pinned: step.origin === 'pinned',
+        const { candidate, origin } = step
+        const role = this.#roleOf(track, candidate)
+        if (origin === 'recorded' && role === 'match') {
+          if (!(await this.#mayPlayRecorded(track, candidate, options, state))) {
+            state.problems.push({
+              type: 'needs-review',
+              trackId: track.id,
+              guess: candidate,
+              alternatives: [],
+            })
+            return undefined
+          }
+        }
+        return this.#tryCandidate(track, candidate, options, state, {
+          role,
+          pinned: origin === 'pinned' || origin === 'picked',
           record: true,
         })
       }
       case 'match':
-        return this.#tryMatch(item.track, step.target, options, state)
+        return step.target === 'song'
+          ? this.#tryMatch(track, 'song', options, state)
+          : this.#tryLossless(track, options, state)
       case 'invidious':
         return this.#tryInvidious(options, state)
     }
   }
 
-  /** The role of the candidate recorded on a queue item. */
+  /** The role of a candidate for its track. */
   #roleOf(track: Track, candidate: AudioCandidate): 'own' | 'linked-song' | 'match' {
     const own = ownCandidate(track)
     if (own !== undefined && sameCandidate(own, candidate)) return 'own'
     const linked = linkedSongCandidate(track)
     if (linked !== undefined && sameCandidate(linked, candidate)) return 'linked-song'
     return 'match'
+  }
+
+  /**
+   * Whether a match recorded on the queue item may play now. Like any match, a guess plays only
+   * after an explicit user action or with "Play best guesses"; the recorded match counts as
+   * confirmed only while a fresh stored decision names it and lets it play (an `auto` song, an
+   * `auto` or ISRC-verified lossless copy, a pin).
+   */
+  async #mayPlayRecorded(
+    track: Track,
+    candidate: AudioCandidate,
+    options: RunOptions,
+    state: RunState,
+  ): Promise<boolean> {
+    if (options.explicit || this.#settings().playBestGuesses) return true
+    const targets: MatchTarget[] = isYouTubeCandidate(candidate) ? ['song'] : ['song', 'lossless']
+    for (const target of targets) {
+      const decision =
+        target === 'song'
+          ? state.song
+          : await this.#stored({ sourceTrackId: track.id, mode: options.mode, target })
+      if (decision?.candidate === undefined || !sameCandidate(decision.candidate, candidate)) {
+        continue
+      }
+      const age = this.#now() - decision.decidedAt
+      if (!decision.userPinned && age > this.#config.maxMatchAgeMs) continue
+      const allowed = mayPlayMatch({
+        target,
+        band: decision.band,
+        isrcVerified: candidate.signals?.isrcVerified === true,
+        pinned: decision.userPinned,
+        explicit: false,
+        playBestGuesses: false,
+      })
+      if (allowed) return true
+    }
+    return false
   }
 
   async #tryOffline(track: Track, options: RunOptions): Promise<ResolvedStream | undefined> {
@@ -614,16 +834,19 @@ export class StreamLifecycle implements StreamResolver {
     const key = candidateKey(candidate)
     if (state.tried.has(key) || this.#isDead(track, key)) return undefined
     state.tried.add(key)
+    // A last guard: what the mode does not let play never plays, whoever named it.
+    if (!isPlayable(candidate, options.mode)) return undefined
     if (isYouTubeCandidate(candidate) && state.youtube === undefined) {
       state.youtube = { candidate, record: how.record }
     }
-    const source = this.#sources.get(candidate.source)
+    const audio = audioSourceOf(candidate.source)
+    const source = this.#sources.get(audio)
     if (source === undefined) {
       state.problems.push(this.#unavailable(track, 'no-source'))
       return undefined
     }
-    if (!canReachAudio(candidate.source, options.ctx.capabilities)) {
-      state.stops.push(this.#unreachable(candidate.source))
+    if (!canReachAudio(audio, options.ctx.capabilities)) {
+      state.stops.push(this.#unreachable(audio))
       return undefined
     }
     try {
@@ -635,7 +858,7 @@ export class StreamLifecycle implements StreamResolver {
       return how.record ? { stream, candidate } : { stream }
     } catch (error) {
       if (aborted(options.signal, error)) throw error
-      return this.#candidateFailed(track, candidate, error, options, state, how)
+      return this.#candidateFailed(track, candidate, source, error, options, state, how)
     }
   }
 
@@ -643,15 +866,16 @@ export class StreamLifecycle implements StreamResolver {
   async #candidateFailed(
     track: Track,
     candidate: AudioCandidate,
+    source: StreamSource,
     error: unknown,
     options: RunOptions,
     state: RunState,
     how: { role: 'own' | 'linked-song' | 'match'; pinned: boolean },
   ): Promise<undefined> {
     const verdict = playabilityVerdictOf(error)
-    if (verdict !== undefined) {
+    if (verdict !== undefined && isFxmError(error)) {
       const othersResolve = await this.#othersResolve(candidate, options)
-      const action: SmartReplaceAction = smartReplaceAction({
+      const action = smartReplaceAction({
         candidate,
         role: how.role,
         pinned: how.pinned,
@@ -662,6 +886,7 @@ export class StreamLifecycle implements StreamResolver {
         this.#markDead(track, candidate)
         state.replaced ??= candidate
       }
+      this.#refused(state, source, error, verdict)
       const reason = action === 'keep-pin' ? 'pinned-unplayable' : 'unplayable'
       state.problems.push(this.#unavailable(track, reason))
       return undefined
@@ -671,10 +896,74 @@ export class StreamLifecycle implements StreamResolver {
       return undefined
     }
     if (isFxmError(error) && UNPLAYABLE_CODES.has(error.code)) {
+      this.#refused(state, source, error, undefined)
       state.problems.push(this.#unavailable(track, how.pinned ? 'pinned-unplayable' : 'unplayable'))
       return undefined
     }
+    if (this.#defer(error, state, isYouTubeCandidate(candidate))) return undefined
     throw error
+  }
+
+  /** Remembers the first refusal of the item by a source, with its code, state and words. */
+  #refused(
+    state: RunState,
+    source: StreamSource,
+    error: FxmError,
+    verdict: PlayabilityVerdict | undefined,
+  ): void {
+    if (state.refusal !== undefined) return
+    let label = verdict?.state
+    if (label === undefined) {
+      try {
+        label = source.stateOf?.(error)
+      } catch (stateError) {
+        console.error(stateError)
+      }
+    }
+    const detail = verdict?.reason ?? error.message
+    state.refusal = {
+      code: error.code,
+      ...(typeof label === 'string' && label !== '' ? { state: label } : {}),
+      ...(detail === '' ? {} : { detail }),
+    }
+  }
+
+  /**
+   * Keeps a failure that a retry may fix, instead of throwing it, while the user's Invidious
+   * instance may still play the YouTube audio found: the run goes on, and the error is thrown
+   * at the end if nothing plays, so the player's retries stay as they are.
+   */
+  #defer(error: unknown, state: RunState, youtube: boolean): boolean {
+    if (!state.invidious || !youtube) return false
+    state.deferred ??= { error }
+    return true
+  }
+
+  /**
+   * "Prefer lossless": the lossless match, if it may play. The step is optional: what goes
+   * wrong in it says nothing about the item, so it leaves no stop, problem, refusal, deferred
+   * failure or Smart Replace mark behind.
+   */
+  async #tryLossless(
+    track: Track,
+    options: RunOptions,
+    state: RunState,
+  ): Promise<ResolvedStream | undefined> {
+    const stops = state.stops.length
+    const problems = state.problems.length
+    const { replaced, deferred, refusal } = state
+    try {
+      const resolved = await this.#tryMatch(track, 'lossless', options, state)
+      if (resolved !== undefined) return resolved
+    } catch (error) {
+      if (aborted(options.signal, error)) throw error
+    }
+    state.stops.length = stops
+    state.problems.length = problems
+    state.replaced = replaced
+    state.deferred = deferred
+    state.refusal = refusal
+    return undefined
   }
 
   /**
@@ -687,100 +976,120 @@ export class StreamLifecycle implements StreamResolver {
     options: RunOptions,
     state: RunState,
   ): Promise<ResolvedStream | undefined> {
-    const optional = target === 'lossless'
-    try {
-      for (let round = 0; round <= this.#config.maxReplacements; round += 1) {
-        const match = await this.#findMatch(track, target, options, state)
-        if (match === undefined) return undefined
-        const { candidate, band, pinned } = match
-        state.alternatives.push(...match.alternatives)
-        const allowed = mayPlayMatch({
-          target,
-          band,
-          isrcVerified: candidate.signals?.isrcVerified === true,
-          pinned,
-          explicit: options.explicit,
-          playBestGuesses: this.#settings().playBestGuesses,
-        })
-        const confirmed = pinned || band === 'auto'
-        // A guess needs review until the user confirms it, even when a tap lets it play.
-        if (target === 'song' && confirmed) this.#clearReview(track)
-        else if (target === 'song') this.#markReview(track, candidate, match.alternatives)
-        if (!allowed) {
-          if (target === 'song') {
-            state.problems.push({
-              type: 'needs-review',
-              trackId: track.id,
-              guess: candidate,
-              alternatives: match.alternatives,
-            })
-          }
-          return undefined
+    for (let round = 0; round <= this.#config.maxReplacements; round += 1) {
+      const match = await this.#findMatch(track, target, options, state)
+      if (match === undefined) return undefined
+      const { candidate, band, pinned, alternatives } = match
+      state.alternatives.push(...alternatives)
+      const allowed = mayPlayMatch({
+        target,
+        band,
+        isrcVerified: candidate.signals?.isrcVerified === true,
+        pinned,
+        explicit: options.explicit,
+        playBestGuesses: this.#settings().playBestGuesses,
+      })
+      const confirmed = pinned || band === 'auto'
+      // A guess needs review until the user confirms it, even when a tap lets it play.
+      if (target === 'song' && confirmed) this.#clearReview(track)
+      else if (target === 'song') this.#markReview(track, candidate, alternatives)
+      if (!allowed) {
+        if (target === 'song') {
+          state.problems.push({
+            type: 'needs-review',
+            trackId: track.id,
+            guess: candidate,
+            alternatives,
+          })
         }
-        const resolved = await this.#tryCandidate(track, candidate, options, state, {
-          role: 'match',
-          pinned,
-          record: confirmed,
-        })
-        if (resolved !== undefined) {
-          const from = state.replaced ?? match.replaces
-          if (from !== undefined && !sameCandidate(from, candidate)) {
-            this.#events.emit('smartreplace', { track, from, to: candidate })
-          }
-          return resolved
-        }
-        // Matched again only when Smart Replace found this match gone.
-        if (!this.#isDead(track, candidateKey(candidate))) return undefined
+        return undefined
       }
-      return undefined
-    } catch (error) {
-      if (optional && !aborted(options.signal, error)) return undefined
-      throw error
+      const resolved = await this.#tryCandidate(track, candidate, options, state, {
+        role: 'match',
+        pinned,
+        record: confirmed,
+      })
+      if (resolved !== undefined) {
+        const from = state.replaced ?? match.replaces
+        if (from !== undefined && !sameCandidate(from, candidate)) {
+          this.#events.emit('smartreplace', { track, from, to: candidate })
+        }
+        return resolved
+      }
+      // Matched again only when Smart Replace found this match gone.
+      if (!this.#isDead(track, candidateKey(candidate))) return undefined
     }
+    return undefined
   }
 
   /**
-   * The track's match: the stored one, unless it is gone or stale, else a new one from the
-   * matching engine, which is then stored. `undefined` when there is none, after recording why.
+   * The track's match: the stored decision while it is fresh and its audio may play here, else
+   * a new one from the matching engine, which is then stored, also when nothing came close.
+   * `undefined` when there is none, after recording why.
    */
   async #findMatch(
     track: Track,
     target: MatchTarget,
     options: RunOptions,
     state: RunState,
-  ): Promise<(StoredMatch & { replaces: AudioCandidate | undefined }) | undefined> {
-    const { ctx } = options
-    const key: MatchKey = { trackId: track.id, mode: ctx.mode, target }
+  ): Promise<Found | undefined> {
+    const { mode } = options
+    const key: MatchKey = { sourceTrackId: track.id, mode, target }
     const stored = await this.#stored(key)
-    const storedDead = stored !== undefined && this.#isDead(track, candidateKey(stored.candidate))
-    if (stored !== undefined && !storedDead) {
-      if (stored.pinned || this.#now() - stored.matchedAt <= this.#config.maxMatchAgeMs) {
-        return { ...stored, replaces: undefined }
+    const usable = (candidate: AudioCandidate) =>
+      isPlayable(candidate, mode) && !this.#isDead(track, candidateKey(candidate))
+    const decided = stored?.candidate
+    if (stored !== undefined) {
+      const alternatives = stored.alternatives.filter(usable)
+      const alive = decided !== undefined && usable(decided)
+      // A pin is never matched over, also when its audio cannot play here.
+      if (stored.userPinned) {
+        if (!alive) return undefined
+        return {
+          band: stored.band,
+          candidate: decided,
+          alternatives,
+          pinned: true,
+          replaces: undefined,
+        }
+      }
+      const age = this.#now() - stored.decidedAt
+      if (stored.band === 'none') {
+        if (age <= this.#config.maxMissAgeMs) {
+          const near = decided === undefined ? [] : [decided]
+          state.alternatives.push(...[...near, ...stored.alternatives].filter(usable))
+          state.problems.push(this.#unavailable(track, 'no-match'))
+          return undefined
+        }
+      } else if (alive && age <= this.#config.maxMatchAgeMs) {
+        return {
+          band: stored.band,
+          candidate: decided,
+          alternatives,
+          pinned: false,
+          replaces: undefined,
+        }
       }
     }
-    if (stored?.pinned === true) return undefined
+    const storedDead = decided !== undefined && this.#isDead(track, candidateKey(decided))
     const matcher = this.#matcher
     if (matcher === undefined) {
       state.problems.push(this.#unavailable(track, storedDead ? 'unplayable' : 'no-match'))
       return undefined
     }
     // Songs are matched on YouTube Music, which this platform cannot reach.
-    if (target === 'song' && ctx.capabilities.youtube === 'none') {
+    if (target === 'song' && options.ctx.capabilities.youtube === 'none') {
       state.stops.push(this.#unreachable('ytm'))
       return undefined
     }
     const exclude = [...(this.#dead.get(trackKey(track))?.values() ?? [])]
-    const flightKey = [matchKeyString(key), ...exclude.map(candidateKey).sort()].join('\u0000')
+    const flightKey = ['match', matchKeyString(key), ...exclude.map(candidateKey).sort()].join(
+      '\u0000',
+    )
     let outcome: MatchOutcome
     try {
-      outcome = await this.#matching.run(flightKey, options.signal, (signal) =>
-        matcher.match(track, {
-          target,
-          ctx: { ...ctx, signal },
-          exclude,
-          priority: options.priority,
-          signal,
-        }),
+      outcome = await this.#shared(this.#matching, flightKey, options, (ctx, priority, signal) =>
+        matcher.match(track, { target, ctx, exclude, priority, signal }),
       )
     } catch (error) {
       if (aborted(options.signal, error)) throw error
@@ -788,27 +1097,38 @@ export class StreamLifecycle implements StreamResolver {
         state.stops.push(error)
         return undefined
       }
+      if (this.#defer(error, state, target === 'song' && state.youtube !== undefined)) {
+        return undefined
+      }
       throw error
     }
-    const usable = (candidate: AudioCandidate) =>
-      isPlayable(candidate, ctx.mode) && !this.#isDead(track, candidateKey(candidate))
     const alternatives = outcome.alternatives.filter(usable)
     const best = outcome.best !== undefined && usable(outcome.best) ? outcome.best : undefined
-    if (outcome.band === 'none' || best === undefined) {
-      if (storedDead) await this.#forget(key)
-      state.alternatives.push(...alternatives)
+    const band: MatchBand = best === undefined ? 'none' : outcome.band
+    const decision: StoredMatch = {
+      band,
+      ...(best === undefined ? {} : { candidate: best }),
+      alternatives,
+      ...(best?.signals === undefined ? {} : { signals: best.signals }),
+      evidence: [...(outcome.evidence ?? best?.evidence ?? [])],
+      userPinned: false,
+      decidedAt: this.#now(),
+    }
+    // An outcome some pages were missing from plays as decided, but is not kept.
+    if (outcome.incomplete !== true) await this.#store(key, decision)
+    else if (storedDead) await this.#forget(key)
+    if (band === 'none' || best === undefined) {
+      state.alternatives.push(...(best === undefined ? [] : [best]), ...alternatives)
       state.problems.push(this.#unavailable(track, storedDead ? 'unplayable' : 'no-match'))
       return undefined
     }
-    const match: StoredMatch = {
-      band: outcome.band,
+    return {
+      band,
       candidate: best,
       alternatives,
       pinned: false,
-      matchedAt: this.#now(),
+      replaces: storedDead ? decided : undefined,
     }
-    await this.#store(key, match)
-    return { ...match, replaces: storedDead ? stored?.candidate : undefined }
   }
 
   /** Resolves the YouTube audio found so far through the user's Invidious instance. */
@@ -835,10 +1155,12 @@ export class StreamLifecycle implements StreamResolver {
   }
 
   /** Why nothing played, as the error the player acts on. */
-  #giveUp(track: Track, state: RunState): Error {
+  #giveUp(track: Track, state: RunState): unknown {
+    // A failure a retry may fix, kept for Invidious: the player retries as it would have.
+    if (state.deferred !== undefined) return state.deferred.error
     const [stop] = state.stops
     if (stop !== undefined) return stop
-    const review = state.problems.find((problem) => problem.type === 'needs-review')
+    const review = state.problems.findLast((problem) => problem.type === 'needs-review')
     if (review !== undefined) return playbackProblemError(review)
     const reasons = new Set(
       state.problems.flatMap((problem) => (problem.type === 'unavailable' ? [problem.reason] : [])),
@@ -851,7 +1173,13 @@ export class StreamLifecycle implements StreamResolver {
       seen.add(key)
       return true
     })
-    return playbackProblemError({ type: 'unavailable', trackId: track.id, reason, alternatives })
+    return playbackProblemError({
+      type: 'unavailable',
+      trackId: track.id,
+      reason,
+      alternatives,
+      ...state.refusal,
+    })
   }
 
   #unavailable(track: Track, reason: UnavailableReason): PlaybackProblem {
@@ -911,36 +1239,73 @@ export class StreamLifecycle implements StreamResolver {
     fresh: boolean,
   ): Promise<Resolution> {
     const network = this.#network.id
+    const generation = this.#generation
     const key = resolutionKey(network, channel, candidate, rung)
     const hit = fresh ? undefined : this.#cache.get(key, this.#now())
-    if (hit !== undefined) return { options: hit.options, cached: true, network, channel, key }
+    if (hit !== undefined) {
+      return { options: hit.options, cached: true, network, generation, channel, key }
+    }
     if (fresh) this.#cache.delete(key)
-    const resolved = await this.#resolving.run(key, options.signal, async (signal) => {
-      const found = await source.resolve(candidate, {
-        ctx: { ...options.ctx, signal },
-        prefs: this.#prefs(),
-        rung,
-        priority: options.priority,
-        signal,
-      })
-      this.#remember(network, channel, key, candidate, found)
-      return found
+    const resolved = await this.#shared(
+      this.#resolving,
+      `resolve\u0000${key}`,
+      options,
+      async (ctx, priority, signal) => {
+        const found = await source.resolve(asAudio(candidate), {
+          ctx,
+          prefs: this.#prefs(),
+          rung,
+          priority,
+          signal,
+        })
+        this.#remember(network, generation, channel, key, candidate, found)
+        return found
+      },
+    )
+    return { options: resolved, cached: false, network, generation, channel, key }
+  }
+
+  /**
+   * Runs `start` once for every caller that asks for `key` meanwhile (see `InFlight`). Its
+   * context's `fetch` draws on the request budget at the priority of the most urgent caller
+   * waiting, so a play request that joins a prefetch raises it to `current-track`.
+   */
+  #shared<V>(
+    flight: InFlight<V>,
+    key: string,
+    options: RunOptions,
+    start: (ctx: ProviderContext, priority: ResolvePriority, signal: AbortSignal) => Promise<V>,
+  ): Promise<V> {
+    const waiting = this.#priorities.get(key)
+    if (waiting !== undefined && options.priority === 'current-track') {
+      waiting.value = 'current-track'
+    }
+    return flight.run(key, options.signal, async (signal) => {
+      const shared: SharedPriority = { value: options.priority }
+      this.#priorities.set(key, shared)
+      try {
+        const fetch: Fetch = (input, init) => this.#context(shared.value).fetch(input, init)
+        return await start({ ...options.ctx, fetch, signal }, shared.value, signal)
+      } finally {
+        if (this.#priorities.get(key) === shared) this.#priorities.delete(key)
+      }
     })
-    return { options: resolved, cached: false, network, channel, key }
   }
 
   /**
    * Caches a fresh resolution and, unless it went through Invidious, records it as proof that
-   * its source resolves.
+   * its source resolves. Neither happens for a resolution that a flush overtook: its URLs
+   * belong to the network, or the IP address, before it.
    */
   #remember(
     network: string,
+    generation: number,
     channel: string,
     key: string,
     candidate: AudioCandidate,
     found: readonly StreamOption[],
   ): void {
-    if (this.#destroyed || network !== this.#network.id) return
+    if (this.#destroyed || network !== this.#network.id || generation !== this.#generation) return
     const now = this.#now()
     const usableUntil = streamsUsableUntil(found, now, {
       marginMs: this.#config.refreshBeforeExpiryMs,
@@ -950,14 +1315,17 @@ export class StreamLifecycle implements StreamResolver {
     if (channel === INVIDIOUS || found.length === 0) return
     const evidence: Evidence = {
       network,
-      source: candidate.source,
+      source: audioSourceOf(candidate.source),
       key: candidateKey(candidate),
       at: now,
     }
     this.#evidence = [...this.#evidence.slice(-(MAX_EVIDENCE - 1)), evidence]
   }
 
-  /** Chooses the stream to play from a resolution, and remembers where it came from. */
+  /**
+   * Chooses the stream to play from a resolution, and remembers where it came from: the rung
+   * the source says, else the one asked for.
+   */
   #choose(
     candidate: AudioCandidate,
     source: StreamSource,
@@ -980,27 +1348,43 @@ export class StreamLifecycle implements StreamResolver {
     this.#issued.set(stream, {
       candidate,
       source,
-      rung,
+      rung: this.#rungOf(source, picked) ?? rung,
       cached: resolution.cached,
       network: resolution.network,
+      generation: resolution.generation,
       channel: resolution.channel,
       key: resolution.key,
     })
     return stream
   }
 
+  #rungOf(source: StreamSource, option: StreamOption): LadderRung | undefined {
+    try {
+      const rung = source.rungOf?.(option)
+      return rung === 'top' || rung === 'fallback' ? rung : undefined
+    } catch (error) {
+      console.error(error)
+      return undefined
+    }
+  }
+
   // --- Failures ------------------------------------------------------------------------------
 
   /**
    * Learns from a failed stream before the item is resolved again: a signed, IP-bound URL is
-   * never handed out again on this network, and `planStreamRecovery` decides about the cache
-   * and the rung.
+   * never handed out again on this network, `planStreamRecovery` decides about the cache and
+   * the rung, and the source hears when a rung failed.
    */
   async #recover(failure: StreamFailure, ctx: ProviderContext, signal: AbortSignal): Promise<void> {
     const { stream } = failure
     if (stream === undefined) return
     const issued = this.#issued.get(stream)
-    if (issued === undefined || issued.network !== this.#network.id) {
+    if (
+      issued === undefined ||
+      issued.network !== this.#network.id ||
+      issued.generation !== this.#generation
+    ) {
+      // A stream from before a flush: its URL is dead now, and says nothing about this network.
       this.#failedUrls.add(stream.url)
       return
     }
@@ -1011,22 +1395,31 @@ export class StreamLifecycle implements StreamResolver {
     }
     const memory = this.#memoryKey(issued.network, issued.channel, issued.candidate)
     const forbiddenKey = `${memory}\u0000${issued.rung}`
-    const forbiddenCount = this.#forbidden.get(forbiddenKey) ?? 0
-    const recovery = planStreamRecovery({
+    const now = this.#now()
+    const forbidden = this.#forbidden.get(forbiddenKey)
+    const forbiddenCount =
+      forbidden !== undefined && now - forbidden.at <= FORBIDDEN_EPISODE_MS ? forbidden.count : 0
+    const facts: StreamFailureFacts = {
       kind,
       ...(status === undefined ? {} : { status }),
-      started: failure.started ?? false,
+      started: failure.started === true,
       fullLength: stream.fullLength,
       rung: issued.rung,
       cached: issued.cached,
       hasFallback: issued.source.hasFallback === true,
       forbiddenCount,
-    })
+    }
+    const recovery = planStreamRecovery(facts)
+    if (recovery.target !== 'same') {
+      this.#report(issued.source, stream, { facts, recovery }, ctx, signal)
+    }
     if (recovery.flushAll) this.#flush('ip-changed')
     // A signed, IP-bound URL is replaced by a fresh resolution; a stable one (Internet Archive,
     // Jamendo) is all there is, so it may be tried again after a passing failure.
     if (stream.ipBound) this.#failedUrls.add(stream.url)
-    if (status === 403 && !issued.cached) this.#forbidden.set(forbiddenKey, forbiddenCount + 1)
+    if (status === 403 && !issued.cached) {
+      this.#forbidden.set(forbiddenKey, { count: forbiddenCount + 1, at: now })
+    }
     if (recovery.avoidFormat) {
       const key = candidateKey(issued.candidate)
       const formats = this.#badFormats.get(key) ?? new Set<string>()
@@ -1042,6 +1435,21 @@ export class StreamLifecycle implements StreamResolver {
     } else {
       this.#rungs.delete(memory)
       this.#cache.delete(resolutionKey(issued.network, issued.channel, issued.candidate, 'top'))
+    }
+  }
+
+  /** Tells a source that a stream's rung failed (see `StreamSource.reportFailure`). */
+  #report(
+    source: StreamSource,
+    stream: StreamOption,
+    report: StreamFailureReport,
+    ctx: ProviderContext,
+    signal: AbortSignal,
+  ): void {
+    try {
+      source.reportFailure?.(stream, report, { ctx, signal })
+    } catch (error) {
+      console.error(error)
     }
   }
 
@@ -1061,6 +1469,7 @@ export class StreamLifecycle implements StreamResolver {
 
   /** Drops every cached URL and what the lifecycle learned on the old network. */
   #flush(reason: FlushReason): void {
+    this.#generation += 1
     const dropped = this.#cache.clear()
     this.#resolving.clear()
     this.#failedUrls.clear()
@@ -1086,26 +1495,28 @@ export class StreamLifecycle implements StreamResolver {
 
   /**
    * Whether other items of the candidate's source resolve on this network: one resolved
-   * recently, or, failing that, one of the next items in the queue resolves now.
+   * recently, or, failing that, one of the next items in the queue resolves now. A URL cached
+   * long ago proves nothing, so that item is resolved afresh; the result is cached for when it
+   * plays.
    */
   async #othersResolve(candidate: AudioCandidate, options: RunOptions): Promise<boolean> {
     if (this.#hasEvidence(candidate)) return true
-    const source = this.#sources.get(candidate.source)
+    const audio = audioSourceOf(candidate.source)
+    const source = this.#sources.get(audio)
     const player = this.#player
     if (source === undefined || player === undefined) return false
-    const { mode } = options.ctx
     for (const item of upcomingQueueItems(player.getState().queue).slice(0, 3)) {
       const other = [item.candidate, ownCandidate(item.track)].find(
         (found): found is AudioCandidate =>
           found !== undefined &&
-          found.source === candidate.source &&
+          audioSourceOf(found.source) === audio &&
           !sameCandidate(found, candidate) &&
-          isPlayable(found, mode),
+          isPlayable(found, options.mode),
       )
       if (other === undefined) continue
       try {
         const prefetch: RunOptions = { ...options, priority: 'prefetch' }
-        await this.#options(other, source, source.id, 'top', prefetch, false)
+        await this.#options(other, source, source.id, 'top', prefetch, true)
       } catch (error) {
         if (aborted(options.signal, error)) throw error
       }
@@ -1116,12 +1527,13 @@ export class StreamLifecycle implements StreamResolver {
 
   #hasEvidence(candidate: AudioCandidate): boolean {
     const network = this.#network.id
+    const audio = audioSourceOf(candidate.source)
     const key = candidateKey(candidate)
     const since = this.#now() - this.#config.evidenceWindowMs
     return this.#evidence.some(
       (entry) =>
         entry.network === network &&
-        entry.source === candidate.source &&
+        entry.source === audio &&
         entry.key !== key &&
         entry.at >= since,
     )
@@ -1131,8 +1543,7 @@ export class StreamLifecycle implements StreamResolver {
 
   async #stored(key: MatchKey): Promise<StoredMatch | undefined> {
     try {
-      const match = await this.#matches.get(key)
-      return isStoredMatch(match) ? match : undefined
+      return sanitizeStoredMatch(await this.#matches.get(key))
     } catch (error) {
       console.error(error)
       return undefined
@@ -1155,26 +1566,10 @@ export class StreamLifecycle implements StreamResolver {
     }
   }
 
-  /**
-   * Pins `candidate` for `track`, unless it is the track's own audio, which needs no pin. The
-   * user chose it, so it plays even if Smart Replace gave up on it earlier.
-   */
-  async #pin(track: Track, candidate: AudioCandidate, mode: CatalogMode): Promise<void> {
-    const own = ownCandidate(track)
-    if (own !== undefined && sameCandidate(own, candidate)) return
-    if (!isPlayable(candidate, mode)) return
-    this.#dead.get(trackKey(track))?.delete(candidateKey(candidate))
-    const key: MatchKey = { trackId: track.id, mode, target: 'song' }
+  /** Removes the pin filed under `key`, if there is one: only ever when the user asks. */
+  async #unpin(key: MatchKey): Promise<void> {
     const stored = await this.#stored(key)
-    await this.#store(key, {
-      band:
-        stored !== undefined && sameCandidate(stored.candidate, candidate) ? stored.band : 'auto',
-      candidate,
-      alternatives: stored?.alternatives ?? [],
-      pinned: true,
-      matchedAt: this.#now(),
-    })
-    this.#clearReview(track)
+    if (stored?.userPinned === true) await this.#forget(key)
   }
 
   #markReview(track: Track, guess: AudioCandidate, alternatives: readonly AudioCandidate[]): void {
@@ -1196,13 +1591,18 @@ export class StreamLifecycle implements StreamResolver {
     for (const item of items) {
       if (generation !== this.#prefetchGeneration || signal.aborted) return
       try {
+        const base = this.#context('prefetch')
+        const mode = this.#player?.getState().queue.mode ?? base.mode
+        const picked = this.#pickOf(item)
         await this.#run(item, {
-          ctx: this.#ctx(signal),
+          ctx: { ...base, mode, signal },
+          mode,
           explicit: false,
+          picked,
           priority: 'prefetch',
           canPlay: this.#canPlay,
           signal,
-          skipOffline: false,
+          skipOffline: picked,
         })
       } catch {
         // Nothing prepared: the item resolves again when it plays.

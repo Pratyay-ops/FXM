@@ -9,12 +9,13 @@ import {
   type AudioCandidate,
   type FullLengthCheck,
   type LadderRung,
+  type RecoveryReason,
   type SourceId,
   type StreamOption,
   type UnplayableStatus,
   unplayableError,
 } from '@fxm/core'
-import type { StreamSource, StreamSourceRequest } from '../adapters'
+import type { StreamFailureReport, StreamSource, StreamSourceRequest } from '../adapters'
 
 /** How long the fake's URLs last: 6 hours, like YouTube's. */
 export const FAKE_URL_LIFETIME_MS = 6 * 60 * 60_000
@@ -90,6 +91,14 @@ export interface FakeStreamSourceCall {
   request: StreamSourceRequest
 }
 
+/** One report of a failed rung to {@link FakeStreamSource.reportFailure}. */
+export interface FakeStreamSourceReport {
+  /** The URL of the stream that failed. */
+  url: string
+  /** Why the lifecycle changes rung. */
+  reason: RecoveryReason
+}
+
 /** Options for {@link FakeStreamSource}. */
 export interface FakeStreamSourceOptions {
   /** The audio source. Default: `ytm`. */
@@ -109,7 +118,8 @@ export interface FakeStreamSourceOptions {
  * {@link ladderStreams} for the requested rung, probed (`verified`) where the context can read
  * media bytes and `unverified` where it cannot, like the real ladder. Rules per `ref` change
  * that: `capped` (the top rung's URLs stop early), `verdicts` (a playability verdict), `errors`
- * (any rejection). Or replace {@link FakeStreamSource.handler} altogether.
+ * (any rejection; give the error a `state` for {@link stateOf}). Or replace
+ * {@link FakeStreamSource.handler} altogether.
  */
 export class FakeStreamSource implements StreamSource {
   readonly id: SourceId
@@ -126,6 +136,15 @@ export class FakeStreamSource implements StreamSource {
   readonly statuses = new Map<string, number>()
   /** Every URL `checkStatus` was asked about. */
   readonly checked: string[] = []
+  /** Every failed rung the lifecycle reported, in order. */
+  readonly reports: FakeStreamSourceReport[] = []
+  /**
+   * Whether a `top` resolution falls through to itag 18 when the probe finds the top rung's
+   * URLs capped, as the YouTube ladder (1.4) does: itag 18 first, the capped options after it.
+   * `false` returns the capped options alone, so the lifecycle asks for the fallback rung itself.
+   * Default: true.
+   */
+  fallThrough = true
   /** Answers each call. Default: the rules above. */
   handler: (candidate: AudioCandidate, request: StreamSourceRequest) => Promise<StreamOption[]>
   readonly #now: () => number
@@ -146,6 +165,21 @@ export class FakeStreamSource implements StreamSource {
     return this.handler(candidate, request)
   }
 
+  /** The muxed itag 18 is the fallback rung's; everything else is the top rung's. */
+  rungOf(option: StreamOption): LadderRung {
+    return option.media === 'muxed-video' ? 'fallback' : 'top'
+  }
+
+  reportFailure(stream: StreamOption, report: StreamFailureReport): void {
+    this.reports.push({ url: stream.url, reason: report.recovery.reason })
+  }
+
+  /** The `state` an error carries, like the YouTube ladder's `YouTubeUnplayableError`. */
+  stateOf(error: unknown): string | undefined {
+    const state = typeof error === 'object' && error !== null ? Reflect.get(error, 'state') : null
+    return typeof state === 'string' ? state : undefined
+  }
+
   async checkStatus(stream: StreamOption): Promise<number | undefined> {
     this.checked.push(stream.url)
     return this.statuses.get(stream.url)
@@ -159,15 +193,20 @@ export class FakeStreamSource implements StreamSource {
     const status = this.verdicts.get(ref)
     if (status !== undefined) throw unplayableError({ source: this.id, ref, status })
     const readable = request.ctx.capabilities.mediaBytes
-    let fullLength: FullLengthCheck = readable ? 'verified' : 'unverified'
-    if (readable && request.rung === 'top' && this.capped.has(ref)) fullLength = 'capped'
-    return ladderStreams(ref, {
-      rung: this.hasFallback ? request.rung : 'top',
-      fullLength,
-      serial: this.calls.length,
-      ...(this.#expires ? { expiresAt: this.#now() + FAKE_URL_LIFETIME_MS } : {}),
-      host: this.#host,
-    })
+    const rung = this.hasFallback ? request.rung : 'top'
+    const streams = (rungToBuild: LadderRung, fullLength: FullLengthCheck) =>
+      ladderStreams(ref, {
+        rung: rungToBuild,
+        fullLength,
+        serial: this.calls.length,
+        ...(this.#expires ? { expiresAt: this.#now() + FAKE_URL_LIFETIME_MS } : {}),
+        host: this.#host,
+      })
+    if (!readable) return streams(rung, 'unverified')
+    if (rung === 'fallback' || !this.capped.has(ref)) return streams(rung, 'verified')
+    const capped = streams('top', 'capped')
+    if (!this.fallThrough || !this.hasFallback) return capped
+    return [...streams('fallback', 'verified'), ...capped]
   }
 
   /** Each call as `<ref>:<rung>`, e.g. `abc:fallback`, in order. */

@@ -52,6 +52,20 @@ describe('playability verdicts', () => {
     )
   })
 
+  it('carry the source’s labelled state for the item', () => {
+    const kids = unplayableError({
+      source: 'ytm',
+      ref: 'abc',
+      status: 'UNPLAYABLE',
+      state: 'made-for-kids',
+    })
+    expect(playabilityVerdictOf(kids)?.state).toBe('made-for-kids')
+    const blank = new FxmError('Unavailable', 'x', {
+      cause: { type: 'playability', source: 'ytm', ref: 'a', status: 'ERROR', state: '' },
+    })
+    expect(playabilityVerdictOf(blank)).not.toHaveProperty('state')
+  })
+
   it.each([
     ['a plain error', new Error('x')],
     ['an FxmError without a cause', new FxmError('Unavailable', 'x')],
@@ -100,6 +114,43 @@ describe('playback problems', () => {
     expect(playbackProblemOf(error)).toEqual(problem)
   })
 
+  it('carry why a source refused the audio', () => {
+    const problem: PlaybackProblem = {
+      type: 'unavailable',
+      trackId,
+      reason: 'unplayable',
+      alternatives: [],
+      code: 'GeoBlocked',
+      state: 'age-restricted',
+      detail: 'Sign in to confirm your age',
+    }
+    const error = playbackProblemError(problem)
+    expect(error.message).toBe(
+      `${trackId} is unavailable (unplayable, GeoBlocked, age-restricted): Sign in to confirm your age`,
+    )
+    expect(playbackProblemOf(error)).toEqual(problem)
+  })
+
+  it('drop malformed refusal details', () => {
+    const error = new FxmError('Unavailable', 'x', {
+      cause: {
+        type: 'unavailable',
+        trackId,
+        reason: 'unplayable',
+        alternatives: [],
+        code: 'Blocked',
+        state: '',
+        detail: 42,
+      },
+    })
+    expect(playbackProblemOf(error)).toEqual({
+      type: 'unavailable',
+      trackId,
+      reason: 'unplayable',
+      alternatives: [],
+    })
+  })
+
   it('drop malformed alternatives and default missing ones', () => {
     const error = new FxmError('Unavailable', 'x', {
       cause: {
@@ -110,6 +161,15 @@ describe('playback problems', () => {
       },
     })
     expect(playbackProblemOf(error)?.alternatives).toEqual([candidate('a')])
+    const partial = new FxmError('Unavailable', 'x', {
+      cause: {
+        type: 'unavailable',
+        trackId,
+        reason: 'no-match',
+        alternatives: [{ source: 'ytm', ref: 'only' }, null],
+      },
+    })
+    expect(playbackProblemOf(partial)?.alternatives).toEqual([])
     const bare = new FxmError('Unavailable', 'x', {
       cause: { type: 'needs-review', trackId, guess: candidate('g') },
     })
@@ -135,6 +195,12 @@ describe('playback problems', () => {
     [
       'a review without a guess',
       new FxmError('Unavailable', 'x', { cause: { type: 'needs-review', trackId } }),
+    ],
+    [
+      'a review whose guess is malformed',
+      new FxmError('Unavailable', 'x', {
+        cause: { type: 'needs-review', trackId, guess: { source: 'ytm', ref: 'g' } },
+      }),
     ],
   ])('are not read from %s', (_label, error) => {
     expect(playbackProblemOf(error)).toBeUndefined()
