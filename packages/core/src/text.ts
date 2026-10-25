@@ -113,6 +113,8 @@ interface TagRule {
   level: TagLevel
   tag: string | ((match: RegExpMatchArray) => string)
   re: RegExp
+  /** Whether the pattern at the end of a " - " suffix makes it a version (see `splitTitle`). */
+  suffix: boolean
 }
 
 /** Katakana, plus the prolonged sound mark ー, which is Script=Common but only written in kana. */
@@ -187,7 +189,15 @@ function rule(
   boundary: Boundary = 'word',
 ): TagRule {
   const [before, after] = BOUNDARIES[boundary]
-  return { level, tag, re: new RegExp(`${before}(?:${re.source})${after}`, 'gu') }
+  return { level, tag, re: new RegExp(`${before}(?:${re.source})${after}`, 'gu'), suffix: true }
+}
+
+/**
+ * Marks a rule whose words also end song titles ("Long Live", "Magical Mystery Tour",
+ * "Woodstock"), so they never make a " - " suffix a version by ending it.
+ */
+function titleWord(tagRule: TagRule): TagRule {
+  return { ...tagRule, suffix: false }
 }
 
 const LANGUAGES = [
@@ -275,7 +285,7 @@ const TAG_RULES: readonly TagRule[] = [
     /version (?:en )?(espanol|ingles|frances|francais|francaise|portugues|italiano|aleman)/u,
   ),
   rule('strong', 'club mix', /club (?:mix|edit|version)/u),
-  rule('strong', 'dub mix', /dub (?:mix|version)/u),
+  rule('strong', 'dub mix', /dub(?: (?:mix|version))?/u),
   rule('strong', 'vip mix', /vip(?: (?:mix|edit))?/u),
   rule(
     'strong',
@@ -288,6 +298,8 @@ const TAG_RULES: readonly TagRule[] = [
   rule('strong', 'acapella', /a ?capp?ella|vocals? only/u),
   rule('strong', 'mashup', /mash[- ]?up/u),
   rule('strong', 're-recorded', /re-? ?record(?:ed|ing)?/u),
+  // A new recording somewhere: "Recorded at Spotify Studios" ("Recorded Live at" is `live`).
+  rule('strong', 'recorded at', /recorded (?:at|in|for|from|on)/u),
   // Medium, several words.
   rule('medium', 'radio edit', /radio (?:edit|version)/u),
   rule('medium', 'single edit', /single (?:edit|version)/u),
@@ -299,17 +311,22 @@ const TAG_RULES: readonly TagRule[] = [
   rule('medium', 'tv size', new RegExp(`${BEFORE}tv ?サイズ${KANA_AFTER}`, 'u'), 'none'),
   rule('medium', 'tv size', /アニメ ?サイズ/u, 'katakana'),
   // Strong, one word.
-  rule('strong', 'live', /live(?:stream)?|en vivo|ao vivo|en directo/u),
+  // Live shows that end a suffix ("Song - BBC Radio 1 Live Lounge"), unlike a bare "live".
+  rule('strong', 'live', /live (?:lounge|aid)/u),
+  titleWord(rule('strong', 'live', /live(?:stream)?/u)),
+  rule('strong', 'live', /en vivo|ao vivo|en directo/u),
   rule('strong', 'live', /ライブ/u, 'katakana'),
   rule('strong', 'live', /라이브/u, 'hangul'),
   rule('strong', 'live', /@(?=\s+\S)/u),
   rule('strong', 'unplugged', /unplugged/u),
   rule('strong', 'concert', /concerts?/u),
-  rule('strong', 'tour', /tours?/u),
-  rule(
-    'strong',
-    'festival',
-    /festivals?|coachella|glastonbury|lollapalooza|tomorrowland|woodstock|rock in rio|primavera sound/u,
+  titleWord(rule('strong', 'tour', /tours?/u)),
+  titleWord(
+    rule(
+      'strong',
+      'festival',
+      /festivals?|coachella|glastonbury|lollapalooza|tomorrowland|woodstock|rock in rio|primavera sound/u,
+    ),
   ),
   rule('strong', 'session', /sessions?/u),
   rule('strong', 'performance', /performs|performing|performance/u),
@@ -374,9 +391,9 @@ const TAG_RULES: readonly TagRule[] = [
  *   vocal", acoustic, stripped, "piano version", orchestral, symphonic, "sped up"/"speed up",
  *   slowed, reverb, nightcore, 8D, "bass boosted", daycore, lo-fi, chopped, screwed, demo,
  *   rehearsal, outtake, "alternate take", "take N", "early version", "Taylor's Version",
- *   re-recorded, "<language> version"; also a cappella, mashup, medley and reprise, and common
- *   Japanese, Korean, Chinese, Spanish and Portuguese words for live, cover, remix, karaoke,
- *   instrumental and acoustic
+ *   re-recorded, "recorded at <place>", "<language> version"; also a cappella, dub, mashup,
+ *   medley and reprise, and common Japanese, Korean, Chinese, Spanish and Portuguese words for
+ *   live, cover, remix, karaoke, instrumental and acoustic
  * - **medium**, a different edit: radio/single/short/clean/video/TV edit or version, edit,
  *   shortened, "anime size", "TV size"
  * - **soft**, the same recording mastered differently: remaster(ed), "YYYY remaster",
@@ -598,13 +615,32 @@ const REPEATED_DASH = /(\s[-\u2013\u2014])(?:\s[-\u2013\u2014])+(?=\s|$)/gu
 /** A trailing "~Short Ver.~" or "〜Remix〜" group, common in Japanese titles. */
 const TILDE_GROUP = /[~\u301C\uFF5E]([^~\u301C\uFF5E]+)[~\u301C\uFF5E]\s*$/u
 
-/** Dash suffixes that mark a version, matched against the normalized suffix. */
+/** Words that end a version suffix without being tags: "Original Mix", "Album Version". */
+const GENERIC_VERSION_WORDS = String.raw`mix|version|ver\.?|edition|bonus track`
+
+/**
+ * Openings that make a dash suffix a version whatever follows: "Live at Wembley", "Recorded at
+ * Abbey Road", 'From "Frozen"', "prod. by X", "Covered by X", "Tribute to Queen".
+ */
+const VERSION_OPENINGS = [
+  String.raw`(?:recorded |performed )?live(?:stream)?(?: (?:at|in|from|on|for|with|@)${AFTER}.*| (?:recording|\d{4}))?`,
+  `recorded (?:at|in|from|on|for)${AFTER}.*`,
+  `from (?:["'「『]|the (?:motion picture|original|film|movie|series|tv|anime|video game|soundtrack|musical)${AFTER}).*`,
+  String.raw`(?:prod\.?|produced) (?:by )?.+`,
+  `(?:covered|cover|remixed|originally performed|(?:as )?made famous) by${AFTER}.*`,
+  `(?:in the style of|(?:a )?tribute to)${AFTER}.*`,
+]
+
+/**
+ * Dash suffixes that mark a version, matched against the normalized suffix. Built from the tag
+ * rules, so the two vocabularies cannot drift apart: a suffix is a version when it ends with a
+ * tag word (other than words that end song titles too, see `titleWord`) or a generic version
+ * word, or when it starts with one of the {@link VERSION_OPENINGS}.
+ */
 const VERSION_SUFFIX = new RegExp(
-  `^(?:${[
-    String.raw`(?:recorded |performed )?live(?: (?:at|in|from|on|for|with|@)${AFTER}.*| version| session| edit| recording| \d{4})?`,
-    `from (?:["'「『]|the (?:motion picture|original|film|movie|series|tv|anime|video game|soundtrack|musical)${AFTER}).*`,
-    String.raw`(?:prod\.?|produced) (?:by )?.+`,
-    String.raw`.*?${BEFORE}(?:remix(?:e[sd])?|rmx|mix|edit|version|ver\.?|rework|refix|bootleg|dub|vip|mashup|medley|demo|instrumental|acoustic|karaoke|unplugged|sessions?|take \d+|bonus track|a ?capp?ella|reprise|mono|stereo|re-?master(?:ed)?(?: \d{4})?|sped up|speed up|slowed(?: down)?|reverb|nightcore|8d(?: audio)?|lo-?fi|stripped|extended|edition|(?:dolby )?atmos|spatial audio|(?:tv|anime) size)`,
+  `^(?:${VERSION_OPENINGS.join('|')})$|(?:${[
+    ...TAG_RULES.filter((tagRule) => tagRule.suffix).map((tagRule) => tagRule.re.source),
+    `${BEFORE}(?:${GENERIC_VERSION_WORDS})${AFTER}`,
   ].join('|')})$`,
   'u',
 )
@@ -656,16 +692,21 @@ function blank(text: string, start: number, end: number): string {
  *   — become qualifiers, or featured artists when they start with "feat.", "ft", "featuring"
  *   or "with". A group at the very start stays in the core unless it looks like a qualifier,
  *   so "(I Can't Get No) Satisfaction" keeps its title
- * - " - " suffixes become qualifiers when they read as a version: "Live", "Live at Wembley",
- *   "2013 Remaster", "Radio Edit", "Tiësto Remix", 'From "Frozen"', "Lyrics". Anything else
- *   stays, so "Artist - Title" is kept whole
+ * - " - " suffixes become qualifiers when they read as a version: when they end with a version
+ *   tag word ("Tiësto Remix", "2013 Remaster", "Acoustic Cover", "Re-Recorded") or a generic
+ *   one ("Original Mix", "Album Version", "Bonus Track"), start with a version opening ("Live",
+ *   "Live at Wembley", "Recorded at Abbey Road", 'From "Frozen"', "Covered by X"), or are pure
+ *   noise ("Lyrics"). Anything else stays, so "Artist - Title" is kept whole. Words that end
+ *   song titles too never make a suffix a version by ending it: "Long Live", "Magical Mystery
+ *   Tour"
  * - an unbracketed "feat. X" / "ft. X" / "featuring X" becomes featured artists up to the next
  *   " - ", so "Artist ft. X - Title" keeps "Artist - Title" as its core
  * - featured names are split on commas, `&`, "and" and "x"
  *
- * Strip a known "Artist - " prefix before calling it: a one-word title that is also a version
- * word ("Depeche Mode - Stripped") otherwise reads as a suffix. When nothing would be left of
- * the core, the whole title is the core.
+ * Strip a known "Artist - " prefix before calling it, or the title itself can read as a
+ * suffix: a title that is a version word ("Depeche Mode - Stripped"), ends with one ("Take
+ * Cover") or starts like a version opening ("The Rolling Stones - Live With Me"). When nothing
+ * would be left of the core, the whole title is the core.
  */
 export function splitTitle(title: string): TitleParts {
   const text = tidy(title)
