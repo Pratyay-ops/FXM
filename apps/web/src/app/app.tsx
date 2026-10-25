@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
 // Not 'react-router/dom': under Vitest that entry can load a different build of the
 // router than 'react-router' (ESM vs CJS), and hooks then miss the router context.
 import { RouterProvider, type RouterProviderProps } from 'react-router'
@@ -15,6 +16,14 @@ function SettingsSync() {
   return null
 }
 
+/**
+ * What 'react-router/dom' passes to RouterProvider: lets `navigate(to, { flushSync:
+ * true })` render the new location right away instead of in a transition.
+ */
+function flushRouterUpdate(update: () => unknown): undefined {
+  flushSync(update)
+}
+
 /** The app with its providers. main.tsx passes a browser router; tests a memory router. */
 export function App({ router }: { router: RouterProviderProps['router'] }) {
   const [queryClient] = useState(createQueryClient)
@@ -22,7 +31,7 @@ export function App({ router }: { router: RouterProviderProps['router'] }) {
     <AppErrorBoundary>
       <SettingsSync />
       <QueryClientProvider client={queryClient}>
-        <RouterProvider router={router} />
+        <RouterProvider router={router} flushSync={flushRouterUpdate} />
       </QueryClientProvider>
     </AppErrorBoundary>
   )

@@ -1,6 +1,9 @@
+import { APP_NAME } from '@fxm/core'
+import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { BottomNav } from './bottom-nav'
+import { RouteAnnouncer } from './route-announcer'
 import { useDocumentTitle, useRouteHandle } from './route-meta'
 import { Sidebar } from './sidebar'
 import { TopBar } from './top-bar'
@@ -27,21 +30,36 @@ export function AppLayout() {
   const handle = useRouteHandle()
   useDocumentTitle(handle)
   const { pathname } = useLocation()
+  const main = useRef<HTMLElement>(null)
 
   return (
     <>
+      {/* biome-ignore lint/a11y/useValidAnchor: a skip link is an in-page link (href="#main"); the handler only replaces the browser's jump */}
       <a
         href="#main"
+        onClick={(event) => {
+          // Focus <main> directly: the browser's own jump to #main would add a history
+          // entry without React Router's state, which breaks Back and the history index.
+          event.preventDefault()
+          main.current?.focus()
+        }}
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-full focus:bg-accent focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-on-accent"
       >
         Skip to content
       </a>
       <NavigationProgress />
+      <RouteAnnouncer title={handle?.title ?? APP_NAME} />
       <Sidebar />
       <div className="md:pl-rail lg:pl-sidebar">
         <TopBar handle={handle} />
-        <main id="main" tabIndex={-1} className="isolate px-gutter pt-2 pb-shell outline-none">
-          <div className="relative mx-auto w-full max-w-[96rem]">
+        {/* `relative`: page washes (PageWash) span the whole column, also past max-w-page. */}
+        <main
+          ref={main}
+          id="main"
+          tabIndex={-1}
+          className="relative isolate px-gutter pt-2 pb-shell outline-none"
+        >
+          <div className="mx-auto w-full max-w-page">
             <Outlet />
           </div>
         </main>

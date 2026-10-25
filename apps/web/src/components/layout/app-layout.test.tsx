@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderApp } from '../../test/render'
 
@@ -78,5 +78,27 @@ describe('app layout', () => {
     renderApp('/now-playing')
     await screen.findByRole('heading', { level: 1, name: 'Now playing' })
     expect(screen.getAllByRole('region', { name: 'Player' })).toHaveLength(1)
+  })
+
+  it('announces new pages to screen readers, but not the first page or query changes', async () => {
+    const { user, router } = renderApp('/')
+    await screen.findByRole('heading', { level: 1, name: /^Good/ })
+    expect(screen.queryByText(/^Navigated to/)).not.toBeInTheDocument()
+
+    await user.click(within(mainNavs()[0] as HTMLElement).getByRole('link', { name: 'Search' }))
+    const announcer = await screen.findByText('Navigated to Search')
+    expect(announcer).toHaveAttribute('aria-live', 'polite')
+
+    // Typing a search changes only the query: no announcement.
+    await act(() => router.navigate('/search?q=jazz'))
+    expect(announcer.textContent).toBe('Navigated to Search')
+
+    // Album to album has the same title: the text still changes, so it is read again.
+    await act(() => router.navigate('/album/one'))
+    await screen.findByRole('heading', { level: 1, name: 'Album one' })
+    expect(announcer.textContent).toBe('Navigated to Album')
+    await act(() => router.navigate('/album/two'))
+    await screen.findByRole('heading', { level: 1, name: 'Album two' })
+    expect(announcer.textContent).toBe('Navigated to Album ')
   })
 })

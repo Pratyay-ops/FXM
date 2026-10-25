@@ -76,19 +76,22 @@ export function TopBar({ handle }: { handle: RouteHandle | undefined }) {
         scrolled ? 'border-border bg-background/80 backdrop-blur-xl' : 'border-transparent',
       )}
     >
-      <div className="flex h-14 items-center gap-2 px-gutter md:h-topbar md:gap-4">
-        <PhoneHeading handle={handle} />
-        <div className="hidden min-w-0 flex-1 items-center gap-3 md:flex lg:gap-4">
-          <HistoryButtons />
-          <SearchField shortcut className="w-full max-w-md" />
+      {/* Same width and gutters as the page below, so both line up on wide screens. */}
+      <div className="px-gutter">
+        <div className="mx-auto flex h-14 w-full max-w-page items-center gap-2 md:h-topbar md:gap-4">
+          <PhoneHeading handle={handle} />
+          <div className="hidden min-w-0 flex-1 items-center gap-3 md:flex lg:gap-4">
+            <HistoryButtons />
+            <SearchField shortcut className="w-full max-w-md" />
+          </div>
+          <NavLink
+            to="/settings"
+            aria-label="Settings"
+            className={({ isActive }) => iconButtonClasses({ highlighted: isActive })}
+          >
+            <Settings aria-hidden="true" />
+          </NavLink>
         </div>
-        <NavLink
-          to="/settings"
-          aria-label="Settings"
-          className={({ isActive }) => iconButtonClasses({ highlighted: isActive })}
-        >
-          <Settings aria-hidden="true" />
-        </NavLink>
       </div>
     </header>
   )

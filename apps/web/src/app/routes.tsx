@@ -3,6 +3,7 @@ import { AppLayout } from '../components/layout/app-layout'
 import type { RouteHandle } from '../components/layout/route-meta'
 import { PageSkeleton } from '../components/ui/skeleton'
 import { HomePage } from '../features/home/home-page'
+import { SearchPage } from '../features/search/search-page'
 import { RootError, RouteError } from './errors'
 import { NotFoundPage } from './not-found-page'
 
@@ -12,10 +13,13 @@ const tab = (title: string): RouteHandle => ({ title, tab: true })
 /**
  * The route tree (paths are relative to the /app/ basename).
  *
- * Home ships with the shell because most visits start there; every other page is
- * a lazy chunk. To add a page, create it under src/features/<name>/ and add a
- * route below (see the README). Use the function form of `lazy`: React Router
- * mutates the object form after loading, which breaks a second router (tests, HMR).
+ * Home ships with the shell because most visits start there, and Search because
+ * the first keystroke in the top bar opens it: a lazy chunk would flash a loading
+ * state there and commit the URL in a transition, so the next keystroke could push
+ * a second history entry. Every other page is a lazy chunk. To add a page, create
+ * it under src/features/<name>/ and add a route below (see the README). Use the
+ * function form of `lazy`: React Router mutates the object form after loading,
+ * which breaks a second router (tests, HMR).
  */
 export const routes: RouteObject[] = [
   {
@@ -30,12 +34,7 @@ export const routes: RouteObject[] = [
         hydrateFallbackElement: <PageSkeleton />,
         children: [
           { index: true, handle: tab('Home'), element: <HomePage /> },
-          {
-            path: 'search',
-            handle: tab('Search'),
-            lazy: () =>
-              import('../features/search/search-page').then((m) => ({ Component: m.SearchPage })),
-          },
+          { path: 'search', handle: tab('Search'), element: <SearchPage /> },
           {
             path: 'library',
             handle: tab('Library'),

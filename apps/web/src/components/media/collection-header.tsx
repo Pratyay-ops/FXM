@@ -3,12 +3,16 @@ import { seedHue } from '../../lib/seed'
 import { Artwork } from '../ui/artwork'
 import { Skeleton } from '../ui/skeleton'
 
-/** A soft color wash behind the top of a page (and the transparent top bar above it). */
+/**
+ * A soft color wash behind the top of a page (and the transparent top bar above it).
+ * It is positioned against <main> (see AppLayout), so it spans the whole content
+ * column, also on screens wider than the page's max-w-page.
+ */
 export function PageWash({ color }: { color: string }) {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute -inset-x-gutter -top-24 -z-10 h-[26rem]"
+      className="pointer-events-none absolute inset-x-0 -top-24 -z-10 h-[26rem]"
       style={{ backgroundImage: `linear-gradient(to bottom, ${color}, transparent)` }}
     />
   )

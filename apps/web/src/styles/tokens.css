@@ -73,6 +73,8 @@
   --spacing-mini: 3.5rem;
   --spacing-touch: 2.75rem; /* 44px minimum touch target */
 
+  --container-page: 96rem; /* max-w-page: page content and the top bar row on wide screens */
+
   --breakpoint-xs: 25rem;
 
   --radius-xs: 0.25rem;

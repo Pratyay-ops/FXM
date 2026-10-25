@@ -21,20 +21,27 @@ function errorDetails(error: unknown): string | undefined {
   return isRouteErrorResponse(error) ? `${error.status} ${error.statusText}` : String(error)
 }
 
+const reloadPage = () => window.location.reload()
+
 /**
  * errorElement for pages: the error replaces the page while the shell (navigation,
  * player) keeps working. "Try again" re-renders the route by replacing the current
  * history entry (a new location resets React Router's error boundary, also for
  * routes without loaders); when the page's code failed to download, it reloads.
  */
-export function RouteError() {
+export function RouteError({
+  reload = reloadPage,
+}: {
+  /** Reloads the page after a failed code download (tests pass a spy). */
+  reload?: () => void
+}) {
   const error = useRouteError()
   const navigate = useNavigate()
   const { pathname, search, hash } = useLocation()
   if (isRouteErrorResponse(error) && error.status === 404) return <NotFoundPage />
   const chunkError = isChunkLoadError(error)
   const retry = () => {
-    if (chunkError) window.location.reload()
+    if (chunkError) reload()
     else navigate({ pathname, search, hash }, { replace: true, preventScrollReset: true })
   }
 
@@ -72,11 +79,7 @@ function FullPageError({ details }: { details?: string | undefined }) {
         details={details}
         actions={
           <>
-            <button
-              type="button"
-              className={buttonClasses()}
-              onClick={() => window.location.reload()}
-            >
+            <button type="button" className={buttonClasses()} onClick={reloadPage}>
               <RotateCcw aria-hidden="true" />
               Try again
             </button>

@@ -51,8 +51,13 @@ export function SearchField({
   const search = (next: string) => {
     setDraft(next)
     navigate(next ? `/search?q=${encodeURIComponent(next)}` : '/search', {
+      // One history entry per search: the first keystroke elsewhere pushes /search,
+      // the following ones replace it, so Back returns to the page the search began on.
       replace: onSearchPage,
       preventScrollReset: onSearchPage,
+      // Render the new URL as soon as the router commits it (not in a transition), so
+      // the next keystroke already sees /search and replaces instead of pushing again.
+      flushSync: true,
     })
   }
 
@@ -98,7 +103,8 @@ export function SearchField({
                 search('')
                 input.current?.focus()
               }}
-              className="absolute top-1/2 right-1 grid size-9 -translate-y-1/2 place-items-center rounded-full text-text-muted transition-colors hover:bg-text/8 hover:text-text"
+              // A 44px circle: exactly the rounded end of the 44px-high field.
+              className="absolute top-1/2 right-0 grid size-touch -translate-y-1/2 place-items-center rounded-full text-text-muted transition-colors hover:bg-text/8 hover:text-text"
             >
               <X aria-hidden="true" className="size-5" />
             </button>
