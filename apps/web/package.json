@@ -7,10 +7,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build -c vite.embed.config.ts",
+    "build:embed": "vite build -c vite.embed.config.ts",
     "build:mobile": "vite build --base=/ --outDir dist-mobile",
     "build:desktop": "vite build --base=/ --outDir dist-desktop",
     "preview": "vite preview",
+    "dev:embed": "vite -c vite.embed.config.ts",
+    "preview:embed": "vite preview -c vite.embed.config.ts",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e",
     "test": "vitest run",
     "e2e": "playwright test",
@@ -18,6 +21,7 @@
   },
   "dependencies": {
     "@fxm/core": "workspace:*",
+    "@fxm/platform": "workspace:*",
     "@fxm/player": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
     "lucide-react": "^1.55.0",

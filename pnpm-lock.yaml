@@ -253,6 +253,9 @@ importers:
       '@fxm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@fxm/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player
