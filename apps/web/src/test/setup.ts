@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { usePlayerStore } from '../features/player/player-store'
+import { useQualityStore } from '../features/settings/quality-store'
 import { useSettingsStore } from '../features/settings/settings-store'
 
 // findBy* and waitFor give up after 1 s by default, shorter than a lazy page's import on a
@@ -13,6 +14,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   // The stores are app-wide singletons: give every test a fresh start.
   useSettingsStore.setState(useSettingsStore.getInitialState(), true)
+  useQualityStore.setState(useQualityStore.getInitialState(), true)
   usePlayerStore.setState(usePlayerStore.getInitialState(), true)
   localStorage.clear()
   delete document.documentElement.dataset.theme

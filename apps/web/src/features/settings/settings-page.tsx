@@ -7,6 +7,7 @@ import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
+import { ASSUMED_CAPABILITIES } from './quality-options'
 import { QualitySection } from './quality-section'
 import { SettingRow, SettingsSection } from './settings-layout'
 import { useSettingsStore } from './settings-store'
@@ -43,7 +44,8 @@ export function SettingsPage() {
         </SettingRow>
       </SettingsSection>
 
-      <QualitySection />
+      {/* The platform's capabilities once the app has them (stage 2.9). */}
+      <QualitySection capabilities={ASSUMED_CAPABILITIES} />
 
       <SettingsSection title="Appearance">
         <SettingRow

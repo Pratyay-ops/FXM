@@ -1,7 +1,9 @@
 /**
  * The choices and the words of the audio quality settings. Labels come from `@fxm/core`'s
- * quality module where it has them (download formats, conversion labels, MP3 bitrates), and the
- * text never calls YouTube audio lossless: it is Opus or AAC, whatever it is converted to.
+ * quality module where it has them (download formats, conversion labels, MP3 bitrates, tier
+ * thresholds). The text follows what the platform reaches (`NetworkCapabilities`: YouTube or
+ * not, and whether its bytes can be read) and the YouTube codecs this browser plays, and it
+ * never calls YouTube audio lossless: it is Opus or AAC, whatever it is converted to.
  *
  * @module
  */
@@ -11,16 +13,16 @@ import {
   DOWNLOAD_FORMATS,
   type DownloadFormat,
   describeConversion,
+  LOSSY_TIER_THRESHOLDS,
   MP3_BITRATES,
   type Mp3Bitrate,
+  type NetworkCapabilities,
   QUALITY_TIERS,
   type QualityTier,
-  type StreamingProfile,
-  type StreamingSettings,
 } from '@fxm/core'
-import type { SegmentedOption } from '../../components/ui/segmented-control'
 import type { SelectOption } from './setting-select'
 import type { ConnectionStatus } from './use-connection'
+import type { YouTubeCodec } from './youtube-codecs'
 
 /** How the app names each quality tier, as the stream badge does. */
 export const TIER_LABELS: Readonly<Record<QualityTier, string>> = {
@@ -36,33 +38,88 @@ export const TIER_OPTIONS: readonly SelectOption<QualityTier>[] = QUALITY_TIERS.
   label: TIER_LABELS[tier],
 }))
 
+/**
+ * What the words assume until the app passes the platform's capabilities: the Full tier (FXM
+ * Connect, the desktop app, the Android app), which reads YouTube's bytes.
+ */
+export const ASSUMED_CAPABILITIES: NetworkCapabilities = Object.freeze({
+  youtube: 'full',
+  mediaBytes: true,
+  spotify: 'anonymous',
+  fileSystem: false,
+})
+
+/** What the words depend on: what the platform reaches, and what this browser plays. */
+export interface AudioReach {
+  /** What the platform reaches: YouTube or not, and whether its bytes can be read. */
+  readonly capabilities: NetworkCapabilities
+  /** The YouTube codecs this browser plays (`youTubeCodecs`); empty when it doesn't say. */
+  readonly codecs: readonly YouTubeCodec[]
+}
+
 const NEXT_UP = 'A song with nothing this low plays at the next quality up.'
+const LOSSLESS =
+  'Lossless: FLAC where the source has it, as Internet Archive and Jamendo often do, at several times the data of High.'
+const MP3 = LOSSY_TIER_THRESHOLDS.mp3
+
+/** Without YouTube (Free only): in the MP3 bitrates where `tierOf` draws the lines. */
+const FREE_ONLY_TIERS: Readonly<Record<QualityTier, string>> = {
+  lossless: LOSSLESS,
+  high: `High: the best lossy quality, such as MP3 at ${MP3.high} kbps or more.`,
+  normal: `Normal: less data, such as MP3 at ${MP3.normal}–${MP3.high - 1} kbps. ${NEXT_UP}`,
+  low: `Low: the least data, such as MP3 below ${MP3.normal} kbps. ${NEXT_UP}`,
+}
 
 /**
- * What streaming at each tier means. The bitrates are those of YouTube's audio formats (Opus
- * 251 and AAC 140 are High, Opus 250 is Normal, Opus 249 and AAC 139 are Low; see `tierOf`).
+ * What streaming at `tier` means here. With YouTube, in the bitrates of YouTube's audio formats
+ * (Opus 251 and AAC 140 are High, Opus 250 is Normal, Opus 249 and AAC 139 are Low; see
+ * `tierOf`) and only in the codecs this browser plays: YouTube has no AAC stream at Normal, so
+ * where the browser can't play Opus, `pickStream` plays AAC 139 at Low under that ceiling.
+ * Without YouTube (Free only), in MP3 bitrates.
  */
-export const TIER_DESCRIPTIONS: Readonly<Record<QualityTier, string>> = {
-  lossless:
-    'Lossless: FLAC where the source has it, as some Internet Archive and Jamendo tracks do, at several times the data of High. YouTube audio is never lossless, so YouTube songs play at High.',
-  high: 'High: the best YouTube audio, Opus or AAC at about 130–160 kbps.',
-  normal: `Normal: about half the data of High, such as Opus at about 70 kbps. ${NEXT_UP}`,
-  low: `Low: the least data, Opus or AAC at about 50 kbps. ${NEXT_UP}`,
+export function tierDescription(tier: QualityTier, reach: AudioReach): string {
+  if (reach.capabilities.youtube === 'none') return FREE_ONLY_TIERS[tier]
+  const only = reach.codecs.length === 1 ? reach.codecs[0] : undefined
+  const codecs = only === 'opus' ? 'Opus' : only === 'aac' ? 'AAC' : 'Opus or AAC'
+  switch (tier) {
+    case 'lossless':
+      return `${LOSSLESS} YouTube audio is never lossless, so YouTube songs play at High.`
+    case 'high':
+      return only === 'aac'
+        ? 'High: the best YouTube audio this browser plays, AAC at about 130 kbps.'
+        : `High: the best YouTube audio, ${codecs} at about 130–160 kbps.`
+    case 'normal':
+      return only === 'aac'
+        ? "Normal: this browser can't play Opus, and YouTube has no AAC stream at Normal, so YouTube songs play at Low, AAC at about 50 kbps."
+        : `Normal: about half the data of High, such as Opus at about 70 kbps. ${NEXT_UP}`
+    case 'low':
+      return `Low: the least data, ${codecs} at about 50 kbps. ${NEXT_UP}`
+  }
 }
+
+/** The tag beside the streaming row whose quality applies now. */
+export const IN_USE = 'In use'
 
 /** The help of a setting the data saver overrides while it is on. */
-export const DATA_SAVER_OVERRIDES = 'Data saver is on, so FXM streams at Low on every connection.'
+export const DATA_SAVER_OVERRIDES = 'Not used while Data saver is on.'
 
-/** How the connection setting names each choice. */
+/** What the data saver does. */
+export const DATA_SAVER_HELP =
+  "Streams at Low on every connection and skips video streams when audio alone is available. Downloads aren't affected."
+
+/** The name of the setting that picks which streaming quality applies. */
+export const QUALITY_TO_USE = 'Quality to use'
+
+/** How the quality-to-use setting names each choice: the streaming row it picks. */
 export const CONNECTION_LABELS: Readonly<Record<ConnectionPreference, string>> = {
   auto: 'Automatic',
-  wifi: 'Wi-Fi',
-  cellular: 'Mobile data',
+  wifi: 'Wi-Fi quality',
+  cellular: 'Mobile data quality',
 }
 
 /**
- * The connection choices to offer: Automatic only where the browser reports its connection.
- * Elsewhere the user says whether they are on Wi-Fi or on mobile data.
+ * The quality-to-use choices to offer: Automatic only where the browser reports its connection.
+ * Elsewhere the user picks the Wi-Fi or the mobile data quality.
  */
 export function connectionOptions(status: ConnectionStatus): SelectOption<ConnectionPreference>[] {
   const values: ConnectionPreference[] = status.supported
@@ -72,8 +129,8 @@ export function connectionOptions(status: ConnectionStatus): SelectOption<Connec
 }
 
 /**
- * The choice the connection setting shows. Automatic, which isn't offered where the browser
- * can't tell, works as Wi-Fi there, so it shows as Wi-Fi.
+ * The choice the quality-to-use setting shows. Automatic, which isn't offered where the browser
+ * can't tell, works as the Wi-Fi quality there, so it shows as that.
  */
 export function shownConnection(
   setting: ConnectionPreference,
@@ -82,67 +139,83 @@ export function shownConnection(
   return setting === 'auto' && !status.supported ? 'wifi' : setting
 }
 
-/** What the connection setting does now, with the quality it leads to. */
-export function connectionHelp(
-  settings: Readonly<StreamingSettings>,
-  status: ConnectionStatus,
-  profile: Readonly<StreamingProfile>,
-): string {
-  if (settings.dataSaver) return DATA_SAVER_OVERRIDES
-  const quality = `the ${profile.connection === 'wifi' ? 'Wi-Fi' : 'mobile data'} quality (${TIER_LABELS[profile.ceiling]})`
+/**
+ * What the quality-to-use setting does now. It names no tier, so changing a streaming row never
+ * changes it (the "In use" tag shows which row applies), and the data saver's override is shown
+ * in its place, apart.
+ */
+export function connectionHelp(connection: ConnectionPreference, status: ConnectionStatus): string {
   if (!status.supported) {
-    return settings.connection === 'cellular'
-      ? `FXM uses ${quality} until you choose Wi-Fi again: this browser doesn't say which connection it's on.`
-      : `This browser doesn't say whether it's on Wi-Fi or mobile data, so FXM uses ${quality}. Choose Mobile data when you're on a phone's connection.`
+    return connection === 'cellular'
+      ? "This browser can't tell Wi-Fi from mobile data, so FXM uses the mobile data quality until you switch back to Wi-Fi quality."
+      : "This browser can't tell Wi-Fi from mobile data, so FXM uses the Wi-Fi quality. Switch to Mobile data quality when you're not on Wi-Fi, and back when you are."
   }
-  switch (settings.connection) {
+  switch (connection) {
     case 'wifi':
-      return `FXM always uses ${quality}, whatever the connection.`
+      return 'FXM uses the Wi-Fi quality on every connection, mobile data included.'
     case 'cellular':
-      return `FXM always uses ${quality}, for example on a phone's hotspot, which the browser sees as Wi-Fi.`
+      return "FXM always uses the mobile data quality, for example on a phone's hotspot, which the browser sees as Wi-Fi."
     default:
-      if (status.detected === 'wifi') return `Automatic: you're on Wi-Fi, so FXM uses ${quality}.`
+      if (status.detected === 'wifi')
+        return "Automatic: you're on Wi-Fi, so FXM uses the Wi-Fi quality."
       if (status.detected === 'cellular') {
-        return `Automatic: you're on mobile data, so FXM uses ${quality}.`
+        return "Automatic: you're on mobile data, so FXM uses the mobile data quality."
       }
-      return `Automatic: the browser doesn't say which connection this is, so FXM uses ${quality}.`
+      return "Automatic: the browser doesn't say which connection this is, so FXM uses the Wi-Fi quality."
   }
 }
 
-/** The data saver's choices. */
-export const DATA_SAVER_OPTIONS: readonly SegmentedOption<'on' | 'off'>[] = [
-  { value: 'on', label: 'On' },
-  { value: 'off', label: 'Off' },
-]
-
-/** What the data saver does. */
-export const DATA_SAVER_HELP =
-  'Streams at Low on every connection, and never streams a video file for its sound when an audio-only stream exists. With FXM Connect, the desktop app or the Android app, FXM also checks only the stream it is about to play, not every format.'
+/**
+ * Why the mobile data quality may not apply on mobile data: shown where the browser can't tell
+ * the connection, until the user picks the mobile data quality.
+ */
+export const MOBILE_DATA_HINT =
+  "This browser can't tell when you're on mobile data, so this applies only when you choose Mobile data quality below."
 
 /** The download formats, in the order the download menu lists them. */
 export const DOWNLOAD_FORMAT_OPTIONS: readonly SelectOption<DownloadFormat>[] = (
   Object.keys(DOWNLOAD_FORMATS) as DownloadFormat[]
 ).map((format) => ({ value: format, label: DOWNLOAD_FORMATS[format].label }))
 
+const YOUTUBE_DOWNLOADS =
+  'YouTube songs can be downloaded with FXM Connect, the desktop app or the Android app.'
+
 /**
  * What a download in `format` will be, in the conversion labels downloads show
- * (`describeConversion`): for a YouTube song in Opus, and for a lossless source.
+ * (`describeConversion`), for a lossy and a lossless source. Where the platform can read
+ * YouTube's bytes (`mediaBytes`), the lossy one is a YouTube song in Opus. Elsewhere downloads
+ * cover the free sources only (Internet Archive, Jamendo), so it is an MP3 from one of them, and
+ * the text says where YouTube songs can be downloaded.
  */
-export function downloadFormatHelp(format: DownloadFormat): string[] {
+export function downloadFormatHelp(
+  format: DownloadFormat,
+  capabilities: NetworkCapabilities,
+): string[] {
+  const youTube = capabilities.mediaBytes
   if (format === 'original') {
-    return [
-      'Saves each file as its source has it, with no conversion and no quality loss: Opus or AAC for YouTube songs, FLAC where a source is lossless.',
-    ]
+    return youTube
+      ? [
+          'Saves each file as its source has it, with no conversion and no quality loss: Opus or AAC for YouTube songs, FLAC where a source is lossless.',
+        ]
+      : [
+          'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive and Jamendo.',
+          YOUTUBE_DOWNLOADS,
+        ]
   }
   const lines = [
-    `A YouTube song in Opus: ${describeConversion('opus', format).label}.`,
+    youTube
+      ? `A YouTube song in Opus: ${describeConversion('opus', format).label}.`
+      : `An MP3 from Internet Archive or Jamendo: ${describeConversion('mp3', format).label}.`,
     `A lossless source in FLAC: ${describeConversion('flac', format).label}.`,
   ]
   if (DOWNLOAD_FORMATS[format].lossless) {
     lines.push(
-      'YouTube audio is never lossless: converting it gives a bigger file, not a better one.',
+      youTube
+        ? 'YouTube audio is never lossless: converting it gives a bigger file, not a better one.'
+        : 'Lossy audio never becomes lossless: converting it gives a bigger file, not a better one.',
     )
   }
+  if (!youTube) lines.push(YOUTUBE_DOWNLOADS)
   return lines
 }
 

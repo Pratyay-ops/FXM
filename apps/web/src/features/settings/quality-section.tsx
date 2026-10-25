@@ -3,32 +3,41 @@ import {
   DEFAULT_MP3_KBPS,
   isMp3Bitrate,
   type Mp3Bitrate,
+  type NetworkCapabilities,
   streamingProfile,
 } from '@fxm/core'
-import { type ReactNode, useId } from 'react'
-import { SegmentedControl } from '../../components/ui/segmented-control'
+import { type ReactNode, useId, useMemo } from 'react'
 import {
+  type AudioReach,
   connectionHelp,
   connectionOptions,
   DATA_SAVER_HELP,
-  DATA_SAVER_OPTIONS,
   DATA_SAVER_OVERRIDES,
   DOWNLOAD_FORMAT_OPTIONS,
   downloadFormatHelp,
+  IN_USE,
+  MOBILE_DATA_HINT,
   MP3_BITRATE_HELP,
   MP3_BITRATE_OPTIONS,
   type Mp3BitrateValue,
+  QUALITY_TO_USE,
   shownConnection,
-  TIER_DESCRIPTIONS,
   TIER_OPTIONS,
+  tierDescription,
 } from './quality-options'
 import { useQualityStore } from './quality-store'
 import { SettingSelect } from './setting-select'
+import { SettingSwitch } from './setting-switch'
 import { SettingRow, SettingsSection } from './settings-layout'
 import { useConnection } from './use-connection'
+import { browserYouTubeCodecs } from './youtube-codecs'
 
-/** A setting's help text, announced when it changes with the value. */
-function Help({ id, children }: { id: string; children: ReactNode }) {
+/**
+ * A help text that only the row's own control changes, announced when it does. Help that other
+ * settings change is a plain {@link Help} instead, mounted in its place, which screen readers
+ * don't announce: one toggle never reads out several paragraphs.
+ */
+function LiveHelp({ id, children }: { id: string; children: ReactNode }) {
   return (
     <div id={id} aria-live="polite" className="space-y-1 text-sm text-text-muted">
       {children}
@@ -36,26 +45,78 @@ function Help({ id, children }: { id: string; children: ReactNode }) {
   )
 }
 
-/** The highest tier to stream at on one connection. */
-function StreamingTierRow({ connection, label }: { connection: ConnectionKind; label: string }) {
-  const tier = useQualityStore((state) => state.prefs.streaming[connection])
-  const dataSaver = useQualityStore((state) => state.streaming.dataSaver)
+/** A help text that isn't announced when it changes. */
+function Help({ id, children }: { id?: string; children: ReactNode }) {
+  return (
+    <p id={id} className="text-sm text-text-muted">
+      {children}
+    </p>
+  )
+}
+
+/** The ids of the elements that describe a control, without those not shown. */
+function describedBy(...ids: (string | false)[]): string {
+  return ids.filter(Boolean).join(' ')
+}
+
+/** The highest tier to stream at on one connection, tagged "In use" while it applies. */
+function StreamingTierRow({
+  connection,
+  label,
+  reach,
+}: {
+  connection: ConnectionKind
+  label: string
+  reach: AudioReach
+}) {
+  const prefs = useQualityStore((state) => state.prefs)
+  const streaming = useQualityStore((state) => state.streaming)
   const setStreamingTier = useQualityStore((state) => state.setStreamingTier)
+  const status = useConnection()
   const labelId = useId()
+  const badgeId = useId()
   const helpId = useId()
+  const hintId = useId()
+  const tier = prefs.streaming[connection]
+  const { dataSaver } = streaming
+  const inUse =
+    !dataSaver && streamingProfile(prefs, streaming, status.detected).connection === connection
+  // Where the browser can't tell, mobile data looks like Wi-Fi until the user says otherwise.
+  const hint =
+    !dataSaver &&
+    !status.supported &&
+    connection === 'cellular' &&
+    streaming.connection !== 'cellular'
   return (
     <SettingRow
       label={label}
       labelId={labelId}
+      badge={
+        inUse && (
+          <span
+            id={badgeId}
+            className="rounded-full bg-elevated px-2 py-0.5 text-xs font-semibold text-accent forced-colors:border"
+          >
+            {IN_USE}
+          </span>
+        )
+      }
       help={
-        <Help id={helpId}>
-          <p>{dataSaver ? DATA_SAVER_OVERRIDES : TIER_DESCRIPTIONS[tier]}</p>
-        </Help>
+        dataSaver ? (
+          <Help id={helpId}>{DATA_SAVER_OVERRIDES}</Help>
+        ) : (
+          <div className="space-y-1">
+            <LiveHelp id={helpId}>
+              <p>{tierDescription(tier, reach)}</p>
+            </LiveHelp>
+            {hint && <Help id={hintId}>{MOBILE_DATA_HINT}</Help>}
+          </div>
+        )
       }
     >
       <SettingSelect
         labelledBy={labelId}
-        describedBy={helpId}
+        describedBy={describedBy(helpId, hint && hintId, inUse && badgeId)}
         value={tier}
         options={TIER_OPTIONS}
         onChange={(next) => setStreamingTier(connection, next)}
@@ -66,23 +127,25 @@ function StreamingTierRow({ connection, label }: { connection: ConnectionKind; l
   )
 }
 
-/** Which connection's quality applies: detected where the browser can tell, else the user's. */
-function ConnectionRow() {
-  const prefs = useQualityStore((state) => state.prefs)
+/** Which streaming quality applies: the detected connection's where the browser can tell. */
+function QualityToUseRow() {
   const streaming = useQualityStore((state) => state.streaming)
   const setConnection = useQualityStore((state) => state.setConnection)
   const status = useConnection()
-  const profile = streamingProfile(prefs, streaming, status.detected)
   const labelId = useId()
   const helpId = useId()
   return (
     <SettingRow
-      label="Connection"
+      label={QUALITY_TO_USE}
       labelId={labelId}
       help={
-        <Help id={helpId}>
-          <p>{connectionHelp(streaming, status, profile)}</p>
-        </Help>
+        streaming.dataSaver ? (
+          <Help id={helpId}>{DATA_SAVER_OVERRIDES}</Help>
+        ) : (
+          <LiveHelp id={helpId}>
+            <p>{connectionHelp(streaming.connection, status)}</p>
+          </LiveHelp>
+        )
       }
     >
       <SettingSelect
@@ -107,26 +170,19 @@ function DataSaverRow() {
     <SettingRow
       label="Data saver"
       labelId={labelId}
-      help={
-        <p id={helpId} className="text-sm text-text-muted">
-          {DATA_SAVER_HELP}
-        </p>
-      }
+      help={<Help id={helpId}>{DATA_SAVER_HELP}</Help>}
     >
-      <SegmentedControl
-        label="Data saver"
+      <SettingSwitch
         labelledBy={labelId}
         describedBy={helpId}
-        value={dataSaver ? 'on' : 'off'}
-        options={DATA_SAVER_OPTIONS}
-        onChange={(value) => setDataSaver(value === 'on')}
-        className="w-full md:w-auto"
+        checked={dataSaver}
+        onChange={setDataSaver}
       />
     </SettingRow>
   )
 }
 
-function DownloadFormatRow() {
+function DownloadFormatRow({ capabilities }: { capabilities: NetworkCapabilities }) {
   const format = useQualityStore((state) => state.prefs.download.format)
   const setDownloadFormat = useQualityStore((state) => state.setDownloadFormat)
   const labelId = useId()
@@ -136,11 +192,11 @@ function DownloadFormatRow() {
       label="Download format"
       labelId={labelId}
       help={
-        <Help id={helpId}>
-          {downloadFormatHelp(format).map((line) => (
+        <LiveHelp id={helpId}>
+          {downloadFormatHelp(format, capabilities).map((line) => (
             <p key={line}>{line}</p>
           ))}
-        </Help>
+        </LiveHelp>
       }
     >
       <SettingSelect
@@ -166,11 +222,7 @@ function Mp3BitrateRow() {
     <SettingRow
       label="MP3 bitrate"
       labelId={labelId}
-      help={
-        <p id={helpId} className="text-sm text-text-muted">
-          {MP3_BITRATE_HELP}
-        </p>
-      }
+      help={<Help id={helpId}>{MP3_BITRATE_HELP}</Help>}
     >
       <SettingSelect<Mp3BitrateValue>
         labelledBy={labelId}
@@ -188,19 +240,24 @@ function Mp3BitrateRow() {
 }
 
 /**
- * The audio quality settings: the highest quality to stream at on Wi-Fi and on mobile data,
- * which of the two applies, the data saver, and the format and MP3 bitrate downloads are saved
- * in. The stream lifecycle and the download manager read them from `useQualityStore`.
+ * The audio quality settings: the data saver first, since it overrides the rows after it; the
+ * highest quality to stream at on Wi-Fi and on mobile data, and which of the two applies; then
+ * the format and MP3 bitrate downloads are saved in. The help follows `capabilities` (what the
+ * platform reaches) and the YouTube codecs this browser plays. The stream lifecycle and the
+ * download manager read the settings from `useQualityStore`.
  */
-export function QualitySection() {
+export function QualitySection({ capabilities }: { capabilities: NetworkCapabilities }) {
   const format = useQualityStore((state) => state.prefs.download.format)
+  // The browser's formats never change while the page is open: ask once per mount.
+  const codecs = useMemo(() => browserYouTubeCodecs(), [])
+  const reach = useMemo<AudioReach>(() => ({ capabilities, codecs }), [capabilities, codecs])
   return (
     <SettingsSection title="Audio quality">
-      <StreamingTierRow connection="wifi" label="Streaming on Wi-Fi" />
-      <StreamingTierRow connection="cellular" label="Streaming on mobile data" />
-      <ConnectionRow />
       <DataSaverRow />
-      <DownloadFormatRow />
+      <StreamingTierRow connection="wifi" label="Streaming on Wi-Fi" reach={reach} />
+      <StreamingTierRow connection="cellular" label="Streaming on mobile data" reach={reach} />
+      <QualityToUseRow />
+      <DownloadFormatRow capabilities={capabilities} />
       {format === 'mp3' && <Mp3BitrateRow />}
     </SettingsSection>
   )
