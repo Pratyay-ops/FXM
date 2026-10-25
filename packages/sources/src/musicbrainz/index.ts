@@ -5,18 +5,19 @@
  * @module
  */
 
-import { MusicBrainzClient, type MusicBrainzOptions } from './api'
+import { MusicBrainzClient, type MusicBrainzLookups, type MusicBrainzOptions } from './api'
 
 export {
   MUSICBRAINZ_API,
   MUSICBRAINZ_USER_AGENT,
-  MusicBrainzClient,
+  type MusicBrainzCallOptions,
   type MusicBrainzCredit,
+  type MusicBrainzLookups,
   type MusicBrainzOptions,
   type MusicBrainzRecording,
+  type MusicBrainzRecordingRef,
   type MusicBrainzReleaseSummary,
   type MusicBrainzSearchHit,
-  musicBrainzQueue,
   type RecordingQuery,
 } from './api'
 export {
@@ -24,11 +25,16 @@ export {
   findExactIsrcs,
   findIsrcHint,
   type IsrcFinding,
+  type IsrcHintQuery,
   spotifyTrackUrl,
 } from './isrc'
-export { RequestQueue } from './queue'
+export { QueuePausedError, type RequestPriority, RequestQueue, type RunOptions } from './queue'
 
-/** A MusicBrainz client that waits in the app's shared queue unless `options.queue` says not. */
-export function createMusicBrainzClient(options: MusicBrainzOptions = {}): MusicBrainzClient {
+/**
+ * A MusicBrainz client. Keep one per app: each client keeps its own cache. Every client waits in
+ * the app's one shared queue, at most one request per second, unless `options.queue` names
+ * another.
+ */
+export function createMusicBrainzClient(options: MusicBrainzOptions = {}): MusicBrainzLookups {
   return new MusicBrainzClient(options)
 }

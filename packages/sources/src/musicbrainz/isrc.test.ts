@@ -1,7 +1,7 @@
 import { formatId, type Track } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
 import { contextFor, fakeService, json } from '../shared/fake-fetch'
-import { MusicBrainzClient } from './api'
+import { MusicBrainzClient, type MusicBrainzLookups, type MusicBrainzRecording } from './api'
 import notFound from './fixtures/not-found.json'
 import recordingCreep from './fixtures/recording-creep.json'
 import searchCreep from './fixtures/search-creep.json'
@@ -83,7 +83,8 @@ describe('findExactIsrc', () => {
     const service = musicBrainz()
     const finding = await findExactIsrc(client(), creep().id, contextFor(service.fetch))
     expect(finding).toMatchObject({
-      kind: 'exact',
+      origin: 'musicbrainz-exact',
+      isrc: 'GBAYE9200070',
       isrcs: ['GBAYE9200070'],
       recording: { id: CREEP_MBID, lengthMs: 236666, artists: ['Radiohead'] },
     })
@@ -120,7 +121,12 @@ describe('findExactIsrc', () => {
       url.pathname === '/ws/2/url' ? json(urlCreep) : json(withoutIsrcs),
     )
     const finding = await findExactIsrc(client(), CREEP_ID, contextFor(service.fetch))
-    expect(finding).toMatchObject({ kind: 'exact', isrcs: [], recording: { lengthMs: 236666 } })
+    expect(finding).toMatchObject({
+      origin: 'musicbrainz-exact',
+      isrcs: [],
+      recording: { lengthMs: 236666 },
+    })
+    expect(finding).not.toHaveProperty('isrc')
   })
 
   it('refuses a reference that is not a Spotify track', async () => {
@@ -142,7 +148,10 @@ describe('findExactIsrcs', () => {
       contextFor(service.fetch),
     )
     expect([...findings.keys()]).toEqual([`spotify:track:${CREEP_ID}`, CREEP_URL])
-    expect(findings.get(CREEP_URL)).toMatchObject({ kind: 'exact', isrcs: ['GBAYE9200070'] })
+    expect(findings.get(CREEP_URL)).toMatchObject({
+      origin: 'musicbrainz-exact',
+      isrc: 'GBAYE9200070',
+    })
     expect(service.calls.map((call) => call.url.pathname)).toEqual(['/ws/2/url', '/ws/2/recording'])
     expect(service.calls[0]?.url.searchParams.getAll('resource')).toEqual([
       CREEP_URL,
@@ -157,6 +166,66 @@ describe('findExactIsrcs', () => {
     )
     expect(service.calls).toHaveLength(0)
   })
+
+  it('leaves out what is not a Spotify track instead of failing the whole import', async () => {
+    const service = musicBrainz()
+    const ctx = contextFor(service.fetch)
+    const findings = await findExactIsrcs(
+      client(),
+      [
+        CREEP_ID,
+        'spotify:local:Artist:Album:Title:215',
+        'spotify:episode:0Q86acNRm6V9GYx55SXKwf',
+        'not a track',
+        `https://open.spotify.com/track/${CREEP_ID}?si=x`,
+      ],
+      ctx,
+    )
+    expect([...findings.keys()]).toEqual([
+      CREEP_ID,
+      `https://open.spotify.com/track/${CREEP_ID}?si=x`,
+    ])
+    expect(service.calls[0]?.url.searchParams.getAll('resource')).toEqual([CREEP_URL])
+    await expect(findExactIsrcs(client(), ['spotify:local:a:b:c:1', ''], ctx)).resolves.toEqual(
+      new Map(),
+    )
+    expect(service.calls).toHaveLength(2)
+  })
+})
+
+describe('the lookups a finder needs', () => {
+  const recording: MusicBrainzRecording = {
+    id: CREEP_MBID,
+    title: 'Creep',
+    credits: [],
+    artists: ['Radiohead'],
+    lengthMs: 236666,
+    isrcs: ['GBAYE9200070', 'GBAYE9200071'],
+    video: false,
+  }
+
+  it('takes any object with those methods, e.g. a fake in a test', async () => {
+    const fake: Pick<MusicBrainzLookups, 'lookupUrl' | 'getRecording'> = {
+      lookupUrl: async () => [{ id: CREEP_MBID, title: 'Creep', video: false }],
+      getRecording: async () => recording,
+    }
+    const service = fakeService(() => json(notFound, { status: 404 }))
+    const finding = await findExactIsrc(fake, CREEP_ID, contextFor(service.fetch))
+    // Two ISRCs: nothing says which one Spotify uses, so there is no single one to feed.
+    expect(finding).toEqual({ origin: 'musicbrainz-exact', isrcs: recording.isrcs, recording })
+    expect(service.calls).toHaveLength(0)
+  })
+
+  it('takes the matching engine’s source track, whose artists are read-only', async () => {
+    const service = musicBrainz()
+    const source = {
+      title: 'Creep',
+      artists: [{ name: 'Radiohead' }] as const,
+      durationMs: 238_640,
+    }
+    const finding = await findIsrcHint(client(), source, contextFor(service.fetch))
+    expect(finding?.origin).toBe('musicbrainz-fuzzy')
+  })
 })
 
 describe('findIsrcHint', () => {
@@ -164,7 +233,8 @@ describe('findIsrcHint', () => {
     const service = musicBrainz()
     const finding = await findIsrcHint(client(), creep(), contextFor(service.fetch))
     expect(finding).toMatchObject({
-      kind: 'hint',
+      origin: 'musicbrainz-fuzzy',
+      isrc: 'GBAYE9200070',
       isrcs: ['GBAYE9200070'],
       recording: { id: CREEP_MBID, lengthMs: 236666 },
     })

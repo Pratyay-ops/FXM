@@ -14,7 +14,7 @@
 import { APP_VERSION, FxmError, normalizeIsrc, type ProviderContext } from '@fxm/core'
 import { asObject, getJson, type JsonReply, retryAfterMs, statusError, text } from '../shared/json'
 import { LoadCache } from '../shared/ttl-cache'
-import { RequestQueue } from './queue'
+import { QueuePausedError, type RequestPriority, RequestQueue } from './queue'
 
 /** The web service's root. */
 export const MUSICBRAINZ_API = 'https://musicbrainz.org/ws/2/'
@@ -41,12 +41,15 @@ const ID_BATCH = 50
 /** The shortest wait after a 503, doubled on each further one. */
 const MIN_BACKOFF_MS = 1000
 
+/** How long a call waits out a pause MusicBrainz asked for, by default. */
+const MAX_WAIT_MS = 30_000
+
 /** A MusicBrainz ID: a UUID. */
 const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
 
 const SERVICE = 'MusicBrainz'
 
-/** Settings of a {@link MusicBrainzClient}. All optional. */
+/** Settings of a MusicBrainz client (`createMusicBrainzClient`). All optional. */
 export interface MusicBrainzOptions {
   /** The web service's root, {@link MUSICBRAINZ_API} by default. */
   baseUrl?: string
@@ -63,12 +66,30 @@ export interface MusicBrainzOptions {
   timeoutMs?: number
   /** How often to try a request that MusicBrainz answers with 503 (busy). 3 by default. */
   maxAttempts?: number
+  /**
+   * The longest a call waits out a pause that MusicBrainz asked for (a 503's `Retry-After`, or
+   * the backoff after it), in milliseconds: 30 seconds by default. A call that would wait longer
+   * rejects at once with `RateLimited` and the time left, rather than holding up the matcher or
+   * an import, while the queue stays paused for every other call.
+   */
+  maxWaitMs?: number
   /** How long to keep lookups (URLs, recordings, ISRCs). A day by default. */
   lookupTtlMs?: number
   /** How long to keep searches. An hour by default. */
   searchTtlMs?: number
   /** The clock for the caches. `Date.now` by default. */
   now?: () => number
+}
+
+/** How one call waits in the shared queue. */
+export interface MusicBrainzCallOptions {
+  /**
+   * What the call is for, in the words of the platform's request budget: `current-track`,
+   * `prefetch`, `interactive` (the default) or `bulk`. Higher priorities start first, so the
+   * track the user just pressed play on never waits behind an import, which passes `bulk`.
+   * Concurrent identical calls share one request, which keeps the first caller's priority.
+   */
+  priority?: RequestPriority
 }
 
 /** One artist of a credit, as MusicBrainz lists it. */
@@ -81,29 +102,38 @@ export interface MusicBrainzCredit {
   joinPhrase: string
 }
 
-/** A recording: one specific recorded performance, which can appear on many releases. */
-export interface MusicBrainzRecording {
+/**
+ * A recording as a relationship names it, e.g. the one a URL links to: without its artist
+ * credit or ISRCs, which MusicBrainz leaves out of relationships (so nothing here says the
+ * recording has none). {@link MusicBrainzLookups.getRecording} loads them.
+ */
+export interface MusicBrainzRecordingRef {
   /** Its MBID. */
   id: string
   /** Its title. */
   title: string
-  /** The artist credit, in order. Empty when the answer did not include it. */
-  credits: MusicBrainzCredit[]
-  /** The credited names, in order. */
-  artists: string[]
   /** Its length in milliseconds, when MusicBrainz knows it. */
   lengthMs?: number
   /** The comment that tells it from same-titled recordings, e.g. `live, 1993-06-30: …`. */
   disambiguation?: string
-  /**
-   * Its ISRCs in canonical form (see `normalizeIsrc`). Empty when it has none, or when the
-   * answer did not include them (URL lookups don't).
-   */
+  /** Whether it is a video. */
+  video: boolean
+}
+
+/**
+ * A recording: one specific recorded performance, which can appear on many releases. Only
+ * answers that include the artist credit and ISRCs are read as one, so empty lists mean that it
+ * has none.
+ */
+export interface MusicBrainzRecording extends MusicBrainzRecordingRef {
+  /** The artist credit, in order. */
+  credits: MusicBrainzCredit[]
+  /** The credited names, in order. */
+  artists: string[]
+  /** Its ISRCs in canonical form (see `normalizeIsrc`), each once. Empty when it has none. */
   isrcs: string[]
   /** The date of its first release, possibly partial (`1992`, `1992-09-21`). */
   firstReleaseDate?: string
-  /** Whether it is a video. */
-  video: boolean
 }
 
 /** A release that a recording appears on, as search results summarize it. */
@@ -128,7 +158,7 @@ export interface MusicBrainzSearchHit extends MusicBrainzRecording {
   releases: MusicBrainzReleaseSummary[]
 }
 
-/** What {@link MusicBrainzClient.searchRecordings} looks for. */
+/** What {@link MusicBrainzLookups.searchRecordings} looks for. */
 export interface RecordingQuery {
   /** The title, best without version qualifiers (see `splitTitle`). */
   title: string
@@ -176,25 +206,35 @@ function isrcs(value: unknown): string[] {
   return [...new Set(found)]
 }
 
-/** A recording from a MusicBrainz recording object, or `null` without an ID and title. */
-export function toRecording(value: unknown): MusicBrainzRecording | null {
+/** A recording reference from a MusicBrainz recording object, or `null` without ID and title. */
+function toRecordingRef(value: unknown): MusicBrainzRecordingRef | null {
   const object = asObject(value)
   const id = text(object?.id)
   const title = typeof object?.title === 'string' ? object.title : undefined
   if (object === undefined || id === undefined || title === undefined) return null
-  const credit = credits(object['artist-credit'])
-  const recording: MusicBrainzRecording = {
-    id,
-    title,
-    credits: credit,
-    artists: credit.map((entry) => entry.name),
-    isrcs: isrcs(object.isrcs),
-    video: object.video === true,
-  }
+  const recording: MusicBrainzRecordingRef = { id, title, video: object.video === true }
   const lengthMs = milliseconds(object.length)
   if (lengthMs !== undefined) recording.lengthMs = lengthMs
   const disambiguation = text(object.disambiguation)
   if (disambiguation !== undefined) recording.disambiguation = disambiguation
+  return recording
+}
+
+/**
+ * A recording from a MusicBrainz recording object that includes its artist credit and ISRCs, or
+ * `null` without an ID and title.
+ */
+export function toRecording(value: unknown): MusicBrainzRecording | null {
+  const ref = toRecordingRef(value)
+  const object = asObject(value)
+  if (ref === null || object === undefined) return null
+  const credit = credits(object['artist-credit'])
+  const recording: MusicBrainzRecording = {
+    ...ref,
+    credits: credit,
+    artists: credit.map((entry) => entry.name),
+    isrcs: isrcs(object.isrcs),
+  }
   const firstReleaseDate = text(object['first-release-date'])
   if (firstReleaseDate !== undefined) recording.firstReleaseDate = firstReleaseDate
   return recording
@@ -236,14 +276,14 @@ function toSearchHit(value: unknown): MusicBrainzSearchHit | null {
 }
 
 /** The recordings a URL entity relates to, each once. */
-function relatedRecordings(value: unknown): MusicBrainzRecording[] {
+function relatedRecordings(value: unknown): MusicBrainzRecordingRef[] {
   const relations = asObject(value)?.relations
   if (!Array.isArray(relations)) return []
-  const found = new Map<string, MusicBrainzRecording>()
+  const found = new Map<string, MusicBrainzRecordingRef>()
   for (const item of relations) {
     const relation = asObject(item)
     if (relation?.['target-type'] !== 'recording') continue
-    const recording = toRecording(relation.recording)
+    const recording = toRecordingRef(relation.recording)
     if (recording !== null && !found.has(recording.id)) found.set(recording.id, recording)
   }
   return [...found.values()]
@@ -254,7 +294,7 @@ export function phrase(value: string): string {
   return `"${value.replace(/[\\"]/gu, (character) => `\\${character}`)}"`
 }
 
-/** The query for {@link MusicBrainzClient.searchRecordings}. */
+/** The query for {@link MusicBrainzLookups.searchRecordings}. */
 export function recordingQuery({ title, artist, durationMs, windowMs }: RecordingQuery): string {
   const parts = [`recording:${phrase(title)}`, `artist:${phrase(artist)}`]
   if (durationMs !== undefined && Number.isFinite(durationMs) && durationMs > 0) {
@@ -263,6 +303,27 @@ export function recordingQuery({ title, artist, durationMs, windowMs }: Recordin
     parts.push(`dur:[${from} TO ${Math.round(durationMs + window)}]`)
   }
   return parts.join(' AND ')
+}
+
+/** Whether `value` is an absolute `http:` or `https:` URL. */
+function isWebUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value)
+    return protocol === 'https:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+/** The error for a call that would wait longer than it may for MusicBrainz to be ready. */
+function busyError(waitMs: number): FxmError {
+  return new FxmError(
+    'RateLimited',
+    `MusicBrainz asked FXM to wait ${Math.ceil(waitMs / 1000)} s`,
+    {
+      retryAfterMs: waitMs,
+    },
+  )
 }
 
 /** Splits `items` into lists of at most `size`. */
@@ -275,15 +336,81 @@ function chunks<T>(items: readonly T[], size: number): T[][] {
 }
 
 /**
- * A client for the MusicBrainz lookups FXM needs: URL relationships, recordings, ISRCs and
- * recording search. Every request waits its turn in the shared queue, and answers are kept in
- * memory for a while (see {@link MusicBrainzOptions}).
+ * The MusicBrainz lookups FXM needs: URL relationships, recordings, ISRCs and recording search.
+ * Every request waits its turn in the shared queue, and answers are kept in memory for a while
+ * (see {@link MusicBrainzOptions}).
+ *
+ * The batch calls (`lookupUrls`, `getRecordings`) never throw for one bad value: a value that is
+ * not a URL or an MBID is skipped, and the map holds only what MusicBrainz knows. The single
+ * calls reject with a `RangeError`, without a request, for a value that cannot be one.
  */
-export class MusicBrainzClient {
+export interface MusicBrainzLookups {
+  /**
+   * The recordings that MusicBrainz links to `url`, e.g. a Spotify track's
+   * `https://open.spotify.com/track/<id>`, as references without credits or ISRCs. Empty when
+   * it knows no such URL.
+   */
+  lookupUrl(
+    url: string,
+    ctx: ProviderContext,
+    options?: MusicBrainzCallOptions,
+  ): Promise<MusicBrainzRecordingRef[]>
+  /**
+   * {@link lookupUrl} for many URLs at once, up to 100 per request. The map holds every URL
+   * that MusicBrainz knows, with its recordings; values that are not web URLs are skipped.
+   */
+  lookupUrls(
+    urls: readonly string[],
+    ctx: ProviderContext,
+    options?: MusicBrainzCallOptions,
+  ): Promise<Map<string, MusicBrainzRecordingRef[]>>
+  /**
+   * One recording with its ISRCs and artist credit. Rejects with `NotFound` when unknown, and
+   * with a `RangeError`, without a request, when `id` is not an MBID.
+   */
+  getRecording(
+    id: string,
+    ctx: ProviderContext,
+    options?: MusicBrainzCallOptions,
+  ): Promise<MusicBrainzRecording>
+  /**
+   * Many recordings with their ISRCs and artist credits: up to 50 per request, through a search
+   * by MBID, then one lookup each for any recording the search index does not have yet. The map
+   * holds every recording that exists; a value that is not an MBID is skipped.
+   */
+  getRecordings(
+    ids: readonly string[],
+    ctx: ProviderContext,
+    options?: MusicBrainzCallOptions,
+  ): Promise<Map<string, MusicBrainzRecording>>
+  /**
+   * The recordings that carry `isrc`, with their artist credits and ISRCs. Empty when no
+   * recording has it. Rejects with a `RangeError`, without a request, when `isrc` is not one.
+   */
+  lookupIsrc(
+    isrc: string,
+    ctx: ProviderContext,
+    options?: MusicBrainzCallOptions,
+  ): Promise<MusicBrainzRecording[]>
+  /**
+   * A recording search by title and artist, within a window around the duration when one is
+   * given, in MusicBrainz's order (best score first; many recordings tie at 100, with live,
+   * compilation and soundtrack versions often first).
+   */
+  searchRecordings(
+    query: RecordingQuery,
+    ctx: ProviderContext,
+    options?: MusicBrainzCallOptions,
+  ): Promise<MusicBrainzSearchHit[]>
+}
+
+/** The client behind {@link MusicBrainzLookups}. */
+export class MusicBrainzClient implements MusicBrainzLookups {
   private readonly baseUrl: string
   private readonly queue: RequestQueue
   private readonly timeoutMs: number
   private readonly maxAttempts: number
+  private readonly maxWaitMs: number
   private readonly lookupTtlMs: number
   private readonly searchTtlMs: number
   private readonly cache: LoadCache<unknown>
@@ -294,6 +421,7 @@ export class MusicBrainzClient {
     this.queue = options.queue ?? musicBrainzQueue
     this.timeoutMs = options.timeoutMs ?? 15_000
     this.maxAttempts = Math.max(1, options.maxAttempts ?? 3)
+    this.maxWaitMs = Math.max(0, options.maxWaitMs ?? MAX_WAIT_MS)
     this.lookupTtlMs = options.lookupTtlMs ?? 86_400_000
     this.searchTtlMs = options.searchTtlMs ?? 3_600_000
     this.cache = new LoadCache({
@@ -310,26 +438,25 @@ export class MusicBrainzClient {
     return ctx.platform === 'web' ? undefined : MUSICBRAINZ_USER_AGENT
   }
 
-  /**
-   * The recordings that MusicBrainz links to `url`, e.g. a Spotify track's
-   * `https://open.spotify.com/track/<id>`, without their ISRCs. Empty when it knows no such URL.
-   */
-  async lookupUrl(url: string, ctx: ProviderContext): Promise<MusicBrainzRecording[]> {
-    const answer = await this.lookup(['url'], { resource: [url], inc: ['recording-rels'] }, ctx)
+  async lookupUrl(
+    url: string,
+    ctx: ProviderContext,
+    options: MusicBrainzCallOptions = {},
+  ): Promise<MusicBrainzRecordingRef[]> {
+    const params = { resource: [url], inc: ['recording-rels'] }
+    const answer = await this.lookup(['url'], params, ctx, options)
     return answer === null ? [] : relatedRecordings(answer)
   }
 
-  /**
-   * {@link lookupUrl} for many URLs at once, up to 100 per request. The map holds every URL
-   * that MusicBrainz knows, with its recordings.
-   */
   async lookupUrls(
     urls: readonly string[],
     ctx: ProviderContext,
-  ): Promise<Map<string, MusicBrainzRecording[]>> {
-    const found = new Map<string, MusicBrainzRecording[]>()
-    for (const batch of chunks([...new Set(urls)], URL_BATCH)) {
-      const answer = await this.lookup(['url'], { resource: batch, inc: ['recording-rels'] }, ctx)
+    options: MusicBrainzCallOptions = {},
+  ): Promise<Map<string, MusicBrainzRecordingRef[]>> {
+    const found = new Map<string, MusicBrainzRecordingRef[]>()
+    for (const batch of chunks([...new Set(urls)].filter(isWebUrl), URL_BATCH)) {
+      const params = { resource: batch, inc: ['recording-rels'] }
+      const answer = await this.lookup(['url'], params, ctx, options)
       const object = asObject(answer)
       // One resource returns the URL entity itself; several return a list.
       const entities = Array.isArray(object?.urls) ? object.urls : object ? [object] : []
@@ -341,13 +468,14 @@ export class MusicBrainzClient {
     return found
   }
 
-  /**
-   * One recording with its ISRCs and artist credit. Rejects with `NotFound` when unknown, and
-   * with a `RangeError`, without a request, when `id` is not an MBID.
-   */
-  async getRecording(id: string, ctx: ProviderContext): Promise<MusicBrainzRecording> {
+  async getRecording(
+    id: string,
+    ctx: ProviderContext,
+    options: MusicBrainzCallOptions = {},
+  ): Promise<MusicBrainzRecording> {
     if (!MBID.test(id)) throw new RangeError(`Not a MusicBrainz ID: ${id}`)
-    const answer = await this.lookup(['recording', id], { inc: ['isrcs', 'artist-credits'] }, ctx)
+    const params = { inc: ['isrcs', 'artist-credits'] }
+    const answer = await this.lookup(['recording', id], params, ctx, options)
     const recording = answer === null ? null : toRecording(answer)
     if (recording === null) {
       throw new FxmError('NotFound', `MusicBrainz has no recording ${id}`)
@@ -355,27 +483,23 @@ export class MusicBrainzClient {
     return recording
   }
 
-  /**
-   * Many recordings with their ISRCs and artist credits: up to 50 per request, through a search
-   * by MBID, then one lookup each for any recording the search index does not have yet. The map
-   * holds every recording that exists; a value that is not an MBID is left out.
-   */
   async getRecordings(
     ids: readonly string[],
     ctx: ProviderContext,
+    options: MusicBrainzCallOptions = {},
   ): Promise<Map<string, MusicBrainzRecording>> {
     const found = new Map<string, MusicBrainzRecording>()
     const unique = [...new Set(ids)].filter((id) => MBID.test(id))
     for (const batch of chunks(unique, ID_BATCH)) {
       const query = batch.map((id) => `rid:${phrase(id)}`).join(' OR ')
-      for (const hit of await this.search(query, batch.length, ctx)) {
+      for (const hit of await this.search(query, batch.length, ctx, options)) {
         if (batch.includes(hit.id)) found.set(hit.id, stripSearchFields(hit))
       }
     }
     for (const id of unique) {
       if (found.has(id)) continue
       try {
-        found.set(id, await this.getRecording(id, ctx))
+        found.set(id, await this.getRecording(id, ctx, options))
       } catch (error) {
         if (!(error instanceof FxmError && error.code === 'NotFound')) throw error
       }
@@ -383,30 +507,27 @@ export class MusicBrainzClient {
     return found
   }
 
-  /**
-   * The recordings that carry `isrc`, with their artist credits and ISRCs. Empty when no
-   * recording has it. Rejects with a `RangeError` when `isrc` is not a valid ISRC.
-   */
-  async lookupIsrc(isrc: string, ctx: ProviderContext): Promise<MusicBrainzRecording[]> {
+  async lookupIsrc(
+    isrc: string,
+    ctx: ProviderContext,
+    options: MusicBrainzCallOptions = {},
+  ): Promise<MusicBrainzRecording[]> {
     const canonical = normalizeIsrc(isrc)
     if (canonical === null) throw new RangeError(`Not an ISRC: ${isrc}`)
-    const answer = await this.lookup(['isrc', canonical], { inc: ['artist-credits', 'isrcs'] }, ctx)
+    const params = { inc: ['artist-credits', 'isrcs'] }
+    const answer = await this.lookup(['isrc', canonical], params, ctx, options)
     const list = asObject(answer)?.recordings
     if (!Array.isArray(list)) return []
     return list.map(toRecording).filter((recording) => recording !== null)
   }
 
-  /**
-   * A recording search by title and artist, within a window around the duration when one is
-   * given, in MusicBrainz's order (best score first; many recordings tie at 100, with live,
-   * compilation and soundtrack versions often first).
-   */
   async searchRecordings(
     query: RecordingQuery,
     ctx: ProviderContext,
+    options: MusicBrainzCallOptions = {},
   ): Promise<MusicBrainzSearchHit[]> {
     const limit = Math.min(Math.max(1, Math.round(query.limit ?? 25)), 100)
-    return this.search(recordingQuery(query), limit, ctx)
+    return this.search(recordingQuery(query), limit, ctx, options)
   }
 
   /** A recording search with a raw Lucene query. */
@@ -414,13 +535,10 @@ export class MusicBrainzClient {
     query: string,
     limit: number,
     ctx: ProviderContext,
+    options: MusicBrainzCallOptions,
   ): Promise<MusicBrainzSearchHit[]> {
-    const answer = await this.request(
-      ['recording'],
-      { query: [query], limit: [String(limit)] },
-      this.searchTtlMs,
-      ctx,
-    )
+    const params = { query: [query], limit: [String(limit)] }
+    const answer = await this.request(['recording'], params, this.searchTtlMs, ctx, options)
     const list = asObject(answer)?.recordings
     if (answer === null || !Array.isArray(list)) {
       throw new FxmError('Parse', 'MusicBrainz sent search results FXM does not understand')
@@ -433,8 +551,9 @@ export class MusicBrainzClient {
     path: readonly string[],
     params: Record<string, readonly string[]>,
     ctx: ProviderContext,
+    options: MusicBrainzCallOptions,
   ): Promise<unknown> {
-    return this.request(path, params, this.lookupTtlMs, ctx)
+    return this.request(path, params, this.lookupTtlMs, ctx, options)
   }
 
   /** One GET through the cache and the queue: the JSON answer, or `null` for a 404. */
@@ -443,6 +562,7 @@ export class MusicBrainzClient {
     params: Record<string, readonly string[]>,
     ttlMs: number,
     ctx: ProviderContext,
+    options: MusicBrainzCallOptions,
   ): Promise<unknown> {
     const url = new URL(path.map(encodeURIComponent).join('/'), this.baseUrl)
     for (const [name, values] of Object.entries(params)) {
@@ -452,19 +572,36 @@ export class MusicBrainzClient {
     url.searchParams.set('fmt', 'json')
     // `inc` joins its values with a literal `+`, which URLSearchParams would encode.
     const href = url.href.replace(/([?&]inc=[^&]*)/u, (match) => match.replaceAll('%2B', '+'))
-    return this.cache.get(href, ttlMs, () => this.fetchAnswer(href, ctx), ctx.signal)
+    const priority = options.priority ?? 'interactive'
+    return this.cache.get(href, ttlMs, () => this.fetchAnswer(href, ctx, priority), ctx.signal)
   }
 
-  /** Fetches `href` in turn, waiting and retrying after a 503, and maps the status. */
-  private async fetchAnswer(href: string, ctx: ProviderContext): Promise<unknown> {
+  /**
+   * Fetches `href` in turn, waiting and retrying after a 503, and maps the status. A pause
+   * longer than `maxWaitMs`, its own or one already holding the queue, rejects at once.
+   */
+  private async fetchAnswer(
+    href: string,
+    ctx: ProviderContext,
+    priority: RequestPriority,
+  ): Promise<unknown> {
     const userAgent = this.userAgentFor(ctx)
     const options = {
       service: SERVICE,
       timeoutMs: this.timeoutMs,
       ...(userAgent === undefined ? {} : { headers: { 'User-Agent': userAgent } }),
     }
+    const queued = {
+      priority,
+      maxWaitMs: this.maxWaitMs,
+      ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+    }
     for (let attempt = 1; ; attempt++) {
-      const reply: JsonReply = await this.queue.run(() => getJson(ctx, href, options), ctx.signal)
+      const reply: JsonReply = await this.queue
+        .run(() => getJson(ctx, href, options), queued)
+        .catch((error: unknown) => {
+          throw error instanceof QueuePausedError ? busyError(error.retryAfterMs) : error
+        })
       if (reply.status === 200) return reply.body
       if (reply.status === 404) return null
       if (reply.status !== 503) throw statusError(SERVICE, 'a request', reply)
@@ -473,6 +610,7 @@ export class MusicBrainzClient {
         MIN_BACKOFF_MS * 2 ** (attempt - 1),
       )
       this.queue.pause(waitMs)
+      if (waitMs > this.maxWaitMs) throw busyError(waitMs)
       if (attempt >= this.maxAttempts) {
         throw new FxmError('RateLimited', `MusicBrainz stayed busy after ${attempt} tries`, {
           retryAfterMs: waitMs,

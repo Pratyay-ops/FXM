@@ -57,15 +57,13 @@ describe('MusicBrainzClient', () => {
   it('looks a Spotify track URL up through its URL relationships', async () => {
     const service = musicBrainz()
     const recordings = await client().lookupUrl(CREEP_URL, contextFor(service.fetch))
+    // A relationship names the recording without its credit or ISRCs, so neither is claimed.
     expect(recordings).toEqual([
       {
         id: CREEP_MBID,
         title: 'Creep',
-        credits: [],
-        artists: [],
         lengthMs: 236666,
         disambiguation: 'You’re so fucking special',
-        isrcs: [],
         video: false,
       },
     ])
@@ -94,6 +92,22 @@ describe('MusicBrainzClient', () => {
     expect(service.calls.map((call) => call.url.searchParams.getAll('resource').length)).toEqual([
       100, 21,
     ])
+  })
+
+  it('skips values that are not web URLs instead of failing the batch', async () => {
+    const service = musicBrainz()
+    const found = await client().lookupUrls(
+      ['spotify:local:Artist:Album:Title:215', 'not a url', CREEP_URL, 'ftp://x.test/a'],
+      contextFor(service.fetch),
+    )
+    expect([...found.keys()]).toEqual([CREEP_URL])
+    expect(service.calls.map((call) => call.url.searchParams.getAll('resource'))).toEqual([
+      [CREEP_URL],
+    ])
+    await expect(client().lookupUrls(['nothing'], contextFor(service.fetch))).resolves.toEqual(
+      new Map(),
+    )
+    expect(service.calls).toHaveLength(1)
   })
 
   it('reads the single-entity answer of a batch of one', async () => {
@@ -268,6 +282,34 @@ describe('MusicBrainzClient', () => {
       expect(service.calls.map((call) => call.at)).toEqual([0, 7000])
     })
 
+    it('rejects at once rather than wait out a long Retry-After, and keeps the queue paused', async () => {
+      vi.useFakeTimers()
+      vi.setSystemTime(0)
+      let busyFor = 1
+      const service = musicBrainz(() =>
+        busyFor-- > 0 ? json(busy, { status: 503, headers: { 'retry-after': '3600' } }) : undefined,
+      )
+      const queue = new RequestQueue(1000)
+      const mb = client({ queue })
+      const ctx = contextFor(service.fetch)
+      // The matcher's call gets the 503; an import with a patient limit waits behind it.
+      const first = mb.lookupUrl(CREEP_URL, ctx).catch((caught: unknown) => caught)
+      const patient = client({ queue, maxWaitMs: 7_200_000 }).lookupIsrc('GBAYE9200070', ctx)
+      const waiting = mb.getRecording(CREEP_MBID, ctx).catch((caught: unknown) => caught)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(service.calls).toHaveLength(1)
+      const [refused, alsoRefused] = await Promise.all([first, waiting])
+      expect(isFxmError(refused, 'RateLimited')).toBe(true)
+      expect(refused).toMatchObject({ retryAfterMs: 3_600_000 })
+      expect(alsoRefused).toMatchObject({ code: 'RateLimited', retryAfterMs: 3_600_000 })
+      const later = await mb.lookupIsrc('USUM71703861', ctx).catch((caught: unknown) => caught)
+      expect(later).toMatchObject({ code: 'RateLimited' })
+      expect(service.calls).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(3_600_000)
+      await expect(patient).resolves.toHaveLength(2)
+      expect(service.calls.map((call) => call.at)).toEqual([0, 3_600_000])
+    })
+
     it('gives up with RateLimited after the last try', async () => {
       vi.useFakeTimers()
       vi.setSystemTime(0)
@@ -346,6 +388,29 @@ describe('MusicBrainzClient', () => {
     now = 1000
     await mb.lookupUrl(CREEP_URL, contextFor(service.fetch))
     expect(service.calls).toHaveLength(2)
+  })
+
+  it('starts the call for the playing track before an import’s', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const queue = new RequestQueue(1000)
+    const service = musicBrainz()
+    const ctx = contextFor(service.fetch)
+    const mb = client({ queue })
+    const bulk = Promise.all([
+      mb.lookupIsrc('GBAYE9200070', ctx, { priority: 'bulk' }),
+      mb.lookupIsrc('USUM71703861', ctx, { priority: 'bulk' }),
+      mb.lookupIsrc('USUM71703862', ctx, { priority: 'bulk' }),
+    ])
+    const playing = mb.lookupUrl(CREEP_URL, ctx, { priority: 'current-track' })
+    await vi.advanceTimersByTimeAsync(3000)
+    await Promise.all([bulk, playing])
+    expect(service.calls.map((call) => call.url.pathname)).toEqual([
+      '/ws/2/isrc/GBAYE9200070',
+      '/ws/2/url',
+      '/ws/2/isrc/USUM71703861',
+      '/ws/2/isrc/USUM71703862',
+    ])
   })
 
   it('spaces the requests of every client that shares a queue', async () => {

@@ -35,7 +35,8 @@ describe.skipIf(!live)('MusicBrainz, live', { timeout: 60_000 }, () => {
 
   it('finds the ISRC of a Spotify track through its URL relationship (exact path)', async () => {
     const finding = await findExactIsrc(client, formatId('spotify', 'track', CREEP_SPOTIFY), ctx)
-    expect(finding?.kind).toBe('exact')
+    expect(finding?.origin).toBe('musicbrainz-exact')
+    expect(finding?.isrc).toBe(CREEP_ISRC)
     expect(finding?.isrcs).toContain(CREEP_ISRC)
     expect(finding?.recording.id).toBe(CREEP_MBID)
     expect(Math.abs((finding?.recording.lengthMs ?? 0) - 238_640)).toBeLessThan(5_000)
@@ -47,7 +48,7 @@ describe.skipIf(!live)('MusicBrainz, live', { timeout: 60_000 }, () => {
       { title: 'Creep', artists: [{ name: 'Radiohead' }], durationMs: 238_640 },
       ctx,
     )
-    expect(finding?.kind).toBe('hint')
+    expect(finding?.origin).toBe('musicbrainz-fuzzy')
     expect(finding?.isrcs).toContain(CREEP_ISRC)
   })
 

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RequestQueue } from './queue'
+import { QueuePausedError, RequestQueue } from './queue'
 
 /** A task that records when it started and resolves with `value`, after `ms` when given. */
 function task<T>(starts: number[], value: T, ms = 0): () => Promise<T> {
@@ -97,7 +97,7 @@ describe('RequestQueue', () => {
     const starts: number[] = []
     const controller = new AbortController()
     const first = queue.run(task(starts, 'first'))
-    const dropped = failure(queue.run(task(starts, 'dropped'), controller.signal))
+    const dropped = failure(queue.run(task(starts, 'dropped'), { signal: controller.signal }))
     const last = queue.run(task(starts, 'last'))
     controller.abort(new Error('not needed'))
     expect(await dropped).toMatchObject({ message: 'not needed' })
@@ -111,7 +111,7 @@ describe('RequestQueue', () => {
     const queue = new RequestQueue(1000)
     const run = vi.fn(async () => 'never')
     const reason = new Error('too late')
-    await expect(queue.run(run, AbortSignal.abort(reason))).rejects.toBe(reason)
+    await expect(queue.run(run, { signal: AbortSignal.abort(reason) })).rejects.toBe(reason)
     expect(run).not.toHaveBeenCalled()
     expect(queue.waiting).toBe(0)
   })
@@ -119,7 +119,7 @@ describe('RequestQueue', () => {
   it('ignores an abort once the task has started', async () => {
     const queue = new RequestQueue(1000)
     const controller = new AbortController()
-    const running = queue.run(task([], 'done', 100), controller.signal)
+    const running = queue.run(task([], 'done', 100), { signal: controller.signal })
     controller.abort()
     await vi.advanceTimersByTimeAsync(100)
     await expect(running).resolves.toBe('done')
@@ -164,5 +164,59 @@ describe('RequestQueue', () => {
     await vi.advanceTimersByTimeAsync(3000)
     await expect(later).resolves.toBe('later')
     expect(starts).toEqual([3000])
+  })
+
+  it('starts higher priorities first, first come first served within one, still a second apart', async () => {
+    const queue = new RequestQueue(1000)
+    const order: string[] = []
+    const named = (name: string) => async () => {
+      order.push(`${name}@${Date.now()}`)
+      return name
+    }
+    const all = Promise.all([
+      queue.run(named('bulk 1'), { priority: 'bulk' }),
+      queue.run(named('bulk 2'), { priority: 'bulk' }),
+      queue.run(named('bulk 3'), { priority: 'bulk' }),
+      queue.run(named('interactive'), { priority: 'interactive' }),
+    ])
+    // The user presses play while an import waits in the queue.
+    const playing = queue.run(named('current track'), { priority: 'current-track' })
+    await vi.advanceTimersByTimeAsync(4000)
+    await Promise.all([all, playing])
+    expect(order).toEqual([
+      'bulk 1@0',
+      'current track@1000',
+      'interactive@2000',
+      'bulk 2@3000',
+      'bulk 3@4000',
+    ])
+  })
+
+  it('refuses a task that would wait out a pause for longer than it may, and keeps the pause', async () => {
+    const queue = new RequestQueue(1000)
+    const starts: number[] = []
+    queue.pause(3_600_000)
+    const refused = await failure(queue.run(task(starts, 'x'), { maxWaitMs: 30_000 }))
+    expect(refused).toBeInstanceOf(QueuePausedError)
+    expect(refused).toMatchObject({ retryAfterMs: 3_600_000 })
+    const patient = queue.run(task(starts, 'patient'))
+    await vi.advanceTimersByTimeAsync(3_600_000)
+    await expect(patient).resolves.toBe('patient')
+    expect(starts).toEqual([3_600_000])
+  })
+
+  it('rejects the waiting tasks a new pause would keep too long, and only those', async () => {
+    const queue = new RequestQueue(1000)
+    const starts: number[] = []
+    const first = queue.run(task(starts, 'first'))
+    const hurried = failure(queue.run(task(starts, 'hurried'), { maxWaitMs: 30_000 }))
+    const patient = queue.run(task(starts, 'patient'), { maxWaitMs: 120_000 })
+    await vi.advanceTimersByTimeAsync(500)
+    queue.pause(60_000)
+    expect(await hurried).toMatchObject({ name: 'QueuePausedError', retryAfterMs: 60_000 })
+    expect(queue.waiting).toBe(1)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await expect(Promise.all([first, patient])).resolves.toEqual(['first', 'patient'])
+    expect(starts).toEqual([0, 60_500])
   })
 })
