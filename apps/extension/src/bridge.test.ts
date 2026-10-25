@@ -15,7 +15,7 @@ import { MESSAGE } from './messages.ts'
 import type { SettingsStore } from './settings.ts'
 import type { MessageSender, StorageArea, WebExtApi } from './webext.ts'
 
-const FXM = 'https://fxm-music.pages.dev'
+const FXM = 'https://fxmusic.pages.dev'
 const PAGE: SenderContext = { origin: FXM, privateTab: false }
 const PRIVATE_PAGE: SenderContext = { origin: FXM, privateTab: true }
 const RUNTIME_ID = 'fxm-connect-id'
@@ -94,7 +94,7 @@ describe('trustedSenderOrigin', () => {
     ['no tab', { id: RUNTIME_ID, origin: FXM, frameId: 0 }],
     ['an iframe', { ...tabSender, frameId: 3 }],
     ['another site', { ...tabSender, origin: 'https://evil.example' }],
-    ['a look-alike host', { ...tabSender, origin: 'https://fxm-music.pages.dev.evil.example' }],
+    ['a look-alike host', { ...tabSender, origin: 'https://fxmusic.pages.dev.evil.example' }],
     ['an unparsable URL', { id: RUNTIME_ID, url: 'not a url', tab: { id: 4 }, frameId: 0 }],
   ])('rejects %s', (_label, sender) => {
     expect(trustedSenderOrigin(sender, RUNTIME_ID, [FXM])).toBeNull()

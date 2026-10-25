@@ -1,0 +1,27 @@
+{
+  "resource": "https://open.spotify.com/track/70LcF31zb1H0PyJoS1Sx1r",
+  "relations": [
+    {
+      "type": "free streaming",
+      "target-credit": "",
+      "end": null,
+      "attributes": [],
+      "direction": "backward",
+      "source-credit": "",
+      "ended": false,
+      "begin": null,
+      "target-type": "recording",
+      "attribute-ids": {},
+      "recording": {
+        "id": "70595637-9310-45f2-a266-58f8de4874a7",
+        "length": 236666,
+        "disambiguation": "You’re so fucking special",
+        "title": "Creep",
+        "video": false
+      },
+      "type-id": "7e41ef12-a124-4324-afdb-fdbae687a89c",
+      "attribute-values": {}
+    }
+  ],
+  "id": "72569b8c-d714-4330-a9c1-8d396be3add6"
+}

@@ -3,5 +3,5 @@
 Contact: https://github.com/Pratyay-ops/FXM/security/advisories/new
 Expires: 2027-10-25T00:00:00Z
 Preferred-Languages: en
-Canonical: https://fxm-music.pages.dev/.well-known/security.txt
+Canonical: https://fxmusic.pages.dev/.well-known/security.txt
 Policy: https://github.com/Pratyay-ops/FXM/blob/main/.github/SECURITY.md

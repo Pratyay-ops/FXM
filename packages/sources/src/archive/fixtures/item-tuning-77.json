@@ -1,0 +1,166 @@
+{
+  "created": 1792951888,
+  "d1": "ia600903.us.archive.org",
+  "dir": "/22/items/gd1977-12-31_505",
+  "item_last_updated": 1743122671,
+  "metadata": {
+    "identifier": "gd1977-12-31_505",
+    "title": "Tuning '77",
+    "creator": "Michael David Murphy",
+    "mediatype": "audio",
+    "collection": "cassettetapes",
+    "subject": "supercut; remix; mashup; gd; grateful dead; fairuse; art",
+    "licenseurl": "http://creativecommons.org/licenses/by-nc-sa/3.0/"
+  },
+  "files": [
+    {
+      "name": "__ia_thumb.jpg",
+      "source": "original",
+      "size": "9091",
+      "format": "Item Tile"
+    },
+    {
+      "name": "gd1977-12-31_505_archive.torrent",
+      "source": "metadata",
+      "size": "29484",
+      "format": "Archive BitTorrent"
+    },
+    {
+      "name": "gd1977-12-31_505_files.xml",
+      "source": "metadata",
+      "format": "Metadata"
+    },
+    {
+      "name": "gd1977-12-31_505_meta.sqlite",
+      "source": "original",
+      "size": "20480",
+      "format": "Metadata"
+    },
+    {
+      "name": "gd1977-12-31_505_meta.xml",
+      "source": "metadata",
+      "format": "Metadata",
+      "size": "1279"
+    },
+    {
+      "name": "gd1977-12-31_505_reviews.xml",
+      "source": "original",
+      "size": "10018",
+      "format": "Metadata"
+    },
+    {
+      "name": "gd77-12-31.png",
+      "source": "original",
+      "size": "125172",
+      "format": "PNG"
+    },
+    {
+      "name": "gd77-12-31_thumb.jpg",
+      "source": "derivative",
+      "format": "JPEG Thumb",
+      "original": "gd77-12-31.png",
+      "size": "12210"
+    },
+    {
+      "name": "gd_1977_Tuning_77.flac",
+      "source": "original",
+      "format": "24bit Flac",
+      "length": "5570",
+      "size": "877343841",
+      "track": "01",
+      "title": "Tuning '77",
+      "artist": "Grateful Dead",
+      "album": "Tuning '77",
+      "external-identifier": "urn:acoustid:04ded516-f36e-4818-86c1-ee8bb37566fc",
+      "height": "0",
+      "width": "0",
+      "creator": "Grateful Dead"
+    },
+    {
+      "name": "gd_1977_Tuning_77.mp3",
+      "source": "derivative",
+      "creator": "Grateful Dead",
+      "title": "Tuning '77",
+      "track": "01",
+      "album": "Tuning '77",
+      "bitrate": "186",
+      "length": "92:50",
+      "format": "VBR MP3",
+      "original": "gd_1977_Tuning_77.flac",
+      "size": "129550848",
+      "height": "0",
+      "width": "0"
+    },
+    {
+      "name": "gd_1977_Tuning_77.ogg",
+      "source": "derivative",
+      "format": "Ogg Vorbis",
+      "original": "gd_1977_Tuning_77.flac",
+      "size": "57722370",
+      "length": "5565.04",
+      "height": "0",
+      "width": "0"
+    },
+    {
+      "name": "gd_1977_Tuning_77.png",
+      "source": "derivative",
+      "format": "PNG",
+      "original": "gd_1977_Tuning_77.flac",
+      "size": "31332"
+    },
+    {
+      "name": "gd_1977_Tuning_77_320.mp3",
+      "source": "original",
+      "format": "VBR MP3",
+      "length": "92:50",
+      "title": "Tuning '77",
+      "creator": "Grateful Dead",
+      "bitrate": "320",
+      "album": "Tuning '77",
+      "size": "222804082",
+      "artist": "Grateful Dead",
+      "external-identifier": "urn:acoustid:04ded516-f36e-4818-86c1-ee8bb37566fc",
+      "height": "0",
+      "width": "0",
+      "track": "02",
+      "genre": "None"
+    },
+    {
+      "name": "gd_1977_Tuning_77_320.ogg",
+      "source": "derivative",
+      "format": "Ogg Vorbis",
+      "original": "gd_1977_Tuning_77_320.mp3",
+      "size": "57729868",
+      "length": "5564.99",
+      "height": "0",
+      "width": "0"
+    },
+    {
+      "name": "gd_1977_Tuning_77_320.png",
+      "source": "derivative",
+      "format": "PNG",
+      "original": "gd_1977_Tuning_77_320.mp3",
+      "size": "8945"
+    },
+    {
+      "name": "gd_1977_Tuning_77_320_spectrogram.png",
+      "source": "derivative",
+      "format": "Spectrogram",
+      "original": "gd_1977_Tuning_77_320.mp3",
+      "size": "262289"
+    },
+    {
+      "name": "gd_1977_Tuning_77_spectrogram.png",
+      "source": "derivative",
+      "format": "Spectrogram",
+      "original": "gd_1977_Tuning_77.flac",
+      "size": "261742"
+    },
+    {
+      "name": "info.txt",
+      "source": "original",
+      "format": "Text",
+      "size": "395"
+    }
+  ]
+}

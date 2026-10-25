@@ -1,0 +1,55 @@
+{
+  "responseHeader": {
+    "status": 0,
+    "params": {
+      "qin": "mediatype:(audio OR etree) AND format:flac AND NOT access-restricted-item:true AND (nine inch nails ghosts)",
+      "fields": "identifier,title,creator,date,year,mediatype,downloads",
+      "sort": "downloads desc",
+      "rows": 5,
+      "start": 0
+    }
+  },
+  "response": {
+    "numFound": 46,
+    "start": 0,
+    "docs": [
+      {
+        "creator": "Nine Inch Nails",
+        "date": "2008-03-02T00:00:00Z",
+        "downloads": 311427,
+        "identifier": "nineinchnails_ghosts_I_IV",
+        "mediatype": "audio",
+        "title": "Ghosts I - IV",
+        "year": 2008
+      },
+      {
+        "creator": "Nine Inch Nails",
+        "downloads": 12947,
+        "identifier": "NineInchNailsGhostsI-Ivblu-ray24bit96khz",
+        "mediatype": "audio",
+        "title": "Nine Inch Nails : Ghosts I - IV [Blu-Ray 24bit 96khz]"
+      },
+      {
+        "creator": "Nine Inch Nails",
+        "downloads": 11300,
+        "identifier": "NIN_OAOA",
+        "mediatype": "audio",
+        "title": "Nine Inch Nails - Over and Over Again [Bootleg]"
+      },
+      {
+        "creator": "Nine Inch Nails",
+        "downloads": 6934,
+        "identifier": "NineInchNails37Ghosts38Ghosts",
+        "mediatype": "audio",
+        "title": "Nine Inch Nails : 37 Ghosts & 38 Ghosts"
+      },
+      {
+        "creator": "Nine Inch Nails",
+        "downloads": 5417,
+        "identifier": "NIN_ATTEW",
+        "mediatype": "audio",
+        "title": "Nine Inch Nails - All That There Ever Was [Bootleg]"
+      }
+    ]
+  }
+}

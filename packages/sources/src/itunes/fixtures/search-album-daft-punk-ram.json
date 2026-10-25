@@ -1,0 +1,83 @@
+{
+  "resultCount": 6,
+  "results": [
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 5468295,
+      "collectionId": 617154241,
+      "artistName": "Daft Punk",
+      "collectionName": "Random Access Memories",
+      "releaseDate": "2013-05-17T07:00:00Z",
+      "country": "USA",
+      "primaryGenreName": "Pop",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/e8/43/5f/e8435ffa-b6b9-b171-40ab-4ff3959ab661/886443919266.jpg/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/e8/43/5f/e8435ffa-b6b9-b171-40ab-4ff3959ab661/886443919266.jpg/100x100bb.jpg"
+    },
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 5468295,
+      "collectionId": 1673536063,
+      "artistName": "Daft Punk",
+      "collectionName": "Random Access Memories (10th Anniversary Edition)",
+      "releaseDate": "2013-05-17T07:00:00Z",
+      "country": "USA",
+      "primaryGenreName": "Dance",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/86/b1/92/86b192cf-ceb6-6e51-9361-dc4a35e95d22/196589921154.jpg/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/86/b1/92/86b192cf-ceb6-6e51-9361-dc4a35e95d22/196589921154.jpg/100x100bb.jpg"
+    },
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 5468295,
+      "collectionId": 1708115055,
+      "artistName": "Daft Punk",
+      "collectionName": "Random Access Memories (Drumless Edition)",
+      "releaseDate": "2023-11-17T08:00:00Z",
+      "country": "USA",
+      "primaryGenreName": "Dance",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/c8/6d/11/c86d1183-9e36-fc2f-6490-80568ed056e0/196871342049.jpg/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/c8/6d/11/c86d1183-9e36-fc2f-6490-80568ed056e0/196871342049.jpg/100x100bb.jpg"
+    },
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 685003643,
+      "collectionId": 832492264,
+      "artistName": "Baby Rockstar",
+      "collectionName": "Lullaby Renditions of Daft Punk - Random Access Memories",
+      "releaseDate": "2014-03-04T08:00:00Z",
+      "country": "USA",
+      "primaryGenreName": "Lullabies",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/0a/05/7c/0a057ce0-1933-4ee8-505e-c75754a314b3/dj.rlzzqodr.jpg/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Features/v4/0a/05/7c/0a057ce0-1933-4ee8-505e-c75754a314b3/dj.rlzzqodr.jpg/100x100bb.jpg"
+    },
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 218352633,
+      "collectionId": 1086277239,
+      "artistName": "Vitamin String Quartet",
+      "collectionName": "Vitamin String Quartet Performs Daft Punk's Random Access Memories",
+      "releaseDate": "2016-04-22T07:00:00Z",
+      "country": "USA",
+      "primaryGenreName": "Electronica",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music49/v4/95/1c/d5/951cd5be-2ff8-cca9-8ebc-e978c66773f5/1158_300dpi.jpg/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music49/v4/95/1c/d5/951cd5be-2ff8-cca9-8ebc-e978c66773f5/1158_300dpi.jpg/100x100bb.jpg"
+    },
+    {
+      "wrapperType": "collection",
+      "collectionType": "Album",
+      "artistId": 1512466434,
+      "collectionId": 1556002465,
+      "artistName": "Kheamos",
+      "collectionName": "Vrappon (in memory of Daft Punk) - Single",
+      "releaseDate": "2021-02-27T08:00:00Z",
+      "country": "USA",
+      "primaryGenreName": "Dance",
+      "artworkUrl60": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/27/2e/44/272e4410-17bb-5fbb-7720-cd6598a85e50/artwork.jpg/60x60bb.jpg",
+      "artworkUrl100": "https://is1-ssl.mzstatic.com/image/thumb/Music114/v4/27/2e/44/272e4410-17bb-5fbb-7720-cd6598a85e50/artwork.jpg/100x100bb.jpg"
+    }
+  ]
+}
