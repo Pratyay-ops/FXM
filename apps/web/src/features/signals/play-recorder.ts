@@ -19,6 +19,9 @@
  *
  * Likes and playlist adds need no wiring: the library records them as it saves them.
  *
+ * It also announces each play as it starts, and each play it records, to the listeners of
+ * `play-events.ts`, such as scrobbling.
+ *
  * @module
  */
 
@@ -32,6 +35,7 @@ import {
 } from '@fxm/core'
 import type { Player, PlayerState, TrackChangeCause } from '@fxm/player'
 import type { NewPlay } from '../../db/repo'
+import { announcePlayEnded, announcePlayStarted } from './play-events'
 
 /** Shorter plays that did not reach the end are not recorded: quick skips, not listens. */
 export const MIN_RECORDED_PLAY_MS = 1000
@@ -153,6 +157,7 @@ export function connectPlayRecorder(
     if (ended.durationMs !== undefined) play.durationMs = ended.durationMs
     if (ended.context !== undefined) play.context = ended.context
     record(play).catch((error: unknown) => console.error('The play could not be saved', error))
+    announcePlayEnded(play)
   }
 
   /** Follows the player's state: starts a play, and counts the time it plays. */
@@ -173,6 +178,12 @@ export function connectPlayRecorder(
         durationMs: state.durationMs,
         stream: state.stream,
       }
+      const { context } = session
+      announcePlayStarted({
+        track: item.track,
+        startedAt: at,
+        ...(context === undefined ? {} : { context }),
+      })
       return
     }
     // Another item is current: the track change that follows ends this play.
