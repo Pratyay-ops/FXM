@@ -61,10 +61,12 @@ export function startContentScript(options: ContentScriptOptions): boolean {
   markPresence(options.document, version)
 
   // Dev build only: the localhost origins share a host, so ask the background to switch to
-  // this origin's ruleset (DNR cannot tell ports apart).
-  if (sharesHost(origin, origins)) {
-    runtime.sendMessage({ type: MESSAGE.activateOrigin }).catch(() => {})
-  }
+  // this origin's ruleset (DNR cannot tell ports apart). The background answers once the switch
+  // is done, and every reply waits for that: a page that waits for the pong before its first
+  // request never races the switch.
+  const ready: Promise<unknown> = sharesHost(origin, origins)
+    ? runtime.sendMessage({ type: MESSAGE.activateOrigin }).catch(() => {})
+    : Promise.resolve()
 
   /** The pong's features; the background says whether this tab may use the Spotify login. */
   async function features(): Promise<string[]> {
@@ -100,7 +102,7 @@ export function startContentScript(options: ContentScriptOptions): boolean {
   window.addEventListener('message', (event) => {
     const message = readPageMessage(event, { source: window, origin })
     if (message === null) return
-    void answer(message).then((reply) => window.postMessage(reply, origin))
+    void ready.then(() => answer(message)).then((reply) => window.postMessage(reply, origin))
   })
   return true
 }

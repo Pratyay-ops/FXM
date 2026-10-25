@@ -83,7 +83,7 @@ Firefox removes temporary add-ons when it restarts, so repeat step 2 after a res
 
 ### Detecting FXM Connect
 
-The content script runs before any page script, so `document.documentElement.dataset.fxmConnect` holds the version as soon as the app starts. To confirm and learn the features, post a ping:
+The content script runs before any page script, so `document.documentElement.dataset.fxmConnect` holds the version as soon as the app starts. To confirm and learn the features, post a ping, and wait for the pong before the first request to a music service: in the dev build the pong only comes once that origin's rules are active (see [Development](#development)).
 
 ```ts
 function detectFxmConnect(timeoutMs = 500): Promise<{ version: string; features: string[] } | null> {
@@ -170,7 +170,7 @@ scripts/run.sh pnpm --filter @fxm/extension test:e2e   # end-to-end test in Chro
 
 `make build` (and so `make check`) builds the release variant too. Load `dist/chromium` with **Load unpacked**, or `dist/firefox/manifest.json` with **Load Temporary Add-on**.
 
-**Dev build.** It also allows `http://localhost:5173` (the Vite dev server) and `http://localhost:4173` (`vite preview`) as FXM origins. DNR matches the page that starts a request by host name only, not port, so each localhost origin gets its own static ruleset. When an FXM page opens on one of them, the background enables that origin's ruleset and disables the other. If both are open at once, the most recently loaded one gets the CORS rules.
+**Dev build.** It also allows `http://localhost:5173` (the Vite dev server) and `http://localhost:4173` (`vite preview`) as FXM origins. DNR matches the page that starts a request by host name only, not port, so each localhost origin gets its own static ruleset. When an FXM page opens on one of them, the background enables that origin's ruleset and disables the other, and the content script holds back its replies, the pong included, until the switch is done. So requests the app sends after the pong get the rules; requests sent earlier may not. If both are open at once, the most recently loaded one gets the CORS rules.
 
 **Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, the rate limit, the icons and the zips. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every service. Chromium's `--host-resolver-rules` points the real host names, `fxm-music.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
 

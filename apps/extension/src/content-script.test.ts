@@ -197,6 +197,40 @@ describe('dev build ruleset switching', () => {
     expect(runtime.sendMessage).toHaveBeenCalledWith({ type: MESSAGE.activateOrigin })
   })
 
+  it('answers only once the background has switched rulesets', async () => {
+    const page = fakePage('http://localhost:4173')
+    let switched: (value: unknown) => void = () => {}
+    const sendMessage = vi.fn((message: { type?: unknown }) =>
+      message.type === MESSAGE.activateOrigin
+        ? new Promise((resolve) => {
+            switched = resolve
+          })
+        : Promise.resolve({ type: MESSAGE.loginStatus, enabled: false }),
+    )
+    start(page, { runtime: { sendMessage }, origins: fxmOrigins(true) })
+    page.dispatch({ type: MESSAGE.ping })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(page.posted).toEqual([])
+    switched(null)
+    expect(await replies(page)).toEqual([
+      { type: MESSAGE.pong, version: '1.2.3', features: [...FEATURES] },
+    ])
+  })
+
+  it('still answers when the switch fails', async () => {
+    const page = fakePage('http://localhost:5173')
+    const sendMessage = vi.fn((message: { type?: unknown }) =>
+      message.type === MESSAGE.activateOrigin
+        ? Promise.reject(new Error('Receiving end does not exist'))
+        : Promise.resolve(undefined),
+    )
+    start(page, { runtime: { sendMessage }, origins: fxmOrigins(true) })
+    page.dispatch({ type: MESSAGE.ping })
+    expect(await replies(page)).toEqual([
+      { type: MESSAGE.pong, version: '1.2.3', features: [...FEATURES] },
+    ])
+  })
+
   it('never does so in the production build', () => {
     const { runtime } = start(fakePage())
     expect(runtime.sendMessage).not.toHaveBeenCalledWith({ type: MESSAGE.activateOrigin })
