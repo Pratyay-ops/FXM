@@ -56,7 +56,8 @@ export type BuiltInSourceId = (typeof SOURCE_IDS)[number]
  * The name follows the rule for a DNS label: 1 to 63 lower-case ASCII letters, digits and
  * hyphens, neither starting nor ending with a hyphen. So it has one spelling only and never
  * contains the `:` that separates the parts of an {@link EntityId}. The type accepts any
- * `plugin.` string; {@link isPluginSourceId} checks the name.
+ * `plugin.` string; {@link isPluginSourceId} checks the name. To tell a plugin source from a
+ * built-in one, use {@link isBuiltInSourceId}.
  *
  * A plugin's native IDs are opaque to FXM (see the module documentation).
  */
@@ -103,16 +104,28 @@ const PLUGIN_SOURCE_ID = /^plugin\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u
  * source with a well-formed name (see {@link isPluginSourceId}).
  */
 export function isSourceId(value: unknown): value is SourceId {
-  return (
-    typeof value === 'string' &&
-    ((SOURCE_IDS as readonly string[]).includes(value) || PLUGIN_SOURCE_ID.test(value))
-  )
+  return isBuiltInSourceId(value) || isPluginSourceId(value)
+}
+
+/**
+ * Whether `value` is one of the built-in {@link SOURCE_IDS}, spelled exactly. Use it to branch
+ * on a source: for a {@link SourceId}, `false` means a plugin source, which is exactly what
+ * TypeScript narrows it to.
+ */
+export function isBuiltInSourceId(value: unknown): value is BuiltInSourceId {
+  return typeof value === 'string' && (SOURCE_IDS as readonly string[]).includes(value)
 }
 
 /**
  * Whether `value` is a well-formed {@link PluginSourceId}: `plugin.` and a name of 1 to 63
  * lower-case ASCII letters, digits and hyphens that neither starts nor ends with a hyphen, such
- * as `plugin.radio-garden`.
+ * as `plugin.radio-garden`. Use it to check a name from untrusted input, such as a plugin's
+ * manifest.
+ *
+ * Do not branch on a source with it: the `PluginSourceId` type accepts any `plugin.` string, so
+ * `false` does not prove a built-in source, although TypeScript then narrows a `SourceId` to
+ * `BuiltInSourceId`. A malformed plugin source, such as `plugin.Radio` from untyped plugin code,
+ * would land there. {@link isBuiltInSourceId} is exact in both branches.
  */
 export function isPluginSourceId(value: unknown): value is PluginSourceId {
   return typeof value === 'string' && PLUGIN_SOURCE_ID.test(value)

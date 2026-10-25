@@ -7,6 +7,7 @@ import {
   type EntityKind,
   entityKey,
   formatId,
+  isBuiltInSourceId,
   isEntityId,
   isEntityKind,
   isPluginSourceId,
@@ -219,13 +220,54 @@ describe('plugin sources', () => {
     expectTypeOf<SourceId>().toEqualTypeOf<BuiltInSourceId | `plugin.${string}`>()
     expectTypeOf<PluginSourceId>().toEqualTypeOf<`plugin.${string}`>()
     const source = 'plugin.radio' as SourceId
-    if (isPluginSourceId(source)) expectTypeOf(source).toEqualTypeOf<PluginSourceId>()
-    else expectTypeOf(source).toEqualTypeOf<BuiltInSourceId>()
+    if (isBuiltInSourceId(source)) expectTypeOf(source).toEqualTypeOf<BuiltInSourceId>()
+    else expectTypeOf(source).toEqualTypeOf<PluginSourceId>()
     const stored: unknown = 'plugin.radio'
     if (isSourceId(stored)) expectTypeOf(stored).toEqualTypeOf<SourceId>()
+    if (isPluginSourceId(stored)) expectTypeOf(stored).toEqualTypeOf<PluginSourceId>()
     expectTypeOf(formatId('plugin.radio', 'track', 'x')).toEqualTypeOf<EntityId<'track'>>()
     // @ts-expect-error a plugin source needs the plugin. prefix
     expect(() => formatId('radio', 'track', 'x')).toThrow(RangeError)
+  })
+
+  it('takes a malformed plugin source that the type allows for neither kind', () => {
+    // The type accepts any plugin. string, as untyped plugin code may hand over.
+    const malformed: SourceId = 'plugin.Bad'
+    expect(isBuiltInSourceId(malformed)).toBe(false)
+    expect(isPluginSourceId(malformed)).toBe(false)
+    expect(isSourceId(malformed)).toBe(false)
+    expect(() => formatId(malformed, 'track', 'x')).toThrow(RangeError)
+  })
+})
+
+describe('isBuiltInSourceId', () => {
+  it.each(SOURCE_IDS)('knows the built-in source %s', (source) => {
+    expect(isBuiltInSourceId(source)).toBe(true)
+  })
+
+  it.each([
+    ...PLUGIN_SOURCES,
+    ...MALFORMED_PLUGIN_SOURCES.map(([source]) => source),
+    'jiosaavn',
+    'youtube',
+    'YTM',
+    'ytm ',
+    '',
+    'toString',
+    'constructor',
+    42,
+    null,
+    undefined,
+    { source: 'ytm' },
+  ])('rejects %j', (value) => {
+    expect(isBuiltInSourceId(value)).toBe(false)
+  })
+
+  it('splits every source into exactly one of the two kinds', () => {
+    for (const source of [...SOURCE_IDS, ...PLUGIN_SOURCES]) {
+      expect(isSourceId(source)).toBe(true)
+      expect(isBuiltInSourceId(source)).not.toBe(isPluginSourceId(source))
+    }
   })
 })
 
