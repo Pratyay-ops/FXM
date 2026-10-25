@@ -206,23 +206,31 @@ export interface HistoryRecord {
   context?: PlayContext
   /** What actually played. */
   stream?: StreamInfo
-  /** The import that brought it in (an `importProgress` ID), for plays from another service. */
+  /**
+   * The import that brought it in (an `importProgress` ID), for plays from another service.
+   * Indexed, so an import's plays can be removed (`forgetImportPlays`).
+   */
   importId?: string
 }
 
 /**
  * The listening affinity of one track, artist or tag (stage 3.1): a core `AffinityEntry`, kept
- * up to date by the repository with every play, like and playlist change. It is derived from
- * the history, the likes and the playlists, so backups leave it out and rebuild it.
+ * up to date by the repository with every play, like, playlist change and change of a track's
+ * metadata. It is derived from the history, the likes, the playlists and the track cache, so
+ * backups leave it out and rebuild it.
  */
 export interface AffinityRecord extends AffinityEntry {
-  /** `<kind>|<key>`, e.g. `artist|radiohead`: see `affinityId`. */
+  /** `<kind>|<key>`, e.g. `artist|radiohead`: see `affinityEntryId` in `@fxm/core`. */
   id: string
   /** `affinityRank(entry)`, indexed with the kind, so the top entries read straight off it. */
   rank: number
 }
 
-/** Reserved for settings that outgrow `localStorage`. Nothing uses it yet. */
+/**
+ * Settings that outgrow `localStorage`. The app's own settings stay there for now; the library
+ * keeps the version of the scoring model the listening affinity was built with here
+ * (`affinity.model`).
+ */
 export interface SettingRecord {
   /** Setting name. */
   key: string

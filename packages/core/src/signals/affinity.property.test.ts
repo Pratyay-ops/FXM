@@ -1,7 +1,8 @@
 /**
  * Property-style tests of the affinity: random histories of signals, applied in order, in a
  * random order and in separate batches merged afterwards, must all give the affinity of the
- * formula `Σ w · 2^(−(now − t) / halfLife)`, computed here from scratch.
+ * formula `Σ w · 2^(−(now − t) / halfLife)`, computed here from scratch. So must a history
+ * during which the tracks' metadata keeps changing, when every change is re-attributed.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -14,8 +15,10 @@ import {
   AffinityIndex,
   type AffinityKind,
   affinityAt,
+  affinityContributions,
+  affinityCredits,
   affinityRank,
-  signalContributions,
+  reattributeAffinity,
 } from './affinity'
 import type { ListeningSignal } from './signals'
 
@@ -85,7 +88,7 @@ function history(seed: number, count: number): ListeningSignal[] {
 function reference(signals: readonly ListeningSignal[], now: number) {
   const totals = new Map<string, { score: number; skips: number; plays: number }>()
   for (const signal of signals) {
-    for (const part of signalContributions(signal)) {
+    for (const part of affinityContributions(signal)) {
       const id = `${part.kind}|${part.key}`
       const total = totals.get(id) ?? { score: 0, skips: 0, plays: 0 }
       const fade = 2 ** (-(now - part.at) / AFFINITY_HALF_LIFE_MS)
@@ -194,4 +197,93 @@ describe('affinity properties', () => {
     both.add(fisherYatesShuffle([...plays, ...takenBack], random))
     expectSameScores(scoresAt(both.entries(), now), scoresAt(onlyPlays.entries(), now))
   })
+
+  it.each([31, 32, 33, 34, 35])(
+    'ends where the final metadata puts it, however the metadata changed (seed %i)',
+    (seed) => {
+      const random = createSeededRandom(seed)
+      const now = T0 + SPAN + DAY
+      const playlistId = formatId('local', 'playlist', 'p')
+      const index = new AffinityIndex({ now: () => now })
+      // The metadata of each track as it stands, and what the history still holds.
+      const tracks = trackPool(random).slice(0, 10)
+      const kept: ListeningSignal[] = []
+      const liked = new Map<number, number>()
+      const added = new Map<number, number>()
+      const metadata = (n: number): Track => {
+        const base = tracks[n] as Track
+        return {
+          ...base,
+          artists: [
+            { name: pick(random, ARTISTS) },
+            ...(random() < 0.5 ? [{ name: pick(random, ARTISTS) }] : []),
+          ],
+          tags: random() < 0.6 ? [pick(random, TAGS)] : [],
+          kind: random() < 0.1 ? 'video' : 'song',
+        }
+      }
+      for (let step = 0; step < 300; step++) {
+        const at = T0 + step * (SPAN / 300)
+        const n = Math.floor(random() * tracks.length)
+        const track = tracks[n] as Track
+        const roll = random()
+        if (roll < 0.2) {
+          const next = metadata(n)
+          const entry = index.get('track', track.id)
+          if (entry !== undefined) {
+            index.merge(reattributeAffinity(entry, affinityCredits(track), affinityCredits(next)))
+          }
+          tracks[n] = next
+        } else if (roll < 0.6) {
+          const signal: ListeningSignal = {
+            type: 'play',
+            at,
+            track,
+            playedMs: Math.floor(random() * 300_000),
+            durationMs: track.durationMs ?? 200_000,
+            completed: random() < 0.4,
+            skipped: random() < 0.5,
+          }
+          index.add(signal)
+          kept.push(signal)
+        } else if (roll < 0.8) {
+          const likedAt = liked.get(n)
+          if (likedAt === undefined) {
+            index.add({ type: 'like', at, track })
+            liked.set(n, at)
+          } else {
+            index.add({ type: 'unlike', at, likedAt, track })
+            liked.delete(n)
+          }
+        } else {
+          const addedAt = added.get(n)
+          if (addedAt === undefined) {
+            index.add({ type: 'playlist-add', at, track, playlistId })
+            added.set(n, at)
+          } else {
+            index.add({ type: 'playlist-remove', at, addedAt, track, playlistId })
+            added.delete(n)
+          }
+        }
+      }
+      // From scratch: what is left of the history, every signal with the final metadata.
+      const latest = (signal: ListeningSignal) =>
+        tracks.find((one) => one.id === signal.track.id) as Track
+      const final: ListeningSignal[] = [
+        ...kept.map((signal) => ({ ...signal, track: latest(signal) })),
+        ...[...liked].map(
+          ([n, at]): ListeningSignal => ({ type: 'like', at, track: tracks[n] as Track }),
+        ),
+        ...[...added].map(
+          ([n, at]): ListeningSignal => ({
+            type: 'playlist-add',
+            at,
+            track: tracks[n] as Track,
+            playlistId,
+          }),
+        ),
+      ]
+      expectSameScores(scoresAt(index.entries(), now), reference(final, now))
+    },
+  )
 })

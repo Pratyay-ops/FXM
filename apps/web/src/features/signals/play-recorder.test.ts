@@ -3,7 +3,7 @@ import { Player, type PlayerOptions } from '@fxm/player'
 import { FakeEngine, FakeResolver, testStream, testTrack } from '@fxm/player/testing'
 import { describe, expect, it, vi } from 'vitest'
 import type { NewPlay } from '../../db/repo'
-import { getLibrary } from '../../db/repo'
+import { getLibrary, resetLibrary } from '../../db/repo'
 import { testRepo } from '../../test/library-fixtures'
 import { connectPlayRecorder, MIN_RECORDED_PLAY_MS, PLAY_OUTCOMES } from './play-recorder'
 
@@ -322,6 +322,8 @@ describe('plays in the library', () => {
   })
 
   it('go to the app’s library by default, loading it on the first play', async () => {
+    // The library refuses plays from the future, so its clock is the test's.
+    await resetLibrary({ now: () => T0 + HOUR })
     const { player, listen, now } = setup({}, false)
     connectPlayRecorder(player, { now, pageEvents: null })
     await player.setQueue([a, b])

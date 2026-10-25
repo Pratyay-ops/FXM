@@ -101,9 +101,11 @@ export interface Track {
    */
   externalIds?: Partial<Record<SourceId, string>>
   /**
-   * Genre and style tags as the source spells them, when it has any, e.g. Jamendo's genres, an
-   * Internet Archive item's subjects, a local file's genre or Last.fm's tags: `['Hip-Hop',
-   * 'lo-fi']`. The listening signals score each tag (see `tagAffinityKey`).
+   * Descriptive tags as the source spells them, when it has any: genres, styles and moods, e.g.
+   * Jamendo's genres, an Internet Archive item's subjects, a local file's genre or Last.fm's
+   * tags: `['Hip-Hop', 'lo-fi']`. Never what sets one recording of a song apart ("Live",
+   * "Remix", "Acoustic"): those are version tags, which `extractVersionTags` reads from titles.
+   * The listening affinity scores each tag (see `tagAffinityKey`).
    */
   tags?: string[]
 }

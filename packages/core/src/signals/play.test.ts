@@ -2,7 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { formatId } from '../ids'
 import type { Track } from '../model'
 import type { AudioCandidate, StreamOption } from '../providers'
-import { ASSUMED_TRACK_MS, playContextOf, playedShare, playStreamOf } from './play'
+import {
+  ASSUMED_TRACK_MS,
+  COMPLETED_PLAY_SHARE,
+  playContextOf,
+  playedShare,
+  playStreamOf,
+} from './play'
 
 const song: Track = {
   id: formatId('ytm', 'track', 'song1'),
@@ -51,8 +57,20 @@ describe('playedShare', () => {
     expect(playedShare({ playedMs: 0, durationMs: 200_000, completed: false })).toBe(0)
   })
 
-  it('counts a completed play as all of it, also after a seek towards the end', () => {
-    expect(playedShare({ playedMs: 3_000, durationMs: 200_000, completed: true })).toBe(1)
+  it('counts a completed play as all of it, when it played at least half', () => {
+    expect(COMPLETED_PLAY_SHARE).toBe(0.5)
+    expect(playedShare({ playedMs: 100_000, durationMs: 200_000, completed: true })).toBe(1)
+    expect(playedShare({ playedMs: 190_000, durationMs: 200_000, completed: true })).toBe(1)
+  })
+
+  it('counts a completed play that was sought to the end by what it played', () => {
+    expect(playedShare({ playedMs: 3_000, durationMs: 200_000, completed: true })).toBe(0.015)
+    expect(playedShare({ playedMs: 99_000, durationMs: 200_000, completed: true })).toBe(0.495)
+  })
+
+  it('trusts a completed play of unknown length, as in an imported history', () => {
+    expect(playedShare({ playedMs: 3_000, completed: true })).toBe(1)
+    expect(playedShare({ playedMs: 3_000, durationMs: Number.NaN, completed: true })).toBe(1)
   })
 
   it('never counts more than all of it, e.g. after seeking back', () => {
