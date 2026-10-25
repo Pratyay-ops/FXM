@@ -117,43 +117,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           BRANCH: ${{ github.ref_name }}
+          # TEMPORARY (stage 2.8): the stage branch deploys to a throwaway project, because
+          # Cloudflare refuses to create fxm-music for now. Removed before merging.
+          FXM_PAGES_PROJECT: ${{ github.ref == 'refs/heads/ci/2.8-deploy' && 'fxm-music-stage-check' || '' }}
         run: scripts/build-dist-wrangler/deploy.sh "$BRANCH"
-
-      # TEMPORARY (stage 2.8): why the project can't be created. Prints only each call's status,
-      # cf-ray and errors, and deletes the probe project it creates. Removed before merging.
-      - name: Diagnose project creation
-        if: failure() && steps.deploy.outcome == 'failure'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          base="https://api.cloudflare.com/client/v4"
-          projects="$base/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects"
-          call() {
-            local label=$1 status ray
-            shift
-            status=$(curl -sS -D "$RUNNER_TEMP/headers" -o "$RUNNER_TEMP/body" -w '%{http_code}' \
-              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json' "$@" || true)
-            ray=$(grep -i '^cf-ray:' "$RUNNER_TEMP/headers" | tr -d '\r' | cut -d' ' -f2)
-            echo "$label: HTTP $status, cf-ray $ray"
-            node -e '
-              let body
-              try {
-                body = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))
-              } catch {
-                console.log("(the body is not JSON)")
-                process.exit(0)
-              }
-              console.log(JSON.stringify({ success: body.success, errors: body.errors, messages: body.messages }))
-            ' "$RUNNER_TEMP/body" || true
-          }
-          probe="fxm-probe-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          call "verify the token" "$base/user/tokens/verify"
-          call "get fxm-music" "$projects/fxm-music"
-          call "get the Worker fxm-music" "$base/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/fxm-music"
-          call "create fxm-music" -X POST --data '{"name":"fxm-music","production_branch":"main"}' "$projects"
-          call "create $probe" -X POST --data "{\"name\":\"$probe\",\"production_branch\":\"main\"}" "$projects"
-          call "delete $probe" -X DELETE "$projects/$probe"
 
       - name: Summary
         env:

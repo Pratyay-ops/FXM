@@ -7,15 +7,16 @@
 #   deploy.sh <branch>   main deploys to production (fxm-music.pages.dev); any other branch to
 #                        its preview alias, such as develop.fxm-music.pages.dev
 #
-# It creates the project, with main as its production branch, when it doesn't exist yet. With
-# GITHUB_OUTPUT set, it writes the deployment's url and alias there. Install wrangler first:
-# scripts/run.sh pnpm install --frozen-lockfile --dir scripts/build-dist-wrangler
+# It creates the project, with main as its production branch, when it doesn't exist yet.
+# FXM_PAGES_PROJECT names another project, to try the pipeline without touching fxm-music. With
+# GITHUB_OUTPUT set, it writes the deployment's url, alias and environment there. Install
+# wrangler first: scripts/run.sh pnpm install --frozen-lockfile --dir scripts/build-dist-wrangler
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 source "$here/../env.sh"
 source "$here/../lib.sh"
 
-PROJECT=fxm-music
+PROJECT=${FXM_PAGES_PROJECT:-fxm-music}
 PRODUCTION_BRANCH=main
 
 branch=${1:-}
@@ -50,7 +51,11 @@ case $status in
   0) fxm_info "Cloudflare Pages project $PROJECT exists" ;;
   1)
     fxm_info "Creating the Cloudflare Pages project $PROJECT (production branch $PRODUCTION_BRANCH)"
-    node "$wrangler" pages project create "$PROJECT" --production-branch "$PRODUCTION_BRANCH"
+    if ! node "$wrangler" pages project create "$PROJECT" --production-branch "$PRODUCTION_BRANCH"; then
+      # Measured 2026-10-25: other names worked on the same account and token, only this one
+      # failed, with "An unknown error occurred [code: 8000000]".
+      fxm_die "Cloudflare refused to create the Pages project $PROJECT. Code 8000000 while the account can create other projects most likely means the name is taken inside the account, by a Worker named $PROJECT or by a deleted Pages project of that name. Check Workers & Pages in the Cloudflare dashboard, or ask Cloudflare support to release the name."
+    fi
     ;;
   *) fxm_die "couldn't read wrangler's project list: $projects" ;;
 esac
