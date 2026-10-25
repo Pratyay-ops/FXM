@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  albumVersionTags,
   artistSimilarity,
   cleanArtistName,
   isClassicalTitle,
@@ -8,6 +9,8 @@ import {
   sameArtist,
   splitArtistNames,
   stripArtistPrefix,
+  tagKind,
+  versionCovered,
 } from './prepare'
 
 describe('cleanArtistName and splitArtistNames', () => {
@@ -135,25 +138,34 @@ describe('prepareTitle', () => {
   it('takes version tags from qualifiers and the album, never from the title proper', () => {
     expect(prepareTitle('Live Forever', ['Oasis']).versions.size).toBe(0)
     const unplugged = prepareTitle('About a Girl', ['Nirvana'], 'MTV Unplugged in New York')
-    expect([...unplugged.versions]).toEqual([['live', 'strong']])
+    expect([...unplugged.versions]).toEqual([['unplugged', 'strong']])
     const live = prepareTitle('About A Girl (Live)', ['Nirvana'], 'MTV Unplugged In New York')
-    expect([...live.versions]).toEqual([['live', 'strong']])
+    expect([...live.versions]).toEqual([
+      ['live', 'strong'],
+      ['unplugged', 'strong'],
+    ])
   })
 
-  it('groups tags into families and keeps the strongest level', () => {
+  it('keeps every tag with its strongest level', () => {
     const remaster = prepareTitle('Hotel California - 2013 Remaster', [], 'Hotel California')
     expect([...remaster.versions]).toEqual([['remaster', 'soft']])
     const edits = prepareTitle('Song (Radio Edit) [Single Version]', [])
-    expect([...edits.versions]).toEqual([['edit', 'medium']])
+    expect([...edits.versions]).toEqual([
+      ['radio edit', 'medium'],
+      ['single edit', 'medium'],
+    ])
     const takes = prepareTitle('Song (Take 3)', [])
-    expect([...takes.versions]).toEqual([['demo', 'strong']])
+    expect([...takes.versions]).toEqual([['take 3', 'strong']])
     const telugu = prepareTitle('Srivalli (Telugu)', [])
     expect([...telugu.versions]).toEqual([['telugu version', 'strong']])
     expect([...prepareTitle('Song (Sped Up)', []).versions]).toEqual([['sped up', 'strong']])
-    expect([...prepareTitle('Song (Slowed + Reverb)', []).versions]).toEqual([['slowed', 'strong']])
+    expect([...prepareTitle('Song (Slowed + Reverb)', []).versions]).toEqual([
+      ['slowed', 'strong'],
+      ['reverb', 'strong'],
+    ])
   })
 
-  it('names the remixer of a remix', () => {
+  it('names the remixer and the kind of mix of a remix', () => {
     const cg = prepareTitle(
       'Summertime Sadness (Lana Del Rey Vs. Cedric Gervais) (Cedric Gervais Remix)',
       ['Lana Del Rey'],
@@ -162,6 +174,61 @@ describe('prepareTitle', () => {
     expect(cg.remixDetail).toBe('cedric gervais')
     expect(prepareTitle('Song (Remix)', []).remixDetail).toBe('')
     expect(prepareTitle('Song (Live)', []).remixDetail).toBe('')
+    expect(prepareTitle('Strobe (Club Mix)', []).remixDetail).toBe('club')
+    expect(prepareTitle('Strobe (VIP Mix)', []).remixDetail).toBe('vip')
+  })
+})
+
+describe('albumVersionTags', () => {
+  it.each([
+    ['Magical Mystery Tour (Remastered)', [['remaster', 'soft']]],
+    ['Live Through This', []],
+    ['LONG.LIVE.A$AP', []],
+    ['Long Live', []],
+    ['Stripped', []],
+    ['Sessions', []],
+    ['Performance and Cocktails', []],
+  ])('reads %j as a studio album', (album, tags) => {
+    expect([...albumVersionTags(album)]).toEqual(tags)
+  })
+
+  it.each([
+    ['MTV Unplugged in New York', [['unplugged', 'strong']]],
+    ['Live 2003', [['live', 'strong']]],
+    ['Live', [['live', 'strong']]],
+    ['Hysteria Live', [['live', 'strong']]],
+    ['Live at Wembley Stadium', [['live', 'strong']]],
+    [
+      'Live from the Eras Tour',
+      [
+        ['live', 'strong'],
+        ['tour', 'strong'],
+      ],
+    ],
+    ['Hotel California (Live)', [['live', 'strong']]],
+    ['Songs - Stripped', [['stripped', 'strong']]],
+  ])('reads %j as a version', (album, tags) => {
+    expect([...albumVersionTags(album)]).toEqual(tags)
+  })
+})
+
+describe('tag kinds', () => {
+  it('sorts tags into families, generic or specific', () => {
+    expect(tagKind('live')).toEqual({ family: 'live', specific: false })
+    expect(tagKind('unplugged')).toEqual({ family: 'live', specific: true })
+    expect(tagKind('take 3')).toEqual({ family: 'demo', specific: true })
+    expect(tagKind('telugu version')).toEqual({ family: 'telugu version', specific: false })
+    expect(tagKind('toString')).toEqual({ family: 'toString', specific: false })
+  })
+
+  it('lets a generic tag meet any tag of its family, and a specific tag only itself', () => {
+    const tags = (...names: string[]) => new Map(names.map((name) => [name, 'strong' as const]))
+    expect(versionCovered('live', tags('unplugged'))).toBe(true)
+    expect(versionCovered('unplugged', tags('live'))).toBe(false)
+    expect(versionCovered('take 2', tags('take 3'))).toBe(false)
+    expect(versionCovered('club mix', tags('vip mix'))).toBe(false)
+    expect(versionCovered('radio edit', tags('single edit'))).toBe(true)
+    expect(versionCovered('remix', tags('live'))).toBe(false)
   })
 })
 
@@ -173,14 +240,32 @@ describe('isClassicalTitle', () => {
     'Eine kleine Nachtmusik, K. 525',
     'Goldberg Variations, BWV 988: Aria',
     'Requiem in D minor',
+    'Prelude in C',
+    'Waltz No. 2',
+    'Nocturnes, Op. 9',
   ])('reads %j as classical', (title) => {
     expect(isClassicalTitle(title)).toBe(true)
   })
 
-  it.each(['Blinding Lights', 'Top 40', 'Hop 2 It', 'Hotel California'])(
-    'reads %j as popular',
-    (title) => {
-      expect(isClassicalTitle(title)).toBe(false)
-    },
-  )
+  it.each([
+    'Blinding Lights',
+    'Top 40',
+    'Hop 2 It',
+    'Hotel California',
+    'Symphony (feat. Zara Larsson)',
+    'Prelude',
+    'Prelude 12/21',
+    'Requiem',
+    'Overture',
+    'Suite: Judy Blue Eyes',
+    'Adagio For Strings',
+    'Largo',
+    'Rondo',
+    'Presto',
+    'Allegro',
+    'Sonata Arctica',
+    'Bohemian Rhapsody',
+  ])('reads %j as popular', (title) => {
+    expect(isClassicalTitle(title)).toBe(false)
+  })
 })

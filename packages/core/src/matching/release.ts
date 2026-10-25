@@ -6,11 +6,20 @@
  */
 
 import { normalizeText, splitTitle } from '../text'
-import { diceSimilarity, textTokens } from './similarity'
+import { cleanArtistName } from './prepare'
+import { compactText, diceSimilarity, textTokens } from './similarity'
 import type { ReleaseFacts } from './types'
 
-/** How closely a candidate's album matches the source's. */
-export type AlbumMatchLevel = 'exact' | 'core' | 'none'
+/**
+ * How closely a candidate's album matches the source's:
+ *
+ * - `exact` and `core`: the same release by name. Only these tie a candidate to the source's
+ *   release (the re-recording guard, the measured fallback, the classical guard) and count as
+ *   `MatchSignals.sourceAlbumMatch`
+ * - `similar`: a name close enough to prefer among equal scores, and nothing more
+ * - `none`: anything else, or a name missing
+ */
+export type AlbumMatchLevel = 'exact' | 'core' | 'similar' | 'none'
 
 /** A ": Deluxe Edition"-style ending that names an edition of the same album. */
 const EDITION_SUFFIX =
@@ -26,15 +35,62 @@ export function albumCore(name: string): string {
 }
 
 /**
+ * Words that name an edition of an album rather than another album, as in "Thriller 25 Super
+ * Deluxe Edition" or "OK Computer OKNOTOK 1997 2017": numbers and years, and edition words.
+ */
+const EDITION_WORD =
+  /^(?:\d+(?:st|nd|rd|th)?|deluxe|super|edition|expanded|remaster(?:ed)?|anniversary|collectors?|special|legacy|bonus|tracks?|version|reissue|definitive|mono|stereo)$/u
+
+/** Whether `words` are an artist's name, a leading "the" aside: a self-titled album. */
+function isArtistName(words: readonly string[], artists: readonly string[]): boolean {
+  const name = words.join(' ').replace(/^the /u, '')
+  return artists.some(
+    (artist) => textTokens(cleanArtistName(artist)).join(' ').replace(/^the /u, '') === name,
+  )
+}
+
+/**
+ * The level of two album names when the longer starts with all the shorter's words: `core` for
+ * a reissue (the extra words are years, numbers or edition words, with at most one other word,
+ * as in "OKNOTOK 1997 2017") of an album not named after its artist, `similar` for any other
+ * extension that is not a compilation title, `none` otherwise.
+ */
+function prefixLevel(
+  shorter: readonly string[],
+  longer: readonly string[],
+  artists: readonly string[],
+): AlbumMatchLevel {
+  const distinctive = shorter.length >= 2 || shorter.join('').length >= 8
+  if (!distinctive || !shorter.every((word, i) => longer[i] === word)) return 'none'
+  if (isGenericAlbum(longer.join(' '))) return 'none'
+  const extra = longer.slice(shorter.length).filter((word) => word.length > 1)
+  const editions = extra.filter((word) => EDITION_WORD.test(word)).length
+  const reissue = editions > 0 && extra.length - editions <= 1
+  return reissue && !isArtistName(shorter, artists) ? 'core' : 'similar'
+}
+
+/**
  * How closely two album names match:
  *
  * - `exact`: equal once normalized
- * - `core`: equal without edition qualifiers ("Hysteria" and "Hysteria (Super Deluxe)"), one
- *   starting with the other's words when that has two words or eight letters ("OK Computer" and
- *   "OK Computer OKNOTOK 1997 2017"), or Dice of at least 0.9
+ * - `core`: equal without edition qualifiers ("Hysteria" and "Hysteria (Super Deluxe)"), with
+ *   the same letters and digits ("Six Evolutions: Bach Cello Suites" and "Six Evolutions - Bach:
+ *   Cello Suites"), or a reissue named after the album ("OK Computer" and "OK Computer OKNOTOK
+ *   1997 2017"), unless the album is named after its artist (see `artists`)
+ * - `similar`: one starting with all the other's words, when those are two words or eight
+ *   letters and the longer name is not a compilation title ("The Everly Brothers" and "The
+ *   Everly Brothers Sing", but not "The Everly Brothers' Golden Hits"), or Dice of at least 0.9
+ *   ("Greatest Hits" and "Greatest Hitz")
  * - `none`: anything else, or a name missing
+ *
+ * @param artists The source's artists: an album named after one of them ("The Everly Brothers")
+ * starts the names of many compilations, so a longer name never counts as its reissue.
  */
-export function albumMatchLevel(a: string | undefined, b: string | undefined): AlbumMatchLevel {
+export function albumMatchLevel(
+  a: string | undefined,
+  b: string | undefined,
+  artists: readonly string[] = [],
+): AlbumMatchLevel {
   if (a === undefined || b === undefined) return 'none'
   const left = normalizeText(a)
   const right = normalizeText(b)
@@ -43,29 +99,39 @@ export function albumMatchLevel(a: string | undefined, b: string | undefined): A
   const leftCore = albumCore(a)
   const rightCore = albumCore(b)
   if (leftCore === '' || rightCore === '') return 'none'
-  if (leftCore === rightCore) return 'core'
+  const leftCompact = compactText(leftCore)
+  if (leftCore === rightCore || (leftCompact !== '' && leftCompact === compactText(rightCore))) {
+    return 'core'
+  }
   const leftWords = textTokens(leftCore)
   const rightWords = textTokens(rightCore)
   const [shorter, longer] =
     leftWords.length <= rightWords.length ? [leftWords, rightWords] : [rightWords, leftWords]
-  const distinctive = shorter.length >= 2 || shorter.join('').length >= 8
-  if (distinctive && shorter.every((word, i) => longer[i] === word)) return 'core'
-  return diceSimilarity(leftCore, rightCore) >= 0.9 ? 'core' : 'none'
+  const prefix = prefixLevel(shorter, longer, artists)
+  if (prefix !== 'none') return prefix
+  return diceSimilarity(leftCore, rightCore) >= 0.9 ? 'similar' : 'none'
+}
+
+/** Whether a match level names the same release (`exact` or `core`, see {@link AlbumMatchLevel}). */
+export function isSameRelease(level: AlbumMatchLevel): boolean {
+  return level === 'exact' || level === 'core'
 }
 
 /** The rank of a match level, for comparing them. */
 export function albumMatchRank(level: AlbumMatchLevel): number {
-  return level === 'exact' ? 2 : level === 'core' ? 1 : 0
+  return level === 'exact' ? 3 : level === 'core' ? 2 : level === 'similar' ? 1 : 0
 }
 
 /**
- * Album names that many releases share, such as "The Very Best of The Everly Brothers" or
- * "Greatest Hits": a match on one says nothing about which release, or recording, it is.
+ * Album names that many releases share, the phrases of compilations such as "The Very Best of
+ * The Everly Brothers", "Greatest Hits" or "Golden Hits of 1961": a match on one says nothing
+ * about which release, or recording, it is. Words that name studio albums too stay out ("Golden
+ * Hour", "Platinum", "Classic", "Selected Ambient Works 85-92", "Singles").
  */
 const GENERIC_ALBUM =
-  /(?<![\p{L}\p{N}])(?:best|greatest|hits|collection|essentials?|anthology|gold|golden|classics?|legends?|legendary|favou?rites|definitive|ultimate|platinum|number ones|retrospective|masters|all time|complete|treasury|portrait|the very|selected|singles|jukebox|oldies|years)(?![\p{L}\p{N}])/u
+  /(?<![\p{L}\p{N}])(?:greatest hits|best of|very best|hits|collection|essentials?|anthology|oldies|classics|number ones|retrospective|the complete|jukebox|the singles|favou?rites|compilation)(?![\p{L}\p{N}])/u
 
-/** Whether an album name is a generic compilation title (see {@link GENERIC_ALBUM}). */
+/** Whether an album name is a compilation title (see {@link GENERIC_ALBUM}). */
 export function isGenericAlbum(name: string): boolean {
   return GENERIC_ALBUM.test(normalizeText(name))
 }
@@ -177,6 +243,33 @@ export function compareYears(
   if (candidateYear === sourceYear) return 'match'
   if (candidateYear <= sourceYear - 2) return 'conflict'
   return 'later'
+}
+
+/** A year as a release year: a whole number with four digits. */
+function isReleaseYear(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1000 && value <= 9999
+}
+
+/** A label name worth keeping: a string with something but whitespace in it. */
+function labelText(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+}
+
+/**
+ * Valid {@link ReleaseFacts} from a provider's answer: labels that are non-empty strings and a
+ * four-digit year; anything else is left out, so a malformed entry says nothing rather than
+ * something wrong.
+ */
+export function sanitizeReleaseFacts(value: unknown): ReleaseFacts {
+  const given =
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+  const facts: ReleaseFacts = {}
+  const label = labelText(given.label)
+  if (label !== undefined) facts.label = label
+  const providedBy = labelText(given.providedBy)
+  if (providedBy !== undefined) facts.providedBy = providedBy
+  if (isReleaseYear(given.releaseYear)) facts.releaseYear = given.releaseYear
+  return facts
 }
 
 /**

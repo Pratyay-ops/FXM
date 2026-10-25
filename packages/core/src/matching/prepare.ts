@@ -7,98 +7,183 @@
  * @module
  */
 
-import { extractVersionTags, normalizeText, splitTitle, stripPresentationNoise } from '../text'
+import {
+  extractVersionTags,
+  normalizeText,
+  splitTitle,
+  stripPresentationNoise,
+  type VersionTags,
+} from '../text'
 import { containsWords, diceSimilarity, textTokens } from './similarity'
 
 /** How far apart two versions of a song are, as `extractVersionTags` grades them. */
-export type VersionLevel = 'strong' | 'medium' | 'soft'
+export type VersionLevel = keyof VersionTags
+
+/** A version tag's place among the others (see {@link VERSION_TAGS}). */
+interface TagKind {
+  /** The kind of version it names, e.g. `live` for "unplugged". */
+  family: string
+  /** Whether it names one version of that kind (`unplugged`), not only the kind (`live`). */
+  specific: boolean
+}
 
 /**
- * Version tags that name the same kind of version, so "Live" on one side and "MTV Unplugged" on
- * the other are not a mismatch. Tags not listed are their own family.
+ * Version tags that name a kind of version another tag also names, by family. A family's
+ * generic tags name the kind only ("live", "concert"); its specific tags name one version of
+ * that kind ("unplugged", "Tiny Desk", "take 3"). A generic tag is matched by any tag of its
+ * family on the other side, so "(Live)" against an unplugged album is not a mismatch; a specific
+ * tag only by the same tag, so "Tiny Desk" against "Live", "Take 2" against "Take 3" and "Club
+ * Mix" against "VIP Mix" are. Tags not listed are a family of their own, and generic.
  */
-const VERSION_FAMILIES: Readonly<Record<string, string>> = {
-  live: 'live',
-  unplugged: 'live',
-  concert: 'live',
-  tour: 'live',
-  festival: 'live',
-  session: 'live',
-  performance: 'live',
-  'tiny desk': 'live',
-  remix: 'remix',
-  rework: 'remix',
-  bootleg: 'remix',
-  'club mix': 'remix',
-  'dub mix': 'remix',
-  'vip mix': 'remix',
-  extended: 'extended',
-  '12" version': 'extended',
-  cover: 'cover',
-  karaoke: 'cover',
-  tribute: 'cover',
-  'originally performed by': 'cover',
-  'in the style of': 'cover',
-  'made famous by': 'cover',
-  instrumental: 'instrumental',
-  'backing track': 'instrumental',
-  'minus one': 'instrumental',
-  'off vocal': 'instrumental',
-  acoustic: 'acoustic',
-  stripped: 'acoustic',
-  'piano version': 'acoustic',
-  orchestral: 'orchestral',
-  symphonic: 'orchestral',
-  'sped up': 'sped up',
-  nightcore: 'sped up',
-  slowed: 'slowed',
-  reverb: 'slowed',
-  daycore: 'slowed',
-  chopped: 'chopped',
-  screwed: 'chopped',
-  demo: 'demo',
-  rehearsal: 'demo',
-  outtake: 'demo',
-  'alternate take': 'demo',
-  'early version': 'demo',
-  "taylor's version": 're-recorded',
-  're-recorded': 're-recorded',
-  'recorded at': 're-recorded',
-  // Every medium tag is a different edit of the same recording; the duration tells edits apart.
-  'radio edit': 'edit',
-  'single edit': 'edit',
-  'short edit': 'edit',
-  'clean edit': 'edit',
-  'video edit': 'edit',
-  'tv edit': 'edit',
-  'tv size': 'edit',
-  edit: 'edit',
+const VERSION_TAGS: Readonly<Record<string, TagKind>> = {
+  live: { family: 'live', specific: false },
+  concert: { family: 'live', specific: false },
+  performance: { family: 'live', specific: false },
+  unplugged: { family: 'live', specific: true },
+  'tiny desk': { family: 'live', specific: true },
+  session: { family: 'live', specific: true },
+  tour: { family: 'live', specific: true },
+  festival: { family: 'live', specific: true },
+  remix: { family: 'remix', specific: false },
+  rework: { family: 'remix', specific: false },
+  bootleg: { family: 'remix', specific: false },
+  'club mix': { family: 'remix', specific: true },
+  'dub mix': { family: 'remix', specific: true },
+  'vip mix': { family: 'remix', specific: true },
+  extended: { family: 'extended', specific: false },
+  '12" version': { family: 'extended', specific: true },
+  cover: { family: 'cover', specific: false },
+  tribute: { family: 'cover', specific: false },
+  'originally performed by': { family: 'cover', specific: false },
+  'in the style of': { family: 'cover', specific: false },
+  'made famous by': { family: 'cover', specific: false },
+  karaoke: { family: 'cover', specific: true },
+  instrumental: { family: 'instrumental', specific: false },
+  'backing track': { family: 'instrumental', specific: false },
+  'minus one': { family: 'instrumental', specific: false },
+  'off vocal': { family: 'instrumental', specific: false },
+  acoustic: { family: 'acoustic', specific: false },
+  stripped: { family: 'acoustic', specific: true },
+  'piano version': { family: 'acoustic', specific: true },
+  orchestral: { family: 'orchestral', specific: false },
+  symphonic: { family: 'orchestral', specific: false },
+  'sped up': { family: 'sped up', specific: false },
+  nightcore: { family: 'sped up', specific: true },
+  slowed: { family: 'slowed', specific: false },
+  reverb: { family: 'slowed', specific: false },
+  daycore: { family: 'slowed', specific: true },
+  chopped: { family: 'chopped', specific: false },
+  screwed: { family: 'chopped', specific: false },
+  demo: { family: 'demo', specific: false },
+  rehearsal: { family: 'demo', specific: true },
+  outtake: { family: 'demo', specific: true },
+  'alternate take': { family: 'demo', specific: true },
+  'early version': { family: 'demo', specific: true },
+  're-recorded': { family: 're-recorded', specific: false },
+  "taylor's version": { family: 're-recorded', specific: true },
+  'recorded at': { family: 're-recorded', specific: true },
+  // A radio edit and a single version are usually the same edit; the duration tells them apart
+  // when they are not. The other edits are edits of their own.
+  edit: { family: 'edit', specific: false },
+  'radio edit': { family: 'edit', specific: false },
+  'single edit': { family: 'edit', specific: false },
+  'short edit': { family: 'edit', specific: true },
+  'clean edit': { family: 'edit', specific: true },
+  'video edit': { family: 'edit', specific: true },
+  'tv edit': { family: 'edit', specific: true },
+  'tv size': { family: 'edit', specific: true },
 }
 
-/** The family of a version tag, e.g. `live` for "unplugged" and `demo` for "take 3". */
-function familyOf(tag: string): string {
-  if (Object.hasOwn(VERSION_FAMILIES, tag)) return VERSION_FAMILIES[tag] ?? tag
-  if (/^take \d+$/u.test(tag)) return 'demo'
-  return tag
-}
-
-/** The version families in a text, each with its level (the strongest wins). */
-function versionFamilies(text: string): Map<string, VersionLevel> {
-  const families = new Map<string, VersionLevel>()
-  if (text.trim() === '') return families
-  const tags = extractVersionTags(text)
-  for (const level of ['strong', 'medium', 'soft'] as const) {
-    for (const tag of tags[level]) {
-      const family = familyOf(tag)
-      if (!families.has(family)) families.set(family, level)
-    }
+/** The family of a version tag and whether it is specific, e.g. `demo`, specific, for "take 3". */
+export function tagKind(tag: string): TagKind {
+  if (Object.hasOwn(VERSION_TAGS, tag)) {
+    const kind = VERSION_TAGS[tag]
+    if (kind !== undefined) return kind
   }
-  return families
+  if (/^take \d+$/u.test(tag)) return { family: 'demo', specific: true }
+  return { family: tag, specific: false }
 }
 
-/** Words that say "remix" without naming whose: what is left names the remixer. */
+/**
+ * Whether a version tag of one title is matched by the tags of another: by the same tag, or, for
+ * a generic tag, by any tag of its family (see {@link VERSION_TAGS}).
+ */
+export function versionCovered(tag: string, others: ReadonlyMap<string, VersionLevel>): boolean {
+  if (others.has(tag)) return true
+  const { family, specific } = tagKind(tag)
+  if (specific) return false
+  for (const other of others.keys()) if (tagKind(other).family === family) return true
+  return false
+}
+
+/** Whether any tag is of the remix family ("Remix", "Club Mix", "Rework"…). */
+export function hasRemixTag(versions: ReadonlyMap<string, VersionLevel>): boolean {
+  for (const tag of versions.keys()) if (tagKind(tag).family === 'remix') return true
+  return false
+}
+
+/** The version tags in a text, each with its level (the strongest wins). */
+function versionTags(text: string): Map<string, VersionLevel> {
+  const tags = new Map<string, VersionLevel>()
+  if (text.trim() === '') return tags
+  const found = extractVersionTags(text)
+  for (const level of ['strong', 'medium', 'soft'] as const) {
+    for (const tag of found[level]) if (!tags.has(tag)) tags.set(tag, level)
+  }
+  return tags
+}
+
+/**
+ * Tags whose words also name studio albums: "Magical Mystery Tour", "Sessions", "Stripped",
+ * "Performance and Cocktails". An album's name carries them only in a bracket or a dash suffix
+ * ("Hotel California (Live)"), or when its name reads as a live recording ({@link LIVE_ALBUM}).
+ */
+const ALBUM_TITLE_TAGS: ReadonlySet<string> = new Set([
+  'tour',
+  'festival',
+  'session',
+  'stripped',
+  'performance',
+])
+
+/** An album name that reads as a live recording: "Live", "Live 2003", "Live at Wembley"… */
+const LIVE_ALBUM =
+  /^live(?: \d{4}(?!\p{N}).*)?$|(?:^|\s)live (?:at|in|from|on|@)\s|^(?:recorded|performed) live(?:\s|$)/u
+
+/**
+ * "Live" in an album's name that is not a live recording: a name that starts with "Live" and
+ * another word ("Live Through This", "Live Forever"), and "Long Live" ("LONG.LIVE.A$AP").
+ * Elsewhere ("Hysteria Live", "Live 2003") an album's "Live" counts.
+ */
+const NOT_LIVE_ALBUM =
+  /^live (?!(?:at|in|from|on|for|with|@)\s|\d)|(?:^|[^\p{L}\p{N}])long[\s.]+live(?![\p{L}\p{N}])/u
+
+/**
+ * The version tags of an album name: every tag in its brackets and dash suffixes, and those of
+ * its name proper except the words that also name studio albums ({@link ALBUM_TITLE_TAGS},
+ * {@link NOT_LIVE_ALBUM}), unless the name reads as a live recording. So "MTV Unplugged in New
+ * York" and "Live 2003" are live, while "Magical Mystery Tour (Remastered)" is only remastered
+ * and "Live Through This" is nothing.
+ */
+export function albumVersionTags(album: string): Map<string, VersionLevel> {
+  const parts = splitTitle(normalizeText(stripPresentationNoise(album)))
+  const tags = versionTags(parts.qualifiers.map(normalizeText).join(' | '))
+  const core = normalizeText(parts.core)
+  const live = LIVE_ALBUM.test(core)
+  for (const [tag, level] of versionTags(core)) {
+    if (!live && ALBUM_TITLE_TAGS.has(tag)) continue
+    if (!live && tag === 'live' && NOT_LIVE_ALBUM.test(core)) continue
+    if (!tags.has(tag)) tags.set(tag, level)
+  }
+  return tags
+}
+
+/**
+ * Words that say "remix" without naming whose: what is left names the remixer, plus the kind of
+ * mix ("club", "vip", "dub"), which tells mixes by the same remixer apart.
+ */
 const REMIX_WORDS =
-  /(?<![\p{L}\p{N}])(?:re-?mix(?:es|ed)?|rmx|mix|edit|version|extended|radio|club|original|official|feat|ft|featuring|by|the|vip|dub|re-?work(?:ed)?|bootleg|refix)(?![\p{L}\p{N}])/gu
+  /(?<![\p{L}\p{N}])(?:re-?mix(?:es|ed)?|rmx|mix|edit|version|extended|radio|original|official|feat|ft|featuring|by|the|re-?work(?:ed)?|bootleg|refix)(?![\p{L}\p{N}])/gu
 
 /** A title prepared for comparison. Every string is normalized. */
 export interface PreparedTitle {
@@ -108,11 +193,11 @@ export interface PreparedTitle {
   qualifiers: string[]
   /** Featured artists named in the title. */
   featured: string[]
-  /** Version families found in the qualifiers and the album, each with its level. */
+  /** Version tags found in the qualifiers and the album, each with its level. */
   versions: ReadonlyMap<string, VersionLevel>
   /**
    * For a remix: the words of its qualifiers that name it, such as `cedric gervais` for "Cedric
-   * Gervais Remix". Empty when there is no remix or it is not named.
+   * Gervais Remix" or `club` for "Club Mix". Empty when there is no remix or it is not named.
    */
   remixDetail: string
 }
@@ -237,7 +322,7 @@ export function isCredited(name: string, credits: readonly string[]): boolean {
  * "Luis Fonsi, Daddy Yankee - Despacito", "YOASOBI「アイドル」", "BTS (방탄소년단) 'Dynamite'".
  * Whatever follows a quoted title becomes a bracketed qualifier: "Artist 'Song' Remix" reads as
  * "Song (Remix)". The title comes back as it was when nothing before the separator is a known
- * artist.
+ * artist. Case is kept, so it serves search queries too.
  */
 export function stripArtistPrefix(title: string, artists: readonly string[]): string {
   if (artists.length === 0) return title
@@ -261,8 +346,8 @@ export function stripArtistPrefix(title: string, artists: readonly string[]): st
  * 2. a leading credit of `artists` goes ({@link stripArtistPrefix}), so "Artist - Stripped"
  *    keeps "Stripped" as its title
  * 3. `splitTitle` gives the core, the qualifiers and featured artists
- * 4. version families come from the qualifiers and from `album`, never from the core, so "Live
- *    Forever" is not live while a track of "MTV Unplugged in New York" is
+ * 4. version tags come from the qualifiers and from `album` ({@link albumVersionTags}), never
+ *    from the core, so "Live Forever" is not live while a track of "MTV Unplugged in New York" is
  */
 export function prepareTitle(
   title: string,
@@ -271,14 +356,14 @@ export function prepareTitle(
 ): PreparedTitle {
   const parts = splitTitle(stripArtistPrefix(normalizeText(stripPresentationNoise(title)), artists))
   const qualifiers = parts.qualifiers.map(normalizeText)
-  const versions = versionFamilies(qualifiers.join(' | '))
+  const versions = versionTags(qualifiers.join(' | '))
   if (album !== undefined) {
-    for (const [family, level] of versionFamilies(album)) {
-      if (!versions.has(family)) versions.set(family, level)
+    for (const [tag, level] of albumVersionTags(album)) {
+      if (!versions.has(tag)) versions.set(tag, level)
     }
   }
   const remixDetail = qualifiers
-    .filter((qualifier) => versionFamilies(qualifier).has('remix'))
+    .filter((qualifier) => hasRemixTag(versionTags(qualifier)))
     .map((qualifier) => qualifier.replace(REMIX_WORDS, ' '))
     .join(' ')
     .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
@@ -293,12 +378,22 @@ export function prepareTitle(
   }
 }
 
-/** Catalogue numbers, keys and forms that only classical works carry in their titles. */
+/** The forms of classical works, which a number, a key or a catalogue number follows. */
+const CLASSICAL_FORMS =
+  'symphon(?:y|ie|ies)|sinfonia|concerto|concertino|sonata|sonatina|suite|partita|prelude|praeludium|fugue|nocturne|etude|mazurka|polonaise|waltz|valse|cantata|requiem|mass|oratorio|overture|toccata|fantasia|impromptu|ballade|scherzo|rondo|serenade|divertimento|quartet|quintet|trio|bagatelle|intermezzo|invention|caprice|capriccio|minuet|menuet|menuett'
+
+/**
+ * What only classical works carry in their titles: a catalogue number ("BWV 1007", "Op. 27",
+ * "K. 525"), a key ("in C-sharp minor"), a form with a number or a key ("Symphony No. 5",
+ * "Prelude in C") or a numbered movement (": I. Prélude"). A form word alone is not enough:
+ * "Symphony", "Prelude", "Suite: Judy Blue Eyes" and "Adagio for Strings" are popular titles too.
+ */
 const CLASSICAL = new RegExp(
   [
     String.raw`(?<![\p{L}\p{N}])(?:bwv|kv|hwv|op|opus|hob|rv|woo|sz|k\.|d\.)\s*\.?\s*\d+`,
     String.raw`(?<![\p{L}\p{N}])in\s+[a-g](?:[\s-](?:flat|sharp))?[\s-](?:major|minor|dur|moll)(?![\p{L}\p{N}])`,
-    String.raw`(?<![\p{L}\p{N}])(?:symphon(?:y|ie|ies)|concerto|sonata|sonatina|suite|prelude|fugue|nocturne|etude|mazurka|polonaise|cantata|requiem|oratorio|overture|toccata|partita|allemande|courante|sarabande|gigue|minuet|menuet|scherzo|rondo|allegro|adagio|andante|largo|presto|lento|moderato|vivace)(?![\p{L}\p{N}])`,
+    String.raw`(?<![\p{L}\p{N}])(?:${CLASSICAL_FORMS})e?s?\s+(?:no\.?|nr\.?|n°|number)\s*\d+`,
+    String.raw`(?<![\p{L}\p{N}])(?:${CLASSICAL_FORMS})e?s?\s+in\s+[a-g](?:[\s-](?:flat|sharp)|[#♭♯])?(?![\p{L}\p{N}])`,
     String.raw`:\s*[ivx]+\.\s`,
   ].join('|'),
   'u',

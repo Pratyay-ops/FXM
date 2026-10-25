@@ -2,18 +2,25 @@
  * The matching engine: ranks the candidates a provider found for a source track and decides
  * whether the best may play without asking (ARCHITECTURE.md §12, as corrected by the research
  * memo of 2026-10-25, sections 6 and 11.7). Pure: the provider fetches the pages, see
- * `nextMatchRequest`.
+ * `nextMatchRequest` and `runMatch`.
  *
  * @module
  */
 
-import { entityKey, isEntityId, parseId, type SourceId } from '../ids'
-import { isPlayable } from '../mode'
+import { entityKey, isEntityId, normalizeIsrc, parseId, type SourceId } from '../ids'
+import { type CatalogMode, isCatalogMode, isPlayable } from '../mode'
 import type { Track } from '../model'
 import type { AudioCandidate, MatchSignals } from '../providers'
-import { normalizeText } from '../text'
-import { durationWindowMs, runIsrcGate } from './isrc'
-import { isClassicalTitle, type PreparedTitle } from './prepare'
+import {
+  type Compared,
+  closeDurations,
+  differentReleases,
+  lookAlike,
+  releaseIdOf,
+  releaseKey,
+} from './candidate'
+import { checkIsrcItem, durationWindowMs, isrcTrust, runIsrcGate } from './isrc'
+import { isClassicalTitle } from './prepare'
 import {
   type AlbumMatchLevel,
   albumMatchLevel,
@@ -21,31 +28,31 @@ import {
   compareLabels,
   compareYears,
   isGenericAlbum,
-  labelWords,
+  isSameRelease,
+  sanitizeReleaseFacts,
   yearOf,
 } from './release'
 import {
-  differentRemixes,
-  type PreparedSource,
   prepareCandidateTitle,
   prepareSource,
-  type ScoreBreakdown,
   scoreCandidate,
   sourceSide,
   trackSide,
 } from './score'
-import { textSimilarity } from './similarity'
 import {
   type AutoBlocker,
   type IsrcCheck,
+  type IsrcPlace,
+  MATCHER_VERSION,
   type MatchBand,
   type MatchOptions,
   type MatchPages,
   type MatchResult,
   type MatchSource,
   type MatchThresholds,
+  type MatchVerdict,
   type ReleaseFacts,
-  resolveThresholds,
+  resolveMatchThresholds,
 } from './types'
 
 /** The confidence of an ISRC-verified candidate, whatever its text score. */
@@ -58,23 +65,16 @@ const EPSILON = 1e-9
 type PageName = 'isrc' | 'text' | 'album' | 'videos' | 'youtube'
 
 /** A candidate with everything the engine knows about it. */
-interface Scored {
-  track: Track
-  /** `entityKey` of its ID, for de-duplication. */
-  key: string
+interface Scored extends Compared {
   /** The audio source and native ID of the `AudioCandidate` it becomes. */
   source: SourceId
   ref: string
   page: PageName
   /** Its place across all pages, for the last tie-break. */
   order: number
-  prepared: PreparedTitle
-  breakdown: ScoreBreakdown
   score: number
   verified: boolean
   hint: boolean
-  facts?: ReleaseFacts
-  year?: number
   albumLevel: AlbumMatchLevel
   yearCompare: ReturnType<typeof compareYears>
   labelCompare: ReturnType<typeof compareLabels>
@@ -89,64 +89,23 @@ function audioRef(track: Track): { source: SourceId; ref: string } | undefined {
   return { source: source === 'yt' ? 'ytm' : source, ref: nativeId }
 }
 
-/** Release facts by `entityKey`, so a `yt` and a `ytm` ID of one video find the same entry. */
+/**
+ * Release facts by `entityKey`, so a `yt` and a `ytm` ID of one video find the same entry.
+ *
+ * @throws RangeError for a key that is not a track ID, such as a bare videoId: dropping it would
+ * silently turn the conflicting-release-facts guard off.
+ */
 function factsByKey(pages: MatchPages): Map<string, ReleaseFacts> {
   const map = new Map<string, ReleaseFacts>()
   for (const [id, facts] of Object.entries(pages.releaseFacts ?? {})) {
-    if (isEntityId(id)) map.set(entityKey(id), facts)
+    if (!isEntityId(id, 'track')) {
+      throw new RangeError(
+        `Release facts are keyed by a full track ID such as ytm:track:<videoId>, not ${JSON.stringify(id)}`,
+      )
+    }
+    map.set(entityKey(id), sanitizeReleaseFacts(facts))
   }
   return map
-}
-
-/** Which release a candidate is on: its album's ID, else its album's name. */
-function releaseKey(candidate: Scored): string {
-  const album = candidate.track.album
-  if (album?.id !== undefined) return `id:${entityKey(album.id)}`
-  if (album !== undefined) return `name:${normalizeText(album.name)}`
-  return `track:${candidate.key}`
-}
-
-/** Whether two candidates' labels are both known and share no identifying word. */
-function labelsDiffer(a: ReleaseFacts | undefined, b: ReleaseFacts | undefined): boolean {
-  const words = (facts: ReleaseFacts | undefined) =>
-    [facts?.label, facts?.providedBy].flatMap((label) => (label ? [...labelWords(label)] : []))
-  const left = new Set(words(a))
-  const right = words(b)
-  return left.size > 0 && right.length > 0 && !right.some((word) => left.has(word))
-}
-
-/** Whether two candidates come from different releases: album IDs, years or labels. */
-function differentReleases(a: Scored, b: Scored): boolean {
-  if (releaseKey(a) !== releaseKey(b)) return true
-  if (a.year !== undefined && b.year !== undefined && a.year !== b.year) return true
-  return labelsDiffer(a.facts, b.facts)
-}
-
-/** The strong and medium version families of a title, which tell versions apart. */
-function hardVersions(title: PreparedTitle): string {
-  return [...title.versions]
-    .filter(([, level]) => level !== 'soft')
-    .map(([family]) => family)
-    .sort()
-    .join('|')
-}
-
-/**
- * Whether two candidates read as the same version of the same song by the source's artist: the
- * same title core and strong or medium version families, the same remix, the same explicit flag
- * when both are known, and the source's artist on both.
- */
-function lookAlike(a: Scored, b: Scored): boolean {
-  const { explicit: left } = a.track
-  const { explicit: right } = b.track
-  return (
-    textSimilarity(a.prepared.core, b.prepared.core) >= 0.9 &&
-    hardVersions(a.prepared) === hardVersions(b.prepared) &&
-    !differentRemixes(a.prepared, b.prepared) &&
-    (left === undefined || right === undefined || left === right) &&
-    a.breakdown.artist >= 0.5 &&
-    b.breakdown.artist >= 0.5
-  )
 }
 
 /** Orders candidates: ISRC-verified, score, release agreement, ISRC hint, page order. */
@@ -184,16 +143,20 @@ function seconds(deltaMs: number): string {
   return deltaMs >= 0 ? `+${value}s` : `${value}s`
 }
 
+/** Where an ISRC-verified item was, for people. */
+function placeText(place: IsrcPlace): string {
+  if (place.page === 'top-card') return 'top-result card'
+  if (place.page === 'own-isrc') return 'its own ISRC'
+  return `songs search ${place.attempt} #${place.position}`
+}
+
 /** What a candidate's evidence says, for people. */
 function evidenceOf(candidate: Scored, isrc: IsrcCheck): string[] {
   const { breakdown } = candidate
   const lines: string[] = []
-  if (candidate.verified && isrc.place) {
-    const where =
-      isrc.place.page === 'top-card'
-        ? 'top-result card'
-        : `songs search ${isrc.place.attempt} #${isrc.place.position}`
-    lines.push(`isrc verified (${where})`)
+  if (candidate.verified) {
+    const own = isrc.trackId !== undefined && entityKey(isrc.trackId) === candidate.key
+    lines.push(own && isrc.place ? `isrc verified (${placeText(isrc.place)})` : 'isrc verified')
   }
   if (candidate.hint) lines.push('isrc hint (fuzzy)')
   lines.push(`title ${breakdown.title.toFixed(2)}`, `artist ${breakdown.artist.toFixed(2)}`)
@@ -201,7 +164,7 @@ function evidenceOf(candidate: Scored, isrc: IsrcCheck): string[] {
     breakdown.deltaMs === undefined ? 'duration unknown' : `duration ${seconds(breakdown.deltaMs)}`,
   )
   for (const mismatch of breakdown.versionMismatches) {
-    lines.push(`${mismatch.side === 'candidate' ? '+' : '-'}${mismatch.family} (${mismatch.level})`)
+    lines.push(`${mismatch.side === 'candidate' ? '+' : '-'}${mismatch.tag} (${mismatch.level})`)
   }
   if (breakdown.differentRemix) lines.push('different remix')
   for (const name of breakdown.uncreditedFeatured) lines.push(`uncredited feat. ${name}`)
@@ -209,27 +172,30 @@ function evidenceOf(candidate: Scored, isrc: IsrcCheck): string[] {
   if (candidate.albumLevel !== 'none') lines.push(`album match (${candidate.albumLevel})`)
   if (candidate.year !== undefined) lines.push(`year ${candidate.year} (${candidate.yearCompare})`)
   if (candidate.labelCompare !== 'unknown') lines.push(`label ${candidate.labelCompare}`)
+  if (candidate.facts?.providedBy !== undefined) {
+    lines.push(`provided by ${candidate.facts.providedBy}`)
+  }
   if (breakdown.cap) lines.push(`cap: ${breakdown.cap}`)
   lines.push(`score ${round(candidate.score).toFixed(2)}`)
   return lines
 }
 
 /** A scored candidate as the `AudioCandidate` the provider returns. */
-function toAudioCandidate(candidate: Scored, isrc: IsrcCheck): AudioCandidate {
+function toAudioCandidate(
+  candidate: Scored,
+  isrc: IsrcCheck,
+  verdict: MatchVerdict | undefined,
+): AudioCandidate {
   const { track } = candidate
   const signals: MatchSignals = {
     isrcVerified: candidate.verified,
-    sourceAlbumMatch: candidate.albumLevel !== 'none',
+    sourceAlbumMatch: isSameRelease(candidate.albumLevel),
   }
-  const album = track.album?.id
-  if (album !== undefined && isEntityId(album, 'album')) {
-    const parts = parseId(album)
-    const albumSource = parts.source === 'yt' ? 'ytm' : parts.source
-    if (albumSource === candidate.source) signals.releaseId = parts.nativeId
-  }
+  const releaseId = releaseIdOf(track, candidate.source)
+  if (releaseId !== undefined) signals.releaseId = releaseId
   if (candidate.year !== undefined) signals.releaseYear = candidate.year
-  const label = candidate.facts?.label ?? candidate.facts?.providedBy
-  if (label !== undefined) signals.label = label
+  // The ℗ label only: "Provided to YouTube by" names the distributor, which stays in evidence.
+  if (candidate.facts?.label !== undefined) signals.label = candidate.facts.label
   const result: AudioCandidate = {
     source: candidate.source,
     ref: candidate.ref,
@@ -242,25 +208,31 @@ function toAudioCandidate(candidate: Scored, isrc: IsrcCheck): AudioCandidate {
     evidence: evidenceOf(candidate, isrc),
     signals,
   }
-  if (track.durationMs !== undefined) result.durationMs = track.durationMs
+  const durationMs = trackSide(track).durationMs
+  if (durationMs !== undefined) result.durationMs = durationMs
+  if (verdict !== undefined) result.verdict = verdict
   return result
 }
 
 /** What the guards need to know about the ranked candidates. */
 interface Ranked {
   source: MatchSource
+  sourceMs: number | undefined
   thresholds: MatchThresholds
   candidates: Scored[]
 }
 
 /**
- * Whether the best candidate's album ties it to the source's release: it matches the source's
- * album, the album is not a generic compilation title, and no other release by the source's
- * artist on the pages matches as well (two releases named "The Everly Brothers" tie neither).
+ * Whether the best candidate's album ties it to the source's release: the same release by name
+ * (`exact` or `core`, never merely `similar`), neither album name a compilation title, and no
+ * other release by the source's artist on the pages matching as well (two releases named "The
+ * Everly Brothers" tie neither).
  */
 function albumAnchor(best: Scored, ranked: Ranked): boolean {
   const album = ranked.source.album?.name
-  if (best.albumLevel === 'none' || album === undefined || isGenericAlbum(album)) return false
+  const own = best.track.album?.name
+  if (!isSameRelease(best.albumLevel) || album === undefined || own === undefined) return false
+  if (isGenericAlbum(album) || isGenericAlbum(own)) return false
   const rank = albumMatchRank(best.albumLevel)
   const bestRelease = releaseKey(best)
   return !ranked.candidates.some(
@@ -288,22 +260,47 @@ function rivalsOf(best: Scored, ranked: Ranked): Scored[] {
   )
 }
 
-/** Whether two durations are within the window of each other (true when either is unknown). */
-function closeDurations(a: Scored, b: Scored, ranked: Ranked): boolean {
-  const left = a.track.durationMs
-  const right = b.track.durationMs
-  if (left === undefined || right === undefined) return true
-  const reference = ranked.source.durationMs ?? Math.max(left, right)
-  return Math.abs(left - right) <= durationWindowMs(reference, ranked.thresholds)
+/**
+ * Checks the candidates whose own ISRC is the source's (an Internet Archive or Jamendo track
+ * with ISRC metadata, say) with the ISRC gate's item checks, and returns the gate's outcome with
+ * them added: a pass is ISRC-verified, or a hint for a fuzzy ISRC.
+ */
+function checkOwnIsrcs(
+  candidates: Scored[],
+  check: IsrcCheck,
+  context: { source: MatchSource; prepared: ReturnType<typeof prepareSource> },
+  thresholds: MatchThresholds,
+): IsrcCheck {
+  const isrc = check.isrc
+  if (isrc === undefined) return check
+  const result: IsrcCheck = { ...check, rejected: [...check.rejected] }
+  const hint = isrcTrust(context.source.isrcOrigin) === 'hint'
+  for (const candidate of candidates) {
+    if (candidate.verified || normalizeIsrc(candidate.track.isrc) !== isrc) continue
+    const place: IsrcPlace = { page: 'own-isrc', attempt: 0, position: candidate.order + 1 }
+    const { reasons } = checkIsrcItem(context.prepared, candidate.track, place, thresholds)
+    if (reasons.length > 0) {
+      result.rejected.push({ trackId: String(candidate.track.id), ...place, reasons })
+      continue
+    }
+    if (hint) candidate.hint = true
+    else candidate.verified = true
+    if (result.status === 'verified' || (hint && result.status === 'hint')) continue
+    result.status = hint ? 'hint' : 'verified'
+    result.trackId = candidate.track.id
+    result.place = place
+  }
+  return result
 }
 
 /**
  * Ranks the candidates a provider found for `source` and decides what to do with the best.
  *
  * 1. **ISRC gate** (see `checkIsrc`): a trusted ISRC's accepted item is ISRC-verified and ranks
- *    first; a trusted ISRC that never passes caps the match at `suggest`.
+ *    first; a trusted ISRC that never passes caps the match at `suggest`. A candidate whose own
+ *    ISRC is the source's is checked the same way.
  * 2. **Candidates:** the gate's item, then every item of the text search, the album search and,
- *    in Music + Video mode, the video searches, de-duplicated and kept only if `ctx.mode` lets
+ *    in Music + Video mode, the video searches, de-duplicated and kept only if the mode lets
  *    them play as they are (`isPlayable`: songs only in Music mode).
  * 3. **Score** (see `scoreCandidate`), then rank: ISRC-verified first, then by score, and among
  *    equal scores by agreement with the source's album, year and label, an ISRC hint, and the
@@ -313,26 +310,32 @@ function closeDurations(a: Scored, b: Scored, ranked: Ranked): boolean {
  * 4. **Band:** `auto` only when the Auto setting is on and the source has a duration, and the
  *    best is ISRC-verified, or it scores at least 0.80 with a title similarity of at least 0.80,
  *    its duration is within max(5 s, 2 %), it leads the best candidate that is not the same
- *    version by 0.05, it is an official song, its explicit flag agrees with the source's, and
- *    no guard fires: the classical guard (a classical-looking title needs an album match) and
- *    the re-recording guard (rivals from other releases with nothing tying the best to the
- *    source's release; an ISRC miss; a conflicting label or year; and, when
- *    {@link MatchOptions.requireReleaseAgreement} is on, no album or year agreement). Otherwise
- *    `suggest` from 0.60 (or when ISRC-verified), else `none`. `autoBlockers` lists every
- *    reason, and `best` is set whatever the band, as the first of the alternatives.
+ *    version by 0.05, it is an official song, its explicit mark agrees with the source's, and
+ *    no guard fires: the classical guard (a classical-looking title needs a distinctive album
+ *    match and every source credit) and the re-recording guard (rivals from other releases with
+ *    nothing tying the best to the source's release; an ISRC miss; a conflicting label or year;
+ *    and, when {@link MatchOptions.requireReleaseAgreement} is on, no album or year agreement).
+ *    Otherwise `suggest` from 0.60 (or when ISRC-verified), else `none`. `autoBlockers` lists
+ *    every reason, and `best` is set whatever the band, as the first of the alternatives,
+ *    carrying the verdict without the setting (`autoEligible`).
+ *
+ * Options are read defensively: only `auto: true` turns the setting on, an unknown mode is
+ * `music`, and an invalid threshold keeps its default.
+ *
+ * @throws RangeError when {@link MatchPages.releaseFacts} has a key that is not a track ID.
  */
 export function matchTrack(
   source: MatchSource,
   pages: MatchPages,
   options: MatchOptions = {},
 ): MatchResult {
-  const thresholds = resolveThresholds(options)
-  const mode = options.mode ?? 'music'
-  const prepared: PreparedSource = prepareSource(sourceSide(source))
+  const thresholds = resolveMatchThresholds(options.thresholds)
+  const mode: CatalogMode = isCatalogMode(options.mode) ? options.mode : 'music'
+  const prepared = prepareSource(sourceSide(source))
+  const sourceMs = prepared.side.durationMs
   const gate = runIsrcGate(source, prepared, pages, thresholds)
   const facts = factsByKey(pages)
   const sourceYear = yearOf(source.releaseDate)
-  const sourceMs = source.durationMs
   const hintKey =
     gate.check.status === 'hint' && gate.accepted ? entityKey(gate.accepted.id) : undefined
 
@@ -369,7 +372,7 @@ export function matchTrack(
         score: breakdown.score,
         verified: page === 'isrc' && gate.check.status === 'verified',
         hint: key === hintKey,
-        albumLevel: albumMatchLevel(source.album?.name, track.album?.name),
+        albumLevel: albumMatchLevel(source.album?.name, track.album?.name, prepared.side.artists),
         yearCompare: compareYears(sourceYear, year),
         labelCompare: compareLabels(source.label, candidateFacts),
         inWindow:
@@ -382,6 +385,7 @@ export function matchTrack(
       candidates.push(scored)
     }
   }
+  const isrc = checkOwnIsrcs(candidates, gate.check, { source, prepared }, thresholds)
 
   candidates.sort(compareScored)
   const best =
@@ -389,20 +393,18 @@ export function matchTrack(
       (c) => c.track.kind === 'song' && (c.verified || atLeast(c.score, thresholds.suggest)),
     ) ?? candidates[0]
   const ordered = best ? [best, ...candidates.filter((c) => c !== best)] : []
-  const ranked: Ranked = { source, thresholds, candidates: ordered }
+  const ranked: Ranked = { source, sourceMs, thresholds, candidates: ordered }
 
+  // The blockers without the setting: the verdict on the best.
   const blockers: AutoBlocker[] = []
-  const evidence: string[] = [`isrc ${gate.check.status}`]
-  if (!options.auto) blockers.push('setting-off')
   if (sourceMs === undefined) blockers.push('no-duration')
-
   let margin: number | undefined
-  let band: MatchBand = 'none'
+  let eligibleBand: MatchBand = 'none'
   if (best === undefined) {
     blockers.push('no-candidates')
   } else {
     const rival = ordered.find(
-      (c) => c !== best && !(lookAlike(best, c) && closeDurations(best, c, ranked)),
+      (c) => c !== best && !(lookAlike(best, c) && closeDurations(best, c, sourceMs, thresholds)),
     )
     margin = round(best.score - (rival?.score ?? 0))
     if (!best.verified) {
@@ -412,34 +414,52 @@ export function matchTrack(
       if (!atLeast(margin, thresholds.margin)) blockers.push('margin')
       if (best.track.kind !== 'song') blockers.push('not-song')
       if (best.breakdown.explicitMismatch) blockers.push('explicit-mismatch')
-      if (isClassicalTitle(source.title) && best.albumLevel === 'none') blockers.push('classical')
-      const anchored =
-        albumAnchor(best, ranked) || best.yearCompare === 'match' || best.labelCompare === 'match'
-      if (!anchored && rivalsOf(best, ranked).length > 0) blockers.push('rivals')
-      if (gate.check.status === 'miss') blockers.push('isrc-miss')
+      const anchored = albumAnchor(best, ranked)
+      if (isClassicalTitle(source.title) && !(anchored && atLeast(best.breakdown.artist, 1))) {
+        blockers.push('classical')
+      }
+      const tied = anchored || best.yearCompare === 'match' || best.labelCompare === 'match'
+      if (!tied && rivalsOf(best, ranked).length > 0) blockers.push('rivals')
+      if (isrc.status === 'miss' && isrcTrust(source.isrcOrigin) === 'trusted') {
+        blockers.push('isrc-miss')
+      }
       if (best.yearCompare === 'conflict' || best.labelCompare === 'conflict') {
         blockers.push('release-conflict')
       }
-      if (
-        options.requireReleaseAgreement &&
-        !(albumAnchor(best, ranked) || best.yearCompare === 'match')
-      ) {
+      if (options.requireReleaseAgreement === true && !(anchored || best.yearCompare === 'match')) {
         blockers.push('release-agreement-required')
       }
     }
-    if (blockers.length === 0) band = 'auto'
-    else if (best.verified || atLeast(best.score, thresholds.suggest)) band = 'suggest'
+    if (blockers.length === 0) eligibleBand = 'auto'
+    else if (best.verified || atLeast(best.score, thresholds.suggest)) eligibleBand = 'suggest'
+  }
+
+  const autoOn = options.auto === true
+  const band: MatchBand = eligibleBand === 'auto' && !autoOn ? 'suggest' : eligibleBand
+  const autoBlockers: AutoBlocker[] = autoOn ? blockers : ['setting-off', ...blockers]
+  const evidence: string[] = [`isrc ${isrc.status}`]
+  if (best !== undefined && margin !== undefined) {
     evidence.push(`best score ${round(best.score).toFixed(2)}`, `margin ${margin.toFixed(2)}`)
   }
-  evidence.push(`band ${band}`, ...blockers.map((blocker) => `blocked: ${blocker}`))
+  evidence.push(`band ${band}`, ...autoBlockers.map((blocker) => `blocked: ${blocker}`))
 
-  const audio = ordered.map((candidate) => toAudioCandidate(candidate, gate.check))
+  const verdict: MatchVerdict = {
+    band: eligibleBand,
+    blockers: [...blockers],
+    matcherVersion: MATCHER_VERSION,
+  }
+  const audio = ordered.map((candidate) =>
+    toAudioCandidate(candidate, isrc, candidate === best ? verdict : undefined),
+  )
   const result: MatchResult = {
     band,
+    autoEligible: eligibleBand === 'auto',
     candidates: audio,
-    isrc: gate.check,
-    autoBlockers: blockers,
+    isrc,
+    autoBlockers,
     evidence,
+    matcherVersion: MATCHER_VERSION,
+    incomplete: (pages.skipped?.length ?? 0) > 0,
   }
   if (audio[0] !== undefined) result.best = audio[0]
   if (margin !== undefined) result.margin = margin

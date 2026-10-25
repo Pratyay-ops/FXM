@@ -9,10 +9,12 @@ import {
   SCORE_PENALTIES,
   SCORE_WEIGHTS,
   type ScoreSide,
+  sameVersion,
   scoreCandidate,
   sourceSide,
   titleSimilarity,
   trackSide,
+  validDurationMs,
   versionMismatches,
 } from './score'
 
@@ -62,7 +64,7 @@ describe('scoreCandidate', () => {
       artists: ['The Weeknd'],
       durationMs: 200000,
     })
-    expect(live.versionMismatches).toEqual([{ family: 'live', level: 'strong', side: 'candidate' }])
+    expect(live.versionMismatches).toEqual([{ tag: 'live', level: 'strong', side: 'candidate' }])
     expect(live.strongMismatch).toBe(true)
     expect(live.score).toBeCloseTo(1 - SCORE_PENALTIES.strong)
     const edit = score({
@@ -76,9 +78,7 @@ describe('scoreCandidate', () => {
       { title: 'Blinding Lights', artists: ['The Weeknd'], durationMs: 200000 },
       { ...SOURCE, title: 'Blinding Lights - 2020 Remaster' },
     )
-    expect(remaster.versionMismatches).toEqual([
-      { family: 'remaster', level: 'soft', side: 'source' },
-    ])
+    expect(remaster.versionMismatches).toEqual([{ tag: 'remaster', level: 'soft', side: 'source' }])
     expect(remaster.score).toBeCloseTo(1 - SCORE_PENALTIES.soft)
   })
 
@@ -123,22 +123,18 @@ describe('scoreCandidate', () => {
   })
 
   it('costs an explicit master against a clean one', () => {
-    const clean = score(
-      { title: 'HUMBLE.', artists: ['Kendrick Lamar'], durationMs: 177000, explicit: false },
-      { title: 'HUMBLE.', artists: ['Kendrick Lamar'], durationMs: 177000, explicit: true },
-    )
+    const humble = { title: 'HUMBLE.', artists: ['Kendrick Lamar'], durationMs: 177000 }
+    const clean = score({ ...humble, explicit: false }, { ...humble, explicit: true })
     expect(clean.explicitMismatch).toBe(true)
     expect(clean.score).toBeCloseTo(1 - SCORE_PENALTIES.explicit)
-    const unknown = score(
-      { title: 'HUMBLE.', artists: ['Kendrick Lamar'], durationMs: 177000 },
-      {
-        title: 'HUMBLE.',
-        artists: ['Kendrick Lamar'],
-        durationMs: 177000,
-        explicit: true,
-      },
-    )
-    expect(unknown.explicitMismatch).toBe(false)
+    // A candidate without the explicit mark is the clean master: it fails closed.
+    expect(score(humble, { ...humble, explicit: true }).explicitMismatch).toBe(true)
+    expect(
+      score({ ...humble, explicit: true }, { ...humble, explicit: false }).explicitMismatch,
+    ).toBe(true)
+    expect(score(humble, { ...humble, explicit: false }).explicitMismatch).toBe(false)
+    // Only the source's flag can be unknown.
+    expect(score({ ...humble, explicit: true }, humble).explicitMismatch).toBe(false)
   })
 
   it('costs a duration off by more than 10 s, and more by more than 20 s', () => {
@@ -184,6 +180,21 @@ describe('scoreCandidate', () => {
     expect(unknown.score).toBeCloseTo(0.75)
   })
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, 0, -1])(
+    'treats a duration of %d as unknown on either side',
+    (durationMs) => {
+      const candidate = score({ title: 'Blinding Lights', artists: ['The Weeknd'], durationMs })
+      expect(candidate.deltaMs).toBeUndefined()
+      expect(candidate.score).toBeCloseTo(0.75)
+      const source = score(
+        { title: 'Blinding Lights', artists: ['The Weeknd'], durationMs: 263000 },
+        { ...SOURCE, durationMs },
+      )
+      expect(source.deltaMs).toBeUndefined()
+      expect(source.score).toBe(1)
+    },
+  )
+
   it('accepts a prepared title', () => {
     const source = prepareSource(SOURCE)
     const side = {
@@ -207,15 +218,57 @@ describe('title, version and remix helpers', () => {
     expect(titleSimilarity(tv.title, other)).toBeLessThan(0.5)
   })
 
-  it('lists the families on each side', () => {
+  it('tells specific versions of one family apart, once per family and side', () => {
+    const takes = versionMismatches(
+      prepareSource({ title: 'Blue in Green (Take 3)', artists: ['A'] }).title,
+      prepareSource({ title: 'Blue in Green (Take 2)', artists: ['A'] }).title,
+    )
+    expect(takes).toEqual([
+      { tag: 'take 3', level: 'strong', side: 'source' },
+      { tag: 'take 2', level: 'strong', side: 'candidate' },
+    ])
+    const slowed = versionMismatches(
+      prepareSource({ title: 'Song (Slowed + Reverb)', artists: ['A'] }).title,
+      prepareSource({ title: 'Song', artists: ['A'] }).title,
+    )
+    expect(slowed).toEqual([{ tag: 'slowed', level: 'strong', side: 'source' }])
+    const live = prepareSource({ title: 'Song (Live)', artists: ['A'] }).title
+    const unplugged = prepareSource({ title: 'Song', artists: ['A'], album: 'MTV Unplugged' }).title
+    const both = prepareSource({ title: 'Song (Live)', artists: ['A'], album: 'MTV Unplugged' })
+    // "Live" meets "unplugged", but "unplugged" needs "unplugged" on the other side too.
+    expect(versionMismatches(unplugged, both.title)).toEqual([])
+    expect(versionMismatches(live, unplugged)).toEqual([
+      { tag: 'unplugged', level: 'strong', side: 'candidate' },
+    ])
+  })
+
+  it('reads two titles as the same version without strong or medium differences', () => {
+    const title = (text: string) => prepareSource({ title: text, artists: ['A'] }).title
+    expect(sameVersion(title('Song'), title('Song - 2011 Remaster'))).toBe(true)
+    expect(sameVersion(title('Song'), title('Song (Radio Edit)'))).toBe(false)
+    expect(sameVersion(title('Song (Tiësto Remix)'), title('Song (Alok Remix)'))).toBe(false)
+    expect(sameVersion(title('Song (Club Mix)'), title('Song (VIP Mix)'))).toBe(false)
+  })
+
+  it('lists the tags on each side', () => {
     const source = prepareSource({ title: 'Song (Live)', artists: ['A'] }).title
     const candidate = prepareSource({ title: 'Song (Acoustic) [Remastered]', artists: ['A'] }).title
     expect(versionMismatches(source, candidate)).toEqual([
-      { family: 'live', level: 'strong', side: 'source' },
-      { family: 'acoustic', level: 'strong', side: 'candidate' },
-      { family: 'remaster', level: 'soft', side: 'candidate' },
+      { tag: 'live', level: 'strong', side: 'source' },
+      { tag: 'acoustic', level: 'strong', side: 'candidate' },
+      { tag: 'remaster', level: 'soft', side: 'candidate' },
     ])
     expect(differentRemixes(source, candidate)).toBe(false)
+  })
+})
+
+describe('validDurationMs', () => {
+  it('keeps finite durations above 0 only', () => {
+    expect(validDurationMs(1000)).toBe(1000)
+    expect(validDurationMs(0.5)).toBe(0.5)
+    for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '200000', undefined]) {
+      expect(validDurationMs(value)).toBeUndefined()
+    }
   })
 })
 
@@ -231,6 +284,8 @@ describe('sourceSide and trackSide', () => {
       }),
     ).toEqual({ title: 'Song', artists: ['A', 'B'], album: 'LP', durationMs: 1000, explicit: true })
     expect(sourceSide({ title: 'Song', artists: [] })).toEqual({ title: 'Song', artists: [] })
+    const stored = { title: 'Song', artists: [], durationMs: 0, explicit: 'yes' } as never
+    expect(sourceSide(stored)).toEqual({ title: 'Song', artists: [] })
     expect(
       trackSide(track('x', 'Song', 'A', { album: 'LP', seconds: 2, explicit: false })),
     ).toEqual({
@@ -243,6 +298,7 @@ describe('sourceSide and trackSide', () => {
     expect(trackSide(track('x', 'Song', ['A', 'B']))).toEqual({
       title: 'Song',
       artists: ['A', 'B'],
+      explicit: false,
     })
   })
 })

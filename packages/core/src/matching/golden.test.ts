@@ -37,9 +37,13 @@ type PageRef = string | { page: string; top: number } | GoldenItem[]
 
 type Label = 'exact' | 'equivalent' | 'wrong' | 'unknown'
 
+/** How a case's inputs were made, when not recorded as they are (see `about` in the file). */
+type Constructed = 'page' | 'items' | 'facts'
+
 interface GoldenCase {
   id: string
   category: string
+  constructed?: Constructed
   mainstream?: boolean
   description: string
   provenance: string
@@ -213,10 +217,12 @@ describe.each(trackCases.map((c) => [c.id, c] as const))('golden track %s', (_id
     }
   })
 
-  it('never reaches Auto with the setting off', () => {
+  it('never reaches Auto with the setting off, with the same verdict', () => {
     const off = run(c, { auto: false })
     expect(off.band).not.toBe('auto')
     expect(off.best?.ref).toBe(result.best?.ref)
+    expect(off.autoEligible).toBe(result.autoEligible)
+    expect(off.best?.verdict).toEqual(result.best?.verdict)
   })
 })
 
@@ -224,16 +230,22 @@ describe.each(videoCases.map((c) => [c.id, c] as const))('golden video %s', (_id
   const result = runVideo(c)
 
   it('maps as expected', () => {
-    expect(result.band).toBe(c.expect.band)
+    expect(result.band, result.evidence.join('; ')).toBe(c.expect.band)
     if (c.expect.via !== undefined) expect(result.via).toBe(c.expect.via)
     const picked = result.songId?.split(':').at(-1)
     if (c.expect.pick !== undefined) expect(picked).toBe(c.expect.pick)
-    if (result.via === 'match') expect(RIGHT.has(labelOf(c, picked))).toBe(true)
   })
 
-  it('is a suggestion only while the Auto setting is off', () => {
+  it('never auto-maps to a wrong or unproven song', () => {
+    if (result.via === 'match' && result.band === 'auto') {
+      expect(RIGHT.has(labelOf(c, result.songId?.split(':').at(-1)))).toBe(true)
+    }
+  })
+
+  it('is a suggestion only while the Auto setting is off, unless the video links its song', () => {
     const off = runVideo(c, { auto: false })
-    expect(off.band).toBe(result.via === 'match' ? 'suggest' : result.band)
+    expect(off.band).toBe(result.via === 'link' || result.band !== 'auto' ? result.band : 'suggest')
+    expect(off.autoEligible).toBe(result.autoEligible)
   })
 })
 
@@ -247,11 +259,35 @@ describe('the golden totals', () => {
     expect(wrong.map(({ c }) => c.id)).toEqual([])
   })
 
-  it('auto-plays at least 85 % of the mainstream cases', () => {
+  it('auto-plays at least 85 % of the mainstream cases, recorded ones alone too', () => {
     const mainstream = results.filter(({ c }) => c.mainstream)
-    const auto = mainstream.filter(({ result }) => result.band === 'auto')
-    expect(mainstream.length).toBeGreaterThanOrEqual(20)
-    expect(auto.length / mainstream.length).toBeGreaterThanOrEqual(0.85)
+    const recorded = mainstream.filter(({ c }) => c.constructed === undefined)
+    for (const set of [mainstream, recorded]) {
+      const auto = set.filter(({ result }) => result.band === 'auto')
+      expect(set.length).toBeGreaterThanOrEqual(20)
+      expect(auto.length / set.length).toBeGreaterThanOrEqual(0.85)
+    }
+  })
+
+  it('rests every done-when total on recorded cases, not only constructed ones', () => {
+    const counts = (category: (c: GoldenCase) => boolean) => {
+      const cases = golden.cases.filter(category)
+      const constructed = cases.filter((c) => c.constructed !== undefined).length
+      return { recorded: cases.length - constructed, constructed }
+    }
+    expect(counts((c) => c.category === 'replay').recorded).toBeGreaterThanOrEqual(3)
+    expect(
+      counts((c) => ['isrc-squatter', 'filler'].includes(c.category)).recorded,
+    ).toBeGreaterThanOrEqual(4)
+    expect(counts((c) => c.category === 'isrc-miss').recorded).toBeGreaterThanOrEqual(5)
+    expect(counts((c) => c.category === 'classical').recorded).toBeGreaterThanOrEqual(2)
+    expect(counts((c) => c.video !== undefined).recorded).toBeGreaterThanOrEqual(10)
+    for (const c of golden.cases) {
+      if (c.constructed !== undefined)
+        expect(['page', 'items', 'facts'], c.id).toContain(c.constructed)
+      // A made-up item is always marked: x- IDs only in cases that say they are constructed.
+      if (JSON.stringify(c).includes('"x-')) expect(c.constructed, c.id).toBeDefined()
+    }
   })
 
   it('ends every held-out replay in Suggest or on the right recording', () => {

@@ -1,8 +1,8 @@
 {
   "about": [
-    "Golden cases for the matching engine (stage 1.7). Facts only, copied from the research of 2026-10-25 (YouTube Music search pages, MusicBrainz, Deezer and Spotify metadata/4 facts, YouTube descriptions); every case names its provenance. Items with x- IDs are constructed.",
+    "Golden cases for the matching engine (stage 1.7), copied as facts from the research of 2026-10-25 (YouTube Music search pages, MusicBrainz, Deezer and Spotify metadata/4 facts, YouTube descriptions); every case names its provenance. A case whose inputs were assembled or made up says so in \"constructed\": \"page\" (a page assembled from recorded items, or emptied), \"items\" (made-up items with x- IDs, or a recorded item changed) or \"facts\" (source fields or release facts that stand in for, or were removed from, what was recorded). Every other case replays recorded pages as they were.",
     "Labels: exact = the source recording (any release, a remaster counts); equivalent = the same audio in another form (an official audio upload or a re-upload, a video); wrong = another recording, version, song or artist; unknown = not established. An Auto pick must be exact or equivalent; unlabeled items count as unknown.",
-    "Items: kind follows musicVideoType (ATV song, OMV music-video, else video); source \"yt\" marks regular YouTube results; durations are whole seconds as YouTube shows them; explicit is false for songs without the badge."
+    "Items: kind follows musicVideoType (ATV song, OMV music-video, else video); source \"yt\" marks regular YouTube results; durations are whole seconds as YouTube shows them; explicit is false for songs without the badge (the engine reads a missing flag the same way, as the YouTube provider leaves it out)."
   ],
   "pages": {
     "matching/blinding-lights.isrc": {
@@ -8073,6 +8073,7 @@
     {
       "id": "blinding-lights/no-duration",
       "category": "no-duration",
+      "constructed": "facts",
       "description": "A data-export row: names only, no duration or ISRC. Capped at Suggest.",
       "provenance": "research 2026-10-25 (matching), duration removed",
       "source": {
@@ -8106,6 +8107,7 @@
     {
       "id": "creep/no-duration",
       "category": "no-duration",
+      "constructed": "facts",
       "description": "A data-export row: names only, no duration or ISRC. Capped at Suggest.",
       "provenance": "research 2026-10-25 (matching), duration removed",
       "source": {
@@ -8139,6 +8141,7 @@
     {
       "id": "hallelujah-buckley/no-duration",
       "category": "no-duration",
+      "constructed": "facts",
       "description": "A data-export row: names only, no duration or ISRC. Capped at Suggest.",
       "provenance": "research 2026-10-25 (matching), duration removed",
       "source": {
@@ -8363,6 +8366,7 @@
     {
       "id": "love-story/isrc-retry",
       "category": "mainstream",
+      "constructed": "page",
       "mainstream": true,
       "description": "Miss, then a hit on the retry (one verifier saw miss, hit, miss within minutes). The card is absent here so the retry decides.",
       "provenance": "research 2026-10-25: verify-matching-F1 V3 and V3-repeat; the empty card is constructed",
@@ -8599,6 +8603,7 @@
     {
       "id": "humble/explicit-text",
       "category": "explicit-clean",
+      "constructed": "page",
       "description": "Both masters on one page (the two ISRC hits): the explicit source picks the explicit one.",
       "provenance": "constructed page from the research items of F1 V5 and V6",
       "source": {
@@ -8650,6 +8655,7 @@
     {
       "id": "humble/clean-text",
       "category": "explicit-clean",
+      "constructed": "page",
       "description": "Both masters on one page: the clean source picks the clean one.",
       "provenance": "constructed page from the research items of F1 V5 and V6",
       "source": {
@@ -8701,6 +8707,7 @@
     {
       "id": "humble/clean-text-explicit-only",
       "category": "explicit-clean",
+      "constructed": "page",
       "description": "Only the explicit master is found for a clean source: never Auto.",
       "provenance": "constructed page from the research item of F1 V5",
       "source": {
@@ -9287,6 +9294,7 @@
     {
       "id": "spotify-singles/pressure",
       "category": "spotify-singles",
+      "constructed": "items",
       "description": "A Spotify Singles live recording (236 s); the studio \"Pressure\" is about 235 s. The ISRC miss keeps the studio song from auto-playing.",
       "provenance": "research 2026-10-25: verify-matching-F1 S1 (ISRC page) and its test-set note \"studio Pressure ~235s\"; the studio item is constructed (x- ID)",
       "source": {
@@ -9333,6 +9341,7 @@
     {
       "id": "spotify-singles/without-you",
       "category": "spotify-singles",
+      "constructed": "items",
       "description": "A Spotify Singles recording (171 s) whose studio version is about 161 s.",
       "provenance": "research 2026-10-25: verify-matching-F1 S2 and its test-set note \"studio ~161s\"; the studio item is constructed (x- ID)",
       "source": {
@@ -9769,6 +9778,7 @@
     {
       "id": "filler/same-artist-similar-title",
       "category": "filler",
+      "constructed": "page",
       "description": "Another song by the same artist, from the source album, at the same length, whose title is partly the same (\"Twist It Up\" for \"The Twist\", title similarity 0.53): never passes the gate.",
       "provenance": "constructed ISRC page from research items: 7hh3_SNxSSM from verify-matching-F4 checker.b, the filler -ZKQEKThABk from checkerabkco.a",
       "source": {
@@ -9842,6 +9852,7 @@
     {
       "id": "filler/same-title-covers",
       "category": "filler",
+      "constructed": "page",
       "description": "Same-title covers at nearly the right length (267 s and 264 s for 267.3 s) on the ISRC page: never pass the gate.",
       "provenance": "constructed ISRC page from research items yUI06FvzE98 and A6h7VwB9eh0 of verify-matching-F4 deflep.b",
       "source": {
@@ -10079,7 +10090,8 @@
     {
       "id": "replay/the-1975",
       "category": "replay",
-      "description": "Held-out failure, ISRC step off: the 2013 recording (album \"The 1975\", 80 s) was auto-played for the 2016 one (83 s). Its album year contradicts the source's.",
+      "constructed": "facts",
+      "description": "Held-out failure, ISRC step off: the 2013 recording (album \"The 1975\", 80 s) was auto-played for the 2016 one (83 s). Its release year contradicts the source's. The years stand in for the descriptions the planner fetches for the top two: no description of ei0PTLzdnWw was recorded. Without them, and with the measured fallback off, this page auto-plays the 2013 recording.",
       "provenance": "research 2026-10-25: verify-matching-F4-sources live cache (The_1975_The_1975); MusicBrainz: 2016 recording 83000 ms, 2013 recording 79929 ms on \"The 1975\" (2013-09-02), \"Being Funny in a Foreign Language\" 2022-10-14. Release years stand in for the description fetch of the top two",
       "source": {
         "title": "The 1975",
@@ -11368,6 +11380,7 @@
     {
       "id": "sped-up/source-sped-up",
       "category": "sped-up",
+      "constructed": "items",
       "description": "An official sped-up release finds itself, never the original.",
       "provenance": "constructed (x- IDs): tests the version rule, not a measured case",
       "source": {
@@ -11416,6 +11429,7 @@
     {
       "id": "sped-up/source-original",
       "category": "sped-up",
+      "constructed": "items",
       "description": "The original never matches its sped-up release.",
       "provenance": "constructed (x- IDs)",
       "source": {
@@ -11487,6 +11501,562 @@
       }
     },
     {
+      "id": "everly/compilation-named-after-artist",
+      "category": "re-recording",
+      "constructed": "items",
+      "description": "The 1957 recording by text, with the 1964 re-recording first on a compilation named after the artist: a compilation's name never ties a candidate to the self-titled album, so the look-alikes stay rivals.",
+      "provenance": "constructed (x- IDs) for review round 1 of stage 1.7: the lengths of the 1957 and 1964 recordings from verify-matching-F4 (everly.b, everly1964.a); the album names are made up",
+      "source": {
+        "title": "Bye Bye Love",
+        "artists": [
+          {
+            "name": "The Everly Brothers"
+          }
+        ],
+        "album": {
+          "name": "The Everly Brothers"
+        },
+        "durationMs": 144333
+      },
+      "pages": {
+        "text": [
+          {
+            "id": "x-everly-golden-hits",
+            "kind": "song",
+            "title": "Bye Bye Love",
+            "artists": ["The Everly Brothers"],
+            "album": "The Everly Brothers' Golden Hits",
+            "albumId": "MPREb_x-golden-hits",
+            "durationMs": 143000,
+            "explicit": false
+          },
+          {
+            "id": "x-everly-rock-hits",
+            "kind": "song",
+            "title": "Bye Bye Love",
+            "artists": ["The Everly Brothers"],
+            "album": "Rock Hits",
+            "albumId": "MPREb_x-rock-hits",
+            "durationMs": 145000,
+            "explicit": false
+          }
+        ]
+      },
+      "labels": {
+        "x-everly-golden-hits": "wrong",
+        "x-everly-rock-hits": "exact"
+      },
+      "expect": {
+        "band": "suggest",
+        "blockers": ["rivals"]
+      }
+    },
+    {
+      "id": "everly/compilation-named-after-artist-fallback",
+      "category": "re-recording",
+      "constructed": "items",
+      "description": "The same with the measured fallback on: the compilation agrees with neither the album nor the year.",
+      "provenance": "as everly/compilation-named-after-artist",
+      "source": {
+        "title": "Bye Bye Love",
+        "artists": [
+          {
+            "name": "The Everly Brothers"
+          }
+        ],
+        "album": {
+          "name": "The Everly Brothers"
+        },
+        "durationMs": 144333
+      },
+      "options": {
+        "requireReleaseAgreement": true
+      },
+      "pages": {
+        "text": [
+          {
+            "id": "x-everly-golden-hits",
+            "kind": "song",
+            "title": "Bye Bye Love",
+            "artists": ["The Everly Brothers"],
+            "album": "The Everly Brothers' Golden Hits",
+            "albumId": "MPREb_x-golden-hits",
+            "durationMs": 143000,
+            "explicit": false
+          },
+          {
+            "id": "x-everly-rock-hits",
+            "kind": "song",
+            "title": "Bye Bye Love",
+            "artists": ["The Everly Brothers"],
+            "album": "Rock Hits",
+            "albumId": "MPREb_x-rock-hits",
+            "durationMs": 145000,
+            "explicit": false
+          }
+        ]
+      },
+      "labels": {
+        "x-everly-golden-hits": "wrong",
+        "x-everly-rock-hits": "exact"
+      },
+      "expect": {
+        "band": "suggest",
+        "blockers": ["rivals", "release-agreement-required"]
+      }
+    },
+    {
+      "id": "bach-prelude-yoyoma/composer-first-isrc",
+      "category": "classical",
+      "constructed": "facts",
+      "description": "The catalog track with its credits as Spotify lists them, composer first: every credit is on the ISRC hit, so it is verified.",
+      "provenance": "research 2026-10-25 (matching): the recorded ISRC page of bach-prelude-yoyoma; the source credits follow the shape of Spotify's (composer, then performer)",
+      "source": {
+        "title": "Unaccompanied Cello Suite no. 1 in G major, BWV 1007: I. Prélude",
+        "artists": [
+          {
+            "name": "Johann Sebastian Bach"
+          },
+          {
+            "name": "Yo-Yo Ma"
+          }
+        ],
+        "album": {
+          "name": "Six Evolutions: Bach Cello Suites"
+        },
+        "durationMs": 150000,
+        "isrc": "USQX91801089"
+      },
+      "pages": {
+        "isrcSongs": ["matching/bach-prelude-yoyoma.isrc"]
+      },
+      "labels": {
+        "QqN-bPtWxU4": "exact",
+        "fRyhqobl0sk": "wrong",
+        "7YYd6g-ESlk": "wrong",
+        "SQYo0wsYMnA": "wrong",
+        "fHVhAPmDSKI": "wrong",
+        "-4WUHJRhvrM": "wrong",
+        "noW9fM9vgJs": "wrong",
+        "vawqt4-s7JU": "wrong",
+        "iB5xh_He4Ac": "wrong"
+      },
+      "expect": {
+        "band": "auto",
+        "pick": "QqN-bPtWxU4",
+        "isrc": "verified"
+      }
+    },
+    {
+      "id": "bach-prelude-yoyoma/composer-first-text",
+      "category": "classical",
+      "constructed": "facts",
+      "description": "The same credits by text: the hit is on a compilation, not the source album, so the classical guard keeps it a suggestion.",
+      "provenance": "research 2026-10-25 (matching): the recorded text page of bach-prelude-yoyoma; source credits in Spotify's shape",
+      "source": {
+        "title": "Unaccompanied Cello Suite no. 1 in G major, BWV 1007: I. Prélude",
+        "artists": [
+          {
+            "name": "Johann Sebastian Bach"
+          },
+          {
+            "name": "Yo-Yo Ma"
+          }
+        ],
+        "album": {
+          "name": "Six Evolutions: Bach Cello Suites"
+        },
+        "durationMs": 150000
+      },
+      "pages": {
+        "text": "matching/bach-prelude-yoyoma.text"
+      },
+      "labels": {
+        "QqN-bPtWxU4": "exact",
+        "fRyhqobl0sk": "wrong",
+        "7YYd6g-ESlk": "wrong",
+        "SQYo0wsYMnA": "wrong",
+        "fHVhAPmDSKI": "wrong",
+        "-4WUHJRhvrM": "wrong",
+        "noW9fM9vgJs": "wrong",
+        "vawqt4-s7JU": "wrong",
+        "iB5xh_He4Ac": "wrong"
+      },
+      "expect": {
+        "band": "suggest",
+        "pick": "QqN-bPtWxU4",
+        "blockers": ["classical"]
+      }
+    },
+    {
+      "id": "classical/other-performer-text",
+      "category": "classical",
+      "constructed": "items",
+      "description": "Another cellist's recording on an album of the same name, credited composer first like the source: sharing the composer is half the credits, never enough for Auto.",
+      "provenance": "constructed (x- IDs) for review round 1 of stage 1.7",
+      "source": {
+        "title": "Unaccompanied Cello Suite no. 1 in G major, BWV 1007: I. Prélude",
+        "artists": [
+          {
+            "name": "Johann Sebastian Bach"
+          },
+          {
+            "name": "Yo-Yo Ma"
+          }
+        ],
+        "album": {
+          "name": "Bach: Cello Suites"
+        },
+        "durationMs": 150000
+      },
+      "pages": {
+        "text": [
+          {
+            "id": "x-maisky-prelude",
+            "kind": "song",
+            "title": "Cello Suite No. 1 in G Major, BWV 1007: I. Prélude",
+            "artists": ["Johann Sebastian Bach", "Mischa Maisky"],
+            "album": "Bach: Cello Suites",
+            "albumId": "MPREb_x-maisky",
+            "durationMs": 151000,
+            "explicit": false
+          }
+        ]
+      },
+      "labels": {
+        "x-maisky-prelude": "wrong"
+      },
+      "expect": {
+        "band": "suggest",
+        "blockers": ["classical"]
+      }
+    },
+    {
+      "id": "classical/other-performer-isrc",
+      "category": "isrc-squatter",
+      "constructed": "page",
+      "description": "The ISRC search with another cellist's recording at #1 near the right length among recorded filler: it never passes the gate.",
+      "provenance": "constructed ISRC page: x-maisky-prelude (made up) and the recorded filler of matching/bach-prelude-yoyoma.isrc",
+      "source": {
+        "title": "Unaccompanied Cello Suite no. 1 in G major, BWV 1007: I. Prélude",
+        "artists": [
+          {
+            "name": "Johann Sebastian Bach"
+          },
+          {
+            "name": "Yo-Yo Ma"
+          }
+        ],
+        "album": {
+          "name": "Six Evolutions: Bach Cello Suites"
+        },
+        "durationMs": 150000,
+        "isrc": "USQX91801089"
+      },
+      "pages": {
+        "isrcSongs": [
+          [
+            {
+              "id": "x-maisky-prelude",
+              "kind": "song",
+              "title": "Cello Suite No. 1 in G Major, BWV 1007: I. Prélude",
+              "artists": ["Johann Sebastian Bach", "Mischa Maisky"],
+              "album": "Bach: Cello Suites",
+              "albumId": "MPREb_x-maisky",
+              "durationMs": 152000,
+              "explicit": false
+            },
+            {
+              "id": "fRyhqobl0sk",
+              "kind": "song",
+              "title": "All I Want for Christmas Is You",
+              "artists": ["Mariah Carey"],
+              "album": "Merry Christmas",
+              "albumId": "MPREb_JCxqCCAndci",
+              "durationMs": 242000,
+              "explicit": false
+            },
+            {
+              "id": "7YYd6g-ESlk",
+              "kind": "song",
+              "title": "Eu Vou Cuspir",
+              "artists": ["DJ YAN MARIOTO", "MC Marlon PH", "BIG MC"],
+              "album": "Eu Vou Cuspir",
+              "albumId": "MPREb_quYvcVkiS0l",
+              "durationMs": 122000,
+              "explicit": true
+            },
+            {
+              "id": "SQYo0wsYMnA",
+              "kind": "song",
+              "title": "Affection Addiction",
+              "artists": ["VocaloKAT"],
+              "album": "Affection Addiction",
+              "albumId": "MPREb_kfZ6d6bmt1K",
+              "durationMs": 220000,
+              "explicit": false
+            },
+            {
+              "id": "fHVhAPmDSKI",
+              "kind": "song",
+              "title": "いただきバベル (Aiobahn +81 Remix) - Itadaki Babel (Aiobahn +81 Remix)",
+              "artists": [
+                "DENONBU",
+                "Aiobahn +81",
+                "Kenmochi Hidefumi",
+                "Tama Kurogane (CV: Akina)"
+              ],
+              "album": "Itadaki Babel (Aiobahn +81 Remix)",
+              "albumId": "MPREb_OuVQYqBBvKq",
+              "durationMs": 182000,
+              "explicit": false
+            }
+          ]
+        ],
+        "isrcTopCard": null
+      },
+      "labels": {
+        "QqN-bPtWxU4": "exact",
+        "fRyhqobl0sk": "wrong",
+        "7YYd6g-ESlk": "wrong",
+        "SQYo0wsYMnA": "wrong",
+        "fHVhAPmDSKI": "wrong",
+        "-4WUHJRhvrM": "wrong",
+        "noW9fM9vgJs": "wrong",
+        "vawqt4-s7JU": "wrong",
+        "iB5xh_He4Ac": "wrong",
+        "x-maisky-prelude": "wrong"
+      },
+      "expect": {
+        "band": "none",
+        "isrc": "miss"
+      }
+    },
+    {
+      "id": "version-tags/take-2-for-take-3",
+      "category": "version-tags",
+      "constructed": "items",
+      "description": "Two takes are two recordings, whatever their length.",
+      "provenance": "constructed (x- IDs, made-up lengths) for review round 1 of stage 1.7: tests the version rule, not a measured case",
+      "source": {
+        "title": "Blue in Green (Take 3)",
+        "artists": [
+          {
+            "name": "Miles Davis"
+          }
+        ],
+        "durationMs": 337000
+      },
+      "pages": {
+        "text": [
+          {
+            "id": "x-take-2",
+            "kind": "song",
+            "title": "Blue in Green (Take 2)",
+            "artists": ["Miles Davis"],
+            "durationMs": 337000,
+            "explicit": false
+          }
+        ]
+      },
+      "labels": {
+        "x-take-2": "wrong"
+      },
+      "expect": {
+        "band": "none"
+      }
+    },
+    {
+      "id": "version-tags/vip-for-club-mix",
+      "category": "version-tags",
+      "constructed": "items",
+      "description": "Two mixes of one remix family are two versions.",
+      "provenance": "constructed (x- IDs, made-up lengths) for review round 1 of stage 1.7: tests the version rule, not a measured case",
+      "source": {
+        "title": "Strobe (Club Mix)",
+        "artists": [
+          {
+            "name": "deadmau5"
+          }
+        ],
+        "durationMs": 600000
+      },
+      "pages": {
+        "text": [
+          {
+            "id": "x-vip-mix",
+            "kind": "song",
+            "title": "Strobe (VIP Mix)",
+            "artists": ["deadmau5"],
+            "durationMs": 600000,
+            "explicit": false
+          }
+        ]
+      },
+      "labels": {
+        "x-vip-mix": "wrong"
+      },
+      "expect": {
+        "band": "none"
+      }
+    },
+    {
+      "id": "version-tags/piano-for-acoustic",
+      "category": "version-tags",
+      "constructed": "items",
+      "description": "A piano version is one acoustic version; \"Acoustic\" does not name it.",
+      "provenance": "constructed (x- IDs, made-up lengths) for review round 1 of stage 1.7: tests the version rule, not a measured case",
+      "source": {
+        "title": "Someone Like You (Acoustic)",
+        "artists": [
+          {
+            "name": "Adele"
+          }
+        ],
+        "durationMs": 285000
+      },
+      "pages": {
+        "text": [
+          {
+            "id": "x-piano",
+            "kind": "song",
+            "title": "Someone Like You (Piano Version)",
+            "artists": ["Adele"],
+            "durationMs": 285000,
+            "explicit": false
+          }
+        ]
+      },
+      "labels": {
+        "x-piano": "wrong"
+      },
+      "expect": {
+        "band": "none"
+      }
+    },
+    {
+      "id": "version-tags/tiny-desk-for-live",
+      "category": "version-tags",
+      "constructed": "items",
+      "description": "A Tiny Desk concert is one live performance; a live album is another.",
+      "provenance": "constructed (x- IDs, made-up lengths) for review round 1 of stage 1.7: tests the version rule, not a measured case",
+      "source": {
+        "title": "Yellow - Live",
+        "artists": [
+          {
+            "name": "Coldplay"
+          }
+        ],
+        "durationMs": 320000,
+        "album": {
+          "name": "Live 2003"
+        }
+      },
+      "pages": {
+        "text": [
+          {
+            "id": "x-tiny-desk",
+            "kind": "song",
+            "title": "Yellow (Tiny Desk Concert)",
+            "artists": ["Coldplay"],
+            "durationMs": 320000,
+            "explicit": false
+          }
+        ]
+      },
+      "labels": {
+        "x-tiny-desk": "wrong"
+      },
+      "expect": {
+        "band": "none"
+      }
+    },
+    {
+      "id": "humble/explicit-text-clean-unmarked",
+      "category": "explicit-clean",
+      "constructed": "page",
+      "description": "Only the clean master, without an explicit field, for an explicit source: a song without the explicit mark is the clean master, so never Auto.",
+      "provenance": "constructed page from the research item ov4WobPqoSA of F1 V6, its explicit field left out as the YouTube provider leaves it",
+      "source": {
+        "title": "HUMBLE.",
+        "artists": [
+          {
+            "name": "Kendrick Lamar"
+          }
+        ],
+        "album": {
+          "name": "DAMN."
+        },
+        "durationMs": 177000,
+        "explicit": true
+      },
+      "pages": {
+        "text": [
+          {
+            "id": "ov4WobPqoSA",
+            "kind": "song",
+            "title": "HUMBLE.",
+            "artists": ["Kendrick Lamar"],
+            "album": "DAMN. COLLECTORS EDITION.",
+            "albumId": "MPREb_naYFqhGVxwD",
+            "durationMs": 177000
+          }
+        ]
+      },
+      "labels": {
+        "ov4WobPqoSA": "wrong"
+      },
+      "expect": {
+        "band": "suggest",
+        "blockers": ["explicit-mismatch"]
+      }
+    },
+    {
+      "id": "humble/explicit-isrc-clean-only",
+      "category": "explicit-clean",
+      "constructed": "page",
+      "description": "The explicit master's ISRC search holding only the clean master: it never passes the gate.",
+      "provenance": "constructed ISRC page from the research item ov4WobPqoSA of F1 V6",
+      "source": {
+        "title": "HUMBLE.",
+        "artists": [
+          {
+            "name": "Kendrick Lamar"
+          }
+        ],
+        "album": {
+          "name": "DAMN."
+        },
+        "durationMs": 177000,
+        "explicit": true,
+        "isrc": "USUM71703085"
+      },
+      "pages": {
+        "isrcSongs": [
+          [
+            {
+              "id": "ov4WobPqoSA",
+              "kind": "song",
+              "title": "HUMBLE.",
+              "artists": ["Kendrick Lamar"],
+              "album": "DAMN. COLLECTORS EDITION.",
+              "albumId": "MPREb_naYFqhGVxwD",
+              "durationMs": 177000,
+              "explicit": false
+            }
+          ]
+        ],
+        "isrcTopCard": null
+      },
+      "labels": {
+        "ov4WobPqoSA": "wrong"
+      },
+      "expect": {
+        "band": "none",
+        "isrc": "miss"
+      }
+    },
+    {
       "id": "video/blinding-lights/4NRXx6U8ABQ",
       "category": "video-to-song",
       "description": "An official video with an intro maps to its song.",
@@ -11515,7 +12085,7 @@
     {
       "id": "video/thriller/sOnqjkJTMaA",
       "category": "video-to-song",
-      "description": "The 13-minute short film maps to the album song.",
+      "description": "The 13-minute short film maps to the album song. Two releases of the song pass (Thriller and HIStory), and nothing ties either to the video: Suggest.",
       "provenance": "research 2026-10-25 (matching): thriller.d (the video, typed as an official video) and thriller.b (songs)",
       "video": {
         "id": "sOnqjkJTMaA",
@@ -11533,7 +12103,7 @@
         "sO4vI8P88NM": "exact"
       },
       "expect": {
-        "band": "auto",
+        "band": "suggest",
         "pick": "Z85lxckrtzg",
         "via": "match"
       }
@@ -11797,7 +12367,7 @@
     {
       "id": "video/paranoid-android/fHiGbolFFGw",
       "category": "video-to-song",
-      "description": "Two releases of the song pass; the first is taken.",
+      "description": "Two releases of the song pass; the first is taken. Two releases of the song pass (OKNOTOK and the single), and nothing ties either to the video: Suggest.",
       "provenance": "research 2026-10-25 (matching): paranoid-android.d (the video, typed as an official video) and paranoid-android.b (songs)",
       "video": {
         "id": "fHiGbolFFGw",
@@ -11815,7 +12385,7 @@
         "vrlr4CmVyTc": "wrong"
       },
       "expect": {
-        "band": "auto",
+        "band": "suggest",
         "pick": "DExBeFCx3mQ",
         "via": "match"
       }
@@ -11849,6 +12419,7 @@
     {
       "id": "video/blinding-lights/linked",
       "category": "video-to-song",
+      "constructed": "items",
       "description": "A song link from the album page wins without scoring.",
       "provenance": "research 2026-10-25: verify-matching-F5 (the official video 4NRXx6U8ABQ pairs with J7p4bzqLvCw)",
       "video": {
@@ -11915,6 +12486,7 @@
     {
       "id": "all-mode/videos-only",
       "category": "music-video-mode",
+      "constructed": "page",
       "description": "Music + Video mode with no song found: the best is a video, which never reaches Auto.",
       "provenance": "research 2026-10-25 (matching): tum-hi-ho.d; the empty songs page is constructed",
       "source": {
@@ -11948,6 +12520,82 @@
         "band": "suggest",
         "pick": "BjL7AuPsmEk",
         "blockers": ["not-song"]
+      }
+    },
+    {
+      "id": "video/the-twist/x-official-video",
+      "category": "video-to-song",
+      "constructed": "items",
+      "description": "An official video against the recorded page of \"The Twist\": six releases from different labels pass at the same score, and nothing ties one to the video, so the re-recording guard keeps it a suggestion.",
+      "provenance": "the video item is constructed (x- ID, made-up length); the songs page is verify-matching-F4 checker.b",
+      "video": {
+        "id": "x-twist-video",
+        "kind": "music-video",
+        "title": "Chubby Checker - The Twist (Official Video)",
+        "artists": ["Chubby Checker"],
+        "durationMs": 165000
+      },
+      "songs": "heldout/checker.b",
+      "labels": {
+        "wvCuXYeMQ3U": "unknown",
+        "BHBqzDV2GcM": "wrong",
+        "wPT0OP2Yqvc": "wrong",
+        "0jj4gx1P8x4": "wrong",
+        "HiMV89C9NPk": "wrong",
+        "n9ElZMQwYq8": "unknown",
+        "3inevkg51ME": "unknown",
+        "gg9HnrHMf2U": "unknown",
+        "hADPnFrPskU": "wrong",
+        "QMHsfImOfFU": "wrong",
+        "jHc9f31_OQk": "wrong",
+        "orG4z_gfZoI": "wrong",
+        "Aor4UJxZ6FU": "unknown",
+        "Frw7U5X8dhg": "wrong",
+        "hC67d2jNQsM": "wrong",
+        "oExcQgbrODQ": "wrong",
+        "7hh3_SNxSSM": "wrong",
+        "5e0G9QH7lk4": "unknown",
+        "9ULgfSch9Zk": "wrong",
+        "rYjlrj_9Z4A": "wrong",
+        "WEI9KqTXG-c": "exact",
+        "5ZyXd1ofMo8": "wrong"
+      },
+      "expect": {
+        "band": "suggest",
+        "via": "match"
+      }
+    },
+    {
+      "id": "video/stay-with-me/x-feat-version",
+      "category": "video-to-song",
+      "constructed": "items",
+      "description": "Only a version with an uncredited featured artist on the songs page: it scores 0.55, so the video maps to nothing.",
+      "provenance": "constructed (x- IDs, made-up lengths) for review round 1 of stage 1.7",
+      "video": {
+        "id": "x-swm-video",
+        "kind": "music-video",
+        "title": "Sam Smith - Stay With Me (Official Video)",
+        "artists": ["Sam Smith"],
+        "durationMs": 180000
+      },
+      "songs": [
+        {
+          "id": "x-swm-duet",
+          "kind": "song",
+          "title": "Stay With Me (feat. Mary J. Blige)",
+          "artists": ["Sam Smith"],
+          "album": "In The Lonely Hour (Drowning Shadows Edition)",
+          "albumId": "MPREb_x-drowning",
+          "durationMs": 174000,
+          "explicit": false
+        }
+      ],
+      "labels": {
+        "x-swm-duet": "wrong"
+      },
+      "expect": {
+        "band": "none",
+        "via": "none"
       }
     }
   ]

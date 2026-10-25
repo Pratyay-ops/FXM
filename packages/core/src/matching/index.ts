@@ -1,38 +1,45 @@
 /**
  * The matching engine: finds the YouTube Music song for a track from another catalog, and the
  * song for an official music video. Pure functions over the pages a provider fetched; see
- * `README.md` in this folder.
+ * `README.md` in this folder. Only the engine's API is public: the scorer and its helpers stay
+ * internal, so their names never collide with other modules in the flat `@fxm/core` barrel.
  *
  * @module
  */
 
 export { matchTrack } from './engine'
-export { checkIsrc, type IsrcGateResult } from './isrc'
-export {
-  addMatchResponse,
-  albumSearchQuery,
-  type MatchRequest,
-  type MatchResponse,
-  nextMatchRequest,
-  textSearchQuery,
-  videoSearchQuery,
-} from './plan'
-export { isClassicalTitle, type PreparedTitle, type VersionLevel } from './prepare'
+export { addMatchResponse, nextMatchRequest, runMatch, videoSongsQuery } from './plan'
 export { parseReleaseDescription } from './release'
 export {
-  durationSimilarity,
-  type PreparedSource,
-  prepareSource,
-  SCORE_CAPS,
-  SCORE_PENALTIES,
-  SCORE_WEIGHTS,
-  type ScoreBreakdown,
-  type ScoreSide,
-  scoreCandidate,
-  sourceSide,
-  trackSide,
-  type VersionMismatch,
-} from './score'
-export { textSimilarity } from './similarity'
-export * from './types'
+  type AutoBlocker,
+  DEFAULT_MATCH_THRESHOLDS,
+  effectiveMatchBand,
+  type IsrcCheck,
+  type IsrcOrigin,
+  type IsrcPlace,
+  type IsrcRejectedItem,
+  type IsrcRejection,
+  type IsrcStatus,
+  isIsrcOrigin,
+  isMatchBand,
+  MATCH_BANDS,
+  MATCHER_VERSION,
+  type MatchBand,
+  type MatchOptions,
+  type MatchPages,
+  type MatchRequest,
+  type MatchRequestKind,
+  type MatchResponse,
+  type MatchResult,
+  type MatchSource,
+  type MatchSourceExtras,
+  type MatchThresholds,
+  type MatchVerdict,
+  type ReleaseFacts,
+  type ReleaseFactsKey,
+  sanitizeMatchOptions,
+  type VideoMatchOptions,
+  type VideoMatchThresholds,
+  type VideoSongMatch,
+} from './types'
 export { matchVideoToSong } from './video'

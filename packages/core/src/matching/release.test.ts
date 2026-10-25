@@ -6,8 +6,10 @@ import {
   compareLabels,
   compareYears,
   isGenericAlbum,
+  isSameRelease,
   labelWords,
   parseReleaseDescription,
+  sanitizeReleaseFacts,
   yearOf,
 } from './release'
 
@@ -22,13 +24,27 @@ describe('albumCore and albumMatchLevel', () => {
     expect(albumMatchLevel('Hounds of Love', 'Hounds Of Love')).toBe('exact')
     expect(albumMatchLevel('Hysteria', 'Hysteria (Super Deluxe)')).toBe('core')
     expect(albumMatchLevel('OK Computer', 'OK Computer OKNOTOK 1997 2017')).toBe('core')
+    expect(albumMatchLevel('Thriller', 'Thriller 25 Super Deluxe Edition')).toBe('core')
     expect(
       albumMatchLevel('Six Evolutions: Bach Cello Suites', 'Six Evolutions - Bach: Cello Suites'),
     ).toBe('core')
     expect(albumMatchLevel('Abbey Road', 'Abbey Raod')).toBe('none')
-    expect(albumMatchLevel('Greatest Hits', 'Greatest Hitz')).toBe('core')
+    expect(albumMatchLevel('Greatest Hits', 'Greatest Hitz')).toBe('similar')
     expect(albumMatchLevel('Hits', "Hits of the 60's - 1960")).toBe('none')
     expect(albumMatchLevel('Pablo Honey', 'Creep')).toBe('none')
+  })
+
+  it('never takes a compilation or another album for the release', () => {
+    const everly = ['The Everly Brothers']
+    expect(albumMatchLevel('The Everly Brothers', "The Everly Brothers' Golden Hits", everly)).toBe(
+      'none',
+    )
+    expect(albumMatchLevel('The Everly Brothers', 'The Everly Brothers Sing')).toBe('similar')
+    expect(albumMatchLevel('The Everly Brothers', 'The Everly Brothers 1958')).toBe('core')
+    expect(albumMatchLevel('The Everly Brothers', 'The Everly Brothers 1958', everly)).toBe(
+      'similar',
+    )
+    expect(albumMatchLevel('Everly Brothers', 'The Everly Brothers 1958', everly)).toBe('none')
   })
 
   it('needs both names', () => {
@@ -38,9 +54,13 @@ describe('albumCore and albumMatchLevel', () => {
     expect(albumMatchLevel('(Deluxe)', '(Live)')).toBe('none')
   })
 
-  it('ranks the levels', () => {
+  it('ranks the levels, and only exact and core name the same release', () => {
     expect(albumMatchRank('exact')).toBeGreaterThan(albumMatchRank('core'))
-    expect(albumMatchRank('core')).toBeGreaterThan(albumMatchRank('none'))
+    expect(albumMatchRank('core')).toBeGreaterThan(albumMatchRank('similar'))
+    expect(albumMatchRank('similar')).toBeGreaterThan(albumMatchRank('none'))
+    expect(
+      ['exact', 'core', 'similar', 'none'].map((level) => isSameRelease(level as never)),
+    ).toEqual([true, true, false, false])
   })
 })
 
@@ -52,6 +72,9 @@ describe('isGenericAlbum', () => {
     'The Essential Collection',
     'Golden Hits of 1961',
     'The Beatles Jukebox',
+    "The Everly Brothers' Golden Hits",
+    'Chubby Checker Classics',
+    'The Singles',
   ])('reads %j as generic', (name) => {
     expect(isGenericAlbum(name)).toBe(true)
   })
@@ -60,6 +83,12 @@ describe('isGenericAlbum', () => {
     'Hysteria',
     'Stay Hungry',
     'I like it when you sleep, for you are so beautiful yet so unaware of it',
+    'Golden Hour',
+    'Platinum',
+    'Classic',
+    'Selected Ambient Works 85-92',
+    'Singles',
+    'Years of Refusal',
   ])('reads %j as distinctive', (name) => {
     expect(isGenericAlbum(name)).toBe(false)
   })
@@ -119,6 +148,18 @@ describe('years', () => {
     expect(compareYears(1964, 2017)).toBe('later')
     expect(compareYears(undefined, 2017)).toBe('unknown')
     expect(compareYears(1964, undefined)).toBe('unknown')
+  })
+})
+
+describe('sanitizeReleaseFacts', () => {
+  it('keeps non-empty labels and a four-digit year', () => {
+    expect(
+      sanitizeReleaseFacts({ label: ' ABKCO ', providedBy: 'The Orchard', releaseYear: 1960 }),
+    ).toEqual({ label: 'ABKCO', providedBy: 'The Orchard', releaseYear: 1960 })
+    expect(sanitizeReleaseFacts({ label: '', providedBy: 7, releaseYear: 19.5 })).toEqual({})
+    expect(sanitizeReleaseFacts({ releaseYear: Number.NaN })).toEqual({})
+    expect(sanitizeReleaseFacts(null)).toEqual({})
+    expect(sanitizeReleaseFacts('℗ 2019')).toEqual({})
   })
 })
 

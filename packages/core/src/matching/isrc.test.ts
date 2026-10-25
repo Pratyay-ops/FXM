@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { track } from './__fixtures__/tracks'
-import { checkIsrc, durationWindowMs } from './isrc'
+import { checkIsrc, durationWindowMs, isrcTrust } from './isrc'
 import { DEFAULT_MATCH_THRESHOLDS, type MatchSource } from './types'
 
 const CREEP: MatchSource = {
@@ -158,6 +158,65 @@ describe('checkIsrc', () => {
     expect(checkIsrc(fuzzy, { isrcSongs: [[filler('a')]] }).check.status).toBe('hint-miss')
     const exact = { ...CREEP, isrcOrigin: 'musicbrainz-exact' } as const
     expect(checkIsrc(exact, { isrcSongs: [[RIGHT]] }).check.status).toBe('verified')
+    const several = { ...CREEP, isrcOrigin: 'musicbrainz-exact-several' } as const
+    expect(checkIsrc(several, { isrcSongs: [[RIGHT]] }).check.status).toBe('verified')
+    expect(checkIsrc(several, { isrcSongs: [[filler('a')]] }).check.status).toBe('miss')
+  })
+
+  it('trusts only the known origins, and fails closed on anything else', () => {
+    expect(isrcTrust(undefined)).toBe('trusted')
+    expect(isrcTrust('catalog')).toBe('trusted')
+    expect(isrcTrust('musicbrainz-exact')).toBe('trusted')
+    expect(isrcTrust('musicbrainz-exact-several')).toBe('one-of-several')
+    expect(isrcTrust('musicbrainz-fuzzy')).toBe('hint')
+    expect(isrcTrust('musicbrainz-guess')).toBe('hint')
+    expect(isrcTrust(null)).toBe('hint')
+    const guess = { ...CREEP, isrcOrigin: 'musicbrainz-guess' } as unknown as MatchSource
+    expect(checkIsrc(guess, { isrcSongs: [[RIGHT]] }).check.status).toBe('hint')
+  })
+
+  it('fails the duration check closed on a broken duration', () => {
+    const broken = { ...RIGHT, durationMs: Number.NaN }
+    const { check } = checkIsrc(CREEP, { isrcSongs: [[broken]] })
+    expect(check.rejected[0]?.reasons).toEqual(['duration'])
+    for (const durationMs of [Number.NaN, Number.POSITIVE_INFINITY, 0, -5]) {
+      const source = { ...CREEP, durationMs }
+      const far = track('far', 'Creep', 'Radiohead', { seconds: 400 })
+      // No source duration is no-duration mode: the gate skips the check, the band caps.
+      expect(checkIsrc(source, { isrcSongs: [[far]] }).check.status).toBe('verified')
+    }
+  })
+
+  it('turns down the other master and an uncredited featured artist', () => {
+    const explicit = { ...CREEP, explicit: true }
+    const { check } = checkIsrc(explicit, { isrcSongs: [[RIGHT]] })
+    expect(check.rejected[0]?.reasons).toEqual(['explicit'])
+    const marked = track('marked', 'Creep', 'Radiohead', { seconds: 238, explicit: true })
+    expect(checkIsrc(explicit, { isrcSongs: [[marked]] }).check.status).toBe('verified')
+    const duet = track('duet', 'Creep (feat. Someone)', 'Radiohead', { seconds: 238 })
+    const featured = checkIsrc(CREEP, { isrcSongs: [[filler('a'), duet]] }).check
+    expect(featured.rejected[1]?.reasons).toEqual(['featured'])
+  })
+
+  it('needs every source credit for a classical-looking title', () => {
+    const prelude: MatchSource = {
+      title: 'Cello Suite No. 1 in G Major, BWV 1007: I. Prélude',
+      artists: [{ name: 'Johann Sebastian Bach' }, { name: 'Yo-Yo Ma' }],
+      durationMs: 150000,
+      isrc: 'USQX91801089',
+    }
+    const other = track('other', prelude.title, ['Johann Sebastian Bach', 'Mischa Maisky'], {
+      seconds: 151,
+    })
+    const right = track('right', prelude.title, ['Yo-Yo Ma', 'Johann Sebastian Bach'], {
+      seconds: 151,
+    })
+    expect(checkIsrc(prelude, { isrcSongs: [[other]] }).check.rejected[0]?.reasons).toEqual([
+      'artist',
+    ])
+    expect(checkIsrc(prelude, { isrcSongs: [[other, right]] }).check.trackId).toBe(
+      'ytm:track:right',
+    )
   })
 
   it('reads its thresholds from the options', () => {
