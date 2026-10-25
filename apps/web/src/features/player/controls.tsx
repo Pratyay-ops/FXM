@@ -1,6 +1,7 @@
 import { formatTime } from '@fxm/player'
 import {
   Heart,
+  LoaderCircle,
   Pause,
   Play,
   Repeat,
@@ -42,18 +43,28 @@ export function PlayPauseButton({
 }: {
   appearance?: keyof typeof PLAY_BUTTON_STYLES
 }) {
+  const hasTrack = usePlayerStore((state) => state.hasTrack)
   const isPlaying = usePlayerStore((state) => state.isPlaying)
+  const busy = usePlayerStore((state) => state.busy)
   const togglePlay = usePlayerStore((state) => state.togglePlay)
   const Icon = isPlaying ? Pause : Play
   const style = PLAY_BUTTON_STYLES[appearance]
   return (
     <IconButton
       label={isPlaying ? 'Pause' : 'Play'}
-      // The play triangle's visual center sits left of its box: nudge it right.
-      icon={<Icon fill="currentColor" strokeWidth={0} className={cn(!isPlaying && 'ml-0.5')} />}
+      icon={
+        isPlaying && busy ? (
+          // Waiting for the stream: pressing it still pauses.
+          <LoaderCircle className="animate-spin" />
+        ) : (
+          // The play triangle's visual center sits left of its box: nudge it right.
+          <Icon fill="currentColor" strokeWidth={0} className={cn(!isPlaying && 'ml-0.5')} />
+        )
+      }
       size="custom"
       variant={style.variant}
       className={style.className}
+      disabled={!hasTrack}
       onClick={togglePlay}
     />
   )
@@ -68,6 +79,7 @@ export function PlayerControls({
   size?: 'md' | 'lg'
   className?: string
 }) {
+  const hasTrack = usePlayerStore((state) => state.hasTrack)
   const shuffle = usePlayerStore((state) => state.shuffle)
   const repeat = usePlayerStore((state) => state.repeat)
   const toggleShuffle = usePlayerStore((state) => state.toggleShuffle)
@@ -98,6 +110,7 @@ export function PlayerControls({
         icon={<SkipBack fill="currentColor" />}
         size={skipSize}
         variant="plain"
+        disabled={!hasTrack}
         onClick={previous}
       />
       <PlayPauseButton appearance={size === 'lg' ? 'hero' : 'bar'} />
@@ -106,6 +119,7 @@ export function PlayerControls({
         icon={<SkipForward fill="currentColor" />}
         size={skipSize}
         variant="plain"
+        disabled={!hasTrack}
         onClick={next}
       />
       <IconButton
@@ -122,6 +136,7 @@ export function PlayerControls({
 
 /** Elapsed time, seek slider and duration, with times formatted by @fxm/player. */
 export function SeekBar({ className }: { className?: string }) {
+  const hasTrack = usePlayerStore((state) => state.hasTrack)
   const position = usePlayerStore((state) => state.position)
   const duration = usePlayerStore((state) => state.duration)
   const seek = usePlayerStore((state) => state.seek)
@@ -135,6 +150,7 @@ export function SeekBar({ className }: { className?: string }) {
         value={position}
         valueText={`${formatTime(position)} of ${formatTime(duration)}`}
         onValueChange={seek}
+        disabled={!hasTrack}
         className="min-w-0 flex-1"
       />
       <span className="min-w-10 tabular-nums">{formatTime(duration)}</span>

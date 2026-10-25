@@ -1,5 +1,7 @@
+import { testTrack } from '@fxm/player/testing'
 import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { setupTestPlayback } from '../../features/now-playing/testing'
 import { renderApp } from '../../test/render'
 
 // Both navigations render; CSS shows the sidebar from 768px and the tab bar below.
@@ -49,29 +51,48 @@ describe('app layout', () => {
     expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument()
   })
 
-  it('has player controls that respond but play nothing yet', async () => {
+  it('has player controls that wait for something to play', async () => {
     const { user } = renderApp('/')
     const player = within(screen.getAllByRole('region', { name: 'Player' })[0] as HTMLElement)
-    expect(player.getByText('0:00')).toBeInTheDocument()
-    expect(player.getByText('3:33')).toBeInTheDocument()
+    expect(player.getByRole('link', { name: 'Open now playing' })).toHaveTextContent('Not playing')
+    expect(player.getByRole('button', { name: 'Play' })).toBeDisabled()
+    expect(player.getByRole('slider', { name: 'Seek' })).toBeDisabled()
 
-    await user.click(player.getByRole('button', { name: 'Play' }))
-    expect(player.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
-
+    // Shuffle and repeat are settings of the queue, so they work without one.
     await user.click(player.getByRole('button', { name: 'Shuffle' }))
     expect(player.getByRole('button', { name: 'Shuffle' })).toHaveAttribute('aria-pressed', 'true')
 
     await user.click(player.getByRole('button', { name: 'Enable repeat' }))
     expect(player.getByRole('button', { name: 'Enable repeat one' })).toBeInTheDocument()
 
-    expect(player.getByRole('slider', { name: 'Seek' })).toHaveAttribute(
-      'aria-valuetext',
-      '0:00 of 3:33',
-    )
     expect(player.getByRole('link', { name: /Catalog mode: Music\./ })).toHaveAttribute(
       'href',
       '/settings',
     )
+  })
+
+  it('shows the playing track in the player bar and the mini player', async () => {
+    const { player } = setupTestPlayback()
+    await player.setQueue([testTrack('Creep', { artists: [{ name: 'Radiohead' }] })])
+    const { user } = renderApp('/')
+
+    for (const region of screen.getAllByRole('region', { name: 'Player' })) {
+      const bar = within(region)
+      expect(
+        bar.getByRole('link', { name: 'Open now playing: Creep by Radiohead' }),
+      ).toBeInTheDocument()
+      expect(bar.getByRole('button', { name: 'Pause' })).toBeEnabled()
+    }
+    const bar = within(screen.getAllByRole('region', { name: 'Player' })[0] as HTMLElement)
+    expect(bar.getByRole('slider', { name: 'Seek' })).toHaveAttribute(
+      'aria-valuetext',
+      '0:00 of 3:00',
+    )
+
+    await user.click(bar.getByRole('button', { name: 'Pause' }))
+
+    expect(player.getState().status).toBe('paused')
+    expect(bar.getByRole('button', { name: 'Play' })).toBeEnabled()
   })
 
   it('hides the mini player on Now Playing, which has its own controls', async () => {
