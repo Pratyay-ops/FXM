@@ -142,8 +142,11 @@ export function compose(options: ComposeOptions): ComposeResult {
       else copyFileSync(index, fallback)
     }
   }
-  if (existsSync(join(pagesDir, NOTICES_FILE)))
-    problems.push(`a part writes ${NOTICES_FILE}; make dist writes it`)
+  for (const generated of [NOTICES_FILE, '_headers']) {
+    if (existsSync(join(pagesDir, generated))) {
+      problems.push(`a part writes ${generated}; make dist writes it`)
+    }
+  }
   for (const name of FORBIDDEN) {
     if (existsSync(join(pagesDir, name)))
       problems.push(`the output has ${name}: FXM deploys static files only`)

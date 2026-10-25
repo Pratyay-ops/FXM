@@ -190,11 +190,13 @@ describe('compose', () => {
     const intruder = fakePart({ name: 'sandbox', mount: '' }, () => ({
       'robots.txt': 'again',
       _redirects: '/app/* /app/index.html 200',
+      _headers: '/*\n  X-Mine: yes',
       [NOTICES_FILE]: 'mine',
     }))
     expect(problemsOf(() => run(root, [fakeSitePart(root), fakeAppPart(root), intruder]))).toEqual([
       'site and sandbox both write robots.txt',
       `a part writes ${NOTICES_FILE}; make dist writes it`,
+      'a part writes _headers; make dist writes it',
       'the output has _redirects: FXM deploys static files only',
     ])
   })
