@@ -77,9 +77,9 @@ jobs:
           key: desktop-js-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'scripts/install-*.sh') }}
           restore-keys: desktop-js-${{ runner.os }}-
 
-      # Release builds and the bundler's downloads (target/.tauri) only, about 1 GB per OS:
-      # the debug builds behind clippy and cargo test would double that, and GitHub keeps
-      # 10 GB of caches per repository.
+      # Release builds and the bundler's downloads (target/.tauri) only: 300 to 450 MB per OS
+      # once compressed. The debug builds behind clippy and cargo test would double that, and
+      # GitHub keeps 10 GB of caches per repository.
       - name: Cache the Cargo registry and release target
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
