@@ -253,9 +253,15 @@ importers:
       '@fxm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@fxm/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player
+      '@fxm/sources':
+        specifier: workspace:*
+        version: link:../../packages/sources
       '@tanstack/react-query':
         specifier: ^5.104.1
         version: 5.104.1(react@19.3.0)
@@ -305,6 +311,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.1.2
         version: 6.1.2(vite@8.3.4(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1))
+      fake-indexeddb:
+        specifier: ^6.2.5
+        version: 6.2.5
       happy-dom:
         specifier: ^20.14.6
         version: 20.14.6
