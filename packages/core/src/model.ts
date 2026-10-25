@@ -100,6 +100,12 @@ export interface Track {
    * e.g. `{ spotify: '4uLU6hMCjMI75M1A2tKUQC' }`.
    */
   externalIds?: Partial<Record<SourceId, string>>
+  /**
+   * Genre and style tags as the source spells them, when it has any, e.g. Jamendo's genres, an
+   * Internet Archive item's subjects, a local file's genre or Last.fm's tags: `['Hip-Hop',
+   * 'lo-fi']`. The listening signals score each tag (see `tagAffinityKey`).
+   */
+  tags?: string[]
 }
 
 /**

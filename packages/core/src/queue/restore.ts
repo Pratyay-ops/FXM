@@ -169,6 +169,7 @@ function cleanTrack(value: unknown): Track | undefined {
     ...field('releaseDate', value.releaseDate, isReleaseDate),
     ...field('popularity', value.popularity, isPopularity),
     ...(externalIds === undefined ? {} : { externalIds }),
+    ...field('tags', value.tags, isStringArray),
   }
 }
 
