@@ -2,11 +2,11 @@ import type { RegisterSWOptions } from 'vite-plugin-pwa/types'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { usePwaStore } from './pwa-store'
 import {
+  type AppRegistration,
   checkForUpdate,
   type RegisterSW,
   registerServiceWorker,
   UPDATE_CHECK_INTERVAL_MS,
-  type UpdatableRegistration,
 } from './service-worker'
 
 /** A `registerSW` that records its options and the reloads it was asked for. */
@@ -25,13 +25,24 @@ function fakeRegister() {
   return { register, options, updateSW, calls }
 }
 
-function fakeRegistration(overrides: Partial<UpdatableRegistration> = {}) {
+/** A stand-in for a waiting service worker (only its identity matters). */
+const worker = (name: string) => ({ name }) as unknown as ServiceWorker
+
+function fakeRegistration(overrides: Partial<AppRegistration> = {}) {
   return {
     installing: null,
+    waiting: null,
     update: vi.fn(async () => undefined as never),
     ...overrides,
-  } satisfies UpdatableRegistration
+  } satisfies AppRegistration
 }
+
+/** Hands the fake registration to the code, as `registerSW` does once the browser registered. */
+function registered(sw: ReturnType<typeof fakeRegister>, registration: AppRegistration) {
+  sw.options().onRegisteredSW?.('/app/sw.js', registration as unknown as ServiceWorkerRegistration)
+}
+
+const dismissed = () => usePwaStore.getState().updateDismissed
 
 describe('registerServiceWorker', () => {
   beforeEach(() => {
@@ -55,6 +66,7 @@ describe('registerServiceWorker', () => {
     const reload = vi.fn()
     const controllers = new EventTarget()
     registerServiceWorker(sw.register, { reload, controllers })
+    registered(sw, fakeRegistration({ waiting: worker('new') }))
     expect(usePwaStore.getState().updateReady).toBe(false)
 
     sw.options().onNeedRefresh?.()
@@ -83,26 +95,89 @@ describe('registerServiceWorker', () => {
     expect(reload).toHaveBeenCalledOnce()
   })
 
-  it('ignores a takeover before the user asked for the new version', () => {
+  it('reloads when another FXM window switches to the new version', () => {
+    const sw = fakeRegister()
+    const reload = vi.fn()
+    const controllers = new EventTarget()
+    registerServiceWorker(sw.register, { reload, controllers })
+    sw.options().onNeedRefresh?.()
+    // Even after "Not now": this page's code belongs to the old version, whose files go.
+    usePwaStore.setState({ updateDismissed: true })
+
+    // The user chose Reload in another window; the new version claims this page too.
+    controllers.dispatchEvent(new Event('controllerchange'))
+
+    expect(reload).toHaveBeenCalledOnce()
+  })
+
+  it('ignores the first visit, whose service worker takes control without a new version', () => {
     const reload = vi.fn()
     const controllers = new EventTarget()
     registerServiceWorker(fakeRegister().register, { reload, controllers })
 
-    // The first visit: the service worker takes control of the page it was installed from.
     controllers.dispatchEvent(new Event('controllerchange'))
 
     expect(reload).not.toHaveBeenCalled()
   })
 
+  it('reloads at once when the new version no longer waits', async () => {
+    const sw = fakeRegister()
+    const reload = vi.fn()
+    registerServiceWorker(sw.register, { reload, controllers: new EventTarget() })
+    const registration = fakeRegistration({ waiting: worker('new') })
+    registered(sw, registration)
+    sw.options().onNeedRefresh?.()
+
+    // Another window activated it, and this page missed the takeover.
+    Object.assign(registration, { waiting: null })
+    await usePwaStore.getState().applyUpdate()
+
+    expect(reload).toHaveBeenCalledOnce()
+    // There is nothing left to activate.
+    expect(sw.updateSW).not.toHaveBeenCalled()
+  })
+
+  it('keeps "Not now" when Workbox reports the same version again', () => {
+    const sw = fakeRegister()
+    registerServiceWorker(sw.register)
+    registered(sw, fakeRegistration({ waiting: worker('new') }))
+    // Workbox: "installed" by another window...
+    sw.options().onNeedRefresh?.()
+    usePwaStore.setState({ updateDismissed: true })
+
+    // ...then "waiting", 200 ms later.
+    sw.options().onNeedRefresh?.()
+
+    expect(dismissed()).toBe(true)
+    expect(usePwaStore.getState().updateReady).toBe(true)
+  })
+
   it('offers a newer version again after the user put one off', () => {
     const sw = fakeRegister()
     registerServiceWorker(sw.register)
+    const registration = fakeRegistration({ waiting: worker('v2') })
+    registered(sw, registration)
     sw.options().onNeedRefresh?.()
+    usePwaStore.setState({ updateDismissed: true })
+
+    Object.assign(registration, { waiting: worker('v3') })
+    sw.options().onNeedRefresh?.()
+
+    expect(dismissed()).toBe(false)
+  })
+
+  it('knows the version that already waited when the page loaded', () => {
+    const sw = fakeRegister()
+    registerServiceWorker(sw.register)
+    const waiting = worker('new')
+    // Workbox reports a waiting version before the registration call returns.
+    sw.options().onNeedRefresh?.()
+    registered(sw, fakeRegistration({ waiting }))
     usePwaStore.setState({ updateDismissed: true })
 
     sw.options().onNeedRefresh?.()
 
-    expect(usePwaStore.getState().updateDismissed).toBe(false)
+    expect(dismissed()).toBe(true)
   })
 
   it('asks the site for a new version every hour while online', async () => {
@@ -110,10 +185,7 @@ describe('registerServiceWorker', () => {
     let online = true
     registerServiceWorker(sw.register, { isOnline: () => online })
     const registration = fakeRegistration()
-    sw.options().onRegisteredSW?.(
-      '/app/sw.js',
-      registration as unknown as ServiceWorkerRegistration,
-    )
+    registered(sw, registration)
 
     await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS - 1)
     expect(registration.update).not.toHaveBeenCalled()
@@ -125,19 +197,25 @@ describe('registerServiceWorker', () => {
     expect(registration.update).toHaveBeenCalledOnce()
   })
 
-  it('stops checking when asked to', async () => {
+  it('stops checking and reloading when asked to', async () => {
     const sw = fakeRegister()
-    const stop = registerServiceWorker(sw.register, { isOnline: () => true })
+    const reload = vi.fn()
+    const controllers = new EventTarget()
+    const stop = registerServiceWorker(sw.register, {
+      isOnline: () => true,
+      reload,
+      controllers,
+    })
     const registration = fakeRegistration()
-    sw.options().onRegisteredSW?.(
-      '/app/sw.js',
-      registration as unknown as ServiceWorkerRegistration,
-    )
+    registered(sw, registration)
+    sw.options().onNeedRefresh?.()
 
     stop()
     await vi.advanceTimersByTimeAsync(3 * UPDATE_CHECK_INTERVAL_MS)
+    controllers.dispatchEvent(new Event('controllerchange'))
 
     expect(registration.update).not.toHaveBeenCalled()
+    expect(reload).not.toHaveBeenCalled()
   })
 
   it('schedules nothing without a registration, or after stopping', async () => {
@@ -146,7 +224,7 @@ describe('registerServiceWorker', () => {
     sw.options().onRegisteredSW?.('/app/sw.js', undefined)
     stop()
     const late = fakeRegistration()
-    sw.options().onRegisteredSW?.('/app/sw.js', late as unknown as ServiceWorkerRegistration)
+    registered(sw, late)
 
     await vi.advanceTimersByTimeAsync(UPDATE_CHECK_INTERVAL_MS)
 

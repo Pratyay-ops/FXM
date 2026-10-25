@@ -10,8 +10,14 @@ export const UPDATE_CHECK_INTERVAL_MS = 60 * 60_000
 /** The parts of a `ServiceWorkerRegistration` the update check uses. */
 export type UpdatableRegistration = Pick<ServiceWorkerRegistration, 'installing' | 'update'>
 
+/** The parts of a `ServiceWorkerRegistration` the update flow uses. */
+export type AppRegistration = UpdatableRegistration & Pick<ServiceWorkerRegistration, 'waiting'>
+
 /** The part of `navigator.serviceWorker` that reports a new worker taking over the page. */
-export type ControllerEvents = Pick<ServiceWorkerContainer, 'addEventListener'>
+export type ControllerEvents = Pick<
+  ServiceWorkerContainer,
+  'addEventListener' | 'removeEventListener'
+>
 
 export interface ServiceWorkerOptions {
   store?: PwaStore
@@ -46,11 +52,12 @@ export async function checkForUpdate(
  *
  * A new version never takes over by itself, because reloading stops the music: when one is
  * installed and waiting, the store's `updateReady` shows the update toast, and `applyUpdate`
- * activates it and reloads the page into it. While the app is open, it asks the site for a new
- * version every hour. In development, and in the Android and desktop builds, `register` does
- * nothing.
+ * activates it. Once it takes over, every open FXM window or tab reloads into it, whichever one
+ * the user chose Reload in: the old pages' code belongs to the old version, whose files the new
+ * one deletes. While the app is open, it asks the site for a new version every hour. In
+ * development, and in the Android and desktop builds, `register` does nothing.
  *
- * Returns a function that stops the update checks.
+ * Returns a function that stops the update checks and the reload.
  */
 export function registerServiceWorker(
   register: RegisterSW,
@@ -65,19 +72,45 @@ export function registerServiceWorker(
   let timer: ReturnType<typeof setInterval> | undefined
   let stopped = false
   let reloading = false
+  let registration: AppRegistration | undefined
+  /** The waiting worker the toast offered, to tell a repeated report from a newer version. */
+  let offered: ServiceWorker | null = null
+
   const reloadOnce = () => {
     if (reloading) return
     reloading = true
     reload()
   }
 
+  // A new worker took over this page. With a version on offer, that is the new version, after
+  // a Reload here or in another FXM window: reload into it. Workbox reports this only to pages
+  // that a service worker controlled from their start (onNeedReload), not to a first visit.
+  // Without an offer, it is the first visit's worker taking control, which changes nothing.
+  const onTakeover = () => {
+    if (store.getState().updateReady) reloadOnce()
+  }
+  controllers?.addEventListener('controllerchange', onTakeover)
+
   const update = register({
-    onNeedRefresh: () => store.setState({ updateReady: true, updateDismissed: false }),
+    onNeedRefresh: () => {
+      // Workbox can report one waiting version twice (installed, then waiting 200 ms later):
+      // only a newer version undoes "Not now".
+      const waiting = registration?.waiting ?? null
+      const sameVersion = waiting !== null && waiting === offered
+      if (waiting !== null) offered = waiting
+      store.setState((state) => ({
+        updateReady: true,
+        updateDismissed: sameVersion && state.updateDismissed,
+      }))
+    },
     // The new version took over a page that was controlled from its start.
     onNeedReload: reloadOnce,
-    onRegisteredSW: (_url, registration) => {
-      if (registration === undefined || stopped) return
-      timer = setInterval(() => void checkForUpdate(registration, isOnline), checkIntervalMs)
+    onRegisteredSW: (_url, registered) => {
+      if (registered === undefined || stopped) return
+      registration = registered
+      // A version that already waited when the page loaded was offered before this call.
+      if (store.getState().updateReady && offered === null) offered = registered.waiting
+      timer = setInterval(() => void checkForUpdate(registered, isOnline), checkIntervalMs)
     },
     onRegisterError: (error: unknown) => {
       console.warn('FXM could not set up offline start; it still works online.', error)
@@ -86,10 +119,12 @@ export function registerServiceWorker(
 
   store.setState({
     applyUpdate: async () => {
-      // vite-plugin-pwa reports the takeover (onNeedReload) only for a page that a service worker
-      // controlled when it loaded. On a first visit the worker takes control mid-session, so watch
-      // for the takeover here too: after this click, it can only be the new version.
-      controllers?.addEventListener('controllerchange', reloadOnce, { once: true })
+      if (registration !== undefined && registration.waiting === null) {
+        // Nothing waits any more: another FXM window switched to the new version already (this
+        // page then reloads by itself), or the browser did. A reload shows the version in charge.
+        reloadOnce()
+        return
+      }
       await update()
     },
   })
@@ -97,5 +132,6 @@ export function registerServiceWorker(
   return () => {
     stopped = true
     clearInterval(timer)
+    controllers?.removeEventListener('controllerchange', onTakeover)
   }
 }
