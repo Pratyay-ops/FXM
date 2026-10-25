@@ -1,0 +1,176 @@
+name: Deploy
+
+# Composes the static site with make dist on every push, and deploys it to the Cloudflare Pages
+# project fxm-music (docs/PLAN.md, stage 2.8): develop to the preview, develop.fxm-music.pages.dev,
+# and main, where releases land, to production, fxm-music.pages.dev.
+#
+#   dist     make dist: the site, the web app, _headers and the third-party notices, with the
+#            licence, header and privacy checks. On every branch, so a stage branch finds out
+#            before it merges. No secrets.
+#   deploy   uploads that folder with wrangler pages deploy (a direct upload: static files, no
+#            Worker, no Functions), creating the project when it is missing. The only job with
+#            the Cloudflare secrets: it runs nothing but wrangler, pinned by its own lockfile in
+#            scripts/build-dist-wrangler, and restores no cache another run could have written.
+#   verify   checks the new deployment: every path's headers (check-headers.ts), and in Chrome
+#            that the pages run under their policies and googlevideo requests carry no Referer.
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  # A newer push replaces a preview deployment; a production deployment always finishes.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  dist:
+    name: make dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deploy: ${{ steps.target.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # pnpm and its store in .tools/, the same cache as ci.yml.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/bin
+            .tools/pnpm/store
+          key: tools-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'scripts/install-*.sh') }}
+          restore-keys: tools-${{ runner.os }}-
+
+      - name: Set up toolchain and dependencies (frozen lockfile)
+        run: make ci-setup
+
+      - name: Compose dist/pages
+        run: make dist
+
+      # develop and main deploy. TEMPORARY: ci/2.8-deploy deploys a preview while stage 2.8 tests
+      # real deploys; the stage removes it before merging.
+      - name: Decide whether to deploy
+        id: target
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/heads/develop | refs/heads/main | refs/heads/ci/2.8-deploy) deploy=true ;;
+            *) deploy=false ;;
+          esac
+          echo "deploy=$deploy" >>"$GITHUB_OUTPUT"
+          echo "Deploy $REF: $deploy"
+
+      # Hidden files too: R.4's .well-known/security.txt lives in a dot-folder.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.target.outputs.deploy == 'true'
+        with:
+          name: pages
+          path: dist/pages/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    needs: dist
+    if: needs.dist.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+      alias: ${{ steps.deploy.outputs.alias }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pages
+          path: dist/pages
+
+      # pnpm is hash-checked by install-pnpm.sh, and wrangler and its dependencies by their
+      # lockfile's integrity hashes.
+      - name: Install pnpm and wrangler
+        run: |
+          scripts/install-pnpm.sh
+          scripts/run.sh pnpm install --frozen-lockfile --dir scripts/build-dist-wrangler
+
+      - name: Deploy
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BRANCH: ${{ github.ref_name }}
+        run: scripts/build-dist-wrangler/deploy.sh "$BRANCH"
+
+      - name: Summary
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+          ALIAS: ${{ steps.deploy.outputs.alias }}
+        run: |
+          {
+            echo "### Deployed to Cloudflare Pages"
+            echo
+            echo "- This deployment: $URL"
+            if [ -n "$ALIAS" ]; then echo "- Branch address: $ALIAS"; fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  verify:
+    name: Check the deployment
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pages
+          path: dist/pages
+
+      # Only @fxm/deploy's dependencies (Playwright); the browser is the runner's own Chrome.
+      - name: Install pnpm and the checks' dependencies
+        run: |
+          scripts/install-pnpm.sh
+          scripts/run.sh pnpm install --frozen-lockfile --filter @fxm/deploy
+
+      - name: Check every path's headers
+        env:
+          URL: ${{ needs.deploy.outputs.url }}
+        run: scripts/run.sh pnpm --filter @fxm/deploy check:headers "$URL"
+
+      - name: Check the pages in Chrome
+        env:
+          FXM_DEPLOY_URL: ${{ needs.deploy.outputs.url }}
+          FXM_E2E_CHANNEL: chrome
+        run: scripts/run.sh pnpm --filter @fxm/deploy e2e
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-traces
+          path: scripts/build-dist/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
