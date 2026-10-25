@@ -29,6 +29,8 @@ const LASTFM = {
   sessionKey: 'd580d57f32848f5dcf574d1ce18d78b2',
   userName: 'someone',
 }
+/** Another person's Last.fm account, on the same device and API account. */
+const BOB = { ...LASTFM, sessionKey: 'b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0', userName: 'bob' }
 
 /** One request to a fake service. */
 interface Sent {
@@ -240,11 +242,96 @@ describe('scrobbling the player', () => {
       'listenbrainz',
       [{ track: { artists: ['Artist'], title: 'Left over' }, startedAt: T0 }],
       10,
+      'someone',
     )
     const { services, accounts, scrobbler } = setup({ listenbrainz: true }, store)
     stops.push(connectScrobbler(scrobbler, accounts))
     await vi.advanceTimersByTimeAsync(1000)
     expect(services.kinds('listenbrainz')).toEqual(['single'])
+  })
+
+  it("never sends a play that ended during a Disconnect to the next person's account", async () => {
+    const memory = createMemoryScrobbleStore()
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const store: ScrobbleStore = {
+      ...memory,
+      add: async (service, scrobbles, max, user) => {
+        if (service === 'listenbrainz') await held
+        return memory.add(service, scrobbles, max, user)
+      },
+    }
+    const { services, accounts, scrobbler } = setup({ listenbrainz: true, lastfm: true }, store)
+    stops.push(connectScrobbler(scrobbler, accounts))
+    announcePlayEnded(newPlay('private song'))
+    await vi.advanceTimersByTimeAsync(0)
+    // Its ListenBrainz listen is being written when Last.fm is disconnected...
+    accounts.getState().disconnect('lastfm')
+    await scrobbler.forget('lastfm')
+    release()
+    await vi.advanceTimersByTimeAsync(1000)
+    // ...and someone else connects their own Last.fm account.
+    accounts.getState().connectLastfm(BOB)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(services.kinds('lastfm')).toEqual([])
+    expect(services.kinds('listenbrainz')).toEqual(['single'])
+    expect(await store.count('lastfm')).toBe(0)
+  })
+
+  it('drops what an earlier account left in a queue rather than send it to the next', async () => {
+    const store = createMemoryScrobbleStore()
+    const leftover = { track: { artists: ['Artist'], title: 'Private' }, startedAt: T0 }
+    await store.add('lastfm', [leftover], 10, LASTFM.userName)
+    const { services, accounts, scrobbler } = setup({}, store)
+    accounts.getState().connectLastfm(BOB)
+    stops.push(connectScrobbler(scrobbler, accounts))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(services.sent).toEqual([])
+    expect(await store.count('lastfm')).toBe(0)
+    expect(scrobbler.status('lastfm').dropped).toBe(1)
+  })
+
+  it('empties the queue of a service without an account, at start and as its account goes', async () => {
+    const onLine = vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(false)
+    const store = createMemoryScrobbleStore()
+    const leftover = { track: { artists: ['Artist'], title: 'Left over' }, startedAt: T0 }
+    await store.add('lastfm', [leftover], 10, LASTFM.userName)
+    const { accounts, scrobbler } = setup({ listenbrainz: true }, store)
+    stops.push(connectScrobbler(scrobbler, accounts))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await store.count('lastfm')).toBe(0)
+    // A listen queued here just before another tab disconnects ListenBrainz.
+    announcePlayEnded(newPlay('song'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await store.count('listenbrainz')).toBe(1)
+    accounts.getState().disconnect('listenbrainz')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await store.count('listenbrainz')).toBe(0)
+    onLine.mockRestore()
+  })
+
+  it('still sends a play the device cannot save, and says so', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const memory = createMemoryScrobbleStore()
+    const store: ScrobbleStore = {
+      ...memory,
+      add: async () => {
+        throw new Error('The quota has been exceeded.')
+      },
+    }
+    const { services, accounts, scrobbler } = setup({ listenbrainz: true }, store)
+    stops.push(connectScrobbler(scrobbler, accounts))
+    announcePlayEnded(newPlay('song'))
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(services.kinds('listenbrainz')).toEqual(['single'])
+    expect(scrobbler.status('listenbrainz')).toMatchObject({
+      sent: 1,
+      unsaved: 0,
+      storageError: 'The quota has been exceeded.',
+    })
+    expect(error).not.toHaveBeenCalled()
   })
 
   it('takes turns with other tabs through a Web Lock', async () => {
@@ -269,9 +356,11 @@ describe('targetsFor', () => {
       listenbrainz: { token: TOKEN, userName: 'a', refusedAt: 1 },
       lastfm: LASTFM,
     })
-    expect(targets.map((target) => [target.service, target.paused, target.account])).toEqual([
-      ['listenbrainz', true, TOKEN],
-      ['lastfm', false, LASTFM.sessionKey],
+    expect(
+      targets.map((target) => [target.service, target.paused, target.account, target.user]),
+    ).toEqual([
+      ['listenbrainz', true, TOKEN, 'a'],
+      ['lastfm', false, LASTFM.sessionKey, LASTFM.userName],
     ])
     expect(hasAccounts({})).toBe(false)
     expect(hasAccounts({ lastfm: LASTFM })).toBe(true)

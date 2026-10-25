@@ -49,6 +49,15 @@ describe('the IndexedDB scrobble store', () => {
     expect(await store.count('listenbrainz')).toBe(1)
   })
 
+  it('keeps the user each entry was queued for', async () => {
+    const store = testStore()
+    await store.add('lastfm', [scrobble(1)], 10, 'someone')
+    await store.add('lastfm', [scrobble(2)], 10)
+    const [first, second] = await store.peek('lastfm', 2)
+    expect(first).toMatchObject({ user: 'someone', scrobble: scrobble(1) })
+    expect(second).not.toHaveProperty('user')
+  })
+
   it("empties one service's queue only", async () => {
     const store = testStore()
     await store.add('lastfm', [scrobble(1)], 10)

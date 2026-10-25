@@ -6,6 +6,8 @@
  *   turns sending it under a Web Lock, so no scrobble goes out twice.
  * - **Offline:** plays keep queueing; the queue is sent when the browser says it is online
  *   again, and on the next start.
+ * - **Accounts:** each scrobble is queued for the user connected to its service, and only ever
+ *   sent to them. A queue whose account is gone is emptied.
  * - **Requests** go straight from the browser to `api.listenbrainz.org` and
  *   `ws.audioscrobbler.com`, which answer any origin, so every tier can scrobble.
  *
@@ -21,9 +23,11 @@ import {
   ListenBrainzScrobbleClient,
   lastfmTarget,
   listenBrainzTarget,
+  SCROBBLE_SERVICES,
   type ScrobbleContext,
   type ScrobblePlay,
   Scrobbler,
+  type ScrobbleServiceId,
   type ScrobbleStore,
   type ScrobbleTarget,
 } from '@fxm/sources/scrobble'
@@ -44,7 +48,12 @@ import {
 /** The Web Lock the tabs take turns on to send the shared queue. */
 export const FLUSH_LOCK = 'fxm-scrobble-flush'
 
-/** The context scrobble requests go out with: the browser's own `fetch`, read at each call. */
+/**
+ * The context scrobble requests go out with: the browser's own `fetch`, read at each call. Both
+ * hosts answer any origin, and the clients refuse redirects. Where the app has the platform
+ * layer (`@fxm/platform`), build it from the platform's context instead, so scrobbles go
+ * through its host table and native transports like every other request.
+ */
 export function scrobbleContext(): ScrobbleContext {
   return { fetch: (input, init) => globalThis.fetch(input, init) }
 }
@@ -77,7 +86,8 @@ export function lastfmClientFor(credentials: LastfmCredentials): LastfmScrobbleC
 
 /**
  * The scrobbler targets for the connected accounts: paused while their service refuses them,
- * and named by their credential, so a refusal of an older one doesn't pause a newer one.
+ * named by their credential, so a refusal of an older one doesn't pause a newer one, and by
+ * their user, so a scrobble only ever goes to the user it was queued for.
  */
 export function targetsFor(accounts: ScrobblingAccounts): ScrobbleTarget[] {
   const targets: ScrobbleTarget[] = []
@@ -87,6 +97,7 @@ export function targetsFor(accounts: ScrobblingAccounts): ScrobbleTarget[] {
       listenBrainzTarget(listenBrainzClientFor(listenbrainz.token), {
         paused: listenbrainz.refusedAt !== undefined,
         account: listenbrainz.token,
+        user: listenbrainz.userName,
       }),
     )
   }
@@ -95,6 +106,7 @@ export function targetsFor(accounts: ScrobblingAccounts): ScrobbleTarget[] {
       lastfmTarget(lastfmClientFor(lastfm), lastfm.sessionKey, {
         paused: lastfm.refusedAt !== undefined,
         account: lastfm.sessionKey,
+        user: lastfm.userName,
       }),
     )
   }
@@ -175,13 +187,25 @@ export function playListenerFor(scrobbler: Scrobbler, accounts: ScrobblingStore)
   }
 }
 
+/** Logs a queue that couldn't be emptied: what stays behind never reaches another user. */
+function logForgetFailure(error: unknown): void {
+  console.error('The scrobble queue could not be emptied', error)
+}
+
 /**
  * Keeps `scrobbler` sending: when the browser comes back online, and when an account is
- * connected or allowed again. It also sends what an earlier session left, at once. Returns the
- * function that stops it.
+ * connected or allowed again. It also sends what an earlier session left, at once.
+ *
+ * It empties the queue of every service without an account, at start and whenever an account
+ * goes, in this tab or another: nobody may send it. That catches a Disconnect whose queue
+ * couldn't be emptied, and a play that ended in this tab just before another tab's Disconnect
+ * reached it. Returns the function that stops it.
  */
 export function keepSending(scrobbler: Scrobbler, accounts: ScrobblingStore): () => void {
   const stops: (() => void)[] = []
+  const forget = (services: readonly ScrobbleServiceId[]) => {
+    for (const service of services) scrobbler.forget(service).catch(logForgetFailure)
+  }
   if (typeof window !== 'undefined') {
     const onOnline = () => {
       if (hasAccounts(accounts.getState())) void scrobbler.retryNow()
@@ -191,12 +215,19 @@ export function keepSending(scrobbler: Scrobbler, accounts: ScrobblingStore): ()
   }
   stops.push(
     accounts.subscribe((state, previous) => {
+      forget(
+        SCROBBLE_SERVICES.filter(
+          (service) => state[service] === undefined && previous[service] !== undefined,
+        ),
+      )
       const changed =
         state.listenbrainz !== previous.listenbrainz || state.lastfm !== previous.lastfm
       if (changed && targetsFor(state).some((target) => !target.paused)) void scrobbler.flush()
     }),
   )
-  if (hasAccounts(accounts.getState())) void scrobbler.flush()
+  const start = accounts.getState()
+  forget(SCROBBLE_SERVICES.filter((service) => start[service] === undefined))
+  if (hasAccounts(start)) void scrobbler.flush()
   return () => {
     for (const stop of stops.reverse()) stop()
   }
@@ -223,6 +254,20 @@ export function getScrobbler(): Scrobbler {
     context: scrobbleContext,
   })
   return scrobbler
+}
+
+/**
+ * Empties `service`'s queue in the app's scrobbler, e.g. on disconnecting or connecting another
+ * user. Never rejects: a store that fails is only logged. What stays behind is never sent to
+ * another user (each scrobble keeps its user), and the next connect empties the queue again,
+ * as does the next start while the service has no account (`keepSending`).
+ */
+export async function forgetQueue(service: ScrobbleServiceId): Promise<void> {
+  try {
+    await getScrobbler().forget(service)
+  } catch (error) {
+    logForgetFailure(error)
+  }
 }
 
 /** The app's scrobbling, running: what it does with plays, and how to stop it. */

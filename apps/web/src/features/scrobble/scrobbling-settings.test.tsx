@@ -1,7 +1,8 @@
+import { testTrack } from '@fxm/player/testing'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/render'
-import { getScrobbleStore, resetScrobbling } from './scrobbling'
+import { getScrobbler, getScrobbleStore, resetScrobbling } from './scrobbling'
 import { SCROBBLING_STORAGE_KEY, useScrobblingStore } from './scrobbling-store'
 
 const TOKEN = '11111111-2222-4333-8444-555555555555'
@@ -9,6 +10,11 @@ const API_KEY = '0123456789abcdef0123456789abcdef'
 const SECRET = 'fedcba9876543210fedcba9876543210'
 const SESSION_KEY = 'd580d57f32848f5dcf574d1ce18d78b2'
 const REQUEST_TOKEN = 'cf45fe5a3e3cebe168480a086d7fe481'
+/** The class that shows a field's characters as dots. */
+const MASKED = '[-webkit-text-security:disc]'
+
+/** A queued scrobble, as a test puts it in the queue. */
+const SCROBBLE = { track: { artists: ['Artist'], title: 'Song' }, startedAt: Date.UTC(2026, 9, 26) }
 
 interface Request {
   url: URL
@@ -149,11 +155,7 @@ describe('Settings → Scrobbling', () => {
     act(() =>
       useScrobblingStore.getState().connectListenBrainz({ token: TOKEN, userName: 'listener' }),
     )
-    const scrobble = {
-      track: { artists: ['Artist'], title: 'Song' },
-      startedAt: Date.UTC(2026, 9, 26),
-    }
-    await getScrobbleStore().add('listenbrainz', [scrobble, scrobble], 100)
+    await getScrobbleStore().add('listenbrainz', [SCROBBLE, SCROBBLE], 100, 'listener')
     const { user } = renderApp('/settings')
     const listenbrainz = await screen.findByRole('region', { name: 'ListenBrainz' })
     expect(
@@ -165,6 +167,91 @@ describe('Settings → Scrobbling', () => {
     expect(await within(listenbrainz).findByText(/^Off\./)).toBeInTheDocument()
     expect(await getScrobbleStore().count('listenbrainz')).toBe(0)
     expect(stored()?.listenbrainz).toBeUndefined()
+  })
+
+  it('disconnects even when the queue cannot be emptied', async () => {
+    fakeServices()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    act(() =>
+      useScrobblingStore.getState().connectListenBrainz({ token: TOKEN, userName: 'listener' }),
+    )
+    vi.spyOn(getScrobbleStore(), 'clear').mockRejectedValue(new Error('UnknownError'))
+    const { user } = renderApp('/settings')
+    const listenbrainz = await screen.findByRole('region', { name: 'ListenBrainz' })
+    await user.click(within(listenbrainz).getByRole('button', { name: 'Disconnect' }))
+    expect(await within(listenbrainz).findByText(/^Off\./)).toBeInTheDocument()
+    expect(stored()?.listenbrainz).toBeUndefined()
+    await waitFor(() =>
+      expect(error).toHaveBeenCalledWith(
+        'The scrobble queue could not be emptied',
+        expect.any(Error),
+      ),
+    )
+  })
+
+  it('drops what an account disconnected before left, when connecting', async () => {
+    fakeServices()
+    await getScrobbleStore().add('listenbrainz', [SCROBBLE], 100, 'someone else')
+    const { user } = renderApp('/settings')
+    const listenbrainz = await screen.findByRole('region', { name: 'ListenBrainz' })
+    await user.type(within(listenbrainz).getByLabelText('User token'), TOKEN)
+    await user.click(within(listenbrainz).getByRole('button', { name: 'Connect' }))
+    expect(
+      await within(listenbrainz).findByText(/the songs you play go to the ListenBrainz profile of/),
+    ).toBeInTheDocument()
+    expect(await getScrobbleStore().count('listenbrainz')).toBe(0)
+  })
+
+  it('keeps the token and the secret out of password fields, hidden until shown', async () => {
+    fakeServices()
+    const { user } = renderApp('/settings')
+    const listenbrainz = await screen.findByRole('region', { name: 'ListenBrainz' })
+    const lastfm = row('Last.fm')
+    // Browsers offer to save, and sync, what a password field held: these stay on this device.
+    expect(document.querySelectorAll('input[type="password"]')).toHaveLength(0)
+    const token = within(listenbrainz).getByLabelText('User token')
+    expect(token).toHaveAttribute('type', 'text')
+    expect(token).toHaveAttribute('autocomplete', 'off')
+    expect(token).toHaveAttribute('data-1p-ignore')
+    expect(token).toHaveAttribute('data-lpignore', 'true')
+    expect(token).toHaveAttribute('data-bwignore', 'true')
+    expect(token).toHaveClass(MASKED)
+    const show = within(listenbrainz).getByRole('button', { name: 'Show the user token' })
+    expect(show).toHaveAttribute('aria-pressed', 'false')
+    await user.click(show)
+    expect(show).toHaveAttribute('aria-pressed', 'true')
+    expect(token).not.toHaveClass(MASKED)
+
+    const secret = within(lastfm).getByLabelText('Shared secret')
+    expect(secret).toHaveAttribute('type', 'text')
+    expect(secret).toHaveAttribute('autocomplete', 'off')
+    expect(secret).toHaveClass(MASKED)
+    expect(within(lastfm).getByLabelText('API key')).toHaveAttribute('data-1p-ignore')
+    expect(within(lastfm).getByText(/your Last\.fm profile, which is public/)).toBeInTheDocument()
+  })
+
+  it('says when this device cannot save scrobbles', async () => {
+    fakeServices()
+    vi.spyOn(window.navigator, 'onLine', 'get').mockReturnValue(false)
+    act(() =>
+      useScrobblingStore.getState().connectListenBrainz({ token: TOKEN, userName: 'listener' }),
+    )
+    vi.spyOn(getScrobbleStore(), 'add').mockRejectedValue(new Error('QuotaExceededError'))
+    await act(() =>
+      getScrobbler().playEnded({
+        track: testTrack('a'),
+        at: Date.UTC(2026, 9, 26),
+        playedMs: 180_000,
+      }),
+    )
+    renderApp('/settings')
+    const listenbrainz = await screen.findByRole('region', { name: 'ListenBrainz' })
+    expect(
+      await within(listenbrainz).findByText(/FXM can't save listens on this device/),
+    ).toBeInTheDocument()
+    expect(
+      within(listenbrainz).getByText('1 listen waiting to be sent once you are back online.'),
+    ).toBeInTheDocument()
   })
 
   it('pauses an account ListenBrainz refused, and takes a new token', async () => {
@@ -303,5 +390,52 @@ describe('Settings → Scrobbling', () => {
     expect(services.requests[0]?.form).toMatchObject({ method: 'auth.getToken', api_key: API_KEY })
     expect(useScrobblingStore.getState().lastfm).toMatchObject({ sessionKey: SESSION_KEY })
     expect(useScrobblingStore.getState().lastfm).not.toHaveProperty('refusedAt')
+  })
+
+  it('asks for a new key and secret when Last.fm refuses the stored ones, and keeps the queue', async () => {
+    const services = fakeServices()
+    act(() => {
+      useScrobblingStore.getState().connectLastfm({
+        apiKey: API_KEY,
+        secret: SECRET,
+        sessionKey: 'revoked-session',
+        userName: 'scrobbler',
+      })
+      useScrobblingStore.getState().markRefused('lastfm', 'revoked-session', 1000)
+    })
+    await getScrobbleStore().add('lastfm', [SCROBBLE], 100, 'scrobbler')
+    const { user } = renderApp('/settings')
+    const lastfm = await screen.findByRole('region', { name: 'Last.fm' })
+    expect(await within(lastfm).findByText('1 scrobble waiting.')).toBeInTheDocument()
+
+    // The form can be opened straight away, and closed again.
+    await user.click(within(lastfm).getByRole('button', { name: 'Enter another key' }))
+    expect(within(lastfm).getByLabelText('API key')).toHaveValue(API_KEY)
+    await user.click(within(lastfm).getByRole('button', { name: 'Cancel' }))
+
+    // The secret was reset on Last.fm: the stored one is refused, and the form asks again.
+    services.getToken = () =>
+      Response.json({ message: 'Invalid method signature supplied', error: 13 }, { status: 403 })
+    await user.click(within(lastfm).getByRole('button', { name: 'Connect again' }))
+    expect(await within(lastfm).findByRole('alert')).toHaveTextContent(
+      "Last.fm doesn't accept this API key and shared secret",
+    )
+    expect(within(lastfm).getByLabelText('API key')).toHaveValue(API_KEY)
+    expect(within(lastfm).getByLabelText('Shared secret')).toHaveValue('')
+
+    services.getToken = () => Response.json({ token: REQUEST_TOKEN })
+    const newSecret = '00112233445566778899aabbccddeeff'
+    await user.type(within(lastfm).getByLabelText('Shared secret'), newSecret)
+    await user.click(within(lastfm).getByRole('button', { name: 'Connect' }))
+    await user.click(await within(lastfm).findByRole('button', { name: 'Done' }))
+    expect(await within(lastfm).findByText(/go to the Last\.fm profile of/)).toBeInTheDocument()
+    expect(useScrobblingStore.getState().lastfm).toEqual({
+      apiKey: API_KEY,
+      secret: newSecret,
+      sessionKey: SESSION_KEY,
+      userName: 'scrobbler',
+    })
+    // The same user connected again: what waited for them stays, to be sent.
+    expect(await getScrobbleStore().count('lastfm')).toBe(1)
   })
 })

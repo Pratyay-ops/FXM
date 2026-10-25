@@ -21,6 +21,8 @@ export interface QueueRecord {
   id: number
   /** The service whose queue it is in. */
   service: ScrobbleServiceId
+  /** Whose profile it was queued for: the user's name on the service. */
+  user?: string
   /** The scrobble. */
   scrobble: Scrobble
 }
@@ -46,9 +48,15 @@ export function createDexieScrobbleStore(db: ScrobbleDatabase): ScrobbleStore {
   const queueOf = (service: ScrobbleServiceId) =>
     db.queue.where('[service+id]').between([service, Dexie.minKey], [service, Dexie.maxKey])
   return {
-    add(service, scrobbles, max) {
+    add(service, scrobbles, max, user) {
       return db.transaction('rw', db.queue, async () => {
-        await db.queue.bulkAdd(scrobbles.map((scrobble) => ({ service, scrobble })))
+        await db.queue.bulkAdd(
+          scrobbles.map((scrobble) => ({
+            service,
+            ...(user === undefined ? {} : { user }),
+            scrobble,
+          })),
+        )
         const excess = (await queueOf(service).count()) - Math.max(0, max)
         if (excess <= 0) return 0
         await db.queue.bulkDelete(await queueOf(service).limit(excess).primaryKeys())
@@ -58,7 +66,9 @@ export function createDexieScrobbleStore(db: ScrobbleDatabase): ScrobbleStore {
     async peek(service, limit) {
       if (limit <= 0) return []
       const records = await queueOf(service).limit(limit).toArray()
-      return records.map(({ id, scrobble }) => ({ id, scrobble }))
+      return records.map(({ id, user, scrobble }) =>
+        user === undefined ? { id, scrobble } : { id, user, scrobble },
+      )
     },
     async remove(ids) {
       await db.queue.bulkDelete([...ids])
