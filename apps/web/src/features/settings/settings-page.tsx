@@ -5,6 +5,7 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { useSettingsStore } from './settings-store'
@@ -60,6 +61,8 @@ export function SettingsPage() {
   const modeLabelId = useId()
   const modeHelpId = useId()
   const themeLabelId = useId()
+  const installLabelId = useId()
+  const installHelpId = useId()
 
   return (
     <div className="max-w-3xl space-y-8 pt-2 md:pt-4">
@@ -101,6 +104,16 @@ export function SettingsPage() {
             onChange={setTheme}
             className="w-full md:w-auto"
           />
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title="App">
+        <SettingRow
+          label="Install app"
+          labelId={installLabelId}
+          help={<InstallHelp id={installHelpId} />}
+        >
+          <InstallAction describedBy={installHelpId} />
         </SettingRow>
       </SettingsSection>
 

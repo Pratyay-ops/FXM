@@ -1,5 +1,6 @@
 import { ArrowLeft, ChevronLeft, ChevronRight, Settings } from 'lucide-react'
 import { Link, NavLink, useNavigate } from 'react-router'
+import { InstallButton } from '../../features/pwa/install-button'
 import { cn } from '../../lib/cn'
 import { IconButton, iconButtonClasses } from '../ui/icon-button'
 import { LogoMark, Wordmark } from '../ui/logo'
@@ -84,6 +85,7 @@ export function TopBar({ handle }: { handle: RouteHandle | undefined }) {
             <HistoryButtons />
             <SearchField shortcut className="w-full max-w-md" />
           </div>
+          <InstallButton />
           <NavLink
             to="/settings"
             aria-label="Settings"
