@@ -7,21 +7,24 @@
 
 import { entityKey, formatId, isSourceId, parseId, type SourceId } from '../ids'
 import { type CatalogMode, isPlayable, modePolicy, songForVideo } from '../mode'
-import type { Track } from '../model'
+import type { Track, TrackKind } from '../model'
 import type { AudioCandidate, NetworkCapabilities } from '../providers'
 import type { MatchTarget, PlaybackSettings } from './settings'
 
 /**
  * Where a candidate the policy tries comes from:
  *
- * - `pinned`: the user's pinned match for the track, which always wins
+ * - `picked`: the version the user picked for this queue item (`Player.setCandidate`), right
+ *   after the pick and while it plays. It wins over a pin, and like a pin it is never swapped
+ * - `pinned`: the user's pinned match for the track, which wins over everything else
  * - `recorded`: the audio recorded on the queue item: a match the policy confirmed earlier, or
- *   the version the user picked
+ *   a version the app recorded. A match recorded there plays unasked only while the match
+ *   cache confirms it (a pin or an `auto` decision); otherwise it is a guess
  * - `own`: the track's own audio: a YouTube Music song or video, an Internet Archive or Jamendo
  *   item, a local file
  * - `linked-song`: for an official music video in Music mode, the song its source links it to
  */
-export type CandidateOrigin = 'pinned' | 'recorded' | 'own' | 'linked-song'
+export type CandidateOrigin = 'picked' | 'pinned' | 'recorded' | 'own' | 'linked-song'
 
 /**
  * One thing the playback policy tries, in the order {@link planPlayback} lists them:
@@ -58,6 +61,12 @@ export interface PlaybackPlanInput {
   readonly recorded?: AudioCandidate
   /** The user's pinned match for the track, from the match cache. */
   readonly pinned?: AudioCandidate
+  /**
+   * Whether {@link recorded} is the version the user picked for this queue item: right after the
+   * pick (the player's `replace`), and on a retry while it plays. It then comes first, before a
+   * pin, and like a pin nothing is tried after it but Invidious.
+   */
+  readonly picked?: boolean
   /** The user's playback settings. */
   readonly settings: Readonly<PlaybackSettings>
   /** Leave out the offline copy, e.g. right after the user picked another version. */
@@ -72,8 +81,9 @@ const FREE_SOURCES: ReadonlySet<SourceId> = new Set(['archive', 'jamendo', 'loca
  * (ARCHITECTURE.md §7.4):
  *
  * 1. An offline copy, unless `skipOffline`.
- * 2. With a pin, only the pinned candidate and then Invidious: the user's choice always wins,
- *    and a pin is never swapped for another version behind the user's back.
+ * 2. The user's choice, then Invidious, and nothing else: the version picked for this item
+ *    (`picked`), else the track's pin. A choice is never swapped for another version behind
+ *    the user's back.
  * 3. The candidate recorded on the queue item.
  * 4. With "prefer lossless" on, a lossless match on Internet Archive or Jamendo, for a track
  *    that is not itself from a free source.
@@ -99,9 +109,12 @@ export function planPlayback(input: PlaybackPlanInput): PlaybackStep[] {
     steps.push({ type: 'candidate', origin, candidate })
   }
   if (input.skipOffline !== true) steps.push({ type: 'offline' })
-  if (input.pinned !== undefined && isPlayable(input.pinned, mode)) {
-    addCandidate('pinned', input.pinned)
-    if (settings.useInvidious && isYouTubeCandidate(input.pinned)) steps.push({ type: 'invidious' })
+  const choice = userChoice(input)
+  if (choice !== undefined) {
+    addCandidate(choice.origin, choice.candidate)
+    if (settings.useInvidious && isYouTubeCandidate(choice.candidate)) {
+      steps.push({ type: 'invidious' })
+    }
     return steps
   }
   addCandidate('recorded', input.recorded)
@@ -126,16 +139,30 @@ export function planPlayback(input: PlaybackPlanInput): PlaybackStep[] {
   return steps
 }
 
+/** The user's choice for the item, if it may play in the mode: the version picked, else the pin. */
+function userChoice(
+  input: PlaybackPlanInput,
+): { origin: 'picked' | 'pinned'; candidate: AudioCandidate } | undefined {
+  const { recorded, pinned, mode } = input
+  if (input.picked === true && recorded !== undefined && isPlayable(recorded, mode)) {
+    return { origin: 'picked', candidate: recorded }
+  }
+  if (pinned !== undefined && isPlayable(pinned, mode))
+    return { origin: 'pinned', candidate: pinned }
+  return undefined
+}
+
 /** Whether a source has audio of its own: every source but Spotify, which supplies metadata only. */
 export function hasOwnAudio(source: SourceId): boolean {
   return source !== 'spotify'
 }
 
 /**
- * The audio source that resolves a track's own audio: `ytm` for every YouTube video, including
- * plain YouTube's (`yt`), else the track's own source.
+ * The audio source that resolves audio of `source`: `ytm` for every YouTube video, including
+ * plain YouTube's (`yt`), else the source itself. A player looks up the resolver for a
+ * candidate this way, so a candidate named with either YouTube prefix plays.
  */
-function audioSourceOf(source: SourceId): SourceId {
+export function audioSourceOf(source: SourceId): SourceId {
   return source === 'yt' ? 'ytm' : source
 }
 
@@ -190,15 +217,63 @@ export function isYouTubeCandidate(candidate: Pick<AudioCandidate, 'source'>): b
 /**
  * The key that identifies a candidate's audio, for caches and comparisons: the `entityKey` of
  * its track ID, so a YouTube video has one key whichever YouTube prefix names it. A candidate
- * with an unknown source or an empty `ref`, which only bad data has, gets a key of its own that
- * never equals a valid candidate's.
+ * with an unknown source or an empty `ref`, and a value that is no object at all, which only
+ * bad data has, gets a key of its own that never equals a valid candidate's. Never throws.
  */
 export function candidateKey(candidate: Pick<AudioCandidate, 'source' | 'ref'>): string {
-  const { source, ref } = candidate
+  const fields: { source?: unknown; ref?: unknown } =
+    typeof candidate === 'object' && candidate !== null ? candidate : {}
+  const { source, ref } = fields
   if (!isSourceId(source) || typeof ref !== 'string' || ref === '') {
     return `invalid:${String(source)}:${String(ref)}`
   }
   return entityKey(formatId(source, 'track', ref))
+}
+
+/** Every track kind; a record, so the compiler notices a new one. */
+const TRACK_KINDS: Readonly<Record<TrackKind, true>> = {
+  song: true,
+  'music-video': true,
+  video: true,
+  episode: true,
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+}
+
+function isNonNegativeNumber(value: unknown): boolean {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+/**
+ * Whether `value` is a well-formed {@link AudioCandidate}, e.g. one read back from storage or a
+ * backup: a known source, a non-empty `ref`, a track kind, a title, the artists, a confidence
+ * from 0 to 1 and the evidence, and if present a non-negative `durationMs` and `signals` with
+ * both flags. The engine's `verdict` is checked where it is read (`effectiveMatchBand`).
+ */
+export function isAudioCandidate(value: unknown): value is AudioCandidate {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const candidate = value as Readonly<Record<string, unknown>>
+  const { confidence, durationMs, signals } = candidate
+  if (!isSourceId(candidate.source) || typeof candidate.ref !== 'string' || candidate.ref === '') {
+    return false
+  }
+  if (typeof candidate.kind !== 'string' || !Object.hasOwn(TRACK_KINDS, candidate.kind)) {
+    return false
+  }
+  if (typeof candidate.title !== 'string' || !isStringArray(candidate.artists)) return false
+  if (typeof confidence !== 'number' || !(confidence >= 0 && confidence <= 1)) return false
+  if (!isStringArray(candidate.evidence)) return false
+  if (durationMs !== undefined && !isNonNegativeNumber(durationMs)) return false
+  return signals === undefined || isMatchSignals(signals)
+}
+
+/** Whether `value` carries the two flags every `MatchSignals` has. */
+function isMatchSignals(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const { isrcVerified, sourceAlbumMatch } = value as Readonly<Record<string, unknown>>
+  return typeof isrcVerified === 'boolean' && typeof sourceAlbumMatch === 'boolean'
 }
 
 /** Whether two candidates are the same audio (see {@link candidateKey}). */

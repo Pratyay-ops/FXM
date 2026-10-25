@@ -3,13 +3,19 @@ import { FakeEngine, FakeResolver, testTracks } from '@fxm/player/testing'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   loadSavedPlayback,
+  MAX_SAVED_ITEMS,
   PLAYBACK_STORAGE_KEY,
   persistPlayback,
   QUEUE_STORAGE_KEY,
+  queueToSave,
+  restoredPosition,
 } from './queue-storage'
 
-/** An in-memory Web Storage that counts writes per key. */
-function memoryStorage(entries: Record<string, string> = {}) {
+/**
+ * An in-memory Web Storage that counts writes per key. With a `quota`, it refuses values longer
+ * than that, as a full localStorage does.
+ */
+function memoryStorage(entries: Record<string, string> = {}, quota = Number.POSITIVE_INFINITY) {
   const data = new Map(Object.entries(entries))
   const writes = new Map<string, number>()
   const storage: Storage = {
@@ -23,6 +29,7 @@ function memoryStorage(entries: Record<string, string> = {}) {
       data.delete(key)
     },
     setItem: (key, value) => {
+      if (value.length > quota) throw new DOMException('The quota has been exceeded.')
       writes.set(key, (writes.get(key) ?? 0) + 1)
       data.set(key, value)
     },
@@ -30,8 +37,8 @@ function memoryStorage(entries: Record<string, string> = {}) {
   return { storage, writes, read: (key: string) => JSON.parse(data.get(key) ?? 'null') }
 }
 
-function setup() {
-  const memory = memoryStorage()
+function setup(quota?: number) {
+  const memory = memoryStorage({}, quota)
   const engine = new FakeEngine()
   const player = new Player({ engine, resolver: new FakeResolver(), stallTimeoutMs: 0 })
   const stop = persistPlayback(player, () => memory.storage, {
@@ -86,7 +93,41 @@ describe('saving the queue', () => {
 
     engine.progress(91_000)
     player.pause()
-    expect(read(PLAYBACK_STORAGE_KEY)).toEqual({ positionMs: 91_000, volume: 1, muted: false })
+    expect(read(PLAYBACK_STORAGE_KEY)).toEqual({
+      positionMs: 91_000,
+      uid: player.getState().queue.items[0]?.uid,
+      volume: 1,
+      muted: false,
+    })
+    stop()
+  })
+
+  it('removes the saved queue when storage is too full for the new one', async () => {
+    // One item fits; eight don't.
+    const { player, read, stop } = setup(600)
+    await player.setQueue(testTracks('a'), { autoplay: false })
+    vi.advanceTimersByTime(500)
+    expect(read(QUEUE_STORAGE_KEY)?.items).toHaveLength(1)
+
+    // Too long for the quota: the old queue must not come back after a reload.
+    player.addToQueue(testTracks('b', 'c', 'd', 'e', 'f', 'g', 'h'))
+    vi.advanceTimersByTime(500)
+
+    expect(read(QUEUE_STORAGE_KEY)).toBeNull()
+    expect(read(PLAYBACK_STORAGE_KEY)).toMatchObject({ uid: 0 })
+    stop()
+  })
+
+  it('saves a long queue as a window around the current item', async () => {
+    const { player, read, stop } = setup()
+    const names = Array.from({ length: MAX_SAVED_ITEMS + 500 }, (_, index) => `t${index}`)
+    await player.setQueue(testTracks(...names), { startIndex: 300, autoplay: false })
+    vi.advanceTimersByTime(500)
+
+    const saved = read(QUEUE_STORAGE_KEY)
+    expect(saved.items).toHaveLength(MAX_SAVED_ITEMS)
+    expect(saved.items[0].track.title).toBe('t200')
+    expect(saved.items[saved.index].track.title).toBe('t300')
     stop()
   })
 
@@ -147,11 +188,17 @@ describe('reading the saved queue', () => {
     const queue = { items: [], index: -1 }
     const { storage } = memoryStorage({
       [QUEUE_STORAGE_KEY]: JSON.stringify(queue),
-      [PLAYBACK_STORAGE_KEY]: JSON.stringify({ positionMs: 1234, volume: 0.5, muted: true }),
+      [PLAYBACK_STORAGE_KEY]: JSON.stringify({
+        positionMs: 1234,
+        uid: 2,
+        volume: 0.5,
+        muted: true,
+      }),
     })
     expect(loadSavedPlayback(() => storage)).toEqual({
       queue,
       positionMs: 1234,
+      uid: 2,
       volume: 0.5,
       muted: true,
     })
@@ -159,9 +206,50 @@ describe('reading the saved queue', () => {
 
   it('drops numbers that are out of range or of the wrong type', () => {
     const { storage } = memoryStorage({
-      [PLAYBACK_STORAGE_KEY]: JSON.stringify({ positionMs: -3, volume: 2, muted: 'no' }),
+      [PLAYBACK_STORAGE_KEY]: JSON.stringify({ positionMs: -3, uid: 1.5, volume: 2, muted: 'no' }),
     })
     expect(loadSavedPlayback(() => storage)).toEqual({ positionMs: 0 })
+  })
+
+  it('puts the position back only on its own item, inside the item', () => {
+    const [track] = testTracks('a')
+    if (track === undefined) throw new Error('no track')
+    const item = { uid: 3, track }
+    expect(restoredPosition({ positionMs: 42_000, uid: 3 }, item)).toBe(42_000)
+    // Saved for another item (the queue was saved before the track changed), or for none.
+    expect(restoredPosition({ positionMs: 42_000, uid: 4 }, item)).toBe(0)
+    expect(restoredPosition({ positionMs: 42_000 }, item)).toBe(0)
+    expect(restoredPosition({ positionMs: 42_000, uid: 3 }, undefined)).toBe(0)
+    // Past the end of the track: its end.
+    expect(restoredPosition({ positionMs: 10_000_000, uid: 3 }, item)).toBe(180_000)
+  })
+})
+
+describe('the part of the queue that is saved', () => {
+  it('is all of it while it is short', async () => {
+    const player = new Player({ engine: new FakeEngine(), resolver: new FakeResolver() })
+    await player.setQueue(testTracks('a', 'b'), { autoplay: false })
+    const { queue } = player.getState()
+    expect(queueToSave(queue)).toBe(queue)
+  })
+
+  it('is a window that keeps the current item, the shuffle order and the history', async () => {
+    const player = new Player({ engine: new FakeEngine(), resolver: new FakeResolver() })
+    const names = Array.from({ length: MAX_SAVED_ITEMS * 2 }, (_, index) => `t${index}`)
+    await player.setQueue(testTracks(...names), { shuffle: true, autoplay: false })
+    for (let skip = 0; skip < 150; skip++) await player.next()
+    const { queue } = player.getState()
+
+    const saved = queueToSave(queue)
+
+    expect(saved.items).toHaveLength(MAX_SAVED_ITEMS)
+    expect(saved.items[saved.index]).toBe(queue.items[queue.index])
+    expect(saved.index).toBe(100)
+    const uids = new Set(saved.items.map((item) => item.uid))
+    expect(saved.playedUids.every((uid) => uids.has(uid))).toBe(true)
+    expect(saved.playedUids).toHaveLength(100)
+    expect(saved.unshuffled).toHaveLength(MAX_SAVED_ITEMS)
+    expect(saved.unshuffled?.every((uid) => uids.has(uid))).toBe(true)
   })
 
   it('reads nothing from broken JSON, or from storage that throws', () => {

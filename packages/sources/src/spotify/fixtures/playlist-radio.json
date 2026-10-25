@@ -1,0 +1,283 @@
+{
+  "data": {
+    "playlistV2": {
+      "__typename": "Playlist",
+      "content": {
+        "__typename": "PlaylistItemsPage",
+        "items": [
+          {
+            "addedAt": {
+              "isoString": "1970-01-01T00:00:00Z"
+            },
+            "addedBy": null,
+            "itemV2": {
+              "__typename": "TrackResponseWrapper",
+              "data": {
+                "__typename": "Track",
+                "albumOfTrack": {
+                  "artists": {
+                    "items": [
+                      {
+                        "profile": {
+                          "name": "Radiohead"
+                        },
+                        "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+                      }
+                    ]
+                  },
+                  "coverArt": {
+                    "sources": [
+                      {
+                        "height": 300,
+                        "url": "https://i.scdn.co/image/ab67616d00001e02ec548c00d3ac2f10be73366d",
+                        "width": 300
+                      },
+                      {
+                        "height": 64,
+                        "url": "https://i.scdn.co/image/ab67616d00004851ec548c00d3ac2f10be73366d",
+                        "width": 64
+                      },
+                      {
+                        "height": 640,
+                        "url": "https://i.scdn.co/image/ab67616d0000b273ec548c00d3ac2f10be73366d",
+                        "width": 640
+                      }
+                    ]
+                  },
+                  "date": {
+                    "isoString": "1993-02-22T00:00:00Z",
+                    "precision": "DAY"
+                  },
+                  "name": "Pablo Honey",
+                  "uri": "spotify:album:3gBVdu4a1MMJVMy6vwPEb8"
+                },
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Radiohead"
+                      },
+                      "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+                    }
+                  ]
+                },
+                "contentRating": {
+                  "label": "EXPLICIT"
+                },
+                "discNumber": 1,
+                "trackDuration": {
+                  "totalMilliseconds": 238640
+                },
+                "mediaType": "AUDIO",
+                "name": "Creep",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "playcount": "3209476167",
+                "trackNumber": 2,
+                "uri": "spotify:track:70LcF31zb1H0PyJoS1Sx1r"
+              }
+            }
+          },
+          {
+            "addedAt": {
+              "isoString": "1970-01-01T00:00:00Z"
+            },
+            "addedBy": null,
+            "itemV2": {
+              "__typename": "TrackResponseWrapper",
+              "data": {
+                "__typename": "Track",
+                "albumOfTrack": {
+                  "artists": {
+                    "items": [
+                      {
+                        "profile": {
+                          "name": "Oasis"
+                        },
+                        "uri": "spotify:artist:2DaxqgrOhkeH0fpeiQq2f4"
+                      }
+                    ]
+                  },
+                  "coverArt": {
+                    "sources": [
+                      {
+                        "height": 300,
+                        "url": "https://i.scdn.co/image/ab67616d00001e0285e5dcc05cc216a10f141480",
+                        "width": 300
+                      },
+                      {
+                        "height": 64,
+                        "url": "https://i.scdn.co/image/ab67616d0000485185e5dcc05cc216a10f141480",
+                        "width": 64
+                      },
+                      {
+                        "height": 640,
+                        "url": "https://i.scdn.co/image/ab67616d0000b27385e5dcc05cc216a10f141480",
+                        "width": 640
+                      }
+                    ]
+                  },
+                  "date": {
+                    "isoString": "1995-10-02T00:00:00Z",
+                    "precision": "DAY"
+                  },
+                  "name": "(What's The Story) Morning Glory? [Remastered]",
+                  "uri": "spotify:album:1VW1MFNstaJuygaoTPkdCk"
+                },
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Oasis"
+                      },
+                      "uri": "spotify:artist:2DaxqgrOhkeH0fpeiQq2f4"
+                    }
+                  ]
+                },
+                "contentRating": {
+                  "label": "NONE"
+                },
+                "discNumber": 1,
+                "trackDuration": {
+                  "totalMilliseconds": 258773
+                },
+                "mediaType": "AUDIO",
+                "name": "Wonderwall - Remastered",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "playcount": "3156953074",
+                "trackNumber": 3,
+                "uri": "spotify:track:5qqabIl2vWzo9ApSC317sa"
+              }
+            }
+          },
+          {
+            "addedAt": {
+              "isoString": "1970-01-01T00:00:00Z"
+            },
+            "addedBy": null,
+            "itemV2": {
+              "__typename": "TrackResponseWrapper",
+              "data": {
+                "__typename": "Track",
+                "albumOfTrack": {
+                  "artists": {
+                    "items": [
+                      {
+                        "profile": {
+                          "name": "Nirvana"
+                        },
+                        "uri": "spotify:artist:6olE6TJLqED3rqDCT0FyPh"
+                      }
+                    ]
+                  },
+                  "coverArt": {
+                    "sources": [
+                      {
+                        "height": 300,
+                        "url": "https://i.scdn.co/image/ab67616d00001e02444f118a9126af9e1483dcc0",
+                        "width": 300
+                      },
+                      {
+                        "height": 64,
+                        "url": "https://i.scdn.co/image/ab67616d00004851444f118a9126af9e1483dcc0",
+                        "width": 64
+                      },
+                      {
+                        "height": 640,
+                        "url": "https://i.scdn.co/image/ab67616d0000b273444f118a9126af9e1483dcc0",
+                        "width": 640
+                      }
+                    ]
+                  },
+                  "date": {
+                    "isoString": "1991-09-24T00:00:00Z",
+                    "precision": "DAY"
+                  },
+                  "name": "Nevermind (30th Anniversary Super Deluxe)",
+                  "uri": "spotify:album:0ezJun7CKk7Hh70MPL0dcJ"
+                },
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Nirvana"
+                      },
+                      "uri": "spotify:artist:6olE6TJLqED3rqDCT0FyPh"
+                    }
+                  ]
+                },
+                "contentRating": {
+                  "label": "NONE"
+                },
+                "discNumber": 1,
+                "trackDuration": {
+                  "totalMilliseconds": 218920
+                },
+                "mediaType": "AUDIO",
+                "name": "Come As You Are - Remastered",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "playcount": "2211758796",
+                "trackNumber": 3,
+                "uri": "spotify:track:5AEOqLsRJFAoSS4ay4Jzao"
+              }
+            }
+          }
+        ],
+        "pagingInfo": {
+          "limit": 50,
+          "offset": 0
+        },
+        "totalCount": 50
+      },
+      "description": "With Radiohead, Nirvana, Oasis and more",
+      "followers": 113343,
+      "format": "inspiredby-mix",
+      "images": {
+        "items": [
+          {
+            "sources": [
+              {
+                "height": null,
+                "url": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/radio/track/70LcF31zb1H0PyJoS1Sx1r/en",
+                "width": null
+              }
+            ]
+          }
+        ]
+      },
+      "name": "Creep Radio",
+      "ownerV2": {
+        "data": {
+          "__typename": "User",
+          "avatar": {
+            "sources": [
+              {
+                "height": 64,
+                "url": "https://i.scdn.co/image/ab67757000003b8255c25988a6ac314394d3fbf5",
+                "width": 64
+              },
+              {
+                "height": 300,
+                "url": "https://i.scdn.co/image/ab6775700000ee8555c25988a6ac314394d3fbf5",
+                "width": 300
+              }
+            ]
+          },
+          "name": "Spotify",
+          "socialHandle": null,
+          "uri": "spotify:user:spotify",
+          "username": "spotify"
+        }
+      },
+      "uri": "spotify:playlist:37i9dQZF1E8OvD4G5pVGhr"
+    }
+  }
+}

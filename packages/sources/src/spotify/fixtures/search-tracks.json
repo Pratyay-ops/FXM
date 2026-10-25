@@ -1,0 +1,127 @@
+{
+  "data": {
+    "searchV2": {
+      "tracksV2": {
+        "items": [
+          {
+            "item": {
+              "__typename": "TrackResponseWrapper",
+              "data": {
+                "__typename": "Track",
+                "albumOfTrack": {
+                  "coverArt": {
+                    "sources": [
+                      {
+                        "height": 300,
+                        "url": "https://i.scdn.co/image/ab67616d00001e02ec548c00d3ac2f10be73366d",
+                        "width": 300
+                      },
+                      {
+                        "height": 64,
+                        "url": "https://i.scdn.co/image/ab67616d00004851ec548c00d3ac2f10be73366d",
+                        "width": 64
+                      },
+                      {
+                        "height": 640,
+                        "url": "https://i.scdn.co/image/ab67616d0000b273ec548c00d3ac2f10be73366d",
+                        "width": 640
+                      }
+                    ]
+                  },
+                  "id": "3gBVdu4a1MMJVMy6vwPEb8",
+                  "name": "Pablo Honey",
+                  "uri": "spotify:album:3gBVdu4a1MMJVMy6vwPEb8"
+                },
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Radiohead"
+                      },
+                      "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+                    }
+                  ]
+                },
+                "contentRating": {
+                  "label": "EXPLICIT"
+                },
+                "duration": {
+                  "totalMilliseconds": 238640
+                },
+                "id": "70LcF31zb1H0PyJoS1Sx1r",
+                "trackMediaType": "AUDIO",
+                "name": "Creep",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "uri": "spotify:track:70LcF31zb1H0PyJoS1Sx1r"
+              }
+            }
+          },
+          {
+            "item": {
+              "__typename": "TrackResponseWrapper",
+              "data": {
+                "__typename": "Track",
+                "albumOfTrack": {
+                  "coverArt": {
+                    "sources": [
+                      {
+                        "height": 300,
+                        "url": "https://i.scdn.co/image/ab67616d00001e023340ec817b195f40615cc647",
+                        "width": 300
+                      },
+                      {
+                        "height": 64,
+                        "url": "https://i.scdn.co/image/ab67616d000048513340ec817b195f40615cc647",
+                        "width": 64
+                      },
+                      {
+                        "height": 640,
+                        "url": "https://i.scdn.co/image/ab67616d0000b2733340ec817b195f40615cc647",
+                        "width": 640
+                      }
+                    ]
+                  },
+                  "id": "1w1LIhUSQLKew0dYwiVX2q",
+                  "name": "Creep EP",
+                  "uri": "spotify:album:1w1LIhUSQLKew0dYwiVX2q"
+                },
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Radiohead"
+                      },
+                      "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+                    }
+                  ]
+                },
+                "contentRating": {
+                  "label": "NONE"
+                },
+                "duration": {
+                  "totalMilliseconds": 258640
+                },
+                "id": "6JpjIy1M7oxvPJ3uVdUKTe",
+                "trackMediaType": "AUDIO",
+                "name": "Creep - Acoustic",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "uri": "spotify:track:6JpjIy1M7oxvPJ3uVdUKTe"
+              }
+            }
+          }
+        ],
+        "pagingInfo": {
+          "limit": 3,
+          "nextOffset": 3
+        },
+        "totalCount": 4
+      }
+    }
+  }
+}

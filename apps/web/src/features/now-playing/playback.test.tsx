@@ -52,6 +52,24 @@ describe('the app’s playback', () => {
     expect(player.getState().queue.index).toBe(1)
   })
 
+  it('puts the saved position back only on the item it was saved for, inside the track', async () => {
+    const first = setupTestPlayback({ persist: { queueDelayMs: 0 } })
+    await first.player.setQueue(testTracks('a', 'b'), { startIndex: 1, autoplay: false })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    const save = (position: object) =>
+      localStorage.setItem(PLAYBACK_STORAGE_KEY, JSON.stringify(position))
+
+    // Written after the queue: the position of an item the saved queue doesn't have as current.
+    save({ positionMs: 42_000, uid: 0 })
+    expect(setupTestPlayback().player.getState().positionMs).toBe(0)
+
+    save({ positionMs: 10_000_000, uid: 1 })
+    expect(setupTestPlayback().player.getState()).toMatchObject({
+      positionMs: 180_000,
+      status: 'paused',
+    })
+  })
+
   it('re-renders components when the state changes, and when the player is replaced', async () => {
     function Status() {
       return <p>{usePlayerState((state) => `${state.status} ${state.queue.items.length}`)}</p>

@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { type ReactNode, useEffect, useId, useLayoutEffect, useRef } from 'react'
+import { type ReactNode, useId, useLayoutEffect, useRef } from 'react'
 import { IconButton } from '../../components/ui/icon-button'
 import { cn } from '../../lib/cn'
 
@@ -36,7 +36,9 @@ export function Dialog({
   const titleId = useId()
   const descriptionId = useId()
 
-  useEffect(() => {
+  // Before the parents' layout effects: once a choice closes the dialog, they can move the focus
+  // to the page, which is inert while the dialog is open.
+  useLayoutEffect(() => {
     const dialog = ref.current
     if (dialog === null) return
     if (open && !dialog.open) dialog.showModal()

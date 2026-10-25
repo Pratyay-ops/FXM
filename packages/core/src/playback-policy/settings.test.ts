@@ -1,10 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_PLAYBACK_SETTINGS,
-  isPlaybackBand,
   type MatchPlayFacts,
   mayPlayMatch,
-  PLAYBACK_BANDS,
   sanitizePlaybackSettings,
 } from './settings'
 
@@ -43,23 +41,6 @@ describe('playback settings', () => {
     expect(DEFAULT_PLAYBACK_SETTINGS.playBestGuesses).toBe(false)
     const inherited = Object.create({ preferLossless: true }) as object
     expect(sanitizePlaybackSettings(inherited).preferLossless).toBe(false)
-  })
-})
-
-describe('playback bands', () => {
-  it('lists the bands, most confident first', () => {
-    expect(PLAYBACK_BANDS).toEqual(['auto', 'suggest', 'none'])
-  })
-
-  it.each([
-    ['auto', true],
-    ['suggest', true],
-    ['none', true],
-    ['Auto', false],
-    ['toString', false],
-    [undefined, false],
-  ])('recognizes %s: %s', (value, expected) => {
-    expect(isPlaybackBand(value)).toBe(expected)
   })
 })
 

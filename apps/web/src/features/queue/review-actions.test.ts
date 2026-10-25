@@ -1,4 +1,4 @@
-import { testTracks } from '@fxm/player/testing'
+import { testStream, testTracks } from '@fxm/player/testing'
 import { describe, expect, it } from 'vitest'
 import { setupTestPlayback, spotifyTrack, testCandidate } from '../now-playing/testing'
 import { approveAllBestGuesses, chooseVersion, playBestGuess, sameAudio } from './review-actions'
@@ -79,6 +79,49 @@ describe('approving every best guess', () => {
     ).toEqual(['S1', 'S2', 'Ahead'])
     expect(policy.pins.map((pin) => pin.track.title)).toEqual(['S1', 'S2', 'Ahead'])
     expect(useQueueReviewStore.getState().entries).toEqual({})
+  })
+
+  it('leaves a best guess that already played where it is', async () => {
+    const { player, policy, resolver } = setupTestPlayback()
+    const s1 = spotifyTrack('S1')
+    const [a, b] = testTracks('a', 'b')
+    if (a === undefined || b === undefined) throw new Error('no tracks')
+    await player.setQueue([a, s1, b], { autoplay: false })
+    const guess = testCandidate('g1')
+    policy.reportNeedsReview(s1, guess)
+    const item = player.getState().queue.items[1]
+    if (item === undefined) throw new Error('no item')
+    // The user plays S1's best guess from the queue, then skips to b.
+    playBestGuess(item, 1, guess)
+    await expect.poll(() => resolver.log).toEqual(['S1:play#0'])
+    await player.next()
+    expect(player.getState().queue.index).toBe(2)
+
+    approveAllBestGuesses()
+
+    expect(titles(player.getState().queue.items)).toEqual(['a', 'S1', 'b'])
+    expect(player.getState().queue.index).toBe(2)
+    expect(policy.pins.map((pin) => pin.candidate.ref)).toEqual(['g1'])
+  })
+
+  it('leaves a best guess that "Play best guesses" let play where it is', async () => {
+    const { player, policy, resolver } = setupTestPlayback()
+    const s1 = spotifyTrack('S1')
+    const guess = testCandidate('g1')
+    // The policy plays the best guess and records it, as it does with the setting on.
+    resolver.handler = (item) => ({
+      stream: testStream(item.track.title),
+      ...(item.track.id === s1.id ? { candidate: guess } : {}),
+    })
+    await player.setQueue([s1, ...testTracks('b')])
+    policy.reportNeedsReview(s1, guess)
+    await player.next()
+    expect(player.getState().queue.items[0]?.candidate).toBe(guess)
+
+    approveAllBestGuesses()
+
+    expect(titles(player.getState().queue.items)).toEqual(['S1', 'b'])
+    expect(player.getState().queue.index).toBe(1)
   })
 
   it('does nothing when nothing needs review', async () => {

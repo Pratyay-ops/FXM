@@ -1,56 +1,83 @@
 import type { AudioCandidate, QueueItem } from '@fxm/core'
-import { formatTime } from '@fxm/player'
-import { Check } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { Check, Pause, Play } from 'lucide-react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { Dialog } from '../now-playing/dialog'
-import { usePlayerState } from '../now-playing/playback'
-import { formatConfidence, KIND_LABELS, sourceName } from '../now-playing/stream-label'
+import { getPlayer, usePlayerState } from '../now-playing/playback'
+import { sourceName } from '../now-playing/stream-label'
 import { VersionSwitcher } from '../now-playing/version-switcher'
-import { approveAllBestGuesses, chooseVersion } from './review-actions'
+import { BestGuessCard, BestGuessesSetting } from './best-guess'
+import { approveAllBestGuesses, chooseVersion, playBestGuess } from './review-actions'
 import { useQueueReviewStore } from './review-store'
 
+/** One song to review: its first queue item, that item's index, and the best guess. */
+interface ReviewEntry {
+  item: QueueItem
+  index: number
+  bestGuess: AudioCandidate
+}
+
+/** Where focus goes once the last row is gone. */
+const DONE = 'done'
+
+/**
+ * Plays a best guess to check it by ear, without approving it, or pauses it while it plays.
+ * Playing it makes it the queue's current song.
+ */
+function PlayGuessButton({ entry }: { entry: ReviewEntry }) {
+  const { item, index, bestGuess } = entry
+  const playing = usePlayerState(
+    (state) =>
+      state.queue.items[state.queue.index]?.uid === item.uid &&
+      (state.status === 'playing' || state.status === 'loading'),
+  )
+  return (
+    <button
+      type="button"
+      className={buttonClasses({ variant: 'ghost', className: 'h-10 px-4' })}
+      onClick={() => (playing ? getPlayer().pause() : playBestGuess(item, index, bestGuess))}
+    >
+      {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+      {playing ? 'Pause' : 'Play'}
+      <span className="sr-only"> the best guess for {item.track.title}</span>
+    </button>
+  )
+}
+
 function ReviewRow({
-  item,
-  bestGuess,
+  entry,
+  register,
+  onApprove,
   onOtherVersions,
 }: {
-  item: QueueItem
-  bestGuess: AudioCandidate
+  entry: ReviewEntry
+  register: (node: HTMLButtonElement | null) => void
+  onApprove: () => void
   onOtherVersions: () => void
 }) {
-  const { track } = item
-  const kind = bestGuess.kind === 'song' ? undefined : KIND_LABELS[bestGuess.kind]
-  const length =
-    bestGuess.durationMs === undefined ? undefined : formatTime(bestGuess.durationMs / 1000)
-  const guess = [kind, bestGuess.artists.join(', '), length].filter(Boolean).join(' · ')
+  const { track } = entry.item
   return (
     <li className="py-3">
       <p className="truncate font-semibold">{track.title}</p>
       <p className="truncate text-sm text-text-muted">
         {track.artists.map((artist) => artist.name).join(', ')} · from {sourceName(track.source)}
       </p>
-      <div className="mt-2 rounded-lg bg-elevated px-3 py-2">
-        <p className="text-xs font-semibold text-text-muted">
-          Best guess on {sourceName(bestGuess.source)} · match{' '}
-          {formatConfidence(bestGuess.confidence)}
-        </p>
-        <p className="mt-0.5 truncate font-semibold">{bestGuess.title}</p>
-        <p className="truncate text-sm text-text-muted">{guess}</p>
-      </div>
+      <BestGuessCard track={track} guess={entry.bestGuess} className="mt-2" />
       <div className="mt-2 flex flex-wrap gap-2">
         <button
           type="button"
-          className={buttonClasses({ className: 'h-10 px-4' })}
-          onClick={() => chooseVersion(track, bestGuess)}
+          ref={register}
+          className={buttonClasses({ variant: 'secondary', className: 'h-10 px-4' })}
+          onClick={onApprove}
         >
           <Check aria-hidden="true" />
           Approve
           <span className="sr-only"> the best guess for {track.title}</span>
         </button>
+        <PlayGuessButton entry={entry} />
         <button
           type="button"
-          className={buttonClasses({ variant: 'secondary', className: 'h-10 px-4' })}
+          className={buttonClasses({ variant: 'ghost', className: 'h-10 px-4' })}
           onClick={onOtherVersions}
         >
           Other versions
@@ -63,23 +90,57 @@ function ReviewRow({
 
 /**
  * The batch review: every song in the queue whose match needs review, with its best guess, to
- * approve one by one, all at once, or replace with another version.
+ * play, approve one by one or all at once, or replace with another version. An approval
+ * removes its row: focus moves to the next row's "Approve" (or the previous one's, or "Done").
  */
 export function ReviewDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const items = usePlayerState((state) => state.queue.items)
   const entries = useQueueReviewStore((state) => state.entries)
-  const [switching, setSwitching] = useState<QueueItem>()
+  const [switching, setSwitching] = useState<ReviewEntry>()
+  const approveButtons = useRef(new Map<string, HTMLButtonElement>())
+  const doneButton = useRef<HTMLButtonElement>(null)
+  const pendingFocus = useRef<string | null>(null)
 
   // One row per track, in queue order.
   const rows = useMemo(() => {
     const seen = new Set<string>()
-    return items.flatMap((item) => {
+    return items.flatMap((item, index): ReviewEntry[] => {
       const bestGuess = entries[item.track.id]
       if (bestGuess === undefined || seen.has(item.track.id)) return []
       seen.add(item.track.id)
-      return [{ item, bestGuess }]
+      return [{ item, index, bestGuess }]
     })
   }, [items, entries])
+
+  useLayoutEffect(() => {
+    const key = pendingFocus.current
+    if (key === null) return
+    pendingFocus.current = null
+    const target = key === DONE ? doneButton.current : approveButtons.current.get(key)
+    target?.focus()
+  })
+
+  /** Picks where focus goes once the row of `trackId` is gone. */
+  const focusAfter = (trackId: string) => {
+    const at = rows.findIndex((row) => row.item.track.id === trackId)
+    const neighbour = rows[at + 1] ?? rows[at - 1]
+    pendingFocus.current = neighbour === undefined ? DONE : neighbour.item.track.id
+  }
+
+  const register = (trackId: string) => (node: HTMLButtonElement | null) => {
+    if (node === null) approveButtons.current.delete(trackId)
+    else approveButtons.current.set(trackId, node)
+  }
+
+  const closeSwitcher = () => {
+    const entry = switching
+    setSwitching(undefined)
+    // A version was picked, so its row goes. Closed without one, focus returns to the row.
+    const trackId = entry?.item.track.id
+    if (trackId !== undefined && useQueueReviewStore.getState().entries[trackId] === undefined) {
+      focusAfter(trackId)
+    }
+  }
 
   return (
     <>
@@ -87,10 +148,10 @@ export function ReviewDialog({ open, onClose }: { open: boolean; onClose: () => 
         open={open}
         onClose={onClose}
         title="Review best guesses"
-        description="FXM matched these songs from another catalog, but isn’t sure it found the right recording. Approve the ones that sound right."
+        description="FXM matched these songs from another catalog, but isn’t sure it found the right recording. Play a guess to check it, and approve the ones that are right."
         footer={
           rows.length === 0 ? (
-            <button type="button" className={buttonClasses()} onClick={onClose}>
+            <button type="button" ref={doneButton} className={buttonClasses()} onClick={onClose}>
               Done
             </button>
           ) : (
@@ -116,25 +177,30 @@ export function ReviewDialog({ open, onClose }: { open: boolean; onClose: () => 
           )
         }
       >
+        <BestGuessesSetting className="border-b border-border pt-1 pb-4" />
         {rows.length === 0 ? (
           <p className="py-3 text-sm text-text-muted">
             All done: nothing in the queue needs review.
           </p>
         ) : (
           <ul className="divide-y divide-border">
-            {rows.map(({ item, bestGuess }) => (
+            {rows.map((entry) => (
               <ReviewRow
-                key={item.track.id}
-                item={item}
-                bestGuess={bestGuess}
-                onOtherVersions={() => setSwitching(item)}
+                key={entry.item.track.id}
+                entry={entry}
+                register={register(entry.item.track.id)}
+                onApprove={() => {
+                  focusAfter(entry.item.track.id)
+                  chooseVersion(entry.item.track, entry.bestGuess)
+                }}
+                onOtherVersions={() => setSwitching(entry)}
               />
             ))}
           </ul>
         )}
       </Dialog>
       {switching !== undefined && (
-        <VersionSwitcher open item={switching} onClose={() => setSwitching(undefined)} />
+        <VersionSwitcher open item={switching.item} onClose={closeSwitcher} />
       )}
     </>
   )

@@ -56,7 +56,7 @@ Every method is safe to call at any time and never throws. The async methods (`s
 | `playNext(tracks)`, `addToQueue(tracks)` | Insert after the current item, or append |
 | `remove(index)`, `move(from, to)`, `clearUpcoming()` | Edit the queue. Removing the playing item plays the following one |
 | `setShuffle(on)`, `setRepeat(mode)`, `setCatalogMode(mode)` | Queue settings. The current track keeps playing |
-| `setCandidate(uid, candidate?)` | Records the audio for an item, e.g. the version the user picked in "Not the right version?". For the current item the player resolves it (reason `replace`) and carries on at the same position, playing or paused as before |
+| `setCandidate(uid, candidate?)` | Records the audio for an item, e.g. the version the user picked in "Not the right version?". For the current item the player resolves it (reason `replace`) and carries on at the same position, playing or paused as before. It records the version on that one item and pins nothing: to keep the choice for the track, tell the resolver (`StreamLifecycle.pinMatch`) |
 | `play(index?)` | Resumes, or jumps to `index` and plays it from the start. After an error it tries the current track again. After the end of the queue it plays what was added since, or the last track again |
 | `pause()`, `toggle()`, `stop()` | `stop` pauses and rewinds |
 | `next()`, `previous()` | Skip, honouring repeat and shuffle. Playback continues if it was playing. If it was paused, the player only selects the track and resolves nothing until play. `previous` restarts the track when more than 3 s in |
@@ -158,7 +158,9 @@ interface StreamResolver {
   - `refresh` (with an `expired` failure): the loaded stream expires soon
   - `replace`: the user picked another version, now in `item.candidate`
 - **`request.attempt`:** how many attempts at this item have failed: 0 at first, then 1 to 3.
-- **`request.failure.started`:** whether the failed stream had started playing. `false` for a failure before the first `play` event, which in the Lite tier is a failed probe of a capped URL.
+- **`request.failure.started`:** whether the failed stream had started playing, present whenever `failure.stream` is. `false` for a failure before the first `play` event, which in the Lite tier is a failed probe of a capped URL.
+- **`request.explicit`:** whether the user asked for this item: a tap (a new queue's start item), a jump, "previous", play on it, or a version pick (`replace`). Reaching it by itself, after the track before ended or failed or after "next", is not explicit, and neither is a `preload`. A Suggest-band match plays only for an explicit request. It holds for the item's retries and refreshes until another item is current.
+- **`request.mode`:** the queue's catalog mode.
 - **`request.signal`:** aborts when the player moves on.
 - **`request.canPlay(stream)`:** how sure the engine is that it can play a stream: `probably`, `maybe` or `no` (also `no` for a `capped` stream). Prefer `probably` (Opus 251 only when the engine says `probably`, otherwise AAC 140), try `maybe`, never return `no`.
 - **Which audio:** when `item.candidate` is set, it is the audio to resolve: the match recorded earlier or the user's pick, which always wins. Only a `retry` may replace it (Smart Replace) and must then return the replacement as `candidate`. Without one, the resolver finds the audio: the track's own source, a song matched to a Spotify track, and for a music video in Music mode its song: the one it links (`songForVideo`, verdict `plays-linked-song`) or the one the matching engine finds (`needs-song-match`).

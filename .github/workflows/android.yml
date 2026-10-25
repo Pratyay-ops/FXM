@@ -90,6 +90,10 @@ jobs:
       - name: Build the debug APK
         run: make apk
 
+      # The JVM tests of FXM's OkHttp plugin (apps/mobile/android/fxm-http), offline.
+      - name: Run the native unit tests
+        run: make android-test
+
       # cap sync rewrites capacitor.settings.gradle with a path into pnpm's store that names the
       # Capacitor version, so after an upgrade the committed file is stale until it is regenerated.
       - name: Check that the build left the committed Android project unchanged

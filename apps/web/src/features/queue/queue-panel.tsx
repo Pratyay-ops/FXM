@@ -1,6 +1,17 @@
 import type { AudioCandidate, QueueContext, QueueItem, Track } from '@fxm/core'
 import { formatTime } from '@fxm/player'
-import { AudioLines, CircleHelp, GripVertical, ListMusic, X } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  AudioLines,
+  ChevronsUp,
+  CircleAlert,
+  CircleHelp,
+  GripVertical,
+  ListMusic,
+  type LucideIcon,
+  X,
+} from 'lucide-react'
 import { type CSSProperties, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
@@ -11,10 +22,10 @@ import { entityPath, searchPath } from '../now-playing/browse-links'
 import { getPlayer, usePlayerState } from '../now-playing/playback'
 import { KIND_LABELS } from '../now-playing/stream-label'
 import { TrackArtwork } from '../now-playing/track-artwork'
+import { BestGuessesSetting } from './best-guess'
 import { approveAllBestGuesses, playBestGuess } from './review-actions'
 import { ReviewDialog } from './review-dialog'
 import { useQueueReviewStore } from './review-store'
-import { Switch } from './switch'
 import { useDragReorder } from './use-drag-reorder'
 
 /** How many upcoming songs show before "Show all". */
@@ -78,18 +89,20 @@ function PlayingFrom({ context }: { context: QueueContext }) {
   )
 }
 
-/** The review notice: how many songs need a look, a one-tap approval and the full list. */
+/**
+ * The review notice: how many songs need a look, a one-tap approval, the full list, and the
+ * "Play best guesses" setting, which decides what happens to them.
+ */
 function ReviewNotice({
   count,
-  playBestGuesses,
   onApproveAll,
   onReview,
 }: {
   count: number
-  playBestGuesses: boolean
   onApproveAll: () => void
   onReview: () => void
 }) {
+  const playBestGuesses = useQueueReviewStore((state) => state.playBestGuesses)
   const headingId = useId()
   const one = count === 1
   let heading = one ? '1 song needs review' : `${count} songs need review`
@@ -127,13 +140,34 @@ function ReviewNotice({
           </div>
         </div>
       </div>
+      <BestGuessesSetting className="mt-4 border-t border-border pt-3" />
     </section>
   )
 }
 
-function CurrentRow({ item }: { item: QueueItem }) {
+/** Why the current song isn't playing, in the row that shows it. */
+function FailedMark() {
+  return (
+    <span className="mt-0.5 flex items-center gap-1 text-xs font-semibold text-danger">
+      <CircleAlert aria-hidden="true" className="size-3.5 shrink-0" />
+      Couldn’t play
+    </span>
+  )
+}
+
+function CurrentRow({
+  item,
+  bestGuess,
+  playBestGuesses,
+}: {
+  item: QueueItem
+  bestGuess: AudioCandidate | undefined
+  playBestGuesses: boolean
+}) {
   const playing = usePlayerState((state) => state.status === 'playing')
+  const failed = usePlayerState((state) => state.error !== undefined)
   const { track } = item
+  const label = reviewLabel(item, bestGuess, playBestGuesses)
   return (
     <div className="flex items-center gap-3 rounded-lg bg-elevated p-2">
       <TrackArtwork
@@ -146,6 +180,7 @@ function CurrentRow({ item }: { item: QueueItem }) {
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold text-accent">{track.title}</p>
         <p className="truncate text-sm text-text-muted">{byline(track)}</p>
+        {failed ? <FailedMark /> : label !== undefined && <ReviewMark label={label} />}
       </div>
       {playing && (
         <AudioLines role="img" aria-label="Playing" className="mr-1 size-5 shrink-0 text-accent" />
@@ -154,37 +189,90 @@ function CurrentRow({ item }: { item: QueueItem }) {
   )
 }
 
+/**
+ * An outlined pill, so it reads as a button on the row's tint in both themes, and compact, so
+ * the three fit on one line on a 320px phone.
+ */
+const MOVE_BUTTON =
+  'inline-flex h-touch shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-3 text-sm font-semibold whitespace-nowrap text-text transition-[color,background-color,transform] duration-150 hover:bg-text/8 active:scale-[0.97] motion-reduce:transform-none lg:h-9 lg:pointer-coarse:h-touch aria-disabled:cursor-default aria-disabled:opacity-50 aria-disabled:hover:bg-transparent [&_svg]:size-4 [&_svg]:shrink-0'
+
+/**
+ * A move that works with one tap (WCAG 2.5.7: dragging needs an alternative), in a group named
+ * after the song. It stays focusable when it can't move the song any further (`aria-disabled`),
+ * so pressing it again and again never drops the focus.
+ */
+function MoveButton({
+  icon: Icon,
+  label,
+  disabled,
+  register,
+  onClick,
+}: {
+  icon: LucideIcon
+  label: string
+  disabled: boolean
+  register: (node: HTMLButtonElement | null) => void
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      ref={register}
+      aria-disabled={disabled || undefined}
+      onClick={disabled ? undefined : onClick}
+      className={MOVE_BUTTON}
+    >
+      <Icon aria-hidden="true" />
+      {label}
+    </button>
+  )
+}
+
 interface RowProps {
   item: QueueItem
   /** Position in the queue. */
   index: number
+  /** Position in "Next up", and how many songs it has. */
+  position: number
+  count: number
   bestGuess: AudioCandidate | undefined
   playBestGuesses: boolean
   /** Whether this row is the one being dragged. */
   dragging: boolean
   /** Whether any row is being dragged: the others then slide aside. */
   sliding: boolean
+  /** Whether the row shows its move buttons. */
+  moving: boolean
   style: CSSProperties | undefined
   handleProps: ReturnType<ReturnType<typeof useDragReorder>['handleProps']>
   hintId: string
   register: (key: string, node: HTMLElement | null) => void
   onRemove: () => void
+  /** Moves the song to `to` in "Next up"; then `focus` names the control to keep focused. */
+  onMove: (to: number, focus: string) => void
+  onDoneMoving: () => void
 }
 
 function QueueRow({
   item,
   index,
+  position,
+  count,
   bestGuess,
   playBestGuesses,
   dragging,
   sliding,
+  moving,
   style,
   handleProps,
   hintId,
   register,
   onRemove,
+  onMove,
+  onDoneMoving,
 }: RowProps) {
-  const { track } = item
+  const { track, uid } = item
+  const toolbarId = useId()
   const label = reviewLabel(item, bestGuess, playBestGuesses)
   const length = duration(track)
   const play = () => {
@@ -192,68 +280,114 @@ function QueueRow({
     if (bestGuess !== undefined && label === 'Needs review') playBestGuess(item, index, bestGuess)
     else void getPlayer().play(index)
   }
+  const first = position === 0
+  const last = position === count - 1
   return (
     <li
       style={style}
       className={cn(
-        'flex items-center gap-1 rounded-lg',
+        'rounded-lg',
         dragging && 'bg-elevated shadow-lg',
+        moving && !dragging && 'bg-text/5',
         // Only during a drag: on drop the rows take their new places without sliding back.
         sliding && !dragging && 'transition-transform duration-200 ease-standard',
       )}
     >
-      <button
-        type="button"
-        ref={(node) => register(`handle:${item.uid}`, node)}
-        aria-label={`Move ${track.title}`}
-        aria-describedby={hintId}
-        {...handleProps}
-        className={iconButtonClasses({
-          size: 'sm',
-          className: 'cursor-grab touch-none active:cursor-grabbing',
-        })}
-      >
-        <GripVertical />
-      </button>
-      <button
-        type="button"
-        onClick={play}
-        className="flex min-w-0 flex-1 items-center gap-3 rounded-md py-1.5 pr-1 text-left hover:bg-text/5"
-      >
-        <TrackArtwork
-          images={track.artwork}
-          seed={track.id}
-          size={44}
-          rounded="sm"
-          lazy
-          className="size-11"
-        />
-        <span className="min-w-0 flex-1">
-          <span className="sr-only">Play </span>
-          <span className="block truncate font-semibold">{track.title}</span>
-          <span className="block truncate text-sm text-text-muted">{byline(track)}</span>
-          {label !== undefined && <ReviewMark label={label} />}
-        </span>
-      </button>
-      {length !== undefined && (
-        <span className="hidden w-10 shrink-0 text-right text-xs text-text-muted tabular-nums xs:block">
-          {length}
-        </span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          ref={(node) => register(`handle:${uid}`, node)}
+          aria-label={`Move ${track.title}`}
+          aria-describedby={hintId}
+          aria-expanded={moving}
+          aria-controls={moving ? toolbarId : undefined}
+          {...handleProps}
+          className={iconButtonClasses({
+            size: 'sm',
+            highlighted: moving,
+            className: 'cursor-grab touch-none active:cursor-grabbing',
+          })}
+        >
+          <GripVertical />
+        </button>
+        <button
+          type="button"
+          onClick={play}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-md py-1.5 pr-1 text-left hover:bg-text/5"
+        >
+          <TrackArtwork
+            images={track.artwork}
+            seed={track.id}
+            size={44}
+            rounded="sm"
+            lazy
+            className="size-11"
+          />
+          <span className="min-w-0 flex-1">
+            <span className="sr-only">Play </span>
+            <span className="block truncate font-semibold">{track.title}</span>
+            <span className="block truncate text-sm text-text-muted">{byline(track)}</span>
+            {label !== undefined && <ReviewMark label={label} />}
+          </span>
+        </button>
+        {length !== undefined && (
+          <span className="hidden w-10 shrink-0 text-right text-xs text-text-muted tabular-nums xs:block">
+            {length}
+          </span>
+        )}
+        <button
+          type="button"
+          ref={(node) => register(`remove:${uid}`, node)}
+          aria-label={`Remove ${track.title} from the queue`}
+          onClick={onRemove}
+          className={iconButtonClasses({ size: 'sm' })}
+        >
+          <X />
+        </button>
+      </div>
+      {moving && (
+        // Selecting the handle again closes it, and so does Escape.
+        <fieldset
+          id={toolbarId}
+          className="flex min-w-0 flex-wrap items-center gap-1.5 pt-1 pb-2 pl-1"
+          onKeyDown={(event) => {
+            if (event.key !== 'Escape') return
+            event.preventDefault()
+            onDoneMoving()
+          }}
+        >
+          <legend className="sr-only">Move {track.title}</legend>
+          <MoveButton
+            icon={ChevronsUp}
+            label="Play next"
+            disabled={first}
+            register={(node) => register(`top:${uid}`, node)}
+            onClick={() => onMove(0, `top:${uid}`)}
+          />
+          <MoveButton
+            icon={ArrowUp}
+            label="Up"
+            disabled={first}
+            register={(node) => register(`up:${uid}`, node)}
+            onClick={() => onMove(position - 1, `up:${uid}`)}
+          />
+          <MoveButton
+            icon={ArrowDown}
+            label="Down"
+            disabled={last}
+            register={(node) => register(`down:${uid}`, node)}
+            onClick={() => onMove(position + 1, `down:${uid}`)}
+          />
+        </fieldset>
       )}
-      <button
-        type="button"
-        ref={(node) => register(`remove:${item.uid}`, node)}
-        aria-label={`Remove ${track.title} from the queue`}
-        onClick={onRemove}
-        className={iconButtonClasses({ size: 'sm' })}
-      >
-        <X />
-      </button>
     </li>
   )
 }
 
-/** The songs after the current one, in play order, to reorder by dragging or with the keys. */
+/**
+ * The songs after the current one, in play order. To reorder them: drag a handle; or select it
+ * for move buttons that need one tap each; or focus it and press the arrow keys, Home or End.
+ */
 function UpNext({
   items,
   offset,
@@ -270,6 +404,8 @@ function UpNext({
   const entries = useQueueReviewStore((state) => state.entries)
   const playBestGuesses = useQueueReviewStore((state) => state.playBestGuesses)
   const [limit, setLimit] = useState(PAGE_SIZE)
+  // The uid of the row showing its move buttons.
+  const [moving, setMoving] = useState<number>()
   const listRef = useRef<HTMLOListElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const controls = useRef(new Map<string, HTMLElement>())
@@ -278,16 +414,25 @@ function UpNext({
   const hintId = useId()
   const visible = items.slice(0, limit)
 
+  /** Moves the song at `from` to `to`, keeping the focus on the control named `focus`. */
+  const moveTo = (from: number, to: number, focus: string | null) => {
+    const item = items[from]
+    if (item === undefined || to < 0 || to >= items.length || to === from) return
+    getPlayer().move(offset + from, offset + to)
+    if (to >= limit) setLimit(to + 1)
+    if (focus !== null) pendingFocus.current = focus
+    announce(`Moved ${item.track.title} to position ${to + 1} of ${items.length}.`)
+  }
+
   const { drag, handleProps, rowStyle } = useDragReorder({
     listRef,
     count: visible.length,
     rowsKey: items,
-    onMove: (from, to, via) => {
-      const item = items[from]
-      if (item === undefined) return
-      getPlayer().move(offset + from, offset + to)
-      if (via === 'keyboard') pendingFocus.current = `handle:${item.uid}`
-      announce(`Moved ${item.track.title} to position ${to + 1} of ${items.length}.`)
+    onMove: (from, to, via) =>
+      moveTo(from, to, via === 'keyboard' ? `handle:${items[from]?.uid}` : null),
+    onTap: (position) => {
+      const uid = items[position]?.uid
+      setMoving((open) => (open === uid ? undefined : uid))
     },
   })
 
@@ -339,8 +484,8 @@ function UpNext({
         )}
       </div>
       <p id={hintId} className="sr-only">
-        Press the up or down arrow key to move it, or Home or End to move it to the top or the
-        bottom.
+        Select it to show buttons that move the song. Or press the up or down arrow key to move it,
+        or Home or End to move it to the top or the bottom.
       </p>
       {items.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
@@ -353,15 +498,23 @@ function UpNext({
               key={item.uid}
               item={item}
               index={offset + position}
+              position={position}
+              count={items.length}
               bestGuess={entries[item.track.id]}
               playBestGuesses={playBestGuesses}
               dragging={drag?.from === position}
               sliding={drag !== null}
+              moving={moving === item.uid}
               style={rowStyle(position)}
               handleProps={handleProps(position)}
               hintId={hintId}
               register={register}
               onRemove={() => remove(position)}
+              onMove={(to, focus) => moveTo(position, to, focus)}
+              onDoneMoving={() => {
+                setMoving(undefined)
+                pendingFocus.current = `handle:${item.uid}`
+              }}
             />
           ))}
         </ol>
@@ -379,25 +532,9 @@ function UpNext({
   )
 }
 
-/** The "Play best guesses" setting. */
-function BestGuessesSetting() {
-  const playBestGuesses = useQueueReviewStore((state) => state.playBestGuesses)
-  const setPlayBestGuesses = useQueueReviewStore((state) => state.setPlayBestGuesses)
-  return (
-    <Switch
-      label="Play best guesses"
-      description="Play songs from other catalogs even when FXM isn’t sure it found the right recording. Off: the queue skips them until you review them."
-      checked={playBestGuesses}
-      onChange={setPlayBestGuesses}
-      className="rounded-xl border border-border p-4"
-    />
-  )
-}
-
 /**
- * The queue tab of Now playing: the current song, the songs up next (drag them, or use the
- * arrow keys on their handles, to reorder), the songs whose match needs review, and the "Play
- * best guesses" setting.
+ * The queue tab of Now playing: the songs whose match needs review (with the "Play best
+ * guesses" setting), the current song, and the songs up next, to reorder.
  */
 export function QueuePanel() {
   const queue = usePlayerState((state) => state.queue)
@@ -450,7 +587,6 @@ export function QueuePanel() {
           {reviewCount > 0 && (
             <ReviewNotice
               count={reviewCount}
-              playBestGuesses={playBestGuesses}
               onApproveAll={approveAll}
               onReview={() => setReviewing(true)}
             />
@@ -464,7 +600,11 @@ export function QueuePanel() {
             >
               Now playing
             </h3>
-            <CurrentRow item={current} />
+            <CurrentRow
+              item={current}
+              bestGuess={entries[current.track.id]}
+              playBestGuesses={playBestGuesses}
+            />
           </section>
           <UpNext
             items={upcoming}
@@ -474,7 +614,6 @@ export function QueuePanel() {
           />
         </>
       )}
-      <BestGuessesSetting />
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>

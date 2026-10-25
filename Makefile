@@ -39,6 +39,11 @@ dev: ## Start the web app dev server
 
 lint: ## Check formatting and lint rules (Biome)
 	@$(RUN) pnpm run lint
+	@if git grep -niI -e 'fxm-music\.pages\.de[v]' -e 'fxm_music_pages_de[v]' -- . ':!docs/research/' \
+	  || git grep -nwI 'fxm-musi[c]' -- . ':!docs/research/' ':!docs/ARCHITECTURE.md' ':!Makefile'; then \
+	  echo "FXM moved to fxmusic.pages.dev and the Pages project fxmusic (fxm-music was taken, see ARCHITECTURE.md D24): update the lines above."; \
+	  exit 1; \
+	fi
 
 format: ## Fix formatting and safe lint issues (Biome)
 	@$(RUN) pnpm run format
@@ -67,13 +72,16 @@ ci: ci-setup check ## What CI runs: frozen setup, then check
 
 # --- Android app (docs/DEVELOPMENT.md, "Android app") ---------------------------
 
-.PHONY: android-setup apk android-clean
+.PHONY: android-setup apk android-test android-clean
 
 android-setup: ## Install the JDK and Android SDK into .tools (accepts the SDK licenses)
 	@scripts/android-setup.sh
 
 apk: ## Build the Android debug APK (run make android-setup once first)
 	@apps/mobile/scripts/build-apk.sh
+
+android-test: ## Run the Android app's native unit tests (offline, no device needed)
+	@apps/mobile/scripts/test-native.sh
 
 android-clean: ## Remove this checkout's Android build output
 	@scripts/clean.sh android

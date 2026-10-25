@@ -33,9 +33,9 @@ export function chooseVersion(track: Track, candidate: AudioCandidate): void {
 }
 
 /**
- * Approves the best guess of every track in the review list that is in the queue. The tracks
- * the queue already skipped (before the current item) move up to play next, in their order;
- * the others keep their place.
+ * Approves the best guess of every track in the review list that is in the queue. The items
+ * the queue skipped (before the current item, and their best guess never played) move up to
+ * play next, in their order; the others keep their place, so nothing plays twice.
  */
 export function approveAllBestGuesses(): void {
   const { player } = getPlayback()
@@ -47,7 +47,9 @@ export function approveAllBestGuesses(): void {
     const bestGuess = entries[item.track.id]
     if (bestGuess === undefined) return
     approved.set(item.track.id, { track: item.track, bestGuess })
-    if (index < queue.index) skipped.push(item.uid)
+    // A recorded candidate means the item played: the user selected its best guess, or "Play
+    // best guesses" let it play. Read before the approvals below record one on every item.
+    if (index < queue.index && item.candidate === undefined) skipped.push(item.uid)
   })
   for (const { track, bestGuess } of approved.values()) chooseVersion(track, bestGuess)
   let moved = 0
@@ -65,10 +67,17 @@ export function approveAllBestGuesses(): void {
 /**
  * Plays the item at `index` with its best guess, without approving it: playing it is the
  * explicit action a Suggest-band match needs, but the track stays in the review list until the
- * user says the version is right.
+ * user says the version is right. The current item, paused on its best guess, carries on where
+ * it was.
  */
 export function playBestGuess(item: QueueItem, index: number, bestGuess: AudioCandidate): void {
   const { player } = getPlayback()
+  const { queue } = player.getState()
+  const current = queue.items[queue.index]
+  if (current?.uid === item.uid && sameAudio(current.candidate, bestGuess)) {
+    void player.play()
+    return
+  }
   player.setCandidate(item.uid, bestGuess)
   void player.play(index)
 }

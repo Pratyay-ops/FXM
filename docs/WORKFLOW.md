@@ -8,8 +8,8 @@ FXM is built stage by stage from [PLAN.md](PLAN.md). Several people or AI agents
 
 | Branch | Purpose | Deploys to | Receives merges from |
 |---|---|---|---|
-| `main` | Production. Always releasable. **Protected**: pull requests only, the CI check `make check` must pass on an up-to-date branch, merge commits only, no force-push or deletion | `fxm-music.pages.dev`; a GitHub Release and a `vX.Y.Z` tag for every new version | release PRs from `develop`, `hotfix/*` PRs |
-| `develop` | Integration. Every finished stage lands here | `develop.fxm-music.pages.dev` (preview) | stage branches |
+| `main` | Production. Always releasable. **Protected**: pull requests only, the CI check `make check` must pass on an up-to-date branch, merge commits only, no force-push or deletion | `fxmusic.pages.dev`; a GitHub Release and a `vX.Y.Z` tag for every new version | release PRs from `develop`, `hotfix/*` PRs |
+| `develop` | Integration. Every finished stage lands here | `develop.fxmusic.pages.dev` (preview) | stage branches |
 | `feat/<id>-<slug>` | One plan stage, e.g. `feat/1.5-spotify` | — | — |
 | `fix/…` `docs/…` `chore/…` `ci/…` `refactor/…` `test/…` | Work that isn't a feature, same naming | — | — |
 | `hotfix/<slug>` | Urgent production fix, branched from `main` | — | — |
@@ -134,7 +134,7 @@ So progress happens without anyone polling.
 
 ## 8. Releases
 
-FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs no secrets.
+FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs no secrets; only its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, which only runs on `main` can use, and they skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)).
 
 ```mermaid
 flowchart LR
@@ -161,11 +161,12 @@ flowchart LR
    git push origin develop
    ```
 
-**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6), the desktop installers (7.5) and the signed Firefox add-on (R.2). The header of `release.yml` says how to add a job.
+**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6) and the desktop installers (7.5). The header of `release.yml` says how to add a job.
 
 | File | Contents |
 |---|---|
 | `fxm-connect-chromium-x.y.z.zip`, `fxm-connect-firefox-x.y.z.zip` | FXM Connect, as `make extension` builds it |
+| `fxm-connect-firefox-x.y.z.xpi` | FXM Connect for Firefox, signed by Mozilla. Releases have it once the owner has added the AMO keys, while `AMO_CHANNEL` is `unlisted` (the default). With `listed`, Firefox users get FXM Connect from addons.mozilla.org instead |
 | `fxm-web-x.y.z.zip` | The web app for self-hosting, in `app/` because it is served from `/app/` |
 | `fxm-site-x.y.z.zip` | The landing page, served from `/`. Unzipped into one folder with the web app, it gives the site's layout |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |

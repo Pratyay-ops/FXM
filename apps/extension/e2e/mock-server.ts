@@ -21,9 +21,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:https'
 
-export const FXM_HOST = 'fxm-music.pages.dev'
+export const FXM_HOST = 'fxmusic.pages.dev'
 /** A preview deployment on a sub-domain of the FXM host, which is not an FXM origin. */
-export const FXM_PREVIEW_HOST = 'a1b2c3d4.fxm-music.pages.dev'
+export const FXM_PREVIEW_HOST = 'a1b2c3d4.fxmusic.pages.dev'
 export const OTHER_HOST = 'not-fxm.example'
 export const YOUTUBE_HOSTS = ['www.youtube.com', 'music.youtube.com', 'youtubei.googleapis.com']
 export const GOOGLEVIDEO_HOST = 'rr1---sn-mock.googlevideo.com'

@@ -148,23 +148,48 @@ const LYRICS = {
 export const SEED_POSITION_MS = 45_000
 
 /**
+ * A current song with a long title and three artists, as real credits often are, for layouts
+ * that must not grow wider than a phone.
+ */
+export const LONG_CREDITS = {
+  ...NEON_HARBOR,
+  title: 'Neon Harbor (Extended Night Drive Version) [Remastered]',
+  artists: [{ name: 'The Midnight Lanterns' }, { name: 'Odessa Rain' }, { name: 'Kestrel Bloom' }],
+}
+
+export interface SeedOptions {
+  /** The current song, in place of "Neon Harbor" (its match stays). */
+  current?: typeof NEON_HARBOR
+}
+
+/**
  * Seeds the saved queue, the review list and the position before the app first starts in the
  * tab (a reload keeps what the app saved since), and answers LRCLIB's lookups with made-up
  * synced lyrics.
  */
-export async function seedNowPlaying(page: Page): Promise<void> {
+export async function seedNowPlaying(page: Page, { current }: SeedOptions = {}): Promise<void> {
+  const queue =
+    current === undefined
+      ? SEED_QUEUE
+      : {
+          ...SEED_QUEUE,
+          items: SEED_QUEUE.items.map((item) =>
+            item.uid === 1 ? { ...item, track: current } : item,
+          ),
+        }
   await page.addInitScript(
     ({ queue, review, positionMs }) => {
       if (sessionStorage.getItem('fxm.e2e.seeded') !== null) return
       sessionStorage.setItem('fxm.e2e.seeded', '1')
       localStorage.setItem('fxm.queue.v1', JSON.stringify(queue))
       localStorage.setItem('fxm.queue-review.v1', JSON.stringify(review))
+      // The position belongs to the current item (uid 1).
       localStorage.setItem(
         'fxm.playback.v1',
-        JSON.stringify({ positionMs, volume: 0.8, muted: false }),
+        JSON.stringify({ positionMs, uid: 1, volume: 0.8, muted: false }),
       )
     },
-    { queue: SEED_QUEUE, review: SEED_REVIEW, positionMs: SEED_POSITION_MS },
+    { queue, review: SEED_REVIEW, positionMs: SEED_POSITION_MS },
   )
   await page.route('https://lrclib.net/**', (route) =>
     route.fulfill({

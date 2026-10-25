@@ -129,6 +129,69 @@ describe('flushing the URL cache', () => {
     expect(youtube.log).toEqual(['a:top', 'b:top', 'a:top'])
   })
 
+  it('never caches what was resolved before an IP change flushed the cache', async () => {
+    const { lifecycle, player, engine, youtube, events } = setup()
+    await player.setQueue(testTracks('a', 'b', 'c'))
+    await player.next()
+    await player.previous()
+    let release: () => void = () => {}
+    const answer = youtube.handler
+    youtube.handler = (candidate, request) =>
+      candidate.ref === 'c'
+        ? new Promise<StreamOption[]>((resolve) => {
+            release = () => resolve(youtube.answer(candidate, request))
+          })
+        : answer(candidate, request)
+    const c = player.getState().queue.items[2]
+    if (c === undefined) throw new Error('short queue')
+    lifecycle.prefetch([c])
+    await settle()
+    // The cached URL answers 403 while c is still being resolved, on the old IP address.
+    engine.emit('error', httpError(403))
+    await settle()
+    expect(events.flushes.map((flush) => flush.reason)).toEqual(['ip-changed'])
+    youtube.handler = answer
+    release()
+    await settle()
+    await player.play(2)
+    expect(youtube.log.filter((entry) => entry.startsWith('c'))).toEqual(['c:top', 'c:top'])
+  })
+
+  it('never caches what was resolved before a manual flush', async () => {
+    const { lifecycle, player, youtube } = setup()
+    let release: () => void = () => {}
+    const answer = youtube.handler
+    youtube.handler = (candidate, request) =>
+      new Promise<StreamOption[]>((resolve) => {
+        release = () => resolve(youtube.answer(candidate, request))
+      })
+    const starting = player.setQueue(testTracks('a', 'b'))
+    await settle()
+    lifecycle.flush()
+    youtube.handler = answer
+    release()
+    await starting
+    await player.next()
+    await player.previous()
+    expect(youtube.log).toEqual(['a:top', 'b:top', 'a:top'])
+  })
+
+  it('learns nothing from a stream resolved before a flush', async () => {
+    const { lifecycle, player, engine, youtube, events } = setup()
+    await player.setQueue(testTracks('a', 'b'))
+    await player.next()
+    await player.previous()
+    // E.g. a native network callback, while a plays from the cache.
+    lifecycle.flush()
+    engine.emit('error', httpError(403))
+    await settle()
+    // Its URL died with the old network: no second flush, and no 403 counted against the rung.
+    expect(events.flushes.map((flush) => flush.reason)).toEqual(['manual'])
+    engine.emit('error', httpError(403))
+    await settle(1000)
+    expect(youtube.log).toEqual(['a:top', 'b:top', 'a:top', 'a:top'])
+  })
+
   it('drops every cached URL on a 403 for a cached URL, a probable IP change', async () => {
     const { lifecycle, player, engine, youtube, events } = setup()
     await player.setQueue(testTracks('a', 'b', 'c'))
@@ -184,6 +247,24 @@ describe('flushing the URL cache', () => {
     await settle(1000)
     expect(youtube.log).toEqual(['a:top', 'a:top', 'a:fallback'])
     expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('a', 18, 3))
+  })
+
+  it('counts 403s per failure episode, so a 403 much later keeps the rung', async () => {
+    const { player, engine, youtube } = setup()
+    engine.startOnPlay = false
+    await player.setQueue([testTrack('a')])
+    engine.startOnPlay = true
+    engine.emit('error', httpError(403))
+    await settle()
+    expect(youtube.log).toEqual(['a:top', 'a:top'])
+    expect(player.getState().status).toBe('playing')
+    // Two hours of normal play later, the fresh URL answers 403 once.
+    engine.progress(60_000)
+    await settle(2 * 60 * MINUTE)
+    engine.emit('error', httpError(403))
+    await settle()
+    expect(youtube.log).toEqual(['a:top', 'a:top', 'a:top'])
+    expect(player.getState().stream?.media).toBe('audio')
   })
 
   it('resolves again on 401 and 410 where the status is readable', async () => {
