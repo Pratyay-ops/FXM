@@ -1,0 +1,166 @@
+import { describe, expect, it } from 'vitest'
+import {
+  albumCore,
+  albumMatchLevel,
+  albumMatchRank,
+  compareLabels,
+  compareYears,
+  isGenericAlbum,
+  labelWords,
+  parseReleaseDescription,
+  yearOf,
+} from './release'
+
+describe('albumCore and albumMatchLevel', () => {
+  it('drops edition qualifiers', () => {
+    expect(albumCore('Hotel California (2013 Remaster)')).toBe('hotel california')
+    expect(albumCore('Bleach: Deluxe Edition')).toBe('bleach')
+    expect(albumCore('Six Evolutions: Bach Cello Suites')).toBe('six evolutions: bach cello suites')
+  })
+
+  it('grades album names', () => {
+    expect(albumMatchLevel('Hounds of Love', 'Hounds Of Love')).toBe('exact')
+    expect(albumMatchLevel('Hysteria', 'Hysteria (Super Deluxe)')).toBe('core')
+    expect(albumMatchLevel('OK Computer', 'OK Computer OKNOTOK 1997 2017')).toBe('core')
+    expect(
+      albumMatchLevel('Six Evolutions: Bach Cello Suites', 'Six Evolutions - Bach: Cello Suites'),
+    ).toBe('core')
+    expect(albumMatchLevel('Abbey Road', 'Abbey Raod')).toBe('none')
+    expect(albumMatchLevel('Greatest Hits', 'Greatest Hitz')).toBe('core')
+    expect(albumMatchLevel('Hits', "Hits of the 60's - 1960")).toBe('none')
+    expect(albumMatchLevel('Pablo Honey', 'Creep')).toBe('none')
+  })
+
+  it('needs both names', () => {
+    expect(albumMatchLevel(undefined, 'Creep')).toBe('none')
+    expect(albumMatchLevel('Creep', undefined)).toBe('none')
+    expect(albumMatchLevel('', 'Creep')).toBe('none')
+    expect(albumMatchLevel('(Deluxe)', '(Live)')).toBe('none')
+  })
+
+  it('ranks the levels', () => {
+    expect(albumMatchRank('exact')).toBeGreaterThan(albumMatchRank('core'))
+    expect(albumMatchRank('core')).toBeGreaterThan(albumMatchRank('none'))
+  })
+})
+
+describe('isGenericAlbum', () => {
+  it.each([
+    'The Very Best of The Everly Brothers',
+    'Greatest Hits',
+    'Deluxe: The Greatest Hits - The Everly Brothers',
+    'The Essential Collection',
+    'Golden Hits of 1961',
+    'The Beatles Jukebox',
+  ])('reads %j as generic', (name) => {
+    expect(isGenericAlbum(name)).toBe(true)
+  })
+
+  it.each([
+    'Hysteria',
+    'Stay Hungry',
+    'I like it when you sleep, for you are so beautiful yet so unaware of it',
+  ])('reads %j as distinctive', (name) => {
+    expect(isGenericAlbum(name)).toBe(false)
+  })
+})
+
+describe('labels', () => {
+  it('keeps the words that identify a label', () => {
+    expect([...labelWords('ABKCO Music & Records, Inc.')]).toEqual(['abkco'])
+    expect([...labelWords('Rhino/Warner Records')]).toEqual(['rhino', 'warner'])
+    expect([
+      ...labelWords(
+        '℗ 2018 Sound Postings LLC, under exclusive license to Sony Music Entertainment',
+      ),
+    ]).toEqual(['sound', 'postings', 'sony'])
+  })
+
+  it("compares a candidate's ℗ label and distributor with the source label", () => {
+    expect(
+      compareLabels('TEEC Recordings', {
+        label: 'TEEC Recording Company',
+        providedBy: 'The Orchard Enterprises',
+      }),
+    ).toBe('match')
+    expect(compareLabels('Rhino/Warner Records', { providedBy: 'Rhino/Warner Records' })).toBe(
+      'match',
+    )
+    expect(compareLabels('ABKCO Music & Records', { label: 'RV Record' })).toBe('conflict')
+    expect(
+      compareLabels('Rhino/Warner Records', {
+        label: 'Cadence Records',
+        providedBy: 'Stem Disintermedia Inc.',
+      }),
+    ).toBe('conflict')
+  })
+
+  it('is unknown when either side has no identifying word', () => {
+    expect(compareLabels(undefined, { label: 'Cadence Records' })).toBe('unknown')
+    expect(compareLabels('Records Inc.', { label: 'Cadence Records' })).toBe('unknown')
+    expect(compareLabels('Cadence Records', undefined)).toBe('unknown')
+    expect(compareLabels('Cadence Records', { label: 'Music Records' })).toBe('unknown')
+  })
+})
+
+describe('years', () => {
+  it('reads the year of a partial ISO date', () => {
+    expect(yearOf('2016-02-26')).toBe(2016)
+    expect(yearOf('1957')).toBe(1957)
+    expect(yearOf(undefined)).toBeUndefined()
+    expect(yearOf('unknown')).toBeUndefined()
+  })
+
+  it('treats a release two years or more before the source as a conflict', () => {
+    expect(compareYears(2016, 2016)).toBe('match')
+    expect(compareYears(2016, 2013)).toBe('conflict')
+    expect(compareYears(2016, 2014)).toBe('conflict')
+    expect(compareYears(2020, 2019)).toBe('later')
+    expect(compareYears(1964, 2017)).toBe('later')
+    expect(compareYears(undefined, 2017)).toBe('unknown')
+    expect(compareYears(1964, undefined)).toBe('unknown')
+  })
+})
+
+describe('parseReleaseDescription', () => {
+  it('reads an auto-generated description', () => {
+    const description = [
+      'Provided to YouTube by The Orchard Enterprises',
+      '',
+      'The Twist · Chubby Checker',
+      '',
+      'Chubby Checker Classics',
+      '',
+      '℗ 1958 TEEC Recording Company',
+      '',
+      'Released on: 1962-01-01',
+      '',
+      'Auto-generated by YouTube.',
+    ].join('\n')
+    expect(parseReleaseDescription(description)).toEqual({
+      providedBy: 'The Orchard Enterprises',
+      label: 'TEEC Recording Company',
+      releaseYear: 1962,
+    })
+  })
+
+  it('falls back to the ℗ year and skips repeated years', () => {
+    expect(parseReleaseDescription('℗ 2017 2017 Revolver Records\r\n')).toEqual({
+      label: 'Revolver Records',
+      releaseYear: 2017,
+    })
+    expect(parseReleaseDescription('℗ RV Record\n\nReleased on: 2011-07-29')).toEqual({
+      label: 'RV Record',
+      releaseYear: 2011,
+    })
+    expect(parseReleaseDescription('(P) 1982 Sony Music Entertainment')).toEqual({
+      label: 'Sony Music Entertainment',
+      releaseYear: 1982,
+    })
+  })
+
+  it('returns nothing for other descriptions', () => {
+    expect(parseReleaseDescription('')).toEqual({})
+    expect(parseReleaseDescription('Follow me on Instagram\n℗ ')).toEqual({})
+  })
+})
