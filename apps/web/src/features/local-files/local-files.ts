@@ -11,6 +11,8 @@
  *   IDs.
  * - **Playing**: `streamFor()` opens the file of a local track and hands out an object URL for
  *   it (`object-urls.ts`), as a `StreamOption` the player plays like any other stream.
+ * - **Scans** run one at a time (`lane.ts`): others wait their turn as `queued`. Covers no file
+ *   uses any more are deleted when no scan runs or waits.
  *
  * Each root's status (checking, scanning with progress, needs access, unavailable…) is in a
  * small store for the UI; the roots, files and covers themselves are in the database, which the
@@ -26,6 +28,7 @@ import { getLibrary, randomUuid } from '../../db/repo'
 import { type MakeThumbnail, makeThumbnail } from './artwork'
 import { LOCAL_DB_NAME, openLocalDatabase } from './database'
 import {
+  canChooseFolders,
   canKeepFolders,
   type FolderAccess,
   type FoundDirectory,
@@ -36,13 +39,15 @@ import {
   isNotFoundError,
   isPermissionError,
   type PickedSet,
+  pathInside,
   pickDirectory,
   sameFolder,
   walkDirectory,
 } from './file-system'
+import { SerialLane } from './lane'
 import { ObjectUrlCache } from './object-urls'
 import { createLocalFilesRepo, type LocalFilesRepo } from './repo'
-import { type ScanOutcome, scanRoot } from './scanner'
+import { type ScanOutcome, type ScanProgress, scanRoot } from './scanner'
 import { type ReadTags, readTags } from './tags'
 import { toLocalTracks } from './tracks'
 import type { LocalAudioFormat, LocalFileRecord, LocalRootRecord } from './types'
@@ -53,8 +58,13 @@ export type RootStatus =
   | { state: 'checking' }
   /** Its files can be read and played. */
   | { state: 'ready' }
-  /** Being scanned: `found` audio files so far, `read` of them dealt with. */
-  | { state: 'scanning'; found: number; read: number }
+  /** Waiting for another root's scan to finish before its own starts. */
+  | { state: 'queued' }
+  /**
+   * Being scanned: `found` audio files so far (all of them once `walked`), `read` of them
+   * dealt with.
+   */
+  | ({ state: 'scanning' } & ScanProgress)
   /** A kept folder the browser wants to ask about again before FXM reads it. */
   | { state: 'needs-access' }
   /** A kept folder the user refused access to. */
@@ -85,6 +95,8 @@ export interface LocalFilesDeps {
   pickDirectory: () => Promise<FileSystemDirectoryHandle | null>
   /** Whether the browser can keep access to folders. */
   canKeepFolders: () => boolean
+  /** Whether a file input can pick a whole folder. */
+  canChooseFolders: () => boolean
   objectUrls: ObjectUrlCache
   now: () => number
   uuid: () => string
@@ -98,6 +110,8 @@ export type AddFolderResult =
   | { status: 'cancelled' }
   /** That folder was already added: it is scanned again. */
   | { status: 'exists'; root: LocalRootRecord }
+  /** The folder asked for with `replace` now reads from the one picked; its scan runs. */
+  | { status: 'replaced'; root: LocalRootRecord }
   /** That folder is inside `root`, which already lists its files. */
   | { status: 'inside'; root: LocalRootRecord }
 
@@ -147,6 +161,19 @@ function statusForError(error: unknown): RootStatus {
 /** How often, at most, a scan's progress reaches the UI, in milliseconds. */
 const PROGRESS_INTERVAL_MS = 150
 
+/** A scan that runs or waits its turn. */
+interface Scan {
+  controller: AbortController
+  /** Its outcome; `undefined` when it failed or never ran. */
+  done: Promise<ScanOutcome | undefined>
+}
+
+/** A kept folder inside another, by its path there: `Jazz` for `Music/Jazz`. */
+interface FolderMove {
+  rootId: string
+  path: string
+}
+
 /** Creates the facade; the app uses {@link getLocalFiles}. */
 export function createLocalFiles(deps: LocalFilesDeps) {
   const { repo, now, uuid, objectUrls } = deps
@@ -155,10 +182,31 @@ export function createLocalFiles(deps: LocalFilesDeps) {
   const handles = new Map<string, FileSystemDirectoryHandle>()
   /** The picked files of each picked root that is available in this visit. */
   const sessions = new Map<string, PickedSet>()
-  const scans = new Map<string, { controller: AbortController; done: Promise<unknown> }>()
-  /** Folders scanned in this visit: checking them again doesn't rescan them. */
+  /** Scans that run or wait, by root ID. */
+  const scans = new Map<string, Scan>()
+  /** Runs the scans, and pruning, one at a time. */
+  const lane = new SerialLane()
+  /** Whether covers may have lost their last file since the last prune. */
+  let pruneWanted = false
+  /**
+   * Folders scanned in this visit, or whose scan the user stopped: checking them again doesn't
+   * scan them. Scan for changes, Allow access and adding the folder again still do.
+   */
   const scannedThisVisit = new Set<string>()
   let checking: Promise<void> | undefined
+
+  // Covers are pruned only while no scan runs or waits: a scan stores a cover before the
+  // records that use it.
+  lane.onIdle = () => {
+    if (!pruneWanted) return
+    pruneWanted = false
+    void lane.run(() => repo.prunePictures().catch(() => 0))
+  }
+
+  function prune(): void {
+    pruneWanted = true
+    if (!lane.busy) lane.onIdle?.()
+  }
 
   function setStatus(rootId: string, status: RootStatus): void {
     store.setState((state) => ({ statuses: { ...state.statuses, [rootId]: status } }))
@@ -191,60 +239,107 @@ export function createLocalFiles(deps: LocalFilesDeps) {
   }
 
   /**
-   * Scans `root` from `directories`, unless it is already being scanned. Roots in `absorb` are
-   * folders inside it: their files keep their IDs here, and the roots go once the scan is done.
+   * Shows a scan's progress at most every {@link PROGRESS_INTERVAL_MS}: the end of the walk at
+   * once (the bar turns from "found so far" into "x of y"), and the last news before a pause (a
+   * slow file) a moment later. News of a scan that is over never shows.
+   */
+  function progressOf(rootId: string, current: () => boolean) {
+    let shownAt = Number.NEGATIVE_INFINITY
+    let walked = false
+    let latest: ScanProgress | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const show = () => {
+      timer = undefined
+      if (latest === undefined || !current()) return
+      shownAt = now()
+      walked = latest.walked
+      setStatus(rootId, { state: 'scanning', ...latest })
+      latest = undefined
+    }
+    return {
+      report(progress: ScanProgress): void {
+        if (!current()) return
+        latest = progress
+        if (progress.walked !== walked || now() - shownAt >= PROGRESS_INTERVAL_MS) show()
+        else timer ??= setTimeout(show, PROGRESS_INTERVAL_MS)
+      },
+      stop(): void {
+        clearTimeout(timer)
+        timer = undefined
+        latest = undefined
+      },
+    }
+  }
+
+  /** One scan of `root`, once its turn in the lane came. */
+  async function scanNow(
+    root: LocalRootRecord,
+    directories: (signal: AbortSignal) => AsyncIterable<FoundDirectory> | Iterable<FoundDirectory>,
+    signal: AbortSignal,
+    current: () => boolean,
+  ): Promise<ScanOutcome | undefined> {
+    setStatus(root.id, { state: 'scanning', found: 0, read: 0, walked: false })
+    const progress = progressOf(root.id, current)
+    try {
+      const outcome = await scanRoot(deps, {
+        root,
+        directories: directories(signal),
+        complete: root.kind !== 'picked-files',
+        signal,
+        onProgress: progress.report,
+      }).finally(progress.stop)
+      if (outcome.status === 'done') {
+        scannedThisVisit.add(root.id)
+        const latest = await repo.getRoot(root.id)
+        if (latest !== undefined) {
+          const { skipped: _previous, ...rest } = latest
+          const skipped = Object.keys(outcome.skipped).length > 0 ? outcome.skipped : undefined
+          await repo.putRoot({ ...rest, scannedAt: now(), ...(skipped ? { skipped } : {}) })
+        }
+      }
+      // Removed, changed or unreadable files may leave covers no file uses.
+      const { removed, updated, moved, skipped } = outcome
+      if (removed + updated + moved > 0 || Object.keys(skipped).length > 0) pruneWanted = true
+      await refreshLibrary(outcome.changed)
+      setStatus(root.id, { state: 'ready' })
+      return outcome
+    } catch (error) {
+      setStatus(root.id, statusForError(error))
+      return undefined
+    }
+  }
+
+  /**
+   * Scans `root` from `directories` once the scans queued before it are over, unless it is
+   * already being scanned or waits for its turn.
    */
   function runScan(
     root: LocalRootRecord,
     directories: (signal: AbortSignal) => AsyncIterable<FoundDirectory> | Iterable<FoundDirectory>,
-    absorb: readonly LocalRootRecord[] = [],
-  ): Promise<unknown> {
+  ): Promise<ScanOutcome | undefined> {
     const running = scans.get(root.id)
     if (running !== undefined) return running.done
     const controller = new AbortController()
-    const done = (async () => {
-      setStatus(root.id, { state: 'scanning', found: 0, read: 0 })
-      let reportedAt = Number.NEGATIVE_INFINITY
+    const { signal } = controller
+    const scan: Scan = { controller, done: Promise.resolve(undefined) }
+    scans.set(root.id, scan)
+    const current = () => scans.get(root.id) === scan
+    setStatus(root.id, { state: 'queued' })
+    let started = false
+    scan.done = (async () => {
       try {
-        const absorbed = (
-          await Promise.all(absorb.map((other) => repo.filesOfRoot(other.id)))
-        ).flat()
-        const outcome: ScanOutcome = await scanRoot(deps, {
-          root,
-          directories: directories(controller.signal),
-          complete: root.kind !== 'picked-files',
-          absorb: absorbed,
-          signal: controller.signal,
-          onProgress: (progress) => {
-            if (now() - reportedAt < PROGRESS_INTERVAL_MS) return
-            reportedAt = now()
-            setStatus(root.id, { state: 'scanning', ...progress })
-          },
-        })
-        if (outcome.status === 'done') {
-          scannedThisVisit.add(root.id)
-          const latest = await repo.getRoot(root.id)
-          if (latest !== undefined) {
-            const { skipped: _previous, ...rest } = latest
-            const skipped = Object.keys(outcome.skipped).length > 0 ? outcome.skipped : undefined
-            await repo.putRoot({ ...rest, scannedAt: now(), ...(skipped ? { skipped } : {}) })
-          }
-          for (const other of absorb) {
-            await repo.removeRoot(other.id)
-            handles.delete(other.id)
-            clearStatus(other.id)
-          }
-        }
-        await refreshLibrary(outcome.changed)
-        setStatus(root.id, { state: 'ready' })
-      } catch (error) {
-        setStatus(root.id, statusForError(error))
+        const outcome = await lane.run(() => {
+          started = true
+          return scanNow(root, directories, signal, current)
+        }, signal)
+        // Stopped before its turn: nothing changed.
+        if (!started && current()) setStatus(root.id, { state: 'ready' })
+        return outcome
       } finally {
-        scans.delete(root.id)
+        if (current()) scans.delete(root.id)
       }
     })()
-    scans.set(root.id, { controller, done })
-    return done
+    return scan.done
   }
 
   async function cancelAndWait(rootId: string): Promise<void> {
@@ -258,7 +353,8 @@ export function createLocalFiles(deps: LocalFilesDeps) {
   async function rescanFolder(root: LocalRootRecord): Promise<unknown> {
     const handle = await handleOf(root.id)
     if (handle === undefined) {
-      setStatus(root.id, { state: 'failed', message: 'FXM lost track of this folder' })
+      // Without its handle FXM can't find the folder: it has to be picked again.
+      setStatus(root.id, { state: 'missing' })
       return
     }
     const access = await folderAccess(handle)
@@ -278,7 +374,7 @@ export function createLocalFiles(deps: LocalFilesDeps) {
       }
       const handle = await handleOf(root.id)
       if (handle === undefined) {
-        setStatus(root.id, { state: 'failed', message: 'FXM lost track of this folder' })
+        setStatus(root.id, { state: 'missing' })
         continue
       }
       let access: FolderAccess
@@ -299,6 +395,49 @@ export function createLocalFiles(deps: LocalFilesDeps) {
     }
   }
 
+  /** The kept folders inside `handle`, but `except`, with their paths inside it. */
+  async function foldersInside(
+    handle: FileSystemDirectoryHandle,
+    kept: readonly { root: LocalRootRecord; handle: FileSystemDirectoryHandle }[],
+    except?: string,
+  ): Promise<FolderMove[]> {
+    const moves: FolderMove[] = []
+    for (const { root, handle: other } of kept) {
+      if (root.id === except) continue
+      const path = await pathInside(handle, other)
+      if (path !== undefined) moves.push({ rootId: root.id, path })
+    }
+    return moves
+  }
+
+  /**
+   * Makes `root` read from `handle`: keeps the handle, moves the files of the folders in `moves`
+   * into it by path (they keep their IDs and aren't read again) and scans it. `write` puts the
+   * root record, for a new or renamed root.
+   */
+  async function adopt(
+    root: LocalRootRecord,
+    handle: FileSystemDirectoryHandle,
+    moves: readonly FolderMove[],
+    write: boolean,
+  ): Promise<void> {
+    // Files about to move must not be written by a scan meanwhile.
+    if (moves.length > 0 || write) {
+      await Promise.all([root.id, ...moves.map((move) => move.rootId)].map(cancelAndWait))
+    }
+    await repo.handles.put(root.id, handle)
+    handles.set(root.id, handle)
+    if (moves.length > 0 || write) await repo.adoptRoot(root, moves)
+    for (const { rootId } of moves) {
+      if (rootId === root.id) continue
+      handles.delete(rootId)
+      scannedThisVisit.delete(rootId)
+      clearStatus(rootId)
+    }
+    scannedThisVisit.delete(root.id)
+    void runScan(root, (signal) => walkDirectory(handle, signal))
+  }
+
   const facade = {
     /** The UI state: each root's status. */
     store: store as StoreApi<LocalFilesState>,
@@ -307,6 +446,9 @@ export function createLocalFiles(deps: LocalFilesDeps) {
 
     /** Whether this browser can keep access to folders (else: file inputs). */
     canKeepFolders: deps.canKeepFolders,
+
+    /** Whether a file input can pick a whole folder here (else: music files only). */
+    canChooseFolders: deps.canChooseFolders,
 
     /** The status of a root in this visit. */
     statusOf(rootId: string): RootStatus {
@@ -326,27 +468,41 @@ export function createLocalFiles(deps: LocalFilesDeps) {
 
     /**
      * Opens the folder picker and adds the folder. Call it straight from a click: the picker
-     * opens only during a user gesture. A folder that holds folders added before replaces them,
-     * and their songs keep their IDs.
+     * opens only during a user gesture. A folder that holds folders added before replaces them:
+     * their songs move into it with their IDs, unread.
+     *
+     * With `replace`, the folder picked becomes that root's folder, for a folder that was moved
+     * (or that FXM was refused): its songs keep their IDs where the paths inside match.
      */
-    async addFolder(): Promise<AddFolderResult> {
+    async addFolder({ replace }: { replace?: string } = {}): Promise<AddFolderResult> {
       const handle = await deps.pickDirectory()
       if (handle === null) return { status: 'cancelled' }
-      const absorb: LocalRootRecord[] = []
+      const kept: { root: LocalRootRecord; handle: FileSystemDirectoryHandle }[] = []
       for (const root of await repo.listRoots()) {
         if (root.kind !== 'folder') continue
         const other = await handleOf(root.id)
-        if (other === undefined) continue
+        if (other !== undefined) kept.push({ root, handle: other })
+      }
+      for (const { root, handle: other } of kept) {
         if (await sameFolder(other, handle)) {
           // Picking it again grants access again: keep the new handle and look for changes.
-          await repo.handles.put(root.id, handle)
-          handles.set(root.id, handle)
-          scannedThisVisit.delete(root.id)
-          void runScan(root, (signal) => walkDirectory(handle, signal))
-          return { status: 'exists', root }
+          // Folders added inside it before (when it wasn't listed yet) join it.
+          const moves = await foldersInside(handle, kept, root.id)
+          await adopt(root, handle, moves, false)
+          return { status: root.id === replace ? 'replaced' : 'exists', root }
         }
-        if (await folderContains(other, handle)) return { status: 'inside', root }
-        if (await folderContains(handle, other)) absorb.push(root)
+      }
+      for (const { root, handle: other } of kept) {
+        if (root.id !== replace && (await folderContains(other, handle))) {
+          return { status: 'inside', root }
+        }
+      }
+      const moves = await foldersInside(handle, kept)
+      const target = replace === undefined ? undefined : await repo.getRoot(replace)
+      if (target?.kind === 'folder') {
+        const root: LocalRootRecord = { ...target, name: handle.name }
+        await adopt(root, handle, moves, true)
+        return { status: 'replaced', root }
       }
       const root: LocalRootRecord = {
         id: uuid(),
@@ -354,11 +510,7 @@ export function createLocalFiles(deps: LocalFilesDeps) {
         name: handle.name,
         addedAt: now(),
       }
-      await repo.handles.put(root.id, handle)
-      handles.set(root.id, handle)
-      await repo.putRoot(root)
-      await Promise.all(absorb.map((other) => cancelAndWait(other.id)))
-      void runScan(root, (signal) => walkDirectory(handle, signal), absorb)
+      await adopt(root, handle, moves, true)
       return { status: 'added', root }
     },
 
@@ -429,14 +581,28 @@ export function createLocalFiles(deps: LocalFilesDeps) {
       await runScan(root, () => session.directories)
     },
 
-    /** Stops a running scan; what it read so far stays listed. */
+    /**
+     * Stops a running or waiting scan; what it read so far stays listed. The folder isn't
+     * scanned again in this visit unless the user asks.
+     */
     cancelScan(rootId: string): void {
-      scans.get(rootId)?.controller.abort()
+      const scan = scans.get(rootId)
+      if (scan === undefined) return
+      scannedThisVisit.add(rootId)
+      scan.controller.abort()
     },
 
-    /** Resolves when a running scan of the root (if any) is over. For tests and the UI. */
-    async whenScanned(rootId: string): Promise<void> {
-      await scans.get(rootId)?.done
+    /**
+     * The outcome of the root's running or waiting scan, once it is over: `undefined` when it
+     * failed, never ran, or there is none.
+     */
+    async whenScanned(rootId: string): Promise<ScanOutcome | undefined> {
+      return scans.get(rootId)?.done
+    },
+
+    /** Resolves once no scan runs or waits, nor any cleaning up after them. For tests. */
+    settled(): Promise<void> {
+      return lane.whenIdle()
     },
 
     /**
@@ -450,13 +616,16 @@ export function createLocalFiles(deps: LocalFilesDeps) {
       scannedThisVisit.delete(rootId)
       await repo.removeRoot(rootId)
       clearStatus(rootId)
+      prune()
     },
 
     /**
      * Opens the file of the local track with native ID `nativeId`, asking for access to its
      * folder when needed (which works during a user gesture, such as the click on Play). Rejects
-     * with an `FxmError`: `NotFound` when the file is gone, `AuthRequired` when FXM may not read
-     * it until the user acts (allows access, or chooses picked files again).
+     * with an `FxmError`: `NotFound` when the file is gone; `Unavailable` for chosen files the
+     * browser forgot when the page reloaded (the player skips them: only choosing them again
+     * brings them back, which nothing in a queue can do); `AuthRequired` when FXM may not read
+     * the folder until the user allows it (the player stops: one click allows a whole folder).
      */
     async openFile(nativeId: string): Promise<OpenedFile> {
       const record = await repo.fileById(nativeId)
@@ -469,13 +638,17 @@ export function createLocalFiles(deps: LocalFilesDeps) {
         if (file === undefined) {
           setStatus(root.id, { state: 'unavailable' })
           const what = root.kind === 'picked-folder' ? `“${root.name}”` : 'your files'
-          throw new FxmError('AuthRequired', `Choose ${what} again to play this song`)
+          throw new FxmError('Unavailable', `Choose ${what} again to play this song`)
         }
         return { file, record, root }
       }
       const handle = await handleOf(root.id)
-      const access = handle === undefined ? 'denied' : await folderAccess(handle, { request: true })
-      if (handle === undefined || access !== 'granted') {
+      if (handle === undefined) {
+        setStatus(root.id, { state: 'missing' })
+        throw new FxmError('NotFound', `“${root.name}” was moved or deleted`)
+      }
+      const access = await folderAccess(handle, { request: true })
+      if (access !== 'granted') {
         setStatus(root.id, { state: access === 'denied' ? 'denied' : 'needs-access' })
         throw new FxmError('AuthRequired', `Allow FXM to read “${root.name}” to play this song`)
       }
@@ -509,6 +682,7 @@ export function createLocalFiles(deps: LocalFilesDeps) {
 
     /** Stops every scan and revokes every object URL. */
     dispose(): void {
+      lane.onIdle = undefined
       for (const { controller } of scans.values()) controller.abort()
       objectUrls.clear()
     },
@@ -528,6 +702,7 @@ export function defaultLocalFilesDeps(): LocalFilesDeps {
     refreshLibraryTracks: (tracks) => getLibrary().refreshTracks(tracks),
     pickDirectory,
     canKeepFolders,
+    canChooseFolders,
     objectUrls: new ObjectUrlCache(),
     now: () => Date.now(),
     uuid: randomUuid,
@@ -544,14 +719,18 @@ export function getLocalFiles(): LocalFiles {
 
 /**
  * Tests only: drops the app's local files and deletes their database, then starts over with
- * `deps` replacing the defaults. Returns the new facade.
+ * `deps` replacing the defaults. With `newVisit`, the data stays: the new facade is the next
+ * visit (after a reload) over the same database. Returns the new facade.
  */
-export async function resetLocalFiles(deps: Partial<LocalFilesDeps> = {}): Promise<LocalFiles> {
+export async function resetLocalFiles(
+  deps: Partial<LocalFilesDeps> = {},
+  { newVisit = false }: { newVisit?: boolean } = {},
+): Promise<LocalFiles> {
   if (current !== undefined) {
     current.dispose()
-    current.repo.db.close()
+    if (!newVisit) current.repo.db.close()
   }
-  await Dexie.delete(LOCAL_DB_NAME)
+  if (!newVisit) await Dexie.delete(LOCAL_DB_NAME)
   current = createLocalFiles({ ...defaultLocalFilesDeps(), ...deps })
   return current
 }

@@ -2,6 +2,10 @@
  * The local-files repository: the only code that reads and writes the local-files database
  * (`database.ts`). Writes that belong together run in one transaction.
  *
+ * Cover thumbnails no file uses any more are deleted by {@link LocalFilesRepo.prunePictures},
+ * never as a side effect of another write: a running scan stores a thumbnail before the records
+ * that use it, so the facade prunes only while no scan runs.
+ *
  * Folder handles go through a {@link HandleStore}: in the app, the database's `handles` table;
  * in tests, memory, because a fake handle can't be stored in IndexedDB.
  *
@@ -9,7 +13,13 @@
  */
 
 import type { LocalFilesDatabase } from './database'
-import type { LocalFileRecord, LocalPictureRecord, LocalRootKind, LocalRootRecord } from './types'
+import {
+  fileKey,
+  type LocalFileRecord,
+  type LocalPictureRecord,
+  type LocalRootKind,
+  type LocalRootRecord,
+} from './types'
 
 /** Where the folder handles of `folder` roots are kept. */
 export interface HandleStore {
@@ -48,16 +58,6 @@ export function createLocalFilesRepo(
   db: LocalFilesDatabase,
   { handles = databaseHandleStore(db) }: { handles?: HandleStore } = {},
 ) {
-  /** Deletes the pictures no file refers to. Runs inside the caller's transaction. */
-  async function prunePictures(): Promise<void> {
-    const used = new Set<string>()
-    await db.files.each((file) => {
-      if (file.pictureKey !== undefined) used.add(file.pictureKey)
-    })
-    const unused = (await db.pictures.toCollection().primaryKeys()).filter((key) => !used.has(key))
-    if (unused.length > 0) await db.pictures.bulkDelete(unused)
-  }
-
   return {
     /** The database this repository works on. */
     db,
@@ -87,16 +87,45 @@ export function createLocalFilesRepo(
     },
 
     /**
-     * Removes a root with its files and handle, and the cover thumbnails no file uses any more.
-     * The library keeps the tracks it holds: liked songs and playlists still list them.
+     * Removes a root with its files and handle; their covers go at the next
+     * {@link prunePictures}. The library keeps the tracks it holds: liked songs and playlists
+     * still list them.
      */
     async removeRoot(id: string): Promise<void> {
-      await db.transaction('rw', [db.roots, db.files, db.pictures], async () => {
+      await db.transaction('rw', [db.roots, db.files], async () => {
         await db.files.where('rootId').equals(id).delete()
         await db.roots.delete(id)
-        await prunePictures()
       })
       await handles.delete(id)
+    },
+
+    /**
+     * Puts `root` and moves into it the files of the roots in `moves`, each under its path
+     * inside `root` (`Jazz/a.flac` for `a.flac` of a folder `Jazz` inside it), in one
+     * transaction. The files keep their IDs, sizes, dates and tags, so a scan of `root` finds
+     * them unchanged; the moved roots and their handles go. A move of `root` itself (a folder
+     * found again higher up) rewrites its own paths.
+     */
+    async adoptRoot(
+      root: LocalRootRecord,
+      moves: readonly { rootId: string; path: string }[],
+    ): Promise<void> {
+      await db.transaction('rw', [db.roots, db.files], async () => {
+        await db.roots.put(root)
+        for (const { rootId, path } of moves) {
+          const files = await db.files.where('rootId').equals(rootId).toArray()
+          const moved = files.map((file) => {
+            const inside = path === '' ? file.path : `${path}/${file.path}`
+            return { ...file, rootId: root.id, path: inside, key: fileKey(root.id, inside) }
+          })
+          await db.files.bulkDelete(files.map((file) => file.key))
+          await db.files.bulkPut(moved)
+          if (rootId !== root.id) await db.roots.delete(rootId)
+        }
+      })
+      for (const { rootId } of moves) {
+        if (rootId !== root.id) await handles.delete(rootId)
+      }
     },
 
     // --- Files -------------------------------------------------------------------------
@@ -108,6 +137,11 @@ export function createLocalFilesRepo(
 
     async filesOfRoot(rootId: string): Promise<LocalFileRecord[]> {
       return db.files.where('rootId').equals(rootId).toArray()
+    },
+
+    /** How many files a root lists. */
+    async countFiles(rootId: string): Promise<number> {
+      return db.files.where('rootId').equals(rootId).count()
     },
 
     /** The file whose track has this native ID. */
@@ -140,10 +174,9 @@ export function createLocalFilesRepo(
     }): Promise<void> {
       const { put = [], remove = [] } = changes
       if (put.length === 0 && remove.length === 0) return
-      await db.transaction('rw', [db.files, db.pictures], async () => {
+      await db.transaction('rw', db.files, async () => {
         if (remove.length > 0) await db.files.bulkDelete([...remove])
         if (put.length > 0) await db.files.bulkPut([...put])
-        if (remove.length > 0) await prunePictures()
       })
     },
 
@@ -151,6 +184,28 @@ export function createLocalFilesRepo(
 
     async hasPicture(key: string): Promise<boolean> {
       return (await db.pictures.get(key)) !== undefined
+    },
+
+    /** The keys of every stored picture. */
+    async pictureKeys(): Promise<Set<string>> {
+      return new Set((await db.pictures.toCollection().primaryKeys()) as string[])
+    },
+
+    /**
+     * Deletes the pictures no file refers to, in one transaction. Call it only while no scan
+     * runs: a scan stores a thumbnail before the records that use it.
+     */
+    async prunePictures(): Promise<number> {
+      return db.transaction('rw', [db.files, db.pictures], async () => {
+        const used = new Set<string>()
+        await db.files.each((file) => {
+          if (file.pictureKey !== undefined) used.add(file.pictureKey)
+        })
+        const keys = (await db.pictures.toCollection().primaryKeys()) as string[]
+        const unused = keys.filter((key) => !used.has(key))
+        if (unused.length > 0) await db.pictures.bulkDelete(unused)
+        return unused.length
+      })
     },
 
     async putPicture(picture: LocalPictureRecord): Promise<void> {

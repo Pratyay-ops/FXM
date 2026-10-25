@@ -66,6 +66,7 @@ export function testLocalFilesDeps(overrides: Partial<LocalFilesDeps> = {}) {
     },
     pickDirectory: async () => null,
     canKeepFolders: () => true,
+    canChooseFolders: () => true,
     objectUrls: objectUrls.urls,
     now: () => {
       clock += 1000
@@ -91,6 +92,15 @@ export async function installTestLocalFiles(overrides: Partial<LocalFilesDeps> =
   const setup = testLocalFilesDeps(overrides)
   const files = await resetLocalFiles(setup.deps)
   return { ...setup, files }
+}
+
+/**
+ * Makes the app's local files the next visit over the database of `deps` (from
+ * {@link installTestLocalFiles}), as after a reload: chosen files are forgotten, kept folders
+ * are checked again.
+ */
+export function reloadTestLocalFiles(deps: LocalFilesDeps) {
+  return resetLocalFiles(deps, { newVisit: true })
 }
 
 let records = 0

@@ -86,36 +86,68 @@ function compareText(a: string, b: string): number {
   return collator.compare(a, b)
 }
 
-/** Album order: by disc, then by track number, files without numbers after, then by title. */
-function compareInAlbum(a: LocalTags, b: LocalTags): number {
-  return (
-    (a.discNumber ?? 1) - (b.discNumber ?? 1) ||
-    (a.trackNumber ?? Number.MAX_SAFE_INTEGER) - (b.trackNumber ?? Number.MAX_SAFE_INTEGER) ||
-    compareText(a.title, b.title)
-  )
+/**
+ * Each distinct value's place in collation order, so a sort compares numbers instead of text:
+ * sorting the few hundred artists or albums once costs far fewer collator calls than comparing
+ * text at every step of sorting thousands of tracks. Values the collator finds equal ("ABBA" and
+ * "Abba") share a place; empty text comes last.
+ */
+function places(values: readonly string[]): Map<string, number> {
+  const distinct = [...new Set(values)].sort(compareText)
+  const place = new Map<string, number>()
+  let at = 0
+  distinct.forEach((value, index) => {
+    if (index > 0 && compareText(distinct[index - 1] as string, value) !== 0) at++
+    place.set(value, at)
+  })
+  return place
 }
 
-const COMPARE: Readonly<Record<LocalSort, (a: LocalFileRecord, b: LocalFileRecord) => number>> = {
-  artist: (a, b) =>
-    compareText(albumArtistOf(a.tags), albumArtistOf(b.tags)) ||
-    compareText(a.tags.album ?? '', b.tags.album ?? '') ||
-    compareInAlbum(a.tags, b.tags),
-  album: (a, b) =>
-    compareText(a.tags.album ?? '', b.tags.album ?? '') ||
-    compareText(albumArtistOf(a.tags), albumArtistOf(b.tags)) ||
-    compareInAlbum(a.tags, b.tags),
-  title: (a, b) =>
-    compareText(a.tags.title, b.tags.title) ||
-    compareText(albumArtistOf(a.tags), albumArtistOf(b.tags)),
+/** A track with what the sorts compare, worked out once per sort. */
+interface SortKeys {
+  item: LocalTrack
+  /** The album artist's place among all of them. */
+  artist: number
+  /** The album's place among all of them. */
+  album: number
+  disc: number
+  track: number
+  title: string
+  addedAt: number
+}
+
+/** Album order: by disc, then by track number, files without numbers after, then by title. */
+function compareInAlbum(a: SortKeys, b: SortKeys): number {
+  return a.disc - b.disc || a.track - b.track || compareText(a.title, b.title)
+}
+
+const COMPARE: Readonly<Record<LocalSort, (a: SortKeys, b: SortKeys) => number>> = {
+  artist: (a, b) => a.artist - b.artist || a.album - b.album || compareInAlbum(a, b),
+  album: (a, b) => a.album - b.album || a.artist - b.artist || compareInAlbum(a, b),
+  title: (a, b) => compareText(a.title, b.title) || a.artist - b.artist,
   added: (a, b) => b.addedAt - a.addedAt || COMPARE.artist(a, b),
 }
 
 /** `tracks` in `sort` order, in a new array; ties keep the file path order. */
 export function sortLocalTracks(tracks: readonly LocalTrack[], sort: LocalSort): LocalTrack[] {
-  const compare = COMPARE[sort]
-  return [...tracks].sort(
-    (a, b) => compare(a.file, b.file) || collator.compare(a.file.key, b.file.key),
+  const artists = tracks.map(({ file }) => albumArtistOf(file.tags))
+  const albums = tracks.map(({ file }) => file.tags.album ?? '')
+  const artistPlaces = places(artists)
+  const albumPlaces = places(albums)
+  const keyed = tracks.map(
+    (item, index): SortKeys => ({
+      item,
+      artist: artistPlaces.get(artists[index] as string) ?? 0,
+      album: albumPlaces.get(albums[index] as string) ?? 0,
+      disc: item.file.tags.discNumber ?? 1,
+      track: item.file.tags.trackNumber ?? Number.MAX_SAFE_INTEGER,
+      title: item.file.tags.title,
+      addedAt: item.file.addedAt,
+    }),
   )
+  const compare = COMPARE[sort]
+  keyed.sort((a, b) => compare(a, b) || collator.compare(a.item.file.key, b.item.file.key))
+  return keyed.map(({ item }) => item)
 }
 
 /** The normalized text a search looks through, per field. */
@@ -151,40 +183,57 @@ const WEIGHTS: Readonly<Record<keyof SearchFields, number>> = {
   file: 1,
 }
 
+/** How well a file matches the query's words: 0 when one of them is in none of its fields. */
+function matchScore(fields: SearchFields, words: readonly string[], needle: string): number {
+  let score = 0
+  for (const word of words) {
+    let best = 0
+    for (const field of Object.keys(WEIGHTS) as (keyof SearchFields)[]) {
+      if (fields[field].includes(word)) best = Math.max(best, WEIGHTS[field])
+    }
+    if (best === 0) return 0
+    score += best
+  }
+  if (fields.title === needle) score += 10
+  else if (fields.title.startsWith(needle)) score += 5
+  return score
+}
+
+/** A query as search compares it: normalized, and split into words. */
+function parseQuery(query: string): { needle: string; words: string[] } {
+  const needle = normalizeText(query)
+  return { needle, words: needle.split(' ').filter((word) => word !== '') }
+}
+
 /**
- * The tracks matching `query`, best first. Every word of the query has to appear in the title,
- * the artists, the album or the file name; case, accents and spacing don't matter (see
- * `normalizeText`). Titles count most, and a title that starts with the query most of all.
+ * The tracks matching `query`, in the order given. Every word of the query has to appear in
+ * the title, the artists, the album or the file name; case, accents and spacing don't matter
+ * (see `normalizeText`). A query without words matches everything.
+ */
+export function filterLocalTracks(tracks: readonly LocalTrack[], query: string): LocalTrack[] {
+  const { needle, words } = parseQuery(query)
+  if (words.length === 0) return [...tracks]
+  return tracks.filter((item) => matchScore(searchFields(item.file), words, needle) > 0)
+}
+
+/**
+ * The tracks matching `query` (as {@link filterLocalTracks} matches), best first: titles count
+ * most, and a title that starts with the query most of all.
  */
 export function searchLocalTracks(tracks: readonly LocalTrack[], query: string): LocalTrack[] {
-  const needle = normalizeText(query)
-  const words = needle.split(' ').filter((word) => word !== '')
+  const { needle, words } = parseQuery(query)
   if (words.length === 0) return []
   const scored: { item: LocalTrack; score: number }[] = []
   for (const item of tracks) {
-    const fields = searchFields(item.file)
-    let score = 0
-    for (const word of words) {
-      let best = 0
-      for (const field of Object.keys(WEIGHTS) as (keyof SearchFields)[]) {
-        if (fields[field].includes(word)) best = Math.max(best, WEIGHTS[field])
-      }
-      if (best === 0) {
-        score = 0
-        break
-      }
-      score += best
-    }
-    if (score === 0) continue
-    if (fields.title === needle) score += 10
-    else if (fields.title.startsWith(needle)) score += 5
-    scored.push({ item, score })
+    const score = matchScore(searchFields(item.file), words, needle)
+    if (score > 0) scored.push({ item, score })
   }
   return scored
     .sort(
       (a, b) =>
         b.score - a.score ||
-        COMPARE.title(a.item.file, b.item.file) ||
+        compareText(a.item.file.tags.title, b.item.file.tags.title) ||
+        compareText(albumArtistOf(a.item.file.tags), albumArtistOf(b.item.file.tags)) ||
         collator.compare(a.item.file.key, b.item.file.key),
     )
     .map(({ item }) => item)

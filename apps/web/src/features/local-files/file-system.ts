@@ -30,6 +30,11 @@ export interface FoundDirectory {
   dir: string
   audio: FoundFile[]
   images: FoundFile[]
+  /**
+   * True when the directory couldn't be listed (deleted or locked while the walk ran): it has
+   * no files here, but the files listed before in it aren't gone.
+   */
+  unlisted?: boolean
 }
 
 /** Whether FXM may read a kept folder now, or must ask first, or was refused. */
@@ -61,6 +66,14 @@ function directoryPicker(): DirectoryPicker | undefined {
  */
 export function canKeepFolders(): boolean {
   return directoryPicker() !== undefined
+}
+
+/**
+ * Whether a file input can pick a whole folder here (`webkitdirectory`). iOS can't, for one:
+ * there FXM offers music files only.
+ */
+export function canChooseFolders(): boolean {
+  return typeof HTMLInputElement === 'function' && 'webkitdirectory' in HTMLInputElement.prototype
 }
 
 function errorName(error: unknown): string {
@@ -138,17 +151,28 @@ export async function sameFolder(
   }
 }
 
+/**
+ * Where `inner` is inside `outer`, as a `/`-separated path (`Jazz/Live`), or `undefined` when
+ * it isn't inside it (or is `outer` itself).
+ */
+export async function pathInside(
+  outer: FileSystemDirectoryHandle,
+  inner: FileSystemDirectoryHandle,
+): Promise<string | undefined> {
+  try {
+    const path = await outer.resolve(inner)
+    return path !== null && path.length > 0 ? path.join('/') : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** Whether `inner` is a folder somewhere inside `outer` (not `outer` itself). */
 export async function folderContains(
   outer: FileSystemDirectoryHandle,
   inner: FileSystemDirectoryHandle,
 ): Promise<boolean> {
-  try {
-    const path = await outer.resolve(inner)
-    return path !== null && path.length > 0
-  } catch {
-    return false
-  }
+  return (await pathInside(outer, inner)) !== undefined
 }
 
 function joinPath(dir: string, name: string): string {
@@ -160,8 +184,9 @@ const byName = new Intl.Collator('en', { numeric: true, sensitivity: 'base' })
 /**
  * Walks a folder depth-first, in name order, one directory at a time: its audio files (see
  * `AUDIO_EXTENSIONS`) and folder images. Hidden files and folders (a leading `.`, which also
- * covers macOS's `._` copies on USB drives) are skipped. Throws the signal's reason when it
- * aborts, and whatever the browser throws when a folder can't be read.
+ * covers macOS's `._` copies on USB drives) are skipped. A subfolder that can't be listed comes
+ * out `unlisted`, and the walk goes on. Throws the signal's reason when it aborts, and whatever
+ * the browser throws when the folder itself can't be read.
  */
 export async function* walkDirectory(
   root: FileSystemDirectoryHandle,
@@ -173,18 +198,25 @@ export async function* walkDirectory(
     const audio: FoundFile[] = []
     const images: FoundFile[] = []
     const subdirectories: { handle: FileSystemDirectoryHandle; dir: string }[] = []
-    for await (const entry of handle.values()) {
-      signal?.throwIfAborted()
-      if (entry.name.startsWith('.')) continue
-      const path = joinPath(dir, entry.name)
-      if (entry.kind === 'directory') {
-        subdirectories.push({ handle: entry as FileSystemDirectoryHandle, dir: path })
-      } else if (isAudioFileName(entry.name) || folderImageRank(entry.name) !== undefined) {
-        const file = entry as FileSystemFileHandle
-        const found = { path, name: entry.name, getFile: () => file.getFile() }
-        if (isAudioFileName(entry.name)) audio.push(found)
-        else images.push(found)
+    try {
+      for await (const entry of handle.values()) {
+        signal?.throwIfAborted()
+        if (entry.name.startsWith('.')) continue
+        const path = joinPath(dir, entry.name)
+        if (entry.kind === 'directory') {
+          subdirectories.push({ handle: entry as FileSystemDirectoryHandle, dir: path })
+        } else if (isAudioFileName(entry.name) || folderImageRank(entry.name) !== undefined) {
+          const file = entry as FileSystemFileHandle
+          const found = { path, name: entry.name, getFile: () => file.getFile() }
+          if (isAudioFileName(entry.name)) audio.push(found)
+          else images.push(found)
+        }
       }
+    } catch (error) {
+      // The folder itself failing is the caller's to report (moved, deleted, no permission).
+      if (dir === '' || signal?.aborted) throw error
+      yield { dir, audio: [], images: [], unlisted: true }
+      continue
     }
     audio.sort((a, b) => byName.compare(a.name, b.name))
     yield { dir, audio, images }
