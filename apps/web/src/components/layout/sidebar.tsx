@@ -38,7 +38,7 @@ export function Sidebar() {
   return (
     <nav
       aria-label="Main"
-      className="fixed top-0 bottom-[calc(var(--spacing-player)+var(--safe-bottom))] left-[var(--safe-left)] z-20 hidden w-rail flex-col border-r border-border bg-surface md:flex lg:w-sidebar"
+      className="fixed top-[var(--safe-top)] bottom-[calc(var(--spacing-player)+var(--safe-bottom))] left-[var(--safe-left)] z-20 hidden w-rail flex-col border-r border-border bg-surface md:flex lg:w-sidebar"
     >
       {/* px-3 on tablets: the 72px rail then fits the 44px link. */}
       <div className="flex h-topbar shrink-0 items-center px-3 max-lg:justify-center lg:px-6">

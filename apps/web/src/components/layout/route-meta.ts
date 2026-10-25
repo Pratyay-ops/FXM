@@ -28,10 +28,15 @@ export function useRouteHandle(): RouteHandle | undefined {
   return undefined
 }
 
+/** The window title for a page: "Search · FXM", or just "FXM" on Home. */
+export function documentTitle(title: string | undefined): string {
+  return !title || title === 'Home' ? APP_NAME : `${title} · ${APP_NAME}`
+}
+
 /** Keeps `document.title` in step with the current route ("Search · FXM"). */
 export function useDocumentTitle(handle: RouteHandle | undefined) {
   const title = handle?.title
   useEffect(() => {
-    document.title = !title || title === 'Home' ? APP_NAME : `${title} · ${APP_NAME}`
+    document.title = documentTitle(title)
   }, [title])
 }

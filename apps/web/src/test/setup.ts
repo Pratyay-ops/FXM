@@ -20,4 +20,5 @@ afterEach(() => {
   if (typeof document === 'undefined') return
   localStorage.clear()
   delete document.documentElement.dataset.theme
+  delete document.documentElement.dataset.titlebar
 })

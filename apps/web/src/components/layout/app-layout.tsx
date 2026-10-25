@@ -16,7 +16,7 @@ function NavigationProgress() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden transition-opacity delay-150 duration-300 starting:opacity-0"
+      className="pointer-events-none fixed inset-x-0 top-[var(--safe-top)] z-50 h-0.5 overflow-hidden transition-opacity delay-150 duration-300 starting:opacity-0"
     >
       <div className="h-full w-2/5 animate-progress rounded-full bg-accent" />
     </div>
@@ -69,7 +69,7 @@ export function AppLayout() {
       {/* Now Playing has its own big controls on phones. */}
       {pathname !== '/now-playing' && <MiniPlayer />}
       <BottomNav />
-      <PwaShell />
+      <PwaShell title={handle?.title} />
       <ScrollRestoration />
     </>
   )
