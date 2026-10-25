@@ -16,7 +16,7 @@ make desktop-check   # rustfmt, clippy, cargo test
 ```
 assets/icon.svg           the FXM mark (same art as the web favicon), source of every icon
 scripts/prune-icons.mjs   keeps only the icons tauri.conf.json lists (run by the "icons" script)
-test/                     Vitest checks of the Tauri config; part of `make test`, no Rust needed
+test/                     Vitest checks of the Tauri config and desktop.yml; part of `make test`, no Rust needed
 src-tauri/
   Cargo.toml, Cargo.lock  the Rust crate `fxm` (also the executable's name)
   rust-toolchain.toml     the pinned Rust release
@@ -33,7 +33,7 @@ src-tauri/
 - **Development.** `make desktop-dev` starts Vite with `--base=/ --port 5260 --strictPort` and points the window at `http://localhost:5260`. Release-only behaviour, the CSP in particular, needs `make desktop-build`.
 - **Window.** One window labelled `main`: 1200×800, at least 360×600, titled FXM, with the dark theme's background (`#0b0b0f`) until the page paints. tauri-plugin-window-state restores its size, position, maximized and full-screen state, but never starts it hidden. tauri-plugin-single-instance brings it to the front when FXM is launched a second time. `dragDropEnabled: false` leaves drag and drop to the page, as in a browser: Tauri's native file-drop handling would turn off HTML5 drag and drop on Windows, which playlist reordering may rely on.
 - **Links.** tauri-plugin-opener opens `target="_blank"` links in the default browser.
-- **Network.** tauri-plugin-http is built with the `unsafe-headers` feature, which lets a request set headers such as `Origin` (youtubei.js needs it). Its scope in `capabilities/default.json` allows HTTPS requests only to YouTube, googlevideo, Spotify, LRCLIB, MusicBrainz, ListenBrainz, Last.fm, Internet Archive and Jamendo. A test in `test/` pins that list, so widening it is always a deliberate change.
+- **Network.** tauri-plugin-http is built with the `unsafe-headers` feature, which lets a request set headers such as `Origin` (youtubei.js needs it). Its scope in `capabilities/default.json` allows HTTPS requests only to YouTube, googlevideo, Spotify, LRCLIB, MusicBrainz, ListenBrainz, Last.fm, Internet Archive and Jamendo. The tests in `test/` pin that list, the permissions around it, `default.json` as the only capability file and the plugins `src/lib.rs` registers, so widening any of them is always a deliberate change.
 - **No updater yet.** Stage 7.5 adds the updater, installers on GitHub Releases and macOS signing.
 
 ### Content security policy
