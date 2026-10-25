@@ -1,7 +1,14 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { FxmError } from './errors'
 import { type EntityId, formatId, parseId } from './ids'
-import { applyModeFilter, filterPlayable, isPlayable, isVideoKind } from './mode'
+import {
+  applyModeFilter,
+  filterPlayable,
+  isPlayable,
+  isVideoKind,
+  modePolicy,
+  songForVideo,
+} from './mode'
 import { isTrackSeed, type SearchResults, type SearchType, type Track } from './model'
 import type {
   AbortSignalLike,
@@ -184,7 +191,10 @@ const youtubeAudio: AudioSource = {
   },
 }
 
-/** Offers a music video itself only where the mode plays videos, and its song everywhere. */
+/**
+ * Offers a music video itself only where the mode plays videos, and its song everywhere: the
+ * linked song when the video has one, else what a text match found.
+ */
 const videoAwareAudio: AudioSource = {
   id: 'ytm',
   async match(track, ctx) {
@@ -197,13 +207,11 @@ const videoAwareAudio: AudioSource = {
       confidence: 1,
       evidence: ['same video'],
     }
-    const song: AudioCandidate = {
-      ...self,
-      ref: 'song1',
-      kind: 'song',
-      confidence: 0.91,
-      evidence: ['title 0.97', 'artist 1.00'],
-    }
+    const linked = songForVideo(track)
+    const song: AudioCandidate =
+      linked === undefined
+        ? { ...self, ref: 'song1', kind: 'song', confidence: 0.91, evidence: ['title 0.97'] }
+        : { ...self, ref: parseId(linked).nativeId, kind: 'song', evidence: ['song link'] }
     return filterPlayable([self, song], ctx.mode)
   },
   async resolve() {
@@ -364,6 +372,20 @@ describe('provider interfaces', () => {
     expect(music.map((candidate) => candidate.ref)).toEqual(['song1'])
     expect(all.map((candidate) => candidate.ref)).toEqual(['omv1', 'song1'])
     expect(music.every((candidate) => isPlayable(candidate, 'music'))).toBe(true)
+  })
+
+  it('maps a music video straight to the song it links to', async () => {
+    const linkedVideo: Track = {
+      ...song,
+      id: formatId('ytm', 'track', 'omv2'),
+      kind: 'music-video',
+      songId: formatId('ytm', 'track', 'atv2'),
+    }
+    expect(modePolicy(linkedVideo, 'music')).toBe('plays-linked-song')
+    const music = await videoAwareAudio.match(linkedVideo, context('music'))
+    expect(music).toMatchObject([{ ref: 'atv2', kind: 'song', evidence: ['song link'] }])
+    const all = await videoAwareAudio.match(linkedVideo, context('all'))
+    expect(all.map((candidate) => candidate.ref)).toEqual(['omv2', 'atv2'])
   })
 
   it('finds lyrics and account status', async () => {

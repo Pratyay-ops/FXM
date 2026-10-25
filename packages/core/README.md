@@ -18,8 +18,8 @@ Everything is re-exported from `src/index.ts`, so import from `@fxm/core`.
 | Module | What it holds |
 |---|---|
 | `ids.ts` | `SourceId`: a built-in source (`BuiltInSourceId`: `ytm`, `yt`, `spotify`, `archive`, `jamendo`, `local`) or a runtime plugin's (`PluginSourceId`, `plugin.<name>`, checked by `isPluginSourceId`). `EntityKind`, and the branded `EntityId<K>` = `<source>:<kind>:<nativeId>`. `formatId` builds one. `parseId` splits one: it never returns `null` for a branded ID and never throws for anything else. `isEntityId` checks untrusted values. `entityKey` and `sameEntity` de-duplicate, and `normalizeIsrc` gives the canonical ISRC. Native IDs may contain `:`. |
-| `model.ts` | `Track` (with `kind`: `song`, `music-video`, `video`, `episode`), `Album`, `Artist`, `Playlist`, `Artwork`, `ArtistRef`, `AlbumRef`, `Page<T>`, home-feed `Shelf`s, and `SearchResults`, where songs (`tracks`) and videos (`videos`) are paged separately. Also the `isTrackSeed` guard. |
-| `mode.ts` | `CatalogMode` (`music` = "Music", `all` = "Music + Video") and the one policy every feature goes through: `modePolicy` (`playable`, `needs-song-match`, `hidden`). `applyModeFilter` filters lists to show; `isPlayable` and `filterPlayable` filter what is about to play, such as audio candidates. In Music mode an official music video must be mapped to its song first, and other videos are hidden. |
+| `model.ts` | `Track` (with `kind`: `song`, `music-video`, `video`, `episode`, and for a music video an optional `songId` linking its song), `Album`, `Artist`, `Playlist`, `Artwork`, `ArtistRef`, `AlbumRef`, `Page<T>`, home-feed `Shelf`s, and `SearchResults`, where songs (`tracks`) and videos (`videos`) are paged separately. Also the `isTrackSeed` guard. |
+| `mode.ts` | `CatalogMode` (`music` = "Music", `all` = "Music + Video") and the one policy every feature goes through: `modePolicy` (`playable`, `plays-linked-song`, `needs-song-match`, `hidden`). `applyModeFilter` filters lists to show; `isPlayable` and `filterPlayable` filter what is about to play, such as audio candidates. In Music mode an official music video plays only as its song (see below), and other videos are hidden. `songForVideo` gives the song a music video links to. |
 | `quality.ts` | `Codec`, `Container`, `QualityTier` with `tierOf` (documented per-codec thresholds), and `compareStreams` and `pickStream` to rank streams and apply a tier ceiling, never choosing a stream whose `FullLengthCheck` is `capped`. `DownloadFormat` with `DOWNLOAD_FORMATS` and `describeConversion` (honest labels such as "FLAC (converted from Opus, same quality as the source)"). `QualityPrefs` with `DEFAULT_QUALITY_PREFS` (read-only), `DEFAULT_MP3_KBPS`, `sanitizeQualityPrefs` and the value guards. |
 | `providers.ts` | `MetadataProvider` (search, an optional `suggest` and the entity pages), `RecommendationProvider`, the two-phase `AudioSource` (`match` returns ranked `AudioCandidate`s with confidence, evidence and, once computed, `MatchSignals`: ISRC verified, release, year, label and album match; `resolve` returns `StreamOption`s, each saying whether its URL delivers the whole file and whether it is audio or a muxed video), `LyricsProvider`, `AccountProvider`, and `ProviderContext` with the injected `Fetch`, `Platform` and `NetworkCapabilities` (how far YouTube and Spotify can be reached, see below). Types only. |
 | `text.ts` | Matching helpers: `normalizeText`, `splitTitle` (core, qualifiers, featured artists), `stripPresentationNoise` and `extractVersionTags` (strong, medium and soft version tags). |
@@ -68,6 +68,17 @@ Runtime plugins (a later stage) add sources of their own. A plugin source ID is 
 **Muxed video.** The required `media` field is `audio` or `muxed-video`. YouTube's last-resort rung is itag 18, a 360p MP4 whose AAC track FXM plays, or extracts for a download. Its `codec`, `bitrateKbps` and `tier` describe that audio track (AAC at about 96 kbps is `normal`), and its `container` is the video file's.
 
 For SABR streams, `url` holds the server ABR streaming URL, and `playback` carries the session parameters as JSON.
+
+### Music videos in Music mode
+
+Music mode plays songs only, so an official music video never plays as itself there. What happens depends on whether its source links it to its song:
+
+| A music video… | `modePolicy` in Music mode | What plays |
+|---|---|---|
+| with a song link (`Track.songId`) | `plays-linked-song` | The song from `songForVideo(track)`, with no matching needed |
+| without one | `needs-song-match` | The song the matching engine maps it to; hidden when there is no confident match |
+
+YouTube Music's album pages link official videos to their songs, so the YouTube provider sets `songId` from them. Anonymous search and `next` results carry no such link, so the matching engine still covers those. Music + Video mode plays every music video as it is (`playable`), linked or not. Neither verdict passes `isPlayable`, so the video itself is never an audio candidate in Music mode, and `applyModeFilter` keeps both in lists to show. A `songId` that isn't a valid track ID, or one on a track of another kind, counts as no link.
 
 ### What the platform can reach
 

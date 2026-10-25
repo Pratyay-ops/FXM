@@ -6,6 +6,7 @@
  * @module
  */
 
+import { type EntityId, isEntityId } from './ids'
 import type { Track, TrackKind } from './model'
 
 /** Every catalog mode, in the order the settings show them. */
@@ -34,15 +35,18 @@ export const CATALOG_MODE_LABELS: Readonly<Record<CatalogMode, string>> = Object
  * What a mode allows for one track:
  *
  * - `playable`: show it and play it
+ * - `plays-linked-song`: show it, but play the song it links to in its place (see
+ *   {@link songForVideo}): an official music video in Music mode whose source links its song
  * - `needs-song-match`: show it, but play it only after the matching engine has mapped it to
- *   its song (an official music video in Music mode; YouTube Music's song/video counterpart
- *   links are missing in anonymous sessions)
+ *   its song: an official music video in Music mode without a song link (YouTube Music links
+ *   videos to songs on album pages, but not in anonymous search or `next` results)
  * - `hidden`: leave it out
  *
  * `playable` is about the mode only: a Spotify track still needs an audio source.
  */
-export type ModeVerdict = 'playable' | 'needs-song-match' | 'hidden'
+export type ModeVerdict = 'playable' | 'plays-linked-song' | 'needs-song-match' | 'hidden'
 
+/** The verdict for each kind, before a music video's song link is taken into account. */
 const POLICY: Readonly<Record<CatalogMode, Readonly<Record<TrackKind, ModeVerdict>>>> = {
   music: {
     song: 'playable',
@@ -61,29 +65,50 @@ const POLICY: Readonly<Record<CatalogMode, Readonly<Record<TrackKind, ModeVerdic
 /**
  * The verdict for one track in `mode`:
  *
- * | kind          | `music`            | `all`      |
- * |---------------|--------------------|------------|
- * | `song`        | `playable`         | `playable` |
- * | `music-video` | `needs-song-match` | `playable` |
- * | `video`       | `hidden`           | `playable` |
- * | `episode`     | `hidden`           | `hidden`   |
+ * | kind                           | `music`             | `all`      |
+ * |--------------------------------|---------------------|------------|
+ * | `song`                         | `playable`          | `playable` |
+ * | `music-video` with a song link | `plays-linked-song` | `playable` |
+ * | `music-video` without one      | `needs-song-match`  | `playable` |
+ * | `video`                        | `hidden`            | `playable` |
+ * | `episode`                      | `hidden`            | `hidden`   |
+ *
+ * A music video has a song link when {@link songForVideo} finds one in `songId`. Music + Video
+ * mode plays a music video as it is, with or without a link.
  *
  * It fails closed on bad data, for example a stale value read from storage: an unknown mode
- * gets the `music` rules and an unknown kind is `hidden`. Only real kinds and modes count, never
- * names inherited from `Object.prototype` such as `toString`.
+ * gets the `music` rules, an unknown kind is `hidden`, and a song link that is not a valid track
+ * ID counts as none. Only real kinds and modes count, never names inherited from
+ * `Object.prototype` such as `toString`.
  */
-export function modePolicy(track: Pick<Track, 'kind'>, mode: CatalogMode): ModeVerdict {
+export function modePolicy(track: Pick<Track, 'kind' | 'songId'>, mode: CatalogMode): ModeVerdict {
   const rules = isCatalogMode(mode) ? POLICY[mode] : POLICY.music
-  return Object.hasOwn(rules, track.kind) ? rules[track.kind] : 'hidden'
+  if (!Object.hasOwn(rules, track.kind)) return 'hidden'
+  const verdict = rules[track.kind]
+  return verdict === 'needs-song-match' && songForVideo(track) !== undefined
+    ? 'plays-linked-song'
+    : verdict
+}
+
+/**
+ * The song that a music video is the video of, when its source links the two
+ * (`Track.songId`): what Music mode plays in the video's place (verdict `plays-linked-song`).
+ * `undefined` for a music video without a link, which needs the matching engine instead, and
+ * for every other kind of track. A link that is not a valid track ID, e.g. from stale storage,
+ * counts as none.
+ */
+export function songForVideo(track: Pick<Track, 'kind' | 'songId'>): EntityId<'track'> | undefined {
+  const { kind, songId } = track
+  return kind === 'music-video' && isEntityId(songId, 'track') ? songId : undefined
 }
 
 /**
  * Drops the tracks that `mode` hides and keeps the rest in order: the filter for lists to show,
- * such as search results, radio, recommendations and imports. Items that need a song match stay
- * in the list, so check {@link isPlayable} before playing one. For audio candidates, which must
- * be playable as they are, use {@link filterPlayable} instead.
+ * such as search results, radio, recommendations and imports. Items that play a linked song or
+ * need a song match stay in the list, so check {@link isPlayable} before playing one. For audio
+ * candidates, which must be playable as they are, use {@link filterPlayable} instead.
  */
-export function applyModeFilter<T extends Pick<Track, 'kind'>>(
+export function applyModeFilter<T extends Pick<Track, 'kind' | 'songId'>>(
   tracks: readonly T[],
   mode: CatalogMode,
 ): T[] {
@@ -92,19 +117,20 @@ export function applyModeFilter<T extends Pick<Track, 'kind'>>(
 
 /**
  * Whether `mode` lets an item play as it is, i.e. its verdict is `playable`. An official music
- * video in Music mode is not: it plays only through the song it was matched to. Every audio
- * candidate must pass this check (see `AudioSource.match`).
+ * video in Music mode is not: it plays only through its song, the linked one
+ * ({@link songForVideo}) or the one the matching engine maps it to. Every audio candidate must
+ * pass this check (see `AudioSource.match`).
  */
-export function isPlayable(item: Pick<Track, 'kind'>, mode: CatalogMode): boolean {
+export function isPlayable(item: Pick<Track, 'kind' | 'songId'>, mode: CatalogMode): boolean {
   return modePolicy(item, mode) === 'playable'
 }
 
 /**
  * Keeps, in order, only the items that `mode` lets play as they are. Unlike
- * {@link applyModeFilter} it also drops items that need a song match, so it suits audio
- * candidates and anything else about to be played.
+ * {@link applyModeFilter} it also drops items that play a linked song or need a song match, so
+ * it suits audio candidates and anything else about to be played.
  */
-export function filterPlayable<T extends Pick<Track, 'kind'>>(
+export function filterPlayable<T extends Pick<Track, 'kind' | 'songId'>>(
   items: readonly T[],
   mode: CatalogMode,
 ): T[] {

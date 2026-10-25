@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
+import { type EntityId, formatId } from './ids'
 import {
   applyModeFilter,
   CATALOG_MODE_LABELS,
@@ -11,10 +12,17 @@ import {
   isVideoKind,
   type ModeVerdict,
   modePolicy,
+  songForVideo,
 } from './mode'
-import type { TrackKind } from './model'
+import type { Track, TrackKind } from './model'
 
 const KINDS = ['song', 'music-video', 'video', 'episode'] as const satisfies readonly TrackKind[]
+
+/** The song of an official video, as a YouTube Music album page links them. */
+const SONG_ID = formatId('ytm', 'track', 'song1')
+
+/** An official music video whose source links its song. */
+const LINKED_VIDEO = { kind: 'music-video', songId: SONG_ID } as const
 
 describe('modePolicy', () => {
   const table: ReadonlyArray<readonly [TrackKind, CatalogMode, ModeVerdict]> = [
@@ -28,7 +36,7 @@ describe('modePolicy', () => {
     ['episode', 'all', 'hidden'],
   ]
 
-  it.each(table)('a %s in %s mode is %s', (kind, mode, verdict) => {
+  it.each(table)('a %s without a song link in %s mode is %s', (kind, mode, verdict) => {
     expect(modePolicy({ kind }, mode)).toBe(verdict)
   })
 
@@ -41,6 +49,21 @@ describe('modePolicy', () => {
     }
   })
 
+  it.each([
+    ['music', 'plays-linked-song'],
+    ['all', 'playable'],
+  ] as const)('a music video with a song link in %s mode is %s', (mode, verdict) => {
+    expect(modePolicy(LINKED_VIDEO, mode)).toBe(verdict)
+  })
+
+  it('ignores a song link on any other kind', () => {
+    for (const kind of ['song', 'video', 'episode'] as const) {
+      for (const mode of CATALOG_MODES) {
+        expect(modePolicy({ kind, songId: SONG_ID }, mode)).toBe(modePolicy({ kind }, mode))
+      }
+    }
+  })
+
   it('fails closed on bad data', () => {
     expect(modePolicy({ kind: 'podcast' as TrackKind }, 'all')).toBe('hidden')
     expect(modePolicy({ kind: 'video' }, 'everything' as CatalogMode)).toBe('hidden')
@@ -48,6 +71,22 @@ describe('modePolicy', () => {
     expect(modePolicy({ kind: 'music-video' }, 'everything' as CatalogMode)).toBe(
       'needs-song-match',
     )
+    expect(modePolicy(LINKED_VIDEO, 'everything' as CatalogMode)).toBe('plays-linked-song')
+  })
+
+  it.each([
+    ['an empty string', ''],
+    ['a bare videoId', 'song1'],
+    ['an album ID', 'ytm:album:MPREb_abc'],
+    ['an ID of a removed source', 'jiosaavn:track:abc'],
+    ['a number', 42],
+    ['null', null],
+    ['an object', { id: 'ytm:track:song1' }],
+  ])('treats a song link that is %s as none', (_label, songId) => {
+    const video = { kind: 'music-video', songId } as unknown as Pick<Track, 'kind' | 'songId'>
+    expect(songForVideo(video)).toBeUndefined()
+    expect(modePolicy(video, 'music')).toBe('needs-song-match')
+    expect(modePolicy(video, 'all')).toBe('playable')
   })
 
   const inherited = ['toString', '__proto__', 'constructor', 'hasOwnProperty', 'valueOf']
@@ -55,6 +94,7 @@ describe('modePolicy', () => {
   it.each(inherited)('hides a track whose kind is the inherited name %j', (name) => {
     for (const mode of CATALOG_MODES) {
       expect(modePolicy({ kind: name as TrackKind }, mode)).toBe('hidden')
+      expect(modePolicy({ kind: name as TrackKind, songId: SONG_ID }, mode)).toBe('hidden')
     }
   })
 
@@ -62,6 +102,44 @@ describe('modePolicy', () => {
     for (const kind of KINDS) {
       expect(modePolicy({ kind }, name as CatalogMode)).toBe(modePolicy({ kind }, 'music'))
     }
+  })
+})
+
+describe('songForVideo', () => {
+  it('returns the song a music video links to', () => {
+    expect(songForVideo(LINKED_VIDEO)).toBe(SONG_ID)
+    expectTypeOf(songForVideo).returns.toEqualTypeOf<EntityId<'track'> | undefined>()
+  })
+
+  it('returns undefined for a music video without a link', () => {
+    expect(songForVideo({ kind: 'music-video' })).toBeUndefined()
+  })
+
+  it.each(['song', 'video', 'episode'] as const)(
+    'returns undefined for a %s, even with a link',
+    (kind) => {
+      expect(songForVideo({ kind, songId: SONG_ID })).toBeUndefined()
+    },
+  )
+
+  it('takes a link to a song from another source', () => {
+    const spotifySong = formatId('spotify', 'track', '4uLU6hMCjMI75M1A2tKUQC')
+    expect(songForVideo({ kind: 'music-video', songId: spotifySong })).toBe(spotifySong)
+  })
+
+  it('reads whole tracks, so Music mode plays a linked video as its song', () => {
+    const video: Track = {
+      id: formatId('ytm', 'track', 'omv1'),
+      source: 'ytm',
+      title: 'Song (Official Video)',
+      artists: [{ name: 'Artist' }],
+      artwork: [],
+      kind: 'music-video',
+      songId: SONG_ID,
+    }
+    expect(modePolicy(video, 'music')).toBe('plays-linked-song')
+    expect(songForVideo(video)).toBe(SONG_ID)
+    expect(isPlayable(video, 'music')).toBe(false)
   })
 })
 
@@ -73,14 +151,22 @@ describe('applyModeFilter', () => {
     { kind: 'music-video', ref: 'd' },
     { kind: 'song', ref: 'e' },
     { kind: 'video', ref: 'f' },
+    { kind: 'music-video', ref: 'g', songId: SONG_ID },
   ] as const
 
-  it('keeps songs and music videos awaiting a match in Music mode, in order', () => {
-    expect(applyModeFilter(items, 'music').map((item) => item.ref)).toEqual(['b', 'd', 'e'])
+  it('keeps songs and music videos, linked or awaiting a match, in Music mode', () => {
+    expect(applyModeFilter(items, 'music').map((item) => item.ref)).toEqual(['b', 'd', 'e', 'g'])
   })
 
   it('keeps everything but episodes in Music + Video mode, in order', () => {
-    expect(applyModeFilter(items, 'all').map((item) => item.ref)).toEqual(['a', 'b', 'd', 'e', 'f'])
+    expect(applyModeFilter(items, 'all').map((item) => item.ref)).toEqual([
+      'a',
+      'b',
+      'd',
+      'e',
+      'f',
+      'g',
+    ])
   })
 
   it('returns a new array and keeps the item type', () => {
@@ -116,15 +202,22 @@ describe('isPlayable and filterPlayable', () => {
     expect(isPlayable({ kind }, mode)).toBe(modePolicy({ kind }, mode) === 'playable')
   })
 
-  it('drops a music-video candidate in Music mode, which applyModeFilter keeps', () => {
+  it('plays a linked music video as it is only in Music + Video mode', () => {
+    expect(isPlayable(LINKED_VIDEO, 'music')).toBe(false)
+    expect(isPlayable(LINKED_VIDEO, 'all')).toBe(true)
+  })
+
+  it('drops music-video candidates in Music mode, which applyModeFilter keeps', () => {
     const candidates = [
       { kind: 'music-video', ref: 'omv' },
+      { kind: 'music-video', ref: 'linked', songId: SONG_ID },
       { kind: 'song', ref: 'atv' },
       { kind: 'video', ref: 'ugc' },
     ] as const
-    expect(applyModeFilter(candidates, 'music').map((item) => item.ref)).toEqual(['omv', 'atv'])
-    expect(filterPlayable(candidates, 'music').map((item) => item.ref)).toEqual(['atv'])
-    expect(filterPlayable(candidates, 'all').map((item) => item.ref)).toEqual(['omv', 'atv', 'ugc'])
+    const refs = (list: ReadonlyArray<{ ref: string }>) => list.map((item) => item.ref)
+    expect(refs(applyModeFilter(candidates, 'music'))).toEqual(['omv', 'linked', 'atv'])
+    expect(refs(filterPlayable(candidates, 'music'))).toEqual(['atv'])
+    expect(refs(filterPlayable(candidates, 'all'))).toEqual(['omv', 'linked', 'atv', 'ugc'])
   })
 
   it('returns a new array and fails closed on bad kinds', () => {

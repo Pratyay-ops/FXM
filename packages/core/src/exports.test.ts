@@ -7,7 +7,7 @@ describe('the @fxm/core entry point', () => {
     ['id helpers', ['entityKey', 'sameEntity', 'normalizeIsrc', 'isPluginSourceId']],
     ['model', ['isTrackSeed']],
     ['mode', ['CATALOG_MODES', 'CATALOG_MODE_LABELS', 'modePolicy', 'applyModeFilter']],
-    ['mode helpers', ['DEFAULT_CATALOG_MODE', 'isVideoKind', 'isCatalogMode']],
+    ['mode helpers', ['DEFAULT_CATALOG_MODE', 'isVideoKind', 'isCatalogMode', 'songForVideo']],
     ['playability', ['isPlayable', 'filterPlayable']],
     ['quality', ['QUALITY_TIERS', 'tierOf', 'isLosslessCodec', 'compareTiers']],
     ['streams', ['compareStreams', 'pickStream']],

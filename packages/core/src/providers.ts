@@ -233,7 +233,8 @@ export interface MetadataProvider {
  * title and artist, or it rejects with an `Unsupported` `FxmError`.
  *
  * In Music mode, seed radio with a song: map an official music video to its song first (the
- * matching engine does that), because radio from a video drifts into videos.
+ * linked one from `songForVideo`, else the one the matching engine finds), because radio from a
+ * video drifts into videos.
  */
 export type RadioSeed = Track | ArtistRef
 
@@ -410,8 +411,8 @@ export interface AudioSource {
   /**
    * Candidates for `track`, best first. Empty when the source has nothing. Every candidate is
    * playable in `ctx.mode` as it is (`isPlayable(candidate, ctx.mode)`, or `filterPlayable` on
-   * the list): in Music mode a music-video track is matched to its song, and the video itself is
-   * never returned as a candidate.
+   * the list): in Music mode a music-video track is matched to its song (the linked one when
+   * `songForVideo` names it), and the video itself is never returned as a candidate.
    */
   match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
   /**
