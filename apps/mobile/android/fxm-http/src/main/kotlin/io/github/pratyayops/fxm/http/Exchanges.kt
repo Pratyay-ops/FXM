@@ -12,6 +12,7 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.net.ssl.SSLException
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -37,8 +38,11 @@ data class ResponseHead(
 /** The next piece of a response body; [done] when nothing follows. */
 class Chunk(val bytes: ByteString, val done: Boolean)
 
-/** A failure the plugin reports to JavaScript, as the bridge error [code]. */
-data class BridgeError(val code: BridgeErrorCode, val message: String)
+/**
+ * A failure the plugin reports to JavaScript, as the bridge error [code]. For
+ * [BridgeErrorCode.HOST_NOT_APPROVED], [host] names the refused host (the error's `data.host`).
+ */
+data class BridgeError(val code: BridgeErrorCode, val message: String, val host: String? = null)
 
 /** Receives the outcome of an asynchronous operation, on whichever thread finished it. */
 interface Reply<T> {
@@ -50,12 +54,20 @@ interface Reply<T> {
 /**
  * The requests the web app has in flight through the plugin, by the id JavaScript gave each. A
  * request is pending until its headers arrive, then open while its body streams, then gone: read
- * to the end, failed, aborted, or idle for [idleTimeoutMs].
+ * to the end, failed, aborted, or dropped by [reap].
  *
  * Bodies stream through a bounded [Pipe]: a pump thread copies the network bytes into it as they
  * arrive, at most [bufferBytes] ahead, and each [read] takes what is there (waiting for at least
  * one byte). So a slow reader slows the download down instead of filling memory, and a fast one
  * gets large chunks.
+ *
+ * Nothing may keep one of the [maxOpen] slots for ever, or every other request of the app would
+ * fail with `BUSY`. Besides responses nobody reads, [reap] drops requests whose head takes longer
+ * than [headTimeoutMs], and bodies that arrive slower than [stallBytes] in [stallTimeoutMs] of
+ * waiting for the network: OkHttp's read timeout alone lets a server that sends a byte now and
+ * then keep a request open for ever. One host the user approved holds at most
+ * [maxOpenPerUserHost] slots. These limits belong to the plugin, not to the shared client, which
+ * Media3 also uses.
  */
 class Exchanges(
   private val client: OkHttpClient,
@@ -64,8 +76,20 @@ class Exchanges(
   /** Milliseconds on a monotonic clock. */
   private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
   private val maxOpen: Int = 64,
+  /** The most requests to one host off FXM's table ([isUserHost]) pending or open at a time. */
+  private val maxOpenPerUserHost: Int = 8,
+  /** How long a request may wait for its response head before it fails with `TIMEOUT`. */
+  private val headTimeoutMs: Long = 60_000,
+  /** How long an open response may go unread before [reap] drops it. */
   private val idleTimeoutMs: Long = 60_000,
+  /** How long a response must have gone unread to make way for a new one when no slot is free. */
+  private val evictIdleMs: Long = 5_000,
+  /** How long the pump may wait for the network while fewer than [stallBytes] arrive. */
+  private val stallTimeoutMs: Long = 60_000,
+  private val stallBytes: Long = 8L * 1024,
   private val bufferBytes: Long = 1L shl 20,
+  /** Whether a URL's host is one the user approved rather than one of FXM's own services. */
+  private val isUserHost: (HttpUrl) -> Boolean = { Hosts.ruleFor(it) == null },
 ) {
   private val exchanges = ConcurrentHashMap<String, Exchange>()
 
@@ -73,13 +97,23 @@ class Exchanges(
   val size: Int
     get() = exchanges.size
 
-  /** Starts [request] as [id]; [reply] gets the head once the headers are in. */
+  /**
+   * Starts [request] as [id]; [reply] gets the head once the headers are in. When no slot is
+   * free, responses unread for [evictIdleMs] make way; if that frees none, it fails with `BUSY`.
+   */
   fun start(id: String, request: Request, reply: Reply<ResponseHead>) {
-    if (exchanges.size >= maxOpen) reapIdle()
+    val hostPort = Hosts.hostPort(request.url)
+    val userHost = isUserHost(request.url)
+    if (!hasRoom(hostPort, userHost)) reap(evictIdleMs)
     if (exchanges.size >= maxOpen) {
       return reply.failure(BridgeError(BridgeErrorCode.BUSY, "Too many open responses"))
     }
-    val exchange = Exchange(client.newCall(request))
+    if (userHost && openFor(hostPort) >= maxOpenPerUserHost) {
+      return reply.failure(
+        BridgeError(BridgeErrorCode.BUSY, "Too many open responses from $hostPort"),
+      )
+    }
+    val exchange = Exchange(client.newCall(request), hostPort)
     if (exchanges.putIfAbsent(id, exchange) != null) {
       return reply.failure(BridgeError(BridgeErrorCode.BAD_REQUEST, "The id $id is in use"))
     }
@@ -87,7 +121,9 @@ class Exchanges(
       object : Callback {
         override fun onFailure(call: Call, e: IOException) {
           exchanges.remove(id, exchange)
-          reply.failure(bridgeError(e, request.url.host, exchange.aborted))
+          reply.failure(
+            if (exchange.aborted) exchange.abortError() else bridgeError(e, exchange.host, false),
+          )
         }
 
         override fun onResponse(call: Call, response: Response) {
@@ -95,12 +131,12 @@ class Exchanges(
           if (!head.hasBody) {
             response.close()
             exchanges.remove(id, exchange)
-            if (exchange.aborted) return reply.failure(ABORTED)
+            if (exchange.aborted) return reply.failure(exchange.abortError())
             return reply.success(head)
           }
           if (!exchange.open(response)) {
             response.close()
-            return reply.failure(ABORTED)
+            return reply.failure(exchange.abortError())
           }
           reply.success(head)
         }
@@ -125,7 +161,7 @@ class Exchanges(
           } catch (e: IOException) {
             exchanges.remove(id, exchange)
             return@Runnable reply.failure(
-              if (exchange.aborted) ABORTED else bridgeError(e, exchange.host, false),
+              if (exchange.aborted) exchange.abortError() else bridgeError(e, exchange.host, false),
             )
           }
         exchange.touch()
@@ -152,11 +188,7 @@ class Exchanges(
   }
 
   /** Cancels [id]'s request or drops its response. Returns whether it was in flight. */
-  fun abort(id: String): Boolean {
-    val exchange = exchanges.remove(id) ?: return false
-    exchange.abort()
-    return true
-  }
+  fun abort(id: String): Boolean = abort(id, timedOut = false)
 
   /** Aborts everything, e.g. when the WebView goes away. */
   fun abortAll() {
@@ -164,29 +196,57 @@ class Exchanges(
   }
 
   /**
-   * Aborts open responses nobody has read for [idleTimeoutMs], such as bodies a page dropped
-   * without cancelling. Pending requests are bounded by OkHttp's own timeouts instead. Returns how
-   * many it aborted.
+   * Drops what holds a slot for no good reason, and returns how many it dropped:
+   *
+   * - a request whose response head has not arrived within [headTimeoutMs]: it fails with
+   *   `TIMEOUT`;
+   * - an open response nobody has read for [idleMs] while no read waits, such as a body the page
+   *   dropped without cancelling it;
+   * - an open response whose pump has waited [stallTimeoutMs] for the network while fewer than
+   *   [stallBytes] arrived: a waiting read fails with `TIMEOUT`. Time the pump spends waiting for
+   *   a slow reader does not count.
+   *
+   * The plugin runs it every few seconds, and [start] with [evictIdleMs] when no slot is free.
    */
-  fun reapIdle(): Int {
+  fun reap(idleMs: Long = idleTimeoutMs): Int {
     val now = clock()
     var reaped = 0
     for ((id, exchange) in exchanges) {
-      if (exchange.pipe != null && exchange.reading.get() == 0 &&
-        now - exchange.lastActive > idleTimeoutMs && abort(id)
-      ) {
-        reaped += 1
-      }
+      val timedOut =
+        if (exchange.pipe == null) {
+          now - exchange.startedAt > headTimeoutMs
+        } else {
+          exchange.stalledMs(now) > stallTimeoutMs
+        }
+      val idle =
+        exchange.pipe != null && exchange.reading.get() == 0 && now - exchange.lastActive > idleMs
+      if ((timedOut || idle) && abort(id, timedOut)) reaped += 1
     }
     return reaped
   }
 
-  private inner class Exchange(val call: Call) {
+  private fun abort(id: String, timedOut: Boolean): Boolean {
+    val exchange = exchanges.remove(id) ?: return false
+    exchange.abort(timedOut)
+    return true
+  }
+
+  private fun hasRoom(hostPort: String, userHost: Boolean): Boolean =
+    exchanges.size < maxOpen && (!userHost || openFor(hostPort) < maxOpenPerUserHost)
+
+  private fun openFor(hostPort: String): Int = exchanges.values.count { it.hostPort == hostPort }
+
+  private inner class Exchange(val call: Call, val hostPort: String) {
     val host: String = call.request().url.host
 
-    @Volatile var lastActive = clock()
+    val startedAt = clock()
+
+    @Volatile var lastActive = startedAt
 
     @Volatile var aborted = false
+
+    /** Whether [reap] ended it for taking too long, so its caller hears `TIMEOUT`. */
+    @Volatile var timedOut = false
 
     @Volatile var pipe: Pipe? = null
 
@@ -194,6 +254,12 @@ class Exchanges(
     @Volatile var failure: IOException? = null
 
     @Volatile private var pumped = false
+
+    /** When the pump's current network read began, or -1 while it is not waiting for the network. */
+    @Volatile private var networkSince = -1L
+
+    /** How long the pump has waited for the network since it last received [stallBytes]. */
+    @Volatile private var waitedMs = 0L
 
     private val written = AtomicLong()
 
@@ -204,6 +270,17 @@ class Exchanges(
     fun touch() {
       lastActive = clock()
     }
+
+    /** How long the body has been stalled at [now]: see [reap]. Zero once it has all arrived. */
+    fun stalledMs(now: Long): Long {
+      if (pumped) return 0
+      val since = networkSince
+      return waitedMs + if (since >= 0) now - since else 0
+    }
+
+    /** The error for a call or body that [abort] ended. */
+    fun abortError(): BridgeError =
+      if (timedOut) BridgeError(BridgeErrorCode.TIMEOUT, "$host did not answer in time") else ABORTED
 
     /** Starts pumping [response]'s body; `false` when the exchange was aborted meanwhile. */
     fun open(response: Response): Boolean {
@@ -227,9 +304,21 @@ class Exchanges(
       try {
         val source = body.source()
         val buffer = Buffer()
+        var received = 0L
         while (true) {
+          val started = clock()
+          networkSince = started
           val count = source.read(buffer, SEGMENT_BYTES)
+          val waited = clock() - started
+          networkSince = -1
           if (count == -1L) break
+          received += count
+          if (received >= stallBytes) {
+            received = 0
+            waitedMs = 0
+          } else {
+            waitedMs += waited
+          }
           written.addAndGet(count)
           pipe.sink.write(buffer, count)
           pipe.sink.flush()
@@ -237,6 +326,7 @@ class Exchanges(
       } catch (e: IOException) {
         if (!aborted) failure = e
       } finally {
+        networkSince = -1
         closeQuietly(pipe)
         pumped = true
         body.close()
@@ -249,9 +339,10 @@ class Exchanges(
       return pumped && failure == null && total == written.get()
     }
 
-    fun abort() {
+    fun abort(timedOut: Boolean) {
       val pipe: Pipe?
       synchronized(this) {
+        if (timedOut) this.timedOut = true
         aborted = true
         pipe = this.pipe
       }
@@ -301,7 +392,8 @@ class Exchanges(
     fun bridgeError(error: Throwable, host: String, aborted: Boolean): BridgeError =
       when {
         aborted -> ABORTED
-        error is FxmHttpException -> BridgeError(error.code, error.message ?: error.code.name)
+        error is FxmHttpException ->
+          BridgeError(error.code, error.message ?: error.code.name, error.host)
         error is SocketTimeoutException ||
           (error is InterruptedIOException && error.message == "timeout") ->
           BridgeError(BridgeErrorCode.TIMEOUT, "$host did not answer in time")

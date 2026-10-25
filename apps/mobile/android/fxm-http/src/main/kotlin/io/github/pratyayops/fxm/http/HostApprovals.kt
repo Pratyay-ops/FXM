@@ -1,6 +1,7 @@
 package io.github.pratyayops.fxm.http
 
 import java.util.concurrent.atomic.AtomicBoolean
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** The user's answer to a request to approve hosts. */
 enum class Answer {
@@ -21,9 +22,14 @@ fun interface HostApprover {
  * Approves hosts outside FXM's host table: those the user has not approved yet are put to them
  * through [approver], at most one question per host at a time, and the answers are kept in
  * [store]. Because the question is a system dialog, the web app (or anything running in it)
- * cannot approve a host by itself.
+ * cannot approve a host by itself. A host of FXM's own services (one that matches a rule of
+ * [rules]) is never offered: approving it could only widen its table rule.
  */
-class HostApprovals(private val store: ApprovedHosts, private val approver: HostApprover) {
+class HostApprovals(
+  private val store: ApprovedHosts,
+  private val approver: HostApprover,
+  private val rules: List<HostRule> = HOST_RULES,
+) {
   private class Waiter(
     val hosts: List<String>,
     val remaining: MutableSet<String>,
@@ -38,9 +44,20 @@ class HostApprovals(private val store: ApprovedHosts, private val approver: Host
 
   /**
    * Approves normalized [hosts]: [done] gets those approved afterwards (all of them once the user
-   * allows), [failed] a [BridgeErrorCode.NO_ACTIVITY] error when nobody could be asked.
+   * allows), [failed] a [BridgeErrorCode.NO_ACTIVITY] error when nobody could be asked, or a
+   * [BridgeErrorCode.BAD_REQUEST] one, before anyone is asked, when a host is one of FXM's own.
    */
   fun approve(hosts: List<String>, done: (List<String>) -> Unit, failed: (BridgeError) -> Unit) {
+    val builtIn =
+      hosts.firstOrNull { host ->
+        val name = "https://$host/".toHttpUrlOrNull()?.host ?: host
+        Hosts.isTableHost(name, rules)
+      }
+    if (builtIn != null) {
+      return failed(
+        BridgeError(BridgeErrorCode.BAD_REQUEST, "$builtIn is one of FXM's own services"),
+      )
+    }
     val ask: List<String>
     val approvedAlready: Boolean
     synchronized(this) {

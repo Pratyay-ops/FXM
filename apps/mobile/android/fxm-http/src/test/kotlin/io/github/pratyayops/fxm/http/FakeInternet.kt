@@ -50,13 +50,10 @@ class FakeInternet : Closeable {
   /** FXM's policy over [approved], with [BROWSER_AGENT]. */
   val policy = RequestPolicy(approved, { BROWSER_AGENT })
 
-  /** The cookie jar of [client]. */
-  val cookieJar = FxmCookieJar()
-
   /** A client built like the shared one ([FxmHttp.newClient]), connected to the fake internet. */
   fun client(configure: OkHttpClient.Builder.() -> Unit = {}): OkHttpClient {
     val trust = HandshakeCertificates.Builder().addTrustedCertificate(authority.certificate).build()
-    return FxmHttp.newClient(policy, cookieJar) {
+    return FxmHttp.newClient(policy) {
       dns(Dns { hostname -> listOf(InetAddress.getByAddress(hostname, byteArrayOf(127, 0, 0, 1))) })
       socketFactory(LoopbackSocketFactory(server.port))
       sslSocketFactory(trust.sslSocketFactory(), trust.trustManager)

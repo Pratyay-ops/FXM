@@ -1,4 +1,4 @@
-// FXM's native HTTP (stage 6.2): one OkHttp client with its own cookie jar and FXM's host and
+// FXM's native HTTP (stage 6.2): one OkHttp client without cookies and with FXM's host and
 // header policy, shared by the FxmHttp Capacitor plugin (the web app's fetch on Android) and,
 // from stage 6.3, the Media3 player. See README.md next to this file.
 apply plugin: 'com.android.library'

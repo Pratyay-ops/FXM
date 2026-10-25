@@ -12,7 +12,17 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class RequestPolicyTest {
-  private val approved = InMemoryApprovedHosts(listOf("invidious.example.org", "media.example.org:8443"))
+  private val approved =
+    InMemoryApprovedHosts(
+      listOf(
+        "invidious.example.org",
+        "media.example.org:8443",
+        "other.example.org",
+        // Hosts of FXM's own services, approved by an older build or a bug: never user hosts.
+        "www.last.fm",
+        "music.youtube.com:8443",
+      ),
+    )
   private val policy = RequestPolicy(approved, { BROWSER_AGENT })
 
   private fun request(url: String, vararg headers: Pair<String, String>, method: String = "GET") =
@@ -22,11 +32,13 @@ class RequestPolicyTest {
       .method(method, if (method == "POST") "{}".toRequestBody(TEXT) else null)
       .build()
 
-  private fun refusal(block: () -> Unit): BridgeErrorCode {
+  private fun refusal(block: () -> Unit): BridgeErrorCode = refused(block).code
+
+  private fun refused(block: () -> Unit): FxmHttpException {
     try {
       block()
     } catch (e: FxmHttpException) {
-      return e.code
+      return e
     }
     fail("expected a refusal")
     throw AssertionError()
@@ -49,6 +61,22 @@ class RequestPolicyTest {
     assertEquals(BridgeErrorCode.HOST_NOT_ALLOWED, refusal { policy.classify("https://www.last.fm/user/x".toHttpUrl()) })
     assertEquals(BridgeErrorCode.HOST_NOT_APPROVED, refusal { policy.classify("https://evil.example/".toHttpUrl()) })
     assertEquals(BridgeErrorCode.HOST_NOT_APPROVED, refusal { policy.classify("https://media.example.org/a".toHttpUrl()) })
+  }
+
+  @Test
+  fun `names the host the user has not approved, for the question JavaScript asks`() {
+    val refusal = refused { policy.classify("https://Evil.Example:8443/collect?token=x".toHttpUrl()) }
+    assertEquals(BridgeErrorCode.HOST_NOT_APPROVED, refusal.code)
+    assertEquals("evil.example:8443", refusal.host)
+    assertNull(refused { policy.classify("http://music.youtube.com/".toHttpUrl()) }.host)
+  }
+
+  @Test
+  fun `never treats a host of FXM's own services as a user host, even approved`() {
+    for (url in listOf("https://www.last.fm/user/x", "https://music.youtube.com:8443/youtubei/v1/search")) {
+      assertEquals(url, BridgeErrorCode.HOST_NOT_ALLOWED, refusal { policy.classify(url.toHttpUrl()) })
+    }
+    assertEquals(HostClass.LASTFM_WEB, policy.classify("https://www.last.fm/player/station/x".toHttpUrl()).hostClass)
   }
 
   @Test
@@ -194,8 +222,6 @@ class RequestPolicyTest {
     val other = policy.redirect(spotify, "https://spclient.wg.spotify.com/x".toHttpUrl(), 302)
     assertNull(other.header("Authorization"))
     assertEquals("https://open.spotify.com", other.header("Origin"))
-    val media = policy.redirect(spotify, "https://rr2---sn-y.googlevideo.com/videoplayback".toHttpUrl(), 302)
-    assertNull(media.header("Origin"))
     assertEquals(
       BridgeErrorCode.HOST_NOT_APPROVED,
       refusal { policy.redirect(spotify, "https://evil.example/".toHttpUrl(), 302) },
@@ -204,6 +230,30 @@ class RequestPolicyTest {
       BridgeErrorCode.HOST_NOT_ALLOWED,
       refusal { policy.redirect(spotify, "http://api-partner.spotify.com/".toHttpUrl(), 302) },
     )
+  }
+
+  @Test
+  fun `redirects stay in their host's class, and a user host's on that host`() {
+    val media = policy.apply(request("https://rr1---sn-x.googlevideo.com/videoplayback?itag=251"))
+    assertEquals(
+      "rr5---sn-y.googlevideo.com",
+      policy.redirect(media, "https://rr5---sn-y.googlevideo.com/videoplayback".toHttpUrl(), 302).url.host,
+    )
+    val archive = policy.apply(request("https://archive.org/download/x/y.flac"))
+    policy.redirect(archive, "https://ia800300.us.archive.org/y.flac".toHttpUrl(), 302)
+    val user = policy.apply(request("https://invidious.example.org/a"))
+    assertEquals("/b", policy.redirect(user, "https://invidious.example.org/b".toHttpUrl(), 302).url.encodedPath)
+    for ((from, to) in
+      listOf(
+        archive to "https://www.youtube.com/watch",
+        policy.apply(request("https://api-partner.spotify.com/pathfinder/v2/query")) to
+          "https://rr2---sn-y.googlevideo.com/videoplayback",
+        archive to "https://invidious.example.org/a",
+        user to "https://other.example.org/a",
+        user to "https://lrclib.net/api/get",
+      )) {
+      assertEquals(to, BridgeErrorCode.REDIRECT, refusal { policy.redirect(from, to.toHttpUrl(), 302) })
+    }
   }
 
   companion object {

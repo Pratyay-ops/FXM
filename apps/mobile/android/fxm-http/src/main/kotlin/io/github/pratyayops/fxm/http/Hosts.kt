@@ -48,6 +48,13 @@ object Hosts {
   fun isPlainHttps(url: HttpUrl): Boolean =
     url.scheme == "https" && url.port == 443 && url.username.isEmpty() && url.password.isEmpty()
 
+  /**
+   * Whether [hostname] is one of FXM's own services: it matches a rule of the host table, at any
+   * port or path. Such a host is never a user host, whatever the user approved.
+   */
+  fun isTableHost(hostname: String, rules: List<HostRule> = HOST_RULES): Boolean =
+    rules.any { matches(hostname, it.host) }
+
   /** The rule [url] falls under, or `null` when it is not on FXM's host table. */
   fun ruleFor(url: HttpUrl, rules: List<HostRule> = HOST_RULES): HostRule? {
     if (!isPlainHttps(url)) return null

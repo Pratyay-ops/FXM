@@ -18,7 +18,8 @@ import org.json.JSONObject
  * packages/platform/src/android-http.ts. Requests go through [FxmHttp]'s shared OkHttp client
  * with FXM's network rules; bodies stream in base64 chunks that JavaScript pulls with [read].
  * Capacitor runs plugin methods on one thread, so nothing here blocks it: OkHttp's dispatcher and
- * a worker pool do the waiting.
+ * a worker pool do the waiting. [getContext] is the activity; [FxmHttp] keeps only the
+ * application context.
  */
 @CapacitorPlugin(name = BridgeProtocol.PLUGIN_NAME)
 class FxmHttpPlugin : Plugin() {
@@ -37,7 +38,7 @@ class FxmHttpPlugin : Plugin() {
     approvals = HostApprovals(approvedHosts, DialogHostApprover { activity })
     reaper =
       Executors.newSingleThreadScheduledExecutor(threads("fxm-http-reaper")).also {
-        it.scheduleWithFixedDelay({ exchanges.reapIdle() }, REAP_SECONDS, REAP_SECONDS, TimeUnit.SECONDS)
+        it.scheduleWithFixedDelay({ exchanges.reap() }, REAP_SECONDS, REAP_SECONDS, TimeUnit.SECONDS)
       }
   }
 
@@ -130,8 +131,10 @@ class FxmHttpPlugin : Plugin() {
       null
     }
 
+  /** Rejects with the error's code, and the refused host as `data.host` when it names one. */
   private fun reject(call: PluginCall, error: BridgeError) {
-    call.reject(error.message, error.code.name)
+    val data = error.host?.let { JSObject().put("host", it) }
+    call.reject(error.message, error.code.name, null, data)
   }
 
   private fun js(json: JSONObject): JSObject = JSObject.fromJSONObject(json)

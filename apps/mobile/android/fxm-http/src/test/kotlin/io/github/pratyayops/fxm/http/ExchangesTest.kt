@@ -48,8 +48,24 @@ class ExchangesTest {
   private fun exchanges(
     client: OkHttpClient = internet.client(),
     maxOpen: Int = 64,
+    maxOpenPerUserHost: Int = 8,
+    idleTimeoutMs: Long = 60_000,
+    stallTimeoutMs: Long = 60_000,
     bufferBytes: Long = 1L shl 20,
-  ) = Exchanges(client, executor, { now.get() }, maxOpen, idleTimeoutMs = 60_000, bufferBytes = bufferBytes)
+  ) =
+    Exchanges(
+      client,
+      executor,
+      { now.get() },
+      maxOpen = maxOpen,
+      maxOpenPerUserHost = maxOpenPerUserHost,
+      headTimeoutMs = 60_000,
+      idleTimeoutMs = idleTimeoutMs,
+      evictIdleMs = 5_000,
+      stallTimeoutMs = stallTimeoutMs,
+      stallBytes = 8 * 1024,
+      bufferBytes = bufferBytes,
+    )
 
   /** Sends `request` options as the plugin receives them; returns the id and the head's reply. */
   private fun Exchanges.send(
@@ -226,7 +242,7 @@ class ExchangesTest {
         exchanges.send("https://evil.example.org/collect"),
         exchanges.send("https://music.youtube.com/youtubei/v1/search", headers = mapOf("origin" to "https://localhost")),
         exchanges.send("https://invidious.example.org/api/v1/search", method = "POST", body = "{}"),
-      ).map { it.second.error().code }
+      ).map { it.second.error() }
     assertEquals(
       listOf(
         BridgeErrorCode.HOST_NOT_ALLOWED,
@@ -234,8 +250,9 @@ class ExchangesTest {
         BridgeErrorCode.HEADER_NOT_ALLOWED,
         BridgeErrorCode.METHOD_NOT_ALLOWED,
       ),
-      refusals,
+      refusals.map { it.code },
     )
+    assertEquals(listOf(null, "evil.example.org", null, null), refusals.map { it.host })
     assertEquals(0, internet.server.requestCount)
     assertEquals(0, exchanges.size)
   }
@@ -271,13 +288,39 @@ class ExchangesTest {
   }
 
   @Test
-  fun `a redirect to a host FXM may not contact is refused before it is followed`() {
-    internet.server.enqueue(MockResponse.Builder().code(302).addHeader("Location", "https://tracker.example.org/x").build())
-    internet.server.enqueue(MockResponse.Builder().code(301).addHeader("Location", "http://lrclib.net/").build())
+  fun `a redirect FXM may not follow fails as a redirect, never as a refusal of the request's host`() {
+    // A refused hop must not read as HOST_NOT_APPROVED: the app would ask the user to approve the
+    // request's own host (lrclib.net, www.youtube.com), which they never added.
+    internet.approved.add(listOf("invidious.example.org"))
+    for (location in
+      listOf(
+        "https://tracker.example.org/x",
+        "http://lrclib.net/",
+        "https://invidious.example.org/api/v1/stats",
+        "https://www.youtube.com/",
+      )) {
+      internet.server.enqueue(MockResponse.Builder().code(302).addHeader("Location", location).build())
+    }
     val exchanges = exchanges()
-    assertEquals(BridgeErrorCode.HOST_NOT_APPROVED, exchanges.send("https://lrclib.net/a").second.error().code)
-    assertEquals(BridgeErrorCode.HOST_NOT_ALLOWED, exchanges.send("https://lrclib.net/b").second.error().code)
-    assertEquals(2, internet.server.requestCount)
+    val errors = (1..4).map { exchanges.send("https://lrclib.net/$it").second.error() }
+    assertEquals(List(4) { BridgeErrorCode.REDIRECT }, errors.map { it.code })
+    assertEquals(List(4) { null }, errors.map { it.host })
+    assertTrue(errors[0].message.contains("tracker.example.org"))
+    assertEquals(4, internet.server.requestCount)
+  }
+
+  @Test
+  fun `a user host's redirects stay on that host`() {
+    internet.approved.add(listOf("invidious.example.org", "other.example.org"))
+    internet.server.enqueue(MockResponse.Builder().code(302).addHeader("Location", "/api/v1/stats?x=1").build())
+    internet.server.enqueue(MockResponse.Builder().body("ok").build())
+    internet.server.enqueue(MockResponse.Builder().code(302).addHeader("Location", "https://other.example.org/").build())
+    val exchanges = exchanges()
+    val (id, head) = exchanges.send("https://invidious.example.org/api/v1/stats")
+    assertTrue(head.value().redirected)
+    assertEquals("ok", exchanges.readAll(id).utf8())
+    assertEquals(BridgeErrorCode.REDIRECT, exchanges.send("https://invidious.example.org/a").second.error().code)
+    assertEquals(3, internet.server.requestCount)
   }
 
   @Test
@@ -361,7 +404,7 @@ class ExchangesTest {
   fun `responses nobody reads are dropped after a minute, reads in progress are not`() {
     val gate = CountDownLatch(1)
     repeat(2) { internet.server.enqueue(gated("a", gate)) }
-    val exchanges = exchanges()
+    val exchanges = exchanges(stallTimeoutMs = 3_600_000)
     val (idle, idleHead) = exchanges.send("https://lrclib.net/idle")
     val (busy, busyHead) = exchanges.send("https://lrclib.net/busy")
     idleHead.value()
@@ -369,13 +412,110 @@ class ExchangesTest {
     assertEquals("a", exchanges.readChunk(busy).value().bytes.utf8())
     val waiting = exchanges.readChunk(busy)
     now.addAndGet(59_000)
-    assertEquals(0, exchanges.reapIdle())
+    assertEquals(0, exchanges.reap())
     now.addAndGet(2_000)
-    assertEquals(1, exchanges.reapIdle())
+    assertEquals(1, exchanges.reap())
     assertEquals(BridgeErrorCode.UNKNOWN_ID, exchanges.readChunk(idle).error().code)
     assertFalse(waiting.isDone(100))
     gate.countDown()
     assertTrue(waiting.value().done)
+  }
+
+  @Test
+  fun `a request whose head does not arrive within a minute fails with TIMEOUT`() {
+    internet.server.enqueue(MockResponse.Builder().headersDelay(5, TimeUnit.SECONDS).body("late").build())
+    val exchanges = exchanges()
+    val (_, head) = exchanges.send("https://lrclib.net/slow")
+    now.addAndGet(59_000)
+    assertEquals(0, exchanges.reap())
+    now.addAndGet(2_000)
+    assertEquals(1, exchanges.reap())
+    assertEquals(BridgeErrorCode.TIMEOUT, head.error().code)
+    assertEquals(0, exchanges.size)
+  }
+
+  @Test
+  fun `a body that stops arriving fails with TIMEOUT, even while a read waits for it`() {
+    val gate = CountDownLatch(1)
+    internet.server.enqueue(gated("start", gate))
+    val exchanges = exchanges()
+    val (id, head) = exchanges.send("https://lrclib.net/stalled")
+    head.value()
+    assertEquals("start", exchanges.readChunk(id).value().bytes.utf8())
+    val waiting = exchanges.readChunk(id)
+    assertFalse(waiting.isDone(100))
+    now.addAndGet(61_000)
+    assertEquals(1, exchanges.reap())
+    assertEquals(BridgeErrorCode.TIMEOUT, waiting.error().code)
+    gate.countDown()
+  }
+
+  @Test
+  fun `a body that trickles in fails with TIMEOUT, though every read gets a byte`() {
+    // A byte every 20 ms never trips OkHttp's read timeout, and kept a slot for ever before.
+    internet.server.enqueue(
+      MockResponse.Builder().body("x".repeat(100_000)).throttleBody(1, 20, TimeUnit.MILLISECONDS).build(),
+    )
+    val exchanges = exchanges()
+    val (id, head) = exchanges.send("https://lrclib.net/trickle")
+    head.value()
+    assertTrue(exchanges.readChunk(id).value().bytes.size > 0)
+    // Each step lands while the pump waits for its next byte: time spent waiting for the network.
+    repeat(40) {
+      now.addAndGet(5_000)
+      Thread.sleep(25)
+      assertTrue(exchanges.readChunk(id).value().bytes.size > 0)
+    }
+    assertEquals(1, exchanges.reap())
+    assertEquals(BridgeErrorCode.UNKNOWN_ID, exchanges.readChunk(id).error().code)
+  }
+
+  @Test
+  fun `waiting for a slow reader is not a stalled body`() {
+    val bytes = Random(7).nextBytes(256 * 1024)
+    internet.server.enqueue(MockResponse.Builder().body(Buffer().write(bytes)).build())
+    val exchanges = exchanges(idleTimeoutMs = 3_600_000, bufferBytes = 16 * 1024)
+    val (id, head) = exchanges.send("https://lrclib.net/large")
+    head.value()
+    Thread.sleep(500) // The pump fills the pipe, then waits for the reader.
+    now.addAndGet(120_000)
+    assertEquals(0, exchanges.reap())
+    assertArrayEquals(bytes, exchanges.readAll(id).toByteArray())
+  }
+
+  @Test
+  fun `one user-approved host holds only a few slots`() {
+    internet.approved.add(listOf("invidious.example.org"))
+    repeat(3) { internet.server.enqueue(MockResponse.Builder().headersDelay(5, TimeUnit.SECONDS).build()) }
+    val exchanges = exchanges(maxOpenPerUserHost = 2)
+    exchanges.send("https://invidious.example.org/1")
+    exchanges.send("https://invidious.example.org/2")
+    val third = exchanges.send("https://invidious.example.org/3").second.error()
+    assertEquals(BridgeErrorCode.BUSY, third.code)
+    assertTrue(third.message.contains("invidious.example.org"))
+    exchanges.send("https://lrclib.net/other")
+    assertEquals(3, exchanges.size)
+    exchanges.abortAll()
+  }
+
+  @Test
+  fun `when every slot is taken, responses unread for a few seconds make way`() {
+    val gate = CountDownLatch(1)
+    repeat(3) { internet.server.enqueue(gated("a", gate)) }
+    val exchanges = exchanges(maxOpen = 2)
+    val (first, firstHead) = exchanges.send("https://lrclib.net/1")
+    val (second, secondHead) = exchanges.send("https://lrclib.net/2")
+    firstHead.value()
+    secondHead.value()
+    now.addAndGet(1_000)
+    assertEquals(BridgeErrorCode.BUSY, exchanges.send("https://lrclib.net/3").second.error().code)
+    now.addAndGet(5_000)
+    assertEquals("a", exchanges.readChunk(second).value().bytes.utf8()) // read just now: it stays
+    val (_, thirdHead) = exchanges.send("https://lrclib.net/4")
+    assertEquals(200, thirdHead.value().status)
+    assertEquals(BridgeErrorCode.UNKNOWN_ID, exchanges.readChunk(first).error().code)
+    assertEquals(2, exchanges.size)
+    gate.countDown()
   }
 
   @Test

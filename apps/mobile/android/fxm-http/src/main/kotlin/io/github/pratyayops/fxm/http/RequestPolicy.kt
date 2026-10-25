@@ -9,9 +9,15 @@ import okhttp3.Request
 /**
  * A request that failed for a reason the plugin reports as bridge error [code]: FXM's network
  * rules refused it, a redirect could not be followed, or the plugin's message was malformed. It is
- * an [IOException] so OkHttp delivers it to the caller like any failed call.
+ * an [IOException] so OkHttp delivers it to the caller like any failed call. For
+ * [BridgeErrorCode.HOST_NOT_APPROVED], [host] names the refused host (`host` or `host:port`), so
+ * JavaScript can tell whether it is the request's own.
  */
-class FxmHttpException(val code: BridgeErrorCode, message: String) : IOException(message)
+class FxmHttpException(
+  val code: BridgeErrorCode,
+  message: String,
+  val host: String? = null,
+) : IOException(message)
 
 /** Where a request goes: a host on FXM's table, or one the user approved. */
 data class Target(
@@ -28,13 +34,18 @@ data class Target(
  * redirect) by [PolicyInterceptor]:
  *
  * - **Hosts:** HTTPS only, and only hosts on FXM's host table or approved by the user
- *   ([ApprovedHosts]). User hosts get `GET` and `HEAD` only, and of the caller's headers only
- *   [USER_HOST_HEADERS], so no token or cookie meant for a service can reach them.
+ *   ([ApprovedHosts]). A host of FXM's own services is never a user host, whatever was approved,
+ *   so its table rule (port, path) always holds. User hosts get `GET` and `HEAD` only, and of the
+ *   caller's headers only [USER_HOST_HEADERS], so no token or cookie meant for a service can reach
+ *   them.
+ * - **Redirects:** each hop must pass these rules and stay in its host's class, or on the same
+ *   host for a user host, as in the platform's transports.
  * - **Origin:** an empty `Origin` means none. Any other must be one the host may receive
  *   ([allowedOrigins]): YouTube's own origins for YouTube, Spotify's for Spotify, nothing for the
  *   rest. So the WebView's origin (`https://localhost`) never reaches a service. `Referer` follows
  *   the same rule.
- * - **Cookies:** a `Cookie` header from the caller is dropped; only [FxmCookieJar] adds cookies.
+ * - **Cookies:** a `Cookie` header from the caller is dropped. The shared client has no cookie
+ *   jar, so no request carries a cookie ([FxmHttp.withCookies] is for native code alone).
  * - **Framing:** headers OkHttp manages itself (`Host`, `Connection`, `Content-Length`,
  *   `Transfer-Encoding`, `Accept-Encoding`, …) are dropped, so bodies are always decoded.
  * - **User-Agent:** a request without one gets the browser agent; Spotify always gets a browser
@@ -42,7 +53,7 @@ data class Target(
  */
 class RequestPolicy(
   private val approvedHosts: ApprovedHosts,
-  /** The browser `User-Agent`: the WebView's own on a device. */
+  /** The browser `User-Agent`: the WebView's, reduced, on a device ([FxmHttp.browserUserAgent]). */
   private val browserUserAgent: () -> String,
   private val rules: List<HostRule> = HOST_RULES,
 ) {
@@ -56,16 +67,19 @@ class RequestPolicy(
     }
     val rule = Hosts.ruleFor(url, rules)
     if (rule != null) return Target(rule)
-    if (Hosts.hostPort(url) in approvedHosts) return Target(null)
-    if (rules.any { Hosts.matches(url.host, it.host) }) {
+    val hostPort = Hosts.hostPort(url)
+    // Checked before the approvals: approving www.last.fm must not open its other paths.
+    if (Hosts.isTableHost(url.host, rules)) {
       throw FxmHttpException(
         BridgeErrorCode.HOST_NOT_ALLOWED,
-        "FXM does not contact ${Hosts.hostPort(url)} at that port or path",
+        "FXM does not contact $hostPort at that port or path",
       )
     }
+    if (hostPort in approvedHosts) return Target(null)
     throw FxmHttpException(
       BridgeErrorCode.HOST_NOT_APPROVED,
-      "The user has not approved ${Hosts.hostPort(url)}",
+      "The user has not approved $hostPort",
+      hostPort,
     )
   }
 
@@ -94,13 +108,28 @@ class RequestPolicy(
 
   /**
    * The request for the next hop of a redirect from [previous] to [location] with [status], or a
-   * [FxmHttpException] when FXM may not follow it. As in `fetch`: a `POST` answered with 301 or
-   * 302, or anything but `GET` and `HEAD` answered with 303, becomes a body-less `GET`, and
-   * `Authorization` is dropped when the origin changes. An `Origin` or `Referer` the new host may
-   * not receive is dropped too.
+   * [FxmHttpException] when FXM may not follow it: [location] must pass [classify] and stay in
+   * the class of [previous]'s host, or on the same host and port for a user host. As in `fetch`:
+   * a `POST` answered with 301 or 302, or anything but `GET` and `HEAD` answered with 303, becomes
+   * a body-less `GET`, and `Authorization` is dropped when the origin changes. An `Origin` or
+   * `Referer` the new host may not receive is dropped too.
    */
   fun redirect(previous: Request, location: HttpUrl, status: Int): Request {
+    val from = classify(previous.url)
     val target = classify(location)
+    val sameRoute =
+      if (from.rule == null || target.rule == null) {
+        from.rule == null && target.rule == null &&
+          Hosts.hostPort(previous.url) == Hosts.hostPort(location)
+      } else {
+        from.hostClass == target.hostClass
+      }
+    if (!sameRoute) {
+      throw FxmHttpException(
+        BridgeErrorCode.REDIRECT,
+        "${previous.url.host} redirected to ${Hosts.hostPort(location)}, a host of another kind",
+      )
+    }
     var method = previous.method
     var body = previous.body
     val toGet =

@@ -78,6 +78,17 @@ class HostApprovalsTest {
   }
 
   @Test
+  fun `hosts of FXM's own services are never offered`() {
+    for (hosts in listOf(listOf("www.last.fm"), listOf("new.example", "rr1---sn-x.googlevideo.com"))) {
+      val outcome = approve(*hosts.toTypedArray())
+      assertEquals(hosts.toString(), BridgeErrorCode.BAD_REQUEST, outcome.error?.code)
+      assertNull(outcome.approved)
+    }
+    assertTrue(approver.questions.isEmpty())
+    assertTrue("new.example" !in store)
+  }
+
+  @Test
   fun `a second answer to one question is ignored`() {
     val outcome = approve("new.example")
     approver.answer(0, Answer.DENIED)
