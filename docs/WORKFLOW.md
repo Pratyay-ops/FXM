@@ -8,7 +8,7 @@ FXM is built stage by stage from [PLAN.md](PLAN.md). Several people or AI agents
 
 | Branch | Purpose | Deploys to | Receives merges from |
 |---|---|---|---|
-| `main` | Production. Always releasable. **Protected**: pull requests only, the CI check `make check` must pass on an up-to-date branch, merge commits only, no force-push or deletion | `fxm-music.pages.dev`; a GitHub Release on every `v*` tag | release PRs from `develop`, `hotfix/*` PRs |
+| `main` | Production. Always releasable. **Protected**: pull requests only, the CI check `make check` must pass on an up-to-date branch, merge commits only, no force-push or deletion | `fxm-music.pages.dev`; a GitHub Release and a `vX.Y.Z` tag for every new version | release PRs from `develop`, `hotfix/*` PRs |
 | `develop` | Integration. Every finished stage lands here | `develop.fxm-music.pages.dev` (preview) | stage branches |
 | `feat/<id>-<slug>` | One plan stage, e.g. `feat/1.5-spotify` | — | — |
 | `fix/…` `docs/…` `chore/…` `ci/…` `refactor/…` `test/…` | Work that isn't a feature, same naming | — | — |
@@ -50,12 +50,7 @@ flowchart LR
    make check && git push origin develop
    ```
 8. **Close.** In a separate commit on `develop` (`docs(plan): mark <id> done`), mark the stage ✅ in PLAN.md. Then delete the branch locally and on the remote, and run `make wt-remove BRANCH=<branch>`.
-9. **Release** at each milestone. `main` is protected, so releases always go through a pull request:
-   ```sh
-   gh pr create --base main --head develop --title "Release vX.Y.0" --body "<notes>"
-   gh pr checks --watch && gh pr merge --merge
-   ```
-   The release pipeline (stage R.1) then tags `vX.Y.0` and publishes the GitHub Release. Until R.1 lands, tag the merge commit by hand. A `hotfix/*` branch follows the same path into `main` and is then merged back into `develop`.
+9. **Release** at each milestone. `main` is protected, so a release always goes through a pull request: `make release-pr VERSION=x.y.z` opens it, and merging it publishes the release. [Section 8](#8-releases) has the details. A `hotfix/*` branch follows the same path into `main` and is then merged back into `develop`.
 
 Sequential work by a single agent may skip the worktree and use the main checkout with a normal branch. The other steps are the same.
 
@@ -134,3 +129,69 @@ Research questions run as their own workflows: research agents, adversarial fact
 - a CI run completes.
 
 So progress happens without anyone polling.
+
+---
+
+## 8. Releases
+
+FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs no secrets.
+
+```mermaid
+flowchart LR
+  A["make release-pr<br/>VERSION=x.y.z DRY_RUN=1"] --> B["make release-pr<br/>VERSION=x.y.z"]
+  B --> C["PR develop → main<br/>make check ✅ · merge commit"]
+  C --> D["release.yml<br/>build · SHA256SUMS · attest<br/>tag vX.Y.Z · GitHub Release"]
+  D --> E["merge main back<br/>into develop"]
+```
+
+1. **Preview.** `make release-pr VERSION=0.2.0 DRY_RUN=1` runs every check and prints the plan and the release notes, without changing anything. `make release-notes` prints only the notes.
+2. **Open the pull request.** `make release-pr VERSION=0.2.0` checks that `develop` is checked out, clean, equal to `origin/develop` and contains `origin/main`; that `0.2.0` is higher than the current version and has no tag; and that no release pull request is open. Then it:
+   - sets the version with `scripts/release-version.sh`: in the root and every workspace `package.json` (FXM Connect's manifest and the Android app's `versionName` are built from theirs) and in `APP_VERSION` of `packages/core` (Settings → About);
+   - regenerates `CHANGELOG.md` with git-cliff;
+   - commits `chore(release): v0.2.0` on `develop` and pushes it;
+   - opens the pull request "Release v0.2.0" from `develop` into `main` with the notes, and prints its URL. It never merges.
+
+   While the pull request is open, merge nothing else into `develop`: whatever `develop` holds when the pull request is merged is what gets released. If `develop` must change first (a fix for a failed check, say), push the change to `develop` and run `make release-pr VERSION=0.2.0` again. With the version `develop` already has, it updates the release: it regenerates `CHANGELOG.md`, commits and pushes it if it changed, and updates the pull request's notes. To drop the release, close the pull request. `develop` keeps the version until a later `make release-pr` picks it up again, which opens a new pull request, or a higher version replaces it.
+3. **Merge** once `make check` is green, with a merge commit (the only method `main` allows): `gh pr checks <url> --watch`, then `gh pr merge <url> --merge`.
+4. **Publish.** The push to `main` runs `release.yml`. When the version has no published release yet, it builds the release files from the merge commit and gathers them; each build job may publish only the files listed for it in `fxm_release_catalog` (`scripts/release-lib.sh`). Then it writes `SHA256SUMS`, creates build-provenance attestations, tags the commit `v0.2.0` and publishes the GitHub Release with the version's notes and the files. On any other push to `main` it stops after its first job.
+5. **Merge `main` back into `develop`**, so that the next release starts from the tagged commit. `make release-pr` refuses to run until this is done:
+   ```sh
+   git switch develop && git pull --ff-only
+   git merge origin/main -m "Merge main back into develop after the v0.2.0 release"
+   git push origin develop
+   ```
+
+**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6), the desktop installers (7.5) and the signed Firefox add-on (R.2). The header of `release.yml` says how to add a job.
+
+| File | Contents |
+|---|---|
+| `fxm-connect-chromium-x.y.z.zip`, `fxm-connect-firefox-x.y.z.zip` | FXM Connect, as `make extension` builds it |
+| `fxm-web-x.y.z.zip` | The web app for self-hosting, in `app/` because it is served from `/app/` |
+| `fxm-site-x.y.z.zip` | The landing page, served from `/`. Unzipped into one folder with the web app, it gives the site's layout |
+| `SHA256SUMS` | The SHA-256 checksum of every other file |
+
+Anyone can check a download. `sha256sum --check --ignore-missing SHA256SUMS` compares it with the checksums, and this checks that FXM's release workflow, run for `main` on GitHub's own runners, built it:
+
+```sh
+gh attestation verify <file> --repo Pratyay-ops/FXM \
+  --cert-identity https://github.com/Pratyay-ops/FXM/.github/workflows/release.yml@refs/heads/main \
+  --deny-self-hosted-runners
+```
+
+`--repo` alone would accept an attestation from any workflow in the repository, on any branch. The zips are built reproducibly: sorted entries, fixed permissions and the commit's date on every file.
+
+**Notes and changelog.** git-cliff (`cliff.toml`) turns the Conventional Commits since the previous release into the notes, grouped as Features, Bug fixes, Performance, Refactoring, Documentation, Tests, CI, Build and Chores, plus Other for any other type. It leaves out merge commits, `docs(plan)` status updates, `chore(release)` commits and anything that isn't a Conventional Commit. Commit subjects become the release notes, so write them for the people who will read them. `CHANGELOG.md` lists every released version, newest first, and changes only in release commits.
+
+**When something fails.** Re-run the failed run from the Actions tab (failed jobs or all jobs). Repeating it is safe, and a re-run builds the commit it started with. A version that is already published ends at the first job, and a draft release left by a failed upload is replaced. A tag without a release, left by a run that failed after tagging, is finished by re-running that run. Every other run refuses the tag, because it points at another commit than the one the run builds. Tags are not protected, so this keeps a tag pushed by hand from getting an unreviewed commit built and published. To release from the newer commit instead, delete the tag (`git push origin :refs/tags/v0.2.0`) and run the workflow again. The workflow also stops when a GitHub API request fails, when the packages' versions disagree, when the version is not higher than every earlier release, or when a build job delivers a file that isn't listed for it. If `make release-pr` fails after its commit, it says what to do; usually that is to push `develop` and run it again.
+
+**Hotfix releases.** A `hotfix/<slug>` branch from `main` releases a patch version by hand, the same way:
+
+```sh
+scripts/release-version.sh 0.2.1
+scripts/release-notes.sh --changelog 0.2.1
+git commit -am "chore(release): v0.2.1"
+git push -u origin hotfix/<slug>
+gh pr create --base main --title "Release v0.2.1" --body-file <(scripts/release-notes.sh 0.2.1)
+```
+
+Merging it publishes `v0.2.1`; then merge `main` back into `develop` as in step 5. A hotfix merged without a new version reaches `main` but is not released.

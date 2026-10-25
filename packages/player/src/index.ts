@@ -1,1 +1,48 @@
+export { DirectAudioEngine, type DirectAudioEngineOptions } from './direct-audio-engine'
+export type { Listener } from './emitter'
+export {
+  ENGINE_ERROR_TYPES,
+  type Engine,
+  EngineError,
+  type EngineErrorType,
+  type EngineEventMap,
+  type EngineEventType,
+  isEngineError,
+  type PlaybackSource,
+  type PlaySupport,
+} from './engine'
 export { formatTime } from './format-time'
+export {
+  connectMediaSession,
+  type FxmMediaSessionAction,
+  MEDIA_SESSION_ACTIONS,
+  MEDIA_SESSION_SEEK_OFFSET_MS,
+  type MediaSessionOptions,
+  type MediaSessionPlayer,
+  mediaImages,
+  mediaMetadataInit,
+} from './media-session'
+export { mimeTypeOf } from './mime'
+export {
+  classifyFailure,
+  type FailureClass,
+  PLAYER_DEFAULTS,
+  Player,
+  type PlayerError,
+  type PlayerErrorReason,
+  type PlayerEventMap,
+  type PlayerOptions,
+  type PlayerSetQueueOptions,
+  type PlayerState,
+  type PlayerStateListener,
+  type PlayerStatus,
+  type SeekCause,
+  type TrackChangeCause,
+} from './player'
+export type {
+  ResolvedStream,
+  ResolveReason,
+  ResolveRequest,
+  StreamFailure,
+  StreamResolver,
+} from './resolver'
