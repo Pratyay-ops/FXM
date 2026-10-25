@@ -9,7 +9,8 @@ export interface MessageSender {
   id?: string
   url?: string
   origin?: string
-  tab?: { id?: number }
+  /** `cookieStoreId` is Firefox only: `firefox-default`, `firefox-private` or a container. */
+  tab?: { id?: number; incognito?: boolean; cookieStoreId?: string }
   frameId?: number
 }
 

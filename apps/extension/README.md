@@ -30,6 +30,8 @@ FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules th
 
 3. **Spotify session bridge (optional, off by default).** Cross-site cookies are not sent on the page's own requests, so only the extension can get a token for your Spotify login. If you turn on **Use my Spotify login from this browser** on the options page, the FXM page can ask FXM Connect for one. The background then makes one request: `GET https://open.spotify.com/api/token`. It forwards only the query parameters `reason`, `productType`, `totp`, `totpServer` and `totpVer`, each validated, and sends your browser's existing open.spotify.com cookies (`credentials: 'include'`). It returns only the HTTP status and the JSON body (the token). It also relays `GET https://open.spotify.com/api/server-time`, without credentials. Bridge requests are limited to about ten a minute. Everything else is rejected.
 
+   The token request always carries the cookies of the browser's normal windows, because one background serves every tab. So it is refused for pages in private (incognito) windows and Firefox container tabs, where you may be signed in to another Spotify account or none.
+
    The toggle lives in IndexedDB in the extension's own origin, which only the options page and the background can open. It is deliberately not in `storage.local`: content scripts can write that, so code running in a compromised FXM page renderer could switch your Spotify login on by itself. The content script can't even read the toggle; it asks the background whether to announce the `spotify-login` feature.
 
 The options page (click the toolbar button, or open the extension's options) shows the version, the allowed FXM pages, the Spotify toggle and a link to FXM.
@@ -112,7 +114,7 @@ The pong lists `features`:
 | `spotify` | Spotify CORS rules |
 | `lastfm` | Last.fm station CORS rule |
 | `spotify-server-time` | The bridge relays `/api/server-time` |
-| `spotify-login` | The user turned on **Use my Spotify login from this browser**, so token requests are served |
+| `spotify-login` | The user turned on **Use my Spotify login from this browser** and the tab is a normal one, so token requests are served |
 
 ### Making requests
 
@@ -149,6 +151,7 @@ The page posts messages to its own window (`postMessage(message, location.origin
 | `bad-request` | Malformed message, unexpected field or parameter outside the allow-list |
 | `unsupported` | Unknown `fxm-connect:` message type |
 | `login-disabled` | The Spotify toggle is off |
+| `private-tab` | The page is in a private (incognito) window or a Firefox container tab, where the browser's normal Spotify login does not apply |
 | `rate-limited` | More than 10 bridge requests in the last minute |
 | `network-error` | The request failed (offline, DNS, TLS or a redirect) |
 | `timeout` | No answer within 10 seconds |

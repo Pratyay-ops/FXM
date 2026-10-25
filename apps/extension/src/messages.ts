@@ -29,6 +29,7 @@ export type ErrorCode =
   | 'bad-request'
   | 'unsupported'
   | 'login-disabled'
+  | 'private-tab'
   | 'rate-limited'
   | 'network-error'
   | 'timeout'

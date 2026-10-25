@@ -10,6 +10,11 @@
  * - GET https://open.spotify.com/api/server-time without credentials.
  * It returns only the HTTP status and the JSON body. It never reads, stores or returns cookies
  * or response headers.
+ *
+ * One background serves every tab, including private windows (manifests leave `incognito` at
+ * its default, spanning), and its requests carry the cookies of the browser's normal windows.
+ * The token relay therefore refuses tabs with cookies of their own: private windows and Firefox
+ * container tabs. Otherwise a page there would get the account signed in elsewhere.
  */
 import {
   type BridgeReply,
@@ -59,6 +64,8 @@ export interface BridgeOptions {
 export interface SenderContext {
   /** The page's FXM origin. */
   origin: string
+  /** The page is in a tab with cookies of its own (see isPrivateTab). */
+  privateTab: boolean
 }
 
 /** Everything the background answers the content script with. */
@@ -90,6 +97,19 @@ export function trustedSenderOrigin(
     }
   }
   return origin !== null && origins.includes(origin) ? origin : null
+}
+
+/** Firefox's cookie store of normal tabs. Private windows and containers have their own. */
+export const FIREFOX_DEFAULT_COOKIE_STORE = 'firefox-default'
+
+/**
+ * True for a tab whose cookies are kept apart from those of the browser's normal windows: an
+ * incognito or private window, or a Firefox container tab.
+ */
+export function isPrivateTab(tab: MessageSender['tab']): boolean {
+  if (tab?.incognito === true) return true
+  const store = tab?.cookieStoreId
+  return store !== undefined && store !== FIREFOX_DEFAULT_COOKIE_STORE
 }
 
 /** The token URL with the validated parameters, in a fixed order. */
@@ -186,15 +206,18 @@ export function createBridge(options: BridgeOptions): Bridge {
     }
   }
 
-  /** Why token requests are refused, or null when they are served. */
-  async function loginRefusal(): Promise<'login-disabled' | null> {
+  /** Why token requests from this sender are refused, or null when they are served. */
+  async function loginRefusal(
+    sender: SenderContext,
+  ): Promise<'login-disabled' | 'private-tab' | null> {
     const settings = await options.settings.read()
-    return settings.spotifyLogin ? null : 'login-disabled'
+    if (!settings.spotifyLogin) return 'login-disabled'
+    return sender.privateTab ? 'private-tab' : null
   }
 
-  async function serve(request: BridgeRequest): Promise<BridgeReply> {
+  async function serve(request: BridgeRequest, sender: SenderContext): Promise<BridgeReply> {
     if (request.type === MESSAGE.spotifyToken) {
-      const refusal = await loginRefusal()
+      const refusal = await loginRefusal(sender)
       if (refusal !== null) return errorReply(request.id, refusal)
       if (!(await acquire())) return errorReply(request.id, 'rate-limited')
       return relay(request.id, spotifyTokenUrl(request.params), 'include')
@@ -211,17 +234,19 @@ export function createBridge(options: BridgeOptions): Bridge {
       return null
     }
     if (type === MESSAGE.loginStatus) {
-      const refusal = await loginRefusal().catch(() => 'unreadable')
+      const refusal = await loginRefusal(sender).catch(() => 'unreadable')
       return { type: MESSAGE.loginStatus, enabled: refusal === null }
     }
     const parsed = parseBridgeRequest(message)
-    return parsed.ok ? serve(parsed.value) : errorReply(parsed.id, parsed.code)
+    return parsed.ok ? serve(parsed.value, sender) : errorReply(parsed.id, parsed.code)
   }
 
   const listener: MessageListener = (message, sender, sendResponse) => {
     const origin = trustedSenderOrigin(sender, options.runtimeId, options.origins)
     if (origin === null) return false
-    handle(message, { origin }).then(sendResponse, () => sendResponse(errorReply(null, 'internal')))
+    handle(message, { origin, privateTab: isPrivateTab(sender.tab) }).then(sendResponse, () =>
+      sendResponse(errorReply(null, 'internal')),
+    )
     return true
   }
 

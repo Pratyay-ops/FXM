@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createBridge,
   type FetchLike,
+  isPrivateTab,
   RATE_LIMIT,
   RATE_LIMIT_KEY,
   type SenderContext,
@@ -15,7 +16,8 @@ import type { SettingsStore } from './settings.ts'
 import type { MessageSender, StorageArea, WebExtApi } from './webext.ts'
 
 const FXM = 'https://fxm-music.pages.dev'
-const PAGE: SenderContext = { origin: FXM }
+const PAGE: SenderContext = { origin: FXM, privateTab: false }
+const PRIVATE_PAGE: SenderContext = { origin: FXM, privateTab: true }
 const RUNTIME_ID = 'fxm-connect-id'
 const TOKEN_JSON = { accessToken: 'token', accessTokenExpirationTimestampMs: 1, isAnonymous: false }
 const PARAMS = { reason: 'init', productType: 'web-player', totp: '123456', totpVer: '5' }
@@ -94,6 +96,23 @@ describe('trustedSenderOrigin', () => {
   })
 })
 
+describe('isPrivateTab', () => {
+  it('flags incognito and private windows and Firefox containers', () => {
+    expect(isPrivateTab({ id: 1, incognito: true })).toBe(true)
+    expect(isPrivateTab({ id: 1, incognito: true, cookieStoreId: 'firefox-private' })).toBe(true)
+    expect(isPrivateTab({ id: 1, incognito: false, cookieStoreId: 'firefox-container-2' })).toBe(
+      true,
+    )
+  })
+
+  it('accepts tabs of normal windows', () => {
+    expect(isPrivateTab({ id: 1, incognito: false })).toBe(false)
+    expect(isPrivateTab({ id: 1, incognito: false, cookieStoreId: 'firefox-default' })).toBe(false)
+    expect(isPrivateTab({ id: 1 })).toBe(false)
+    expect(isPrivateTab(undefined)).toBe(false)
+  })
+})
+
 describe('spotifyTokenUrl', () => {
   it('builds the exact token endpoint with the parameters in a fixed order', () => {
     expect(spotifyTokenUrl({ totpVer: '5', reason: 'init', totp: '123456' })).toBe(
@@ -149,6 +168,29 @@ describe('Spotify token relay', () => {
       status: 403,
       json: null,
     })
+  })
+
+  it('refuses private windows and containers, whose cookies differ from the login it would use', async () => {
+    const { bridge, fetch } = setup({ login: true })
+    expect(await bridge.handle(token('p'), PRIVATE_PAGE)).toEqual({
+      type: MESSAGE.error,
+      id: 'p',
+      code: 'private-tab',
+    })
+    expect(await bridge.handle({ type: MESSAGE.loginStatus }, PRIVATE_PAGE)).toEqual({
+      type: MESSAGE.loginStatus,
+      enabled: false,
+    })
+    expect(fetch).not.toHaveBeenCalled()
+    // The server time needs no cookies, so private tabs still get it.
+    expect(await bridge.handle(serverTime('t'), PRIVATE_PAGE)).toMatchObject({
+      type: MESSAGE.response,
+    })
+  })
+
+  it('reports login-disabled first when the toggle is off, even in a private tab', async () => {
+    const { bridge } = setup()
+    expect(await bridge.handle(token(), PRIVATE_PAGE)).toMatchObject({ code: 'login-disabled' })
   })
 
   it('rejects parameters outside the allow-list without any request', async () => {
@@ -285,7 +327,10 @@ describe('ruleset switching (dev build)', () => {
     const dnr = { updateEnabledRulesets: vi.fn(async () => {}) }
     const { bridge } = setup({ origins: fxmOrigins(true), dnr })
     expect(
-      await bridge.handle({ type: MESSAGE.activateOrigin }, { origin: 'http://localhost:4173' }),
+      await bridge.handle(
+        { type: MESSAGE.activateOrigin },
+        { origin: 'http://localhost:4173', privateTab: false },
+      ),
     ).toBe(null)
     expect(dnr.updateEnabledRulesets).toHaveBeenCalledWith({
       enableRulesetIds: ['localhost_4173'],
@@ -308,6 +353,21 @@ describe('runtime.onMessage listener', () => {
     const sender = { ...tabSender, origin: 'https://evil.example' }
     expect(bridge.listener(token(), sender, sendResponse)).toBe(false)
     expect(sendResponse).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('tells the bridge whether the sender tab is private', async () => {
+    const { bridge, fetch } = setup({ login: true })
+    const sendResponse = vi.fn()
+    const sender = { ...tabSender, tab: { id: 4, incognito: true } }
+    expect(bridge.listener(token('i'), sender, sendResponse)).toBe(true)
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({
+        type: MESSAGE.error,
+        id: 'i',
+        code: 'private-tab',
+      }),
+    )
     expect(fetch).not.toHaveBeenCalled()
   })
 
