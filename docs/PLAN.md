@@ -120,7 +120,8 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | 🟡 |
 | **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | 🟡 |
 | **2.7** | Tiers, onboarding and install guides | `feat/2.7-connect-onboarding` | 2.1, 1.2, 1.6, 1.9, 1.10 | 🟡 |
-| **2.8** | Static deploy to `fxmusic.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 5.3, R.1, R.4, 1.10, 1.12 | 🟡 |
+| **2.8** | Static deploy to `fxmusic.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 2.9, 5.3, R.1, R.4, 1.10, 1.12 | 🟡 |
+| **2.9** | App composition: real providers, resolver and player | `feat/2.9-app-wiring` | 1.4, 2.3, 2.4, 2.6 | ⬜ |
 | **3.1** | Listening signals and affinity | `feat/3.1-signals` | 2.2, 2.6 | 🟡 |
 | **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | 🟡 |
 | **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | 🟡 |
@@ -683,6 +684,27 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
     - `Faq.astro`: the extension, browser and iPhone answers.
 
 **Done when** Playwright tests with fakes cover each tier, the prompt for an outdated extension, the disabled-Connect path and the Diagnostics self-test, and the site's copy tests cover both values of `AVAILABLE.lite`.
+
+### 2.9 App composition: real providers, resolver and player
+
+**Branch** `feat/2.9-app-wiring` · **Depends on** 1.4, 2.3, 2.4, 2.6 (and the merged 1.2, 1.3, 1.5, 1.6, 1.7, 1.8, 2.2) · **Scope** `apps/web/src/app/services/**` (the composition root), `apps/web/src/main.tsx`, and the seams earlier stages left in `apps/web/src/features/**`
+
+Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind small adapters, so one stage connects the real pieces.
+
+- **One composition root** that builds, per tier and platform:
+  - the platform (1.2): transports, capabilities, the shared request budget;
+  - the YouTube session and providers (1.3), loaded lazily (about 193 KB gzipped), with an IndexedDB `VisitorDataStore` so the session survives reloads;
+  - the YouTube audio source (1.4) with the real request budget in place of its fake;
+  - Spotify (1.5) behind the Spotify switch, the free sources (1.6), lyrics (1.8) and the matcher (1.7);
+  - the playback lifecycle (2.3) and the player (2.2).
+- **Registers them** in every seam the earlier stages listed in their reports (2.3, 2.4, 2.5, 2.6).
+- **Tier-aware:** Full (FXM Connect, desktop, Android), Lite (1.10's sandbox transport once merged), Free only.
+- **Local check:** `make dev` with the FXM Connect dev build plays a YouTube Music song end to end; the steps are in `apps/web/README.md`.
+
+**Done when:**
+
+- An end-to-end test with fakes at the network layer covers search, play and the next track on each tier.
+- A manual run with FXM Connect plays a YouTube Music song and an Internet Archive track locally, recorded with the date in `apps/web/README.md`.
 
 ### 2.8 Static deploy
 
