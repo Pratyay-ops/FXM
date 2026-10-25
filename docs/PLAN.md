@@ -148,7 +148,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **7.5** | Desktop release: installers and auto-update | `ci/7.5-desktop-release` | 7.3, R.1 | ⬜ |
 | **7.6** | Desktop trust: signing and EQ path | `chore/7.6-desktop-trust` | 7.5, 1.11 | ⬜ |
 | **R.1** | Release pipeline (release PR, tags, notes, checksums, attestations) | `ci/r1-release-pipeline` | 0.4, 1.9 | ✅ |
-| **R.2** | Extension store channels: Firefox Add-ons and Edge Add-ons | `ci/r2-extension-stores` | R.1 | 🟡 |
+| **R.2** | Extension store channels: Firefox Add-ons and Edge Add-ons | `ci/r2-extension-stores` | R.1 | ✅ |
 | **R.3** | More channels: F-Droid/IzzyOnDroid/Obtainium, Flathub, winget (Homebrew only if notarized) | `chore/r3-channels` | 6.6, 7.5 | ⬜ |
 | **R.4** | Legal notices and clean-room log | `docs/r4-legal-notices` | 0.4, 5.3 | ✅ |
 | **8.1** | Audio effects: EQ, crossfade, sleep timer, speed, loudness | `feat/8.1-audio-fx` | 2.3, 6.3, 7.3 | ⬜ |
@@ -773,7 +773,7 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
   - append to `CHANGELOG.md`.
 - Each platform stage (6.6, 7.5, R.2) adds its artifacts to this workflow.
 
-### R.2 Extension store channels
+### R.2 Extension store channels ✅
 
 **Branch** `ci/r2-extension-stores` · **Depends on** R.1 · **Scope** the extension jobs in `.github/workflows/release.yml`, `apps/extension/store/**`, the install and store sections of `apps/extension/README.md`, and on the site the `firefox` flag in `apps/site/src/config.ts` and the sentences below
 
