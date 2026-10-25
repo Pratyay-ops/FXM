@@ -20,8 +20,17 @@ tauri-build = { version = "2.7.2", features = [] }
 
 [dependencies]
 tauri = { version = "2.12.3", features = [] }
-# unsafe-headers lets requests set Origin, which youtubei.js needs (stage 7.2).
-tauri-plugin-http = { version = "2.8.2", features = ["unsafe-headers"] }
+# unsafe-headers lets requests set Origin, which youtubei.js needs (stage 7.2). The rest are
+# the plugin's default features minus `cookies`, a jar that would save every response cookie
+# in plain text in the app's cache folder and send it back. youtubei.js needs no jar, and
+# stage 7.4 decides how Spotify credentials are stored.
+tauri-plugin-http = { version = "2.8.2", default-features = false, features = [
+  "unsafe-headers",
+  "rustls-tls",
+  "http2",
+  "charset",
+  "system-proxy",
+] }
 tauri-plugin-opener = "2.7.1"
 tauri-plugin-single-instance = "2.5.3"
 tauri-plugin-window-state = "2.5.0"

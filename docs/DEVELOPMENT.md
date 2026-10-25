@@ -187,7 +187,7 @@ The content security policy only applies to release builds: `make desktop-dev` l
 
 `env.sh` also clears the variables a Rust setup of your own may export (`CARGO_TARGET_DIR`, `RUSTUP_TOOLCHAIN`, `RUSTC_WRAPPER` and their Cargo equivalents), so builds use the pinned toolchain and stay in the repository. Cargo still reads `.cargo/config.toml` in every folder above the checkout, so also `~/.cargo/config.toml` when the checkout is in your home folder. `make doctor` warns when one of those sets `target-dir` or a rustc wrapper such as sccache.
 
-Running the app stores its own data where every installed app does, for example `~/Library/Application Support/io.github.pratyayops.fxm` and `~/Library/WebKit/io.github.pratyayops.fxm` on macOS: the window position and the web app's storage. That is user data, not tooling, so `make nuke` keeps it. Delete those folders to reset the app.
+Running the app stores its own data where every installed app does, for example `~/Library/Application Support/io.github.pratyayops.fxm`, `~/Library/Caches/io.github.pratyayops.fxm` and `~/Library/WebKit/io.github.pratyayops.fxm` on macOS: the window position, the webview's caches and the web app's storage. That is user data, not tooling, so `make nuke` keeps it. Delete those folders to reset the app. tauri-plugin-http adds no cookie file there: it is built without its `cookies` feature (see the app's README).
 
 ### Removing it
 

@@ -182,6 +182,12 @@ describe('Cargo.toml', () => {
     expect(tomlStrings(/features = \[([^\]]*)\]/.exec(http)?.[1])).toContain('unsafe-headers')
   })
 
+  it('builds tauri-plugin-http without its cookie jar, which saves cookies in plain text', () => {
+    const http = /^tauri-plugin-http = \{([^}]*)\}/m.exec(cargoToml)?.[1] ?? ''
+    expect(http).toMatch(/\bdefault-features = false\b/)
+    expect(tomlStrings(/features = \[([^\]]*)\]/.exec(http)?.[1])).not.toContain('cookies')
+  })
+
   it('includes exactly the plugins of the shell', () => {
     const plugins = [...cargoToml.matchAll(/^tauri-plugin-([a-z-]+) = /gm)].map(([, name]) => name)
     expect(plugins.sort()).toEqual([...PLUGINS].sort())
