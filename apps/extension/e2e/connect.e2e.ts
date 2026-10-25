@@ -18,6 +18,7 @@ import { packageVersion } from '../src/manifest.ts'
 import {
   FXM_HOST,
   GOOGLEVIDEO_HOST,
+  GOOGLEVIDEO_OTHER_HOST,
   MEDIA,
   MOCK_HOSTS,
   type MockServer,
@@ -402,6 +403,32 @@ test.describe('with FXM Connect loaded', () => {
       ['OPTIONS', 'https://www.youtube.com', 204],
       ['POST', FXM, 200],
     ])
+  })
+
+  test('cannot make googlevideo media readable after a redirect to another host', async () => {
+    await page.goto(`${FXM}/`)
+    // A redirect within the host keeps the page's Origin, so the rule's exact ACAO matches.
+    expect(await pageFetch(page, `${MEDIA_URL}&redirect=same`)).toMatchObject({
+      ok: true,
+      status: 200,
+      bytes: MEDIA.length,
+    })
+    mock.clearLog()
+    // After a redirect to another host the browser sends Origin: null and wants
+    // Access-Control-Allow-Origin: null, which no rule can give without breaking the requests
+    // above. The web app treats this failure as retryable (README).
+    expect(await pageFetch(page, `${MEDIA_URL}&redirect=cross`)).toMatchObject({ ok: false })
+    expect(
+      mock.log.map(({ host, method, origin, status }) => [host, method, origin, status]),
+    ).toEqual([
+      [GOOGLEVIDEO_HOST, 'GET', FXM, 302],
+      [GOOGLEVIDEO_OTHER_HOST, 'GET', 'null', 200],
+    ])
+    // Without CORS, a plain <audio src> follows the redirect and plays; CORS mode fails too.
+    expect(await loadAudio(page, `${MEDIA_URL}&redirect=cross&n=plain`, null)).toBe(
+      'loadedmetadata',
+    )
+    expect(await loadAudio(page, `${MEDIA_URL}&redirect=cross&n=cors`, 'anonymous')).toBe('error')
   })
 
   test('lets <audio crossorigin> load googlevideo media, so Web Audio can use it', async () => {

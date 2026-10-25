@@ -9,7 +9,8 @@
  *   Access-Control-Request-Method, and 200 with CORS headers for the other YouTube origin.
  * - googlevideo: media bytes for any Origin (Cross-Origin-Resource-Policy: cross-origin) but
  *   Access-Control-Allow-Origin only for YouTube origins; preflights get 204 for a YouTube
- *   Origin and 400 otherwise.
+ *   Origin and 400 otherwise. `redirect=cross` (or `same`) in the query answers with a 302 to
+ *   another googlevideo host (or the same one) with `cms_redirect=yes`, as googlevideo does.
  * - open.spotify.com /api/token and /api/server-time, and Last.fm stations: no CORS headers,
  *   OPTIONS answered with 200.
  */
@@ -20,6 +21,8 @@ export const FXM_HOST = 'fxm-music.pages.dev'
 export const OTHER_HOST = 'not-fxm.example'
 export const YOUTUBE_HOSTS = ['www.youtube.com', 'music.youtube.com', 'youtubei.googleapis.com']
 export const GOOGLEVIDEO_HOST = 'rr1---sn-mock.googlevideo.com'
+/** The googlevideo host `redirect=cross` sends media requests to. */
+export const GOOGLEVIDEO_OTHER_HOST = 'rr5---sn-other.googlevideo.com'
 export const SPOTIFY_HOST = 'open.spotify.com'
 export const LASTFM_HOST = 'www.last.fm'
 export const MOCK_HOSTS = [
@@ -27,6 +30,7 @@ export const MOCK_HOSTS = [
   OTHER_HOST,
   ...YOUTUBE_HOSTS,
   GOOGLEVIDEO_HOST,
+  GOOGLEVIDEO_OTHER_HOST,
   SPOTIFY_HOST,
   LASTFM_HOST,
 ]
@@ -138,9 +142,25 @@ function innertube(req: IncomingMessage, host: string, body: string): Reply {
   )
 }
 
-function googlevideo(req: IncomingMessage): Reply {
+function googlevideo(req: IncomingMessage, host: string, url: URL): Reply {
   const origin = req.headers.origin
   const youtube = origin !== undefined && YOUTUBE_ORIGINS.has(origin)
+  const redirect = url.searchParams.get('redirect')
+  if (req.method !== 'OPTIONS' && redirect !== null) {
+    const location = new URL(url)
+    location.host = redirect === 'cross' ? GOOGLEVIDEO_OTHER_HOST : host
+    location.searchParams.delete('redirect')
+    location.searchParams.set('cms_redirect', 'yes')
+    return {
+      status: 302,
+      headers: {
+        location: location.href,
+        'content-type': 'text/html',
+        'cross-origin-resource-policy': 'cross-origin',
+        ...(youtube ? { 'access-control-allow-origin': origin } : {}),
+      },
+    }
+  }
   if (req.method === 'OPTIONS') {
     if (!youtube) return { status: 400, headers: { 'content-type': 'text/plain' } }
     return {
@@ -194,7 +214,8 @@ function route(req: IncomingMessage, host: string, url: URL, body: string): Repl
       : { status: 404 }
   }
   if (YOUTUBE_HOSTS.includes(host)) return innertube(req, host, body)
-  if (host === GOOGLEVIDEO_HOST) return googlevideo(req)
+  if (host === GOOGLEVIDEO_HOST || host === GOOGLEVIDEO_OTHER_HOST)
+    return googlevideo(req, host, url)
   if (host === SPOTIFY_HOST) return spotify(req, url)
   if (host === LASTFM_HOST && url.pathname.startsWith('/player/station/')) {
     if (req.method === 'OPTIONS') return { status: 200 }
