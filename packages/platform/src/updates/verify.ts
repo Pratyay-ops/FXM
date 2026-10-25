@@ -4,9 +4,9 @@
  *
  * Signatures are checked with WebCrypto's Ed25519 where the platform has it, and otherwise
  * with `@noble/curves` (MIT, audited), in pure JavaScript. WebCrypto has Ed25519 in Chrome,
- * Edge, WebView2 and Android System WebView 137, Firefox 129 and Safari 17 (macOS 12.6 and
- * later); older WebViews, such as WKWebView on macOS 11 and some WebKitGTK builds, use the
- * library. A known-answer test (RFC 8032, test 2) decides which, once.
+ * Edge, WebView2 and Android System WebView 137, Firefox 129 and Safari 17 (macOS 12 and later,
+ * once Safari 17 is installed); older WebViews, such as WKWebView on macOS 11 and some WebKitGTK
+ * builds, use the library. A known-answer test (RFC 8032, test 2) decides which, once.
  *
  * @module
  */

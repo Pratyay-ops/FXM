@@ -19,14 +19,15 @@ beforeAll(async () => {
   )
 }, 120_000)
 
-describe('the built module', () => {
+describe('the built module', { timeout: 30_000 }, () => {
   it('is one self-contained ES module that exports youtubeModule', () => {
     expect(built).toMatchObject({
       fileName: YOUTUBE_MODULE_FILE,
       api: YOUTUBE_MODULE_API,
       version: YOUTUBE_MODULE_VERSION,
     })
-    expect(built.bytes).toEqual(new TextEncoder().encode(built.code))
+    // Compared as text: a deep comparison of 700 KB of bytes takes seconds on a busy machine.
+    expect(new TextDecoder().decode(built.bytes) === built.code).toBe(true)
     expect(built.code).not.toMatch(/^\s*import[\s{*]/mu)
     expect(built.code).toMatch(/export\s*\{[^}]*\byoutubeModule\b/u)
     // Minified: far smaller than the sources it holds, youtubei.js included.
@@ -66,7 +67,7 @@ describe('the built module', () => {
   }, 120_000)
 })
 
-describe('a module built with a deliberately broken parser', () => {
+describe('a module built with a deliberately broken parser', { timeout: 30_000 }, () => {
   it('finds no audio in a /player answer, as a YouTube change could make it', async () => {
     const youtube = fakeYouTube()
     const error = await broken

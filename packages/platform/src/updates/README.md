@@ -120,7 +120,7 @@ Signatures are checked with WebCrypto's Ed25519 where the platform has it and it
 | Platform | Ed25519 in WebCrypto | Engine |
 |---|---|---|
 | Android System WebView, WebView2 (Windows), Chrome, Edge | 137 and later | WebCrypto, else the library |
-| WKWebView (macOS), Safari | 17 and later (macOS 12.6 and later can have it) | WebCrypto; macOS 11 uses the library |
+| WKWebView (macOS), Safari | 17 and later (macOS 12 and later, once Safari 17 is installed) | WebCrypto; macOS 11 uses the library |
 | WebKitGTK (Linux) | Depends on the build | Whichever passes the test |
 | Firefox | 129 and later | WebCrypto, else the library |
 | Node (tests, scripts) | 22 | WebCrypto |
