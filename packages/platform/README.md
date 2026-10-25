@@ -72,8 +72,10 @@ A request a transport refuses rejects before anything is sent, with an `FxmError
 | `BudgetError` | `RateLimited` | The budget refused the call: `reason` is `paused`, `reserve` or `spacing`, and `retryAfterMs` says when a slot is expected |
 | `ConnectBridgeError` | per code | FXM Connect's bridge refused (see below) |
 | `FxmError` | `BotCheck` | A YouTube request was sent to Google's "unusual traffic" page |
+| `SandboxRefusedError`, a `TransportError` with `reason: 'bad-request'` or `'redirect'` | `Unsupported` | Lite: a sandbox document refused the request before sending it, or did not follow a redirect. `sandboxCode` says why, e.g. `preflight` ([the sandbox's errors](src/sandbox/README.md#errors)) |
+| `SandboxFailedError` | `Network`, `Parse` | Lite: a sandbox request failed once sent: no complete response in time (`timeout`), a network or CORS failure (`network`), or a response over the cap (`too-large`, `Parse`) |
 
-`isTransportError(error, reason?)`, `isRouteUnavailable(error)` and `isBudgetError(error, reason?)` also recognize errors from a second copy of the package. Programming errors (an unknown priority, a negative wait limit) throw a `RangeError`.
+`isTransportError(error, reason?)`, `isRouteUnavailable(error)`, `isBudgetError(error, reason?)` and `isSandboxError(error, sandboxCode?)` also recognize errors from a second copy of the package. Programming errors (an unknown priority, a negative wait limit) throw a `RangeError`.
 
 ## Hosts
 
@@ -200,7 +202,7 @@ Detection follows the architecture's order: FXM Connect first, and the Lite self
 
 `killSwitches` is a function or a `KillSwitchSource` (`get()` and `subscribe()`); `createKillSwitchStore()` is one the app sets whenever a new remote config arrives.
 
-`createSandboxTransport()` (`src/sandbox/`) is the implementation: it frames each document on first use, hidden and with `sandbox="allow-scripts"`, and talks to it over a private `MessagePort`. Both documents are generated from `src/sandbox/document.ts` into `apps/web/sandbox/`. How they stay opaque, what each sends, their errors and protocol, the browser tests, and the 2026-10-26 test record (Chromium 156 and Firefox 157 played a song to its end through the sandbox; Safari not tested) are in [src/sandbox/README.md](src/sandbox/README.md).
+`createSandboxTransport()` (`src/sandbox/`) is the implementation: it frames each document on first use, hidden, with `sandbox="allow-scripts"` and a random token in the URL's fragment that the document must send back, and talks to it over a private `MessagePort`. Refused requests reject with a `SandboxRefusedError` (a `TransportError`), failed ones with a `SandboxFailedError` (`Network` or `Parse`). Both documents are generated from `src/sandbox/document.ts` into `apps/web/sandbox/`. How they stay opaque, what each sends, their errors and protocol, the browser tests, and the 2026-10-26 test record (Chromium 156 and Firefox 157 played a song to its end through the sandbox, with stage 1.3's search and 1.4's resolver; Safari not tested) are in [src/sandbox/README.md](src/sandbox/README.md).
 
 ## Native transports
 
