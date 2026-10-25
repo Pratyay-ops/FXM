@@ -52,6 +52,7 @@ const capability = readJson<{ permissions: unknown[] } & Record<string, unknown>
 const requestHeaders = readJson<{ requestHeaders: RequestHeaderRule[] }>(
   '../src-tauri/request-headers.json',
 ).requestHeaders
+const smokeConfig = readJson<Record<string, unknown>>('../src-tauri/tauri.smoke.conf.json')
 const cargoToml = read('../src-tauri/Cargo.toml')
 // Without line comments, so commented-out code can't pass a test.
 const withoutComments = (source: string) => source.replace(/\/\/.*$/gm, '')
@@ -294,6 +295,30 @@ describe('request-headers.json (staged for plugins-workspace PR #3703)', () => {
   })
 })
 
+describe('tauri.smoke.conf.json (the live smoke test)', () => {
+  it('renames the app, embeds the smoke page and hides the window, and changes nothing else', () => {
+    // Merged over tauri.conf.json by `tauri build --config`: anything security-related here would
+    // make the smoke test check something other than the app.
+    expect(Object.keys(smokeConfig).sort()).toEqual(['$schema', 'app', 'build', 'identifier'])
+    expect(smokeConfig.identifier).toBe(`${config.identifier}.smoke`)
+    expect(smokeConfig.build).toEqual({
+      beforeBuildCommand: 'pnpm --filter @fxm/desktop smoke:page',
+      frontendDist: '../smoke/dist',
+    })
+    // Hidden and never suspended: stage 7.3 decides how the app's own window behaves in the
+    // background; the smoke test checks that a stream plays to its end.
+    expect(smokeConfig.app).toEqual({
+      windows: [
+        expect.objectContaining({
+          label: 'main',
+          visible: false,
+          backgroundThrottling: 'disabled',
+        }),
+      ],
+    })
+  })
+})
+
 describe('Cargo.toml', () => {
   const http = /^tauri-plugin-http = \{([^}]*)\}/m.exec(cargoToml)?.[1] ?? ''
 
@@ -305,6 +330,14 @@ describe('Cargo.toml', () => {
   it('builds tauri-plugin-http without its cookie jar, which saves cookies in plain text', () => {
     expect(http).toMatch(/\bdefault-features = false\b/)
     expect(tomlStrings(/features = \[([^\]]*)\]/.exec(http)?.[1])).not.toContain('cookies')
+  })
+
+  it('starts the smoke test’s report listener only on request, never by default', () => {
+    const features = /^\[features\]\n((?:.*\n)*?)\n/m.exec(cargoToml)?.[1] ?? ''
+    expect(features).toMatch(/^smoke = \[\]$/m)
+    expect(features).not.toMatch(/^default = /m)
+    expect(libRs).toMatch(/#\[cfg\(feature = "smoke"\)\]\s*smoke::listen\(/)
+    expect(libRs.match(/smoke::listen\(/g)).toHaveLength(1)
   })
 
   it('includes exactly the plugins of the shell', () => {

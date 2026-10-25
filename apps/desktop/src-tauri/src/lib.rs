@@ -8,6 +8,10 @@
 use tauri::{AppHandle, Manager};
 use tauri_plugin_window_state::StateFlags;
 
+// The live smoke test's report listener: always compiled, so lints and tests cover it, but only
+// started in the smoke build (`--features smoke`, apps/desktop/smoke).
+#[cfg_attr(not(feature = "smoke"), allow(dead_code))]
+mod smoke;
 pub mod user_hosts;
 
 /// Label of the main window in `tauri.conf.json`.
@@ -37,6 +41,9 @@ pub fn run() {
         .setup(|app| {
             let file = app.path().app_config_dir()?.join(user_hosts::FILE_NAME);
             app.manage(user_hosts::UserHosts::load(file));
+            // The live smoke test's build only (apps/desktop/smoke).
+            #[cfg(feature = "smoke")]
+            smoke::listen(app.handle());
             Ok(())
         })
         // Keep in step with COMMANDS in build.rs, which puts each behind a permission.

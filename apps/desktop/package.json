@@ -8,6 +8,9 @@
   "scripts": {
     "tauri": "tauri",
     "icons": "tauri icon assets/icon.svg && node scripts/prune-icons.mjs",
+    "smoke:page": "vite build --config smoke/vite.config.ts",
+    "smoke:build": "tauri build --debug --no-bundle --features smoke --config src-tauri/tauri.smoke.conf.json -- --locked",
+    "smoke": "pnpm run smoke:build && node smoke/run.mjs",
     "typecheck": "tsc --noEmit -p .",
     "test": "vitest run"
   },
@@ -15,10 +18,12 @@
     "@tauri-apps/api": "^2.12.3"
   },
   "devDependencies": {
+    "@fxm/core": "workspace:*",
     "@fxm/platform": "workspace:*",
     "@tauri-apps/cli": "^2.12.2",
     "@types/node": "^22.20.5",
     "typescript": "^7.0.2",
+    "vite": "^8.3.4",
     "vitest": "^5.0.3"
   }
 }
