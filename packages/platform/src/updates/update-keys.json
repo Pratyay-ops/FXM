@@ -1,0 +1,9 @@
+{
+  "about": "The Ed25519 public keys whose signatures FXM's desktop and Android apps accept for signed updates: the YouTube config and the YouTube resolver module. The entry below is a placeholder, not a key: while it is the only entry, every build refuses every signed update and uses the copies it ships with. The owner replaces it with the line scripts/make-signing-key.sh prints. Never put a private key here.",
+  "keys": [
+    {
+      "id": "placeholder",
+      "publicKey": "PLACEHOLDER-NOT-A-KEY: run scripts/make-signing-key.sh and replace this entry"
+    }
+  ]
+}

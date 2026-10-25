@@ -179,7 +179,8 @@ scripts/run.sh pnpm --filter @fxm/platform typecheck
 | `src/capabilities.ts` | Capability rules, detection and the monitor |
 | `src/clock.ts`, `src/storage.ts` | Injectable time and key-value storage |
 | `src/testing/` | The test helpers |
+| `src/updates/` | Signed updates for the desktop and Android apps: the YouTube config and resolver module, verified with Ed25519 ([its README](src/updates/README.md), stage 1.13) |
 
-`src/sandbox/` (stage 1.10), `src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
+`src/sandbox/` (stage 1.10) and `src/evaluator/` (1.11) belong to later stages.
 
 See [ARCHITECTURE.md §8](../../docs/ARCHITECTURE.md#8-platforms-and-network-transports).

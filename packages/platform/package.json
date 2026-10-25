@@ -11,12 +11,19 @@
     "./testing": "./src/testing/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "test:e2e": "playwright test -c src/updates/e2e/playwright.config.mjs"
   },
   "dependencies": {
-    "@fxm/core": "workspace:*"
+    "@fxm/core": "workspace:*",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
-    "happy-dom": "^20.14.6"
+    "@fxm/sources": "workspace:*",
+    "@playwright/test": "^1.64.0",
+    "fake-indexeddb": "^6.2.5",
+    "happy-dom": "^20.14.6",
+    "vite": "^8.3.4"
   }
 }
