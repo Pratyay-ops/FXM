@@ -1,9 +1,13 @@
-import { FxmError } from '@fxm/core'
+import { currentQueueItem, FxmError } from '@fxm/core'
+import { Player } from '@fxm/player'
+import { FakeEngine, FakeResolver } from '@fxm/player/testing'
 import { act, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { playbackFromPlayer } from '../search/actions'
 import { ONBOARDING_URL } from '../search/onboarding'
 import { TIER_CAPABILITIES } from '../search/sources'
 import { renderCatalog, resetCatalogState } from '../search/testing'
+import { useSettingsStore } from '../settings/settings-store'
 
 // The page is a lazy chunk and the machine running the tests may be busy.
 const SLOW = { timeout: 5000 }
@@ -54,11 +58,35 @@ describe('Album page', () => {
 
     const context = { type: 'album', id: 'ytm:album:alb-neon-harbor', title: 'Neon Harbor' }
     expect(actions.log).toMatchObject([
-      { action: 'play', options: { context } },
+      { action: 'play', options: { shuffle: false, context } },
       { action: 'play', options: { shuffle: true, context } },
       { action: 'play', options: { startIndex: 5, context } },
     ])
     expect(actions.log[0]?.action === 'play' && actions.log[0].tracks).toHaveLength(10)
+  })
+
+  it('plays in order after a shuffle, on the real player', async () => {
+    // The player keeps its shuffle setting for a new queue unless told otherwise.
+    const player = new Player({
+      engine: new FakeEngine(),
+      resolver: new FakeResolver(),
+      preload: false,
+    })
+    try {
+      const { user } = renderCatalog(NEON_HARBOR, {
+        actions: { playback: playbackFromPlayer(player) },
+      })
+      await findTitle('Neon Harbor')
+
+      await user.click(screen.getByRole('button', { name: 'Shuffle Neon Harbor' }))
+      await vi.waitFor(() => expect(player.getState().queue.shuffle).toBe(true))
+      await user.click(screen.getByRole('button', { name: 'Play Neon Harbor' }))
+
+      await vi.waitFor(() => expect(player.getState().queue.shuffle).toBe(false))
+      expect(currentQueueItem(player.getState().queue)?.track.title).toBe('Harbor Lights')
+    } finally {
+      player.destroy()
+    }
   })
 
   it('queues the album and adds it to a playlist', async () => {
@@ -104,9 +132,38 @@ describe('Album page', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Created Harbor nights with 10 songs')
   })
 
+  it('closes the add-to-playlist dialog with the page that opened it', async () => {
+    const { user, router } = renderCatalog('/search?q=neon harbor')
+    await act(() => router.navigate(NEON_HARBOR))
+    await findTitle('Neon Harbor')
+    let menu = await openMoreMenu(user, 'Neon Harbor')
+    await user.click(within(menu).getByRole('menuitem', { name: 'Add to playlist…' }))
+    await screen.findByRole('dialog', { name: 'Add to playlist' })
+
+    // Back removes the page, and the dialog with it, without a close event.
+    await act(() => router.navigate(-1))
+    expect(
+      await screen.findByRole('heading', { name: 'Results for “neon harbor”' }, SLOW),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await act(() => router.navigate(1))
+    expect(await findTitle('Neon Harbor')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // So does a mode switch that swaps the page for its placeholder while the album loads.
+    menu = await openMoreMenu(user, 'Neon Harbor')
+    await user.click(within(menu).getByRole('menuitem', { name: 'Add to playlist…' }))
+    await screen.findByRole('dialog', { name: 'Add to playlist' })
+    act(() => useSettingsStore.getState().setCatalogMode('all'))
+    expect(await findTitle('Neon Harbor')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
   it('offers downloads in the full tier but not in Lite', async () => {
     const full = renderCatalog(NEON_HARBOR, { tier: 'full' })
     await findTitle('Neon Harbor')
+    expect(screen.queryByText(/Lite mode, experimental/)).not.toBeInTheDocument()
     let menu = await openMoreMenu(full.user, 'Neon Harbor')
     await full.user.click(within(menu).getByRole('menuitem', { name: 'Download' }))
     expect(full.actions.log).toMatchObject([{ action: 'download' }])
@@ -114,6 +171,8 @@ describe('Album page', () => {
 
     const lite = renderCatalog(NEON_HARBOR, { tier: 'lite' })
     await findTitle('Neon Harbor')
+    // The page says why the menus have no download and no equalizer.
+    expect(screen.getByText(/Lite mode, experimental/)).toBeInTheDocument()
     menu = await openMoreMenu(lite.user, 'Neon Harbor')
     expect(within(menu).queryByRole('menuitem', { name: 'Download' })).not.toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Go to artist' })).toHaveAttribute(

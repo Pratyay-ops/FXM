@@ -111,12 +111,42 @@ function useTrackMenu(track: Track): MenuAction[] {
   return [...items, ...links, ...effects]
 }
 
-/** The track's artists, each linked to their page when the source links one. */
+/**
+ * A link in a line of text. `relative z-10` lifts it above a row's stretched play button; the
+ * focus ring is drawn inside it, because a truncating parent (`overflow: hidden`) cuts off
+ * anything drawn outside.
+ */
+const textLinkClasses =
+  'relative z-10 rounded-xs hover:text-text hover:underline focus-visible:-outline-offset-2'
+
+/**
+ * An artist or album name in a track row, linked to its page only on wide screens with a mouse
+ * or trackpad. The names are small targets close together (WCAG 2.5.8, and the app's 44 px rule
+ * below 1024 px and on touch screens), so elsewhere they are plain text: a tap on them plays the
+ * row like the rest of it, and the row's menu has "Go to artist" and "Go to album" instead.
+ */
+function RowLink({ to, children }: { to: string; children: string }) {
+  return (
+    <>
+      <span className="lg:pointer-fine:hidden">{children}</span>
+      <Link to={to} className={cn(textLinkClasses, 'hidden lg:pointer-fine:inline')}>
+        {children}
+      </Link>
+    </>
+  )
+}
+
+/**
+ * The track's artists, each linked to their page when the source links one. `inRow` follows
+ * the rules of a track row (see {@link RowLink}).
+ */
 export function ArtistLinks({
   artists,
+  inRow = false,
   className,
 }: {
   artists: Track['artists']
+  inRow?: boolean
   className?: string
 }) {
   return (
@@ -124,15 +154,14 @@ export function ArtistLinks({
       {artists.map((artist, index) => (
         <Fragment key={`${artist.id ?? ''}:${artist.name}`}>
           {index > 0 && ', '}
-          {artist.id ? (
-            <Link
-              to={artistPath(artist.id)}
-              className="relative z-10 hover:text-text hover:underline"
-            >
+          {!artist.id ? (
+            artist.name
+          ) : inRow ? (
+            <RowLink to={artistPath(artist.id)}>{artist.name}</RowLink>
+          ) : (
+            <Link to={artistPath(artist.id)} className={textLinkClasses}>
               {artist.name}
             </Link>
-          ) : (
-            artist.name
           )}
         </Fragment>
       ))}
@@ -153,7 +182,8 @@ export interface TrackRowProps {
 /**
  * One track: artwork (or its number), title, artists, kind and source badges, duration and a
  * menu. The title is a button that plays the track and stretches over the whole row, while the
- * links and the menu stay clickable on top of it. Phones put the badges on a third line.
+ * links (on wide screens with a mouse) and the menu stay clickable on top of it. Phones put the
+ * badges on a third line; wider screens put them after the names, so the names line up.
  */
 export function TrackRow({ track, number, showAlbum = false, onPlay }: TrackRowProps) {
   const menu = useTrackMenu(track)
@@ -161,7 +191,7 @@ export function TrackRow({ track, number, showAlbum = false, onPlay }: TrackRowP
   const duration = formatDuration(track.durationMs)
   const video = isVideoKind(track.kind)
   return (
-    <div className="group relative flex min-h-16 items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-text/6 has-[button:focus-visible]:bg-text/6 sm:gap-4">
+    <div className="group relative flex min-h-16 items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-text/6 has-[:focus-visible]:bg-text/6 sm:gap-4">
       {number === undefined ? (
         <span className="relative shrink-0">
           <CoverArt
@@ -199,20 +229,15 @@ export function TrackRow({ track, number, showAlbum = false, onPlay }: TrackRowP
         ) : (
           <p className="truncate font-semibold">{track.title}</p>
         )}
-        {/* Phones: artists, then the badges on their own line; wider: badges first. */}
+        {/* Phones: artists, then the badges on their own line; wider: names, then badges. */}
         <div className="mt-0.5 flex min-w-0 flex-col gap-1 text-sm text-text-muted sm:flex-row sm:items-center sm:gap-2">
           <span className="flex min-w-0 items-center">
-            <ArtistLinks artists={track.artists} />
+            <ArtistLinks artists={track.artists} inRow />
             {showAlbum && track.album && (
               <span className="hidden min-w-0 truncate md:inline">
                 <span aria-hidden="true">&nbsp;·&nbsp;</span>
                 {track.album.id ? (
-                  <Link
-                    to={albumPath(track.album.id)}
-                    className="relative z-10 hover:text-text hover:underline"
-                  >
-                    {track.album.name}
-                  </Link>
+                  <RowLink to={albumPath(track.album.id)}>{track.album.name}</RowLink>
                 ) : (
                   track.album.name
                 )}
@@ -223,7 +248,6 @@ export function TrackRow({ track, number, showAlbum = false, onPlay }: TrackRowP
             kind={trackKindLabel(track.kind)}
             source={track.source}
             explicit={track.explicit}
-            className="sm:order-first"
           />
         </div>
       </div>

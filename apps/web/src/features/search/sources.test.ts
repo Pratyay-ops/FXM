@@ -36,6 +36,7 @@ function snapshot(
 ): SourcesSnapshot {
   return {
     capabilities: TIER_CAPABILITIES[tier],
+    platformRevision: 0,
     spotifyEnabled,
     providers: new Map(providers.map((id) => [id, stubProvider(id)])),
   }
@@ -218,6 +219,22 @@ describe('createSources', () => {
 
     platform.setCapabilities(TIER_CAPABILITIES.full)
     expect(sources.getSnapshot().capabilities.youtube).toBe('full')
+  })
+
+  it('counts the platforms, so results fetched through an old one are fetched again', () => {
+    const sources = createSources({ platform: createStaticPlatform(TIER_CAPABILITIES.free) })
+    const before = sources.getSnapshot()
+    expect(before.platformRevision).toBe(0)
+    const listener = vi.fn()
+    sources.subscribe(listener)
+
+    // The same capabilities, but perhaps a transport that works: a new snapshot all the same.
+    sources.setPlatform(createStaticPlatform(TIER_CAPABILITIES.free))
+
+    expect(sources.getSnapshot()).not.toBe(before)
+    expect(sources.getSnapshot().platformRevision).toBe(1)
+    expect(sources.getSnapshot().capabilities).toEqual(TIER_CAPABILITIES.free)
+    expect(listener).toHaveBeenCalledOnce()
   })
 
   it('swaps the platform, e.g. once stage 1.2 detected the tier', () => {

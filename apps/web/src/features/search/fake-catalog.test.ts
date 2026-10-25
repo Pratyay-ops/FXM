@@ -57,6 +57,13 @@ describe('the fake catalog', () => {
     expect(await catalog.suggest?.('neon harbor', ctx())).not.toContain('neon harbor')
   })
 
+  it('suggests only as YouTube Music, as among the real providers', () => {
+    expect(createFakeCatalog('ytm').suggest).toBeTypeOf('function')
+    for (const source of ['spotify', 'archive', 'jamendo'] as const) {
+      expect(createFakeCatalog(source).suggest).toBeUndefined()
+    }
+  })
+
   it('loads albums, artists and playlists, filtered for the mode', async () => {
     const catalog = createFakeCatalog('ytm')
     const album = await catalog.getAlbum(fakeIds.album('ytm', 'neon-harbor'), ctx())

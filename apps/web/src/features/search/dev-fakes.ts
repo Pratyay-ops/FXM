@@ -6,7 +6,8 @@
  *
  * Open the app with `?fake=full` (FXM Connect: YouTube Music and Spotify), `?fake=lite` (the
  * experimental Lite tier) or `?fake=free` (no YouTube) to turn it on for the tab, and with
- * `?fake=off` to turn it off again.
+ * `?fake=off` to turn it off again. Add `&fake-sources=all` to fake Internet Archive and Jamendo
+ * as well, as once stage 1.6 is wired in (until the next reload).
  *
  * @module
  */
@@ -50,6 +51,11 @@ export function readFakeTier(
   }
 }
 
+/** Whether `?fake-sources=all` asks for the free sources' fakes too (this page load only). */
+export function readFakeFreeSources(search: string = window.location.search): boolean {
+  return new URLSearchParams(search).get('fake-sources') === 'all'
+}
+
 /** Turns the fake mode on when this tab asked for it (see the module documentation). */
 export async function installDevFakes(sources: Sources, actions: MediaActionsStore): Promise<void> {
   const tier = readFakeTier()
@@ -62,6 +68,10 @@ export async function installDevFakes(sources: Sources, actions: MediaActionsSto
   // Providers first, then the tier, so the pages never see a tier without its providers.
   sources.register(createFakeCatalog('ytm', { latencyMs: 400 }))
   sources.register(createFakeCatalog('spotify', { latencyMs: 400 }))
+  if (readFakeFreeSources()) {
+    sources.register(createFakeCatalog('archive', { latencyMs: 400 }))
+    sources.register(createFakeCatalog('jamendo', { latencyMs: 400 }))
+  }
   actions.set(createFakeMediaActions({ onAction: (what) => showFeedback(`Fake player: ${what}`) }))
   sources.setPlatform(createStaticPlatform(TIER_CAPABILITIES[tier]))
   console.info(`FXM: fake catalog on, ${tier} tier. Open the app with ?fake=off to leave it.`)

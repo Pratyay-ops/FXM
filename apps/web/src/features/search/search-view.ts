@@ -38,6 +38,12 @@ export const searchTiming = {
   resultsDelayMs: 300,
   /** The same for suggestions, which are cheaper. */
   suggestionsDelayMs: 150,
+  /**
+   * How long a tab must stay selected before its results are fetched. Selection follows focus
+   * in the tabs, so arrowing from Songs to Videos would otherwise search every tab on the way,
+   * one provider call each from the shared request budget.
+   */
+  tabDelayMs: 250,
 }
 
 interface SearchViewState {

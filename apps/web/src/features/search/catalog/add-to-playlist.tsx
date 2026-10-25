@@ -1,7 +1,7 @@
 import type { Track } from '@fxm/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ListMusic, Plus, X } from 'lucide-react'
-import { type FormEvent, useId, useLayoutEffect, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { create } from 'zustand'
 import { Artwork } from '../../../components/ui/artwork'
 import { buttonClasses } from '../../../components/ui/button'
@@ -17,16 +17,27 @@ export interface AddToPlaylistRequest {
   readonly title: string
 }
 
+/** A request, numbered in the order the requests were made. */
+interface NumberedRequest extends AddToPlaylistRequest {
+  readonly serial: number
+}
+
 interface AddToPlaylistState {
-  request: AddToPlaylistRequest | null
+  request: NumberedRequest | null
   open: (request: AddToPlaylistRequest) => void
   close: () => void
 }
 
+/** How many requests were made so far: the serial number of the latest. */
+let requestCount = 0
+
 /** Which tracks the add-to-playlist dialog is open for, if any. */
 export const useAddToPlaylistStore = create<AddToPlaylistState>()((set) => ({
   request: null,
-  open: (request) => set({ request }),
+  open: (request) => {
+    requestCount += 1
+    set({ request: { ...request, serial: requestCount } })
+  },
   close: () => set({ request: null }),
 }))
 
@@ -40,12 +51,19 @@ const PLAYLISTS_QUERY_KEY = ['library', 'playlists'] as const
 /**
  * The add-to-playlist dialog: the user's playlists from the library (stage 2.6), and a field
  * for a new one. Render it once per page; `openAddToPlaylist` opens it.
+ *
+ * The dialog belongs to the page that opened it. When that page goes (Back or Forward, or a
+ * tier or mode change that swaps it for its placeholder), React removes the dialog without a
+ * `close` event, so the request is dropped here instead. And a request made before this page
+ * opened is never shown on it, not even for the moment before the old page's cleanup ran.
  */
 export function AddToPlaylistDialog() {
   const request = useAddToPlaylistStore((state) => state.request)
   const close = useAddToPlaylistStore((state) => state.close)
   const { library } = useMediaActions()
-  if (!request || !library) return null
+  const [openedAfter] = useState(() => requestCount)
+  useEffect(() => () => useAddToPlaylistStore.getState().close(), [])
+  if (!request || !library || request.serial <= openedAfter) return null
   return <PlaylistPicker request={request} library={library} onClose={close} />
 }
 

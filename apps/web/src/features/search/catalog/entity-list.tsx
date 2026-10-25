@@ -22,8 +22,8 @@ interface EntityRowProps {
 }
 
 /**
- * A row that opens an album, artist or playlist page: artwork, name, kind and source badges and
- * a short subtitle. The name is a link stretched over the whole row.
+ * A row that opens an album, artist or playlist page: artwork, name, a short subtitle and kind
+ * and source badges. The name is a link stretched over the whole row.
  */
 function EntityRow({
   to,
@@ -38,7 +38,7 @@ function EntityRow({
   icon,
 }: EntityRowProps) {
   return (
-    <div className="relative flex min-h-16 items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-text/6 has-[a:focus-visible]:bg-text/6 sm:gap-4">
+    <div className="relative flex min-h-16 items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-text/6 has-[:focus-visible]:bg-text/6 sm:gap-4">
       <CoverArt
         artwork={artwork}
         seed={seed}
@@ -55,10 +55,10 @@ function EntityRow({
         >
           {title}
         </Link>
-        {/* Phones: the subtitle, then the badges on their own line; wider: badges first. */}
+        {/* Phones: the subtitle, then the badges on their own line; wider: subtitle, badges. */}
         <div className="mt-0.5 flex min-w-0 flex-col gap-1 text-sm text-text-muted sm:flex-row sm:items-center sm:gap-2">
           {subtitle && <span className="truncate">{subtitle}</span>}
-          <ItemBadges kind={kind} source={source} explicit={explicit} className="sm:order-first" />
+          <ItemBadges kind={kind} source={source} explicit={explicit} />
         </div>
       </div>
     </div>

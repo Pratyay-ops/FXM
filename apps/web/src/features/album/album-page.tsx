@@ -78,6 +78,7 @@ function AlbumContent({ id, provider }: { id: EntityId<'album'>; provider: Metad
       </EntityHeader>
       <CollectionToolbar
         name={data.name}
+        source={data.source}
         tracks={tracks}
         context={context}
         extraItems={

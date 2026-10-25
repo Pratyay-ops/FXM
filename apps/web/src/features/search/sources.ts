@@ -157,6 +157,12 @@ export function createMemorySpotifySwitch(enabled = true): SpotifySwitch {
 export interface SourcesSnapshot {
   /** What the platform can reach. */
   readonly capabilities: NetworkCapabilities
+  /**
+   * Counts the platforms set with {@link Sources.setPlatform}. A new platform can reach more than
+   * the one before it with the same capabilities (the stand-in reaches nothing at all), so
+   * results fetched through the old one must not be reused: query keys hold this number.
+   */
+  readonly platformRevision: number
   /** Whether the user switched Spotify on (it is used only when it is also reachable). */
   readonly spotifyEnabled: boolean
   /** The registered metadata providers, by source. */
@@ -174,7 +180,10 @@ export interface Sources {
    * before. Returns a function that removes it again.
    */
   register(provider: MetadataProvider): () => void
-  /** Uses another platform, e.g. stage 1.2's once `createPlatform()` resolves. */
+  /**
+   * Uses another platform, e.g. stage 1.2's once `createPlatform()` resolves. Results fetched
+   * through the platform before are fetched again (see {@link SourcesSnapshot.platformRevision}).
+   */
   setPlatform(platform: SourcesPlatform): void
   /** Switches Spotify on or off (the setting, not whether it is reachable). */
   setSpotifyEnabled(enabled: boolean): void
@@ -211,6 +220,7 @@ export function createSources(options: SourcesOptions = {}): Sources {
 
   let snapshot: SourcesSnapshot = {
     capabilities: platform.capabilities.current,
+    platformRevision: 0,
     spotifyEnabled: spotifySwitch.getState().enabled,
     providers: new Map(providers),
   }
@@ -253,7 +263,11 @@ export function createSources(options: SourcesOptions = {}): Sources {
       stopPlatform()
       platform = next
       stopPlatform = platform.capabilities.subscribe(onCapabilities)
-      onCapabilities()
+      // A new snapshot even when the capabilities stay the same: see platformRevision.
+      update({
+        capabilities: platform.capabilities.current,
+        platformRevision: snapshot.platformRevision + 1,
+      })
     },
     setSpotifyEnabled(enabled) {
       spotifySwitch.getState().setEnabled(enabled)

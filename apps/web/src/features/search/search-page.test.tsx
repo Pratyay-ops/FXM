@@ -1,10 +1,18 @@
-import { FxmError } from '@fxm/core'
+import {
+  type Fetch,
+  FxmError,
+  formatId,
+  type MetadataProvider,
+  type SearchResults,
+  type Track,
+} from '@fxm/core'
 import { act, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useSettingsStore } from '../settings/settings-store'
+import { FEEDBACK_MS } from './feedback'
 import { ONBOARDING_URL } from './onboarding'
 import { searchTiming } from './search-view'
-import { TIER_CAPABILITIES } from './sources'
+import { createStaticPlatform, TIER_CAPABILITIES } from './sources'
 import { renderCatalog, resetCatalogState } from './testing'
 
 // The machine running the tests may be busy: give the app time to render and search.
@@ -18,6 +26,18 @@ function findList(name: string) {
 
 function rows(list: HTMLElement) {
   return within(list).getAllByRole('listitem')
+}
+
+/** What the live regions on the page say: results status, confirmations. */
+function statusTexts(): string[] {
+  return screen.queryAllByRole('status').map((element) => element.textContent ?? '')
+}
+
+/** The labels of the "Search in" choices, in order. */
+function sourceChoices(group: HTMLElement): string[] {
+  return within(group)
+    .getAllByRole('radio')
+    .map((radio) => radio.closest('label')?.textContent ?? '')
 }
 
 /** Opens the "more options" menu of a row and returns the names of its items. */
@@ -49,6 +69,7 @@ describe('Search: tiers', () => {
   it('offers download and the equalizer on YouTube items in the full tier', async () => {
     const { user } = renderCatalog('/search?q=harbor lights nova', { tier: 'full' })
     await findList('Songs')
+    expect(screen.queryByText(/Lite mode, experimental/)).not.toBeInTheDocument()
     const items = await menuItemsOf(user, 'More options for Harbor Lights')
     expect(items).toEqual(
       expect.arrayContaining([
@@ -73,28 +94,114 @@ describe('Search: tiers', () => {
     expect(items).not.toContain('Equalizer')
   })
 
-  it('shows the onboarding entry point instead of empty results without YouTube', async () => {
+  it('shows the onboarding entry point instead of results and tabs without YouTube', async () => {
     const { ytm } = renderCatalog('/search?q=harbor', { tier: 'free' })
     expect(
-      await screen.findByRole('heading', { level: 3, name: 'Set up YouTube Music' }, SLOW),
+      await screen.findByRole(
+        'heading',
+        { level: 2, name: 'Search needs YouTube Music access' },
+        SLOW,
+      ),
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Get FXM Connect/ })).toHaveAttribute(
       'href',
       ONBOARDING_URL,
     )
-    expect(screen.queryByRole('list', { name: 'Songs' })).not.toBeInTheDocument()
+    // Every tab would say the same: there are none, and no heading for results either.
+    expect(screen.queryByRole('tablist', { name: 'Result type' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /^Results for/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Search suggestions' })).not.toBeInTheDocument()
     expect(ytm.calls).toEqual([])
   })
 
+  it('says how to reach YouTube Music on the empty search page without it', async () => {
+    const free = renderCatalog('/search', { tier: 'free' })
+    expect(
+      await screen.findByRole(
+        'heading',
+        { level: 2, name: 'Search needs YouTube Music access' },
+        SLOW,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Get FXM Connect/ })).toHaveAttribute(
+      'href',
+      ONBOARDING_URL,
+    )
+    expect(screen.getByRole('heading', { name: 'Browse all' })).toBeInTheDocument()
+    free.unmount()
+
+    renderCatalog('/search', { tier: 'lite' })
+    expect(await screen.findByRole('heading', { name: 'Browse all' }, SLOW)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /^Search needs/ })).not.toBeInTheDocument()
+  })
+
   it('follows the tier when it changes, e.g. once FXM Connect is installed', async () => {
     const { platform } = renderCatalog('/search?q=harbor', { tier: 'free' })
-    await screen.findByRole('heading', { name: 'Set up YouTube Music' }, SLOW)
+    await screen.findByRole('heading', { name: 'Search needs YouTube Music access' }, SLOW)
 
     act(() => platform.setCapabilities(TIER_CAPABILITIES.full))
 
     expect(await findList('Songs')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Set up YouTube Music' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Search needs YouTube Music access' }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('offers the free sources in every tier, with download even without FXM Connect', async () => {
+    const { user } = renderCatalog('/search?q=harbor lights nova', {
+      tier: 'free',
+      freeSources: true,
+    })
+    const sourceSwitch = await screen.findByRole('radiogroup', { name: 'Search in' }, SLOW)
+    expect(sourceChoices(sourceSwitch)).toEqual(['YouTube Music', 'Internet Archive', 'Jamendo'])
+    expect(await screen.findByRole('heading', { name: /^Search needs/ })).toBeInTheDocument()
+
+    await user.click(within(sourceSwitch).getByRole('radio', { name: 'Internet Archive' }))
+
+    const songs = await findList('Songs')
+    expect(within(rows(songs)[0] as HTMLElement).getByText('Internet Archive')).toBeInTheDocument()
+    const items = await menuItemsOf(user, 'More options for Harbor Lights')
+    expect(items).toContain('Download')
+  })
+
+  it('searches again through a new platform, even one with the same capabilities', async () => {
+    // A provider that needs the network, as the free sources do. The stand-in platform, there
+    // until stage 1.2's is set, refuses every request.
+    const track: Track = {
+      id: formatId('archive', 'track', 'harbor-tape'),
+      source: 'archive',
+      title: 'Harbor Tape',
+      artists: [{ name: 'Field Recordings' }],
+      artwork: [],
+      kind: 'song',
+    }
+    const archive: MetadataProvider = {
+      id: 'archive',
+      async search(query, _options, ctx): Promise<SearchResults> {
+        await ctx.fetch(`https://archive.org/advancedsearch.php?q=${encodeURIComponent(query)}`)
+        return { tracks: { items: [track] } }
+      },
+      getTrack: () => Promise.reject(new FxmError('NotFound', 'stub')),
+      getAlbum: () => Promise.reject(new FxmError('NotFound', 'stub')),
+      getArtist: () => Promise.reject(new FxmError('NotFound', 'stub')),
+      getPlaylist: () => Promise.reject(new FxmError('NotFound', 'stub')),
+    }
+    const { user, sources } = renderCatalog('/search?q=harbor', { tier: 'free' })
+    act(() => {
+      sources.register(archive)
+    })
+    const sourceSwitch = await screen.findByRole('radiogroup', { name: 'Search in' }, SLOW)
+    await user.click(within(sourceSwitch).getByRole('radio', { name: 'Internet Archive' }))
+    const alert = await screen.findByRole('alert', undefined, SLOW)
+    expect(alert).toHaveTextContent("FXM can't reach Internet Archive here.")
+    expect(within(alert).queryByRole('button')).not.toBeInTheDocument()
+
+    const fetch = vi.fn(async () => new Response('{}')) as unknown as Fetch
+    act(() => sources.setPlatform(createStaticPlatform(TIER_CAPABILITIES.free, fetch)))
+
+    const songs = await findList('Songs')
+    expect(within(songs).getByRole('button', { name: /^Play Harbor Tape/ })).toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledOnce()
   })
 })
 
@@ -102,11 +209,7 @@ describe('Search: the Spotify switch', () => {
   it('offers Spotify as a source when it is switched on and reachable', async () => {
     const { user, spotify } = renderCatalog('/search?q=harbor', { tier: 'full' })
     const sourceSwitch = await screen.findByRole('radiogroup', { name: 'Search in' }, SLOW)
-    expect(
-      within(sourceSwitch)
-        .getAllByRole('radio')
-        .map((radio) => radio.closest('label')?.textContent),
-    ).toEqual(['YouTube Music', 'Spotify'])
+    expect(sourceChoices(sourceSwitch)).toEqual(['YouTube Music', 'Spotify'])
 
     await user.click(within(sourceSwitch).getByRole('radio', { name: 'Spotify' }))
 
@@ -148,6 +251,23 @@ describe('Search: the Spotify switch', () => {
     expect(screen.queryByRole('radiogroup', { name: 'Search in' })).not.toBeInTheDocument()
   })
 
+  it('offers every source that can be used, however many there are', async () => {
+    const { user } = renderCatalog('/search?q=harbor', { tier: 'full', freeSources: true })
+    const sourceSwitch = await screen.findByRole('radiogroup', { name: 'Search in' }, SLOW)
+    expect(sourceChoices(sourceSwitch)).toEqual([
+      'YouTube Music',
+      'Spotify',
+      'Internet Archive',
+      'Jamendo',
+    ])
+
+    await user.click(within(sourceSwitch).getByRole('radio', { name: 'Jamendo' }))
+
+    expect(within(sourceSwitch).getByRole('radio', { name: 'Jamendo' })).toBeChecked()
+    const songs = await findList('Songs')
+    await waitFor(() => expect(within(songs).getAllByText('Jamendo').length).toBeGreaterThan(1))
+  })
+
   it('is switched in Settings, which explains it', async () => {
     const { user, sources } = renderCatalog('/settings', { tier: 'full' })
     const group = await screen.findByRole('radiogroup', { name: 'Spotify' }, SLOW)
@@ -177,19 +297,71 @@ describe('Search: typing, suggestions and tabs', () => {
     expect(searched).toEqual(['owl hours'])
   })
 
-  it('suggests completions and searches the one picked', async () => {
+  it('waits for the first keystroke too when the search starts on another page', async () => {
+    // The top bar's search box opens /search with the first letter, which must not be searched.
+    searchTiming.resultsDelayMs = 1500
+    searchTiming.suggestionsDelayMs = 1500
+    const { user, ytm, router } = renderCatalog('/album/ytm:alb-neon-harbor', { tier: 'full' })
+    await screen.findByRole('heading', { level: 1, name: 'Neon Harbor' }, SLOW)
+    const box = within(screen.getByRole('banner')).getByRole('searchbox', { name: 'Search' })
+
+    await user.type(box, 'owl hours')
+
+    expect(router.state.location.pathname).toBe('/search')
+    const songs = await findList('Songs')
+    expect(within(songs).getByRole('button', { name: /^Play Owl Hours by/ })).toBeInTheDocument()
+    const typed = (method: string) =>
+      ytm.calls.filter((call) => call.method === method).map((call) => call.query)
+    expect(typed('search')).toEqual(['owl hours'])
+    await waitFor(() => expect(typed('suggest')).toEqual(['owl hours']), SLOW)
+  })
+
+  it('dims the results while a newer query waits to be searched', async () => {
+    searchTiming.resultsDelayMs = 60_000
+    const { user } = renderCatalog('/search?q=owl', { tier: 'full' })
+    // A query in the URL from the start is searched at once.
+    const songs = await findList('Songs')
+    const box = screen.getAllByRole('searchbox', { name: 'Search' })[0] as HTMLElement
+
+    await user.type(box, ' hours')
+
+    expect(screen.getByRole('heading', { name: 'Results for “owl hours”' })).toBeInTheDocument()
+    expect(songs.closest('[aria-busy]')).toHaveAttribute('aria-busy', 'true')
+    expect(statusTexts()).toContain('Searching…')
+    // The results for "owl" stay until the new ones are in.
+    expect(within(songs).getByRole('button', { name: /^Play Rooftop Radio/ })).toBeInTheDocument()
+  })
+
+  it('suggests completions, searches the one picked and keeps keyboard focus', async () => {
     const { user, router } = renderCatalog('/search?q=neon', { tier: 'full' })
     const suggestions = await screen.findByRole('navigation', { name: 'Search suggestions' }, SLOW)
 
-    await user.click(within(suggestions).getByRole('link', { name: 'neon harbor' }))
+    within(suggestions).getByRole('link', { name: 'neon harbor' }).focus()
+    await user.keyboard('{Enter}')
 
     await waitFor(() =>
       expect(new URLSearchParams(router.state.location.search).get('q')).toBe('neon harbor'),
     )
     expect(router.state.historyAction).toBe('REPLACE')
-    expect(
-      await screen.findByRole('heading', { name: 'Results for “neon harbor”' }, SLOW),
-    ).toBeInTheDocument()
+    // The chosen suggestion is the query now, and goes: focus moves to the results' heading.
+    const heading = await screen.findByRole('heading', { name: 'Results for “neon harbor”' }, SLOW)
+    expect(heading).toHaveFocus()
+  })
+
+  it('shows no suggestions for a source that has none, not even the last source’s', async () => {
+    const { user, spotify } = renderCatalog('/search?q=neon', { tier: 'full' })
+    await screen.findByRole('navigation', { name: 'Search suggestions' }, SLOW)
+    const sourceSwitch = screen.getByRole('radiogroup', { name: 'Search in' })
+
+    await user.click(within(sourceSwitch).getByRole('radio', { name: 'Spotify' }))
+
+    expect(within(sourceSwitch).getByRole('radio', { name: 'Spotify' })).toBeChecked()
+    expect(screen.queryByRole('navigation', { name: 'Search suggestions' })).not.toBeInTheDocument()
+    const box = screen.getAllByRole('searchbox', { name: 'Search' })[0] as HTMLElement
+    await user.type(box, ' h')
+    expect(await findList('Songs')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Search suggestions' })).not.toBeInTheDocument()
+    expect(spotify.suggest).toBeUndefined()
   })
 
   it('searches the type of each tab, with videos only in Music + Video mode', async () => {
@@ -214,6 +386,24 @@ describe('Search: typing, suggestions and tabs', () => {
     expect(ytm.calls.at(-1)).toMatchObject({ types: ['video'], mode: 'all' })
   })
 
+  it('searches only the tab that stays selected while arrowing across the tabs', async () => {
+    searchTiming.tabDelayMs = 1000
+    const { user, ytm } = renderCatalog('/search?q=late', { tier: 'full' })
+    await findList('Songs')
+    const tabs = screen.getByRole('tablist', { name: 'Result type' })
+    within(tabs).getByRole('tab', { name: 'Songs' }).focus()
+
+    await user.keyboard('{ArrowRight}{ArrowRight}{ArrowRight}')
+
+    expect(within(tabs).getByRole('tab', { name: 'Playlists' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(await findList('Playlists')).toBeInTheDocument()
+    const searched = ytm.calls.filter((call) => call.method === 'search').map((call) => call.types)
+    expect(searched).toEqual([['track'], ['playlist']])
+  })
+
   it('lists artists and playlists, each linking to its page', async () => {
     const { user } = renderCatalog('/search?q=late', { tier: 'full' })
     await findList('Songs')
@@ -228,22 +418,44 @@ describe('Search: typing, suggestions and tabs', () => {
     expect(within(playlists).getByText('Playlist')).toBeInTheDocument()
 
     await user.click(within(tabs).getByRole('tab', { name: 'Artists' }))
-    expect(await screen.findByText('No artists found', undefined, SLOW)).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'No artists found' }, SLOW),
+    ).toBeInTheDocument()
   })
 
-  it('loads more results on demand', async () => {
-    const { user } = renderCatalog('/search?q=e', { tier: 'full' })
+  it('tells screen readers what the search found', async () => {
+    renderCatalog('/search?q=harbor', { tier: 'full' })
+    await findList('Songs')
+    expect(statusTexts()).toContainEqual(expect.stringMatching(/^\d+ songs for “harbor”$/))
+  })
+
+  it('loads more results on demand, keeping keyboard users in place', async () => {
+    const { user, ytm } = renderCatalog('/search?q=e', { tier: 'full' })
     const songs = await findList('Songs')
     expect(rows(songs)).toHaveLength(20)
+    // Slow enough that the second press below lands while the page is still loading.
+    ytm.setLatency(1000)
+    screen.getByRole('button', { name: 'Show more songs' }).focus()
 
-    await user.click(screen.getByRole('button', { name: 'Show more songs' }))
+    await user.keyboard('{Enter}')
 
+    // While the page loads, the button keeps focus: a disabled one would drop it to the page.
+    const loading = screen.getByRole('button', { name: 'Loading…' })
+    expect(loading).toHaveAttribute('aria-disabled', 'true')
+    expect(loading).toHaveFocus()
+    await user.click(loading)
     await waitFor(() => expect(rows(songs)).toHaveLength(40), SLOW)
+    // Then focus goes on with the first new row, and screen readers hear what arrived.
+    const firstNew = within(rows(songs)[20] as HTMLElement).getAllByRole('button')[0]
+    await waitFor(() => expect(firstNew).toHaveFocus())
+    expect(statusTexts()).toContain('20 more songs loaded, 40 in all')
+    expect(ytm.calls.filter((call) => call.cursor !== undefined)).toHaveLength(1)
   })
 
   it('says when nothing matches', async () => {
     renderCatalog('/search?q=zzzz', { tier: 'full' })
     expect(await screen.findByRole('heading', { name: 'No songs found' }, SLOW)).toBeInTheDocument()
+    expect(statusTexts()).toContain('No songs found')
   })
 
   it('explains a failed search and tries again', async () => {
@@ -287,9 +499,31 @@ describe('Search: actions', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
 
     expect(actions.log).toMatchObject([{ action: 'addToQueue' }])
-    expect(screen.getByRole('status')).toHaveTextContent('Added Harbor Lights to the queue')
+    expect(statusTexts()).toContain('Added Harbor Lights to the queue')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'More options for Harbor Lights' })).toHaveFocus()
+  })
+
+  it('keeps a confirmation for its own time only, also across pages', async () => {
+    const { user, router } = renderCatalog('/search?q=harbor lights nova', { tier: 'full' })
+    await findList('Songs')
+    await menuItemsOf(user, 'More options for Harbor Lights')
+    await user.click(screen.getByRole('menuitem', { name: 'Add to queue' }))
+    const confirmation = 'Added Harbor Lights to the queue'
+
+    // Still in its time on the next page.
+    await act(() => router.navigate('/album/ytm:alb-neon-harbor'))
+    await screen.findByRole('heading', { level: 1, name: 'Neon Harbor' }, SLOW)
+    expect(statusTexts()).toContain(confirmation)
+
+    // Over by the time the user comes back from a page without confirmations.
+    await act(() => router.navigate('/library'))
+    await screen.findByRole('heading', { level: 1, name: 'Your library' }, SLOW)
+    const later = Date.now() + FEEDBACK_MS + 1000
+    vi.spyOn(Date, 'now').mockReturnValue(later)
+    await act(() => router.navigate(-1))
+    await screen.findByRole('heading', { level: 1, name: 'Neon Harbor' }, SLOW)
+    expect(statusTexts()).not.toContain(confirmation)
   })
 
   it('offers no actions that are not wired in yet', async () => {

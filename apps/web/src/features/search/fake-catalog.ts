@@ -5,7 +5,8 @@
  *
  * It behaves like the real providers where the UI cares: one page per requested type, cursors,
  * the catalog mode (videos only in Music + Video, hidden kinds dropped from playlists),
- * suggestions, `NotFound` for unknown IDs, abortable latency, and failures on demand.
+ * suggestions (from YouTube Music only: the Spotify, Internet Archive and Jamendo providers have
+ * none), `NotFound` for unknown IDs, abortable latency, and failures on demand.
  *
  * @module
  */
@@ -34,8 +35,8 @@ import {
 } from '@fxm/core'
 import { hashString } from '../../lib/seed'
 
-/** The sources the fake catalog can pose as. */
-export type FakeSource = 'ytm' | 'spotify'
+/** The sources the fake catalog can pose as. Only YouTube Music has videos and suggestions. */
+export type FakeSource = 'ytm' | 'spotify' | 'archive' | 'jamendo'
 
 /** The provider methods whose calls are recorded and can be made to fail. */
 export type FakeMethod =
@@ -540,7 +541,7 @@ function wait(ms: number, signal: AbortSignal | undefined): Promise<void> {
   })
 }
 
-/** Creates a fake catalog posing as `source` (YouTube Music or Spotify). */
+/** Creates a fake catalog posing as `source` (YouTube Music, Spotify, Internet Archive …). */
 export function createFakeCatalog(
   source: FakeSource,
   options: FakeCatalogOptions = {},
@@ -581,9 +582,27 @@ export function createFakeCatalog(
     return { ...artist, topTracks, albums, ...(source === 'ytm' ? { related } : {}) }
   }
 
+  async function suggest(query: string, ctx: ProviderContext): Promise<string[]> {
+    await begin({ method: 'suggest', query, mode: ctx.mode }, ctx)
+    const typed = fold(query.trim())
+    if (!typed) return []
+    const candidates = new Set<string>()
+    for (const artist of library.artists.values()) candidates.add(fold(artist.name))
+    for (const album of library.albums.values()) candidates.add(fold(album.name))
+    for (const track of library.songs) candidates.add(fold(track.title))
+    return [...candidates]
+      .filter((candidate) => candidate !== typed && candidate.includes(typed))
+      .sort(
+        (a, b) => Number(b.startsWith(typed)) - Number(a.startsWith(typed)) || a.localeCompare(b),
+      )
+      .slice(0, 6)
+  }
+
   const provider: FakeCatalog = {
     id: source,
     calls,
+    // Only YouTube Music completes queries, as among the real providers.
+    ...(source === 'ytm' ? { suggest } : {}),
     fail(method, error) {
       if (error) failures.set(method, error)
       else failures.delete(method)
@@ -656,22 +675,6 @@ export function createFakeCatalog(
         }
       }
       return results
-    },
-
-    async suggest(query, ctx) {
-      await begin({ method: 'suggest', query, mode: ctx.mode }, ctx)
-      const typed = fold(query.trim())
-      if (!typed) return []
-      const candidates = new Set<string>()
-      for (const artist of library.artists.values()) candidates.add(fold(artist.name))
-      for (const album of library.albums.values()) candidates.add(fold(album.name))
-      for (const track of library.songs) candidates.add(fold(track.title))
-      return [...candidates]
-        .filter((candidate) => candidate !== typed && candidate.includes(typed))
-        .sort(
-          (a, b) => Number(b.startsWith(typed)) - Number(a.startsWith(typed)) || a.localeCompare(b),
-        )
-        .slice(0, 6)
     },
 
     async getTrack(id, ctx) {

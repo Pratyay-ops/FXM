@@ -57,7 +57,10 @@ export function canRetry(error: unknown): boolean {
   return !isFxmError(error, 'NotFound') && !isFxmError(error, 'Unsupported')
 }
 
-/** A compact error inside a section (a tab of results, a shelf), with "Try again". */
+/**
+ * A compact error inside a section (a tab of results, a shelf), with "Try again". It can take
+ * focus from a script, for when the control that led to it went away (see `useShowMore`).
+ */
 export function InlineError({
   error,
   source,
@@ -72,6 +75,7 @@ export function InlineError({
   return (
     <div
       role="alert"
+      tabIndex={-1}
       className={cn(
         'flex flex-col items-start gap-3 rounded-lg border border-border bg-surface p-4 sm:flex-row sm:items-center',
         className,
@@ -93,9 +97,18 @@ export function InlineError({
   )
 }
 
+/** The room above and below a {@link Notice}. */
+const NOTICE_SPACING = {
+  /** Inside a section, or where the way forward must show without scrolling on a phone. */
+  compact: 'py-6 sm:py-10',
+  normal: 'py-12',
+  /** A page of its own with little else on it. */
+  roomy: 'py-16 md:py-24',
+} as const
+
 /**
  * A centered message with an icon, a heading, a few words and a way forward. `headingLevel` 1
- * makes it a page of its own; 3 fits it inside a section.
+ * makes it a page of its own; 2 or 3 fits it inside a page or a section.
  */
 export function Notice({
   icon: Icon,
@@ -103,21 +116,21 @@ export function Notice({
   headingLevel,
   children,
   actions,
-  className,
+  spacing = 'normal',
 }: {
   icon: LucideIcon
   title: string
   headingLevel: 1 | 2 | 3
   children: ReactNode
   actions?: ReactNode
-  className?: string
+  spacing?: keyof typeof NOTICE_SPACING
 }) {
   const Heading = (['h1', 'h2', 'h3'] as const)[headingLevel - 1] ?? 'h2'
   return (
     <div
       className={cn(
-        'mx-auto flex max-w-md flex-col items-center px-2 py-12 text-center',
-        className,
+        'mx-auto flex max-w-md flex-col items-center px-2 text-center',
+        NOTICE_SPACING[spacing],
       )}
     >
       <span className="grid size-16 place-items-center rounded-full bg-elevated text-text-muted">
@@ -154,7 +167,9 @@ export type PageKindName = 'album' | 'artist' | 'playlist'
  * Spotify can't be reached, Settings when Spotify is switched off.
  *
  * - On a page (`kind` given, heading level 1): "This album is on YouTube Music" …
- * - In search results (no `kind`, heading level 3): instead of empty results.
+ * - On the search page (no `kind`, heading level 2): in place of the results and their tabs,
+ *   which would all say the same, kept short so that its button shows without scrolling on a
+ *   phone: "Search needs YouTube Music access" …
  */
 export function SourceUnavailable({
   availability,
@@ -166,25 +181,32 @@ export function SourceUnavailable({
   kind?: PageKindName
 }) {
   const name = sourceLabel(source)
-  const headingLevel = kind ? 1 : 3
+  const headingLevel = kind ? 1 : 2
   const onIt = kind ? `This ${kind} is on ${name}` : undefined
+  const spacing = kind ? 'normal' : 'compact'
+  const reach = (
+    <p>
+      FXM reaches {name} through the free FXM Connect browser extension, or through the desktop and
+      Android apps.
+    </p>
+  )
   switch (availability.status) {
     case 'needs-youtube':
       return (
         <Notice
           icon={Plug}
           headingLevel={headingLevel}
-          title={onIt ?? `Set up ${name}`}
+          title={onIt ?? `Search needs ${name} access`}
           actions={<OnboardingLink />}
+          spacing={spacing}
         >
-          <p>
-            FXM reaches {name} through the free FXM Connect browser extension, or through the
-            desktop and Android apps.
-          </p>
-          <p>
-            Without them, it tries Lite, an experimental mode that needs no install, but Lite isn't
-            working in this browser right now.
-          </p>
+          {reach}
+          {kind && (
+            <p>
+              Without them, it tries Lite, an experimental mode that needs no install, but Lite
+              isn't working in this browser right now.
+            </p>
+          )}
         </Notice>
       )
     case 'spotify-unreachable':
@@ -192,13 +214,11 @@ export function SourceUnavailable({
         <Notice
           icon={Plug}
           headingLevel={headingLevel}
-          title={onIt ?? `Set up ${name}`}
+          title={onIt ?? `Search needs ${name} access`}
           actions={<OnboardingLink />}
+          spacing={spacing}
         >
-          <p>
-            FXM reaches {name} through the free FXM Connect browser extension, or through the
-            desktop and Android apps.
-          </p>
+          {reach}
         </Notice>
       )
     case 'spotify-off':
@@ -206,6 +226,7 @@ export function SourceUnavailable({
         <Notice
           icon={CircleSlash}
           headingLevel={headingLevel}
+          spacing={spacing}
           title={onIt ?? `${name} is switched off`}
           actions={
             <Link to="/settings" className={buttonClasses()}>
@@ -224,6 +245,7 @@ export function SourceUnavailable({
           headingLevel={headingLevel}
           title={kind ? `This ${kind} can't be opened here` : `${name} isn't available`}
           actions={kind ? <SearchMusicLink /> : undefined}
+          spacing={spacing}
         >
           <p>This version of FXM can't read {name} yet.</p>
         </Notice>
@@ -240,7 +262,7 @@ export function EntityNotFound({ kind }: { kind: PageKindName }) {
       headingLevel={1}
       title={title}
       actions={<SearchMusicLink />}
-      className="py-16 md:py-24"
+      spacing="roomy"
     >
       <p>It may have been removed, or the link has a typo.</p>
     </Notice>

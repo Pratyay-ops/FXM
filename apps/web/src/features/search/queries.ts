@@ -4,8 +4,8 @@
  * platform's `fetch`, the capabilities, the catalog mode, the user's locale) with the query's
  * abort signal, so a search the user typed past is cancelled.
  *
- * Query keys hold the source, the catalog mode and the tier, so a mode switch or a new tier
- * never shows results made for the other.
+ * Query keys hold the source, the catalog mode and the tier (with the platform's revision), so
+ * a mode switch, a new tier or a new platform never shows results made for the other.
  *
  * @module
  */
@@ -16,7 +16,6 @@ import {
   type EntityId,
   isFxmError,
   type MetadataProvider,
-  type NetworkCapabilities,
   type Page,
   type Playlist,
   type ProviderContext,
@@ -25,8 +24,9 @@ import {
   type SourceId,
   type Track,
 } from '@fxm/core'
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useSettingsStore } from '../settings/settings-store'
+import type { SourcesSnapshot } from './sources'
 import { useSources, useSourcesSnapshot } from './sources-context'
 
 /** Results per search page. */
@@ -84,9 +84,12 @@ function userLocale(): { locale?: string; region?: string } {
   }
 }
 
-/** A tier label for query keys: YouTube and Spotify reach, e.g. `simple/unreachable`. */
-function tierKey(capabilities: NetworkCapabilities): string {
-  return `${capabilities.youtube}/${capabilities.spotify}`
+/**
+ * A tier label for query keys: the platform's revision, then YouTube and Spotify reach, e.g.
+ * `1:simple/unreachable`.
+ */
+function tierKey({ platformRevision, capabilities }: SourcesSnapshot): string {
+  return `${platformRevision}:${capabilities.youtube}/${capabilities.spotify}`
 }
 
 /** Builds the context for one provider call, in the current catalog mode. */
@@ -96,22 +99,27 @@ function useCallContext(): {
   tier: string
 } {
   const sources = useSources()
-  const { capabilities } = useSourcesSnapshot()
+  const snapshot = useSourcesSnapshot()
   const mode = useSettingsStore((state) => state.catalogMode)
   return {
     context: (signal) => sources.context({ mode, signal, ...userLocale() }),
     mode,
-    tier: tierKey(capabilities),
+    tier: tierKey(snapshot),
   }
 }
 
-/** One type of search results, a page at a time (`fetchNextPage` loads more). */
+/**
+ * One type of search results, a page at a time (`fetchNextPage` loads more). While `enabled` is
+ * false nothing is fetched, but results fetched before still show.
+ */
 export function useSearchResults<K extends SearchType>(
   target: SearchTarget,
   type: K,
   query: string,
+  enabled = true,
 ) {
   const { context, mode, tier } = useCallContext()
+  const active = enabled && query !== ''
   return useInfiniteQuery({
     queryKey: ['catalog', 'search', target.source, tier, mode, type, query],
     queryFn: async ({ pageParam, signal }) => {
@@ -128,9 +136,10 @@ export function useSearchResults<K extends SearchType>(
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor,
-    enabled: query !== '',
-    // While the next query loads, keep showing the results of the one before it.
-    placeholderData: keepPreviousData,
+    enabled: active,
+    // While the next query loads, keep showing the results of the one before it. Only then:
+    // TanStack Query also shows placeholder data for a query that is switched off.
+    placeholderData: (previous) => (active ? previous : undefined),
     retry: retryNetworkOnce,
     retryDelay: 800,
   })
@@ -140,11 +149,14 @@ export function useSearchResults<K extends SearchType>(
 export function useSuggestions(target: SearchTarget | undefined, query: string) {
   const { context, mode, tier } = useCallContext()
   const suggest = target?.provider.suggest?.bind(target.provider)
+  const active = suggest !== undefined && query !== ''
   return useQuery({
     queryKey: ['catalog', 'suggest', target?.source, tier, mode, query],
     queryFn: ({ signal }) => (suggest ? suggest(query, context(signal)) : Promise.resolve([])),
-    enabled: suggest !== undefined && query !== '',
-    placeholderData: keepPreviousData,
+    enabled: active,
+    // The completions before stay while the next ones load, but never for a provider that has
+    // none: placeholder data shows for a switched-off query too.
+    placeholderData: (previous) => (active ? previous : undefined),
     staleTime: 10 * 60_000,
     retry: false,
   })

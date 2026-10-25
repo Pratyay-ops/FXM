@@ -73,7 +73,12 @@ function ArtistContent({ id, provider }: { id: EntityId<'artist'>; provider: Met
           shape="circle"
           icon={MicVocal}
         />
-        <CollectionToolbar name={data.name} tracks={topTracks} context={context} />
+        <CollectionToolbar
+          name={data.name}
+          source={data.source}
+          tracks={topTracks}
+          context={context}
+        />
       </div>
 
       {topTracks.length > 0 && (
