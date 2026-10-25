@@ -22,7 +22,7 @@ import { InlineError, Notice, SourceUnavailable } from './catalog/states'
 import { TrackList } from './catalog/track-list'
 import { type SearchTarget, useSearchResults, useSuggestions } from './queries'
 import { type SearchTab, searchTabs, searchTiming, useSearchView } from './search-view'
-import { searchSourceIds, sourceAvailability, sourceLabel } from './sources'
+import { canSuggest, searchSourceIds, sourceAvailability, sourceLabel } from './sources'
 import { useSourcesSnapshot } from './sources-context'
 import { useDebouncedValue } from './use-debounced-value'
 
@@ -378,7 +378,7 @@ export function SearchResults({
   const target: SearchTarget = { source, provider: availability.provider }
   return (
     <>
-      {availability.provider.suggest && (
+      {canSuggest(availability.provider) && (
         // A key per source: one source's completions never show while another's load.
         <Suggestions
           key={source}

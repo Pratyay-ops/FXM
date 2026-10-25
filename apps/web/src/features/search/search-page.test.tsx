@@ -9,6 +9,7 @@ import {
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useSettingsStore } from '../settings/settings-store'
+import { createFakeCatalog } from './fake-catalog'
 import { FEEDBACK_MS } from './feedback'
 import { ONBOARDING_URL } from './onboarding'
 import { searchTiming } from './search-view'
@@ -362,6 +363,33 @@ describe('Search: typing, suggestions and tabs', () => {
     expect(await findList('Songs')).toBeInTheDocument()
     expect(screen.queryByRole('navigation', { name: 'Search suggestions' })).not.toBeInTheDocument()
     expect(spotify.suggest).toBeUndefined()
+  })
+
+  it('never asks a source that is called only on request for suggestions', async () => {
+    // Like Jamendo, whose one shared client_id has a small monthly budget.
+    const fake = createFakeCatalog('jamendo')
+    const suggest = vi.fn(async () => ['neon harbor'])
+    const jamendo: MetadataProvider = { ...fake, requestPolicy: 'explicit', suggest }
+    const { user, sources } = renderCatalog('/search?q=neon', { tier: 'full' })
+    act(() => {
+      sources.register(jamendo)
+    })
+    const sourceSwitch = await screen.findByRole('radiogroup', { name: 'Search in' }, SLOW)
+    await user.click(within(sourceSwitch).getByRole('radio', { name: 'Jamendo' }))
+    const box = screen.getAllByRole('searchbox', { name: 'Search' })[0] as HTMLElement
+    await user.type(box, ' h')
+
+    // Suggestions would have been asked for by the time the search, which waits longer, runs.
+    await waitFor(
+      () =>
+        expect(fake.calls).toContainEqual(
+          expect.objectContaining({ method: 'search', query: 'neon h' }),
+        ),
+      SLOW,
+    )
+    expect(await findList('Songs')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Search suggestions' })).not.toBeInTheDocument()
+    expect(suggest).not.toHaveBeenCalled()
   })
 
   it('searches the type of each tab, with videos only in Music + Video mode', async () => {

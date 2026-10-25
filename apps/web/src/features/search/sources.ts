@@ -346,6 +346,16 @@ export function sourceAvailability(
   return provider === undefined ? { status: 'missing' } : { status: 'available', provider }
 }
 
+/**
+ * Whether the search page may ask `provider` for completions as the user types: when it has
+ * `suggest`, and is not a source to call only on request (`requestPolicy: 'explicit'`, such as
+ * Jamendo, whose one shared `client_id` has a small monthly budget). The user never asked that
+ * source for suggestions.
+ */
+export function canSuggest(provider: MetadataProvider): boolean {
+  return provider.suggest !== undefined && provider.requestPolicy !== 'explicit'
+}
+
 /** The order sources are offered in. Plugin sources follow, by name. */
 const SOURCE_ORDER: readonly SourceId[] = ['ytm', 'spotify', 'archive', 'jamendo', 'local']
 

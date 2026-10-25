@@ -26,7 +26,7 @@ import {
 } from '@fxm/core'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useSettingsStore } from '../settings/settings-store'
-import type { SourcesSnapshot } from './sources'
+import { canSuggest, type SourcesSnapshot } from './sources'
 import { useSources, useSourcesSnapshot } from './sources-context'
 
 /** Results per search page. */
@@ -145,10 +145,16 @@ export function useSearchResults<K extends SearchType>(
   })
 }
 
-/** Completions for what the user is typing, from the source's provider (if it has any). */
+/**
+ * Completions for what the user is typing, from the source's provider, if it has any and may be
+ * asked as the user types (`canSuggest`).
+ */
 export function useSuggestions(target: SearchTarget | undefined, query: string) {
   const { context, mode, tier } = useCallContext()
-  const suggest = target?.provider.suggest?.bind(target.provider)
+  const suggest =
+    target && canSuggest(target.provider)
+      ? target.provider.suggest?.bind(target.provider)
+      : undefined
   const active = suggest !== undefined && query !== ''
   return useQuery({
     queryKey: ['catalog', 'suggest', target?.source, tier, mode, query],
