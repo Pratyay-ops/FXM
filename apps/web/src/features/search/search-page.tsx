@@ -1,5 +1,5 @@
 import { Info } from 'lucide-react'
-import { useId, useState } from 'react'
+import { lazy, Suspense, useId, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { SearchField } from '../../components/layout/search-field'
 import { CardGrid, SongList, VideoGrid } from '../../components/media/placeholders'
@@ -11,6 +11,11 @@ import { CatalogModeControl } from '../settings/catalog-mode-control'
 import { type CatalogMode, useSettingsStore } from '../settings/settings-store'
 
 export type SearchTab = 'songs' | 'albums' | 'artists' | 'playlists' | 'videos'
+
+// Local files (stage 4.4) bring their database: loaded after the page, not with the shell.
+const LocalSearchSection = lazy(() =>
+  import('../local-files/search-section').then((m) => ({ default: m.LocalSearchSection })),
+)
 
 const MUSIC_TABS: readonly TabItem<SearchTab>[] = [
   { value: 'songs', label: 'Songs' },
@@ -130,6 +135,11 @@ export function SearchPage() {
           {MODE_HINTS[catalogMode]}
         </p>
       </div>
+      {query && (
+        <Suspense fallback={null}>
+          <LocalSearchSection query={query} />
+        </Suspense>
+      )}
       {query ? <Results query={query} catalogMode={catalogMode} /> : <BrowseAll />}
     </div>
   )

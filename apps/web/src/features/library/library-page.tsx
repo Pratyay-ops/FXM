@@ -12,7 +12,7 @@ import {
   Trash,
   UserRound,
 } from 'lucide-react'
-import { useId, useState } from 'react'
+import { lazy, Suspense, useId, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
@@ -47,12 +47,19 @@ import { TrackList } from './track-list'
 import { Dialog, DialogActions } from './ui/dialog'
 import { Menu } from './ui/menu'
 
-type LibraryTab = 'playlists' | 'liked' | 'downloads' | 'artists' | 'albums' | 'recent'
+// Local files (stage 4.4) load when their tab opens: the tag reader and their database stay out
+// of the Library's first download.
+const LocalFilesPanel = lazy(() =>
+  import('../local-files/local-files-panel').then((m) => ({ default: m.LocalFilesPanel })),
+)
+
+type LibraryTab = 'playlists' | 'liked' | 'downloads' | 'local' | 'artists' | 'albums' | 'recent'
 
 const TABS: readonly TabItem<LibraryTab>[] = [
   { value: 'playlists', label: 'Playlists' },
   { value: 'liked', label: 'Liked songs' },
   { value: 'downloads', label: 'Downloads' },
+  { value: 'local', label: 'Local files' },
   { value: 'artists', label: 'Artists' },
   { value: 'albums', label: 'Albums' },
   { value: 'recent', label: 'Recently played' },
@@ -382,7 +389,10 @@ function RecentPanel() {
   )
 }
 
-/** The Library: playlists, Liked songs, Downloads, artists, albums and recently played. */
+/**
+ * The Library: playlists, Liked songs, Downloads, local files (stage 4.4), artists, albums and
+ * recently played.
+ */
 export function LibraryPage() {
   const [params, setParams] = useSearchParams()
   const requested = params.get('tab')
@@ -422,6 +432,11 @@ export function LibraryPage() {
         {tab === 'playlists' && <PlaylistsPanel onCreate={dialogs.create} />}
         {tab === 'liked' && <BuiltInPanel id={LIKED_PLAYLIST_ID} />}
         {tab === 'downloads' && <BuiltInPanel id={DOWNLOADS_PLAYLIST_ID} />}
+        {tab === 'local' && (
+          <Suspense fallback={<ListSkeleton />}>
+            <LocalFilesPanel />
+          </Suspense>
+        )}
         {tab === 'artists' && <FollowsPanel kind="artist" />}
         {tab === 'albums' && <FollowsPanel kind="album" />}
         {tab === 'recent' && <RecentPanel />}
