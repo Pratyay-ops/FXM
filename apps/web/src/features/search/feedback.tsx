@@ -73,7 +73,7 @@ function Toast({
   // timers) must not show again when the next page renders.
   if (until <= Date.now()) return null
   return (
-    <p className="max-w-sm rounded-lg bg-text px-4 py-3 text-center text-sm font-semibold text-background shadow-lg transition-[opacity,translate] duration-200 starting:translate-y-2 starting:opacity-0 forced-colors:border">
+    <p className="max-w-sm rounded-lg bg-text px-4 py-3 text-center text-sm font-semibold text-balance text-background shadow-lg transition-[opacity,translate] duration-200 starting:translate-y-2 starting:opacity-0 forced-colors:border">
       {message}
     </p>
   )
