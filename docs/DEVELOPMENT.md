@@ -34,6 +34,8 @@ Run `make` with no arguments to list all commands.
 | Python 3.13 | `.tools/uv/python/` | `make py-setup` |
 | Python virtualenv | `.venv/` in each checkout | `make py-setup` |
 | GitHub CLI 2.102.0 and its login | `.tools/bin/gh`, `.tools/gh/` | `make gh-setup` (optional) |
+| git-cliff 2.14.2 (release notes) | `.tools/bin/git-cliff` | the release commands, on first use |
+| actionlint 1.7.12 (workflow linter) | `.tools/bin/actionlint` | `make release-check` |
 | JDK, Android SDK, Gradle caches | `.tools/jdk/`, `.tools/android-sdk/`, `.tools/gradle/` | `make android-setup` (stage 6.1) |
 | Stage worktrees | `../FXM-worktrees/<branch>/` | `make wt-new` |
 
@@ -67,6 +69,8 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
+| `make release-pr VERSION=x.y.z` | Open the release pull request from `develop` into `main` (`DRY_RUN=1`: only show the checks, the plan and the notes), see [Releases](#releases) |
+| `make release-notes` / `release-build` / `release-check` | Print the next release's notes, build its files into `dist/release/` (once every package has the release version), or lint the workflows and test the release scripts |
 | `make clean` | Remove build output |
 | `make nuke` | Remove **all** installed tools, dependencies and caches |
 
@@ -82,9 +86,29 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 
 `apps/extension` is FXM Connect, the optional companion extension that lets the web app reach YouTube, Spotify and Last.fm from the user's browser (Manifest V3, Chromium and Firefox). `make build` includes it; `make extension` builds only it. Its end-to-end test loads the built extension into Playwright's Chromium against a local HTTPS mock on port 5240. It is not part of `make test`; run it with `scripts/run.sh pnpm --filter @fxm/extension test:e2e`. The first run installs Chromium into `.tools/playwright`. Permissions, privacy, installation and the page protocol are in [apps/extension/README.md](../apps/extension/README.md).
 
+## Releases
+
+A release goes from `develop` to `main` through a pull request, and a workflow publishes it. [WORKFLOW.md](WORKFLOW.md#8-releases) describes the whole flow; these are the commands:
+
+| Command | What it does |
+|---|---|
+| `make release-pr VERSION=x.y.z DRY_RUN=1` | Run every check and print the plan and the release notes. Changes, commits and pushes nothing |
+| `make release-pr VERSION=x.y.z` | On a clean `develop` equal to `origin/develop`: set the version, regenerate `CHANGELOG.md`, commit `chore(release): vX.Y.Z`, push `develop` and open the pull request "Release vX.Y.Z" into `main`. It prints the URL and never merges. Run again with the version `develop` already has, it updates that release: `CHANGELOG.md`, the pull request's notes, or the pull request itself if it was closed |
+| `make release-notes` | Print the notes of the changes since the last release (`VERSION=x.y.z`: the notes of that release) |
+| `make release-build` | Build what a release ships into `dist/release/`, with `SHA256SUMS`: the web app, landing page and FXM Connect zips. Every package must have the release version, as on `main` and on `develop` after `make release-pr`. To try it before then, run `scripts/release-version.sh x.y.z` and the build in a throwaway worktree (`make wt-new`), and never commit that change. Needs `zip` (preinstalled on macOS; `sudo apt install zip` on Debian and Ubuntu) |
+| `make release-check` | Lint the GitHub workflows with actionlint and run the release scripts' offline tests. CI runs it after `make check`; run it yourself after changing `.github/workflows/`, `cliff.toml` or `scripts/release-*.sh` |
+
+The scripts behind them work on their own too:
+
+- `scripts/release-version.sh x.y.z` sets the version: the root and every workspace `package.json` (FXM Connect's manifest and the Android `versionName` come from theirs) and `APP_VERSION` in `packages/core/src/index.ts`. `--dry-run` shows the changes, `--check` fails unless every package agrees.
+- `scripts/release-notes.sh [x.y.z]` prints release notes, and `--changelog x.y.z` regenerates `CHANGELOG.md`. git-cliff reads `cliff.toml` and runs offline.
+- `release.yml` runs the rest: `release-plan.sh` decides whether to release, `release-collect.sh` gathers the artifact jobs' files and refuses any that `fxm_release_catalog` in `scripts/release-lib.sh` doesn't list for that job, and `release-publish.sh` tags and publishes.
+
+git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`, installed on first use. `.github/workflows/release.yml` runs on every push to `main` and publishes a release when the version has none yet. Like `ci.yml`, it pins its actions to commit SHAs, and it builds without caches.
+
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
+`.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`, then `make release-check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
 
 ## Android app
 
@@ -213,6 +237,8 @@ Prefer releases that are at least two weeks old, and update the version and its 
 | pnpm | `scripts/install-pnpm.sh` **and** `"packageManager"` in `package.json` | `dist.integrity` of `https://registry.npmjs.org/@pnpm/exe.<platform>/<version>` |
 | uv | `scripts/install-uv.sh` | `uv-<target>.tar.gz.sha256` files on the GitHub release |
 | gh | `scripts/install-gh.sh` | `gh_<version>_checksums.txt` on the GitHub release |
+| git-cliff | `scripts/install-git-cliff.sh` | The SHA-256 digest GitHub shows for each `git-cliff-<version>-<target>.tar.gz`, checked against the `.sha512` files on the release |
+| actionlint | `scripts/install-actionlint.sh` | `actionlint_<version>_checksums.txt` on the GitHub release |
 
 ## Troubleshooting
 

@@ -1,0 +1,618 @@
+{
+  "contents": {
+    "tabbedSearchResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "title": "YT Music",
+            "selected": true,
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicShelfRenderer": {
+                      "title": {
+                        "runs": [
+                          {
+                            "text": "Community playlists"
+                          }
+                        ]
+                      },
+                      "contents": [
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "thumbnail": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/faEQKmIAuQljo2lnU8TDOKjrkpx4ay8aqyesHQf8JXIzb6VX3HhjNN1MgtSqsGw8TZrKNhdAA_8f=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/faEQKmIAuQljo2lnU8TDOKjrkpx4ay8aqyesHQf8JXIzb6VX3HhjNN1MgtSqsGw8TZrKNhdAA_8f=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/faEQKmIAuQljo2lnU8TDOKjrkpx4ay8aqyesHQf8JXIzb6VX3HhjNN1MgtSqsGw8TZrKNhdAA_8f=s1200",
+                                      "width": 1200,
+                                      "height": 1200
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "overlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PLUwsfagaCki8ibIU--3oKGVXqhKhl3_SW",
+                                        "params": "wAEB"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "flexColumns": [
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Radiohead - Greatest Hits"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Ali Aideel Ismail",
+                                        "navigationEndpoint": {
+                                          "browseEndpoint": {
+                                            "browseId": "UCdHX_1N1QgNP7Zn5JwMAGfA",
+                                            "browseEndpointContextSupportedConfigs": {
+                                              "browseEndpointContextMusicConfig": {
+                                                "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "text": " • "
+                                      },
+                                      {
+                                        "text": "314K views"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ],
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLUwsfagaCki8ibIU--3oKGVXqhKhl3_SW",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "thumbnail": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/YGG15bke7lVQB57Nl3TJt6TXPTgGUzt3mzq982FCy6zIPrsEyGiXvvaCF09A-7uWTJWOJwCFIA=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/YGG15bke7lVQB57Nl3TJt6TXPTgGUzt3mzq982FCy6zIPrsEyGiXvvaCF09A-7uWTJWOJwCFIA=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/YGG15bke7lVQB57Nl3TJt6TXPTgGUzt3mzq982FCy6zIPrsEyGiXvvaCF09A-7uWTJWOJwCFIA=s1200",
+                                      "width": 1200,
+                                      "height": 1200
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "overlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PLYFOMRTQDays",
+                                        "params": "wAEB"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "flexColumns": [
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Radiohead"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Riya Mary",
+                                        "navigationEndpoint": {
+                                          "browseEndpoint": {
+                                            "browseId": "UCQEHUiP4a64vBhTF0QQCZKQ",
+                                            "browseEndpointContextSupportedConfigs": {
+                                              "browseEndpointContextMusicConfig": {
+                                                "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "text": " • "
+                                      },
+                                      {
+                                        "text": "70 views"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ],
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLYFOMRTQDays",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "thumbnail": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.ggpht.com/2zJ2RoTFd8kq-837KqC94iOKOoq7_---h_5T0NXJp9bgaTx1SFkQb_QYdDXna_CWRUvMJfXqHk0=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/2zJ2RoTFd8kq-837KqC94iOKOoq7_---h_5T0NXJp9bgaTx1SFkQb_QYdDXna_CWRUvMJfXqHk0=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/2zJ2RoTFd8kq-837KqC94iOKOoq7_---h_5T0NXJp9bgaTx1SFkQb_QYdDXna_CWRUvMJfXqHk0=s1200",
+                                      "width": 1200,
+                                      "height": 1200
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "overlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PLNfe5eb0vdozpNx650kvCDhFjteIpW-L2",
+                                        "params": "wAEB"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "flexColumns": [
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Radiohead B-Sides"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Greenplastics",
+                                        "navigationEndpoint": {
+                                          "browseEndpoint": {
+                                            "browseId": "UCkjBRrNnCKdZqa06Nh7jhIw",
+                                            "browseEndpointContextSupportedConfigs": {
+                                              "browseEndpointContextMusicConfig": {
+                                                "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "text": " • "
+                                      },
+                                      {
+                                        "text": "34K views"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ],
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLNfe5eb0vdozpNx650kvCDhFjteIpW-L2",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "thumbnail": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.ggpht.com/9aBu6e_hWWWmagGBN2xq4FdArKNYrTWX6wqqIgij0MxsAPAUNKV12cdaEMZe9dF8GSnFXnGZsM4=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/9aBu6e_hWWWmagGBN2xq4FdArKNYrTWX6wqqIgij0MxsAPAUNKV12cdaEMZe9dF8GSnFXnGZsM4=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/9aBu6e_hWWWmagGBN2xq4FdArKNYrTWX6wqqIgij0MxsAPAUNKV12cdaEMZe9dF8GSnFXnGZsM4=s1200",
+                                      "width": 1200,
+                                      "height": 1200
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "overlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PL-CkJkU7tDNV-n-GA7MaAezXTzhQvAYQl",
+                                        "params": "wAEB"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "flexColumns": [
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Radiohead B Sides/Unreleased"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Citizen Insane",
+                                        "navigationEndpoint": {
+                                          "browseEndpoint": {
+                                            "browseId": "UCKpc3WH6zGKuYA4oQOet99A",
+                                            "browseEndpointContextSupportedConfigs": {
+                                              "browseEndpointContextMusicConfig": {
+                                                "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "text": " • "
+                                      },
+                                      {
+                                        "text": "71K views"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ],
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPL-CkJkU7tDNV-n-GA7MaAezXTzhQvAYQl",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "thumbnail": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.ggpht.com/uEs93pG3rlwmlk5ltgXzl3qG7tLKO6urodnso0QJyMhPPVWfBTx8RVz4pdyACJROethUrSNIUw8=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/uEs93pG3rlwmlk5ltgXzl3qG7tLKO6urodnso0QJyMhPPVWfBTx8RVz4pdyACJROethUrSNIUw8=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    },
+                                    {
+                                      "url": "https://yt3.ggpht.com/uEs93pG3rlwmlk5ltgXzl3qG7tLKO6urodnso0QJyMhPPVWfBTx8RVz4pdyACJROethUrSNIUw8=s1200",
+                                      "width": 1200,
+                                      "height": 1200
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "overlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PLHvKUtvQSyaixNDpYmuDihiJxQQC0-sW_",
+                                        "params": "wAEB"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "flexColumns": [
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Radiohead Singles"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "91.blind.",
+                                        "navigationEndpoint": {
+                                          "browseEndpoint": {
+                                            "browseId": "UC5rtDbfALXmRimqimy4Yb2A",
+                                            "browseEndpointContextSupportedConfigs": {
+                                              "browseEndpointContextMusicConfig": {
+                                                "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "text": " • "
+                                      },
+                                      {
+                                        "text": "8.6K views"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ],
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLHvKUtvQSyaixNDpYmuDihiJxQQC0-sW_",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "thumbnail": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/idfH6NuiV3IWRxV1o3DczQvhNTnpErz18ahmC4m9hlFi8Xyb5RAkCuZFGzIqqHtinH3vQTHMK-k=s192",
+                                      "width": 192,
+                                      "height": 192
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/idfH6NuiV3IWRxV1o3DczQvhNTnpErz18ahmC4m9hlFi8Xyb5RAkCuZFGzIqqHtinH3vQTHMK-k=s576",
+                                      "width": 576,
+                                      "height": 576
+                                    },
+                                    {
+                                      "url": "https://yt3.googleusercontent.com/idfH6NuiV3IWRxV1o3DczQvhNTnpErz18ahmC4m9hlFi8Xyb5RAkCuZFGzIqqHtinH3vQTHMK-k=s1200",
+                                      "width": 1200,
+                                      "height": 1200
+                                    }
+                                  ]
+                                }
+                              }
+                            },
+                            "overlay": {
+                              "musicItemThumbnailOverlayRenderer": {
+                                "content": {
+                                  "musicPlayButtonRenderer": {
+                                    "playNavigationEndpoint": {
+                                      "watchPlaylistEndpoint": {
+                                        "playlistId": "PLV0dN5saeSACuVl8IpbdHxReeioiAecGw",
+                                        "params": "wAEB"
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            "flexColumns": [
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "RADIOHEAD GUITAR TABS"
+                                      }
+                                    ]
+                                  }
+                                }
+                              },
+                              {
+                                "musicResponsiveListItemFlexColumnRenderer": {
+                                  "text": {
+                                    "runs": [
+                                      {
+                                        "text": "Nikola Gugoski",
+                                        "navigationEndpoint": {
+                                          "browseEndpoint": {
+                                            "browseId": "UCLdCUDlzx4qmwVlyVfUHxdg",
+                                            "browseEndpointContextSupportedConfigs": {
+                                              "browseEndpointContextMusicConfig": {
+                                                "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                                              }
+                                            }
+                                          }
+                                        }
+                                      },
+                                      {
+                                        "text": " • "
+                                      },
+                                      {
+                                        "text": "384K views"
+                                      }
+                                    ]
+                                  }
+                                }
+                              }
+                            ],
+                            "menu": {
+                              "menuRenderer": {
+                                "items": []
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "browseEndpoint": {
+                                "browseId": "VLPLV0dN5saeSACuVl8IpbdHxReeioiAecGw",
+                                "browseEndpointContextSupportedConfigs": {
+                                  "browseEndpointContextMusicConfig": {
+                                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "continuations": [
+                        {
+                          "nextContinuationData": {
+                            "continuation": "Et4HEglSYWRpb2hlYWQa0AdFZ2VLQVFRb0FFQUJTQlJxRUJBUUVBa1FCQkFERUFVUUNoQVZFQkdDQVNKUVRGVjNjMlpoWjJGRGEyazRhV0pKVlMwdE0yOUxSMVpZY1doTGFHd3pYMU5YZ2dFTlVFeFpSazlOVWxSUlJHRjVjNElCSWxCTVRtWmxOV1ZpTUhaa2IzcHdUbmcyTlRCcmRrTkVhRVpxZEdWSmNGY3RUREtDQVNKUVRDMURhMHByVlRkMFJFNVdMVzR0UjBFM1RXRkJaWHBZVkhwb1VYWkJXVkZzZ2dFaVVFeElka3RWZEhaUlUzbGhhWGhPUkhCWmJYVkVhV2hwU25oUlVVTXdMWE5YWDRJQklsQk1WakJrVGpWellXVlRRVU4xVm13NFNYQmlaRWg0VW1WbGFXOXBRV1ZqUjNlQ0FTSlFUSGxQZFRSdU1YQndjMEl4WW10YVVsUjVjalV4VDAxc2FXaFFRbXRSUWkxWmdnRVNVRXcxTmpBNFJUVXdOa1pDTUVRMk1qUXlnZ0VpVUV4MFdGcHpkV1E1UjBGa1RuUmpObFkxWldwMlRuaHhUM2hxYWxGaWVFcHlOWUlCSWxCTVVVdEtja2swVURRMlVqbDVabGxLWlRSQ1UwWTJORUpQV1dwUVQwdE9NM21DQVNKUVRIVlFWbWhaTTFWa1YwRTFka3hFYm0xWGFuVllaMHB6UVRWTlRXMVhUV2szZ2dFaVVFeHhVVjlzUW5JdGRYZDFTa2t0V0hOSE0weDRiblJrWkhCS2MyTlVjemhGVklJQklsQk1XVzExZFcxNk9WSXhUM1J1U1ZNemNVUTVURGQ2Ym5VNFdITkhZeTEyTmxTQ0FTSlFURzlhVTJ0U1RGUm1lbUZVT0RoTk1VeFpVMWRGVVVORmNXbFdNbTVEY2tobmdnRWlVRXhzZURKbGJ6SjBSRFpMY1hCU04wVXRabWd4WTA5cFpIbEZUMHhXWlU5eVZZSUJJbEJNVVZSTWNreFhUWGRLUkU1NlJ6RlBibHBOVFRWV2QwRXlPRTVQTlVoUWFVV0NBU0pRVEhsMmFHUk9aVzlXZDNscmEzTldXa3czYjAxMk9XbEZXbXROVm1GbFRUQm5nZ0VpVUV4NWFFWTNRVlZrTWxBd2IwRXdVeTFyVVc1eWMxa3RkSGhGUlRGRlFtaEpTWUlCSWxCTVlUbDBkbXhmYmkxWVpHOTFVakV4VjNSNlZTMXBSR2xUY21oelIxcE5VRzZDQVNKUVRGbHRkWFZ0ZWpsU01VOTBlREZ3VTFGdmEwRlpkRXh3ZUdsbmJERTJSV2hSGPHq0C4%3D"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "header": {}
+              }
+            },
+            "tabIdentifier": "music_search_catalog"
+          }
+        }
+      ]
+    }
+  }
+}

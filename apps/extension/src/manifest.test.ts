@@ -14,7 +14,7 @@ import {
 import { buildRulesets } from './rules.ts'
 
 const RELEASE_HOSTS = [
-  'https://fxm-music.pages.dev/*',
+  'https://fxmusic.pages.dev/*',
   'https://www.youtube.com/*',
   'https://music.youtube.com/*',
   'https://youtubei.googleapis.com/*',
@@ -101,8 +101,8 @@ describe.each(VARIANTS)('manifest for $browser (dev: $dev)', ({ browser, dev }) 
     expect(m.content_scripts).toEqual([
       {
         matches: dev
-          ? ['https://fxm-music.pages.dev/*', 'http://localhost/*']
-          : ['https://fxm-music.pages.dev/*'],
+          ? ['https://fxmusic.pages.dev/*', 'http://localhost/*']
+          : ['https://fxmusic.pages.dev/*'],
         js: ['content.js'],
         run_at: 'document_start',
         all_frames: false,
@@ -148,7 +148,7 @@ describe('Firefox manifest', () => {
         data_collection_permissions: { required: ['none'] },
       },
     })
-    expect(FIREFOX_ADDON_ID).toBe('fxm-connect@fxm-music.pages.dev')
+    expect(FIREFOX_ADDON_ID).toBe('fxm-connect@fxmusic.pages.dev')
   })
 
   it('requires a Firefox with MV3 declarativeNetRequest', () => {

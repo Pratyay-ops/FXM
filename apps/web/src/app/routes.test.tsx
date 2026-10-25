@@ -1,9 +1,12 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import type { RouteObject } from 'react-router'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppLayout } from '../components/layout/app-layout'
+import { renderCatalog, resetCatalogState } from '../features/search/testing'
 import { renderApp } from '../test/render'
 import { RootError, RouteError } from './errors'
+
+afterEach(() => resetCatalogState())
 
 /** The app's route frame (shell, root and page error elements) around `page`. */
 function shellAround(page: RouteObject, routeError = <RouteError />): RouteObject[] {
@@ -22,8 +25,9 @@ describe('routes', () => {
     ['/', /^Good (morning|afternoon|evening)$/],
     ['/search', 'Search'],
     ['/library', 'Your library'],
-    ['/album/MPREb_123', 'Album MPREb_123'],
-    ['/artist/UC-abc', 'Artist UC-abc'],
+    // No YouTube until the platform is wired in: the pages show the onboarding entry point.
+    ['/album/ytm:MPREb_123', 'This album is on YouTube Music'],
+    ['/artist/ytm:UC-abc', 'This artist is on YouTube Music'],
     ['/playlist/liked', 'Playlist liked'],
     ['/now-playing', 'Now playing'],
     ['/settings', 'Settings'],
@@ -41,9 +45,7 @@ describe('routes', () => {
 
   it('fills the search box from ?q=', async () => {
     renderApp('/search?q=daft%20punk')
-    expect(
-      await screen.findByRole('heading', { level: 2, name: 'Results for “daft punk”' }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { level: 1, name: 'Search' })).toBeInTheDocument()
     for (const box of screen.getAllByRole('searchbox', { name: 'Search' })) {
       expect(box).toHaveValue('daft punk')
     }
@@ -79,8 +81,10 @@ describe('routes', () => {
     expect(router.state.location.pathname).toBe('/library')
   })
 
+  // Results and their tabs need a source that can be searched, which the app gets once the
+  // platform and providers are wired in: until then, these use the fake catalog.
   it('offers a Videos tab only in Music + Video mode', async () => {
-    const { user } = renderApp('/search?q=lofi')
+    const { user } = renderCatalog('/search?q=lofi')
     const tabs = await screen.findByRole('tablist', { name: 'Result type' })
     expect(
       within(tabs)
@@ -94,7 +98,7 @@ describe('routes', () => {
   })
 
   it('falls back to Songs when switching to Music mode on the Videos tab', async () => {
-    const { user } = renderApp('/search?q=lofi')
+    const { user } = renderCatalog('/search?q=lofi')
     const tabs = await screen.findByRole('tablist', { name: 'Result type' })
     await user.click(screen.getByRole('radio', { name: 'Music + Video' }))
     await user.click(within(tabs).getByRole('tab', { name: 'Videos' }))

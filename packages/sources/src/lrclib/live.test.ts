@@ -59,7 +59,7 @@ describe.skipIf(!live)('LRCLIB, live', { timeout: 30_000 }, () => {
   })
 
   it('lets any web page call it, with the Lrclib-Client header', async () => {
-    const origin = 'https://fxm-music.pages.dev'
+    const origin = 'https://fxmusic.pages.dev'
     const url = `${LRCLIB_ORIGIN}/api/search?q=${encodeURIComponent('Radiohead Creep')}`
     const preflight = await fetch(url, {
       method: 'OPTIONS',

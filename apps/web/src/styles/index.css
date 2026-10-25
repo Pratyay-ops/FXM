@@ -15,6 +15,13 @@
     --shell-bottom: calc(var(--spacing-tabbar) + var(--spacing-mini) + 1rem + var(--safe-bottom));
   }
 
+  /* Phones: a full-screen page (Now playing) has neither the tab bar nor the mini player. */
+  @media (width < 48rem) {
+    :root:has(main[data-full-screen]) {
+      --shell-bottom: var(--safe-bottom);
+    }
+  }
+
   @media (width >= 48rem) {
     :root {
       --spacing-gutter: 1.5rem;

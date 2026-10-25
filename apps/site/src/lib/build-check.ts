@@ -24,7 +24,7 @@ export interface Problem {
 }
 
 export interface SiteInput {
-  /** Origin the site is served from, such as https://fxm-music.pages.dev. */
+  /** Origin the site is served from, such as https://fxmusic.pages.dev. */
   site: string
   /**
    * Every file in the build output, keyed by its path relative to the output folder with
