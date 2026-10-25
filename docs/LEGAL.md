@@ -71,7 +71,7 @@ When FXM starts using another service's undocumented API, start a log for that s
 - Keep the clean-room logs current. They show where each protocol fact came from.
 - Keep secrets out of git. Secret scanning and push protection are on (see [Security](#security)).
 - Keep the contacts below at hand.
-- Have a short legal consult before the public launch (see [Owner actions](#owner-actions)).
+- Optionally, have a short legal consult before the public launch (see [Owner actions](#owner-actions)).
 
 **When a notice arrives,** as an issue, a letter or email to the owner, a GitHub DMCA notice, a message from an extension store or a notice from Cloudflare about the site or the web app:
 
@@ -118,4 +118,4 @@ Every link in this playbook was checked on 2026-10-26.
 |---|---|
 | Turn on secret scanning and push protection | Done: found enabled on 2026-10-25 |
 | Turn on private vulnerability reporting: in the repository's Settings, Advanced Security, then Enable next to "Private vulnerability reporting" (or `gh api -X PUT repos/Pratyay-ops/FXM/private-vulnerability-reporting`). The README, the disclaimer page, the security policy and `security.txt` all send security reports to it | Open. Do it as soon as possible, and at the latest before the first release to `main` (M1, `v0.1.0`), which puts the policy on the default branch and the site, with `security.txt`, in production |
-| A short legal consult before the public launch, with a lawyer in the owner's jurisdiction. SFLC.in is one option in India | Open. Due before the first release to `main` (M1, `v0.1.0`) |
+| A short legal consult before the public launch, with a lawyer in the owner's jurisdiction. SFLC.in is one option in India | Optional, the owner's call: FXM is mostly for personal use (owner, 2026-10-25) |
