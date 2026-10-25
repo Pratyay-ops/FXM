@@ -21,7 +21,7 @@ Everything is re-exported from `src/index.ts`, so import from `@fxm/core`.
 | `model.ts` | `Track` (with `kind`: `song`, `music-video`, `video`, `episode`), `Album`, `Artist`, `Playlist`, `Artwork`, `ArtistRef`, `AlbumRef`, `Page<T>`, home-feed `Shelf`s, and `SearchResults`, where songs (`tracks`) and videos (`videos`) are paged separately. Also the `isTrackSeed` guard. |
 | `mode.ts` | `CatalogMode` (`music` = "Music", `all` = "Music + Video") and the one policy every feature goes through: `modePolicy` (`playable`, `needs-song-match`, `hidden`). `applyModeFilter` filters lists to show; `isPlayable` and `filterPlayable` filter what is about to play, such as audio candidates. In Music mode an official music video must be mapped to its song first, and other videos are hidden. |
 | `quality.ts` | `Codec`, `Container`, `QualityTier` with `tierOf` (documented per-codec thresholds), and `compareStreams` and `pickStream` to rank streams and apply a tier ceiling. `DownloadFormat` with `DOWNLOAD_FORMATS` and `describeConversion` (honest labels such as "FLAC (converted from Opus, same quality as the source)"). `QualityPrefs` with `DEFAULT_QUALITY_PREFS` (read-only), `DEFAULT_MP3_KBPS`, `sanitizeQualityPrefs` and the value guards. |
-| `providers.ts` | `MetadataProvider` (search, an optional `suggest` and the entity pages), `RecommendationProvider`, the two-phase `AudioSource` (`match` returns ranked `AudioCandidate`s with confidence and evidence; `resolve` returns `StreamOption`s), `LyricsProvider`, `AccountProvider`, and `ProviderContext` with the injected `Fetch`, `Platform` and `NetworkCapabilities`. Types only. |
+| `providers.ts` | `MetadataProvider` (search, an optional `suggest` and the entity pages), `RecommendationProvider`, the two-phase `AudioSource` (`match` returns ranked `AudioCandidate`s with confidence and evidence; `resolve` returns `StreamOption`s), `LyricsProvider`, `AccountProvider`, and `ProviderContext` with the injected `Fetch`, `Platform` and `NetworkCapabilities` (how far YouTube and Spotify can be reached, see below). Types only. |
 | `text.ts` | Matching helpers: `normalizeText`, `splitTitle` (core, qualifiers, featured artists), `stripPresentationNoise` and `extractVersionTags` (strong, medium and soft version tags). |
 | `errors.ts` | `FxmError` with a `code` (`NotFound`, `RateLimited`, `AuthRequired`, `Unavailable`, `GeoBlocked`, `Expired`, `BotCheck`, `Unsupported`, `Network`, `Parse`), an optional `cause` and `retryAfterMs`, plus the `isFxmError` guard. |
 
@@ -58,6 +58,24 @@ Runtime plugins (a later stage) add sources of their own. A plugin source ID is 
 - **Downloads** take the best option, such as a real FLAC original, and label any conversion with `describeConversion`.
 
 For SABR streams, `url` holds the server ABR streaming URL, and `playback` carries the session parameters as JSON.
+
+### What the platform can reach
+
+`ProviderContext.capabilities` grades YouTube and Spotify instead of answering yes or no. Each level allows everything the one before it does.
+
+| `youtube` | Where | What works |
+|---|---|---|
+| `none` | A plain web page | No YouTube at all |
+| `simple` | The web app's experimental Lite tier, which needs no install | InnerTube calls (search, browse, `next`, `player`) as CORS-simple POSTs from a sandboxed document with an opaque origin, and playback through `<audio src>`. googlevideo's bytes can't be read: no downloads, no end-of-file range probes, no equalizer, and no deciphering or PO-token rungs |
+| `full` | FXM Connect, the desktop app, the Android app | Everything, including reading media bytes |
+
+| `spotify` | Where | What works |
+|---|---|---|
+| `unreachable` | A plain web page | No Spotify at all |
+| `anonymous` | FXM Connect without its session bridge | Anonymous web-player tokens |
+| `account` | FXM Connect with the session bridge the user turned on, the desktop and Android login windows | A logged-in token source as well. Whether the user is logged in is up to `AccountProvider.status` |
+
+The user's Spotify on/off switch is an app setting, not a capability: FXM uses Spotify only when the switch is on and `spotify` is not `unreachable`. `mediaBytes` is always `false` when `youtube` is `simple` or `none`.
 
 ### The injected `Fetch`
 

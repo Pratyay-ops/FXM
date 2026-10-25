@@ -72,8 +72,9 @@ export type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise
 
 /**
  * The `fetch` a provider must use for every request; providers never touch the global one.
- * The platform injects it: `window.fetch` in a browser page (YouTube and Spotify answer only
- * when the FXM Connect extension is installed), the Tauri HTTP plugin's `fetch` on desktop, a
+ * The platform injects it: `window.fetch` in a browser page (YouTube and Spotify answer it only
+ * through the FXM Connect extension, apart from the CORS-simple InnerTube calls of the `simple`
+ * YouTube tier, see {@link YouTubeAccess}), the Tauri HTTP plugin's `fetch` on desktop, a
  * native-HTTP wrapper on Android, or Node's `fetch` in tests and scripts.
  *
  * In any program that has a global `fetch` (DOM, web worker or Node types) this is exactly
@@ -102,13 +103,49 @@ export type AbortSignalLike = typeof globalThis extends { AbortSignal: { prototy
 /** The app FXM runs in. */
 export type Platform = 'web' | 'desktop' | 'android'
 
+/**
+ * How far the platform reaches YouTube and YouTube Music. Each level allows everything the one
+ * before it does:
+ *
+ * - `none`: no YouTube at all (a plain web page)
+ * - `simple`: the web app's experimental Lite tier, which needs no install. InnerTube calls
+ *   (search, browse, `next` and `player`) work as CORS-simple POSTs from a sandboxed document
+ *   with an opaque origin, but googlevideo's bytes cannot be read: no downloads, no end-of-file
+ *   range probes and no equalizer, and the resolver's deciphering and PO-token rungs are
+ *   unavailable. Audio plays through `<audio src>` directly
+ * - `full`: everything, including reading media bytes: the web app with FXM Connect, the desktop
+ *   app or the Android app
+ */
+export type YouTubeAccess = 'none' | 'simple' | 'full'
+
+/**
+ * How far the platform reaches Spotify. Each level allows everything the one before it does:
+ *
+ * - `unreachable`: no Spotify at all (a plain web page)
+ * - `anonymous`: anonymous web-player tokens can be fetched
+ * - `account`: a logged-in token source exists too: FXM Connect's session bridge once the user
+ *   has turned it on, or a login window on desktop and Android. Whether the user is logged in
+ *   is up to `AccountProvider.status`
+ *
+ * This is separate from the user's Spotify on/off switch, which lives in the app settings: FXM
+ * uses Spotify only when the switch is on and Spotify is not `unreachable`.
+ */
+export type SpotifyAccess = 'unreachable' | 'anonymous' | 'account'
+
 /** What the platform's network stack can do, which decides the providers and pipes on offer. */
 export interface NetworkCapabilities {
-  /** Can call YouTube and YouTube Music (desktop, Android, or web with FXM Connect). */
-  youtube: boolean
-  /** Can call Spotify (desktop, Android, or web with FXM Connect). */
-  spotify: boolean
-  /** Can read media bytes from googlevideo.com, which downloads of YouTube audio need. */
+  /** How far YouTube and YouTube Music can be reached: `none`, `simple` or `full`. */
+  youtube: YouTubeAccess
+  /**
+   * How far Spotify can be reached: `unreachable`, `anonymous` or `account`, whatever the user's
+   * Spotify switch says.
+   */
+  spotify: SpotifyAccess
+  /**
+   * Can read media bytes from googlevideo.com, which downloads of YouTube audio, end-of-file range
+   * probes and an equalizer on YouTube audio need. Always `false` when `youtube` is `simple` or
+   * `none`; normally `true` with `full`.
+   */
   mediaBytes: boolean
   /** Can write files outside browser storage. */
   fileSystem: boolean

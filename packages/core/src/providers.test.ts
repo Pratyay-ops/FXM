@@ -14,10 +14,13 @@ import type {
   MetadataProvider,
   MinimalAbortSignal,
   MinimalFetch,
+  NetworkCapabilities,
   ProviderContext,
   RadioSeed,
   RecommendationProvider,
+  SpotifyAccess,
   StreamOption,
+  YouTubeAccess,
 } from './providers'
 import { compareStreams, DEFAULT_QUALITY_PREFS, pickStream, tierOf } from './quality'
 
@@ -49,19 +52,27 @@ function fakeFetch(body: unknown, urls: string[] = []): Fetch {
   }
 }
 
-function context(mode: ProviderContext['mode'], fetch: Fetch = fakeFetch({})): ProviderContext {
-  return {
-    fetch,
-    platform: 'web',
-    capabilities: { youtube: true, spotify: false, mediaBytes: false, fileSystem: false },
-    mode,
-  }
+/** The web app's Lite tier: YouTube calls work, its media bytes cannot be read, no Spotify. */
+const LITE: NetworkCapabilities = {
+  youtube: 'simple',
+  spotify: 'unreachable',
+  mediaBytes: false,
+  fileSystem: false,
+}
+
+function context(
+  mode: ProviderContext['mode'],
+  fetch: Fetch = fakeFetch({}),
+  capabilities: NetworkCapabilities = LITE,
+): ProviderContext {
+  return { fetch, platform: 'web', capabilities, mode }
 }
 
 /** An in-memory catalog implementing the provider interfaces. */
 const catalog: MetadataProvider & RecommendationProvider = {
   id: 'ytm',
   async search(query, options, ctx) {
+    if (ctx.capabilities.youtube === 'none') throw new FxmError('Unsupported', 'No YouTube here')
     const matches = [song, video].filter((track) => track.title.includes(query))
     const limit = options.limit ?? 20
     const results: SearchResults = {}
@@ -218,6 +229,15 @@ describe('provider interfaces', () => {
     })
   })
 
+  it('read how far the platform reaches YouTube from the context', async () => {
+    const plainPage: NetworkCapabilities = { ...LITE, youtube: 'none' }
+    await expect(
+      catalog.search('', { types: ['track'] }, context('music', fakeFetch({}), plainPage)),
+    ).rejects.toMatchObject({ code: 'Unsupported' })
+    const results = await catalog.search('', { types: ['track'] }, context('music'))
+    expect(results.tracks?.items).toEqual([song])
+  })
+
   it('suggests queries when the provider can', async () => {
     expect(await catalog.suggest?.('never', context('music'))).toEqual([
       'never remix',
@@ -287,6 +307,18 @@ describe('provider interfaces', () => {
     // `AbortSignal`, as type-tests/platform.ts checks.
     expectTypeOf<Fetch>().toEqualTypeOf<MinimalFetch>()
     expectTypeOf<AbortSignalLike>().toEqualTypeOf<MinimalAbortSignal>()
+  })
+})
+
+describe('network capabilities', () => {
+  it('grade YouTube and Spotify instead of a yes or no', () => {
+    expectTypeOf<YouTubeAccess>().toEqualTypeOf<'none' | 'simple' | 'full'>()
+    expectTypeOf<SpotifyAccess>().toEqualTypeOf<'unreachable' | 'anonymous' | 'account'>()
+    expectTypeOf<NetworkCapabilities['youtube']>().toEqualTypeOf<YouTubeAccess>()
+    expectTypeOf<NetworkCapabilities['spotify']>().toEqualTypeOf<SpotifyAccess>()
+    // @ts-expect-error a boolean no longer says how far YouTube can be reached
+    const yesOrNo: NetworkCapabilities = { ...LITE, youtube: true }
+    expect(yesOrNo.youtube).toBe(true)
   })
 })
 
