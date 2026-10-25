@@ -7,4 +7,5 @@
 
 export * from './fake-clock'
 export * from './fake-connect'
+export * from './fake-fxm-http'
 export * from './fake-sandbox'
