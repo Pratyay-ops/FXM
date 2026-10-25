@@ -2,18 +2,38 @@ name: Desktop
 
 # Builds the Tauri desktop app (apps/desktop) on macOS, Windows and Linux, checks its Rust
 # code and uploads the bundles as workflow artifacts. GitHub Releases come in stage 7.5.
+#
+# The path filters list everything the jobs build or run: the desktop app, the web app it
+# embeds and the packages that web app bundles, the Makefile targets and scripts behind
+# make ci-setup, rust-setup and desktop-*, the dependency manifests, the Node version, the
+# TypeScript base config the web build reads, and this file. Keep both lists the same (a test
+# in apps/desktop/test checks that).
 on:
   push:
     paths:
       - apps/desktop/**
       - apps/web/**
-      - scripts/install-rust.sh
+      - packages/**
+      - scripts/**
+      - Makefile
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .nvmrc
+      - tsconfig.base.json
       - .github/workflows/desktop.yml
   pull_request:
     paths:
       - apps/desktop/**
       - apps/web/**
-      - scripts/install-rust.sh
+      - packages/**
+      - scripts/**
+      - Makefile
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .nvmrc
+      - tsconfig.base.json
       - .github/workflows/desktop.yml
   workflow_dispatch:
 
