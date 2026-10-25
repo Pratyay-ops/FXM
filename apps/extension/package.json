@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.node.json",
     "lint:firefox": "web-ext lint --source-dir dist/firefox --warnings-as-errors --no-config-discovery",
     "store:firefox": "node --experimental-strip-types --disable-warning=ExperimentalWarning store/firefox.ts",
+    "store:edge": "node --experimental-strip-types --disable-warning=ExperimentalWarning store/edge.ts",
     "store:listing": "node --experimental-strip-types --disable-warning=ExperimentalWarning store/listing.ts"
   },
   "devDependencies": {
