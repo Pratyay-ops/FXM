@@ -365,13 +365,21 @@ A clean-room implementation from protocol facts. **Do not copy code or fixtures*
 - A Dexie schema with migrations, holding:
   - the track cache;
   - likes;
-  - playlists (create, edit, reorder);
+  - playlists;
   - follows;
   - history;
   - settings;
   - the match cache.
-- A library page.
-- JSON backup export and import.
+- A library page: playlists, liked songs, Downloads, artists, albums, recently played.
+- **Ordering is a headline feature** (the owner's explicit request). Every playlist, including Liked songs and Downloads, has a saved custom order the user fully controls:
+  - drag and drop (pointer, touch and keyboard), move up/down/top/bottom, and multi-select moves;
+  - **Shuffle order**, which permanently randomizes the saved order, with undo (separate from shuffle playback);
+  - sort views (title, artist, album, date added, duration) with "Save as custom order";
+  - the list of playlists itself can be reordered the same way.
+
+  Orders survive reloads and backups, and stay fast at 1,000+ tracks.
+- **Downloads** is a built-in system playlist that can't be deleted or renamed. The download manager (4.1) fills it, and it supports every ordering feature.
+- JSON backup export and import, including custom orders.
 
 ### 2.7 FXM Connect onboarding and no-extension mode
 
@@ -438,7 +446,7 @@ A clean-room implementation from protocol facts. **Do not copy code or fixtures*
 
 | ID | Stage | Notes |
 |---|---|---|
-| 4.1 | Download manager + offline playback | Every track wherever the bytes are readable (web with Connect, desktop, Android): a queue with concurrency, progress, pause/retry and resumable ranges. OPFS plus `navigator.storage.persist()` and a usage meter. Offline copies come first in the playback policy; "Downloaded" filter |
+| 4.1 | Download manager + offline playback | Every track wherever the bytes are readable (web with Connect, desktop, Android): a queue with concurrency, progress, pause/retry and resumable ranges. OPFS plus `navigator.storage.persist()` and a usage meter. Offline copies come first in the playback policy. Completed downloads are added to the reorderable **Downloads** system playlist from 2.6, and deleting a download removes it there |
 | 4.2 | Conversion and tagging | ffmpeg.wasm (an **LGPL** core) in a worker; Original / FLAC / ALAC / WAV / MP3 / AAC / Opus; tags, cover art and lyrics; honest labels from `describeConversion`; "Save to device" |
 | 4.3 | Quality settings | Streaming quality on Wi-Fi vs cellular, download format and bitrate defaults, data saver |
 | 4.4 | Local music files (web) | Folder access (Chromium) or a file picker; tags and artwork via `music-metadata`; local tracks in search and library |

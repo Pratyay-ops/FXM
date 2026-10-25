@@ -567,6 +567,14 @@ Offline copies come first in the playback policy.
 - **OPFS:** downloads.
 - **Backups:** JSON export and import, featured prominently because PWA data is tied to its origin.
 
+**Playlists are fully user-ordered.** This is an explicit owner requirement, because many apps don't allow it. Every playlist, including Liked songs and the built-in **Downloads** playlist, keeps a saved custom order that the user controls:
+
+- drag and drop (pointer, touch and keyboard), move buttons and multi-select moves;
+- **Shuffle order**, which permanently randomizes the saved order, with undo (separate from shuffle playback);
+- sort views that can be saved as the custom order.
+
+The list of playlists can be reordered the same way. Downloads is a system playlist that the download manager fills on every platform.
+
 **Imports:**
 
 - Spotify playlist, album or track URLs, through the Spotify provider.
