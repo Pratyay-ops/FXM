@@ -47,7 +47,7 @@ style-src 'self' 'unsafe-inline'
 
 - `ipc:` and `http://ipc.localhost` carry Tauri's IPC (macOS and Linux, then Windows).
 - At build time Tauri adds the SHA-256 hash of every inline script to `script-src`, so the theme script in `apps/web/index.html` keeps running.
-- **Stage 7.2 may need `'unsafe-eval'`** in `script-src` for the YouTube deciphering evaluator. Add it there, with a comment in the PR saying why.
+- **No `'unsafe-eval'`.** Stage 7.2 doesn't add it: YouTube deciphering runs in a separate, hidden evaluator webview with its own policy (stage 1.11). Only if that webview can't work may 1.11 add `'unsafe-eval'` here, with the reason recorded in this README.
 
 ## Maintenance
 
