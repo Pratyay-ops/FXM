@@ -5,6 +5,7 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { DiagnosticsSection } from '../connect/diagnostics'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { useSettingsStore } from './settings-store'
@@ -103,6 +104,8 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      <DiagnosticsSection />
 
       <SettingsSection title="About">
         <div className="flex flex-col gap-5 p-4 sm:flex-row sm:items-center sm:p-5">

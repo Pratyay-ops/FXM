@@ -1,6 +1,7 @@
 import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
+import { ConnectNotice } from '../../features/connect/connect-notice'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { BottomNav } from './bottom-nav'
 import { RouteAnnouncer } from './route-announcer'
@@ -60,6 +61,7 @@ export function AppLayout() {
           className="relative isolate px-gutter pt-2 pb-shell outline-none"
         >
           <div className="mx-auto w-full max-w-page">
+            <ConnectNotice />
             <Outlet />
           </div>
         </main>

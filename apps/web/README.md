@@ -20,7 +20,7 @@ End-to-end tests and screenshots use Playwright and are **not** part of `make ch
 
 ```sh
 scripts/run.sh pnpm --filter @fxm/web exec playwright install chromium
-scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test: navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px
+scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test: navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px; the tiers (connect.spec.ts)
 scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, plus Music + Video and forced colors, in apps/web/screenshots/
 ```
 
@@ -39,7 +39,8 @@ src/
     ui/                 design-system pieces: buttons, IconButton, SegmentedControl, Tabs,
                         RangeSlider, Skeleton, EmptyState, ErrorState, Artwork, Logo
   features/<name>/      one folder per feature: home, search, library, album, artist,
-                        playlist, now-playing, player (bar, controls, store), settings
+                        playlist, now-playing, player (bar, controls, store), settings,
+                        connect (tiers, onboarding, Diagnostics: see its README)
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
@@ -53,6 +54,7 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 - **Routing:** React Router 7 in data mode (`createBrowserRouter`, library mode, no framework plugin), which is what makes `errorElement` and lazy route modules work. The basename is `import.meta.env.BASE_URL` unchanged (`base: '/app/'` in `vite.config.ts`): with the trailing slash, links to Home point at `/app/`, which Vite serves (`/app` is a 404 there). Home and Search ship with the shell; the other pages are lazy chunks. React Router 8 needs Node 22.22+, newer than the toolchain's Node, so it is a later upgrade.
 - **Layout:** desktop (1024 px+) has the sidebar, top bar and player bar; tablets (768–1023 px) get an icon rail; phones (< 768 px) get a top bar with the page title, a mini player and a tab bar. The page scrolls with the window, so mobile browser bars collapse and `<ScrollRestoration>` works. Bottom bars pad for `env(safe-area-inset-bottom)`. `--shell-top` and `--shell-bottom` (in `styles/index.css`) hold the height the bars cover; `html` uses them as `scroll-padding`, so keyboard focus never lands behind a bar. Page content and the top bar row share `max-w-page`.
 - **State:** Zustand. `features/settings/settings-store.ts` persists `{ catalogMode, theme }` to `localStorage` under `fxm.settings.v1`; invalid or unreadable data falls back to the defaults, and other open tabs follow changes. `features/player/player-store.ts` is placeholder UI state: every control responds, nothing plays. TanStack Query is set up with no queries yet.
+- **Platform:** `features/connect/start.ts`, called from `main.tsx`, creates the app's one platform from `@fxm/platform` (`getAppPlatform()`: FXM Connect, the Lite tier's sandbox, the request budget) and keeps the tier in a store that the onboarding page (`/connect`), the shell's notices and Settings → Diagnostics read. Builds made with `VITE_FXM_FAKES=on`, as the Playwright config makes, include the development fake mode ([its README](src/features/connect/README.md)).
 - **Theme:** dark by default, plus light and system. `data-theme` on `<html>` switches the tokens; the inline script in `index.html` applies the saved theme before React loads (a content security policy must allow it by hash).
 - **Errors:** page errors render inside the shell with "Try again" (`RouteError`); a broken shell falls back to a full-page error, and `AppErrorBoundary` wraps everything. Error screens are announced to screen readers (`role="alert"`).
 - **Accessibility:** a skip link focuses `<main>` without touching the history, `RouteAnnouncer` tells screen readers which page a link opened, and forced colors (Windows High Contrast) keep sliders, segmented controls and tabs readable.

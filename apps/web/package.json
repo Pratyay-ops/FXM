@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@fxm/core": "workspace:*",
+    "@fxm/platform": "workspace:*",
     "@fxm/player": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
     "lucide-react": "^1.55.0",
