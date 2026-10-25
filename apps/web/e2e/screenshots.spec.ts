@@ -294,6 +294,8 @@ async function captureNowPlaying(page: Page, prefix: string) {
 
   await page.goto('now-playing')
   await page.getByRole('button', { name: 'Hold the light a little longer' }).first().waitFor()
+  // A song is loaded: the like button loads the library just after the page.
+  await expect(page.getByRole('button', { name: 'Like' }).first()).toBeEnabled()
   await shoot('now-playing')
   await scrollToPanels()
   await shoot('now-playing-lyrics')
