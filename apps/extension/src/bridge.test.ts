@@ -47,6 +47,7 @@ interface SetupOptions {
   fetch?: FetchLike
   session?: StorageArea
   dnr?: WebExtApi['declarativeNetRequest']
+  timeoutMs?: number
   maxResponseBytes?: number
 }
 
@@ -64,6 +65,7 @@ function setup(options: SetupOptions = {}) {
     dnr: options.dnr,
     fetch,
     now: () => clock.now,
+    ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
     ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}),
   })
   return { bridge, fetch, clock, settings }
@@ -157,6 +159,7 @@ describe('Spotify token relay', () => {
       redirect: 'error',
       cache: 'no-store',
     })
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
   })
 
   it('relays error statuses and non-JSON bodies as they are', async () => {
@@ -264,6 +267,35 @@ describe('failures', () => {
 
     const big = setup({ fetch: jsonFetch({ padding: 'x'.repeat(100) }), maxResponseBytes: 64 })
     expect(await big.bridge.handle(serverTime(), PAGE)).toMatchObject({ code: 'too-large' })
+  })
+
+  it('aborts a request that outlives the timeout', async () => {
+    // Settles only when the bridge's own signal aborts, as a hanging server would.
+    const fetch = vi.fn<FetchLike>(
+      (_url, init) =>
+        new Promise((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(init.signal?.reason))
+        }),
+    )
+    const { bridge } = setup({ fetch, timeoutMs: 10 })
+    expect(await bridge.handle(serverTime('slow'), PAGE)).toEqual({
+      type: MESSAGE.error,
+      id: 'slow',
+      code: 'timeout',
+    })
+  })
+
+  it('refuses a response whose declared length is too large, without reading it', async () => {
+    // One byte of body: only the Content-Length header can make this response too large.
+    const fetch = vi.fn<FetchLike>(
+      async () => new Response('1', { headers: { 'content-length': '1000' } }),
+    )
+    const { bridge } = setup({ fetch, maxResponseBytes: 64 })
+    expect(await bridge.handle(serverTime('declared'), PAGE)).toEqual({
+      type: MESSAGE.error,
+      id: 'declared',
+      code: 'too-large',
+    })
   })
 
   it('answers internal, with the request ID, when the settings cannot be read', async () => {
