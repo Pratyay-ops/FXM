@@ -57,14 +57,15 @@ jobs:
       - name: Compose dist/pages
         run: make dist
 
-      # develop and main deploy; every other branch stops here.
+      # develop and main deploy; every other branch stops here. TEMPORARY: ci/2.8-deploy deploys a
+      # preview to fxmusic once, to test the real project; removed in the next commit.
       - name: Decide whether to deploy
         id: target
         env:
           REF: ${{ github.ref }}
         run: |
           case "$REF" in
-            refs/heads/develop | refs/heads/main) deploy=true ;;
+            refs/heads/develop | refs/heads/main | refs/heads/ci/2.8-deploy) deploy=true ;;
             *) deploy=false ;;
           esac
           echo "deploy=$deploy" >>"$GITHUB_OUTPUT"
