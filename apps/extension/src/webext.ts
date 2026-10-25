@@ -18,11 +18,6 @@ export interface StorageArea {
   set(items: Record<string, unknown>): Promise<void>
 }
 
-export interface StorageChange {
-  oldValue?: unknown
-  newValue?: unknown
-}
-
 /**
  * A runtime.onMessage listener. Calling `sendResponse` later and returning true is the one
  * asynchronous pattern both browsers support.
@@ -42,12 +37,11 @@ export interface WebExtApi {
     openOptionsPage(): Promise<void>
   }
   storage: {
-    local: StorageArea
-    /** In-memory storage for the browser session (extension pages and background only). */
+    /**
+     * In-memory storage for the browser session (extension pages and background only). The
+     * settings are not in storage.local, which content scripts can write: see settings.ts.
+     */
     session?: StorageArea
-    onChanged: {
-      addListener(listener: (changes: Record<string, StorageChange>, area: string) => void): void
-    }
   }
   declarativeNetRequest?: {
     updateEnabledRulesets(options: {

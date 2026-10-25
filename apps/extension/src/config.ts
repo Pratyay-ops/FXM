@@ -19,9 +19,6 @@ export const DEVELOPMENT_ORIGINS = ['http://localhost:5173', 'http://localhost:4
 /** Where the options page sends people. */
 export const APP_URL = 'https://fxm-music.pages.dev/app/'
 
-/** `storage.local` key of the "Use my Spotify login from this browser" toggle (default off). */
-export const SPOTIFY_LOGIN_KEY = 'spotifyLogin'
-
 /**
  * Capabilities announced in the `fxm-connect:pong` reply. The first four name the groups of
  * CORS rules (a test checks them against rules.ts); `spotify-server-time` is the bridge's

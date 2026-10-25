@@ -1,11 +1,12 @@
 /**
- * The background side of FXM Connect: the optional Spotify session bridge and, in the dev
- * build, switching between rulesets of origins that share a host.
+ * The background side of FXM Connect: the optional Spotify session bridge, the login status
+ * behind the pong's `spotify-login` feature and, in the dev build, switching between rulesets of
+ * origins that share a host.
  *
  * The bridge makes exactly two requests, both to fixed URLs:
  * - GET https://open.spotify.com/api/token with allow-listed query parameters and the browser's
  *   own open.spotify.com cookies (`credentials: 'include'`), only while the user has enabled
- *   "Use my Spotify login from this browser";
+ *   "Use my Spotify login from this browser" on the options page (settings.ts);
  * - GET https://open.spotify.com/api/server-time without credentials.
  * It returns only the HTTP status and the JSON body. It never reads, stores or returns cookies
  * or response headers.
@@ -14,14 +15,16 @@ import {
   type BridgeReply,
   type BridgeRequest,
   errorReply,
+  type LoginStatus,
   MESSAGE,
+  messageType,
   parseBridgeRequest,
   type RequestId,
   type SpotifyTokenParams,
 } from './messages.ts'
 import { rulesetSwitch } from './origins.ts'
 import { RateLimiter } from './rate-limit.ts'
-import { readSpotifyLogin } from './settings.ts'
+import type { SettingsStore } from './settings.ts'
 import type { MessageListener, MessageSender, StorageArea, WebExtApi } from './webext.ts'
 
 export const SPOTIFY_TOKEN_URL = 'https://open.spotify.com/api/token'
@@ -41,7 +44,10 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>
 export interface BridgeOptions {
   runtimeId: string
   origins: readonly string[]
-  storage: { local: Pick<StorageArea, 'get'>; session?: StorageArea | undefined }
+  /** The user's settings. Only the options page writes them; content scripts cannot reach them. */
+  settings: Pick<SettingsStore, 'read'>
+  /** storage.session, where the rate limiter's window survives the background being stopped. */
+  session?: StorageArea | undefined
   dnr?: WebExtApi['declarativeNetRequest']
   fetch: FetchLike
   now: () => number
@@ -49,9 +55,18 @@ export interface BridgeOptions {
   maxResponseBytes?: number
 }
 
+/** A trusted sender: FXM Connect's content script in the top frame of an FXM page. */
+export interface SenderContext {
+  /** The page's FXM origin. */
+  origin: string
+}
+
+/** Everything the background answers the content script with. */
+export type BackgroundReply = BridgeReply | LoginStatus
+
 export interface Bridge {
-  /** Handles a message from a trusted sender origin. Resolves to the reply, if any. */
-  handle(message: unknown, origin: string): Promise<BridgeReply | null>
+  /** Handles a message from a trusted sender. Resolves to the reply, if any. */
+  handle(message: unknown, sender: SenderContext): Promise<BackgroundReply | null>
   /** runtime.onMessage listener: checks the sender, then answers asynchronously. */
   listener: MessageListener
 }
@@ -127,7 +142,7 @@ function parseJson(text: string): unknown {
 export function createBridge(options: BridgeOptions): Bridge {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const maxBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES
-  const session = options.storage.session
+  const session = options.session
   const limiter = new RateLimiter(RATE_LIMIT.max, RATE_LIMIT.windowMs)
 
   // The service worker can stop between requests; the limiter's state lives in storage.session.
@@ -171,11 +186,16 @@ export function createBridge(options: BridgeOptions): Bridge {
     }
   }
 
+  /** Why token requests are refused, or null when they are served. */
+  async function loginRefusal(): Promise<'login-disabled' | null> {
+    const settings = await options.settings.read()
+    return settings.spotifyLogin ? null : 'login-disabled'
+  }
+
   async function serve(request: BridgeRequest): Promise<BridgeReply> {
     if (request.type === MESSAGE.spotifyToken) {
-      if (!(await readSpotifyLogin(options.storage.local))) {
-        return errorReply(request.id, 'login-disabled')
-      }
+      const refusal = await loginRefusal()
+      if (refusal !== null) return errorReply(request.id, refusal)
       if (!(await acquire())) return errorReply(request.id, 'rate-limited')
       return relay(request.id, spotifyTokenUrl(request.params), 'include')
     }
@@ -183,15 +203,16 @@ export function createBridge(options: BridgeOptions): Bridge {
     return relay(request.id, SPOTIFY_SERVER_TIME_URL, 'omit')
   }
 
-  async function handle(message: unknown, origin: string): Promise<BridgeReply | null> {
-    if (
-      typeof message === 'object' &&
-      message !== null &&
-      (message as { type?: unknown }).type === MESSAGE.activateOrigin
-    ) {
-      const change = rulesetSwitch(origin, options.origins)
+  async function handle(message: unknown, sender: SenderContext): Promise<BackgroundReply | null> {
+    const type = messageType(message)
+    if (type === MESSAGE.activateOrigin) {
+      const change = rulesetSwitch(sender.origin, options.origins)
       if (change !== null) await options.dnr?.updateEnabledRulesets(change)
       return null
+    }
+    if (type === MESSAGE.loginStatus) {
+      const refusal = await loginRefusal().catch(() => 'unreadable')
+      return { type: MESSAGE.loginStatus, enabled: refusal === null }
     }
     const parsed = parseBridgeRequest(message)
     return parsed.ok ? serve(parsed.value) : errorReply(parsed.id, parsed.code)
@@ -200,7 +221,7 @@ export function createBridge(options: BridgeOptions): Bridge {
   const listener: MessageListener = (message, sender, sendResponse) => {
     const origin = trustedSenderOrigin(sender, options.runtimeId, options.origins)
     if (origin === null) return false
-    handle(message, origin).then(sendResponse, () => sendResponse(errorReply(null, 'internal')))
+    handle(message, { origin }).then(sendResponse, () => sendResponse(errorReply(null, 'internal')))
     return true
   }
 

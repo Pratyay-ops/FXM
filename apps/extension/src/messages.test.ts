@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   isBridgeReply,
+  isLoginStatus,
   MESSAGE,
   type MessageEventLike,
+  messageType,
   parseBridgeRequest,
   parseRequestId,
   parseTokenParams,
@@ -66,7 +68,7 @@ describe('readPageMessage: requests', () => {
   })
 
   it('rejects unknown FXM Connect messages, including background-only ones', () => {
-    for (const type of ['fxm-connect:fetch', MESSAGE.activateOrigin]) {
+    for (const type of ['fxm-connect:fetch', MESSAGE.activateOrigin, MESSAGE.loginStatus]) {
       expect(readPageMessage(event({ type, id: 'x' }), expected)).toEqual({
         kind: 'reject',
         reply: { type: MESSAGE.error, id: 'x', code: 'unsupported' },
@@ -169,6 +171,30 @@ describe('parseRequestId', () => {
       expect(parseRequestId(id)).toBeNull()
     },
   )
+})
+
+describe('isLoginStatus', () => {
+  it('accepts only a login status with a boolean', () => {
+    expect(isLoginStatus({ type: MESSAGE.loginStatus, enabled: true })).toBe(true)
+    expect(isLoginStatus({ type: MESSAGE.loginStatus, enabled: false })).toBe(true)
+    for (const value of [
+      { type: MESSAGE.loginStatus, enabled: 'true' },
+      { type: MESSAGE.loginStatus },
+      { type: MESSAGE.error, id: null, code: 'internal' },
+      null,
+      undefined,
+    ]) {
+      expect(isLoginStatus(value)).toBe(false)
+    }
+  })
+})
+
+describe('messageType', () => {
+  it('reads the type of message objects only', () => {
+    expect(messageType({ type: MESSAGE.ping })).toBe(MESSAGE.ping)
+    expect(messageType('fxm-connect:ping')).toBeUndefined()
+    expect(messageType(null)).toBeUndefined()
+  })
 })
 
 describe('isBridgeReply', () => {

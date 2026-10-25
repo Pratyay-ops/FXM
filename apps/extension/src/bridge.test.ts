@@ -4,15 +4,18 @@ import {
   type FetchLike,
   RATE_LIMIT,
   RATE_LIMIT_KEY,
+  type SenderContext,
   SPOTIFY_SERVER_TIME_URL,
   spotifyTokenUrl,
   trustedSenderOrigin,
 } from './bridge.ts'
 import { fxmOrigins } from './config.ts'
 import { MESSAGE } from './messages.ts'
+import type { SettingsStore } from './settings.ts'
 import type { MessageSender, StorageArea, WebExtApi } from './webext.ts'
 
 const FXM = 'https://fxm-music.pages.dev'
+const PAGE: SenderContext = { origin: FXM }
 const RUNTIME_ID = 'fxm-connect-id'
 const TOKEN_JSON = { accessToken: 'token', accessTokenExpirationTimestampMs: 1, isAnonymous: false }
 const PARAMS = { reason: 'init', productType: 'web-player', totp: '123456', totpVer: '5' }
@@ -37,6 +40,7 @@ function jsonFetch(body: unknown = TOKEN_JSON, status = 200) {
 
 interface SetupOptions {
   login?: boolean
+  settings?: Pick<SettingsStore, 'read'>
   origins?: readonly string[]
   fetch?: FetchLike
   session?: StorageArea
@@ -47,17 +51,20 @@ interface SetupOptions {
 function setup(options: SetupOptions = {}) {
   const clock = { now: 1_000_000 }
   const fetch = options.fetch ?? jsonFetch()
-  const local = memoryStorage(options.login ? { spotifyLogin: true } : {})
+  const settings = options.settings ?? {
+    read: vi.fn(async () => ({ spotifyLogin: options.login === true })),
+  }
   const bridge = createBridge({
     runtimeId: RUNTIME_ID,
     origins: options.origins ?? fxmOrigins(false),
-    storage: { local: local.area, session: options.session },
+    settings,
+    session: options.session,
     dnr: options.dnr,
     fetch,
     now: () => clock.now,
     ...(options.maxResponseBytes ? { maxResponseBytes: options.maxResponseBytes } : {}),
   })
-  return { bridge, fetch, clock }
+  return { bridge, fetch, clock, settings }
 }
 
 const token = (id: string | number = 'a') => ({ type: MESSAGE.spotifyToken, id, params: PARAMS })
@@ -99,7 +106,7 @@ describe('spotifyTokenUrl', () => {
 describe('Spotify token relay', () => {
   it('refuses while "Use my Spotify login" is off, without any request', async () => {
     const { bridge, fetch } = setup()
-    expect(await bridge.handle(token(), FXM)).toEqual({
+    expect(await bridge.handle(token(), PAGE)).toEqual({
       type: MESSAGE.error,
       id: 'a',
       code: 'login-disabled',
@@ -116,7 +123,7 @@ describe('Spotify token relay', () => {
         }),
     )
     const { bridge } = setup({ login: true, fetch })
-    const reply = await bridge.handle(token('t1'), FXM)
+    const reply = await bridge.handle(token('t1'), PAGE)
     expect(reply).toEqual({ type: MESSAGE.response, id: 't1', status: 200, json: TOKEN_JSON })
     expect(Object.keys(reply ?? {})).toEqual(['type', 'id', 'status', 'json'])
     expect(JSON.stringify(reply)).not.toContain('secret')
@@ -136,7 +143,7 @@ describe('Spotify token relay', () => {
   it('relays error statuses and non-JSON bodies as they are', async () => {
     const fetch = vi.fn<FetchLike>(async () => new Response('<html>denied</html>', { status: 403 }))
     const { bridge } = setup({ login: true, fetch })
-    expect(await bridge.handle(token(), FXM)).toEqual({
+    expect(await bridge.handle(token(), PAGE)).toEqual({
       type: MESSAGE.response,
       id: 'a',
       status: 403,
@@ -147,7 +154,7 @@ describe('Spotify token relay', () => {
   it('rejects parameters outside the allow-list without any request', async () => {
     const { bridge, fetch } = setup({ login: true })
     const message = { type: MESSAGE.spotifyToken, id: 9, params: { reason: 'init', url: 'x' } }
-    expect(await bridge.handle(message, FXM)).toEqual({
+    expect(await bridge.handle(message, PAGE)).toEqual({
       type: MESSAGE.error,
       id: 9,
       code: 'bad-request',
@@ -156,10 +163,41 @@ describe('Spotify token relay', () => {
   })
 })
 
+describe("Spotify login status (the pong's spotify-login feature)", () => {
+  it('reports whether token requests would be served', async () => {
+    const status = { type: MESSAGE.loginStatus }
+    expect(await setup({ login: true }).bridge.handle(status, PAGE)).toEqual({
+      type: MESSAGE.loginStatus,
+      enabled: true,
+    })
+    expect(await setup().bridge.handle(status, PAGE)).toEqual({
+      type: MESSAGE.loginStatus,
+      enabled: false,
+    })
+  })
+
+  it('reports the login off when the settings cannot be read', async () => {
+    const settings = { read: vi.fn().mockRejectedValue(new Error('IndexedDB unavailable')) }
+    expect(await setup({ settings }).bridge.handle({ type: MESSAGE.loginStatus }, PAGE)).toEqual({
+      type: MESSAGE.loginStatus,
+      enabled: false,
+    })
+  })
+
+  it('reads the setting afresh for every request, so turning it off applies at once', async () => {
+    const values = [true, false]
+    const settings = { read: vi.fn(async () => ({ spotifyLogin: values.shift() === true })) }
+    const { bridge, fetch } = setup({ settings })
+    expect(await bridge.handle(token('first'), PAGE)).toMatchObject({ type: MESSAGE.response })
+    expect(await bridge.handle(token('second'), PAGE)).toMatchObject({ code: 'login-disabled' })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+})
+
 describe('Spotify server-time relay', () => {
   it('fetches the server time without credentials, even with the login toggle off', async () => {
     const { bridge, fetch } = setup({ fetch: jsonFetch({ serverTime: 1_800_000_000 }) })
-    expect(await bridge.handle(serverTime('s'), FXM)).toEqual({
+    expect(await bridge.handle(serverTime('s'), PAGE)).toEqual({
       type: MESSAGE.response,
       id: 's',
       status: 200,
@@ -175,25 +213,25 @@ describe('Spotify server-time relay', () => {
 describe('failures', () => {
   it('reports network errors, timeouts and oversized responses', async () => {
     const offline = setup({ fetch: vi.fn<FetchLike>().mockRejectedValue(new TypeError('offline')) })
-    expect(await offline.bridge.handle(serverTime(), FXM)).toMatchObject({ code: 'network-error' })
+    expect(await offline.bridge.handle(serverTime(), PAGE)).toMatchObject({ code: 'network-error' })
 
     const slow = setup({
       fetch: vi.fn<FetchLike>().mockRejectedValue(new DOMException('slow', 'TimeoutError')),
     })
-    expect(await slow.bridge.handle(serverTime(), FXM)).toMatchObject({ code: 'timeout' })
+    expect(await slow.bridge.handle(serverTime(), PAGE)).toMatchObject({ code: 'timeout' })
 
     const big = setup({ fetch: jsonFetch({ padding: 'x'.repeat(100) }), maxResponseBytes: 64 })
-    expect(await big.bridge.handle(serverTime(), FXM)).toMatchObject({ code: 'too-large' })
+    expect(await big.bridge.handle(serverTime(), PAGE)).toMatchObject({ code: 'too-large' })
   })
 
   it('rejects unknown messages', async () => {
     const { bridge, fetch } = setup({ login: true })
-    expect(await bridge.handle({ type: 'fxm-connect:fetch', id: 1, url: FXM }, FXM)).toEqual({
+    expect(await bridge.handle({ type: 'fxm-connect:fetch', id: 1, url: FXM }, PAGE)).toEqual({
       type: MESSAGE.error,
       id: 1,
       code: 'unsupported',
     })
-    expect(await bridge.handle('ping', FXM)).toEqual({
+    expect(await bridge.handle('ping', PAGE)).toEqual({
       type: MESSAGE.error,
       id: null,
       code: 'bad-request',
@@ -208,34 +246,34 @@ describe('rate limit', () => {
     expect(RATE_LIMIT).toEqual({ max: 10, windowMs: 60_000 })
     for (let i = 0; i < 10; i++) {
       const message = i % 2 === 0 ? token(i) : serverTime(i)
-      expect(await bridge.handle(message, FXM)).toMatchObject({ type: MESSAGE.response, id: i })
+      expect(await bridge.handle(message, PAGE)).toMatchObject({ type: MESSAGE.response, id: i })
     }
-    expect(await bridge.handle(serverTime(10), FXM)).toEqual({
+    expect(await bridge.handle(serverTime(10), PAGE)).toEqual({
       type: MESSAGE.error,
       id: 10,
       code: 'rate-limited',
     })
     expect(fetch).toHaveBeenCalledTimes(10)
     clock.now += 60_000
-    expect(await bridge.handle(serverTime(11), FXM)).toMatchObject({ type: MESSAGE.response })
+    expect(await bridge.handle(serverTime(11), PAGE)).toMatchObject({ type: MESSAGE.response })
   })
 
   it('does not count requests that were refused before any network access', async () => {
     const { bridge } = setup({ login: false })
     for (let i = 0; i < 20; i++) {
-      expect(await bridge.handle(token(i), FXM)).toMatchObject({ code: 'login-disabled' })
+      expect(await bridge.handle(token(i), PAGE)).toMatchObject({ code: 'login-disabled' })
     }
-    expect(await bridge.handle(serverTime(), FXM)).toMatchObject({ type: MESSAGE.response })
+    expect(await bridge.handle(serverTime(), PAGE)).toMatchObject({ type: MESSAGE.response })
   })
 
   it('survives the background being stopped and restarted', async () => {
     const session = memoryStorage()
     const first = setup({ session: session.area })
-    for (let i = 0; i < 10; i++) await first.bridge.handle(serverTime(i), FXM)
+    for (let i = 0; i < 10; i++) await first.bridge.handle(serverTime(i), PAGE)
     expect(session.data[RATE_LIMIT_KEY]).toHaveLength(10)
 
     const restarted = setup({ session: session.area })
-    expect(await restarted.bridge.handle(serverTime(), FXM)).toMatchObject({
+    expect(await restarted.bridge.handle(serverTime(), PAGE)).toMatchObject({
       code: 'rate-limited',
     })
     expect(restarted.fetch).not.toHaveBeenCalled()
@@ -246,9 +284,9 @@ describe('ruleset switching (dev build)', () => {
   it('enables the ruleset of the localhost origin that connected', async () => {
     const dnr = { updateEnabledRulesets: vi.fn(async () => {}) }
     const { bridge } = setup({ origins: fxmOrigins(true), dnr })
-    expect(await bridge.handle({ type: MESSAGE.activateOrigin }, 'http://localhost:4173')).toBe(
-      null,
-    )
+    expect(
+      await bridge.handle({ type: MESSAGE.activateOrigin }, { origin: 'http://localhost:4173' }),
+    ).toBe(null)
     expect(dnr.updateEnabledRulesets).toHaveBeenCalledWith({
       enableRulesetIds: ['localhost_4173'],
       disableRulesetIds: ['localhost_5173'],
@@ -258,7 +296,7 @@ describe('ruleset switching (dev build)', () => {
   it('never touches rulesets in the production build', async () => {
     const dnr = { updateEnabledRulesets: vi.fn(async () => {}) }
     const { bridge } = setup({ dnr })
-    expect(await bridge.handle({ type: MESSAGE.activateOrigin }, FXM)).toBeNull()
+    expect(await bridge.handle({ type: MESSAGE.activateOrigin }, PAGE)).toBeNull()
     expect(dnr.updateEnabledRulesets).not.toHaveBeenCalled()
   })
 })

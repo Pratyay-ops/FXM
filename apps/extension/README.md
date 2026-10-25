@@ -30,6 +30,8 @@ FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules th
 
 3. **Spotify session bridge (optional, off by default).** Cross-site cookies are not sent on the page's own requests, so only the extension can get a token for your Spotify login. If you turn on **Use my Spotify login from this browser** on the options page, the FXM page can ask FXM Connect for one. The background then makes one request: `GET https://open.spotify.com/api/token`. It forwards only the query parameters `reason`, `productType`, `totp`, `totpServer` and `totpVer`, each validated, and sends your browser's existing open.spotify.com cookies (`credentials: 'include'`). It returns only the HTTP status and the JSON body (the token). It also relays `GET https://open.spotify.com/api/server-time`, without credentials. Bridge requests are limited to about ten a minute. Everything else is rejected.
 
+   The toggle lives in IndexedDB in the extension's own origin, which only the options page and the background can open. It is deliberately not in `storage.local`: content scripts can write that, so code running in a compromised FXM page renderer could switch your Spotify login on by itself. The content script can't even read the toggle; it asks the background whether to announce the `spotify-login` feature.
+
 The options page (click the toolbar button, or open the extension's options) shows the version, the allowed FXM pages, the Spotify toggle and a link to FXM.
 
 ## Permissions
@@ -37,7 +39,7 @@ The options page (click the toolbar button, or open the extension's options) sho
 | Permission | Why |
 |---|---|
 | `declarativeNetRequest` | Applies the static header rules in `rules.json`. FXM Connect has no `webRequest`, so it can't see or change any traffic beyond what those rules describe. |
-| `storage` | Saves the Spotify toggle (`storage.local`). Also keeps the bridge's rate-limit counter (`storage.session`, in memory, cleared when the browser closes). |
+| `storage` | Keeps the bridge's rate-limit counter in `storage.session` (in memory, cleared when the browser closes). The Spotify toggle is in the extension's IndexedDB instead, out of content scripts' reach. |
 | `https://fxm-music.pages.dev/*` | Runs the presence content script there. Browsers also require host access to the page that starts a request before DNR may modify its headers. |
 | `https://www.youtube.com/*`, `https://music.youtube.com/*`, `https://youtubei.googleapis.com/*` | YouTube and YouTube Music InnerTube API (search, browse, player data) |
 | `https://*.googlevideo.com/*` | YouTube media bytes |
@@ -49,7 +51,7 @@ There is no `<all_urls>`, no `cookies`, `tabs`, `scripting` or `webRequest` perm
 
 ## Privacy
 
-- **No data collection.** FXM Connect has no analytics, no telemetry and no servers. It stores one setting and a rate-limit counter in your browser. The Firefox manifest declares `data_collection_permissions: { required: ["none"] }`.
+- **No data collection.** FXM Connect has no analytics, no telemetry and no servers. It stores one setting (in its own IndexedDB) and a rate-limit counter (in `storage.session`) in your browser. If the browser clears the extension's site data, the setting returns to off. The Firefox manifest declares `data_collection_permissions: { required: ["none"] }`.
 - **No cookies read.** FXM Connect has no `cookies` permission and never reads, stores or forwards cookies. Its rules strip cookies from the FXM page's requests to these services. The one exception is the opt-in Spotify bridge. There the browser itself attaches your open.spotify.com cookies to the single token request, exactly as it does on open.spotify.com, and FXM Connect hands the page only the token response.
 - **No remote code.** Everything that runs ships inside the extension, as readable, unminified files built from this folder. There is no `eval` and no downloaded script, and the default Manifest V3 content security policy applies.
 - **Only FXM pages.** The content script and the bridge check the exact origin and that a message comes from the page itself. Other sites get nothing, and the rules ignore requests they start.
@@ -176,7 +178,8 @@ scripts/run.sh pnpm --filter @fxm/extension test:e2e   # end-to-end test in Chro
 | `src/rules.ts` | Typed CORS rule specs and the ruleset generator |
 | `src/manifest.ts` | Chromium and Firefox manifests |
 | `src/content-script.ts`, `src/content.ts` | Presence handshake and bridge relay |
-| `src/bridge.ts`, `src/background.ts` | Background: Spotify bridge, rate limit, dev ruleset switching |
+| `src/bridge.ts`, `src/background.ts` | Background: Spotify bridge, login status, rate limit, dev ruleset switching |
+| `src/settings.ts` | The Spotify toggle in IndexedDB, in the extension's own origin |
 | `src/messages.ts` | Message protocol and validation |
 | `src/options/` | Options page |
 | `scripts/build.ts` | Build: Vite bundles, manifests, rulesets, icons (the FXM mark, rendered at build time) and zips |

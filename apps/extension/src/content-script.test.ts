@@ -31,21 +31,30 @@ function fakePage(origin = FXM, withRoot = true) {
   return { window, document, dataset, posted, listeners, dispatch, domReady }
 }
 
+/** A background that answers the login status, and nothing else. */
+function background(loginEnabled = false) {
+  return {
+    sendMessage: vi.fn(async (message: unknown) =>
+      (message as { type?: unknown }).type === MESSAGE.loginStatus
+        ? { type: MESSAGE.loginStatus, enabled: loginEnabled }
+        : undefined,
+    ),
+  }
+}
+
 function start(
   page: ReturnType<typeof fakePage>,
-  options: Partial<Pick<ContentScriptOptions, 'runtime' | 'storage' | 'origins'>> = {},
+  options: Partial<Pick<ContentScriptOptions, 'runtime' | 'origins'>> = {},
 ) {
-  const runtime = options.runtime ?? { sendMessage: vi.fn(async () => undefined) }
-  const storage = options.storage ?? { get: vi.fn(async () => ({})) }
+  const runtime = options.runtime ?? background()
   const started = startContentScript({
     window: page.window,
     document: page.document,
     runtime,
-    storage,
     origins: options.origins ?? fxmOrigins(false),
     version: '1.2.3',
   })
-  return { started, runtime, storage }
+  return { started, runtime }
 }
 
 /** Waits until the content script has posted `count` replies. */
@@ -90,17 +99,30 @@ describe('ping', () => {
     expect(page.posted[0]?.targetOrigin).toBe(FXM)
   })
 
-  it('announces spotify-login while the toggle is on', async () => {
+  it('asks the background, which alone can read the setting, whether to announce spotify-login', async () => {
     const page = fakePage()
-    start(page, { storage: { get: vi.fn(async () => ({ spotifyLogin: true })) } })
+    const { runtime } = start(page, { runtime: background(true) })
     page.dispatch({ type: MESSAGE.ping })
     const [pong] = await replies(page)
     expect(pong).toMatchObject({ features: [...FEATURES, 'spotify-login'] })
+    expect(runtime.sendMessage).toHaveBeenCalledWith({ type: MESSAGE.loginStatus })
   })
 
-  it('still answers when storage is unavailable (extension reloaded under the page)', async () => {
+  it('still answers when the background is unreachable (extension reloaded under the page)', async () => {
     const page = fakePage()
-    start(page, { storage: { get: vi.fn().mockRejectedValue(new Error('context invalidated')) } })
+    start(page, {
+      runtime: { sendMessage: vi.fn().mockRejectedValue(new Error('context invalidated')) },
+    })
+    page.dispatch({ type: MESSAGE.ping })
+    expect(await replies(page)).toEqual([
+      { type: MESSAGE.pong, version: '1.2.3', features: [...FEATURES] },
+    ])
+  })
+
+  it('ignores a malformed login status', async () => {
+    const page = fakePage()
+    const sendMessage = vi.fn(async () => ({ type: MESSAGE.loginStatus, enabled: 'yes' }))
+    start(page, { runtime: { sendMessage } })
     page.dispatch({ type: MESSAGE.ping })
     expect(await replies(page)).toEqual([
       { type: MESSAGE.pong, version: '1.2.3', features: [...FEATURES] },
@@ -169,6 +191,6 @@ describe('dev build ruleset switching', () => {
 
   it('never does so in the production build', () => {
     const { runtime } = start(fakePage())
-    expect(runtime.sendMessage).not.toHaveBeenCalled()
+    expect(runtime.sendMessage).not.toHaveBeenCalledWith({ type: MESSAGE.activateOrigin })
   })
 })

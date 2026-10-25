@@ -3,6 +3,9 @@
  * `data-fxm-connect="<version>"` on <html>, answers `fxm-connect:ping` with a pong, and relays
  * the Spotify bridge requests to the background. It accepts messages only from the page
  * itself: `event.source` must be the page's window and `event.origin` an FXM origin.
+ *
+ * It holds no settings: the Spotify login toggle is only readable by the background, which the
+ * content script asks for every pong (see settings.ts for why).
  */
 import { FEATURES, SPOTIFY_LOGIN_FEATURE } from './config.ts'
 import {
@@ -10,6 +13,7 @@ import {
   type BridgeRequest,
   errorReply,
   isBridgeReply,
+  isLoginStatus,
   MESSAGE,
   type MessageEventLike,
   type PageMessage,
@@ -17,8 +21,6 @@ import {
   readPageMessage,
 } from './messages.ts'
 import { sharesHost } from './origins.ts'
-import { readSpotifyLogin } from './settings.ts'
-import type { StorageArea } from './webext.ts'
 
 /** The parts of `window` the content script uses. */
 export interface PageWindow {
@@ -37,7 +39,6 @@ export interface ContentScriptOptions {
   window: PageWindow
   document: PageDocument
   runtime: { sendMessage(message: unknown): Promise<unknown> }
-  storage: Pick<StorageArea, 'get'>
   origins: readonly string[]
   version: string
 }
@@ -53,7 +54,7 @@ function markPresence(document: PageDocument, version: string): void {
 
 /** Starts the content script. Returns false (and does nothing) outside the FXM origins. */
 export function startContentScript(options: ContentScriptOptions): boolean {
-  const { window, runtime, storage, origins, version } = options
+  const { window, runtime, origins, version } = options
   const origin = window.location.origin
   if (!origins.includes(origin)) return false
 
@@ -65,14 +66,15 @@ export function startContentScript(options: ContentScriptOptions): boolean {
     runtime.sendMessage({ type: MESSAGE.activateOrigin }).catch(() => {})
   }
 
+  /** The pong's features; the background says whether this tab may use the Spotify login. */
   async function features(): Promise<string[]> {
-    const list: string[] = [...FEATURES]
     try {
-      if (await readSpotifyLogin(storage)) list.push(SPOTIFY_LOGIN_FEATURE)
+      const status = await runtime.sendMessage({ type: MESSAGE.loginStatus })
+      if (isLoginStatus(status) && status.enabled) return [...FEATURES, SPOTIFY_LOGIN_FEATURE]
     } catch {
       // The extension was reloaded under this page; report the static features.
     }
-    return list
+    return [...FEATURES]
   }
 
   async function relay(request: BridgeRequest): Promise<BridgeReply> {

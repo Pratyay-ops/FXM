@@ -9,7 +9,6 @@ startContentScript({
   window,
   document,
   runtime: api.runtime,
-  storage: api.storage.local,
   origins: ORIGINS,
   version: VERSION,
 })

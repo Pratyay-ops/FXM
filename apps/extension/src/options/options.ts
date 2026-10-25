@@ -1,10 +1,13 @@
-// Options page: version, allowed FXM origins, and the Spotify login toggle (storage.local).
+// Options page: version, allowed FXM origins and the Spotify login toggle. The toggle lives in
+// IndexedDB in the extension's own origin, out of content scripts' reach (see settings.ts).
 import { DEV_BUILD, ORIGINS } from '../build-info.ts'
-import { SPOTIFY_LOGIN_KEY } from '../config.ts'
-import { readSpotifyLogin, writeSpotifyLogin } from '../settings.ts'
+import { indexedDbSettings, SETTINGS_CHANNEL } from '../settings.ts'
 import { webExtApi } from '../webext.ts'
 
 const api = webExtApi()
+const settings = indexedDbSettings(indexedDB)
+// Tells other open options pages that the settings changed.
+const channel = new BroadcastChannel(SETTINGS_CHANNEL)
 
 function byId<T extends HTMLElement>(id: string, type: { new (): T; prototype: T }): T {
   const node = document.getElementById(id)
@@ -35,7 +38,8 @@ for (const origin of ORIGINS) {
 toggle.addEventListener('change', async () => {
   const enabled = toggle.checked
   try {
-    await writeSpotifyLogin(api.storage.local, enabled)
+    await settings.write({ spotifyLogin: enabled })
+    channel.postMessage('changed')
     showStatus(
       enabled
         ? 'Saved. FXM can now use your Spotify login from this browser.'
@@ -47,17 +51,19 @@ toggle.addEventListener('change', async () => {
   }
 })
 
-// Keep the checkbox in sync when the setting changes in another options tab.
-api.storage.onChanged.addListener((changes, area) => {
-  const change = changes[SPOTIFY_LOGIN_KEY]
-  if (area === 'local' && change) toggle.checked = change.newValue === true
+async function load(): Promise<void> {
+  try {
+    toggle.checked = (await settings.read()).spotifyLogin
+  } catch {
+    showStatus('Could not read the setting.', true)
+  } finally {
+    toggle.disabled = false
+  }
+}
+
+// Another options page saved a change. The message carries no data: read the settings again.
+channel.addEventListener('message', () => {
+  void load()
 })
 
-readSpotifyLogin(api.storage.local)
-  .then((enabled) => {
-    toggle.checked = enabled
-  })
-  .catch(() => showStatus('Could not read the setting.', true))
-  .finally(() => {
-    toggle.disabled = false
-  })
+void load()

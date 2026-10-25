@@ -222,6 +222,64 @@ function send(page: Page, message: Record<string, unknown>): Promise<unknown> {
   )
 }
 
+/**
+ * Runs `expression` in FXM Connect's content script world on the page, through the DevTools
+ * protocol, as code in a compromised FXM page renderer could.
+ */
+async function inContentScript(page: Page, extension: string, expression: string) {
+  const cdp = await page.context().newCDPSession(page)
+  try {
+    const worlds: { id: number; origin: string; auxData?: { type?: string } }[] = []
+    cdp.on('Runtime.executionContextCreated', ({ context }) => worlds.push(context))
+    await cdp.send('Runtime.enable')
+    const world = worlds.find(
+      (context) =>
+        context.auxData?.type === 'isolated' &&
+        context.origin === `chrome-extension://${extension}`,
+    )
+    if (!world) throw new Error('no FXM Connect content script world on the page')
+    const { result, exceptionDetails } = await cdp.send('Runtime.evaluate', {
+      expression,
+      contextId: world.id,
+      awaitPromise: true,
+      returnByValue: true,
+    })
+    if (exceptionDetails) throw new Error(exceptionDetails.text)
+    return result.value as unknown
+  } finally {
+    await cdp.detach()
+  }
+}
+
+/** What a compromised renderer would try: switch the Spotify login on behind the user's back. */
+const FORGE_SPOTIFY_LOGIN = `(async () => {
+  const attempts = {}
+  try {
+    await chrome.storage.local.set({ spotifyLogin: true })
+    attempts.storageLocal = 'written'
+  } catch (error) {
+    attempts.storageLocal = String(error)
+  }
+  try {
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.open('fxm-connect', 1)
+      request.onupgradeneeded = () => request.result.createObjectStore('settings')
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const db = request.result
+        const transaction = db.transaction('settings', 'readwrite')
+        transaction.objectStore('settings').put(true, 'spotifyLogin')
+        transaction.oncomplete = () => resolve(db.close())
+        transaction.onerror = () => reject(transaction.error)
+      }
+    })
+    attempts.indexedDb = 'written'
+  } catch (error) {
+    attempts.indexedDb = String(error)
+  }
+  return attempts
+})()`
+
 let mock: MockServer
 let certDir = ''
 
@@ -425,6 +483,21 @@ test.describe('with FXM Connect loaded', () => {
     } finally {
       await other.close()
     }
+  })
+
+  test('keeps the Spotify login switch out of reach of a compromised FXM page', async () => {
+    await page.goto(`${FXM}/`)
+    // Both writes succeed, but neither reaches the setting: it lives in IndexedDB in the
+    // extension's own origin, while the content script's indexedDB is the page's.
+    expect(await inContentScript(page, await extensionId(context), FORGE_SPOTIFY_LOGIN)).toEqual({
+      storageLocal: 'written',
+      indexedDb: 'written',
+    })
+    expect(
+      await send(page, { type: 'fxm-connect:spotify-token', id: 'forged', params: TOKEN_PARAMS }),
+    ).toEqual({ type: 'fxm-connect:error', id: 'forged', code: 'login-disabled' })
+    expect(await send(page, { type: 'fxm-connect:ping' })).toMatchObject({ features: FEATURES })
+    expect(mock.requests(SPOTIFY_HOST, '/api/token')).toEqual([])
   })
 
   test('relays a Spotify token with the browser session only after the user opts in', async () => {

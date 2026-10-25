@@ -3,6 +3,7 @@
 
 import { createBridge } from './bridge.ts'
 import { ORIGINS } from './build-info.ts'
+import { indexedDbSettings } from './settings.ts'
 import { webExtApi } from './webext.ts'
 
 const api = webExtApi()
@@ -10,7 +11,8 @@ const api = webExtApi()
 const bridge = createBridge({
   runtimeId: api.runtime.id,
   origins: ORIGINS,
-  storage: api.storage,
+  settings: indexedDbSettings(indexedDB),
+  session: api.storage.session,
   dnr: api.declarativeNetRequest,
   fetch: (url, init) => fetch(url, init),
   now: () => Date.now(),

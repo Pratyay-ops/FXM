@@ -4,7 +4,10 @@
  * makes any request.
  */
 
-/** Message types. `activate-origin` only travels from the content script to the background. */
+/**
+ * Message types. `activate-origin` and `spotify-login-status` only travel between the content
+ * script and the background; the content script rejects them from the page.
+ */
 export const MESSAGE = {
   ping: 'fxm-connect:ping',
   pong: 'fxm-connect:pong',
@@ -13,6 +16,7 @@ export const MESSAGE = {
   response: 'fxm-connect:response',
   error: 'fxm-connect:error',
   activateOrigin: 'fxm-connect:activate-origin',
+  loginStatus: 'fxm-connect:spotify-login-status',
 } as const
 
 const PREFIX = 'fxm-connect:'
@@ -76,6 +80,15 @@ export type BridgeReply = BridgeResponse | BridgeError
 /** Everything the content script posts back to the page. */
 export type PageReply = Pong | BridgeReply
 
+/**
+ * The background's answer to `spotify-login-status`: whether token requests from the asking tab
+ * would be served, which decides the `spotify-login` feature of the pong.
+ */
+export interface LoginStatus {
+  type: typeof MESSAGE.loginStatus
+  enabled: boolean
+}
+
 type Parsed<T> = { ok: true; value: T } | { ok: false; id: RequestId | null; code: ErrorCode }
 
 /**
@@ -88,6 +101,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
   return Object.keys(value).every((key) => allowed.includes(key))
+}
+
+/** The `type` of a message object, or undefined. */
+export function messageType(value: unknown): unknown {
+  return isRecord(value) ? value.type : undefined
 }
 
 /** Builds an error reply. */
@@ -175,6 +193,11 @@ export function readPageMessage(
   return parsed.ok
     ? { kind: 'bridge', request: parsed.value }
     : { kind: 'reject', reply: errorReply(parsed.id, parsed.code) }
+}
+
+/** True for a well-formed `spotify-login-status` answer from the background. */
+export function isLoginStatus(value: unknown): value is LoginStatus {
+  return isRecord(value) && value.type === MESSAGE.loginStatus && typeof value.enabled === 'boolean'
 }
 
 /** True for a well-formed reply from the background to the request with this ID. */
