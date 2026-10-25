@@ -13,8 +13,10 @@ From the repository root (tools run through `make` or `scripts/run.sh`, see [DEV
 | `make dev` | Dev server at http://localhost:5173/app/ |
 | `make test` | Unit tests (Vitest + happy-dom), together with every other package |
 | `make check` | Lint, typecheck, test and build: what every change must pass |
-| `scripts/run.sh pnpm --filter @fxm/web build` | Production build in `apps/web/dist/` |
+| `scripts/run.sh pnpm --filter @fxm/web build` | Production build in `apps/web/dist/`, and the embeddable player's in `apps/web/dist-embed/` |
 | `scripts/run.sh pnpm --filter @fxm/web preview` | Serve the build at http://localhost:4173/app/ |
+| `scripts/run.sh pnpm --filter @fxm/web dev:embed` | The embeddable player's dev server at http://localhost:5174/embed/…, with the sandbox documents at `/sandbox/` (`preview:embed` serves its build on port 4174) |
+| `scripts/run.sh pnpm --filter @fxm/web e2e:embed` | The player's browser tests in Chromium and Firefox, on another origin, in the Lite tier ([src/embed/README.md](src/embed/README.md#tests)) |
 
 End-to-end tests and screenshots use Playwright and are **not** part of `make check`. Install Chromium once (it lands in `.tools/playwright/`):
 
@@ -43,8 +45,11 @@ src/
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
-e2e/                    Playwright smoke test and screenshot capture
+embed/                  the embeddable player's page and entry (stage 5.2), built by vite.embed.config.ts
+e2e/                    Playwright smoke test and screenshot capture; e2e/embed/: the player's browser tests
 ```
+
+`src/embed/` is the embeddable player (stage 5.2): its own page under `/embed/`, which any site may frame, with a postMessage API. `src/features/share/` is the share dialog that copies its code; album and playlist pages open it. Both are described in [src/embed/README.md](src/embed/README.md).
 
 Later stages own their feature folders (`features/search`, `features/now-playing`, `features/library`, …, see [PLAN.md](../../docs/PLAN.md)), so the shell rarely needs to change.
 
