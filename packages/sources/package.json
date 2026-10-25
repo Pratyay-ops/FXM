@@ -14,6 +14,12 @@
   },
   "dependencies": {
     "@fxm/core": "workspace:*",
+    "bgutils-js": "^4.0.3",
     "youtubei.js": "^18.1.0"
+  },
+  "devDependencies": {
+    "@fxm/platform": "workspace:*",
+    "googlevideo": "^4.1.1",
+    "playwright-core": "^1.64.0"
   }
 }

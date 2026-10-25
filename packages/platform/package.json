@@ -14,9 +14,12 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@fxm/core": "workspace:*"
+    "@fxm/core": "workspace:*",
+    "bgutils-js": "^4.0.3"
   },
   "devDependencies": {
-    "happy-dom": "^20.14.6"
+    "happy-dom": "^20.14.6",
+    "playwright-core": "^1.64.0",
+    "rolldown": "^1.2.13"
   }
 }
