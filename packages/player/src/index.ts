@@ -11,6 +11,16 @@ export {
   type PlaybackSource,
 } from './engine'
 export { formatTime } from './format-time'
+export {
+  connectMediaSession,
+  type FxmMediaSessionAction,
+  MEDIA_SESSION_ACTIONS,
+  MEDIA_SESSION_SEEK_OFFSET_MS,
+  type MediaSessionOptions,
+  type MediaSessionPlayer,
+  mediaImages,
+  mediaMetadataInit,
+} from './media-session'
 export { mimeTypeOf } from './mime'
 export {
   PLAYER_DEFAULTS,
