@@ -401,7 +401,11 @@ export interface StreamOption {
   bitDepth?: number
   /**
    * Quality tier of the audio, usually from `tierOf`. Only a lossless codec is `lossless`, so
-   * YouTube audio (Opus or AAC) never is.
+   * YouTube audio (Opus or AAC) never is. A source whose formats are encoded to a stated
+   * bitrate may tier variable-bitrate audio by that nominal (peak) bitrate rather than by the
+   * average in `bitrateKbps`: YouTube's Opus 251 is `high` even when a quiet song averages
+   * below 120 kbps (ARCHITECTURE.md §7.3). Read the tier from here rather than computing it
+   * again from `bitrateKbps`.
    */
   tier: QualityTier
   /** How the stream is delivered. */
