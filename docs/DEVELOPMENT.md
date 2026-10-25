@@ -143,6 +143,56 @@ From 2027, Google plans to require developer verification for apps installed out
 | Gradle | `apps/mobile/android/gradle/wrapper/gradle-wrapper.properties` | `distributionSha256Sum` from `https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256` |
 | Capacitor | `apps/mobile/package.json` through `scripts/run.sh pnpm --filter @fxm/mobile add …` | See [apps/mobile/README.md](../apps/mobile/README.md#upgrading-capacitor) |
 
+## Desktop app
+
+The desktop app (`apps/desktop`, see its [README](../apps/desktop/README.md)) wraps the web app in Tauri 2. Rust is installed inside the repository like every other tool, and `make check` never needs it.
+
+### Prerequisites
+
+Tauri compiles against each operating system's native toolchain and webview. These can't live in the repository, so install them once. `make doctor` reports them on its `desktop` line.
+
+| OS | Install | `make doctor` checks |
+|---|---|---|
+| macOS | Xcode Command Line Tools: `xcode-select --install` | `xcode-select -p` |
+| Linux (Debian, Ubuntu) | `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev` (other distributions: [Tauri's list](https://v2.tauri.app/start/prerequisites/#linux)) | `pkg-config --exists webkit2gtk-4.1` |
+| Windows | Microsoft C++ Build Tools with "Desktop development with C++", and WebView2 (preinstalled on Windows 10 and 11) | Nothing: it only prints a note. The `make` targets need bash, so CI builds the Windows installers |
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `make desktop-setup` | `make rust-setup`, then `make install` |
+| `make rust-setup` | Install the pinned rustup (checksum-verified) and the Rust release from `apps/desktop/src-tauri/rust-toolchain.toml` into `.tools/`. Re-running it removes toolchains that no checkout pins any more (about 500 MB each). Worktrees share `.tools/`, so a toolchain another worktree still pins stays installed |
+| `make desktop-dev` | Start the web dev server on port 5260 (base `/`, strict port) and open the app with hot reload |
+| `make desktop-build` | Release build into `apps/desktop/src-tauri/target/release/bundle/`. On macOS only `FXM.app`, because the DMG step can drive Finder windows. On Linux the `.deb`, `.rpm` and AppImage |
+| `make desktop-dmg` | macOS: `FXM.app` plus the `.dmg`, built as CI builds it (`CI=true` skips the Finder layout step, so no windows open) |
+| `make desktop-check` | rustfmt, clippy (warnings fail) and `cargo test` |
+
+The first build compiles about 300 crates and takes a few minutes. Release builds use link-time optimization for a small app (`FXM.app` is about 7.5 MB), so even a rebuild takes a few minutes. Use `make desktop-dev` while working.
+
+The content security policy only applies to release builds: `make desktop-dev` loads the Vite dev server directly. Stage 7.2 may need `'unsafe-eval'` in its `script-src` for the YouTube deciphering evaluator.
+
+### Where things are installed
+
+| What | Where | Size |
+|---|---|---|
+| rustup 1.29.1 and its proxies (`cargo`, `rustc`, …) | `.tools/cargo/bin` | 11 MB |
+| Rust 1.98.1 with clippy and rustfmt | `.tools/rustup` | 470 MB |
+| Cargo's registry (index and crate sources) | `.tools/cargo/registry` | about 800 MB |
+| Build output | `apps/desktop/src-tauri/target/` in each checkout | about 1 GB after `desktop-build`, 3.5 GB after `desktop-check` or `desktop-dev` too |
+| The web build the app embeds | `apps/web/dist-desktop/` in each checkout | under 1 MB |
+| AppImage, WiX and NSIS tools, when a bundle needs them | `apps/desktop/src-tauri/target/.tauri/` (`bundle.useLocalToolsDir`) | downloaded on first use |
+
+`scripts/env.sh` sets `RUSTUP_HOME` and `CARGO_HOME` to `.tools/` and puts `.tools/cargo/bin` on `PATH`. rustup is installed with `--no-modify-path`, so nothing goes into `~/.cargo`, `~/.rustup` or your shell profile. To use rust-analyzer, start your editor from a shell that sourced `scripts/env.sh`.
+
+`env.sh` also clears the variables a Rust setup of your own may export (`CARGO_TARGET_DIR`, `RUSTUP_TOOLCHAIN`, `RUSTC_WRAPPER` and their Cargo equivalents), so builds use the pinned toolchain and stay in the repository. Cargo still reads `.cargo/config.toml` in every folder above the checkout, so also `~/.cargo/config.toml` when the checkout is in your home folder. `make doctor` warns when one of those sets `target-dir` or a rustc wrapper such as sccache.
+
+Running the app stores its own data where every installed app does, for example `~/Library/Application Support/io.github.pratyayops.fxm`, `~/Library/Caches/io.github.pratyayops.fxm` and `~/Library/WebKit/io.github.pratyayops.fxm` on macOS: the window position, the webview's caches and the web app's storage. That is user data, not tooling, so `make nuke` keeps it. Delete those folders to reset the app. tauri-plugin-http adds no cookie file there: it is built without its `cookies` feature (see the app's README).
+
+### Removing it
+
+`make clean` deletes `apps/desktop/src-tauri/target/` and `apps/web/dist-desktop/` in every checkout. `make nuke` also deletes `.tools/`, which holds rustup, the toolchain and Cargo's registry.
+
 ## Removing everything
 
 ```sh

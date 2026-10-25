@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:mobile": "vite build --base=/ --outDir dist-mobile",
+    "build:desktop": "vite build --base=/ --outDir dist-desktop",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e",
     "test": "vitest run",

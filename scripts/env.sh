@@ -49,6 +49,16 @@ export UV_PYTHON_PREFERENCE=only-managed
 export UV_NO_MODIFY_PATH=1
 export PIP_CACHE_DIR="$FXM_TOOLS/pip/cache"
 
+# Rust (stage 7.1, the desktop app): rustup, its toolchains and Cargo's registry. The
+# toolchain version is pinned in apps/desktop/src-tauri/rust-toolchain.toml.
+export RUSTUP_HOME="$FXM_TOOLS/rustup"
+export CARGO_HOME="$FXM_TOOLS/cargo"
+# Overrides from your own Rust setup would undo that: a shared target directory outside the
+# repo, a toolchain other than the pinned one, or a compiler wrapper such as sccache that
+# caches under your home folder.
+unset CARGO_TARGET_DIR CARGO_BUILD_TARGET_DIR RUSTUP_TOOLCHAIN RUSTC_WRAPPER \
+  CARGO_BUILD_RUSTC_WRAPPER RUSTC_WORKSPACE_WRAPPER CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER
+
 # Android (stage 6.1 installs the JDK and SDK here).
 export GRADLE_USER_HOME="$FXM_TOOLS/gradle"
 export ANDROID_HOME="$FXM_TOOLS/android-sdk"
@@ -79,10 +89,11 @@ export WRANGLER_SEND_METRICS=false
 export ASTRO_TELEMETRY_DISABLED=1
 export DO_NOT_TRACK=1
 
-# PATH: .tools/bin first, then the local JDK and Android tools when installed. Each folder moves
-# to the front even when PATH has it already, as after an earlier `source scripts/env.sh`: the
-# Android tools installed since then must not end up before .tools/bin, because the SDK's own
-# adb would then shadow the wrapper there and write its key to ~/.android.
+# PATH: .tools/bin first, then the local JDK, Android tools and .tools/cargo/bin (rustup and
+# its cargo and rustc proxies) when installed. Each folder moves to the front even when PATH
+# has it already, as after an earlier `source scripts/env.sh`: the Android tools installed
+# since then must not end up before .tools/bin, because the SDK's own adb would then shadow
+# the wrapper there and write its key to ~/.android.
 _fxm_path_prepend() {
   local rest=":$PATH:"
   while :; do
@@ -95,6 +106,9 @@ _fxm_path_prepend() {
   rest=${rest%:}
   PATH="$1${rest:+:$rest}"
 }
+if [ -d "$CARGO_HOME/bin" ]; then
+  _fxm_path_prepend "$CARGO_HOME/bin"
+fi
 if [ -d "$ANDROID_HOME/platform-tools" ]; then
   _fxm_path_prepend "$ANDROID_HOME/platform-tools"
 fi

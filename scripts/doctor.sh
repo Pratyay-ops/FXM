@@ -87,6 +87,55 @@ else
   opt ffmpeg "not found (only the self-hosted server in stage 7.1 needs it)"
 fi
 
+# Desktop app (stage 7.1): the repo-local Rust toolchain, then the OS packages Tauri
+# needs, which can't live in the repo. Reads the toolchain directly, so rustup never
+# starts a download from here.
+rust_toolchain_file="$FXM_ROOT/apps/desktop/src-tauri/rust-toolchain.toml"
+rust_channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' "$rust_toolchain_file" 2>/dev/null)
+rust_toolchain=$(find "$RUSTUP_HOME/toolchains" -maxdepth 1 -name "$rust_channel-*" 2>/dev/null | head -1)
+if [ -n "$rust_channel" ] && [ -x "$rust_toolchain/bin/rustc" ]; then
+  ok rust "$("$rust_toolchain/bin/rustc" --version | cut -d' ' -f1-2), rustup in $(short "$CARGO_HOME/bin")"
+else
+  opt rust "not installed: 'make rust-setup' (desktop app)"
+fi
+# env.sh clears Rust overrides from the environment, but Cargo also reads .cargo/config.toml
+# in every folder above the checkout, whatever CARGO_HOME says: ~/.cargo/config.toml too when
+# the checkout is in your home folder. Only a warning, as it matters only for desktop builds.
+cargo_config_dir=$(dirname "$FXM_ROOT")
+while :; do
+  for cargo_config in "$cargo_config_dir/.cargo/config.toml" "$cargo_config_dir/.cargo/config"; do
+    if [ -f "$cargo_config" ] &&
+      grep -Eq '^[^#]*(target-dir|rustc-wrapper|rustc-workspace-wrapper)[[:space:]]*=' \
+        "$cargo_config"; then
+      shown=${cargo_config#"$HOME"/}
+      [ "$shown" = "$cargo_config" ] || shown="~/$shown"
+      printf '  \033[33m!\033[0m %-10s %s\n' rust \
+        "$shown sets target-dir or a rustc wrapper: desktop builds would write outside the repo"
+    fi
+  done
+  [ "$cargo_config_dir" != / ] || break
+  cargo_config_dir=$(dirname "$cargo_config_dir")
+done
+case "$(uname -s)" in
+  Darwin)
+    if clt=$(xcode-select -p 2>/dev/null); then
+      ok desktop "Xcode Command Line Tools ($clt)"
+    else
+      opt desktop "Xcode Command Line Tools missing: 'xcode-select --install' (desktop app)"
+    fi
+    ;;
+  Linux)
+    if command -v pkg-config >/dev/null 2>&1 && pkg-config --exists webkit2gtk-4.1; then
+      ok desktop "webkit2gtk-4.1 $(pkg-config --modversion webkit2gtk-4.1)"
+    else
+      opt desktop "webkit2gtk-4.1 not found: see 'Desktop app' in docs/DEVELOPMENT.md"
+    fi
+    ;;
+  *)
+    opt desktop "needs the MSVC Build Tools and WebView2: see 'Desktop app' in docs/DEVELOPMENT.md"
+    ;;
+esac
+
 echo
 if [ "$failed" -ne 0 ]; then
   fxm_die "Some required checks failed"
