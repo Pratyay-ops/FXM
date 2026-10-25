@@ -64,7 +64,7 @@ The diagram shows what M1 needs. 1.11, 1.13 and R.2 run in the same waves (see t
 
 ```mermaid
 flowchart LR
-  s11["1.1 Core model ✅"] --> s11b["1.1b Core types"] & s18["1.8 Lyrics"]
+  s11["1.1 Core model ✅"] --> s11b["1.1b Core types ✅"] & s18["1.8 Lyrics"]
   s11b --> s12["1.2 Platform"] & s13["1.3 YouTube metadata"] & s15["1.5 Spotify"] & s16["1.6 Free sources"] & s17["1.7 Matching"] & s22["2.2 Player core"] & s26["2.6 Library"]
   s19["1.9 FXM Connect ✅"] --> sR1["R.1 Release pipeline"]
   s53["5.3 Landing page ✅"] --> sR4["R.4 Legal notices"]
@@ -81,7 +81,7 @@ flowchart LR
 | Wave | Stages that can run at the same time |
 |---|---|
 | 1 (done) | 1.1 · 1.9 · 2.1 · 5.3 |
-| 2 | 1.1b first, then 1.2 · 1.3 · 1.5 · 1.6 · 1.7 · 2.6. 1.8, 2.2 and R.1 started under revision 2 and run alongside 1.1b; 2.2 takes 1.1b's types when it rebases. R.4 needs no core types and can start at once |
+| 2 | 1.1b ✅ first, then 1.2 · 1.3 · 1.5 · 1.6 · 1.7 · 2.6. 1.8, 2.2 and R.1 started under revision 2, alongside 1.1b; 2.2 takes 1.1b's types when it rebases. R.4 needs no core types and can start at once |
 | 3 | 1.4 · 1.10 · 1.12 · 2.4 · R.2 |
 | 4 | 1.11 · 1.13 · 2.3 · 2.7 |
 | 5 | 2.5 |
@@ -100,13 +100,13 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **0.3** | Monorepo scaffold | `chore/0.3-monorepo` | 0.2 | ✅ |
 | **0.4** | Continuous integration | `ci/0.4-ci` | 0.3 | ✅ |
 | **1.1** | Core domain model, interfaces, mode and quality policy | `feat/1.1-core-model` | 0.4 | ✅ |
-| **1.1b** | Core types from research | `feat/1.1b-core-research-types` | 1.1 | 🟡 |
-| **1.2** | Platform transports, capability detection and request budget | `feat/1.2-platform` | 1.1b | ⬜ |
-| **1.3** | YouTube Music + YouTube metadata provider | `feat/1.3-youtube` | 1.1b | ⬜ |
+| **1.1b** | Core types from research | `feat/1.1b-core-research-types` | 1.1 | ✅ |
+| **1.2** | Platform transports, capability detection and request budget | `feat/1.2-platform` | 1.1b | 🟡 |
+| **1.3** | YouTube Music + YouTube metadata provider | `feat/1.3-youtube` | 1.1b | 🟡 |
 | **1.4** | YouTube stream resolver: direct rungs | `feat/1.4-youtube-streams` | 1.2, 1.3 | ⬜ |
-| **1.5** | Spotify provider (switchable; anonymous and logged-in tokens) | `feat/1.5-spotify` | 1.1b | ⬜ |
-| **1.6** | Free and lossless sources: Internet Archive, Jamendo, MusicBrainz | `feat/1.6-free-sources` | 1.1b | ⬜ |
-| **1.7** | Matching engine | `feat/1.7-matching` | 1.1b | ⬜ |
+| **1.5** | Spotify provider (switchable; anonymous and logged-in tokens) | `feat/1.5-spotify` | 1.1b | 🟡 |
+| **1.6** | Free and lossless sources: Internet Archive, Jamendo, MusicBrainz | `feat/1.6-free-sources` | 1.1b | 🟡 |
+| **1.7** | Matching engine | `feat/1.7-matching` | 1.1b | 🟡 |
 | **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | 🟡 |
 | **1.9** | FXM Connect browser extension | `feat/1.9-connect-extension` | 0.4 | ✅ |
 | **1.10** | Opaque-origin transport (Lite tier) | `feat/1.10-sandbox-transport` | 1.2 | ⬜ |
@@ -118,7 +118,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **2.3** | Playback policy and stream lifecycle | `feat/2.3-playback-policy` | 2.2, 1.4, 1.7 | ⬜ |
 | **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | ⬜ |
 | **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | ⬜ |
-| **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | ⬜ |
+| **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | 🟡 |
 | **2.7** | Tiers, onboarding and install guides | `feat/2.7-connect-onboarding` | 2.1, 1.2, 1.6, 1.9, 1.10 | ⬜ |
 | **2.8** | Static deploy to `fxm-music.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 5.3, R.1, R.4, 1.10, 1.12 | ⬜ |
 | **3.1** | Listening signals and affinity | `feat/3.1-signals` | 2.2, 2.6 | ⬜ |
@@ -213,7 +213,7 @@ Removed in revision 2:
 
 It merged with revision 2's types (boolean capabilities, `jiosaavn` in `SourceId`). The research's type changes are 1.1b.
 
-### 1.1b Core types from research
+### 1.1b Core types from research ✅
 
 **Branch** `feat/1.1b-core-research-types` · **Depends on** 1.1 · **Scope** `packages/core/**`
 
@@ -228,6 +228,8 @@ These change exported types, but nothing outside `packages/core` uses them yet (
 - YouTube audio is never labelled lossless: tests pin `tierOf` and `describeConversion` for Opus and AAC sources.
 
 **Done when** coverage and TSDoc are as in 1.1, and the package README documents the new fields.
+
+It merged on 2026-10-25 with three details the stages after it rely on: `signals` is optional (the matching engine fills in what a provider leaves out), `mediaBytes` can be true only with `youtube: 'full'`, and plugin sources are named `plugin.<name>`. [packages/core/README.md](../packages/core/README.md) has the rest.
 
 ### 1.2 Platform transports, capability detection and request budget
 

@@ -261,11 +261,12 @@ scripts/      Toolchain bootstrap (everything installs into .tools/)
   - `jamendo`
   - `local`
 
-  `SourceId` becomes extensible for plugin sources (8.3), and loses the `jiosaavn` ID that 1.1 still carries (1.1b).
+  Plugin sources (8.3) add IDs of the form `plugin.<name>`. 1.1b dropped the `jiosaavn` ID that 1.1 still had.
 - **A `Track` carries:**
   - normalized metadata;
   - its `kind` (`song | music-video | video | episode`);
   - its ISRC when known;
+  - `songId`: for an official video, its song, when the source links it (§4);
   - `externalIds`: the same recording in other sources, once matched.
 
 ### 7.2 Provider interfaces (`packages/core`)
@@ -295,7 +296,7 @@ interface AudioCandidate {           // one place a track's audio may be found
   title: string; artists: string[]; durationMs?: number
   confidence: number                 // 0 to 1
   evidence: string[]                 // e.g. 'isrc', 'title 0.97'
-  signals: {                         // 1.1b: structured facts for the matcher's guards
+  signals?: {                        // 1.1b: facts for the matcher's guards; it fills in missing ones
     isrcVerified: boolean; releaseId?: string; releaseYear?: number
     label?: string; sourceAlbumMatch: boolean
   }
@@ -313,12 +314,12 @@ interface ProviderContext {
 interface NetworkCapabilities {      // 1.1b
   youtube: 'none' | 'simple' | 'full'               // simple: CORS-simple InnerTube calls only (Lite)
   spotify: 'unreachable' | 'anonymous' | 'account'  // reachability; the on/off switch is a setting
-  mediaBytes: boolean                // can read googlevideo bytes (probes, downloads, EQ)
+  mediaBytes: boolean                // can read googlevideo bytes (probes, downloads, EQ); only with 'full'
   fileSystem: boolean                // can write files outside browser storage
 }
 ```
 
-1.1 merged with boolean `youtube` and `spotify` capabilities and without `signals`; 1.1b makes the changes shown.
+1.1 merged with boolean `youtube` and `spotify` capabilities and without `signals`; 1.1b made the changes shown (merged 2026-10-25). The code is the reference: [packages/core/README.md](../packages/core/README.md).
 
 `StreamOption` records:
 
