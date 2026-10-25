@@ -5,6 +5,7 @@ import { setLyricsProvider } from '../features/lyrics/lyrics-source'
 import { resetPlayback } from '../features/now-playing/playback'
 import { usePlayerStore } from '../features/player/player-store'
 import { useQueueReviewStore } from '../features/queue/review-store'
+import { useQualityStore } from '../features/settings/quality-store'
 import { useSettingsStore } from '../features/settings/settings-store'
 
 // findBy* and waitFor give up after 1 s by default, shorter than a lazy page's import on a
@@ -16,6 +17,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   // The stores are app-wide singletons: give every test a fresh start.
   useSettingsStore.setState(useSettingsStore.getInitialState(), true)
+  useQualityStore.setState(useQualityStore.getInitialState(), true)
   useQueueReviewStore.setState(useQueueReviewStore.getInitialState(), true)
   localStorage.clear()
   // After clearing storage, so the next player restores nothing.
