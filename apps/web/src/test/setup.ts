@@ -21,6 +21,7 @@ afterEach(() => {
   useQueueReviewStore.setState(useQueueReviewStore.getInitialState(), true)
   useSponsorBlockStore.setState(useSponsorBlockStore.getInitialState(), true)
   localStorage.clear()
+  sessionStorage.clear()
   // After clearing storage, so the next player restores nothing.
   resetPlayback()
   setLyricsProvider(undefined)

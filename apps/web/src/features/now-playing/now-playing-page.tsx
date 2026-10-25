@@ -10,6 +10,7 @@ import { type TabItem, TabPanel, Tabs } from '../../components/ui/tabs'
 import { LyricsPanel } from '../lyrics/lyrics-panel'
 import { LikeButton, PlayerControls, SeekBar } from '../player/controls'
 import { QueuePanel } from '../queue/queue-panel'
+import { InlineSkipNotice } from '../sponsorblock/sponsorblock-notices'
 import { entityPath } from './browse-links'
 import { getPlayer, useCurrentItem, usePlayerState } from './playback'
 import { StreamInfo } from './stream-info'
@@ -165,6 +166,8 @@ export function NowPlayingPage() {
           <div className="mt-4 md:hidden">
             <SeekBar />
             <PlayerControls size="lg" className="mt-3" />
+            {/* SponsorBlock's skip notice (stage 8.7): here it covers none of the controls. */}
+            <InlineSkipNotice />
           </div>
           <PlaybackProblem />
           {/* Keyed by item: a new track closes the details and the version switcher. */}

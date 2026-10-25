@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { resetPlayback } from '../now-playing/playback'
 import { setupTestPlayback } from '../now-playing/testing'
 import { useSettingsStore } from '../settings/settings-store'
-import { undoLastSkip, useSkipNoticeStore } from './skipping'
+import { skipPart, undoLastSkip, useSkipNoticeStore } from './skipping'
 import { segmentsFor, sponsorBlockContext } from './sponsorblock-source'
 import { useSponsorBlockStore } from './sponsorblock-store'
 import { setupTestSponsorBlock, testSegment, testVideo } from './testing'
@@ -31,7 +31,7 @@ describe('SponsorBlock skipping', () => {
     expect(sponsorBlock.contexts[0]?.mode).toBe('all')
     expect(useSkipNoticeStore.getState().notice).toMatchObject({
       title: 'fxmVideoAAA (Official Video)',
-      toEnd: false,
+      part: 'intro',
     })
   })
 
@@ -106,6 +106,37 @@ describe('SponsorBlock skipping', () => {
     expect(undoLastSkip()).toBe(false)
   })
 
+  it('keeps the notice while Undo works: until the user moves playback or the track changes', async () => {
+    const { player, engine } = setup(() => [testSegment(30, 40), testSegment(60, 70)])
+    await player.setQueue([testVideo('fxmVideoAAA'), testVideo('fxmVideoBBB')])
+    await waitFor(() => expect(player.getState().status).toBe('playing'))
+    engine.progress(30_500)
+    await waitFor(() => expect(useSkipNoticeStore.getState().notice?.part).toBe('other'))
+
+    player.seek(50_000)
+    expect(useSkipNoticeStore.getState().notice).toBeUndefined()
+
+    engine.progress(60_500)
+    await waitFor(() => expect(useSkipNoticeStore.getState().notice).toBeDefined())
+    await player.next()
+    expect(useSkipNoticeStore.getState().notice).toBeUndefined()
+  })
+
+  it('keeps the notice of an outro, which ended the track, for the next track', async () => {
+    const { player, engine } = setup(() => [testSegment(170, 180)])
+    await player.setQueue([testVideo('fxmVideoAAA'), testVideo('fxmVideoBBB')])
+    await waitFor(() => expect(player.getState().status).toBe('playing'))
+    engine.progress(170_500)
+    await waitFor(() => expect(useSkipNoticeStore.getState().notice?.part).toBe('outro'))
+
+    engine.end()
+    await waitFor(() => expect(player.getState().queue.index).toBe(1))
+    expect(useSkipNoticeStore.getState().notice).toMatchObject({
+      title: 'fxmVideoAAA (Official Video)',
+      part: 'outro',
+    })
+  })
+
   it('ignores segments marked on another cut of the video', async () => {
     const { sponsorBlock, player } = setup(() => [
       { startMs: 0, endMs: 12_000, videoDurationMs: 240_000 },
@@ -123,6 +154,25 @@ describe('SponsorBlock skipping', () => {
     resetPlayback()
     expect(useSkipNoticeStore.getState().notice).toBeUndefined()
     expect(undoLastSkip()).toBe(false)
+  })
+})
+
+describe('skipPart', () => {
+  const item = { uid: 1, track: testVideo('fxmVideoAAA') }
+  const skip = (startS: number, endS: number, toS = endS) => ({
+    item,
+    segment: { startMs: startS * 1000, endMs: endS * 1000 },
+    fromMs: startS * 1000,
+    toMs: toS * 1000,
+  })
+
+  it('names a part at the start the intro, one that ended the track the outro', () => {
+    expect(skipPart(skip(0, 12))).toBe('intro')
+    expect(skipPart(skip(0.9, 12))).toBe('intro')
+    expect(skipPart(skip(1, 12))).toBe('other')
+    expect(skipPart(skip(95, 110))).toBe('other')
+    // A skip to the end stops a moment before it.
+    expect(skipPart(skip(170, 180, 179.9))).toBe('outro')
   })
 })
 
