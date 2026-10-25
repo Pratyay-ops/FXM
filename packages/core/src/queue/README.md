@@ -83,7 +83,7 @@ Save `JSON.stringify(state)`. Read it back with `restoreQueue(json, mode)`, whic
 - It repairs the played items, the original order and the uid counter, and drops an invalid context.
 - It returns `null` when the value is not a queue at all.
 
-Pass the restored queue to `player.restore(queue, positionMs)`.
+`player.restore(json, positionMs)` runs `restoreQueue` itself, in the player's mode.
 
 ## Randomness
 

@@ -77,10 +77,13 @@ describe('FakeResolver', () => {
     const item = currentQueueItem(queue)
     if (item === undefined) throw new Error('empty queue')
     const signal = new AbortController().signal
-    const resolved = await resolver.resolve(item, { reason: 'play', attempt: 0, signal })
+    const canPlay = () => 'maybe' as const
+    const request = { reason: 'play', attempt: 0, signal, canPlay } as const
+    const resolved = await resolver.resolve(item, request)
     expect(resolved).toEqual({ stream: testStream('a') })
-    expect(resolver.requestsFor('a')).toEqual([{ reason: 'play', attempt: 0, signal }])
+    expect(resolver.requestsFor('a')).toEqual([request])
     expect(resolver.requestsFor('b')).toEqual([])
+    expect(resolver.log).toEqual(['a:play#0'])
   })
 })
 
@@ -91,6 +94,9 @@ describe('fixtures', () => {
     expect(testStream('a b')).toMatchObject({
       url: 'https://media.test/a%20b',
       protocol: 'progressive',
+      media: 'audio',
+      fullLength: 'unverified',
     })
+    expect(testStream('a', { fullLength: 'verified' }).fullLength).toBe('verified')
   })
 })

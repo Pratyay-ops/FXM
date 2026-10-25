@@ -1,7 +1,7 @@
-import { currentQueueItem, FxmError, isFxmError } from '@fxm/core'
+import { currentQueueItem, FXM_ERROR_CODES, FxmError, isFxmError } from '@fxm/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { isEngineError } from './engine'
-import { Player, type PlayerOptions } from './player'
+import { EngineError, isEngineError } from './engine'
+import { classifyFailure, Player, type PlayerOptions } from './player'
 import { FakeEngine, FakeResolver, testStream, testTracks } from './testing'
 
 function setup(options: Partial<PlayerOptions> = {}) {
@@ -25,10 +25,16 @@ async function drain(): Promise<void> {
   await vi.runAllTimersAsync()
 }
 
+/** Reports advancing positions every 250 ms for `durationMs`, as a playing engine does. */
+async function playFor(engine: FakeEngine, fromMs: number, durationMs: number): Promise<void> {
+  for (let elapsed = 250; elapsed <= durationMs; elapsed += 250) {
+    await settle(250)
+    engine.progress(fromMs + elapsed)
+  }
+}
+
 const current = (player: Player) => currentQueueItem(player.getState().queue)?.track.title
 const url = (name: string) => `https://media.test/${name}`
-const loadStarts = (engine: FakeEngine) =>
-  engine.calls.filter((call) => call.method === 'load').map((call) => call.args[1])
 
 beforeEach(() => {
   vi.useFakeTimers()
@@ -36,6 +42,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 describe('Player: retries', () => {
@@ -53,8 +60,28 @@ describe('Player: retries', () => {
       failure: { positionMs: 42_000, stream: testStream('a') },
     })
     expect(isEngineError(retry?.failure?.error, 'network')).toBe(true)
-    expect(loadStarts(engine)).toEqual([0, 42_000])
+    expect(engine.loadStarts).toEqual([0, 42_000])
     expect(player.getState()).toMatchObject({ status: 'playing', positionMs: 42_000 })
+  })
+
+  it('resumes at the original position when a retry fails before it plays', async () => {
+    const { player, engine, resolver } = setup()
+    await player.setQueue(testTracks('a', 'b'))
+    engine.progress(10_945)
+    engine.startOnPlay = false
+    engine.fail('network')
+    await settle()
+    // A real element reports the 0 it leaves before the start position applies.
+    engine.progress(0)
+    engine.fail('unsupported')
+    await settle(1000)
+    expect(resolver.requestsFor('a').map((request) => request.failure?.positionMs)).toEqual([
+      undefined,
+      10_945,
+      10_945,
+    ])
+    expect(engine.loadStarts).toEqual([0, 10_945, 10_945])
+    expect(player.getState().positionMs).toBe(10_945)
   })
 
   it('waits longer before each retry', async () => {
@@ -78,7 +105,9 @@ describe('Player: retries', () => {
   it('skips a track after its third retry fails', async () => {
     const { player, engine, resolver, failed } = setup({ retryDelaysMs: [0] })
     const errors: unknown[] = []
+    const changes: string[] = []
     player.on('trackfailed', ({ error }) => errors.push(error))
+    player.on('trackchange', ({ item, cause }) => changes.push(`${item?.track.title} ${cause}`))
     await player.setQueue(testTracks('a', 'b'))
     for (let attempt = 0; attempt < 4; attempt += 1) {
       engine.fail('unsupported')
@@ -87,6 +116,7 @@ describe('Player: retries', () => {
     expect(failed).toEqual(['a'])
     expect(isEngineError(errors[0], 'unsupported')).toBe(true)
     expect(current(player)).toBe('b')
+    expect(changes).toEqual(['a queue', 'b failed'])
     expect(resolver.requestsFor('a')).toHaveLength(4)
     expect(resolver.requestsFor('b')[0]).toMatchObject({ reason: 'play', attempt: 0 })
     expect(player.getState().status).toBe('playing')
@@ -95,7 +125,7 @@ describe('Player: retries', () => {
   it('counts a rejected resolution as a failed attempt', async () => {
     const { player, resolver, failed } = setup({ retryDelaysMs: [0] })
     resolver.handler = (item) => {
-      if (item.track.title === 'a') throw new FxmError('Unavailable', 'Video unavailable')
+      if (item.track.title === 'a') throw new FxmError('Network', 'offline')
       return { stream: testStream(item.track.title) }
     }
     await player.setQueue(testTracks('a', 'b'))
@@ -104,7 +134,7 @@ describe('Player: retries', () => {
     const requests = resolver.requestsFor('a')
     expect(requests.map((request) => request.attempt)).toEqual([0, 1, 2, 3])
     expect(requests[1]?.failure).not.toHaveProperty('stream')
-    expect(isFxmError(requests[1]?.failure?.error, 'Unavailable')).toBe(true)
+    expect(isFxmError(requests[1]?.failure?.error, 'Network')).toBe(true)
     expect(current(player)).toBe('b')
   })
 
@@ -150,6 +180,21 @@ describe('Player: retries', () => {
     expect(player.getState()).toMatchObject({ status: 'playing', stream: { codec: 'aac' } })
   })
 
+  it('never hands the engine a capped stream', async () => {
+    const { player, engine, resolver } = setup()
+    resolver.handler = (item, request) => ({
+      stream: testStream(`${item.track.title}-${request.attempt}`, {
+        fullLength: request.attempt === 0 ? 'capped' : 'verified',
+      }),
+    })
+    await player.setQueue(testTracks('a'))
+    await settle()
+    const retry = resolver.requestsFor('a')[1]
+    expect(isEngineError(retry?.failure?.error, 'unsupported')).toBe(true)
+    expect(retry?.failure?.stream?.fullLength).toBe('capped')
+    expect(engine.loadedUrls).toEqual([url('a-1')])
+  })
+
   it('counts an engine that throws while loading as a failure', async () => {
     const { player, engine, resolver } = setup()
     const load = engine.load.bind(engine)
@@ -165,27 +210,6 @@ describe('Player: retries', () => {
     await settle()
     expect(resolver.requestsFor('a')[1]?.failure?.error.message).toBe('bridge down')
     expect(player.getState().status).toBe('playing')
-  })
-
-  it('retries paused when the user paused in between', async () => {
-    const { player, engine } = setup({ retryDelaysMs: [1000] })
-    await player.setQueue(testTracks('a'))
-    engine.fail('network')
-    player.pause()
-    await settle(1000)
-    expect(engine.count('load')).toBe(2)
-    expect(engine.calls.at(-1)?.method).toBe('load')
-    expect(player.getState().status).toBe('paused')
-  })
-
-  it('skips to the next track paused when the user paused during the retries', async () => {
-    const { player, engine, failed } = setup({ maxRetries: 0 })
-    await player.setQueue(testTracks('a', 'b'))
-    player.pause()
-    engine.fail('network')
-    expect(failed).toEqual(['a'])
-    expect(current(player)).toBe('b')
-    expect(player.getState().status).toBe('paused')
   })
 
   it('drops a pending retry when the user skips', async () => {
@@ -223,30 +247,285 @@ describe('Player: retries', () => {
     expect(isEngineError(error?.error, 'decode')).toBe(true)
   })
 
-  it('tries a failed track again when the user presses play', async () => {
+  it('tries a failed track again with its failure when the user presses play', async () => {
     const { player, engine, resolver } = setup({ maxRetries: 0 })
     await player.setQueue(testTracks('a'))
     engine.progress(30_000)
     engine.fail('network')
     expect(player.getState().status).toBe('error')
     await player.play()
-    expect(resolver.requestsFor('a').at(-1)).toMatchObject({ reason: 'play', attempt: 0 })
-    expect(loadStarts(engine).at(-1)).toBe(30_000)
+    expect(resolver.requestsFor('a').at(-1)).toMatchObject({
+      reason: 'retry',
+      attempt: 1,
+      failure: { positionMs: 30_000, stream: testStream('a') },
+    })
+    expect(engine.loadStarts.at(-1)).toBe(30_000)
     expect(player.getState()).toMatchObject({ status: 'playing', error: undefined })
   })
-})
 
-describe('Player: after a failure', () => {
-  it('loads the failed track again when "previous" restarts it', async () => {
+  it('loads the failed track again from the start when "previous" restarts it', async () => {
     const { player, engine, resolver } = setup({ maxRetries: 0 })
     await player.setQueue(testTracks('a'))
     engine.progress(30_000)
     engine.fail('network')
     expect(player.getState().status).toBe('error')
     await player.previous()
-    expect(resolver.requestsFor('a').at(-1)).toMatchObject({ reason: 'play', attempt: 0 })
-    expect(loadStarts(engine).at(-1)).toBe(0)
+    expect(resolver.requestsFor('a').at(-1)).toMatchObject({ reason: 'retry', attempt: 1 })
+    expect(engine.loadStarts.at(-1)).toBe(0)
     expect(player.getState().status).toBe('playing')
+  })
+})
+
+describe('Player: failures while paused', () => {
+  it('neither retries nor skips, and retries the track with its failure on play', async () => {
+    const { player, engine, resolver, failed } = setup({ maxRetries: 0 })
+    await player.setQueue(testTracks('a', 'b'))
+    engine.progress(60_000)
+    player.pause()
+    engine.fail('network')
+    await settle(30_000)
+    expect(failed).toEqual([])
+    expect(current(player)).toBe('a')
+    expect(resolver.requests).toHaveLength(1)
+    expect(player.getState()).toMatchObject({ status: 'paused', positionMs: 60_000 })
+    await player.play()
+    expect(resolver.requestsFor('a').at(-1)).toMatchObject({
+      reason: 'retry',
+      attempt: 1,
+      failure: { positionMs: 60_000 },
+    })
+    expect(engine.loadStarts.at(-1)).toBe(60_000)
+    expect(player.getState().status).toBe('playing')
+  })
+
+  it('waits for play when the user pauses during a retry wait', async () => {
+    const { player, engine, resolver } = setup({ retryDelaysMs: [1000] })
+    await player.setQueue(testTracks('a'))
+    engine.progress(20_000)
+    engine.fail('network')
+    player.pause()
+    await settle(10_000)
+    expect(engine.count('load')).toBe(1)
+    expect(player.getState()).toMatchObject({ status: 'paused', positionMs: 20_000 })
+    await player.play()
+    expect(resolver.log).toEqual(['a:play#0', 'a:retry#1'])
+    expect(resolver.requests.at(-1)?.request.failure?.positionMs).toBe(20_000)
+    expect(engine.loadStarts).toEqual([0, 20_000])
+  })
+
+  it('keeps a failure of a track that loads paused for the next play', async () => {
+    const { player, engine, resolver } = setup()
+    engine.startOnPlay = false
+    const starting = player.setQueue(testTracks('a'))
+    player.pause()
+    await starting
+    engine.fail('decode')
+    await settle(10_000)
+    expect(resolver.requests).toHaveLength(1)
+    expect(player.getState()).toMatchObject({ status: 'paused', buffering: false })
+    await player.play()
+    expect(resolver.log).toEqual(['a:play#0', 'a:retry#1'])
+  })
+
+  it('keeps an ended queue ended when a late error arrives', async () => {
+    const { player, engine } = setup()
+    await player.setQueue(testTracks('a'))
+    engine.end()
+    engine.fail('network')
+    expect(player.getState().status).toBe('ended')
+  })
+})
+
+describe('Player: tracks that keep failing', () => {
+  it('stops instead of retrying the only track of a repeating queue again', async () => {
+    for (const repeat of ['all', 'one'] as const) {
+      const { player, resolver, failed } = setup({ queue: { repeat }, retryDelaysMs: [0] })
+      resolver.handler = () => {
+        throw new FxmError('Network', 'offline')
+      }
+      await player.setQueue(testTracks('a'))
+      await drain()
+      expect(resolver.requests).toHaveLength(4)
+      expect(failed).toEqual(['a'])
+      expect(player.getState().error?.reason).toBe('track-failed')
+    }
+  })
+
+  it('stops when a repeating queue comes round to a track that already failed', async () => {
+    const { player, resolver, failed } = setup({ queue: { repeat: 'all' }, maxRetries: 0 })
+    resolver.handler = () => {
+      throw new FxmError('Network', 'offline')
+    }
+    await player.setQueue(testTracks('a', 'b', 'c'))
+    await drain()
+    expect(failed).toEqual(['a', 'b', 'c'])
+    expect(resolver.requests).toHaveLength(3)
+    expect(player.getState()).toMatchObject({ status: 'error', error: { reason: 'track-failed' } })
+    expect(current(player)).toBe('c')
+  })
+})
+
+describe('Player: what a failure leads to', () => {
+  it.each(['NotFound', 'Unavailable', 'GeoBlocked'] as const)(
+    'skips a track the resolver reports as %s at once, without the circuit breaker',
+    async (code) => {
+      const { player, resolver, failed } = setup()
+      resolver.handler = (item) => {
+        if (item.track.title === 'f') return { stream: testStream('f') }
+        throw new FxmError(code, 'cannot play')
+      }
+      await player.setQueue(testTracks('a', 'b', 'c', 'd', 'e', 'f'))
+      await settle()
+      expect(failed).toEqual(['a', 'b', 'c', 'd', 'e'])
+      expect(resolver.log).toEqual([
+        'a:play#0',
+        'b:play#0',
+        'c:play#0',
+        'd:play#0',
+        'e:play#0',
+        'f:play#0',
+      ])
+      expect(player.getState()).toMatchObject({ status: 'playing', error: undefined })
+    },
+  )
+
+  it.each(['Unsupported', 'AuthRequired', 'BotCheck'] as const)(
+    'stops and asks the user to act when the resolver reports %s',
+    async (code) => {
+      const { player, resolver, failed } = setup()
+      resolver.handler = () => {
+        throw new FxmError(code, 'needs the user')
+      }
+      await player.setQueue(testTracks('a', 'b'))
+      await drain()
+      expect(resolver.requests).toHaveLength(1)
+      expect(failed).toEqual(['a'])
+      const { status, error } = player.getState()
+      expect(status).toBe('error')
+      expect(error?.reason).toBe('action-required')
+      expect(isFxmError(error?.error, code)).toBe(true)
+      expect(current(player)).toBe('a')
+      resolver.handler = (item) => ({ stream: testStream(item.track.title) })
+      await player.play()
+      expect(resolver.log.at(-1)).toBe('a:retry#1')
+      expect(player.getState()).toMatchObject({ status: 'playing', error: undefined })
+    },
+  )
+
+  it('waits as long as a rate-limited source asks before retrying', async () => {
+    const { player, resolver } = setup()
+    resolver.handler = (item, request) => {
+      if (request.attempt === 0) {
+        throw new FxmError('RateLimited', 'slow down', { retryAfterMs: 60_000 })
+      }
+      return { stream: testStream(item.track.title) }
+    }
+    await player.setQueue(testTracks('a'))
+    await settle(59_999)
+    expect(resolver.requests).toHaveLength(1)
+    await settle(1)
+    expect(resolver.log).toEqual(['a:play#0', 'a:retry#1'])
+    expect(player.getState().status).toBe('playing')
+  })
+
+  it('keeps its own delay when a rate-limited source asks for less or says nothing', async () => {
+    const { player, resolver } = setup({ retryDelaysMs: [2000] })
+    resolver.handler = (item, request) => {
+      if (request.attempt === 0) throw new FxmError('RateLimited', 'slow', { retryAfterMs: 10 })
+      if (request.attempt === 1) throw new FxmError('RateLimited', 'slow')
+      return { stream: testStream(item.track.title) }
+    }
+    await player.setQueue(testTracks('a'))
+    await settle(1999)
+    expect(resolver.requests).toHaveLength(1)
+    await settle(1)
+    expect(resolver.requests).toHaveLength(2)
+    await settle(2000)
+    expect(resolver.requests).toHaveLength(3)
+  })
+
+  it('stops a queue in which nothing plays before resolving all of it', async () => {
+    const { player, resolver, failed } = setup({ maxConsecutiveSkips: 3 })
+    const opened = vi.fn()
+    player.on('circuitopen', opened)
+    resolver.handler = () => {
+      throw new FxmError('NotFound', 'no match')
+    }
+    await player.setQueue(testTracks('a', 'b', 'c', 'd', 'e'))
+    await drain()
+    expect(failed).toEqual(['a', 'b', 'c'])
+    expect(resolver.requests).toHaveLength(3)
+    expect(opened).toHaveBeenCalledWith({ failures: 3 })
+    expect(player.getState().error?.reason).toBe('circuit-open')
+  })
+
+  it('stops at the end of a queue whose last track cannot play', async () => {
+    const { player, resolver } = setup()
+    resolver.handler = () => {
+      throw new FxmError('Unavailable', 'removed')
+    }
+    await player.setQueue(testTracks('a'))
+    await drain()
+    expect(player.getState().error?.reason).toBe('track-failed')
+  })
+
+  it('lets the app decide what a failure leads to', async () => {
+    const classify = vi.fn((error: Error) =>
+      isEngineError(error, 'decode') ? ('skip' as const) : classifyFailure(error),
+    )
+    const { player, engine, resolver, failed } = setup({ classifyFailure: classify })
+    await player.setQueue(testTracks('a', 'b'))
+    engine.fail('decode')
+    await settle()
+    expect(failed).toEqual(['a'])
+    expect(current(player)).toBe('b')
+    expect(classify).toHaveBeenCalledWith(expect.any(EngineError), expect.objectContaining({}))
+    expect(resolver.log).toEqual(['a:play#0', 'b:play#0'])
+  })
+
+  it('retries when the classifier throws or answers nonsense', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const answers: unknown[] = [
+      () => {
+        throw new Error('classifier bug')
+      },
+      () => 'later',
+    ]
+    for (const answer of answers) {
+      const { player, engine, resolver } = setup({
+        classifyFailure: answer as NonNullable<PlayerOptions['classifyFailure']>,
+      })
+      await player.setQueue(testTracks('a'))
+      engine.fail('network')
+      await settle()
+      expect(resolver.log).toEqual(['a:play#0', 'a:retry#1'])
+    }
+    expect(error).toHaveBeenCalledOnce()
+  })
+})
+
+describe('classifyFailure', () => {
+  it('maps every FxmError code', () => {
+    const classes = Object.fromEntries(
+      FXM_ERROR_CODES.map((code) => [code, classifyFailure(new FxmError(code, code))]),
+    )
+    expect(classes).toEqual({
+      NotFound: 'skip',
+      RateLimited: 'retry',
+      AuthRequired: 'stop',
+      Unavailable: 'skip',
+      GeoBlocked: 'skip',
+      Expired: 'retry',
+      BotCheck: 'stop',
+      Unsupported: 'stop',
+      Network: 'retry',
+      Parse: 'retry',
+    })
+  })
+
+  it('retries engine errors and errors of unknown origin', () => {
+    expect(classifyFailure(new EngineError('unsupported', 'format'))).toBe('retry')
+    expect(classifyFailure(new Error('?'))).toBe('retry')
   })
 })
 
@@ -290,7 +569,7 @@ describe('Player: circuit breaker', () => {
     const { player, engine, resolver, failed } = setup({ retryDelaysMs: [0], maxRetries: 0 })
     resolver.handler = (item) => {
       if (item.track.title === 'd') return { stream: testStream('d') }
-      throw new FxmError('Unavailable', 'gone')
+      throw new FxmError('Network', 'offline')
     }
     await player.setQueue(testTracks('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'))
     await settle()
@@ -360,6 +639,50 @@ describe('Player: stalls', () => {
     expect(isEngineError(retry?.failure?.error, 'network')).toBe(true)
   })
 
+  it('does not count a stall while the position keeps moving', async () => {
+    for (const event of ['stalled', 'waiting'] as const) {
+      const { player, engine, resolver } = setup()
+      await player.setQueue(testTracks('a'))
+      engine.progress(10_000)
+      engine.emit(event, undefined)
+      expect(player.getState().buffering).toBe(true)
+      await playFor(engine, 10_000, 20_000)
+      expect(resolver.requests).toHaveLength(1)
+      expect(engine.count('load')).toBe(1)
+      expect(player.getState()).toMatchObject({ buffering: false, status: 'playing' })
+    }
+  })
+
+  it('takes neither a stray update nor a seek for progress', async () => {
+    const { player, engine, resolver } = setup()
+    await player.setQueue(testTracks('a'))
+    engine.progress(10_000)
+    engine.emit('waiting', undefined)
+    engine.progress(10_015)
+    player.seek(60_000)
+    engine.progress(60_000)
+    expect(player.getState().buffering).toBe(true)
+    await settle(14_999)
+    expect(resolver.requests).toHaveLength(1)
+    await settle(2)
+    expect(resolver.log).toEqual(['a:play#0', 'a:retry#1'])
+    expect(resolver.requests.at(-1)?.request.failure?.positionMs).toBe(60_000)
+  })
+
+  it('measures progress from where playback last started waiting', async () => {
+    const { player, engine, resolver } = setup()
+    await player.setQueue(testTracks('a'))
+    player.pause()
+    engine.startOnPlay = false
+    await player.play()
+    engine.progress(900)
+    engine.emit('waiting', undefined)
+    engine.progress(1000)
+    expect(player.getState().buffering).toBe(true)
+    await settle(15_001)
+    expect(resolver.log).toEqual(['a:play#0', 'a:retry#1'])
+  })
+
   it('retries when a track never starts', async () => {
     const { player, engine, resolver } = setup({ stallTimeoutMs: 5000 })
     engine.startOnPlay = false
@@ -416,7 +739,7 @@ describe('Player: expiring streams', () => {
     expect(refresh).toMatchObject({ reason: 'refresh', failure: { positionMs: 30_000 } })
     expect(isEngineError(refresh?.failure?.error, 'expired')).toBe(true)
     expect(engine.loadedUrls).toEqual([url('a-play'), url('a-refresh')])
-    expect(loadStarts(engine)).toEqual([0, 30_000])
+    expect(engine.loadStarts).toEqual([0, 30_000])
   })
 
   it('resumes a stream that is still fresh', async () => {
@@ -428,6 +751,32 @@ describe('Player: expiring streams', () => {
     now += 60 * 60_000
     await player.play()
     expect(engine.count('load')).toBe(1)
+    expect(player.getState().status).toBe('playing')
+  })
+
+  it('refreshes an expiring stream before a repeat or a restart replays it', async () => {
+    let now = 1_000_000
+    const { player, engine, resolver } = setup({ now: () => now, queue: { repeat: 'one' } })
+    resolver.handler = (item, request) => ({
+      stream: testStream(`${item.track.title}-${request.reason}`, {
+        expiresAt: now + 15 * 60_000,
+      }),
+    })
+    await player.setQueue(testTracks('a'))
+    engine.progress(170_000)
+    now += 10 * 60_000
+    engine.end()
+    await settle()
+    expect(resolver.log).toEqual(['a:play#0', 'a:refresh#0'])
+    expect(resolver.requests.at(-1)?.request.failure).toMatchObject({
+      positionMs: 0,
+      stream: { url: url('a-play') },
+    })
+    expect(engine.loadStarts).toEqual([0, 0])
+    now += 10 * 60_000
+    engine.progress(5000)
+    await player.previous()
+    expect(resolver.log).toEqual(['a:play#0', 'a:refresh#0', 'a:refresh#0'])
     expect(player.getState().status).toBe('playing')
   })
 })

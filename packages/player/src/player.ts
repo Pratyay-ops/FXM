@@ -10,23 +10,27 @@
  */
 
 import {
+  type AudioCandidate,
   addToQueue,
   type CatalogMode,
   clearUpcoming,
   createQueue,
   currentQueueItem,
+  type FxmErrorCode,
   hasNextQueueItem,
+  isFxmError,
   jumpInQueue,
   moveInQueue,
   nextQueueItem,
   playNext,
-  type QueueContext,
   type QueueItem,
   type QueueOptions,
   type QueueState,
   type RandomSource,
   type RepeatMode,
   removeFromQueue,
+  restoreQueue,
+  type SetQueueOptions,
   type StreamOption,
   setQueue,
   setQueueCandidate,
@@ -39,7 +43,7 @@ import {
   upcomingQueueItems,
 } from '@fxm/core'
 import { callSafely, Emitter, type Listener } from './emitter'
-import { type Engine, EngineError } from './engine'
+import { type Engine, EngineError, type PlaySupport } from './engine'
 import type { ResolvedStream, ResolveReason, StreamFailure, StreamResolver } from './resolver'
 
 /**
@@ -54,13 +58,23 @@ import type { ResolvedStream, ResolveReason, StreamFailure, StreamResolver } fro
  */
 export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'ended' | 'error'
 
+/**
+ * Why playback stopped with status `error`:
+ *
+ * - `track-failed`: the player gave up on a track and had nowhere to go: it was the last one
+ *   (repeat off), or the next one had already failed in this run of failures
+ * - `circuit-open`: too many tracks failed in a row, so the player stopped skipping: a dead
+ *   connection most likely, or a queue in which nothing plays
+ * - `action-required`: a failure that neither retrying nor skipping fixes, so the user must
+ *   act: the platform lacks a capability such as FXM Connect (`Unsupported`), a login is needed
+ *   (`AuthRequired`), or the source wants proof of a real user (`BotCheck`). `error` says which
+ */
+export type PlayerErrorReason = 'track-failed' | 'circuit-open' | 'action-required'
+
 /** Why playback stopped with status `error`. */
 export interface PlayerError {
-  /**
-   * `track-failed`: the last track in the queue failed every retry. `circuit-open`: too many
-   * tracks failed in a row, so the player stopped skipping (a dead connection, most likely).
-   */
-  reason: 'track-failed' | 'circuit-open'
+  /** What stopped it. */
+  reason: PlayerErrorReason
   /** The last failure. */
   error: Error
   /** The item that failed last. */
@@ -89,13 +103,51 @@ export interface PlayerState {
   readonly error: PlayerError | undefined
 }
 
+/**
+ * Why the current item changed:
+ *
+ * - `queue`: a new queue, or tracks added to an empty one
+ * - `restore`: a saved queue was put back
+ * - `next`, `previous`, `jump`: the user skipped, went back or picked an item
+ * - `ended`: the previous track played to its end
+ * - `failed`: the previous track failed and was skipped
+ * - `removed`: the previous item was removed from the queue
+ */
+export type TrackChangeCause =
+  | 'queue'
+  | 'restore'
+  | 'next'
+  | 'previous'
+  | 'jump'
+  | 'ended'
+  | 'failed'
+  | 'removed'
+
+/**
+ * Why the position jumped:
+ *
+ * - `user`: a seek (from the seek bar, a lyric line or the system controls), or stop
+ * - `restart`: "previous" restarted the track, or play after the end of the queue started it
+ *   over
+ * - `repeat`: the track ended and plays again: repeat one, or a one-track queue repeating
+ */
+export type SeekCause = 'user' | 'restart' | 'repeat'
+
 /** The events a {@link Player} announces, with their payloads. */
 export interface PlayerEventMap {
   /** The current item changed. `item` is `undefined` when the queue became empty. */
-  trackchange: { item: QueueItem | undefined; previous: QueueItem | undefined }
-  /** The position jumped: a seek, a restart by "previous", or a repeat of the track. */
-  seek: { positionMs: number }
-  /** A track failed every retry. The player skips it unless it has to stop. */
+  trackchange: {
+    item: QueueItem | undefined
+    previous: QueueItem | undefined
+    cause: TrackChangeCause
+  }
+  /** The position jumped: a seek, a restart, or a repeat of the track. */
+  seek: { positionMs: number; cause: SeekCause }
+  /**
+   * The player gave up on a track: it failed every retry, cannot play anywhere (skipped at
+   * once), or cannot play until the user acts (then playback stops with `action-required`).
+   * The player moves on unless it has to stop.
+   */
   trackfailed: { item: QueueItem; error: Error }
   /** Too many tracks failed in a row, so playback stopped. */
   circuitopen: { failures: number }
@@ -103,13 +155,54 @@ export interface PlayerEventMap {
   queueend: undefined
   /** The browser wants a user gesture before playback can start: show a play button. */
   autoplayblocked: undefined
+  /**
+   * The current track is close to its end (`preloadLeadMs`), so `next` can be prepared. The
+   * player resolves it itself when the `preload` option is on; listen to prefetch more of
+   * `upcoming` or to top up a radio. Announced once per pair of current and next item, also
+   * with `preload: false`. `upcoming` is the items after the current one in play order and does
+   * not wrap around for repeat `all`, so it can be empty while `next` is the first item again.
+   */
+  preload: { next: QueueItem; upcoming: readonly QueueItem[] }
 }
 
 /** Receives every new {@link PlayerState}, with the one it replaces. */
 export type PlayerStateListener = (state: PlayerState, previous: PlayerState) => void
 
-/** Called when the next track is being prepared; see {@link PlayerOptions.onPreload}. */
-export type PreloadHook = (next: QueueItem, upcoming: readonly QueueItem[]) => void
+/**
+ * What the player does after a failed attempt to play an item:
+ *
+ * - `retry`: try the item again after a wait, up to `maxRetries` times, then skip it
+ * - `skip`: give up on the item at once and move on: it cannot play anywhere. Counts toward
+ *   `maxConsecutiveSkips`, not toward `maxConsecutiveFailures`
+ * - `stop`: stop with `action-required`: nothing will play until the user acts
+ */
+export type FailureClass = 'retry' | 'skip' | 'stop'
+
+/** Every {@link FailureClass}. */
+const FAILURE_CLASSES: readonly FailureClass[] = ['retry', 'skip', 'stop']
+
+/** `FxmError` codes for an item that cannot play anywhere. */
+const SKIP_CODES: ReadonlySet<FxmErrorCode> = new Set(['NotFound', 'Unavailable', 'GeoBlocked'])
+
+/** `FxmError` codes that no item gets past until the user acts. */
+const STOP_CODES: ReadonlySet<FxmErrorCode> = new Set(['Unsupported', 'AuthRequired', 'BotCheck'])
+
+/**
+ * The default {@link FailureClass} of a failure, by its `FxmError` code:
+ *
+ * - `NotFound`, `Unavailable`, `GeoBlocked`: `skip`, the item cannot play anywhere
+ * - `Unsupported`, `AuthRequired`, `BotCheck`: `stop`, the user must act (install FXM Connect,
+ *   log in, prove they are human) before anything plays
+ * - anything else: `retry`. That includes `RateLimited` (the player then waits at least
+ *   `retryAfterMs`), `Network`, `Expired`, `Parse`, every `EngineError` and errors that are not
+ *   `FxmError`s
+ */
+export function classifyFailure(error: Error): FailureClass {
+  if (!isFxmError(error)) return 'retry'
+  if (SKIP_CODES.has(error.code)) return 'skip'
+  if (STOP_CODES.has(error.code)) return 'stop'
+  return 'retry'
+}
 
 /** How the player is put together and tuned. */
 export interface PlayerOptions {
@@ -131,27 +224,37 @@ export interface PlayerOptions {
   maxRetries?: number
   /** Wait before each retry, by retry number; the last value repeats. Default: 0, 1 s, 3 s. */
   retryDelaysMs?: readonly number[]
-  /** Failed tracks in a row that stop playback (the circuit breaker). Default: 4. */
+  /** Tracks in a row that failed every retry and stop playback (circuit breaker). Default: 4. */
   maxConsecutiveFailures?: number
+  /**
+   * Tracks in a row the player gave up on, skipped ones included, that stop playback, so a
+   * queue in which nothing plays is not resolved to its end. Default: 10.
+   */
+  maxConsecutiveSkips?: number
   /** How long playback may wait for data before that counts as a network failure; 0 never. */
   stallTimeoutMs?: number
-  /** Whether to prepare the next track before the current one ends. Default: true. */
+  /**
+   * Whether to resolve the next track before the current one ends and hand it to
+   * `engine.preload`. The `preload` event is announced either way. Default: true.
+   */
   preload?: boolean
   /** How long before the end of the current track to prepare the next one. Default: 30 s. */
   preloadLeadMs?: number
   /** Resolve again a loaded stream this close to its `expiresAt`. Default: 10 minutes. */
   refreshBeforeExpiryMs?: number
   /**
-   * Called once per track when the next one is being prepared, with the upcoming items, e.g.
-   * to prefetch more of them. The player itself resolves only the next one.
+   * Decides what a failed attempt leads to (see {@link FailureClass}). Default:
+   * {@link classifyFailure}; wrap it to change single cases.
    */
-  onPreload?: PreloadHook
+  classifyFailure?: (error: Error, item: QueueItem) => FailureClass
 }
 
 /** Options for {@link Player.setQueue}. */
-export interface SetQueueOptions {
+export interface PlayerSetQueueOptions extends Omit<SetQueueOptions, 'random'> {
   /** Whether to start playing at once. Default: true. */
   autoplay?: boolean
+  /** Where to start the first track, in milliseconds, e.g. to resume it. Default: 0. */
+  startAtMs?: number
 }
 
 /** The defaults behind {@link PlayerOptions}. */
@@ -159,6 +262,7 @@ export const PLAYER_DEFAULTS = Object.freeze({
   maxRetries: 3,
   retryDelaysMs: Object.freeze([0, 1000, 3000]),
   maxConsecutiveFailures: 4,
+  maxConsecutiveSkips: 10,
   stallTimeoutMs: 15_000,
   preloadLeadMs: 30_000,
   refreshBeforeExpiryMs: 10 * 60_000,
@@ -170,14 +274,21 @@ export const PLAYER_DEFAULTS = Object.freeze({
  */
 const HEALTHY_AFTER_MS = 5000
 
+/**
+ * How far the position must move past where playback started waiting for data before that
+ * proves audio plays again, whatever the engine said. A stray late update moves it a few
+ * milliseconds at most.
+ */
+const PROGRESS_PROOF_MS = 1000
+
 interface LoadRequest {
   /** Whether to play once loaded; otherwise the track is loaded paused. */
   autoplay: boolean
   /** Where to start, in milliseconds. */
   startAtMs?: number
-  /** Why the stream is needed. Default: `play`. */
+  /** Why the stream is needed. Default: `retry` after a failure of the item, else `play`. */
   reason?: ResolveReason
-  /** What went wrong before, for `retry` and `refresh`. */
+  /** What went wrong before. Default: the item's last failure, for a `retry`. */
   failure?: StreamFailure
 }
 
@@ -188,6 +299,14 @@ interface Preload {
   abort: AbortController
   /** Its resolution, shared with the load when the item comes up. */
   promise: Promise<ResolvedStream>
+}
+
+/** The stream the engine holds for the current item. */
+interface Loaded {
+  uid: number
+  stream: StreamOption
+  /** Whether the engine reported `play` for this load yet. */
+  played: boolean
 }
 
 function toError(value: unknown): Error {
@@ -216,11 +335,12 @@ export class Player {
   readonly #resolver: StreamResolver
   readonly #random: RandomSource
   readonly #now: () => number
-  readonly #onPreload: PreloadHook | undefined
+  readonly #classify: (error: Error, item: QueueItem) => FailureClass
   readonly #config: {
     maxRetries: number
     retryDelaysMs: readonly number[]
     maxConsecutiveFailures: number
+    maxConsecutiveSkips: number
     stallTimeoutMs: number
     preload: boolean
     preloadLeadMs: number
@@ -229,18 +349,30 @@ export class Player {
   readonly #events = new Emitter<PlayerEventMap>()
   readonly #subscribers = new Set<PlayerStateListener>()
   readonly #detach: (() => void)[]
+  /** What the engine can play, for the resolver. */
+  readonly #canPlay = (stream: StreamOption): PlaySupport => this.#support(stream)
   /** Increments whenever pending work for the current item must be dropped. */
   #token = 0
   #abort: AbortController | undefined
   /** The stream the engine holds for the current item, while its events count. */
-  #loaded: { uid: number; stream: StreamOption } | undefined
+  #loaded: Loaded | undefined
   #preload: Preload | undefined
+  /** The current and next item of the last `preload` event. */
+  #announced: { current: number; next: number } | undefined
   /** Failed attempts for the current item. */
   #attempts = 0
-  /** Tracks that failed in a row. */
+  /** The current item's last failure, until it plays for a while; the next load retries it. */
+  #lastFailure: { uid: number; failure: StreamFailure } | undefined
+  /** Tracks in the current run of failures that failed every retry. */
   #failedTracks = 0
+  /** Tracks in the current run of failures, skipped ones included. */
+  #failedRun = 0
+  /** The items given up on in the current run, so a repeating queue does not go round again. */
+  readonly #failedUids = new Set<number>()
   /** The position from which the current load counts as healthy. */
   #healthyAtMs: number | undefined
+  /** Where playback was when the stall watch started, while it runs. */
+  #stallFromMs: number | undefined
   #retryTimer: ReturnType<typeof setTimeout> | undefined
   #stallTimer: ReturnType<typeof setTimeout> | undefined
   #destroyed = false
@@ -250,13 +382,17 @@ export class Player {
     this.#resolver = options.resolver
     this.#random = options.random ?? Math.random
     this.#now = options.now ?? Date.now
-    this.#onPreload = options.onPreload
+    this.#classify = options.classifyFailure ?? classifyFailure
     this.#config = {
       maxRetries: Math.floor(nonNegative(options.maxRetries, PLAYER_DEFAULTS.maxRetries)),
       retryDelaysMs: options.retryDelaysMs ?? PLAYER_DEFAULTS.retryDelaysMs,
       maxConsecutiveFailures: Math.max(
         1,
         nonNegative(options.maxConsecutiveFailures, PLAYER_DEFAULTS.maxConsecutiveFailures),
+      ),
+      maxConsecutiveSkips: Math.max(
+        1,
+        nonNegative(options.maxConsecutiveSkips, PLAYER_DEFAULTS.maxConsecutiveSkips),
       ),
       stallTimeoutMs: nonNegative(options.stallTimeoutMs, PLAYER_DEFAULTS.stallTimeoutMs),
       preload: options.preload ?? true,
@@ -317,48 +453,45 @@ export class Player {
   // --- Queue ---------------------------------------------------------------------------------
 
   /**
-   * Replaces the queue with `tracks` and plays the one at `startIndex` (see `setQueue` in
-   * `@fxm/core` for how the mode and shuffle apply).
+   * Replaces the queue with `tracks` and plays its start track (see `setQueue` in `@fxm/core`
+   * for how the mode, the start index and shuffle apply): `{ shuffle: true }` without a
+   * `startIndex` is a shuffle button, starting at a random track.
    */
-  async setQueue(
-    tracks: readonly Track[],
-    startIndex = 0,
-    context?: QueueContext,
-    options: SetQueueOptions = {},
-  ): Promise<void> {
+  async setQueue(tracks: readonly Track[], options: PlayerSetQueueOptions = {}): Promise<void> {
     if (this.#destroyed) return
+    const { autoplay = true, startAtMs, ...start } = options
+    const queue = setQueue(this.#state.queue, tracks, { ...start, random: this.#random })
+    const item = currentQueueItem(queue)
+    if (autoplay && item !== undefined) this.#engine.unlock?.()
     this.#userAction()
-    const queue = setQueue(this.#state.queue, tracks, {
-      startIndex,
-      ...(context === undefined ? {} : { context }),
-      random: this.#random,
-    })
-    if (options.autoplay !== false && currentQueueItem(queue) !== undefined) {
-      this.#engine.unlock?.()
-    }
-    this.#changeQueue(queue)
-    if (currentQueueItem(queue) === undefined) {
+    this.#changeQueue(queue, 'queue')
+    if (item === undefined) {
       this.#commit({ status: 'idle', buffering: false })
       return
     }
-    if (options.autoplay === false) {
-      this.#commit({ status: 'paused', buffering: false })
+    const positionMs = nonNegative(startAtMs, 0)
+    if (!autoplay) {
+      this.#commit({ status: 'paused', buffering: false, positionMs })
       return
     }
-    await this.#load({ autoplay: true })
+    await this.#load({ autoplay: true, startAtMs: positionMs })
   }
 
   /**
-   * Puts back a saved queue (see `restoreQueue` in `@fxm/core`), paused at `positionMs` of its
-   * current item. The player's mode applies. Playing resumes there.
+   * Puts back a saved queue, paused at `positionMs` of its current item. `saved` is untrusted
+   * data, such as a `QueueState` read back from storage: it goes through `restoreQueue` from
+   * `@fxm/core` in the player's mode, so a malformed item or one the mode hides is dropped.
+   * Playing resumes there. Returns whether `saved` was a queue.
    */
-  restore(queue: QueueState, positionMs = 0): void {
-    if (this.#destroyed) return
+  restore(saved: unknown, positionMs = 0): boolean {
+    if (this.#destroyed) return false
+    const queue = restoreQueue(saved, this.#state.queue.mode)
+    if (queue === null) return false
     this.#cancel()
     this.#cancelPreload()
-    const restored = setQueueMode(queue, this.#state.queue.mode)
-    this.#changeQueue(restored)
-    const item = currentQueueItem(restored)
+    this.#resetRun()
+    this.#changeQueue(queue, 'restore')
+    const item = currentQueueItem(queue)
     this.#commit({
       status: item === undefined ? 'idle' : 'paused',
       buffering: false,
@@ -367,46 +500,71 @@ export class Player {
       stream: undefined,
       error: undefined,
     })
+    return true
   }
 
   /** Inserts `tracks` right after the current item. */
   playNext(tracks: readonly Track[]): void {
-    this.#edit(playNext(this.#state.queue, tracks))
+    this.#edit(playNext(this.#state.queue, tracks), 'queue')
   }
 
   /** Appends `tracks` to the end of the queue. */
   addToQueue(tracks: readonly Track[]): void {
-    this.#edit(addToQueue(this.#state.queue, tracks))
+    this.#edit(addToQueue(this.#state.queue, tracks), 'queue')
   }
 
   /** Removes the item at `index`. Removing the current item moves on to the following one. */
   remove(index: number): void {
-    this.#edit(removeFromQueue(this.#state.queue, index))
+    this.#edit(removeFromQueue(this.#state.queue, index), 'removed')
   }
 
   /** Moves the item at `from` to `to`. */
   move(from: number, to: number): void {
-    this.#edit(moveInQueue(this.#state.queue, from, to))
+    this.#edit(moveInQueue(this.#state.queue, from, to), 'queue')
   }
 
   /** Removes every item after the current one. */
   clearUpcoming(): void {
-    this.#edit(clearUpcoming(this.#state.queue))
+    this.#edit(clearUpcoming(this.#state.queue), 'queue')
   }
 
   /** Turns shuffle on or off. The current track keeps playing. */
   setShuffle(shuffle: boolean): void {
-    this.#edit(setQueueShuffle(this.#state.queue, shuffle, this.#random))
+    this.#edit(setQueueShuffle(this.#state.queue, shuffle, this.#random), 'queue')
   }
 
   /** Sets how the queue repeats. */
   setRepeat(repeat: RepeatMode): void {
-    this.#edit(setQueueRepeat(this.#state.queue, repeat))
+    this.#edit(setQueueRepeat(this.#state.queue, repeat), 'queue')
   }
 
   /** Switches the catalog mode. The current track keeps playing. */
-  setMode(mode: CatalogMode): void {
-    this.#edit(setQueueMode(this.#state.queue, mode))
+  setCatalogMode(mode: CatalogMode): void {
+    this.#edit(setQueueMode(this.#state.queue, mode), 'queue')
+  }
+
+  /**
+   * Records `candidate` as the audio for the item with `uid`, e.g. the version the user picked
+   * in "Not the right version?", or clears it. When that item is the current one and has a
+   * stream, the player resolves the new candidate (reason `replace`) and carries on at the same
+   * position (from the start after the end of the queue), playing or paused as before. Ignored
+   * for an unknown uid, and for a candidate the queue's mode does not let play.
+   */
+  setCandidate(uid: number, candidate?: AudioCandidate): void {
+    if (this.#destroyed) return
+    const queue = setQueueCandidate(this.#state.queue, uid, candidate)
+    if (queue === this.#state.queue) return
+    this.#commit({ queue })
+    // A preparation of this item resolved the old candidate.
+    if (this.#preload?.uid === uid) this.#cancelPreload()
+    if (currentQueueItem(queue)?.uid !== uid) return
+    this.#lastFailure = undefined
+    this.#attempts = 0
+    const { status, positionMs } = this.#state
+    const playing = this.#wantsPlayback()
+    if (!playing && this.#loaded === undefined) return
+    const startAtMs = status === 'ended' ? 0 : positionMs
+    void this.#load({ autoplay: playing, startAtMs, reason: 'replace' })
   }
 
   // --- Transport -----------------------------------------------------------------------------
@@ -424,7 +582,7 @@ export class Player {
       if (jumped === queue) return
       this.#engine.unlock?.()
       this.#userAction()
-      this.#changeQueue(jumped)
+      this.#changeQueue(jumped, 'jump')
       await this.#load({ autoplay: true })
       return
     }
@@ -434,8 +592,8 @@ export class Player {
     this.#userAction()
     if (status === 'ended') {
       const next = hasNextQueueItem(queue) ? skipToNext(queue) : queue
-      if (this.#changeQueue(next)) await this.#load({ autoplay: true })
-      else await this.#restart(true)
+      if (this.#changeQueue(next, 'next')) await this.#load({ autoplay: true })
+      else await this.#restart(true, 'restart')
       return
     }
     const loaded = this.#loaded
@@ -445,9 +603,7 @@ export class Player {
       return
     }
     if (this.#isExpiring(loaded.stream)) {
-      const error = new EngineError('expired', 'The stream URL expired while paused')
-      const failure = { error, stream: loaded.stream, positionMs }
-      await this.#load({ autoplay: true, startAtMs: positionMs, reason: 'refresh', failure })
+      await this.#refresh(loaded.stream, positionMs)
       return
     }
     this.#commit({ status: 'playing', buffering: true, error: undefined })
@@ -455,10 +611,14 @@ export class Player {
     await this.#engine.play()
   }
 
-  /** Pauses. A track still loading stays loaded, paused. */
+  /**
+   * Pauses. A track still resolving loads paused. A failed track waiting for its retry waits
+   * for play instead: the player never retries or skips while paused.
+   */
   pause(): void {
     if (this.#destroyed || !this.#wantsPlayback()) return
     this.#clearStallTimer()
+    this.#clearRetryTimer()
     this.#commit({ status: 'paused', buffering: false })
     if (this.#loaded !== undefined) this.#engine.pause()
   }
@@ -481,7 +641,7 @@ export class Player {
     this.#engine.unlock?.()
     this.#userAction()
     const autoplay = status !== 'paused'
-    if (!this.#changeQueue(skipToNext(queue))) await this.#restart(autoplay)
+    if (!this.#changeQueue(skipToNext(queue), 'next')) await this.#restart(autoplay, 'restart')
     else if (autoplay) await this.#load({ autoplay: true })
     else this.#commit({ status: 'paused', buffering: false })
   }
@@ -497,7 +657,8 @@ export class Player {
     this.#engine.unlock?.()
     this.#userAction()
     const autoplay = status !== 'paused'
-    if (!this.#changeQueue(skipToPrevious(queue, positionMs))) await this.#restart(autoplay)
+    const back = skipToPrevious(queue, positionMs)
+    if (!this.#changeQueue(back, 'previous')) await this.#restart(autoplay, 'restart')
     else if (autoplay) await this.#load({ autoplay: true })
     else this.#commit({ status: 'paused', buffering: false })
   }
@@ -511,7 +672,7 @@ export class Player {
       0,
       durationMs === undefined ? positionMs : Math.min(positionMs, durationMs),
     )
-    this.#seekTo(target)
+    this.#seekTo(target, 'user')
     if (status === 'ended') this.#commit({ status: 'paused' })
   }
 
@@ -524,10 +685,11 @@ export class Player {
   stop(): void {
     if (this.#destroyed || currentQueueItem(this.#state.queue) === undefined) return
     this.pause()
-    this.#seekTo(0)
+    this.#seekTo(0, 'user')
     const { status } = this.#state
-    if (status === 'ended' || status === 'error')
+    if (status === 'ended' || status === 'error') {
       this.#commit({ status: 'paused', error: undefined })
+    }
   }
 
   /** Sets the volume, from 0 to 1. */
@@ -571,20 +733,27 @@ export class Player {
   /**
    * Commits `queue`. When its current item differs, drops everything pending for the old one,
    * resets the per-track state and announces the change. Returns whether the item changed.
+   * uids compare only within one queue, so a restored queue always counts as a change.
    */
-  #changeQueue(queue: QueueState): boolean {
+  #changeQueue(queue: QueueState, cause: TrackChangeCause): boolean {
     const before = this.#state.queue
     if (queue === before) return false
     const previous = currentQueueItem(before)
     const item = currentQueueItem(queue)
-    if (previous?.uid === item?.uid) {
+    const same =
+      cause === 'restore'
+        ? previous === undefined && item === undefined
+        : previous?.uid === item?.uid
+    if (same) {
       this.#commit({ queue })
       this.#syncPreload()
       return false
     }
     this.#cancel()
     this.#attempts = 0
+    this.#lastFailure = undefined
     this.#healthyAtMs = undefined
+    this.#announced = undefined
     this.#commit({
       queue,
       positionMs: 0,
@@ -594,15 +763,15 @@ export class Player {
       error: undefined,
     })
     this.#syncPreload()
-    this.#events.emit('trackchange', { item, previous })
+    this.#events.emit('trackchange', { item, previous, cause })
     return true
   }
 
   /** Applies a queue edit; if it replaced the current item, plays or selects the new one. */
-  #edit(queue: QueueState): void {
+  #edit(queue: QueueState, cause: TrackChangeCause): void {
     if (this.#destroyed) return
     const wasPlaying = this.#wantsPlayback()
-    if (!this.#changeQueue(queue)) return
+    if (!this.#changeQueue(queue, cause)) return
     if (currentQueueItem(queue) === undefined) this.#commit({ status: 'idle' })
     else if (wasPlaying) void this.#load({ autoplay: true })
     else this.#commit({ status: 'paused' })
@@ -616,18 +785,32 @@ export class Player {
   /** An explicit user action: the user asked for playback, so the failure counts start over. */
   #userAction(): void {
     this.#attempts = 0
+    this.#resetRun()
+  }
+
+  /** Ends the current run of failed tracks. */
+  #resetRun(): void {
     this.#failedTracks = 0
+    this.#failedRun = 0
+    this.#failedUids.clear()
   }
 
   #markHealthy(): void {
     this.#attempts = 0
-    this.#failedTracks = 0
+    this.#lastFailure = undefined
     this.#healthyAtMs = undefined
+    this.#resetRun()
   }
 
   #isExpiring(stream: StreamOption): boolean {
     const { expiresAt } = stream
     return expiresAt !== undefined && expiresAt - this.#config.refreshBeforeExpiryMs <= this.#now()
+  }
+
+  /** How sure the engine is that it can play `stream`; never `capped` ones. */
+  #support(stream: StreamOption): PlaySupport {
+    if (stream.fullLength === 'capped') return 'no'
+    return this.#engine.canPlay?.(stream) ?? 'maybe'
   }
 
   // --- Loading -------------------------------------------------------------------------------
@@ -645,6 +828,13 @@ export class Player {
     }
   }
 
+  /** Loads a fresh stream for a loaded one that expires soon, at `positionMs`, and plays it. */
+  async #refresh(stream: StreamOption, positionMs: number): Promise<void> {
+    const error = new EngineError('expired', 'The stream URL expires before it can play')
+    const failure: StreamFailure = { error, stream, positionMs }
+    await this.#load({ autoplay: true, startAtMs: positionMs, reason: 'refresh', failure })
+  }
+
   /** Resolves and loads the current item, then plays it if `request.autoplay` still holds. */
   async #load(request: LoadRequest): Promise<void> {
     this.#cancel()
@@ -654,6 +844,11 @@ export class Player {
       this.#commit({ status: 'idle', buffering: false })
       return
     }
+    const remembered = this.#lastFailure?.uid === item.uid ? this.#lastFailure.failure : undefined
+    const reason = request.reason ?? (remembered === undefined ? 'play' : 'retry')
+    const failure = request.failure ?? (reason === 'retry' ? remembered : undefined)
+    // A user playing a failed item again starts a new round of retries, after that failure.
+    if (reason === 'retry' && this.#attempts === 0) this.#attempts = 1
     const abort = new AbortController()
     this.#abort = abort
     this.#commit({
@@ -664,30 +859,28 @@ export class Player {
     })
     let resolved: ResolvedStream
     try {
-      resolved = await this.#resolve(item, request, abort.signal)
+      resolved = await this.#resolve(item, reason, failure, abort.signal)
     } catch (error) {
       if (token === this.#token) this.#fail(item, toError(error), undefined)
       return
     }
     if (token !== this.#token) return
     if (resolved.candidate !== undefined) {
-      this.#changeQueue(setQueueCandidate(this.#state.queue, item.uid, resolved.candidate))
+      this.#commit({ queue: setQueueCandidate(this.#state.queue, item.uid, resolved.candidate) })
     }
     const { stream } = resolved
-    if (this.#engine.canPlay?.(stream) === 'no') {
-      const message = `The engine cannot play ${stream.codec} in ${stream.container} (${stream.protocol})`
-      this.#fail(item, new EngineError('unsupported', message), stream)
+    const refusal = this.#refusal(stream)
+    if (refusal !== undefined) {
+      this.#fail(item, refusal, stream)
       return
     }
     const startAtMs = this.#state.positionMs
-    this.#loaded = { uid: item.uid, stream }
+    this.#loaded = { uid: item.uid, stream, played: false }
     this.#healthyAtMs = startAtMs + HEALTHY_AFTER_MS
     this.#commit({ stream })
     try {
-      await this.#engine.load(
-        { stream, item: currentQueueItem(this.#state.queue) ?? item },
-        startAtMs,
-      )
+      const source = { stream, item: currentQueueItem(this.#state.queue) ?? item }
+      await this.#engine.load(source, startAtMs)
     } catch (error) {
       if (token === this.#token) this.#fail(item, toError(error), stream)
       return
@@ -700,10 +893,10 @@ export class Player {
   /** The stream for `item`: the one prepared ahead when it is still fresh, else a new one. */
   async #resolve(
     item: QueueItem,
-    request: LoadRequest,
+    reason: ResolveReason,
+    failure: StreamFailure | undefined,
     signal: AbortSignal,
   ): Promise<ResolvedStream> {
-    const reason = request.reason ?? 'play'
     const preloaded = reason === 'play' ? this.#takePreload(item, signal) : undefined
     if (preloaded !== undefined) {
       try {
@@ -717,73 +910,134 @@ export class Player {
     return this.#resolver.resolve(item, {
       reason,
       attempt: this.#attempts,
-      ...(request.failure === undefined ? {} : { failure: request.failure }),
+      ...(failure === undefined ? {} : { failure }),
       signal,
+      canPlay: this.#canPlay,
     })
   }
 
-  /**
-   * Counts a failed attempt to play `item`: retries it after a delay, resuming where it was,
-   * or gives up on it after the last retry.
-   */
-  #fail(item: QueueItem, error: Error, stream: StreamOption | undefined): void {
-    const autoplay = this.#wantsPlayback()
-    const positionMs = this.#state.positionMs
-    this.#cancel()
-    this.#attempts += 1
-    if (this.#attempts > this.#config.maxRetries) {
-      this.#trackFailed(item, error, autoplay)
-      return
+  /** Why the player will not hand `stream` to the engine, if it will not. */
+  #refusal(stream: StreamOption): EngineError | undefined {
+    if (stream.fullLength === 'capped') {
+      return new EngineError('unsupported', 'The stream URL stops before the end of the file')
     }
-    this.#commit({ status: autoplay ? 'loading' : 'paused', buffering: autoplay })
-    const failure: StreamFailure =
-      stream === undefined ? { error, positionMs } : { error, stream, positionMs }
-    const delays = this.#config.retryDelaysMs
-    const delayMs = delays[this.#attempts - 1] ?? delays.at(-1) ?? 0
-    this.#retryTimer = setTimeout(() => {
-      this.#retryTimer = undefined
-      const startAtMs = this.#state.positionMs
-      void this.#load({ autoplay: this.#wantsPlayback(), startAtMs, reason: 'retry', failure })
-    }, delayMs)
+    if (this.#support(stream) !== 'no') return undefined
+    const { codec, container, protocol } = stream
+    return new EngineError(
+      'unsupported',
+      `The engine cannot play ${codec} in ${container} (${protocol})`,
+    )
   }
 
-  /** Gives up on `item`: skips to the next item, or stops when it must. */
-  #trackFailed(item: QueueItem, error: Error, autoplay: boolean): void {
+  /**
+   * Counts a failed attempt to play `item` while playing: retries it after a delay, resuming
+   * where it was, skips it or stops, as {@link PlayerOptions.classifyFailure} says. While paused
+   * nothing is retried or skipped: the failure is kept, and the next play retries the item.
+   */
+  #fail(item: QueueItem, error: Error, stream: StreamOption | undefined): void {
+    const playing = this.#wantsPlayback()
+    const positionMs = this.#state.positionMs
+    this.#cancel()
+    const failure: StreamFailure =
+      stream === undefined ? { error, positionMs } : { error, stream, positionMs }
+    this.#lastFailure = { uid: item.uid, failure }
+    if (!playing) {
+      this.#commit({ buffering: false })
+      return
+    }
+    const failureClass = this.#classifyFailure(error, item)
+    if (failureClass === 'stop') {
+      this.#events.emit('trackfailed', { item, error })
+      this.#stop('action-required', item, error)
+      return
+    }
+    if (failureClass === 'skip') {
+      this.#giveUp(item, error, false)
+      return
+    }
+    this.#attempts += 1
+    if (this.#attempts > this.#config.maxRetries) {
+      this.#giveUp(item, error, true)
+      return
+    }
+    this.#commit({ status: 'loading', buffering: true })
+    this.#retryTimer = setTimeout(() => {
+      this.#retryTimer = undefined
+      void this.#load({ autoplay: true, startAtMs: this.#state.positionMs })
+    }, this.#retryDelay(error))
+  }
+
+  /** The class of a failure; a classifier that throws or answers nonsense means `retry`. */
+  #classifyFailure(error: Error, item: QueueItem): FailureClass {
+    try {
+      const failureClass = this.#classify(error, item)
+      return FAILURE_CLASSES.includes(failureClass) ? failureClass : 'retry'
+    } catch (classifierError) {
+      console.error(classifierError)
+      return 'retry'
+    }
+  }
+
+  /** The wait before the next retry: the configured delay, or longer if the source says so. */
+  #retryDelay(error: Error): number {
+    const delays = this.#config.retryDelaysMs
+    const delayMs = delays[this.#attempts - 1] ?? delays.at(-1) ?? 0
+    const retryAfterMs = isFxmError(error, 'RateLimited') ? error.retryAfterMs : undefined
+    return retryAfterMs !== undefined && Number.isFinite(retryAfterMs)
+      ? Math.max(delayMs, retryAfterMs)
+      : delayMs
+  }
+
+  /**
+   * Gives up on `item`, after its retries (`retried`) or at once, and moves to the next item.
+   * Stops instead when too many tracks failed in a row, or when there is no next item that has
+   * not failed already in this run.
+   */
+  #giveUp(item: QueueItem, error: Error, retried: boolean): void {
     this.#attempts = 0
-    this.#failedTracks += 1
+    this.#failedRun += 1
+    if (retried) this.#failedTracks += 1
+    this.#failedUids.add(item.uid)
     this.#events.emit('trackfailed', { item, error })
-    if (this.#failedTracks >= this.#config.maxConsecutiveFailures) {
-      this.#commit({
-        status: 'error',
-        buffering: false,
-        error: { reason: 'circuit-open', error, item },
-      })
-      this.#events.emit('circuitopen', { failures: this.#failedTracks })
+    const config = this.#config
+    if (
+      this.#failedTracks >= config.maxConsecutiveFailures ||
+      this.#failedRun >= config.maxConsecutiveSkips
+    ) {
+      this.#stop('circuit-open', item, error)
+      this.#events.emit('circuitopen', { failures: this.#failedRun })
       return
     }
     const { queue } = this.#state
-    if (!hasNextQueueItem(queue)) {
-      this.#commit({
-        status: 'error',
-        buffering: false,
-        error: { reason: 'track-failed', error, item },
-      })
+    const next = skipToNext(queue)
+    const nextUid = currentQueueItem(next)?.uid
+    if (next === queue || nextUid === undefined || this.#failedUids.has(nextUid)) {
+      this.#stop('track-failed', item, error)
       return
     }
-    this.#changeQueue(skipToNext(queue))
-    if (autoplay) void this.#load({ autoplay: true })
-    else this.#commit({ status: 'paused', buffering: false })
+    this.#changeQueue(next, 'failed')
+    void this.#load({ autoplay: true })
+  }
+
+  #stop(reason: PlayerErrorReason, item: QueueItem, error: Error): void {
+    this.#attempts = 0
+    this.#commit({ status: 'error', buffering: false, error: { reason, error, item } })
   }
 
   /** Plays the current item again from the start (or just rewinds it). */
-  async #restart(autoplay: boolean): Promise<void> {
-    this.#seekTo(0)
+  async #restart(autoplay: boolean, cause: 'restart' | 'repeat'): Promise<void> {
+    this.#seekTo(0, cause)
     if (!autoplay) {
       if (this.#state.status === 'ended') this.#commit({ status: 'paused' })
       return
     }
-    if (this.#loaded === undefined) {
+    const loaded = this.#loaded
+    if (loaded === undefined) {
       await this.#load({ autoplay: true })
+      return
+    }
+    if (this.#isExpiring(loaded.stream)) {
+      await this.#refresh(loaded.stream, 0)
       return
     }
     this.#commit({ status: 'playing', buffering: true, error: undefined })
@@ -791,20 +1045,28 @@ export class Player {
     await this.#engine.play()
   }
 
-  #seekTo(positionMs: number): void {
+  #seekTo(positionMs: number, cause: SeekCause): void {
     if (this.#loaded !== undefined) this.#engine.seek(positionMs)
+    // A seek is no progress: the stall watch measures from the new position.
+    if (this.#stallFromMs !== undefined) this.#stallFromMs = positionMs
     this.#commit({ positionMs })
-    this.#events.emit('seek', { positionMs })
+    this.#events.emit('seek', { positionMs, cause })
   }
 
   // --- Timers --------------------------------------------------------------------------------
 
+  /**
+   * Starts the stall watch: unless audio plays (a `play` event, or the position moving on)
+   * within `stallTimeoutMs`, the attempt counts as a network failure.
+   */
   #armStallTimer(): void {
     this.#clearStallTimer()
     const timeoutMs = this.#config.stallTimeoutMs
     if (timeoutMs <= 0) return
+    this.#stallFromMs = this.#state.positionMs
     this.#stallTimer = setTimeout(() => {
       this.#stallTimer = undefined
+      this.#stallFromMs = undefined
       const loaded = this.#loaded
       const item = currentQueueItem(this.#state.queue)
       if (loaded === undefined || item === undefined || !this.#wantsPlayback()) return
@@ -813,6 +1075,7 @@ export class Player {
   }
 
   #clearStallTimer(): void {
+    this.#stallFromMs = undefined
     if (this.#stallTimer === undefined) return
     clearTimeout(this.#stallTimer)
     this.#stallTimer = undefined
@@ -826,33 +1089,51 @@ export class Player {
 
   // --- Preloading ----------------------------------------------------------------------------
 
-  /** Starts preparing the next item once the current one is close enough to its end. */
+  /**
+   * Once the current track is close enough to its end: prepares the next item (with the
+   * `preload` option) and announces it with the `preload` event.
+   */
   #maybePreload(): void {
-    if (!this.#config.preload || this.#loaded === undefined) return
+    if (this.#loaded === undefined) return
     const { queue, positionMs, durationMs } = this.#state
     const current = currentQueueItem(queue)
     const next = nextQueueItem(queue)
     if (queue.repeat === 'one' || current === undefined || next === undefined) return
-    if (next.uid === current.uid || this.#preload?.uid === next.uid) return
+    if (next.uid === current.uid) return
     const totalMs = durationMs ?? current.track.durationMs
     if (totalMs === undefined || totalMs - positionMs > this.#config.preloadLeadMs) return
+    if (this.#config.preload && this.#preload?.uid !== next.uid) this.#startPreload(next)
+    const announced = this.#announced
+    if (announced?.current === current.uid && announced.next === next.uid) return
+    this.#announced = { current: current.uid, next: next.uid }
+    this.#events.emit('preload', { next, upcoming: upcomingQueueItems(queue) })
+  }
+
+  /** Resolves `next` ahead and hands the stream to the engine. */
+  #startPreload(next: QueueItem): void {
     this.#cancelPreload()
     const abort = new AbortController()
     const promise = new Promise<ResolvedStream>((resolve) => {
-      resolve(this.#resolver.resolve(next, { reason: 'preload', attempt: 0, signal: abort.signal }))
+      resolve(
+        this.#resolver.resolve(next, {
+          reason: 'preload',
+          attempt: 0,
+          signal: abort.signal,
+          canPlay: this.#canPlay,
+        }),
+      )
     })
     const preload: Preload = { uid: next.uid, abort, promise }
     this.#preload = preload
     promise.then(
       (resolved) => {
-        if (this.#preload !== preload || this.#engine.canPlay?.(resolved.stream) === 'no') return
+        if (this.#preload !== preload || this.#refusal(resolved.stream) !== undefined) return
         this.#engine.preload?.({ stream: resolved.stream, item: next })
       },
       () => {
         // Nothing prepared: the item resolves again when it plays.
       },
     )
-    if (this.#onPreload !== undefined) callSafely(this.#onPreload, next, upcomingQueueItems(queue))
   }
 
   /** Hands the preparation for `item` to its load, which then owns its cancellation. */
@@ -877,16 +1158,29 @@ export class Player {
     const preload = this.#preload
     if (preload === undefined) return
     const { queue } = this.#state
-    if (preload.uid === currentQueueItem(queue)?.uid || preload.uid === nextQueueItem(queue)?.uid)
-      return
+    const { uid } = preload
+    if (uid === currentQueueItem(queue)?.uid || uid === nextQueueItem(queue)?.uid) return
     this.#cancelPreload()
   }
 
   // --- Engine events -------------------------------------------------------------------------
 
   #onTimeUpdate(positionMs: number): void {
-    if (this.#loaded === undefined || !Number.isFinite(positionMs)) return
-    this.#commit({ positionMs })
+    const loaded = this.#loaded
+    // Before the load first plays, the player knows better: it asked the engine where to start.
+    if (loaded === undefined || !loaded.played || !Number.isFinite(positionMs)) return
+    const stalledAt = this.#stallFromMs
+    if (
+      stalledAt !== undefined &&
+      positionMs >= stalledAt + PROGRESS_PROOF_MS &&
+      this.#wantsPlayback()
+    ) {
+      // The position moves on, so audio plays, whatever `waiting` or `stalled` said.
+      this.#clearStallTimer()
+      this.#commit({ positionMs, buffering: false })
+    } else {
+      this.#commit({ positionMs })
+    }
     if (this.#healthyAtMs !== undefined && positionMs >= this.#healthyAtMs) this.#markHealthy()
     this.#maybePreload()
   }
@@ -898,7 +1192,9 @@ export class Player {
   }
 
   #onPlay(): void {
-    if (this.#loaded === undefined) return
+    const loaded = this.#loaded
+    if (loaded === undefined) return
+    loaded.played = true
     this.#clearStallTimer()
     this.#commit({ status: 'playing', buffering: false, error: undefined })
   }
@@ -912,7 +1208,9 @@ export class Player {
   #onWaiting(): void {
     if (this.#loaded === undefined || !this.#wantsPlayback()) return
     this.#commit({ buffering: true })
+    // Keep a running deadline, but measure progress from where playback stopped.
     if (this.#stallTimer === undefined) this.#armStallTimer()
+    else this.#stallFromMs = this.#state.positionMs
   }
 
   #onEnded(): void {
@@ -921,7 +1219,7 @@ export class Player {
     this.#clearStallTimer()
     const { queue } = this.#state
     if (queue.repeat === 'one') {
-      void this.#restart(true)
+      void this.#restart(true, 'repeat')
       return
     }
     if (!hasNextQueueItem(queue)) {
@@ -930,8 +1228,8 @@ export class Player {
       this.#events.emit('queueend', undefined)
       return
     }
-    if (this.#changeQueue(skipToNext(queue))) void this.#load({ autoplay: true })
-    else void this.#restart(true)
+    if (this.#changeQueue(skipToNext(queue), 'ended')) void this.#load({ autoplay: true })
+    else void this.#restart(true, 'repeat')
   }
 
   #onError(error: EngineError): void {

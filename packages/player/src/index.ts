@@ -24,16 +24,20 @@ export {
 } from './media-session'
 export { mimeTypeOf } from './mime'
 export {
+  classifyFailure,
+  type FailureClass,
   PLAYER_DEFAULTS,
   Player,
   type PlayerError,
+  type PlayerErrorReason,
   type PlayerEventMap,
   type PlayerOptions,
+  type PlayerSetQueueOptions,
   type PlayerState,
   type PlayerStateListener,
   type PlayerStatus,
-  type PreloadHook,
-  type SetQueueOptions,
+  type SeekCause,
+  type TrackChangeCause,
 } from './player'
 export type {
   ResolvedStream,

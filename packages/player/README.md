@@ -30,7 +30,13 @@ const player = new Player({
 })
 const disconnect = connectMediaSession(player)
 
-await player.setQueue(album.tracks ?? [], 0, { type: 'album', id: album.id, title: album.name })
+// In the click handler of an album's play button:
+await player.setQueue(album.tracks ?? [], {
+  context: { type: 'album', id: album.id, title: album.name },
+})
+// Its shuffle button: shuffled, from a random track.
+await player.setQueue(album.tracks ?? [], { shuffle: true })
+
 const stop = player.subscribe((state) => render(state))
 player.on('trackfailed', ({ item }) => toast(`Couldn't play ${item.track.title}`))
 ```
@@ -43,16 +49,17 @@ Every method is safe to call at any time and never throws. The async methods (`s
 
 | Method | What it does |
 |---|---|
-| `setQueue(tracks, startIndex?, context?, { autoplay? })` | Replaces the queue and plays the start track (unless `autoplay: false`) |
+| `setQueue(tracks, { startIndex?, context?, shuffle?, autoplay?, startAtMs? })` | Replaces the queue and plays the start track (unless `autoplay: false`), from `startAtMs`. `shuffle` turns shuffle on or off; shuffled without a `startIndex`, it starts at a random track |
 | `playNext(tracks)`, `addToQueue(tracks)` | Insert after the current item, or append |
 | `remove(index)`, `move(from, to)`, `clearUpcoming()` | Edit the queue. Removing the playing item plays the following one |
-| `setShuffle(on)`, `setRepeat(mode)`, `setMode(mode)` | Queue settings. The current track keeps playing |
+| `setShuffle(on)`, `setRepeat(mode)`, `setCatalogMode(mode)` | Queue settings. The current track keeps playing |
+| `setCandidate(uid, candidate?)` | Records the audio for an item, e.g. the version the user picked in "Not the right version?". For the current item the player resolves it (reason `replace`) and carries on at the same position, playing or paused as before |
 | `play(index?)` | Resumes, or jumps to `index` and plays it from the start. After an error it tries the current track again. After the end of the queue it plays what was added since, or the last track again |
 | `pause()`, `toggle()`, `stop()` | `stop` pauses and rewinds |
 | `next()`, `previous()` | Skip, honouring repeat and shuffle. Playback continues if it was playing. If it was paused, the player only selects the track and resolves nothing until play. `previous` restarts the track when more than 3 s in |
 | `seek(ms)`, `seekBy(deltaMs)` | Clamped to the track |
 | `setVolume(0..1)`, `setMuted(bool)` | Output |
-| `restore(queue, positionMs)` | Puts back a saved queue (see `restoreQueue` in `@fxm/core`), paused at that position |
+| `restore(saved, positionMs)` | Puts back a saved queue, paused at that position. `saved` is untrusted (say JSON from storage): it goes through `restoreQueue` in the player's mode. Returns whether it was a queue |
 | `getState()`, `subscribe(listener)`, `on(event, listener)` | Reading |
 | `destroy()` | Stops everything and destroys the engine |
 
@@ -62,13 +69,13 @@ Every method is safe to call at any time and never throws. The async methods (`s
 
 | Field | Meaning |
 |---|---|
-| `queue` | The `QueueState`. `currentItem(state.queue)` is the track playing or selected |
+| `queue` | The `QueueState`. `currentQueueItem(state.queue)` is the track playing or selected |
 | `status` | `idle` (empty queue), `loading`, `playing`, `paused`, `ended` (the queue finished), `error` (playback stopped because tracks failed) |
 | `buffering` | Playback waits for data |
 | `positionMs`, `durationMs` | Position and duration. The duration comes from the engine, or from the track's metadata until then |
 | `volume`, `muted` | Output |
 | `stream` | The `StreamOption` playing, for a quality badge |
-| `error` | While `status` is `error`: `reason` (`track-failed` or `circuit-open`), the last `error` and the `item` |
+| `error` | While `status` is `error`: the `reason`, the last `error` and the `item` (see below) |
 
 A play/pause button shows "pause" while the status is `loading` or `playing`. A spinner shows while it is `loading` or `buffering`.
 
@@ -76,48 +83,62 @@ A play/pause button shows "pause" while the status is `loading` or `playing`. A 
 
 | Event | Payload | When |
 |---|---|---|
-| `trackchange` | `{ item, previous }` | The current item changed |
-| `seek` | `{ positionMs }` | A seek, a restart by "previous", or a repeat of the track |
-| `trackfailed` | `{ item, error }` | A track failed every retry |
+| `trackchange` | `{ item, previous, cause }` | The current item changed. `cause`: `queue` (a new queue, or tracks added to an empty one), `restore`, `next`, `previous`, `jump` (`play(index)`), `ended` (the previous track finished), `failed` (it was skipped after failing) or `removed` |
+| `seek` | `{ positionMs, cause }` | The position jumped. `cause`: `user` (a seek or stop), `restart` ("previous" more than 3 s in, or play after the end) or `repeat` (the track ended and plays again) |
+| `trackfailed` | `{ item, error }` | The player gave up on a track (see below) |
 | `circuitopen` | `{ failures }` | Too many tracks failed in a row, so playback stopped |
 | `queueend` | none | The last track ended and nothing follows |
 | `autoplayblocked` | none | The browser wants a user gesture: show a play button |
+| `preload` | `{ next, upcoming }` | The current track is 30 s from its end: prepare `next`, prefetch more of `upcoming`, top up a radio (see Preloading) |
+
+The causes let listening signals tell a completed track (`ended`, or a seek with `repeat`) from a skip (`next`, `jump`) or a failure.
 
 ## Failures, retries and the circuit breaker
 
-Every failed attempt to play an item counts. That includes:
+These count as a failed attempt to play an item:
 
 - an engine `error`;
 - a resolver rejection;
-- a stream the engine says it cannot play;
-- 15 s without audio while playing (a stall).
+- a stream the engine says it cannot play (`canPlay` says `no`), or a `capped` one;
+- 15 s in which playback waits for data (`waiting`, or `stalled` from an engine with nothing left to play) without the position moving on: a stall. A position that keeps moving proves audio plays, whatever the engine said.
 
-What happens next:
+What happens next depends on the failure's class. `classifyFailure(error)` decides by default; pass your own as the `classifyFailure` option, e.g. to change one case and fall back to the default:
 
-1. **Retry.** The player asks the resolver again with `reason: 'retry'`, the `attempt` number and the `failure`: the error, the failed stream and the position. Then it resumes at that position. The retries wait 0 s, 1 s and then 3 s.
-2. **Skip.** After 3 failed retries the track counts as failed. The player announces `trackfailed` and moves to the next track. If nothing follows, it stops with `error.reason: 'track-failed'`.
-3. **Circuit breaker.** After 4 failed tracks in a row the player stops with `error.reason: 'circuit-open'` and announces `circuitopen`. A dead connection, most likely.
+| Class | Failures (by default) | What the player does |
+|---|---|---|
+| `retry` | `Network`, `Expired`, `Parse`, `RateLimited`, every `EngineError`, anything that is not an `FxmError` | Retries, then skips |
+| `skip` | `NotFound`, `Unavailable`, `GeoBlocked`: the item cannot play anywhere | Announces `trackfailed` and moves on at once |
+| `stop` | `Unsupported`, `AuthRequired`, `BotCheck`: nothing plays until the user acts (installs FXM Connect, logs in, proves they are human) | Announces `trackfailed` and stops with `error.reason: 'action-required'` |
+
+**Retry.** The player asks the resolver again with `reason: 'retry'`, the `attempt` number and the `failure`: the error, the failed stream and the position. Then it resumes at that position. The retries wait 0 s, 1 s and then 3 s; a `RateLimited` error waits at least its `retryAfterMs`. After 3 failed retries the track counts as failed: the player announces `trackfailed` and moves to the next track.
+
+**Stopping.** The player stops with status `error` and one of these reasons:
+
+- `track-failed`: there is nowhere to go. The failed track was the last one (repeat off), or the next one already failed in this run of failures, so a repeating queue never goes round again.
+- `circuit-open`: 4 tracks in a row failed every retry (`maxConsecutiveFailures`): a dead connection, most likely. Or 10 tracks in a row were given up on, skipped ones included (`maxConsecutiveSkips`), so a queue in which nothing plays is not resolved to its end. It announces `circuitopen`.
+- `action-required`: a `stop` failure, see above. `error.error` says which.
+
+**Paused.** Nothing is retried or skipped while paused. A failure while paused (or a pause during a retry's wait) keeps the track, its position and the failure. The next play resolves it again with `reason: 'retry'` and that failure, so a URL cache cannot hand back the failed URL. The same goes for playing a track again after the player stopped on it.
 
 Counts reset like this:
 
-- A track that plays for 5 s, or to its end, resets the retry count and the run of failed tracks.
-- Any explicit user action (play, next, previous, a new queue) starts both counts over.
+- A track that plays for 5 s, or to its end, resets the retry count and the run of failed tracks, and forgets its failure.
+- Any explicit user action (play, next, previous, a new or restored queue) starts the retry count and the run over.
 
 `autoplay-blocked` is not a failure. The player pauses, keeps the stream loaded and announces `autoplayblocked`.
 
-**Expiring URLs.** On resume, a loaded stream within 10 minutes of its `expiresAt` is resolved again with `reason: 'refresh'` before playing, at the same position.
+**Expiring URLs.** Before a loaded stream plays again, on resume, on a repeat or on a restart, the player checks its `expiresAt`. Within 10 minutes of it, the player resolves the item again with `reason: 'refresh'` (and an `expired` failure) at the same position.
 
-All of these are options (`maxRetries`, `retryDelaysMs`, `maxConsecutiveFailures`, `stallTimeoutMs`, `refreshBeforeExpiryMs`), with defaults in `PLAYER_DEFAULTS`.
+All of these are options (`maxRetries`, `retryDelaysMs`, `maxConsecutiveFailures`, `maxConsecutiveSkips`, `stallTimeoutMs`, `refreshBeforeExpiryMs`, `classifyFailure`), with defaults in `PLAYER_DEFAULTS`.
 
 ## Preloading
 
 When the current track has 30 s left (`preloadLeadMs`), the player prepares the next item:
 
-1. It resolves the item with `reason: 'preload'`.
-2. It hands the stream to `engine.preload`.
-3. It calls the `onPreload(next, upcoming)` hook, so the playback policy can prefetch further ahead.
+1. With the `preload` option on (the default), it resolves the item with `reason: 'preload'` and hands the stream to `engine.preload`.
+2. Either way it announces the `preload` event with `next` and `upcoming`, once per pair of current and next item. Listen to it to prefetch further ahead (2.3) or to top up a radio (3.4). `upcoming` is the items after the current one in play order and does not wrap around for repeat `all`, so it can be empty while `next` is the first item again.
 
-When that item comes up, the player reuses the resolution, even if it is still in flight, unless the stream is about to expire. The direct audio engine then switches to its preloaded element. A queue edit that changes the next item cancels the preparation. There is no preloading with repeat `one`, when nothing follows, or with `preload: false`.
+When that item comes up, the player reuses the resolution, even if it is still in flight, unless the stream is about to expire. The direct audio engine then switches to its preloaded element. A queue edit that changes the next item, or a new candidate for it, cancels the preparation. There is no preloading with repeat `one`, or when nothing else follows.
 
 ## The resolver contract
 
@@ -130,18 +151,21 @@ interface StreamResolver {
 - **`request.reason`:**
   - `play`
   - `preload`
-  - `retry` (with `failure`)
-  - `refresh` (with an `expired` failure)
-- **`request.attempt`:** how many attempts at this item have failed.
+  - `retry` (with `failure`): after a failure, also when the user plays a failed item again
+  - `refresh` (with an `expired` failure): the loaded stream expires soon
+  - `replace`: the user picked another version, now in `item.candidate`
+- **`request.attempt`:** how many attempts at this item have failed: 0 at first, then 1 to 3.
 - **`request.signal`:** aborts when the player moves on.
-- **Return:** `{ stream, candidate? }`. The player records the candidate on the queue item, for example the song a Spotify track or a music video was matched to.
-- **Failure:** reject, with an `FxmError` where possible.
+- **`request.canPlay(stream)`:** how sure the engine is that it can play a stream: `probably`, `maybe` or `no` (also `no` for a `capped` stream). Prefer `probably` (Opus 251 only when the engine says `probably`, otherwise AAC 140), try `maybe`, never return `no`.
+- **Which audio:** when `item.candidate` is set, it is the audio to resolve: the match recorded earlier or the user's pick, which always wins. Only a `retry` may replace it (Smart Replace) and must then return the replacement as `candidate`. Without one, the resolver finds the audio: the track's own source, a song matched to a Spotify track, and for a music video in Music mode its song: the one it links (`songForVideo`, verdict `plays-linked-song`) or the one the matching engine finds (`needs-song-match`).
+- **Return:** `{ stream, candidate? }`. The player records the candidate on the queue item, so a retry, a repeat or a restored queue resolves the same audio.
+- **Failure:** reject with an `FxmError` whose code says what went wrong; the table above says what each code leads to.
 
 The resolver owns everything about where streams come from:
 
 - offline copies, on-device resolution, matching and Smart Replace;
 - the URL cache and shared in-flight requests;
-- the format choice (`engine.canPlay(stream)` says `probably`, `maybe` or `no`).
+- the format choice, with `request.canPlay`.
 
 ## The direct audio engine
 
@@ -173,18 +197,18 @@ It does nothing where the browser has no Media Session API. It also skips action
 `@fxm/player/testing` has the fakes the tests use. Later stages can use them too:
 
 - **`FakeEngine`:** records calls, and lets a test drive `progress`, `end`, `fail` and `emit`. `playError` and `startOnPlay` simulate a blocked or silent start, `canPlayStream` what `canPlay` answers. `loadedUrls` and `loadStarts` list what was loaded and where.
-- **`FakeResolver`:** answers from a handler and records requests, with `requestsFor(title)`.
+- **`FakeResolver`:** answers from a handler and records requests, with `requestsFor(title)` and a compact `log` (`a:retry#1`).
 - **`testTrack`, `testTracks`, `testStream`:** fixtures. Their URLs use the reserved `.test` domain.
 
 The tests run offline in happy-dom (`vitest.config.ts`) with fake timers, and no real audio plays. They cover:
 
 - queue integration;
 - auto-advance, repeat and shuffle through the facade;
-- the retry, skip, circuit-breaker, autoplay, stall and expiry flows;
-- preloading and overlapping requests;
-- the direct audio engine's element handling;
+- the retry, skip, stop, circuit-breaker, autoplay, stall and expiry flows, and failures while paused;
+- preloading, choosing another version and overlapping requests;
+- the direct audio engine's element handling, including unlocking;
 - the Media Session calls.
 
-Coverage of the facade is about 99 % of lines.
+Coverage of the facade is about 99 % of lines, and of the queue 100 %.
 
 See [ARCHITECTURE.md §10](../../docs/ARCHITECTURE.md#10-youtube) for the playback and URL lifecycle rules this package follows.

@@ -4,7 +4,7 @@ import * as testing from './testing'
 
 describe('the @fxm/player entry point', () => {
   it.each([
-    ['facade', ['Player', 'PLAYER_DEFAULTS']],
+    ['facade', ['Player', 'PLAYER_DEFAULTS', 'classifyFailure']],
     ['engines', ['DirectAudioEngine', 'EngineError', 'isEngineError', 'ENGINE_ERROR_TYPES']],
     ['media session', ['connectMediaSession', 'MEDIA_SESSION_ACTIONS', 'mediaMetadataInit']],
     ['media session helpers', ['mediaImages', 'MEDIA_SESSION_SEEK_OFFSET_MS']],

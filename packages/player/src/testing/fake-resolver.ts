@@ -47,4 +47,11 @@ export class FakeResolver implements StreamResolver {
       item.track.title === title ? [request] : [],
     )
   }
+
+  /** Every request as `<title>:<reason>#<attempt>`, e.g. `a:retry#1`, in order. */
+  get log(): string[] {
+    return this.requests.map(
+      ({ item, request }) => `${item.track.title}:${request.reason}#${request.attempt}`,
+    )
+  }
 }
