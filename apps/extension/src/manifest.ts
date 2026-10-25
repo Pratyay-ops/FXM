@@ -55,6 +55,22 @@ export function packageVersion(pkg: unknown): string {
   return version
 }
 
+/**
+ * Content security policy of the options page and the background. MV3's default only restricts
+ * scripts; this one also limits styles and images to FXM Connect's own files and lets them
+ * connect to open.spotify.com only, the one host the Spotify bridge fetches from.
+ */
+export const EXTENSION_PAGES_CSP = [
+  "default-src 'none'",
+  "script-src 'self'",
+  "style-src 'self'",
+  "img-src 'self'",
+  'connect-src https://open.spotify.com',
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join('; ')
+
 /** Permissions besides host access: static header rules and the options toggle. */
 export const PERMISSIONS = ['declarativeNetRequest', 'storage'] as const
 
@@ -83,6 +99,7 @@ export interface Manifest {
     all_frames: false
   }[]
   options_ui: { page: string; open_in_tab: true }
+  content_security_policy: { extension_pages: string }
   permissions: string[]
   host_permissions: string[]
   declarative_net_request: {
@@ -124,6 +141,7 @@ export function buildManifest({ browser, version, dev }: ManifestOptions): Manif
       browser === 'chromium' ? { service_worker: 'background.js' } : { scripts: ['background.js'] },
     content_scripts: [{ matches, js: ['content.js'], run_at: 'document_start', all_frames: false }],
     options_ui: { page: 'options.html', open_in_tab: true },
+    content_security_policy: { extension_pages: EXTENSION_PAGES_CSP },
     permissions: [...PERMISSIONS],
     host_permissions: hostPermissions(origins),
     declarative_net_request: {

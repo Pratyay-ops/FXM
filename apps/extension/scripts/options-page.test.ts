@@ -21,6 +21,16 @@ describe('options page', () => {
     expect(html).not.toMatch(/\son[a-z]+=/)
   })
 
+  it('has no inline styles or remote resources, which the CSP would block', () => {
+    expect(html).not.toMatch(/<style\b|\sstyle=/)
+    expect(html.match(/<link\b[^>]*>/g)).toEqual([
+      '<link rel="icon" href="icons/icon.svg" type="image/svg+xml" />',
+      '<link rel="stylesheet" href="options.css" />',
+    ])
+    expect(html).not.toMatch(/\ssrc="(https?:)?\/\//)
+    expect(script).not.toMatch(/\.style\b|setAttribute\('style'/)
+  })
+
   it('labels the Spotify toggle and describes it', () => {
     expect(html).toContain(
       '<label for="spotify-login">Use my Spotify login from this browser</label>',

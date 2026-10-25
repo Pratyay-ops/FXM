@@ -482,6 +482,27 @@ test.describe('with FXM Connect loaded', () => {
     }
   })
 
+  test('lets FXM Connect itself connect to open.spotify.com only (its CSP)', async () => {
+    await page.goto(`${FXM}/`)
+    // A ping makes the content script ask the background, so its service worker is running.
+    await send(page, { type: 'fxm-connect:ping' })
+    const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent('serviceworker'))
+    const fetchFromBackground = (url: string) =>
+      worker.evaluate(
+        (url) =>
+          fetch(url, { credentials: 'omit' }).then(
+            (response) => `status ${response.status}`,
+            (error) => String(error),
+          ),
+        url,
+      )
+    expect(await fetchFromBackground('https://open.spotify.com/api/server-time')).toBe('status 200')
+    expect(await fetchFromBackground('https://www.youtube.com/youtubei/v1/search')).toMatch(
+      /TypeError/,
+    )
+    expect(mock.requests('www.youtube.com')).toEqual([])
+  })
+
   test('keeps the Spotify login switch out of reach of a compromised FXM page', async () => {
     await page.goto(`${FXM}/`)
     // Both writes succeed, but neither reaches the setting: it lives in IndexedDB in the
@@ -514,6 +535,8 @@ test.describe('with FXM Connect loaded', () => {
     const options = await context.newPage()
     await options.goto(`chrome-extension://${await extensionId(context)}/options.html`)
     await expect(options.locator('#version')).toHaveText(VERSION)
+    // The page's own stylesheet loads under the extension's CSP.
+    await expect(options.locator('main')).toHaveCSS('max-width', '672px')
     await expect(options.locator('#origins')).toHaveText(FXM)
     const toggle = options.getByLabel('Use my Spotify login from this browser')
     await expect(toggle).toBeEnabled()

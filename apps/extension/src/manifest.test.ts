@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
+import { SPOTIFY_SERVER_TIME_URL, SPOTIFY_TOKEN_URL } from './bridge.ts'
 import { fxmOrigins } from './config.ts'
 import {
   type Browser,
   buildManifest,
+  EXTENSION_PAGES_CSP,
   FIREFOX_ADDON_ID,
   ICON_SIZES,
   isExtensionVersion,
@@ -56,10 +58,18 @@ describe.each(VARIANTS)('manifest for $browser (dev: $dev)', ({ browser, dev }) 
       'webRequest',
       'externally_connectable',
       'web_accessible_resources',
-      'content_security_policy',
     ]) {
       expect(text).not.toContain(`"${forbidden}"`)
     }
+  })
+
+  it('limits its own pages to their files and open.spotify.com with a strict CSP', () => {
+    expect(m.content_security_policy).toEqual({
+      extension_pages:
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; " +
+        "connect-src https://open.spotify.com; base-uri 'none'; form-action 'none'; " +
+        "frame-ancestors 'none'",
+    })
   })
 
   it('has host access to the FXM pages and the music services only', () => {
@@ -163,5 +173,22 @@ describe('extension version', () => {
     for (const bad of [{}, { version: 3 }, { version: '0.2.0-beta.1' }, null, 'version']) {
       expect(() => packageVersion(bad)).toThrow(/package.json needs a version/)
     }
+  })
+})
+
+describe('content security policy', () => {
+  it("allows connections to exactly the origin of the bridge's two URLs", () => {
+    const connect = EXTENSION_PAGES_CSP.split('; ').find((part) => part.startsWith('connect-src'))
+    const origins = new Set(
+      [SPOTIFY_TOKEN_URL, SPOTIFY_SERVER_TIME_URL].map((u) => new URL(u).origin),
+    )
+    expect(connect).toBe(`connect-src ${[...origins].join(' ')}`)
+  })
+
+  it("keeps MV3's script rules: own scripts only, no eval, no remote code", () => {
+    const directives = EXTENSION_PAGES_CSP.split('; ')
+    expect(directives).toContain("script-src 'self'")
+    expect(directives).toContain("default-src 'none'")
+    expect(EXTENSION_PAGES_CSP).not.toMatch(/unsafe|https?:\/\/(?!open\.spotify\.com)|\*/)
   })
 })

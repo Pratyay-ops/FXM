@@ -24,6 +24,9 @@ exports[`Chromium manifest > matches the reviewed manifest 1`] = `
       "run_at": "document_start",
     },
   ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://open.spotify.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  },
   "declarative_net_request": {
     "rule_resources": [
       {
@@ -104,6 +107,9 @@ exports[`Firefox manifest > matches the reviewed manifest 1`] = `
       "run_at": "document_start",
     },
   ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://open.spotify.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  },
   "declarative_net_request": {
     "rule_resources": [
       {

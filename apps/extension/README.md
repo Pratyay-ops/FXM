@@ -55,7 +55,7 @@ There is no `<all_urls>`, no `cookies`, `tabs`, `scripting` or `webRequest` perm
 
 - **No data collection.** FXM Connect has no analytics, no telemetry and no servers. It stores one setting (in its own IndexedDB) and a rate-limit counter (in `storage.session`) in your browser. If the browser clears the extension's site data, the setting returns to off. The Firefox manifest declares `data_collection_permissions: { required: ["none"] }`.
 - **No cookies read.** FXM Connect has no `cookies` permission and never reads, stores or forwards cookies. Its rules strip cookies from the FXM page's requests to these services. The one exception is the opt-in Spotify bridge. There the browser itself attaches your open.spotify.com cookies to the single token request, exactly as it does on open.spotify.com, and FXM Connect hands the page only the token response.
-- **No remote code.** Everything that runs ships inside the extension, as readable, unminified files built from this folder. There is no `eval` and no downloaded script, and the default Manifest V3 content security policy applies.
+- **No remote code.** Everything that runs ships inside the extension, as readable, unminified files built from this folder. There is no `eval` and no downloaded script. A strict content security policy (`default-src 'none'`) limits the options page and the background to their own scripts, styles and images, and lets them connect to `https://open.spotify.com` only, so the browser itself stops FXM Connect from contacting any other server.
 - **Only FXM pages.** The content script and the bridge check the exact origin and that a message comes from the page itself. Other sites get nothing, and the rules ignore requests they start.
 
 ## Install
