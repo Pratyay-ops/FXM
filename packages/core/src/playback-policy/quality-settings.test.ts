@@ -9,7 +9,7 @@ import {
   type DetectedConnection,
   isConnectionPreference,
   type ProbePlan,
-  probeStreams,
+  probeChosenStream,
   type StreamingProfile,
   type StreamingSettings,
   sanitizeStreamingSettings,
@@ -141,7 +141,7 @@ describe('streamingProfile', () => {
     ],
   ])('%s', (_label, overrides, detected, expected) => {
     expect(streamingProfile(prefs, settings(overrides), detected)).toEqual({
-      probe: 'every',
+      probe: 'default',
       ...expected,
     })
   })
@@ -172,7 +172,7 @@ describe('streamingProfile', () => {
         basis: 'detected',
         ceiling: 'normal',
         preferAudioOnly: true,
-        probe: 'every',
+        probe: 'default',
       },
     )
   })
@@ -187,7 +187,7 @@ describe('streamingProfile', () => {
       basis: 'assumed',
       ceiling: 'high',
       preferAudioOnly: false,
-      probe: 'every',
+      probe: 'default',
     })
     expect(streamingProfile(broken, settings({ connection: 'cellular' }), 'wifi').ceiling).toBe(
       'normal',
@@ -228,123 +228,149 @@ function fakeProbe(answers: Record<string, FullLengthCheck> = {}) {
   return { probe, probed }
 }
 
-/** A plan that chooses as playback does, under `ceiling`, with the player's `support`. */
-function playbackPlan(
+/** Chooses as playback does, under `ceiling`, with the player's `support` and `exclude`. */
+function playbackChoice(
   ceiling: StreamingProfile['ceiling'],
   support: (option: StreamOption) => StreamSupport = () => 'probably',
-): ProbePlan {
-  return {
-    scope: 'chosen',
-    choose: (options) => choosePlaybackStream(options, { support, ceiling, preferAudioOnly: true }),
-  }
+  exclude: (option: StreamOption) => boolean = () => false,
+): ProbePlan['choose'] {
+  return (options) =>
+    choosePlaybackStream(options, { support, ceiling, preferAudioOnly: true, exclude })
 }
 
 const fullLengths = (options: readonly StreamOption[]) =>
   options.map((option) => `${option.url.replace('https://media.test/', '')}:${option.fullLength}`)
 
-describe('probeStreams', () => {
-  it('probes every option, in order, without a plan or with `every`', async () => {
-    for (const plan of [undefined, { scope: 'every', choose: () => undefined } as ProbePlan]) {
-      const { probe, probed } = fakeProbe({ [aac139.url]: 'capped' })
-      const result = await probeStreams(visionos, plan, probe)
-      expect(probed.sort()).toEqual(['139', '140', '249', '250', '251'])
-      expect(fullLengths(result)).toEqual([
-        '251:verified',
-        '140:verified',
-        '250:verified',
-        '249:verified',
-        '139:capped',
-      ])
-    }
-  })
-
-  it('probes the options in parallel with `every`', async () => {
-    let running = 0
-    let most = 0
-    const probe = async (option: StreamOption) => {
-      running += 1
-      most = Math.max(most, running)
-      await Promise.resolve()
-      running -= 1
-      return option
-    }
-    await probeStreams(visionos, undefined, probe)
-    expect(most).toBe(visionos.length)
-  })
-
-  it('probes only the stream playback would choose with `chosen`', async () => {
+describe('probeChosenStream', () => {
+  it('probes only the stream playback would choose', async () => {
     const { probe, probed } = fakeProbe()
-    const result = await probeStreams(visionos, playbackPlan('low'), probe)
+    const { options, outcome } = await probeChosenStream(visionos, playbackChoice('low'), probe)
     expect(probed).toEqual(['249'])
-    expect(fullLengths(result)).toEqual([
+    expect(outcome).toBe('playable')
+    expect(fullLengths(options)).toEqual([
       '251:unverified',
       '140:unverified',
       '250:unverified',
       '249:verified',
       '139:unverified',
     ])
-    expect(result[0]).toBe(opus251)
+    expect(options[0]).toBe(opus251)
   })
 
   it('follows the player’s formats: AAC where it only may play Opus', async () => {
     const { probe, probed } = fakeProbe()
     const support = (option: StreamOption): StreamSupport =>
       option.codec === 'opus' ? 'maybe' : 'probably'
-    await probeStreams(visionos, playbackPlan('high', support), probe)
+    await probeChosenStream(visionos, playbackChoice('high', support), probe)
     expect(probed).toEqual(['140'])
   })
 
   it('probes the next choice while a probe finds the chosen URL capped', async () => {
     const { probe, probed } = fakeProbe({ [opus249.url]: 'capped' })
-    const result = await probeStreams(visionos, playbackPlan('low'), probe)
+    const { options, outcome } = await probeChosenStream(visionos, playbackChoice('low'), probe)
     expect(probed).toEqual(['249', '139'])
-    expect(fullLengths(result)).toContain('249:capped')
-    expect(fullLengths(result)).toContain('139:verified')
+    expect(outcome).toBe('playable')
+    expect(fullLengths(options)).toContain('249:capped')
+    expect(fullLengths(options)).toContain('139:verified')
   })
 
   it('ends at a probe that cannot tell, which leaves the URL playable', async () => {
     const { probe, probed } = fakeProbe({ [opus249.url]: 'unverified' })
-    await probeStreams(visionos, playbackPlan('low'), probe)
+    const { outcome } = await probeChosenStream(visionos, playbackChoice('low'), probe)
     expect(probed).toEqual(['249'])
+    expect(outcome).toBe('playable')
   })
 
-  it('probes every choice when every URL is capped, and then leaves nothing to choose', async () => {
+  it('reports the rung capped when every choice a probe tried was capped', async () => {
     const capped = Object.fromEntries(visionos.map(({ url }) => [url, 'capped' as const]))
     const { probe, probed } = fakeProbe(capped)
-    const plan = playbackPlan('low')
-    const result = await probeStreams(visionos, plan, probe)
+    const choose = playbackChoice('low')
+    const { options, outcome } = await probeChosenStream(visionos, choose, probe)
     expect(probed).toEqual(['249', '139', '250', '140', '251'])
-    expect(result.every((option) => option.fullLength === 'capped')).toBe(true)
-    expect(plan.choose(result)).toBeUndefined()
+    expect(outcome).toBe('capped')
+    expect(options.every((option) => option.fullLength === 'capped')).toBe(true)
+    expect(choose(options)).toBeUndefined()
   })
 
-  it('probes nothing when playback would choose nothing, or an option already verified', async () => {
+  it('reports the rung capped when the formats left after a capped probe already failed', async () => {
+    const { probe, probed } = fakeProbe({ [opus249.url]: 'capped' })
+    // AAC did not decode earlier, and Opus 250 and 251 failed on this network.
+    const exclude = (option: StreamOption) => option.codec === 'aac' || option.tier !== 'low'
+    const { outcome } = await probeChosenStream(
+      visionos,
+      playbackChoice('low', undefined, exclude),
+      probe,
+    )
+    expect(probed).toEqual(['249'])
+    expect(outcome).toBe('capped')
+  })
+
+  it('reports nothing chosen, and probes nothing, when playback would choose nothing', async () => {
     const { probe } = fakeProbe()
-    await probeStreams(visionos, { scope: 'chosen', choose: () => undefined }, probe)
-    const verified = [{ ...opus251, fullLength: 'verified' as const }, aac140]
-    const result = await probeStreams(verified, playbackPlan('high'), probe)
+    const nothing = await probeChosenStream(visionos, () => undefined, probe)
+    expect(nothing).toEqual({ options: visionos, outcome: 'nothing-chosen' })
+    // Every format already failed to decode, or the player can play none of them.
+    const failed = await probeChosenStream(
+      visionos,
+      playbackChoice('low', undefined, () => true),
+      probe,
+    )
+    const unplayable = await probeChosenStream(
+      visionos,
+      playbackChoice('low', () => 'no'),
+      probe,
+    )
+    expect([failed.outcome, unplayable.outcome]).toEqual(['nothing-chosen', 'nothing-chosen'])
+    expect(await probeChosenStream([], playbackChoice('high'), probe)).toEqual({
+      options: [],
+      outcome: 'nothing-chosen',
+    })
     expect(probe).not.toHaveBeenCalled()
-    expect(result).toEqual(verified)
-    expect(await probeStreams([], playbackPlan('high'), probe)).toEqual([])
+  })
+
+  it('never counts a cap it did not find: options capped before it are not its own', async () => {
+    const { probe } = fakeProbe()
+    const cappedBefore = visionos.map((option) => ({ ...option, fullLength: 'capped' as const }))
+    const { outcome } = await probeChosenStream(cappedBefore, playbackChoice('low'), probe)
+    expect(outcome).toBe('nothing-chosen')
+    expect(probe).not.toHaveBeenCalled()
+  })
+
+  it('takes an option already verified as it is', async () => {
+    const { probe } = fakeProbe()
+    const verified = [{ ...opus251, fullLength: 'verified' as const }, aac140]
+    const result = await probeChosenStream(verified, playbackChoice('high'), probe)
+    expect(result).toEqual({ options: verified, outcome: 'playable' })
+    expect(probe).not.toHaveBeenCalled()
+  })
+
+  it('never probes a stream that is not a file, such as HLS', async () => {
+    const { probe } = fakeProbe()
+    const hls = stream(91, { protocol: 'hls', bitrateKbps: 48, tier: 'low' })
+    const { options, outcome } = await probeChosenStream(
+      [opus251, hls],
+      playbackChoice('low'),
+      probe,
+    )
+    expect(outcome).toBe('playable')
+    expect(options).toEqual([opus251, hls])
+    expect(probe).not.toHaveBeenCalled()
   })
 
   it('never probes a capped option or one `choose` was not given', async () => {
     const { probe, probed } = fakeProbe()
     const cappedFirst = [{ ...opus249, fullLength: 'capped' as const }, aac139]
-    await probeStreams(cappedFirst, playbackPlan('low'), probe)
+    await probeChosenStream(cappedFirst, playbackChoice('low'), probe)
     expect(probed).toEqual(['139'])
-    const stranger: ProbePlan = {
-      scope: 'chosen',
-      choose: <T extends StreamOption>() => ({ ...opus251 }) as T,
-    }
-    await probeStreams(visionos, stranger, probe)
+    const stranger = <T extends StreamOption>() => ({ ...opus251 }) as T
+    const { outcome } = await probeChosenStream(visionos, stranger, probe)
+    expect(outcome).toBe('nothing-chosen')
     expect(probed).toEqual(['139'])
   })
 
   it('passes on a rejected probe, such as the caller’s cancellation', async () => {
     const cancelled = Object.assign(new Error('Cancelled'), { name: 'AbortError' })
     const probe = () => Promise.reject(cancelled)
-    await expect(probeStreams(visionos, playbackPlan('low'), probe)).rejects.toBe(cancelled)
-    await expect(probeStreams(visionos, undefined, probe)).rejects.toBe(cancelled)
+    await expect(probeChosenStream(visionos, playbackChoice('low'), probe)).rejects.toBe(cancelled)
   })
 })

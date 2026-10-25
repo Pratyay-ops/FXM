@@ -999,7 +999,8 @@ export class StreamLifecycle implements StreamResolver {
   /**
    * How to choose among `candidate`'s streams now: the player's formats, the ceiling and the
    * audio-only preference of the connection and the data saver (`streamingProfile`), and no URL
-   * or format that already failed. `probe` says how much the source should probe meanwhile.
+   * or format that already failed, read when `exclude` runs. `probe` says which URLs the source
+   * should probe meanwhile.
    */
   #streamChoice(
     candidate: AudioCandidate,
@@ -1020,8 +1021,8 @@ export class StreamLifecycle implements StreamResolver {
   }
 
   /**
-   * How the source probes the streams it finds for `candidate`: every URL, or with the data saver
-   * only the one {@link #choose} would pick.
+   * How the source probes the streams it finds for `candidate`: as it does by default, or with
+   * the data saver only the one {@link #choose} would pick.
    */
   #probePlan(candidate: AudioCandidate, options: RunOptions): ProbePlan {
     const { choice, probe } = this.#streamChoice(candidate, options)

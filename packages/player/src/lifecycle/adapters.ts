@@ -44,9 +44,10 @@ export interface StreamSourceRequest {
   /** The quality preferences: only a hint for ordering options of equal quality. */
   prefs: QualityPrefs
   /**
-   * How much to probe where the bytes are readable (`ctx.capabilities.mediaBytes`): every URL,
-   * or with the data saver on only the one playback would choose (stage 4.3). Apply it with
-   * `probeStreams` from `@fxm/core`. Absent means every URL; sources that never probe ignore it.
+   * Which URLs to probe where the bytes are readable (`ctx.capabilities.mediaBytes`): those the
+   * source probes by default, or with the data saver on only the one playback would choose
+   * (stage 4.3). For a `chosen` scope, probe with `probeChosenStream` from `@fxm/core` and judge
+   * the rung by its `outcome`. Absent means `default`; sources that never probe ignore it.
    */
   probe?: ProbePlan
   /**
@@ -69,9 +70,10 @@ export interface StreamSourceRequest {
  * Where bytes are readable it probes the end of the file and reports `fullLength` `verified` or
  * `capped`; in the Lite tier it returns `unverified` URLs, and the lifecycle uses the media
  * element's first request as the probe. When `request.probe` says `chosen` (the data saver), it
- * probes only the URL playback would choose (`probeStreams`). It sets `hasFallback`, honours
- * `rung: 'fallback'` by resolving only itag 18, and reports a playability verdict (`UNPLAYABLE`,
- * `ERROR`) with `unplayableError` from `@fxm/core`, which is what Smart Replace acts on.
+ * should probe only the URL playback would choose (`probeChosenStream`; not wired into 1.4 yet).
+ * It sets `hasFallback`, honours `rung: 'fallback'` by resolving only itag 18, and reports a
+ * playability verdict (`UNPLAYABLE`, `ERROR`) with `unplayableError` from `@fxm/core`, which is
+ * what Smart Replace acts on.
  */
 export interface StreamSource {
   /** The audio source whose candidates this resolves (`AudioCandidate.source`). */

@@ -2,8 +2,8 @@
  * The quality settings beside the tier ceilings of `QualityPrefs` (stage 4.3): which
  * connection's ceiling streaming follows, and the data saver. {@link streamingProfile} turns
  * them, with what the platform detects, into what the stream choice needs, and
- * {@link probeStreams} is how a resolver probes only the stream that will play, as the data saver
- * asks.
+ * {@link probeChosenStream} is how a resolver probes only the stream that will play, as the data
+ * saver asks.
  *
  * @module
  */
@@ -73,8 +73,8 @@ export interface StreamingSettings {
   connection: ConnectionPreference
   /**
    * The data saver: stream at {@link DATA_SAVER_CEILING} (`low`) on every connection, put
-   * audio-only streams before a muxed video everywhere, and have resolvers probe only the stream
-   * playback chooses (see {@link streamingProfile}). Off by default. Downloads ignore it.
+   * audio-only streams before a muxed video everywhere, and ask resolvers to probe only the
+   * stream playback chooses (see {@link streamingProfile}). Off by default. Downloads ignore it.
    */
   dataSaver: boolean
 }
@@ -113,14 +113,20 @@ export function sanitizeStreamingSettings(value: unknown): StreamingSettings {
 export const DATA_SAVER_CEILING: QualityTier = 'low'
 
 /**
- * How much a resolver probes the stream URLs it found, where the bytes are readable (FXM
- * Connect, the desktop app, the Android app; see `FullLengthCheck`):
+ * Which stream URLs a resolver probes at the end of their file, where the bytes are readable
+ * (FXM Connect, the desktop app, the Android app; see `FullLengthCheck`):
  *
- * - `every`: every URL, so that each option says whether it plays to the end
+ * - `default`: those the source probes by default. The YouTube ladder (1.4) probes the best URL
+ *   of each codec and media (Opus 251, AAC 140, itag 18), and the next one of that codec while
+ *   one is capped: two ranged GETs on VISIONOS. Caps belong to a client, not a format, so that
+ *   tells whether the rung's URLs play to the end
  * - `chosen`: only the URL playback would choose, and the next choice while a probe finds one
- *   capped. One end-of-file probe instead of one per format: what the data saver asks for
+ *   capped (see {@link probeChosenStream}). One end-of-file probe for a rung that isn't capped
+ *   (one ranged GET on VISIONOS), on the URL that then plays: what the data saver asks for
+ *
+ * A request without a scope means `default`.
  */
-export type ProbeScope = 'every' | 'chosen'
+export type ProbeScope = 'default' | 'chosen'
 
 /** How playback streams on the current connection, as {@link streamingProfile} works it out. */
 export interface StreamingProfile {
@@ -138,7 +144,7 @@ export interface StreamingProfile {
    * video costs data (see `choosePlaybackStream`).
    */
   preferAudioOnly: boolean
-  /** How much the resolvers probe (see {@link probeStreams}). */
+  /** Which URLs the resolvers probe (see {@link ProbeScope}). */
   probe: ProbeScope
 }
 
@@ -159,11 +165,11 @@ function lowerTier(a: QualityTier, b: QualityTier): QualityTier {
  *   audio-only streams first everywhere, and asks the resolvers to probe only the `chosen`
  *   stream.
  *
- * Every other combination probes `every` URL. Values that are not what the types say, which
- * only unchecked data holds, fail closed: an unknown connection preference counts as `auto`, an
- * unknown detected connection as `unknown`, an invalid ceiling as the default for its connection,
- * and only `dataSaver: true` turns the data saver on. The stream lifecycle asks for every stream
- * it chooses, so a change applies from the next stream on.
+ * Without the data saver, the resolvers probe as they do by `default`. Values that are not what
+ * the types say, which only unchecked data holds, fail closed: an unknown connection preference
+ * counts as `auto`, an unknown detected connection as `unknown`, an invalid ceiling as the
+ * default for its connection, and only `dataSaver: true` turns the data saver on. The stream
+ * lifecycle asks for every stream it chooses, so a change applies from the next stream on.
  */
 export function streamingProfile(
   prefs: { readonly streaming: Readonly<QualityPrefs['streaming']> },
@@ -187,7 +193,7 @@ export function streamingProfile(
       basis,
       ceiling,
       preferAudioOnly: connection === 'cellular',
-      probe: 'every',
+      probe: 'default',
     }
   }
   return {
@@ -201,57 +207,80 @@ export function streamingProfile(
 
 /**
  * How a resolver probes the URLs it found, where the bytes are readable. The stream lifecycle
- * passes one with every resolution (`StreamSourceRequest.probe` in `@fxm/player`), and
- * {@link probeStreams} applies it.
+ * passes one with every resolution (`StreamSourceRequest.probe` in `@fxm/player`).
  */
 export interface ProbePlan {
-  /** `every` URL, or only the `chosen` one (see {@link ProbeScope}). */
+  /** The source's `default` probing, or only the `chosen` URL (see {@link ProbeScope}). */
   readonly scope: ProbeScope
   /**
-   * The option playback would choose from `options`, or `undefined` when none would do. It
-   * returns one of the options it is given, as `choosePlaybackStream` does with the player's
-   * formats, the connection's ceiling and the URLs that already failed.
+   * The option playback would choose from `options`, or `undefined` when none would do: as
+   * `choosePlaybackStream` chooses, with the player's formats, the connection's ceiling, and
+   * without the URLs and formats that already failed. It returns one of the options it is given.
+   * With a `chosen` scope, pass it to {@link probeChosenStream}.
    */
   choose<T extends StreamOption>(options: readonly T[]): T | undefined
 }
 
+/** Why {@link probeChosenStream} stopped (see {@link ChosenProbeResult.outcome}). */
+export type ChosenProbeOutcome = 'playable' | 'capped' | 'nothing-chosen'
+
+/** What {@link probeChosenStream} found. */
+export interface ChosenProbeResult<T extends StreamOption> {
+  /** The options in their order, each probed one replaced by what its probe returned. */
+  options: T[]
+  /**
+   * Why probing stopped, which is how a resolver judges the rung:
+   *
+   * - `playable`: playback would choose an option that no probe found capped: one whose probe
+   *   passed or could not tell, one already `verified`, or one that isn't `progressive`, which an
+   *   end-of-file probe doesn't apply to. The rung works
+   * - `capped`: a probe found the chosen URL capped, and nothing is left that playback would
+   *   choose. Count it like every URL of the rung being capped
+   * - `nothing-chosen`: playback would choose nothing before any probe found a cap, e.g. because
+   *   the URLs and formats that already failed leave nothing, or the player can play none of
+   *   them. That says nothing about caps: never count it against the rung, and judge the rung as
+   *   without a plan (the YouTube ladder: capped only when every option is `capped`)
+   */
+  outcome: ChosenProbeOutcome
+}
+
 /**
- * Probes the options of one resolution as `plan` says, and returns them in their order, each
- * probed option replaced by what `probe` returned for it:
- *
- * - `every`, also without a plan: every option, in parallel
- * - `chosen`: only the option `plan.choose` picks. When its probe finds it `capped`, the option
- *   it picks from the rest, and so on, so a capped URL never ends the search; probing stops at
- *   the first option that is not capped. An option already `verified` is not probed again, and
- *   the options never chosen stay as they were, usually `unverified`
+ * Probes only the option playback would choose, for a `chosen` {@link ProbeScope}: the option
+ * `choose` (the plan's) picks, and when its probe finds it `capped`, the option `choose` picks
+ * from the rest, and so on, so a capped URL never ends the search. Probing stops at the first
+ * option that isn't capped. An option already `verified` is not probed again, one that isn't
+ * `progressive` (HLS, DASH, SABR) is not probed at all, since an end-of-file probe reads a file,
+ * and the options never chosen stay as they were, usually `unverified`.
  *
  * `probe` returns the option with what its probe found (`fullLength`, and anything else the
  * resolver learned, such as the file's length). It should not reject, since a probe that can't
  * tell is `unverified`; a rejection, such as the caller's cancellation, is passed on.
- *
- * With `chosen`, a resolver judges the result by `plan.choose(result)`: `undefined` means no
- * option is left that playback would choose, which counts like every URL being capped.
  */
-export async function probeStreams<T extends StreamOption>(
+export async function probeChosenStream<T extends StreamOption>(
   options: readonly T[],
-  plan: ProbePlan | undefined,
+  choose: ProbePlan['choose'],
   probe: (option: T) => Promise<T>,
-): Promise<T[]> {
-  if (plan?.scope !== 'chosen') return Promise.all(options.map((option) => probe(option)))
+): Promise<ChosenProbeResult<T>> {
   const result = [...options]
   const done = new Set<number>()
+  let foundCap = false
   for (;;) {
-    const open = result.filter(
-      (option, index) => !done.has(index) && option.fullLength !== 'capped',
+    const open = [...result.keys()].filter(
+      (index) => !done.has(index) && result[index]?.fullLength !== 'capped',
     )
-    const picked = plan.choose(open)
-    const index = picked === undefined ? -1 : result.indexOf(picked)
+    const picked = choose(open.map((index) => result[index] as T))
+    const index = open.find((candidate) => result[candidate] === picked)
     // Nothing left to choose, or `choose` returned an option it was not given.
-    if (picked === undefined || index < 0 || done.has(index)) return result
+    if (picked === undefined || index === undefined) {
+      return { options: result, outcome: foundCap ? 'capped' : 'nothing-chosen' }
+    }
     done.add(index)
-    if (picked.fullLength === 'verified') return result
+    if (picked.fullLength === 'verified' || picked.protocol !== 'progressive') {
+      return { options: result, outcome: 'playable' }
+    }
     const probed = await probe(picked)
     result[index] = probed
-    if (probed.fullLength !== 'capped') return result
+    if (probed.fullLength !== 'capped') return { options: result, outcome: 'playable' }
+    foundCap = true
   }
 }

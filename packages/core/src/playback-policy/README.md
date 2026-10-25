@@ -7,7 +7,7 @@ The pure rules behind playback (stage 2.3): which audio plays a track, which str
 | `settings.ts` | `PlaybackSettings` ("prefer lossless", "Play best guesses", Invidious), `DEFAULT_PLAYBACK_SETTINGS` (all off), `sanitizePlaybackSettings`. The matching engine's bands as the policy reads them (`PlaybackBand`: `auto`, `suggest`, `none`), `MatchTarget` (`song`, `lossless`) and `mayPlayMatch` |
 | `order.ts` | `planPlayback`, the order of preference, and the candidates built from a track: `ownCandidate`, `linkedSongCandidate`. `candidateKey` and `sameCandidate` compare audio; `canReachAudio` says whether the tier reaches a source's audio |
 | `streams.ts` | `choosePlaybackStream`, the format choice; `streamsUsableUntil` and `URL_REFRESH_MARGIN_MS` for the URL cache |
-| `quality-settings.ts` | The quality settings beside the tier ceilings (stage 4.3): `StreamingSettings` (which connection's ceiling to follow, the data saver), `DEFAULT_STREAMING_SETTINGS`, `sanitizeStreamingSettings`, `connectionFromType`; `streamingProfile`, the ceiling, audio-only preference and probe scope in effect; `probeStreams` and its `ProbePlan`, how a resolver probes |
+| `quality-settings.ts` | The quality settings beside the tier ceilings (stage 4.3): `StreamingSettings` (which connection's ceiling to follow, the data saver), `DEFAULT_STREAMING_SETTINGS`, `sanitizeStreamingSettings`, `connectionFromType`; `streamingProfile`, the ceiling, audio-only preference and probe scope in effect; `ProbePlan`, how a resolver probes, and `probeChosenStream`, which probes only the stream that will play |
 | `recovery.ts` | `planStreamRecovery`, what to do after a stream failed, and `httpStatusOf` |
 | `problems.ts` | Playability verdicts (`unplayableError`, `playabilityVerdictOf`), playback problems (`playbackProblemError`, `playbackProblemOf`) and `smartReplaceAction` |
 
@@ -47,15 +47,27 @@ The quality settings (stage 4.3) decide which ceiling applies. `streamingProfile
 
 | Settings | Connection | Ceiling | Audio only first | Probe |
 |---|---|---|---|---|
-| `connection: 'auto'`, Wi-Fi or Ethernet detected | `wifi` (`detected`) | `prefs.streaming.wifi` | No | `every` |
-| `connection: 'auto'`, mobile data detected | `cellular` (`detected`) | `prefs.streaming.cellular` | Yes | `every` |
-| `connection: 'auto'`, the platform can't tell | `wifi` (`assumed`) | `prefs.streaming.wifi` | No | `every` |
-| `connection: 'wifi'` or `'cellular'` | That one (`chosen`), whatever is detected | Its ceiling | On `cellular` | `every` |
+| `connection: 'auto'`, Wi-Fi or Ethernet detected | `wifi` (`detected`) | `prefs.streaming.wifi` | No | `default` |
+| `connection: 'auto'`, mobile data detected | `cellular` (`detected`) | `prefs.streaming.cellular` | Yes | `default` |
+| `connection: 'auto'`, the platform can't tell | `wifi` (`assumed`) | `prefs.streaming.wifi` | No | `default` |
+| `connection: 'wifi'` or `'cellular'` | That one (`chosen`), whatever is detected | Its ceiling | On `cellular` | `default` |
 | `dataSaver: true`, with any of the above | As above | `low` (`DATA_SAVER_CEILING`) | Yes | `chosen` |
 
 `detected` comes from the platform: `connectionFromType` reads the Network Information API's `type` (`wifi` and `ethernet` are Wi-Fi, `cellular` is mobile data), which only Chromium on Android and ChromeOS and Android's WebView report. Elsewhere it is `unknown`, and the user picks the connection by hand. Phones on a hotspot look like Wi-Fi to the laptop using it, which is what `connection: 'cellular'` is for.
 
-**Probing only the chosen stream.** Where bytes are readable, the YouTube ladder probes the end of every URL it found: five formats on VISIONOS, 64 KB each. With the data saver on, the lifecycle passes a `ProbePlan` whose scope is `chosen`, with a `choose` function that picks exactly as `choosePlaybackStream` will afterwards. `probeStreams(options, plan, probe)` then probes only that stream; if the probe finds it capped, it probes the next choice, and it stops at the first stream that is not capped. The others stay `unverified`. A resolver judges a rung by `plan.choose(result)`: `undefined` means nothing playback would choose is left, as when every URL is capped.
+**Probing.** Every resolution carries a `ProbePlan`: its `scope`, and a `choose` function that picks exactly as `choosePlaybackStream` will afterwards, with the player's formats and the ceiling, and without the URLs and formats that failed since. With `default` (also when a request has no plan), a source probes as it always does: the YouTube ladder (1.4) probes the best URL of each codec and media and the next of that codec while one is capped, two ranged GETs on VISIONOS, since caps belong to a client, not a format. With `chosen` (the data saver), it probes with `probeChosenStream(options, plan.choose, probe)`: only the URL playback would choose, then the next choice while a probe finds one capped, and never a stream that isn't `progressive`. That is one end-of-file probe for a rung that isn't capped (one ranged GET on VISIONOS), on the very URL that then plays: the default's two check Opus 251 and AAC 140, while the data saver plays Opus 249 or AAC 139.
+
+A resolver judges a rung by the `outcome`:
+
+| `outcome` | When | The rung |
+|---|---|---|
+| `playable` | Playback would choose an option that no probe found capped: one that passed, one a probe couldn't tell, one already `verified`, or one that isn't `progressive` | Works |
+| `capped` | A probe found the chosen URL capped, and nothing playback would choose is left | Counts as capped, like every URL being capped |
+| `nothing-chosen` | Playback chose nothing before any probe found a cap: the URLs and formats that failed, or the player's formats, leave nothing | Never counts against it: judge it as without a plan (the ladder: capped only when every option is) |
+
+**Pending: the ladder's side.** 1.4's ladder doesn't read `request.probe` yet, so the data saver changes the ceiling but not the probes. Its `probed()` step needs a mode for `chosen` that calls `probeChosenStream(found, plan.choose, probeOne)` and fails the rung as `capped` only on that outcome; anything else keeps its `probe: 'best'`.
+
+**Pending, an owner decision: "prefer lossless" and the ceiling.** The lossless step (step 4 above) resolves an Internet Archive or Jamendo match and chooses its stream under the same ceiling. Under the default Wi-Fi ceiling of High, `pickStream` then plays the item's best lossy file (an MP3 or Ogg Vorbis), never its FLAC: the setting gains nothing, and may play worse audio than the YouTube Opus 251 that plays with it off. Either `streamingProfile` takes the step's `MatchTarget` and, for `lossless` with the data saver off (and, say, not on mobile data), raises the ceiling to `lossless`, with the lifecycle passing the target for a recorded lossless candidate too; or the lossless step plays only lossless streams, is skipped under a lower ceiling, and the Lossless row's help says that "prefer lossless" needs the Lossless ceiling. Nothing exposes "prefer lossless" in Settings yet.
 
 ## When a stream fails
 

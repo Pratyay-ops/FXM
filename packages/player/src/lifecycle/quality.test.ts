@@ -6,7 +6,7 @@ import {
 } from '@fxm/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { testTrack, testTracks } from '../testing/fixtures'
-import { ladderUrl, setup, useFakeClock } from './test-harness'
+import { ladderUrl, settle, setup, useFakeClock } from './test-harness'
 import { ladderStreams } from './testing/fake-stream-source'
 
 beforeEach(useFakeClock)
@@ -33,11 +33,11 @@ function itagOf(stream: StreamOption | undefined): string | undefined {
 }
 
 describe('the quality settings (stage 4.3)', () => {
-  it('streams at the Wi-Fi ceiling by default and asks the ladder to probe every URL', async () => {
+  it('streams at the Wi-Fi ceiling by default and lets the ladder probe as it does', async () => {
     const { player, engine, youtube } = setup()
     await player.setQueue([testTrack('a')])
     expect(engine.loadedUrls).toEqual([ladderUrl('a', 251, 1)])
-    expect(youtube.calls[0]?.request.probe?.scope).toBe('every')
+    expect(youtube.calls[0]?.request.probe?.scope).toBe('default')
   })
 
   it('streams at Low on Wi-Fi with the data saver on', async () => {
@@ -71,9 +71,47 @@ describe('the quality settings (stage 4.3)', () => {
     await player.setQueue(testTracks('a', 'b'))
     // Without the data saver, the tier decides: itag 18's AAC track is `normal`.
     expect(engine.loadedUrls).toEqual([ladderUrl('a', 18, 1)])
+    expect(youtube.calls.at(-1)?.request.probe?.scope).toBe('default')
     setStreaming({ dataSaver: true })
     await player.next()
     expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('b', 140, 2))
+    expect(youtube.calls.at(-1)?.request.probe?.scope).toBe('chosen')
+  })
+
+  it('lets the next probe plan skip a format that failed to decode', async () => {
+    const { player, engine, youtube, lifecycle } = withStreaming({ dataSaver: true })
+    engine.canPlayStream = (stream) => (stream.codec === 'aac' ? 'maybe' : 'probably')
+    engine.startOnPlay = false
+    await player.setQueue([testTrack('a')])
+    expect(engine.loadedUrls).toEqual([ladderUrl('a', 251, 1)])
+    engine.startOnPlay = true
+    engine.fail('decode')
+    await settle()
+    expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('a', 140, 1))
+
+    // A fresh resolution of the same song: Opus didn't decode here, so the plan picks AAC.
+    lifecycle.flush()
+    await player.setQueue([testTrack('a')])
+    expect(youtube.calls).toHaveLength(2)
+    const plan = youtube.calls.at(-1)?.request.probe
+    const found = ladderStreams('a', { rung: 'top', fullLength: 'unverified', serial: 2 })
+    expect(plan?.scope).toBe('chosen')
+    expect(itagOf(plan?.choose(found))).toBe('140')
+    expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('a', 140, 2))
+  })
+
+  it('lets the probe plan skip a URL that failed on this network', async () => {
+    const { player, engine, youtube } = withStreaming({ dataSaver: true })
+    engine.canPlayStream = (stream) => (stream.codec === 'aac' ? 'maybe' : 'probably')
+    await player.setQueue([testTrack('a')])
+    engine.progress(10_000)
+    engine.fail('network')
+    await settle()
+    // A failure after playing resolves the same rung again, and its old URL is never reused.
+    expect(youtube.calls).toHaveLength(2)
+    expect(engine.loadedUrls).toEqual([ladderUrl('a', 251, 1), ladderUrl('a', 251, 2)])
+    const first = ladderStreams('a', { rung: 'top', fullLength: 'unverified', serial: 1 })
+    expect(itagOf(youtube.calls.at(-1)?.request.probe?.choose(first))).toBe('140')
   })
 
   it('follows the connection the user chose over the detected one', async () => {
