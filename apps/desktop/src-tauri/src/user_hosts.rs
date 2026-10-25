@@ -372,6 +372,10 @@ async fn ask_user<R: Runtime>(app: AppHandle<R>, window: WebviewWindow<R>, host:
          download data from it, never your cookies or passwords, and you can remove it in \
          Settings at any time."
     );
+    // A sheet on a hidden window would never show, and the question would wait forever.
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
     tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .message(message)
