@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fxmOrigins } from './config.ts'
 import {
+  isLocalhost,
   originHost,
   originMatchPattern,
   parseOrigin,
@@ -39,6 +40,11 @@ describe('origin helpers', () => {
     expect(originMatchPattern('http://localhost:4173')).toBe('http://localhost/*')
     expect(rulesetId(FXM)).toBe('fxm_music_pages_dev')
     expect(rulesetId('http://localhost:4173')).toBe('localhost_4173')
+  })
+
+  it('recognizes the localhost origins of the dev build', () => {
+    expect(isLocalhost('http://localhost:5173')).toBe(true)
+    expect(isLocalhost(FXM)).toBe(false)
   })
 
   it('detects origins that share a host', () => {

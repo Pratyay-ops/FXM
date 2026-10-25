@@ -1,7 +1,7 @@
-// Options page: version, allowed FXM origins and the Spotify login toggle. The toggle lives in
+// Options page: version, allowed FXM origins and the Spotify login toggles. The toggles live in
 // IndexedDB in the extension's own origin, out of content scripts' reach (see settings.ts).
 import { DEV_BUILD, ORIGINS } from '../build-info.ts'
-import { indexedDbSettings, SETTINGS_CHANNEL } from '../settings.ts'
+import { indexedDbSettings, SETTINGS_CHANNEL, type Settings } from '../settings.ts'
 import { webExtApi } from '../webext.ts'
 
 const api = webExtApi()
@@ -15,7 +15,6 @@ function byId<T extends HTMLElement>(id: string, type: { new (): T; prototype: T
   return node
 }
 
-const toggle = byId('spotify-login', HTMLInputElement)
 const status = byId('status', HTMLElement)
 
 function showStatus(text: string, error = false): void {
@@ -25,6 +24,8 @@ function showStatus(text: string, error = false): void {
 
 byId('version', HTMLElement).textContent = api.runtime.getManifest().version
 byId('dev-badge', HTMLElement).hidden = !DEV_BUILD
+byId('dev-warning', HTMLElement).hidden = !DEV_BUILD
+byId('localhost-login', HTMLElement).hidden = !DEV_BUILD
 
 const list = byId('origins', HTMLUListElement)
 for (const origin of ORIGINS) {
@@ -35,29 +36,58 @@ for (const origin of ORIGINS) {
   list.append(item)
 }
 
-toggle.addEventListener('change', async () => {
-  const enabled = toggle.checked
-  try {
-    await settings.write({ spotifyLogin: enabled })
-    channel.postMessage('changed')
-    showStatus(
-      enabled
+/** A checkbox and the setting it holds. */
+interface Toggle {
+  input: HTMLInputElement
+  key: keyof Settings
+  /** What to announce once a change is saved. */
+  saved: (on: boolean) => string
+}
+
+const toggles: Toggle[] = [
+  {
+    input: byId('spotify-login', HTMLInputElement),
+    key: 'spotifyLogin',
+    saved: (on) =>
+      on
         ? 'Saved. FXM can now use your Spotify login from this browser.'
         : 'Saved. FXM can no longer use your Spotify login.',
-    )
-  } catch {
-    toggle.checked = !enabled
-    showStatus('Could not save the setting. Please try again.', true)
-  }
-})
+  },
+  {
+    input: byId('spotify-login-localhost', HTMLInputElement),
+    key: 'spotifyLoginLocalhost',
+    saved: (on) =>
+      on
+        ? 'Saved. Localhost pages can now use your Spotify login.'
+        : 'Saved. Localhost pages can no longer use your Spotify login.',
+  },
+]
+
+for (const { input, key, saved } of toggles) {
+  input.addEventListener('change', async () => {
+    const enabled = input.checked
+    try {
+      await settings.write({ [key]: enabled })
+      channel.postMessage('changed')
+      showStatus(saved(enabled))
+    } catch {
+      input.checked = !enabled
+      showStatus('Could not save the setting. Please try again.', true)
+    }
+  })
+}
 
 async function load(): Promise<void> {
   try {
-    toggle.checked = (await settings.read()).spotifyLogin
+    const current = await settings.read()
+    for (const { input, key } of toggles) input.checked = current[key]
   } catch {
-    showStatus('Could not read the setting.', true)
+    showStatus('Could not read the settings.', true)
   } finally {
-    toggle.disabled = false
+    for (const { input, key } of toggles) {
+      // The release build has no localhost pages, so its localhost toggle stays off.
+      input.disabled = key === 'spotifyLoginLocalhost' && !DEV_BUILD
+    }
   }
 }
 

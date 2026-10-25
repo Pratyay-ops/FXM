@@ -12,12 +12,22 @@ export function isDevVariant(value: string | undefined): boolean {
   throw new Error(`FXM_EXTENSION_DEV must be 1 or 0, got "${value}"`)
 }
 
-/** Output names inside dist/ for one browser: the unpacked folder and the zip. */
+/**
+ * Output paths inside dist/ for one browser: the unpacked folder and the zip. Development
+ * builds go to dist/dev/ and their zips end in -dev, so release tooling that picks up
+ * dist/*.zip can never ship one: they trust any app on the localhost ports.
+ */
 export function outputNames(
   browser: Browser,
   version: string,
   dev: boolean,
 ): { folder: string; zip: string } {
-  const suffix = dev ? '-dev' : ''
-  return { folder: `${browser}${suffix}`, zip: `fxm-connect-${browser}-${version}${suffix}.zip` }
+  return dev
+    ? { folder: `dev/${browser}`, zip: `dev/fxm-connect-${browser}-${version}-dev.zip` }
+    : { folder: browser, zip: `fxm-connect-${browser}-${version}.zip` }
+}
+
+/** The staging folder inside dist/ that both browsers' outputs are copied from. */
+export function stagingFolder(dev: boolean): string {
+  return dev ? 'dev/.staging' : '.staging'
 }

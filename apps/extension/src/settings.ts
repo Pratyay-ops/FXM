@@ -1,5 +1,6 @@
 /**
- * FXM Connect's settings: "Use my Spotify login from this browser", off by default.
+ * FXM Connect's settings: "Use my Spotify login from this browser" and, in the development
+ * build, whether localhost pages may use that login too. Both are off by default.
  *
  * They live in IndexedDB in the extension's own origin, which only the options page and the
  * background can open: a content script's `indexedDB` is the page's. storage.local would be the
@@ -11,9 +12,17 @@
 export interface Settings {
   /** "Use my Spotify login from this browser". */
   spotifyLogin: boolean
+  /**
+   * Development build only: localhost pages may use the Spotify login too. The dev build
+   * treats any app on its localhost ports as FXM, so this is a separate, explicit choice.
+   */
+  spotifyLoginLocalhost: boolean
 }
 
-export const DEFAULT_SETTINGS: Readonly<Settings> = { spotifyLogin: false }
+export const DEFAULT_SETTINGS: Readonly<Settings> = {
+  spotifyLogin: false,
+  spotifyLoginLocalhost: false,
+}
 
 const KEYS = Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]
 

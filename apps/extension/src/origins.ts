@@ -22,6 +22,11 @@ export function parseOrigin(origin: string): URL {
   return url
 }
 
+/** True for the development build's localhost origins. */
+export function isLocalhost(origin: string): boolean {
+  return parseOrigin(origin).hostname === 'localhost'
+}
+
 /** Host name of an origin, the form DNR's `initiatorDomains` expects (no scheme, no port). */
 export function originHost(origin: string): string {
   return parseOrigin(origin).hostname

@@ -65,7 +65,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make test` / `make coverage` | Run all tests (Vitest), optionally with a coverage report |
 | `make build` | Build every app |
 | `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
-| `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1` for the localhost dev build) |
+| `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make clean` | Remove build output |

@@ -23,25 +23,24 @@ async function storeRaw(factory: IDBFactory, values: Record<string, unknown>): P
 describe('settings in IndexedDB', () => {
   it('are off by default', async () => {
     expect(await indexedDbSettings(new IDBFactory()).read()).toEqual(DEFAULT_SETTINGS)
-    expect(DEFAULT_SETTINGS).toEqual({ spotifyLogin: false })
+    expect(DEFAULT_SETTINGS).toEqual({ spotifyLogin: false, spotifyLoginLocalhost: false })
   })
 
-  it('round-trip and survive a restarted background', async () => {
+  it('save only what changes and survive a restarted background', async () => {
     const factory = new IDBFactory()
     await indexedDbSettings(factory).write({ spotifyLogin: true })
     // A new store on the same database, as after the service worker restarts.
     const restarted = indexedDbSettings(factory)
-    expect(await restarted.read()).toEqual({ spotifyLogin: true })
-    await restarted.write({})
-    expect(await restarted.read()).toEqual({ spotifyLogin: true })
+    expect(await restarted.read()).toEqual({ spotifyLogin: true, spotifyLoginLocalhost: false })
+    await restarted.write({ spotifyLoginLocalhost: true })
     await restarted.write({ spotifyLogin: false })
-    expect(await restarted.read()).toEqual({ spotifyLogin: false })
+    expect(await restarted.read()).toEqual({ spotifyLogin: false, spotifyLoginLocalhost: true })
   })
 
   it('read anything but true as off', async () => {
     for (const value of ['true', 1, {}, null]) {
       const factory = new IDBFactory()
-      await storeRaw(factory, { spotifyLogin: value })
+      await storeRaw(factory, { spotifyLogin: value, spotifyLoginLocalhost: value })
       expect(await indexedDbSettings(factory).read()).toEqual(DEFAULT_SETTINGS)
     }
   })

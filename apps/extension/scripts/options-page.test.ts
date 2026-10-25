@@ -31,11 +31,22 @@ describe('options page', () => {
     expect(script).not.toMatch(/\.style\b|setAttribute\('style'/)
   })
 
-  it('labels the Spotify toggle and describes it', () => {
+  it('labels the Spotify toggles and describes them', () => {
     expect(html).toContain(
       '<label for="spotify-login">Use my Spotify login from this browser</label>',
     )
     expect(html).toContain('aria-describedby="spotify-login-help"')
+    expect(html).toMatch(
+      /<label for="spotify-login-localhost">\s*Also let localhost pages use my Spotify login\s*<\/label>/,
+    )
+    expect(html).toContain('aria-describedby="spotify-login-localhost-help"')
     expect(html).toContain('role="status"')
+  })
+
+  it("hides the development build's warning and localhost toggle until the script shows them", () => {
+    expect(html).toMatch(/<p id="dev-warning" class="warning" hidden>/)
+    expect(html).toMatch(/<div id="localhost-login" hidden>/)
+    expect(script).toContain("byId('dev-warning', HTMLElement).hidden = !DEV_BUILD")
+    expect(script).toContain("byId('localhost-login', HTMLElement).hidden = !DEV_BUILD")
   })
 })

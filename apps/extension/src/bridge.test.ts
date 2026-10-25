@@ -55,7 +55,10 @@ function setup(options: SetupOptions = {}) {
   const clock = { now: 1_000_000 }
   const fetch = options.fetch ?? jsonFetch()
   const settings = options.settings ?? {
-    read: vi.fn(async () => ({ spotifyLogin: options.login === true })),
+    read: vi.fn(async () => ({
+      spotifyLogin: options.login === true,
+      spotifyLoginLocalhost: false,
+    })),
   }
   const bridge = createBridge({
     runtimeId: RUNTIME_ID,
@@ -231,11 +234,50 @@ describe("Spotify login status (the pong's spotify-login feature)", () => {
 
   it('reads the setting afresh for every request, so turning it off applies at once', async () => {
     const values = [true, false]
-    const settings = { read: vi.fn(async () => ({ spotifyLogin: values.shift() === true })) }
+    const settings = {
+      read: vi.fn(async () => ({
+        spotifyLogin: values.shift() === true,
+        spotifyLoginLocalhost: false,
+      })),
+    }
     const { bridge, fetch } = setup({ settings })
     expect(await bridge.handle(token('first'), PAGE)).toMatchObject({ type: MESSAGE.response })
     expect(await bridge.handle(token('second'), PAGE)).toMatchObject({ code: 'login-disabled' })
     expect(fetch).toHaveBeenCalledOnce()
+  })
+})
+
+describe('localhost pages (dev build)', () => {
+  const LOCALHOST: SenderContext = { origin: 'http://localhost:5173', privateTab: false }
+  const devSetup = (spotifyLogin: boolean, spotifyLoginLocalhost: boolean) =>
+    setup({
+      origins: fxmOrigins(true),
+      settings: { read: vi.fn(async () => ({ spotifyLogin, spotifyLoginLocalhost })) },
+    })
+
+  it('need their own opt-in before they get the Spotify login', async () => {
+    const { bridge, fetch } = devSetup(true, false)
+    expect(await bridge.handle(token('local'), LOCALHOST)).toEqual({
+      type: MESSAGE.error,
+      id: 'local',
+      code: 'login-disabled',
+    })
+    expect(await bridge.handle({ type: MESSAGE.loginStatus }, LOCALHOST)).toEqual({
+      type: MESSAGE.loginStatus,
+      enabled: false,
+    })
+    expect(fetch).not.toHaveBeenCalled()
+    // The production origin is not affected.
+    expect(await bridge.handle(token('prod'), PAGE)).toMatchObject({ type: MESSAGE.response })
+  })
+
+  it('get it with both opt-ins, and never with the localhost one alone', async () => {
+    expect(await devSetup(true, true).bridge.handle(token(), LOCALHOST)).toMatchObject({
+      type: MESSAGE.response,
+    })
+    expect(await devSetup(false, true).bridge.handle(token(), LOCALHOST)).toMatchObject({
+      code: 'login-disabled',
+    })
   })
 })
 

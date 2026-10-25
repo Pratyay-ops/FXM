@@ -27,7 +27,7 @@ import {
   type RequestId,
   type SpotifyTokenParams,
 } from './messages.ts'
-import { rulesetSwitch } from './origins.ts'
+import { isLocalhost, rulesetSwitch } from './origins.ts'
 import { RateLimiter } from './rate-limit.ts'
 import type { SettingsStore } from './settings.ts'
 import type { MessageListener, MessageSender, StorageArea, WebExtApi } from './webext.ts'
@@ -212,6 +212,8 @@ export function createBridge(options: BridgeOptions): Bridge {
   ): Promise<'login-disabled' | 'private-tab' | null> {
     const settings = await options.settings.read()
     if (!settings.spotifyLogin) return 'login-disabled'
+    // Dev build: any app on the localhost ports counts as FXM, so they need their own opt-in.
+    if (isLocalhost(sender.origin) && !settings.spotifyLoginLocalhost) return 'login-disabled'
     return sender.privateTab ? 'private-tab' : null
   }
 

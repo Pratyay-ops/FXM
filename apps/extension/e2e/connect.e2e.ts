@@ -642,6 +642,9 @@ test.describe('with FXM Connect loaded', () => {
     await expect(options.locator('#version')).toHaveText(VERSION)
     // The page's own stylesheet loads under the extension's CSP.
     await expect(options.locator('main')).toHaveCSS('max-width', '672px')
+    // The release build shows no development warning and no localhost toggle.
+    await expect(options.locator('#dev-warning')).toBeHidden()
+    await expect(options.locator('#localhost-login')).toBeHidden()
     await expect(options.locator('#origins')).toHaveText(FXM)
     const toggle = options.getByLabel('Use my Spotify login from this browser')
     await expect(toggle).toBeEnabled()

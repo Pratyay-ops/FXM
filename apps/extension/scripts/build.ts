@@ -5,20 +5,21 @@
  *   dist/fxm-connect-chromium-<version>.zip  (and firefox)  packages for a release
  *
  * FXM_EXTENSION_DEV=1 builds the development variant, which also allows the localhost FXM
- * origins, into dist/chromium-dev/, dist/firefox-dev/ and *-dev.zip instead.
+ * origins, into dist/dev/ instead (dist/dev/chromium/, dist/dev/fxm-connect-chromium-<version>
+ * -dev.zip and so on), apart from the release files.
  *
  * Run with `pnpm --filter @fxm/extension build` or `make extension`. Node runs this file
  * directly (type stripping), which is why the imports spell out `.ts`.
  */
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 import { fxmOrigins } from '../src/config.ts'
 import { type Browser, buildManifest, ICON_SIZES, packageVersion } from '../src/manifest.ts'
 import { buildRulesets } from '../src/rules.ts'
 import { iconPng, iconSvg } from './icons.ts'
-import { isDevVariant, outputNames } from './variant.ts'
+import { isDevVariant, outputNames, stagingFolder } from './variant.ts'
 import { createZip } from './zip.ts'
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
@@ -79,7 +80,7 @@ async function main(): Promise<void> {
     JSON.parse(await readFile(join(PACKAGE_DIR, 'package.json'), 'utf8')),
   )
   const origins = fxmOrigins(dev)
-  const staging = join(DIST, dev ? '.staging-dev' : '.staging')
+  const staging = join(DIST, stagingFolder(dev))
 
   await rm(staging, { recursive: true, force: true })
   for (const browser of BROWSERS) {
@@ -115,6 +116,7 @@ async function main(): Promise<void> {
     const entries = await Promise.all(
       files.map(async (name) => ({ name, data: await readFile(join(folder, name)) })),
     )
+    await mkdir(dirname(join(DIST, names.zip)), { recursive: true })
     await writeFile(join(DIST, names.zip), createZip(entries))
     console.log(
       `FXM Connect ${version}${dev ? ' (dev)' : ''}: dist/${names.folder}, dist/${names.zip}`,
