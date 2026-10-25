@@ -89,6 +89,28 @@ wt-list: ## List worktrees and their branches
 wt-remove: ## Remove a stage worktree: make wt-remove BRANCH=feat/1.4-jiosaavn
 	@scripts/worktree.sh remove "$(BRANCH)"
 
+# --- Releases (docs/WORKFLOW.md, "Releases") -----------------------------------
+
+.PHONY: release-pr release-notes release-build release-check
+
+release-pr: ## Open the release PR develop → main: make release-pr VERSION=x.y.z (DRY_RUN=1: plan only)
+	@DRY_RUN="$(DRY_RUN)" scripts/release-pr.sh "$(VERSION)"
+
+release-notes: ## Print the next release's notes (VERSION=x.y.z: that version's)
+	@scripts/release-notes.sh $(VERSION)
+
+release-build: ## Build what a release ships into dist/release, with SHA256SUMS
+	@scripts/release-build.sh dist/release
+	@scripts/release-build.sh --checksums dist/release
+
+# actionlint's optional shellcheck and pyflakes checks stay off: they would use whatever copy is
+# on the PATH (GitHub's runners have shellcheck, a Mac usually doesn't), so CI and a local run
+# could disagree. CI runs this target after make check.
+release-check: ## Lint the GitHub workflows (actionlint) and test the release scripts offline
+	@scripts/install-actionlint.sh
+	@$(RUN) actionlint -shellcheck= -pyflakes=
+	@scripts/release-test.sh
+
 # --- Cleanup -------------------------------------------------------------------
 
 clean: ## Remove build output (keeps dependencies and tools)
