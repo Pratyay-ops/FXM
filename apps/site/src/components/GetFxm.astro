@@ -1,12 +1,13 @@
 ---
 import { APP_PATH, AVAILABLE, RELEASES_URL } from '../config'
-import { ANDROID_INSTALL_NOTE, installFinePrint } from '../lib/connect'
+import { ANDROID_INSTALL, installFinePrint, noExtensionNote } from '../lib/connect'
 import ComingSoon from './ComingSoon.astro'
 import Icon from './Icon.astro'
 
 // The Firefox steps appear once the signed add-on is out (AVAILABLE.firefox).
 const finePrint = installFinePrint(AVAILABLE.firefox)
 const firefoxUpdate = AVAILABLE.firefox ? 'In Firefox, install the new file the same way.' : ''
+const noExtension = noExtensionNote(AVAILABLE.firefox)
 ---
 
 <section id="get" class="section" aria-labelledby="get-title">
@@ -64,7 +65,13 @@ const firefoxUpdate = AVAILABLE.firefox ? 'In Firefox, install the new file the 
           </>
         )}
         <p class="fine">{finePrint}</p>
-        {AVAILABLE.firefox && <p class="fine">{ANDROID_INSTALL_NOTE}</p>}
+        {AVAILABLE.firefox && (
+          <p class="fine">
+            {ANDROID_INSTALL.map((part) =>
+              typeof part === 'string' ? part : <strong>{part.label}</strong>,
+            )}
+          </p>
+        )}
         <p class="fine">
           FXM Connect doesn't update itself. When the web app says a new version is out, unzip it
           over the same folder and press <strong>Reload</strong> on the extension's card.
@@ -79,10 +86,7 @@ const firefoxUpdate = AVAILABLE.firefox ? 'In Firefox, install the new file the 
         </div>
         <p class="no-extension">
           <Icon name="library" size={20} />
-          <span>
-            No extension, or on a phone or tablet? The web app still plays free music from Internet
-            Archive and Jamendo.
-          </span>
+          <span>{noExtension}</span>
         </p>
       </div>
 
@@ -258,6 +262,10 @@ if (target) {
 
 .get-card > .fine {
   font-size: var(--text-sm);
+}
+
+.get-card > .fine strong {
+  color: var(--color-text);
 }
 
 .no-extension {
