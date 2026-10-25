@@ -1,0 +1,91 @@
+# Matching evaluation: the recorder (`eval`)
+
+The live half of stage 1.12: it builds the labelled set's inputs from public data, records the YouTube Music pages the matching planner asks for, drafts the labels and writes the owner's review checklist. The offline half (the replay, the label rules, the report and the Auto switch) is in [`@fxm/core`'s `matching/eval`](../../../core/src/matching/eval/README.md), which also describes the set itself.
+
+Everything here runs on the owner's machine, from Node, through the same providers and transports the apps use: Spotify (stage 1.5), MusicBrainz (1.6), the YouTube Music provider (1.3) and `@fxm/platform`'s Node transport with the shared request budget (1.2). Nothing runs on a server, and nothing here is part of the apps.
+
+## Commands
+
+Each phase is a Vitest "test" that runs only when `FXM_EVAL` names it (`commands.test.ts`); the network phases also need `FXM_LIVE=1` and a residential connection. Add `--silent=false` to see the progress lines.
+
+| Phase | Command | Network |
+|---|---|---|
+| Inputs | `FXM_LIVE=1 FXM_EVAL=inputs scripts/run.sh pnpm vitest run packages/sources/src/eval/commands.test.ts --silent=false` | Spotify, MusicBrainz |
+| Record | `FXM_LIVE=1 FXM_EVAL=record scripts/run.sh pnpm vitest run packages/sources/src/eval/commands.test.ts --silent=false` | YouTube Music |
+| Label | `FXM_EVAL=label scripts/run.sh pnpm vitest run packages/sources/src/eval/commands.test.ts --silent=false` | none |
+| Apply the review | `FXM_EVAL=apply-review scripts/run.sh pnpm vitest run packages/sources/src/eval/commands.test.ts --silent=false` | none |
+
+`FXM_EVAL=all` runs inputs, record and label in a row. Options:
+
+- `FXM_EVAL_PLAN`: `full` (the default, about 330 tracks) or `proof` (8 tracks);
+- `FXM_EVAL_LIMIT`: at most this many new groups (inputs) or groups (record) in this run;
+- `FXM_EVAL_CSV`: the path of the owner's Exportify-style CSV, whose rows `inputs` adds as `csv` groups.
+
+After recording and labelling, format the JSON and write the report again:
+
+```sh
+make format
+scripts/run.sh pnpm vitest run packages/core/src/matching/eval -u
+```
+
+## Recording the full set
+
+```sh
+FXM_LIVE=1 FXM_EVAL=all scripts/run.sh pnpm vitest run packages/sources/src/eval/commands.test.ts --silent=false
+make format
+scripts/run.sh pnpm vitest run packages/core/src/matching/eval -u
+```
+
+Then commit `packages/core/src/matching/eval/fixtures/groups/`, `REPORT.md` and `REVIEW.csv`. What it costs:
+
+| Phase | Requests | Time |
+|---|---|---|
+| Inputs | Spotify: about 30 playlists and searches, one `metadata/4` per track (about 330), plus the token; paced at 1 per second. MusicBrainz: about 11 batched exact-path lookups, one fuzzy search per track (about 330), at 1 per second in MusicBrainz's shared queue | about 15 minutes |
+| Record | YouTube Music: 2 to 9 pages per track, about 1,100 in all, at least 5 s apart and at most 500 an hour (the budget keeps 100 of its 600 an hour for the user) | 2–3 hours |
+| Label | none | a minute |
+
+**Resumable.** A run can stop at any time (Ctrl-C, sleep, a crash, two bot checks): run the same command again and it goes on. The tracks each input source gave are kept in the checkpoint, so sources are read once; each group's file is written as soon as its inputs exist, and again after every page it gets; a group is marked done once all of its pages are in. The checkpoint (`state/checkpoint.json`, not in git) also keeps the request budget's state, so a new run honours the hour's calls and a bot-check pause.
+
+**The budget.** The recorder is bulk work in `@fxm/platform`'s request budget: before each page it waits for a bulk slot (`whenAvailable('bulk')`), outside the provider's request timeout, and the provider's `fetch` is the Node transport's `bulk` fetch, which draws the slot. At the first `LOGIN_REQUIRED` or 429 the budget pauses bulk work for 30 minutes (doubling up to 4 hours) and the recorder waits; after two bot checks in one run it stops, keeping everything it recorded, so a flagged IP address is left alone. Run it again later.
+
+**Failures.** A page YouTube does not have (`NotFound`) is recorded as such, and the replay skips it as a live match would. A page that keeps failing for another reason (network) defers its group to the next run. A source that cannot be read (a removed playlist) is reported, and the plan goes on without it.
+
+## Inputs from public data
+
+The plan (`INPUT_PLANS.full` in `inputs.ts`) takes tracks, in order, from Spotify's public charts and editorial playlists and from Spotify searches:
+
+| Category | Sources |
+|---|---|
+| Mainstream | Top 50 Global, USA and UK; Today's Top Hits; All Out 60s to 2010s; Rock Classics |
+| Regional | Top 50 India, Japan, South Korea, Brazil, Mexico, Nigeria and Egypt |
+| Classical | Classical Essentials; a search for "Symphony No. 5" |
+| Long tail | Fresh Finds |
+| Spotify Singles | Searches for "Spotify Singles" and "Recorded at Spotify Studios" |
+| Re-recordings | Searches for "Taylor's Version", "Re-Recorded" and "Rerecorded" |
+| Compilations | Searches for "Now That's What I Call Music" and "Greatest Hits" |
+| ISRC squatters | The two inputs the research found (`FIXED_INPUTS`) |
+
+A track's categories come from its facts, not from the source alone (see `categoriesOfInput`): a chart track with a popularity under 50 is not mainstream. Each track gets the data-export row and the MusicBrainz inputs described in the core README. Charts change daily; each group's provenance says which playlist and position it came from and when.
+
+**The owner's own exports.** `FXM_EVAL_CSV` adds an Exportify-style CSV (any version of its columns; see `csv.ts`). Rows from Spotify's "Download your data" export are made from the Spotify rows instead (the export has names and URIs but no duration or ISRC); stage 3.6 reads the export itself.
+
+## What is stored
+
+Only public catalog data: titles, credits, albums and their browse IDs, durations, explicit badges, release facts from descriptions and the lines YouTube generates for label uploads (never the rest of a description), Spotify's and MusicBrainz's public facts. No token, TOTP code, secret, visitorData, cookie or IP address is written anywhere; the checkpoint holds the budget's call times and the tracks of the sources read.
+
+## Code
+
+| File | What |
+|---|---|
+| `commands.test.ts` | The commands, wired to the real providers, `@fxm/platform`'s Node transport and the files |
+| `inputs.ts`, `csv.ts` | The input plans and builder; the Exportify CSV reader |
+| `pages.ts` | One page key → one provider call, filed in the labelled set's format. The mapping from a planner request to a provider call is the one a live `AudioSource.match` needs |
+| `recorder.ts` | The resumable recorder (`recordGroups`) |
+| `review.ts` | Labels, the review checklist, and applying the owner's decisions |
+| `store.ts` | The files (`fileStore`) and the checkpoint; `memoryStore` for tests |
+
+The tests (`*.test.ts` besides `commands.test.ts`) run offline with fake providers.
+
+## Proof run
+
+Recorded from a residential connection in India on 2026-10-25 (UTC), with `FXM_EVAL_PLAN=proof`: 8 tracks, 17 Spotify and 13 MusicBrainz requests for the inputs, then 30 InnerTube requests (28 pages and two `sw.js_data` reads) in two runs: the first stopped after 3 groups (`FXM_EVAL_LIMIT=3`), the second resumed with the other 5 and fetched none of the first run's pages again. The bulk spacing held: 5 s between InnerTube requests.

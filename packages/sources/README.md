@@ -123,3 +123,7 @@ The live smoke test (8 requests) searches "Radiohead Creep" from Node in the COR
 ```sh
 FXM_LIVE=1 scripts/run.sh pnpm vitest run packages/sources/src/youtube/live.test.ts
 ```
+
+## Matching evaluation (`eval/`)
+
+Not a provider: the recorder of stage 1.12's matching evaluation. It builds the labelled set's inputs from public Spotify playlists and MusicBrainz, records the YouTube Music pages the matching planner asks for through the shared request budget as bulk work (resumable, about 3 hours for the full set), drafts the labels and writes the owner's review checklist. Its commands, costs and checkpoint are in [its README](src/eval/README.md); the set, the offline replay and the report are in `@fxm/core` ([`matching/eval`](../core/src/matching/eval/README.md)). `@fxm/platform` is a development dependency of this package for it: the recorder loads the request budget and the Node transport at run time, so the providers themselves never import the platform.
