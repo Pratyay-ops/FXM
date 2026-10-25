@@ -342,12 +342,20 @@ async function buildInChild(what, out) {
   })
 }
 
-/** The PEM text of the private key; with --key-env, taken out of the environment at once. */
+/**
+ * With --key-env, the PEM text of the private key, taken out of the environment at once; with
+ * --key, nothing yet (the file is read just before signing). Refuses a call that gives neither.
+ */
 function takeKeyFromEnvironment(values) {
   if (values.key !== undefined && values['key-env'] !== undefined) {
     fail('Give --key or --key-env, not both.')
   }
-  if (values['key-env'] === undefined) return undefined
+  if (values['key-env'] === undefined) {
+    if (values.key === undefined) {
+      fail('Give the private key: --key <file> (or --key-env <variable> in CI).')
+    }
+    return undefined
+  }
   const name = values['key-env']
   const pem = process.env[name]
   delete process.env[name]
@@ -358,9 +366,6 @@ function takeKeyFromEnvironment(values) {
 async function loadKey(values, pem) {
   let text = pem
   if (text === undefined) {
-    if (values.key === undefined) {
-      fail('Give the private key: --key <file> (or --key-env <variable> in CI).')
-    }
     const path = resolve(values.key)
     refuseInsideRepo(path, 'The private key')
     text = await readFile(path, 'utf8').catch(() => fail(`Can't read the private key ${path}`))
@@ -393,6 +398,23 @@ async function sign(args) {
   const out = resolve(values.out ?? DEFAULT_OUT)
   const source = cleanCommit()
 
+  // The version, from the committed sources, before anything is built.
+  const committedConfig = new Uint8Array(await readFile(CONFIG_SOURCE))
+  const version =
+    artifact.kind === YOUTUBE_CONFIG_KIND
+      ? JSON.parse(new TextDecoder().decode(committedConfig)).revision
+      : YOUTUBE_MODULE_VERSION
+  if (!Number.isSafeInteger(version) || version < 1 || version > MAX_VERSION) {
+    fail(`${version} is not a version: it must be a whole number from 1 to ${MAX_VERSION}.`)
+  }
+  const published = await publishedVersion(out, artifact.kind)
+  if (published !== undefined && published >= version) {
+    fail(
+      `Version ${published} of ${artifact.kind} is already in ${out}. Apps take only higher ` +
+        `versions, also across file names: ${artifact.raise} first.`,
+    )
+  }
+
   // The file to sign: built now, in a child process, or built elsewhere from the same commit.
   let bytes
   if (values.from === undefined) {
@@ -407,22 +429,8 @@ async function sign(args) {
     bytes = new Uint8Array(await readFile(resolve(values.from)))
   }
   if (bytes.length > artifact.maxBytes) fail(`${artifact.file} is over ${artifact.maxBytes} bytes.`)
-  let version = YOUTUBE_MODULE_VERSION
-  if (artifact.kind === YOUTUBE_CONFIG_KIND) {
-    if (!equalBytes(bytes, new Uint8Array(await readFile(CONFIG_SOURCE)))) {
-      fail('The config to sign is not youtube-config.json as committed.')
-    }
-    version = JSON.parse(new TextDecoder().decode(bytes)).revision
-  }
-  if (!Number.isSafeInteger(version) || version < 1 || version > MAX_VERSION) {
-    fail(`${version} is not a version: it must be a whole number from 1 to ${MAX_VERSION}.`)
-  }
-  const published = await publishedVersion(out, artifact.kind)
-  if (published !== undefined && published >= version) {
-    fail(
-      `Version ${published} of ${artifact.kind} is already in ${out}. Apps take only higher ` +
-        `versions, also across file names: ${artifact.raise} first.`,
-    )
+  if (artifact.kind === YOUTUBE_CONFIG_KIND && !equalBytes(bytes, committedConfig)) {
+    fail('The config to sign is not youtube-config.json as committed.')
   }
 
   // Only now the key, in this process, which has loaded no build tool.
