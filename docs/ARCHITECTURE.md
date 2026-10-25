@@ -33,7 +33,7 @@ FXM is built mainly for personal use by its owner and by anyone who runs it on t
 
 ### Non-goals
 
-- **A native iOS app.** Every channel that puts an app on other people's iPhones needs Apple's developer program (USD 99 a year): the App Store, TestFlight, ad hoc builds, and the EU's alternative marketplaces, which also need Apple's notarization (checked 2026-10-25). App Review guideline 5.2.3 names YouTube, so the App Store would likely refuse FXM. Without the program, a build installed from Xcode with a free Apple ID works on up to 3 devices and expires after 7 days. In Safari, the web app plays free sources, plus the experimental Lite tier where it works (untested on Safari and iOS).
+- **Anything that needs Apple's developer program.** On iPhone and iPad, FXM is browser-only (an owner decision, 2026-10-25): no native iOS app, no TestFlight or sideloaded builds, no Safari extension on iOS or macOS, and no notarization. Every channel that puts an app on other people's iPhones needs the program (USD 99 a year): the App Store, TestFlight, ad hoc builds, and the EU's alternative marketplaces, which also need Apple's notarization (checked 2026-10-25). App Review guideline 5.2.3 names YouTube, so the App Store would likely refuse FXM anyway. Without the program, a build installed from Xcode with a free Apple ID works on up to 3 devices and expires after 7 days. In Safari, the web app plays free sources, plus the experimental Lite tier where it works (untested on Safari and iOS). The macOS desktop app is still built: it needs no program, ships ad-hoc signed, and opens after a one-time "Open Anyway" (§16).
 - **Spotify audio or any DRM-protected stream.** Spotify supplies metadata and recommendations only.
 - **Any server run by the project.**
 
@@ -892,7 +892,7 @@ GitHub Packages isn't needed, because FXM has no server images.
 
 **Costs:** nothing is required. The optional items are:
 
-- Apple notarization (USD 99 a year). Without it, macOS users click "Open Anyway" once.
+- Apple notarization (USD 99 a year): not planned, because FXM joins no Apple program (§1). macOS users click "Open Anyway" once instead.
 - Android developer verification from 2027 (USD 25 once, plus ID). Limited Distribution is free for up to 20 devices, which may cover personal use.
 - The Chrome Web Store (USD 5 once), if ever tried.
 - A Certum open-source certificate for Windows (about €49–69), if SignPath and OSSign decline.
