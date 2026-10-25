@@ -62,7 +62,7 @@ One answer covers every video of its prefix for an hour (`cacheTtlMs`), and the 
 | `Parse` | The answer is not a JSON array |
 | `Unsupported` | Web Crypto is missing (see above) |
 
-A call whose `ctx.signal` aborts rejects with the signal's reason. The app treats every failure as "nothing to skip".
+A call whose `ctx.signal` aborts rejects with the signal's reason, and starts no request once the signal has aborted, not even when it aborts just as the hash is ready. A shared request it leaves behind never surfaces as an unhandled rejection. The app treats every failure as "nothing to skip".
 
 ## Licence and credit
 

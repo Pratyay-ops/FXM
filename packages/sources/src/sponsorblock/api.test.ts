@@ -15,7 +15,17 @@ import {
   json,
   VIDEO_ID,
 } from './fixtures/testing'
-import { hashPrefix } from './hash'
+import { hashPrefix, type Sha256, webCryptoSha256 } from './hash'
+
+/** Node's `process`, typed without Node's types (this package type-checks as a web worker). */
+const nodeProcess = (
+  globalThis as {
+    process?: {
+      on(event: 'unhandledRejection', listener: (reason: unknown) => void): unknown
+      off(event: 'unhandledRejection', listener: (reason: unknown) => void): unknown
+    }
+  }
+).process
 
 /** A SHA-256 whose digest starts with `prefix` (hex) for every input: one shared bucket. */
 const digestStartingWith = (prefix: string) => async () => {
@@ -277,6 +287,47 @@ describe('SponsorBlock client', () => {
       )
       expect(error).toMatchObject({ message: 'not needed' })
       expect(server.calls).toHaveLength(0)
+    })
+
+    it('leaves no rejection unhandled when the signal aborts as the hash settles', async () => {
+      const unhandled: unknown[] = []
+      const onUnhandled = (reason: unknown) => {
+        unhandled.push(reason)
+      }
+      nodeProcess?.on('unhandledRejection', onUnhandled)
+      try {
+        // An abort 0, 1, 2… microtasks after the hash: one lands between the hash and the request,
+        // as when the skipper aborts from a player callback.
+        for (let ticks = 0; ticks < 8; ticks += 1) {
+          const server = fakeSponsorBlock(() => {
+            throw new TypeError('Failed to fetch')
+          })
+          const controller = new AbortController()
+          const reason = new Error('not needed')
+          const sha256: Sha256 = async (data) => {
+            const digest = await webCryptoSha256(data)
+            let later = Promise.resolve()
+            for (let tick = 0; tick < ticks; tick += 1) later = later.then()
+            void later.then(() => controller.abort(reason))
+            return digest
+          }
+          const error = await rejection(
+            createSponsorBlockClient({ sha256 }).nonMusicSegments(
+              VIDEO_ID,
+              contextFor(server.fetch, controller.signal),
+            ),
+          )
+          // Either the abort came first, or the failed request did.
+          expect(error === reason || isFxmError(error, 'Network')).toBe(true)
+          // Without a request, only the abort can be why.
+          if (server.calls.length === 0) expect(error).toBe(reason)
+        }
+        // Node reports an unhandled rejection once the microtasks of its turn have run.
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        expect(unhandled).toEqual([])
+      } finally {
+        nodeProcess?.off('unhandledRejection', onUnhandled)
+      }
     })
 
     it('stops waiting when the signal aborts, while the answer still fills the cache', async () => {

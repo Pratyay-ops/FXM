@@ -176,10 +176,17 @@ function rateLimited(retryAfter: number): FxmError {
   })
 }
 
-/** Settles with `promise`, or rejects with the signal's reason as soon as it aborts. */
+/**
+ * Settles with `promise`, or rejects with the signal's reason as soon as it aborts. `promise`
+ * counts as handled either way: a shared lookup nobody waits for any more must not surface as
+ * an unhandled rejection.
+ */
 function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (signal === undefined) return promise
-  if (signal.aborted) return Promise.reject(signal.reason)
+  if (signal.aborted) {
+    promise.catch(() => undefined)
+    return Promise.reject(signal.reason)
+  }
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(signal.reason)
     signal.addEventListener('abort', onAbort, { once: true })
@@ -232,6 +239,8 @@ class Client implements SponsorBlockClient {
     signal?.throwIfAborted()
     if (!isVideoId(videoId)) return []
     const prefix = await abortable(hashPrefix(videoId, this.#sha256), signal)
+    // The signal may have aborted after the hash settled: then ask nothing.
+    signal?.throwIfAborted()
     const bucket = await abortable(this.#bucket(prefix, ctx), signal)
     return (bucket.videos.get(videoId) ?? []).map((segment) => ({ ...segment }))
   }
