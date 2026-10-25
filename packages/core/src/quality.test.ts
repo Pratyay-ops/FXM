@@ -23,6 +23,7 @@ import {
   type QualityPrefs,
   type QualityTier,
   type ReadonlyQualityPrefs,
+  type StreamMedia,
   sanitizeQualityPrefs,
   tierOf,
 } from './quality'
@@ -203,7 +204,7 @@ describe('compareStreams and pickStream', () => {
     expect(pickStream(all, ceiling)?.id).toBe(expected)
   })
 
-  it('picks the lowest option above the ceiling when nothing is at or below it', () => {
+  it('picks the option that exceeds the ceiling least when nothing is at or below it', () => {
     expect(pickStream([flac, opus160, aac128], 'normal')?.id).toBe('aac128')
     expect(pickStream([flac], 'low')?.id).toBe('flac')
   })
@@ -248,7 +249,7 @@ describe('compareStreams and pickStream', () => {
       expect(pickStream([cappedFlac, cappedOpus, aac128, opus50], ceiling)?.id).toBe(expected)
     })
 
-    it('picks the lowest option above the ceiling that is not capped', () => {
+    it('exceeds the ceiling, when it must, with an option that is not capped', () => {
       expect(pickStream([cappedOpus, flac, aac128], 'low')?.id).toBe('aac128')
       expect(pickStream([flac, { ...aac128, fullLength: 'capped' }], 'low')?.id).toBe('flac')
     })
@@ -285,6 +286,70 @@ describe('compareStreams and pickStream', () => {
       }
       expect(compareStreams(odd, opus160)).toBe(0)
       expect(pickStream([aac128, odd], 'high')?.id).toBe('odd')
+    })
+  })
+
+  describe('with muxed video', () => {
+    /** What a YouTube player response offers: audio-only Opus and AAC, and muxed itag 18. */
+    const youtube = [
+      { id: '251', tier: 'high', bitrateKbps: 160, media: 'audio', fullLength: 'verified' },
+      { id: '140', tier: 'high', bitrateKbps: 128, media: 'audio', fullLength: 'verified' },
+      { id: '250', tier: 'normal', bitrateKbps: 70, media: 'audio', fullLength: 'verified' },
+      { id: '249', tier: 'low', bitrateKbps: 50, media: 'audio', fullLength: 'verified' },
+      { id: '18', tier: 'normal', bitrateKbps: 96, media: 'muxed-video', fullLength: 'verified' },
+    ] as const
+    const [opus251, aac140, opus250, opus249, muxed18] = youtube
+
+    /** The same options after end-of-file probes found every audio-only URL capped. */
+    const audioCapped = youtube.map((option) =>
+      option.media === 'audio' ? { ...option, fullLength: 'capped' as const } : option,
+    )
+
+    it('ranks audio-only streams before a muxed video of the same tier', () => {
+      expect(ids([...youtube].sort(compareStreams))).toEqual(['251', '140', '250', '18', '249'])
+      // Even though the video's AAC track has the higher bitrate.
+      expect(compareStreams(muxed18, opus250)).toBeGreaterThan(0)
+      expect(compareStreams(opus250, muxed18)).toBeLessThan(0)
+    })
+
+    it('plays audio only, not the video, under the default mobile-data ceiling', () => {
+      expect(pickStream(youtube, DEFAULT_QUALITY_PREFS.streaming.cellular)?.id).toBe('250')
+      expect(pickStream([muxed18, opus250], 'normal')?.id).toBe('250')
+    })
+
+    it.each([
+      ['lossless', '251'],
+      ['high', '251'],
+      ['normal', '250'],
+      ['low', '249'],
+    ] as const)('picks an audio-only option under a %s ceiling', (ceiling, expected) => {
+      expect(pickStream(youtube, ceiling)?.id).toBe(expected)
+    })
+
+    it.each(QUALITY_TIERS)(
+      'falls back to the video under a %s ceiling when every audio-only URL is capped',
+      (ceiling) => {
+        expect(pickStream(audioCapped, ceiling)?.id).toBe('18')
+      },
+    )
+
+    it('also exceeds the ceiling with audio only before a muxed video of the same tier', () => {
+      expect(pickStream([opus251, aac140, muxed18, opus250], 'low')?.id).toBe('250')
+      expect(pickStream([opus250, muxed18, aac140, opus251], 'low')?.id).toBe('250')
+    })
+
+    it('still ranks by tier first, so a muxed video beats a lower tier of audio only', () => {
+      expect(pickStream([opus249, muxed18], 'normal')?.id).toBe('18')
+      expect(pickStream([opus249, muxed18], 'low')?.id).toBe('249')
+    })
+
+    it('counts a missing or unknown media value from bad data as audio only', () => {
+      const file = { id: 'file', tier: 'normal', bitrateKbps: 70 } as const
+      const odd = { ...file, id: 'odd', media: 'odd' as StreamMedia }
+      expect(compareStreams(file, opus250)).toBe(0)
+      expect(compareStreams(odd, opus250)).toBe(0)
+      expect(pickStream([muxed18, file], 'normal')?.id).toBe('file')
+      expect(pickStream([muxed18, odd], 'low')?.id).toBe('odd')
     })
   })
 })

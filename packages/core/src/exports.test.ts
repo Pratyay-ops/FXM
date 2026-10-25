@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import * as core from './index'
 
 describe('the @fxm/core entry point', () => {
@@ -19,6 +19,12 @@ describe('the @fxm/core entry point', () => {
     ['errors', ['FxmError', 'FXM_ERROR_CODES', 'isFxmError']],
   ])('re-exports the %s module', (_module, names) => {
     for (const name of names) expect(core).toHaveProperty(name)
+  })
+
+  it('re-exports the stream types that quality.ts and providers.ts share', () => {
+    expectTypeOf<core.StreamMedia>().toEqualTypeOf<'audio' | 'muxed-video'>()
+    expectTypeOf<core.StreamOption['media']>().toEqualTypeOf<core.StreamMedia>()
+    expectTypeOf<core.StreamOption['fullLength']>().toEqualTypeOf<core.FullLengthCheck>()
   })
 
   it('keeps the product name and tagline', () => {

@@ -24,7 +24,14 @@ import type {
   Track,
   TrackKind,
 } from './model'
-import type { Codec, Container, FullLengthCheck, QualityPrefs, QualityTier } from './quality'
+import type {
+  Codec,
+  Container,
+  FullLengthCheck,
+  QualityPrefs,
+  QualityTier,
+  StreamMedia,
+} from './quality'
 
 /**
  * The parts of `RequestInit` that providers use. Only relevant where the program has no global
@@ -329,16 +336,6 @@ export interface AudioCandidate {
 /** How a stream is delivered. `sabr` is YouTube's server-driven streaming protocol. */
 export type StreamProtocol = 'progressive' | 'hls' | 'dash' | 'sabr'
 
-/**
- * What a stream holds:
- *
- * - `audio`: audio only
- * - `muxed-video`: a video file with an audio track, such as YouTube's last-resort itag 18, a
- *   360p MP4 whose AAC track FXM plays, or extracts for a download. It costs more data than an
- *   audio-only stream of the same quality
- */
-export type StreamMedia = 'audio' | 'muxed-video'
-
 /** A JSON value: data that survives `JSON.stringify` and `JSON.parse` unchanged. */
 export type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject
 
@@ -364,8 +361,9 @@ export interface StreamOption {
   /** Container format of the file, e.g. `mp4` for a muxed video. */
   container: Container
   /**
-   * Audio only, or a video file whose audio track FXM plays or extracts (see
-   * {@link StreamMedia}). Required, so that no resolver forgets to say.
+   * Audio only, or a video file whose audio track FXM plays or extracts (see `StreamMedia`).
+   * Required, so that no resolver forgets to say. A muxed video costs more data, so
+   * `compareStreams` ranks it after the audio-only options of its tier.
    */
   media: StreamMedia
   /** Average bitrate of the audio in kbps. */

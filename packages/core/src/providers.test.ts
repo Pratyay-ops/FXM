@@ -191,6 +191,22 @@ const youtubeAudio: AudioSource = {
   },
 }
 
+/** Matches `song` and resolves its candidate against a player response offering `formats`. */
+async function resolveSong(
+  formats: FakeFormat[],
+  capabilities: NetworkCapabilities,
+): Promise<StreamOption[]> {
+  const ctx = context('music', fakeFetch({ formats }), capabilities)
+  const [candidate] = await youtubeAudio.match(song, ctx)
+  if (!candidate) throw new Error('expected a candidate')
+  return youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
+}
+
+/** The itags of resolved options, in order. */
+function itags(options: readonly StreamOption[]): Array<string | undefined> {
+  return options.map((option) => option.url.split('/').at(-1))
+}
+
 /**
  * Offers a music video itself only where the mode plays videos, and its song everywhere: the
  * linked song when the video has one, else what a text match found.
@@ -327,10 +343,7 @@ describe('provider interfaces', () => {
       { itag: 140, codec: 'aac', bitrate: 128 },
       { itag: 18, codec: 'aac', bitrate: 96, muxed: true },
     ]
-    const ctx = context('music', fakeFetch({ formats }), CONNECT)
-    const [candidate] = await youtubeAudio.match(song, ctx)
-    if (!candidate) throw new Error('expected a candidate')
-    const options = await youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
+    const options = await resolveSong(formats, CONNECT)
     const summary = options.map((option) => [option.url.split('/').at(-1), option.fullLength])
     expect(summary).toEqual([
       ['140', 'verified'],
@@ -342,21 +355,45 @@ describe('provider interfaces', () => {
     expect(pickStream(options, 'lossless')?.url).toMatch(/140$/)
   })
 
+  it.each([
+    ['the Lite tier, which cannot probe', LITE, 'unverified'],
+    ['FXM Connect, which probes', CONNECT, 'verified'],
+  ] as const)(
+    'streams audio only, not muxed itag 18 of the same tier, on mobile data in %s',
+    async (_label, capabilities, fullLength) => {
+      const formats: FakeFormat[] = [
+        { itag: 251, codec: 'opus', bitrate: 141 },
+        { itag: 140, codec: 'aac', bitrate: 128 },
+        { itag: 250, codec: 'opus', bitrate: 70 },
+        { itag: 249, codec: 'opus', bitrate: 50 },
+        { itag: 18, codec: 'aac', bitrate: 96, muxed: true },
+      ]
+      const options = await resolveSong(formats, capabilities)
+      expect(itags(options)).toEqual(['251', '140', '250', '18', '249'])
+      expect(options.every((option) => option.fullLength === fullLength)).toBe(true)
+      // Opus 250 and the AAC track of itag 18 are both normal: the audio-only stream wins.
+      const cellular = pickStream(options, DEFAULT_QUALITY_PREFS.streaming.cellular)
+      expect(cellular).toMatchObject({ media: 'audio', tier: 'normal', codec: 'opus' })
+      expect(itags(cellular ? [cellular] : [])).toEqual(['250'])
+    },
+  )
+
   it('falls back to the audio track of muxed itag 18 when every audio URL is capped', async () => {
     const formats: FakeFormat[] = [
       { itag: 251, codec: 'opus', bitrate: 141, capped: true },
       { itag: 140, codec: 'aac', bitrate: 128, capped: true },
+      { itag: 250, codec: 'opus', bitrate: 70, capped: true },
       { itag: 18, codec: 'aac', bitrate: 96, muxed: true },
     ]
-    const ctx = context('music', fakeFetch({ formats }), CONNECT)
-    const [candidate] = await youtubeAudio.match(song, ctx)
-    if (!candidate) throw new Error('expected a candidate')
-    const options = await youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
+    const options = await resolveSong(formats, CONNECT)
     const fallback = pickStream(options, 'high')
     expect(fallback).toMatchObject({ media: 'muxed-video', codec: 'aac', container: 'mp4' })
     // Its tier is the AAC track's, whatever the video adds.
     expect(fallback?.tier).toBe('normal')
-    expect(pickStream(options, 'low')).toBe(fallback)
+    // Playback under any ceiling, and a download, which wants the best option, all take it.
+    for (const ceiling of ['lossless', 'normal', 'low'] as const) {
+      expect(pickStream(options, ceiling)).toBe(fallback)
+    }
     const allCapped = options.map((option): StreamOption => ({ ...option, fullLength: 'capped' }))
     expect(pickStream(allCapped, 'high')).toBeUndefined()
   })
