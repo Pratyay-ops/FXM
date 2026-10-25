@@ -30,6 +30,7 @@ Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube]
 - [Roadmap](docs/PLAN.md): milestones and stages, with status
 - [Workflow](docs/WORKFLOW.md): branches, worktrees, releases, parallel agents, commit rules
 - [Development](docs/DEVELOPMENT.md): setup, where tools are installed, removing everything
+- [Legal](docs/LEGAL.md): notices, trademark rules, the takedown playbook and the clean-room rule
 
 ## Legal
 
