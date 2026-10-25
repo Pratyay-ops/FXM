@@ -10,7 +10,7 @@ It is not part of `make test`. Run it with:
 
 ```sh
 scripts/run.sh pnpm --filter @fxm/platform exec playwright install chromium   # once
-scripts/run.sh pnpm --filter @fxm/platform test:e2e
+scripts/run.sh pnpm --filter @fxm/platform test:e2e:updates
 ```
 
 Chromium stands in for WebView2 (Windows) and Android System WebView. For WebKit, which stands in for WKWebView (macOS) and WebKitGTK (Linux), install it once (`playwright install webkit`) and set `FXM_E2E_WEBKIT=1`. The server listens on `127.0.0.1:6020` and fails if the port is taken; set `FXM_E2E_PORT` to use another.
