@@ -380,6 +380,19 @@ test('comes in a compact layout, light or dark', async ({ page }) => {
   }
 })
 
+test('fits the install hint in the compact layout', async ({ page, network }) => {
+  network.state.refuseOpaque = true
+  const frame = await openEmbedder(page, `${TRACK_PATH}?layout=compact`, { height: 80 })
+  await waitForMessage(page, hasStatus('unavailable'))
+  await expect(frame.getByRole('heading', { name: 'A song from YouTube Music' })).toBeAttached()
+  await expect(frame.locator('p', { hasText: 'A song from YouTube Music' })).toBeVisible()
+  await expect(frame.getByRole('status')).toContainText("FXM can't reach YouTube Music")
+  await expect(frame.getByRole('link', { name: 'Get FXM' })).toBeVisible()
+  const box = await frame.locator('main').boundingBox()
+  expect(box?.height).toBeLessThanOrEqual(80)
+  await screenshot(frame, 'compact-install-hint')
+})
+
 test('frames the player on any site but never the app', async ({ page }) => {
   await page.goto(`${EMBEDDER}/?embed=${encodeURIComponent('/app/')}`)
   // The app's policy has `frame-ancestors 'none'`: the browser refuses to show it in the frame.

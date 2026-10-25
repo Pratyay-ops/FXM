@@ -157,9 +157,9 @@ FXM_SCREENSHOTS=1 scripts/run.sh pnpm --filter @fxm/web e2e:embed               
 | It plays in Lite inside a test page on another origin | `plays in Lite inside a page on another origin`: the player pairs with the page, a click plays, the position moves; every InnerTube call came from the sandbox's opaque origin (`Origin: null`, `text/plain`); the capped top-rung URL failed its first request and itag 18 played; media requests carry no Referer; no page reached another host; no policy violation under the app's policy minus `frame-ancestors` |
 | The postMessage API | `answers the page that embeds it, and only that page`; `announces itself only to the origin its address names` |
 | Free sources plus an install hint | `plays free sources and shows the install hint without Lite`: InnerTube refuses opaque origins, so the self-test fails; a YouTube song shows the hint, an Internet Archive track plays with its credits and frames no sandbox |
-| Albums, the catalog mode, both layouts, framing | `plays an album from its track list`, `plays a video only in Music + Video mode`, `comes in a compact layout, light or dark`, `frames the player on any site but never the app` |
+| Albums, the catalog mode, both layouts, framing | `plays an album from its track list`, `plays a video only in Music + Video mode`, `comes in a compact layout, light or dark`, `fits the install hint in the compact layout`, `frames the player on any site but never the app` |
 
-**Test record.** The browser tests passed on 2026-10-26 on macOS 15.5 (arm64) with Playwright 1.64.0's Chromium 156.0.8078.4 and Firefox 157.0, headless (8 of 8 in each). Safari is not tested.
+**Test record.** The browser tests passed on 2026-10-26 on macOS 15.5 (arm64) with Playwright 1.64.0's Chromium 156.0.8078.4 and Firefox 157.0, headless (9 of 9 in each). Safari is not tested.
 
 ## Not yet
 

@@ -79,7 +79,8 @@ export function BrandLink({ view, className }: { view: EmbedView; className?: st
       {...EXTERNAL}
       aria-label="Open in FXM (opens a new tab)"
       title="Open in FXM"
-      className={cn('shrink-0 rounded-md', className)}
+      // A 44 px target around the 24 px mark.
+      className={cn('-m-2.5 shrink-0 rounded-lg p-2.5', className)}
     >
       <LogoMark className="size-6" />
     </a>
@@ -120,7 +121,7 @@ export function PlayButton({
       variant="accent"
       disabled={!view.canPlay}
       onClick={() => actions?.toggle()}
-      className={size === 'lg' ? 'size-12 [&_svg]:size-6' : 'size-10 [&_svg]:size-5'}
+      className={size === 'lg' ? 'size-12 [&_svg]:size-6' : 'size-touch [&_svg]:size-5'}
     />
   )
 }
@@ -203,52 +204,51 @@ export function ProgressLine({ view }: { view: EmbedView }) {
   )
 }
 
-/** Why something doesn't play here, with what helps: get FXM, open FXM, or try again. */
-export function MessageBlock({
+/** Why something doesn't play here, or why the last track didn't. */
+export function MessageText({ view, compact = false }: { view: EmbedView; compact?: boolean }) {
+  if (view.message === undefined) return null
+  return (
+    <p className={cn('min-w-0 text-text-muted', compact ? 'line-clamp-2 text-xs' : 'text-sm')}>
+      {view.message.text}
+    </p>
+  )
+}
+
+/** What helps with the message: get FXM (the install hint), open FXM, or try again. */
+export function MessageAction({
   view,
   actions,
-  compact = false,
 }: {
   view: EmbedView
   actions: EmbedActions | undefined
-  compact?: boolean
 }) {
-  const { message } = view
-  if (message === undefined) return null
-  const link = buttonClasses({
-    variant: 'secondary',
-    className: compact ? 'h-8 px-3 text-xs' : 'h-9 px-4 text-xs',
-  })
-  return (
-    <div className={cn('flex min-w-0 items-center gap-3', compact ? 'flex-row' : 'flex-wrap')}>
-      <p
-        className={cn(
-          'min-w-0 flex-1 text-text-muted',
-          compact ? 'line-clamp-2 text-xs' : 'text-sm',
-        )}
-      >
-        {message.text}
-      </p>
-      {message.action === 'install' && (
-        <a href={view.links.install} {...EXTERNAL} className={link}>
+  const action = view.message?.action
+  const className = buttonClasses({ variant: 'secondary' })
+  switch (action) {
+    case 'install':
+      return (
+        <a href={view.links.install} {...EXTERNAL} className={className}>
           Get FXM
           <ExternalLink aria-hidden="true" />
         </a>
-      )}
-      {message.action === 'open' && (
-        <a href={view.links.open} {...EXTERNAL} className={link}>
+      )
+    case 'open':
+      return (
+        <a href={view.links.open} {...EXTERNAL} className={className}>
           Open in FXM
           <ExternalLink aria-hidden="true" />
         </a>
-      )}
-      {message.action === 'retry' && (
-        <button type="button" onClick={() => actions?.retry()} className={link}>
+      )
+    case 'retry':
+      return (
+        <button type="button" onClick={() => actions?.retry()} className={className}>
           <RotateCcw aria-hidden="true" />
           Try again
         </button>
-      )}
-    </div>
-  )
+      )
+    default:
+      return null
+  }
 }
 
 /** Credits for a free-source track: who provides it, and its licence. */

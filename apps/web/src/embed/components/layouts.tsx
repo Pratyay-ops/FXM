@@ -6,7 +6,8 @@ import {
   BrandLink,
   Cover,
   type EmbedActions,
-  MessageBlock,
+  MessageAction,
+  MessageText,
   PlayButton,
   ProgressLine,
   SeekBar,
@@ -30,12 +31,13 @@ function compactSubtitle(view: EmbedView): string {
 
 /**
  * One row, 80 px high: the artwork, the title and artists with a progress line, skip buttons
- * on wider players, the play button and the FXM mark.
+ * on wider players, the play button and the FXM mark. A message takes the second line, and its
+ * action the play button's place.
  */
 function CompactLayout({ view, actions, heading }: LayoutProps) {
   const title = view.now?.title ?? view.title
   return (
-    <div className="flex h-full items-center gap-3 py-2 pr-2 pl-2">
+    <div className="flex h-full items-center gap-3 py-2 pr-4 pl-2">
       {heading && view.title !== undefined && <h1 className="sr-only">{view.title}</h1>}
       {view.loading ? (
         <Skeleton className="size-16 shrink-0 rounded-md" />
@@ -50,29 +52,36 @@ function CompactLayout({ view, actions, heading }: LayoutProps) {
           </>
         ) : (
           <>
-            {title !== undefined && <p className="truncate text-sm font-semibold">{title}</p>}
-            <div role="status" className="min-w-0">
-              {view.message === undefined ? (
-                <>
-                  <p className="truncate text-xs text-text-muted">{compactSubtitle(view)}</p>
-                  {view.canPlay && (
-                    <div className="mt-1.5">
-                      <ProgressLine view={view} />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <MessageBlock view={view} actions={actions} compact />
-              )}
+            {title !== undefined && (
+              // The same words as the hidden heading are read once, from the heading.
+              <p
+                aria-hidden={(heading && title === view.title) || undefined}
+                className="truncate text-sm font-semibold"
+              >
+                {title}
+              </p>
+            )}
+            {view.message === undefined && (
+              <p className="truncate text-xs text-text-muted">{compactSubtitle(view)}</p>
+            )}
+            <div role="status" className="empty:hidden">
+              <MessageText view={view} compact />
             </div>
+            {view.canPlay && view.message === undefined && (
+              <div className="mt-0.5">
+                <ProgressLine view={view} />
+              </div>
+            )}
           </>
         )}
       </div>
-      {view.canPlay && (
+      {view.canPlay ? (
         <>
           <SkipButtons view={view} actions={actions} className="hidden xs:flex" />
           <PlayButton view={view} actions={actions} size="md" />
         </>
+      ) : (
+        <MessageAction view={view} actions={actions} />
       )}
       <BrandLink view={view} className="self-start" />
     </div>
@@ -137,8 +146,16 @@ function CardLayout({ view, actions, heading }: LayoutProps) {
           <SkipButtons view={view} actions={actions} />
         </div>
       )}
+      {/* Empty, and hidden, without a message; a live region either way. */}
       <div role="status" className="shrink-0 empty:hidden">
-        {view.message !== undefined && <MessageBlock view={view} actions={actions} />}
+        {view.message !== undefined && (
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <MessageText view={view} />
+            </div>
+            <MessageAction view={view} actions={actions} />
+          </div>
+        )}
       </div>
       {view.rows.length > 0 && <TrackList view={view} actions={actions} />}
       {view.placeholderRows !== undefined && <PlaceholderRows count={view.placeholderRows} />}
@@ -178,12 +195,16 @@ export function EmbedPlayerView({
   as?: 'main' | 'div'
   className?: string
 }) {
+  // Only the embed's own page is a landmark with a name; the preview is a plain box.
+  const landmark =
+    Root === 'main'
+      ? {
+          'aria-label': view.title === undefined ? 'FXM player' : `FXM player: ${view.title}`,
+          'aria-busy': view.loading || undefined,
+        }
+      : {}
   return (
-    <Root
-      aria-label={view.title === undefined ? 'FXM player' : `FXM player: ${view.title}`}
-      aria-busy={view.loading || undefined}
-      className={cn('h-full overflow-hidden bg-surface text-text', className)}
-    >
+    <Root {...landmark} className={cn('h-full overflow-hidden bg-surface text-text', className)}>
       {view.layout === 'compact' ? (
         <CompactLayout view={view} actions={actions} heading={Root === 'main'} />
       ) : (
