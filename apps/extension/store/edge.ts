@@ -2,14 +2,17 @@
  * Submits FXM Connect to Edge Add-ons with the Edge Add-ons API v1.1, in the release workflow
  * (.github/workflows/release.yml, job "edge"), after the GitHub Release is published:
  *
- *   edge.ts plan                             whether the three Edge secrets are set
+ *   edge.ts plan                             whether the three Edge secrets are set, from the
+ *                                            booleans EDGE_PRODUCT_ID_SET, EDGE_CLIENT_ID_SET
+ *                                            and EDGE_API_KEY_SET (never their values)
  *   edge.ts submit --zip <file> --version x.y.z
  *                                            uploads the release's Chromium zip as the draft's
  *                                            package and submits the draft for certification
  *
  * The API only updates an extension that already exists: the owner creates it once in Partner
  * Center (apps/extension/README.md, "Store channels"). Certification takes up to seven business
- * days, so the job submits and doesn't wait for the outcome.
+ * days, so the job submits and doesn't wait for the outcome. Like the Firefox jobs, the job runs
+ * on Node alone and installs nothing, so no third-party code sees the Edge key.
  *
  * Endpoints (learn.microsoft.com, "Use the REST API to update an extension", updated 2026-09-02):
  * POST /v1/products/{product}/submissions/draft/package and POST /v1/products/{product}/
@@ -22,7 +25,14 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { EXTENSION_NAME } from '../src/config.ts'
-import { createReporter, parseOptions, type Reporter, requireOption, sleep } from './actions.ts'
+import {
+  createReporter,
+  isSecretSet,
+  parseOptions,
+  type Reporter,
+  requireOption,
+  sleep,
+} from './actions.ts'
 import { reviewerNotes } from './listing.ts'
 import { readZip } from './xpi.ts'
 
@@ -246,25 +256,34 @@ export function checkReleaseZip(zip: Uint8Array, version: string): void {
 
 const SECRETS = ['EDGE_PRODUCT_ID', 'EDGE_CLIENT_ID', 'EDGE_API_KEY'] as const
 
-/** The Edge credentials, or null after telling the owner which secrets are missing. */
-export function planSubmission(env: NodeJS.ProcessEnv, reporter: Reporter): EdgeCredentials | null {
-  const missing = SECRETS.filter((name) => !env[name]?.trim())
+/** Whether the three Edge secrets are set, after telling the owner which are missing. */
+export function planSubmission(env: NodeJS.ProcessEnv, reporter: Reporter): boolean {
+  const missing = SECRETS.filter((name) => !isSecretSet(env, name))
   if (missing.length === SECRETS.length) {
     reporter.notice(
       'Edge Add-ons',
-      `${SECRETS.join(', ')} are not set, so this release isn't submitted to Edge Add-ons. ` +
-        'apps/extension/README.md ("Store channels") says how to set them up.',
+      `${SECRETS.join(', ')} are not set in the stores environment, so this release isn't ` +
+        'submitted to Edge Add-ons. apps/extension/README.md ("Store channels") says how to ' +
+        'set them up.',
     )
-    return null
+    return false
   }
   if (missing.length > 0) {
     reporter.warning(
       'Edge Add-ons',
-      `${missing.join(' and ')} ${missing.length === 1 ? 'is' : 'are'} not set, so this release ` +
-        `isn't submitted to Edge Add-ons. Set all of ${SECRETS.join(', ')}.`,
+      `${missing.join(' and ')} ${missing.length === 1 ? 'is' : 'are'} not set in the stores ` +
+        `environment, so this release isn't submitted to Edge Add-ons. Set all of ` +
+        `${SECRETS.join(', ')}.`,
     )
-    return null
+    return false
   }
+  return true
+}
+
+/** The Edge credentials from the environment of the submit step. */
+export function edgeCredentials(env: NodeJS.ProcessEnv): EdgeCredentials {
+  const missing = SECRETS.filter((name) => !env[name]?.trim())
+  if (missing.length > 0) throw new Error(`set ${missing.join(', ')} first`)
   return {
     productId: env.EDGE_PRODUCT_ID?.trim() ?? '',
     clientId: env.EDGE_CLIENT_ID?.trim() ?? '',
@@ -287,14 +306,14 @@ const MESSAGES: Record<SubmitOutcome, (version: string) => string> = {
 
 async function main(args: readonly string[], reporter: Reporter): Promise<void> {
   const [command, ...rest] = args
-  const credentials = planSubmission(process.env, command === 'plan' ? reporter : silent)
   if (command === 'plan') {
-    reporter.output('submit', String(credentials !== null))
+    reporter.output('submit', String(planSubmission(process.env, reporter)))
     return
   }
-  if (command !== 'submit')
+  if (command !== 'submit') {
     throw new Error('usage: edge.ts plan | submit --zip <file> --version x.y.z')
-  if (!credentials) throw new Error(`set ${SECRETS.join(', ')} first`)
+  }
+  const credentials = edgeCredentials(process.env)
   const options = parseOptions(rest)
   const version = requireOption(options, 'version')
   const zip = await readFile(
@@ -307,15 +326,6 @@ async function main(args: readonly string[], reporter: Reporter): Promise<void> 
   if (outcome === 'submitted' || outcome === 'unchanged') reporter.notice('Edge Add-ons', message)
   else reporter.warning('Edge Add-ons', message)
   reporter.summary(`**Edge Add-ons:** ${message}`)
-}
-
-const silent: Reporter = {
-  info: () => {},
-  notice: () => {},
-  warning: () => {},
-  error: () => {},
-  output: () => {},
-  summary: () => {},
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

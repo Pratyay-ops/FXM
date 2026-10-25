@@ -1,59 +1,67 @@
 /**
- * Signs FXM Connect for Firefox on Firefox Add-ons (AMO) in the release workflow
- * (.github/workflows/release.yml, job "firefox"):
+ * FXM Connect on Firefox Add-ons (AMO), in the release workflow (.github/workflows/release.yml):
  *
- *   firefox.ts plan
- *       decides from AMO_API_KEY, AMO_API_SECRET and AMO_CHANNEL whether to sign, and tells the
- *       owner when the secrets are missing; outputs sign and channel
- *   firefox.ts sign --version x.y.z --out <dir> [--source-dir <dir>] [--work <dir>] [--dry-run]
- *       signs the release build in apps/extension/dist/firefox (build it first) and writes
- *       <dir>/fxm-connect-firefox-<version>.xpi; outputs signed (and file)
+ *   firefox.ts lint --zip <file>
+ *       job "bundles": AMO's linter (web-ext lint) on the files of the release's Firefox zip,
+ *       with no store key around; outputs result (clean or findings) for the jobs below
+ *   firefox.ts plan --channel <unlisted|listed>
+ *       jobs "firefox" (unlisted) and "firefox-listed" (listed): decides from AMO_CHANNEL,
+ *       AMO_API_KEY_SET, AMO_API_SECRET_SET and FIREFOX_LINT whether this job submits to AMO,
+ *       and tells the owner why not; outputs submit
+ *   firefox.ts submit --channel <unlisted|listed> --version x.y.z --zip <file> [--out <dir>]
+ *                     [--work <dir>] [--dry-run]
+ *       unlisted: has AMO sign the zip and writes <out>/fxm-connect-firefox-<version>.xpi;
+ *       listed: submits the zip to the public listing. Outputs signed (and file).
  *
- * AMO_CHANNEL (a repository variable) picks the channel: `unlisted` (the default) signs for
- * self-distribution, `listed` submits the version to the public listing, `off` skips AMO.
+ * AMO_CHANNEL (a repository variable) picks the channel. `unlisted`, the default, signs each
+ * release for self-distribution before it is published, and the release attaches the signed
+ * XPI. `listed` submits each release to the public listing after it is published, so that AMO
+ * never gets a version that GitHub doesn't have, and attaches no XPI. `off` leaves AMO alone.
  *
- * Signing runs `web-ext sign`, which uploads the build with the AMO metadata (listing.ts) and
- * the source archive, waits for the signature and downloads the signed file. AMO accepts each
- * version number once, in either channel, so `sign` first asks AMO whether it already has the
- * version: then it waits for and fetches that one, which makes a re-run of a failed release
- * safe. Before attaching anything it checks that the signed file is exactly the submitted build
- * plus Mozilla's signature (xpi.ts).
+ * `submit` uploads the zip exactly as the bundles job built it (the release attaches and attests
+ * the same file), creates the version with the metadata from listing.ts and attaches the source
+ * code (git archive of the release commit). For the unlisted channel it then waits for the
+ * signature and checks that the signed file holds the zip's files and Mozilla's signature, and
+ * nothing else (xpi.ts). AMO accepts each version number once, in either channel, so `submit`
+ * first asks AMO whether it has the version already and then carries on with that one: re-running
+ * a failed release is safe.
  *
- * A listed version can wait for a human review. If AMO hasn't signed it when the wait ends, the
- * release goes out without the XPI and Firefox users get the version from AMO once approved. An
- * unlisted version that isn't signed in time fails the job instead: re-running it later fetches
- * the file.
- *
- * How web-ext 10.7.0 signs (its lib/util/submit-addon.js, read 2026-10-26): it uploads a zip of
- * --source-dir, waits for validation, then PUTs the version to addons/addon/<guid>/ (which
- * creates the add-on the first time), uploads --upload-source-code, waits until the file's
- * status is `public` for either channel and downloads it into --artifacts-dir. It reads the
- * credentials from WEB_EXT_API_KEY and WEB_EXT_API_SECRET and leaves a `.amo-upload-uuid` file
- * in --source-dir.
+ * The AMO keys reach only `submit`, through its environment. It runs on Node alone, and the jobs
+ * that hold the keys install nothing, so no third-party code ever sees them (amo.ts).
  *
  * Node runs this file directly (type stripping), which is why the imports spell out `.ts`.
  */
-import { execFile, spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { EXTENSION_NAME } from '../src/config.ts'
 import { FIREFOX_ADDON_ID, isExtensionVersion } from '../src/manifest.ts'
-import { createReporter, parseOptions, type Reporter, requireOption, sleep } from './actions.ts'
-import { AmoClient, type AmoCredentials, type AmoVersion, waitForReview } from './amo.ts'
+import {
+  createReporter,
+  isSecretSet,
+  parseOptions,
+  type Reporter,
+  requireOption,
+  sleep,
+} from './actions.ts'
+import {
+  AmoClient,
+  type AmoCredentials,
+  type AmoVersion,
+  waitForReview,
+  waitForValidation,
+} from './amo.ts'
 import { type AmoChannel, amoMetadata } from './listing.ts'
-import { checkSignedXpi, readBuild } from './xpi.ts'
+import { checkSignedXpi, writeFiles, zipFiles } from './xpi.ts'
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
 const REPO_ROOT = resolve(PACKAGE_DIR, '../..')
 
-/** How long to wait for AMO's signature: unlisted versions are signed automatically, in minutes. */
-export const APPROVAL_TIMEOUT_MS: Readonly<Record<AmoChannel, number>> = {
-  unlisted: 20 * 60_000,
-  listed: 10 * 60_000,
-}
+/** How long to wait for AMO to sign an unlisted version: it signs them automatically, in minutes. */
+export const APPROVAL_TIMEOUT_MS = 20 * 60_000
 /** How long AMO's validation of an upload may take. */
 export const VALIDATION_TIMEOUT_MS = 10 * 60_000
 
@@ -67,39 +75,87 @@ export function channelSetting(value: string | undefined): ChannelSetting {
   throw new Error(`AMO_CHANNEL must be unlisted, listed or off, got "${value}"`)
 }
 
-export interface SigningPlan {
-  channel: AmoChannel
-  credentials: AmoCredentials
+/** The channel a job handles, from its --channel option. */
+export function jobChannel(value: string): AmoChannel {
+  if (value === 'unlisted' || value === 'listed') return value
+  throw new Error(`--channel must be unlisted or listed, got "${value}"`)
 }
 
-/** What to sign with, or null after telling the owner why this release has no signed XPI. */
-export function planSigning(env: NodeJS.ProcessEnv, reporter: Reporter): SigningPlan | null {
-  const channel = channelSetting(env.AMO_CHANNEL)
-  const title = 'Firefox add-on'
-  if (channel === 'off') {
-    reporter.notice(title, 'AMO_CHANNEL is off, so this release has no signed Firefox add-on.')
-    return null
+/** The job's title in annotations, as release.yml names the job. */
+export const JOB_TITLE: Readonly<Record<AmoChannel, string>> = {
+  unlisted: 'Signed Firefox add-on',
+  listed: 'Firefox Add-ons listing',
+}
+
+/**
+ * Whether the job for this channel submits to AMO, after telling the owner why not. The job runs
+ * with booleans for the keys (AMO_API_KEY_SET, AMO_API_SECRET_SET), never their values. Throws,
+ * failing the job, when it would submit but AMO's linter didn't pass the zip.
+ */
+export function planChannel(job: AmoChannel, env: NodeJS.ProcessEnv, reporter: Reporter): boolean {
+  const setting = channelSetting(env.AMO_CHANNEL)
+  const title = JOB_TITLE[job]
+  if (setting !== job) {
+    if (job === 'listed') {
+      reporter.info(
+        setting === 'off'
+          ? 'AMO_CHANNEL is off: nothing to submit.'
+          : `AMO_CHANNEL is unlisted, so the ${JOB_TITLE.unlisted} job handles AMO.`,
+      )
+    } else if (setting === 'off') {
+      reporter.notice(
+        title,
+        "AMO_CHANNEL is off, so this release has no signed Firefox add-on and isn't submitted " +
+          'to Firefox Add-ons.',
+      )
+    } else {
+      reporter.notice(
+        title,
+        'AMO_CHANNEL is listed, so this release has no signed XPI: once the release is ' +
+          `published, the ${JOB_TITLE.listed} job submits it to the public listing.`,
+      )
+    }
+    return false
   }
-  const key = env.AMO_API_KEY?.trim() ?? ''
-  const secret = env.AMO_API_SECRET?.trim() ?? ''
+  const key = isSecretSet(env, 'AMO_API_KEY')
+  const secret = isSecretSet(env, 'AMO_API_SECRET')
+  const without =
+    job === 'unlisted'
+      ? 'this release has no signed Firefox add-on (the unsigned Firefox zip is still attached)'
+      : "this release isn't submitted to the Firefox Add-ons listing"
   if (!key && !secret) {
     reporter.notice(
       title,
-      'AMO_API_KEY and AMO_API_SECRET are not set, so this release has no signed Firefox ' +
-        'add-on (the unsigned Firefox zip is still attached). apps/extension/README.md ' +
-        '("Store channels") says how to set them up.',
+      `AMO_API_KEY and AMO_API_SECRET are not set in the stores environment, so ${without}. ` +
+        'apps/extension/README.md ("Store channels") says how to set them up.',
     )
-    return null
+    return false
   }
   if (!key || !secret) {
     reporter.warning(
       title,
-      `${key ? 'AMO_API_SECRET' : 'AMO_API_KEY'} is not set, so this release has no signed ` +
-        'Firefox add-on. Set both AMO_API_KEY and AMO_API_SECRET.',
+      `${key ? 'AMO_API_SECRET' : 'AMO_API_KEY'} is not set in the stores environment, so ` +
+        `${without}. Set both AMO_API_KEY and AMO_API_SECRET.`,
     )
-    return null
+    return false
   }
-  return { channel, credentials: { key, secret } }
+  if (env.FIREFOX_LINT !== 'clean') {
+    throw new Error(
+      env.FIREFOX_LINT === 'findings'
+        ? "AMO's linter has findings on this release's Firefox zip (see the warnings of the " +
+            'bundles job), and AMO would flag or refuse the same. Fix them in a new version.'
+        : "AMO's linter didn't report on this release's Firefox zip, so it isn't submitted.",
+    )
+  }
+  return true
+}
+
+/** The AMO keys from the environment of the submit step. */
+export function credentialsFrom(env: NodeJS.ProcessEnv): AmoCredentials {
+  const key = env.AMO_API_KEY?.trim() ?? ''
+  const secret = env.AMO_API_SECRET?.trim() ?? ''
+  if (!key || !secret) throw new Error('AMO_API_KEY and AMO_API_SECRET must both be set')
+  return { key, secret }
 }
 
 /** What AMO's linter found, one line per message. */
@@ -109,206 +165,210 @@ export interface LintReport {
   notices: string[]
 }
 
-export interface SignOptions {
-  version: string
-  channel: AmoChannel
-  /** The release build for Firefox: apps/extension/dist/firefox. */
-  sourceDir: string
-  /** Where the signed XPI goes; the release uploads this folder as is. */
-  outDir: string
-  /** Scratch space: the metadata, the source archive and web-ext's download. */
-  workDir: string
-  commit?: string | undefined
-  /** Check, lint and pack, but don't contact AMO. */
-  dryRun?: boolean
-  approvalTimeoutMs?: number
-}
-
-export interface SignDeps {
-  /** Null in a dry run. */
-  amo: Pick<AmoClient, 'getVersion' | 'download'> | null
-  lint: (dir: string) => Promise<LintReport>
-  archiveSource: (dest: string, version: string) => Promise<void>
-  /** Runs `web-ext` with these arguments and resolves to its exit code. */
-  runWebExt: (args: readonly string[]) => Promise<number>
-  reporter: Reporter
-  sleep?: (ms: number) => Promise<void>
-  now?: () => number
-  /** How often to ask AMO about a version in review. */
-  pollIntervalMs?: number
-}
-
-export type SignOutcome =
-  | { signed: true; file: string; channel: string }
-  | { signed: false; reason: 'dry-run' | 'in-review' }
-
-/** The release file name, as fxm_release_catalog (scripts/release-lib.sh) lists it. */
+/** The release file names, as fxm_release_catalog (scripts/release-lib.sh) lists them. */
 export function xpiName(version: string): string {
   return `fxm-connect-firefox-${version}.xpi`
 }
 
+export function zipName(version: string): string {
+  return `fxm-connect-firefox-${version}.zip`
+}
+
 function readManifest(files: ReadonlyMap<string, Uint8Array>): Record<string, unknown> {
   const bytes = files.get('manifest.json')
-  if (!bytes) throw new Error('the build has no manifest.json: run the extension build first')
+  if (!bytes) throw new Error('the zip has no manifest.json at its top')
   return JSON.parse(Buffer.from(bytes).toString('utf8')) as Record<string, unknown>
 }
 
-/** Throws unless the folder holds the release build of this version. */
-function checkBuild(files: ReadonlyMap<string, Uint8Array>, version: string): void {
+/** Throws unless the files are the Firefox release build of this version. */
+export function checkBuild(files: ReadonlyMap<string, Uint8Array>, version: string): void {
   const manifest = readManifest(files)
   const gecko = (manifest.browser_specific_settings as { gecko?: { id?: unknown } } | undefined)
     ?.gecko
   if (manifest.version !== version) {
-    throw new Error(
-      `the build is version ${String(manifest.version)}, not ${version}: build the release first`,
-    )
+    throw new Error(`the zip holds version ${String(manifest.version)}, not ${version}`)
   }
-  if (gecko?.id !== FIREFOX_ADDON_ID) throw new Error('the build is not the Firefox build')
+  if (gecko?.id !== FIREFOX_ADDON_ID) throw new Error('the zip is not the Firefox build')
   const hosts = Array.isArray(manifest.host_permissions) ? manifest.host_permissions : []
   if (
     manifest.name !== EXTENSION_NAME ||
     hosts.some((host) => String(host).includes('localhost'))
   ) {
-    throw new Error('the build is the development build, which must never be signed')
+    throw new Error('the zip is the development build, which must never go to AMO')
   }
 }
 
-export async function signFirefox(options: SignOptions, deps: SignDeps): Promise<SignOutcome> {
+export interface SubmitOptions {
+  version: string
+  /** The channel this job handles. */
+  channel: AmoChannel
+  /** The release's Firefox zip, as the bundles job built it. */
+  zipPath: string
+  /** Where the signed XPI goes (unlisted only); the release uploads this folder as is. */
+  outDir?: string | undefined
+  /** Scratch space: the metadata and the source archive. */
+  workDir: string
+  commit?: string | undefined
+  /** Check and pack, but don't contact AMO. */
+  dryRun?: boolean
+  approvalTimeoutMs?: number
+  validationTimeoutMs?: number
+}
+
+export type AmoApi = Pick<
+  AmoClient,
+  'getVersion' | 'upload' | 'uploadStatus' | 'submitVersion' | 'uploadSource' | 'download'
+>
+
+export interface SubmitDeps {
+  /** Null in a dry run. */
+  amo: AmoApi | null
+  archiveSource: (dest: string, version: string) => Promise<void>
+  reporter: Reporter
+  sleep?: (ms: number) => Promise<void>
+  now?: () => number
+  /** How often to ask AMO about an upload or a version in review. */
+  pollIntervalMs?: number
+}
+
+export type SubmitOutcome =
+  /** AMO signed the version; the release attaches the file. */
+  | { kind: 'signed'; file: string; channel: string }
+  /** AMO has the version for its listing; Firefox users get it from AMO once approved. */
+  | { kind: 'submitted'; channel: string; status: string; editUrl: string | null }
+  | { kind: 'dry-run' }
+
+export async function submitToAmo(
+  options: SubmitOptions,
+  deps: SubmitDeps,
+): Promise<SubmitOutcome> {
   const { version, channel } = options
   const { reporter } = deps
   if (!/^\d+\.\d+\.\d+$/.test(version) || !isExtensionVersion(version)) {
     throw new Error(`not a release version: ${version}`)
   }
-  const files = await readBuild(options.sourceDir)
+  if (channel === 'unlisted' && !options.outDir) {
+    throw new Error('the unlisted channel needs --out <dir> for the signed XPI')
+  }
+  const zip = await readFile(options.zipPath)
+  const files = zipFiles(zip)
   checkBuild(files, version)
 
-  const lint = await deps.lint(options.sourceDir)
-  const found = [...lint.errors, ...lint.warnings, ...lint.notices]
-  if (found.length > 0) {
-    throw new Error(`AMO's linter has findings, so AMO would too:\n${found.join('\n')}`)
-  }
-  reporter.info("AMO's linter (web-ext lint) found nothing.")
-
   await mkdir(options.workDir, { recursive: true })
+  const metadata = amoMetadata(channel, version, options.commit)
   const metadataPath = join(options.workDir, 'amo-metadata.json')
-  await writeFile(
-    metadataPath,
-    `${JSON.stringify(amoMetadata(channel, version, options.commit), null, 2)}\n`,
-  )
-  const sourcePath = join(options.workDir, `fxm-${version}-source.zip`)
+  await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`)
+  const sourceName = `fxm-${version}-source.zip`
+  const sourcePath = join(options.workDir, sourceName)
   await deps.archiveSource(sourcePath, version)
   reporter.info(`Packed the source code for AMO's reviewers: ${sourcePath}`)
 
   if (options.dryRun || !deps.amo) {
     reporter.info(
-      `Dry run: would sign ${version} on AMO (${channel}) with ${metadataPath} and ${sourcePath}.`,
+      `Dry run: would submit ${basename(options.zipPath)} to AMO (${channel}) with ` +
+        `${metadataPath} and ${sourcePath}.`,
     )
-    return { signed: false, reason: 'dry-run' }
+    return { kind: 'dry-run' }
   }
   const amo = deps.amo
-  const approvalTimeoutMs = options.approvalTimeoutMs ?? APPROVAL_TIMEOUT_MS[channel]
-
-  const deliver = async (bytes: Uint8Array, from: string): Promise<SignOutcome> => {
-    checkSignedXpi(bytes, { id: FIREFOX_ADDON_ID, version, files })
-    await mkdir(options.outDir, { recursive: true })
-    const file = join(options.outDir, xpiName(version))
-    await writeFile(file, bytes)
-    reporter.info(`Checked the signed XPI against the build and saved it as ${file}`)
-    return { signed: true, file, channel: from }
+  const source = await readFile(sourcePath)
+  const waiting = {
+    ...(deps.pollIntervalMs !== undefined ? { intervalMs: deps.pollIntervalMs } : {}),
+    ...(deps.sleep ? { sleep: deps.sleep } : {}),
+    ...(deps.now ? { now: deps.now } : {}),
   }
-
-  /**
-   * Carries on with a version AMO already has: waits for its review (unless told not to), then
-   * fetches the signed file, or gives up on a listed version still in review, or fails.
-   */
-  const settle = async (existing: AmoVersion, wait: boolean): Promise<SignOutcome> => {
-    const reviewed = existing.status === 'public' || existing.status === 'disabled'
-    const current =
-      reviewed || !wait
-        ? existing
-        : await waitForReview(amo, FIREFOX_ADDON_ID, version, {
-            timeoutMs: approvalTimeoutMs,
-            ...(deps.pollIntervalMs !== undefined ? { intervalMs: deps.pollIntervalMs } : {}),
-            ...(deps.sleep ? { sleep: deps.sleep } : {}),
-            ...(deps.now ? { now: deps.now } : {}),
-            onWait: () => reporter.info(`AMO is still reviewing ${version}…`),
-          })
-    const where = existing.editUrl ? ` (${existing.editUrl})` : ''
-    if (!current) throw new Error(`AMO no longer lists ${version}${where}`)
-    if (current.status === 'public') {
-      if (!current.fileUrl) throw new Error(`AMO lists ${version} as signed but has no file URL`)
-      return deliver(await amo.download(current.fileUrl), current.channel)
-    }
-    if (current.status === 'disabled') {
-      throw new Error(
-        `AMO rejected or disabled ${version}${where}. Its email to the add-on's owner says why; ` +
-          'fix it in a new version.',
-      )
-    }
-    if (current.channel === 'listed') {
-      reporter.warning(
-        'Firefox add-on',
-        `AMO is reviewing ${version} for the listing${where}, so this release goes out without ` +
-          'the signed XPI. Firefox users get the version from AMO once it is approved.',
-      )
-      return { signed: false, reason: 'in-review' }
-    }
-    throw new Error(
-      `AMO hasn't signed ${version} yet${where}. Re-run this job later: it fetches the file once ` +
-        'AMO has signed it.',
+  const where = (found: AmoVersion) => (found.editUrl ? ` (${found.editUrl})` : '')
+  const rejected = (found: AmoVersion) =>
+    new Error(
+      `AMO rejected or disabled ${version}${where(found)}. Its email to the add-on's owner says ` +
+        'why; fix it in a new version.',
     )
-  }
 
-  const existing = await amo.getVersion(FIREFOX_ADDON_ID, version)
-  if (existing) {
+  let current = await amo.getVersion(FIREFOX_ADDON_ID, version)
+  if (current) {
     reporter.info(
-      `AMO already has ${version} (${existing.channel}, ${existing.status}): fetching it instead ` +
-        'of submitting it again.',
+      `AMO already has ${version} (${current.channel}, ${current.status}): carrying on with it ` +
+        'instead of submitting it again.',
     )
-    if (existing.channel !== channel) {
+    if (current.channel !== channel) {
       reporter.warning(
-        'Firefox add-on',
-        `AMO has ${version} in the ${existing.channel} channel, not ${channel}. A version number ` +
-          'can be used once, so this release uses that one.',
+        JOB_TITLE[channel],
+        `AMO has ${version} in the ${current.channel} channel, not ${channel}. A version number ` +
+          'can be used once, so this release keeps that one.',
       )
     }
-    return settle(existing, true)
+    if (current.hasSource === false) {
+      // A run that failed right after creating the version: attach the source code now.
+      try {
+        await amo.uploadSource(FIREFOX_ADDON_ID, current.id, source, sourceName)
+        reporter.info("Attached the source code for AMO's reviewers.")
+      } catch (error) {
+        reporter.warning(
+          JOB_TITLE[channel],
+          `AMO's ${version} has no source code and taking it failed ` +
+            `(${error instanceof Error ? error.message : String(error)}). Upload ` +
+            `${sourceName} in AMO's Developer Hub${where(current)}.`,
+        )
+      }
+    }
+  } else {
+    const uuid = await amo.upload(zip, zipName(version), channel)
+    reporter.info(`Uploaded ${zipName(version)}; AMO's validator is checking it (${uuid}).`)
+    const upload = await waitForValidation(amo, uuid, {
+      timeoutMs: options.validationTimeoutMs ?? VALIDATION_TIMEOUT_MS,
+      ...waiting,
+    })
+    if (!upload.processed) {
+      throw new Error(`AMO's validator hasn't finished with ${uuid}. Re-run this job later.`)
+    }
+    if (!upload.valid) {
+      throw new Error(
+        `AMO's validator refused ${zipName(version)}:\n${upload.errors.join('\n') || '(no details)'}`,
+      )
+    }
+    current = await amo.submitVersion(FIREFOX_ADDON_ID, uuid, metadata)
+    reporter.info(`AMO created ${version} (${current.channel})${where(current)}.`)
+    await amo.uploadSource(FIREFOX_ADDON_ID, current.id, source, sourceName)
+    reporter.info("Attached the source code for AMO's reviewers.")
   }
 
-  const signedDir = join(options.workDir, 'signed')
-  const code = await deps.runWebExt([
-    'sign',
-    '--source-dir',
-    options.sourceDir,
-    '--artifacts-dir',
-    signedDir,
-    '--channel',
-    channel,
-    '--amo-metadata',
-    metadataPath,
-    '--upload-source-code',
-    sourcePath,
-    '--approval-timeout',
-    String(approvalTimeoutMs),
-    '--timeout',
-    String(VALIDATION_TIMEOUT_MS),
-    '--no-config-discovery',
-    '--no-input',
-  ])
-  if (code === 0) {
-    const xpis = (await readdir(signedDir).catch(() => [])).filter((name) => name.endsWith('.xpi'))
-    if (xpis.length !== 1) {
-      throw new Error(`web-ext sign left ${xpis.length} XPI files in ${signedDir}, expected one`)
-    }
-    return deliver(await readFile(join(signedDir, xpis[0] ?? '')), channel)
+  if (current.status === 'disabled') throw rejected(current)
+  const submitted: SubmitOutcome = {
+    kind: 'submitted',
+    channel: current.channel,
+    status: current.status,
+    editUrl: current.editUrl,
   }
-  // web-ext failed. If AMO took the version anyway (web-ext gave up waiting for the review, say),
-  // carry on with that version, without waiting a second time.
-  const after = await amo.getVersion(FIREFOX_ADDON_ID, version)
-  if (!after) {
-    throw new Error(`web-ext sign failed (exit code ${code}) and AMO has no ${version}: see above`)
+  // The listed job runs after the release is published, which can't attach a file any more.
+  if (channel === 'listed') return submitted
+  // A listed version can wait days for a reviewer: the release goes out without it.
+  if (current.channel === 'listed' && current.status !== 'public') return submitted
+
+  const reviewed =
+    current.status === 'public'
+      ? current
+      : await waitForReview(amo, FIREFOX_ADDON_ID, version, {
+          timeoutMs: options.approvalTimeoutMs ?? APPROVAL_TIMEOUT_MS,
+          ...waiting,
+          onWait: () => reporter.info(`AMO is still signing ${version}…`),
+        })
+  if (!reviewed) throw new Error(`AMO no longer lists ${version}${where(current)}`)
+  if (reviewed.status === 'disabled') throw rejected(reviewed)
+  if (reviewed.status !== 'public') {
+    throw new Error(
+      `AMO hasn't signed ${version} yet${where(reviewed)}. Re-run this job later: it fetches the ` +
+        'file once AMO has signed it.',
+    )
   }
-  return settle(after, false)
+  if (!reviewed.fileUrl) throw new Error(`AMO lists ${version} as signed but has no file URL`)
+  const signed = await amo.download(reviewed.fileUrl)
+  checkSignedXpi(signed, { id: FIREFOX_ADDON_ID, version, files })
+  const outDir = options.outDir ?? ''
+  await mkdir(outDir, { recursive: true })
+  const file = join(outDir, xpiName(version))
+  await writeFile(file, signed)
+  reporter.info(`Checked the signed XPI against the zip and saved it as ${file}`)
+  return { kind: 'signed', file, channel: reviewed.channel }
 }
 
 /** AMO's linter, as `web-ext lint` runs it and as AMO runs it on every upload. */
@@ -340,6 +400,21 @@ export async function lintWithAmo(dir: string): Promise<LintReport> {
   }
 }
 
+/** AMO's linter on the files of a zip, unpacked into a scratch folder. */
+export async function lintZip(
+  zipPath: string,
+  lint: (dir: string) => Promise<LintReport> = lintWithAmo,
+): Promise<LintReport> {
+  const files = zipFiles(await readFile(zipPath))
+  const dir = await mkdtemp(join(tmpdir(), 'fxm-amo-lint-'))
+  try {
+    await writeFiles(dir, files)
+    return await lint(dir)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
 const run = promisify(execFile)
 
 /** The repository at HEAD as a zip, for AMO's reviewers (git archive). */
@@ -356,86 +431,89 @@ export async function archiveSource(dest: string, version: string, reporter?: Re
   })
 }
 
-/** Runs the web-ext command line of this package with the AMO credentials in its environment. */
-export function webExtRunner(credentials: AmoCredentials) {
-  const bin = join(dirname(fileURLToPath(import.meta.resolve('web-ext'))), 'bin', 'web-ext.js')
-  return (args: readonly string[]): Promise<number> =>
-    new Promise((resolveCode, reject) => {
-      const child = spawn(process.execPath, [bin, ...args], {
-        cwd: PACKAGE_DIR,
-        stdio: 'inherit',
-        // Through the environment, never the command line, which ends up in logs.
-        env: {
-          ...process.env,
-          WEB_EXT_API_KEY: credentials.key,
-          WEB_EXT_API_SECRET: credentials.secret,
-        },
-      })
-      child.on('error', reject)
-      child.on('close', (code) => resolveCode(code ?? 1))
-    })
-}
+const USAGE =
+  'usage: firefox.ts lint --zip <file> | plan --channel <unlisted|listed> | submit --channel ' +
+  '<unlisted|listed> --version x.y.z --zip <file> [--out <dir>] [--work <dir>] [--dry-run]'
 
 async function main(args: readonly string[], reporter: Reporter): Promise<void> {
   const [command, ...rest] = args
-  if (command === 'plan') {
-    const plan = planSigning(process.env, reporter)
-    reporter.output('sign', String(plan !== null))
-    reporter.output('channel', plan?.channel ?? 'none')
+  const options = parseOptions(rest)
+  // Relative to where the command was started, not to the package folder pnpm runs it in.
+  const base = process.env.INIT_CWD ?? process.cwd()
+  if (command === 'lint') {
+    const zipPath = resolve(base, requireOption(options, 'zip'))
+    const report = await lintZip(zipPath)
+    const found = [...report.errors, ...report.warnings, ...report.notices]
+    if (found.length > 0) {
+      reporter.warning(
+        "AMO's linter",
+        `web-ext lint has ${found.length} finding(s) on ${basename(zipPath)}, so the Firefox ` +
+          `jobs won't submit it to AMO:\n${found.join('\n')}`,
+      )
+      reporter.output('result', 'findings')
+    } else {
+      reporter.info(`AMO's linter (web-ext lint) found nothing in ${basename(zipPath)}.`)
+      reporter.output('result', 'clean')
+    }
     return
   }
-  if (command !== 'sign') {
-    throw new Error('usage: firefox.ts plan | sign --version x.y.z --out <dir> [--dry-run]')
+  if (command === 'plan') {
+    const submit = planChannel(jobChannel(requireOption(options, 'channel')), process.env, reporter)
+    reporter.output('submit', String(submit))
+    return
   }
-  const options = parseOptions(rest)
+  if (command !== 'submit') throw new Error(USAGE)
+  const channel = jobChannel(requireOption(options, 'channel'))
   const dryRun = options.get('dry-run') === 'true'
-  const base = process.env.INIT_CWD ?? process.cwd()
   const version = requireOption(options, 'version')
-  let plan: SigningPlan | null
-  if (dryRun) {
-    const channel = channelSetting(process.env.AMO_CHANNEL)
-    plan = {
-      channel: channel === 'off' ? 'unlisted' : channel,
-      credentials: { key: '', secret: '' },
-    }
-  } else {
-    plan = planSigning(process.env, reporter)
-    if (!plan) throw new Error('nothing to sign with')
-  }
-  const outcome = await signFirefox(
+  const out = options.get('out')
+  const outcome = await submitToAmo(
     {
       version,
-      channel: plan.channel,
-      sourceDir: resolve(base, options.get('source-dir') ?? join(PACKAGE_DIR, 'dist/firefox')),
-      outDir: resolve(base, requireOption(options, 'out')),
+      channel,
+      zipPath: resolve(base, requireOption(options, 'zip')),
+      outDir: out ? resolve(base, out) : undefined,
       workDir: resolve(
         base,
-        options.get('work') ?? (await mkdtemp(join(tmpdir(), 'fxm-firefox-sign-'))),
+        options.get('work') ?? (await mkdtemp(join(tmpdir(), 'fxm-firefox-submit-'))),
       ),
       commit: process.env.GITHUB_SHA,
       dryRun,
     },
     {
-      amo: dryRun ? null : new AmoClient({ credentials: plan.credentials }),
-      lint: lintWithAmo,
+      amo: dryRun ? null : new AmoClient({ credentials: credentialsFrom(process.env) }),
       archiveSource: (dest, v) => archiveSource(dest, v, reporter),
-      runWebExt: webExtRunner(plan.credentials),
       reporter,
       sleep,
     },
   )
-  reporter.output('signed', String(outcome.signed))
-  if (outcome.signed) {
+  reporter.output('signed', String(outcome.kind === 'signed'))
+  if (outcome.kind === 'signed') {
     reporter.output('file', outcome.file)
     reporter.summary(
-      `**Firefox add-on:** signed FXM Connect ${version} on AMO (${outcome.channel}); the release ` +
+      `**Firefox add-on:** AMO signed FXM Connect ${version} (${outcome.channel}); the release ` +
         `attaches \`${xpiName(version)}\`.`,
     )
-  } else if (outcome.reason === 'in-review') {
-    reporter.summary(
-      `**Firefox add-on:** AMO is reviewing FXM Connect ${version} for the listing; this release ` +
-        'has no signed XPI.',
+  } else if (outcome.kind === 'submitted') {
+    const page = outcome.editUrl ? ` ([Developer Hub](${outcome.editUrl}))` : ''
+    if (outcome.channel !== 'listed') {
+      // Already warned: the version is unlisted, so the listing gets the next one.
+      reporter.summary(
+        `**Firefox Add-ons:** AMO has FXM Connect ${version} in the ${outcome.channel} ` +
+          `channel, so it can't be listed${page}.`,
+      )
+      return
+    }
+    const message =
+      outcome.status === 'public'
+        ? `AMO has approved FXM Connect ${version} for its listing`
+        : `AMO is reviewing FXM Connect ${version} for its listing`
+    reporter.notice(
+      JOB_TITLE[channel],
+      `${message}. Firefox users get it from addons.mozilla.org once it is approved; this ` +
+        'release attaches no signed XPI.',
     )
+    reporter.summary(`**Firefox Add-ons:** ${message}${page}.`)
   }
 }
 

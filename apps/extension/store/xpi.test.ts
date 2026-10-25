@@ -1,9 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createZip } from '../scripts/zip.ts'
-import { checkSignedXpi, readBuild, readZip } from './xpi.ts'
+import { checkSignedXpi, readZip, writeFiles, zipFiles } from './xpi.ts'
 
 const ID = 'fxm-connect@fxmusic.pages.dev'
 const encoder = new TextEncoder()
@@ -58,20 +58,73 @@ describe('readZip', () => {
   })
 })
 
-describe('readBuild', () => {
+/** A zip whose entry names were rewritten afterwards, as a hostile zip could hold them. */
+function renamed(names: [string, string][]): Uint8Array {
+  let zip = Buffer.from(
+    createZip(names.map(([name], index) => ({ name, data: encoder.encode(`file ${index}`) }))),
+  )
+  for (const [from, to] of names) {
+    if (from.length !== to.length) throw new Error('a rename must keep the length')
+    zip = Buffer.from(zip.toString('latin1').replaceAll(from, to), 'latin1')
+  }
+  return zip
+}
+
+describe('zipFiles', () => {
+  it('reads every file by its path inside the zip', () => {
+    const files = zipFiles(signed(build(), ['META-INF/cose.sig']))
+    expect([...files.keys()].sort()).toEqual([
+      'META-INF/cose.sig',
+      'META-INF/manifest.mf',
+      'background.js',
+      'icons/icon-16.png',
+      'manifest.json',
+    ])
+    expect(Buffer.from(files.get('manifest.json') ?? [])).toEqual(Buffer.from(manifest()))
+  })
+
+  it.each([
+    ['a parent folder', 'xx/a.js', '../a.js'],
+    ['an absolute path', 'xabs.js', '/abs.js'],
+    ['a backslash', 'a_b.js', 'a\\b.js'],
+    ['a drive letter', 'Cx.js', 'C:.js'],
+    ['an empty part', 'ab/c.js', 'a//c.js'],
+  ])('refuses %s, which could write outside the folder', (_label, from, to) => {
+    expect(() => zipFiles(renamed([[from, to]]))).toThrow(/unsafe path/)
+  })
+
+  it('refuses a path that appears twice', () => {
+    expect(() =>
+      zipFiles(
+        renamed([
+          ['a/x.js', 'a/x.js'],
+          ['a/y.js', 'a/x.js'],
+        ]),
+      ),
+    ).toThrow(/a\/x\.js twice/)
+  })
+})
+
+describe('writeFiles', () => {
   let dir = ''
   afterEach(async () => {
     if (dir) await rm(dir, { recursive: true, force: true })
   })
 
-  it('reads every file by its path, without dot files, as web-ext packs the folder', async () => {
-    dir = await mkdtemp(join(tmpdir(), 'fxm-build-'))
-    await mkdir(join(dir, 'icons'))
-    await writeFile(join(dir, 'manifest.json'), '{}')
-    await writeFile(join(dir, 'icons', 'icon-16.png'), 'png')
-    await writeFile(join(dir, '.amo-upload-uuid'), 'left by web-ext sign')
-    const files = await readBuild(dir)
-    expect([...files.keys()].sort()).toEqual(['icons/icon-16.png', 'manifest.json'])
+  it('writes the files into a folder, and nothing outside it', async () => {
+    dir = await mkdtemp(join(tmpdir(), 'fxm-files-'))
+    await writeFiles(join(dir, 'out'), build())
+    expect((await readdir(join(dir, 'out'), { recursive: true })).sort()).toEqual([
+      'background.js',
+      'icons',
+      'icons/icon-16.png',
+      'manifest.json',
+    ])
+    expect(await readFile(join(dir, 'out', 'manifest.json'))).toEqual(Buffer.from(manifest()))
+    await expect(
+      writeFiles(join(dir, 'out'), new Map([['../evil.js', encoder.encode('x')]])),
+    ).rejects.toThrow(/refusing to write/)
+    expect(await readdir(dir)).toEqual(['out'])
   })
 })
 
@@ -106,6 +159,6 @@ describe('checkSignedXpi', () => {
 
     const added = build()
     added.set('extra.js', encoder.encode('surprise'))
-    expect(() => checkSignedXpi(signed(added), expected)).toThrow(/extra.js is not in the build/)
+    expect(() => checkSignedXpi(signed(added), expected)).toThrow(/extra.js is not in the zip/)
   })
 })

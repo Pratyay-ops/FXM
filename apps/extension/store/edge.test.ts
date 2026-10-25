@@ -6,6 +6,7 @@ import {
   checkReleaseZip,
   EdgeClient,
   type EdgeOperation,
+  edgeCredentials,
   operationId,
   planSubmission,
   settle,
@@ -271,27 +272,53 @@ describe('checkReleaseZip', () => {
 describe('planSubmission', () => {
   it('skips with a notice when no Edge secret is set', () => {
     const { lines, reporter } = recorder()
-    expect(planSubmission({}, reporter)).toBeNull()
+    expect(planSubmission({}, reporter)).toBe(false)
     expect(lines).toEqual([
       expect.stringMatching(
-        /^notice Edge Add-ons: EDGE_PRODUCT_ID, EDGE_CLIENT_ID, EDGE_API_KEY are not set/,
+        /^notice Edge Add-ons: EDGE_PRODUCT_ID, EDGE_CLIENT_ID, EDGE_API_KEY are not set in the stores environment/,
       ),
     ])
   })
 
   it('skips with a warning when only some are set', () => {
     const { lines, reporter } = recorder()
-    expect(planSubmission({ EDGE_PRODUCT_ID: 'p', EDGE_API_KEY: ' ' }, reporter)).toBeNull()
+    const env = {
+      EDGE_PRODUCT_ID_SET: 'true',
+      EDGE_CLIENT_ID_SET: 'false',
+      EDGE_API_KEY_SET: 'false',
+    }
+    expect(planSubmission(env, reporter)).toBe(false)
     expect(lines).toEqual([
       expect.stringMatching(/^warning Edge Add-ons: EDGE_CLIENT_ID and EDGE_API_KEY are not set/),
     ])
   })
 
-  it('returns the credentials when all three are set', () => {
+  it('submits when all three are set, from the booleans of the plan step alone', () => {
     const { lines, reporter } = recorder()
-    expect(
-      planSubmission({ EDGE_PRODUCT_ID: ' p ', EDGE_CLIENT_ID: 'c', EDGE_API_KEY: 'k' }, reporter),
-    ).toEqual({ productId: 'p', clientId: 'c', apiKey: 'k' })
+    const env = {
+      EDGE_PRODUCT_ID_SET: 'true',
+      EDGE_CLIENT_ID_SET: 'true',
+      EDGE_API_KEY_SET: 'true',
+    }
+    expect(planSubmission(env, reporter)).toBe(true)
     expect(lines).toEqual([])
+  })
+})
+
+describe('edgeCredentials', () => {
+  it('reads the three values of the submit step', () => {
+    expect(
+      edgeCredentials({ EDGE_PRODUCT_ID: ' p ', EDGE_CLIENT_ID: 'c', EDGE_API_KEY: 'k' }),
+    ).toEqual({
+      productId: 'p',
+      clientId: 'c',
+      apiKey: 'k',
+    })
+  })
+
+  it('refuses to go on without all three', () => {
+    expect(() => edgeCredentials({ EDGE_PRODUCT_ID: 'p', EDGE_API_KEY: ' ' })).toThrow(
+      'set EDGE_CLIENT_ID, EDGE_API_KEY first',
+    )
   })
 })

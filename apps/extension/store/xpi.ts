@@ -1,11 +1,11 @@
 /**
- * Checks a signed XPI from AMO before a release attaches it: it must carry Mozilla's signature,
- * the expected add-on ID and version, and exactly the files of the build that was submitted.
- * AMO adds only META-INF/ (the signature) to an extension, so every other file must match the
- * build byte for byte.
+ * Reads the release's Firefox zip, and checks a signed XPI from AMO before a release attaches
+ * it: it must carry Mozilla's signature, the expected add-on ID and version, and exactly the
+ * files of the zip that was submitted. AMO adds only META-INF/ (the signature) to an extension,
+ * so every other file must match the zip byte for byte.
  */
-import { readdir, readFile } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { mkdir, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { crc32, inflateRawSync } from 'node:zlib'
 
 export interface ZipEntry {
@@ -75,20 +75,39 @@ export function readZip(bytes: Uint8Array): ZipEntry[] {
   return entries
 }
 
+/** Whether a path inside a zip stays inside the folder it is unpacked into. */
+function isSafePath(name: string): boolean {
+  return (
+    name !== '' &&
+    !name.startsWith('/') &&
+    !name.includes('\\') &&
+    !/^[a-zA-Z]:/.test(name) &&
+    name.split('/').every((part) => part !== '' && part !== '.' && part !== '..')
+  )
+}
+
 /**
- * The files of a build folder by their path inside it, the way `web-ext build` packs them: dot
- * files and dot folders (such as the `.amo-upload-uuid` that `web-ext sign` leaves) are skipped.
+ * The files of a zip by their path inside it. Throws on a path that could leave the folder it
+ * is unpacked into, or that appears twice.
  */
-export async function readBuild(dir: string): Promise<Map<string, Uint8Array>> {
+export function zipFiles(bytes: Uint8Array): Map<string, Uint8Array> {
   const files = new Map<string, Uint8Array>()
-  const entries = await readdir(dir, { recursive: true, withFileTypes: true })
-  for (const entry of entries) {
-    if (!entry.isFile()) continue
-    const path = relative(dir, join(entry.parentPath, entry.name)).split(sep).join('/')
-    if (path.split('/').some((part) => part.startsWith('.'))) continue
-    files.set(path, await readFile(join(dir, path)))
+  for (const { name, data } of readZip(bytes)) {
+    if (!isSafePath(name)) throw new Error(`the zip holds an unsafe path: ${name}`)
+    if (files.has(name)) throw new Error(`the zip holds ${name} twice`)
+    files.set(name, data)
   }
   return files
+}
+
+/** Writes files (from zipFiles) into a folder. */
+export async function writeFiles(dir: string, files: ReadonlyMap<string, Uint8Array>) {
+  for (const [name, data] of files) {
+    if (!isSafePath(name)) throw new Error(`refusing to write ${name}`)
+    const path = join(dir, name)
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, data)
+  }
 }
 
 /** Files that hold Mozilla's signature of an add-on: the PKCS#7 one, the COSE one or both. */
@@ -97,7 +116,7 @@ export const SIGNATURE_FILES = ['META-INF/mozilla.rsa', 'META-INF/cose.sig'] as 
 export interface XpiExpectation {
   id: string
   version: string
-  /** The build that was submitted, from readBuild. */
+  /** The files that were submitted, from zipFiles. */
   files: ReadonlyMap<string, Uint8Array>
 }
 
@@ -105,7 +124,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return Buffer.compare(Buffer.from(a), Buffer.from(b)) === 0
 }
 
-/** Throws, saying what is wrong, unless the XPI is the signed copy of the expected build. */
+/** Throws, saying what is wrong, unless the XPI is the signed copy of the submitted zip. */
 export function checkSignedXpi(xpi: Uint8Array, expected: XpiExpectation): void {
   const entries = readZip(xpi)
   const names = new Set(entries.map((entry) => entry.name))
@@ -136,12 +155,12 @@ export function checkSignedXpi(xpi: Uint8Array, expected: XpiExpectation): void 
   for (const [name, data] of expected.files) {
     const signed = content.get(name)
     if (!signed) problems.push(`${name} is missing`)
-    else if (!sameBytes(signed, data)) problems.push(`${name} differs from the build`)
+    else if (!sameBytes(signed, data)) problems.push(`${name} differs from the zip`)
   }
   for (const name of content.keys()) {
-    if (!expected.files.has(name)) problems.push(`${name} is not in the build`)
+    if (!expected.files.has(name)) problems.push(`${name} is not in the zip`)
   }
   if (problems.length > 0) {
-    throw new Error(`the XPI doesn't match the build: ${problems.join('; ')}`)
+    throw new Error(`the XPI doesn't match the zip: ${problems.join('; ')}`)
   }
 }

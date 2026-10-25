@@ -4,21 +4,28 @@ name: Release
 # happens when a release pull request from `make release-pr` is merged (docs/WORKFLOW.md,
 # "Releases"). Every other push to main ends after the plan job.
 #
-#   plan     reads the version and decides whether to release (scripts/release-plan.sh)
-#   bundles  builds the web app, landing page and FXM Connect zips (scripts/release-build.sh)
-#   firefox  has FXM Connect signed on Firefox Add-ons (AMO) and passes on the signed XPI
-#            (apps/extension/store/firefox.ts)
-#   publish  collects the artifact jobs' files (scripts/release-collect.sh), writes SHA256SUMS,
-#            attests every file's build provenance, creates tag vX.Y.Z and publishes the
-#            release with git-cliff notes (scripts/release-publish.sh)
-#   edge     once the release is out, submits its FXM Connect zip to Edge Add-ons
-#            (apps/extension/store/edge.ts)
+#   plan            reads the version and decides whether to release (scripts/release-plan.sh)
+#   bundles         builds the web app, landing page and FXM Connect zips (scripts/release-build.sh)
+#                   and runs AMO's linter on the Firefox zip (apps/extension/store/firefox.ts)
+#   firefox         with AMO_CHANNEL unlisted (the default): has Firefox Add-ons (AMO) sign that
+#                   Firefox zip and passes on the signed XPI (apps/extension/store/firefox.ts)
+#   publish         collects the artifact jobs' files (scripts/release-collect.sh), writes
+#                   SHA256SUMS, attests every file's build provenance, creates tag vX.Y.Z and
+#                   publishes the release with git-cliff notes (scripts/release-publish.sh)
+#   firefox-listed  with AMO_CHANNEL listed: once the release is out, submits its Firefox zip to
+#                   AMO's public listing (apps/extension/store/firefox.ts)
+#   edge            once the release is out, submits its Chromium zip to Edge Add-ons
+#                   (apps/extension/store/edge.ts)
 #
-# The firefox and edge jobs need secrets that the owner adds (apps/extension/README.md, "Store
+# The store jobs (firefox, firefox-listed and edge) use secrets that the owner adds to the
+# `stores` environment, which only runs on main can use (apps/extension/README.md, "Store
 # channels"): AMO_API_KEY and AMO_API_SECRET, and EDGE_PRODUCT_ID, EDGE_CLIENT_ID and
 # EDGE_API_KEY. Without them they skip their work with a notice, and the release goes out
-# without the signed XPI or the Edge submission. The repository variable AMO_CHANNEL picks
-# AMO's channel: unlisted (the default), listed or off.
+# without the signed XPI or the store submissions. The repository variable AMO_CHANNEL picks
+# AMO's channel: unlisted (the default), listed or off. A store job installs nothing: it runs
+# Node and the release commit's store scripts on the files the bundles job built, so no
+# third-party code ever sees a store key. Its plan step learns only whether each secret is set
+# (`secrets.X != ''`); only the step that submits gets the values.
 #
 # Every job builds the commit the run was started for (plan's sha is always github.sha), which
 # is also the commit the attestations name. Re-running is safe: a published release stops at
@@ -81,6 +88,8 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+    outputs:
+      firefox-lint: ${{ steps.lint.outputs.result }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -97,6 +106,17 @@ jobs:
       - name: Build the release files
         run: scripts/release-build.sh dist/release
 
+      # AMO's linter (web-ext lint) on the Firefox zip, here where no store key is around. The
+      # Firefox jobs submit the zip only if it found nothing. A finding warns here and fails
+      # those jobs instead, so it doesn't hold up a release that skips AMO.
+      - name: Lint FXM Connect with AMO's rules
+        id: lint
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: >-
+          scripts/run.sh pnpm --filter @fxm/extension --silent store:firefox lint
+          --zip "$GITHUB_WORKSPACE/dist/release/fxm-connect-firefox-$VERSION.zip"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-bundles
@@ -106,15 +126,17 @@ jobs:
 
   firefox:
     name: Signed Firefox add-on
-    needs: plan
+    needs: [plan, bundles]
     if: needs.plan.outputs.release == 'true'
     runs-on: ubuntu-latest
-    # web-ext waits up to 20 minutes for AMO to sign an unlisted version.
+    # Up to 10 minutes for AMO's validator and 20 for the signature.
     timeout-minutes: 45
+    # The AMO keys are secrets of this environment, which only runs on main can use.
+    environment: stores
     permissions:
       contents: read
     outputs:
-      signed: ${{ steps.sign.outputs.signed }}
+      signed: ${{ steps.submit.outputs.signed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -125,45 +147,45 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # Without the AMO API keys, or with AMO_CHANNEL set to off, this says so and the steps
-      # below are skipped: the job succeeds and the release has no signed XPI.
+      # Without the AMO keys, or with AMO_CHANNEL set to listed or off, this says so and the
+      # steps below are skipped: the job succeeds and the release has no signed XPI. When it
+      # would sign a zip that AMO's linter didn't pass, it fails, and the release with it.
       - name: Check the AMO settings
         id: plan
         env:
-          AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
-          AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+          AMO_API_KEY_SET: ${{ secrets.AMO_API_KEY != '' }}
+          AMO_API_SECRET_SET: ${{ secrets.AMO_API_SECRET != '' }}
           AMO_CHANNEL: ${{ vars.AMO_CHANNEL }}
+          FIREFOX_LINT: ${{ needs.bundles.outputs.firefox-lint }}
         run: >-
           node --experimental-strip-types --disable-warning=ExperimentalWarning
-          apps/extension/store/firefox.ts plan
+          apps/extension/store/firefox.ts plan --channel unlisted
 
-      - name: Set up toolchain and dependencies (frozen lockfile)
-        if: steps.plan.outputs.sign == 'true'
-        run: make ci-setup
+      # The Firefox zip exactly as the release attaches it.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.plan.outputs.submit == 'true'
+        with:
+          name: release-bundles
+          path: dist/artifacts/release-bundles
 
-      - name: Build FXM Connect for Firefox
-        if: steps.plan.outputs.sign == 'true'
-        run: |
-          scripts/release-version.sh --check
-          FXM_EXTENSION_DEV=0 scripts/run.sh pnpm --filter @fxm/extension build
-
-      # Lints the build with AMO's rules, packs the source code for AMO's reviewers, signs with
-      # web-ext (or fetches the version AMO already has, on a re-run) and checks the signed file
-      # against the build.
+      # Uploads the zip, creates the version with the source code for AMO's reviewers, waits for
+      # the signature (or carries on with the version AMO already has, on a re-run) and checks
+      # that the signed file holds the zip's files and Mozilla's signature, and nothing else.
       - name: Sign it on Firefox Add-ons
-        id: sign
-        if: steps.plan.outputs.sign == 'true'
+        id: submit
+        if: steps.plan.outputs.submit == 'true'
         env:
           AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
           AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
-          AMO_CHANNEL: ${{ vars.AMO_CHANNEL }}
           VERSION: ${{ needs.plan.outputs.version }}
         run: >-
-          scripts/run.sh pnpm --filter @fxm/extension --silent store:firefox sign
-          --version "$VERSION" --out "$GITHUB_WORKSPACE/dist/release-firefox"
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/extension/store/firefox.ts submit --channel unlisted --version "$VERSION"
+          --zip "dist/artifacts/release-bundles/fxm-connect-firefox-$VERSION.zip"
+          --out dist/release-firefox
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: steps.sign.outputs.signed == 'true'
+        if: steps.submit.outputs.signed == 'true'
         with:
           name: release-firefox
           path: dist/release-firefox/
@@ -230,6 +252,63 @@ jobs:
           SHA: ${{ needs.plan.outputs.sha }}
         run: scripts/release-publish.sh "$VERSION" "$SHA" dist/release "$RUNNER_TEMP/notes.md"
 
+  firefox-listed:
+    name: Firefox Add-ons listing
+    needs: [plan, bundles, publish]
+    # After the release is published, so that AMO never gets a version GitHub doesn't have.
+    if: >-
+      ${{ !cancelled() && needs.plan.outputs.release == 'true'
+      && needs.publish.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The AMO keys are secrets of this environment, which only runs on main can use.
+    environment: stores
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # Does nothing unless AMO_CHANNEL is listed and the AMO keys are set. Fails when it would
+      # submit a zip that AMO's linter didn't pass.
+      - name: Check the AMO settings
+        id: plan
+        env:
+          AMO_API_KEY_SET: ${{ secrets.AMO_API_KEY != '' }}
+          AMO_API_SECRET_SET: ${{ secrets.AMO_API_SECRET != '' }}
+          AMO_CHANNEL: ${{ vars.AMO_CHANNEL }}
+          FIREFOX_LINT: ${{ needs.bundles.outputs.firefox-lint }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/extension/store/firefox.ts plan --channel listed
+
+      # The Firefox zip exactly as the release published it.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.plan.outputs.submit == 'true'
+        with:
+          name: release-bundles
+          path: dist/artifacts/release-bundles
+
+      # Uploads the zip and creates the listed version, with the listing texts and the source code
+      # for AMO's reviewers. AMO may approve it within minutes or wait for a reviewer; the job
+      # doesn't wait, and Firefox users get the version from AMO once it is approved.
+      - name: Submit FXM Connect to the listing
+        if: steps.plan.outputs.submit == 'true'
+        env:
+          AMO_API_KEY: ${{ secrets.AMO_API_KEY }}
+          AMO_API_SECRET: ${{ secrets.AMO_API_SECRET }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/extension/store/firefox.ts submit --channel listed --version "$VERSION"
+          --zip "dist/artifacts/release-bundles/fxm-connect-firefox-$VERSION.zip"
+
   edge:
     name: Edge Add-ons submission
     needs: [plan, publish]
@@ -239,6 +318,8 @@ jobs:
       && needs.publish.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The Edge key is a secret of this environment, which only runs on main can use.
+    environment: stores
     permissions:
       contents: read
     steps:
@@ -257,9 +338,9 @@ jobs:
       - name: Check the Edge settings
         id: plan
         env:
-          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
-          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
-          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          EDGE_PRODUCT_ID_SET: ${{ secrets.EDGE_PRODUCT_ID != '' }}
+          EDGE_CLIENT_ID_SET: ${{ secrets.EDGE_CLIENT_ID != '' }}
+          EDGE_API_KEY_SET: ${{ secrets.EDGE_API_KEY != '' }}
         run: >-
           node --experimental-strip-types --disable-warning=ExperimentalWarning
           apps/extension/store/edge.ts plan

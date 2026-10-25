@@ -66,6 +66,14 @@ export function createReporter({
   }
 }
 
+/**
+ * Whether a secret is set. A plan step gets only `<NAME>_SET: true` or `false` from the
+ * workflow (`secrets.NAME != ''`), never the value; the step that uses the secret gets the value.
+ */
+export function isSecretSet(env: NodeJS.ProcessEnv, name: string): boolean {
+  return Boolean(env[name]?.trim()) || env[`${name}_SET`] === 'true'
+}
+
 /** Waits `ms` milliseconds. */
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
