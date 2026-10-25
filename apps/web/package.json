@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e && tsc --noEmit -p pwa",
     "test": "vitest run",
     "e2e": "playwright test",
-    "screenshots": "FXM_SCREENSHOTS=1 playwright test screenshots",
+    "screenshots": "FXM_SCREENSHOTS=1 playwright test screenshots pwa.spec",
     "icons": "node scripts/render-icons.ts"
   },
   "dependencies": {
