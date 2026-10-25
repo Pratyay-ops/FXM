@@ -122,14 +122,6 @@ jobs:
           scripts/install-pnpm.sh
           scripts/run.sh pnpm install --frozen-lockfile --dir scripts/build-dist-wrangler
 
-      # Temporary: which _headers path forms Cloudflare applies (reverted with the trigger).
-      - name: Add probe rules
-        run: |
-          for rule in '/zza%41 A' '/zzb%* B' '/zzc%41* C' '/zzd/:name D' '/zze* E' '/zzf:name F' '/zzg%25* G' '/zzh/:name%* H'; do
-            printf '\n%s\n  X-Fxm-Probe: %s\n' "${rule% *}" "${rule##* }" >>dist/pages/_headers
-          done
-          tail -24 dist/pages/_headers
-
       # main goes to its candidate address first; promote deploys production after the checks.
       - name: Deploy
         id: deploy
