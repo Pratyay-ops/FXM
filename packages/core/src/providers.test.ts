@@ -563,6 +563,27 @@ describe('stream options', () => {
     expect([unprobed.fullLength, unlabelled.media]).toEqual([undefined, undefined])
   })
 
+  it('may say that the source forbids downloading them, which downloads filter on', () => {
+    expectTypeOf<StreamOption['downloadAllowed']>().toEqualTypeOf<boolean | undefined>()
+    const flac: StreamOption = {
+      url: 'https://example.test/track.flac',
+      codec: 'flac',
+      container: 'flac',
+      media: 'audio',
+      tier: 'lossless',
+      protocol: 'progressive',
+      ipBound: false,
+      fullLength: 'unverified',
+      downloadAllowed: false,
+    }
+    const mp3: StreamOption = { ...flac, url: 'https://example.test/track.mp3', codec: 'mp3' }
+    const { downloadAllowed: _allowed, ...allowed } = mp3
+    const options = [flac, { ...allowed, container: 'mp3' as const, tier: 'high' as const }]
+    expect(pickStream(options, 'lossless')?.url).toBe(flac.url)
+    const downloadable = options.filter((option) => option.downloadAllowed !== false)
+    expect(pickStream(downloadable, 'lossless')?.url).toBe(mp3.url)
+  })
+
   it('carry the protocol data of a SABR stream as JSON', () => {
     expect(JSON.parse(JSON.stringify(sabr))).toEqual(sabr)
     expectTypeOf<SabrSession>().toExtend<JsonObject>()

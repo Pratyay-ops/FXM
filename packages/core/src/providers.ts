@@ -412,6 +412,13 @@ export interface StreamOption {
    * to say.
    */
   fullLength: FullLengthCheck
+  /**
+   * Whether the source lets this stream be downloaded and kept: `false` when it forbids that,
+   * e.g. a Jamendo track whose artist turned downloads off (`audiodownload_allowed`), which may
+   * still be streamed. Absent means allowed. Downloads skip an option whose value is `false`, so
+   * drop those before `pickStream(options, 'lossless')`; playback ignores the field.
+   */
+  downloadAllowed?: boolean
   /** Headers the request must send, e.g. a `Referer`. */
   requestHeaders?: Record<string, string>
   /**

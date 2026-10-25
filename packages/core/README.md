@@ -90,7 +90,7 @@ The user's Spotify on/off switch is an app setting, not a capability: FXM uses S
 `AudioSource.resolve` returns every `StreamOption` it found, best first, and never drops one because of the preferences, because the same list serves playback and downloads. The caller decides:
 
 - **Playback** removes the options the player cannot decode, then calls `pickStream(options, prefs.streaming.wifi)` (or `.cellular`). The tier is a ceiling: it plays the best option at or below it, and when nothing is at or below it, the option that exceeds it least.
-- **Downloads** take the best option, such as a real FLAC original, with `pickStream(options, 'lossless')`, and label any conversion with `describeConversion`.
+- **Downloads** take the best option, such as a real FLAC original, with `pickStream(options, 'lossless')`, and label any conversion with `describeConversion`. They first drop the options whose optional `downloadAllowed` is `false`: a source may let a track be streamed but not kept, as a Jamendo artist can.
 
 "Best" is the order of `compareStreams`: a `capped` option comes last (see below), and the others go by tier, then audio only before a muxed video, then by bitrate.
 
