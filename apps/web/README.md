@@ -2,7 +2,7 @@
 
 The FXM web player: a React app served from `/app/`, which later also becomes the installable web applet (stage 5.1) and the shell of the Android app (stage 6.1). Everything runs in the browser: there is no FXM backend.
 
-This stage (2.1) is the **shell**: routing, layout, design system, settings and placeholder pages. Search results, playback and the library plug into it in later stages.
+Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Search results and the library plug in with their own stages.
 
 ## Run it
 
@@ -20,8 +20,8 @@ End-to-end tests and screenshots use Playwright and are **not** part of `make ch
 
 ```sh
 scripts/run.sh pnpm --filter @fxm/web exec playwright install chromium
-scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test: navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px
-scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, plus Music + Video and forced colors, in apps/web/screenshots/
+scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test (navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px) and Now playing (saved queue, lyrics, drag and keyboard reordering, review)
+scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, Now playing in use at 320/768/1280, plus Music + Video and forced colors, in apps/web/screenshots/
 ```
 
 Every run builds this checkout and starts its own `vite preview` on port 4173 with `--strictPort`. If the port is busy, for example with another worktree's preview, the run fails instead of testing that server: set `FXM_E2E_PORT` to a free port. Screenshots and Playwright output are gitignored.
@@ -39,11 +39,13 @@ src/
     ui/                 design-system pieces: buttons, IconButton, SegmentedControl, Tabs,
                         RangeSlider, Skeleton, EmptyState, ErrorState, Artwork, Logo
   features/<name>/      one folder per feature: home, search, library, album, artist,
-                        playlist, now-playing, player (bar, controls, store), settings
+                        playlist, now-playing (page, the app's player, stream badge),
+                        queue (panel, review list, saving), lyrics, player (bar, mini
+                        player, controls), settings
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
-e2e/                    Playwright smoke test and screenshot capture
+e2e/                    Playwright smoke test, Now playing test (with now-playing-seed.ts) and screenshot capture
 ```
 
 Later stages own their feature folders (`features/search`, `features/now-playing`, `features/library`, …, see [PLAN.md](../../docs/PLAN.md)), so the shell rarely needs to change.
@@ -52,7 +54,7 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 
 - **Routing:** React Router 7 in data mode (`createBrowserRouter`, library mode, no framework plugin), which is what makes `errorElement` and lazy route modules work. The basename is `import.meta.env.BASE_URL` unchanged (`base: '/app/'` in `vite.config.ts`): with the trailing slash, links to Home point at `/app/`, which Vite serves (`/app` is a 404 there). Home and Search ship with the shell; the other pages are lazy chunks. React Router 8 needs Node 22.22+, newer than the toolchain's Node, so it is a later upgrade.
 - **Layout:** desktop (1024 px+) has the sidebar, top bar and player bar; tablets (768–1023 px) get an icon rail; phones (< 768 px) get a top bar with the page title, a mini player and a tab bar. The page scrolls with the window, so mobile browser bars collapse and `<ScrollRestoration>` works. Bottom bars pad for `env(safe-area-inset-bottom)`. `--shell-top` and `--shell-bottom` (in `styles/index.css`) hold the height the bars cover; `html` uses them as `scroll-padding`, so keyboard focus never lands behind a bar. Page content and the top bar row share `max-w-page`.
-- **State:** Zustand. `features/settings/settings-store.ts` persists `{ catalogMode, theme }` to `localStorage` under `fxm.settings.v1`; invalid or unreadable data falls back to the defaults, and other open tabs follow changes. `features/player/player-store.ts` is placeholder UI state: every control responds, nothing plays. TanStack Query is set up with no queries yet.
+- **State:** Zustand. `features/settings/settings-store.ts` persists `{ catalogMode, theme }` to `localStorage` under `fxm.settings.v1`; invalid or unreadable data falls back to the defaults, and other open tabs follow changes. `features/player/player-store.ts` is the player bar's view of the app's player (seconds, `isPlaying`), with actions that drive it; its `liked` is a placeholder until the library (2.6). TanStack Query holds the lyrics and the alternative versions.
 - **Theme:** dark by default, plus light and system. `data-theme` on `<html>` switches the tokens; the inline script in `index.html` applies the saved theme before React loads (a content security policy must allow it by hash).
 - **Errors:** page errors render inside the shell with "Try again" (`RouteError`); a broken shell falls back to a full-page error, and `AppErrorBoundary` wraps everything. Error screens are announced to screen readers (`role="alert"`).
 - **Accessibility:** a skip link focuses `<main>` without touching the history, `RouteAnnouncer` tells screen readers which page a link opened, and forced colors (Windows High Contrast) keep sliders, segmented controls and tabs readable.
@@ -85,3 +87,54 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 - Respect reduced motion: transitions and animations are shortened globally, skeletons stop shimmering.
 - Respect the catalog mode wherever results appear: `useSettingsStore((s) => s.catalogMode)`. Music shows catalog songs only; Music + Video also shows videos, played as music.
 - Tests use `renderApp(path)` from `src/test/render.tsx`, which renders the real providers and routes with a memory router. Stores and `localStorage` are reset after every test. Behaviour that depends on the browser history (basename, back and forward, the skip link) is tested with the real browser router in `src/app/router.test.tsx`.
+
+## Playback, Now playing, queue and lyrics
+
+Stage 2.5. Three feature folders, plus the player bar and mini player in `features/player/`, which show the same player.
+
+### The app's player (`features/now-playing/playback.ts`)
+
+One `Player` facade from [`@fxm/player`](../../packages/player/README.md) for the whole app, created on first use:
+
+- it plays through the `DirectAudioEngine` and gets its streams from the playback policy (below);
+- it starts in the catalog mode of the settings and follows it (`setCatalogMode`);
+- it shows the current track in the system media controls (`connectMediaSession`);
+- it saves the queue, the position, the volume and mute in `localStorage` and puts them back, paused, after a reload (`features/queue/queue-storage.ts`: `fxm.queue.v1`, written shortly after each change, and `fxm.playback.v1`, written every few seconds while playing, on pauses and seeks and when the page is hidden). What comes back goes through `restoreQueue`.
+
+Components read it with `usePlayerState(selector)` (the selector returns a value from the state or a primitive), `useCurrentItem()` and `usePlayerEvent(type, handler)`. Event handlers call `getPlayer()`'s methods directly, so playback starts inside the user's gesture. Other features queue music the same way: `getPlayer().setQueue(tracks, { context, startIndex, shuffle })`, `playNext(tracks)`, `addToQueue(tracks)`.
+
+### Now playing (`features/now-playing/`)
+
+- **Stream badge** (`stream-label.ts`, `stream-info.tsx`): the format and the source of what plays, such as "Opus · YouTube Music" or "AAC from 360p video · YouTube Music", and for audio found for another catalog's track the match, "Matched from Spotify · 0.93" (an official video playing its song in Music mode: "Song version"). The badge opens the stream details: format and bitrate, quality tier, file type, source, and for a match what it matched, the confidence and the evidence. Names are plain words, never logos or brand colours ([LEGAL.md](../../docs/LEGAL.md)).
+- **"Not the right version?"** (`version-switcher.tsx`) on matched audio: the current version, the ranked alternatives, and a search for the song. A pick becomes the audio of every queue item of that track (`setCandidate`, which switches the playing one at the same position), and the policy pins it.
+- **A best guess** waiting for review shows "Is this the right version?" with "It’s right" and the switcher.
+- Why playback stopped (`PlayerState.error`), in words, with "Try again". Phones get the controls under the title; from 768px the player bar has them.
+
+### Queue panel (`features/queue/`)
+
+- The current song and the songs up next, in play order, with "Playing from …" and Clear. Selecting a row plays it; X removes it (focus moves to the next row).
+- **Reordering** (`use-drag-reorder.ts`): drag a row's handle with a mouse, a pen or a finger (the handle has `touch-action: none`; the window scrolls near the bars), or focus the handle and press the arrow keys, Home or End. Each move is announced.
+- **Needs review** (`review-store.ts`, `review-actions.ts`, `review-dialog.tsx`): tracks whose audio is only a Suggest-band match, each with its best guess, as the playback policy reports them. Rows say "Needs review" (skipped) or "Best guess" (playing it anyway). "Approve all" approves every best guess in one tap and moves the ones the queue already skipped up to play next; "Review" lists them to approve one by one or to pick other versions. Selecting a row that needs review plays its best guess once, without approving it. The list is saved with the queue (`fxm.queue-review.v1`) and follows it: tracks that leave the queue leave the list, and a new catalog mode starts it over.
+- **"Play best guesses"** (off by default) lets Suggest-band matches play without review. It is saved with the review list and passed to the policy.
+- The first 100 songs up next show, then "Show all".
+
+### Lyrics (`features/lyrics/`)
+
+- From LRCLIB through the provider of stage 1.8 (`@fxm/sources/lrclib`), one instance for the app, with the page's `fetch` and no cookies (`lyrics-source.ts`). LRCLIB answers every origin, so lyrics work on every tier. They are looked up only while the lyrics tab shows, once per track (TanStack Query), and for the next track when the current one nears its end.
+- What is looked up is what plays: a matched track keeps its own names but takes the duration of its match; an official video playing its song looks up the song.
+- **Synced lyrics** highlight the line being sung (and, with enhanced LRC, the words sung so far) and keep it in view. The position moves on between the player's reports every animation frame. Selecting a line plays from there (**tap to seek**). Scrolling the lyrics pauses the following for a few seconds ("Current line" brings it back).
+- Plain lyrics show as text, with a note; no lyrics, loading and errors (LRCLIB busy, offline) have their own states. The lyrics credit LRCLIB.
+
+### Where unmerged stages plug in
+
+Each touch-point with a stage that wasn't merged when 2.5 was built sits behind one module, so integration changes only that module:
+
+| Stage | Module | Today | Integration |
+|---|---|---|---|
+| 2.3 Playback policy | `features/now-playing/playback-policy.ts` | `createPendingPolicy()`: every resolution fails with `Unsupported` (nothing plays), no alternatives, no reports | `createAppPolicy()` returns 2.3's policy: its stream lifecycle as the `resolver`, its Suggest-band reports (`onNeedsReview`), the matching engine's `alternatives`, the match cache's `pin` (2.6) and "Play best guesses" |
+| 2.4 Search and browse | `features/now-playing/browse-links.ts` | Searches link to `/search?q=`; artist, album and playlist names are plain text | `entityPath(id)` returns 2.4's page for an entity |
+| 1.2 Platform | `lyricsContext()` in `features/lyrics/lyrics-source.ts` | The page's `fetch` (LRCLIB is CORS-friendly) | The platform's context, so desktop and Android use their native HTTP |
+
+### Tests
+
+`features/now-playing/testing.ts` has the helpers: `setupTestPlayback()` (the app's player on a `FakeEngine` and a `FakePolicy`, whose `resolver` is a `FakeResolver` and which reports best guesses with `reportNeedsReview`), `setupTestLyrics(handler)`, `spotifyTrack`, `testCandidate` and `syncedLyrics`. The test setup resets the player, the review list and the lyrics provider after every test. `e2e/now-playing.spec.ts` checks the restored queue, the lyrics, seeking, drag and keyboard reordering and the review in a real browser, from the saved state in `e2e/now-playing-seed.ts` (made-up songs, inline SVG artwork, LRCLIB answered by a route).
