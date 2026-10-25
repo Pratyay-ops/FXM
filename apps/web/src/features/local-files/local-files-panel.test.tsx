@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { renderApp } from '../../test/render'
+import { renderCatalog, resetCatalogState } from '../search/testing'
 import { resetLocalFiles } from './local-files'
 import { configureLocalPlayer, getLocalPlayer, resetLocalPlayer } from './player'
 import { type ReadTags, readTags } from './tags'
@@ -478,6 +479,8 @@ describe('the Local files tab', () => {
 })
 
 describe('local files in search', () => {
+  afterEach(resetCatalogState)
+
   it('marks songs of chosen files the browser forgot, as the Library does', async () => {
     const { files, deps } = await installTestLocalFiles({ canKeepFolders: () => false })
     await files.addPicked([audioFile(flacFile({ tags: { title: 'Night Drive' } }), 'night.flac')])
@@ -509,7 +512,8 @@ describe('local files in search', () => {
 
   it('shows nothing when no local file matches', async () => {
     await withFolder()
-    renderApp('/search?q=zzz')
+    // With a catalog to search, the page shows its results under the query's heading.
+    renderCatalog('/search?q=zzz')
     expect(await screen.findByRole('heading', { name: 'Results for “zzz”' })).toBeVisible()
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByRole('heading', { name: 'On this device' })).toBeNull()

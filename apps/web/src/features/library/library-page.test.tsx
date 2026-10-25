@@ -5,6 +5,7 @@ import { getLibrary, resetLibrary } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from '../../db/types'
 import { track, tracks } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
+import { setupTestPlayback } from '../now-playing/testing'
 import { playlistPath } from './paths'
 
 /**
@@ -327,6 +328,8 @@ describe('Library page', { timeout: 30_000 }, () => {
   })
 
   it('likes the playing track from the player bar', async () => {
+    const { player: appPlayer } = setupTestPlayback()
+    await appPlayer.setQueue([track(7)], { autoplay: false })
     const { user } = renderApp('/library?tab=liked')
     expect(
       await main().findByRole('heading', { name: 'Songs you like show up here' }),
@@ -338,7 +341,7 @@ describe('Library page', { timeout: 30_000 }, () => {
     await user.click(player.getByRole('button', { name: 'Like', pressed: false }))
 
     const list = await songs('Liked songs')
-    expect(rowNames(list)).toEqual(['Track title'])
+    expect(rowNames(list)).toEqual(['Song 7'])
     // Every like button follows, the mini player's too.
     await waitFor(() => {
       for (const region of screen.getAllByRole('region', { name: 'Player' })) {

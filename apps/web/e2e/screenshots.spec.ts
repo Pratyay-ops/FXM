@@ -96,9 +96,15 @@ async function seedSettings(page: Page, catalogMode: CatalogMode, theme: Theme) 
   )
 }
 
-/** Waits for the parts of the shell that load just after it: the like button, the playlists. */
+/**
+ * Waits for the parts of the shell that load just after it: the sidebar's playlists and, when a
+ * song is queued, the like button (a disabled stand-in until the library loads; it stays off
+ * while nothing plays).
+ */
 async function waitForShell(page: Page) {
-  await expect(page.getByRole('button', { name: 'Like' }).first()).toBeEnabled()
+  if ((await page.getByRole('link', { name: /^Open now playing: / }).count()) > 0) {
+    await expect(page.getByRole('button', { name: 'Like' }).first()).toBeEnabled()
+  }
   if ((page.viewportSize()?.width ?? 0) >= 768) {
     await page.getByRole('region', { name: 'Your playlists' }).getByRole('link').first().waitFor()
   }
@@ -295,6 +301,7 @@ async function captureNowPlaying(page: Page, prefix: string) {
 
   await page.goto('now-playing')
   await page.getByRole('button', { name: 'Hold the light a little longer' }).first().waitFor()
+  await waitForShell(page)
   await shoot('now-playing')
   await scrollToPanels()
   await shoot('now-playing-lyrics')
@@ -305,6 +312,7 @@ async function captureNowPlaying(page: Page, prefix: string) {
 
   await page.goto('now-playing?tab=queue')
   await page.getByRole('heading', { name: 'Next up' }).waitFor()
+  await waitForShell(page)
   await scrollToPanels()
   await shoot('now-playing-queue')
   await page.getByRole('button', { name: 'Move Winter Radio', exact: true }).click()
