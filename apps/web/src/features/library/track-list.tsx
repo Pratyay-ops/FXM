@@ -1,6 +1,6 @@
 import type { EntityId, Track } from '@fxm/core'
 import { Clock3, Ellipsis, GripVertical, Heart, ListMinus, ListPlus, Music } from 'lucide-react'
-import { memo, type ReactNode, useCallback, useMemo, useState } from 'react'
+import { memo, type ReactNode, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
 import { useLibrary } from '../../db/hooks'
 import type { MoveTarget } from '../../db/ordering'
@@ -9,20 +9,23 @@ import type { TrackRow } from '../../db/repo'
 import type { OrderUndo } from '../../db/types'
 import { cn } from '../../lib/cn'
 import { CoverArt } from './cover-art'
+import { failureText } from './failure'
 import { addedLabel, artistNames, artworkUrl, countLabel, trackDuration } from './format'
 import {
   moveMenuItems,
+  moveMessage,
   OrderNotice,
   OrderToolbar,
   SelectionAction,
   SelectionBar,
   useOptimisticOrder,
 } from './order-controls'
-import { AddToPlaylistDialog, failureText } from './playlist-dialogs'
+import { AddToPlaylistDialog } from './playlist-dialogs'
 import { sortTrackRows, TRACK_SORTS } from './sort'
 import { SortableList, useDragState, useSortableItem } from './sortable'
 import { showStatus } from './status'
-import { type MenuItem, MenuPopup } from './ui/menu'
+import { type MenuItem, MenuPopup, returnFocusTo } from './ui/menu'
+import { neighborAfterRemoval, rowControl, useFocusAfterRemoval } from './use-focus-after-removal'
 import { useSelection } from './use-selection'
 import { CUSTOM_VIEW, useLibraryViewStore, useTrackView } from './view-store'
 
@@ -44,6 +47,13 @@ export interface TrackListProps {
 
 const UNKNOWN_TITLE = 'Unavailable song'
 
+/** The controls of a row that can take focus after a removal, by `data-*` attribute. */
+const CONTROLS = {
+  menu: '[data-row-menu]',
+  select: 'input[type="checkbox"]',
+  like: '[data-row-like]',
+} as const
+
 interface RowBodyProps {
   id: string
   title: string
@@ -64,8 +74,9 @@ interface RowBodyProps {
 }
 
 /**
- * Everything in a row but its drag handle. Memoized on plain values, so a reorder or a like
- * re-renders only the rows it changes, also in a list of thousands.
+ * Everything in a row but its drag handle. Memoized on plain values and callbacks that keep
+ * their identity, so a reorder or a like re-renders only the rows it changes, also in a list
+ * of thousands.
  */
 const RowBody = memo(function RowBody({
   id,
@@ -87,7 +98,7 @@ const RowBody = memo(function RowBody({
   return (
     <>
       {selecting ? (
-        <label className="grid size-touch shrink-0 cursor-pointer place-items-center lg:size-8">
+        <label className="grid size-touch shrink-0 cursor-pointer place-items-center lg:size-8 lg:pointer-coarse:size-touch">
           <input
             type="checkbox"
             checked={selected}
@@ -118,6 +129,7 @@ const RowBody = memo(function RowBody({
           size="sm"
           pressed={liked}
           disabled={!canLike && !liked}
+          data-row-like=""
           onClick={() => onToggleLike(id)}
         />
       </span>
@@ -131,6 +143,7 @@ const RowBody = memo(function RowBody({
           aria-label={`More options for ${title}`}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
+          data-row-menu=""
           className={iconButtonClasses({ size: 'sm' })}
           onClick={(event) => onOpenMenu(id, event.currentTarget)}
         >
@@ -154,6 +167,7 @@ function SortableRow({ reorder, ...body }: SortableRowProps) {
     <li
       ref={setNodeRef}
       style={style}
+      data-row={body.id}
       className={cn(
         'flex items-center gap-2 rounded-lg py-1.5 pr-1 [contain-intrinsic-size:auto_3.5rem] [content-visibility:auto] [counter-increment:row] sm:gap-3',
         !reorder && 'pl-2',
@@ -204,49 +218,92 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   }, [custom, rows, view, customIds, byId])
   const ids = useMemo(() => shownRows.map((row) => row.id as string), [shownRows])
 
+  // Rows change with every write to the library. The callbacks the memoized rows get read them
+  // through refs, so they keep their identity and a like re-renders only its own row.
+  const byIdRef = useRef(byId)
+  byIdRef.current = byId
+  const idsRef = useRef(ids)
+  idsRef.current = ids
+
   const [selecting, setSelecting] = useState(false)
   const selection = useSelection(ids)
   const [adding, setAdding] = useState<Track[] | null>(null)
   const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null)
+  const listRef = useRef<HTMLOListElement>(null)
+  const emptyRef = useRef<HTMLDivElement>(null)
+  const focusAfter = useFocusAfterRemoval(ids)
+  const sortId = useId()
   const plural = 'songs'
 
-  const titleOf = useCallback((id: string) => byId.get(id)?.track?.title ?? UNKNOWN_TITLE, [byId])
-
-  const move = useCallback(
-    (keys: string[], target: MoveTarget) => {
-      const next = moveKeys(customIds, keys, target)
-      apply(next, () => repo.moveItems(listId, keys, target)).catch((error: unknown) =>
-        showStatus(failureText(error)),
-      )
-    },
-    [apply, customIds, listId, repo],
+  const titleOf = useCallback(
+    (id: string) => byIdRef.current.get(id)?.track?.title ?? UNKNOWN_TITLE,
+    [],
   )
 
-  const toggleLike = useCallback(
-    (id: string) => {
-      const row = byId.get(id)
-      if (!row) return
-      const done = row.track ? repo.toggleLike(row.track) : repo.unlike(row.id).then(() => false)
-      done.then(
-        (liked) =>
-          showStatus(liked ? 'Saved to Liked songs' : `Removed ${titleOf(id)} from Liked songs`),
+  /** Keeps focus in the list when `gone` leave it: on the next row's `control`, else the list. */
+  const keepFocus = useCallback(
+    (gone: readonly string[], control: keyof typeof CONTROLS) => {
+      const neighbor = neighborAfterRemoval(idsRef.current, new Set(gone))
+      focusAfter.expect(
+        gone,
+        () => rowControl(listRef.current, neighbor, CONTROLS[control]) ?? emptyRef.current,
+      )
+    },
+    [focusAfter],
+  )
+
+  const move = useCallback(
+    (keys: string[], target: MoveTarget, announce = false) => {
+      const next = moveKeys(customIds, keys, target)
+      apply(next, () => repo.moveItems(listId, keys, target)).then(
+        (moved) => {
+          if (!moved || !announce) return
+          const moving = new Set(keys)
+          const what = next.filter((key) => moving.has(key))
+          const noun = (count: number) => countLabel(count, 'song')
+          showStatus(moveMessage(what, target, next, { nameOf: titleOf, noun }))
+        },
         (error: unknown) => showStatus(failureText(error)),
       )
     },
-    [byId, repo, titleOf],
+    [apply, customIds, listId, repo, titleOf],
+  )
+  /** A move from a menu: drag and drop announces its own moves, menus need the toast. */
+  const moveFromMenu = (keys: string[], target: MoveTarget) => move(keys, target, true)
+
+  const toggleLike = useCallback(
+    (id: string) => {
+      const row = byIdRef.current.get(id)
+      if (!row) return
+      const title = row.track?.title ?? UNKNOWN_TITLE
+      // Unliking in Liked songs removes the row, and its like button with it.
+      if (kind === 'liked' && row.liked) keepFocus([id], 'like')
+      const done = row.track ? repo.toggleLike(row.track) : repo.unlike(row.id).then(() => false)
+      done.then(
+        (liked) => showStatus(liked ? 'Saved to Liked songs' : `Removed ${title} from Liked songs`),
+        (error: unknown) => {
+          focusAfter.cancel()
+          showStatus(failureText(error))
+        },
+      )
+    },
+    [focusAfter, keepFocus, kind, repo],
   )
 
   const remove = useCallback(
-    async (keys: string[]) => {
+    async (keys: string[], from: 'menu' | 'selection') => {
+      keepFocus(keys, from === 'menu' ? 'menu' : 'select')
       try {
         const removed = await repo.removeTracks(listId, keys as EntityId<'track'>[])
+        if (removed === 0) focusAfter.cancel()
         const what = keys.length === 1 ? titleOf(keys[0] as string) : countLabel(removed, 'song')
         showStatus(`Removed ${what} from ${name}`)
       } catch (error) {
+        focusAfter.cancel()
         showStatus(failureText(error))
       }
     },
-    [listId, name, repo, titleOf],
+    [focusAfter, keepFocus, listId, name, repo, titleOf],
   )
 
   const openMenu = useCallback((id: string, anchor: HTMLElement) => setMenu({ id, anchor }), [])
@@ -254,13 +311,30 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
     (returnFocus: boolean) => {
       const anchor = menu?.anchor
       setMenu(null)
-      // After the next frame, when a move from the menu has re-rendered the list.
-      if (returnFocus && anchor) requestAnimationFrame(() => anchor.isConnected && anchor.focus())
+      if (returnFocus && anchor) returnFocusTo(anchor)
     },
     [menu],
   )
 
-  if (rows.length === 0) return <>{empty}</>
+  const saveSorted = async () => {
+    try {
+      // Through the optimistic order, so the custom view shows the saved order at once.
+      await apply(ids, () => repo.setOrder(listId, ids, 'sort'))
+      setTrackView(listId, CUSTOM_VIEW)
+      showStatus('Saved as the custom order')
+    } catch (error) {
+      showStatus(failureText(error))
+    }
+  }
+
+  if (rows.length === 0) {
+    // Focusable, so focus has somewhere to go when the last song is removed.
+    return (
+      <div ref={emptyRef} tabIndex={-1} className="rounded-2xl">
+        {empty}
+      </div>
+    )
+  }
 
   const removeLabel = kind === 'liked' ? 'Remove from Liked songs' : 'Remove from this playlist'
   const menuItems = (id: string): MenuItem[] => {
@@ -268,7 +342,9 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
     const index = ids.indexOf(id)
     const items: MenuItem[] = []
     if (custom) {
-      items.push(...moveMenuItems((target) => move([id], target), { index, total: ids.length }))
+      items.push(
+        ...moveMenuItems((target) => moveFromMenu([id], target), { index, total: ids.length }),
+      )
       items.push({ kind: 'separator', id: 'separator' })
     }
     items.push({
@@ -293,7 +369,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
         label: removeLabel,
         icon: ListMinus,
         danger: true,
-        onSelect: () => remove([id]),
+        onSelect: () => remove([id], 'menu'),
       })
     }
     return items
@@ -322,20 +398,14 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
           setSelecting(on)
           if (!on) selection.clear()
         }}
+        sortId={sortId}
       />
       <OrderNotice
         sorts={TRACK_SORTS}
         view={view}
         undo={undo}
-        onSave={async () => {
-          try {
-            await repo.setOrder(listId, ids, 'sort')
-            setTrackView(listId, CUSTOM_VIEW)
-            showStatus('Saved as the custom order')
-          } catch (error) {
-            showStatus(failureText(error))
-          }
-        }}
+        focusAfter={() => document.getElementById(sortId)}
+        onSave={saveSorted}
         onCustom={() => setTrackView(listId, CUSTOM_VIEW)}
         onUndo={async () => {
           try {
@@ -350,7 +420,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
           count={selected.length}
           noun={plural}
           canMove={custom}
-          onMove={(target) => move(selected, target)}
+          onMove={(target) => moveFromMenu(selected, target)}
           onClear={selection.clear}
           onSelectAll={selection.selectAll}
         >
@@ -361,7 +431,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
             </span>
           </SelectionAction>
           {kind !== 'downloads' && (
-            <SelectionAction danger onClick={() => remove(selected)}>
+            <SelectionAction danger onClick={() => remove(selected, 'selection')}>
               <ListMinus aria-hidden="true" />
               Remove
             </SelectionAction>
@@ -392,7 +462,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
         plural={plural}
         onMove={move}
       >
-        <ol aria-label={`Songs in ${name}`} className="-mx-1 [counter-reset:row]">
+        <ol ref={listRef} aria-label={`Songs in ${name}`} className="-mx-1 [counter-reset:row]">
           {shownRows.map((row) => (
             <SortableRow
               key={row.id}

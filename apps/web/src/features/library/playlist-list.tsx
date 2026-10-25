@@ -1,27 +1,30 @@
 import { Copy, Ellipsis, GripVertical, ListMinus, Pencil, Trash } from 'lucide-react'
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { iconButtonClasses } from '../../components/ui/icon-button'
 import { useLibrary } from '../../db/hooks'
-import { type MoveTarget, moveKeys } from '../../db/ordering'
+import { type MoveTarget, moveKeys, sameOrder } from '../../db/ordering'
 import type { PlaylistSummary } from '../../db/repo'
 import { PLAYLISTS_ORDER_ID } from '../../db/types'
 import { cn } from '../../lib/cn'
 import { CoverArt } from './cover-art'
-import { artworkUrl } from './format'
+import { failureText } from './failure'
+import { artworkUrl, countLabel } from './format'
 import {
   moveMenuItems,
+  moveMessage,
   OrderNotice,
   OrderToolbar,
   SelectionBar,
   useOptimisticOrder,
 } from './order-controls'
 import { playlistIcon, playlistPath, playlistSubtitle } from './paths'
-import { duplicatePlaylist, failureText, type PlaylistRef } from './playlist-dialogs'
+import { duplicatePlaylist, type PlaylistRef } from './playlist-dialogs'
 import { PLAYLIST_SORTS, sortPlaylists } from './sort'
 import { SortableList, useDragState, useSortableItem } from './sortable'
 import { showStatus } from './status'
-import { type MenuItem, MenuPopup } from './ui/menu'
+import { type MenuItem, MenuPopup, returnFocusTo } from './ui/menu'
+import { neighborAfterRemoval, rowControl, useFocusAfterRemoval } from './use-focus-after-removal'
 import { useSelection } from './use-selection'
 import { CUSTOM_VIEW, useLibraryViewStore } from './view-store'
 
@@ -44,13 +47,42 @@ export function usePlaylistOrdering(items: readonly PlaylistSummary[]) {
   )
   const ids = useMemo(() => shownItems.map((item) => item.id as string), [shownItems])
 
+  // "Save as custom order" switches to the custom view only once the saved order is in the
+  // data, which the sidebar and the Library page share (`usePlaylistList`): until then the
+  // sort shows that very order, so neither list ever shows the old one in between.
+  const storedRef = useRef(storedIds)
+  storedRef.current = storedIds
+  const switchAfterSave = useRef<readonly string[] | null>(null)
+  useEffect(() => {
+    const before = switchAfterSave.current
+    if (before === null || sameOrder(storedIds, before)) return
+    switchAfterSave.current = null
+    setView(CUSTOM_VIEW)
+  }, [storedIds, setView])
+
+  /** Moves playlists; one moved from a menu is announced (drag and drop announces its own). */
   const move = useCallback(
-    (keys: string[], target: MoveTarget) => {
-      apply(moveKeys(shown, keys, target), () =>
-        repo.moveItems(PLAYLISTS_ORDER_ID, keys, target),
-      ).catch((error: unknown) => showStatus(failureText(error)))
+    (keys: string[], target: MoveTarget, announce = false) => {
+      const next = moveKeys(shown, keys, target)
+      apply(next, () => repo.moveItems(PLAYLISTS_ORDER_ID, keys, target)).then(
+        (moved) => {
+          if (!moved || !announce) return
+          const moving = new Set(keys)
+          const message = moveMessage(
+            next.filter((key) => moving.has(key)),
+            target,
+            next,
+            {
+              nameOf: (key) => byId.get(key)?.name ?? 'Playlist',
+              noun: (count) => countLabel(count, 'playlist'),
+            },
+          )
+          showStatus(message)
+        },
+        (error: unknown) => showStatus(failureText(error)),
+      )
     },
-    [apply, repo, shown],
+    [apply, byId, repo, shown],
   )
 
   const run = useCallback(async (action: () => Promise<boolean>, done: string) => {
@@ -69,14 +101,18 @@ export function usePlaylistOrdering(items: readonly PlaylistSummary[]) {
     ids,
     byId,
     move,
+    moveFromMenu: (keys: string[], target: MoveTarget) => move(keys, target, true),
     shuffle: () =>
       run(() => repo.shuffleOrder(PLAYLISTS_ORDER_ID), 'Shuffled the order of your playlists'),
     undo: () => run(() => repo.undoOrder(PLAYLISTS_ORDER_ID), 'Restored the previous order'),
     saveSorted: () =>
       run(async () => {
+        const before = storedRef.current
         const saved = await repo.setOrder(PLAYLISTS_ORDER_ID, ids, 'sort')
-        setView(CUSTOM_VIEW)
-        return saved
+        // Nothing changed, or the new order has arrived already: switch now.
+        if (!saved || !sameOrder(storedRef.current, before)) setView(CUSTOM_VIEW)
+        else switchAfterSave.current = before
+        return true
       }, 'Saved as the custom order'),
     showCustom: () => setView(CUSTOM_VIEW),
   }
@@ -85,8 +121,39 @@ export function usePlaylistOrdering(items: readonly PlaylistSummary[]) {
 /** What a playlist's menu needs to do besides moving. */
 export interface PlaylistActions {
   rename: (playlist: PlaylistRef) => void
-  remove: (playlist: PlaylistRef) => void
-  unfollow: (item: PlaylistSummary) => void
+  /**
+   * Asks to delete a playlist. `focusAfter` names what takes focus once it is gone: the
+   * button that opened the dialog goes with it.
+   */
+  remove: (playlist: PlaylistRef, focusAfter?: () => HTMLElement | null) => void
+  /** Removes a followed playlist from the library; resolves to whether that worked. */
+  unfollow: (item: PlaylistSummary) => Promise<boolean>
+}
+
+/**
+ * The actions of a list's rows, keeping focus in the list when a row goes away: after a
+ * delete or an unfollow, the next row's menu button gets it (the previous row's for the last).
+ */
+export function useRowActions(
+  actions: PlaylistActions,
+  ids: readonly string[],
+  list: { readonly current: HTMLElement | null },
+): PlaylistActions {
+  const focusAfter = useFocusAfterRemoval(ids)
+  const next = (id: string) => {
+    const neighbor = neighborAfterRemoval(ids, new Set([id]))
+    return () => rowControl(list.current, neighbor, '[data-row-menu]')
+  }
+  return {
+    rename: actions.rename,
+    remove: (playlist) => actions.remove(playlist, next(playlist.id)),
+    unfollow: async (item) => {
+      focusAfter.expect([item.id], next(item.id))
+      const done = await actions.unfollow(item)
+      if (!done) focusAfter.cancel()
+      return done
+    },
+  }
 }
 
 /** The menu of one playlist: moves in the custom order, then what the playlist allows. */
@@ -102,6 +169,7 @@ export function playlistMenuItems(
     custom: boolean
     index: number
     total: number
+    /** Moves from the menu, announced. */
     move: (keys: string[], target: MoveTarget) => void
     actions: PlaylistActions
   },
@@ -147,16 +215,21 @@ export function playlistMenuItems(
   return items
 }
 
-/** Unfollows a followed playlist and confirms it. */
+/** Unfollows a followed playlist and confirms it; resolves to whether that worked. */
 export function useUnfollow() {
   const repo = useLibrary()
   return useCallback(
-    (item: PlaylistSummary) => {
+    (item: PlaylistSummary): Promise<boolean> =>
       repo.unfollow(item.id).then(
-        () => showStatus(`Removed ${item.name} from your library`),
-        (error: unknown) => showStatus(failureText(error)),
-      )
-    },
+        () => {
+          showStatus(`Removed ${item.name} from your library`)
+          return true
+        },
+        (error: unknown) => {
+          showStatus(failureText(error))
+          return false
+        },
+      ),
     [repo],
   )
 }
@@ -191,7 +264,7 @@ const RowBody = memo(function RowBody({
   return (
     <>
       {selecting && (
-        <label className="grid size-touch shrink-0 cursor-pointer place-items-center lg:size-8">
+        <label className="grid size-touch shrink-0 cursor-pointer place-items-center lg:size-8 lg:pointer-coarse:size-touch">
           <input
             type="checkbox"
             checked={selected}
@@ -223,6 +296,7 @@ const RowBody = memo(function RowBody({
           aria-label={`More options for ${name}`}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
+          data-row-menu=""
           className={iconButtonClasses({ size: 'sm' })}
           onClick={(event) => onOpenMenu(id, event.currentTarget)}
         >
@@ -242,6 +316,7 @@ function SortableRow({ reorder, ...body }: RowProps) {
     <li
       ref={setNodeRef}
       style={style}
+      data-row={body.id}
       className={cn(
         'flex items-center gap-2 rounded-lg p-1 sm:gap-3',
         !reorder && 'pl-2',
@@ -280,17 +355,20 @@ export function PlaylistList({
   actions: PlaylistActions
 }) {
   const ordering = usePlaylistOrdering(stored)
-  const { custom, ids, byId, move } = ordering
+  const { custom, ids, byId, move, moveFromMenu } = ordering
   const [selecting, setSelecting] = useState(false)
   const selection = useSelection(ids)
   const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null)
+  const listRef = useRef<HTMLOListElement>(null)
+  const rowActions = useRowActions(actions, ids, listRef)
+  const sortId = useId()
   const nameOf = useCallback((id: string) => byId.get(id)?.name ?? 'Playlist', [byId])
   const openMenu = useCallback((id: string, anchor: HTMLElement) => setMenu({ id, anchor }), [])
   const closeMenu = useCallback(
     (returnFocus: boolean) => {
       const anchor = menu?.anchor
       setMenu(null)
-      if (returnFocus && anchor) requestAnimationFrame(() => anchor.isConnected && anchor.focus())
+      if (returnFocus && anchor) returnFocusTo(anchor)
     },
     [menu],
   )
@@ -311,11 +389,13 @@ export function PlaylistList({
           setSelecting(on)
           if (!on) selection.clear()
         }}
+        sortId={sortId}
       />
       <OrderNotice
         sorts={PLAYLIST_SORTS}
         view={ordering.view}
         undo={undo}
+        focusAfter={() => document.getElementById(sortId)}
         onSave={ordering.saveSorted}
         onCustom={ordering.showCustom}
         onUndo={ordering.undo}
@@ -325,7 +405,7 @@ export function PlaylistList({
           count={selected.length}
           noun="playlists"
           canMove={custom}
-          onMove={(target) => move(selected, target)}
+          onMove={(target) => moveFromMenu(selected, target)}
           onClear={selection.clear}
           onSelectAll={selection.selectAll}
         />
@@ -338,7 +418,7 @@ export function PlaylistList({
         plural="playlists"
         onMove={move}
       >
-        <ol aria-label="Your playlists" className="-mx-1">
+        <ol ref={listRef} aria-label="Your playlists" className="-mx-1">
           {ordering.items.map((item) => (
             <SortableRow
               key={item.id}
@@ -365,8 +445,8 @@ export function PlaylistList({
             custom,
             index: ids.indexOf(menu.id),
             total: ids.length,
-            move,
-            actions,
+            move: moveFromMenu,
+            actions: rowActions,
           })}
           onClose={closeMenu}
         />

@@ -3,6 +3,11 @@
  * later. Each `sanitize…` function returns a clean copy that holds only the known fields, or
  * `null` when the value can't be used, so bad data never reaches the database (fail closed).
  *
+ * Tracks, audio candidates, match signals and play contexts go through the cleaners of
+ * `@fxm/core` that also restore a saved queue (`cleanTrack`, `cleanCandidate`, `cleanSignals`,
+ * `cleanContext`), so FXM checks them the same way wherever it reads them back. This module
+ * adds only the library's own limits on top: http(s) artwork, and bounded text and lists.
+ *
  * Keys that the database derives (a like's `entityKey`, a match's cache key) are recomputed,
  * never trusted, and the built-in playlists keep their names.
  *
@@ -10,12 +15,15 @@
  */
 
 import {
-  type AlbumRef,
   type ArtistRef,
   type Artwork,
   type AudioCandidate,
   type Codec,
   type Container,
+  cleanCandidate,
+  cleanContext,
+  cleanSignals,
+  cleanTrack,
   type EntityId,
   entityKey,
   isCatalogMode,
@@ -26,16 +34,17 @@ import {
   type JsonValue,
   type MatchSignals,
   normalizeIsrc,
+  type QueueContext,
+  type SourceId,
   type StreamMedia,
   type Track,
-  type TrackKind,
 } from '@fxm/core'
 import { matchKey } from './match-cache'
 import {
   FOLLOW_KINDS,
   type FollowKind,
   type FollowRecord,
-  type HistoryRecord,
+  type HistoryEntry,
   IMPORT_STATUSES,
   type ImportProgressRecord,
   isLocalPlaylistId,
@@ -47,7 +56,6 @@ import {
   type OrderRecord,
   type OrderUndo,
   PLAYLISTS_ORDER_ID,
-  type PlayContext,
   type PlaylistRecord,
   type SettingRecord,
   type StreamInfo,
@@ -61,6 +69,8 @@ import {
 const MAX_TEXT = 1000
 /** Longest artwork URL kept. */
 const MAX_URL = 2048
+/** Longest native ID kept, such as a release ID or another source's ID of a track. */
+const MAX_NATIVE_ID = 200
 /** Most items kept in a short list such as artists, artwork or evidence. */
 const MAX_SHORT_LIST = 100
 /** Most tracks one playlist may hold. */
@@ -68,7 +78,6 @@ export const MAX_PLAYLIST_TRACKS = 100_000
 /** Latest timestamp accepted: the largest valid `Date`. */
 const MAX_TIME = 8.64e15
 
-const TRACK_KINDS: readonly TrackKind[] = ['song', 'music-video', 'video', 'episode']
 const CONTAINERS: readonly Container[] = ['webm', 'mp4', 'm4a', 'mp3', 'ogg', 'flac', 'wav']
 const STREAM_MEDIA: readonly StreamMedia[] = ['audio', 'muxed-video']
 
@@ -152,12 +161,12 @@ function isImageUrl(value: unknown): value is string {
   }
 }
 
-/** One size of artwork, or `null`. Only http(s) URLs are kept. */
+/** One size of artwork, or `null`. Only http(s) URLs are kept; a malformed size is dropped. */
 export function sanitizeArtworkItem(value: unknown): Artwork | null {
   if (!isFields(value) || !isImageUrl(value.url)) return null
   const artwork: Artwork = { url: value.url }
-  put(artwork, 'width', ordinal(value.width))
-  put(artwork, 'height', ordinal(value.height))
+  put(artwork, 'width', amount(value.width))
+  put(artwork, 'height', amount(value.height))
   return artwork
 }
 
@@ -175,92 +184,73 @@ function sanitizeArtistRef(value: unknown): ArtistRef | null {
   return ref
 }
 
-function sanitizeAlbumRef(value: unknown): AlbumRef | undefined {
-  if (!isFields(value)) return undefined
-  const name = text(value.name)
-  if (name === undefined) return undefined
-  const ref: AlbumRef = { name }
-  if (isEntityId(value.id, 'album')) ref.id = value.id
-  return ref
+/** The texts of a list that fit the library's limits, at most {@link MAX_SHORT_LIST}. */
+function limitTexts(list: readonly string[]): string[] {
+  return list.filter((line) => line.length <= MAX_TEXT).slice(0, MAX_SHORT_LIST)
 }
 
-const RELEASE_DATE = /^\d{4}(-\d{2}(-\d{2})?)?$/u
-
-/** A core {@link Track} with only its known, valid fields, or `null`. */
+/**
+ * A core {@link Track}, as `cleanTrack` from `@fxm/core` accepts it, within the library's limits,
+ * or `null`: http(s) artwork only, and no absurdly long title, names or lists.
+ */
 export function sanitizeTrack(value: unknown): Track | null {
-  if (!isFields(value) || !isEntityId(value.id, 'track') || !isSourceId(value.source)) return null
-  const title = text(value.title)
-  const kind = oneOf(TRACK_KINDS, value.kind)
-  if (title === undefined || kind === undefined || !Array.isArray(value.artists)) return null
-  const track: Track = {
-    id: value.id,
-    source: value.source,
-    title,
-    artists: listOf(value.artists, sanitizeArtistRef, MAX_SHORT_LIST),
-    artwork: sanitizeArtwork(value.artwork),
-    kind,
+  const track = cleanTrack(value)
+  if (track === undefined || track.title.length > MAX_TEXT) return null
+  const { album, externalIds, ...rest } = track
+  const limited: Track = {
+    ...rest,
+    artists: track.artists
+      .filter((artist) => artist.name.length <= MAX_TEXT)
+      .slice(0, MAX_SHORT_LIST),
+    artwork: track.artwork.filter((size) => isImageUrl(size.url)).slice(0, MAX_SHORT_LIST),
   }
-  put(track, 'album', sanitizeAlbumRef(value.album))
-  put(track, 'durationMs', amount(value.durationMs))
-  if (typeof value.explicit === 'boolean') track.explicit = value.explicit
-  put(track, 'isrc', normalizeIsrc(value.isrc) ?? undefined)
-  if (isEntityId(value.songId, 'track')) track.songId = value.songId
-  put(track, 'trackNumber', ordinal(value.trackNumber))
-  put(track, 'discNumber', ordinal(value.discNumber))
-  if (typeof value.releaseDate === 'string' && RELEASE_DATE.test(value.releaseDate)) {
-    track.releaseDate = value.releaseDate
+  if (album !== undefined && album.name.length <= MAX_TEXT) limited.album = album
+  const kept: NonNullable<Track['externalIds']> = {}
+  for (const [source, id] of Object.entries(externalIds ?? {}) as [SourceId, string][]) {
+    if (id.length <= MAX_NATIVE_ID) kept[source] = id
   }
-  const popularity = amount(value.popularity)
-  if (popularity !== undefined && popularity <= 100) track.popularity = popularity
-  if (isFields(value.externalIds)) {
-    const externalIds: Track['externalIds'] = {}
-    for (const [source, nativeId] of Object.entries(value.externalIds)) {
-      const id = nonEmpty(nativeId, 200)
-      if (isSourceId(source) && id !== undefined) externalIds[source] = id
-    }
-    if (Object.keys(externalIds).length > 0) track.externalIds = externalIds
-  }
-  return track
+  if (Object.keys(kept).length > 0) limited.externalIds = kept
+  return limited
 }
 
-/** Match signals with only their known fields, or `undefined`. */
-export function sanitizeSignals(value: unknown): MatchSignals | undefined {
-  if (!isFields(value)) return undefined
-  if (typeof value.isrcVerified !== 'boolean' || typeof value.sourceAlbumMatch !== 'boolean') {
-    return undefined
-  }
-  const signals: MatchSignals = {
-    isrcVerified: value.isrcVerified,
-    sourceAlbumMatch: value.sourceAlbumMatch,
-  }
-  put(signals, 'releaseId', nonEmpty(value.releaseId, 200))
-  const year = count(value.releaseYear)
-  if (year !== undefined && year <= 9999) signals.releaseYear = year
-  put(signals, 'label', nonEmpty(value.label))
-  return signals
+/** Match signals, as `cleanSignals` from `@fxm/core` accepts them, within the library's limits. */
+function sanitizeSignals(value: unknown): MatchSignals | undefined {
+  const signals = cleanSignals(value)
+  if (signals === undefined) return undefined
+  const { releaseId, releaseYear, label, ...rest } = signals
+  const limited: MatchSignals = { ...rest }
+  if (releaseId !== undefined && releaseId.length <= MAX_NATIVE_ID) limited.releaseId = releaseId
+  if (releaseYear !== undefined && releaseYear <= 9999) limited.releaseYear = releaseYear
+  put(limited, 'label', nonEmpty(label))
+  return limited
 }
 
-/** An audio candidate with only its known, valid fields, or `null`. */
+/**
+ * An audio candidate, as `cleanCandidate` from `@fxm/core` accepts it, within the library's
+ * limits, or `null`.
+ */
 export function sanitizeCandidate(value: unknown): AudioCandidate | null {
-  if (!isFields(value) || !isSourceId(value.source)) return null
-  const ref = nonEmpty(value.ref)
-  const kind = oneOf(TRACK_KINDS, value.kind)
-  const title = text(value.title)
-  const confidence = amount(value.confidence)
-  if (ref === undefined || kind === undefined || title === undefined) return null
-  if (confidence === undefined || confidence > 1) return null
-  const candidate: AudioCandidate = {
-    source: value.source,
-    ref,
-    kind,
-    title,
-    artists: listOf(value.artists, (name) => text(name) ?? null, MAX_SHORT_LIST),
-    confidence,
-    evidence: listOf(value.evidence, (line) => text(line) ?? null, MAX_SHORT_LIST),
+  const candidate = cleanCandidate(value)
+  if (candidate === undefined) return null
+  if (candidate.ref.length > MAX_TEXT || candidate.title.length > MAX_TEXT) return null
+  const { signals, ...rest } = candidate
+  const limited: AudioCandidate = {
+    ...rest,
+    artists: limitTexts(candidate.artists),
+    evidence: limitTexts(candidate.evidence),
   }
-  put(candidate, 'durationMs', amount(value.durationMs))
-  put(candidate, 'signals', sanitizeSignals(value.signals))
-  return candidate
+  put(limited, 'signals', sanitizeSignals(signals))
+  return limited
+}
+
+/** The usable audio candidates of a list, best first (an empty list for anything else). */
+export function sanitizeCandidates(value: unknown): AudioCandidate[] {
+  return listOf(value, sanitizeCandidate, MAX_SHORT_LIST)
+}
+
+/** Why a match came out as it did: the strings of a list, within the library's limits. */
+export function sanitizeEvidence(value: unknown): string[] {
+  return listOf(value, (line) => text(line) ?? null, MAX_SHORT_LIST)
 }
 
 /** A cached track, or `null`. The record's ID is the track's own. */
@@ -385,13 +375,15 @@ export function sanitizeFollowRecord(value: unknown): FollowRecord | null {
   return record
 }
 
-function sanitizeContext(value: unknown): PlayContext | undefined {
-  if (!isFields(value)) return undefined
-  const type = nonEmpty(value.type, 32)
-  const id = text(value.id)
-  if (type === undefined || id === undefined) return undefined
-  const context: PlayContext = { type, id }
-  put(context, 'title', text(value.title))
+/**
+ * Where a play started: a queue context, as `cleanContext` from `@fxm/core` accepts it (only the
+ * fields of its type), with a title, query or library key of a sensible length.
+ */
+function sanitizeContext(value: unknown): QueueContext | undefined {
+  const context = cleanContext(value)
+  if (context === undefined || context.title.length > MAX_TEXT) return undefined
+  if (context.type === 'search' && context.query.length > MAX_TEXT) return undefined
+  if (context.type === 'library' && context.id.length > MAX_TEXT) return undefined
   return context
 }
 
@@ -408,15 +400,12 @@ function sanitizeStream(value: unknown): StreamInfo | undefined {
   return stream
 }
 
-/** A history entry without its database ID. */
-export type HistoryEntry = Omit<HistoryRecord, 'id'>
-
 /** A history entry, keeping its ID when it has a valid one, or `null`. */
-export function sanitizeHistoryRecord(value: unknown): (HistoryEntry & { id?: number }) | null {
+export function sanitizeHistoryRecord(value: unknown): HistoryEntry | null {
   if (!isFields(value) || !isEntityId(value.trackId, 'track')) return null
   const playedAt = time(value.playedAt)
   if (playedAt === undefined) return null
-  const record: HistoryEntry & { id?: number } = {
+  const record: HistoryEntry = {
     trackId: value.trackId,
     playedAt,
     playedMs: amount(value.playedMs) ?? 0,
@@ -462,8 +451,8 @@ export function sanitizeMatchRecord(value: unknown): MatchCacheRecord | null {
     sourceTrackId: value.sourceTrackId,
     mode: value.mode,
     band,
-    alternatives: listOf(value.alternatives, sanitizeCandidate, MAX_SHORT_LIST),
-    evidence: listOf(value.evidence, (line) => text(line) ?? null, MAX_SHORT_LIST),
+    alternatives: sanitizeCandidates(value.alternatives),
+    evidence: sanitizeEvidence(value.evidence),
     userPinned: value.userPinned === true && candidate !== undefined,
     decidedAt: time(value.decidedAt) ?? 0,
   }

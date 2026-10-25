@@ -22,6 +22,7 @@ import {
   type MatchSignals,
   parseId,
   type QualityTier,
+  type QueueContext,
   type SourceId,
   type StreamMedia,
   type Track,
@@ -175,19 +176,6 @@ export interface FollowRecord {
   followedAt: number
 }
 
-/**
- * Where a play started, like the player's queue context: an album, a playlist, an artist, a
- * radio or a search. The type stays an open string so that newer contexts in a backup survive.
- */
-export interface PlayContext {
-  /** The kind of list, e.g. `album`, `playlist`, `artist`, `radio` or `search`. */
-  type: string
-  /** What it links back to: an entity ID, or the query for a search. */
-  id: string
-  /** Display title, e.g. the album name. */
-  title?: string
-}
-
 /** What actually played. */
 export interface StreamInfo {
   /** The audio source that delivered it, e.g. `ytm` or `archive`. */
@@ -222,11 +210,17 @@ export interface HistoryRecord {
   completed: boolean
   /** Whether the user skipped it. */
   skipped: boolean
-  /** Where the play started. */
-  context?: PlayContext
+  /**
+   * Where the play started: the player's queue context, such as an album, a radio or Liked
+   * songs (`library`).
+   */
+  context?: QueueContext
   /** What actually played. */
   stream?: StreamInfo
 }
+
+/** A play as a backup or an import brings it: its database ID only when it had a valid one. */
+export type HistoryEntry = Omit<HistoryRecord, 'id'> & { id?: number }
 
 /** Reserved for settings that outgrow `localStorage`. Nothing uses it yet. */
 export interface SettingRecord {
@@ -335,6 +329,25 @@ export interface ImportProgressRecord {
   /** When it last saved progress. */
   updatedAt: number
 }
+
+/** The rows of every table: what a backup holds, and what a restore writes. */
+export interface LibraryTables {
+  tracks: TrackRecord[]
+  likes: LikeRecord[]
+  playlists: PlaylistRecord[]
+  orders: OrderRecord[]
+  follows: FollowRecord[]
+  history: HistoryEntry[]
+  settings: SettingRecord[]
+  matchCache: MatchCacheRecord[]
+  importProgress: ImportProgressRecord[]
+}
+
+/**
+ * How a restore treats the library that is already here: `replace` makes it exactly the
+ * backup's; `merge` keeps everything here and adds the backup on top (see `merge.ts`).
+ */
+export type RestoreMode = 'merge' | 'replace'
 
 /** Longest playlist name the library stores. */
 export const MAX_NAME_LENGTH = 100

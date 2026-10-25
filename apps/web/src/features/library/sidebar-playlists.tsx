@@ -1,6 +1,6 @@
 import type { EntityId } from '@fxm/core'
 import { ArrowDownUp, Dices, Ellipsis, Plus, Save, Undo2 } from 'lucide-react'
-import { memo, useCallback, useId, useState } from 'react'
+import { memo, useCallback, useId, useRef, useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
 import { usePlaylistList } from '../../db/hooks'
@@ -10,10 +10,10 @@ import { CoverArt } from './cover-art'
 import { artworkUrl } from './format'
 import { playlistIcon, playlistPath, playlistSubtitle } from './paths'
 import { usePlaylistDialogs } from './playlist-dialogs'
-import { playlistMenuItems, usePlaylistOrdering, useUnfollow } from './playlist-list'
-import { directionLabel, PLAYLIST_SORTS } from './sort'
+import { playlistMenuItems, usePlaylistOrdering, useRowActions, useUnfollow } from './playlist-list'
+import { describeSort, directionLabel, PLAYLIST_SORTS } from './sort'
 import { SortableList, useDragState, useSortableItem } from './sortable'
-import { Menu, type MenuItem, MenuPopup } from './ui/menu'
+import { Menu, type MenuItem, MenuPopup, returnFocusTo } from './ui/menu'
 import { defaultDirection } from './view-store'
 
 const NO_PLAYLISTS: readonly PlaylistSummary[] = []
@@ -63,7 +63,12 @@ function SidebarRow({ item, menuOpen, onOpenMenu }: RowProps) {
   const { activeId, moving } = useDragState()
   const carried = isDragging || (activeId !== null && moving.has(item.id))
   return (
-    <li ref={setNodeRef} style={style} className={cn('group relative', carried && 'opacity-40')}>
+    <li
+      ref={setNodeRef}
+      style={style}
+      data-row={item.id}
+      className={cn('group relative', carried && 'opacity-40')}
+    >
       <NavLink
         ref={setActivatorNodeRef}
         {...listeners}
@@ -100,6 +105,7 @@ function SidebarRow({ item, menuOpen, onOpenMenu }: RowProps) {
           aria-label={`More options for ${item.name}`}
           aria-haspopup="menu"
           aria-expanded={menuOpen}
+          data-row-menu=""
           onClick={(event) => onOpenMenu(item.id, event.currentTarget)}
           className={iconButtonClasses({ size: 'sm' })}
         >
@@ -113,15 +119,17 @@ function SidebarRow({ item, menuOpen, onOpenMenu }: RowProps) {
 /**
  * "Your playlists" in the sidebar: every playlist in the saved custom order, which can be
  * changed right here by drag and drop, the move entries of each playlist's menu, Shuffle order
- * or a sort saved as the custom order.
+ * or a sort saved as the custom order. While a sort is shown (it is shared with the Library
+ * page), a line under the heading says so, since rows can't be dragged then.
  */
 export function SidebarPlaylists() {
   const live = usePlaylistList()
   const items = live.status === 'ready' ? live.data.items : NO_PLAYLISTS
   const undo = live.status === 'ready' ? live.data.undo : undefined
   const ordering = usePlaylistOrdering(items)
-  const { custom, ids, byId, move, view } = ordering
+  const { custom, ids, byId, move, moveFromMenu, view } = ordering
   const headingId = useId()
+  const arrangeId = useId()
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const dialogs = usePlaylistDialogs({
@@ -131,16 +139,23 @@ export function SidebarPlaylists() {
     },
   })
   const unfollow = useUnfollow()
+  const listRef = useRef<HTMLUListElement>(null)
+  const rowActions = useRowActions(
+    { rename: dialogs.rename, remove: dialogs.remove, unfollow },
+    ids,
+    listRef,
+  )
   const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null)
   const openMenu = useCallback((id: string, anchor: HTMLElement) => setMenu({ id, anchor }), [])
   const closeMenu = useCallback(
     (returnFocus: boolean) => {
       const anchor = menu?.anchor
       setMenu(null)
-      if (returnFocus && anchor) requestAnimationFrame(() => anchor.isConnected && anchor.focus())
+      if (returnFocus && anchor) returnFocusTo(anchor)
     },
     [menu],
   )
+  const sorted = custom ? undefined : describeSort(PLAYLIST_SORTS, view)
   const nameOf = useCallback((id: string) => byId.get(id)?.name ?? 'Playlist', [byId])
 
   const arrange: MenuItem[] = [
@@ -215,8 +230,9 @@ export function SidebarPlaylists() {
         <span className="hidden items-center gap-1 lg:flex">
           <IconButton label="New playlist" icon={<Plus />} size="sm" onClick={dialogs.create} />
           <Menu
-            label="Arrange playlists"
+            label={sorted ? `Arrange playlists, ${sorted.toLowerCase()}` : 'Arrange playlists'}
             iconOnly
+            triggerId={arrangeId}
             items={arrange}
             className={iconButtonClasses({ size: 'sm', highlighted: !custom })}
           >
@@ -224,6 +240,22 @@ export function SidebarPlaylists() {
           </Menu>
         </span>
       </div>
+      {sorted && (
+        <p className="hidden flex-wrap items-center gap-x-2 px-6 pb-1 text-xs text-text-muted lg:flex">
+          <span>{sorted}</span>
+          <button
+            type="button"
+            onClick={() => {
+              // The line goes with the sort, and this button with it.
+              document.getElementById(arrangeId)?.focus()
+              ordering.showCustom()
+            }}
+            className="inline-flex h-8 items-center rounded-md font-semibold text-accent underline-offset-2 hover:underline pointer-coarse:h-touch"
+          >
+            Show custom order
+          </button>
+        </p>
+      )}
       {live.status === 'error' && (
         <p className="sr-only px-6 text-sm text-text-muted lg:not-sr-only">
           Your playlists can't be shown in this browser window.
@@ -240,7 +272,10 @@ export function SidebarPlaylists() {
         className="flex min-h-0 flex-1 flex-col"
       >
         {/* pt-1: the scroll box clips, so leave room for the first row's focus ring. */}
-        <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pt-1 pb-4 scrollbar-thin">
+        <ul
+          ref={listRef}
+          className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pt-1 pb-4 scrollbar-thin"
+        >
           {ordering.items.map((item) => (
             <SidebarRow
               key={item.id}
@@ -259,8 +294,8 @@ export function SidebarPlaylists() {
             custom,
             index: ids.indexOf(menu.id),
             total: ids.length,
-            move,
-            actions: { rename: dialogs.rename, remove: dialogs.remove, unfollow },
+            move: moveFromMenu,
+            actions: rowActions,
           })}
           onClose={closeMenu}
         />
