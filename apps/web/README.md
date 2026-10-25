@@ -29,7 +29,7 @@ scripts/run.sh pnpm --filter @fxm/web icons        # re-render the app icons in 
 
 Every run builds this checkout and starts its own `vite preview` on port 4173 with `--strictPort`. If the port is busy, for example with another worktree's preview, the run fails instead of testing that server: set `FXM_E2E_PORT` to a free port (not 6000, which Chromium refuses to load). Screenshots and Playwright output are gitignored. Service workers are blocked in every spec except `e2e/pwa.spec.ts`, which runs its tests one at a time because it publishes new versions of `dist/sw.js` (and puts the original back when it ends).
 
-The PWA spec's two tests that really install FXM (into a temporary browser profile with its own home folder) run on Linux, where CI runs them, and elsewhere only with `FXM_E2E_INSTALL=1`: an install also registers the app with the operating system. They uninstall it afterwards, and on macOS make LaunchServices forget the app, even when a test fails or times out. Screenshot runs skip them.
+The PWA spec's two tests that really install FXM (into a temporary browser profile with its own home folder) run on Linux, where the app's shortcut stays in that home folder, and elsewhere only with `FXM_E2E_INSTALL=1`: an install also registers the app with the operating system. They uninstall it afterwards, and on macOS make LaunchServices forget the app, even when a test fails or times out. Screenshot runs skip them.
 
 ## Layout
 

@@ -32,7 +32,7 @@ const SCREENSHOTS = Boolean(process.env.FXM_SCREENSHOTS)
 
 /**
  * Whether tests may install FXM, into a temporary browser profile. An install also registers the
- * app with the operating system: on Linux (CI) that stays in the temporary home folder; on macOS
+ * app with the operating system: on Linux that stays in the temporary home folder; on macOS
  * LaunchServices records the app (the tests make it forget it again); on Windows it adds Start
  * menu shortcuts. So installing runs on Linux, and elsewhere only with FXM_E2E_INSTALL=1.
  */
