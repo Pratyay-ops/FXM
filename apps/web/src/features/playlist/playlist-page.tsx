@@ -4,6 +4,7 @@ import { CollectionActions } from '../../components/media/collection-actions'
 import { CollectionHeader, PageWash, seedWash } from '../../components/media/collection-header'
 import { TrackListSkeleton } from '../../components/media/placeholders'
 import { PlayPauseButton } from '../player/controls'
+import { pageEntityId, ShareButton } from '../share/share-button'
 
 export function PlaylistPage() {
   const { id = '' } = useParams()
@@ -16,6 +17,7 @@ export function PlaylistPage() {
       <CollectionHeader kind="Playlist" id={id} seed={seed} icon={icon} />
       <CollectionActions toggle="save">
         <PlayPauseButton appearance="cta" />
+        <ShareButton id={pageEntityId('playlist', id)} info={{ title: 'Playlist' }} />
       </CollectionActions>
       <section aria-label="Tracks">
         <p className="sr-only">The track list appears here once sources are connected.</p>

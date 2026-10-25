@@ -2,6 +2,7 @@ import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
+import { ShareDialogHost } from '../../features/share/share-dialog'
 import { BottomNav } from './bottom-nav'
 import { RouteAnnouncer } from './route-announcer'
 import { useDocumentTitle, useRouteHandle } from './route-meta'
@@ -68,6 +69,7 @@ export function AppLayout() {
       {/* Now Playing has its own big controls on phones. */}
       {pathname !== '/now-playing' && <MiniPlayer />}
       <BottomNav />
+      <ShareDialogHost />
       <ScrollRestoration />
     </>
   )
