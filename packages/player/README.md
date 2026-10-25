@@ -11,7 +11,7 @@ The facade has no DOM code of its own, so the same facade can drive the direct a
 | Piece | What it is | Stage |
 |---|---|---|
 | `Player` | The facade: queue actions, transport, retries, skipping, the circuit breaker, preloading, state and events | 2.2 |
-| `Engine` | The engine contract: `load`, `play`, `pause`, `seek`, `setVolume`, `setMuted`, `destroy`, optional `preload` and `canPlay`, and typed events | 2.2 |
+| `Engine` | The engine contract: `load`, `play`, `pause`, `seek`, `setVolume`, `setMuted`, `destroy`, optional `preload`, `canPlay` and `unlock`, and typed events | 2.2 |
 | `DirectAudioEngine` | The engine for web and desktop, on two `HTMLAudioElement`s | 2.2 |
 | `connectMediaSession` | Lock screen, notification and media keys | 2.2 |
 | `StreamResolver` | The resolver contract. The real resolver is the playback policy and stream lifecycle | 2.3 |
@@ -36,6 +36,8 @@ player.on('trackfailed', ({ item }) => toast(`Couldn't play ${item.track.title}`
 ```
 
 Every method is safe to call at any time and never throws. The async methods (`setQueue`, `play`, `toggle`, `next`, `previous`) resolve once the action is carried out and never reject. Failures show up in the state and the events.
+
+**Call the transport methods straight from the user's gesture** (a click, a key, a Media Session action), before awaiting anything else. They call `engine.unlock()` before they await the resolver: WebKit (iOS and macOS Safari, iOS PWAs) and Android WebView let `play()` start only a media element that was once played in a gesture.
 
 ### Methods
 
@@ -139,7 +141,7 @@ The resolver owns everything about where streams come from:
 
 - offline copies, on-device resolution, matching and Smart Replace;
 - the URL cache and shared in-flight requests;
-- the format choice (`engine.canPlay(stream)` helps).
+- the format choice (`engine.canPlay(stream)` says `probably`, `maybe` or `no`).
 
 ## The direct audio engine
 
@@ -148,10 +150,12 @@ The resolver owns everything about where streams come from:
 - **No `crossOrigin`.** googlevideo sends no CORS headers to other sites, so `crossorigin="anonymous"` would break playback. The engine removes the attribute if an element comes with it.
 - **No byte fetching.** The engine sets `src` and never reads stream bytes with `fetch` or MediaSource, which the page cannot do for googlevideo. A plain `<audio src>` also follows googlevideo's cross-host redirects, which a CORS read cannot.
 - **Two elements, `preload="auto"`.** The second element buffers the stream given to `preload()`. Loading that same stream swaps the elements, so the next track starts without a new download.
+- **User gestures.** `unlock()` plays and at once pauses each element that has no source yet, inside the user's gesture, so the browser lets it start later without one. An element the browser refuses stays locked: the engine never preloads into it or swaps to it, and starts new sources on an element that is unlocked. An element also counts as unlocked once its `play()` succeeds. Not yet verified on an iOS device.
 - **Autoplay.** A `play()` refused with `NotAllowedError` becomes an `autoplay-blocked` error. `AbortError` (interrupted) and `NotSupportedError` (also reported as an `error` event) are not reported twice.
 - **MediaError codes.** `MEDIA_ERR_ABORTED` and `MEDIA_ERR_NETWORK` map to `network`, `MEDIA_ERR_DECODE` to `decode`, and `MEDIA_ERR_SRC_NOT_SUPPORTED` (which is also what a 403 looks like) to `unsupported`. After the stream's `expiresAt`, a network or unsupported failure is reported as `expired`.
-- **Only progressive streams.** HLS, DASH and SABR, and streams that have already expired, are refused with an error without being loaded. `canPlay(stream)` asks `canPlayType` with the stream's MIME type (`mimeTypeOf`).
-- **No stale events.** Events are checked against the element's state when they arrive, and events of the preloading element are ignored, so nothing from a replaced source reaches the player.
+- **What it refuses.** Streams that are not progressive (HLS, DASH, SABR), that need request headers (`requestHeaders`; an `<audio>` element cannot send any), that are `capped`, or that have already expired are refused with an error without being loaded.
+- **`canPlay(stream)`** answers `probably`, `maybe` or `no`: `canPlayType` for the stream's MIME type (`mimeTypeOf`), `maybe` for a codec and container pair without one, and `no` for a stream it refuses. A muxed video (itag 18) is asked about by its audio track: `<audio>` plays a video file's audio and ignores the picture.
+- **No stale events.** Events are checked against the element's state when they arrive, and events of the preloading element are ignored, so nothing from a replaced source reaches the player. Until a load's start position applies, the engine reports no position rather than the 0 it is leaving, and it reports `stalled` only while the element has too little data to play on (browsers also fire it while buffered audio plays).
 
 ## Media Session
 
@@ -168,7 +172,7 @@ It does nothing where the browser has no Media Session API. It also skips action
 
 `@fxm/player/testing` has the fakes the tests use. Later stages can use them too:
 
-- **`FakeEngine`:** records calls, and lets a test drive `progress`, `end`, `fail` and `emit`. `playError` and `startOnPlay` simulate a blocked or silent start.
+- **`FakeEngine`:** records calls, and lets a test drive `progress`, `end`, `fail` and `emit`. `playError` and `startOnPlay` simulate a blocked or silent start, `canPlayStream` what `canPlay` answers. `loadedUrls` and `loadStarts` list what was loaded and where.
 - **`FakeResolver`:** answers from a handler and records requests, with `requestsFor(title)`.
 - **`testTrack`, `testTracks`, `testStream`:** fixtures. Their URLs use the reserved `.test` domain.
 

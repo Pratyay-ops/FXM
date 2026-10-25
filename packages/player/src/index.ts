@@ -9,6 +9,7 @@ export {
   type EngineEventType,
   isEngineError,
   type PlaybackSource,
+  type PlaySupport,
 } from './engine'
 export { formatTime } from './format-time'
 export {

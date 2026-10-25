@@ -7,9 +7,14 @@
  *   plays any stream that was resolved on this device. Web Audio, which needs CORS, is not used.
  * - **No byte fetching.** The engine only sets `src`; it never reads stream bytes with `fetch`
  *   or MediaSource, which googlevideo would refuse to the page. A plain `<audio src>` also
- *   follows googlevideo's cross-host redirects that a CORS read cannot.
+ *   follows googlevideo's cross-host redirects that a CORS read cannot. For the same reason it
+ *   cannot send request headers, so it refuses a stream that needs some (`requestHeaders`).
  * - **Near-gapless.** A second element preloads the next stream (`preload="auto"`); loading
  *   that stream then swaps the elements instead of starting a new download.
+ * - **User gestures.** WebKit and Android WebView let `play()` start only an element that was
+ *   once played in a user gesture. {@link DirectAudioEngine.unlock}, which the player calls in
+ *   every user action, does that for both elements; an element that is not unlocked is never
+ *   swapped in, so playback stays on one that is.
  * - **Typed failures.** `play()` refusals from the autoplay policy and `MediaError` codes are
  *   reported as `EngineError`s; an error after the stream's `expiresAt` is `expired`.
  *
@@ -28,11 +33,15 @@ import {
   type EngineEventMap,
   type EngineEventType,
   type PlaybackSource,
+  type PlaySupport,
 } from './engine'
 import { mimeTypeOf } from './mime'
 
 /** `HTMLMediaElement.HAVE_METADATA`: the duration and dimensions are known. */
 const HAVE_METADATA = 1
+
+/** `HTMLMediaElement.HAVE_FUTURE_DATA`: enough is buffered to play on for a while. */
+const HAVE_FUTURE_DATA = 3
 
 /** `MediaError.MEDIA_ERR_DECODE`. */
 const MEDIA_ERR_DECODE = 3
@@ -60,11 +69,29 @@ function errorName(error: unknown): string {
   return typeof error === 'object' && error !== null && 'name' in error ? String(error.name) : ''
 }
 
-/** Plays progressive streams through two alternating `HTMLAudioElement`s. */
+/** Why an `<audio>` element cannot play `stream` at all, or `undefined` when it might. */
+function unsupportedReason(stream: StreamOption): string | undefined {
+  if (stream.protocol !== 'progressive') {
+    return `Direct audio plays progressive streams, not ${stream.protocol}`
+  }
+  if (stream.requestHeaders !== undefined && Object.keys(stream.requestHeaders).length > 0) {
+    return 'An audio element cannot send the request headers the stream needs'
+  }
+  if (stream.fullLength === 'capped') return 'The stream URL stops before the end of the file'
+  return undefined
+}
+
+/**
+ * Plays progressive streams through two alternating `HTMLAudioElement`s. It refuses, without
+ * loading them, streams that are not progressive, that need request headers (an `<audio>`
+ * element cannot send any), that are `capped`, or that have already expired.
+ */
 export class DirectAudioEngine implements Engine {
   readonly #events = new Emitter<EngineEventMap>()
   readonly #listeners = new AbortController()
   readonly #now: () => number
+  /** The elements the browser lets start without a user gesture. */
+  readonly #unlocked = new WeakSet<HTMLAudioElement>()
   /** The element that plays. */
   #active: HTMLAudioElement
   /** The element that preloads the next stream. */
@@ -80,6 +107,8 @@ export class DirectAudioEngine implements Engine {
   #playing = false
   /** Counts loads, so a deferred refusal of an old load is dropped. */
   #generation = 0
+  /** Set while {@link unlock} plays and pauses an element, whose events then mean nothing. */
+  #unlocking = false
   #destroyed = false
 
   constructor(options: DirectAudioEngineOptions = {}) {
@@ -105,17 +134,16 @@ export class DirectAudioEngine implements Engine {
       })
       return
     }
-    if (stream.url === this.#standbyUrl && !this.#standbyFailed) {
-      const previous = this.#active
-      this.#active = this.#standby
-      this.#standby = previous
-      this.#standbyUrl = undefined
-      this.#release(previous)
+    const standby = this.#standby
+    if (stream.url === this.#standbyUrl && !this.#standbyFailed && this.#unlocked.has(standby)) {
+      this.#swap()
       const { duration } = this.#active
       if (Number.isFinite(duration) && duration > 0) {
         this.#events.emit('durationchange', duration * 1000)
       }
     } else {
+      // Start on an element the browser lets play without a gesture, when only the other is.
+      if (!this.#unlocked.has(this.#active) && this.#unlocked.has(standby)) this.#swap()
       // Setting src pauses the element anyway; pausing first makes that explicit everywhere.
       this.#active.pause()
       this.#active.src = stream.url
@@ -127,14 +155,19 @@ export class DirectAudioEngine implements Engine {
     const element = this.#active
     if (this.#destroyed || !element.hasAttribute('src')) return
     const generation = this.#generation
-    element.play().catch((error: unknown) => {
-      if (generation !== this.#generation || element !== this.#active || this.#destroyed) return
-      // AbortError: a pause or a new source interrupted the request. NotSupportedError: the
-      // element reports that failure itself, as an `error` event.
-      if (errorName(error) !== 'NotAllowedError') return
-      const message = MESSAGES['autoplay-blocked']
-      this.#events.emit('error', new EngineError('autoplay-blocked', message, { cause: error }))
-    })
+    element.play().then(
+      () => {
+        this.#unlocked.add(element)
+      },
+      (error: unknown) => {
+        if (generation !== this.#generation || element !== this.#active || this.#destroyed) return
+        // AbortError: a pause or a new source interrupted the request. NotSupportedError: the
+        // element reports that failure itself, as an `error` event.
+        if (errorName(error) !== 'NotAllowedError') return
+        const message = MESSAGES['autoplay-blocked']
+        this.#events.emit('error', new EngineError('autoplay-blocked', message, { cause: error }))
+      },
+    )
   }
 
   pause(): void {
@@ -159,29 +192,70 @@ export class DirectAudioEngine implements Engine {
     this.#standby.muted = muted
   }
 
-  /** Loads `source` into the second element so it can start at once; `null` drops it. */
+  /**
+   * Loads `source` into the second element so it can start at once; `null` drops it. Only
+   * when that element is unlocked (see {@link unlock}): one that is not would never be swapped
+   * in, and iOS does not even buffer for it.
+   */
   preload(source: PlaybackSource | null): void {
     if (this.#destroyed) return
-    if (source === null || this.#refusal(source.stream) !== undefined) {
+    const standby = this.#standby
+    if (
+      source === null ||
+      this.#refusal(source.stream) !== undefined ||
+      !this.#unlocked.has(standby)
+    ) {
       this.#standbyUrl = undefined
-      this.#release(this.#standby)
+      this.#release(standby)
       return
     }
     const { url } = source.stream
     if (url === this.#standbyUrl && !this.#standbyFailed) return
     this.#standbyUrl = url
     this.#standbyFailed = false
-    this.#standby.src = url
+    standby.src = url
   }
 
   /**
-   * Whether the browser can play `stream`: a progressive stream whose MIME type
-   * `canPlayType` does not reject. Unknown codec and container pairs are left to the element.
+   * How sure the browser is that it can play `stream`: `canPlayType` for the stream's MIME
+   * type (`mimeTypeOf`), `maybe` for a codec and container pair without one, and `no` for a
+   * stream the engine refuses (not progressive, needing request headers, or `capped`).
    */
-  canPlay(stream: StreamOption): boolean {
-    if (stream.protocol !== 'progressive') return false
+  canPlay(stream: StreamOption): PlaySupport {
+    if (unsupportedReason(stream) !== undefined) return 'no'
     const type = mimeTypeOf(stream)
-    return type === undefined || this.#active.canPlayType(type) !== ''
+    if (type === undefined) return 'maybe'
+    const answer = this.#active.canPlayType(type)
+    return answer === '' ? 'no' : answer
+  }
+
+  /**
+   * Plays and at once pauses every element that has no source yet and has not been unlocked,
+   * inside the user gesture this is called from, so the browser lets it start later without
+   * one (WebKit and Android WebView unlock elements one by one). An element the browser refuses
+   * to start stays locked. Elements that hold a source are left alone: they unlock with their
+   * first successful `play()`.
+   */
+  unlock(): void {
+    if (this.#destroyed) return
+    for (const element of [this.#active, this.#standby]) {
+      if (this.#unlocked.has(element) || element.hasAttribute('src')) continue
+      this.#unlocked.add(element)
+      let started: Promise<void> | undefined
+      this.#unlocking = true
+      try {
+        started = element.play()
+        element.pause()
+      } catch {
+        this.#unlocked.delete(element)
+      } finally {
+        this.#unlocking = false
+      }
+      started?.catch((error: unknown) => {
+        // The pause rejects the request with AbortError; only NotAllowedError means "refused".
+        if (errorName(error) === 'NotAllowedError') this.#unlocked.delete(element)
+      })
+    }
   }
 
   on<K extends EngineEventType>(
@@ -202,16 +276,24 @@ export class DirectAudioEngine implements Engine {
 
   /** Why the engine refuses `stream` without trying it, if it does. */
   #refusal(stream: StreamOption): EngineError | undefined {
-    if (stream.protocol !== 'progressive') {
-      const message = `Direct audio plays progressive streams, not ${stream.protocol}`
-      return new EngineError('unsupported', message)
-    }
+    const reason = unsupportedReason(stream)
+    if (reason !== undefined) return new EngineError('unsupported', reason)
     if (this.#hasExpired(stream)) return new EngineError('expired', MESSAGES.expired)
     return undefined
   }
 
   #hasExpired(stream: StreamOption): boolean {
     return stream.expiresAt !== undefined && stream.expiresAt <= this.#now()
+  }
+
+  /** Makes the standby element the active one and releases the other. */
+  #swap(): void {
+    const previous = this.#active
+    this.#active = this.#standby
+    this.#standby = previous
+    this.#standbyUrl = undefined
+    this.#standbyFailed = false
+    this.#release(previous)
   }
 
   #seekTo(positionMs: number): void {
@@ -251,14 +333,17 @@ export class DirectAudioEngine implements Engine {
     const { signal } = this.#listeners
     const listen = (type: string, handler: () => void) => {
       const guarded = () => {
-        if (element === this.#active && !this.#destroyed) handler()
+        if (element === this.#active && !this.#destroyed && !this.#unlocking) handler()
       }
       element.addEventListener(type, guarded, { signal })
     }
     const emit = <K extends EngineEventType>(type: K, payload: EngineEventMap[K]) => {
       this.#events.emit(type, payload)
     }
-    listen('timeupdate', () => emit('timeupdate', element.currentTime * 1000))
+    listen('timeupdate', () => {
+      // Until the start position is applied, the element reports the 0 it is leaving.
+      if (this.#pendingSeekMs === undefined) emit('timeupdate', element.currentTime * 1000)
+    })
     listen('durationchange', () => {
       const { duration } = element
       if (Number.isFinite(duration) && duration > 0) emit('durationchange', duration * 1000)
@@ -286,7 +371,10 @@ export class DirectAudioEngine implements Engine {
       emit('ended', undefined)
     })
     listen('waiting', () => emit('waiting', undefined))
-    listen('stalled', () => emit('stalled', undefined))
+    listen('stalled', () => {
+      // Browsers also fire `stalled` while buffered audio plays on; only starving counts.
+      if (element.readyState < HAVE_FUTURE_DATA) emit('stalled', undefined)
+    })
     listen('canplay', () => emit('canplay', undefined))
     listen('error', () => {
       const { error } = element

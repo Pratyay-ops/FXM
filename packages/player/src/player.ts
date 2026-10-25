@@ -206,6 +206,9 @@ function clampVolume(volume: number): number {
  * Plays a queue of tracks through an engine. Every method is safe to call at any time and never
  * throws; the async ones resolve when the action has been carried out, and never reject. Read
  * the state with {@link getState} and {@link subscribe}, and discrete happenings with {@link on}.
+ *
+ * The transport methods (`setQueue`, `play`, `next`, `previous`, `toggle`) call
+ * `engine.unlock()` before they await anything, so call them straight from a user gesture.
  */
 export class Player {
   #state: PlayerState
@@ -330,6 +333,9 @@ export class Player {
       ...(context === undefined ? {} : { context }),
       random: this.#random,
     })
+    if (options.autoplay !== false && currentQueueItem(queue) !== undefined) {
+      this.#engine.unlock?.()
+    }
     this.#changeQueue(queue)
     if (currentQueueItem(queue) === undefined) {
       this.#commit({ status: 'idle', buffering: false })
@@ -416,6 +422,7 @@ export class Player {
     if (index !== undefined && index !== queue.index) {
       const jumped = jumpInQueue(queue, index)
       if (jumped === queue) return
+      this.#engine.unlock?.()
       this.#userAction()
       this.#changeQueue(jumped)
       await this.#load({ autoplay: true })
@@ -423,6 +430,7 @@ export class Player {
     }
     if (currentQueueItem(queue) === undefined || status === 'loading' || status === 'playing')
       return
+    this.#engine.unlock?.()
     this.#userAction()
     if (status === 'ended') {
       const next = hasNextQueueItem(queue) ? skipToNext(queue) : queue
@@ -470,6 +478,7 @@ export class Player {
     if (this.#destroyed) return
     const { queue, status } = this.#state
     if (!hasNextQueueItem(queue)) return
+    this.#engine.unlock?.()
     this.#userAction()
     const autoplay = status !== 'paused'
     if (!this.#changeQueue(skipToNext(queue))) await this.#restart(autoplay)
@@ -485,6 +494,7 @@ export class Player {
     if (this.#destroyed) return
     const { queue, status, positionMs } = this.#state
     if (currentQueueItem(queue) === undefined) return
+    this.#engine.unlock?.()
     this.#userAction()
     const autoplay = status !== 'paused'
     if (!this.#changeQueue(skipToPrevious(queue, positionMs))) await this.#restart(autoplay)
@@ -664,7 +674,7 @@ export class Player {
       this.#changeQueue(setQueueCandidate(this.#state.queue, item.uid, resolved.candidate))
     }
     const { stream } = resolved
-    if (this.#engine.canPlay?.(stream) === false) {
+    if (this.#engine.canPlay?.(stream) === 'no') {
       const message = `The engine cannot play ${stream.codec} in ${stream.container} (${stream.protocol})`
       this.#fail(item, new EngineError('unsupported', message), stream)
       return
@@ -835,7 +845,7 @@ export class Player {
     this.#preload = preload
     promise.then(
       (resolved) => {
-        if (this.#preload !== preload || this.#engine.canPlay?.(resolved.stream) === false) return
+        if (this.#preload !== preload || this.#engine.canPlay?.(resolved.stream) === 'no') return
         this.#engine.preload?.({ stream: resolved.stream, item: next })
       },
       () => {

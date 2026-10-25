@@ -135,7 +135,7 @@ describe('Player: retries', () => {
 
   it('asks for another stream when the engine cannot play the first', async () => {
     const { player, engine, resolver } = setup()
-    engine.canPlayStream = (stream) => stream.codec !== 'opus'
+    engine.canPlayStream = (stream) => (stream.codec === 'opus' ? 'no' : 'maybe')
     resolver.handler = (item, request) => ({
       stream: testStream(`${item.track.title}-${request.attempt}`, {
         codec: request.attempt === 0 ? 'opus' : 'aac',

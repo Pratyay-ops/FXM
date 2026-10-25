@@ -156,6 +156,33 @@ describe('Player: starting playback', () => {
   })
 })
 
+describe('Player: user gestures', () => {
+  it('unlocks the engine before it waits for the resolver', async () => {
+    const { player, engine, resolver } = setup()
+    const unlocksAtResolve: number[] = []
+    resolver.handler = (item) => {
+      unlocksAtResolve.push(engine.count('unlock'))
+      return { stream: testStream(item.track.title) }
+    }
+    await player.setQueue(abc)
+    player.pause()
+    await player.play()
+    await player.next()
+    await player.previous()
+    await player.play(2)
+    expect(unlocksAtResolve).toEqual([1, 3, 4, 5])
+    expect(engine.count('unlock')).toBe(5)
+  })
+
+  it('does not unlock for a queue it does not play', async () => {
+    const { player, engine } = setup()
+    await player.setQueue(abc, 0, undefined, { autoplay: false })
+    await player.play(9)
+    await player.setQueue([testTrack('v', { kind: 'video' })])
+    expect(engine.count('unlock')).toBe(0)
+  })
+})
+
 describe('Player: editing the queue', () => {
   it('adds tracks without interrupting playback', async () => {
     const { player, engine } = setup()
@@ -797,7 +824,7 @@ describe('Player: preloading the next track', () => {
 
   it('does not hand the engine a stream it cannot play', async () => {
     const { player, engine } = setup()
-    engine.canPlayStream = (stream) => stream.url !== url('b')
+    engine.canPlayStream = (stream) => (stream.url === url('b') ? 'no' : 'maybe')
     await player.setQueue(abc)
     engine.progress(170_000)
     await settle()

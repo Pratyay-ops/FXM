@@ -29,6 +29,10 @@ const TYPES: Readonly<Record<Container, { type: string; codecs: Partial<Record<C
 /**
  * The MIME type of a stream, e.g. `audio/webm; codecs="opus"` for YouTube's Opus 251 or
  * `audio/mp4; codecs="mp4a.40.2"` for AAC 140. `undefined` for a codec the container can't hold.
+ *
+ * A muxed video (`media` `muxed-video`, e.g. YouTube's last-resort itag 18) gets the type of
+ * its audio track, `audio/mp4; codecs="mp4a.40.2"` for itag 18: an `<audio>` element plays a
+ * video file's audio and ignores the picture, so the audio codec is what must be supported.
  */
 export function mimeTypeOf(stream: Pick<StreamOption, 'codec' | 'container'>): string | undefined {
   const entry = Object.hasOwn(TYPES, stream.container) ? TYPES[stream.container] : undefined

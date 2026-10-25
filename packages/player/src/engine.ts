@@ -53,6 +53,18 @@ export function isEngineError(value: unknown, type?: EngineErrorType): value is 
   return value instanceof EngineError && (type === undefined || value.type === type)
 }
 
+/**
+ * How sure an engine is that it can play a stream, like `canPlayType` in a browser:
+ *
+ * - `probably`: the format is known to play, e.g. `canPlayType` says "probably"
+ * - `maybe`: it may play; only trying tells (an unknown format, or `canPlayType` says "maybe")
+ * - `no`: it cannot play: a format, protocol or delivery the engine does not support
+ *
+ * The playback policy prefers `probably` streams (Opus 251 only when the engine says
+ * `probably`, otherwise AAC 140), tries `maybe` ones, and never picks `no`.
+ */
+export type PlaySupport = 'probably' | 'maybe' | 'no'
+
 /** What {@link Engine.load} plays: one resolved stream, and the queue item it belongs to. */
 export interface PlaybackSource {
   /** The stream to play. */
@@ -66,7 +78,10 @@ export interface PlaybackSource {
  * an engine never reports events of a source it has replaced.
  */
 export interface EngineEventMap {
-  /** The playback position moved, in milliseconds. */
+  /**
+   * The playback position moved, in milliseconds. While a load waits to start at a later
+   * position, the engine reports nothing rather than the 0 it has not left yet.
+   */
   timeupdate: number
   /** The duration became known or changed, in milliseconds. Only finite, positive values. */
   durationchange: number
@@ -78,7 +93,10 @@ export interface EngineEventMap {
   ended: undefined
   /** Playback failed. */
   error: EngineError
-  /** Data stopped arriving although more is needed. */
+  /**
+   * Data stopped arriving and too little is buffered to play on (in a browser: `stalled` while
+   * `readyState` is below `HAVE_FUTURE_DATA`). Not reported while buffered audio still plays.
+   */
   stalled: undefined
   /** Playback is waiting for data. */
   waiting: undefined
@@ -114,8 +132,18 @@ export interface Engine {
    * `null` drops what was prepared. Engines without preloading leave it out.
    */
   preload?(source: PlaybackSource | null): void
-  /** Whether the engine can play `stream` at all. Engines that cannot tell leave it out. */
-  canPlay?(stream: StreamOption): boolean
+  /**
+   * How sure the engine is that it can play `stream` (see {@link PlaySupport}). Engines that
+   * cannot tell leave it out, which counts as `maybe`.
+   */
+  canPlay?(stream: StreamOption): PlaySupport
+  /**
+   * Called synchronously inside a user gesture (a tap or a media key), before anything is
+   * awaited, so the engine can let playback start later without one. Some browsers allow
+   * `play()` only on media elements that were once played in a gesture (WebKit, Android
+   * WebView). Engines without such a rule leave it out.
+   */
+  unlock?(): void
   /** Adds a listener. Returns a function that removes it again. */
   on<K extends EngineEventType>(type: K, listener: (payload: EngineEventMap[K]) => void): () => void
   /** Stops playback and releases everything. The engine is unusable afterwards. */

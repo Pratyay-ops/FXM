@@ -14,12 +14,22 @@ import {
   type EngineEventMap,
   type EngineEventType,
   type PlaybackSource,
+  type PlaySupport,
 } from '../engine'
 
 /** One call the player made, with its arguments. */
 export interface FakeEngineCall {
   /** The engine method. */
-  method: 'load' | 'play' | 'pause' | 'seek' | 'setVolume' | 'setMuted' | 'preload' | 'destroy'
+  method:
+    | 'load'
+    | 'play'
+    | 'pause'
+    | 'seek'
+    | 'setVolume'
+    | 'setMuted'
+    | 'preload'
+    | 'unlock'
+    | 'destroy'
   /** Its arguments. */
   args: unknown[]
 }
@@ -50,8 +60,8 @@ export class FakeEngine implements Engine {
   playError: EngineErrorType | undefined
   /** Whether `play()` reports `play` right away. */
   startOnPlay = true
-  /** What `canPlay()` answers. Default: every stream. */
-  canPlayStream: (stream: StreamOption) => boolean = () => true
+  /** What `canPlay()` answers. Default: `probably` for every stream. */
+  canPlayStream: (stream: StreamOption) => PlaySupport = () => 'probably'
   readonly #events = new Emitter<EngineEventMap>()
 
   async load(source: PlaybackSource, startAtMs = 0): Promise<void> {
@@ -99,8 +109,12 @@ export class FakeEngine implements Engine {
     this.preloaded = source
   }
 
-  canPlay(stream: StreamOption): boolean {
+  canPlay(stream: StreamOption): PlaySupport {
     return this.canPlayStream(stream)
+  }
+
+  unlock(): void {
+    this.#record('unlock')
   }
 
   on<K extends EngineEventType>(
@@ -150,6 +164,11 @@ export class FakeEngine implements Engine {
     return this.calls.flatMap((call) =>
       call.method === 'load' ? [(call.args[0] as PlaybackSource).stream.url] : [],
     )
+  }
+
+  /** Where each load asked to start, in milliseconds, in order. */
+  get loadStarts(): number[] {
+    return this.calls.flatMap((call) => (call.method === 'load' ? [call.args[1] as number] : []))
   }
 
   #record(method: FakeEngineCall['method'], ...args: unknown[]): void {

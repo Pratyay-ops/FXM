@@ -44,7 +44,10 @@ describe('FakeEngine', () => {
     engine.setMuted(true)
     engine.preload(null)
     engine.pause()
-    expect(engine.canPlay(testStream('a'))).toBe(true)
+    engine.unlock()
+    expect(engine.canPlay(testStream('a'))).toBe('probably')
+    engine.canPlayStream = () => 'no'
+    expect(engine.canPlay(testStream('a'))).toBe('no')
     engine.destroy()
     expect(engine).toMatchObject({ positionMs: 42, volume: 0.5, muted: true, destroyed: true })
     expect(engine.preloaded).toBeNull()
@@ -54,8 +57,16 @@ describe('FakeEngine', () => {
       'setMuted',
       'preload',
       'pause',
+      'unlock',
       'destroy',
     ])
+  })
+
+  it('lists where each load started', async () => {
+    const engine = new FakeEngine()
+    await engine.load({ stream: testStream('a') })
+    await engine.load({ stream: testStream('b') }, 30_000)
+    expect(engine.loadStarts).toEqual([0, 30_000])
   })
 })
 
