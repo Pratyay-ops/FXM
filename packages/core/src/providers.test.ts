@@ -433,6 +433,11 @@ describe('provider interfaces', () => {
 
   it('types IDs, candidates and the platform hooks', () => {
     expectTypeOf<Parameters<MetadataProvider['getAlbum']>[0]>().toEqualTypeOf<EntityId<'album'>>()
+    // A provider says when the app may call it; absent means any time.
+    expectTypeOf<MetadataProvider['requestPolicy']>().toEqualTypeOf<
+      'any' | 'explicit' | undefined
+    >()
+    expect(catalog.requestPolicy ?? 'any').toBe('any')
     expectTypeOf<AudioCandidate['confidence']>().toEqualTypeOf<number>()
     // @fxm/core loads only the ES library, so here the platform types use their fallbacks.
     // In programs with DOM, web worker or Node types they are exactly `typeof fetch` and
