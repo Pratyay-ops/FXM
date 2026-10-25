@@ -518,7 +518,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
   - They keep the last good version and fall back to the bundled copy.
   - The platform host allowlists still apply, so a module can't reach new hosts.
   - The web app gets the same code by redeploy.
-- **Privacy page:** the desktop and Android apps download FXM's signed YouTube code from the site, not only its settings file, as the page says today.
+- **Privacy page:** it says the desktop and Android apps fetch FXM's YouTube settings file from the site; add that they also download FXM's signed YouTube code from there.
 - **Keys.** The signing key is never available to the deploy job: the owner signs locally, or CI signs in a GitHub environment that needs the owner's approval for each run.
 - **F-Droid build flag:**
   - the module stays off until the user opts in, with the wording F-Droid's inclusion policy requires (it bypasses F-Droid's checks);
