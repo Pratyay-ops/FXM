@@ -56,7 +56,7 @@ const downloads = AVAILABLE.downloads
   ? 'So are your downloads.'
   : 'Downloads will be stored there too, once they arrive.'
 const spotifyLogin = `Connecting your Spotify account is optional${AVAILABLE.spotifyAccount ? '' : ' and coming soon'}. If you do, FXM uses your Spotify login to get an access token from Spotify.`
-const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates, and fetch FXM's YouTube settings file from this website when they start.`
+const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates. When they start, they fetch FXM's YouTube settings file from this website, and download FXM's signed YouTube code from it too, so YouTube keeps working between app releases. That code is checked against FXM's signature before it runs.`
 ---
 
 <Document
@@ -64,7 +64,7 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
   description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device. Here is which services your device talks to, and why."
   heading="Privacy"
   lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device."
-  updated="2026-10-25"
+  updated="2026-10-26"
 >
   <h2>The short version</h2>
   <ul>
