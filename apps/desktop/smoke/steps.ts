@@ -96,6 +96,12 @@ export interface SmokeOptions {
 /** The service worker data of www.youtube.com, which carries a server-issued visitorData. */
 export const SW_JS_DATA_URL = 'https://www.youtube.com/sw.js_data'
 
+/**
+ * Spotify's server time, which its anonymous token needs and which answers without a token: the
+ * cheapest check that Spotify accepts the app's requests (its Origin and browser User-Agent).
+ */
+export const SPOTIFY_TIME_URL = 'https://open.spotify.com/api/server-time'
+
 /** The size of the end-of-file probe: the last 64 KB, as stage 1.4's probe asks for. */
 export const PROBE_BYTES = 65_536
 
@@ -158,6 +164,16 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
       throw new Error(`sw.js_data answered ${response.status} with ${text.slice(0, 40)}`)
     }
     return [true, `sw.js_data: ${text.length} characters`]
+  })
+
+  await step('Spotify answers', async () => {
+    const response = await options.context().fetch(SPOTIFY_TIME_URL)
+    const body: unknown = await response.json().catch(() => undefined)
+    const time = (body as { serverTime?: unknown } | undefined)?.serverTime
+    if (response.status !== 200 || typeof time !== 'number') {
+      throw new Error(`server-time answered ${response.status} with ${JSON.stringify(body)}`)
+    }
+    return [true, `server time ${new Date(time * 1000).toISOString()}`]
   })
 
   const song = await step('YouTube Music search', async () => {

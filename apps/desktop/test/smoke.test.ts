@@ -6,7 +6,9 @@ import {
   PROBE_BYTES,
   runSmoke,
   type SmokeOptions,
+  type SmokeReport,
   type SmokeYouTube,
+  SPOTIFY_TIME_URL,
   SW_JS_DATA_URL,
   verifiedStream,
 } from '../smoke/steps'
@@ -49,6 +51,7 @@ function context(route: Route = () => new Response('not found', { status: 404 })
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url === SW_JS_DATA_URL) return new Response(`)]}'\n[["visitor"]]`)
+    if (url === SPOTIFY_TIME_URL) return Response.json({ serverTime: 1793000000 })
     if (url === FREE.url) {
       const response = new Response(new Uint8Array(1000), {
         status: 206,
@@ -73,6 +76,10 @@ const player = (overrides: Partial<MediaPlayer> = {}): MediaPlayer => ({
   playToEnd: async () => ({ durationS: 238.6 }),
   ...overrides,
 })
+
+/** The result of the step called `name`. */
+const stepNamed = (report: SmokeReport, name: string) =>
+  report.steps.find((step) => step.name === name)
 
 function options(overrides: Partial<SmokeOptions> = {}): SmokeOptions {
   const { ctx } = context()
@@ -105,6 +112,7 @@ describe('runSmoke', () => {
     expect(report.steps.map((step) => [step.name, step.status])).toEqual([
       ['native networking', 'passed'],
       ['server-issued visitorData is readable', 'passed'],
+      ['Spotify answers', 'passed'],
       ['YouTube Music search', 'passed'],
       ['VISIONOS URL passes the end-of-file probe', 'passed'],
       ['the track plays to the end', 'passed'],
@@ -112,7 +120,9 @@ describe('runSmoke', () => {
       ['Free track: plays to the end', 'passed'],
     ])
     expect(played).toEqual([stream('verified').url, FREE.url])
-    expect(report.steps[5]?.detail).toContain('ia800.us.archive.org')
+    expect(stepNamed(report, 'Free track: end-of-file probe')?.detail).toContain(
+      'ia800.us.archive.org',
+    )
   })
 
   it('probes the free track’s last 64 KB with one range request', async () => {
@@ -133,7 +143,7 @@ describe('runSmoke', () => {
       }),
     )
     expect(report.ok).toBe(true)
-    expect(report.steps.slice(3).map((step) => [step.status, step.detail])).toEqual([
+    expect(report.steps.slice(4).map((step) => [step.status, step.detail])).toEqual([
       ['pending', 'needs stage 1.4'],
       ['pending', 'waits for a verified stream'],
       ['passed', expect.any(String)],
@@ -160,13 +170,17 @@ describe('runSmoke', () => {
     expect(report.steps.map((step) => step.status)).toEqual([
       'failed',
       'failed',
+      'failed',
       'passed',
       'failed',
       'pending',
       'failed',
       'pending',
     ])
-    expect(report.steps[3]?.detail).toBe('no stream passed the probe: opus capped, opus unverified')
+    expect(stepNamed(report, 'VISIONOS URL passes the end-of-file probe')?.detail).toBe(
+      'no stream passed the probe: opus capped, opus unverified',
+    )
+    expect(stepNamed(report, 'Spotify answers')?.detail).toContain('answered 403')
   })
 
   it('fails when a track doesn’t play to its end', async () => {
@@ -192,8 +206,9 @@ describe('runSmoke', () => {
         ? new Response(`)]}'`)
         : new Response(new Uint8Array(PROBE_BYTES * 2))) as typeof fetch
     const report = await runSmoke(options({ context: () => whole }))
-    expect(report.steps[5]).toMatchObject({ status: 'failed' })
-    expect(report.steps[5]?.detail).toContain('answered 200')
+    const probe = stepNamed(report, 'Free track: end-of-file probe')
+    expect(probe?.status).toBe('failed')
+    expect(probe?.detail).toContain('answered 200')
   })
 
   it('picks the verified stream', () => {

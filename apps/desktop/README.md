@@ -116,8 +116,8 @@ scripts/run.sh pnpm --filter @fxm/desktop smoke
 
 - It builds a debug version of the app (`smoke:build`) with the `smoke` feature, whose `src/smoke.rs` prints the page's progress and report and exits, and with `tauri.smoke.conf.json` merged over the config. That file changes only the identifier (`io.github.pratyayops.fxm.smoke`, so the test never touches the app's data), the page (`smoke/`, instead of the web app) and the window: hidden, and never suspended. Release builds never turn the feature on.
 - Then `smoke/run.mjs` runs it and prints a line per step. The exit code is 0 when no step failed; steps waiting for a stage that hasn't merged don't count as failures.
-- The steps (`smoke/steps.ts`): the platform reports native networking; `sw.js_data`, where the YouTube provider gets its server-issued visitorData, is readable; a YouTube Music search; a VISIONOS URL whose end-of-file probe passed; that track playing to its end; then the same probe and playback for a 27-second public-domain recording on Internet Archive, whose download URL redirects within the scope. Playback is muted.
-- It sends 3 requests to YouTube (a few more once the resolve runs) and a few to Internet Archive, plus the tracks' own. Run it from a residential connection: YouTube's bot checks single out datacenter addresses.
+- The steps (`smoke/steps.ts`): the platform reports native networking; `sw.js_data`, where the YouTube provider gets its server-issued visitorData, is readable; Spotify answers (its server time, which needs no token); a YouTube Music search; a VISIONOS URL whose end-of-file probe passed; that track playing to its end; then the same probe and playback for a 27-second public-domain recording on Internet Archive, whose download URL redirects within the scope. Playback is muted.
+- It sends 3 requests to YouTube (a few more once the resolve runs), 1 to Spotify and a few to Internet Archive, plus the tracks' own. Run it from a residential connection: YouTube's bot checks single out datacenter addresses.
 
 **The swap.** Stages 1.3 (the YouTube Music provider) and 1.4 (the stream resolver) had not merged when 7.2 was built. `smoke/youtube.ts` is the only place the test touches them: until then, its search is one plain InnerTube call in the CORS-simple shape, and the resolve waits. Its header shows the few lines that put the real providers in their place.
 
@@ -125,7 +125,7 @@ scripts/run.sh pnpm --filter @fxm/desktop smoke
 
 | Date | Where | Result |
 |---|---|---|
-| 2026-10-26 | macOS 15.5 (Apple M4), WKWebView, residential connection in India | Passed, with the two VISIONOS steps waiting for stage 1.4: `sw.js_data` read (2.7 KB), a YouTube Music search through the plugin with no `Origin` (15 results), the Internet Archive probe (206 after a redirect to another `*.archive.org` host) and its track played to the end (26.7 s), in 45 s |
+| 2026-10-26 | macOS 15.5 (Apple M4), WKWebView, residential connection in India | Passed, with the two VISIONOS steps waiting for stage 1.4: `sw.js_data` read (2.7 KB), Spotify's server time, a YouTube Music search through the plugin with no `Origin` (15 results), the Internet Archive probe (206 after a redirect to another `*.archive.org` host) and its track played to the end (26.7 s), in 36 s |
 
 Still to run: the two VISIONOS steps (after 1.4 merges), and Windows (WebView2) and Linux (WebKitGTK), which need those machines.
 

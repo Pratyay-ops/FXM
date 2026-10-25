@@ -28,6 +28,13 @@
  * }
  * ```
  *
+ * Protocol facts the interim search relies on, seen on 2026-10-26 through this test, in YouTube
+ * Music's own page and responses: YouTube Music's web client is `WEB_REMIX`; its page's
+ * configuration names the client version as `"INNERTUBE_CLIENT_VERSION"` (`1.20261020.10.00`
+ * that day); `/youtubei/v1/search` answers a `text/plain` POST without an `Origin` with JSON whose
+ * results carry `videoId` keys. They belong in the YouTube clean-room log
+ * (`packages/sources/src/youtube/CLEAN-ROOM.md`) once stage 1.3 has created it.
+ *
  * @module
  */
 
