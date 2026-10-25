@@ -1,6 +1,7 @@
 import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
+import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { PwaShell } from '../../features/pwa/pwa-shell'
 import { BottomNav } from './bottom-nav'
@@ -26,12 +27,15 @@ function NavigationProgress() {
 /**
  * The app frame: sidebar (768px+), top bar, scrolling page, player bar (768px+),
  * and on phones a mini player above the tab bar. Pages render into <Outlet />.
+ * On phones, Now playing fills the screen: no mini player or tab bar (the top
+ * bar's back arrow leaves it), which `data-full-screen` tells the CSS.
  */
 export function AppLayout() {
   const handle = useRouteHandle()
   useDocumentTitle(handle)
   const { pathname } = useLocation()
   const main = useRef<HTMLElement>(null)
+  const fullScreen = pathname === '/now-playing'
 
   return (
     <>
@@ -60,6 +64,7 @@ export function AppLayout() {
           ref={main}
           id="main"
           tabIndex={-1}
+          data-full-screen={fullScreen || undefined}
           className="relative isolate px-gutter pt-2 pb-shell outline-none"
         >
           <div className="mx-auto w-full max-w-page">
@@ -69,10 +74,11 @@ export function AppLayout() {
       </div>
       <PlayerBar />
       {/* Now Playing has its own big controls on phones. */}
-      {pathname !== '/now-playing' && <MiniPlayer />}
-      <BottomNav />
-      {/* Phones: Now Playing's own controls fill the bottom, so the update toast goes on top. */}
-      <PwaShell fullScreen={pathname === '/now-playing'} />
+      {!fullScreen && <MiniPlayer />}
+      {!fullScreen && <BottomNav />}
+      <PlaybackAnnouncer />
+      {/* Phones: Now Playing's own controls fill the screen, so the update toast goes on top. */}
+      <PwaShell fullScreen={fullScreen} />
       <ScrollRestoration />
     </>
   )

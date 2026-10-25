@@ -7,6 +7,7 @@ import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
+import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { useSettingsStore } from './settings-store'
@@ -62,6 +63,8 @@ export function SettingsPage() {
   const modeLabelId = useId()
   const modeHelpId = useId()
   const themeLabelId = useId()
+  const spotifyLabelId = useId()
+  const spotifyHelpId = useId()
   const installLabelId = useId()
   const installHelpId = useId()
 
@@ -82,6 +85,20 @@ export function SettingsPage() {
           <CatalogModeControl
             labelledBy={modeLabelId}
             describedBy={modeHelpId}
+            className="w-full md:w-auto"
+          />
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title="Sources">
+        <SettingRow
+          label="Spotify"
+          labelId={spotifyLabelId}
+          help={<SpotifySwitchHelp id={spotifyHelpId} />}
+        >
+          <SpotifySwitchControl
+            labelledBy={spotifyLabelId}
+            describedBy={spotifyHelpId}
             className="w-full md:w-auto"
           />
         </SettingRow>

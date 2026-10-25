@@ -6,8 +6,8 @@ const PAGES = [
   'search',
   'search?q=lofi%20beats',
   'library',
-  'album/MPREb_42',
-  'artist/UC-daft',
+  'album/ytm:MPREb_42',
+  'artist/ytm:UC-daft',
   'playlist/liked',
   'now-playing',
   'settings',
@@ -80,7 +80,8 @@ test('searches from the top bar, one Back away from where it started', async ({ 
     .getByRole('searchbox', { name: 'Search' })
     .pressSequentially('daft punk')
   await expect(page).toHaveURL(/\/app\/search\?q=daft%20punk$/)
-  await expect(page.getByRole('heading', { name: 'Results for “daft punk”' })).toBeVisible()
+  // What follows depends on the tier (results, or how to reach YouTube Music): not checked here.
+  await expect(page.getByRole('heading', { level: 1, name: 'Search' })).toBeVisible()
 
   await page.goBack()
 

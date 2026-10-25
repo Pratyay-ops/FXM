@@ -14,12 +14,13 @@
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e && tsc --noEmit -p pwa",
     "test": "vitest run",
     "e2e": "playwright test",
-    "screenshots": "FXM_SCREENSHOTS=1 playwright test screenshots pwa.spec",
+    "screenshots": "FXM_SCREENSHOTS=1 VITE_FXM_FAKE_CATALOG=on playwright test screenshots pwa.spec",
     "icons": "node scripts/render-icons.ts"
   },
   "dependencies": {
     "@fxm/core": "workspace:*",
     "@fxm/player": "workspace:*",
+    "@fxm/sources": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
     "lucide-react": "^1.55.0",
     "react": "^19.3.0",
