@@ -1,0 +1,1 @@
+Companion extension for the free FXM music web app. It adjusts a few headers on the app's own requests, so the app can reach YouTube, Spotify and Last.fm from your own browser. Collects no data and runs no remote code.

@@ -9,7 +9,8 @@
     "build": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/build.ts",
     "test": "vitest run",
     "test:e2e": "pnpm run build && ../../scripts/run.sh playwright install --no-shell chromium && ../../scripts/run.sh playwright test",
-    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.node.json"
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tsconfig.node.json",
+    "store:listing": "node --experimental-strip-types --disable-warning=ExperimentalWarning store/listing.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
