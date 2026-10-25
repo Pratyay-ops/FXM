@@ -59,7 +59,7 @@ const ID_TAGS: ReadonlySet<string> = new Set([
   'id',
   '#',
 ])
-/** A length or offset value: `03:58`, `3:58.64`. */
+/** A `[length:]` value: `03:58`, `3:58.64`. */
 const LENGTH = new RegExp(`^${TIME}$`, 'u')
 /** An offset value in milliseconds: `+500`, `-250`, `120`. */
 const OFFSET = /^[+-]?\d+(?:\.\d+)?$/u
