@@ -7,7 +7,7 @@ import { buttonClasses } from '../../components/ui/button'
  * Android app. Until stage 2.7 builds the in-app onboarding (tiers and install guides), it is
  * the landing page's "Get FXM" section; 2.7 points it at its own page.
  */
-export const ONBOARDING_URL = 'https://fxm-music.pages.dev/#get'
+export const ONBOARDING_URL = 'https://fxmusic.pages.dev/#get'
 
 /** The onboarding entry point, as a button-styled link. */
 export function OnboardingLink({
