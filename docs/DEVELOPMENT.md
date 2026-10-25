@@ -42,10 +42,11 @@ Run `make` with no arguments to list all commands.
 
 ## Using the tools in your own shell
 
-`make` recipes load the environment automatically. For an interactive shell:
+`make` runs every tool through `scripts/run.sh`, which loads the environment first. You can do the same:
 
 ```sh
-source scripts/env.sh       # puts pnpm, uv and gh on PATH with the isolated config
+scripts/run.sh pnpm --filter @fxm/web add some-package   # one command
+source scripts/env.sh                                     # or a whole shell session
 source .venv/bin/activate   # optional: activate the Python venv (or use `uv run …`)
 ```
 
@@ -58,11 +59,23 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make doctor` | Check prerequisites; fail if anything would install outside `.tools/` |
 | `make py-setup` | Install uv and create `.venv` with the Python from `.python-version` |
 | `make gh-setup` | Install the GitHub CLI (only for the PR workflow) |
+| `make dev` | Start the web app dev server (Vite) |
+| `make lint` / `make format` | Check, or fix, formatting and lint rules (Biome) |
+| `make typecheck` | Type-check every package (TypeScript 7) |
+| `make test` / `make coverage` | Run all tests (Vitest), optionally with a coverage report |
+| `make build` | Build every app |
+| `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make clean` | Remove build output |
 | `make nuke` | Remove **all** installed tools, dependencies and caches |
 
-Stage 0.3 adds `dev`, `lint`, `format`, `typecheck`, `test`, `build` and `check`.
+## Monorepo layout and conventions
+
+- **Workspace:** pnpm workspaces over `apps/*` and `packages/*`. Internal packages export their TypeScript source directly (`"exports": "./src/index.ts"`), so there is no build step between packages. Vite, Vitest and wrangler compile them on the fly.
+- **TypeScript:** `tsconfig.base.json` is strict (including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`). Each package picks its runtime libraries: `core` has none (pure ES), `sources` gets `webworker` (fetch, no DOM), `player` and `web` get the DOM.
+- **Style:** Biome formats and lints: 2 spaces, single quotes, no semicolons, 100 columns. Run `make format` before committing. The VS Code settings in `.vscode/` format on save with the Biome extension.
+- **Tests:** `*.test.ts(x)` next to the code, run by Vitest across all packages.
+- **New dependencies:** `minimumReleaseAge` in `pnpm-workspace.yaml` makes pnpm install only versions that have been public for at least 14 days, transitive dependencies included.
 
 ## Removing everything
 

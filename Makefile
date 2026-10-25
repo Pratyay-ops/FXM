@@ -1,14 +1,15 @@
 # FXM developer commands. Run `make` (or `make help`) to list them.
 #
-# Every recipe runs in bash with scripts/env.sh sourced first (via BASH_ENV), so
+# Every tool runs through scripts/run.sh, which loads scripts/env.sh first, so
 # tools, caches and package stores all live in .tools/ of the main checkout and
 # `make nuke` can remove them. Written for GNU Make 3.81 (the macOS default).
 
 SHELL := /bin/bash
-export BASH_ENV := $(CURDIR)/scripts/env.sh
+RUN := scripts/run.sh
 
 .DEFAULT_GOAL := help
-.PHONY: help setup install doctor py-setup gh-setup wt-new wt-list wt-remove clean nuke
+.PHONY: help setup install doctor py-setup gh-setup dev lint format typecheck test coverage build check \
+	wt-new wt-list wt-remove clean nuke
 
 help: ## List available commands
 	@echo "FXM commands (docs/DEVELOPMENT.md has the details):"
@@ -20,17 +21,41 @@ setup: ## First-time setup: check prerequisites, install pinned pnpm and deps
 	@scripts/setup.sh
 
 install: ## Install or refresh JavaScript dependencies (also fixes lockfile conflicts)
-	pnpm install
+	@$(RUN) pnpm install
 
 doctor: ## Check prerequisites and show where every tool lives
 	@scripts/doctor.sh
 
 py-setup: ## Install uv and create .venv with the Python from .python-version
-	@scripts/install-uv.sh
-	uv venv --allow-existing "$$FXM_ROOT/.venv"
+	@scripts/py-setup.sh
 
 gh-setup: ## Install the GitHub CLI into .tools (optional, for the PR workflow)
 	@scripts/install-gh.sh
+
+# --- Develop -------------------------------------------------------------------
+
+dev: ## Start the web app dev server
+	@$(RUN) pnpm --filter @fxm/web dev
+
+lint: ## Check formatting and lint rules (Biome)
+	@$(RUN) pnpm run lint
+
+format: ## Fix formatting and safe lint issues (Biome)
+	@$(RUN) pnpm run format
+
+typecheck: ## Type-check every package (TypeScript)
+	@$(RUN) pnpm run typecheck
+
+test: ## Run all tests once (Vitest)
+	@$(RUN) pnpm run test
+
+coverage: ## Run all tests with a coverage report
+	@$(RUN) pnpm run coverage
+
+build: ## Build every app
+	@$(RUN) pnpm run build
+
+check: lint typecheck test build ## Everything a stage must pass before merging
 
 # --- Worktrees (one per plan stage, see docs/WORKFLOW.md) ----------------------
 
