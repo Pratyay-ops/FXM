@@ -78,11 +78,12 @@ export interface MinimalResponse {
 export type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise<MinimalResponse>
 
 /**
- * The `fetch` a provider must use for every request; providers never touch the global one.
- * The platform injects it: `window.fetch` in a browser page (YouTube and Spotify answer it only
- * through the FXM Connect extension; the `simple` YouTube tier sends its InnerTube calls from a
- * sandboxed document instead, see {@link YouTubeAccess}), the Tauri HTTP plugin's `fetch` on
- * desktop, a native-HTTP wrapper on Android, or Node's `fetch` in tests and scripts.
+ * The `fetch` a provider must use for every request, as `ctx.fetch`, on every platform and tier;
+ * providers never touch the global one. The platform injects it: in a browser page, a `fetch`
+ * built on `window.fetch` (YouTube and Spotify answer it only through the FXM Connect extension,
+ * and in the `simple` YouTube tier it routes InnerTube requests through a sandboxed document,
+ * see {@link YouTubeAccess}), the Tauri HTTP plugin's `fetch` on desktop, a native-HTTP wrapper
+ * on Android, or Node's `fetch` in tests and scripts.
  *
  * In any program that has a global `fetch` (DOM, web worker or Node types) this is exactly
  * `typeof fetch`, so every implementation above can be passed as is. `@fxm/core` itself loads
@@ -114,12 +115,15 @@ export type Platform = 'web' | 'desktop' | 'android'
  * How far the platform reaches YouTube and YouTube Music. Each level allows everything the one
  * before it does:
  *
- * - `none`: no YouTube at all (a plain web page)
+ * - `none`: no YouTube at all (a plain web page without the Lite tier)
  * - `simple`: the web app's experimental Lite tier, which needs no install. InnerTube calls
  *   (search, browse, `next` and `player`) work as CORS-simple POSTs from a sandboxed document
  *   with an opaque origin, but googlevideo's bytes cannot be read: no downloads, no end-of-file
  *   range probes and no equalizer, and the resolver's deciphering and PO-token rungs are
- *   unavailable. Audio plays through `<audio src>` directly
+ *   unavailable, as is its SABR rung, which reads googlevideo's bytes. Audio plays through
+ *   `<audio src>` directly. Providers must keep their InnerTube requests CORS-simple here: a
+ *   `text/plain` POST body and no custom headers, so visitorData goes in the request body
+ *   rather than in an `X-Goog-Visitor-Id` header
  * - `full`: everything, including reading media bytes: the web app with FXM Connect, the desktop
  *   app or the Android app
  */
@@ -128,7 +132,7 @@ export type YouTubeAccess = 'none' | 'simple' | 'full'
 /**
  * How far the platform reaches Spotify. Each level allows everything the one before it does:
  *
- * - `unreachable`: no Spotify at all (a plain web page)
+ * - `unreachable`: no Spotify at all (a plain web page, the Lite tier included)
  * - `anonymous`: anonymous web-player tokens can be fetched
  * - `account`: a logged-in token source exists too: FXM Connect's session bridge once the user
  *   has turned it on, or a login window on desktop and Android. Whether the user is logged in

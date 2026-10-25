@@ -58,7 +58,7 @@ Music mode plays songs only, so an official music video never plays as itself th
 
 | A music video… | `modePolicy` in Music mode | What plays |
 |---|---|---|
-| with a song link (`Track.songId`) | `plays-linked-song` | The song from `songForVideo(track)`, handled like any other song: a YouTube Music song plays without matching the video, and one from a source without audio of its own, such as Spotify, is matched to audio first |
+| with a song link (`Track.songId`) | `plays-linked-song` | The song from `songForVideo(track)`, handled like any other song: a YouTube Music song plays with no matching needed, while one from a source without audio of its own, such as Spotify, is matched to audio first |
 | without one | `needs-song-match` | The song the matching engine maps it to; hidden when there is no confident match |
 
 YouTube Music's album pages link official videos to their songs, so the YouTube provider sets `songId` from them. Anonymous search and `next` results carry no such link, so the matching engine still covers those. Music + Video mode plays every music video as it is (`playable`), linked or not. Neither verdict passes `isPlayable`, so the video itself is never an audio candidate in Music mode, and `applyModeFilter` keeps both in lists to show.
@@ -71,13 +71,15 @@ The linked song is a track like any other: load it and check it with `isPlayable
 
 | `youtube` | Where | What works |
 |---|---|---|
-| `none` | A plain web page | No YouTube at all |
-| `simple` | The web app's experimental Lite tier, which needs no install | InnerTube calls (search, browse, `next`, `player`) as CORS-simple POSTs from a sandboxed document with an opaque origin, and playback through `<audio src>`. googlevideo's bytes can't be read: no downloads, no end-of-file range probes, no equalizer, and no deciphering or PO-token rungs |
+| `none` | A plain web page without the Lite tier | No YouTube at all |
+| `simple` | The web app's experimental Lite tier, which needs no install | InnerTube calls (search, browse, `next`, `player`) as CORS-simple POSTs from a sandboxed document with an opaque origin, and playback through `<audio src>`. googlevideo's bytes can't be read: no downloads, no end-of-file range probes, no equalizer, and no deciphering, PO-token or SABR rungs (SABR reads those bytes) |
 | `full` | FXM Connect, the desktop app, the Android app | Everything, including reading media bytes |
+
+Providers call `ctx.fetch` on every tier. In the `simple` tier, the web app's `fetch` routes InnerTube requests through the sandboxed document, and providers must keep those requests CORS-simple: a `text/plain` POST body and no custom headers, so visitorData goes in the request body rather than in an `X-Goog-Visitor-Id` header.
 
 | `spotify` | Where | What works |
 |---|---|---|
-| `unreachable` | A plain web page | No Spotify at all |
+| `unreachable` | A plain web page, the Lite tier included | No Spotify at all |
 | `anonymous` | FXM Connect without its session bridge | Anonymous web-player tokens |
 | `account` | FXM Connect with the session bridge the user turned on, the desktop and Android login windows | A logged-in token source as well. Whether the user is logged in is up to `AccountProvider.status` |
 
@@ -108,7 +110,7 @@ For SABR streams, `url` holds the server ABR streaming URL, and `playback` carri
 
 ### The injected `Fetch`
 
-`Fetch` is exactly `typeof fetch` in any program that has a global `fetch` (DOM, web worker or Node types), so `window.fetch`, the Tauri HTTP plugin's `fetch`, a Capacitor wrapper or Node's `fetch` can be passed as is. Core's own ES-only type check has no global `fetch`, so there it falls back to `MinimalFetch`, the subset providers rely on, which every platform `fetch` also satisfies. `AbortSignalLike` works the same way for `AbortSignal`.
+`Fetch` is exactly `typeof fetch` in any program that has a global `fetch` (DOM, web worker or Node types), so `window.fetch` (or the web app's `fetch` built on it, which in the `simple` YouTube tier routes InnerTube requests through a sandboxed document), the Tauri HTTP plugin's `fetch`, a Capacitor wrapper or Node's `fetch` can be passed as is. Core's own ES-only type check has no global `fetch`, so there it falls back to `MinimalFetch`, the subset providers rely on, which every platform `fetch` also satisfies. `AbortSignalLike` works the same way for `AbortSignal`.
 
 `pnpm --filter @fxm/core typecheck` proves this. It checks core once with only the ES library, then once each under the DOM, web-worker and Node libraries (`type-tests/`). So core code that type-checks only without a platform library fails here, not later in an app.
 
