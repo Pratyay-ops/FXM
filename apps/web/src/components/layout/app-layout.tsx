@@ -71,7 +71,8 @@ export function AppLayout() {
       {/* Now Playing has its own big controls on phones. */}
       {pathname !== '/now-playing' && <MiniPlayer />}
       <BottomNav />
-      <PwaShell />
+      {/* Phones: Now Playing's own controls fill the bottom, so the update toast goes on top. */}
+      <PwaShell fullScreen={pathname === '/now-playing'} />
       <ScrollRestoration />
     </>
   )

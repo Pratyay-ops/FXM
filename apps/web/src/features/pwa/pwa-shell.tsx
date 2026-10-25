@@ -10,13 +10,19 @@ import { UpdateToast } from './update-toast'
  * launches of the open app window. The service worker and the install offer start in main.tsx.
  */
 export function PwaShell({
+  fullScreen = false,
   players = appPlayerSource,
 }: {
+  /**
+   * The page fills a phone's screen with its own player controls (Now Playing), so the update
+   * toast shows at the top instead of over them.
+   */
+  fullScreen?: boolean
   /** Where the app's player comes from (tests pass their own). */
   players?: AppPlayerSource
 }) {
   useMediaKeys(players.usePlayer())
   useLaunchQueue()
   useTitleBar()
-  return <UpdateToast />
+  return <UpdateToast fullScreen={fullScreen} />
 }

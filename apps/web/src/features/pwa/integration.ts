@@ -3,7 +3,9 @@
  * interface with a stand-in; when the stage merges, the integration step replaces the stand-in
  * with the real thing and leaves the rest of the PWA code alone.
  *
- * The other touch-point, the static host's headers (stage 2.8), is in pwa/host.ts.
+ * The others: Now Playing filling a phone's screen (2.5), which `AppLayout` passes to
+ * `<PwaShell fullScreen>` for the update toast, and the static host's headers (2.8), in
+ * pwa/host.ts.
  *
  * @module
  */
