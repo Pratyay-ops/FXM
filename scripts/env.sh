@@ -53,7 +53,12 @@ export PIP_CACHE_DIR="$FXM_TOOLS/pip/cache"
 export GRADLE_USER_HOME="$FXM_TOOLS/gradle"
 export ANDROID_HOME="$FXM_TOOLS/android-sdk"
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export ANDROID_USER_HOME="$FXM_TOOLS/android-user"
+# Android tools keep their settings, keys and caches in ANDROID_USER_HOME, a .android folder.
+# The Android Gradle plugin's analytics ignore it and read ANDROID_PREFS_ROOT, which the plugin
+# accepts only as the folder holding that .android. ANDROID_SDK_HOME (deprecated) would compete.
+export ANDROID_PREFS_ROOT="$FXM_TOOLS/android-user"
+export ANDROID_USER_HOME="$ANDROID_PREFS_ROOT/.android"
+unset ANDROID_SDK_HOME
 _fxm_local_jdk=
 if [ -d "$FXM_TOOLS/jdk/Contents/Home" ]; then
   _fxm_local_jdk="$FXM_TOOLS/jdk/Contents/Home"
@@ -74,12 +79,21 @@ export WRANGLER_SEND_METRICS=false
 export ASTRO_TELEMETRY_DISABLED=1
 export DO_NOT_TRACK=1
 
-# PATH: .tools/bin first, then the local JDK and Android tools when installed.
+# PATH: .tools/bin first, then the local JDK and Android tools when installed. Each folder moves
+# to the front even when PATH has it already, as after an earlier `source scripts/env.sh`: the
+# Android tools installed since then must not end up before .tools/bin, because the SDK's own
+# adb would then shadow the wrapper there and write its key to ~/.android.
 _fxm_path_prepend() {
-  case ":$PATH:" in
-    *":$1:"*) ;;
-    *) PATH="$1:$PATH" ;;
-  esac
+  local rest=":$PATH:"
+  while :; do
+    case $rest in
+      *":$1:"*) rest=${rest//":$1:"/:} ;;
+      *) break ;;
+    esac
+  done
+  rest=${rest#:}
+  rest=${rest%:}
+  PATH="$1${rest:+:$rest}"
 }
 if [ -d "$ANDROID_HOME/platform-tools" ]; then
   _fxm_path_prepend "$ANDROID_HOME/platform-tools"

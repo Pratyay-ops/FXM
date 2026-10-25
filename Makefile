@@ -13,7 +13,7 @@ RUN := scripts/run.sh
 
 help: ## List available commands
 	@echo "FXM commands (docs/DEVELOPMENT.md has the details):"
-	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  \033[36m%-11s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z0-9-]+:.*## / {printf "  \033[36m%-13s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # --- Setup ---------------------------------------------------------------------
 
@@ -64,6 +64,19 @@ ci-setup: ## CI only: setup with a frozen lockfile
 	@scripts/setup.sh --frozen-lockfile
 
 ci: ci-setup check ## What CI runs: frozen setup, then check
+
+# --- Android app (docs/DEVELOPMENT.md, "Android app") ---------------------------
+
+.PHONY: android-setup apk android-clean
+
+android-setup: ## Install the JDK and Android SDK into .tools (accepts the SDK licenses)
+	@scripts/android-setup.sh
+
+apk: ## Build the Android debug APK (run make android-setup once first)
+	@apps/mobile/scripts/build-apk.sh
+
+android-clean: ## Remove this checkout's Android build output
+	@scripts/clean.sh android
 
 # --- Worktrees (one per plan stage, see docs/WORKFLOW.md) ----------------------
 

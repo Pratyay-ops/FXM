@@ -87,6 +87,62 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 
 `.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
 
+## Android app
+
+`apps/mobile` wraps the web app in a [Capacitor](https://capacitorjs.com) 8 shell. Building it needs a JDK and the Android SDK, and both are installed inside the repository like everything else. `make check` needs neither. How the app is put together is in [apps/mobile/README.md](../apps/mobile/README.md).
+
+```sh
+make android-setup   # once: JDK, Android SDK and its licenses (about 500 MB of downloads)
+make apk             # builds the debug APK
+```
+
+`make apk` builds the web app with base `/` (`build:mobile`), copies it into the native project (`cap sync android`) and runs Gradle's `assembleDebug`, without a Gradle daemon left running. The APK lands in **`apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`**. The first build downloads Gradle and the Android libraries; later builds take about half a minute.
+
+> **Android SDK licenses.** `make android-setup` accepts the Android SDK licenses for you (`yes | sdkmanager --licenses`) and prints a line saying so. Read the [terms](https://developer.android.com/studio/terms) before you run it.
+
+**Where it goes**
+
+| What | Where | Size |
+|---|---|---|
+| Eclipse Temurin JDK 21 | `.tools/jdk/` | 340 MB |
+| Android command-line tools, platform-tools, SDK platform 36, build tools 35 | `.tools/android-sdk/` | 530 MB |
+| Gradle and the libraries the build downloads | `.tools/gradle/` | 700 MB after the first build |
+| Android settings, the debug signing key, adb's key | `.tools/android-user/` | under 1 MB |
+| Build output | `apps/mobile/android/{app/build,build,.gradle}`, `apps/web/dist-mobile/` in each checkout | 20 MB |
+
+Android tools normally write to `~/.android`, `~/.gradle` and `~/.m2`. `scripts/env.sh` points them into `.tools/` (`ANDROID_USER_HOME`, plus `ANDROID_PREFS_ROOT` for the Android Gradle plugin's analytics, and `GRADLE_USER_HOME`). adb ignores those variables, so `make android-setup` puts an `adb` wrapper first on the PATH that gives it a home in `.tools/android-user`. Both `make android-setup` and `make apk` fail if `~/.android`, `~/.gradle`, `~/.m2` or `~/Library/Android` appears while they run. Run other Capacitor commands as `scripts/run.sh pnpm --filter @fxm/mobile cap <command>`. The script sets `CI=1`, because in a terminal the Capacitor CLI switches on its telemetry and stores a machine ID in your home folder. It also turns on Node's type stripping, so the CLI can load `capacitor.config.ts` on Node 22 releases before 22.18.
+
+**Installing on a phone**
+
+1. On the phone, open *Settings → About phone* and tap *Build number* seven times, then turn on *Developer options → USB debugging*.
+2. Connect it over USB and run:
+
+   ```sh
+   scripts/run.sh adb devices    # accept the prompt on the phone
+   scripts/run.sh adb install -r apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+   scripts/run.sh adb kill-server   # optional: adb otherwise keeps a server running
+   ```
+
+   You can also copy the APK to the phone and open it there, after allowing your file manager to install unknown apps.
+
+Use the repo-local `adb` through `scripts/run.sh` (or after `source scripts/env.sh`). `./gradlew installDebug` and Android Studio start adb without the wrapper, which creates `~/.android`. Every machine, and every CI run, signs debug builds with its own key in `.tools/android-user`, and `make nuke` deletes it. Android refuses to update an app with a different signature, so run `scripts/run.sh adb uninstall io.github.pratyayops.fxm` first, which also deletes the app's data.
+
+From 2027, Google plans to require developer verification for apps installed outside the Play Store on certified Android devices: USD 25 and an ID for the publisher, or an ADB or "advanced" install flow for unverified apps. Debug builds installed with adb are expected to keep working. Stage 6.6 decides how FXM's release APKs handle it.
+
+**Cleaning up.** `make android-clean` removes this checkout's Android build output, and `make clean` does the same in every checkout. `make nuke` first stops the Gradle daemons running from `.tools/` and the adb server, which adb restarts whenever it next needs it. Then it deletes the JDK, the SDK, the Gradle caches and the keys with the rest of `.tools/`.
+
+**CI.** `.github/workflows/android.yml` runs `make android-setup` and `make apk` on ubuntu-latest, on demand and for pushes and pull requests that touch the app or anything its build uses: `apps/mobile/`, `apps/web/`, `packages/`, `scripts/`, the `Makefile`, `.nvmrc`, the root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.base.json` or the workflow itself. It fails when the build changes the committed project in `apps/mobile/android`. After a Capacitor upgrade, for example, `cap sync` rewrites `capacitor.settings.gradle`, so commit what `make apk` regenerated. The workflow caches the JDK, the SDK and the Gradle home, and uploads `app-debug.apk` as a workflow artifact for 14 days.
+
+**Upgrading**
+
+| What | Edit | Where the version and hash come from |
+|---|---|---|
+| JDK | `JDK_VERSION` and the hashes in `scripts/android-setup.sh` | A Temurin 21 release at least two weeks old; its `.sha256.txt` files on [the GitHub release](https://github.com/adoptium/temurin21-binaries/releases) |
+| Command-line tools | `CMDLINE_TOOLS_*` and the hashes in `scripts/android-setup.sh` | The SHA-256 column on [developer.android.com/studio](https://developer.android.com/studio#command-line-tools-only) |
+| SDK platform, build tools | `SDK_PLATFORM`, `SDK_BUILD_TOOLS` in `scripts/android-setup.sh` | `compileSdkVersion` in `apps/mobile/android/variables.gradle` (a test keeps them equal), and the Android Gradle plugin's default build tools |
+| Gradle | `apps/mobile/android/gradle/wrapper/gradle-wrapper.properties` | `distributionSha256Sum` from `https://services.gradle.org/distributions/gradle-<version>-bin.zip.sha256` |
+| Capacitor | `apps/mobile/package.json` through `scripts/run.sh pnpm --filter @fxm/mobile add …` | See [apps/mobile/README.md](../apps/mobile/README.md#upgrading-capacitor) |
+
 ## Removing everything
 
 ```sh

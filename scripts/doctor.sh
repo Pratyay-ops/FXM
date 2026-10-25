@@ -66,6 +66,20 @@ if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/java" ]; then
 else
   opt java "not installed: 'make android-setup' (stage 6.1)"
 fi
+# Gradle: the version the Android project's wrapper pins, and whether `make apk` fetched it yet.
+wrapper=$FXM_ROOT/apps/mobile/android/gradle/wrapper/gradle-wrapper.properties
+if [ -f "$wrapper" ]; then
+  gradle=$(sed -n 's|^distributionUrl=.*/gradle-\([^/]*\)-[a-z]*\.zip$|\1|p' "$wrapper")
+  fetched=
+  for bin in "$GRADLE_USER_HOME/wrapper/dists/gradle-$gradle-"*/*/"gradle-$gradle/bin/gradle"; do
+    if [ -x "$bin" ]; then fetched=1; fi
+  done
+  if [ -n "$fetched" ]; then
+    ok gradle "$gradle (wrapper, in $(short "$GRADLE_USER_HOME"))"
+  else
+    opt gradle "$gradle (wrapper): the first 'make apk' downloads it"
+  fi
+fi
 if [ -d "$ANDROID_HOME/platform-tools" ]; then ok android "$(short "$ANDROID_HOME")"; else opt android "not installed: 'make android-setup' (stage 6.1)"; fi
 if command -v ffmpeg >/dev/null 2>&1; then
   ok ffmpeg "$(ffmpeg -version | head -1 | cut -d' ' -f1-3) (system, used by the self-hosted server)"

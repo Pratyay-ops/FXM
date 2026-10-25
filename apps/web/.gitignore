@@ -3,3 +3,6 @@
 /test-results/
 /playwright-report/
 /blob-report/
+
+# Web build for the Android app (build:mobile, run by `make apk`)
+/dist-mobile/
