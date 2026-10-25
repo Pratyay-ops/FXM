@@ -1,0 +1,6 @@
+{
+  "message": "Too many requests from this IP address. Please try again later.",
+  "name": "RateLimitExceeded",
+  "statusCode": 429,
+  "scope": "ip"
+}

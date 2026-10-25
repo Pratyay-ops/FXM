@@ -458,12 +458,49 @@ export interface AudioSource {
   ): Promise<StreamOption[]>
 }
 
+/**
+ * One timed word, or syllable, of a line of lyrics: enhanced LRC's `<mm:ss.xx>word`. A word lasts
+ * until its `endMs`, or else until the next word (or line) starts.
+ */
+export interface LyricWord {
+  /** When the word starts, in milliseconds. */
+  timeMs: number
+  /**
+   * The word as written, plus one space when a space separates it from the next word, so the
+   * words of a line joined together spell its text. Scripts written without spaces, such as
+   * Japanese, have none.
+   */
+  text: string
+  /**
+   * When the word ends, in milliseconds, when the source marks it: before a pause, or at the end
+   * of the line.
+   */
+  endMs?: number
+}
+
 /** One line of lyrics. */
 export interface LyricLine {
   /** When the line starts, in milliseconds. Present on every line of synced lyrics. */
   timeMs?: number
   /** The line's text. */
   text: string
+  /**
+   * Word-by-word timing for karaoke-style highlighting, when the source has it (enhanced LRC).
+   * Joined together, the words' texts make up `text`.
+   */
+  words?: LyricWord[]
+}
+
+/** What lyrics say about the recording they were written for, e.g. in LRC ID tags. */
+export interface LyricsMetadata {
+  /** Song title (LRC `[ti:]`). */
+  title?: string
+  /** Artist (LRC `[ar:]`). */
+  artist?: string
+  /** Album (LRC `[al:]`). */
+  album?: string
+  /** The recording's length in milliseconds (LRC `[length:]`). */
+  lengthMs?: number
 }
 
 /** The lyrics of one track. */
@@ -474,6 +511,11 @@ export interface Lyrics {
   lines: LyricLine[]
   /** Where the lyrics came from, e.g. `lrclib`. */
   source: string
+  /**
+   * The title, artist, album and length of the recording the lyrics were written for, when known,
+   * so the app can tell whether they fit the track that plays.
+   */
+  metadata?: LyricsMetadata
 }
 
 /** Finds lyrics for a track. */
