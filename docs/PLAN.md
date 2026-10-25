@@ -146,7 +146,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **7.4** | Desktop downloads + Spotify login window | `feat/7.4-desktop-downloads` | 7.2, 4.1, 3.5 | ⬜ |
 | **7.5** | Desktop release: installers and auto-update | `ci/7.5-desktop-release` | 7.3, R.1 | ⬜ |
 | **7.6** | Desktop trust: signing and EQ path | `chore/7.6-desktop-trust` | 7.5, 1.11 | ⬜ |
-| **R.1** | Release pipeline (release PR, tags, notes, checksums, attestations) | `ci/r1-release-pipeline` | 0.4, 1.9 | 🟡 |
+| **R.1** | Release pipeline (release PR, tags, notes, checksums, attestations) | `ci/r1-release-pipeline` | 0.4, 1.9 | ✅ |
 | **R.2** | Extension store channels: Firefox Add-ons and Edge Add-ons | `ci/r2-extension-stores` | R.1 | ⬜ |
 | **R.3** | More channels: F-Droid/IzzyOnDroid/Obtainium, Flathub, winget (Homebrew only if notarized) | `chore/r3-channels` | 6.6, 7.5 | ⬜ |
 | **R.4** | Legal notices and clean-room log | `docs/r4-legal-notices` | 0.4, 5.3 | ✅ |
@@ -740,7 +740,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 
 ## Phase R: Releases and packages (cross-cutting)
 
-### R.1 Release pipeline
+### R.1 Release pipeline ✅
 
 **Branch** `ci/r1-release-pipeline` · **Depends on** 0.4, 1.9 · **Scope** `.github/workflows/release.yml`, `scripts/release*`, `CHANGELOG.md`, `cliff.toml`
 
