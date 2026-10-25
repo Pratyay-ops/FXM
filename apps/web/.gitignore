@@ -6,3 +6,6 @@
 
 # Web build for the Android app (build:mobile, run by `make apk`)
 /dist-mobile/
+
+# The build the desktop app embeds (build:desktop, base '/'; removed by make clean)
+/dist-desktop/
