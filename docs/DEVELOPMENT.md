@@ -162,7 +162,7 @@ Tauri compiles against each operating system's native toolchain and webview. The
 | Command | What it does |
 |---|---|
 | `make desktop-setup` | `make rust-setup`, then `make install` |
-| `make rust-setup` | Install the pinned rustup (checksum-verified) and the Rust release from `apps/desktop/src-tauri/rust-toolchain.toml` into `.tools/`. Re-running it removes toolchains left by an older pin |
+| `make rust-setup` | Install the pinned rustup (checksum-verified) and the Rust release from `apps/desktop/src-tauri/rust-toolchain.toml` into `.tools/`. Re-running it removes toolchains that no checkout pins any more (about 500 MB each). Worktrees share `.tools/`, so a toolchain another worktree still pins stays installed |
 | `make desktop-dev` | Start the web dev server on port 5260 (base `/`, strict port) and open the app with hot reload |
 | `make desktop-build` | Release build into `apps/desktop/src-tauri/target/release/bundle/`. On macOS only `FXM.app`, because the DMG step can drive Finder windows. On Linux the `.deb`, `.rpm` and AppImage |
 | `make desktop-dmg` | macOS: `FXM.app` plus the `.dmg`, built as CI builds it (`CI=true` skips the Finder layout step, so no windows open) |

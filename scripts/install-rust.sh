@@ -55,14 +55,25 @@ fi
 # Keep rustup at the pinned version: `rustup update` must not replace it with the latest.
 "$rustup" set auto-self-update disable
 
-# Each toolchain takes about 500 MB: drop the ones an older pin left behind.
-while IFS= read -r old; do
-  case "$old" in
-    "$toolchain"-*) ;;
-    [0-9]*.[0-9]*.[0-9]*-*)
-      "$rustup" toolchain uninstall "$old"
-      fxm_info "Removed old Rust toolchain $old"
-      ;;
-  esac
-done < <("$rustup" toolchain list | cut -d' ' -f1)
+# Each toolchain takes about 500 MB, so drop the ones that no checkout pins any more. Every
+# worktree shares .tools/, so a toolchain that another checkout's rust-toolchain.toml still
+# pins stays installed: branches on different pins keep building side by side. If git can't
+# list the checkouts, nothing is removed.
+if checkouts=$(git -C "$FXM_ROOT" worktree list --porcelain 2>/dev/null); then
+  pins=$(sed -n 's/^worktree //p' <<<"$checkouts" | while IFS= read -r checkout; do
+    sed -n 's/^channel *= *"\(.*\)"/\1/p' \
+      "$checkout/apps/desktop/src-tauri/rust-toolchain.toml" 2>/dev/null || true
+  done)
+  while IFS= read -r installed; do
+    case "$installed" in
+      [0-9]*.[0-9]*.[0-9]*-*)
+        # rustup names a toolchain <version>-<host>; the pins are bare versions.
+        if ! grep -qxF "${installed%%-*}" <<<"$toolchain"$'\n'"$pins"; then
+          "$rustup" toolchain uninstall "$installed"
+          fxm_info "Removed Rust toolchain $installed, which no checkout pins any more"
+        fi
+        ;;
+    esac
+  done < <("$rustup" toolchain list | cut -d' ' -f1)
+fi
 fxm_info "Rust $toolchain installed in .tools/rustup ($("$rustup" run "$toolchain" rustc --version))"
