@@ -109,7 +109,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **1.7** | Matching engine | `feat/1.7-matching` | 1.1b | ✅ |
 | **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | ✅ |
 | **1.9** | FXM Connect browser extension | `feat/1.9-connect-extension` | 0.4 | ✅ |
-| **1.10** | Opaque-origin transport (Lite tier) | `feat/1.10-sandbox-transport` | 1.2 | 🟡 |
+| **1.10** | Opaque-origin transport (Lite tier) | `feat/1.10-sandbox-transport` | 1.2 | ✅ |
 | **1.11** | YouTube resolver: deciphered, attested and SABR rungs (experimental) | `feat/1.11-youtube-advanced-rungs` | 1.2, 1.4, 1.9, 2.2, 6.1, 7.1 | 🟡 |
 | **1.12** | Matching evaluation: labelled set, report and Auto switch | `test/1.12-matching-eval` | 1.2, 1.3, 1.5, 1.6, 1.7 | 🟡 |
 | **1.13** | Signed config and resolver module | `feat/1.13-signed-updates` | 1.2, 1.3, 1.4, 7.1 | 🟡 |
@@ -426,7 +426,7 @@ Built in and switchable (Decision 1, option A). A clean-room implementation from
 
 Revision 3 changes nothing here: Connect keeps its Spotify parts (Decision 1, option A), and no second origin is needed while there is no mirror.
 
-### 1.10 Opaque-origin transport (Lite tier)
+### 1.10 Opaque-origin transport (Lite tier) ✅
 
 **Branch** `feat/1.10-sandbox-transport` · **Depends on** 1.2 · **Scope** `packages/platform/src/sandbox/**`, `apps/web/sandbox/innertube.html`, `apps/web/sandbox/userhost.html`
 
