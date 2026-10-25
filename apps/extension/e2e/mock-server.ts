@@ -13,6 +13,10 @@
  *   another googlevideo host (or the same one) with `cms_redirect=yes`, as googlevideo does.
  * - open.spotify.com /api/token and /api/server-time, and Last.fm stations: no CORS headers,
  *   OPTIONS answered with 200.
+ * - clienttoken.spotify.com: CORS headers only for the Origin https://open.spotify.com, OPTIONS
+ *   answered with 200 either way.
+ * - api-partner.spotify.com (pathfinder GraphQL) and spclient.wg.spotify.com: echo any Origin
+ *   with credentials allowed, and answer preflights with their own allow lists.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:https'
@@ -24,6 +28,9 @@ export const GOOGLEVIDEO_HOST = 'rr1---sn-mock.googlevideo.com'
 /** The googlevideo host `redirect=cross` sends media requests to. */
 export const GOOGLEVIDEO_OTHER_HOST = 'rr5---sn-other.googlevideo.com'
 export const SPOTIFY_HOST = 'open.spotify.com'
+export const CLIENTTOKEN_HOST = 'clienttoken.spotify.com'
+export const PARTNER_HOST = 'api-partner.spotify.com'
+export const SPCLIENT_HOST = 'spclient.wg.spotify.com'
 export const LASTFM_HOST = 'www.last.fm'
 export const MOCK_HOSTS = [
   FXM_HOST,
@@ -32,6 +39,9 @@ export const MOCK_HOSTS = [
   GOOGLEVIDEO_HOST,
   GOOGLEVIDEO_OTHER_HOST,
   SPOTIFY_HOST,
+  CLIENTTOKEN_HOST,
+  PARTNER_HOST,
+  SPCLIENT_HOST,
   LASTFM_HOST,
 ]
 
@@ -207,6 +217,59 @@ function spotify(req: IncomingMessage, url: URL): Reply {
   return { status: 404 }
 }
 
+/** The headers a request carried, for the mock replies the test reads back. */
+function seen(req: IncomingMessage) {
+  return { seenOrigin: req.headers.origin ?? null, seenReferer: req.headers.referer ?? null }
+}
+
+function clienttoken(req: IncomingMessage): Reply {
+  const spotify = req.headers.origin === 'https://open.spotify.com'
+  const cors: Record<string, string> = spotify
+    ? { 'access-control-allow-origin': 'https://open.spotify.com' }
+    : {}
+  if (req.method === 'OPTIONS') {
+    return {
+      status: 200,
+      headers: spotify
+        ? {
+            ...cors,
+            'access-control-allow-methods': 'GET,POST',
+            'access-control-allow-headers': 'accept,content-type,origin,authorization',
+          }
+        : {},
+    }
+  }
+  return json(
+    {
+      response_type: 'RESPONSE_GRANTED_TOKEN_RESPONSE',
+      granted_token: { token: 'mock-client-token' },
+      ...seen(req),
+    },
+    cors,
+  )
+}
+
+/** api-partner and spclient: any Origin is echoed, with credentials. */
+function echoingSpotify(req: IncomingMessage, host: string, url: URL): Reply {
+  const origin = req.headers.origin
+  const cors: Record<string, string> = origin
+    ? { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true' }
+    : {}
+  if (req.method === 'OPTIONS') {
+    return {
+      status: 200,
+      headers: {
+        ...cors,
+        'access-control-allow-methods': 'DELETE,GET,PATCH,POST,PUT,OPTIONS',
+        'access-control-allow-headers':
+          'Accept,Authorization,Origin,Content-Type,Spotify-App-Version,App-Platform,client-token',
+        'access-control-max-age': '604800',
+      },
+    }
+  }
+  return json({ host, path: url.pathname, ...seen(req) }, cors)
+}
+
 function route(req: IncomingMessage, host: string, url: URL, body: string): Reply {
   if (host === FXM_HOST || host === OTHER_HOST) {
     return url.pathname === '/'
@@ -217,6 +280,8 @@ function route(req: IncomingMessage, host: string, url: URL, body: string): Repl
   if (host === GOOGLEVIDEO_HOST || host === GOOGLEVIDEO_OTHER_HOST)
     return googlevideo(req, host, url)
   if (host === SPOTIFY_HOST) return spotify(req, url)
+  if (host === CLIENTTOKEN_HOST) return clienttoken(req)
+  if (host === PARTNER_HOST || host === SPCLIENT_HOST) return echoingSpotify(req, host, url)
   if (host === LASTFM_HOST && url.pathname.startsWith('/player/station/')) {
     if (req.method === 'OPTIONS') return { status: 200 }
     return json({ playlist: [{ name: 'Mock song', artists: [{ name: 'Mock artist' }] }] })

@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url'
 import { type BrowserContext, chromium, expect, type Page, test } from '@playwright/test'
 import { packageVersion } from '../src/manifest.ts'
 import {
+  CLIENTTOKEN_HOST,
   FXM_HOST,
   GOOGLEVIDEO_HOST,
   GOOGLEVIDEO_OTHER_HOST,
@@ -23,6 +24,8 @@ import {
   MOCK_HOSTS,
   type MockServer,
   OTHER_HOST,
+  PARTNER_HOST,
+  SPCLIENT_HOST,
   SPOTIFY_HOST,
   startMockServer,
   YOUTUBE_HOSTS,
@@ -460,6 +463,56 @@ test.describe('with FXM Connect loaded', () => {
     ).toMatchObject({ ok: true, status: 200, json: { playlist: [{ name: 'Mock song' }] } })
   })
 
+  test('makes Spotify clienttoken, pathfinder and spclient responses readable', async () => {
+    await page.goto(`${FXM}/`)
+    const clientToken = await pageFetch(page, `https://${CLIENTTOKEN_HOST}/v1/clienttoken`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: '{"client_data":{}}',
+    })
+    expect(clientToken).toMatchObject({
+      ok: true,
+      status: 200,
+      json: { granted_token: { token: 'mock-client-token' } },
+    })
+    // clienttoken only answers CORS for open.spotify.com, so the rule makes requests look so.
+    expect(
+      mock
+        .requests(CLIENTTOKEN_HOST)
+        .map(({ method, origin, referer, status }) => [method, origin, referer, status]),
+    ).toEqual([
+      ['OPTIONS', 'https://open.spotify.com', 'https://open.spotify.com/', 200],
+      ['POST', 'https://open.spotify.com', 'https://open.spotify.com/', 200],
+    ])
+
+    // The web player's headers; each of them needs a preflight.
+    const headers = {
+      authorization: 'Bearer mock-token',
+      'client-token': 'mock-client-token',
+      'app-platform': 'WebPlayer',
+      'content-type': 'application/json;charset=UTF-8',
+    }
+    const query = await pageFetch(page, `https://${PARTNER_HOST}/pathfinder/v2/query`, {
+      method: 'POST',
+      headers,
+      body: '{"operationName":"searchDesktop"}',
+    })
+    expect(query).toMatchObject({ ok: true, status: 200, json: { host: PARTNER_HOST } })
+    const lyrics = await pageFetch(
+      page,
+      `https://${SPCLIENT_HOST}/color-lyrics/v2/track/mock?format=json`,
+      { headers },
+    )
+    expect(lyrics).toMatchObject({ ok: true, status: 200, json: { host: SPCLIENT_HOST } })
+    // These hosts keep the page's own Origin; the rules only pin the CORS answer.
+    for (const host of [PARTNER_HOST, SPCLIENT_HOST]) {
+      expect(mock.requests(host).map(({ method, origin }) => [method, origin])).toEqual([
+        ['OPTIONS', FXM],
+        [host === PARTNER_HOST ? 'POST' : 'GET', FXM],
+      ])
+    }
+  })
+
   test('never lets the page send or change the user’s cookies', async () => {
     await context.addCookies(SESSION_COOKIES)
     await page.goto(`${FXM}/`)
@@ -645,6 +698,13 @@ test('without FXM Connect the FXM page can reach neither InnerTube nor googlevid
     expect(await pageFetch(page, MEDIA_URL, { headers: { range: 'bytes=0-15' } })).toMatchObject({
       ok: false,
     })
+    expect(
+      await pageFetch(page, `https://${CLIENTTOKEN_HOST}/v1/clienttoken`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      }),
+    ).toMatchObject({ ok: false })
     // A plain <audio src> plays without the extension (Cross-Origin-Resource-Policy:
     // cross-origin); CORS mode, which Web Audio needs, does not.
     expect(await loadAudio(page, `${MEDIA_URL}&n=plain`, null)).toBe('loadedmetadata')
