@@ -2,8 +2,10 @@
  * A fake `FxmHttp` plugin (the Android app's OkHttp plugin, stage 6.2) for tests. It speaks the
  * bridge protocol of `android-http.ts` the way the native plugin does: request heads first,
  * bodies in base64 chunks of at most the size asked for, aborts, unknown ids, and hosts outside
- * FXM's host table that need the user's approval. Answers come from a handler that returns a
- * standard `Response`, whose body is read lazily, chunk by chunk.
+ * FXM's host table that need the user's approval (refused with `HOST_NOT_APPROVED` and the host
+ * in `data.host`; a host on the table at another path or port is `HOST_NOT_ALLOWED`). Answers
+ * come from a handler that returns a standard `Response`, whose body is read lazily, chunk by
+ * chunk; a redirect response comes back as it is, as under `redirect: 'manual'`.
  *
  * @module
  */
@@ -18,14 +20,40 @@ import {
   type FxmHttpRequest,
   type FxmHttpResponseHead,
 } from '../android-http'
-import { findHostRule } from '../hosts'
+import { findHostRule, HOST_RULES, matchesHost } from '../hosts'
 
-/** An error as the bridge delivers the plugin's rejections: a message and a `code`. */
+/**
+ * An error as the bridge delivers the plugin's rejections: a message, a `code` and, for some
+ * codes, `data` (`HOST_NOT_APPROVED` names the refused host in `data.host`).
+ */
 export function fxmHttpError(
   code: FxmHttpErrorCode,
   message: string = code,
-): Error & { code: string } {
-  return Object.assign(new Error(message), { code })
+  data?: Readonly<Record<string, unknown>>,
+): Error & { code: string; data?: Readonly<Record<string, unknown>> } {
+  return Object.assign(new Error(message), { code }, data === undefined ? {} : { data })
+}
+
+/** Whether a host name matches a rule of FXM's host table, at any path or port. */
+function isTableHost(hostname: string): boolean {
+  return HOST_RULES.some((rule) => matchesHost(hostname, rule.host))
+}
+
+/**
+ * A host as the native plugin stores it (`URL.host`: lower case, ASCII, no default port), or a
+ * `BAD_REQUEST` error for anything that is not a plain host, as the plugin refuses it.
+ */
+function normalizedHosts(hosts: readonly string[]): string[] {
+  const normalized = hosts.map((entry) => {
+    const trimmed = entry.trim()
+    try {
+      if (trimmed === '' || /[/?#@\\\s]/u.test(trimmed)) throw new TypeError(entry)
+      return new URL(`https://${trimmed}/`).host
+    } catch {
+      throw fxmHttpError('BAD_REQUEST', `Not a host name: ${entry}`)
+    }
+  })
+  return [...new Set(normalized)]
 }
 
 /** Options for {@link createFakeFxmHttp}. */
@@ -72,11 +100,6 @@ export function createFakeFxmHttp(options: FakeFxmHttpOptions = {}): FakeFxmHttp
   const bodies = new Map<string, OpenBody>()
   const pendingIds = new Map<string, () => void>()
 
-  /** A host outside FXM's host table needs the user's approval, as in the native plugin. */
-  function needsApproval(url: URL): boolean {
-    return findHostRule(url) === undefined && !approved.has(url.host)
-  }
-
   async function nextBytes(body: OpenBody, maxBytes: number): Promise<Uint8Array | undefined> {
     if (body.pending.length === 0) {
       const aborted = new Promise<never>((_, reject) => {
@@ -116,8 +139,16 @@ export function createFakeFxmHttp(options: FakeFxmHttpOptions = {}): FakeFxmHttp
       }
       const url = new URL(request.url)
       if (url.protocol !== 'https:') throw fxmHttpError('HOST_NOT_ALLOWED', 'FXM only uses HTTPS')
-      if (needsApproval(url)) {
-        throw fxmHttpError('HOST_NOT_APPROVED', `The user has not approved ${url.host}`)
+      if (findHostRule(url) === undefined) {
+        // As in the native plugin: a host on the table is never a user host, whatever was approved.
+        if (isTableHost(url.hostname)) {
+          throw fxmHttpError('HOST_NOT_ALLOWED', `FXM does not contact ${url.host} at that path`)
+        }
+        if (!approved.has(url.host)) {
+          throw fxmHttpError('HOST_NOT_APPROVED', `The user has not approved ${url.host}`, {
+            host: url.host,
+          })
+        }
       }
       let abortedEarly = false
       pendingIds.set(request.id, () => {
@@ -185,7 +216,12 @@ export function createFakeFxmHttp(options: FakeFxmHttpOptions = {}): FakeFxmHttp
       await body.reader.cancel().catch(() => undefined)
     },
 
-    async approveHosts({ hosts }) {
+    async approveHosts(request) {
+      const hosts = normalizedHosts(request.hosts)
+      const builtIn = hosts.find((host) => isTableHost(new URL(`https://${host}/`).hostname))
+      if (builtIn !== undefined) {
+        throw fxmHttpError('BAD_REQUEST', `${builtIn} is one of FXM's own services`)
+      }
       const missing = hosts.filter((host) => !approved.has(host))
       if (missing.length > 0) {
         questions.push(missing)
@@ -200,8 +236,8 @@ export function createFakeFxmHttp(options: FakeFxmHttpOptions = {}): FakeFxmHttp
       return { hosts: [...approved].sort() }
     },
 
-    async revokeHosts({ hosts }) {
-      for (const host of hosts) approved.delete(host)
+    async revokeHosts(request) {
+      for (const host of normalizedHosts(request.hosts)) approved.delete(host)
       return { hosts: [...approved].sort() }
     },
   }

@@ -14,6 +14,7 @@ import {
 } from './android-http'
 import { createRequestBudget } from './budget'
 import { createCapacitorTransport } from './capacitor'
+import { isTransportError } from './errors'
 import { SIMPLE_CONTENT_TYPE } from './innertube'
 import type { NativeRequestInit } from './native'
 import { createPlatform } from './platform'
@@ -22,11 +23,25 @@ import { createFakeFxmHttp, fxmHttpError } from './testing'
 
 const SEARCH = 'https://music.youtube.com/youtubei/v1/search?prettyPrint=false'
 const BODY = JSON.stringify({ context: { client: { clientName: 'WEB_REMIX' } }, query: 'x' })
-const AGENT = 'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0'
+const AGENT = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141'
+const INVIDIOUS = 'https://invidious.example.org/api/v1/stats'
 
+/** A request as the native transport hands it over, routed as InnerTube unless told otherwise. */
 function init(overrides: Partial<NativeRequestInit> = {}): NativeRequestInit {
-  return { method: 'GET', headers: { origin: '' }, ...overrides }
+  return {
+    method: 'GET',
+    headers: {},
+    origin: null,
+    route: 'innertube',
+    credentials: 'omit',
+    redirect: 'manual',
+    ...overrides,
+  }
 }
+
+/** A request to a host the user added in Settings, as the transport routes it. */
+const userInit = (overrides: Partial<NativeRequestInit> = {}) =>
+  init({ route: 'user', ...overrides })
 
 /** A body that sends `first`, then waits for `release()` before sending `rest`. */
 function gatedBody(first: Uint8Array, rest: Uint8Array) {
@@ -99,17 +114,18 @@ describe('findFxmHttpPlugin', () => {
 })
 
 describe('createAndroidHttp', () => {
-  it('sends exactly the headers it is given, text bodies as UTF-8', async () => {
+  it('sends exactly the headers it is given, text bodies as UTF-8, redirects manual', async () => {
     const plugin = createFakeFxmHttp()
     const http = createAndroidHttp({ plugin })
-    const headers = { 'content-type': SIMPLE_CONTENT_TYPE, origin: '', 'user-agent': AGENT }
-    await http(SEARCH, init({ method: 'POST', headers, body: BODY, redirect: 'manual' }))
+    const headers = { 'content-type': SIMPLE_CONTENT_TYPE, 'user-agent': AGENT }
+    await http(SEARCH, init({ method: 'POST', headers, body: BODY }))
     expect(plugin.requests).toHaveLength(1)
     const [request] = plugin.requests
-    expect(request).toMatchObject({
+    expect(request).toEqual({
+      id: request?.id,
       url: SEARCH,
       method: 'POST',
-      headers,
+      headers: { ...headers, origin: '' },
       body: BODY,
       bodyEncoding: 'utf8',
       redirect: 'manual',
@@ -117,12 +133,27 @@ describe('createAndroidHttp', () => {
     expect(request?.id).toMatch(/^[A-Za-z0-9._:-]{1,100}$/)
   })
 
+  it('sends the origin it is given, none for null, and never one from the headers', async () => {
+    const plugin = createFakeFxmHttp()
+    const http = createAndroidHttp({ plugin })
+    const spotify = 'https://api-partner.spotify.com/pathfinder/v2/query'
+    await http(spotify, init({ route: 'spotify', origin: 'https://open.spotify.com' }))
+    await http(
+      SEARCH,
+      init({ headers: { origin: 'https://localhost', cookie: 'SID=x', 'x-a': '1' } }),
+    )
+    expect(plugin.requests.map((request) => request.headers)).toEqual([
+      { origin: 'https://open.spotify.com' },
+      { 'x-a': '1', origin: '' },
+    ])
+  })
+
   it('sends binary bodies as base64, byte for byte', async () => {
     const plugin = createFakeFxmHttp()
     const bytes = new Uint8Array(256).map((_, index) => index)
     await createAndroidHttp({ plugin })(
       'https://lrclib.net/x',
-      init({ method: 'POST', body: bytes }),
+      init({ route: 'open', method: 'POST', body: bytes }),
     )
     const [request] = plugin.requests
     expect(request?.bodyEncoding).toBe('base64')
@@ -184,12 +215,24 @@ describe('createAndroidHttp', () => {
         }),
     })
     const http = createAndroidHttp({ plugin })
-    const head = await http('https://lrclib.net/a', init({ method: 'HEAD' }))
+    const head = await http('https://lrclib.net/a', init({ route: 'open', method: 'HEAD' }))
     expect(head.body).toBeNull()
-    const empty = await http('https://lrclib.net/204', init())
+    const empty = await http('https://lrclib.net/204', init({ route: 'open' }))
     expect(empty.status).toBe(204)
     expect(empty.body).toBeNull()
     expect(plugin.reads).toEqual([])
+  })
+
+  it('hands a redirect back as it is, with its Location readable', async () => {
+    const next = 'https://rr5---sn-y.googlevideo.com/videoplayback?itag=251'
+    const plugin = createFakeFxmHttp({ respond: () => Response.redirect(next, 302) })
+    const response = await createAndroidHttp({ plugin })(
+      'https://rr1---sn-x.googlevideo.com/videoplayback?itag=251',
+      init({ route: 'googlevideo' }),
+    )
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe(next)
+    expect(response.redirected).toBe(false)
   })
 
   it('sets url and redirected from the plugin', async () => {
@@ -207,7 +250,7 @@ describe('createAndroidHttp', () => {
     }
     const response = await createAndroidHttp({ plugin })(
       'https://rr1---sn-x.googlevideo.com/videoplayback',
-      init(),
+      init({ route: 'googlevideo' }),
     )
     expect(response.url).toBe('https://rr5---sn-y.googlevideo.com/videoplayback')
     expect(response.redirected).toBe(true)
@@ -312,22 +355,82 @@ describe('aborts', () => {
   })
 })
 
+/** A stand-in for `FinalizationRegistry` whose collections the test triggers. */
+class FakeFinalizationRegistry {
+  static last: FakeFinalizationRegistry | undefined
+  readonly entries: { target: object; held: unknown; token: object | undefined }[] = []
+
+  constructor(private readonly cleanup: (held: unknown) => void) {
+    FakeFinalizationRegistry.last = this
+  }
+
+  register(target: object, held: unknown, token?: object) {
+    this.entries.push({ target, held, token })
+  }
+
+  unregister(token: object) {
+    const before = this.entries.length
+    this.entries.splice(0, this.entries.length, ...this.entries.filter((e) => e.token !== token))
+    return this.entries.length < before
+  }
+
+  /** As if the page had collected `target`. */
+  collect(target: object) {
+    const entry = this.entries.find((candidate) => candidate.target === target)
+    if (entry === undefined) return
+    this.entries.splice(this.entries.indexOf(entry), 1)
+    this.cleanup(entry.held)
+  }
+}
+
+describe('bodies dropped unread', () => {
+  it('are released when the page collects them', async () => {
+    vi.stubGlobal('FinalizationRegistry', FakeFinalizationRegistry)
+    const { stream } = gatedBody(new Uint8Array([1]), new Uint8Array([2]))
+    const plugin = createFakeFxmHttp({ respond: () => new Response(stream) })
+    const response = await createAndroidHttp({ plugin })(SEARCH, init())
+    const [id] = plugin.open
+    expect(id).toBeDefined()
+    FakeFinalizationRegistry.last?.collect(response.body as object)
+    await vi.waitFor(() => expect(plugin.aborts).toEqual([id]))
+    expect(plugin.open).toEqual([])
+  })
+
+  it('are no longer watched once read to the end or cancelled', async () => {
+    vi.stubGlobal('FinalizationRegistry', FakeFinalizationRegistry)
+    const plugin = createFakeFxmHttp({ respond: () => new Response('done') })
+    const http = createAndroidHttp({ plugin })
+    const registry = FakeFinalizationRegistry.last
+    expect(await (await http(SEARCH, init())).text()).toBe('done')
+    await (await http(SEARCH, init())).body?.cancel()
+    expect(registry?.entries).toEqual([])
+  })
+})
+
 describe('errors', () => {
-  it('turn refusals by FXM’s network rules into Unsupported FxmErrors', async () => {
-    for (const code of ['HOST_NOT_ALLOWED', 'HEADER_NOT_ALLOWED', 'METHOD_NOT_ALLOWED'] as const) {
+  it('turn refusals by FXM’s network rules into TransportErrors, as the transports give', async () => {
+    const reasons = {
+      HOST_NOT_ALLOWED: 'unknown-host',
+      HOST_NOT_APPROVED: 'unknown-host',
+      HEADER_NOT_ALLOWED: 'bad-request',
+      METHOD_NOT_ALLOWED: 'bad-request',
+      REDIRECT: 'redirect',
+    } as const
+    for (const [code, reason] of Object.entries(reasons)) {
       const plugin = createFakeFxmHttp({
         respond: () => {
-          throw fxmHttpError(code, `refused: ${code}`)
+          throw fxmHttpError(code as keyof typeof reasons, `refused: ${code}`)
         },
       })
       const error = await rejection(createAndroidHttp({ plugin })(SEARCH, init()))
-      expect(isFxmError(error, 'Unsupported')).toBe(true)
+      expect(isTransportError(error, reason), code).toBe(true)
       expect((error as Error).message).toBe(`refused: ${code}`)
+      expect(fxmHttpErrorCode((error as Error).cause)).toBe(code)
     }
   })
 
   it('turn everything else into TypeErrors, as fetch does, keeping the cause', async () => {
-    for (const code of ['NETWORK', 'TIMEOUT', 'BAD_REQUEST', 'REDIRECT', 'BUSY'] as const) {
+    for (const code of ['NETWORK', 'TIMEOUT', 'BAD_REQUEST', 'BUSY', 'UNKNOWN_ID'] as const) {
       const cause = fxmHttpError(code, 'Could not reach music.youtube.com')
       const plugin = createFakeFxmHttp({
         respond: () => {
@@ -382,51 +485,124 @@ describe('errors', () => {
 })
 
 describe('hosts the user added', () => {
-  const INVIDIOUS = 'https://invidious.example.org/api/v1/stats'
-
   it('ask the user once, then retry the request', async () => {
     const plugin = createFakeFxmHttp()
     const http = createAndroidHttp({ plugin })
-    const [first, second] = await Promise.all([http(INVIDIOUS, init()), http(INVIDIOUS, init())])
+    const [first, second] = await Promise.all([
+      http(INVIDIOUS, userInit()),
+      http(INVIDIOUS, userInit()),
+    ])
     expect([first.status, second.status]).toEqual([200, 200])
     expect(plugin.questions).toEqual([['invidious.example.org']])
     expect(plugin.requests).toHaveLength(4)
-    await http(INVIDIOUS, init())
+    await http(INVIDIOUS, userInit())
     expect(plugin.questions).toHaveLength(1)
   })
 
-  it('fail with Unsupported when the user does not allow the host', async () => {
-    const plugin = createFakeFxmHttp({ answer: () => false })
-    const error = await rejection(createAndroidHttp({ plugin })(INVIDIOUS, init()))
-    expect(isFxmError(error, 'Unsupported')).toBe(true)
-    expect((error as Error).message).toContain('invidious.example.org')
+  it('are only asked about for requests the transport routed to a user host', async () => {
+    const plugin = createFakeFxmHttp()
+    const error = await rejection(createAndroidHttp({ plugin })(INVIDIOUS, init({ route: 'open' })))
+    expect(isTransportError(error, 'unknown-host')).toBe(true)
+    expect(plugin.questions).toEqual([])
+    expect(plugin.requests).toHaveLength(1)
   })
 
-  it('fail with Unsupported when the user cannot be asked', async () => {
+  it('never ask about a host the plugin did not name as the request’s own', async () => {
+    for (const data of [{ host: 'tracker.example.org' }, undefined]) {
+      const fake = createFakeFxmHttp()
+      const plugin: FxmHttpPlugin = {
+        ...fake,
+        request: async () => {
+          throw fxmHttpError('HOST_NOT_APPROVED', 'not approved', data)
+        },
+      }
+      const error = await rejection(createAndroidHttp({ plugin })(INVIDIOUS, userInit()))
+      expect(isTransportError(error, 'unknown-host')).toBe(true)
+      expect(fake.questions).toEqual([])
+    }
+  })
+
+  it('never ask about a host on FXM’s table, whatever the plugin says', async () => {
+    const fake = createFakeFxmHttp()
+    let sent = 0
     const plugin: FxmHttpPlugin = {
-      ...createFakeFxmHttp(),
-      approveHosts: async () => {
-        throw fxmHttpError('NO_ACTIVITY')
+      ...fake,
+      request: async () => {
+        sent += 1
+        throw fxmHttpError('HOST_NOT_APPROVED', 'not approved', { host: 'www.youtube.com' })
       },
     }
-    expect(
-      isFxmError(await rejection(createAndroidHttp({ plugin })(INVIDIOUS, init())), 'Unsupported'),
-    ).toBe(true)
+    const error = await rejection(
+      createAndroidHttp({ plugin })('https://www.youtube.com/feed', userInit()),
+    )
+    expect(isTransportError(error, 'unknown-host')).toBe(true)
+    expect(fake.questions).toEqual([])
+    expect(sent).toBe(1)
+  })
+
+  it('fail when the user does not allow the host, and are not asked about again', async () => {
+    const plugin = createFakeFxmHttp({ answer: () => false })
+    const http = createAndroidHttp({ plugin })
+    const error = await rejection(http(INVIDIOUS, userInit()))
+    expect(isTransportError(error, 'unknown-host')).toBe(true)
+    expect((error as Error).message).toContain('invidious.example.org')
+    const again = await rejection(http(INVIDIOUS, userInit()))
+    expect(isTransportError(again, 'unknown-host')).toBe(true)
+    expect(plugin.questions).toEqual([['invidious.example.org']])
+    expect(plugin.requests).toHaveLength(1)
+  })
+
+  it('are asked about again only from Settings, which lifts the refusal', async () => {
+    let allow = false
+    const plugin = createFakeFxmHttp({ answer: () => allow })
+    const requests = createAndroidHttp({ plugin })
+    const settings = createAndroidHttp({ plugin })
+    await rejection(requests(INVIDIOUS, userInit()))
+    expect(await settings.approveHosts([' Invidious.Example.org '])).toEqual([])
+    await rejection(requests(INVIDIOUS, userInit()))
+    expect(plugin.questions).toHaveLength(2)
+    allow = true
+    expect(await settings.approveHosts(['invidious.example.org'])).toEqual([
+      'invidious.example.org',
+    ])
+    expect((await requests(INVIDIOUS, userInit())).status).toBe(200)
+    expect(plugin.questions).toHaveLength(3)
+  })
+
+  it('fail when the user cannot be asked, and are asked about next time', async () => {
+    const fake = createFakeFxmHttp()
+    let screen = false
+    const plugin: FxmHttpPlugin = {
+      ...fake,
+      approveHosts: async (options) => {
+        if (!screen) throw fxmHttpError('NO_ACTIVITY')
+        return fake.approveHosts(options)
+      },
+    }
+    const http = createAndroidHttp({ plugin })
+    expect(isTransportError(await rejection(http(INVIDIOUS, userInit())), 'unknown-host')).toBe(
+      true,
+    )
+    screen = true
+    expect((await http(INVIDIOUS, userInit())).status).toBe(200)
   })
 
   it('are not asked about when asking is off', async () => {
     const plugin = createFakeFxmHttp()
     const error = await rejection(
-      createAndroidHttp({ plugin, askToApproveHosts: false })(INVIDIOUS, init()),
+      createAndroidHttp({ plugin, askToApproveHosts: false })(INVIDIOUS, userInit()),
     )
-    expect(isFxmError(error, 'Unsupported')).toBe(true)
+    expect(isTransportError(error, 'unknown-host')).toBe(true)
     expect(plugin.questions).toEqual([])
   })
 
   it('stop waiting for the answer when the request is aborted', async () => {
     const plugin = createFakeFxmHttp({ answer: () => new Promise<boolean>(() => {}) })
     const controller = new AbortController()
-    const pending = createAndroidHttp({ plugin })(INVIDIOUS, init({ signal: controller.signal }))
+    const pending = createAndroidHttp({ plugin })(
+      INVIDIOUS,
+      userInit({ signal: controller.signal }),
+    )
     await vi.waitFor(() => expect(plugin.questions).toHaveLength(1))
     controller.abort()
     expect(((await rejection(pending)) as DOMException).name).toBe('AbortError')
@@ -442,6 +618,9 @@ describe('hosts the user added', () => {
     expect(plugin.questions).toEqual([['new.example.org']])
     expect(await http.approvedHosts()).toEqual(['known.example.org', 'new.example.org'])
     expect(await http.revokeHosts(new Set(['known.example.org']))).toEqual(['new.example.org'])
+    expect(fxmHttpErrorCode(await rejection(http.approveHosts(['www.last.fm'])))).toBe(
+      'BAD_REQUEST',
+    )
   })
 })
 
@@ -456,7 +635,7 @@ describe('base64', () => {
 })
 
 describe('the Android transport over the plugin', () => {
-  it('keeps the InnerTube shape and the native header policy, and draws from the budget', async () => {
+  it('sends Spotify its own origin, YouTube none, the InnerTube shape and manual redirects', async () => {
     const plugin = createFakeFxmHttp()
     const budget = createRequestBudget()
     const transport = createCapacitorTransport({
@@ -492,7 +671,61 @@ describe('the Android transport over the plugin', () => {
       origin: 'https://open.spotify.com',
       'user-agent': AGENT,
     })
+    expect(plugin.requests.map((request) => request.redirect)).toEqual(['manual', 'manual'])
     expect(budget.snapshot().used).toBe(1)
+  })
+
+  it('follows redirects itself, hop by hop, releasing each redirect response', async () => {
+    const first = 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=251'
+    const second = 'https://rr5---sn-y.googlevideo.com/videoplayback?itag=251'
+    const plugin = createFakeFxmHttp({
+      respond: (request) =>
+        request.url === first
+          ? new Response('moved', { status: 302, headers: { location: second } })
+          : new Response('media'),
+    })
+    const transport = createCapacitorTransport({
+      http: createAndroidHttp({ plugin }),
+      budget: createRequestBudget(),
+    })
+    const response = await transport.fetch(first, { headers: { range: 'bytes=-65536' } })
+    expect(await response.text()).toBe('media')
+    expect(plugin.requests.map((request) => [request.url, request.headers.range])).toEqual([
+      [first, 'bytes=-65536'],
+      [second, 'bytes=-65536'],
+    ])
+    expect(plugin.aborts).toEqual([plugin.requests[0]?.id])
+    expect(plugin.open).toEqual([])
+  })
+
+  it('refuses a redirect off the table without asking the user anything', async () => {
+    const plugin = createFakeFxmHttp({
+      respond: () => Response.redirect('https://tracker.example.org/x', 302),
+    })
+    const transport = createCapacitorTransport({
+      http: createAndroidHttp({ plugin }),
+      budget: createRequestBudget(),
+    })
+    const error = await rejection(transport.fetch('https://lrclib.net/api/get?x=1'))
+    expect(isTransportError(error, 'redirect')).toBe(true)
+    expect(plugin.questions).toEqual([])
+    expect(plugin.requests).toHaveLength(1)
+  })
+
+  it('sends user hosts no header and asks about them once', async () => {
+    const plugin = createFakeFxmHttp()
+    const transport = createCapacitorTransport({
+      http: createAndroidHttp({ plugin }),
+      budget: createRequestBudget(),
+      userHosts: () => ['invidious.example.org'],
+    })
+    const response = await transport.fetch(INVIDIOUS, { headers: { authorization: 'Bearer t' } })
+    expect(response.status).toBe(200)
+    expect(plugin.questions).toEqual([['invidious.example.org']])
+    expect(plugin.requests.map((request) => request.headers)).toEqual([
+      { origin: '' },
+      { origin: '' },
+    ])
   })
 
   it('still reports a LOGIN_REQUIRED player response to the budget from a streamed body', async () => {
@@ -543,6 +776,13 @@ describe('createPlatform in the Android app', () => {
     })
     await platform.transport.fetch('https://lrclib.net/api/get')
     expect(http).toHaveBeenCalledOnce()
+    platform.dispose()
+  })
+
+  it('keeps the stub without the plugin', async () => {
+    vi.stubGlobal('Capacitor', { isNativePlatform: () => true, Plugins: {} })
+    const platform = await createPlatform({ environment: 'capacitor', storage: memoryStorage() })
+    expect(platform.capabilities.current.youtube).toBe('none')
     platform.dispose()
   })
 })
