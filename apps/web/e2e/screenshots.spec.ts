@@ -19,6 +19,7 @@ const PAGES = [
   ['playlist', 'playlist/liked'],
   ['now-playing', 'now-playing'],
   ['settings', 'settings'],
+  ['connect', 'connect'],
   ['not-found', 'no-such-page'],
 ] as const
 
