@@ -66,7 +66,7 @@ flowchart LR
   s11b --> s12["1.2 Platform"] & s13["1.3 YouTube metadata"] & s15["1.5 Spotify"] & s16["1.6 Free sources"] & s17["1.7 Matching"] & s22["2.2 Player core"] & s26["2.6 Library"]
   s19["1.9 FXM Connect ✅"] --> sR1["R.1 Release pipeline"]
   s53["5.3 Landing page ✅"] --> sR4["R.4 Legal notices"]
-  s13 --> s14["1.4 YouTube streams"]
+  s12 & s13 --> s14["1.4 YouTube streams"]
   s12 --> s110["1.10 Lite transport"]
   s12 & s13 & s15 & s16 & s17 --> s112["1.12 Matching evaluation"]
   s21["2.1 Web shell ✅"] & s12 & s13 & s15 --> s24["2.4 Search UI"]
@@ -101,7 +101,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **1.1b** | Core types from research | `feat/1.1b-core-research-types` | 1.1 | 🟡 |
 | **1.2** | Platform transports, capability detection and request budget | `feat/1.2-platform` | 1.1b | ⬜ |
 | **1.3** | YouTube Music + YouTube metadata provider | `feat/1.3-youtube` | 1.1b | ⬜ |
-| **1.4** | YouTube stream resolver: direct rungs | `feat/1.4-youtube-streams` | 1.3 | ⬜ |
+| **1.4** | YouTube stream resolver: direct rungs | `feat/1.4-youtube-streams` | 1.2, 1.3 | ⬜ |
 | **1.5** | Spotify provider (switchable; anonymous and logged-in tokens) | `feat/1.5-spotify` | 1.1b | ⬜ |
 | **1.6** | Free and lossless sources: Internet Archive, Jamendo, MusicBrainz | `feat/1.6-free-sources` | 1.1b | ⬜ |
 | **1.7** | Matching engine | `feat/1.7-matching` | 1.1b | ⬜ |
@@ -228,7 +228,7 @@ These change exported types, but nothing outside `packages/core` uses them yet (
 
 **Branch** `feat/1.2-platform` · **Depends on** 1.1b · **Scope** `packages/platform/**` (a new package), except `src/sandbox/**`, `src/updates/**` and `src/evaluator/**`
 
-- **One InnerTube request shape everywhere:** `toSimpleInnerTubeRequest()`. A `POST` whose JSON body is sent as a string labelled `text/plain`, with client fields and `visitorData` in `context.client` and `prettyPrint=false` in the URL. It strips `Content-Type: application/json` and the `X-Goog-*` and `X-YouTube-*` headers youtubei.js adds.
+- **The CORS-simple guard** (`toSimpleInnerTubeRequest()`), which every transport applies to every InnerTube call: the JSON body goes as a string labelled `text/plain`, and `Content-Type: application/json` and any `X-Goog-*` or `X-YouTube-*` header are dropped. A request that would still need a preflight fails with a typed error. The request itself (client fields and `visitorData` in `context.client`, `prettyPrint=false` in the URL) comes from 1.3's youtubei.js wrapper ([ARCHITECTURE.md §8](ARCHITECTURE.md#8-platforms-and-network-transports)).
 - **`createWebTransport()`:** the global `fetch` with `credentials: 'omit'` and per-host routing.
   - CORS-friendly hosts are always allowed.
   - InnerTube goes through FXM Connect when present, otherwise through a `SandboxTransport` (the interface and a fake are here; 1.10 implements it), otherwise `Unsupported`.
@@ -257,7 +257,8 @@ These change exported types, but nothing outside `packages/core` uses them yet (
 
 **Branch** `feat/1.3-youtube` · **Depends on** 1.1b · **Scope** `packages/sources/src/youtube/**`
 
-- youtubei.js (MIT, latest allowed by the 14-day rule) with the injected `fetch`, in the CORS-simple request shape (1.2).
+- youtubei.js (MIT, latest allowed by the 14-day rule) with the injected `fetch`.
+- **Request shape.** 1.3 owns the youtubei.js wrapper that builds every InnerTube call in the CORS-simple shape: a `POST` with client fields and `visitorData` in `context.client`, `prettyPrint=false` in the URL, the JSON body as `text/plain`, and none of the headers that would trigger a preflight. 1.2's transports check the shape again, so this stage and its tests don't wait for 1.2.
 - **Sessions:** server-issued visitorData only, from `sw.js_data` where it is readable, otherwise from `responseContext.visitorData` of a first InnerTube call (Lite). Never locally generated sessions: they got "Sign in to confirm you're not a bot" in 3 of 4 tries (measured 2026-10-25).
 - `hl` and `gl` from the user's locale.
 - **YouTube Music:**
@@ -270,14 +271,14 @@ These change exported types, but nothing outside `packages/core` uses them yet (
 - **YouTube:** video search and details for Music + Video mode.
 - Classification `musicVideoType` → `TrackKind`; mode filtering on search and radio; bylines parsed by page type.
 - **Config:** client names, versions, search parameters, rung flags and kill switches in a versioned JSON config (`youtube-config.json`). The loader validates a schema and a host allowlist, and accepts a newer config from the static site. 1.13 adds signature checks.
-- Record where each protocol fact came from in `CLEAN-ROOM.md` next to the code (R.4 links it).
+- Record where each protocol fact came from in `packages/sources/src/youtube/CLEAN-ROOM.md`. If R.4 has merged, link the log from the index in `docs/LEGAL.md` (a small additive change, reported); otherwise R.4 links it.
 - Sanitized recorded fixtures, and a live smoke test behind `FXM_LIVE=1`.
 
-**Done when** fixtures cover classification, mode filtering, the MPTC pairing, the OLAK path and the request shape, and the live smoke test passes from Node using the CORS-simple shape.
+**Done when** fixtures cover classification, mode filtering, the MPTC pairing, the OLAK path and the request shape, and the live smoke test passes from Node's global `fetch` through the wrapper.
 
 ### 1.4 YouTube stream resolver: direct rungs
 
-**Branch** `feat/1.4-youtube-streams` · **Depends on** 1.3 · **Scope** `packages/sources/src/youtube/stream/**`, except `stream/advanced/**`
+**Branch** `feat/1.4-youtube-streams` · **Depends on** 1.2, 1.3 · **Scope** `packages/sources/src/youtube/stream/**`, except `stream/advanced/**`
 
 - **The ladder:** `AudioSource.resolve` tries VISIONOS (direct Opus 251 and AAC 140), then the ANDROID client's muxed itag 18, labelled "AAC from 360p video" (`media: 'muxed-video'`).
   - ANDROID_VR and IOS stay in the config but are off: their URLs return 403 after roughly 0.4–2 MiB (measured 2026-10-25).
@@ -304,7 +305,7 @@ These change exported types, but nothing outside `packages/core` uses them yet (
 
 Built in and switchable (Decision 1, option A). A clean-room implementation from protocol facts. **Do not open or copy code or fixtures** from the AGPL plugin: copying would put the whole distributed bundle under AGPL §5(c).
 
-- **Before any coding,** record each persisted-query hash from Spotify's own web-player chunks, with the chunk filename and fetch date, in `packages/sources/src/spotify/CLEAN-ROOM.md`. On 2026-10-25 only five library and curation hashes were found in the main bundle; the read operations' hashes are probably in lazy-loaded chunks.
+- **Before any coding,** record each persisted-query hash from Spotify's own web-player chunks, with the chunk filename and fetch date, in `packages/sources/src/spotify/CLEAN-ROOM.md`. On 2026-10-25 only five library and curation hashes were found in the main bundle; the read operations' hashes are probably in lazy-loaded chunks. If R.4 has merged, link the log from the index in `docs/LEGAL.md` (a small additive change, reported); otherwise R.4 links it.
 - **Token manager:**
   - The anonymous token uses `open.spotify.com/api/token` with an RFC 6238 TOTP computed from `/api/server-time` (the local clock is the fallback).
   - The secret and version come from a configurable runtime source (default: the community source the Spotube plugin uses; Settings accepts another URL or the pasted JSON). It is cached on the device and **never committed**, bundled or mirrored. The web fetches it through 1.10's user-host document.
@@ -759,7 +760,7 @@ A light stage. There are no mirrors in this revision.
   - use GitHub's counter-notice route;
   - keep contacts at EFF, SFLC.in and GitHub's Developer Defense Fund;
   - a short legal consult before the public launch.
-- **The clean-room log:** `LEGAL.md` states the rule (protocol facts only, each with its source and date; no code from GPL, AGPL or unlicensed projects) and links the per-provider logs in `packages/sources/src/{youtube,spotify}/CLEAN-ROOM.md`.
+- **The clean-room log:** `LEGAL.md` states the rule (protocol facts only, each with its source and date; no code from GPL, AGPL or unlicensed projects) and keeps an index of the per-provider logs. It links the logs that exist when R.4 merges, and names the others in plain text with the stage that creates them: `packages/sources/src/youtube/CLEAN-ROOM.md` (1.3) and `packages/sources/src/spotify/CLEAN-ROOM.md` (1.5). Those stages turn their entry into a link.
 - **Owner action:** turn on GitHub secret scanning and push protection.
 
 **Done when** the notices are live on the site and in the README, `LEGAL.md` holds the rules, the playbook and the log index, and the owner has confirmed secret scanning and push protection.

@@ -399,7 +399,7 @@ Visitors on Chrome for Android or an iPhone can't install extensions; Firefox fo
 
 **Rules for every transport:**
 
-- **One InnerTube request shape (D20).** A `POST` whose JSON body is sent as a `text/plain` string, with no `Content-Type: application/json` and no `X-Goog-*` or `X-YouTube-*` headers. Client fields and `visitorData` go in `context.client`, and `prettyPrint=false` goes in the URL. Lite requires this shape, because preflights from `null` get 403. FXM Connect doesn't, but one shape keeps the provider code and fixtures the same on every tier.
+- **One InnerTube request shape (D20).** A `POST` whose JSON body is sent as a `text/plain` string, with no `Content-Type: application/json` and no `X-Goog-*` or `X-YouTube-*` headers. Client fields and `visitorData` go in `context.client`, and `prettyPrint=false` goes in the URL. Lite requires this shape, because preflights from `null` get 403. FXM Connect doesn't, but one shape keeps the provider code and fixtures the same on every tier. The YouTube provider's youtubei.js wrapper builds it (1.3), and every transport checks it again (1.2).
 - **Never send a webview origin to YouTube.**
 - **`credentials: 'omit'` everywhere.** FXM Connect's rules also strip cookies.
 - **Isolate cookies on Android:** only the OkHttp plugin's own cookie jar.
