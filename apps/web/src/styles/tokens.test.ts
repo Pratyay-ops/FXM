@@ -1,11 +1,7 @@
-/// <reference types="node" />
-import { readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-
-// Read from disk: Vitest replaces CSS imports (even `?raw`) with empty strings.
-const tokensCss = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'tokens.css'), 'utf8')
+// Vitest empties CSS imports, even `?raw`, unless the file matches `test.css.include`
+// in vitest.config.ts, which lists tokens.css for this test.
+import tokensCss from './tokens.css?raw'
 
 /** Color tokens of one theme block in tokens.css, as { name: '#rrggbb' }. */
 function colorTokens(section: string): Record<string, string> {
