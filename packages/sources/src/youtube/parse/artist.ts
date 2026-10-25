@@ -98,7 +98,7 @@ export function parseArtistPage(
       else if (item.type === 'album' && isOwnRelease(item.album, self)) {
         const type =
           item.album.type ??
-          albumTypeOf(item.words, options.config) ??
+          albumTypeOf(item.words, options.labels) ??
           (item.words.length === 0 ? 'album' : undefined)
         const linked = linkedArtists(item.album)
         albums.push({

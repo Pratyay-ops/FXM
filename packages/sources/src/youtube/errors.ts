@@ -7,6 +7,7 @@
 
 import { FxmError, type FxmErrorCode, isFxmError } from '@fxm/core'
 import { asArray, asString, at, stringAt } from './json'
+import { textOf } from './parse/text'
 
 /** What a bot check says, in YouTube's English text or its status codes. */
 const BOT_CHECK_TEXT = /confirm you.?re not a bot|not a robot|unusual traffic|\/sorry\//iu
@@ -26,26 +27,43 @@ export function parseRetryAfter(header: string | null, now = Date.now()): number
   return Number.isNaN(date) ? undefined : Math.max(0, date - now)
 }
 
-function excerpt(body: string): string {
-  const message = messageOf(body)
-  const text = (message ?? body).replace(/\s+/gu, ' ').trim()
-  return text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text
+/** InnerTube's JSON error, `{ "error": { "code", "message", "status" } }`, as far as it is one. */
+interface InnerTubeError {
+  /** E.g. `Request contains an invalid argument.` */
+  readonly message?: string
+  /** E.g. `INVALID_ARGUMENT`, `FAILED_PRECONDITION` or `NOT_FOUND`. */
+  readonly status?: string
 }
 
-/** InnerTube's own error message, from a JSON error body. */
-function messageOf(body: string): string | undefined {
+function errorOf(body: string): InnerTubeError {
+  let json: unknown
   try {
-    return stringAt(JSON.parse(body), 'error', 'message')
+    json = JSON.parse(body)
   } catch {
-    return undefined
+    return {}
   }
+  const message = stringAt(json, 'error', 'message')
+  const status = stringAt(json, 'error', 'status')
+  return {
+    ...(message === undefined ? {} : { message }),
+    ...(status === undefined ? {} : { status }),
+  }
+}
+
+function excerpt(body: string, error: InnerTubeError): string {
+  const text = (error.message ?? body).replace(/\s+/gu, ' ').trim()
+  return text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text
 }
 
 /** What an HTTP error response was for. */
 export interface FailedRequest {
   /** E.g. `browse MPREb_…`, for the message. */
   what: string
-  /** Whether the request named one entity, so a 400 means that entity cannot exist. */
+  /**
+   * Whether the request named one entity by its ID and nothing else (no `params`, query or
+   * continuation), so that YouTube refusing its argument (`INVALID_ARGUMENT`) means that the
+   * entity cannot exist. The IDs are checked against their patterns before any request.
+   */
   entity: boolean
 }
 
@@ -54,8 +72,12 @@ export interface FailedRequest {
  *
  * - 429, and 503 with `Retry-After`: `RateLimited`, with `retryAfterMs` from the header
  * - a bot check page or message (`Sign in to confirm you're not a bot`): `BotCheck`
- * - 404 and 410, and 400 for a request that names an entity: `NotFound`
- * - another 400: `Parse`, because YouTube refused the request's shape (an outdated config)
+ * - 404 and 410: `NotFound`
+ * - 400 whose error status is `NOT_FOUND`, or `INVALID_ARGUMENT` for a request that names one
+ *   entity and nothing else: `NotFound`
+ * - any other 400, such as `FAILED_PRECONDITION` for an outdated client version or
+ *   `INVALID_ARGUMENT` for stale `params`: `Parse`, because YouTube refused the request's shape,
+ *   which a newer config fixes. The message names the status.
  * - 401: `AuthRequired`; 403: `Unsupported`, because InnerTube refuses the page's origin
  * - anything else, 5xx included: `Network`, which is worth retrying later
  */
@@ -66,53 +88,72 @@ export function httpError(
   request: FailedRequest,
   now = Date.now(),
 ): FxmError {
-  const detail = `YouTube answered ${request.what} with HTTP ${status}: ${excerpt(body)}`
+  const error = errorOf(body)
+  const named = error.status === undefined ? '' : ` (${error.status})`
+  const detail = `YouTube answered ${request.what} with HTTP ${status}${named}: ${excerpt(body, error)}`
   const retryAfterMs = parseRetryAfter(retryAfter, now)
   if (status === 429 || (status === 503 && retryAfterMs !== undefined)) {
     return new FxmError('RateLimited', detail, retryAfterMs === undefined ? {} : { retryAfterMs })
   }
   if (BOT_CHECK_TEXT.test(body)) return new FxmError('BotCheck', detail)
-  const code: FxmErrorCode =
-    status === 404 || status === 410 || (status === 400 && request.entity)
-      ? 'NotFound'
-      : status === 400
-        ? 'Parse'
-        : status === 401
-          ? 'AuthRequired'
-          : status === 403
-            ? 'Unsupported'
-            : 'Network'
-  return new FxmError(code, detail)
+  return new FxmError(httpCode(status, error.status, request.entity), detail)
+}
+
+function httpCode(status: number, errorStatus: string | undefined, entity: boolean): FxmErrorCode {
+  if (status === 404 || status === 410) return 'NotFound'
+  if (status === 400) {
+    const missing = errorStatus === 'NOT_FOUND' || (errorStatus === 'INVALID_ARGUMENT' && entity)
+    return missing ? 'NotFound' : 'Parse'
+  }
+  if (status === 401) return 'AuthRequired'
+  if (status === 403) return 'Unsupported'
+  return 'Network'
+}
+
+/** The texts of a playability status: its reason, its messages and its error screen's. */
+function playabilityTexts(status: unknown): string[] {
+  const screen = at(status, 'errorScreen', 'playerErrorMessageRenderer')
+  return [
+    stringAt(status, 'reason'),
+    ...asArray(at(status, 'messages')).map(asString),
+    textOf(at(screen, 'reason')),
+    textOf(at(screen, 'subreason')),
+  ].filter((text): text is string => text !== undefined && text.trim() !== '')
+}
+
+/** The texts of a response's alerts. */
+function alertTexts(json: unknown): string[] {
+  return asArray(at(json, 'alerts')).flatMap((alert) => {
+    for (const name of ['alertRenderer', 'alertWithButtonRenderer']) {
+      const text = textOf(at(alert, name, 'text'))
+      if (text !== undefined) return [text]
+    }
+    return []
+  })
 }
 
 /**
- * Why a successful (2xx) response is really a bot check, or `undefined` when it is not. YouTube
- * reports them as a `LOGIN_REQUIRED` playability status, or as an alert or reason that asks the
- * visitor to sign in to confirm they are not a bot.
+ * Why a successful (2xx) response is really a bot check, or `undefined` when it is not:
+ *
+ * - its playability status, error screen or alerts ask the visitor to confirm they are not a bot
+ *   ("Sign in to confirm you're not a bot"), whatever the status;
+ * - a `LOGIN_REQUIRED` playability status that gives no reason at all.
+ *
+ * Any other `LOGIN_REQUIRED` is no bot check: YouTube also answers age-restricted videos ("Sign
+ * in to confirm your age", `desktopLegacyAgeGateReason`) and private videos with it. Such an
+ * answer stays the caller's to read, e.g. as an unavailable state, and the session keeps its
+ * visitorData. The texts are matched in English, the language the stream calls ask for.
  */
 export function botCheckIn(json: unknown): string | undefined {
-  const status = stringAt(json, 'playabilityStatus', 'status')
-  const reason = stringAt(json, 'playabilityStatus', 'reason')
-  if (status === 'LOGIN_REQUIRED') return reason ?? 'LOGIN_REQUIRED'
-  if (reason !== undefined && BOT_CHECK_TEXT.test(reason)) return reason
-  for (const alert of asArray(at(json, 'alerts'))) {
-    const text = alertText(alert)
-    if (text !== undefined && BOT_CHECK_TEXT.test(text)) return text
-  }
-  return undefined
-}
-
-function alertText(alert: unknown): string | undefined {
-  for (const name of ['alertRenderer', 'alertWithButtonRenderer']) {
-    const text = at(alert, name, 'text')
-    const simple = stringAt(text, 'simpleText')
-    if (simple !== undefined) return simple
-    const runs = asArray(at(text, 'runs'))
-      .map((run) => stringAt(run, 'text') ?? '')
-      .join('')
-    if (runs !== '') return runs
-  }
-  return undefined
+  const playability = at(json, 'playabilityStatus')
+  const texts = playabilityTexts(playability)
+  const said = [...texts, ...alertTexts(json)].find((text) => BOT_CHECK_TEXT.test(text))
+  if (said !== undefined) return said
+  const ageGate = at(playability, 'desktopLegacyAgeGateReason')
+  const silent = texts.length === 0 && (ageGate === undefined || ageGate === 0)
+  return stringAt(playability, 'status') === 'LOGIN_REQUIRED' && silent
+    ? 'LOGIN_REQUIRED'
+    : undefined
 }
 
 /** Whether a response body is an HTML bot check page rather than JSON. */
@@ -120,23 +161,19 @@ export function isBotCheckPage(body: string): boolean {
   return body.trimStart().startsWith('<') && BOT_CHECK_TEXT.test(body)
 }
 
-/** Whether `error` is the caller cancelling, which is rethrown as it is. */
-export function isAbort(error: unknown, signal?: AbortSignal): boolean {
-  return signal?.aborted === true || (error instanceof Error && error.name === 'AbortError')
-}
-
 /**
  * The error to throw when the request itself failed: the caller's cancellation as it is (the
- * signal's reason), anything already an `FxmError` as it is, and everything else, a timeout
- * included, as `Network`.
+ * signal's reason), anything already an `FxmError` as it is, and everything else as `Network`,
+ * including a timeout and an abort the caller did not ask for, which is how some transports
+ * report the deadline.
  */
 export function requestFailure(error: unknown, what: string, signal?: AbortSignal): unknown {
   if (isFxmError(error)) return error
   if (signal?.aborted) return signal.reason ?? error
-  if (isAbort(error)) return error
+  const failure = error as { name?: unknown; message?: unknown } | null
   const reason =
-    error instanceof Error && error.name === 'TimeoutError'
+    failure?.name === 'TimeoutError' || failure?.name === 'AbortError'
       ? 'timed out'
-      : (asString((error as { message?: unknown } | null)?.message) ?? 'failed')
+      : (asString(failure?.message) ?? 'failed')
   return new FxmError('Network', `The request for ${what} ${reason}`, { cause: error })
 }

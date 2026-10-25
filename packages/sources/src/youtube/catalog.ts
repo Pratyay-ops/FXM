@@ -3,6 +3,11 @@
  * both read from YouTube Music (tracks, playlists, artist pages, suggestions), paging with
  * cursors and limits, and the catalog-mode filter on every list.
  *
+ * A page is cut to its `limit` first and filtered by the catalog mode after, so it may hold fewer
+ * items than the limit, or none, and still have a `nextCursor`: only a missing `nextCursor` ends
+ * a list. A YouTube page that a `limit` splits is kept for a while (see {@link SplitPages}), so
+ * the provider pages that slice it cost one request between them.
+ *
  * @module
  */
 
@@ -24,22 +29,63 @@ import {
   type SearchType,
   type Track,
 } from '@fxm/core'
+import { labelsFor } from './config'
 import { decodeCursor, encodeCursor } from './cursor'
-import { isAbort } from './errors'
 import { nativeYouTubeId, PLAYLIST_BROWSE_PREFIX, type YouTubeSource } from './ids'
 import type { JsonRecord } from './json'
 import { type ArtistPage, parseArtistPage } from './parse/artist'
 import type { Item, MapOptions, TrackRow } from './parse/items'
 import type { ListPage } from './parse/lists'
 import { parsePlaylistContinuation, parsePlaylistPage } from './parse/playlist'
-import { parseQueue } from './parse/queue'
+import { parseQueue, type QueuePage } from './parse/queue'
 import { parseSuggestions } from './parse/suggestions'
 import type { InnerTubeEndpoint } from './request'
-import { assertYouTubeReachable, type YouTubeClientId, type YouTubeSession } from './session'
+import {
+  assertYouTubeReachable,
+  localeOf,
+  type YouTubeClientId,
+  type YouTubeSession,
+} from './session'
 
 /** The native ID inside an FXM ID, which `parseId` never fails on for a branded ID. */
 export function nativeOf(id: EntityId): string {
   return parseId(id).nativeId
+}
+
+/** How many YouTube pages that a `limit` split a catalog keeps, of each kind. */
+export const SPLIT_PAGES_KEPT = 8
+
+/** How long a split YouTube page is kept, in milliseconds, counted from when it was read. */
+export const SPLIT_PAGE_TTL_MS = 10 * 60_000
+
+/**
+ * Parsed YouTube pages that a `limit` split, so that the provider pages after the first that
+ * slice one cost no request and show the same items. A page is kept for
+ * {@link SPLIT_PAGE_TTL_MS}, and only the {@link SPLIT_PAGES_KEPT} most recently used are; a
+ * page that is gone is read again.
+ */
+export class SplitPages<T> {
+  readonly #pages = new Map<string, { readonly page: T; readonly readAt: number }>()
+
+  /** The page kept under `key`, if it is still fresh. */
+  get(key: string): T | undefined {
+    const entry = this.#pages.get(key)
+    if (entry === undefined) return undefined
+    this.#pages.delete(key)
+    if (Date.now() - entry.readAt > SPLIT_PAGE_TTL_MS) return undefined
+    this.#pages.set(key, entry)
+    return entry.page
+  }
+
+  /** Keeps `page` under `key`, forgetting the least recently used pages beyond the limit. */
+  set(key: string, page: T): void {
+    this.#pages.delete(key)
+    this.#pages.set(key, { page, readAt: Date.now() })
+    for (const oldest of this.#pages.keys()) {
+      if (this.#pages.size <= SPLIT_PAGES_KEPT) break
+      this.#pages.delete(oldest)
+    }
+  }
 }
 
 /** A slice of one YouTube page, and where the next page starts. */
@@ -119,6 +165,16 @@ export function searchResults(
 
 const SEARCH_TYPES: readonly SearchType[] = ['track', 'video', 'album', 'artist', 'playlist']
 
+/** One YouTube page of a playlist's rows, with the playlist itself on its first page. */
+interface PlaylistPart {
+  /** The playlist, on the first YouTube page only (a continuation does not describe it). */
+  readonly playlist?: Playlist
+  /** The page's rows, in order. */
+  readonly rows: TrackRow[]
+  /** The continuation token of the next YouTube page, if there is one. */
+  readonly continuation?: string
+}
+
 /** How a catalog reads YouTube. */
 export interface CatalogOptions {
   /** The source of its IDs. */
@@ -133,16 +189,31 @@ export interface CatalogOptions {
 export class YouTubeCatalog {
   readonly source: YouTubeSource
   readonly session: YouTubeSession
-  readonly map: MapOptions
+  /** Radio pages that a `limit` split, for the `ytm` provider's radio. */
+  readonly radioPages = new SplitPages<QueuePage>()
+  readonly #videosOnly: boolean
+  readonly #searchPages = new SplitPages<ListPage>()
+  readonly #playlistPages = new SplitPages<PlaylistPart>()
 
   constructor(options: CatalogOptions) {
     this.source = options.source
     this.session = options.session
-    this.map = {
-      source: options.source,
-      config: options.session.config,
-      videosOnly: options.videosOnly,
+    this.#videosOnly = options.videosOnly
+  }
+
+  /** How the items of a call's answers are mapped: with the labels of the call's language. */
+  mapOf(ctx: ProviderContext): MapOptions {
+    return {
+      source: this.source,
+      labels: labelsFor(this.session.config, localeOf(ctx).hl),
+      videosOnly: this.#videosOnly,
     }
+  }
+
+  /** The key of a split page: what it is, in the call's language and region. */
+  pageKey(ctx: ProviderContext, ...parts: readonly (string | undefined)[]): string {
+    const { hl, gl } = localeOf(ctx)
+    return JSON.stringify([hl, gl ?? '', ...parts.map((part) => part ?? '')])
   }
 
   /**
@@ -155,7 +226,7 @@ export class YouTubeCatalog {
     try {
       return await operation()
     } catch (error) {
-      if (isFxmError(error) || isAbort(error, ctx.signal)) throw error
+      if (isFxmError(error) || ctx.signal?.aborted) throw error
       throw new FxmError('Parse', `Could not read YouTube's answer to ${what}`, { cause: error })
     }
   }
@@ -179,7 +250,9 @@ export class YouTubeCatalog {
   async track(id: EntityId<'track'>, ctx: ProviderContext): Promise<Track> {
     const videoId = nativeYouTubeId(id, 'track')
     const json = await this.call(ctx, 'music', 'next', { videoId })
-    const track = parseQueue(json, this.map).tracks.find((item) => nativeOf(item.id) === videoId)
+    const track = parseQueue(json, this.mapOf(ctx)).tracks.find(
+      (item) => nativeOf(item.id) === videoId,
+    )
     if (track === undefined) throw new FxmError('NotFound', `YouTube has no video ${videoId}`)
     return track
   }
@@ -188,7 +261,7 @@ export class YouTubeCatalog {
   async artistPage(id: EntityId<'artist'>, ctx: ProviderContext): Promise<ArtistPage> {
     const channelId = nativeYouTubeId(id, 'artist')
     const json = await this.browse(ctx, { browseId: channelId })
-    return parseArtistPage(json, formatId(this.source, 'artist', channelId), this.map)
+    return parseArtistPage(json, formatId(this.source, 'artist', channelId), this.mapOf(ctx))
   }
 
   /** The tracks of rows, in the context's mode. */
@@ -217,6 +290,20 @@ export class YouTubeCatalog {
     return (await this.playlistPage(nativeYouTubeId(id, 'playlist'), options, ctx)).tracks
   }
 
+  /** Reads one YouTube page of a playlist: the first without a continuation. */
+  async #readPlaylist(
+    playlistId: string,
+    continuation: string | undefined,
+    ctx: ProviderContext,
+  ): Promise<PlaylistPart> {
+    if (continuation === undefined) {
+      const json = await this.browse(ctx, { browseId: `${PLAYLIST_BROWSE_PREFIX}${playlistId}` })
+      const fxmId = formatId(this.source, 'playlist', playlistId)
+      return parsePlaylistPage(json, fxmId, this.mapOf(ctx))
+    }
+    return parsePlaylistContinuation(await this.browse(ctx, { continuation }), this.mapOf(ctx))
+  }
+
   /**
    * A page of a playlist's tracks, and the playlist itself when the page is its first YouTube
    * page (a continuation page does not describe the playlist).
@@ -226,29 +313,20 @@ export class YouTubeCatalog {
     options: PageOptions,
     ctx: ProviderContext,
   ): Promise<{ playlist?: Playlist; tracks: Page<Track> }> {
-    const fxmId = formatId(this.source, 'playlist', playlistId)
     const cursor =
       options.cursor === undefined ? undefined : decodeCursor(options.cursor, 'playlist')
     if (cursor !== undefined && cursor.p !== playlistId) {
       throw new FxmError('NotFound', 'The cursor belongs to another playlist')
     }
-    let playlist: Playlist | undefined
-    let rows: TrackRow[]
-    let continuation: string | undefined
-    if (cursor?.c === undefined) {
-      const json = await this.browse(ctx, { browseId: `${PLAYLIST_BROWSE_PREFIX}${playlistId}` })
-      const page = parsePlaylistPage(json, fxmId, this.map)
-      playlist = page.playlist
-      rows = page.rows
-      continuation = page.continuation
-    } else {
-      const json = await this.browse(ctx, { continuation: cursor.c })
-      const page = parsePlaylistContinuation(json, this.map)
-      rows = page.rows
-      continuation = page.continuation
-    }
-    const slice = slicePage(rows, cursor?.o ?? 0, options.limit, continuation, cursor?.c)
+    const offset = cursor?.o ?? 0
+    const key = this.pageKey(ctx, 'playlist', playlistId, cursor?.c)
+    const part =
+      (offset > 0 ? this.#playlistPages.get(key) : undefined) ??
+      (await this.#readPlaylist(playlistId, cursor?.c, ctx))
+    const { playlist } = part
+    const slice = slicePage(part.rows, offset, options.limit, part.continuation, cursor?.c)
     const next = slice.next
+    if (next?.offset !== undefined) this.#playlistPages.set(key, part)
     const tracks: Page<Track> = {
       items: this.tracksOf(slice.items, ctx),
       ...(next === undefined
@@ -309,22 +387,28 @@ export class YouTubeCatalog {
 
   /**
    * One page of search results of one type: the YouTube page that `continuation` names (the
-   * first page without one), sliced by `offset` and `limit`, with the items `select` keeps.
+   * first page without one), sliced by `offset` and `limit`, with the items `select` keeps. A
+   * YouTube page that the `limit` splits is kept, so its next slices cost no request.
    */
   async searchPage<T>(
     read: (continuation: string | undefined) => Promise<ListPage>,
     select: (items: readonly Item[]) => T[],
     request: SearchPageRequest & { readonly type: SearchType; readonly query: string },
+    ctx: ProviderContext,
   ): Promise<Page<T>> {
-    const page = await read(request.continuation)
+    const offset = request.offset ?? 0
+    const key = this.pageKey(ctx, 'search', request.type, request.query, request.continuation)
+    const page =
+      (offset > 0 ? this.#searchPages.get(key) : undefined) ?? (await read(request.continuation))
     const slice = slicePage(
       page.items,
-      request.offset ?? 0,
+      offset,
       request.limit,
       page.continuation,
       request.continuation,
     )
     const next = slice.next
+    if (next?.offset !== undefined) this.#searchPages.set(key, page)
     return {
       items: select(slice.items),
       ...(next === undefined

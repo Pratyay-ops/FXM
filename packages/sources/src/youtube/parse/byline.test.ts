@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { BUNDLED_YOUTUBE_CONFIG } from '../config'
+import { BUNDLED_YOUTUBE_CONFIG, labelsFor } from '../config'
 import { parseByline } from './byline'
 import type { Run } from './text'
 
-const itemTypes = BUNDLED_YOUTUBE_CONFIG.labels.itemTypes
+const { itemTypes } = labelsFor(BUNDLED_YOUTUBE_CONFIG, 'en')
 
 function link(text: string, browseId: string, pageType: string): Run {
   return {

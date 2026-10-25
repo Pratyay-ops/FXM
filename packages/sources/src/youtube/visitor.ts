@@ -8,7 +8,8 @@
  *   reads any YouTube response can do (FXM Connect, the desktop and Android apps, Node).
  * - **`simple` tier,** or when `sw.js_data` cannot be read: the first InnerTube request goes
  *   without one, and the `responseContext.visitorData` that YouTube issues in its answer is used
- *   from then on. Requests that start meanwhile wait for it, so a device keeps one session.
+ *   from then on. Requests that start meanwhile wait for it, so a device keeps one session. They
+ *   wait at most one request timeout: when the first request seems stuck, the next one asks too.
  *
  * The value is cached in memory, and a {@link VisitorDataStore} can persist it, e.g. in
  * IndexedDB, so that a reload keeps the session. A bot check drops it, and the next request
@@ -18,17 +19,37 @@
  */
 
 import { FxmError, type ProviderContext } from '@fxm/core'
-import { fetchWithTimeout } from '../shared'
+import { fetchText, untilAborted, within } from './http'
 import { at } from './json'
 
 /** Where a visitorData can be kept between sessions, e.g. IndexedDB or app storage. */
 export interface VisitorDataStore {
-  /** The visitorData saved earlier, if any. */
+  /**
+   * The visitorData saved earlier, if any. FXM waits for it at most
+   * {@link STORE_LOAD_TIMEOUT_MS} and goes on without it after that.
+   */
   load(): string | undefined | Promise<string | undefined>
   /** Keeps a newly issued visitorData. */
   save(visitorData: string): void | Promise<void>
   /** Forgets it, after a bot check. */
   clear(): void | Promise<void>
+}
+
+/** How long FXM waits for {@link VisitorDataStore.load}, in milliseconds. */
+export const STORE_LOAD_TIMEOUT_MS = 1500
+
+/**
+ * A device's visitorData as its YouTube session shows it: the value in use, and a way to drop
+ * it. Requests take it through the session; nothing else needs more.
+ */
+export interface YouTubeVisitorData {
+  /** The visitorData in use, if there is one yet. */
+  readonly current: string | undefined
+  /**
+   * Forgets it, so that the next request gets a fresh one, e.g. from a "Reset YouTube session"
+   * setting. The session's own requests already do this after every bot check they meet.
+   */
+  invalidate(): void
 }
 
 /** What a visitorData looks like: URL-safe base64, possibly percent-encoded. */
@@ -61,7 +82,11 @@ export function parseSwJsData(text: string): string {
   return visitorData
 }
 
-/** The visitorData for one request, and how to report back what its response issued. */
+/**
+ * The visitorData for one request, and how to report back what its response issued. Every lease
+ * must be ended, in a `finally`: until a lease without a visitorData ends, the requests that
+ * start meanwhile wait for its answer (at most one request timeout).
+ */
 export interface VisitorLease {
   /** The visitorData to send, or `undefined` for the request that asks YouTube for one. */
   readonly visitorData: string | undefined
@@ -86,33 +111,12 @@ function gate(): Gate {
   return { promise, open }
 }
 
-const NO_END = (): void => {}
-
-/**
- * Waits for `promise`, unless `signal` aborts first, in which case it rejects with the signal's
- * reason. The promise itself goes on, for the other requests that share it.
- */
-function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (signal === undefined) return promise
-  if (signal.aborted) return Promise.reject(signal.reason)
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason)
-    signal.addEventListener('abort', onAbort, { once: true })
-    promise.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(value)
-      },
-      (error: unknown) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(error)
-      },
-    )
-  })
+function held(visitorData: string): VisitorLease {
+  return { visitorData, end: () => {} }
 }
 
 /** Holds one device's visitorData. See the module documentation. */
-export class VisitorData {
+export class VisitorData implements YouTubeVisitorData {
   #value: string | undefined
   #loaded: Promise<void> | undefined
   #fromServiceWorker: Promise<string | undefined> | undefined
@@ -121,16 +125,25 @@ export class VisitorData {
   readonly #store: VisitorDataStore | undefined
   readonly #swJsDataUrl: string
   readonly #timeoutMs: number
+  readonly #storeTimeoutMs: number
 
   /**
    * @param swJsDataUrl Where to read one in the `full` tier.
    * @param store Where to persist it, if anywhere.
-   * @param timeoutMs How long the `sw.js_data` request may take.
+   * @param timeoutMs How long one request may take: the `sw.js_data` request, and the longest
+   * wait for the first answer.
+   * @param storeTimeoutMs How long to wait for the store's saved value.
    */
-  constructor(swJsDataUrl: string, store?: VisitorDataStore, timeoutMs = 15_000) {
+  constructor(
+    swJsDataUrl: string,
+    store?: VisitorDataStore,
+    timeoutMs = 15_000,
+    storeTimeoutMs = STORE_LOAD_TIMEOUT_MS,
+  ) {
     this.#swJsDataUrl = swJsDataUrl
     this.#store = store
     this.#timeoutMs = timeoutMs
+    this.#storeTimeoutMs = storeTimeoutMs
   }
 
   /** The visitorData in use, if there is one yet. */
@@ -141,18 +154,25 @@ export class VisitorData {
   /**
    * The visitorData for a request: the cached or stored one; in the `full` tier one read from
    * `sw.js_data`; otherwise none, for the one request that asks YouTube for it, while other
-   * requests wait for its answer.
+   * requests wait for its answer. End the lease when the request is done (see
+   * {@link VisitorLease}).
    */
   async lease(ctx: ProviderContext): Promise<VisitorLease> {
-    await abortable(this.#load(), ctx.signal)
-    if (this.#value !== undefined) return { visitorData: this.#value, end: NO_END }
+    await untilAborted(this.#load(), ctx.signal)
+    if (this.#value !== undefined) return held(this.#value)
     if (ctx.capabilities.youtube === 'full' && !this.#serviceWorkerFailed) {
-      const fetched = await abortable(this.#readServiceWorkerData(ctx), ctx.signal)
-      if (fetched !== undefined) return { visitorData: fetched, end: NO_END }
+      const fetched = await untilAborted(this.#readServiceWorkerData(ctx), ctx.signal)
+      if (fetched !== undefined) return held(fetched)
     }
-    while (this.#firstAnswer !== undefined) {
-      await abortable(this.#firstAnswer.promise, ctx.signal)
-      if (this.#value !== undefined) return { visitorData: this.#value, end: NO_END }
+    let waiting = this.#firstAnswer
+    while (waiting !== undefined) {
+      const opened = waiting.promise.then(() => true)
+      const answered = await untilAborted(within(opened, this.#timeoutMs, false), ctx.signal)
+      if (this.#value !== undefined) return held(this.#value)
+      // The request that asks for one seems stuck, e.g. on a transport that ignores aborts:
+      // this one asks as well.
+      if (!answered) break
+      waiting = this.#firstAnswer
     }
     const first = gate()
     this.#firstAnswer = first
@@ -169,8 +189,14 @@ export class VisitorData {
     }
   }
 
-  /** Forgets the visitorData, e.g. after a bot check, so the next request gets a fresh one. */
-  invalidate(): void {
+  /**
+   * Forgets the visitorData, e.g. after a bot check, so the next request gets a fresh one.
+   *
+   * @param sent The visitorData that the bot-checked request sent. When it is given and no
+   * longer the one in use, a newer one has replaced it, which is kept.
+   */
+  invalidate(sent?: string): void {
+    if (sent !== undefined && this.#value !== sent) return
     this.#value = undefined
     this.#serviceWorkerFailed = false
     void this.#quietly(() => this.#store?.clear())
@@ -181,12 +207,17 @@ export class VisitorData {
     void this.#quietly(() => this.#store?.save(value))
   }
 
+  /** Reads the stored value once, waiting for the store at most its timeout. */
   #load(): Promise<void> {
-    this.#loaded ??= this.#quietly(async () => {
-      const stored = await this.#store?.load()
+    this.#loaded ??= (async () => {
+      const stored = await within(this.#loadStored(), this.#storeTimeoutMs, undefined)
       if (this.#value === undefined && isVisitorData(stored)) this.#value = stored
-    })
+    })()
     return this.#loaded
+  }
+
+  async #loadStored(): Promise<unknown> {
+    return this.#store === undefined ? undefined : await this.#store.load()
   }
 
   /**
@@ -206,13 +237,14 @@ export class VisitorData {
 
   async #fetchServiceWorkerData(ctx: ProviderContext): Promise<string | undefined> {
     try {
-      const response = await fetchWithTimeout(ctx.fetch, this.#swJsDataUrl, {
-        method: 'GET',
-        credentials: 'omit',
-        timeoutMs: this.#timeoutMs,
-      })
+      const { response, text } = await fetchText(
+        ctx.fetch,
+        this.#swJsDataUrl,
+        { method: 'GET', credentials: 'omit' },
+        this.#timeoutMs,
+      )
       if (!response.ok) throw new FxmError('Network', `sw.js_data: HTTP ${response.status}`)
-      const visitorData = parseSwJsData(await response.text())
+      const visitorData = parseSwJsData(text)
       if (this.#value === undefined) this.#keep(visitorData)
       return this.#value
     } catch {

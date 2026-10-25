@@ -9,10 +9,12 @@ import {
   type Album,
   type Artist,
   applyModeFilter,
+  type CatalogMode,
   type EntityId,
   FxmError,
   filterPlayable,
   formatId,
+  isFxmError,
   isTrackSeed,
   isVideoKind,
   type MetadataProvider,
@@ -37,16 +39,7 @@ import type { Item, TrackRow } from './parse/items'
 import { parsePlaylistContinuation, parsePlaylistPage } from './parse/playlist'
 import { parseQueue, parseQueueContinuation, type QueuePage } from './parse/queue'
 import { parseMusicSearch } from './parse/search'
-import { createYouTubeSession, type YouTubeSession, type YouTubeSessionOptions } from './session'
-
-/** Options for {@link createYouTubeMusicProvider}. */
-export interface YouTubeProviderOptions extends YouTubeSessionOptions {
-  /**
-   * The device's YouTube session, to share one visitorData with the other YouTube provider.
-   * When absent, the provider creates its own from the other options.
-   */
-  session?: YouTubeSession
-}
+import { createYouTubeSession, type YouTubeProviderOptions, type YouTubeSession } from './session'
 
 /** YouTube Music as a metadata and recommendation provider. */
 export interface YouTubeMusicProvider extends MetadataProvider, RecommendationProvider {
@@ -60,6 +53,12 @@ export interface YouTubeMusicProvider extends MetadataProvider, RecommendationPr
     options: PageOptions,
     ctx: ProviderContext,
   ): Promise<Page<Track>>
+  /**
+   * The radio one page at a time (see `RecommendationProvider.radioPage`). A page holds what
+   * one YouTube page brings (about 50 tracks on the first), or `limit` of them; the next page
+   * goes on with the rest. Pages never return the seed, nor a track of the last 200 they
+   * returned. A cursor belongs to its seed and catalog mode.
+   */
   radioPage(seed: RadioSeed, options: PageOptions, ctx: ProviderContext): Promise<Page<Track>>
 }
 
@@ -72,6 +71,9 @@ const FILTERS: Readonly<Record<SearchType, MusicSearchFilter>> = {
   playlist: 'playlists',
 }
 
+/** The cursor key of a track radio: this prefix and the seed's videoId. */
+const TRACK_KEY = 'track:'
+
 /** At most this many pages of an album's audio playlist are read (100 rows each). */
 const MAX_AUDIO_PLAYLIST_PAGES = 5
 
@@ -81,12 +83,11 @@ interface RadioStart {
   readonly key: string
   /** The `next` payload of the first page. */
   readonly payload: Readonly<Record<string, string>>
-  /** The videoIds never to return: the seed's. */
-  readonly seen: readonly string[]
 }
 
 /**
- * Creates the `ytm` provider.
+ * Creates the `ytm` provider. Pass the device's `session` to share one visitorData with the
+ * other YouTube providers (see `createYouTubeProviders`).
  *
  * - **Search** asks YouTube Music for one filtered search per type: songs (`ATV` only) go to
  *   `tracks`, official videos and other videos to `videos`, which is empty in Music mode.
@@ -95,7 +96,8 @@ interface RadioStart {
  *   videos; anonymous `next` over that playlist would return the videos. In Music + Video mode
  *   the album page's own rows are the tracks, and its official videos link their songs
  *   (`songId`), read from each row's "View song credits" item (`MPTC<videoId>`) and, failing
- *   that, from the same position of the audio playlist.
+ *   that, from the same position of the audio playlist. When the audio playlist cannot be read,
+ *   the album page's rows stand in for it.
  * - **Radio** is `next` with `RDAMVM<videoId>`, paged and without repeats. In Music mode it starts
  *   from a song (an official video's linked song) and keeps only songs.
  *
@@ -116,40 +118,66 @@ export function createYouTubeMusicProvider(
         continuation === undefined
           ? { query, params: config.search.music[FILTERS[type]] }
           : { continuation }
-      return parseMusicSearch(await catalog.call(ctx, 'music', 'search', payload), catalog.map)
+      return parseMusicSearch(
+        await catalog.call(ctx, 'music', 'search', payload),
+        catalog.mapOf(ctx),
+      )
     }
     const request = { type, query, ...page }
     switch (type) {
       case 'track':
       case 'video':
-        return catalog.searchPage(read, (items) => searchTracks(items, type, ctx), request)
+        return catalog.searchPage(read, (items) => searchTracks(items, type, ctx), request, ctx)
       case 'album':
-        return catalog.searchPage(read, (items) => pick(items, 'album'), request)
+        return catalog.searchPage(read, (items) => pick(items, 'album'), request, ctx)
       case 'artist':
-        return catalog.searchPage(read, (items) => pick(items, 'artist'), request)
+        return catalog.searchPage(read, (items) => pick(items, 'artist'), request, ctx)
       case 'playlist':
-        return catalog.searchPage(read, (items) => pick(items, 'playlist'), request)
+        return catalog.searchPage(read, (items) => pick(items, 'playlist'), request, ctx)
     }
   }
 
   async function audioPlaylistRows(playlistId: string, ctx: ProviderContext): Promise<TrackRow[]> {
     const id = formatId('ytm', 'playlist', playlistId)
+    const map = catalog.mapOf(ctx)
     const first = parsePlaylistPage(
       await catalog.browse(ctx, { browseId: `${PLAYLIST_BROWSE_PREFIX}${playlistId}` }),
       id,
-      catalog.map,
+      map,
     )
     const rows = [...first.rows]
     let continuation = first.continuation
     for (let page = 1; continuation !== undefined && page < MAX_AUDIO_PLAYLIST_PAGES; page++) {
-      const next = parsePlaylistContinuation(
-        await catalog.browse(ctx, { continuation }),
-        catalog.map,
-      )
+      const next = parsePlaylistContinuation(await catalog.browse(ctx, { continuation }), map)
       rows.push(...next.rows)
       continuation = next.continuation
     }
     return rows
+  }
+
+  /**
+   * The album's songs from its audio playlist, or none when the playlist cannot be read: the
+   * album page's rows then stand in for it. The caller's cancellation, a bot check and a rate
+   * limit still end the whole call, since every further request would meet them too.
+   */
+  async function albumSongs(
+    playlistId: string,
+    album: Album,
+    ctx: ProviderContext,
+  ): Promise<TrackRow[]> {
+    try {
+      const rows = await audioPlaylistRows(playlistId, ctx)
+      return rows.filter((row) => row.track.kind === 'song').map((row) => onAlbum(row, album))
+    } catch (error) {
+      if (
+        ctx.signal?.aborted ||
+        isFxmError(error, 'BotCheck') ||
+        isFxmError(error, 'RateLimited')
+      ) {
+        throw error
+      }
+      return []
+    }
   }
 
   async function radioStart(seed: RadioSeed, ctx: ProviderContext): Promise<RadioStart> {
@@ -173,15 +201,33 @@ export function createYouTubeMusicProvider(
           ...(page.radio?.videoId === undefined ? {} : { videoId: page.radio.videoId }),
           params: page.radio?.params ?? config.radio.params,
         },
-        seen: [],
       }
     }
     const videoId = seedVideoId(seed, ctx)
     return {
-      key: `track:${videoId}`,
+      key: `${TRACK_KEY}${videoId}`,
       payload: { videoId, playlistId: `RDAMVM${videoId}`, params: config.radio.params },
-      seen: [videoId],
     }
+  }
+
+  /**
+   * The YouTube page of a radio that a cursor names: a page a `limit` split, if it is still
+   * kept; else the continuation; else the first page again, from the seed.
+   */
+  async function radioQueue(
+    seed: RadioSeed,
+    key: string,
+    continuation: string | undefined,
+    ctx: ProviderContext,
+  ): Promise<QueuePage> {
+    const kept = catalog.radioPages.get(catalog.pageKey(ctx, 'radio', key, continuation))
+    if (kept !== undefined) return kept
+    if (continuation !== undefined) {
+      const json = await catalog.call(ctx, 'music', 'next', { continuation })
+      return parseQueueContinuation(json, catalog.mapOf(ctx))
+    }
+    const start = await radioStart(seed, ctx)
+    return parseQueue(await catalog.call(ctx, 'music', 'next', start.payload), catalog.mapOf(ctx))
   }
 
   const provider: YouTubeMusicProvider = {
@@ -208,7 +254,7 @@ export function createYouTubeMusicProvider(
         const page = parseAlbumPage(
           await catalog.browse(ctx, { browseId }),
           formatId('ytm', 'album', browseId),
-          catalog.map,
+          catalog.mapOf(ctx),
         )
         const unlinked = page.rows.some(
           (row) => row.track.kind === 'music-video' && creditedSong(row) === undefined,
@@ -216,9 +262,7 @@ export function createYouTubeMusicProvider(
         const needsSongs = ctx.mode === 'music' || unlinked || page.rows.length === 0
         const songs =
           page.audioPlaylistId !== undefined && needsSongs
-            ? (await audioPlaylistRows(page.audioPlaylistId, ctx))
-                .filter((row) => row.track.kind === 'song')
-                .map((row) => onAlbum(row, page.album))
+            ? await albumSongs(page.audioPlaylistId, page.album, ctx)
             : []
         const useSongs = songs.length > 0 && (ctx.mode === 'music' || page.rows.length === 0)
         const tracks = useSongs
@@ -258,48 +302,54 @@ export function createYouTubeMusicProvider(
     radioPage(seed, pageOptions, ctx) {
       const what = isTrackSeed(seed) ? seed.id : (seed.id ?? seed.name)
       return catalog.run(ctx, `the radio for ${what}`, async () => {
-        let queue: QueuePage
         let key: string
-        let seen: Set<string>
+        let seen: string[]
+        let continuation: string | undefined
+        let queue: QueuePage
         if (pageOptions.cursor === undefined) {
           const start = await radioStart(seed, ctx)
-          queue = parseQueue(await catalog.call(ctx, 'music', 'next', start.payload), catalog.map)
           key = start.key
-          seen = new Set(start.seen)
+          seen = []
+          continuation = undefined
+          const json = await catalog.call(ctx, 'music', 'next', start.payload)
+          queue = parseQueue(json, catalog.mapOf(ctx))
         } else {
           const cursor = decodeCursor(pageOptions.cursor, 'radio')
           if (cursor.s !== radioKey(seed, ctx)) {
             throw new FxmError('NotFound', 'The cursor belongs to another radio')
           }
-          queue = parseQueueContinuation(
-            await catalog.call(ctx, 'music', 'next', { continuation: cursor.c }),
-            catalog.map,
-          )
           key = cursor.s
-          seen = new Set(seenIds(cursor))
+          seen = seenIds(cursor)
+          continuation = cursor.c
+          queue = await radioQueue(seed, key, continuation, ctx)
         }
+        // The page's tracks that are not the seed and that no earlier page returned, once each.
+        const taken = new Set(seen)
+        if (key.startsWith(TRACK_KEY)) taken.add(key.slice(TRACK_KEY.length))
         const fresh: Track[] = []
         for (const track of filterPlayable(queue.tracks, ctx.mode)) {
           const videoId = nativeOf(track.id)
-          if (seen.has(videoId)) continue
-          seen.add(videoId)
+          if (taken.has(videoId)) continue
+          taken.add(videoId)
           fresh.push(track)
         }
         const limit = pageOptions.limit
         const items = limit !== undefined && limit > 0 ? fresh.slice(0, limit) : fresh
-        return {
-          items,
-          ...(queue.continuation === undefined
-            ? {}
-            : {
-                nextCursor: encodeCursor({
-                  k: 'radio',
-                  s: key,
-                  c: queue.continuation,
-                  seen: seenField(seen),
-                }),
-              }),
+        const returned = seenField([...seen, ...items.map((track) => nativeOf(track.id))])
+        let nextCursor: string | undefined
+        if (items.length < fresh.length) {
+          // The limit split the page: the next page reads it again and goes on with the rest.
+          catalog.radioPages.set(catalog.pageKey(ctx, 'radio', key, continuation), queue)
+          nextCursor = encodeCursor({
+            k: 'radio',
+            s: key,
+            ...(continuation === undefined ? {} : { c: continuation }),
+            seen: returned,
+          })
+        } else if (queue.continuation !== undefined) {
+          nextCursor = encodeCursor({ k: 'radio', s: key, c: queue.continuation, seen: returned })
         }
+        return { items, ...(nextCursor === undefined ? {} : { nextCursor }) }
       })
     },
   }
@@ -372,38 +422,45 @@ function numbered(rows: readonly TrackRow[], pageRows: readonly TrackRow[]): Tra
   })
 }
 
-/** The videoId of a track seed in YouTube's ID space: its own, or its external ID. */
-function youTubeVideoId(seed: Track): string | undefined {
+/**
+ * The videoId of a track seed in YouTube's ID space: its own, or for a track of another source
+ * its external ID. In Music mode only its YouTube Music song (`externalIds.ytm`) counts, since a
+ * radio from a plain YouTube video plays videos.
+ */
+function youTubeVideoId(seed: Track, mode: CatalogMode): string | undefined {
   const own = parseId(seed.id)
   if (own.source === 'ytm' || own.source === 'yt') return own.nativeId
-  return seed.externalIds?.ytm ?? seed.externalIds?.yt
+  return mode === 'music' ? seed.externalIds?.ytm : (seed.externalIds?.ytm ?? seed.externalIds?.yt)
 }
 
 /**
  * The videoId a track radio starts from. In Music mode it must be a song: an official video
- * starts from the song it links (`songForVideo`), and anything else is refused, because radio
- * from a video plays videos (measured: 50 of 50).
+ * starts from the song it links (`songForVideo`), a track of another source from its YouTube
+ * Music song, and anything else is refused, because radio from a video plays videos (measured:
+ * 50 of 50).
  *
  * @throws FxmError `Unsupported` for an episode, a seed with no YouTube ID, and in Music mode for
- * a music video without a song link or any other video.
+ * a music video without a song link, any other video, and a track of another source that names
+ * only a plain YouTube video.
  */
 function seedVideoId(seed: Track, ctx: ProviderContext): string {
   if (seed.kind === 'episode') {
     throw new FxmError('Unsupported', 'A radio cannot start from a podcast episode')
   }
+  const songFirst = `In Music mode a radio starts from a song: map "${seed.title}" to its song first`
   let videoId: string | undefined
   if (ctx.mode === 'music' && seed.kind !== 'song') {
     const song = songForVideo(seed)
     const parts = song === undefined ? undefined : parseId(song)
     if (parts === undefined || (parts.source !== 'ytm' && parts.source !== 'yt')) {
-      throw new FxmError(
-        'Unsupported',
-        `In Music mode a radio starts from a song: map "${seed.title}" to its song first`,
-      )
+      throw new FxmError('Unsupported', songFirst)
     }
     videoId = parts.nativeId
   } else {
-    videoId = youTubeVideoId(seed)
+    videoId = youTubeVideoId(seed, ctx.mode)
+    if (videoId === undefined && ctx.mode === 'music' && seed.externalIds?.yt !== undefined) {
+      throw new FxmError('Unsupported', songFirst)
+    }
   }
   if (!isYouTubeId('track', videoId)) {
     throw new FxmError('Unsupported', `"${seed.title}" has no YouTube video to start a radio from`)
@@ -413,7 +470,7 @@ function seedVideoId(seed: Track, ctx: ProviderContext): string {
 
 /** The cursor key of a seed, without any request. */
 function radioKey(seed: RadioSeed, ctx: ProviderContext): string {
-  if (isTrackSeed(seed)) return `track:${seedVideoId(seed, ctx)}`
+  if (isTrackSeed(seed)) return `${TRACK_KEY}${seedVideoId(seed, ctx)}`
   const own = seed.id === undefined ? undefined : parseId(seed.id)
   return `artist:${own?.nativeId ?? ''}`
 }

@@ -10,7 +10,7 @@ import webSearchChannels from './fixtures/web-search-channels.json'
 import webSearchPlaylists from './fixtures/web-search-playlists.json'
 import webSearchVideos from './fixtures/web-search-videos.json'
 import { createYouTubeProviders } from './index'
-import { createYouTubeProvider } from './video'
+import { createYouTubeVideoProvider } from './video'
 
 const { web } = BUNDLED_YOUTUBE_CONFIG.search
 
@@ -28,7 +28,7 @@ function setup(mode: 'music' | 'all' = 'all') {
     on('browse', { browseId: 'UCBHyEuwczfD-exAYApo_g6w' }, channelUploader),
     on('browse', { browseId: 'VLPLNfe5eb0vdozpNx650kvCDhFjteIpW-L2' }, playlistBSides),
   )
-  const video = createYouTubeProvider()
+  const video = createYouTubeVideoProvider()
   return { youtube, video, ctx: context(youtube.fetch, { mode, capabilities: SIMPLE }) }
 }
 
@@ -86,15 +86,20 @@ describe('plain YouTube search', () => {
     })
   })
 
-  it('has no songs or albums, and no videos in Music mode, without asking YouTube', async () => {
+  it('has no songs or albums, and nothing at all in Music mode, without asking YouTube', async () => {
     const all = setup('all')
     expect(await all.video.search('Radiohead', { types: ['track', 'album'] }, all.ctx)).toEqual({
       tracks: { items: [] },
       albums: { items: [] },
     })
     const music = setup('music')
-    expect(await music.video.search('Radiohead', { types: ['video'] }, music.ctx)).toEqual({
+    const types = ['track', 'video', 'album', 'artist', 'playlist'] as const
+    expect(await music.video.search('Radiohead', { types }, music.ctx)).toEqual({
+      tracks: { items: [] },
       videos: { items: [] },
+      albums: { items: [] },
+      artists: { items: [] },
+      playlists: { items: [] },
     })
     expect([...all.youtube.requests, ...music.youtube.requests]).toEqual([])
   })
@@ -117,11 +122,11 @@ describe('plain YouTube entities', () => {
     })
   })
 
-  it('has no albums', async () => {
+  it('has no albums, and says so without asking YouTube', async () => {
     const { video, ctx, youtube } = setup()
     await expect(
       video.getAlbum(formatId('yt', 'album', 'MPREb_DciERiuADkS'), ctx),
-    ).rejects.toSatisfy((error) => isFxmError(error, 'NotFound'))
+    ).rejects.toSatisfy((error) => isFxmError(error, 'Unsupported'))
     expect(youtube.requests).toEqual([])
   })
 

@@ -33,7 +33,7 @@ export interface PlaylistRows {
 }
 
 function ownerFrom(header: unknown, options: MapOptions): PlaylistOwner | undefined {
-  const { itemTypes } = options.config.labels
+  const { itemTypes } = options.labels
   const strapline = ownerOf(
     parseByline(runsOf(at(header, 'straplineTextOne')), options.source, itemTypes),
   )
@@ -79,7 +79,7 @@ export function parsePlaylistPage(
   const owner = ownerFrom(header, options)
   const description = descriptionOf(header)
   const counted = runsOf(at(header, 'secondSubtitle'))
-    .map((run) => parseCount(run.text, options.config.labels.trackCounts))
+    .map((run) => parseCount(run.text, options.labels.trackCounts))
     .find((count) => count !== undefined)
   const trackCount = counted ?? (continuation === undefined ? rows.length : undefined)
   const playlist: Playlist = {

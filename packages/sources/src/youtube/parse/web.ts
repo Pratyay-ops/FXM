@@ -20,7 +20,7 @@ function videoItem(renderer: JsonRecord, options: MapOptions): Item | undefined 
   const id = youTubeEntityId('yt', 'track', renderer.videoId)
   const title = textOf(renderer.title)
   if (id === undefined || title === undefined) return undefined
-  const { itemTypes } = options.config.labels
+  const { itemTypes } = options.labels
   const owner = runsOf(renderer.ownerText)
   const byline = parseByline(
     owner.length > 0 ? owner : runsOf(renderer.longBylineText),
@@ -81,7 +81,7 @@ function playlistItem(model: JsonRecord, options: MapOptions): Item | undefined 
         ? [{ text: content, endpoint: endpoint as JsonRecord }]
         : [{ text: content }]
     })
-  const owner = ownerOf(parseByline(byline, 'yt', options.config.labels.itemTypes))
+  const owner = ownerOf(parseByline(byline, 'yt', options.labels.itemTypes))
   const thumbnail = at(
     model,
     'contentImage',
@@ -92,9 +92,7 @@ function playlistItem(model: JsonRecord, options: MapOptions): Item | undefined 
   const trackCount = arrayAt(thumbnail, 'overlays')
     .flatMap((overlay) => arrayAt(overlay, 'thumbnailOverlayBadgeViewModel', 'thumbnailBadges'))
     .map((badge) => asString(at(badge, 'thumbnailBadgeViewModel', 'text')))
-    .map((text) =>
-      text === undefined ? undefined : parseCount(text, options.config.labels.trackCounts),
-    )
+    .map((text) => (text === undefined ? undefined : parseCount(text, options.labels.trackCounts)))
     .find((count) => count !== undefined)
   return {
     type: 'playlist',

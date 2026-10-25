@@ -139,12 +139,12 @@ export function parseAlbumPage(
   const name =
     textOf(at(header, 'title')) ?? stringAt(json, 'microformat', 'microformatDataRenderer', 'title')
   if (name === undefined) throw new FxmError('Parse', `The album page ${albumId} has no title`)
-  const { itemTypes, trackCounts } = options.config.labels
+  const { itemTypes, trackCounts } = options.labels
   const subtitle = parseByline(runsOf(at(header, 'subtitle')), options.source, itemTypes)
   const strapline = parseByline(runsOf(at(header, 'straplineTextOne')), options.source, itemTypes)
   const artists = strapline.artists.length > 0 ? strapline.artists : subtitle.artists
   const artwork = musicThumbnailArtwork(at(header, 'thumbnail'))
-  const type = albumTypeOf(subtitle.words, options.config)
+  const type = albumTypeOf(subtitle.words, options.labels)
   const trackCount = runsOf(at(header, 'secondSubtitle'))
     .map((run) => parseCount(run.text, trackCounts))
     .find((count) => count !== undefined)
