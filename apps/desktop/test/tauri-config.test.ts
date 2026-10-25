@@ -32,8 +32,29 @@ interface RequestHeaderRule {
 /** The Tauri plugins of the shell, as `tauri-plugin-<name>` crates. */
 const PLUGINS = ['single-instance', 'window-state', 'http', 'dialog', 'opener']
 
-/** The app's own Rust commands (src/user_hosts.rs). */
-const COMMANDS = ['user_hosts', 'approve_user_host', 'revoke_user_host', 'user_host_fetch']
+/** The app's own Rust commands: src/user_hosts.rs, then src/playback.rs and src/environment.rs. */
+const COMMANDS = [
+  'user_hosts',
+  'approve_user_host',
+  'revoke_user_host',
+  'user_host_fetch',
+  'set_now_playing',
+  'desktop_environment',
+]
+
+/**
+ * The core permissions of the web app: Tauri's `core:default` without `core:menu:default` and
+ * `core:tray:default`, so the tray and its menu stay Rust's (src/tray.rs).
+ */
+const CORE_PERMISSIONS = [
+  'core:app:default',
+  'core:event:default',
+  'core:image:default',
+  'core:path:default',
+  'core:resources:default',
+  'core:webview:default',
+  'core:window:default',
+]
 
 /** The scope entry of a host in the platform's host table, which is FXM's network allow-list. */
 const scopeEntry = (rule: HostRule) => `https://${rule.host}${rule.pathPrefix ?? '/'}*`
@@ -126,6 +147,12 @@ describe('tauri.conf.json', () => {
   it('names the window that the Rust code brings to the front on a second launch', () => {
     const label = /pub const MAIN_WINDOW: &str = "([^"]+)"/.exec(libRs)
     expect(config.app.windows[0]?.label).toBe(label?.[1])
+  })
+
+  it('keeps the page running while the window is hidden, for background playback', () => {
+    // WebKit's inactive scheduling policy on macOS 14 and later; Windows and Linux hold a Web
+    // Lock instead (bridge/keep-awake.ts).
+    expect(config.app.windows[0]?.backgroundThrottling).toBe('disabled')
   })
 
   it('keeps the content security policy and no other security setting', () => {
@@ -230,11 +257,18 @@ describe('capabilities', () => {
 
   it('grants core, opener, the app’s commands and http, and nothing else', () => {
     expect(capability.permissions).toEqual([
-      'core:default',
+      ...CORE_PERMISSIONS,
       'opener:default',
       ...COMMANDS.map((command) => `allow-${command.replaceAll('_', '-')}`),
       { identifier: 'http:default', allow: expect.any(Array) },
     ])
+  })
+
+  it('leaves the tray and menus to Rust: page script can’t change them or add its own', () => {
+    // core:default would include core:tray:default and core:menu:default.
+    const names = capability.permissions.filter((permission) => typeof permission === 'string')
+    expect(names).not.toContain('core:default')
+    expect(names.filter((name) => /^core:(tray|menu):/.test(name))).toEqual([])
   })
 
   it('lets the http plugin reach exactly the hosts in the platform’s host table', () => {
@@ -264,7 +298,7 @@ describe('the app’s commands', () => {
       /\.app_manifest\(\s*tauri_build::AppManifest::new\(\)\.commands\(COMMANDS\)/,
     )
     const handler = /generate_handler!\[([^\]]*)\]/.exec(libRs)?.[1] ?? ''
-    const registered = [...handler.matchAll(/user_hosts::(\w+)/g)].map(([, name]) => name)
+    const registered = [...handler.matchAll(/\w+::(\w+)/g)].map(([, name]) => name)
     expect(registered).toEqual(COMMANDS)
   })
 })
@@ -305,8 +339,8 @@ describe('tauri.smoke.conf.json (the live smoke test)', () => {
       beforeBuildCommand: 'pnpm --filter @fxm/desktop smoke:page',
       frontendDist: '../smoke/dist',
     })
-    // Hidden and never suspended: stage 7.3 decides how the app's own window behaves in the
-    // background; the smoke test checks that a stream plays to its end.
+    // Hidden and never suspended, as the app's own window is in the background (stage 7.3): the
+    // smoke test checks that streams play to their end in a hidden window.
     expect(smokeConfig.app).toEqual({
       windows: [
         expect.objectContaining({
@@ -330,6 +364,11 @@ describe('Cargo.toml', () => {
   it('builds tauri-plugin-http without its cookie jar, which saves cookies in plain text', () => {
     expect(http).toMatch(/\bdefault-features = false\b/)
     expect(tomlStrings(/features = \[([^\]]*)\]/.exec(http)?.[1])).not.toContain('cookies')
+  })
+
+  it('builds tauri with its tray icon, which the playback menu needs (src/tray.rs)', () => {
+    const tauri = /^tauri = \{([^}]*)\}/m.exec(cargoToml)?.[1] ?? ''
+    expect(tomlStrings(/features = \[([^\]]*)\]/.exec(tauri)?.[1])).toEqual(['tray-icon'])
   })
 
   it('starts the smoke test’s report listener only on request, never by default', () => {

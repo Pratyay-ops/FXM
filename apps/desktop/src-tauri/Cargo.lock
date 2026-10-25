@@ -1181,6 +1181,8 @@ dependencies = [
 name = "fxm"
 version = "0.0.0"
 dependencies = [
+ "libloading",
+ "objc2-foundation",
  "serde",
  "serde_json",
  "tauri",
