@@ -23,6 +23,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fxm/core": "workspace:*",
     "@fxm/player": "workspace:*",
+    "@fxm/sources": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
