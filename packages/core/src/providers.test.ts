@@ -284,7 +284,7 @@ describe('provider interfaces', () => {
     expectTypeOf<AudioCandidate['confidence']>().toEqualTypeOf<number>()
     // @fxm/core loads only the ES library, so here the platform types use their fallbacks.
     // In programs with DOM, web worker or Node types they are exactly `typeof fetch` and
-    // `AbortSignal`.
+    // `AbortSignal`, as type-tests/platform.ts checks.
     expectTypeOf<Fetch>().toEqualTypeOf<MinimalFetch>()
     expectTypeOf<AbortSignalLike>().toEqualTypeOf<MinimalAbortSignal>()
   })

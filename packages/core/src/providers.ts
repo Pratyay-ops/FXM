@@ -35,8 +35,11 @@ export interface MinimalRequestInit {
   method?: string
   /** Request headers. */
   headers?: Record<string, string>
-  /** Request body. */
-  body?: string | Uint8Array
+  /**
+   * Request body. Bytes must be backed by an `ArrayBuffer` (not a `SharedArrayBuffer`), which is
+   * what the platform `fetch` types accept.
+   */
+  body?: string | Uint8Array<ArrayBuffer>
   /** Cancels the request. */
   signal?: AbortSignalLike
 }
@@ -75,7 +78,8 @@ export type MinimalFetch = (input: string, init?: MinimalRequestInit) => Promise
  *
  * In any program that has a global `fetch` (DOM, web worker or Node types) this is exactly
  * `typeof fetch`, so every implementation above can be passed as is. `@fxm/core` itself loads
- * only the ES library, so in its own type check it falls back to {@link MinimalFetch}.
+ * only the ES library, so in its own type check it falls back to {@link MinimalFetch}, which
+ * the platform `fetch` also satisfies. `type-tests/platform.ts` checks both in each program.
  */
 export type Fetch = typeof globalThis extends { fetch: infer F } ? F : MinimalFetch
 
