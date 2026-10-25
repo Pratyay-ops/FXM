@@ -33,6 +33,7 @@ import {
   currentQueueItem,
   DEFAULT_PLAYBACK_SETTINGS,
   DEFAULT_QUALITY_PREFS,
+  DEFAULT_STREAMING_SETTINGS,
   entityKey,
   FxmError,
   type FxmErrorCode,
@@ -48,6 +49,8 @@ import {
   type PlaybackProblem,
   type PlaybackSettings,
   type PlaybackStep,
+  type ProbePlan,
+  type ProbeScope,
   type ProviderContext,
   planPlayback,
   planStreamRecovery,
@@ -58,10 +61,13 @@ import {
   type QueueItem,
   type SmartReplaceAction,
   type SourceId,
+  type StreamChoice,
   type StreamFailureKind,
+  type StreamingSettings,
   type StreamOption,
   sameCandidate,
   smartReplaceAction,
+  streamingProfile,
   streamsUsableUntil,
   type Track,
   type UnavailableReason,
@@ -111,6 +117,12 @@ export interface StreamLifecycleOptions {
   context: () => ProviderContext
   /** The user's quality settings. Default: `DEFAULT_QUALITY_PREFS`. */
   qualityPrefs?: () => QualityPrefs
+  /**
+   * Which connection's quality ceiling to follow, and the data saver (stage 4.3): see
+   * `streamingProfile`. Default: `DEFAULT_STREAMING_SETTINGS` (the detected connection, data
+   * saver off).
+   */
+  streaming?: () => StreamingSettings
   /** The user's playback settings. Default: `DEFAULT_PLAYBACK_SETTINGS`. */
   settings?: () => PlaybackSettings
   /** The network monitor. Default: one that never changes. */
@@ -318,6 +330,7 @@ export class StreamLifecycle implements StreamResolver {
   readonly #invidious: StreamSource | undefined
   readonly #context: () => ProviderContext
   readonly #prefs: () => QualityPrefs
+  readonly #streaming: () => StreamingSettings
   readonly #settings: () => PlaybackSettings
   readonly #network: NetworkMonitor
   readonly #now: () => number
@@ -366,6 +379,7 @@ export class StreamLifecycle implements StreamResolver {
     this.#invidious = options.invidious
     this.#context = options.context
     this.#prefs = options.qualityPrefs ?? (() => DEFAULT_QUALITY_PREFS)
+    this.#streaming = options.streaming ?? (() => DEFAULT_STREAMING_SETTINGS)
     this.#settings = options.settings ?? (() => DEFAULT_PLAYBACK_SETTINGS)
     this.#network = options.network ?? createStaticNetworkMonitor()
     this.#now = options.now ?? Date.now
@@ -919,6 +933,7 @@ export class StreamLifecycle implements StreamResolver {
       const found = await source.resolve(candidate, {
         ctx: { ...options.ctx, signal },
         prefs: this.#prefs(),
+        probe: this.#probePlan(candidate, options),
         rung,
         priority: options.priority,
         signal,
@@ -965,16 +980,8 @@ export class StreamLifecycle implements StreamResolver {
     resolution: Resolution,
     options: RunOptions,
   ): StreamOption | undefined {
-    const cellular = this.#network.cellular
-    const prefs = this.#prefs()
-    const badFormats = this.#badFormats.get(candidateKey(candidate))
-    const picked = choosePlaybackStream(resolution.options, {
-      support: options.canPlay,
-      ceiling: cellular ? prefs.streaming.cellular : prefs.streaming.wifi,
-      preferAudioOnly: cellular,
-      exclude: (option) =>
-        this.#failedUrls.has(option.url) || badFormats?.has(formatOf(option)) === true,
-    })
+    const { choice } = this.#streamChoice(candidate, options)
+    const picked = choosePlaybackStream(resolution.options, choice)
     if (picked === undefined) return undefined
     const stream: StreamOption = { ...picked }
     this.#issued.set(stream, {
@@ -987,6 +994,38 @@ export class StreamLifecycle implements StreamResolver {
       key: resolution.key,
     })
     return stream
+  }
+
+  /**
+   * How to choose among `candidate`'s streams now: the player's formats, the ceiling and the
+   * audio-only preference of the connection and the data saver (`streamingProfile`), and no URL
+   * or format that already failed. `probe` says how much the source should probe meanwhile.
+   */
+  #streamChoice(
+    candidate: AudioCandidate,
+    options: RunOptions,
+  ): { choice: StreamChoice; probe: ProbeScope } {
+    const detected = this.#network.cellular ? 'cellular' : 'unknown'
+    const profile = streamingProfile(this.#prefs(), this.#streaming(), detected)
+    const key = candidateKey(candidate)
+    const choice: StreamChoice = {
+      support: options.canPlay,
+      ceiling: profile.ceiling,
+      preferAudioOnly: profile.preferAudioOnly,
+      exclude: (option) =>
+        this.#failedUrls.has(option.url) ||
+        this.#badFormats.get(key)?.has(formatOf(option)) === true,
+    }
+    return { choice, probe: profile.probe }
+  }
+
+  /**
+   * How the source probes the streams it finds for `candidate`: every URL, or with the data saver
+   * only the one {@link #choose} would pick.
+   */
+  #probePlan(candidate: AudioCandidate, options: RunOptions): ProbePlan {
+    const { choice, probe } = this.#streamChoice(candidate, options)
+    return { scope: probe, choose: (found) => choosePlaybackStream(found, choice) }
   }
 
   // --- Failures ------------------------------------------------------------------------------

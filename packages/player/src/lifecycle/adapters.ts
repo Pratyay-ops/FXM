@@ -23,6 +23,7 @@ import {
   type LadderRung,
   type MatchTarget,
   type PlaybackBand,
+  type ProbePlan,
   type ProviderContext,
   type QualityPrefs,
   type SourceId,
@@ -43,6 +44,12 @@ export interface StreamSourceRequest {
   /** The quality preferences: only a hint for ordering options of equal quality. */
   prefs: QualityPrefs
   /**
+   * How much to probe where the bytes are readable (`ctx.capabilities.mediaBytes`): every URL,
+   * or with the data saver on only the one playback would choose (stage 4.3). Apply it with
+   * `probeStreams` from `@fxm/core`. Absent means every URL; sources that never probe ignore it.
+   */
+  probe?: ProbePlan
+  /**
    * `top`: the whole ladder, best rung first. `fallback`: only the last-resort rung (YouTube's
    * muxed itag 18), because the top rung's URLs failed their probe. Only asked of a source with
    * {@link StreamSource.hasFallback}.
@@ -61,9 +68,10 @@ export interface StreamSourceRequest {
  * **The YouTube ladder (1.4)** resolves `ytm` candidates: VISIONOS, then the muxed itag 18.
  * Where bytes are readable it probes the end of the file and reports `fullLength` `verified` or
  * `capped`; in the Lite tier it returns `unverified` URLs, and the lifecycle uses the media
- * element's first request as the probe. It sets `hasFallback`, honours `rung: 'fallback'` by
- * resolving only itag 18, and reports a playability verdict (`UNPLAYABLE`, `ERROR`) with
- * `unplayableError` from `@fxm/core`, which is what Smart Replace acts on.
+ * element's first request as the probe. When `request.probe` says `chosen` (the data saver), it
+ * probes only the URL playback would choose (`probeStreams`). It sets `hasFallback`, honours
+ * `rung: 'fallback'` by resolving only itag 18, and reports a playability verdict (`UNPLAYABLE`,
+ * `ERROR`) with `unplayableError` from `@fxm/core`, which is what Smart Replace acts on.
  */
 export interface StreamSource {
   /** The audio source whose candidates this resolves (`AudioCandidate.source`). */

@@ -11,7 +11,8 @@ const lifecycle = new StreamLifecycle({
   matches, // the match cache (2.6); in memory by default
   context: () => providerContext, // read afresh each time: the tier can change
   settings: () => settings.playback, // "prefer lossless", "Play best guesses", Invidious
-  qualityPrefs: () => settings.quality,
+  qualityPrefs: () => settings.quality, // the tier ceilings per connection
+  streaming: () => settings.streaming, // which connection's ceiling applies, the data saver
   network: createBrowserNetworkMonitor(),
 })
 const player = new Player({ engine: new DirectAudioEngine(), resolver: lifecycle })
@@ -30,6 +31,7 @@ lifecycle.attach(player)
 - **Prefetch** of the next 3 tracks (the next one included) on the player's `preload` event, one after another, at the budget's prefetch priority. Resolutions and matches in flight are shared, so the player's own preload and the prefetch make one request.
 - **Smart Replace** only on a playability verdict (`UNPLAYABLE`, `ERROR`) for that very video while other videos resolve: another video resolved on this network within 30 minutes, or, failing that, the next track in the queue resolves now. The dead video is excluded, the matching engine runs again, and the new match is stored and recorded. Pins are never swapped or deleted. Matches survive everything else.
 - **Format choice** per the engine's `canPlay` (`canPlayType`), at the tier ceiling of the connection.
+- **Quality settings** (stage 4.3): `streamingProfile` from `@fxm/core` picks the ceiling for every stream from `qualityPrefs`, the `streaming` settings and the network monitor's `cellular`: the connection the user chose, else the detected one, else Wi-Fi. On mobile data, and everywhere with the data saver on, audio-only streams come before a muxed video. The data saver streams at `low` on every connection and passes each source a `ProbePlan` (`request.probe`) whose scope is `chosen`, so a source that probes checks only the stream the lifecycle will choose (`probeStreams`).
 
 The player does the retries with backoff (0 s, 1 s, 3 s) and stops after 4 failed tracks; the lifecycle makes every retry resolve fresh audio.
 
@@ -52,7 +54,7 @@ Each one is an interface in `adapters.ts`, with a fake in `./testing` (also expo
 
 | Interface | Implemented by | What the real one must do |
 |---|---|---|
-| `StreamSource` for `ytm` | The YouTube ladder (1.4, not merged when 2.3 was built) | `resolve(candidate, { rung: 'top' })` runs the ladder; `rung: 'fallback'` resolves only itag 18; `hasFallback: true`. Probe where `ctx.capabilities.mediaBytes` and report `fullLength`; return `unverified` URLs otherwise. Report a `playabilityStatus` of `UNPLAYABLE` or `ERROR` with `unplayableError` from `@fxm/core`. Optionally `checkStatus(stream)`: a one-byte ranged GET's status. Draw on the budget at `request.priority` |
+| `StreamSource` for `ytm` | The YouTube ladder (1.4, not merged when 2.3 was built) | `resolve(candidate, { rung: 'top' })` runs the ladder; `rung: 'fallback'` resolves only itag 18; `hasFallback: true`. Probe where `ctx.capabilities.mediaBytes` and report `fullLength`, as `request.probe` says (`probeStreams`: every URL, or with the data saver only the chosen one); return `unverified` URLs otherwise. Report a `playabilityStatus` of `UNPLAYABLE` or `ERROR` with `unplayableError` from `@fxm/core`. Optionally `checkStatus(stream)`: a one-byte ranged GET's status. Draw on the budget at `request.priority` |
 | `StreamSource` for `archive`, `jamendo` | The free sources (1.6) | `fromAudioSource(audioSource)` |
 | `TrackMatcher` | The matching engine (1.7, not merged) with the YouTube Music, Internet Archive and Jamendo searches | `match(track, { target, exclude })` returns the band and the best candidate, never one in `exclude`. `target: 'song'` searches YouTube Music; `'lossless'` Internet Archive and Jamendo (only while "prefer lossless" is on, for Jamendo's quota) |
 | `MatchStore` | The match cache (2.6) | Keyed by track, mode and target (`matchKeyString`); keeps `band`, `candidate`, `alternatives`, `pinned`, `matchedAt`; never expires a pin. The lifecycle checks what it reads with `isStoredMatch` |
@@ -68,4 +70,5 @@ They run offline in happy-dom with fake timers, which also drive `Date.now`: the
 - re-resolving and resuming at expiry, the cache, the flush on a network change and on a 403 for a cached URL (`url-lifecycle.test.ts`);
 - the Smart Replace triggers and the protection of pins (`smart-replace.test.ts`);
 - queues skipping Suggest items, and what lets them play (`suggest.test.ts`);
-- the order of preference, prefetching, shared resolutions, retries and the circuit breaker (`policy.test.ts`), and the edge cases (`edges.test.ts`).
+- the order of preference, prefetching, shared resolutions, retries and the circuit breaker (`policy.test.ts`), and the edge cases (`edges.test.ts`);
+- the quality settings: the connection the user chose, the data saver's ceiling and audio-only preference, and the probe plan it passes the ladder (`quality.test.ts`).
