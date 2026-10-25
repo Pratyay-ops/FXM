@@ -151,7 +151,7 @@ The page posts messages to its own window (`postMessage(message, location.origin
 |---|---|
 | `bad-request` | Malformed message, unexpected field or parameter outside the allow-list |
 | `unsupported` | Unknown `fxm-connect:` message type |
-| `login-disabled` | The Spotify toggle is off |
+| `login-disabled` | The Spotify toggle is off (for localhost pages of the dev build: or its localhost toggle is) |
 | `private-tab` | The page is in a private (incognito) window or a Firefox container tab, where the browser's normal Spotify login does not apply |
 | `rate-limited` | More than 10 bridge requests in the last minute |
 | `network-error` | The request failed (offline, DNS, TLS or a redirect) |
@@ -171,17 +171,21 @@ scripts/run.sh pnpm --filter @fxm/extension test:e2e   # end-to-end test in Chro
 
 `make build` (and so `make check`) builds the release variant too. Load `dist/chromium` with **Load unpacked**, or `dist/firefox/manifest.json` with **Load Temporary Add-on**.
 
-**Dev build.** It also allows `http://localhost:5173` (the Vite dev server) and `http://localhost:4173` (`vite preview`) as FXM origins. Those are Vite's default ports, so the dev build treats any app served there as FXM: other projects, their dependencies and any local tool that binds the ports. Its options page says so, and localhost pages only get your Spotify login if you also turn on **Also let localhost pages use my Spotify login**, which only the dev build shows. Keep that off, or use a separate browser profile for development. The dev build goes to `dist/dev/` and its zips end in `-dev`, apart from the release zips in `dist/`; never publish it. DNR matches the page that starts a request by host name only, not port, so each localhost origin gets its own static ruleset. When an FXM page opens on one of them, the background enables that origin's ruleset and disables the other, and the content script holds back its replies, the pong included, until the switch is done. So requests the app sends after the pong get the rules; requests sent earlier may not. If both are open at once, the most recently loaded one gets the CORS rules.
+**Dev build.** It also allows `http://localhost:5173` (the Vite dev server) and `http://localhost:4173` (`vite preview`) as FXM origins. It goes to `dist/dev/`, apart from the release files in `dist/`, and its zips end in `-dev`. Never publish it.
 
-**Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, the rate limit, the icons and the zips. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, `clienttoken`, pathfinder, `spclient` and Last.fm. Chromium's `--host-resolver-rules` points the real host names, `fxm-music.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
+Those are Vite's default ports, so the dev build treats any app served there as FXM: other projects, their dependencies and any local tool that binds the ports. Its options page warns about this. Localhost pages only get your Spotify login if you also turn on **Also let localhost pages use my Spotify login**, which only the dev build shows. Keep that off, or use a separate browser profile for development.
 
-**Keep the FXM host permissions exact.** DNR's `initiatorDomains` also matches sub-domains, so `fxm-music.pages.dev` alone would cover every preview deployment. Browsers only modify headers for a request when the extension has host access to the page that started it as well (verified in Chromium by the e2e test, and documented on MDN for Firefox), and FXM Connect only asks for `https://fxm-music.pages.dev/*`. Adding a pattern such as `https://*.fxm-music.pages.dev/*` would quietly widen every rule to all sub-domains; a unit test refuses it.
+DNR matches the page that starts a request by host name only, not port, so each localhost origin gets its own static ruleset. When an FXM page opens on one of them, the background enables that origin's ruleset and disables the other, and the content script holds back its replies, the pong included, until the switch is done. So requests the app sends after the pong get the rules; requests sent earlier may not. If both are open at once, the most recently loaded one gets the CORS rules.
+
+**Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, the settings store, the rate limit, the icons and the zips. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, `clienttoken`, pathfinder, `spclient` and Last.fm. Chromium's `--host-resolver-rules` points the real host names, `fxm-music.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
+
+**Keep the FXM host permissions exact.** DNR's `initiatorDomains` also matches sub-domains, so `fxm-music.pages.dev` alone would cover every preview deployment. Browsers only modify headers for a request when the extension has host access to the page that started it as well (the e2e test checks this in Chromium; MDN documents it for Firefox, and a manual run in Firefox 158 confirmed it), and FXM Connect only asks for `https://fxm-music.pages.dev/*`. Adding a pattern such as `https://*.fxm-music.pages.dev/*` would quietly widen every rule to all sub-domains; a unit test refuses it.
 
 **Layout.**
 
 | Path | What |
 |---|---|
-| `src/config.ts` | FXM origins (the single list), names and the toggle's storage key |
+| `src/config.ts` | FXM origins (the single list), names and the pong's features |
 | `src/rules.ts` | Typed CORS rule specs and the ruleset generator |
 | `src/manifest.ts` | Chromium and Firefox manifests |
 | `src/content-script.ts`, `src/content.ts` | Presence handshake and bridge relay |
