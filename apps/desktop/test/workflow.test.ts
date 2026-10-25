@@ -7,6 +7,10 @@ import { describe, expect, it } from 'vitest'
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 
 const workflow = read('../../../.github/workflows/desktop.yml')
+const toolchainToml = read('../src-tauri/rust-toolchain.toml')
+
+/** The strings in a TOML array. */
+const tomlStrings = (array = '') => [...array.matchAll(/"([^"]*)"/g)].map(([, value]) => value)
 
 /** The `paths` filter of one of the workflow's triggers, such as `push`. */
 function triggerPaths(trigger: string) {
@@ -42,5 +46,15 @@ describe('desktop.yml', () => {
         '.github/workflows/desktop.yml',
       ]),
     )
+  })
+
+  it('installs the Rust release and components of rust-toolchain.toml on Windows', () => {
+    // macOS and Linux install from rust-toolchain.toml itself, through make rust-setup.
+    const channel = /^channel = "([^"]+)"$/m.exec(toolchainToml)?.[1]
+    const components = tomlStrings(/^components = \[([^\]]*)\]$/m.exec(toolchainToml)?.[1])
+    const toolchains = [...workflow.matchAll(/^\s+toolchain: (\S+)$/gm)].map(([, value]) => value)
+    expect(channel).toBeDefined()
+    expect(toolchains).toEqual([channel])
+    expect(/^\s+components: (.+)$/m.exec(workflow)?.[1]?.split(/[\s,]+/)).toEqual(components)
   })
 })
