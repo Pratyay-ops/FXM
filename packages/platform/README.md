@@ -179,7 +179,8 @@ scripts/run.sh pnpm --filter @fxm/platform typecheck
 | `src/capabilities.ts` | Capability rules, detection and the monitor |
 | `src/clock.ts`, `src/storage.ts` | Injectable time and key-value storage |
 | `src/testing/` | The test helpers |
+| `src/evaluator/` | The isolated evaluator of stage 1.11, one interface on every platform for the code FXM must not run in its pages; see [its README](src/evaluator/README.md) |
 
-`src/sandbox/` (stage 1.10), `src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
+`src/sandbox/` (stage 1.10) and `src/updates/` (1.13, signed config and resolver module) belong to later stages.
 
 See [ARCHITECTURE.md §8](../../docs/ARCHITECTURE.md#8-platforms-and-network-transports).

@@ -5,6 +5,7 @@
  * @module
  */
 
+export * from './evaluator'
 export * from './fake-clock'
 export * from './fake-connect'
 export * from './fake-sandbox'

@@ -8,10 +8,12 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/testing/index.ts"
+    "./testing": "./src/testing/index.ts",
+    "./testing/evaluator": "./src/testing/evaluator.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "build:evaluator": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/build-evaluator.ts"
   },
   "dependencies": {
     "@fxm/core": "workspace:*",
