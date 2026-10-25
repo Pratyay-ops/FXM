@@ -1,7 +1,7 @@
 import { isFxmError } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import { utf8 } from './encoding.ts'
-import { importModuleFromBytes } from './loader.ts'
+import { canImportModules, importModuleFromBytes } from './loader.ts'
 import { nodeModuleImporter } from './testing.ts'
 
 describe('importModuleFromBytes', () => {
@@ -64,5 +64,23 @@ describe('importModuleFromBytes', () => {
     } finally {
       URL.createObjectURL = create
     }
+  })
+})
+
+describe('canImportModules', () => {
+  it('imports a one-line module to find out whether code can load at all', async () => {
+    const urls: string[] = []
+    const importer = (url: string) => {
+      urls.push(url)
+      return nodeModuleImporter(url)
+    }
+    expect(await canImportModules({ importer })).toBe(true)
+    expect(urls).toEqual([expect.stringMatching(/^blob:/)])
+  })
+
+  it('says no when the policy refuses blob: modules or the module has no exports', async () => {
+    const refused = () => Promise.reject(new TypeError('Refused by the Content Security Policy'))
+    expect(await canImportModules({ importer: refused })).toBe(false)
+    expect(await canImportModules({ importer: async () => ({}) })).toBe(false)
   })
 })

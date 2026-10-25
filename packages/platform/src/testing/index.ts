@@ -5,6 +5,7 @@
  * @module
  */
 
+export * from '../updates/testing'
 export * from './fake-clock'
 export * from './fake-connect'
 export * from './fake-sandbox'

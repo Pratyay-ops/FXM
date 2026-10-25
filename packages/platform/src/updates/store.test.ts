@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { utf8 } from './encoding.ts'
 import { indexedDbUpdateStore, memoryUpdateStore, type UpdateStore } from './store.ts'
 
-const UPDATE = { signature: utf8('{"signature":true}'), bytes: utf8('export {}') }
+const UPDATE = { envelope: utf8('{"signature":true}'), bytes: utf8('export {}') }
 
 describe.each<[string, () => UpdateStore]>([
   ['memoryUpdateStore', () => memoryUpdateStore()],
@@ -13,17 +13,17 @@ describe.each<[string, () => UpdateStore]>([
     const store = makeStore()
     expect(await store.get('youtube-module')).toBeUndefined()
     await store.set('youtube-module', UPDATE)
-    await store.set('youtube-config', { signature: utf8('a'), bytes: utf8('{}') })
+    await store.set('youtube-config', { envelope: utf8('a'), bytes: utf8('{}') })
     expect(await store.get('youtube-module')).toEqual(UPDATE)
     await store.delete('youtube-module')
     expect(await store.get('youtube-module')).toBeUndefined()
-    expect(await store.get('youtube-config')).toEqual({ signature: utf8('a'), bytes: utf8('{}') })
+    expect(await store.get('youtube-config')).toEqual({ envelope: utf8('a'), bytes: utf8('{}') })
   })
 
   it('stores copies, so later changes to the arrays do not reach it', async () => {
     const store = makeStore()
     const bytes = utf8('export {}')
-    await store.set('youtube-module', { signature: utf8('s'), bytes })
+    await store.set('youtube-module', { envelope: utf8('s'), bytes })
     bytes[0] = 0x21
     const stored = await store.get('youtube-module')
     expect(stored?.bytes).toEqual(utf8('export {}'))

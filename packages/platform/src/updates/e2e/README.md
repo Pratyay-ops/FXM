@@ -4,7 +4,7 @@ Stage 1.13's done-when in real browser engines, without the desktop app's Rust b
 
 - the update verifies, loads from a `blob:` URL and fixes the parser, without reloading the page;
 - a module whose bytes were changed after signing is refused;
-- without `blob:` in `script-src` (the web app's policy) the module can't load, and the app keeps its own.
+- without `blob:` in `script-src` (the web app's policy) the updater finds out that code can't load (`code-unsupported`), downloads no module and blames none, and the app keeps its own.
 
 It is not part of `make test`. Run it with:
 

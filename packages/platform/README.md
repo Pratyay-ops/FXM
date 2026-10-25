@@ -156,6 +156,7 @@ Without `http`, both are stubs: CORS-friendly hosts through the webview's own `f
 - `createFakeClock()`: a `Clock` whose time only the test moves; `advanceAsync` lets promises settle between timers.
 - `createFakeSandbox()`: a `SandboxTransport` that refuses requests the real sandbox could not send (not CORS-simple, or not one of the allowed InnerTube paths) and records the rest.
 - `installFakeConnect(window)`: marks a page and answers pings and bridge requests the way FXM Connect's content script does.
+- `createTestSigner()`, `fakeUpdateSite()` and `nodeModuleImporter`: a throwaway update signing key, a fake static site for signed updates, and a way to load verified modules in Node ([`src/updates/`](src/updates/README.md)).
 
 Tests that need a page create their own happy-dom `Window` at the FXM origin: in Vitest's global happy-dom environment, a message's `event.source` is not the page's `window`. happy-dom delivers `postMessage` on real timers, so the clients take an injectable `clock` for their timeouts.
 

@@ -3,7 +3,6 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { keyIdOf, sha256Hex } from './digest.ts'
 import { fromUtf8, toBase64, utf8 } from './encoding.ts'
 import { encodeEnvelope, encodeStatement, parseEnvelope, signedMessage } from './format.ts'
-import type { TrustedKey } from './keys.ts'
 import {
   generateSigningKey,
   importSigningKey,
@@ -18,6 +17,7 @@ import {
   checkArtifactBytes,
   createSignatureVerifier,
   type SignatureVerifier,
+  type TrustedKey,
   verifySignatureFile,
 } from './verify.ts'
 
@@ -92,7 +92,7 @@ describe('signing keys', () => {
       sha256: sha256Hex(BYTES),
     })
     const parsed = parseEnvelope(signed.envelope)
-    expect(parsed.keyId).toBe(signer.trusted.id)
+    expect(parsed.keyId).toBe(signer.trusted.keyId)
     expect(fromUtf8(signed.envelope)).toContain('"format": "fxm-signed-update-1"')
   })
 
@@ -118,7 +118,7 @@ describe.each(ENGINES)('verifySignatureFile with %s', (_, makeVerifier) => {
   it('accepts a valid signature and returns the statement', async () => {
     const signed = await signedModule()
     const result = await verifySignatureFile(signed.envelope, MODULE, keys, verifier)
-    expect(result).toEqual({ ok: true, statement: signed.statement, keyId: signer.trusted.id })
+    expect(result).toEqual({ ok: true, statement: signed.statement, keyId: signer.trusted.keyId })
   })
 
   it('refuses a signature by a key the build does not trust', async () => {
@@ -142,7 +142,7 @@ describe.each(ENGINES)('verifySignatureFile with %s', (_, makeVerifier) => {
       bytes: BYTES,
     })
     const parsed = parseEnvelope(forged.envelope)
-    const relabelled = encodeEnvelope(signer.trusted.id, parsed.statementBytes, parsed.signature)
+    const relabelled = encodeEnvelope(signer.trusted.keyId, parsed.statementBytes, parsed.signature)
     const result = await verifySignatureFile(relabelled, MODULE, keys, verifier)
     expect(result).toMatchObject({ ok: false, failure: 'bad-signature' })
   })
@@ -150,7 +150,7 @@ describe.each(ENGINES)('verifySignatureFile with %s', (_, makeVerifier) => {
   it('refuses a statement changed after signing, e.g. a raised version', async () => {
     const parsed = parseEnvelope((await signedModule()).envelope)
     const raised = utf8(fromUtf8(parsed.statementBytes).replace('"version":2', '"version":9'))
-    const tampered = encodeEnvelope(signer.trusted.id, raised, parsed.signature)
+    const tampered = encodeEnvelope(signer.trusted.keyId, raised, parsed.signature)
     const result = await verifySignatureFile(tampered, MODULE, keys, verifier)
     expect(result).toMatchObject({ ok: false, failure: 'bad-signature' })
   })
@@ -160,7 +160,7 @@ describe.each(ENGINES)('verifySignatureFile with %s', (_, makeVerifier) => {
     const flipped = new Uint8Array(parsed.signature)
     flipped[10] = (flipped[10] ?? 0) ^ 0x40
     for (const signature of [flipped, new Uint8Array(64)]) {
-      const tampered = encodeEnvelope(signer.trusted.id, parsed.statementBytes, signature)
+      const tampered = encodeEnvelope(signer.trusted.keyId, parsed.statementBytes, signature)
       const result = await verifySignatureFile(tampered, MODULE, keys, verifier)
       expect(result).toMatchObject({ ok: false, failure: 'bad-signature' })
     }
@@ -185,7 +185,7 @@ describe.each(ENGINES)('verifySignatureFile with %s', (_, makeVerifier) => {
     const result = await verifySignatureFile(
       encodeEnvelope(key.keyId, statementBytes, signature),
       MODULE,
-      [{ id: key.keyId, publicKey: key.publicKey }],
+      [{ keyId: key.keyId, publicKey: key.publicKey }],
       verifier,
     )
     expect(result).toMatchObject({ ok: false, failure: 'malformed' })
@@ -236,7 +236,7 @@ describe('createSignatureVerifier', () => {
 
   beforeAll(async () => {
     key = await importSigningKey((await generateSigningKey()).pkcs8)
-    trusted = { id: key.keyId, publicKey: key.publicKey }
+    trusted = { keyId: key.keyId, publicKey: key.publicKey }
     signature = new Uint8Array(
       await crypto.subtle.sign({ name: 'Ed25519' }, key.privateKey, message),
     )
@@ -302,13 +302,39 @@ describe('createSignatureVerifier', () => {
     expect(await verifier.verify(trusted, utf8('other'), signature)).toBe(false)
   })
 
+  it('verifies nothing with a small-order key, which would accept a forgery', async () => {
+    // The identity point as the key, and R = identity, S = 0 as the signature: valid for every
+    // message under the cofactored equation, and accepted by Node's WebCrypto as it is.
+    const identity = new Uint8Array(ed25519.Point.ZERO.toBytes())
+    const forged = new Uint8Array(64)
+    forged.set(identity)
+    const weak: TrustedKey = { keyId: keyIdOf(identity), publicKey: identity }
+    for (const [, makeVerifier] of ENGINES) {
+      expect(await makeVerifier().verify(weak, message, forged)).toBe(false)
+    }
+    const statement = encodeStatement({
+      kind: 'youtube-module',
+      version: 3,
+      api: 1,
+      file: MODULE.file,
+      size: BYTES.length,
+      sha256: sha256Hex(BYTES),
+      signedAt: new Date(0).toISOString(),
+    })
+    const envelope = encodeEnvelope(weak.keyId, statement, forged)
+    for (const [, makeVerifier] of ENGINES) {
+      const result = await verifySignatureFile(envelope, MODULE, [weak], makeVerifier())
+      expect(result).toMatchObject({ ok: false, failure: 'bad-signature' })
+    }
+  })
+
   it('never throws for malformed input', async () => {
     for (const verifier of [createSignatureVerifier(), createSignatureVerifier({ subtle: null })]) {
       expect(await verifier.verify(trusted, message, new Uint8Array(63))).toBe(false)
       expect(
-        await verifier.verify({ id: 'x', publicKey: new Uint8Array(31) }, message, signature),
+        await verifier.verify({ keyId: 'x', publicKey: new Uint8Array(31) }, message, signature),
       ).toBe(false)
-      const notAPoint = { id: 'y', publicKey: new Uint8Array(32).fill(0xff) }
+      const notAPoint = { keyId: 'y', publicKey: new Uint8Array(32).fill(0xff) }
       expect(await verifier.verify(notAPoint, message, signature)).toBe(false)
     }
   })
@@ -330,7 +356,7 @@ describe('createSignatureVerifier', () => {
       const result = await verifySignatureFile(
         envelope,
         { kind: 'youtube-config', file: 'youtube-config.json', maxBytes: 100 },
-        [{ id, publicKey }],
+        [{ keyId: id, publicKey: new Uint8Array(publicKey) }],
         makeVerifier(),
       )
       expect(result.ok).toBe(true)

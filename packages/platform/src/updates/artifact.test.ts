@@ -1,13 +1,8 @@
 import { isFxmError } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
-import {
-  codeArtifact,
-  DEFAULT_CODE_MAX_BYTES,
-  DEFAULT_JSON_MAX_BYTES,
-  jsonArtifact,
-} from './artifact.ts'
+import { codeArtifact, jsonArtifact } from './artifact.ts'
 import { utf8 } from './encoding.ts'
-import type { UpdateStatement } from './format.ts'
+import { DEFAULT_CODE_MAX_BYTES, DEFAULT_JSON_MAX_BYTES, type UpdateStatement } from './format.ts'
 import { nodeModuleImporter } from './testing.ts'
 
 const STATEMENT: UpdateStatement = {
@@ -37,6 +32,9 @@ describe('jsonArtifact', () => {
       maxBytes: DEFAULT_JSON_MAX_BYTES,
       bundledVersion: 1,
     })
+    expect('api' in artifact).toBe(false)
+    expect('inUse' in artifact).toBe(false)
+    expect('canLoad' in artifact).toBe(false)
     expect(await artifact.load(utf8('{"a":1}'), STATEMENT)).toEqual({ parsed: { a: 1 } })
     expect(accept).toHaveBeenCalledWith({ a: 1 }, STATEMENT)
     artifact.activate({ parsed: 1 } as never, { origin: 'fetched', version: 2 })
@@ -65,6 +63,27 @@ describe('jsonArtifact', () => {
   })
 })
 
+describe('the optional hooks', () => {
+  it('pass a schema, the version in use and failures through', () => {
+    const failures: number[] = []
+    const artifact = jsonArtifact({
+      kind: 'test',
+      file: 'test-2.json',
+      api: 2,
+      bundledVersion: 1,
+      accept: (json: unknown) => json,
+      activate: () => {},
+      useBundled: () => {},
+      inUse: () => ({ version: 7, origin: 'bundled' }),
+      watch: (failed) => failed(3, 'broken'),
+    })
+    expect(artifact.api).toBe(2)
+    expect(artifact.inUse?.()).toEqual({ version: 7, origin: 'bundled' })
+    artifact.watch?.((version) => failures.push(version))
+    expect(failures).toEqual([3])
+  })
+})
+
 describe('codeArtifact', () => {
   it('imports the verified bytes as a module and hands the exports to accept', async () => {
     const artifact = codeArtifact(
@@ -84,5 +103,25 @@ describe('codeArtifact', () => {
       value: 42,
       version: 2,
     })
+  })
+
+  it('finds out once whether the platform can load code, before anything is downloaded', async () => {
+    const spec = {
+      kind: 'test-module',
+      file: 'test-module-1.js',
+      api: 1,
+      bundledVersion: 1,
+      accept: () => 1,
+      activate: () => {},
+      useBundled: () => {},
+    }
+    const loading = codeArtifact(spec, { importer: nodeModuleImporter })
+    expect(await loading.canLoad?.()).toBe(true)
+    // A CSP without blob: in script-src refuses every blob: module, the one-line probe included.
+    const importer = vi.fn(() => Promise.reject(new TypeError('Refused by the CSP')))
+    const blocked = codeArtifact(spec, { importer })
+    expect(await blocked.canLoad?.()).toBe(false)
+    expect(await blocked.canLoad?.()).toBe(false)
+    expect(importer).toHaveBeenCalledOnce()
   })
 })

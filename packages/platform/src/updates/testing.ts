@@ -1,17 +1,18 @@
 /**
  * Test helpers for signed updates: a throwaway signing key, a fake static site that serves
- * update files, and a module importer for Node, which can't import `blob:` URLs. Tests only:
- * never import this from app code.
+ * update files, and a module importer for Node, which can't import `blob:` URLs. Exported by
+ * `@fxm/platform/testing`, for the tests of this package and of the apps that wire the updater
+ * (7.2, 6.2). Tests only: never import this from app code.
  *
  * @module
  */
 
 import { utf8 } from './encoding.ts'
 import { SIGNATURE_SUFFIX } from './format.ts'
-import type { TrustedKey } from './keys.ts'
 import type { ModuleImporter } from './loader.ts'
 import { generateSigningKey, importSigningKey, type SignedUpdate, signUpdate } from './sign.ts'
 import type { UpdateFetch, UpdateRequestInit } from './updater.ts'
+import type { TrustedKey } from './verify.ts'
 
 /** A throwaway key pair that signs like the owner's. */
 export interface TestSigner {
@@ -24,6 +25,7 @@ export interface TestSigner {
     file: string
     bytes: Uint8Array
     api?: number
+    source?: string
   }): Promise<SignedUpdate>
 }
 
@@ -32,7 +34,7 @@ export async function createTestSigner(): Promise<TestSigner> {
   const generated = await generateSigningKey()
   const key = await importSigningKey(generated.pkcs8)
   return {
-    trusted: { id: key.keyId, publicKey: key.publicKey },
+    trusted: { keyId: key.keyId, publicKey: key.publicKey },
     sign: (input) => signUpdate(key, input),
   }
 }

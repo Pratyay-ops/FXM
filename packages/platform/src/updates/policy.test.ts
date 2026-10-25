@@ -1,14 +1,29 @@
+import { isFxmError } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
 import { CODE_UPDATES_CONSENT, parseDistribution, updatePolicy } from './policy.ts'
 
 describe('parseDistribution', () => {
-  it('reads fdroid, and makes anything else a standard build', () => {
-    expect(parseDistribution('fdroid')).toBe('fdroid')
-    expect(parseDistribution(' FDroid ')).toBe('fdroid')
-    for (const value of [undefined, '', 'standard', 'github', 1]) {
+  it('reads fdroid and standard in any case, and nothing as standard', () => {
+    for (const value of ['fdroid', ' FDroid ', 'f-droid', 'F-Droid']) {
+      expect(parseDistribution(value)).toBe('fdroid')
+    }
+    for (const value of [undefined, null, '', '  ', 'standard', 'Standard']) {
       expect(parseDistribution(value)).toBe('standard')
     }
   })
+
+  it.each(['f_droid', 'F_DROID', 'fdroid-build', 'fdorid', 'github', 'true', 1])(
+    'fails the build for %j instead of making a standard build',
+    (value) => {
+      let error: unknown
+      try {
+        parseDistribution(value)
+      } catch (caught) {
+        error = caught
+      }
+      expect(isFxmError(error, 'Unsupported')).toBe(true)
+    },
+  )
 })
 
 describe('updatePolicy', () => {

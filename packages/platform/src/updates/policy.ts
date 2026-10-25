@@ -10,6 +10,8 @@
  * @module
  */
 
+import { FxmError } from '@fxm/core'
+
 /** Every {@link Distribution}. */
 export const DISTRIBUTIONS = ['standard', 'fdroid'] as const
 
@@ -20,13 +22,21 @@ export const DISTRIBUTIONS = ['standard', 'fdroid'] as const
 export type Distribution = (typeof DISTRIBUTIONS)[number]
 
 /**
- * Reads a build flag, such as `FXM_DISTRIBUTION`: `fdroid` makes an F-Droid build, anything
- * else (including nothing) the standard one.
+ * Reads a build flag, such as `FXM_DISTRIBUTION`, in any case: `fdroid` (or `f-droid`) makes an
+ * F-Droid build; `standard`, an empty value or none the standard one.
+ *
+ * @throws FxmError `Unsupported` for any other value, so that a typo in a build recipe fails the
+ * build instead of making a standard build, which would download code without asking.
  */
 export function parseDistribution(value: unknown): Distribution {
-  return typeof value === 'string' && value.trim().toLowerCase() === 'fdroid'
-    ? 'fdroid'
-    : 'standard'
+  if (value === undefined || value === null) return 'standard'
+  const name = typeof value === 'string' ? value.trim().toLowerCase() : undefined
+  if (name === '' || name === 'standard') return 'standard'
+  if (name === 'fdroid' || name === 'f-droid') return 'fdroid'
+  throw new FxmError(
+    'Unsupported',
+    `FXM_DISTRIBUTION is ${JSON.stringify(String(value))}: it must be standard or fdroid`,
+  )
 }
 
 /** What a build may update by itself. */

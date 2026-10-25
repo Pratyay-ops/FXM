@@ -5,7 +5,8 @@
  *
  * The page's Content Security Policy must allow it: `script-src` needs `blob:`. Only the
  * desktop and Android builds have that; the web app's policy doesn't, and it never loads
- * downloaded code (it gets new code by redeploy).
+ * downloaded code (it gets new code by redeploy). {@link canImportModules} finds out, without a
+ * request, before anything is downloaded.
  *
  * @module
  */
@@ -26,6 +27,9 @@ export interface ModuleImportOptions {
 
 /** The platform's own dynamic `import()`, which bundlers must leave alone. */
 const nativeImport: ModuleImporter = (url) => import(/* @vite-ignore */ url)
+
+/** A module that only exports `ok`, for {@link canImportModules}. */
+const PROBE_MODULE = new TextEncoder().encode('export const ok = 1')
 
 /**
  * Evaluates `bytes` as an ES module and returns its namespace (its exports). The `blob:` URL is
@@ -54,4 +58,18 @@ export async function importModuleFromBytes(
     throw new FxmError('Parse', 'The downloaded module has no exports')
   }
   return namespace as Readonly<Record<string, unknown>>
+}
+
+/**
+ * Whether this platform can load code from `blob:` URLs at all: it has `Blob` and
+ * `URL.createObjectURL`, and its Content Security Policy lets `import()` run one. Imports a
+ * one-line module, with no request. When it can't, a module that fails to load says nothing
+ * about the module, so the updater neither downloads code nor remembers a version as bad.
+ */
+export async function canImportModules(options: ModuleImportOptions = {}): Promise<boolean> {
+  try {
+    return (await importModuleFromBytes(PROBE_MODULE, options)).ok === 1
+  } catch {
+    return false
+  }
 }

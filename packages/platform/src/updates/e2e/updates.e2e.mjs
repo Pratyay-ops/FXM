@@ -12,12 +12,9 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { extname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brokenFormatParser, buildYouTubeModule } from '@fxm/sources/youtube/module/build'
 import { expect, test } from '@playwright/test'
 import { build } from 'vite'
-import {
-  brokenFormatParser,
-  buildYouTubeModule,
-} from '../../../../sources/src/youtube/module/build.mjs'
 import { toBase64 } from '../encoding.ts'
 import { generateSigningKey, importSigningKey, signUpdate } from '../sign.ts'
 
@@ -60,7 +57,10 @@ test.beforeAll(async () => {
     publicDir: false,
     plugins: [brokenFormatParser()],
     define: {
-      __FXM_E2E_TEST_KEY__: JSON.stringify({ id: key.keyId, publicKey: toBase64(key.publicKey) }),
+      __FXM_E2E_TEST_KEY__: JSON.stringify({
+        keyId: key.keyId,
+        publicKey: toBase64(key.publicKey),
+      }),
     },
     build: {
       outDir: appDir,
@@ -142,10 +142,12 @@ test('a module whose bytes were changed is refused, and the app keeps its own', 
   expect(result.moduleOrigin).toBe('bundled')
 })
 
-test('without blob: in script-src, as on the web, the module can’t load', async ({ page }) => {
+test('without blob: in script-src, as on the web, no module is downloaded or blamed', async ({
+  page,
+}) => {
   const result = await run(page, '/?csp=web', '/updates/')
-  expect(result.outcome).toBe('failed')
-  expect(result.problems).toEqual(['load-failed'])
+  expect(result.outcome).toBe('skipped')
+  expect(result.problems).toEqual(['code-unsupported'])
   expect(result.after).toMatchObject({ ok: false, code: 'Parse' })
   expect(result.moduleOrigin).toBe('bundled')
 })

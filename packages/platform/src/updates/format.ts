@@ -33,6 +33,18 @@ export const MAX_SIGNATURE_BYTES = 4096
 /** The largest statement read. */
 export const MAX_STATEMENT_BYTES = 2048
 
+/**
+ * The highest version a statement may carry: 2^31 - 1, which every platform reads as a plain
+ * integer. Versions start at 1 and go up by one per release, so this is never reached.
+ */
+export const MAX_VERSION = 2 ** 31 - 1
+
+/** The largest JSON artifact, such as the YouTube config, apps accept by default: 256 KiB. */
+export const DEFAULT_JSON_MAX_BYTES = 256 * 1024
+
+/** The largest module, such as the YouTube resolver module, apps accept by default: 8 MiB. */
+export const DEFAULT_CODE_MAX_BYTES = 8 * 1024 * 1024
+
 /** An artifact kind, e.g. `youtube-config`. */
 const KIND = /^[a-z][a-z0-9-]{1,39}$/u
 /** A file name without a path, e.g. `youtube-module-1.js`. */
@@ -40,6 +52,8 @@ const FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/u
 /** A key ID, e.g. `ed25519-0123456789abcdef`. */
 const KEY_ID = /^[a-z0-9][a-z0-9:_-]{2,63}$/u
 const SHA256 = /^[0-9a-f]{64}$/u
+/** A git commit ID: SHA-1 (40 digits) or SHA-256 (64). */
+const COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u
 /** The largest artifact a statement may describe: 64 MiB. */
 const MAX_SIZE = 64 * 1024 * 1024
 
@@ -50,9 +64,15 @@ const MAX_SIZE = 64 * 1024 * 1024
 export interface UpdateStatement {
   /** What the artifact is, e.g. `youtube-config` or `youtube-module`. */
   readonly kind: string
-  /** Its version: a positive integer that increases with every release of this kind. */
+  /**
+   * Its version: a whole number from 1 to {@link MAX_VERSION} that increases with every release
+   * of this kind, also across contracts and keys.
+   */
   readonly version: number
-  /** For code: the version of the contract between the app and the module. */
+  /**
+   * The version of the contract the artifact follows, which is also in its file name: for code,
+   * the contract between the app and the module; for data, its schema.
+   */
   readonly api?: number
   /** The artifact's file name on the site, e.g. `youtube-module-1.js`. */
   readonly file: string
@@ -60,6 +80,11 @@ export interface UpdateStatement {
   readonly size: number
   /** The SHA-256 of its bytes, in lower-case hexadecimal. */
   readonly sha256: string
+  /**
+   * The git commit it was built from, for people and for checks that rebuild it and compare
+   * (`scripts/sign-update.mjs verify`). Apps don't read it.
+   */
+  readonly source?: string
   /** When it was signed, as an ISO 8601 time. For people only. */
   readonly signedAt: string
 }
@@ -137,6 +162,7 @@ function integer(value: unknown, min: number, max: number, what: string): number
 function checkStatement(value: unknown): UpdateStatement {
   const record = object(value, 'The statement')
   const api = field(record, 'api')
+  const source = field(record, 'source')
   const file = text(field(record, 'file'), FILE, 'The statement’s file')
   if (file.includes('..')) malformed('The statement’s file is invalid')
   const signedAt = field(record, 'signedAt')
@@ -145,11 +171,12 @@ function checkStatement(value: unknown): UpdateStatement {
   }
   return {
     kind: text(field(record, 'kind'), KIND, 'The statement’s kind'),
-    version: integer(field(record, 'version'), 1, Number.MAX_SAFE_INTEGER, 'The version'),
+    version: integer(field(record, 'version'), 1, MAX_VERSION, 'The version'),
     ...(api === undefined ? {} : { api: integer(api, 1, 1_000_000, 'The api') }),
     file,
     size: integer(field(record, 'size'), 0, MAX_SIZE, 'The size'),
     sha256: text(field(record, 'sha256'), SHA256, 'The statement’s sha256'),
+    ...(source === undefined ? {} : { source: text(source, COMMIT, 'The statement’s source') }),
     signedAt,
   }
 }
@@ -169,6 +196,7 @@ export function encodeStatement(statement: UpdateStatement): Uint8Array<ArrayBuf
     file: checked.file,
     size: checked.size,
     sha256: checked.sha256,
+    ...(checked.source === undefined ? {} : { source: checked.source }),
     signedAt: checked.signedAt,
   }
   return utf8(JSON.stringify(ordered))

@@ -7,11 +7,7 @@
  */
 import { DEFAULT_QUALITY_PREFS } from '@fxm/core'
 import { createYouTubeModuleHost } from '@fxm/sources/youtube/module'
-import {
-  desktopContext,
-  fakeYouTube,
-  SONG,
-} from '../../../../sources/src/youtube/module/testing.ts'
+import { desktopContext, fakeYouTube, SONG } from '@fxm/sources/youtube/module/testing'
 import { memoryStorage } from '../../storage.ts'
 import { codeArtifact } from '../artifact.ts'
 import { fromBase64 } from '../encoding.ts'
@@ -46,7 +42,7 @@ export async function fxmRun(updatesPath, progress = () => {}) {
     artifacts: [codeArtifact(youtube.updates.module)],
     fetch: (url, init) => fetch(url, init),
     baseUrls: [new URL(updatesPath, window.location.href).href],
-    keys: [{ id: TEST_KEY.id, publicKey: fromBase64(TEST_KEY.publicKey) }],
+    keys: [{ keyId: TEST_KEY.keyId, publicKey: fromBase64(TEST_KEY.publicKey) }],
     store: memoryUpdateStore(),
     state: memoryStorage(),
   })

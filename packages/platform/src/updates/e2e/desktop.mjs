@@ -23,11 +23,8 @@ import { createServer } from 'node:http'
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { brokenFormatParser, buildYouTubeModule } from '@fxm/sources/youtube/module/build'
 import { build } from 'vite'
-import {
-  brokenFormatParser,
-  buildYouTubeModule,
-} from '../../../../sources/src/youtube/module/build.mjs'
 import { toBase64 } from '../encoding.ts'
 import { generateSigningKey, importSigningKey, signUpdate } from '../sign.ts'
 
@@ -74,7 +71,10 @@ try {
     publicDir: false,
     plugins: [brokenFormatParser()],
     define: {
-      __FXM_E2E_TEST_KEY__: JSON.stringify({ id: key.keyId, publicKey: toBase64(key.publicKey) }),
+      __FXM_E2E_TEST_KEY__: JSON.stringify({
+        keyId: key.keyId,
+        publicKey: toBase64(key.publicKey),
+      }),
       __FXM_E2E_UPDATES_URL__: JSON.stringify(`${ORIGIN}/updates/`),
       __FXM_E2E_REPORT_URL__: JSON.stringify(`${ORIGIN}/report`),
     },

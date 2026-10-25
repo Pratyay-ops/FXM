@@ -4,6 +4,7 @@ import {
   encodeEnvelope,
   encodeStatement,
   MAX_SIGNATURE_BYTES,
+  MAX_VERSION,
   parseEnvelope,
   parseStatement,
   SIGNATURE_CONTEXT,
@@ -61,6 +62,17 @@ describe('statements', () => {
     expect(parseStatement(utf8(text))).toEqual(STATEMENT)
   })
 
+  it('records the source commit after the hash, and accepts versions up to 2^31 - 1', () => {
+    const source = 'c'.repeat(40)
+    const text = fromUtf8(encodeStatement({ ...STATEMENT, source, version: MAX_VERSION }))
+    expect(text).toContain(`"sha256":"${'a'.repeat(64)}","source":"${source}","signedAt"`)
+    expect(parseStatement(utf8(text))).toEqual({ ...STATEMENT, source, version: 2 ** 31 - 1 })
+    expect(parseStatement(utf8(JSON.stringify({ ...STATEMENT, source: 'd'.repeat(64) })))).toEqual({
+      ...STATEMENT,
+      source: 'd'.repeat(64),
+    })
+  })
+
   it('leaves api out when there is none, and ignores unknown fields', () => {
     const { api: _api, ...data } = STATEMENT
     const parsed = parseStatement(utf8(JSON.stringify({ ...data, comment: 'newer field' })))
@@ -71,7 +83,7 @@ describe('statements', () => {
   it.each([
     ['a version below 1', { version: 0 }],
     ['a fractional version', { version: 1.5 }],
-    ['a version beyond safe integers', { version: 2 ** 53 }],
+    ['a version above 2^31 - 1', { version: 2 ** 31 }],
     ['a negative size', { size: -1 }],
     ['a size over 64 MiB', { size: 64 * 1024 * 1024 + 1 }],
     ['an upper-case hash', { sha256: 'A'.repeat(64) }],
@@ -82,6 +94,7 @@ describe('statements', () => {
     ['an upper-case kind', { kind: 'YouTube' }],
     ['an api of 0', { api: 0 }],
     ['a signedAt that is not a time', { signedAt: 'yesterday' }],
+    ['a source that is not a commit', { source: 'main' }],
     ['a missing field', { kind: undefined }],
   ])('refuses %s', (_, change) => {
     const bytes = utf8(JSON.stringify({ ...STATEMENT, ...change }))

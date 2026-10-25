@@ -1,6 +1,6 @@
 /**
- * Where the updater keeps the last good version of each artifact: its signature file and its
- * bytes, exactly as downloaded. Nothing in the store is trusted: the updater verifies the
+ * Where the updater keeps the last good version of each artifact: its signature file (the
+ * envelope) and its bytes, exactly as downloaded. Nothing in the store is trusted: the updater verifies the
  * signature and the bytes again before every use, so a damaged or tampered copy only means
  * falling back to the copy the app ships with.
  *
@@ -12,8 +12,8 @@
 
 /** One stored artifact. */
 export interface StoredUpdate {
-  /** Its signature file, as downloaded. */
-  readonly signature: Uint8Array<ArrayBuffer>
+  /** Its signature file (`<file>.sig`, the envelope), as downloaded. */
+  readonly envelope: Uint8Array<ArrayBuffer>
   /** Its bytes, as downloaded. */
   readonly bytes: Uint8Array<ArrayBuffer>
 }
@@ -29,13 +29,13 @@ export interface UpdateStore {
 }
 
 function isStoredUpdate(value: unknown): value is StoredUpdate {
-  const { signature, bytes } = (value ?? {}) as Partial<StoredUpdate>
-  return signature instanceof Uint8Array && bytes instanceof Uint8Array
+  const { envelope, bytes } = (value ?? {}) as Partial<StoredUpdate>
+  return envelope instanceof Uint8Array && bytes instanceof Uint8Array
 }
 
 /** A copy that shares nothing with the caller's arrays. */
 function copy(update: StoredUpdate): StoredUpdate {
-  return { signature: new Uint8Array(update.signature), bytes: new Uint8Array(update.bytes) }
+  return { envelope: new Uint8Array(update.envelope), bytes: new Uint8Array(update.bytes) }
 }
 
 /** An {@link UpdateStore} in memory: nothing survives a restart. */
