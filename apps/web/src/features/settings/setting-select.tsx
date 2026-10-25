@@ -42,8 +42,9 @@ export function SettingSelect<V extends string>({
           const picked = options.find((option) => option.value === event.target.value)
           if (picked) onChange(picked.value)
         }}
-        // 44px touch target on phones, tablets and coarse pointers; compact with a mouse.
-        className="h-touch w-full min-w-40 cursor-pointer appearance-none truncate rounded-full bg-elevated pr-10 pl-4 text-sm font-semibold text-text transition-colors duration-200 hover:bg-elevated-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated forced-colors:border lg:h-10 lg:pointer-coarse:h-touch"
+        // 44px touch target and 16px text on phones, tablets and coarse pointers (iOS zooms the
+        // page into a control under 16px when it gets focus); compact with a mouse.
+        className="h-touch w-full min-w-40 cursor-pointer appearance-none truncate rounded-full bg-elevated pr-10 pl-4 text-base font-semibold text-text transition-colors duration-200 hover:bg-elevated-hover disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-elevated forced-colors:border lg:h-10 lg:text-sm lg:pointer-coarse:h-touch lg:pointer-coarse:text-base"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>
