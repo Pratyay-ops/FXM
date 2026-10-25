@@ -10,7 +10,7 @@ FXM hosts nothing: no server, no gateway, no proxy. The web app is a static site
 - googlevideo media servers send the audio to anyone, so a plain `<audio src>` plays. They only send `Access-Control-Allow-Origin` to YouTube origins, though, and `fetch()`, downloads and MediaSource need it.
 - Spotify's `open.spotify.com/api/token`, `/api/server-time` and `clienttoken.spotify.com` send no CORS headers. Last.fm's station JSON doesn't either.
 
-FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules that rewrite a few request and response headers, only for requests the FXM pages make, only to these services. All YouTube and Spotify logic stays in the web app, so when YouTube changes something, FXM is fixed by redeploying the static site. The extension needs no update for that.
+FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules that rewrite a few request and response headers, only for requests the FXM pages make, only to these services. All YouTube and Spotify logic stays in the web app, so when YouTube changes something, FXM is fixed by redeploying the static site. The extension needs no update for that. Its only Spotify-specific code is the optional login bridge (below), which fetches one token.
 
 ## What it does
 
@@ -60,7 +60,41 @@ There is no `<all_urls>`, no `cookies`, `tabs`, `scripting` or `webRequest` perm
 
 ## Install
 
-Until FXM Connect is signed on the Chrome Web Store and AMO, install it from a GitHub release. Each release has `fxm-connect-chromium-<version>.zip` and `fxm-connect-firefox-<version>.zip`.
+Each GitHub release carries FXM Connect in these files:
+
+| File | For |
+|---|---|
+| `fxm-connect-firefox-<version>.xpi` | Firefox 140 or later and Firefox for Android 142 or later. Signed by Mozilla, so it stays installed. Releases have it once the owner has set up signing on Firefox Add-ons ([Store channels](#store-channels)) |
+| `fxm-connect-chromium-<version>.zip` | Chrome, Edge, Brave and other Chromium browsers, version 120 or later, loaded unpacked |
+| `fxm-connect-firefox-<version>.zip` | The same files as the `.xpi`, unsigned: for review, or for a temporary install in Firefox |
+
+FXM Connect is not in the Chrome Web Store and isn't submitted there by default: its policy bans extensions that facilitate unauthorized streaming or downloading, and names YouTube downloads as a common reason for rejection. Its store channels are Firefox Add-ons and Edge Add-ons; [Store channels](#store-channels) has their status.
+
+**Firefox (version 140 or later)**
+
+1. Download `fxm-connect-firefox-<version>.xpi` from the release.
+2. In Firefox, open `about:addons`, click the gear button, choose **Install Add-on From File…** and pick the file. Dropping the file onto a Firefox window works too.
+3. Firefox lists the sites FXM Connect may access and says that it collects no data. Click **Add**.
+4. Open or reload `https://fxmusic.pages.dev/app/`.
+
+Until FXM Connect is listed on Firefox Add-ons, Firefox doesn't update it by itself: install each new release's `.xpi` the same way. Your settings stay.
+
+**Firefox for Android (version 142 or later)**
+
+1. Download `fxm-connect-firefox-<version>.xpi` on the phone.
+2. In Firefox, open **Settings → About Firefox** and tap the Firefox logo five times. This shows **Install extension from file** in Settings.
+3. Back in **Settings**, tap **Install extension from file**, pick the file and tap **Add**.
+4. Open or reload `https://fxmusic.pages.dev/app/`.
+
+These are Mozilla's steps for self-distributed add-ons. FXM Connect hasn't been tried on a phone yet (2026-10-26). Once it is listed on Firefox Add-ons, Android users can install it from there.
+
+**Firefox, from a release without an `.xpi`**
+
+1. Download `fxm-connect-firefox-<version>.zip`.
+2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick the zip.
+3. Open or reload `https://fxmusic.pages.dev/app/`.
+
+Firefox removes temporary add-ons when it restarts, so repeat step 2 after a restart. If FXM does not detect the extension, open `about:addons` → FXM Connect → **Permissions** and allow access to the listed sites.
 
 **Chrome, Edge, Brave and other Chromium browsers (version 120 or later)**
 
@@ -69,15 +103,7 @@ Until FXM Connect is signed on the Chrome Web Store and AMO, install it from a G
 3. Turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
 4. Open or reload `https://fxmusic.pages.dev/app/`.
 
-To update, unzip the new release over the same folder and click the reload button on the extension's card.
-
-**Firefox (version 140 or later)**
-
-1. Download `fxm-connect-firefox-<version>.zip`.
-2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick the zip.
-3. Open or reload `https://fxmusic.pages.dev/app/`.
-
-Firefox removes temporary add-ons when it restarts, so repeat step 2 after a restart until FXM Connect is signed on AMO. If FXM does not detect the extension, open `about:addons` → FXM Connect → **Permissions** and allow access to the listed sites.
+Keep Developer mode on: Chrome 134 and later turn unpacked extensions off while it is off. To update, unzip the new release over the same folder and click the reload button on the extension's card. Browsers managed by an organization may block unpacked extensions. Once FXM Connect is on Edge Add-ons, Edge users can install it from there instead.
 
 ## For the web app
 
@@ -167,6 +193,7 @@ make extension                      # release build: dist/chromium, dist/firefox
 FXM_EXTENSION_DEV=1 make extension  # dev build: dist/dev/chromium, dist/dev/firefox, dist/dev/*-dev.zip
 make test                           # unit tests (part of make check)
 scripts/run.sh pnpm --filter @fxm/extension test:e2e   # end-to-end test in Chromium
+scripts/run.sh pnpm --filter @fxm/extension lint:firefox   # AMO's linter on dist/firefox
 ```
 
 `make build` (and so `make check`) builds the release variant too. Load `dist/chromium` with **Load unpacked**, or `dist/firefox/manifest.json` with **Load Temporary Add-on**.
@@ -195,5 +222,87 @@ DNR matches the page that starts a request by host name only, not port, so each 
 | `src/options/` | Options page |
 | `scripts/build.ts` | Build: Vite bundles, manifests, rulesets, icons (the FXM mark, rendered at build time) and zips |
 | `e2e/` | Playwright end-to-end test and the HTTPS mock |
+| `store/` | Store listings and the release workflow's store jobs ([Store channels](#store-channels)) |
 
-Signing and store listings (Chrome Web Store, AMO) come in a later stage.
+## Store channels
+
+FXM Connect reaches people through GitHub Releases, Firefox Add-ons (AMO) and Edge Add-ons. The release workflow (`.github/workflows/release.yml`) does the store work for every release; the owner sets up the accounts once, and only the workflow submits FXM Connect anywhere. Both stores' accounts and API keys are free.
+
+| Channel | How | Status (2026-10-26) |
+|---|---|---|
+| GitHub Releases | Every release attaches the two zips, and the signed `.xpi` once AMO signing is set up | Every release |
+| Firefox Add-ons, unlisted | The release's **Signed Firefox add-on** job signs the version for self-distribution with `web-ext sign` and attaches the `.xpi` | Ready, waiting for the owner's AMO API keys. Nothing signed yet |
+| Firefox Add-ons, listed | The same job with `AMO_CHANNEL` set to `listed`: it submits the version to the public listing, with the listing texts, the notes for reviewers and the source code | Not submitted yet |
+| Edge Add-ons | The owner publishes the first version in Partner Center. From then on the **Edge Add-ons submission** job submits each release | Not submitted yet. Edge's written rules match the Chrome Web Store's, but it enforces them less strictly; acceptance is unproven |
+| Chrome Web Store | Not submitted by default ([Install](#install) says why). An attempt would cost USD 5 once | Not submitted, by decision |
+
+Record each store's outcome in this table, with the date: accepted, rejected (and why) or removed.
+
+### Firefox Add-ons
+
+**Set up signing (owner, once).**
+
+1. Sign in at https://addons.mozilla.org/developers/ with a Mozilla account, creating one if needed, and accept the Firefox Add-on Distribution Agreement. If AMO asks for a display name for your developer profile, set one.
+2. Open https://addons.mozilla.org/developers/addon/api/key/ and click **Generate new credentials**. AMO shows a **JWT issuer** (such as `user:12345678:123`) and a **JWT secret**. It shows the secret only once.
+3. Add them to the repository as secrets: on GitHub, **Settings → Secrets and variables → Actions → New repository secret**, or from the repository folder:
+
+   ```sh
+   scripts/run.sh gh secret set AMO_API_KEY      # paste the JWT issuer
+   scripts/run.sh gh secret set AMO_API_SECRET   # paste the JWT secret
+   ```
+
+4. That is all for unlisted signing. The next release's **Signed Firefox add-on** job signs FXM Connect, and the release attaches `fxm-connect-firefox-<version>.xpi`. The first signing creates the add-on in your AMO account, unlisted, so it has no public page. Its ID is `fxm-connect@fxmusic.pages.dev`: never change it, because Firefox treats an add-on with another ID as a different add-on.
+5. Install the signed file in Firefox, and on a phone if you can ([Install](#install)), and check that the web app finds FXM Connect. Then record the outcome above and turn on `AVAILABLE.firefox` in `apps/site/src/config.ts`. The site's copy for it is written: `GetFxm.astro`, `Faq.astro` and the privacy page switch to the signed add-on.
+
+**What the job does.** It checks that `dist/firefox` is the release build of the version, then runs AMO's linter (`web-ext lint`) and stops at any finding, because AMO runs the same linter on every upload. It packs the release commit with `git archive` for AMO's reviewers, since the scripts are built with Vite. Then `web-ext sign` uploads the build with the version's metadata from `store/listing.ts` and the source archive, and waits up to 20 minutes for the signature: AMO signs unlisted versions automatically, usually within minutes. Finally the job checks that the signed file holds exactly the build plus Mozilla's signature, and passes it to the publish job, which checksums and attests it with the other files.
+
+**Re-runs and failures.** AMO accepts each version number once, in either channel, and never again, even after the version is deleted. So the job first asks AMO for the version: on a re-run it waits for that version and fetches it instead of submitting it again. If AMO hasn't signed an unlisted version after 20 minutes, the job fails and the release waits for it: re-run the failed jobs later. To release without the signed add-on, set the repository variable `AMO_CHANNEL` to `off` and re-run.
+
+**The listed submission.** Once unlisted signing works:
+
+1. Read the listing texts: `store/listing/summary.txt`, `store/listing/description.md` and `store/listing/reviewer-notes.txt`, and the categories, license and links in `store/listing.ts`. Every listed version sends them, so AMO's listing follows this folder.
+2. Set the repository variable `AMO_CHANNEL` to `listed`: **Settings → Secrets and variables → Actions → Variables → New repository variable**, or `scripts/run.sh gh variable set AMO_CHANNEL --body listed`. The next release's version number must be new to AMO: a version already signed unlisted can't be listed.
+3. The next release submits its version to the listing. AMO checks it automatically and may approve it within minutes; a reviewer may look at it later, or before approving it. If AMO approves it while the job waits (10 minutes), the release attaches the signed file as before. Otherwise the job warns, the release goes out without the `.xpi`, and Firefox users get the version from AMO once it is approved.
+4. In AMO's Developer Hub, check the listing, add screenshots if you like, and set the privacy policy to point to https://fxmusic.pages.dev/privacy. The manifest's `gecko_android` key tells AMO that FXM Connect works on Firefox for Android, so the listing offers it there too.
+5. Record the outcome above. If AMO rejects the version, its email says why: fix it in a new version, or set `AMO_CHANNEL` back to `unlisted`.
+
+**Data collection.** The Firefox manifest declares `data_collection_permissions: { required: ["none"] }`: FXM Connect sends nothing to its developer or anyone else. The opt-in Spotify bridge hands a token from open.spotify.com to the FXM page in the same browser, as the notes for reviewers explain. If a reviewer counts that as collecting authentication data, the fix is to declare `authenticationInfo` as optional data collection and ask for it with `permissions.request()` when the user turns the bridge on: a change to `src/manifest.ts`, the options page and the bridge.
+
+**Source code for reviewers.** The archive is the whole repository at the release commit, and `store/listing/reviewer-notes.txt` says how to rebuild the extension from it: `scripts/setup.sh --frozen-lockfile --filter @fxm/extension`, then `scripts/run.sh pnpm --filter @fxm/extension build`, with Node.js 22. A clean copy of the repository rebuilt `dist/firefox` byte for byte this way on 2026-10-26.
+
+### Edge Add-ons
+
+**Set up (owner, once).**
+
+1. Register as a Microsoft Edge extension developer in Partner Center (https://partner.microsoft.com/dashboard/microsoftedge/public/login?ref=dd) with a Microsoft account.
+2. Click **Create new extension** and upload `fxm-connect-chromium-<version>.zip` from the latest release.
+3. Fill in **Availability** (public, all markets), **Properties**, **Privacy** and the **Store listing** with the texts this prints, and upload the logo it draws:
+
+   ```sh
+   scripts/run.sh pnpm --filter @fxm/extension --silent store:listing edge <version>
+   scripts/run.sh pnpm --filter @fxm/extension --silent store:listing logo fxm-logo.png   # 300 x 300
+   ```
+
+4. Click **Publish** and paste the notes for certification from the same text. Certification takes up to seven business days. Record the outcome above.
+5. For the release workflow's updates: in Partner Center, open **Publish API**, click **Enable** next to "enable the new experience", then **Create API credentials**. Add three repository secrets: `EDGE_PRODUCT_ID` (the **Product ID** on the extension's overview page), `EDGE_CLIENT_ID` (the **Client ID**) and `EDGE_API_KEY` (the **API key**). The Publish API page shows when the key expires: create a new one and update `EDGE_API_KEY` before then.
+
+**What the job does.** After the release is published, the **Edge Add-ons submission** job uploads the release's Chromium zip as the draft's package and submits the draft for certification, with the notes for testers. It doesn't wait for the outcome. If Edge is still reviewing an earlier version, the new package waits in the draft and the job warns: publish it in Partner Center after that review, or let the next release submit it. Without the three secrets the job only says that they are missing.
+
+### Store files
+
+| Path | What |
+|---|---|
+| `store/listing/summary.txt` | AMO's summary: 250 characters at most, without links |
+| `store/listing/description.md` | Both stores' description. AMO renders its Markdown; Edge gets plain text |
+| `store/listing/reviewer-notes.txt` | Notes for AMO's reviewers and Edge's testers, including how to rebuild from source |
+| `store/listing.ts` | AMO's categories, license and links, Edge's properties, privacy answers and permission justifications; prints Edge's fields and draws the logo |
+| `store/firefox.ts`, `store/amo.ts`, `store/xpi.ts` | The signing job: the AMO settings, AMO's linter, `web-ext sign`, AMO lookups for re-runs and the check of the signed file |
+| `store/edge.ts` | The Edge submission job (Edge Add-ons API v1.1) |
+| `store/actions.ts` | The jobs' annotations, step outputs and job summary in GitHub Actions |
+
+The tests in `store/` keep the texts within the stores' limits and the trademark rules (services named in plain text, no lookalike names), check them against the code (the bridge is off by default and serves about ten requests a minute), run both jobs against fake stores, offline, and run AMO's linter over the Firefox manifest, rulesets and options page. To try the signing job without contacting AMO, build the extension and run:
+
+```sh
+make extension
+scripts/run.sh pnpm --filter @fxm/extension --silent store:firefox sign --version <version> --out dist/amo --dry-run
+```
