@@ -27,7 +27,7 @@ LRCLIB asks every client to identify itself, normally with `User-Agent`. A web p
 
 What else LRCLIB sees depends on the platform:
 
-- **Browser:** the browser's own `User-Agent`, plus `Origin: https://fxm-music.pages.dev`, which also identifies FXM. `Lrclib-Client` is not CORS-safelisted, so each request costs a preflight (LRCLIB sends no `Access-Control-Max-Age`).
+- **Browser:** the browser's own `User-Agent`, plus `Origin: https://fxmusic.pages.dev`, which also identifies FXM. `Lrclib-Client` is not CORS-safelisted, so each request costs a preflight (LRCLIB sends no `Access-Control-Max-Age`).
 - **Desktop and Android:** the native HTTP stack's default `User-Agent`.
 
 FXM is not registered with LRCLIB. Registering it as a client-side application would give a public `Lrclib-App-Id` with a higher rate limit (see follow-ups).
