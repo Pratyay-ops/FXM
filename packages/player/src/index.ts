@@ -1,3 +1,4 @@
+export { DirectAudioEngine, type DirectAudioEngineOptions } from './direct-audio-engine'
 export type { Listener } from './emitter'
 export {
   ENGINE_ERROR_TYPES,
@@ -10,6 +11,7 @@ export {
   type PlaybackSource,
 } from './engine'
 export { formatTime } from './format-time'
+export { mimeTypeOf } from './mime'
 export {
   PLAYER_DEFAULTS,
   Player,
