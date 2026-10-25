@@ -46,6 +46,16 @@ export const CODEC_LABELS: Readonly<Record<Codec, string>> = Object.freeze({
   pcm: 'PCM',
 })
 
+/** Whether `value` is a {@link Codec}, e.g. to validate stored download metadata. */
+export function isCodec(value: unknown): value is Codec {
+  return typeof value === 'string' && Object.hasOwn(CODEC_LABELS, value)
+}
+
+/** Whether `value` is a {@link QualityTier}, e.g. to validate a stored setting. */
+export function isQualityTier(value: unknown): value is QualityTier {
+  return typeof value === 'string' && (QUALITY_TIERS as readonly string[]).includes(value)
+}
+
 /** Whether a codec is lossless (FLAC, ALAC or PCM). */
 export function isLosslessCodec(codec: Codec): codec is LosslessCodec {
   return codec === 'flac' || codec === 'alac' || codec === 'pcm'
@@ -187,6 +197,11 @@ function conversion(
   return Object.freeze({ label, extension, container, codec, lossless })
 }
 
+/** Whether `value` is a {@link DownloadFormat}, e.g. to validate a stored setting. */
+export function isDownloadFormat(value: unknown): value is DownloadFormat {
+  return typeof value === 'string' && Object.hasOwn(DOWNLOAD_FORMATS, value)
+}
+
 /** What a download in some format will really be, as {@link describeConversion} reports it. */
 export interface ConversionDescription {
   /** Whether the file is truly lossless: a lossless source kept lossless. */
@@ -208,11 +223,16 @@ export interface ConversionDescription {
  * - lossy source to a lossless format: allowed, but not lossless, and labelled
  *   "same quality as the source" so nobody mistakes it for a real lossless file
  * - any source to a lossy format: "some quality loss"
+ *
+ * @throws RangeError when `sourceCodec` or `target` is unknown. Check values read from storage
+ * with {@link isCodec} and {@link isDownloadFormat} (or {@link sanitizeQualityPrefs}) first.
  */
 export function describeConversion(
   sourceCodec: Codec,
   target: DownloadFormat,
 ): ConversionDescription {
+  if (!isCodec(sourceCodec)) throw new RangeError(`Unknown codec: ${String(sourceCodec)}`)
+  if (!isDownloadFormat(target)) throw new RangeError(`Unknown download format: ${String(target)}`)
   const source = CODEC_LABELS[sourceCodec]
   const sourceLossless = isLosslessCodec(sourceCodec)
   if (target === 'original') {
@@ -237,7 +257,15 @@ export const MP3_BITRATES = Object.freeze([128, 192, 256, 320] as const)
 /** One of the {@link MP3_BITRATES}. */
 export type Mp3Bitrate = (typeof MP3_BITRATES)[number]
 
-/** The user's quality settings. */
+/** The MP3 bitrate, in kbps, used when {@link QualityPrefs} names none. */
+export const DEFAULT_MP3_KBPS: Mp3Bitrate = 320
+
+/** Whether `value` is one of the {@link MP3_BITRATES}, e.g. to validate a stored setting. */
+export function isMp3Bitrate(value: unknown): value is Mp3Bitrate {
+  return (MP3_BITRATES as readonly unknown[]).includes(value)
+}
+
+/** The user's quality settings. Validate stored copies with {@link sanitizeQualityPrefs}. */
 export interface QualityPrefs {
   /**
    * The best tier to stream at, per network type. A lower tier plays when nothing better
@@ -253,13 +281,59 @@ export interface QualityPrefs {
   download: {
     /** The format downloads are saved in. */
     format: DownloadFormat
-    /** Bitrate for MP3 conversions. Defaults to 320 when absent. */
+    /** Bitrate for MP3 conversions. {@link DEFAULT_MP3_KBPS} (320) when absent. */
     mp3Kbps?: Mp3Bitrate
   }
 }
 
-/** The settings of a fresh install: high on Wi-Fi, normal on mobile data, original downloads. */
-export const DEFAULT_QUALITY_PREFS: QualityPrefs = Object.freeze({
+/**
+ * {@link QualityPrefs} that cannot be changed at any depth, such as
+ * {@link DEFAULT_QUALITY_PREFS}. Still accepted wherever `QualityPrefs` is expected.
+ */
+export type ReadonlyQualityPrefs = {
+  readonly streaming: Readonly<QualityPrefs['streaming']>
+  readonly download: Readonly<QualityPrefs['download']>
+}
+
+/**
+ * The settings of a fresh install: high on Wi-Fi, normal on mobile data, original downloads.
+ * Frozen at every depth, so a settings store must not start from a (shallow) copy of it: use
+ * {@link sanitizeQualityPrefs}, which returns a fresh, mutable object.
+ */
+export const DEFAULT_QUALITY_PREFS: ReadonlyQualityPrefs = Object.freeze({
   streaming: Object.freeze({ wifi: 'high', cellular: 'normal' }),
   download: Object.freeze({ format: 'original' }),
 })
+
+/** `value` itself when it is a non-null object, else an empty one. */
+function asRecord(value: unknown): Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
+}
+
+/**
+ * Valid {@link QualityPrefs} from an untrusted value, such as settings read from storage or an
+ * imported backup. Each field that is missing or invalid gets its default from
+ * {@link DEFAULT_QUALITY_PREFS}, an invalid `mp3Kbps` is left out (so the default applies), and
+ * unknown fields are dropped. Any JSON-like value is accepted without throwing, and the result
+ * is a fresh, mutable object, so `sanitizeQualityPrefs(undefined)` is a copy of the defaults
+ * that a store can change.
+ */
+export function sanitizeQualityPrefs(value: unknown): QualityPrefs {
+  const stored = asRecord(value)
+  const streaming = asRecord(stored.streaming)
+  const download = asRecord(stored.download)
+  const defaults = DEFAULT_QUALITY_PREFS
+  const prefs: QualityPrefs = {
+    streaming: {
+      wifi: isQualityTier(streaming.wifi) ? streaming.wifi : defaults.streaming.wifi,
+      cellular: isQualityTier(streaming.cellular)
+        ? streaming.cellular
+        : defaults.streaming.cellular,
+    },
+    download: {
+      format: isDownloadFormat(download.format) ? download.format : defaults.download.format,
+    },
+  }
+  if (isMp3Bitrate(download.mp3Kbps)) prefs.download.mp3Kbps = download.mp3Kbps
+  return prefs
+}

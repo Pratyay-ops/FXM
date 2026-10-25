@@ -1,18 +1,26 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   CODEC_LABELS,
   type Codec,
   compareTiers,
   containerExtension,
+  DEFAULT_MP3_KBPS,
   DEFAULT_QUALITY_PREFS,
   DOWNLOAD_FORMATS,
   type DownloadFormat,
   describeConversion,
+  isCodec,
+  isDownloadFormat,
   isLosslessCodec,
+  isMp3Bitrate,
+  isQualityTier,
   LOSSY_TIER_THRESHOLDS,
   MP3_BITRATES,
   QUALITY_TIERS,
+  type QualityPrefs,
   type QualityTier,
+  type ReadonlyQualityPrefs,
+  sanitizeQualityPrefs,
   tierOf,
 } from './quality'
 
@@ -218,6 +226,48 @@ describe('describeConversion', () => {
       for (const format of formats) expect(describeConversion(codec, format).lossless).toBe(false)
     }
   })
+
+  it.each(['wma', 'toString', '__proto__', 'constructor', '', 42, undefined])(
+    'refuses the unknown target %j with a RangeError',
+    (target) => {
+      expect(() => describeConversion('opus', target as DownloadFormat)).toThrow(RangeError)
+    },
+  )
+
+  it.each(['ac3', 'toString', '__proto__', 'hasOwnProperty', null])(
+    'refuses the unknown source codec %j with a RangeError',
+    (codec) => {
+      expect(() => describeConversion(codec as Codec, 'original')).toThrow(RangeError)
+      expect(() => describeConversion(codec as Codec, 'flac')).toThrow(RangeError)
+    },
+  )
+})
+
+describe('value guards', () => {
+  const inherited = ['toString', '__proto__', 'constructor', 'hasOwnProperty']
+
+  it.each([
+    ['isCodec', isCodec, ['opus', 'aac', 'mp3', 'vorbis', 'flac', 'alac', 'pcm'], ['ac3', 'OPUS']],
+    ['isQualityTier', isQualityTier, ['lossless', 'high', 'normal', 'low'], ['best', 'High']],
+    [
+      'isDownloadFormat',
+      isDownloadFormat,
+      ['original', 'flac', 'alac', 'wav', 'mp3', 'aac', 'opus'],
+      ['wma', 'FLAC', 'pcm'],
+    ],
+  ] as const)('%s accepts exactly the known values', (_name, guard, known, unknown) => {
+    for (const value of known) expect(guard(value)).toBe(true)
+    for (const value of [...unknown, ...inherited, '', 1, null, undefined, {}]) {
+      expect(guard(value)).toBe(false)
+    }
+  })
+
+  it('isMp3Bitrate accepts exactly the offered bitrates', () => {
+    for (const kbps of MP3_BITRATES) expect(isMp3Bitrate(kbps)).toBe(true)
+    for (const value of [96, 300, 320.5, '320', null, undefined, 'toString']) {
+      expect(isMp3Bitrate(value)).toBe(false)
+    }
+  })
 })
 
 describe('quality preferences', () => {
@@ -234,7 +284,82 @@ describe('quality preferences', () => {
     expect(Object.isFrozen(DEFAULT_QUALITY_PREFS.download)).toBe(true)
   })
 
-  it('offers the usual MP3 bitrates', () => {
+  it('types the defaults as read-only at every depth, yet usable as QualityPrefs', () => {
+    expect(() => {
+      // @ts-expect-error the defaults are read-only
+      DEFAULT_QUALITY_PREFS.streaming.wifi = 'low'
+    }).toThrow(TypeError)
+    const shallow = { ...DEFAULT_QUALITY_PREFS }
+    expect(() => {
+      // @ts-expect-error a shallow copy still shares the frozen nested objects
+      shallow.download.format = 'flac'
+    }).toThrow(TypeError)
+    expectTypeOf(DEFAULT_QUALITY_PREFS).toExtend<QualityPrefs>()
+    expectTypeOf(DEFAULT_QUALITY_PREFS).toEqualTypeOf<ReadonlyQualityPrefs>()
+  })
+
+  it('offers the usual MP3 bitrates and defaults to 320', () => {
     expect(MP3_BITRATES).toEqual([128, 192, 256, 320])
+    expect(DEFAULT_MP3_KBPS).toBe(320)
+  })
+})
+
+describe('sanitizeQualityPrefs', () => {
+  const defaults = {
+    streaming: { wifi: 'high', cellular: 'normal' },
+    download: { format: 'original' },
+  }
+
+  it.each([undefined, null, 42, 'high', [], {}, { streaming: 'high', download: [] }])(
+    'falls back to the defaults for %j',
+    (value) => {
+      expect(sanitizeQualityPrefs(value)).toEqual(defaults)
+    },
+  )
+
+  it('keeps valid settings', () => {
+    const stored: QualityPrefs = {
+      streaming: { wifi: 'lossless', cellular: 'low' },
+      download: { format: 'mp3', mp3Kbps: 192 },
+    }
+    expect(sanitizeQualityPrefs(stored)).toEqual(stored)
+    expect(sanitizeQualityPrefs(stored)).not.toBe(stored)
+  })
+
+  it('replaces each invalid field on its own', () => {
+    expect(
+      sanitizeQualityPrefs({
+        streaming: { wifi: 'ultra', cellular: 'low' },
+        download: { format: 'wma', mp3Kbps: 320 },
+      }),
+    ).toEqual({
+      streaming: { wifi: 'high', cellular: 'low' },
+      download: { format: 'original', mp3Kbps: 320 },
+    })
+    expect(
+      sanitizeQualityPrefs({ streaming: { wifi: 'low' }, download: { format: 'toString' } }),
+    ).toEqual({ streaming: { wifi: 'low', cellular: 'normal' }, download: { format: 'original' } })
+  })
+
+  it('leaves out an invalid MP3 bitrate so the default applies, and drops unknown fields', () => {
+    const prefs = sanitizeQualityPrefs({
+      streaming: { wifi: 'high', cellular: 'normal', dataSaver: true },
+      download: { format: 'mp3', mp3Kbps: '320' },
+      theme: 'dark',
+    })
+    expect(prefs).toEqual({
+      streaming: { wifi: 'high', cellular: 'normal' },
+      download: { format: 'mp3' },
+    })
+    expect('mp3Kbps' in prefs.download).toBe(false)
+  })
+
+  it('returns a fresh, mutable object', () => {
+    const prefs = sanitizeQualityPrefs(undefined)
+    prefs.streaming.wifi = 'lossless'
+    prefs.download.mp3Kbps = 128
+    expect(prefs.streaming.wifi).toBe('lossless')
+    expect(DEFAULT_QUALITY_PREFS.streaming.wifi).toBe('high')
+    expect(sanitizeQualityPrefs(undefined)).not.toBe(sanitizeQualityPrefs(undefined))
   })
 })
