@@ -1,12 +1,16 @@
 import { createSeededRandom, type EntityId, fisherYatesShuffle } from '@fxm/core'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { Dexie } from 'dexie'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary, resetLibrary } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from '../../db/types'
 import { track, tracks } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
+import { playlistPath as sourcePlaylistPath } from '../search/catalog/links'
+import { renderCatalog, resetCatalogState } from '../search/testing'
 import { playlistPath } from './paths'
+
+afterEach(() => resetCatalogState())
 
 /**
  * happy-dom lays nothing out, so every rectangle is empty. Drag and drop needs real positions:
@@ -468,13 +472,13 @@ describe('Library page', { timeout: 30_000 }, () => {
 
     expect(await main().findByRole('link', { name: 'Band Artist' })).toHaveAttribute(
       'href',
-      '/artist/ytm:artist:UC1',
+      '/artist/ytm:UC1',
     )
 
     await user.click(main().getByRole('tab', { name: 'Albums' }))
     expect(await main().findByRole('link', { name: 'Record Band' })).toHaveAttribute(
       'href',
-      '/album/ytm:album:MPREb_1',
+      '/album/ytm:MPREb_1',
     )
 
     await user.click(main().getByRole('tab', { name: 'Recently played' }))
@@ -487,6 +491,50 @@ describe('Library page', { timeout: 30_000 }, () => {
     expect(await main().findByRole('heading', { name: 'Nothing played yet' })).toBeInTheDocument()
     // The button went with the list: the tab panel keeps focus.
     await waitFor(() => expect(main().getByRole('tabpanel')).toHaveFocus())
+  })
+
+  it('opens what it follows on the pages from search', async () => {
+    const library = getLibrary()
+    await library.follow({
+      id: 'ytm:artist:art-nova-lane' as EntityId<'artist'>,
+      source: 'ytm',
+      name: 'Nova Lane',
+      artwork: [],
+    })
+    await library.follow({
+      id: 'ytm:album:alb-neon-harbor' as EntityId<'album'>,
+      source: 'ytm',
+      name: 'Neon Harbor',
+      artists: [{ name: 'Nova Lane' }],
+      artwork: [],
+    })
+    await library.follow({
+      id: 'ytm:playlist:pl-late-night-drive' as EntityId<'playlist'>,
+      source: 'ytm',
+      name: 'Late Night Drive',
+      artwork: [],
+    })
+    const { user, router } = renderCatalog('/library?tab=artists')
+
+    await user.click(await main().findByRole('link', { name: 'Nova Lane Artist' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Nova Lane' })).toBeVisible()
+    expect(router.state.location.pathname).toBe('/artist/ytm:art-nova-lane')
+
+    await act(() => router.navigate('/library?tab=albums'))
+    await user.click(await main().findByRole('link', { name: 'Neon Harbor Nova Lane' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Neon Harbor' })).toBeVisible()
+    expect(router.state.location.pathname).toBe('/album/ytm:alb-neon-harbor')
+
+    await act(() => router.navigate('/library'))
+    await user.click(await main().findByRole('link', { name: /^Late Night Drive/ }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Late Night Drive' })).toBeVisible()
+    expect(router.state.location.pathname).toBe('/playlist/ytm:pl-late-night-drive')
+  })
+
+  it('moves a link to its playlist built as for other sources to its own address', async () => {
+    const { router } = renderApp(sourcePlaylistPath(LIKED_PLAYLIST_ID))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Liked songs' })).toBeVisible()
+    expect(router.state.location.pathname).toBe('/playlist/local:playlist:liked')
   })
 
   it('moves focus into a menu once it is placed, never while it is hidden', async () => {
