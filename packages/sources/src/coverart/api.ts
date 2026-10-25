@@ -8,8 +8,9 @@
  */
 
 import { type Artwork, FxmError, type ProviderContext } from '@fxm/core'
-import { RequestGate } from '../recommend/internal/gate'
-import { field, getText, parseJson, rateLimited, retryAfterMs } from '../recommend/internal/http'
+import { type PacedCallOptions, RequestGate } from '../shared/gate'
+import { field, getText, parseJson, rateLimited, retryAfterMs } from '../shared/http'
+import { requireMbid } from '../shared/mbid'
 import { TtlCache } from '../shared/ttl-cache'
 
 /** Where the Cover Art Archive lives. */
@@ -27,7 +28,10 @@ export interface CoverArtOptions {
   origin?: string
   /** Abort a request, body and redirects included, after this many milliseconds. Default 10,000. */
   timeoutMs?: number
-  /** The longest a call waits for its turn before failing with `RateLimited`. Default 10,000. */
+  /**
+   * The longest a call waits for its turn, counted from when it was made, before failing with
+   * `RateLimited`. Default 10,000.
+   */
   maxWaitMs?: number
   /** How long to keep the art found for a release. Default 24 hours. */
   cacheTtlMs?: number
@@ -35,20 +39,29 @@ export interface CoverArtOptions {
   missTtlMs?: number
 }
 
+/**
+ * What a lookup takes besides the release: a `priority`, so that background work (`bulk`, such
+ * as filling a list's artwork) never holds up the cover the user is looking at.
+ */
+export type CoverArtCallOptions = PacedCallOptions
+
 /** Cover art lookups. */
 export interface CoverArtClient {
   /**
-   * The front cover of a MusicBrainz release, in the {@link COVER_ART_SIZES}, smallest first.
-   * Empty when the release has no front cover, or `mbid` is not a MusicBrainz ID.
+   * The front cover of a MusicBrainz release (`mbid`, in any case), in the
+   * {@link COVER_ART_SIZES}, smallest first. Empty when the release has no front cover.
    *
-   * Rejects with an `FxmError`: `RateLimited` when the archive asks FXM to slow down, `Network`,
-   * `Unavailable` for other HTTP errors and `Parse` for answers FXM cannot read.
+   * Rejects with a `RangeError`, without a request, when `mbid` is not a MusicBrainz ID, and with
+   * an `FxmError`: `RateLimited` when the archive asks FXM to slow down or the call would wait
+   * too long for its turn, `Network`, `Unavailable` for other HTTP errors and `Parse` for
+   * answers FXM cannot read.
    */
-  releaseArtwork(mbid: string, ctx: ProviderContext): Promise<Artwork[]>
+  releaseArtwork(
+    mbid: string,
+    ctx: ProviderContext,
+    options?: CoverArtCallOptions,
+  ): Promise<Artwork[]>
 }
-
-/** A lower-case MusicBrainz ID. */
-const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
 
 /**
  * An image URL from the archive, on `https:`, or `undefined` when it points anywhere but the
@@ -118,37 +131,43 @@ export function createCoverArtClient(options: CoverArtOptions = {}): CoverArtCli
   })
   const cache = new TtlCache<Artwork[]>({ maxEntries: 1_000 })
 
-  async function releaseArtwork(mbid: string, ctx: ProviderContext): Promise<Artwork[]> {
-    if (!MBID.test(mbid)) return []
-    const key = `release/${mbid}`
+  async function releaseArtwork(
+    release: string,
+    ctx: ProviderContext,
+    options: CoverArtCallOptions = {},
+  ): Promise<Artwork[]> {
+    const key = `release/${requireMbid(release)}`
     const hit = cache.get(key)
     if (hit !== undefined) return hit
-    return gate.run(ctx.signal, async (ready) => {
-      const queued = cache.get(key)
-      if (queued !== undefined) return queued
-      await ready()
-      const response = await getText(ctx, `${origin}/${key}`, {
-        service: SERVICE,
-        timeoutMs,
-        maxBytes: 1_000_000,
-      })
-      const { status, headers } = response
-      // 404: no art for this MBID. 400: the archive does not take the MBID.
-      if (status === 404 || status === 400) {
-        cache.set(key, [], missTtlMs)
-        return []
-      }
-      if (status === 429 || status === 503) {
-        const delayMs = retryAfterMs(headers.get('retry-after'), 10_000)
-        throw rateLimited(SERVICE, gate.backOff(delayMs, true))
-      }
-      if (status !== 200) {
-        throw new FxmError('Unavailable', `The Cover Art Archive answered with HTTP ${status}`)
-      }
-      const artwork = parseCoverArt(parseJson(response, SERVICE))
-      cache.set(key, artwork, artwork.length === 0 ? missTtlMs : ttlMs)
-      return artwork
-    })
+    return gate.run(
+      async (ready) => {
+        const queued = cache.get(key)
+        if (queued !== undefined) return queued
+        await ready()
+        const response = await getText(ctx, `${origin}/${key}`, {
+          service: SERVICE,
+          timeoutMs,
+          maxBytes: 1_000_000,
+        })
+        const { status, headers } = response
+        // 404: no art for this MBID. 400: the archive does not take the MBID.
+        if (status === 404 || status === 400) {
+          cache.set(key, [], missTtlMs)
+          return []
+        }
+        if (status === 429 || status === 503) {
+          const delayMs = retryAfterMs(headers.get('retry-after'), 10_000)
+          throw rateLimited(SERVICE, gate.backOff(delayMs, true))
+        }
+        if (status !== 200) {
+          throw new FxmError('Unavailable', `The Cover Art Archive answered with HTTP ${status}`)
+        }
+        const artwork = parseCoverArt(parseJson(response, SERVICE))
+        cache.set(key, artwork, artwork.length === 0 ? missTtlMs : ttlMs)
+        return artwork
+      },
+      { signal: ctx.signal, priority: options.priority },
+    )
   }
 
   return { releaseArtwork }

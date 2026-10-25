@@ -1,19 +1,30 @@
-import { FxmError, formatId } from '@fxm/core'
-import { describe, expect, it } from 'vitest'
+import { type CatalogMode, FxmError, formatId, type ProviderContext, type Track } from '@fxm/core'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LastfmStationTrack } from '../lastfm/station'
+import { sleep } from '../shared/gate'
 import { UNLIMITED_CLASSIFICATION_BUDGET } from './adapters'
 import { namesSameSong, rankScore, type StationOptions, stationCandidates } from './stations'
-import { fakeBudget, fakeSongForVideo, fakeYouTubeLookup, testContext, ytmTrack } from './testing'
-import type { SeedRef, SongSearchCandidate, TrackCandidate } from './types'
+import {
+  fakeBudget,
+  fakeSongForVideo,
+  fakeYouTubeLookup,
+  testContext,
+  verdictOf,
+  ytmTrack,
+} from './testing'
+import type { RecommendationCandidate, SeedRef, TrackCandidate } from './types'
 
 const SEED: SeedRef = { type: 'artist', name: 'Radiohead' }
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 /** A station item. */
 function item(youtubeId: string | undefined, title: string, artist: string): LastfmStationTrack {
   const track: LastfmStationTrack = {
     title,
     artists: [artist],
-    durationMs: 200_000,
     url: `https://www.last.fm/music/${artist}/_/${title}`,
   }
   if (youtubeId !== undefined) track.youtubeId = youtubeId
@@ -28,18 +39,21 @@ const ITEMS = [
   item(undefined, 'Let Down', 'Radiohead'),
 ]
 
+/** Every video of {@link ITEMS}, as YouTube Music classifies it. */
+const VIDEOS: Record<string, Track> = {
+  song0000001: ytmTrack('song0000001', 'Creep', 'Radiohead'),
+  omvLinked01: ytmTrack('omvLinked01', 'Karma Police', 'Radiohead', 'music-video', {
+    songId: formatId('ytm', 'track', 'atvKarma001'),
+  }),
+  atvKarma001: ytmTrack('atvKarma001', 'Karma Police', 'Radiohead'),
+  omvNoLink01: ytmTrack('omvNoLink01', 'No Surprises', 'Radiohead', 'music-video'),
+  ugcVideo001: ytmTrack('ugcVideo001', 'Fake Plastic Trees (live)', 'fan', 'video'),
+}
+
 /** Options with a lookup over every video of {@link ITEMS}. */
 function options(overrides: Partial<StationOptions> = {}): StationOptions {
   return {
-    lookup: fakeYouTubeLookup({
-      song0000001: ytmTrack('song0000001', 'Creep', 'Radiohead'),
-      omvLinked01: ytmTrack('omvLinked01', 'Karma Police', 'Radiohead', 'music-video', {
-        songId: formatId('ytm', 'track', 'atvKarma001'),
-      }),
-      atvKarma001: ytmTrack('atvKarma001', 'Karma Police', 'Radiohead'),
-      omvNoLink01: ytmTrack('omvNoLink01', 'No Surprises', 'Radiohead', 'music-video'),
-      ugcVideo001: ytmTrack('ugcVideo001', 'Fake Plastic Trees (live)', 'fan', 'video'),
-    }),
+    lookup: fakeYouTubeLookup(VIDEOS),
     budget: UNLIMITED_CLASSIFICATION_BUDGET,
     maxClassifications: 10,
     ...overrides,
@@ -47,14 +61,17 @@ function options(overrides: Partial<StationOptions> = {}): StationOptions {
 }
 
 /** A short summary of each candidate: its type and what it names. */
-function summary(candidates: readonly (TrackCandidate | SongSearchCandidate | { type: string })[]) {
-  return candidates.map((candidate) =>
-    candidate.type === 'track'
-      ? `track ${(candidate as TrackCandidate).track.id}`
-      : `search ${(candidate as SongSearchCandidate).title}${
-          (candidate as SongSearchCandidate).youtubeId === undefined ? '' : ' +video'
-        }`,
-  )
+function summary(candidates: readonly RecommendationCandidate[]) {
+  return candidates.map((candidate) => {
+    if (candidate.type === 'track') return `track ${candidate.track.id}`
+    if (candidate.type === 'artist') return `artist ${candidate.artist.name}`
+    return `search ${candidate.title}${candidate.youtubeId === undefined ? '' : ' +video'}`
+  })
+}
+
+/** The lookups a fake made. */
+function lookups(opts: StationOptions): string[] {
+  return (opts.lookup as ReturnType<typeof fakeYouTubeLookup>).calls
 }
 
 describe('namesSameSong', () => {
@@ -78,6 +95,12 @@ describe('namesSameSong', () => {
     expect(namesSameSong(ytmTrack('a', 'Karma Police', 'Radiohead'), creep)).toBe(false)
     expect(namesSameSong(ytmTrack('a', 'Creep (Acoustic)', 'Radiohead'), creep)).toBe(false)
   })
+
+  it('refuses tribute and karaoke acts named after the artist', () => {
+    for (const artist of ['Radiohead Tribute', 'Radiohead Karaoke', 'Radiohead Experience']) {
+      expect(namesSameSong(ytmTrack('a', 'Creep', artist), creep)).toBe(false)
+    }
+  })
 })
 
 describe('rankScore', () => {
@@ -89,7 +112,7 @@ describe('rankScore', () => {
 })
 
 describe('stationCandidates', () => {
-  it('plays YouTube videos as they are in Music + Video mode', async () => {
+  it('plays YouTube videos as they are in Music + Video mode, with no duration', async () => {
     const lookup = fakeYouTubeLookup({})
     const ctx = testContext({ mode: 'all' })
     const candidates = await stationCandidates(ITEMS, SEED, ctx, options({ lookup }))
@@ -115,7 +138,6 @@ describe('stationCandidates', () => {
         source: 'yt',
         title: 'Creep',
         artists: [{ name: 'Radiohead' }],
-        durationMs: 200_000,
         artwork: [],
         kind: 'video',
       },
@@ -124,7 +146,7 @@ describe('stationCandidates', () => {
   })
 
   it('classifies each video in Music mode: songs as they are, official videos as their songs', async () => {
-    const opts = options({ songForVideo: fakeSongForVideo({}) })
+    const opts = options({ songForVideo: fakeSongForVideo({}), autoMatch: () => true })
     const candidates = await stationCandidates(ITEMS, SEED, testContext(), opts)
     expect(summary(candidates)).toEqual([
       'track ytm:track:song0000001',
@@ -133,30 +155,79 @@ describe('stationCandidates', () => {
       'search Fake Plastic Trees',
       'search Let Down',
     ])
-    const lookup = opts.lookup as ReturnType<typeof fakeYouTubeLookup>
-    expect(lookup.calls).toEqual([
+    expect(lookups(opts)).toEqual([
       'song0000001',
       'omvLinked01',
       'atvKarma001',
       'omvNoLink01',
       'ugcVideo001',
     ])
+    // A song needs no match; a linked song is no guess.
+    expect(candidates[0]).not.toHaveProperty('match')
+    expect((candidates[1] as TrackCandidate).match).toEqual({ via: 'link' })
   })
 
-  it('uses the video-to-song rule for an official video without a link', async () => {
+  it('treats an unknown mode as Music mode', async () => {
+    const ctx = testContext({ mode: 'video' as CatalogMode })
+    const candidates = await stationCandidates(ITEMS, SEED, ctx, options())
+    expect(summary(candidates)).toEqual([
+      'track ytm:track:song0000001',
+      'track ytm:track:atvKarma001',
+      'search No Surprises',
+      'search Fake Plastic Trees',
+      'search Let Down',
+    ])
+  })
+
+  it('queues a matched song only when its verdict is auto with the Auto setting on', async () => {
     const song = ytmTrack('atvNoSurp01', 'No Surprises', 'Radiohead')
-    const rule = fakeSongForVideo({ omvNoLink01: song })
-    const candidates = await stationCandidates(
-      [ITEMS[2] as LastfmStationTrack],
+    const noSurprises = [ITEMS[2] as LastfmStationTrack]
+    const auto = fakeSongForVideo({ omvNoLink01: song })
+    const on = await stationCandidates(
+      noSurprises,
       SEED,
       testContext(),
-      options({ songForVideo: rule }),
+      options({ songForVideo: auto, autoMatch: () => true }),
     )
-    expect(summary(candidates)).toEqual(['track ytm:track:atvNoSurp01'])
-    expect(candidates[0]).toMatchObject({
+    expect(summary(on)).toEqual(['track ytm:track:atvNoSurp01'])
+    expect(on[0]).toMatchObject({
       key: 'radiohead|no surprises',
       attributionUrl: 'https://www.last.fm/music/Radiohead/_/No Surprises',
+      match: { via: 'match', verdict: verdictOf('auto') },
     })
+    // A suggestion never plays unasked, and a verdict without one counts as a suggestion.
+    const suggest = fakeSongForVideo({ omvNoLink01: song }, 'suggest')
+    const unscored = fakeSongForVideo({ omvNoLink01: { song, via: 'match' } })
+    for (const rule of [suggest, unscored]) {
+      const found = await stationCandidates(
+        noSurprises,
+        SEED,
+        testContext(),
+        options({ songForVideo: rule, autoMatch: () => true }),
+      )
+      expect(summary(found)).toEqual(['search No Surprises'])
+    }
+    // With the Auto setting off, the rule is not even asked.
+    const off = fakeSongForVideo({ omvNoLink01: song })
+    const offCandidates = await stationCandidates(
+      noSurprises,
+      SEED,
+      testContext(),
+      options({ songForVideo: off }),
+    )
+    expect(summary(offCandidates)).toEqual(['search No Surprises'])
+    expect(off.calls).toEqual([])
+    // A verdict from another matcher version is a suggestion too.
+    const stale = fakeSongForVideo({
+      omvNoLink01: { song, via: 'match', verdict: { ...verdictOf('auto'), matcherVersion: 0 } },
+    })
+    const staleCandidates = await stationCandidates(
+      noSurprises,
+      SEED,
+      testContext(),
+      options({ songForVideo: stale, autoMatch: () => true }),
+    )
+    expect(summary(staleCandidates)).toEqual(['search No Surprises'])
   })
 
   it('keeps items as song searches, with their videos, when it cannot classify', async () => {
@@ -169,9 +240,7 @@ describe('stationCandidates', () => {
       ITEMS.slice(0, 2),
       SEED,
       testContext(),
-      options({
-        budget: fakeBudget(0),
-      }),
+      options({ budget: fakeBudget(0) }),
     )
     expect(summary(noBudget)).toEqual(['search Creep +video', 'search Karma Police +video'])
   })
@@ -191,6 +260,77 @@ describe('stationCandidates', () => {
     expect(
       summary(await stationCandidates(ITEMS.slice(0, 2), SEED, testContext(), limited)),
     ).toEqual(['track ytm:track:song0000001', 'search Karma Police +video'])
+  })
+
+  it('counts the video-to-song rule against the allowance', async () => {
+    const rule = fakeSongForVideo({
+      omvNoLink01: ytmTrack('atvNoSurp01', 'No Surprises', 'Radiohead'),
+    })
+    const items = [ITEMS[2] as LastfmStationTrack, ITEMS[0] as LastfmStationTrack]
+    const opts = options({ budget: fakeBudget(2), songForVideo: rule, autoMatch: () => true })
+    const candidates = await stationCandidates(items, SEED, testContext(), opts)
+    // The lookup and the rule used both calls, so Creep stays unclassified.
+    expect(summary(candidates)).toEqual(['track ytm:track:atvNoSurp01', 'search Creep +video'])
+    const short = options({ budget: fakeBudget(1), songForVideo: rule, autoMatch: () => true })
+    const rule1 = rule.calls.length
+    expect(summary(await stationCandidates(items, SEED, testContext(), short))).toEqual([
+      'search No Surprises',
+      'search Creep +video',
+    ])
+    expect(rule.calls).toHaveLength(rule1)
+  })
+
+  it('never lets a budget that is not a number turn the cap off', async () => {
+    for (const allowance of [Number.NaN, -3]) {
+      const opts = options({ budget: fakeBudget(allowance) })
+      const candidates = await stationCandidates(ITEMS, SEED, testContext(), opts)
+      expect(lookups(opts)).toEqual([])
+      expect(candidates.every((candidate) => candidate.type === 'song-search')).toBe(true)
+    }
+    const items = Array.from({ length: 20 }, () => ITEMS[0] as LastfmStationTrack)
+    const opts = options({ budget: fakeBudget(2.9), maxClassifications: Number.NaN })
+    await stationCandidates(items, SEED, testContext(), opts)
+    expect(lookups(opts)).toEqual([])
+  })
+
+  it('classifies with the budget’s context, keeping the caller’s mode and signal', async () => {
+    const controller = new AbortController()
+    const marked = (ctx: ProviderContext): ProviderContext => ({
+      ...ctx,
+      region: 'prefetch',
+      mode: 'all',
+      signal: AbortSignal.abort(),
+    })
+    const opts = options({ budget: fakeBudget(10, marked) })
+    const ctx = testContext({ signal: controller.signal })
+    await stationCandidates(ITEMS.slice(0, 1), SEED, ctx, opts)
+    const [used] = (opts.lookup as ReturnType<typeof fakeYouTubeLookup>).contexts
+    expect(used?.region).toBe('prefetch')
+    expect(used?.mode).toBe('music')
+    expect(used?.signal?.aborted).toBe(false)
+  })
+
+  it('stops classifying when its time is up, and cancels the lookup in flight', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-26T00:00:00Z') })
+    let cancelled = false
+    const slow = {
+      async getTrack(id: Track['id'], ctx: ProviderContext): Promise<Track> {
+        ctx.signal?.addEventListener('abort', () => {
+          cancelled = true
+        })
+        await sleep(id.endsWith('song0000001') ? 1_000 : 60_000, ctx.signal)
+        return VIDEOS.song0000001 as Track
+      },
+    }
+    const opts = options({ lookup: slow, maxClassificationMs: 5_000 })
+    const pending = stationCandidates(ITEMS.slice(0, 3), SEED, testContext(), opts)
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect(summary(await pending)).toEqual([
+      'track ytm:track:song0000001',
+      'search Karma Police +video',
+      'search No Surprises +video',
+    ])
+    expect(cancelled).toBe(true)
   })
 
   it('drops a video that is gone and goes on, but stops after a budget refusal', async () => {
@@ -220,6 +360,7 @@ describe('stationCandidates', () => {
       songForVideo: async () => {
         throw new FxmError('BotCheck', 'flagged')
       },
+      autoMatch: () => true,
     })
     const items = [ITEMS[2] as LastfmStationTrack, ITEMS[0] as LastfmStationTrack]
     expect(summary(await stationCandidates(items, SEED, testContext(), opts))).toEqual([

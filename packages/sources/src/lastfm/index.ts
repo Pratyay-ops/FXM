@@ -16,23 +16,27 @@
  */
 
 export {
-  createLastfmApi,
+  createLastfmApiClient,
   LASTFM_API_URL,
-  type LastfmApi,
+  type LastfmApiClient,
   type LastfmApiOptions,
   type LastfmSimilarArtist,
-  parseSimilarArtists,
-  type SimilarArtistsOptions,
+  type LastfmSimilarArtistsOptions,
+  parseLastfmSimilarArtists,
 } from './api'
 export {
   createLastfmStations,
+  LASTFM_STATION_PREFIX,
   LASTFM_WEB_ORIGIN,
   type LastfmStation,
+  LastfmStationPacing,
+  type LastfmStationPacingOptions,
   type LastfmStations,
   type LastfmStationsOptions,
   type LastfmStationTrack,
   lastfmPathSegment,
+  lastfmStationPacing,
   lastfmStationsReachable,
   lastfmStationUrl,
-  parseStation,
+  parseLastfmStation,
 } from './station'

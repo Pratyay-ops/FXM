@@ -6,30 +6,36 @@ import {
   jsonResponse,
   testContext,
   textResponse,
-} from '../recommend/testing'
+} from '../shared/fake-network'
 import { fixtures } from './fixtures/testing'
 import {
   createLastfmStations,
+  LASTFM_STATION_PREFIX,
   LASTFM_WEB_ORIGIN,
+  LastfmStationPacing,
+  type LastfmStationPacingOptions,
   type LastfmStationsOptions,
   lastfmPathSegment,
+  lastfmStationPacing,
   lastfmStationsReachable,
   lastfmStationUrl,
-  parseStation,
+  parseLastfmStation,
 } from './station'
 
 afterEach(() => {
   vi.useRealTimers()
 })
 
-/** A station reader in front of a fake Last.fm, and the requests it made. */
+/** A station reader with its own pacing in front of a fake Last.fm, and the requests it made. */
 function setup(
   route: (url: URL) => Response | Promise<Response>,
+  pacingOptions: LastfmStationPacingOptions = {},
   options: LastfmStationsOptions = {},
 ) {
   const { fetch, calls } = fakeFetch(route)
-  const stations = createLastfmStations({ minIntervalMs: 0, ...options })
-  return { stations, ctx: testContext({ fetch }), calls }
+  const pacing = new LastfmStationPacing({ minIntervalMs: 0, ...pacingOptions })
+  const stations = createLastfmStations({ pacing, ...options })
+  return { stations, pacing, ctx: testContext({ fetch }), calls }
 }
 
 /** The error a promise rejects with. */
@@ -76,6 +82,9 @@ describe('lastfmStationUrl', () => {
     expect(lastfmStationUrl({ type: 'artist', artist: 'Sigur Rós' })).toBe(
       'https://www.last.fm/player/station/music/Sigur+R%C3%B3s',
     )
+    expect(
+      lastfmStationUrl({ type: 'artist', artist: 'A' }).startsWith(LASTFM_STATION_PREFIX),
+    ).toBe(true)
   })
 })
 
@@ -87,14 +96,13 @@ describe('lastfmStationsReachable', () => {
   })
 })
 
-describe('parseStation', () => {
+describe('parseLastfmStation', () => {
   it('reads every song of a recorded station', () => {
-    const tracks = parseStation(fixtures.stationSimilar)
+    const tracks = parseLastfmStation(fixtures.stationSimilar)
     expect(tracks).toHaveLength(24)
     expect(tracks[0]).toEqual({
       title: 'Stockholm Syndrome',
       artists: ['Muse'],
-      durationMs: 509_000,
       youtubeId: 'gXN9acC9edU',
       url: 'https://www.last.fm/music/Muse/_/Stockholm+Syndrome',
     })
@@ -102,17 +110,17 @@ describe('parseStation', () => {
     expect(new Set(tracks.map((track) => track.artists[0])).size).toBeGreaterThan(15)
   })
 
-  it('reads the artist station, leaving out a duration Last.fm does not know', () => {
-    const tracks = parseStation(fixtures.stationArtist)
+  it('reads the artist station, and never the station’s durations, which mislead', () => {
+    const tracks = parseLastfmStation(fixtures.stationArtist)
     expect(tracks).toHaveLength(30)
     expect(tracks.every((track) => track.artists[0] === 'Radiohead')).toBe(true)
-    const weirdFishes = tracks.find((track) => track.title === 'Weird Fishes / Arpeggi')
-    expect(weirdFishes).toBeDefined()
-    expect(weirdFishes).not.toHaveProperty('durationMs')
+    // The station says 279 s for Creep, whose album version is 3:56.
+    expect(fixtures.stationArtist.playlist[0]).toMatchObject({ name: 'Creep', duration: 279 })
+    expect(tracks.some((track) => 'durationMs' in track)).toBe(false)
   })
 
   it('falls back to the underscored fields, and skips what it cannot use', () => {
-    const tracks = parseStation(
+    const tracks = parseLastfmStation(
       {
         playlist: [
           {
@@ -156,17 +164,17 @@ describe('parseStation', () => {
   })
 
   it('caps very long names', () => {
-    const [track] = parseStation({
+    const [track] = parseLastfmStation({
       playlist: [{ name: 'x'.repeat(1_000), artists: [{ name: 'A' }] }],
     })
     expect(track?.title).toHaveLength(300)
   })
 
   it('rejects an answer without a playlist', () => {
-    expect(() => parseStation({ tracks: [] })).toThrowError(
+    expect(() => parseLastfmStation({ tracks: [] })).toThrowError(
       expect.objectContaining({ code: 'Parse' }),
     )
-    expect(() => parseStation(null)).toThrowError(expect.objectContaining({ code: 'Parse' }))
+    expect(() => parseLastfmStation(null)).toThrowError(expect.objectContaining({ code: 'Parse' }))
   })
 })
 
@@ -186,10 +194,28 @@ describe('createLastfmStations', () => {
     const { stations, calls } = setup(() => jsonResponse(fixtures.stationSimilar))
     for (const tier of ['free', 'lite'] as const) {
       const ctx = testContext({ tier })
+      expect(stations.isReachable(ctx)).toBe(false)
       const error = await failure(stations.station({ type: 'similar', artist: 'Radiohead' }, ctx))
       expect(isFxmError(error, 'Unsupported')).toBe(true)
     }
+    expect(stations.isReachable(testContext({ tier: 'full' }))).toBe(true)
     expect(calls).toHaveLength(0)
+  })
+
+  it('asks the app’s own reachability check instead, when it has one', async () => {
+    const { fetch, calls } = fakeFetch(() => jsonResponse(fixtures.stationSimilar))
+    const pacing = new LastfmStationPacing({ minIntervalMs: 0 })
+    const station = { type: 'similar', artist: 'Radiohead' } as const
+    // E.g. the transport says FXM Connect lacks its Last.fm feature, in the Full tier.
+    const closed = createLastfmStations({ pacing, reachable: () => false })
+    const full = testContext({ fetch, tier: 'full' })
+    expect(closed.isReachable(full)).toBe(false)
+    expect(isFxmError(await failure(closed.station(station, full)), 'Unsupported')).toBe(true)
+    const open = createLastfmStations({ pacing, reachable: () => true })
+    const lite = testContext({ fetch, tier: 'lite' })
+    expect(open.isReachable(lite)).toBe(true)
+    expect(await open.station(station, lite)).toHaveLength(24)
+    expect(calls).toHaveLength(1)
   })
 
   it('asks nothing for an artist without a name', async () => {
@@ -206,13 +232,41 @@ describe('createLastfmStations', () => {
       { challengeBackoffMs: 60_000 },
     )
     const station = { type: 'artist', artist: 'Radiohead' } as const
-    expect(isFxmError(await failure(stations.station(station, ctx)), 'BotCheck')).toBe(true)
+    const first = await failure(stations.station(station, ctx))
+    expect(isFxmError(first, 'BotCheck')).toBe(true)
+    expect((first as { retryAfterMs: number }).retryAfterMs).toBe(60_000)
     challenge = false
-    expect(isFxmError(await failure(stations.station(station, ctx)), 'BotCheck')).toBe(true)
+    await vi.advanceTimersByTimeAsync(20_000)
+    const second = await failure(stations.station(station, ctx))
+    expect(isFxmError(second, 'BotCheck')).toBe(true)
+    expect((second as { retryAfterMs: number }).retryAfterMs).toBe(40_000)
     expect(calls).toHaveLength(1)
-    await vi.advanceTimersByTimeAsync(60_000)
+    await vi.advanceTimersByTimeAsync(40_000)
     expect(await stations.station(station, ctx)).toHaveLength(30)
     expect(calls).toHaveLength(2)
+  })
+
+  it('sends no queued request after a challenge', async () => {
+    const { stations, ctx, calls } = setup(() => textResponse(fixtures.challenge))
+    const station = { type: 'similar', artist: 'Radiohead' } as const
+    const errors = await Promise.all([1, 2, 3].map(() => failure(stations.station(station, ctx))))
+    expect(errors.every((error) => isFxmError(error, 'BotCheck'))).toBe(true)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('shares the pause between readers that share the pacing', async () => {
+    const { fetch, calls } = fakeFetch(() => textResponse(fixtures.challenge))
+    const pacing = new LastfmStationPacing({ minIntervalMs: 0 })
+    const ctx = testContext({ fetch })
+    const station = { type: 'artist', artist: 'Radiohead' } as const
+    const one = createLastfmStations({ pacing })
+    const two = createLastfmStations({ pacing })
+    expect(isFxmError(await failure(one.station(station, ctx)), 'BotCheck')).toBe(true)
+    expect(isFxmError(await failure(two.station(station, ctx)), 'BotCheck')).toBe(true)
+    expect(calls).toHaveLength(1)
+    expect(pacing.challengeRemainingMs()).toBeGreaterThan(0)
+    // Readers without pacing of their own share the app's.
+    expect(lastfmStationPacing.challengeRemainingMs()).toBe(0)
   })
 
   it('also takes HTML without a content type, and a 403, as the challenge', async () => {

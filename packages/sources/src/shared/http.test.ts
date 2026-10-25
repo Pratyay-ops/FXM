@@ -1,6 +1,6 @@
 import { FxmError, isFxmError } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
-import { fakeFetch, testContext, textResponse } from '../testing'
+import { fakeFetch, testContext, textResponse } from './fake-network'
 import { getText, maxAgeMs, parseJson, rateLimited, retryAfterMs } from './http'
 
 const OPTIONS = { service: 'Test service', timeoutMs: 1_000, maxBytes: 1_000 }

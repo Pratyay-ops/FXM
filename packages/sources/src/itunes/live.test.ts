@@ -8,9 +8,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { liveTestsEnabled, testContext, withOrigin } from '../recommend/testing'
+import { liveTestsEnabled, testContext, withOrigin } from '../shared/fake-network'
 import { createItunesClient, itunesArtwork } from './api'
-import { bestSong } from './match'
+import { bestItunesSong } from './match'
 
 describe.skipIf(!liveTestsEnabled())('iTunes Search, live', { timeout: 30_000 }, () => {
   it('finds a song’s cover for any origin, in the sizes FXM offers', async () => {
@@ -21,7 +21,7 @@ describe.skipIf(!liveTestsEnabled())('iTunes Search, live', { timeout: 30_000 },
       testContext({ fetch, tier: 'free' }),
     )
     expect(records[0]?.allowOrigin).toBe('*')
-    const song = bestSong(songs, { title: 'Get Lucky', artists: ['Daft Punk'] })
+    const song = bestItunesSong(songs, { title: 'Get Lucky', artists: ['Daft Punk'] })
     expect(song?.artworkUrl).toBeDefined()
     const artwork = itunesArtwork(song?.artworkUrl ?? '')
     expect(artwork.map((art) => art.width)).toEqual([100, 300, 600])

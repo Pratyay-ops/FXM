@@ -1,6 +1,7 @@
 /**
- * GET requests for the recommendation and artwork providers (Last.fm, ListenBrainz, Cover Art
- * Archive and iTunes Search), through the injected `fetch` only.
+ * GET requests that read the whole body as text, for providers that must look at an answer
+ * before parsing it (Last.fm, ListenBrainz, the Cover Art Archive and iTunes Search), through the
+ * injected `fetch` only. `json.ts` has `getJson` for services whose answers are always JSON.
  *
  * Every request goes out with `credentials: 'omit'`, a timeout that covers the body, and a cap
  * on the body's size. The helpers return the status for the provider to read, because the
@@ -11,14 +12,14 @@
  */
 
 import { FxmError, isFxmError, type ProviderContext } from '@fxm/core'
-import { fetchWithTimeout } from '../../shared'
-import { asObject } from '../../shared/json'
+import { fetchWithTimeout } from './index'
+import { asObject } from './json'
 
 /**
  * Milliseconds to wait from a `Retry-After` header (delay seconds or an HTTP date), or a fallback,
  * capped at an hour: the free sources' helper.
  */
-export { retryAfterMs } from '../../shared/json'
+export { retryAfterMs } from './json'
 
 /** The value of `key` on a JSON object, or `undefined` when `value` is not one. */
 export function field(value: unknown, key: string): unknown {

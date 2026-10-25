@@ -16,44 +16,77 @@
 
 export {
   type ArtistMbidLookup,
+  AUTO_MATCH_OFF,
+  type AutoMatchSetting,
   type ClassificationBudget,
-  FULL_TIER,
   type ReleaseMbidLookup,
   type SongForVideo,
   SPOTIFY_ON,
+  type SpotifyAvailability,
   type SpotifyMetadata,
   type SpotifyRadio,
   type SpotifySwitch,
-  type TierCheck,
   UNLIMITED_CLASSIFICATION_BUDGET,
+  type VideoSong,
   type YouTubeLookup,
   type YouTubeRadio,
+  type YouTubeSeedFinder,
 } from './adapters'
-export { type ArtworkFiller, type ArtworkFillerOptions, createArtworkFiller } from './artwork'
+export {
+  type ArtworkFiller,
+  type ArtworkFillerOptions,
+  type ArtworkOptions,
+  type ArtworkResult,
+  createArtworkFiller,
+} from './artwork'
 export {
   type CollectOptions,
   createRecommendationCollector,
+  DEFAULT_LIMIT,
+  DEFAULT_MAX_CLASSIFICATIONS,
   DEFAULT_PARTS,
+  type HomeOptions,
   type RecommendationCollector,
   type RecommendationCollectorOptions,
   tracksForMode,
 } from './collector'
-export { artistKey, songKey } from './internal/text'
-export { seedArtistName, seedRef, seedTitle, youtubeRadioSeed } from './seeds'
-export { namesSameSong, rankScore, type StationOptions, stationCandidates } from './stations'
+export { artistKey, songKey } from './keys'
+export {
+  isMusicMode,
+  isYouTubeRadioSeed,
+  seedArtistMbid,
+  seedArtistName,
+  seedRef,
+  seedTitle,
+  type YouTubeSeedAdapters,
+  youtubeRadioSeed,
+} from './seeds'
+export {
+  DEFAULT_MAX_CLASSIFICATION_MS,
+  namesSameSong,
+  rankScore,
+  type StationOptions,
+  stationCandidates,
+} from './stations'
 export type {
   ArtistCandidate,
+  ArtistSeed,
   CandidateArtist,
   CandidateBase,
+  CandidatePart,
   Collection,
   HomeCollection,
   RecommendationCandidate,
   RecommendationPart,
+  RecommendationSeed,
   RecommendationSource,
   SeedRef,
   SkipReason,
+  SongMatch,
   SongSearchCandidate,
   SourceOutcome,
+  SourceResult,
   SourceShelf,
+  SourceShelves,
   TrackCandidate,
 } from './types'

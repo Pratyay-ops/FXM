@@ -1,6 +1,6 @@
 import { isFxmError } from '@fxm/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fakeFetch, jsonResponse, testContext, textResponse } from '../recommend/testing'
+import { fakeFetch, jsonResponse, testContext, textResponse } from '../shared/fake-network'
 import {
   COVER_ART_ARCHIVE_ORIGIN,
   type CoverArtOptions,
@@ -115,10 +115,12 @@ describe('createCoverArtClient', () => {
     expect(calls[0]?.init?.credentials).toBe('omit')
   })
 
-  it('finds nothing, without a request, for a value that is not an MBID', async () => {
+  it('refuses a value that is not an MBID, without a request, and takes any case', async () => {
     const { client, ctx, calls } = setup(() => jsonResponse(pabloHoney))
-    expect(await client.releaseArtwork('../release/x', ctx)).toEqual([])
+    await expect(client.releaseArtwork('../release/x', ctx)).rejects.toThrowError(RangeError)
     expect(calls).toHaveLength(0)
+    expect(await client.releaseArtwork(` ${PABLO_HONEY.toUpperCase()}`, ctx)).toHaveLength(3)
+    expect(calls[0]?.url.pathname).toBe(`/release/${PABLO_HONEY}`)
   })
 
   it('remembers a release without art for a while', async () => {

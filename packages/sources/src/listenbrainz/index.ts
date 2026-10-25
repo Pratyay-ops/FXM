@@ -15,14 +15,14 @@
 
 export {
   createListenBrainzClient,
-  DEFAULT_SIMILAR_ARTISTS_ALGORITHM,
-  isMbid,
+  DEFAULT_LISTENBRAINZ_ALGORITHM,
   LISTENBRAINZ_LABS_ORIGIN,
+  type ListenBrainzCallOptions,
   type ListenBrainzClient,
   type ListenBrainzOptions,
-  parseRecordingLookup,
-  parseSimilarArtists,
-  type RecordingLookup,
-  type SimilarArtist,
-  type SimilarArtistsOptions,
+  type ListenBrainzRecordingLookup,
+  type ListenBrainzSimilarArtist,
+  type ListenBrainzSimilarArtistsOptions,
+  parseListenBrainzRecordingLookup,
+  parseListenBrainzSimilarArtists,
 } from './api'

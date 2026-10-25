@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { liveTestsEnabled, testContext, withOrigin } from '../recommend/testing'
+import { liveTestsEnabled, testContext, withOrigin } from '../shared/fake-network'
 import { createListenBrainzClient } from './api'
 
 describe.skipIf(!liveTestsEnabled())('ListenBrainz, live', { timeout: 30_000 }, () => {

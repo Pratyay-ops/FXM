@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { liveTestsEnabled, testContext } from '../recommend/testing'
+import { liveTestsEnabled, testContext } from '../shared/fake-network'
 import { createCoverArtClient } from './api'
 
 /** Radiohead's "Pablo Honey" (UK CD), which has a front cover. */

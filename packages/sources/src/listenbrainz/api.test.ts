@@ -1,14 +1,19 @@
 import { isFxmError } from '@fxm/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fakeFetch, jsonResponse, paramsOf, testContext, textResponse } from '../recommend/testing'
+import {
+  fakeFetch,
+  jsonResponse,
+  paramsOf,
+  testContext,
+  textResponse,
+} from '../shared/fake-network'
 import {
   createListenBrainzClient,
-  DEFAULT_SIMILAR_ARTISTS_ALGORITHM,
-  isMbid,
+  DEFAULT_LISTENBRAINZ_ALGORITHM,
   LISTENBRAINZ_LABS_ORIGIN,
   type ListenBrainzOptions,
-  parseRecordingLookup,
-  parseSimilarArtists,
+  parseListenBrainzRecordingLookup,
+  parseListenBrainzSimilarArtists,
 } from './api'
 import acrLookup from './fixtures/acr-lookup-radiohead-creep.json'
 import similarArtists from './fixtures/similar-artists-radiohead.json'
@@ -44,18 +49,9 @@ function failure(promise: Promise<unknown>): Promise<unknown> {
   )
 }
 
-describe('isMbid', () => {
-  it('accepts canonical MusicBrainz IDs only', () => {
-    expect(isMbid(RADIOHEAD)).toBe(true)
-    expect(isMbid(RADIOHEAD.toUpperCase())).toBe(false)
-    expect(isMbid(`${RADIOHEAD}x`)).toBe(false)
-    expect(isMbid(42)).toBe(false)
-  })
-})
-
-describe('parseRecordingLookup', () => {
+describe('parseListenBrainzRecordingLookup', () => {
   it('reads the recorded lookup', () => {
-    expect(parseRecordingLookup(acrLookup)).toEqual({
+    expect(parseListenBrainzRecordingLookup(acrLookup)).toEqual({
       recordingMbid: '70595637-9310-45f2-a266-58f8de4874a7',
       recordingName: 'Creep',
       artistCredit: 'Radiohead',
@@ -66,15 +62,15 @@ describe('parseRecordingLookup', () => {
   })
 
   it('skips rows it cannot use, and finds nothing in an empty answer', () => {
-    expect(parseRecordingLookup([])).toBeNull()
+    expect(parseListenBrainzRecordingLookup([])).toBeNull()
     expect(
-      parseRecordingLookup([
+      parseListenBrainzRecordingLookup([
         { recording_mbid: 'nope', recording_name: 'A', artist_credit_name: 'B' },
         {
           recording_mbid: '70595637-9310-45f2-a266-58f8de4874a7',
           recording_name: 'Creep',
           artist_credit_name: 'Radiohead',
-          artist_mbids: [RADIOHEAD, 'bad'],
+          artist_mbids: [RADIOHEAD.toUpperCase(), 'bad'],
           release_mbid: null,
         },
       ]),
@@ -87,15 +83,15 @@ describe('parseRecordingLookup', () => {
   })
 
   it('rejects an answer that is not a list', () => {
-    expect(() => parseRecordingLookup({ error: 'x' })).toThrowError(
+    expect(() => parseListenBrainzRecordingLookup({ error: 'x' })).toThrowError(
       expect.objectContaining({ code: 'Parse' }),
     )
   })
 })
 
-describe('parseSimilarArtists', () => {
+describe('parseListenBrainzSimilarArtists', () => {
   it('reads the recorded answer, best first, scored against the best', () => {
-    const artists = parseSimilarArtists(similarArtists, RADIOHEAD)
+    const artists = parseListenBrainzSimilarArtists(similarArtists, RADIOHEAD)
     expect(artists).toHaveLength(25)
     expect(artists[0]).toEqual({
       mbid: '5b11f4ce-a62d-471e-81fc-a69a8278c7da',
@@ -116,7 +112,7 @@ describe('parseSimilarArtists', () => {
       reference_mbid: reference,
     })
     const other = '5b11f4ce-a62d-471e-81fc-a69a8278c7da'
-    const artists = parseSimilarArtists(
+    const artists = parseListenBrainzSimilarArtists(
       [
         row(RADIOHEAD, 'Radiohead', 100),
         row(other, 'Nirvana', 10),
@@ -159,7 +155,7 @@ describe('createListenBrainzClient', () => {
     expect(calls[0]?.url.pathname).toBe('/similar-artists/json')
     expect(paramsOf(calls[0])).toEqual({
       artist_mbids: RADIOHEAD,
-      algorithm: DEFAULT_SIMILAR_ARTISTS_ALGORITHM,
+      algorithm: DEFAULT_LISTENBRAINZ_ALGORITHM,
     })
   })
 
@@ -191,12 +187,46 @@ describe('createListenBrainzClient', () => {
     expect(calls).toHaveLength(2)
   })
 
-  it('asks nothing without the names or a valid MBID', async () => {
+  it('asks nothing without the names, and refuses a value that is not an MBID', async () => {
     const { client, ctx, calls } = setup(labs)
     expect(await client.lookupRecording('', 'Creep', ctx)).toBeNull()
     expect(await client.lookupRecording('Radiohead', '  ', ctx)).toBeNull()
-    expect(await client.similarArtists('radiohead', ctx)).toEqual([])
+    await expect(client.similarArtists('radiohead', ctx)).rejects.toThrowError(RangeError)
     expect(calls).toHaveLength(0)
+  })
+
+  it('takes an MBID in any case, and reads the limit defensively', async () => {
+    const { client, ctx, calls } = setup(labs)
+    const upper = await client.similarArtists(` ${RADIOHEAD.toUpperCase()} `, ctx, { limit: 2.5 })
+    expect(upper).toHaveLength(2)
+    expect(paramsOf(calls[0]).artist_mbids).toBe(RADIOHEAD)
+    expect(await client.similarArtists(RADIOHEAD, ctx, { limit: Number.NaN })).toHaveLength(25)
+    expect(await client.similarArtists(RADIOHEAD, ctx, { limit: -1 })).toEqual([])
+    expect(calls).toHaveLength(1)
+  })
+
+  it('keys lookups on what it sends: "&" is not "and" to the labs API', async () => {
+    const { client, ctx, calls } = setup(() => jsonResponse([]))
+    await client.lookupRecording('Simon & Garfunkel', 'The Boxer', ctx)
+    await client.lookupRecording('Simon and Garfunkel', 'The Boxer', ctx)
+    await client.lookupRecording('!!!', 'Heart of Hearts', ctx)
+    await client.lookupRecording('✝✝✝', 'Heart of Hearts', ctx)
+    expect(calls).toHaveLength(4)
+  })
+
+  it('lets a call of a higher priority go before background lookups', async () => {
+    const { client, ctx, calls } = setup(labs)
+    const background = ['A', 'B', 'C'].map((name) =>
+      client.lookupRecording('Radiohead', name, ctx, { priority: 'bulk' }),
+    )
+    const urgent = client.similarArtists(RADIOHEAD, ctx)
+    await Promise.all([...background, urgent])
+    expect(calls.map((call) => call.url.pathname)).toEqual([
+      '/acr-lookup/json',
+      '/similar-artists/json',
+      '/acr-lookup/json',
+      '/acr-lookup/json',
+    ])
   })
 
   it('treats a 404 as nothing', async () => {

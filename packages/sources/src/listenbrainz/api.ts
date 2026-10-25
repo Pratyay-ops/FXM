@@ -13,7 +13,7 @@
  */
 
 import { FxmError, type ProviderContext } from '@fxm/core'
-import { RequestGate } from '../recommend/internal/gate'
+import { type PacedCallOptions, RequestGate } from '../shared/gate'
 import {
   field,
   getText,
@@ -21,8 +21,9 @@ import {
   rateLimited,
   retryAfterMs,
   type TextResponse,
-} from '../recommend/internal/http'
-import { comparable } from '../recommend/internal/text'
+} from '../shared/http'
+import { normalizeMbid, requireMbid } from '../shared/mbid'
+import { wholeNumber } from '../shared/numbers'
 import { TtlCache } from '../shared/ttl-cache'
 
 /** Where the labs API lives. */
@@ -32,17 +33,17 @@ export const LISTENBRAINZ_LABS_ORIGIN = 'https://labs.api.listenbrainz.org'
  * The similar-artists data set FXM asks for by default: listening sessions over about 20 years
  * (7,500 days), as listed on the labs API's own form on 2026-10-26.
  */
-export const DEFAULT_SIMILAR_ARTISTS_ALGORITHM =
+export const DEFAULT_LISTENBRAINZ_ALGORITHM =
   'session_based_days_7500_session_300_contribution_5_threshold_10_limit_100_filter_True_skip_30'
 
 /** The service's name in error messages. */
 const SERVICE = 'ListenBrainz'
 
 /** What `acr-lookup` found for an artist credit and a recording name. */
-export interface RecordingLookup {
+export interface ListenBrainzRecordingLookup {
   /** The recording's MusicBrainz ID. */
   recordingMbid: string
-  /** The recording's name in MusicBrainz. */
+  /** The recording's name in MusicBrainz, e.g. `Creep`, or `Creep (acoustic)` for a version. */
   recordingName: string
   /** The artist credit in MusicBrainz, e.g. `Radiohead`. */
   artistCredit: string
@@ -55,7 +56,7 @@ export interface RecordingLookup {
 }
 
 /** An artist ListenBrainz finds similar to another. */
-export interface SimilarArtist {
+export interface ListenBrainzSimilarArtist {
   /** The artist's MusicBrainz ID. */
   mbid: string
   /** The artist's name in MusicBrainz. */
@@ -72,20 +73,29 @@ export interface SimilarArtist {
 export interface ListenBrainzOptions {
   /** Where the labs API lives. Default {@link LISTENBRAINZ_LABS_ORIGIN}. */
   labsOrigin?: string
-  /** The similar-artists data set. Default {@link DEFAULT_SIMILAR_ARTISTS_ALGORITHM}. */
+  /** The similar-artists data set. Default {@link DEFAULT_LISTENBRAINZ_ALGORITHM}. */
   algorithm?: string
   /** Abort a request, body included, after this many milliseconds. Default 10,000. */
   timeoutMs?: number
   /** Pause this many milliseconds between requests. Default 200. */
   minIntervalMs?: number
-  /** The longest a call waits for its turn before failing with `RateLimited`. Default 10,000. */
+  /**
+   * The longest a call waits for its turn, counted from when it was made, before failing with
+   * `RateLimited`. Default 10,000.
+   */
   maxWaitMs?: number
   /** How long to keep an answer. Similar artists and lookups change slowly. Default 24 hours. */
   cacheTtlMs?: number
 }
 
+/**
+ * What every call takes besides its own arguments: a `priority`, so that background work (the
+ * artwork filler's lookups, with `bulk`) never holds up what the user waits for.
+ */
+export type ListenBrainzCallOptions = PacedCallOptions
+
 /** Options for {@link ListenBrainzClient.similarArtists}. */
-export interface SimilarArtistsOptions {
+export interface ListenBrainzSimilarArtistsOptions extends ListenBrainzCallOptions {
   /** At most this many artists. Default 30. */
   limit?: number
 }
@@ -100,24 +110,18 @@ export interface ListenBrainzClient {
     artistCredit: string,
     recording: string,
     ctx: ProviderContext,
-  ): Promise<RecordingLookup | null>
+    options?: ListenBrainzCallOptions,
+  ): Promise<ListenBrainzRecordingLookup | null>
   /**
-   * Artists similar to the one with the MusicBrainz ID `artistMbid`, most similar first. Empty
-   * when ListenBrainz has no data for it, or when `artistMbid` is not an MBID.
+   * Artists similar to the one with the MusicBrainz ID `artistMbid` (in any case, trimmed), most
+   * similar first. Empty when ListenBrainz has no data for it. Rejects with a `RangeError`,
+   * without a request, when `artistMbid` is not an MBID.
    */
   similarArtists(
     artistMbid: string,
     ctx: ProviderContext,
-    options?: SimilarArtistsOptions,
-  ): Promise<SimilarArtist[]>
-}
-
-/** A lower-case MusicBrainz ID. */
-const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
-
-/** Whether `value` is a MusicBrainz ID in its canonical, lower-case form. */
-export function isMbid(value: unknown): value is string {
-  return typeof value === 'string' && MBID.test(value)
+    options?: ListenBrainzSimilarArtistsOptions,
+  ): Promise<ListenBrainzSimilarArtist[]>
 }
 
 /** How long FXM remembers that the labs API had nothing. */
@@ -139,23 +143,27 @@ function rowsOf(body: unknown): unknown[] {
 }
 
 /** Reads `acr-lookup`'s answer: the first row, or `null` when there is none. */
-export function parseRecordingLookup(body: unknown): RecordingLookup | null {
+export function parseListenBrainzRecordingLookup(
+  body: unknown,
+): ListenBrainzRecordingLookup | null {
   for (const row of rowsOf(body)) {
-    const recordingMbid = field(row, 'recording_mbid')
+    const recordingMbid = normalizeMbid(field(row, 'recording_mbid'))
     const recordingName = nameOf(field(row, 'recording_name'))
     const artistCredit = nameOf(field(row, 'artist_credit_name'))
     const mbids = field(row, 'artist_mbids')
-    if (!isMbid(recordingMbid) || recordingName === undefined || artistCredit === undefined) {
+    if (recordingMbid === undefined || recordingName === undefined || artistCredit === undefined) {
       continue
     }
-    const lookup: RecordingLookup = {
+    const lookup: ListenBrainzRecordingLookup = {
       recordingMbid,
       recordingName,
       artistCredit,
-      artistMbids: (Array.isArray(mbids) ? mbids : []).filter(isMbid),
+      artistMbids: (Array.isArray(mbids) ? mbids : [])
+        .map(normalizeMbid)
+        .filter((mbid) => mbid !== undefined),
     }
-    const releaseMbid = field(row, 'release_mbid')
-    if (isMbid(releaseMbid)) lookup.releaseMbid = releaseMbid
+    const releaseMbid = normalizeMbid(field(row, 'release_mbid'))
+    if (releaseMbid !== undefined) lookup.releaseMbid = releaseMbid
     const releaseName = nameOf(field(row, 'release_name'))
     if (releaseName !== undefined) lookup.releaseName = releaseName
     return lookup
@@ -167,19 +175,23 @@ export function parseRecordingLookup(body: unknown): RecordingLookup | null {
  * Reads `similar-artists`' answer for `artistMbid`: rows about that artist, best score first,
  * each artist once and never the artist itself.
  */
-export function parseSimilarArtists(body: unknown, artistMbid: string): SimilarArtist[] {
-  const artists: SimilarArtist[] = []
-  const seen = new Set<string>([artistMbid])
+export function parseListenBrainzSimilarArtists(
+  body: unknown,
+  artistMbid: string,
+): ListenBrainzSimilarArtist[] {
+  const seed = normalizeMbid(artistMbid) ?? artistMbid
+  const artists: ListenBrainzSimilarArtist[] = []
+  const seen = new Set<string>([seed])
   for (const row of rowsOf(body)) {
-    const mbid = field(row, 'artist_mbid')
+    const mbid = normalizeMbid(field(row, 'artist_mbid'))
     const name = nameOf(field(row, 'name'))
     const score = field(row, 'score')
     const reference = field(row, 'reference_mbid')
-    if (!isMbid(mbid) || name === undefined || seen.has(mbid)) continue
+    if (mbid === undefined || name === undefined || seen.has(mbid)) continue
     if (typeof score !== 'number' || !Number.isFinite(score) || score <= 0) continue
-    if (reference !== undefined && reference !== artistMbid) continue
+    if (reference !== undefined && normalizeMbid(reference) !== seed) continue
     seen.add(mbid)
-    const artist: SimilarArtist = { mbid, name, score, similarity: 0 }
+    const artist: ListenBrainzSimilarArtist = { mbid, name, score, similarity: 0 }
     const comment = nameOf(field(row, 'comment'))
     if (comment !== undefined) artist.comment = comment
     artists.push(artist)
@@ -193,7 +205,7 @@ export function parseSimilarArtists(body: unknown, artistMbid: string): SimilarA
 /** Creates a {@link ListenBrainzClient}. Share one instance, so that its pacing and cache hold. */
 export function createListenBrainzClient(options: ListenBrainzOptions = {}): ListenBrainzClient {
   const origin = (options.labsOrigin ?? LISTENBRAINZ_LABS_ORIGIN).replace(/\/+$/u, '')
-  const algorithm = options.algorithm ?? DEFAULT_SIMILAR_ARTISTS_ALGORITHM
+  const algorithm = options.algorithm ?? DEFAULT_LISTENBRAINZ_ALGORITHM
   const timeoutMs = options.timeoutMs ?? 10_000
   const ttlMs = options.cacheTtlMs ?? 24 * 3_600_000
   const gate = new RequestGate({
@@ -201,8 +213,8 @@ export function createListenBrainzClient(options: ListenBrainzOptions = {}): Lis
     minIntervalMs: options.minIntervalMs ?? 200,
     maxWaitMs: options.maxWaitMs ?? 10_000,
   })
-  const lookups = new TtlCache<RecordingLookup | null>({ maxEntries: 1_000 })
-  const similar = new TtlCache<SimilarArtist[]>({ maxEntries: 500 })
+  const lookups = new TtlCache<ListenBrainzRecordingLookup | null>({ maxEntries: 1_000 })
+  const similar = new TtlCache<ListenBrainzSimilarArtist[]>({ maxEntries: 500 })
 
   /**
    * The value cached under `key`, else one GET in its turn, read by `read` (`null` for a 404) and
@@ -214,26 +226,30 @@ export function createListenBrainzClient(options: ListenBrainzOptions = {}): Lis
     path: string,
     params: Record<string, string>,
     ctx: ProviderContext,
+    call: ListenBrainzCallOptions,
     read: (body: unknown | null) => { value: T; found: boolean },
   ): Promise<T> {
     const hit = cache.get(key)
     if (hit !== undefined) return Promise.resolve(hit)
-    return gate.run(ctx.signal, async (ready) => {
-      const queued = cache.get(key)
-      if (queued !== undefined) return queued
-      const url = new URL(`${origin}/${path}`)
-      url.search = new URLSearchParams(params).toString()
-      await ready()
-      const response = await getText(ctx, url.href, {
-        service: SERVICE,
-        timeoutMs,
-        maxBytes: 2_000_000,
-      })
-      if (response.status !== 200 && response.status !== 404) throw failure(response)
-      const { value, found } = read(response.status === 404 ? null : parseJson(response, SERVICE))
-      cache.set(key, value, found ? ttlMs : MISS_TTL_MS)
-      return value
-    })
+    return gate.run(
+      async (ready) => {
+        const queued = cache.get(key)
+        if (queued !== undefined) return queued
+        const url = new URL(`${origin}/${path}`)
+        url.search = new URLSearchParams(params).toString()
+        await ready()
+        const response = await getText(ctx, url.href, {
+          service: SERVICE,
+          timeoutMs,
+          maxBytes: 2_000_000,
+        })
+        if (response.status !== 200 && response.status !== 404) throw failure(response)
+        const { value, found } = read(response.status === 404 ? null : parseJson(response, SERVICE))
+        cache.set(key, value, found ? ttlMs : MISS_TTL_MS)
+        return value
+      },
+      { signal: ctx.signal, priority: call.priority },
+    )
   }
 
   /** The `FxmError` for an HTTP error, after any back-off it calls for. */
@@ -250,37 +266,41 @@ export function createListenBrainzClient(options: ListenBrainzOptions = {}): Lis
   }
 
   return {
-    async lookupRecording(artistCredit, recording, ctx) {
+    async lookupRecording(artistCredit, recording, ctx, call = {}) {
       const credit = artistCredit.replace(/\s+/gu, ' ').trim()
       const name = recording.replace(/\s+/gu, ' ').trim()
       if (credit === '' || name === '') return null
       return cachedGet(
         lookups,
-        `${comparable(credit)}\u0000${comparable(name)}`,
+        // Keyed on what is sent, in lower case, as the labs API compares it: "&" and "and" are
+        // not the same to it.
+        `${credit.toLowerCase()}\u0000${name.toLowerCase()}`,
         'acr-lookup/json',
         { artist_credit_name: credit, recording_name: name },
         ctx,
+        call,
         (body) => {
-          const lookup = body === null ? null : parseRecordingLookup(body)
+          const lookup = body === null ? null : parseListenBrainzRecordingLookup(body)
           return { value: lookup, found: lookup !== null }
         },
       )
     },
 
-    async similarArtists(artistMbid, ctx, { limit = 30 } = {}) {
-      if (!isMbid(artistMbid)) return []
+    async similarArtists(artistMbid, ctx, { limit, ...call } = {}) {
+      const mbid = requireMbid(artistMbid)
       const artists = await cachedGet(
         similar,
-        artistMbid,
+        mbid,
         'similar-artists/json',
-        { artist_mbids: artistMbid, algorithm },
+        { artist_mbids: mbid, algorithm },
         ctx,
+        call,
         (body) => {
-          const found = body === null ? [] : parseSimilarArtists(body, artistMbid)
+          const found = body === null ? [] : parseListenBrainzSimilarArtists(body, mbid)
           return { value: found, found: found.length > 0 }
         },
       )
-      return artists.slice(0, Math.max(0, Math.round(limit)))
+      return artists.slice(0, wholeNumber(limit, 30))
     },
   }
 }

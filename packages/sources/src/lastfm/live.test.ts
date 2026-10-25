@@ -11,8 +11,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { liveEnv, liveTestsEnabled, testContext, withOrigin } from '../recommend/testing'
-import { createLastfmApi } from './api'
+import { liveEnv, liveTestsEnabled, testContext, withOrigin } from '../shared/fake-network'
+import { createLastfmApiClient } from './api'
 import { createLastfmStations } from './station'
 
 const apiKey = liveEnv('FXM_LASTFM_API_KEY')
@@ -45,7 +45,7 @@ describe.skipIf(!liveTestsEnabled())('Last.fm, live', { timeout: 30_000 }, () =>
   })
 
   it.skipIf(apiKey === undefined)('lists similar artists with an API key', async () => {
-    const api = createLastfmApi({ apiKey: apiKey ?? '' })
+    const api = createLastfmApiClient({ apiKey: apiKey ?? '' })
     const artists = await api.similarArtists('Radiohead', testContext({ tier: 'free', fetch }), {
       limit: 10,
     })

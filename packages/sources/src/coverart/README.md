@@ -10,7 +10,7 @@ const artwork = await coverArt.releaseArtwork('07aab296-9a40-42a9-8d1f-6b06aa032
 // [{ url: 'https://coverartarchive.org/release/…-250.jpg', width: 250 }, … 500, … 1200]
 ```
 
-`releaseArtwork(mbid, ctx)` asks for a MusicBrainz release's listing and returns its front cover (an approved one first) as core `Artwork`, in 250, 500 and 1200 pixels, smallest first, with `width` only: the archive scales covers to fit those sizes and doesn't say the other side. The artwork filler ([`@fxm/sources/recommend`](../recommend/README.md)) finds the release through ListenBrainz, or through MusicBrainz once stage 1.6 is wired in. Where each fact comes from is in [CLEAN-ROOM.md](CLEAN-ROOM.md).
+`releaseArtwork(mbid, ctx, { priority })` asks for a MusicBrainz release's listing and returns its front cover (an approved one first) as core `Artwork`, in 250, 500 and 1200 pixels, smallest first, with `width` only: the archive scales covers to fit those sizes and doesn't say the other side. It takes the MBID in any case, trimmed, and rejects with a `RangeError`, without a request, for a value that is not one. The artwork filler ([`@fxm/sources/recommend`](../recommend/README.md)) finds the release through ListenBrainz, or through the app's `releaseMbid` adapter (e.g. MusicBrainz, stage 1.6). Where each fact comes from is in [CLEAN-ROOM.md](CLEAN-ROOM.md).
 
 ## What the browser loads
 
@@ -18,7 +18,7 @@ The listing redirects twice, from `coverartarchive.org` to `archive.org` and on 
 
 ## Being a good client
 
-- Requests go one at a time. The archive documents a rate limit (`503` when exceeded) but not its size.
+- Requests go one at a time, higher priorities first (`priority: 'bulk'` for background work). The archive documents a rate limit (`503` when exceeded) but not its size. A call that would wait more than `maxWaitMs` (10 s) for its turn fails with `RateLimited`.
 - Covers are cached in memory for 24 hours (`cacheTtlMs`); releases without one for 6 hours (`missTtlMs`).
 - A `429` or `503` holds every request back for `Retry-After` (10 s when it doesn't say), plus up to 30 % jitter; until then calls fail at once with `RateLimited`.
 
@@ -26,12 +26,12 @@ The listing redirects twice, from `coverartarchive.org` to `archive.org` and on 
 
 | Code | When |
 |---|---|
-| `RateLimited` | `429` or `503`; `retryAfterMs` says how long to wait |
+| `RateLimited` | `429` or `503`, or a call that would wait too long for its turn; `retryAfterMs` says how long to wait |
 | `Network` | The request failed, broke off or took longer than `timeoutMs` (10 s), redirects included |
 | `Unavailable` | Any other HTTP error |
 | `Parse` | A listing without `images` |
 
-A release without art (`404`), an MBID the archive refuses (`400`) and a value that isn't an MBID (no request) give an empty list. A cancelled `ctx.signal` rejects with its reason.
+A release without art (`404`) and an MBID the archive refuses (`400`) give an empty list; a value that isn't an MBID rejects with a `RangeError`, without a request. A cancelled `ctx.signal` rejects with its reason.
 
 ## Tests
 

@@ -1,9 +1,45 @@
 /**
- * A fake network for tests: an injected `fetch` that answers each request from a route and
- * records it, and helpers to build responses.
+ * Test helpers for the providers that read their answers as text (Last.fm, ListenBrainz, the
+ * Cover Art Archive, iTunes Search) and the recommendation collector: an injected `fetch` that
+ * answers each request from a route and records it, responses, provider contexts for each tier,
+ * and the switches of the live tests. Only tests import this module.
  *
  * @module
  */
+
+import type { NetworkCapabilities, ProviderContext } from '@fxm/core'
+
+/** The three tiers of the web app, plus what desktop and Android have (`full`). */
+export type Tier = 'free' | 'lite' | 'full'
+
+/** The capabilities of a tier, with Spotify reachable only in the Full tier. */
+export function capabilitiesFor(tier: Tier): NetworkCapabilities {
+  if (tier === 'full') {
+    return { youtube: 'full', spotify: 'anonymous', mediaBytes: true, fileSystem: false }
+  }
+  return {
+    youtube: tier === 'lite' ? 'simple' : 'none',
+    spotify: 'unreachable',
+    mediaBytes: false,
+    fileSystem: false,
+  }
+}
+
+/** A provider context for tests: the Full tier and Music mode unless `overrides` say otherwise. */
+export function testContext(
+  overrides: Partial<ProviderContext> & { tier?: Tier } = {},
+): ProviderContext {
+  const { tier = 'full', ...rest } = overrides
+  const fetchUnused: typeof fetch = () =>
+    Promise.reject(new Error('This test does not expect a network request'))
+  return {
+    fetch: fetchUnused,
+    platform: 'web',
+    capabilities: capabilitiesFor(tier),
+    mode: 'music',
+    ...rest,
+  }
+}
 
 /** One request the fake network received. */
 export interface FetchCall {

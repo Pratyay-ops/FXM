@@ -1,7 +1,18 @@
 import { isFxmError } from '@fxm/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fakeFetch, jsonResponse, paramsOf, testContext, textResponse } from '../recommend/testing'
-import { createLastfmApi, LASTFM_API_URL, type LastfmApiOptions, parseSimilarArtists } from './api'
+import {
+  fakeFetch,
+  jsonResponse,
+  paramsOf,
+  testContext,
+  textResponse,
+} from '../shared/fake-network'
+import {
+  createLastfmApiClient,
+  LASTFM_API_URL,
+  type LastfmApiOptions,
+  parseLastfmSimilarArtists,
+} from './api'
 import { fixtures } from './fixtures/testing'
 
 afterEach(() => {
@@ -14,7 +25,7 @@ function setup(
   options: Partial<LastfmApiOptions> = {},
 ) {
   const { fetch, calls } = fakeFetch(route)
-  const api = createLastfmApi({ apiKey: 'test-key', minIntervalMs: 0, ...options })
+  const api = createLastfmApiClient({ apiKey: 'test-key', minIntervalMs: 0, ...options })
   return { api, ctx: testContext({ fetch, tier: 'free' }), calls }
 }
 
@@ -26,9 +37,9 @@ function failure(promise: Promise<unknown>): Promise<unknown> {
   )
 }
 
-describe('parseSimilarArtists', () => {
+describe('parseLastfmSimilarArtists', () => {
   it('reads the documented format', () => {
-    const artists = parseSimilarArtists(fixtures.apiSimilarArtists)
+    const artists = parseLastfmSimilarArtists(fixtures.apiSimilarArtists)
     expect(artists).toHaveLength(10)
     expect(artists[0]).toEqual({
       name: 'Nirvana',
@@ -45,7 +56,7 @@ describe('parseSimilarArtists', () => {
   })
 
   it('takes a single artist sent as an object, and clamps odd values', () => {
-    const artists = parseSimilarArtists({
+    const artists = parseLastfmSimilarArtists({
       similarartists: {
         artist: { name: ' Thom  Yorke ', match: '1.5', url: 'javascript:alert(1)', mbid: 'nope' },
       },
@@ -54,21 +65,30 @@ describe('parseSimilarArtists', () => {
       { name: 'Thom Yorke', match: 1, url: 'https://www.last.fm/music/Thom+Yorke' },
     ])
     expect(
-      parseSimilarArtists({
+      parseLastfmSimilarArtists({
         similarartists: { artist: [{ name: 'A', match: 'x' }, { match: 1 }] },
       }),
     ).toEqual([{ name: 'A', match: 0, url: 'https://www.last.fm/music/A' }])
-    expect(parseSimilarArtists({ similarartists: {} })).toEqual([])
+    expect(parseLastfmSimilarArtists({ similarartists: {} })).toEqual([])
+  })
+
+  it('writes an MBID in its canonical form', () => {
+    const [artist] = parseLastfmSimilarArtists({
+      similarartists: {
+        artist: [{ name: 'Nirvana', mbid: ' 5B11F4CE-A62D-471E-81FC-A69A8278C7DA ', match: 1 }],
+      },
+    })
+    expect(artist?.mbid).toBe('5b11f4ce-a62d-471e-81fc-a69a8278c7da')
   })
 
   it('rejects an answer without similar artists', () => {
-    expect(() => parseSimilarArtists({ artists: [] })).toThrowError(
+    expect(() => parseLastfmSimilarArtists({ artists: [] })).toThrowError(
       expect.objectContaining({ code: 'Parse' }),
     )
   })
 })
 
-describe('createLastfmApi', () => {
+describe('createLastfmApiClient', () => {
   it('asks artist.getSimilar with the key, and corrects misspellings', async () => {
     const { api, ctx, calls } = setup(() => jsonResponse(fixtures.apiSimilarArtists))
     const artists = await api.similarArtists(' Radiohead ', ctx, { limit: 10 })
@@ -85,17 +105,37 @@ describe('createLastfmApi', () => {
     expect(calls[0]?.init?.credentials).toBe('omit')
   })
 
+  it('refuses a blank API key at once', () => {
+    for (const apiKey of ['', '   ']) {
+      expect(() => createLastfmApiClient({ apiKey })).toThrowError(TypeError)
+    }
+  })
+
+  it('reads the limit defensively', async () => {
+    const { api, ctx, calls } = setup(() => jsonResponse(fixtures.apiSimilarArtists))
+    for (const limit of [Number.NaN, -1, 2.5, 500])
+      await api.similarArtists('Radiohead', ctx, { limit })
+    expect(calls.map((call) => paramsOf(call).limit)).toEqual(['30', '1', '2', '100'])
+  })
+
   it('caches answers, as Last.fm’s terms ask', async () => {
     vi.useFakeTimers({ now: Date.parse('2026-10-26T00:00:00Z') })
     const { api, ctx, calls } = setup(() =>
       jsonResponse(fixtures.apiSimilarArtists, { headers: { 'cache-control': 'max-age=1200' } }),
     )
     await api.similarArtists('Radiohead', ctx)
-    await api.similarArtists('radiohead', ctx)
+    await api.similarArtists(' Radiohead', ctx)
     expect(calls).toHaveLength(1)
     await vi.advanceTimersByTimeAsync(1_200_000)
     await api.similarArtists('Radiohead', ctx)
     expect(calls).toHaveLength(2)
+  })
+
+  it('keeps names that differ only in symbols apart', async () => {
+    const { api, ctx, calls } = setup(() => jsonResponse(fixtures.apiSimilarArtists))
+    await api.similarArtists('!!!', ctx)
+    await api.similarArtists('✝✝✝', ctx)
+    expect(calls.map((call) => paramsOf(call).artist)).toEqual(['!!!', '✝✝✝'])
   })
 
   it('asks nothing for an empty name', async () => {
@@ -104,13 +144,26 @@ describe('createLastfmApi', () => {
     expect(calls).toHaveLength(0)
   })
 
-  it('gives no artists when Last.fm does not know the artist (error 6)', async () => {
+  it('gives no artists, and remembers it, when Last.fm cannot find the artist', async () => {
+    for (const status of [200, 400]) {
+      const { api, ctx, calls } = setup(() =>
+        jsonResponse(fixtures.apiErrorUnknownArtist, { status }),
+      )
+      expect(await api.similarArtists('Nobody At All', ctx)).toEqual([])
+      expect(await api.similarArtists('Nobody At All', ctx)).toEqual([])
+      expect(calls).toHaveLength(1)
+    }
+  })
+
+  it('reports a missing parameter, which is the key, as AuthRequired, without caching it', async () => {
     const { api, ctx, calls } = setup(() =>
       jsonResponse(fixtures.apiErrorMissingParameter, { status: 400 }),
     )
-    expect(await api.similarArtists('Nobody At All', ctx)).toEqual([])
-    expect(await api.similarArtists('Nobody At All', ctx)).toEqual([])
-    expect(calls).toHaveLength(1)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const error = await failure(api.similarArtists('Radiohead', ctx))
+      expect(isFxmError(error, 'AuthRequired')).toBe(true)
+    }
+    expect(calls).toHaveLength(2)
   })
 
   it('reports a refused key as AuthRequired', async () => {

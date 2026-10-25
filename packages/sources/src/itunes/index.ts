@@ -2,11 +2,11 @@
  * iTunes Search, for covers that a track's own source lacks, on every tier.
  *
  * ```ts
- * import { bestSong, createItunesClient, itunesArtwork } from '@fxm/sources/itunes'
+ * import { bestItunesSong, createItunesClient, itunesArtwork } from '@fxm/sources/itunes'
  *
  * const itunes = createItunesClient()
  * const query = { title: 'Get Lucky', artists: ['Daft Punk'] }
- * const song = bestSong(await itunes.searchSongs('Daft Punk Get Lucky', ctx), query)
+ * const song = bestItunesSong(await itunes.searchSongs('Daft Punk Get Lucky', ctx), query)
  * const artwork = song?.artworkUrl ? itunesArtwork(song.artworkUrl) : []
  * ```
  *
@@ -24,7 +24,8 @@ export {
   type ItunesSearchOptions,
   type ItunesSong,
   itunesArtwork,
-  parseAlbums,
-  parseSongs,
+  itunesStoreUrl,
+  parseItunesAlbums,
+  parseItunesSongs,
 } from './api'
-export { type ArtworkQuery, bestAlbum, bestSong } from './match'
+export { bestItunesAlbum, bestItunesSong, type ItunesArtworkQuery } from './match'
