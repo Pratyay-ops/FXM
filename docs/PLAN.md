@@ -130,7 +130,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **3.6** | Imports: Spotify, YouTube playlists, CSV/M3U, data export | `feat/3.6-imports` | 1.5, 1.7, 2.6, 3.1 | 🟡 |
 | **4.1** | Download manager + offline playback | `feat/4.1-downloads` | 2.3, 2.6 | 🟡 |
 | **4.2** | Conversion and tagging (custom LGPL ffmpeg.wasm build, mp4box.js) | `feat/4.2-convert` | 4.1 | ⬜ |
-| **4.3** | Quality settings | `feat/4.3-quality` | 2.3 | 🟡 |
+| **4.3** | Quality settings | `feat/4.3-quality` | 2.3 | ✅ |
 | **4.4** | Local music files (web) | `feat/4.4-local-files` | 2.2, 2.6 | 🟡 |
 | **5.1** | PWA "web applet" | `feat/5.1-pwa` | 2.5 | 🟡 |
 | **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3, 1.10 | 🟡 |
