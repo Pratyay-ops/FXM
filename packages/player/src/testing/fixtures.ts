@@ -26,16 +26,21 @@ export function testTracks(...names: string[]): Track[] {
   return names.map((name) => testTrack(name))
 }
 
-/** A progressive Opus stream at `https://media.test/<name>`. */
+/**
+ * A progressive, audio-only Opus stream at `https://media.test/<name>`, not probed for its full
+ * length (`fullLength` `unverified`).
+ */
 export function testStream(name: string, overrides: Partial<StreamOption> = {}): StreamOption {
   return {
     url: `https://media.test/${encodeURIComponent(name)}`,
     codec: 'opus',
     container: 'webm',
+    media: 'audio',
     bitrateKbps: 160,
     tier: 'high',
     protocol: 'progressive',
     ipBound: false,
+    fullLength: 'unverified',
     ...overrides,
   }
 }
