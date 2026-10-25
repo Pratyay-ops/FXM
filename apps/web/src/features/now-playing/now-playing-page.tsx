@@ -6,8 +6,8 @@ import { Link, useSearchParams } from 'react-router'
 import { Artwork } from '../../components/ui/artwork'
 import { buttonClasses } from '../../components/ui/button'
 import { PageTitle } from '../../components/ui/page'
-import { Skeleton } from '../../components/ui/skeleton'
 import { type TabItem, TabPanel, Tabs } from '../../components/ui/tabs'
+import { LyricsPanel } from '../lyrics/lyrics-panel'
 import { LikeButton, PlayerControls, SeekBar } from '../player/controls'
 import { QueuePanel } from '../queue/queue-panel'
 import { entityPath } from './browse-links'
@@ -22,22 +22,6 @@ const PANELS: readonly TabItem<Panel>[] = [
   { value: 'lyrics', label: 'Lyrics' },
   { value: 'queue', label: 'Queue' },
 ]
-
-// Unique widths double as React keys.
-const LYRIC_LINES = ['w-3/4', 'w-1/2', 'w-5/6', 'w-2/3', 'w-3/5', 'w-4/5', 'w-7/12', 'w-5/12']
-
-function LyricsPlaceholder() {
-  return (
-    <div className="space-y-5">
-      <p className="text-sm text-text-muted">Synced lyrics will scroll here as the song plays.</p>
-      <div aria-hidden="true" className="space-y-4">
-        {LYRIC_LINES.map((width) => (
-          <Skeleton key={width} className={`h-6 rounded-full md:h-7 ${width}`} />
-        ))}
-      </div>
-    </div>
-  )
-}
 
 /** The artists, each linked to its page once those exist, after the kind of a video. */
 function Byline({ track }: { track: Track }) {
@@ -201,7 +185,7 @@ export function NowPlayingPage() {
             id={tabsId}
           />
           <TabPanel id={tabsId} value={panel} className="mt-4">
-            {panel === 'lyrics' ? <LyricsPlaceholder /> : <QueuePanel />}
+            {panel === 'lyrics' ? <LyricsPanel /> : <QueuePanel />}
           </TabPanel>
         </section>
       </div>

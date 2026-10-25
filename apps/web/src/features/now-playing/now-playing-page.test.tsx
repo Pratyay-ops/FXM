@@ -3,7 +3,7 @@ import { testStream, testTrack } from '@fxm/player/testing'
 import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderApp } from '../../test/render'
-import { setupTestPlayback, spotifyTrack, testCandidate } from './testing'
+import { setupTestLyrics, setupTestPlayback, spotifyTrack, testCandidate } from './testing'
 
 /** The track column of Now playing (the player bar repeats some controls). */
 const trackRegion = () => within(screen.getByRole('region', { name: 'Track' }))
@@ -30,6 +30,7 @@ describe('now playing', () => {
 
   it('shows the track that plays, with a stream badge that opens the stream details', async () => {
     const { player } = setupTestPlayback()
+    setupTestLyrics()
     await player.setQueue([
       testTrack('Creep', { artists: [{ name: 'Radiohead' }, { name: 'Guest' }] }),
     ])
@@ -52,6 +53,7 @@ describe('now playing', () => {
 
   it('labels a video by its kind', async () => {
     const { player } = setupTestPlayback()
+    setupTestLyrics()
     // Music mode keeps an official video, to play as its song.
     await player.setQueue([testTrack('Video', { kind: 'music-video' })], { autoplay: false })
     await renderNowPlaying()
@@ -61,6 +63,7 @@ describe('now playing', () => {
 
   it('shows how sure a match is, and switches to another version', async () => {
     const { player, policy, resolver } = setupTestPlayback()
+    setupTestLyrics()
     const track = spotifyTrack('Creep')
     const match = testCandidate('match', { title: 'Creep', confidence: 0.93 })
     const acoustic = testCandidate('acoustic', { title: 'Creep (Acoustic)', confidence: 0.71 })
@@ -93,6 +96,7 @@ describe('now playing', () => {
 
   it('says when no other version is known, and offers a search', async () => {
     const { player, resolver } = setupTestPlayback()
+    setupTestLyrics()
     const track = spotifyTrack('Creep')
     resolver.handler = () => ({ stream: testStream('x'), candidate: testCandidate('match') })
     await player.setQueue([track])
@@ -106,6 +110,7 @@ describe('now playing', () => {
 
   it('asks whether a best guess is right, and approves it', async () => {
     const { player, policy } = setupTestPlayback()
+    setupTestLyrics()
     const track = spotifyTrack('Creep')
     const guess = testCandidate('guess', { confidence: 0.72 })
     await player.setQueue([track], { autoplay: false })
@@ -122,6 +127,7 @@ describe('now playing', () => {
 
   it('says why playback stopped, and tries again', async () => {
     const { player, resolver } = setupTestPlayback()
+    setupTestLyrics()
     resolver.handler = () => {
       throw new FxmError('Unsupported', 'No route to the source')
     }
@@ -140,6 +146,7 @@ describe('now playing', () => {
 
   it('names the track that couldn’t play', async () => {
     const { player, resolver } = setupTestPlayback()
+    setupTestLyrics()
     resolver.handler = () => {
       throw new FxmError('NotFound', 'Gone')
     }
@@ -151,6 +158,7 @@ describe('now playing', () => {
 
   it('switches between the lyrics and the queue', async () => {
     const { player } = setupTestPlayback()
+    setupTestLyrics()
     await player.setQueue([testTrack('Creep')], { autoplay: false })
     const { user, router } = await renderNowPlaying()
 

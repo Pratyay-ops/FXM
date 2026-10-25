@@ -1,12 +1,20 @@
 /**
- * Test helpers for the now-playing and queue features: a scriptable playback policy, the app's
- * playback with fakes, and test data. Nothing here touches the network or real audio.
+ * Test helpers for the now-playing, queue and lyrics features: a scriptable playback policy, the
+ * app's playback with fakes, and test data. Nothing here touches the network or real audio.
  *
  * @module
  */
 
-import { type AudioCandidate, formatId, type Track } from '@fxm/core'
+import {
+  type AudioCandidate,
+  formatId,
+  type Lyrics,
+  type LyricsProvider,
+  type ProviderContext,
+  type Track,
+} from '@fxm/core'
 import { FakeEngine, FakeResolver, testTrack } from '@fxm/player/testing'
+import { setLyricsProvider } from '../lyrics/lyrics-source'
 import { type AppPlayback, configurePlayback, type PlaybackOptions } from './playback'
 import type { PlaybackPolicy } from './playback-policy'
 
@@ -107,4 +115,36 @@ export function testCandidate(
     evidence: ['title 0.98', 'duration +1.0s'],
     ...overrides,
   }
+}
+
+/** Synced lyrics with one line per entry of `lines`: `[startMs, text]`. */
+export function syncedLyrics(lines: readonly (readonly [number, string])[]): Lyrics {
+  return {
+    synced: true,
+    lines: lines.map(([timeMs, text]) => ({ timeMs, text })),
+    source: 'lrclib',
+  }
+}
+
+/** A lyrics provider that answers from `handler` and records every lookup. */
+export interface FakeLyricsProvider extends LyricsProvider {
+  readonly lookups: Track[]
+  handler: (track: Track, ctx: ProviderContext) => Lyrics | null | Promise<Lyrics | null>
+}
+
+/** Makes the app's lyrics come from a fake; the test setup puts LRCLIB back after each test. */
+export function setupTestLyrics(
+  handler: FakeLyricsProvider['handler'] = () => null,
+): FakeLyricsProvider {
+  const provider: FakeLyricsProvider = {
+    id: 'lrclib',
+    lookups: [],
+    handler,
+    async getLyrics(track, ctx) {
+      provider.lookups.push(track)
+      return provider.handler(track, ctx)
+    },
+  }
+  setLyricsProvider(provider)
+  return provider
 }

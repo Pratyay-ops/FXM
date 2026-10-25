@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
+import { setLyricsProvider } from '../features/lyrics/lyrics-source'
 import { resetPlayback } from '../features/now-playing/playback'
 import { usePlayerStore } from '../features/player/player-store'
 import { useQueueReviewStore } from '../features/queue/review-store'
@@ -19,6 +20,7 @@ afterEach(() => {
   localStorage.clear()
   // After clearing storage, so the next player restores nothing.
   resetPlayback()
+  setLyricsProvider(undefined)
   usePlayerStore.setState(usePlayerStore.getInitialState(), true)
   delete document.documentElement.dataset.theme
 })
