@@ -30,7 +30,7 @@ FXM is a volunteer project, so there is no guaranteed response time. Once a repo
 
 In scope:
 
-- **The apps:** the web app and the website at `https://fxm-music.pages.dev` (they share one origin), the desktop app and the Android app.
+- **The apps:** the web app and the website at `https://fxmusic.pages.dev` (they share one origin), the desktop app and the Android app.
 - **FXM Connect,** the browser extension.
 - **Release artifacts:** every file attached to a GitHub Release, and the workflows in this repository that build and publish them.
 - The source code in this repository.
@@ -43,4 +43,4 @@ Out of scope:
 - **Limitations the READMEs already document,** such as the FXM Connect development build trusting every page on its localhost ports.
 - **Bugs that aren't security problems.** Report them on the [issue tracker](https://github.com/Pratyay-ops/FXM/issues).
 
-Test only against your own installation and accounts. Don't run load tests or automated scanners against `fxm-music.pages.dev` or the services FXM connects to.
+Test only against your own installation and accounts. Don't run load tests or automated scanners against `fxmusic.pages.dev` or the services FXM connects to.
