@@ -79,13 +79,13 @@ flowchart LR
 | Wave | Stages that can run at the same time |
 |---|---|
 | 1 (done) | 1.1 · 1.9 · 2.1 · 5.3 |
-| 2 | 1.1b first, then 1.2 · 1.3 · 1.5 · 1.6 · 1.7 · 2.2 · 2.6. 1.8 · R.1 · R.4 don't need 1.1b and can start at once |
+| 2 | 1.1b first, then 1.2 · 1.3 · 1.5 · 1.6 · 1.7 · 2.6. 1.8, 2.2 and R.1 started under revision 2 and run alongside 1.1b; 2.2 takes 1.1b's types when it rebases. R.4 needs no core types and can start at once |
 | 3 | 1.4 · 1.10 · 1.12 · 2.4 · R.2 |
 | 4 | 1.11 · 1.13 · 2.3 · 2.7 |
 | 5 | 2.5 |
 | 6 | 2.8 → **M1** |
 
-The Android lane (6.1 ✅) and the desktop lane (7.1 🟡) continue in parallel. 1.11 and 1.13 also wait for 7.1.
+The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 
 ---
 
@@ -98,21 +98,21 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 🟡) continue in parallel.
 | **0.3** | Monorepo scaffold | `chore/0.3-monorepo` | 0.2 | ✅ |
 | **0.4** | Continuous integration | `ci/0.4-ci` | 0.3 | ✅ |
 | **1.1** | Core domain model, interfaces, mode and quality policy | `feat/1.1-core-model` | 0.4 | ✅ |
-| **1.1b** | Core types from research | `feat/1.1b-core-research-types` | 1.1 | ⬜ |
+| **1.1b** | Core types from research | `feat/1.1b-core-research-types` | 1.1 | 🟡 |
 | **1.2** | Platform transports, capability detection and request budget | `feat/1.2-platform` | 1.1b | ⬜ |
 | **1.3** | YouTube Music + YouTube metadata provider | `feat/1.3-youtube` | 1.1b | ⬜ |
 | **1.4** | YouTube stream resolver: direct rungs | `feat/1.4-youtube-streams` | 1.3 | ⬜ |
 | **1.5** | Spotify provider (switchable; anonymous and logged-in tokens) | `feat/1.5-spotify` | 1.1b | ⬜ |
 | **1.6** | Free and lossless sources: Internet Archive, Jamendo, MusicBrainz | `feat/1.6-free-sources` | 1.1b | ⬜ |
 | **1.7** | Matching engine | `feat/1.7-matching` | 1.1b | ⬜ |
-| **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | ⬜ |
+| **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | 🟡 |
 | **1.9** | FXM Connect browser extension | `feat/1.9-connect-extension` | 0.4 | ✅ |
 | **1.10** | Opaque-origin transport (Lite tier) | `feat/1.10-sandbox-transport` | 1.2 | ⬜ |
 | **1.11** | YouTube resolver: deciphered, attested and SABR rungs (experimental) | `feat/1.11-youtube-advanced-rungs` | 1.2, 1.4, 1.9, 2.2, 6.1, 7.1 | ⬜ |
 | **1.12** | Matching evaluation: labelled set, report and Auto switch | `test/1.12-matching-eval` | 1.2, 1.3, 1.5, 1.6, 1.7 | ⬜ |
 | **1.13** | Signed config and resolver module | `feat/1.13-signed-updates` | 1.2, 1.3, 1.4, 7.1 | ⬜ |
 | **2.1** | Web app shell and settings | `feat/2.1-web-shell` | 0.4 | ✅ |
-| **2.2** | Player core: queue, direct audio, Media Session | `feat/2.2-player-core` | 1.1b | ⬜ |
+| **2.2** | Player core: queue, direct audio, Media Session | `feat/2.2-player-core` | 1.1b | 🟡 |
 | **2.3** | Playback policy and stream lifecycle | `feat/2.3-playback-policy` | 2.2, 1.4, 1.7 | ⬜ |
 | **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | ⬜ |
 | **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | ⬜ |
@@ -144,7 +144,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 🟡) continue in parallel.
 | **7.4** | Desktop downloads + Spotify login window | `feat/7.4-desktop-downloads` | 7.2, 4.1, 3.5 | ⬜ |
 | **7.5** | Desktop release: installers and auto-update | `ci/7.5-desktop-release` | 7.3, R.1 | ⬜ |
 | **7.6** | Desktop trust: signing and EQ path | `chore/7.6-desktop-trust` | 7.5, 1.11 | ⬜ |
-| **R.1** | Release pipeline (release PR, tags, notes, checksums, attestations) | `ci/r1-release-pipeline` | 0.4, 1.9 | ⬜ |
+| **R.1** | Release pipeline (release PR, tags, notes, checksums, attestations) | `ci/r1-release-pipeline` | 0.4, 1.9 | 🟡 |
 | **R.2** | Extension store channels: Firefox Add-ons and Edge Add-ons | `ci/r2-extension-stores` | R.1 | ⬜ |
 | **R.3** | More channels: F-Droid/IzzyOnDroid/Obtainium, Flathub, winget (Homebrew only if notarized) | `chore/r3-channels` | 6.6, 7.5 | ⬜ |
 | **R.4** | Legal notices and clean-room log | `docs/r4-legal-notices` | 0.4, 5.3 | ⬜ |
@@ -809,11 +809,11 @@ A light stage. There are no mirrors in this revision.
 
 | ID | Stage | Notes |
 |---|---|---|
-| 7.1 | Desktop shell | `scripts/install-rust.sh` (pinned and checksummed; `RUSTUP_HOME`, `CARGO_HOME` and `CARGO_TARGET_DIR` under `.tools/`); `apps/desktop/src-tauri` on Tauri 2 with the http (`unsafe-headers`), updater, single-instance, window-state and opener plugins; `make desktop-dev` and `make desktop-build`; doctor checks for Xcode CLT, MSVC + WebView2 and webkit2gtk |
+| 7.1 | Desktop shell ✅ | `make rust-setup` installs a pinned, checksum-verified rustup and the Rust release from `rust-toolchain.toml` into `.tools/` (`RUSTUP_HOME`, `CARGO_HOME`); build output stays in each checkout. `apps/desktop/src-tauri` on Tauri 2 with the http (`unsafe-headers`, no cookie jar), single-instance, window-state and opener plugins; the updater comes with 7.5. `make desktop-dev`, `desktop-build`, `desktop-dmg` and `desktop-check`; `make doctor` checks for the Xcode Command Line Tools and webkit2gtk |
 | 7.2 | Desktop native fetch | `createDesktopFetch()` with the per-host header policy: InnerTube gets `Origin: ''` or `https://www.youtube.com`, never a webview origin; headers only in `init.headers`; `scopeRedirects` on; a browser User-Agent for YouTube web endpoints and Spotify. Capability scope allow-list; user-entered hosts through a Rust command that checks the user-approved list (plugin-http scopes can't change at runtime); CSP with `media-src` googlevideo and no `'unsafe-eval'` (the evaluator is 1.11's hidden webview); server-issued visitorData. Follow plugins-workspace PR #3703 (per-URL header config), so `unsafe-headers` can be dropped later. Done when, in a hidden window on macOS, Windows and Linux, a YouTube Music search succeeds, a VISIONOS URL resolved through plugin-http passes the end-of-file probe, and that track plays to the end in the Tauri app |
 | 7.3 | Desktop playback | `<audio src>` only for URLs that passed the probe; codec per `canPlayType` (AAC on macOS before 15.4); re-resolve on 403 or after about 5 h; Media Session, a tray menu, close to tray, background throttling disabled; a WebLock workaround for hidden playback on Windows and Linux; document "Unknown app" in Windows media controls (WebView2 bug #2236). Done when three consecutive full tracks play with the window hidden on each OS, including WebView2 and WebKitGTK |
 | 7.4 | Desktop downloads + Spotify login | Downloads to disk in any format; a Spotify login window. A Rust command reads `sp_dc` from the OS keychain and returns only the token, so the cookie never reaches page JavaScript and Spotify needs no `unsafe-headers` |
-| 7.5 | Desktop release | A `tauri-action` matrix (macOS arm64 and x64, Windows, Linux x64 and arm64); ad-hoc macOS signing (no notarization under Decision 3, option B); an updater key in secrets plus `latest.json`; GStreamer dependencies for `.deb`; install docs for "Open Anyway", SmartScreen and Smart App Control. No Homebrew cask unless notarized. Windows signing through SignPath Foundation or OSSign once accepted, otherwise unsigned |
+| 7.5 | Desktop release | A `tauri-action` matrix (macOS arm64 and x64, Windows, Linux x64 and arm64); ad-hoc macOS signing (no notarization under Decision 3, option B); the updater plugin, with its key in secrets, plus `latest.json`; GStreamer dependencies for `.deb`; install docs for "Open Anyway", SmartScreen and Smart App Control. No Homebrew cask unless notarized. Windows signing through SignPath Foundation or OSSign once accepted, otherwise unsigned |
 | 7.6 | Desktop trust | Apply to SignPath Foundation and OSSign after the first public release, with Certum's open-source certificate as the paid fallback. The Microsoft Store is not a free signing route: it re-signs only MSIX, and Tauri emits MSI/NSIS. Apple notarization per Decision 3 (not now). A MediaSource path or a local stream from Rust, so the EQ can read googlevideo audio. The PO-token work moved to 1.11 |
 
 ## Phase 8: Polish (→ M7 / 1.0)
