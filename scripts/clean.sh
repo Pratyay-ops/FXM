@@ -30,7 +30,7 @@ remove_dependencies() {
 remove_android_output() {
   (cd "$1/apps" && rm -rf web/dist-mobile mobile/android/.gradle mobile/android/build \
     mobile/android/app/build mobile/android/capacitor-cordova-android-plugins/build \
-    mobile/android/app/src/main/assets/public)
+    mobile/android/fxm-http/build mobile/android/app/src/main/assets/public)
 }
 
 stop_android_processes() {
