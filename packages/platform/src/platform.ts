@@ -1,20 +1,34 @@
 /**
  * One entry point that picks the environment FXM runs in and wires its pieces together: the
- * transport, the shared request budget, FXM Connect and the Lite tier (browser only) and the
- * capability monitor.
+ * transport, the shared request budget, FXM Connect and the Lite tier (browser only), the
+ * capability monitor and the Spotify login's token source.
  *
  * @module
  */
 
-import { type CatalogMode, FxmError, type Platform, type ProviderContext } from '@fxm/core'
+import {
+  type CatalogMode,
+  FxmError,
+  isFxmError,
+  type Platform,
+  type ProviderContext,
+} from '@fxm/core'
 import { createRequestBudget, type RequestBudget, type RequestPriority } from './budget'
 import { type CapabilityMonitor, createCapabilityMonitor } from './capabilities'
 import { createCapacitorTransport } from './capacitor'
 import type { Clock } from './clock'
 import { type ConnectClient, type ConnectWindow, createConnectClient } from './connect'
-import { createLiteTier, type KillSwitches, type LiteTier, type SandboxTransport } from './lite'
+import {
+  createLiteTier,
+  type KillSwitches,
+  type KillSwitchSource,
+  type LiteTier,
+  type OnlineEvents,
+  type SandboxTransport,
+} from './lite'
 import type { NativeHttp } from './native'
 import { createNodeTransport } from './node'
+import { connectSessionSource, type SessionTokenSource } from './spotify-session'
 import { browserStorage, type KeyValueStorage, memoryStorage } from './storage'
 import { createTauriTransport } from './tauri'
 import type { Transport } from './transport'
@@ -68,12 +82,16 @@ export function detectEnvironment(global: object = globalThis): Environment {
   )
 }
 
+/** The parts of `window` the browser platform uses. */
+export type PlatformWindow = ConnectWindow &
+  OnlineEvents & { readonly localStorage?: KeyValueStorage }
+
 /** Options for {@link createPlatform}. Everything is optional; the defaults suit the app. */
 export interface PlatformOptions {
   /** The environment, when detection should be skipped (e.g. in tests). */
   environment?: Environment
   /** Browser: the page. Default: the global `window`. */
-  window?: ConnectWindow & { readonly localStorage?: KeyValueStorage }
+  window?: PlatformWindow
   /** The `fetch` to send with: the page's, the webview's or Node's. Default: the global one. */
   fetch?: typeof fetch
   /**
@@ -83,16 +101,28 @@ export interface PlatformOptions {
   storage?: KeyValueStorage
   /** Browser: the Lite tier's sandbox documents (stage 1.10). Without them there is no Lite tier. */
   sandbox?: SandboxTransport
-  /** The remote kill switches, read whenever they matter. */
-  killSwitches?: () => KillSwitches
+  /**
+   * The remote kill switches: a function read whenever they matter, or a `KillSwitchSource`
+   * (such as `createKillSwitchStore()`), whose changes update the capabilities at once.
+   */
+  killSwitches?: (() => KillSwitches) | KillSwitchSource
   /** Desktop and Android: the native HTTP of stage 7.2 or 6.2. Without it, the stub transport. */
   nativeHttp?: NativeHttp
-  /** Desktop and Android: whether a logged-in Spotify token source exists (7.4 and 6.5). */
-  nativeSpotifyLogin?: boolean
+  /**
+   * Desktop, Android and Node: the token source of the user's Spotify login (the login window's
+   * token command of stage 7.4 or 6.5). With it, Spotify is `account`. In a browser, FXM Connect's
+   * bridge is the source.
+   */
+  spotifySession?: SessionTokenSource
   /** Hosts the user added in Settings. */
   userHosts?: () => Iterable<string>
   /** Desktop, Android and Node: a browser `User-Agent` for YouTube and Spotify. */
   userAgent?: string
+  /**
+   * Whether the transport counts a `LOGIN_REQUIRED` in a `/player` answer as a bot check.
+   * Default `true` (see `TransportOptions.reportLoginRequired`).
+   */
+  reportLoginRequired?: boolean
   /** The clock, for tests. */
   clock?: Clock
 }
@@ -101,8 +131,11 @@ export interface PlatformOptions {
 export interface ContextOptions {
   /** The catalog mode. */
   mode: CatalogMode
-  /** What the provider's InnerTube calls are for. Default `interactive`. */
-  priority?: RequestPriority
+  /**
+   * What the provider's YouTube calls are for: `current-track` for playback, `prefetch` for the
+   * next tracks, `interactive` for what the user opened, `bulk` for imports and other jobs.
+   */
+  priority: RequestPriority
   /** Preferred language as a BCP 47 tag. */
   locale?: string
   /** Content region as an ISO 3166-1 alpha-2 code. */
@@ -128,11 +161,25 @@ export interface FxmPlatform {
   /** Browser: the Lite tier, when sandbox documents were given. */
   readonly lite: LiteTier | undefined
   /**
+   * The token source of the user's Spotify login, the same shape on every platform: FXM
+   * Connect's bridge in a browser, `options.spotifySession` elsewhere. `capabilities.spotify`
+   * says whether it can serve a token right now (`account`).
+   */
+  readonly spotifySession: SessionTokenSource | undefined
+  /**
    * A `ProviderContext` for one provider call, with the `fetch` for its priority and the current
    * capabilities. Build a new one per call: capabilities change over time.
    */
   context(options: ContextOptions): ProviderContext
-  /** Stops watching FXM Connect. */
+  /**
+   * Tells the platform how a provider call failed, so that a bot check a provider noticed itself
+   * pauses bulk work like the ones the transport sees: a `BotCheck` `FxmError` (a captcha or
+   * "unusual traffic" page, a bot check in an answer) is reported to the budget as
+   * `login-required`. The player and job runners pass it every error a provider call rejects
+   * with. Returns whether the error counted.
+   */
+  report(error: unknown): boolean
+  /** Stops watching FXM Connect and the Lite tier, and ends the Lite tier's retries. */
   dispose(): void
 }
 
@@ -143,10 +190,11 @@ interface Pieces {
   capabilities: CapabilityMonitor
   connect?: ConnectClient
   lite?: LiteTier
+  spotifySession?: SessionTokenSource
 }
 
 function browserPieces(options: PlatformOptions): Pieces {
-  const window = options.window ?? (globalThis as { window?: PlatformOptions['window'] }).window
+  const window = options.window ?? (globalThis as { window?: PlatformWindow }).window
   if (window === undefined) throw new FxmError('Unsupported', 'No browser window to run in')
   const clock = options.clock === undefined ? {} : { clock: options.clock }
   const storage = options.storage ?? browserStorage(window) ?? memoryStorage()
@@ -158,6 +206,8 @@ function browserPieces(options: PlatformOptions): Pieces {
       : createLiteTier({
           sandbox: options.sandbox,
           budget,
+          onlineEvents: window,
+          ...clock,
           ...(options.killSwitches === undefined ? {} : { killSwitches: options.killSwitches }),
         })
   const transport = createWebTransport({
@@ -166,13 +216,23 @@ function browserPieces(options: PlatformOptions): Pieces {
     ...(lite === undefined ? {} : { lite }),
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     ...(options.userHosts === undefined ? {} : { userHosts: options.userHosts }),
+    ...(options.reportLoginRequired === undefined
+      ? {}
+      : { reportLoginRequired: options.reportLoginRequired }),
   })
   const capabilities = createCapabilityMonitor({
     platform: 'web',
     connect,
     ...(lite === undefined ? {} : { lite }),
   })
-  return { transport, budget, capabilities, connect, ...(lite === undefined ? {} : { lite }) }
+  return {
+    transport,
+    budget,
+    capabilities,
+    connect,
+    spotifySession: connectSessionSource(connect),
+    ...(lite === undefined ? {} : { lite }),
+  }
 }
 
 function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptions): Pieces {
@@ -187,6 +247,9 @@ function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptio
     ...(options.userHosts === undefined ? {} : { userHosts: options.userHosts }),
     ...(options.userAgent === undefined ? {} : { userAgent: options.userAgent }),
     ...(options.fetch === undefined ? {} : { webFetch: options.fetch }),
+    ...(options.reportLoginRequired === undefined
+      ? {}
+      : { reportLoginRequired: options.reportLoginRequired }),
   }
   const transport =
     environment === 'tauri'
@@ -195,9 +258,14 @@ function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptio
   const capabilities = createCapabilityMonitor({
     platform: ENVIRONMENT_PLATFORMS[environment],
     nativeTransport: options.nativeHttp !== undefined,
-    nativeSpotifyLogin: options.nativeSpotifyLogin === true,
+    nativeSpotifyLogin: options.spotifySession !== undefined,
   })
-  return { transport, budget, capabilities }
+  return {
+    transport,
+    budget,
+    capabilities,
+    ...(options.spotifySession === undefined ? {} : { spotifySession: options.spotifySession }),
+  }
 }
 
 function nodePieces(options: PlatformOptions): Pieces {
@@ -210,25 +278,36 @@ function nodePieces(options: PlatformOptions): Pieces {
     ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
     ...(options.userHosts === undefined ? {} : { userHosts: options.userHosts }),
     ...(options.userAgent === undefined ? {} : { userAgent: options.userAgent }),
+    ...(options.reportLoginRequired === undefined
+      ? {}
+      : { reportLoginRequired: options.reportLoginRequired }),
   })
   const capabilities = createCapabilityMonitor({
     platform: 'desktop',
     nativeTransport: true,
-    nativeSpotifyLogin: options.nativeSpotifyLogin === true,
+    nativeSpotifyLogin: options.spotifySession !== undefined,
   })
-  return { transport, budget, capabilities }
+  return {
+    transport,
+    budget,
+    capabilities,
+    ...(options.spotifySession === undefined ? {} : { spotifySession: options.spotifySession }),
+  }
 }
 
 /**
- * Creates the platform for the environment FXM runs in (or `options.environment`) and resolves
- * once the first capability detection is done, so `capabilities.current` is meaningful:
+ * Creates the platform for the environment FXM runs in (or `options.environment`):
  *
  * - **browser:** the web transport with FXM Connect and, given `sandbox`, the Lite tier;
  * - **tauri** and **capacitor:** the native transport given `nativeHttp`, else the stub that
  *   reaches only CORS-friendly hosts;
  * - **node:** the Node transport, with full access.
  *
- * Every environment has one request budget, which every InnerTube call draws from.
+ * It resolves once FXM Connect detection is done (at most its 800 ms ping), so
+ * `capabilities.current` already shows the Full tier. The Lite self-test, which needs a round
+ * trip to YouTube, runs in the background when it can help: `capabilities.subscribe` reports
+ * `youtube: 'simple'` once it passes. Every environment has one request budget, which every
+ * request to a YouTube API host draws from.
  */
 export async function createPlatform(options: PlatformOptions = {}): Promise<FxmPlatform> {
   const environment = options.environment ?? detectEnvironment()
@@ -239,8 +318,8 @@ export async function createPlatform(options: PlatformOptions = {}): Promise<Fxm
       : environment === 'node'
         ? nodePieces(options)
         : nativePieces(environment, options)
-  const { transport, budget, capabilities, connect, lite } = pieces
-  await capabilities.refresh()
+  const { transport, budget, capabilities, connect, lite, spotifySession } = pieces
+  await capabilities.refresh({ waitForLite: false })
 
   return {
     environment,
@@ -250,8 +329,9 @@ export async function createPlatform(options: PlatformOptions = {}): Promise<Fxm
     capabilities,
     connect,
     lite,
+    spotifySession,
     context(contextOptions) {
-      const { mode, priority = 'interactive', locale, region, signal } = contextOptions
+      const { mode, priority, locale, region, signal } = contextOptions
       return {
         fetch: transport.withPriority(priority),
         platform,
@@ -262,8 +342,14 @@ export async function createPlatform(options: PlatformOptions = {}): Promise<Fxm
         ...(signal === undefined ? {} : { signal }),
       }
     },
+    report(error) {
+      if (!isFxmError(error, 'BotCheck')) return false
+      budget.reportBotCheck('login-required')
+      return true
+    },
     dispose() {
       capabilities.dispose()
+      lite?.dispose()
       connect?.dispose()
     },
   }

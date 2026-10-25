@@ -13,7 +13,13 @@ import {
   type ConnectWindow,
   createConnectClient,
 } from './connect'
-import { createLiteTier, type KillSwitches } from './lite'
+import {
+  createKillSwitchStore,
+  createLiteTier,
+  type KillSwitches,
+  type SandboxTransport,
+  type SelfTestResult,
+} from './lite'
 import { memoryStorage } from './storage'
 import { FAKE_CONNECT_FEATURES, installFakeConnect } from './testing/fake-connect'
 import { createFakeSandbox } from './testing/fake-sandbox'
@@ -158,7 +164,7 @@ describe('detectCapabilities', () => {
   it('reports no YouTube when the self-test fails or the kill switch is on', async () => {
     const failing = await detectCapabilities({
       platform: 'web',
-      lite: createLiteTier({ sandbox: createFakeSandbox({ selfTest: false }) }),
+      lite: createLiteTier({ sandbox: createFakeSandbox({ selfTest: 'refused' }) }),
     })
     expect(failing.youtube).toBe('none')
     const killed = await detectCapabilities({
@@ -235,10 +241,10 @@ describe('createCapabilityMonitor', () => {
 
   it('lets the newest evaluation win', async () => {
     const connect = stubConnect({ state: 'absent', features: [] })
-    let releaseSelfTest: (pass: boolean) => void = () => {}
+    let releaseSelfTest: (result: SelfTestResult) => void = () => {}
     const sandbox = createFakeSandbox({
       selfTest: () =>
-        new Promise<boolean>((resolve) => {
+        new Promise<SelfTestResult>((resolve) => {
           releaseSelfTest = resolve
         }),
     })
@@ -251,9 +257,75 @@ describe('createCapabilityMonitor', () => {
     await vi.waitFor(() => expect(sandbox.selfTests).toBe(1), PATIENCE)
     connect.set(present())
     await vi.waitFor(() => expect(monitor.current.youtube).toBe('full'), PATIENCE)
-    releaseSelfTest(true)
+    releaseSelfTest('pass')
     await expect(refresh).resolves.toMatchObject({ youtube: 'full' })
     expect(monitor.current.youtube).toBe('full')
+  })
+
+  it('can leave the Lite self-test to the background, and reports its result when it ends', async () => {
+    let release: (result: SelfTestResult) => void = () => {}
+    const sandbox: SandboxTransport = {
+      selfTest: () =>
+        new Promise<SelfTestResult>((resolve) => {
+          release = resolve
+        }),
+      innerTube: async () => Response.json({}),
+    }
+    const connect = stubConnect({ state: 'absent', features: [] })
+    const lite = createLiteTier({ sandbox })
+    const monitor = createCapabilityMonitor({ platform: 'web', connect: connect.client, lite })
+    const seen: string[] = []
+    monitor.subscribe((capabilities) => seen.push(capabilities.youtube))
+    await expect(monitor.refresh({ waitForLite: false })).resolves.toEqual(NONE)
+    expect(lite.state).toBe('checking')
+    release('pass')
+    await vi.waitFor(() => expect(monitor.current.youtube).toBe('simple'), PATIENCE)
+    expect(seen).toEqual(['simple'])
+    monitor.dispose()
+  })
+
+  it('shares a refresh only among callers that wait the same way', async () => {
+    const monitor = createCapabilityMonitor({
+      platform: 'web',
+      lite: createLiteTier({ sandbox: createFakeSandbox() }),
+    })
+    const waiting = monitor.refresh()
+    const background = monitor.refresh({ waitForLite: false })
+    expect(monitor.refresh({ waitForLite: true })).toBe(waiting)
+    expect(monitor.refresh({ waitForLite: false })).toBe(background)
+    expect(background).not.toBe(waiting)
+    await expect(waiting).resolves.toMatchObject({ youtube: 'simple' })
+    await background
+  })
+
+  it('follows a kill switch source without a refresh', async () => {
+    const store = createKillSwitchStore()
+    const sandbox = createFakeSandbox()
+    const monitor = createCapabilityMonitor({
+      platform: 'web',
+      lite: createLiteTier({ sandbox, killSwitches: store }),
+    })
+    expect((await monitor.refresh()).youtube).toBe('simple')
+    store.set({ lite: true })
+    await vi.waitFor(() => expect(monitor.current.youtube).toBe('none'), PATIENCE)
+    store.set({})
+    await vi.waitFor(() => expect(monitor.current.youtube).toBe('simple'), PATIENCE)
+    expect(sandbox.selfTests).toBe(1)
+    monitor.dispose()
+  })
+
+  it('runs the self-test once the kill switch that held it is lifted', async () => {
+    const store = createKillSwitchStore({ lite: true })
+    const sandbox = createFakeSandbox()
+    const monitor = createCapabilityMonitor({
+      platform: 'web',
+      lite: createLiteTier({ sandbox, killSwitches: store }),
+    })
+    expect((await monitor.refresh()).youtube).toBe('none')
+    expect(sandbox.selfTests).toBe(0)
+    store.set({})
+    await vi.waitFor(() => expect(monitor.current.youtube).toBe('simple'), PATIENCE)
+    expect(sandbox.selfTests).toBe(1)
   })
 
   it('picks up a changed kill switch on refresh', async () => {
@@ -280,6 +352,7 @@ describe('createCapabilityMonitor', () => {
     unsubscribe()
     monitor.dispose()
     expect(connect.listeners.size).toBe(0)
+    monitor.dispose()
     connect.set({ state: 'absent', features: [] })
     await monitor.refresh()
     expect(monitor.current.youtube).toBe('full')
