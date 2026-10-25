@@ -1,13 +1,31 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
+const local = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 
 describe('the Android project', () => {
   it('compiles against the SDK platform that make android-setup installs', () => {
     const compileSdk = /compileSdkVersion = (\d+)/.exec(read('android/variables.gradle'))?.[1]
     expect(compileSdk).toBeDefined()
     expect(read('../../scripts/android-setup.sh')).toContain(`\nSDK_PLATFORM=${compileSdk}\n`)
+  })
+
+  it('builds the installed @capacitor/android', () => {
+    // `cap sync` (make apk) and `cap update` write the path into pnpm's store, which names the
+    // Capacitor versions, so the committed file goes stale when Capacitor is upgraded.
+    const settings = read('android/capacitor.settings.gradle')
+    const project = /^project\(':capacitor-android'\)\.projectDir = new File\('(.+)'\)$/m
+    const dir = project.exec(settings)?.[1]
+    expect(dir).toBeDefined()
+    const committed = resolve(local('android'), dir ?? '', '..')
+    expect(
+      existsSync(committed) ? realpathSync(committed) : committed,
+      'Run `scripts/run.sh pnpm --filter @fxm/mobile cap update android` and commit ' +
+        'android/capacitor.settings.gradle',
+    ).toBe(realpathSync(local('node_modules/@capacitor/android')))
   })
 
   it('verifies the Gradle distribution that the wrapper downloads', () => {

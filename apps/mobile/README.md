@@ -75,5 +75,5 @@ scripts/run.sh pnpm --filter @fxm/mobile icons
    scripts/run.sh pnpm --filter @fxm/mobile add @capacitor/core@^X.Y.Z @capacitor/android@^X.Y.Z
    scripts/run.sh pnpm --filter @fxm/mobile add -D @capacitor/cli@^X.Y.Z
    ```
-2. Run `make apk` and commit the regenerated `android/capacitor.settings.gradle`, which points into pnpm's store by version, and `android/app/capacitor.build.gradle`.
+2. Run `make apk` and commit the regenerated `android/capacitor.settings.gradle`, which points into pnpm's store by version, and `android/app/capacitor.build.gradle`. Without the Android tools, `scripts/run.sh pnpm --filter @fxm/mobile cap update android` regenerates them too. `make test` fails until they are regenerated, and the Android workflow until they are committed.
 3. For a new major version, follow Capacitor's upgrade guide. Compare `android/` with the template in `node_modules/@capacitor/cli/assets/android-template.tar.gz`, and move `SDK_PLATFORM` and `SDK_BUILD_TOOLS` in `scripts/android-setup.sh` along with the new SDK levels. A test fails while the platform differs.

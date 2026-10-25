@@ -90,6 +90,17 @@ jobs:
       - name: Build the debug APK
         run: make apk
 
+      # cap sync rewrites capacitor.settings.gradle with a path into pnpm's store that names the
+      # Capacitor version, so after an upgrade the committed file is stale until it is regenerated.
+      - name: Check that the build left the committed Android project unchanged
+        run: |
+          if [ -n "$(git status --porcelain -- apps/mobile/android)" ]; then
+            git status --short -- apps/mobile/android
+            git --no-pager diff -- apps/mobile/android
+            echo "::error::make apk changed apps/mobile/android. Run make apk and commit what it regenerated."
+            exit 1
+          fi
+
       # Gradle's lock and garbage-collection state must not go into the cache.
       - name: Prepare the Gradle home for caching
         run: rm -f .tools/gradle/caches/modules-2/modules-2.lock .tools/gradle/caches/modules-2/gc.properties
