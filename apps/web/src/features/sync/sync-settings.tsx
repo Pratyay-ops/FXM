@@ -365,8 +365,8 @@ function Connected() {
         labelId={autoLabel}
         help={
           <p id={autoHelp}>
-            After you change your library, when you come back to FXM and every few minutes. Plays
-            sync less often, to save data.
+            After you change your library, when you come back to FXM, and every 15 minutes while it
+            is open. New plays sync less often, to save data.
           </p>
         }
       >

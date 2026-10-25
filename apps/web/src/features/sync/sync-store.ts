@@ -53,7 +53,7 @@ export interface SyncConfig {
   gistId?: string | undefined
   /** The sync gist's page. */
   gistUrl?: string | undefined
-  /** Whether this device syncs by itself (after changes, on return, every few minutes). */
+  /** Whether this device syncs by itself (after changes, on return, every 15 minutes). */
   auto: boolean
   /** When the last sync succeeded. */
   lastSyncAt?: number | undefined
