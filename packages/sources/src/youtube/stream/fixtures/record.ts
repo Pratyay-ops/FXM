@@ -9,11 +9,10 @@
 
 import type { ProviderContext } from '@fxm/core'
 import { at } from '../../json'
-import { toSimpleInnerTubeRequest } from '../../request'
 import type { YouTubeSession } from '../../session'
 import { UNMETERED_STREAM_BUDGET } from '../budget'
 import { BUNDLED_STREAM_CONFIG, type StreamClientConfig } from '../config'
-import { callPlayer, playerPayload, STREAM_LANGUAGE } from '../player'
+import { callPlayer, playerRequest } from '../player'
 import { sanitizePlayerResponse } from './sanitize'
 import { VIDEOS } from './testing'
 
@@ -60,12 +59,7 @@ async function withoutVisitorData(
   session: YouTubeSession,
   recording: PlayerRecording,
 ): Promise<unknown> {
-  const client = clientOf(recording.rung)
-  const request = toSimpleInnerTubeRequest(
-    `https://${client.host}/youtubei/v1/player`,
-    JSON.stringify(playerPayload(client, recording.videoId)),
-    { config: { ...session.config, defaultHost: client.host }, hl: STREAM_LANGUAGE },
-  )
+  const request = playerRequest(clientOf(recording.rung), recording.videoId, { session })
   const response = await ctx.fetch(request.url, request.init)
   return JSON.parse(await response.text()) as unknown
 }

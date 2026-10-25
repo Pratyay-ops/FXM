@@ -91,6 +91,7 @@
         "id": "android-muxed",
         "kind": "direct",
         "enabled": true,
+        "fallback": true,
         "client": { "name": "ANDROID", "version": "21.26.364", "host": "www.youtube.com" },
         "itags": [18],
         "tries": ["made-for-kids"]

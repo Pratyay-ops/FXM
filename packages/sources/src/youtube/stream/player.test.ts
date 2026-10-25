@@ -12,7 +12,8 @@ import {
   SIMPLE,
 } from '../fixtures/testing'
 import { createYouTubeSession } from '../session'
-import { BUNDLED_STREAM_CONFIG, type StreamRungConfig } from './config'
+import type { StreamBudget } from './budget'
+import { BUNDLED_STREAM_CONFIG, type StreamClientConfig, type StreamRungConfig } from './config'
 import { fakeStreamBudget, onPlayer, onPriming, PLAYER_FIXTURES, VIDEOS } from './fixtures/testing'
 import { callPlayer, playerPayload, STREAM_LANGUAGE } from './player'
 
@@ -81,7 +82,49 @@ describe('a /player call', () => {
       osName: 'iOS',
       osVersion: '16.7.7.20H330',
     })
-    expect(playerPayload(IOS.client, VIDEOS.song)).toMatchObject({ videoId: VIDEOS.song })
+    expect(playerPayload(VIDEOS.song)).toEqual({
+      videoId: VIDEOS.song,
+      contentCheckOk: true,
+      racyCheckOk: true,
+    })
+  })
+
+  it('keeps a stream client that shares its name with a metadata client as the config has it', async () => {
+    // WEB_REMIX is also the metadata config's YouTube Music client, at another version and host.
+    const client: StreamClientConfig = {
+      name: 'WEB_REMIX',
+      version: '9.99',
+      host: 'www.youtube.com',
+      fields: { osName: 'Windows' },
+    }
+    const { ctx, options, requests } = setup([
+      onSwJsData(),
+      onPlayer('WEB_REMIX', VIDEOS.song, PLAYER_FIXTURES['visionos-song']),
+    ])
+    await callPlayer(ctx, client, VIDEOS.song, options)
+    const player = requests[1]
+    expect(player?.url.href).toBe('https://www.youtube.com/youtubei/v1/player?prettyPrint=false')
+    expect(player?.body.context).toMatchObject({
+      client: { clientName: 'WEB_REMIX', clientVersion: '9.99', osName: 'Windows' },
+    })
+  })
+
+  it('adds the fields a rung kind asks for, but never a context of its own', async () => {
+    const { ctx, options, requests } = setup([
+      onSwJsData(),
+      onPlayer('VISIONOS', VIDEOS.song, PLAYER_FIXTURES['visionos-song']),
+    ])
+    const payload = {
+      playbackContext: { contentPlaybackContext: { signatureTimestamp: 20_000 } },
+      context: { client: { clientName: 'EVIL' } },
+      videoId: 'someOtherId',
+    }
+    await callPlayer(ctx, VISIONOS.client, VIDEOS.song, { ...options, payload })
+    expect(requests[1]?.body).toMatchObject({
+      playbackContext: { contentPlaybackContext: { signatureTimestamp: 20_000 } },
+      videoId: VIDEOS.song,
+      context: { client: { clientName: 'VISIONOS' } },
+    })
   })
 
   it('asks YouTube for a visitorData first in the Lite tier, never sending a /player without', async () => {
@@ -183,7 +226,7 @@ describe('a /player call', () => {
     }
   })
 
-  it("stops before sending when the budget refuses, and frees the session's lease", async () => {
+  it('stops before any request when the budget refuses', async () => {
     const refusal = new FxmError('RateLimited', 'The budget is used up', { retryAfterMs: 1000 })
     const fake = fakeInnerTube(
       onSwJsData(),
@@ -196,9 +239,40 @@ describe('a /player call', () => {
     await expect(
       callPlayer(ctx, VISIONOS.client, VIDEOS.song, { ...options, budget: refused.budget }),
     ).rejects.toBe(refusal)
-    expect(fake.requests.map((request) => request.url.pathname)).toEqual(['/sw.js_data'])
+    expect(fake.requests).toEqual([])
     const { budget } = fakeStreamBudget()
     await callPlayer(ctx, VISIONOS.client, VIDEOS.song, { ...options, budget })
-    expect(fake.requests).toHaveLength(2)
+    expect(fake.requests.map((request) => request.url.pathname)).toEqual([
+      '/sw.js_data',
+      '/youtubei/v1/player',
+    ])
+  })
+
+  it("never waits for the budget while it holds the session's first lease", async () => {
+    // A Lite session without a visitorData: its first call asks YouTube for one, and every other
+    // InnerTube call waits for that answer. A bulk call whose slot never comes (a bot-check
+    // pause) must not hold back the track that is about to play.
+    const budget: StreamBudget = {
+      acquire: (priority) =>
+        priority === 'bulk' ? new Promise<void>(() => {}) : Promise.resolve(),
+      reportBotCheck: () => {},
+    }
+    const fake = fakeInnerTube(
+      onPriming(ISSUED),
+      onPlayer('VISIONOS', VIDEOS.song, PLAYER_FIXTURES['visionos-song']),
+    )
+    const session = createYouTubeSession()
+    const ctx = context(fake.fetch, { capabilities: SIMPLE })
+    const base = { session, budget, timeoutMs: 1000 }
+    void callPlayer(ctx, VISIONOS.client, VIDEOS.song, { ...base, priority: 'bulk' })
+    const answer = await callPlayer(ctx, VISIONOS.client, VIDEOS.song, {
+      ...base,
+      priority: 'current-track',
+    })
+    expect('json' in answer).toBe(true)
+    expect(fake.requests.map((request) => request.url.pathname)).toEqual([
+      '/youtubei/v1/music/get_search_suggestions',
+      '/youtubei/v1/player',
+    ])
   })
 })

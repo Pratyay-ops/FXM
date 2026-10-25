@@ -80,6 +80,42 @@ describe('reading a /player response', () => {
     }
   })
 
+  it("reads a past stream's own reasons before calling it live", () => {
+    const ended = PLAYER_FIXTURES['visionos-live-ended']
+    const country = { reason: 'The uploader has not made this video available in your country' }
+    const kids = { reason: 'This video is not available' }
+    // As a recording that YouTube no longer serves from the live DVR, and as one it still does.
+    for (const details of [{ isPostLiveDvr: false }, {}]) {
+      expect(classifyPlayability(changed(ended, country, details), VIDEOS.liveEnded)).toMatchObject(
+        { kind: 'geo-blocked' },
+      )
+      expect(classifyPlayability(changed(ended, kids, details), VIDEOS.liveEnded)).toMatchObject({
+        kind: 'unavailable',
+        state: 'made-for-kids',
+      })
+    }
+    // A recording that can't play for another reason may play on another client.
+    const paid = { reason: 'This video requires payment to watch' }
+    expect(
+      classifyPlayability(changed(ended, paid, { isPostLiveDvr: false }), VIDEOS.liveEnded),
+    ).toMatchObject({ kind: 'unplayable' })
+    // Without the DVR flag, the reason says the recording is missing.
+    expect(
+      classifyPlayability(changed(ended, {}, { isPostLiveDvr: false }), VIDEOS.liveEnded),
+    ).toMatchObject({ kind: 'unavailable', state: 'live' })
+    // A stream that has just ended and still plays from the DVR has no fixed file yet.
+    const dvr = changed(
+      PLAYER_FIXTURES['visionos-live'],
+      {},
+      { isLive: false, isPostLiveDvr: true },
+    )
+    expect(classifyPlayability(dvr, VIDEOS.live)).toMatchObject({
+      kind: 'unavailable',
+      state: 'live',
+      status: 'OK',
+    })
+  })
+
   // No upcoming premiere could be found to record on 2026-10-26, so these change the recorded
   // scheduled stream in the two ways a premiere differs from it: it is not live content, and
   // YouTube's texts call it a premiere.
@@ -170,6 +206,7 @@ describe('reading a /player response', () => {
 describe('the unplayable error', () => {
   it('is an FxmError with its labelled state and YouTube status', () => {
     const error = new YouTubeUnplayableError('Unavailable', 'age-restricted', {
+      videoId: VIDEOS.age,
       state: 'age-restricted',
       status: 'LOGIN_REQUIRED',
       reason: 'Sign in to confirm your age',
@@ -178,7 +215,36 @@ describe('the unplayable error', () => {
     expect(error).toBeInstanceOf(FxmError)
     expect(error.name).toBe('FxmError')
     expect(error.status).toBe('LOGIN_REQUIRED')
+    expect(error.videoId).toBe(VIDEOS.age)
     expect(unavailableStateOf(error)).toBe('age-restricted')
+  })
+
+  // The shape stage 2.3's `playabilityVerdictOf` reads from an error's cause, for Smart Replace.
+  it('carries a playability verdict on the video as its cause', () => {
+    const age = new YouTubeUnplayableError('Unavailable', 'x', {
+      videoId: VIDEOS.age,
+      state: 'age-restricted',
+      status: 'LOGIN_REQUIRED',
+      reason: 'Sign in to confirm your age',
+    })
+    expect(age.cause).toEqual({
+      type: 'playability',
+      source: 'ytm',
+      ref: VIDEOS.age,
+      status: 'UNPLAYABLE',
+      reason: 'Sign in to confirm your age',
+    })
+    const removed = new YouTubeUnplayableError('NotFound', 'x', {
+      videoId: VIDEOS.kids,
+      status: 'ERROR',
+      reason: '',
+    })
+    expect(removed.cause).toEqual({
+      type: 'playability',
+      source: 'ytm',
+      ref: VIDEOS.kids,
+      status: 'ERROR',
+    })
   })
 
   it('reads a state from errors of another copy of the module, and nothing from others', () => {

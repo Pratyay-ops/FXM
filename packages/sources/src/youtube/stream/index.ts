@@ -22,16 +22,20 @@ export {
 } from './budget'
 export {
   BUNDLED_STREAM_CONFIG,
+  BUNDLED_YOUTUBE_CONFIGS,
+  invalidStreamConfig,
   parseStreamConfig,
-  pickStreamConfig,
+  pickYouTubeConfigs,
   STREAM_CLIENT_FIELDS,
-  STREAM_RUNG_KINDS,
   type StreamClientConfig,
   type StreamClientField,
   type StreamConfig,
-  type StreamConfigChoice,
+  type StreamConfigOptions,
   type StreamRungConfig,
-  type StreamRungKind,
+  type StreamRungKindParser,
+  type StreamRungRequirements,
+  type YouTubeConfigs,
+  type YouTubeConfigsChoice,
 } from './config'
 export { isYouTubeStreamOption, type YouTubeStreamOption } from './formats'
 export type {
@@ -40,6 +44,7 @@ export type {
   RungHealth,
   RungHealthStore,
 } from './health'
+export { DIRECT_RUNGS, type RungTools, type StreamRungKind } from './kinds'
 export {
   classifyPlayability,
   type Playability,
@@ -47,12 +52,18 @@ export {
   type UnavailableState,
   type UnplayableDetails,
   unavailableStateOf,
+  type YouTubePlayabilityVerdict,
   YouTubeUnplayableError,
 } from './playability'
+export type { PlayerAnswer, PlayerCallOptions } from './player'
 export { PROBE_BYTES, type ProbeResult, probeEndOfFile } from './probe'
 export {
   createYouTubeAudioSource,
+  type PlaybackFailureReason,
+  type ProbeMode,
+  type YouTubeAudioSessionOptions,
   type YouTubeAudioSource,
   type YouTubeAudioSourceOptions,
   type YouTubeResolveOptions,
+  type YouTubeStreamSourceOptions,
 } from './resolver'

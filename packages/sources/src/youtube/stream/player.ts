@@ -7,7 +7,9 @@
  * adapter treats every `LOGIN_REQUIRED` as a bot check and drops the visitorData each time,
  * while the ladder must tell an age gate from a bot check, refresh the visitorData only once per
  * resolution, and send each stream client's own fields. The request itself is built by the same
- * `toSimpleInnerTubeRequest` as every other InnerTube call.
+ * `toSimpleInnerTubeRequest` as every other InnerTube call, with the stream client named
+ * explicitly, so that a stream client that shares its name with a metadata client (`WEB_REMIX`,
+ * `WEB`) keeps its own version, host and fields.
  *
  * @module
  */
@@ -36,8 +38,16 @@ export interface PlayerCallOptions {
   readonly budget: StreamBudget
   /** What the call is for. */
   readonly priority: StreamRequestPriority
-  /** How long one request may take, in milliseconds. */
+  /**
+   * How long one request may take, in milliseconds: the `/player` call, and the call that asks
+   * YouTube for a visitorData first in the Lite tier.
+   */
   readonly timeoutMs: number
+  /**
+   * Fields to add to the `/player` payload, e.g. a `playbackContext` (stage 1.11). They can't
+   * replace `context`, which the request shape writes, or `videoId`.
+   */
+  readonly payload?: JsonRecord
 }
 
 /** The outcome of one `/player` call. */
@@ -47,17 +57,60 @@ export type PlayerAnswer =
   /** YouTube answered with a bot check page or status instead of JSON. */
   | { readonly botCheck: string; readonly sentVisitorData: boolean }
 
-/** The body of a `/player` call for `videoId` as `client`. */
-export function playerPayload(client: StreamClientConfig, videoId: string): JsonRecord {
+/** The payload of a `/player` call for `videoId`, before the request shape adds `context`. */
+export function playerPayload(videoId: string, extra: JsonRecord = {}): JsonRecord {
   return {
-    context: {
-      client: { clientName: client.name, clientVersion: client.version, ...client.fields },
-    },
+    ...extra,
     videoId,
     // The answers the official clients send once the user has accepted a content warning.
     contentCheckOk: true,
     racyCheckOk: true,
   }
+}
+
+/** What {@link playerRequest} needs besides the client and the video. */
+export interface PlayerRequestOptions {
+  /** The session's config, for the request shape. */
+  readonly session: YouTubeSession
+  /** The visitorData to send, if there is one. */
+  readonly visitorData?: string
+  /** The `gl` to send; none lets YouTube use the IP address's region. */
+  readonly gl?: string
+  /** Fields to add to the payload (see {@link PlayerCallOptions.payload}). */
+  readonly payload?: JsonRecord
+}
+
+/**
+ * A `/player` request for `videoId` as `client`, in the CORS-simple shape: the client's name,
+ * version and host as the stream config has them, its own fields (such as IOS's device
+ * fields), `hl=en`, and `gl` and the visitorData when given.
+ */
+export function playerRequest(
+  client: StreamClientConfig,
+  videoId: string,
+  options: PlayerRequestOptions,
+): SimpleInnerTubeRequest {
+  const request = toSimpleInnerTubeRequest(
+    `https://${client.host}/youtubei/v1/player`,
+    JSON.stringify(playerPayload(videoId, options.payload)),
+    {
+      config: options.session.config,
+      client: { name: client.name, version: client.version, host: client.host },
+      hl: STREAM_LANGUAGE,
+      ...(options.gl === undefined ? {} : { gl: options.gl }),
+      ...(options.visitorData === undefined ? {} : { visitorData: options.visitorData }),
+    },
+  )
+  // The request shape writes only the name and version of a client it is given. The stream
+  // client's own fields go next to them: the config allows only `STREAM_CLIENT_FIELDS`, so they
+  // can't replace the name, version, language, region or visitorData.
+  const context = asRecord(request.body.context) ?? {}
+  const { clientName, clientVersion, ...rest } = asRecord(context.client) ?? {}
+  const body: JsonRecord = {
+    ...request.body,
+    context: { ...context, client: { clientName, clientVersion, ...client.fields, ...rest } },
+  }
+  return { ...request, body, init: { ...request.init, body: JSON.stringify(body) } }
 }
 
 /**
@@ -113,12 +166,18 @@ function regionOf(ctx: ProviderContext): { gl?: string } {
   return gl === undefined ? {} : { gl }
 }
 
+/** Takes a slot from the budget for the next InnerTube call. */
+function acquire(ctx: ProviderContext, options: PlayerCallOptions): Promise<void> {
+  return options.budget.acquire(options.priority, ctx.signal ? { signal: ctx.signal } : {})
+}
+
 /**
  * Spends a lease without a visitorData, the one that asks YouTube for one, on the lightest
  * call that gets one issued: empty search suggestions. VISIONOS answers a `/player` call
  * without a visitorData with a bot check (measured 2026-10-26), so in the Lite tier, where
- * `sw.js_data` can't be read, the first stream call of a session needs this. A bot check here
- * is reported to the budget and thrown: no rung would fare better.
+ * `sw.js_data` can't be read, the first stream call of a session needs this. The caller has
+ * taken the budget's slot for it already. A bot check here is reported to the budget and
+ * thrown: no rung would fare better.
  */
 async function primeVisitorData(
   ctx: ProviderContext,
@@ -127,7 +186,6 @@ async function primeVisitorData(
 ): Promise<void> {
   let issued: unknown
   try {
-    await options.budget.acquire(options.priority, ctx.signal ? { signal: ctx.signal } : {})
     const { config } = options.session
     const music = config.clients.music
     const request = toSimpleInnerTubeRequest(
@@ -149,6 +207,11 @@ async function primeVisitorData(
  * after drawing a slot from the budget. A session without a visitorData gets one first (see
  * {@link primeVisitorData}); in the `full` tier the session reads it from `sw.js_data`.
  *
+ * Every slot is taken before the visitorData lease: a lease without a visitorData holds back
+ * every other InnerTube call of the device until its answer arrives, so waiting for the budget
+ * while holding one (a `bulk` call during a bot-check pause, say) would hold back the track
+ * that is about to play.
+ *
  * @throws FxmError for a failed request (see `../errors.ts`), except a bot check, which is
  * returned so the ladder can refresh the visitorData and go on.
  */
@@ -159,27 +222,23 @@ export async function callPlayer(
   options: PlayerCallOptions,
 ): Promise<PlayerAnswer> {
   const { session } = options
+  await acquire(ctx, options)
   let lease = await session.visitorData.lease(ctx)
   if (lease.visitorData === undefined) {
+    // The slot just taken goes to the call that asks for a visitorData; `/player` takes another.
     await primeVisitorData(ctx, lease, options)
+    await acquire(ctx, options)
     lease = await session.visitorData.lease(ctx)
   }
   const sentVisitorData = lease.visitorData !== undefined
   let issued: unknown
   try {
-    await options.budget.acquire(options.priority, ctx.signal ? { signal: ctx.signal } : {})
-    const request = toSimpleInnerTubeRequest(
-      `https://${client.host}/youtubei/v1/player`,
-      JSON.stringify(playerPayload(client, videoId)),
-      {
-        // A stream client is not one of the config's metadata clients, so the request keeps
-        // the client fields of the payload and goes to the stream client's host.
-        config: { ...session.config, defaultHost: client.host },
-        hl: STREAM_LANGUAGE,
-        ...regionOf(ctx),
-        ...(lease.visitorData === undefined ? {} : { visitorData: lease.visitorData }),
-      },
-    )
+    const request = playerRequest(client, videoId, {
+      session,
+      ...regionOf(ctx),
+      ...(lease.visitorData === undefined ? {} : { visitorData: lease.visitorData }),
+      ...(options.payload === undefined ? {} : { payload: options.payload }),
+    })
     const json = await send(ctx, request, options)
     issued = at(json, 'responseContext', 'visitorData')
     return { json, sentVisitorData }
