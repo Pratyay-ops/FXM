@@ -25,6 +25,7 @@ import {
   type MatchBand,
   type MatchSignals,
   type MatchTarget,
+  type ProbePlan,
   type ProviderContext,
   type QualityPrefs,
   type SourceId,
@@ -51,6 +52,13 @@ export interface StreamSourceRequest {
   ctx: ProviderContext
   /** The quality preferences: only a hint for ordering options of equal quality. */
   prefs: QualityPrefs
+  /**
+   * Which URLs to probe where the bytes are readable (`ctx.capabilities.mediaBytes`): those the
+   * source probes by default, or with the data saver on only the one playback would choose
+   * (stage 4.3). For a `chosen` scope, probe with `probeChosenStream` from `@fxm/core` and judge
+   * the rung by its `outcome`. Absent means `default`; sources that never probe ignore it.
+   */
+  probe?: ProbePlan
   /**
    * `top`: the whole ladder, best rung first, as `AudioSource.resolve` runs it: the options of
    * the first rung that yields a playable URL, which may be YouTube's itag 18 when the better
@@ -79,11 +87,13 @@ export interface StreamFailureReport {
  * **The YouTube ladder (1.4)** resolves `ytm` candidates: VISIONOS, then the muxed itag 18.
  * Where bytes are readable it probes the end of the file and reports `fullLength` `verified` or
  * `capped`; in the Lite tier it returns `unverified` URLs, and the lifecycle uses the media
- * element's first request as the probe. Its adapter takes the ladder's `hasFallback`, answers
- * `rung: 'fallback'` with the ladder's `rungs: 'fallback'` (itag 18 only), says which rung an
- * option came from (`rungOf`) and forwards {@link reportFailure} to `reportPlaybackFailure`.
- * The ladder's `YouTubeUnplayableError` already carries the playability verdict (`UNPLAYABLE`,
- * `ERROR`) that Smart Replace acts on, so it passes through as it is.
+ * element's first request as the probe. When `request.probe` says `chosen` (the data saver), it
+ * should probe only the URL playback would choose (`probeChosenStream`; 1.4's ladder has no mode
+ * for it yet). Its adapter takes the ladder's `hasFallback`, answers `rung: 'fallback'` with the
+ * ladder's `rungs: 'fallback'` (itag 18 only), says which rung an option came from (`rungOf`)
+ * and forwards {@link reportFailure} to `reportPlaybackFailure`. The ladder's
+ * `YouTubeUnplayableError` already carries the playability verdict (`UNPLAYABLE`, `ERROR`) that
+ * Smart Replace acts on, so it passes through as it is.
  */
 export interface StreamSource {
   /** The audio source whose candidates this resolves (`ytm` for every YouTube video). */
