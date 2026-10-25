@@ -88,16 +88,13 @@ function pageProblems(
   { allowStyleAttributes = false } = {},
 ): string[] {
   const problems: string[] = []
-  const crossOrigin = (url: string) => !url.startsWith('/') || url.startsWith('//')
-  for (const url of [...scan.scriptUrls, ...scan.modulePreloadUrls].filter(crossOrigin)) {
-    problems.push(
-      `${file} loads a script from ${url}: serve it from this site, under an absolute path`,
-    )
+  // A URL with a scheme (https:, data:) or a host (//cdn…) isn't this site's own file.
+  const elsewhere = (url: string) => /^([a-z][a-z0-9+.-]*:|\/\/)/i.test(url.trim())
+  for (const url of [...scan.scriptUrls, ...scan.modulePreloadUrls].filter(elsewhere)) {
+    problems.push(`${file} loads a script from ${url}: serve it from this site`)
   }
-  for (const url of scan.stylesheetUrls.filter(crossOrigin)) {
-    problems.push(
-      `${file} loads a stylesheet from ${url}: serve it from this site, under an absolute path`,
-    )
+  for (const url of scan.stylesheetUrls.filter(elsewhere)) {
+    problems.push(`${file} loads a stylesheet from ${url}: serve it from this site`)
   }
   if (scan.eventHandlers.length > 0) {
     problems.push(

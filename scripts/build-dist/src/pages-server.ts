@@ -156,8 +156,8 @@ if (isMain(import.meta)) {
   const args = process.argv.slice(2)
   const portFlag = args.indexOf('--port')
   const port = Number(portFlag === -1 ? (process.env.FXM_PREVIEW_PORT ?? 5800) : args[portFlag + 1])
-  const folder = args.find((arg, index) => !arg.startsWith('--') && index !== portFlag + 1)
-  const dir = resolve(folder ?? PAGES_DIR)
+  if (portFlag !== -1) args.splice(portFlag, 2)
+  const dir = resolve(args[0] ?? PAGES_DIR)
   if (!existsSync(join(dir, '_headers'))) {
     console.error(`${dir} has no _headers file: run make dist first`)
     process.exit(1)
