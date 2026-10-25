@@ -4,7 +4,7 @@
  */
 
 /** Production origin, without a trailing slash. */
-export const SITE_URL = 'https://fxm-music.pages.dev'
+export const SITE_URL = 'https://fxmusic.pages.dev'
 
 /** The web player. It is built by apps/web and served next to this site at deploy time. */
 export const APP_PATH = '/app/'

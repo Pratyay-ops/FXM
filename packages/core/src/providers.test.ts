@@ -433,6 +433,11 @@ describe('provider interfaces', () => {
 
   it('types IDs, candidates and the platform hooks', () => {
     expectTypeOf<Parameters<MetadataProvider['getAlbum']>[0]>().toEqualTypeOf<EntityId<'album'>>()
+    // A provider says when the app may call it; absent means any time.
+    expectTypeOf<MetadataProvider['requestPolicy']>().toEqualTypeOf<
+      'any' | 'explicit' | undefined
+    >()
+    expect(catalog.requestPolicy ?? 'any').toBe('any')
     expectTypeOf<AudioCandidate['confidence']>().toEqualTypeOf<number>()
     // @fxm/core loads only the ES library, so here the platform types use their fallbacks.
     // In programs with DOM, web worker or Node types they are exactly `typeof fetch` and
@@ -561,6 +566,27 @@ describe('stream options', () => {
     // @ts-expect-error every resolver says whether the file is audio or a muxed video
     const unlabelled: StreamOption = withoutMedia
     expect([unprobed.fullLength, unlabelled.media]).toEqual([undefined, undefined])
+  })
+
+  it('may say that the source forbids downloading them, which downloads filter on', () => {
+    expectTypeOf<StreamOption['downloadAllowed']>().toEqualTypeOf<boolean | undefined>()
+    const flac: StreamOption = {
+      url: 'https://example.test/track.flac',
+      codec: 'flac',
+      container: 'flac',
+      media: 'audio',
+      tier: 'lossless',
+      protocol: 'progressive',
+      ipBound: false,
+      fullLength: 'unverified',
+      downloadAllowed: false,
+    }
+    const mp3: StreamOption = { ...flac, url: 'https://example.test/track.mp3', codec: 'mp3' }
+    const { downloadAllowed: _allowed, ...allowed } = mp3
+    const options = [flac, { ...allowed, container: 'mp3' as const, tier: 'high' as const }]
+    expect(pickStream(options, 'lossless')?.url).toBe(flac.url)
+    const downloadable = options.filter((option) => option.downloadAllowed !== false)
+    expect(pickStream(downloadable, 'lossless')?.url).toBe(mp3.url)
   })
 
   it('carry the protocol data of a SABR stream as JSON', () => {

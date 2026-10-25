@@ -1,0 +1,379 @@
+{
+  "data": {
+    "searchV2": {
+      "tracksV2": {
+        "items": [
+          {
+            "item": {
+              "__typename": "TrackResponseWrapper",
+              "data": {
+                "__typename": "Track",
+                "albumOfTrack": {
+                  "coverArt": {
+                    "sources": [
+                      {
+                        "height": 300,
+                        "url": "https://i.scdn.co/image/ab67616d00001e02ec548c00d3ac2f10be73366d",
+                        "width": 300
+                      },
+                      {
+                        "height": 64,
+                        "url": "https://i.scdn.co/image/ab67616d00004851ec548c00d3ac2f10be73366d",
+                        "width": 64
+                      },
+                      {
+                        "height": 640,
+                        "url": "https://i.scdn.co/image/ab67616d0000b273ec548c00d3ac2f10be73366d",
+                        "width": 640
+                      }
+                    ]
+                  },
+                  "id": "3gBVdu4a1MMJVMy6vwPEb8",
+                  "name": "Pablo Honey",
+                  "uri": "spotify:album:3gBVdu4a1MMJVMy6vwPEb8"
+                },
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Radiohead"
+                      },
+                      "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+                    }
+                  ]
+                },
+                "contentRating": {
+                  "label": "EXPLICIT"
+                },
+                "duration": {
+                  "totalMilliseconds": 238640
+                },
+                "id": "70LcF31zb1H0PyJoS1Sx1r",
+                "trackMediaType": "AUDIO",
+                "name": "Creep",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "uri": "spotify:track:70LcF31zb1H0PyJoS1Sx1r"
+              }
+            }
+          },
+          {
+            "item": {
+              "__typename": "TrackResponseWrapper",
+              "data": {
+                "__typename": "Track",
+                "albumOfTrack": {
+                  "coverArt": {
+                    "sources": [
+                      {
+                        "height": 300,
+                        "url": "https://i.scdn.co/image/ab67616d00001e023340ec817b195f40615cc647",
+                        "width": 300
+                      },
+                      {
+                        "height": 64,
+                        "url": "https://i.scdn.co/image/ab67616d000048513340ec817b195f40615cc647",
+                        "width": 64
+                      },
+                      {
+                        "height": 640,
+                        "url": "https://i.scdn.co/image/ab67616d0000b2733340ec817b195f40615cc647",
+                        "width": 640
+                      }
+                    ]
+                  },
+                  "id": "1w1LIhUSQLKew0dYwiVX2q",
+                  "name": "Creep EP",
+                  "uri": "spotify:album:1w1LIhUSQLKew0dYwiVX2q"
+                },
+                "artists": {
+                  "items": [
+                    {
+                      "profile": {
+                        "name": "Radiohead"
+                      },
+                      "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+                    }
+                  ]
+                },
+                "contentRating": {
+                  "label": "NONE"
+                },
+                "duration": {
+                  "totalMilliseconds": 258640
+                },
+                "id": "6JpjIy1M7oxvPJ3uVdUKTe",
+                "trackMediaType": "AUDIO",
+                "name": "Creep - Acoustic",
+                "playability": {
+                  "playable": true,
+                  "reason": "PLAYABLE"
+                },
+                "uri": "spotify:track:6JpjIy1M7oxvPJ3uVdUKTe"
+              }
+            }
+          }
+        ],
+        "totalCount": 6
+      },
+      "albumsV2": {
+        "__typename": "AlbumOrPrereleasePage",
+        "items": [
+          {
+            "__typename": "AlbumResponseWrapper",
+            "data": {
+              "__typename": "Album",
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Radiohead"
+                    },
+                    "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+                  }
+                ]
+              },
+              "coverArt": {
+                "sources": [
+                  {
+                    "height": 300,
+                    "url": "https://i.scdn.co/image/ab67616d00001e0293ffc909e21de5a8d88d04ca",
+                    "width": 300
+                  },
+                  {
+                    "height": 64,
+                    "url": "https://i.scdn.co/image/ab67616d0000485193ffc909e21de5a8d88d04ca",
+                    "width": 64
+                  },
+                  {
+                    "height": 640,
+                    "url": "https://i.scdn.co/image/ab67616d0000b27393ffc909e21de5a8d88d04ca",
+                    "width": 640
+                  }
+                ]
+              },
+              "date": {
+                "year": 1992
+              },
+              "isAlbumPreRelease": false,
+              "name": "Creep",
+              "playability": {
+                "playable": true,
+                "reason": "PLAYABLE"
+              },
+              "preReleaseEndDateTime": null,
+              "type": "SINGLE",
+              "uri": "spotify:album:3RQlNKc08ikcuFmbg0luEw"
+            }
+          },
+          {
+            "__typename": "AlbumResponseWrapper",
+            "data": {
+              "__typename": "Album",
+              "artists": {
+                "items": [
+                  {
+                    "profile": {
+                      "name": "Radiohead"
+                    },
+                    "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+                  }
+                ]
+              },
+              "coverArt": {
+                "sources": [
+                  {
+                    "height": 300,
+                    "url": "https://i.scdn.co/image/ab67616d00001e023340ec817b195f40615cc647",
+                    "width": 300
+                  },
+                  {
+                    "height": 64,
+                    "url": "https://i.scdn.co/image/ab67616d000048513340ec817b195f40615cc647",
+                    "width": 64
+                  },
+                  {
+                    "height": 640,
+                    "url": "https://i.scdn.co/image/ab67616d0000b2733340ec817b195f40615cc647",
+                    "width": 640
+                  }
+                ]
+              },
+              "date": {
+                "year": 1992
+              },
+              "isAlbumPreRelease": false,
+              "name": "Creep EP",
+              "playability": {
+                "playable": true,
+                "reason": "PLAYABLE"
+              },
+              "preReleaseEndDateTime": null,
+              "type": "EP",
+              "uri": "spotify:album:1w1LIhUSQLKew0dYwiVX2q"
+            }
+          }
+        ],
+        "totalCount": 8
+      },
+      "artists": {
+        "items": [
+          {
+            "__typename": "ArtistResponseWrapper",
+            "data": {
+              "__typename": "Artist",
+              "profile": {
+                "name": "Radiohead"
+              },
+              "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb",
+              "visuals": {
+                "avatarImage": {
+                  "sources": [
+                    {
+                      "height": 640,
+                      "url": "https://i.scdn.co/image/ab6761610000e5eb959527d2fabc9c64287e57b9",
+                      "width": 640
+                    },
+                    {
+                      "height": 160,
+                      "url": "https://i.scdn.co/image/ab6761610000f178959527d2fabc9c64287e57b9",
+                      "width": 160
+                    },
+                    {
+                      "height": 320,
+                      "url": "https://i.scdn.co/image/ab67616100005174959527d2fabc9c64287e57b9",
+                      "width": 320
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "__typename": "ArtistResponseWrapper",
+            "data": {
+              "__typename": "Artist",
+              "profile": {
+                "name": "Arctic Monkeys"
+              },
+              "uri": "spotify:artist:7Ln80lUS6He07XvHI8qqHH",
+              "visuals": {
+                "avatarImage": {
+                  "sources": [
+                    {
+                      "height": 640,
+                      "url": "https://i.scdn.co/image/ab6761610000e5eb7da39dea0a72f581535fb11f",
+                      "width": 640
+                    },
+                    {
+                      "height": 160,
+                      "url": "https://i.scdn.co/image/ab6761610000f1787da39dea0a72f581535fb11f",
+                      "width": 160
+                    },
+                    {
+                      "height": 320,
+                      "url": "https://i.scdn.co/image/ab676161000051747da39dea0a72f581535fb11f",
+                      "width": 320
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ],
+        "totalCount": 5
+      },
+      "playlists": {
+        "items": [
+          {
+            "__typename": "PlaylistResponseWrapper",
+            "data": {
+              "__typename": "Playlist",
+              "description": "A playlist description written by its owner.",
+              "format": "",
+              "images": {
+                "items": [
+                  {
+                    "sources": [
+                      {
+                        "height": 640,
+                        "url": "https://mosaic.scdn.co/640/ab67616d00001e0250b0c6c0a7372ffdf0ff9bceab67616d00001e0253e9e5c11dc88c98ec415b20ab67616d00001e02ec548c00d3ac2f10be73366dab67616d00001e02f29a2f32a138c0158aea2150",
+                        "width": 640
+                      },
+                      {
+                        "height": 300,
+                        "url": "https://mosaic.scdn.co/300/ab67616d00001e0250b0c6c0a7372ffdf0ff9bceab67616d00001e0253e9e5c11dc88c98ec415b20ab67616d00001e02ec548c00d3ac2f10be73366dab67616d00001e02f29a2f32a138c0158aea2150",
+                        "width": 300
+                      },
+                      {
+                        "height": 60,
+                        "url": "https://mosaic.scdn.co/60/ab67616d00001e0250b0c6c0a7372ffdf0ff9bceab67616d00001e0253e9e5c11dc88c98ec415b20ab67616d00001e02ec548c00d3ac2f10be73366dab67616d00001e02f29a2f32a138c0158aea2150",
+                        "width": 60
+                      }
+                    ]
+                  }
+                ]
+              },
+              "name": "Creep - All Versions",
+              "ownerV2": {
+                "__typename": "UserResponseWrapper",
+                "data": {
+                  "__typename": "User",
+                  "name": "Fixture User",
+                  "uri": "spotify:user:fixture-user",
+                  "username": "fixture-user"
+                }
+              },
+              "uri": "spotify:playlist:0nOPpVkR0YREKKnKUlxgfg"
+            }
+          },
+          {
+            "__typename": "PlaylistResponseWrapper",
+            "data": {
+              "__typename": "Playlist",
+              "description": "",
+              "format": "",
+              "images": {
+                "items": [
+                  {
+                    "sources": [
+                      {
+                        "height": 640,
+                        "url": "https://mosaic.scdn.co/640/ab67616d00001e022f85b65d3ac4d3d7f806ca11ab67616d00001e025d11c2fe73a7d376d3b06107ab67616d00001e02787674b6a114f98cad6f834bab67616d00001e02cf4c6008624aaa58c5ea049a",
+                        "width": 640
+                      },
+                      {
+                        "height": 300,
+                        "url": "https://mosaic.scdn.co/300/ab67616d00001e022f85b65d3ac4d3d7f806ca11ab67616d00001e025d11c2fe73a7d376d3b06107ab67616d00001e02787674b6a114f98cad6f834bab67616d00001e02cf4c6008624aaa58c5ea049a",
+                        "width": 300
+                      },
+                      {
+                        "height": 60,
+                        "url": "https://mosaic.scdn.co/60/ab67616d00001e022f85b65d3ac4d3d7f806ca11ab67616d00001e025d11c2fe73a7d376d3b06107ab67616d00001e02787674b6a114f98cad6f834bab67616d00001e02cf4c6008624aaa58c5ea049a",
+                        "width": 60
+                      }
+                    ]
+                  }
+                ]
+              },
+              "name": "Creep – Radiohead",
+              "ownerV2": {
+                "__typename": "UserResponseWrapper",
+                "data": {
+                  "__typename": "User",
+                  "name": "Fixture User",
+                  "uri": "spotify:user:fixture-user",
+                  "username": "fixture-user"
+                }
+              },
+              "uri": "spotify:playlist:149X1k6WJ1VXDGnoMZN9PN"
+            }
+          }
+        ],
+        "totalCount": 10
+      }
+    }
+  }
+}

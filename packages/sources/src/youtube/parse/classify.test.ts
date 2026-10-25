@@ -1,6 +1,6 @@
 import { applyModeFilter, type Track, type TrackKind } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
-import { BUNDLED_YOUTUBE_CONFIG } from '../config'
+import { BUNDLED_YOUTUBE_CONFIG, labelsFor } from '../config'
 import searchVideos from '../fixtures/search-videos.json'
 import { kindOfMusicVideoType, MUSIC_VIDEO_TYPES } from './classify'
 import { mapPanelVideo, mapResponsiveItem } from './items'
@@ -58,7 +58,7 @@ function row(videoId: string, musicVideoType?: string, extra: Record<string, unk
   }
 }
 
-const ytm = { source: 'ytm' as const, config: BUNDLED_YOUTUBE_CONFIG }
+const ytm = { source: 'ytm' as const, labels: labelsFor(BUNDLED_YOUTUBE_CONFIG, 'en') }
 
 describe('classifying list items', () => {
   it('reads the type of the row it plays, wherever the row carries it', () => {

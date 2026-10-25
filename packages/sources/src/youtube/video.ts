@@ -1,6 +1,7 @@
 /**
  * The `yt` provider: plain YouTube, for Music + Video mode. Every track it lists is a `video`,
- * so Music mode hides them all.
+ * so Music mode hides them all, and its searches then answer with empty pages without asking
+ * YouTube.
  *
  * - **Search:** videos, channels (as artists) and playlists, through InnerTube's `WEB` client.
  *   Plain YouTube has no songs or albums, so those types are empty pages.
@@ -8,6 +9,7 @@
  *   InnerTube that no FXM transport reaches.
  * - **Tracks, channels and playlists:** read through YouTube Music's client, which serves every
  *   public video, channel and playlist, with plain YouTube's view on top: all videos, no albums.
+ *   In Music mode a channel or playlist still loads, with no tracks.
  *
  * @module
  */
@@ -29,12 +31,11 @@ import {
 } from '@fxm/core'
 import { type TypeSearch, YouTubeCatalog } from './catalog'
 import type { WebSearchFilter } from './config'
-import type { YouTubeProviderOptions } from './music'
 import type { Item } from './parse/items'
 import { parseWebSearch } from './parse/web'
-import { createYouTubeSession, type YouTubeSession } from './session'
+import { createYouTubeSession, type YouTubeProviderOptions, type YouTubeSession } from './session'
 
-/** Plain YouTube as a metadata provider. */
+/** Plain YouTube as a metadata provider, for Music + Video mode. */
 export interface YouTubeVideoProvider extends MetadataProvider {
   /** Always `yt`. */
   readonly id: 'yt'
@@ -46,6 +47,11 @@ export interface YouTubeVideoProvider extends MetadataProvider {
     options: PageOptions,
     ctx: ProviderContext,
   ): Promise<Page<Track>>
+  /**
+   * The description under a video, e.g. its uploader's text. `undefined` when it has none. One
+   * request.
+   */
+  getDescription(id: EntityId<'track'>, ctx: ProviderContext): Promise<string | undefined>
 }
 
 /** The plain YouTube search filter of each type it has. */
@@ -55,27 +61,37 @@ const FILTERS: Readonly<Partial<Record<SearchType, WebSearchFilter>>> = {
   playlist: 'playlists',
 }
 
-/** Creates the `yt` provider. Pass a shared `session` to use one visitorData for both. */
-export function createYouTubeProvider(options: YouTubeProviderOptions = {}): YouTubeVideoProvider {
+/**
+ * Creates the `yt` provider. Pass the device's `session` to share one visitorData with the
+ * other YouTube providers (see `createYouTubeProviders`).
+ */
+export function createYouTubeVideoProvider(
+  options: YouTubeProviderOptions = {},
+): YouTubeVideoProvider {
   const session = options.session ?? createYouTubeSession(options)
   const catalog = new YouTubeCatalog({ source: 'yt', session, videosOnly: true })
   const { config } = session
 
   const searchType: TypeSearch = (type, query, ctx, page) => {
     const filter = FILTERS[type]
-    const nothing = filter === undefined || (type === 'video' && ctx.mode === 'music')
+    // Music mode hides every plain YouTube result, and the other types have none.
+    const nothing = filter === undefined || ctx.mode === 'music'
     if (nothing || (query === '' && page.continuation === undefined)) {
       return Promise.resolve({ items: [] })
     }
     const read = async (continuation: string | undefined) => {
       const payload =
         continuation === undefined ? { query, params: config.search.web[filter] } : { continuation }
-      return parseWebSearch(await catalog.call(ctx, 'web', 'search', payload), catalog.map)
+      return parseWebSearch(await catalog.call(ctx, 'web', 'search', payload), catalog.mapOf(ctx))
     }
     const request = { type, query, ...page }
-    if (type === 'artist') return catalog.searchPage(read, (items) => artistsOf(items), request)
-    if (type === 'playlist') return catalog.searchPage(read, (items) => playlistsOf(items), request)
-    return catalog.searchPage(read, (items) => videosOf(items, ctx), request)
+    if (type === 'artist') {
+      return catalog.searchPage(read, (items) => artistsOf(items), request, ctx)
+    }
+    if (type === 'playlist') {
+      return catalog.searchPage(read, (items) => playlistsOf(items), request, ctx)
+    }
+    return catalog.searchPage(read, (items) => videosOf(items, ctx), request, ctx)
   }
 
   return {
@@ -96,9 +112,13 @@ export function createYouTubeProvider(options: YouTubeProviderOptions = {}): You
       return catalog.run(ctx, id, () => catalog.track(id, ctx))
     },
 
+    getDescription(id, ctx) {
+      return catalog.run(ctx, id, () => catalog.description(id, ctx))
+    },
+
     getAlbum(id, ctx) {
       return catalog.run(ctx, id, async () => {
-        throw new FxmError('NotFound', `Plain YouTube has no albums: ${id}`)
+        throw new FxmError('Unsupported', `Plain YouTube has no albums; ask YouTube Music: ${id}`)
       })
     },
 

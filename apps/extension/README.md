@@ -1,6 +1,6 @@
 # FXM Connect
 
-FXM Connect is the optional companion browser extension of the FXM web app (`https://fxm-music.pages.dev/app/`). It only lets the FXM web app reach music services from your own browser.
+FXM Connect is the optional companion browser extension of the FXM web app (`https://fxmusic.pages.dev/app/`). It only lets the FXM web app reach music services from your own browser.
 
 ## Why it exists
 
@@ -14,7 +14,7 @@ FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules th
 
 ## What it does
 
-1. **Header rules.** These are static rules generated from [`src/rules.ts`](src/rules.ts). Every rule only applies to requests started by an FXM page (`initiatorDomains`). Each response gets `Access-Control-Allow-Origin` set to the exact FXM origin, never `*`. Preview deployments on sub-domains such as `<hash>.fxm-music.pages.dev` are not FXM pages: the content script doesn't run there, and the rules leave their requests alone.
+1. **Header rules.** These are static rules generated from [`src/rules.ts`](src/rules.ts). Every rule only applies to requests started by an FXM page (`initiatorDomains`). Each response gets `Access-Control-Allow-Origin` set to the exact FXM origin, never `*`. Preview deployments on sub-domains such as `<hash>.fxmusic.pages.dev` are not FXM pages: the content script doesn't run there, and the rules leave their requests alone.
 
    | Service | Request change | Response change |
    |---|---|---|
@@ -42,7 +42,7 @@ The options page (click the toolbar button, or open the extension's options) sho
 |---|---|
 | `declarativeNetRequest` | Applies the static header rules in `rules.json`. FXM Connect has no `webRequest`, so it can't see or change any traffic beyond what those rules describe. |
 | `storage` | Keeps the bridge's rate-limit counter in `storage.session` (in memory, cleared when the browser closes). The Spotify toggle is in the extension's IndexedDB instead, out of content scripts' reach. |
-| `https://fxm-music.pages.dev/*` | Runs the presence content script there. Browsers also require host access to the page that starts a request before DNR may modify its headers. |
+| `https://fxmusic.pages.dev/*` | Runs the presence content script there. Browsers also require host access to the page that starts a request before DNR may modify its headers. |
 | `https://www.youtube.com/*`, `https://music.youtube.com/*`, `https://youtubei.googleapis.com/*` | YouTube and YouTube Music InnerTube API (search, browse, player data) |
 | `https://*.googlevideo.com/*` | YouTube media bytes |
 | `https://open.spotify.com/*` | Spotify web token and server time (the rules only touch `/api/token` and `/api/server-time`) |
@@ -67,7 +67,7 @@ Until FXM Connect is signed on the Chrome Web Store and AMO, install it from a G
 1. Download `fxm-connect-chromium-<version>.zip` and unzip it into a folder you keep. The browser loads the extension from there.
 2. Open `chrome://extensions` (Edge: `edge://extensions`, Brave: `brave://extensions`).
 3. Turn on **Developer mode**, click **Load unpacked** and pick the unzipped folder.
-4. Open or reload `https://fxm-music.pages.dev/app/`.
+4. Open or reload `https://fxmusic.pages.dev/app/`.
 
 To update, unzip the new release over the same folder and click the reload button on the extension's card.
 
@@ -75,7 +75,7 @@ To update, unzip the new release over the same folder and click the reload butto
 
 1. Download `fxm-connect-firefox-<version>.zip`.
 2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick the zip.
-3. Open or reload `https://fxm-music.pages.dev/app/`.
+3. Open or reload `https://fxmusic.pages.dev/app/`.
 
 Firefox removes temporary add-ons when it restarts, so repeat step 2 after a restart until FXM Connect is signed on AMO. If FXM does not detect the extension, open `about:addons` → FXM Connect → **Permissions** and allow access to the listed sites.
 
@@ -177,9 +177,9 @@ Those are Vite's default ports, so the dev build treats any app served there as 
 
 DNR matches the page that starts a request by host name only, not port, so each localhost origin gets its own static ruleset. When an FXM page opens on one of them, the background enables that origin's ruleset and disables the other, and the content script holds back its replies, the pong included, until the switch is done. So requests the app sends after the pong get the rules; requests sent earlier may not. If both are open at once, the most recently loaded one gets the CORS rules.
 
-**Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, the settings store, the rate limit, the icons and the zips. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, `clienttoken`, pathfinder, `spclient` and Last.fm. Chromium's `--host-resolver-rules` points the real host names, `fxm-music.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
+**Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, the settings store, the rate limit, the icons and the zips. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, `clienttoken`, pathfinder, `spclient` and Last.fm. Chromium's `--host-resolver-rules` points the real host names, `fxmusic.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
 
-**Keep the FXM host permissions exact.** DNR's `initiatorDomains` also matches sub-domains, so `fxm-music.pages.dev` alone would cover every preview deployment. Browsers only modify headers for a request when the extension has host access to the page that started it as well (the e2e test checks this in Chromium; MDN documents it for Firefox, and a manual run in Firefox 158 confirmed it), and FXM Connect only asks for `https://fxm-music.pages.dev/*`. Adding a pattern such as `https://*.fxm-music.pages.dev/*` would quietly widen every rule to all sub-domains; a unit test refuses it.
+**Keep the FXM host permissions exact.** DNR's `initiatorDomains` also matches sub-domains, so `fxmusic.pages.dev` alone would cover every preview deployment. Browsers only modify headers for a request when the extension has host access to the page that started it as well (the e2e test checks this in Chromium; MDN documents it for Firefox, and a manual run in Firefox 158 confirmed it), and FXM Connect only asks for `https://fxmusic.pages.dev/*`. Adding a pattern such as `https://*.fxmusic.pages.dev/*` would quietly widen every rule to all sub-domains; a unit test refuses it.
 
 **Layout.**
 

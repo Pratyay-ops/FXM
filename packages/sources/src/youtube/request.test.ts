@@ -4,7 +4,7 @@ import { BUNDLED_YOUTUBE_CONFIG } from './config'
 import searchSongs from './fixtures/search-songs.json'
 import { context, fakeInnerTube, on, onSwJsData, preflightReason, SIMPLE } from './fixtures/testing'
 import { createYouTubeMusicProvider } from './music'
-import { SIMPLE_CONTENT_TYPE, toSimpleInnerTubeRequest } from './request'
+import { namesOnlyIds, SIMPLE_CONTENT_TYPE, toSimpleInnerTubeRequest } from './request'
 import { createYouTubeSession } from './session'
 
 const config = BUNDLED_YOUTUBE_CONFIG
@@ -126,6 +126,18 @@ describe('the CORS-simple request shape', () => {
     expect(request.body.context).toMatchObject({
       client: { clientName: 'WEB_REMIX', clientVersion: config.clients.music.version },
     })
+  })
+
+  it('tells a request that names only an entity from one YouTube could refuse otherwise', () => {
+    expect(namesOnlyIds({ context: {}, browseId: 'MPREb_DciERiuADkS' })).toBe(true)
+    expect(namesOnlyIds({ videoId: 'zFYEYRcjK2g', isAudioOnly: true })).toBe(true)
+    expect(
+      namesOnlyIds({ videoId: 'zFYEYRcjK2g', playlistId: 'RDAMVMzFYEYRcjK2g', params: 'wAEB' }),
+    ).toBe(false)
+    expect(namesOnlyIds({ browseId: 'UC1', params: 'x' })).toBe(false)
+    expect(namesOnlyIds({ continuation: 'c' })).toBe(false)
+    expect(namesOnlyIds({ query: 'Creep' })).toBe(false)
+    expect(namesOnlyIds({ videoId: 42 })).toBe(false)
   })
 
   it('refuses endpoints outside the allowlist and bodies that are not JSON objects', () => {

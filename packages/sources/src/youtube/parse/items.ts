@@ -20,7 +20,7 @@ import {
   type Track,
   type TrackKind,
 } from '@fxm/core'
-import type { YouTubeConfig } from '../config'
+import type { YouTubeLabels } from '../config'
 import {
   CREDITS_BROWSE_PREFIX,
   isYouTubeId,
@@ -39,8 +39,8 @@ import { parseDuration, runsOf, textOf } from './text'
 export interface MapOptions {
   /** The source of every ID: `ytm`, or `yt` for plain YouTube. */
   readonly source: YouTubeSource
-  /** The config, for its labels. */
-  readonly config: YouTubeConfig
+  /** The words YouTube shows in the language of the call (see `labelsFor`). */
+  readonly labels: YouTubeLabels
   /**
    * Whether every track is a video, whatever its `musicVideoType`: plain YouTube's view of the
    * catalog. Tracks then carry no album, since plain YouTube has none.
@@ -75,14 +75,14 @@ export type Item =
   | { readonly type: 'artist'; readonly artist: Artist }
   | { readonly type: 'playlist'; readonly playlist: Playlist }
 
-/** The release type that one of `words` names, through the config's labels. */
+/** The release type that one of `words` names, through the labels of the call's language. */
 export function albumTypeOf(
   words: readonly string[],
-  config: YouTubeConfig,
+  labels: YouTubeLabels,
 ): AlbumType | undefined {
   for (const word of words) {
     const label = word.toLowerCase()
-    if (Object.hasOwn(config.labels.albumTypes, label)) return config.labels.albumTypes[label]
+    if (Object.hasOwn(labels.albumTypes, label)) return labels.albumTypes[label]
   }
   return undefined
 }
@@ -153,7 +153,7 @@ function albumItem(
 ): Item | undefined {
   const id = youTubeEntityId(options.source, 'album', browseId)
   if (id === undefined || name === undefined) return undefined
-  const type = albumTypeOf(byline.words, options.config)
+  const type = albumTypeOf(byline.words, options.labels)
   const album: Album = {
     id,
     source: options.source,
@@ -219,7 +219,7 @@ export function mapResponsiveItem(renderer: JsonRecord, options: MapOptions): It
   const byline = parseByline(
     columns.slice(1).flatMap(runsOf),
     options.source,
-    options.config.labels.itemTypes,
+    options.labels.itemTypes,
   )
   const artwork = musicThumbnailArtwork(renderer.thumbnail)
   const explicit = isExplicit(renderer)
@@ -286,11 +286,7 @@ export function mapResponsiveItem(renderer: JsonRecord, options: MapOptions): It
 /** A `musicTwoRowItemRenderer`: a card of a carousel, e.g. an album on an artist page. */
 export function mapTwoRowItem(renderer: JsonRecord, options: MapOptions): Item | undefined {
   const title = textOf(renderer.title)
-  const byline = parseByline(
-    runsOf(renderer.subtitle),
-    options.source,
-    options.config.labels.itemTypes,
-  )
+  const byline = parseByline(runsOf(renderer.subtitle), options.source, options.labels.itemTypes)
   const artwork = musicThumbnailArtwork(renderer.thumbnailRenderer)
   const explicit = isExplicit({ badges: renderer.subtitleBadges })
   const navigation = browseTarget(renderer.navigationEndpoint)
@@ -364,7 +360,7 @@ export function mapPanelVideo(wrapper: unknown, options: MapOptions): Track | un
     )
   if (renderer === undefined) return undefined
   const watch = watchTarget(renderer.navigationEndpoint)
-  const { itemTypes } = options.config.labels
+  const { itemTypes } = options.labels
   let byline = parseByline(runsOf(renderer.longBylineText), options.source, itemTypes)
   if (!byline.artists.some((artist) => artist.id !== undefined)) {
     const short = parseByline(runsOf(renderer.shortBylineText), options.source, itemTypes)

@@ -18,11 +18,11 @@ Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube]
 
 | | |
 |---|---|
-| Web page | `https://fxm-music.pages.dev/` |
-| Web app (installable PWA), with the FXM Connect extension or in the experimental Lite mode | `https://fxm-music.pages.dev/app/` |
+| Web page | `https://fxmusic.pages.dev/` |
+| Web app (installable PWA), with the FXM Connect extension or in the experimental Lite mode | `https://fxmusic.pages.dev/app/` |
 | Desktop app (macOS, Windows, Linux) | GitHub Releases |
 | Android app (APK) | GitHub Releases |
-| Embeddable mini-player | `https://fxm-music.pages.dev/embed/…` |
+| Embeddable mini-player | `https://fxmusic.pages.dev/embed/…` |
 
 ## Docs
 
@@ -34,7 +34,7 @@ Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube]
 
 ## Legal
 
-FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google or Spotify, and it hosts no music. You are responsible for following the terms of the services you use with FXM and the laws where you live. Send notices and takedown requests through the [issue tracker](https://github.com/Pratyay-ops/FXM/issues), and report security problems privately as the [security policy](.github/SECURITY.md) explains. [docs/LEGAL.md](docs/LEGAL.md) and the site's [disclaimer page](https://fxm-music.pages.dev/disclaimer) have the details.
+FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google or Spotify, and it hosts no music. You are responsible for following the terms of the services you use with FXM and the laws where you live. Send notices and takedown requests through the [issue tracker](https://github.com/Pratyay-ops/FXM/issues), and report security problems privately as the [security policy](.github/SECURITY.md) explains. [docs/LEGAL.md](docs/LEGAL.md) and the site's [disclaimer page](https://fxmusic.pages.dev/disclaimer) have the details.
 
 ## License
 

@@ -1,7 +1,8 @@
 /**
  * YouTube Music and YouTube metadata providers for FXM, built on youtubei.js and the injected
- * `ctx.fetch`. Every InnerTube request takes the CORS-simple shape and carries a server-issued
- * visitorData. See the package README.
+ * `ctx.fetch`. Every InnerTube request takes the CORS-simple shape, and the only visitorData it
+ * ever carries is one YouTube issued: in the `simple` tier the session's first request goes
+ * without one, so that YouTube issues it. See the package README.
  *
  * ```ts
  * import { createYouTubeProviders } from '@fxm/sources/youtube'
@@ -10,16 +11,15 @@
  * const results = await music.search('Radiohead Creep', { types: ['track'] }, ctx)
  * ```
  *
+ * This entry point is the consumer API. The request plumbing (`request.ts`, `visitor.ts`) stays
+ * inside the folder, where other YouTube code imports it directly.
+ *
  * @module
  */
 
-import {
-  createYouTubeMusicProvider,
-  type YouTubeMusicProvider,
-  type YouTubeProviderOptions,
-} from './music'
-import { createYouTubeSession, type YouTubeSession } from './session'
-import { createYouTubeProvider, type YouTubeVideoProvider } from './video'
+import { createYouTubeMusicProvider, type YouTubeMusicProvider } from './music'
+import { createYouTubeSession, type YouTubeProviderOptions, type YouTubeSession } from './session'
+import { createYouTubeVideoProvider, type YouTubeVideoProvider } from './video'
 
 export {
   BUNDLED_YOUTUBE_CONFIG,
@@ -33,33 +33,26 @@ export {
   YOUTUBE_CONFIG_SCHEMA,
   type YouTubeClientConfig,
   type YouTubeConfig,
+  type YouTubeKillSwitches,
+  type YouTubeLabels,
 } from './config'
 export type { YouTubeSource } from './ids'
 export {
   createYouTubeMusicProvider,
+  type TopResult,
   type YouTubeMusicProvider,
-  type YouTubeProviderOptions,
 } from './music'
 export { kindOfMusicVideoType, MUSIC_VIDEO_TYPES } from './parse/classify'
+export type { InnerTubeEndpoint } from './request'
 export {
-  createInnerTubeFetch,
-  INNERTUBE_ENDPOINTS,
-  type InnerTubeEndpoint,
-  SIMPLE_CONTENT_TYPE,
-  type SimpleInnerTubeRequest,
-  toSimpleInnerTubeRequest,
-} from './request'
-export {
-  assertYouTubeReachable,
   createYouTubeSession,
-  innerTubeLanguage,
-  innerTubeRegion,
   type YouTubeClientId,
+  type YouTubeProviderOptions,
   type YouTubeSession,
   type YouTubeSessionOptions,
 } from './session'
-export { createYouTubeProvider, type YouTubeVideoProvider } from './video'
-export { isVisitorData, parseSwJsData, VisitorData, type VisitorDataStore } from './visitor'
+export { createYouTubeVideoProvider, type YouTubeVideoProvider } from './video'
+export type { VisitorDataStore, YouTubeVisitorData } from './visitor'
 
 /** Both YouTube providers, sharing one session. */
 export interface YouTubeProviders {
@@ -71,13 +64,16 @@ export interface YouTubeProviders {
   readonly video: YouTubeVideoProvider
 }
 
-/** Creates the `ytm` and `yt` providers on one shared session. */
+/**
+ * Creates the `ytm` and `yt` providers on one shared session: the device's `session`, or a new
+ * one made from the other options.
+ */
 export function createYouTubeProviders(options: YouTubeProviderOptions = {}): YouTubeProviders {
   const session = options.session ?? createYouTubeSession(options)
   return {
     session,
     music: createYouTubeMusicProvider({ session }),
-    video: createYouTubeProvider({ session }),
+    video: createYouTubeVideoProvider({ session }),
   }
 }
 export * from './stream'

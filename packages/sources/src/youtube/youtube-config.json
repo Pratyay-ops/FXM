@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "revision": 1,
-  "updated": "2026-10-25",
+  "updated": "2026-10-26",
   "visitorData": {
     "swJsDataUrl": "https://www.youtube.com/sw.js_data"
   },
@@ -12,11 +12,11 @@
   "defaultHost": "www.youtube.com",
   "search": {
     "music": {
-      "songs": "EgWKAQIIAWoQEBAQCRAEEAMQBRAKEBUQEQ%3D%3D",
-      "videos": "EgWKAQIQAWoQEBAQCRAEEAMQBRAKEBUQEQ%3D%3D",
-      "albums": "EgWKAQIYAWoQEBAQCRAEEAMQBRAKEBUQEQ%3D%3D",
-      "artists": "EgWKAQIgAWoQEBAQCRAEEAMQBRAKEBUQEQ%3D%3D",
-      "playlists": "EgeKAQQoAEABahAQEBAJEAQQAxAFEAoQFRAR"
+      "songs": "EgWKAQIIAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "videos": "EgWKAQIQAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "albums": "EgWKAQIYAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "artists": "EgWKAQIgAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "playlists": "EgeKAQQoAEABahIQBBAFEAMQEBAKEAkQFRAOEBE%3D"
     },
     "web": {
       "videos": "EgIQAQ%3D%3D",
@@ -27,21 +27,26 @@
   "radio": {
     "params": "wAEB"
   },
+  "killSwitches": {
+    "lite": false
+  },
   "labels": {
-    "albumTypes": { "album": "album", "single": "single", "ep": "ep" },
-    "itemTypes": [
-      "song",
-      "video",
-      "album",
-      "single",
-      "ep",
-      "artist",
-      "playlist",
-      "episode",
-      "podcast",
-      "profile"
-    ],
-    "trackCounts": ["song", "songs", "track", "tracks", "video", "videos", "episode", "episodes"]
+    "en": {
+      "albumTypes": { "album": "album", "single": "single", "ep": "ep" },
+      "itemTypes": [
+        "song",
+        "video",
+        "album",
+        "single",
+        "ep",
+        "artist",
+        "playlist",
+        "episode",
+        "podcast",
+        "profile"
+      ],
+      "trackCounts": ["song", "songs", "track", "tracks", "video", "videos", "episode", "episodes"]
+    }
   },
   "streams": {
     "rungs": [

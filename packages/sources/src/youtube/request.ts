@@ -1,6 +1,7 @@
 /**
  * The CORS-simple shape of every InnerTube request, and the `fetch` adapter that youtubei.js
- * sends its requests through.
+ * sends its requests through. Both are internal to this module: other code of the YouTube
+ * folder imports them from here, and apps use the providers.
  *
  * A browser page can call InnerTube without a CORS preflight only with a "simple" request, and
  * the Lite tier's sandboxed document can only make those (preflights from an opaque origin get
@@ -15,18 +16,24 @@
  *   reads them when the `X-YouTube-Client-*` and `X-Goog-Visitor-Id` headers are absent;
  * - `credentials: 'omit'`.
  *
- * youtubei.js builds richer requests (headers, a desktop browser's context, cookies), so the
- * adapter takes only the endpoint and the payload from them and writes the rest itself. Stage
- * 1.2 adds a generic `toSimpleInnerTubeRequest()` to `@fxm/platform`; this module can then use
- * it.
+ * For a client the config lists (`WEB_REMIX`, `WEB`), `context.client` holds only those fields:
+ * youtubei.js's own session data (a random user agent, a desktop browser's context) is dropped.
+ * For any other client, such as a stream client of stage 1.4, the request keeps the client
+ * fields of its payload, minus the session fields in {@link DROPPED_CLIENT_FIELDS}; a request
+ * that youtubei.js built for such a client therefore carries youtubei.js's user agent and
+ * operating system fields.
+ *
+ * Stage 1.2 adds a generic `toSimpleInnerTubeRequest()` to `@fxm/platform`, which reshapes any
+ * request on its way out; this module's shaper also knows the config's clients, and the two can
+ * converge once 1.2 has merged.
  *
  * @module
  */
 
 import { FxmError, type ProviderContext } from '@fxm/core'
-import { fetchWithTimeout } from '../shared'
 import type { InnerTubeHost, YouTubeClientConfig, YouTubeConfig } from './config'
 import { botCheckIn, httpError, isBotCheckPage, requestFailure } from './errors'
+import { fetchText, type TextResponse } from './http'
 import { asRecord, asString, at, type JsonRecord } from './json'
 import type { VisitorData } from './visitor'
 
@@ -63,7 +70,7 @@ export interface SimpleRequestOptions extends Locale {
   /**
    * The client the request is for, which sets its name, version and host. Absent for a client
    * the config does not list (such as the stream clients of stage 1.4): the request then keeps
-   * the client fields youtubei.js wrote, unless the config lists a client of the same name.
+   * the client fields of its payload, unless the config lists a client of the same name.
    */
   client?: YouTubeClientConfig
   /** The server-issued visitorData, if there is one yet. */
@@ -89,7 +96,10 @@ export interface SimpleInnerTubeRequest {
   body: JsonRecord
 }
 
-/** youtubei.js's context fields that FXM never sends for a client of its own config. */
+/**
+ * youtubei.js's session fields that no request keeps, whatever its client: the locale and
+ * visitorData, which FXM writes itself, and the browser's state.
+ */
 const DROPPED_CLIENT_FIELDS = new Set([
   'hl',
   'gl',
@@ -124,6 +134,7 @@ function clientNamed(config: YouTubeConfig, name: unknown): YouTubeClientConfig 
 /**
  * Turns a request youtubei.js built (its URL and JSON body) into the CORS-simple shape: the
  * endpoint and payload stay, while the host, the query, the headers and `context` are FXM's.
+ * See the module documentation for which client fields stay.
  *
  * @throws FxmError `Unsupported` for an endpoint outside {@link INNERTUBE_ENDPOINTS}, and `Parse`
  * for a body that is not a JSON object.
@@ -203,16 +214,32 @@ export function describeRequest(request: SimpleInnerTubeRequest): string {
   return subject === undefined ? request.endpoint : `${request.endpoint} ${subject}`
 }
 
-function namesEntity(body: JsonRecord): boolean {
-  return ['browseId', 'videoId', 'playlistId'].some((key) => typeof body[key] === 'string')
+/** The payload fields that name an entity by its ID. */
+const ID_FIELDS = new Set(['browseId', 'videoId', 'playlistId'])
+
+/** Payload fields that change nothing about which entity a request asks for. */
+const NEUTRAL_FIELDS = new Set(['context', 'isAudioOnly'])
+
+/**
+ * Whether a request names one entity by its ID and nothing else: no `params`, query or
+ * continuation that YouTube could refuse instead of the ID.
+ */
+export function namesOnlyIds(body: JsonRecord): boolean {
+  const keys = Object.keys(body)
+  return (
+    keys.some((key) => ID_FIELDS.has(key) && typeof body[key] === 'string') &&
+    keys.every((key) => ID_FIELDS.has(key) || NEUTRAL_FIELDS.has(key))
+  )
 }
 
 /**
  * The `fetch` that youtubei.js gets for one call: it reshapes each request with
  * {@link toSimpleInnerTubeRequest}, sends it through `ctx.fetch` with the call's signal and a
- * timeout, and turns failures into `FxmError`s before youtubei.js sees them. It also hands the
- * visitorData that YouTube issues to the device's {@link VisitorData}, and drops it after a bot
- * check.
+ * deadline that holds even when the transport ignores aborts, and turns failures into
+ * `FxmError`s before youtubei.js sees them. It also hands the visitorData that YouTube issues to
+ * the device's {@link VisitorData}, and drops the one it sent after a real bot check (see
+ * `botCheckIn`: an age gate or a private video is no bot check, and goes to the caller as it
+ * is).
  */
 export function createInnerTubeFetch(
   ctx: ProviderContext,
@@ -222,6 +249,7 @@ export function createInnerTubeFetch(
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     const body = typeof init?.body === 'string' ? init.body : ''
     const lease = await options.visitorData.lease(ctx)
+    const sent = lease.visitorData
     let issued: unknown
     try {
       const request = toSimpleInnerTubeRequest(url, body, {
@@ -229,27 +257,28 @@ export function createInnerTubeFetch(
         hl: options.hl,
         ...(options.gl === undefined ? {} : { gl: options.gl }),
         ...(options.client === undefined ? {} : { client: options.client }),
-        ...(lease.visitorData === undefined ? {} : { visitorData: lease.visitorData }),
+        ...(sent === undefined ? {} : { visitorData: sent }),
       })
       const what = describeRequest(request)
-      let text: string
-      let response: Response
+      let exchange: TextResponse
       try {
-        response = await fetchWithTimeout(ctx.fetch, request.url, {
-          ...request.init,
-          timeoutMs: options.timeoutMs,
-          ...(ctx.signal ? { signal: ctx.signal } : {}),
-        })
-        text = await response.text()
+        exchange = await fetchText(
+          ctx.fetch,
+          request.url,
+          request.init,
+          options.timeoutMs,
+          ctx.signal,
+        )
       } catch (error) {
         throw requestFailure(error, what, ctx.signal)
       }
+      const { response, text } = exchange
       if (!response.ok) {
         const failure = httpError(response.status, response.headers.get('retry-after'), text, {
           what,
-          entity: namesEntity(request.body),
+          entity: namesOnlyIds(request.body),
         })
-        if (failure.code === 'BotCheck') options.visitorData.invalidate()
+        if (failure.code === 'BotCheck') options.visitorData.invalidate(sent)
         throw failure
       }
       let json: unknown
@@ -257,7 +286,7 @@ export function createInnerTubeFetch(
         json = JSON.parse(text)
       } catch (error) {
         if (isBotCheckPage(text)) {
-          options.visitorData.invalidate()
+          options.visitorData.invalidate(sent)
           throw new FxmError('BotCheck', `YouTube answered ${what} with a bot check page`)
         }
         throw new FxmError('Parse', `YouTube answered ${what} with something other than JSON`, {
@@ -266,7 +295,7 @@ export function createInnerTubeFetch(
       }
       const botCheck = botCheckIn(json)
       if (botCheck !== undefined) {
-        options.visitorData.invalidate()
+        options.visitorData.invalidate(sent)
         throw new FxmError('BotCheck', `YouTube answered ${what} with a bot check: ${botCheck}`)
       }
       issued = at(json, 'responseContext', 'visitorData')
