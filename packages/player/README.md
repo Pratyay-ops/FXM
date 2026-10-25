@@ -16,7 +16,7 @@ The facade has no DOM code of its own, so the same facade can drive the direct a
 | `connectMediaSession` | Lock screen, notification and media keys | 2.2 |
 | `StreamResolver` | The resolver contract | 2.2 |
 | `StreamLifecycle` | The real resolver: the playback policy and stream lifecycle ([its README](src/lifecycle/README.md)) | 2.3 |
-| Native engine | A bridge to the Android Media3 player | 6.3 |
+| `NativeEngine` | The engine for the Android app: Media3 in a foreground service, with a deeper native queue ([its README](src/native/README.md)) | 6.3 |
 | `formatTime`, `mimeTypeOf` | Formatting helpers | 2.2 |
 
 ## Using it
@@ -203,6 +203,7 @@ It does nothing where the browser has no Media Session API. It also skips action
 - **`FakeResolver`:** answers from a handler and records requests, with `requestsFor(title)` and a compact `log` (`a:retry#1`).
 - **`testTrack`, `testTracks`, `testStream`:** fixtures. Their URLs use the reserved `.test` domain.
 - **The stream lifecycle's fakes** (2.3): `FakeStreamSource`, `FakeMatcher`, `FakeNetworkMonitor` and their fixtures, see [the lifecycle README](src/lifecycle/README.md).
+- **`createFakeFxmPlayer`** (6.3): the Android app's `FxmPlayer` plugin, for the native engine, see [its README](src/native/README.md#testing).
 
 The tests run offline in happy-dom (`vitest.config.ts`) with fake timers, and no real audio plays. They cover:
 
