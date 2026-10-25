@@ -341,6 +341,15 @@ importers:
 
   packages/core: {}
 
+  packages/downloads:
+    dependencies:
+      '@fxm/core':
+        specifier: workspace:*
+        version: link:../core
+      '@fxm/player':
+        specifier: workspace:*
+        version: link:../player
+
   packages/player:
     dependencies:
       '@fxm/core':

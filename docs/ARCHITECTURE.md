@@ -242,6 +242,8 @@ packages/
               listenbrainz, musicbrainz
   player/     Player facade and engines (direct audio, MediaSource, native bridge), offline store,
               conversion worker
+  downloads/  Download manager (4.1): a resumable queue, the storage and record interfaces each
+              platform implements, and the offline store the playback policy plays downloads from
 docs/         Architecture, plan, workflow, development guide; research/ holds the decision memos
 scripts/      Toolchain bootstrap (everything installs into .tools/)
 ```
