@@ -7,8 +7,9 @@
 # failed run left behind, then publishes the release with the notes, a list of the files and
 # every file in <dir> as an asset. gh uploads the assets to a draft and publishes it after the
 # last upload, so a release never shows up half uploaded. Re-running is safe: a published
-# release is left alone, and a tag that points at another commit stops it. Needs gh with
-# GH_TOKEN (contents: write) and GITHUB_REPOSITORY (owner/repo).
+# release is left alone, and a tag that points at another commit stops it. A failed GitHub API
+# request stops it too, instead of reading as "no release" or "no tag". Needs gh with GH_TOKEN
+# (contents: write) and GITHUB_REPOSITORY (owner/repo).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 source "$here/env.sh"

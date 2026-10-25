@@ -12,7 +12,7 @@ source "$here/release-lib.sh"
 "$here/install-git-cliff.sh" >/dev/null
 cliff=$FXM_TOOLS/bin/git-cliff
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+trap 'rm -rf "${tmp:?}"' EXIT
 
 # Commits in the throwaway repositories: a fixed identity, and no global or system git config
 # (signing, hooks or aliases would change what the scripts see). No credentials either.
@@ -41,7 +41,8 @@ expect() {
 }
 has() { grep -qF -- "$2" "$1"; }
 lacks() { ! grep -qF -- "$2" "$1"; }
-says() { printf '%s\n' "$out" | grep -qF -- "$1"; }
+says() { grep -qF -- "$1" <<<"$out"; }
+not() { ! "$@"; }
 
 # run <dir> <command...>: runs a command in a repository; sets $out (stdout and stderr) and
 # $status.
@@ -56,7 +57,10 @@ write_gh_stub() {
   cat >"$1" <<'STUB'
 #!/usr/bin/env bash
 # Stand-in for gh (scripts/release-test.sh): logs every call to $GH_STUB_DIR/calls.log and
-# answers from files there: logged-out, open-pr, released/<tag>, tags/<tag>, drafts/<tag>.
+# answers from files there, where an empty file counts as none: logged-out, open-pr ("<url>
+# <title>" lines), released/<tag>, tags/<tag> (a commit, or "tag <object>" for an annotated
+# tag), tag-objects/<object> ("commit <sha>"), drafts/<tag>, and broken (API paths that fail
+# with HTTP 502).
 set -euo pipefail
 state=${GH_STUB_DIR:?}
 printf '%s\n' "$*" >>"$state/calls.log"
@@ -65,9 +69,9 @@ not_found() {
   exit 1
 }
 case "$1 ${2:-}" in
-  "auth status") [ ! -e "$state/logged-out" ] ;;
+  "auth status") [ ! -s "$state/logged-out" ] ;;
   "pr list") cat "$state/open-pr" 2>/dev/null || true ;;
-  "pr create")
+  "pr create" | "pr edit")
     while [ $# -gt 0 ]; do
       if [ "$1" = --body-file ]; then cp "$2" "$state/pr-body.md"; fi
       shift
@@ -77,7 +81,7 @@ case "$1 ${2:-}" in
   "release create")
     tag=$3
     shift 3
-    [ -e "$state/tags/$tag" ] || { echo "tag $tag does not exist" >&2 && exit 1; }
+    [ -s "$state/tags/$tag" ] || { echo "tag $tag does not exist" >&2 && exit 1; }
     while [ $# -gt 0 ]; do
       case "$1" in
         --notes-file) cp "$2" "$state/release-notes.md" && shift 2 ;;
@@ -104,21 +108,30 @@ case "$1 ${2:-}" in
         *) path=$1 && shift ;;
       esac
     done
+    if [ -s "$state/broken" ] && grep -qxF -- "$path" "$state/broken"; then
+      echo "gh: Server Error (HTTP 502)" >&2
+      exit 1
+    fi
     case "$method $path" in
       "GET repos/test/fxm/releases/tags/"*)
-        if [ -e "$state/released/${path##*/}" ]; then cat "$state/released/${path##*/}"; else not_found; fi
+        if [ -s "$state/released/${path##*/}" ]; then cat "$state/released/${path##*/}"; else not_found; fi
         ;;
       "GET repos/test/fxm/git/ref/tags/"*)
-        if [ -e "$state/tags/${path##*/}" ]; then echo "commit $(cat "$state/tags/${path##*/}")"; else not_found; fi
+        [ -s "$state/tags/${path##*/}" ] || not_found
+        object=$(cat "$state/tags/${path##*/}")
+        case "$object" in "tag "*) echo "$object" ;; *) echo "commit $object" ;; esac
+        ;;
+      "GET repos/test/fxm/git/tags/"*)
+        if [ -s "$state/tag-objects/${path##*/}" ]; then cat "$state/tag-objects/${path##*/}"; else not_found; fi
         ;;
       "GET repos/test/fxm/git/matching-refs/tags/v")
         for tag in "$state"/tags/v*; do
-          if [ -e "$tag" ]; then echo "refs/tags/${tag##*/}"; fi
+          if [ -s "$tag" ]; then echo "refs/tags/${tag##*/}"; fi
         done
         ;;
       "POST repos/test/fxm/git/refs")
         tag=${ref#refs/tags/}
-        if [ -e "$state/tags/$tag" ]; then echo "Reference already exists (HTTP 422)" >&2 && exit 1; fi
+        if [ -s "$state/tags/$tag" ]; then echo "Reference already exists (HTTP 422)" >&2 && exit 1; fi
         mkdir -p "$state/tags"
         echo "$sha" >"$state/tags/$tag"
         ;;
@@ -128,7 +141,7 @@ case "$1 ${2:-}" in
         ;;
       "DELETE repos/test/fxm/releases/"*)
         for draft in "$state"/drafts/*; do
-          if [ "$(cat "$draft")" = "${path##*/}" ]; then rm "$draft"; fi
+          if [ "$(cat "$draft")" = "${path##*/}" ]; then : >"$draft"; fi
         done
         ;;
       *) echo "gh stub: unexpected request $method $path" >&2 && exit 2 ;;
@@ -300,7 +313,7 @@ refuses() {
 }
 echo stray >"$work/stray.txt"
 refuses "a dirty working tree" "uncommitted or untracked files"
-rm "$work/stray.txt"
+rm "${work:?}/stray.txt"
 git -C "$work" switch -q main
 refuses "another branch than develop" "not develop"
 git -C "$work" switch -q develop
@@ -323,10 +336,10 @@ else
 fi
 echo https://github.com/test/fxm/pull/3 >"$GH_STUB_DIR/open-pr"
 refuses "while a release pull request is open" "already open: https://github.com/test/fxm/pull/3"
-rm "$GH_STUB_DIR/open-pr"
-touch "$GH_STUB_DIR/logged-out"
+: >"$GH_STUB_DIR/open-pr"
+echo yes >"$GH_STUB_DIR/logged-out"
 refuses "without a GitHub login" "not logged in"
-rm "$GH_STUB_DIR/logged-out"
+: >"$GH_STUB_DIR/logged-out"
 git -C "$work" switch -q main
 commit "$work" "fix(core): hotfix on main"
 git -C "$work" push -q origin main
@@ -346,8 +359,8 @@ echo stray >"$work/stray.txt"
 run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
 dry_status=$status
 expect "DRY_RUN=1 reports failed checks instead of stopping" \
-  test "$dry_status" -eq 0 -a -n "$(printf '%s' "$out" | grep 'would stop a real run')"
-rm "$work/stray.txt"
+  test "$dry_status" -eq 0 -a -n "$(grep 'would stop a real run' <<<"$out")"
+rm "${work:?}/stray.txt"
 run "$work" scripts/release-pr.sh 0.1.0
 expect "a real run succeeds" test "$status" -eq 0
 expect "commits chore(release) on develop" \
@@ -368,38 +381,87 @@ expect "never merges" lacks "$GH_STUB_DIR/calls.log" "pr merge"
 echo "release-plan.sh"
 work=$(new_repo plan)
 export GH_STUB_DIR=$tmp/plan/gh GITHUB_OUTPUT=$tmp/plan/output
+mkdir -p "$GH_STUB_DIR/tags" "$GH_STUB_DIR/tag-objects" "$GH_STUB_DIR/released"
 plan() {
   : >"$GITHUB_OUTPUT"
   run "$work" scripts/release-plan.sh
 }
 value() { sed -n "s/^$1=//p" "$GITHUB_OUTPUT" | tail -1; }
+# released_nothing: the plan failed, and neither its output nor $GITHUB_OUTPUT says to release.
+released_nothing() { [ "$status" -ne 0 ] && [ "$(value release)" != true ] && ! says "release=true"; }
 plan
 expect "0.0.0 is never released" test "$status" -eq 0 -a "$(value release)" = false
+first=$(git -C "$work" rev-parse HEAD)
 (cd "$work" && scripts/release-version.sh 0.1.0 >/dev/null)
 git -C "$work" commit -q -am "chore(release): v0.1.0"
+plan
+expect "warns when CHANGELOG.md has no section for the version" \
+  says "CHANGELOG.md has no 0.1.0 section"
+printf '\n## [0.1.0](https://example.invalid) - 2026-01-01\n' >>"$work/CHANGELOG.md"
+git -C "$work" commit -q --amend -a --no-edit
 head=$(git -C "$work" rev-parse HEAD)
 plan
 expect "a new version is released from HEAD" \
   test "$(value release)" = true -a "$(value sha)" = "$head" -a "$(value tag)" = v0.1.0
-mkdir -p "$GH_STUB_DIR/released"
+expect "without a warning once CHANGELOG.md has its section" not says "CHANGELOG.md has no"
 echo 2001 >"$GH_STUB_DIR/released/v0.1.0"
 plan
 expect "a published version is not released again" test "$(value release)" = false
-rm "$GH_STUB_DIR/released/v0.1.0"
-first=$(git -C "$work" rev-list --max-parents=0 HEAD)
-mkdir -p "$GH_STUB_DIR/tags" && echo "$first" >"$GH_STUB_DIR/tags/v0.1.0"
+: >"$GH_STUB_DIR/released/v0.1.0"
+echo "$head" >"$GH_STUB_DIR/tags/v0.1.0"
 plan
-expect "a tag without a release is finished from the tagged commit" \
-  test "$(value release)" = true -a "$(value sha)" = "$first"
-rm "$GH_STUB_DIR/tags/v0.1.0"
+expect "a tag at HEAD without a release is finished" \
+  test "$status" -eq 0 -a "$(value release)" = true -a "$(value sha)" = "$head"
+echo "tag 7a9b0c" >"$GH_STUB_DIR/tags/v0.1.0"
+echo "commit $head" >"$GH_STUB_DIR/tag-objects/7a9b0c"
+plan
+expect "so is an annotated tag at HEAD" \
+  test "$status" -eq 0 -a "$(value release)" = true -a "$(value sha)" = "$head"
+# A tag at any other commit is refused, even with the right version: tags are not protected,
+# and the attestations would name HEAD, not the commit that was built.
+git -C "$work" switch -q -c unmerged
+package_json "$work/package.json" fxm 6.6.6
+git -C "$work" commit -q -am "feat: never reviewed"
+unmerged=$(git -C "$work" rev-parse HEAD)
+git -C "$work" switch -q main
+commit "$work" "docs: a later commit on main"
+later=$(git -C "$work" rev-parse HEAD)
+refuses_tag() { # <description> <commit the tag points at>
+  echo "$2" >"$GH_STUB_DIR/tags/v0.1.0"
+  plan
+  if released_nothing && says "Tag v0.1.0 points at ${2:0:7}, not at ${later:0:7}"; then
+    ok "$1"
+  else
+    bad "$1"
+  fi
+}
+refuses_tag "refuses a tag on a branch main never merged" "$unmerged"
+refuses_tag "refuses a tag at an earlier commit of main" "$head"
+refuses_tag "refuses a tag at a commit with another version" "$first"
+: >"$GH_STUB_DIR/tags/v0.1.0"
+# A failed GitHub API request stops the plan: it never reads as "not found".
+fails_api() { # <description> <API path>
+  echo "$2" >"$GH_STUB_DIR/broken"
+  plan
+  if released_nothing && says "GitHub API request failed: GET $2"; then ok "$1"; else bad "$1"; fi
+  : >"$GH_STUB_DIR/broken"
+}
+fails_api "stops when GitHub can't say whether the release exists" \
+  repos/test/fxm/releases/tags/v0.1.0
+fails_api "stops when GitHub can't say whether the tag exists" repos/test/fxm/git/ref/tags/v0.1.0
+echo "tag 7a9b0c" >"$GH_STUB_DIR/tags/v0.1.0"
+fails_api "stops when GitHub can't say where an annotated tag points" \
+  repos/test/fxm/git/tags/7a9b0c
+: >"$GH_STUB_DIR/tags/v0.1.0"
 echo "$first" >"$GH_STUB_DIR/tags/v0.0.9"
 plan
 expect "a version higher than every release tag is released" test "$(value release)" = true
 echo "$first" >"$GH_STUB_DIR/tags/v0.2.0"
 plan
 expect "a version lower than a release tag stops the release" \
-  test "$status" -ne 0 -a -n "$(printf '%s' "$out" | grep 'not higher than the released v0.2.0')"
-rm "$GH_STUB_DIR"/tags/*
+  test "$status" -ne 0 -a -n "$(grep 'not higher than the released v0.2.0' <<<"$out")"
+: >"$GH_STUB_DIR/tags/v0.0.9"
+: >"$GH_STUB_DIR/tags/v0.2.0"
 package_json "$work/apps/web/package.json" @fxm/web 0.0.9
 plan
 expect "versions that disagree stop the release" test "$status" -ne 0
@@ -416,15 +478,19 @@ echo chromium >"$files/fxm-connect-chromium-0.1.0.zip"
 run "$work" scripts/release-build.sh --checksums "$files"
 expect "writes SHA256SUMS" test "$status" -eq 0 -a "$(wc -l <"$files/SHA256SUMS" | tr -d ' ')" = 2
 if command -v sha256sum >/dev/null 2>&1; then verify=(sha256sum -c); else verify=(shasum -a 256 -c); fi
-expect "in the format sha256sum --check reads" \
-  test -n "$(cd "$files" && "${verify[@]}" SHA256SUMS 2>/dev/null | grep -c ': OK$')"
+sums_pass() { (cd "$1" && "${verify[@]}" SHA256SUMS >/dev/null 2>&1); }
+expect "in the format sha256sum --check reads" sums_pass "$files"
+cp -R "$files" "$tmp/publish/changed"
+echo changed >>"$tmp/publish/changed/fxm-web-0.1.0.zip"
+expect "so that a changed file fails the check" not sums_pass "$tmp/publish/changed"
 printf '### Features\n\n- **core:** Add a thing\n' >"$tmp/publish/notes.md"
 sha=$(git -C "$work" rev-parse HEAD)
-publish() { run "$work" scripts/release-publish.sh "$1" "$2" "$files" "$tmp/publish/notes.md"; }
+# publish <x.y.z> <commit> [dir]
+publish() { run "$work" scripts/release-publish.sh "$1" "$2" "${3:-$files}" "$tmp/publish/notes.md"; }
 publish 0.1.0 "$sha"
 expect "creates the tag at the release commit" \
   test "$status" -eq 0 -a "$(cat "$GH_STUB_DIR/tags/v0.1.0" 2>/dev/null)" = "$sha"
-expect "publishes the release" test -e "$GH_STUB_DIR/released/v0.1.0"
+expect "publishes the release" test -s "$GH_STUB_DIR/released/v0.1.0"
 expect "with every file, SHA256SUMS included" test "$(sort "$GH_STUB_DIR/release-files.txt" |
   tr '\n' ' ')" = "SHA256SUMS fxm-connect-chromium-0.1.0.zip fxm-web-0.1.0.zip "
 expect "with the notes" has "$GH_STUB_DIR/release-notes.md" "- **core:** Add a thing"
@@ -441,15 +507,37 @@ sha=$(git -C "$work" rev-parse HEAD)
 echo "$other" >"$GH_STUB_DIR/tags/v0.2.0"
 publish 0.2.0 "$sha"
 expect "refuses a tag that points at another commit" \
-  test "$status" -ne 0 -a ! -e "$GH_STUB_DIR/released/v0.2.0"
+  test "$status" -ne 0 -a ! -s "$GH_STUB_DIR/released/v0.2.0"
 mkdir -p "$GH_STUB_DIR/drafts" && echo 3001 >"$GH_STUB_DIR/drafts/v0.3.0"
 publish 0.3.0 "$sha"
 expect "replaces a draft left by a failed run" \
-  test "$status" -eq 0 -a -e "$GH_STUB_DIR/released/v0.3.0" -a ! -e "$GH_STUB_DIR/drafts/v0.3.0"
+  test "$status" -eq 0 -a -s "$GH_STUB_DIR/released/v0.3.0" -a ! -s "$GH_STUB_DIR/drafts/v0.3.0"
 expect "by deleting it" has "$GH_STUB_DIR/calls.log" "api -X DELETE repos/test/fxm/releases/3001"
-rm "$files/SHA256SUMS"
-publish 0.4.0 "$sha"
-expect "needs SHA256SUMS" test "$status" -ne 0 -a ! -e "$GH_STUB_DIR/released/v0.4.0"
+# stopped <description> <x.y.z>: publishing failed before it tagged or published anything.
+stopped() {
+  if [ "$status" -ne 0 ] && [ ! -s "$GH_STUB_DIR/tags/v$2" ] &&
+    [ ! -s "$GH_STUB_DIR/released/v$2" ]; then
+    ok "$1"
+  else
+    bad "$1"
+  fi
+}
+echo repos/test/fxm/releases/tags/v0.5.0 >"$GH_STUB_DIR/broken"
+publish 0.5.0 "$sha"
+stopped "stops before tagging when GitHub can't say whether the release exists" 0.5.0
+echo repos/test/fxm/git/ref/tags/v0.5.0 >"$GH_STUB_DIR/broken"
+publish 0.5.0 "$sha"
+stopped "or whether the tag exists" 0.5.0
+expect "without trying to create it" lacks "$GH_STUB_DIR/calls.log" "ref=refs/tags/v0.5.0"
+echo "repos/test/fxm/releases?per_page=100" >"$GH_STUB_DIR/broken"
+publish 0.5.0 "$sha"
+expect "stops before publishing when GitHub can't list the drafts" \
+  test "$status" -ne 0 -a ! -s "$GH_STUB_DIR/released/v0.5.0"
+: >"$GH_STUB_DIR/broken"
+mkdir "$tmp/publish/no-sums"
+cp "$files"/*.zip "$tmp/publish/no-sums/"
+publish 0.6.0 "$sha" "$tmp/publish/no-sums"
+stopped "needs SHA256SUMS" 0.6.0
 
 echo
 if [ "$failed" -eq 0 ]; then

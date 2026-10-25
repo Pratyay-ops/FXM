@@ -59,7 +59,9 @@ fxm_release_cliff() {
 }
 
 # fxm_release_github <api path> <jq filter>: a GET request to the GitHub API through gh. Prints
-# the filtered answer, or nothing when GitHub answers 404; any other failure is fatal.
+# the filtered answer, or nothing when GitHub answers 404; any other failure (a 5xx, a 403, no
+# network) is fatal. Its fxm_die can only end the $(...) it runs in, so call it as
+# `answer=$(fxm_release_github ...) || exit 1`: a failure must never read as "not found".
 fxm_release_github() {
   local log status=0 out
   log=$(mktemp)
@@ -74,14 +76,17 @@ fxm_release_github() {
 }
 
 # fxm_release_remote_tag <owner/repo> <tag>: the commit a tag on GitHub points at, or nothing.
+# Callers run it as `tagged=$(...)` outside any condition, so that its exit stops them.
 fxm_release_remote_tag() {
   local object type sha hops=0
-  object=$(fxm_release_github "repos/$1/git/ref/tags/$2" '.object.type + " " + .object.sha')
+  object=$(fxm_release_github "repos/$1/git/ref/tags/$2" '.object.type + " " + .object.sha') ||
+    exit 1
   [ -n "$object" ] || return 0
   read -r type sha <<<"$object"
   # Annotated tags point at a tag object: follow it to the commit.
   while [ "$type" = tag ] && [ "$hops" -lt 5 ]; do
-    object=$(fxm_release_github "repos/$1/git/tags/$sha" '.object.type + " " + .object.sha')
+    object=$(fxm_release_github "repos/$1/git/tags/$sha" '.object.type + " " + .object.sha') ||
+      exit 1
     read -r type sha <<<"$object"
     hops=$((hops + 1))
   done
@@ -89,9 +94,12 @@ fxm_release_remote_tag() {
   echo "$sha"
 }
 
-# fxm_release_published <owner/repo> <tag>: whether a published (not draft) release exists.
+# fxm_release_published <owner/repo> <tag>: whether a published (not draft) release exists. A
+# failed request ends the script, also when this runs as an if condition.
 fxm_release_published() {
-  [ -n "$(fxm_release_github "repos/$1/releases/tags/$2" '.id')" ]
+  local id
+  id=$(fxm_release_github "repos/$1/releases/tags/$2" '.id') || exit 1
+  [ -n "$id" ]
 }
 
 # fxm_release_fit <file> <max bytes> <note>: cuts the file at a line boundary so that it, plus

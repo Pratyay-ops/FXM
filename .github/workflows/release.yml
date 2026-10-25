@@ -9,9 +9,12 @@ name: Release
 #   publish  writes SHA256SUMS, attests every file's build provenance, creates tag vX.Y.Z and
 #            publishes the release with git-cliff notes (scripts/release-publish.sh)
 #
-# Re-running is safe: a published release stops at the plan job, a tag without a release is
-# finished from the commit it points at, and a draft left by a failed run is replaced. Builds
-# start from a clean runner, without caches, so nothing from other runs reaches the files.
+# Every job builds the commit the run was started for (plan's sha is always github.sha), which
+# is also the commit the attestations name. Re-running is safe: a published release stops at
+# the plan job, a draft left by a failed run is replaced, and a tag without a release is
+# finished only by a re-run of the run that created it. A tag at any other commit stops the
+# run, so a tag pushed by hand never gets a commit built and published. Builds start from a
+# clean runner, without caches, so nothing from other runs reaches the files.
 #
 # Adding artifacts (the APK in 6.6, desktop installers in 7.5, the signed XPI in R.2): add a job
 # that needs plan, runs `if: needs.plan.outputs.release == 'true'`, checks out
