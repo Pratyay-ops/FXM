@@ -44,13 +44,13 @@ Every touch-point with a stage built in parallel goes through one interface here
 |---|---|---|---|
 | 1.2 platform | `SourcesPlatform` (the `capabilities.current`, `capabilities.subscribe` and `context()` of `FxmPlatform`) | `createStaticPlatform()`: the Free-only tier, a `fetch` that refuses | `appSources.setPlatform(await createPlatform(…))` |
 | 1.3 YouTube Music, 1.5 Spotify (and 1.6) | `MetadataProvider` from `@fxm/core` | No providers | `appSources.register(provider)` for each |
-| 2.2 / 2.3 player | `PlaybackActions` (`play`, `playNext`, `addToQueue`), shaped like the player facade | No play or queue buttons | `appActions.set({ ...appActions.get(), playback })` |
+| 2.2 player facade (merged), playing once 2.3 resolves streams | `PlaybackActions` (`play`, `playNext`, `addToQueue`); `playbackFromPlayer(player)` maps the facade onto it | No play or queue buttons | `appActions.set({ ...appActions.get(), playback: playbackFromPlayer(player) })` with the app's `Player` |
 | 2.6 library | `LibraryActions` (`playlists`, `addToPlaylist`, `createPlaylist`) | No "Add to playlist" | `appActions.set({ ...appActions.get(), library })` |
 | 4.1 downloads | `DownloadActions` | No "Download" | `appActions.set({ …, downloads })` |
 | 8.1 audio effects | `EqualizerActions` | No "Equalizer" | `appActions.set({ …, equalizer })` |
 | 2.7 onboarding | `ONBOARDING_URL` in `onboarding.tsx` | The landing page's "Get FXM" section | Point it at the in-app onboarding |
 
-An action appears in the UI only when its group is wired in, so the app never shows a button that does nothing. `PlayContext` matches 2.2's `QueueContext` (`{ type, id, title }`).
+An action appears in the UI only when its group is wired in, so the app never shows a button that does nothing. Queues start with `QueueContext` from `@fxm/core`: the album, artist or playlist, or the search query, so "Playing from …" can link back.
 
 ## The fake catalog
 

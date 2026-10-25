@@ -1,7 +1,7 @@
-import type { Track } from '@fxm/core'
+import type { QueueContext, Track } from '@fxm/core'
 import { Play, Shuffle } from 'lucide-react'
 import { IconButton } from '../../../components/ui/icon-button'
-import { type PlayContext, useMediaActions } from '../actions'
+import { useMediaActions } from '../actions'
 import { ActionMenu, type MenuAction } from './action-menu'
 import { useTracksMenu } from './track-list'
 
@@ -20,7 +20,7 @@ export function CollectionToolbar({
   name: string
   /** What plays, already filtered for the catalog mode. */
   tracks: readonly Track[]
-  context: PlayContext
+  context: QueueContext
   extraItems?: readonly MenuAction[]
 }) {
   const { playback } = useMediaActions()

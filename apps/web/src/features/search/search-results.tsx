@@ -217,7 +217,7 @@ function TrackResults({
                 ? (index) =>
                     playback.play(tracks, {
                       startIndex: index,
-                      context: { type: 'search', id: query, title: query },
+                      context: { type: 'search', query, title: query },
                     })
                 : undefined
             }

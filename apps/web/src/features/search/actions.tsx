@@ -4,7 +4,8 @@
  * that is built in parallel, so this module is their adapter: an interface per group, and
  * `fake-actions.ts` as the fake that tests and the dev fake catalog use.
  *
- * - `playback`: the player facade of stage 2.2, driven by 2.3's playback policy
+ * - `playback`: the player facade of stage 2.2 (`playbackFromPlayer`), which plays once 2.3's
+ *   playback policy resolves its streams
  * - `library`: the user's playlists, stage 2.6
  * - `downloads`: the download manager, stage 4.1
  * - `equalizer`: the audio effects, stage 8.1
@@ -15,33 +16,27 @@
  * @module
  */
 
-import type { Track } from '@fxm/core'
+import type { QueueContext, Track } from '@fxm/core'
+import type { Player } from '@fxm/player'
 import { createContext, type ReactNode, useContext, useState, useSyncExternalStore } from 'react'
 
 /**
- * What a queue was started from, shown as "Playing from …". The same shape as the queue
- * context of stage 2.2 (`QueueContext` in `@fxm/core`), less its `radio` type.
+ * Options for {@link PlaybackActions.play}: the subset of the player facade's `setQueue`
+ * options that the catalog pages use.
  */
-export interface PlayContext {
-  /** The kind of list. */
-  readonly type: 'album' | 'artist' | 'playlist' | 'search'
-  /** The album, artist or playlist ID, or the query for `search`. */
-  readonly id: string
-  /** Display title, e.g. the album name or the query. */
-  readonly title: string
-}
-
-/** Options for {@link PlaybackActions.play}. */
 export interface PlayOptions {
-  /** Index in `tracks` of the track to start with. Default 0. */
+  /** Index in `tracks` of the track to start with. Default: the first. */
   readonly startIndex?: number
-  /** Play in shuffled order. */
+  /** Play in shuffled order (the shuffle button). */
   readonly shuffle?: boolean
-  /** Where the tracks come from. */
-  readonly context?: PlayContext
+  /** What the tracks come from, shown as "Playing from …" and linked back to. */
+  readonly context?: QueueContext
 }
 
-/** Playback: the player facade of stage 2.2. */
+/**
+ * Playback, as the player facade of stage 2.2 does it. Call these straight from the click or
+ * key press that asked for them: the browser lets audio start only from a user gesture.
+ */
 export interface PlaybackActions {
   /** Replaces the queue with `tracks` and plays. */
   play(tracks: readonly Track[], options?: PlayOptions): void
@@ -49,6 +44,22 @@ export interface PlaybackActions {
   playNext(tracks: readonly Track[]): void
   /** Appends `tracks` to the queue. */
   addToQueue(tracks: readonly Track[]): void
+}
+
+/** The part of the player facade (`Player` in `@fxm/player`) that playback uses. */
+export type QueuePlayer = Pick<Player, 'setQueue' | 'playNext' | 'addToQueue'>
+
+/**
+ * Playback through the app's player facade, e.g.
+ * `appActions.set({ ...appActions.get(), playback: playbackFromPlayer(player) })`.
+ */
+export function playbackFromPlayer(player: QueuePlayer): PlaybackActions {
+  return {
+    // The facade never rejects: failures show up in its state and events.
+    play: (tracks, options = {}) => void player.setQueue(tracks, options),
+    playNext: (tracks) => player.playNext(tracks),
+    addToQueue: (tracks) => player.addToQueue(tracks),
+  }
 }
 
 /** One of the user's playlists, as the add-to-playlist dialog lists it. */

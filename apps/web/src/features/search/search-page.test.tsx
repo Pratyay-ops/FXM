@@ -273,7 +273,7 @@ describe('Search: actions', () => {
     const [played] = actions.log
     expect(played).toMatchObject({
       action: 'play',
-      options: { context: { type: 'search', id: 'owl', title: 'owl' } },
+      options: { context: { type: 'search', query: 'owl', title: 'owl' } },
     })
     if (played?.action !== 'play') throw new Error('expected a play')
     expect(played.tracks[played.options.startIndex ?? 0]?.title).toBe('Midnight Owls')
