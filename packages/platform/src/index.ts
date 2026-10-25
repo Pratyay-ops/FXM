@@ -3,22 +3,130 @@
  * the app which tier it is in, and makes every YouTube call draw from one request budget.
  * See the package README.
  *
+ * Only what the app and the providers need is exported; the routing core, the request forms and
+ * the storage helpers stay inside the package, so later stages can change them freely.
+ *
  * @module
  */
 
-export * from './budget'
-export * from './capabilities'
-export * from './capacitor'
-export * from './clock'
-export * from './connect'
-export * from './cors'
-export * from './hosts'
-export * from './innertube'
-export * from './lite'
-export * from './native'
-export * from './node'
-export * from './platform'
-export * from './storage'
-export * from './tauri'
-export * from './transport'
-export * from './web'
+export type {
+  AcquireOptions,
+  BotCheckCause,
+  BudgetLimit,
+  BudgetSettings,
+  BudgetSnapshot,
+  RequestBudget,
+  RequestBudgetOptions,
+  RequestPriority,
+  WaitOptions,
+} from './budget'
+export {
+  BOT_CHECK_CAUSES,
+  BUDGET_DEFAULTS,
+  BUDGET_LIMITS,
+  BudgetError,
+  createRequestBudget,
+  isBudgetError,
+  REQUEST_PRIORITIES,
+} from './budget'
+export type {
+  CapabilityInputs,
+  CapabilityMonitor,
+  CapabilityOptions,
+  RefreshOptions,
+} from './capabilities'
+export {
+  createCapabilityMonitor,
+  detectCapabilities,
+  resolveCapabilities,
+} from './capabilities'
+export type { CapacitorTransportOptions } from './capacitor'
+export { createCapacitorTransport, unpatchedFetch } from './capacitor'
+export type { Clock } from './clock'
+export { systemClock } from './clock'
+export type {
+  BridgeRequestOptions,
+  BridgeResponse,
+  ConnectClient,
+  ConnectClientOptions,
+  ConnectErrorCode,
+  ConnectFeature,
+  ConnectState,
+  ConnectStatus,
+  ConnectWindow,
+  SpotifyTokenParams,
+} from './connect'
+export {
+  CONNECT_BRIDGE_TIMEOUT_MS,
+  CONNECT_ERROR_CODES,
+  CONNECT_MARKER_ATTRIBUTE,
+  CONNECT_PING_TIMEOUT_MS,
+  ConnectBridgeError,
+  createConnectClient,
+  hasConnectFeature,
+  MIN_CONNECT_VERSION,
+} from './connect'
+export { corsUnsafeRequestHeaderNames, isCorsSimpleRequest } from './cors'
+export type { RouteNeed, TransportErrorReason } from './errors'
+export {
+  isRouteUnavailable,
+  isTransportError,
+  ROUTE_NEEDS,
+  RouteUnavailableError,
+  TRANSPORT_ERROR_REASONS,
+  TransportError,
+} from './errors'
+export type { HostClass, HostRule } from './hosts'
+export {
+  classifyUrl,
+  HOST_CLASSES,
+  HOST_RULES,
+  INNERTUBE_API_PREFIX,
+  isInnerTubeApiUrl,
+} from './hosts'
+export type { SimpleInnerTubeInit, SimpleInnerTubeRequest } from './innertube'
+export { SIMPLE_CONTENT_TYPE, toSimpleInnerTubeRequest } from './innertube'
+export type {
+  KillSwitches,
+  KillSwitchSource,
+  KillSwitchStore,
+  LiteCheckOptions,
+  LiteState,
+  LiteTier,
+  LiteTierOptions,
+  OnlineEvents,
+  SandboxTransport,
+  SelfTestResult,
+  UserHostInit,
+} from './lite'
+export {
+  createKillSwitchStore,
+  createLiteTier,
+  LITE_DEFAULTS,
+  SELF_TEST_RESULTS,
+} from './lite'
+export type { NativeHttp, NativeRequestInit, NativeTransportOptions } from './native'
+export { createNativeTransport } from './native'
+export type { NodeTransportOptions } from './node'
+export { createNodeTransport } from './node'
+export type {
+  ContextOptions,
+  Environment,
+  FxmPlatform,
+  PlatformOptions,
+  PlatformWindow,
+} from './platform'
+export { createPlatform, detectEnvironment, ENVIRONMENT_PLATFORMS } from './platform'
+export type {
+  SessionTokenOptions,
+  SessionTokenSource,
+  TokenEndpointResponse,
+} from './spotify-session'
+export { connectSessionSource } from './spotify-session'
+export type { KeyValueStorage } from './storage'
+export { browserStorage, memoryStorage } from './storage'
+export type { TauriTransportOptions } from './tauri'
+export { createTauriTransport } from './tauri'
+export type { RouteKind, Transport, TransportOptions } from './transport'
+export type { WebTransportOptions } from './web'
+export { createWebTransport } from './web'
