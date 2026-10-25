@@ -15,7 +15,7 @@ import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 import { fxmOrigins } from '../src/config.ts'
-import { type Browser, buildManifest, ICON_SIZES } from '../src/manifest.ts'
+import { type Browser, buildManifest, ICON_SIZES, packageVersion } from '../src/manifest.ts'
 import { buildRulesets } from '../src/rules.ts'
 import { iconPng, iconSvg } from './icons.ts'
 import { isDevVariant, outputNames } from './variant.ts'
@@ -75,10 +75,9 @@ async function listFiles(dir: string): Promise<string[]> {
 
 async function main(): Promise<void> {
   const dev = isDevVariant(process.env.FXM_EXTENSION_DEV)
-  const pkg = JSON.parse(await readFile(join(PACKAGE_DIR, 'package.json'), 'utf8')) as {
-    version: string
-  }
-  const version = pkg.version
+  const version = packageVersion(
+    JSON.parse(await readFile(join(PACKAGE_DIR, 'package.json'), 'utf8')),
+  )
   const origins = fxmOrigins(dev)
   const staging = join(DIST, dev ? '.staging-dev' : '.staging')
 

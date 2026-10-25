@@ -34,6 +34,27 @@ const PURPOSE = 'Only lets the FXM web app reach music services from your own br
 const DESCRIPTION = `${PURPOSE} Collects no data and runs no remote code.`
 const DEV_DESCRIPTION = `Development build: also allows localhost. ${PURPOSE}`
 
+/**
+ * Whether both browsers accept a version: one to four dot-separated integers from 0 to 65535,
+ * without leading zeros. Prerelease labels such as `0.2.0-beta.1` are refused.
+ */
+export function isExtensionVersion(version: string): boolean {
+  if (!/^(0|[1-9]\d{0,4})(\.(0|[1-9]\d{0,4})){0,3}$/.test(version)) return false
+  return version.split('.').every((part) => Number(part) <= 65535)
+}
+
+/** The `version` of a parsed package.json. Throws unless both browsers accept it. */
+export function packageVersion(pkg: unknown): string {
+  const version =
+    typeof pkg === 'object' && pkg !== null && 'version' in pkg ? pkg.version : undefined
+  if (typeof version !== 'string' || !isExtensionVersion(version)) {
+    throw new Error(
+      `package.json needs a version Chrome and Firefox accept (1 to 4 dot-separated integers up to 65535), got ${JSON.stringify(version)}`,
+    )
+  }
+  return version
+}
+
 /** Permissions besides host access: static header rules and the options toggle. */
 export const PERMISSIONS = ['declarativeNetRequest', 'storage'] as const
 
@@ -88,6 +109,7 @@ function icons(sizes: readonly number[]): Record<string, string> {
 
 /** Builds manifest.json for one browser and variant. */
 export function buildManifest({ browser, version, dev }: ManifestOptions): Manifest {
+  if (!isExtensionVersion(version)) throw new Error(`not a valid extension version: ${version}`)
   const origins = fxmOrigins(dev)
   const matches = [...new Set(origins.map(originMatchPattern))]
   const name = dev ? `${EXTENSION_NAME} (dev)` : EXTENSION_NAME

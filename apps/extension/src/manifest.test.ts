@@ -5,7 +5,9 @@ import {
   buildManifest,
   FIREFOX_ADDON_ID,
   ICON_SIZES,
+  isExtensionVersion,
   MAX_DESCRIPTION_LENGTH,
+  packageVersion,
 } from './manifest.ts'
 import { buildRulesets } from './rules.ts'
 
@@ -127,5 +129,39 @@ describe('Firefox manifest', () => {
 
   it('matches the reviewed manifest', () => {
     expect(manifest('firefox')).toMatchSnapshot()
+  })
+})
+
+describe('extension version', () => {
+  it.each(['0', '1', '0.1.0', '1.2.3.4', '65535.65535.65535.65535', '10.0.20'])(
+    'accepts %s',
+    (version) => {
+      expect(isExtensionVersion(version)).toBe(true)
+    },
+  )
+
+  it.each([
+    '',
+    '1.2.3.4.5',
+    '01.2',
+    '1.02',
+    '65536',
+    '1.65536',
+    '100000',
+    '0.2.0-beta.1',
+    'v1.2',
+    '1..2',
+    '1.2.',
+    ' 1.2',
+  ])('rejects %j', (version) => {
+    expect(isExtensionVersion(version)).toBe(false)
+    expect(() => buildManifest({ browser: 'chromium', version, dev: false })).toThrow(/version/)
+  })
+
+  it('reads it from a parsed package.json', () => {
+    expect(packageVersion({ name: 'x', version: '0.3.1' })).toBe('0.3.1')
+    for (const bad of [{}, { version: 3 }, { version: '0.2.0-beta.1' }, null, 'version']) {
+      expect(() => packageVersion(bad)).toThrow(/package.json needs a version/)
+    }
   })
 })

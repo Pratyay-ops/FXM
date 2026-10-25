@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type BrowserContext, chromium, expect, type Page, test } from '@playwright/test'
+import { packageVersion } from '../src/manifest.ts'
 import {
   FXM_HOST,
   GOOGLEVIDEO_HOST,
@@ -28,11 +29,7 @@ import {
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
 const EXTENSION_DIR = join(PACKAGE_DIR, 'dist', 'chromium')
-const VERSION = (
-  JSON.parse(readFileSync(join(PACKAGE_DIR, 'package.json'), 'utf8')) as {
-    version: string
-  }
-).version
+const VERSION = packageVersion(JSON.parse(readFileSync(join(PACKAGE_DIR, 'package.json'), 'utf8')))
 const PORT = Number(process.env.FXM_CONNECT_E2E_PORT ?? 5240)
 const FXM = `https://${FXM_HOST}`
 
