@@ -1,8 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
 // End-to-end and screenshot runs against a production build served by `vite preview`.
-// They are not part of `make test`. Set FXM_E2E_PORT when several worktrees run them
-// at the same time; an already running preview server on that port is reused.
+// They are not part of `make test`. Every run builds and serves this checkout: when the
+// port is busy (another worktree's preview, say), the run fails instead of silently
+// testing that server. Set FXM_E2E_PORT to pick a free port.
 const port = Number(process.env.FXM_E2E_PORT ?? 4173)
 const baseURL = `http://localhost:${port}/app/`
 
@@ -27,6 +28,6 @@ export default defineConfig({
   webServer: {
     command: `vite build && vite preview --port ${port} --strictPort`,
     url: baseURL,
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
 })
