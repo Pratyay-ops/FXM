@@ -75,6 +75,25 @@ describe('the stream fixture sanitizer', () => {
     )
   })
 
+  it('keeps a codec string that looks like an IPv4 address, and only a MIME type', () => {
+    const clean = sanitizePlayerResponse({
+      streamingData: {
+        adaptiveFormats: [
+          { itag: 251, url: RECORDED, mimeType: 'audio/webm; codecs="opus"' },
+          { itag: 248, url: RECORDED, mimeType: 'video/webm; codecs="vp09.00.40.08"' },
+          { itag: 137, url: RECORDED, mimeType: 'video/mp4 from 198.51.100.7' },
+        ],
+      },
+    }) as { streamingData: { adaptiveFormats: { mimeType: string; url: string }[] } }
+    const formats = clean.streamingData.adaptiveFormats
+    expect(formats.map((format) => format.mimeType)).toEqual([
+      'audio/webm; codecs="opus"',
+      'video/webm; codecs="vp09.00.40.08"',
+      'video/mp4 from 192.0.2.1',
+    ])
+    expect(formats.every((format) => new URL(format.url).hostname === FIXTURE_HOST)).toBe(true)
+  })
+
   it("keeps a scheduled stream's start and main text, not its local start time", () => {
     const slate = {
       scheduledStartTime: '1793270700',
