@@ -54,13 +54,16 @@ test.describe('on a tall window', () => {
     page,
   }) => {
     await page.goto('now-playing?tab=queue')
-    expect(await upNext(page)).toEqual([
-      'Slow Flare',
-      'Glass Tides',
-      'City of Pins (Official Video)',
-      'Winter Radio',
-      'Hollow Street',
-    ])
+    // The page loads lazily: wait for the list rather than read it once.
+    await expect
+      .poll(() => upNext(page))
+      .toEqual([
+        'Slow Flare',
+        'Glass Tides',
+        'City of Pins (Official Video)',
+        'Winter Radio',
+        'Hollow Street',
+      ])
 
     const handle = page.getByRole('button', { name: 'Move Slow Flare', exact: true })
     const target = page.getByRole('button', { name: 'Move Winter Radio', exact: true })
