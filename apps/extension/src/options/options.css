@@ -1,0 +1,151 @@
+/* FXM Connect options page. Colours meet WCAG AA in both schemes. */
+:root {
+  color-scheme: light dark;
+  --background: #ffffff;
+  --surface: #f4f4f5;
+  --text: #18181b;
+  --text-muted: #52525b;
+  --accent: #6d28d9;
+  --on-accent: #ffffff;
+  --border: #d4d4d8;
+  --focus: #6d28d9;
+  --danger: #b91c1c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0b0f;
+    --surface: #141419;
+    --text: #f5f5f7;
+    --text-muted: #a5a5b2;
+    --accent: #a78bfa;
+    --on-accent: #0b0b0f;
+    --border: #2f2f3a;
+    --focus: #c4b5fd;
+    --danger: #f87171;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--text);
+  font:
+    1rem / 1.5 ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+main {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.masthead {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+
+h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+}
+
+.meta {
+  margin: 0.25rem 0 0;
+  color: var(--text-muted);
+}
+
+.badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 0.875rem;
+}
+
+.lead {
+  margin: 1.5rem 0;
+}
+
+section {
+  margin: 1.5rem 0;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-weight: 600;
+}
+
+.setting input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.help {
+  margin: 0.75rem 0 0;
+  color: var(--text-muted);
+}
+
+.status {
+  min-height: 1.5rem;
+  margin: 0.75rem 0 0;
+  font-weight: 600;
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.origins {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9375rem;
+}
+
+.button {
+  display: inline-block;
+  padding: 0.625rem 1.25rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.button:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
