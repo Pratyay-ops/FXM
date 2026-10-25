@@ -1,5 +1,7 @@
 # FXM
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Pratyay-ops/FXM)
+
 **FXM (Free Cross-platform Media)** is a free, open-source music player for the web, desktop and Android. It is in early development.
 
 - **Play practically any song** from YouTube Music, ad-free, streamed straight to your device. There are two modes:
