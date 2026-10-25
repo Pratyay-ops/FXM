@@ -101,7 +101,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **0.4** | Continuous integration | `ci/0.4-ci` | 0.3 | ✅ |
 | **1.1** | Core domain model, interfaces, mode and quality policy | `feat/1.1-core-model` | 0.4 | ✅ |
 | **1.1b** | Core types from research | `feat/1.1b-core-research-types` | 1.1 | ✅ |
-| **1.2** | Platform transports, capability detection and request budget | `feat/1.2-platform` | 1.1b | 🟡 |
+| **1.2** | Platform transports, capability detection and request budget | `feat/1.2-platform` | 1.1b | ✅ |
 | **1.3** | YouTube Music + YouTube metadata provider | `feat/1.3-youtube` | 1.1b | 🟡 |
 | **1.4** | YouTube stream resolver: direct rungs | `feat/1.4-youtube-streams` | 1.2, 1.3 | 🟡 |
 | **1.5** | Spotify provider (switchable; anonymous and logged-in tokens) | `feat/1.5-spotify` | 1.1b | ✅ |
@@ -231,7 +231,7 @@ These change exported types, but nothing outside `packages/core` uses them yet (
 
 It merged on 2026-10-25 with three details the stages after it rely on: `signals` is optional (the matching engine fills in what a provider leaves out), `mediaBytes` can be true only with `youtube: 'full'`, and plugin sources are named `plugin.<name>`. [packages/core/README.md](../packages/core/README.md) has the rest.
 
-### 1.2 Platform transports, capability detection and request budget
+### 1.2 Platform transports, capability detection and request budget ✅
 
 **Branch** `feat/1.2-platform` · **Depends on** 1.1b · **Scope** `packages/platform/**` (a new package), except `src/sandbox/**`, `src/updates/**` and `src/evaluator/**`
 
