@@ -20,7 +20,8 @@ export type Container = 'webm' | 'mp4' | 'm4a' | 'mp3' | 'ogg' | 'flac' | 'wav'
 /**
  * How good a stream sounds, best first. See {@link tierOf} for the thresholds:
  *
- * - `lossless`: FLAC, ALAC or PCM
+ * - `lossless`: FLAC, ALAC or PCM, and nothing else: a lossy codec never is, at any bitrate, so
+ *   YouTube audio (Opus or AAC) is never labelled lossless
  * - `high`: transparent for most listeners (e.g. YouTube's best Opus and AAC streams, MP3 320)
  * - `normal`: good (e.g. Opus 64-119 kbps, MP3 128-255 kbps, or an unknown bitrate)
  * - `low`: data saver
@@ -93,7 +94,9 @@ export interface AudioQuality {
  * | mp3    | >= 256 | >= 128   | below 128 |
  * | vorbis | >= 160 | >= 96    | below 96  |
  *
- * Lossless codecs are always `lossless`. An unknown bitrate (missing, zero, negative or not a
+ * Lossless codecs are always `lossless`, and only they are: the codec decides, never the
+ * bitrate. So YouTube audio, which is Opus or AAC (also the AAC track of a muxed video), is never
+ * `lossless`, however high its bitrate. An unknown bitrate (missing, zero, negative or not a
  * finite number) counts as `normal`, and so does an unknown codec, which only bad data can hold.
  */
 export function tierOf({ codec, bitrateKbps }: AudioQuality): QualityTier {

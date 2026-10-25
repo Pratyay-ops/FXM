@@ -374,7 +374,10 @@ export interface StreamOption {
   sampleRateHz?: number
   /** Bits per sample, for lossless streams. */
   bitDepth?: number
-  /** Quality tier of the audio, usually from `tierOf`. */
+  /**
+   * Quality tier of the audio, usually from `tierOf`. Only a lossless codec is `lossless`, so
+   * YouTube audio (Opus or AAC) never is.
+   */
   tier: QualityTier
   /** How the stream is delivered. */
   protocol: StreamProtocol

@@ -112,6 +112,45 @@ describe('tierOf', () => {
   })
 })
 
+describe('YouTube audio', () => {
+  /** Values that only bad data or a bug could produce, besides the real ones. */
+  const odd = [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_VALUE, 1e9]
+
+  it.each(['opus', 'aac'] as const)('%s is never lossless, at any bitrate', (codec) => {
+    expect(isLosslessCodec(codec)).toBe(false)
+    for (let bitrateKbps = 1; bitrateKbps <= 10_000; bitrateKbps += 1) {
+      expect(tierOf({ codec, bitrateKbps })).not.toBe('lossless')
+    }
+    for (const bitrateKbps of [...odd, 1411.2, 4608, 9216]) {
+      const quality = bitrateKbps === undefined ? { codec } : { codec, bitrateKbps }
+      expect(tierOf(quality)).not.toBe('lossless')
+    }
+  })
+
+  it.each([
+    ['Opus itag 249', 'opus', 50, 'low'],
+    ['Opus itag 250', 'opus', 70, 'normal'],
+    ['Opus itag 251', 'opus', 160, 'high'],
+    ['AAC itag 139', 'aac', 48, 'low'],
+    ['the AAC track of muxed itag 18', 'aac', 96, 'normal'],
+    ['AAC itag 140', 'aac', 128, 'high'],
+    ['Opus at 256 kbps', 'opus', 256, 'high'],
+    ['AAC at 256 kbps', 'aac', 256, 'high'],
+  ] as const)('ranks %s (%s at %s kbps) as %s', (_label, codec, bitrateKbps, tier) => {
+    expect(tierOf({ codec, bitrateKbps })).toBe(tier)
+  })
+
+  it('never makes a download of YouTube audio lossless, whatever the format', () => {
+    const formats = Object.keys(DOWNLOAD_FORMATS) as DownloadFormat[]
+    for (const codec of ['opus', 'aac'] as const) {
+      for (const format of formats) expect(describeConversion(codec, format).lossless).toBe(false)
+    }
+    expect(describeConversion('opus', 'flac').label).toBe(
+      'FLAC (converted from Opus, same quality as the source)',
+    )
+  })
+})
+
 describe('compareTiers', () => {
   it('sorts best first', () => {
     const tiers: QualityTier[] = ['low', 'lossless', 'normal', 'high', 'normal']
