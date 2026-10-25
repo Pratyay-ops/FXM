@@ -372,7 +372,7 @@ describe('on a page with a fake FXM Connect', () => {
   })
 
   it('goes from the Lite tier to full access when FXM Connect is installed', async () => {
-    const window = new Window({ url: 'https://fxm-music.pages.dev/app/' })
+    const window = new Window({ url: 'https://fxmusic.pages.dev/app/' })
     pages.push(window)
     const page = window as unknown as ConnectWindow
     const connect = createConnectClient({ window: page, storage: memoryStorage() })

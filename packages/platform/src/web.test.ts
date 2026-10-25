@@ -641,7 +641,7 @@ describe('all three tiers against the fake FXM Connect and the fake sandbox', ()
   })
 
   async function page(pass: boolean) {
-    const window = new Window({ url: 'https://fxm-music.pages.dev/app/' })
+    const window = new Window({ url: 'https://fxmusic.pages.dev/app/' })
     pages.push(window)
     const view = window as unknown as ConnectWindow
     const connect = createConnectClient({ window: view, storage: memoryStorage() })

@@ -26,7 +26,7 @@ afterEach(async () => {
 const PATIENCE = { timeout: 10_000 }
 
 function page() {
-  const window = new Window({ url: 'https://fxm-music.pages.dev/app/' })
+  const window = new Window({ url: 'https://fxmusic.pages.dev/app/' })
   pages.push(window)
   return window as unknown as PlatformWindow
 }

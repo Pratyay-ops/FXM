@@ -22,8 +22,8 @@ import { FAKE_CONNECT_FEATURES, installFakeConnect } from './testing/fake-connec
 /** Messages travel on happy-dom's real timers, which a busy machine can slow down a lot. */
 const PATIENCE = { timeout: 10_000 }
 
-const APP = 'https://fxm-music.pages.dev/app/'
-const ORIGIN = 'https://fxm-music.pages.dev'
+const APP = 'https://fxmusic.pages.dev/app/'
+const ORIGIN = 'https://fxmusic.pages.dev'
 
 type Page = ConnectWindow & {
   happyDOM: { close(): Promise<void> }
@@ -157,7 +157,7 @@ describe('detection', () => {
       )
     send(pong, { source: other })
     send(pong, { origin: 'https://evil.example' })
-    send(pong, { origin: 'https://preview.fxm-music.pages.dev' })
+    send(pong, { origin: 'https://preview.fxmusic.pages.dev' })
     send({ ...pong, version: 1 })
     send({ ...pong, version: '' })
     send({ ...pong, features: 'youtube' })
