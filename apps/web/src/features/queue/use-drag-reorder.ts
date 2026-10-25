@@ -1,7 +1,9 @@
 /**
  * Reordering a list by dragging a handle, with a mouse, a pen or a finger (pointer events), or
  * from the keyboard (the arrow keys, Home and End on the focused handle). The other rows move
- * aside while a row is dragged; the move itself happens on drop, through `onMove`.
+ * aside while a row is dragged; the move itself happens on drop, through `onMove`. Selecting a
+ * handle without dragging it (a tap, a click, Enter or Space) calls `onTap`, for a way to move
+ * rows that needs no dragging (WCAG 2.5.7).
  *
  * @module
  */
@@ -101,6 +103,8 @@ export interface DragReorderOptions {
   rowsKey: unknown
   /** Moves the row at `from` to `to` (its index once moved). */
   onMove: (from: number, to: number, via: 'pointer' | 'keyboard') => void
+  /** The handle of the row at `index` was selected without a drag. */
+  onTap?: (index: number) => void
 }
 
 /** The parts of the window the fixed bars cover, from the page's own scroll padding. */
@@ -127,9 +131,11 @@ function stopScrolling(current: Session): void {
  * be a button with `touch-action: none` (so a finger drags instead of scrolling the page), and
  * apply `rowStyle(index)` to each row.
  */
-export function useDragReorder({ listRef, count, rowsKey, onMove }: DragReorderOptions) {
+export function useDragReorder({ listRef, count, rowsKey, onMove, onTap }: DragReorderOptions) {
   const [drag, setDrag] = useState<DragState | null>(null)
   const session = useRef<Session | null>(null)
+  // A drag ends in a click on the handle, which is not a tap.
+  const dropped = useRef(false)
 
   const end = () => {
     const current = session.current
@@ -212,6 +218,7 @@ export function useDragReorder({ listRef, count, rowsKey, onMove }: DragReorderO
   const handleProps = (index: number) => ({
     onPointerDown: (event: PointerEvent<HTMLElement>) => {
       if (event.button !== 0 || session.current !== null) return
+      dropped.current = false
       event.currentTarget.setPointerCapture(event.pointerId)
       start(event, index)
     },
@@ -230,6 +237,7 @@ export function useDragReorder({ listRef, count, rowsKey, onMove }: DragReorderO
       const to = dropIndex(current.centres, current.from, centre)
       const { from, dragging } = current
       end()
+      dropped.current = dragging
       if (dragging && to !== from) onMove(from, to, 'pointer')
     },
     onPointerCancel: end,
@@ -239,15 +247,27 @@ export function useDragReorder({ listRef, count, rowsKey, onMove }: DragReorderO
     },
     onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
       if (session.current !== null) {
-        // Escape cancels a drag; other keys wait for it to end.
-        if (event.key === 'Escape') end()
+        // Escape cancels a drag (the click that ends the press is no tap); other keys wait.
+        if (event.key === 'Escape') {
+          end()
+          dropped.current = true
+        }
         event.preventDefault()
         return
       }
+      // Enter and Space click: that click is the keyboard's, not the end of a drag.
+      dropped.current = false
       const to = keyTarget(event.key, index, count)
       if (to === undefined) return
       event.preventDefault()
       onMove(index, to, 'keyboard')
+    },
+    onClick: () => {
+      if (dropped.current) {
+        dropped.current = false
+        return
+      }
+      onTap?.(index)
     },
   })
 
