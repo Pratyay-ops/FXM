@@ -36,6 +36,8 @@ const radio = await music.radioPage(tracks.items[0], {}, ctx) // then { cursor: 
 
 Both providers reject with an `Unsupported` `FxmError`, before any request, when `ctx.capabilities.youtube` is `none`. Stream resolution, on the same session, is `createYouTubeAudioSource()` in [`youtube/stream/`](src/youtube/stream/README.md).
 
+All of it is also packaged as one versioned module, `@fxm/sources/youtube/module` ([`youtube/module/`](src/youtube/module/README.md)): the apps use its live providers, and the desktop and Android apps replace the module with newer signed copies from FXM's site, without an app update.
+
 ### Request shape
 
 Every InnerTube request is CORS-simple on every platform and tier, because the Lite tier's sandboxed document can make no other kind:
