@@ -1,0 +1,14 @@
+[
+  {
+    "index": 0,
+    "artist_credit_arg": "Radiohead",
+    "recording_arg": "Creep",
+    "artist_credit_name": "Radiohead",
+    "release_name": "Pablo Honey",
+    "recording_name": "Creep",
+    "artist_credit_id": 66,
+    "artist_mbids": ["a74b1b7f-71a5-4011-9441-d0b5e4122711"],
+    "release_mbid": "07aab296-9a40-42a9-8d1f-6b06aa032e8a",
+    "recording_mbid": "70595637-9310-45f2-a266-58f8de4874a7"
+  }
+]
