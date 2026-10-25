@@ -111,9 +111,11 @@ Stage 3.1 scores every track, artist and tag by what the user does with them: th
 - pass `{ keepCachedTracks: true }`: another service's history knows less about a track than the providers that cached it, so a track already cached keeps its metadata (a video cached under its other prefix lends its metadata to the play's ID);
 - check each row with `playRejection(play, now)` first: `recordPlays` refuses a whole batch when one play is invalid (a bad track ID, a start that is not a time or lies after now, a time played that is not a number), so a bad row can go to the import's review list instead;
 - record in batches (a few hundred per call keeps each transaction short);
-- a play of the same track (by `entityKey`) at the same start as one already recorded is the same play, found through the `[trackId+playedAt]` index: a resumed or repeated import records nothing twice. When the new record says more (more time played, or a verdict where there was none) it replaces the old one, affinity included;
+- a play of the same track (by `entityKey`) at the same start as one already recorded is the same play, found through the `[trackId+playedAt]` index: a resumed or repeated import records nothing twice. When the new record says more (more time played, or a verdict where there was none) it replaces the old one, affinity included, which is how the player's checkpoints of a play give way to its final record;
 - `forgetImportPlays(importId)` removes an import's plays and what they added; `deleteImport(id)` only forgets its progress;
 - likes and playlists come in through `addTracks` and `createPlaylist`, which record their signals themselves, dated at the import: an imported playlist counts as freshly added, which also gives a new library something to recommend from.
+
+**Plays survive the page.** A browser may kill a background page without `pagehide`, and a save started during `pagehide` may never finish. The play recorder keeps a checkpoint of the play in progress, and of finished plays until they are saved, in `localStorage` (one key per page, `fxm.plays.unsaved.<page>`): every 30 s of listening, whenever the page is hidden and whenever a play ends. When the app starts, it records what pages that went away left behind, as plays without a verdict; a page whose checkpoint changed in the last 10 minutes may still be open and is left alone, and if it is, its own record replaces the one recorded for it later.
 
 ## Backups
 
