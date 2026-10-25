@@ -497,6 +497,25 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
       return (await db.tracks.get(id))?.track
     },
 
+    /**
+     * Refreshes the cached metadata of the tracks the library already holds, e.g. after the
+     * local-files feature (stage 4.4) read a file's tags again. Tracks it doesn't hold, and
+     * tracks whose metadata didn't change, are left alone, so lists don't re-render for nothing.
+     * Returns how many it updated.
+     */
+    async refreshTracks(tracks: readonly Track[]): Promise<number> {
+      if (tracks.length === 0) return 0
+      return db.transaction('rw', db.tracks, async () => {
+        const cached = await db.tracks.bulkGet(tracks.map((track) => track.id))
+        const changed = tracks.filter((track, index) => {
+          const old = cached[index]
+          return old !== undefined && JSON.stringify(old.track) !== JSON.stringify(track)
+        })
+        await putTracks(changed)
+        return changed.length
+      })
+    },
+
     // --- Likes -------------------------------------------------------------------------
 
     /** Whether `trackId` (or the same entity under another YouTube prefix) is liked. */
