@@ -7,6 +7,7 @@ The pure rules behind playback (stage 2.3): which audio plays a track, which str
 | `settings.ts` | `PlaybackSettings` ("prefer lossless", "Play best guesses", Invidious), `DEFAULT_PLAYBACK_SETTINGS` (all off), `sanitizePlaybackSettings`. The matching engine's bands as the policy reads them (`PlaybackBand`: `auto`, `suggest`, `none`), `MatchTarget` (`song`, `lossless`) and `mayPlayMatch` |
 | `order.ts` | `planPlayback`, the order of preference, and the candidates built from a track: `ownCandidate`, `linkedSongCandidate`. `candidateKey` and `sameCandidate` compare audio; `canReachAudio` says whether the tier reaches a source's audio |
 | `streams.ts` | `choosePlaybackStream`, the format choice; `streamsUsableUntil` and `URL_REFRESH_MARGIN_MS` for the URL cache |
+| `quality-settings.ts` | The quality settings beside the tier ceilings (stage 4.3): `StreamingSettings` (which connection's ceiling to follow, the data saver), `DEFAULT_STREAMING_SETTINGS`, `sanitizeStreamingSettings`, `connectionFromType`; `streamingProfile`, the ceiling, audio-only preference and probe scope in effect; `probeStreams` and its `ProbePlan`, how a resolver probes |
 | `recovery.ts` | `planStreamRecovery`, what to do after a stream failed, and `httpStatusOf` |
 | `problems.ts` | Playability verdicts (`unplayableError`, `playabilityVerdictOf`), playback problems (`playbackProblemError`, `playbackProblemOf`) and `smartReplaceAction` |
 
@@ -39,6 +40,22 @@ Within YouTube, the ladder (1.4) tries VISIONOS, any enabled experimental rungs 
 ## Choosing a stream
 
 `choosePlaybackStream` leaves out capped streams, excluded ones (URLs that failed on this network, formats that did not decode) and those the player says `no` to. Streams the player is sure of (`probably`) come before `maybe` ones, so Opus 251 plays only where `canPlayType('audio/webm; codecs="opus"')` says "probably", and AAC 140 otherwise. Then `pickStream` applies the tier ceiling: `prefs.streaming.wifi`, or `.cellular` on mobile data, where audio-only streams also come before a muxed video of a higher tier.
+
+## Connection, data saver and probing
+
+The quality settings (stage 4.3) decide which ceiling applies. `streamingProfile(prefs, settings, detected)` works it out for every stream the lifecycle chooses, so a change applies from the next stream on:
+
+| Settings | Connection | Ceiling | Audio only first | Probe |
+|---|---|---|---|---|
+| `connection: 'auto'`, Wi-Fi or Ethernet detected | `wifi` (`detected`) | `prefs.streaming.wifi` | No | `every` |
+| `connection: 'auto'`, mobile data detected | `cellular` (`detected`) | `prefs.streaming.cellular` | Yes | `every` |
+| `connection: 'auto'`, the platform can't tell | `wifi` (`assumed`) | `prefs.streaming.wifi` | No | `every` |
+| `connection: 'wifi'` or `'cellular'` | That one (`chosen`), whatever is detected | Its ceiling | On `cellular` | `every` |
+| `dataSaver: true`, with any of the above | As above | `low` (`DATA_SAVER_CEILING`) | Yes | `chosen` |
+
+`detected` comes from the platform: `connectionFromType` reads the Network Information API's `type` (`wifi` and `ethernet` are Wi-Fi, `cellular` is mobile data), which only Chromium on Android and ChromeOS and Android's WebView report. Elsewhere it is `unknown`, and the user picks the connection by hand. Phones on a hotspot look like Wi-Fi to the laptop using it, which is what `connection: 'cellular'` is for.
+
+**Probing only the chosen stream.** Where bytes are readable, the YouTube ladder probes the end of every URL it found: five formats on VISIONOS, 64 KB each. With the data saver on, the lifecycle passes a `ProbePlan` whose scope is `chosen`, with a `choose` function that picks exactly as `choosePlaybackStream` will afterwards. `probeStreams(options, plan, probe)` then probes only that stream; if the probe finds it capped, it probes the next choice, and it stops at the first stream that is not capped. The others stay `unverified`. A resolver judges a rung by `plan.choose(result)`: `undefined` means nothing playback would choose is left, as when every URL is capped.
 
 ## When a stream fails
 
