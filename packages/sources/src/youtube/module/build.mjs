@@ -205,8 +205,14 @@ export async function buildYouTubeModule(options = {}) {
     throw new Error(`The module must build to one file, not ${outputs.length}`)
   }
   const [chunk] = chunks
-  if (chunk.imports.length > 0 || chunk.dynamicImports.length > 0) {
-    throw new Error(`The module must not import anything: ${chunk.imports.join(', ')}`)
+  // The YouTube code loads youtubei.js lazily with `import()`. Here that import is inlined, and
+  // Rolldown then lists the file itself among its dynamic imports, which loads nothing.
+  const imported = [
+    ...chunk.imports,
+    ...chunk.dynamicImports.filter((name) => name !== chunk.fileName),
+  ]
+  if (imported.length > 0) {
+    throw new Error(`The module must not import anything: ${imported.join(', ')}`)
   }
   if (!chunk.exports.includes('youtubeModule')) {
     throw new Error('The module must export youtubeModule')
