@@ -22,6 +22,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { createServer } from 'node:https'
 
 export const FXM_HOST = 'fxm-music.pages.dev'
+/** A preview deployment on a sub-domain of the FXM host, which is not an FXM origin. */
+export const FXM_PREVIEW_HOST = 'a1b2c3d4.fxm-music.pages.dev'
 export const OTHER_HOST = 'not-fxm.example'
 export const YOUTUBE_HOSTS = ['www.youtube.com', 'music.youtube.com', 'youtubei.googleapis.com']
 export const GOOGLEVIDEO_HOST = 'rr1---sn-mock.googlevideo.com'
@@ -34,6 +36,7 @@ export const SPCLIENT_HOST = 'spclient.wg.spotify.com'
 export const LASTFM_HOST = 'www.last.fm'
 export const MOCK_HOSTS = [
   FXM_HOST,
+  FXM_PREVIEW_HOST,
   OTHER_HOST,
   ...YOUTUBE_HOSTS,
   GOOGLEVIDEO_HOST,
@@ -271,7 +274,7 @@ function echoingSpotify(req: IncomingMessage, host: string, url: URL): Reply {
 }
 
 function route(req: IncomingMessage, host: string, url: URL, body: string): Reply {
-  if (host === FXM_HOST || host === OTHER_HOST) {
+  if (host === FXM_HOST || host === FXM_PREVIEW_HOST || host === OTHER_HOST) {
     return url.pathname === '/'
       ? { status: 200, headers: { 'content-type': 'text/html' }, body: PAGE }
       : { status: 404 }

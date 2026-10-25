@@ -115,7 +115,13 @@ export interface Manifest {
   }
 }
 
-/** host_permissions: the FXM pages first (DNR needs host access to the initiator too), then the services. */
+/**
+ * host_permissions: the FXM pages first, then the services. DNR modifies headers only when the
+ * extension has host access to the request's initiator too, and the FXM entries must stay
+ * exact-host patterns (never `*.`): DNR's initiatorDomains also matches sub-domains, so this
+ * host access is what keeps the rules away from pages such as preview deployments at
+ * <hash>.fxm-music.pages.dev.
+ */
 export function hostPermissions(origins: readonly string[]): string[] {
   return [...new Set([...origins.map(originMatchPattern), ...ruleHostPermissions()])]
 }

@@ -18,6 +18,7 @@ import { packageVersion } from '../src/manifest.ts'
 import {
   CLIENTTOKEN_HOST,
   FXM_HOST,
+  FXM_PREVIEW_HOST,
   GOOGLEVIDEO_HOST,
   GOOGLEVIDEO_OTHER_HOST,
   MEDIA,
@@ -559,6 +560,30 @@ test.describe('with FXM Connect loaded', () => {
       ])
     } finally {
       await other.close()
+    }
+  })
+
+  test('ignores preview deployments on sub-domains of the FXM host', async () => {
+    const preview = await context.newPage()
+    try {
+      await preview.goto(`https://${FXM_PREVIEW_HOST}/`)
+      expect(await preview.locator('html').getAttribute('data-fxm-connect')).toBeNull()
+      const result = await pageFetch(preview, 'https://www.youtube.com/youtubei/v1/search', {
+        method: 'POST',
+        body: '{}',
+      })
+      expect(result.ok).toBe(false)
+      // initiatorDomains matches sub-domains, but DNR also needs host access to the initiator,
+      // which FXM Connect has for the exact FXM host only: the request kept its real Origin.
+      expect(mock.requests('www.youtube.com')).toEqual([
+        expect.objectContaining({
+          method: 'POST',
+          origin: `https://${FXM_PREVIEW_HOST}`,
+          status: 403,
+        }),
+      ])
+    } finally {
+      await preview.close()
     }
   })
 

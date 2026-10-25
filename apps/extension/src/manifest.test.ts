@@ -78,6 +78,25 @@ describe.each(VARIANTS)('manifest for $browser (dev: $dev)', ({ browser, dev }) 
     )
   })
 
+  it('never grants host access to sub-domains of an FXM host', () => {
+    // initiatorDomains matches sub-domains too; only this keeps the rules on the FXM host.
+    const fxmHosts = fxmOrigins(dev).map((origin) => new URL(origin).hostname)
+    for (const pattern of m.host_permissions) {
+      const host = /^[a-z]+:\/\/([^/]+)\//.exec(pattern)?.[1]
+      expect(host, pattern).toBeDefined()
+      if (!host?.startsWith('*')) continue
+      const base = host.replace(/^\*\.?/, '')
+      for (const fxm of fxmHosts) {
+        expect(base === '' || fxm === base || fxm.endsWith(`.${base}`), pattern).toBe(false)
+      }
+    }
+    for (const origin of fxmOrigins(dev)) {
+      expect(m.host_permissions).toContain(
+        `${new URL(origin).protocol}//${new URL(origin).hostname}/*`,
+      )
+    }
+  })
+
   it('injects the content script into the FXM pages at document_start', () => {
     expect(m.content_scripts).toEqual([
       {

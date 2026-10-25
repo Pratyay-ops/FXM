@@ -14,7 +14,7 @@ FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules th
 
 ## What it does
 
-1. **Header rules.** These are static rules generated from [`src/rules.ts`](src/rules.ts). Every rule only applies to requests started by an FXM page (`initiatorDomains`). Each response gets `Access-Control-Allow-Origin` set to the exact FXM origin, never `*`.
+1. **Header rules.** These are static rules generated from [`src/rules.ts`](src/rules.ts). Every rule only applies to requests started by an FXM page (`initiatorDomains`). Each response gets `Access-Control-Allow-Origin` set to the exact FXM origin, never `*`. Preview deployments on sub-domains such as `<hash>.fxm-music.pages.dev` are not FXM pages: the content script doesn't run there, and the rules leave their requests alone.
 
    | Service | Request change | Response change |
    |---|---|---|
@@ -174,6 +174,8 @@ scripts/run.sh pnpm --filter @fxm/extension test:e2e   # end-to-end test in Chro
 **Dev build.** It also allows `http://localhost:5173` (the Vite dev server) and `http://localhost:4173` (`vite preview`) as FXM origins. DNR matches the page that starts a request by host name only, not port, so each localhost origin gets its own static ruleset. When an FXM page opens on one of them, the background enables that origin's ruleset and disables the other, and the content script holds back its replies, the pong included, until the switch is done. So requests the app sends after the pong get the rules; requests sent earlier may not. If both are open at once, the most recently loaded one gets the CORS rules.
 
 **Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, the rate limit, the icons and the zips. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, `clienttoken`, pathfinder, `spclient` and Last.fm. Chromium's `--host-resolver-rules` points the real host names, `fxm-music.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
+
+**Keep the FXM host permissions exact.** DNR's `initiatorDomains` also matches sub-domains, so `fxm-music.pages.dev` alone would cover every preview deployment. Browsers only modify headers for a request when the extension has host access to the page that started it as well (verified in Chromium by the e2e test, and documented on MDN for Firefox), and FXM Connect only asks for `https://fxm-music.pages.dev/*`. Adding a pattern such as `https://*.fxm-music.pages.dev/*` would quietly widen every rule to all sub-domains; a unit test refuses it.
 
 **Layout.**
 
