@@ -73,10 +73,11 @@ export interface TestPlayback extends AppPlayback {
 
 /**
  * Makes the app play through a `FakeEngine` and a {@link FakePolicy}, without the system media
- * controls, and with retries that don't wait. The test setup resets it after each test.
+ * controls or a listening history (`recordPlays: true` records plays in the library), and with
+ * retries that don't wait. The test setup resets it after each test.
  */
 export function setupTestPlayback(
-  options: Pick<PlaybackOptions, 'storage' | 'persist' | 'player'> = {},
+  options: Pick<PlaybackOptions, 'storage' | 'persist' | 'player' | 'recordPlays'> = {},
 ): TestPlayback {
   const engine = new FakeEngine()
   const policy = new FakePolicy()
@@ -84,6 +85,7 @@ export function setupTestPlayback(
     createEngine: () => engine,
     policy,
     mediaSession: false,
+    recordPlays: false,
     ...options,
     player: { retryDelaysMs: [0], stallTimeoutMs: 0, ...options.player },
   })

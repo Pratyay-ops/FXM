@@ -7,7 +7,8 @@
  * - follows the catalog mode setting;
  * - shows the current track in the system media controls (Media Session);
  * - keeps its queue, position and volume across reloads (`features/queue/queue-storage.ts`);
- * - keeps the queue's review list (`features/queue/review-store.ts`) in step with the policy.
+ * - keeps the queue's review list (`features/queue/review-store.ts`) in step with the policy;
+ * - records each play as a listening signal (stage 3.1, `features/signals/play-recorder.ts`).
  *
  * Components read it with {@link usePlayerState} and call the player's methods straight from
  * event handlers, so playback starts inside the user's gesture (see the player's README).
@@ -34,6 +35,7 @@ import {
 } from '../queue/queue-storage'
 import { useQueueReviewStore } from '../queue/review-store'
 import { useSettingsStore } from '../settings/settings-store'
+import { connectPlayRecorder } from '../signals/play-recorder'
 import { createAppPolicy, type PlaybackPolicy } from './playback-policy'
 
 /** How the app's playback is put together. Every field has a default; tests pass fakes. */
@@ -48,6 +50,8 @@ export interface PlaybackOptions {
   persist?: PersistOptions
   /** Whether to connect the system media controls. Default: true. */
   mediaSession?: boolean
+  /** Whether to record each play in the library's listening history. Default: true. */
+  recordPlays?: boolean
   /** Tuning passed on to the player, e.g. shorter retry delays in tests. */
   player?: Omit<PlayerOptions, 'engine' | 'resolver' | 'queue' | 'volume' | 'muted'>
 }
@@ -113,6 +117,7 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
   const disconnects = [
     player.subscribe(notify),
     options.mediaSession === false ? () => {} : connectMediaSession(player),
+    options.recordPlays === false ? () => {} : connectPlayRecorder(player),
     persistPlayback(player, storage, options.persist),
     connectReview(player, policy),
     useSettingsStore.subscribe((state, previous) => {

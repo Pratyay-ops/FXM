@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { NewPlay } from '../../db/repo'
 import { getLibrary, resetLibrary } from '../../db/repo'
 import { testRepo } from '../../test/library-fixtures'
+import { setupTestPlayback } from '../now-playing/testing'
 import {
   ABANDONED_AFTER_MS,
   CHECKPOINT_INTERVAL_MS,
@@ -535,5 +536,45 @@ describe('plays in the library', () => {
     listen(5_000)
     await player.next()
     await vi.waitFor(async () => expect(await getLibrary().history()).toHaveLength(1))
+  })
+})
+
+describe('the app’s player', () => {
+  /**
+   * The app's playback with fakes and recording on, on a clock that `listen` moves with the
+   * position.
+   */
+  function appPlayback() {
+    let clock = T0
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const { player, engine } = setupTestPlayback({ recordPlays: true })
+    return {
+      player,
+      engine,
+      listen(ms: number) {
+        for (let done = 0; done < ms; done += 250) {
+          clock += 250
+          engine.progress(engine.positionMs + 250)
+        }
+      },
+    }
+  }
+
+  it('records its plays in the library, which scores them', async () => {
+    const { player, engine, listen } = appPlayback()
+    await player.setQueue([a, b])
+    listen(179_750)
+    engine.end()
+
+    await vi.waitFor(async () => expect(await getLibrary().history()).toHaveLength(1))
+    expect((await getLibrary().history())[0]).toMatchObject({
+      trackId: a.id,
+      playedAt: T0,
+      playedMs: 179_750,
+      completed: true,
+      skipped: false,
+    })
+    const top = await getLibrary().topAffinity('artist')
+    expect(top.map(({ entry }) => entry.label)).toEqual(['a artist'])
   })
 })
