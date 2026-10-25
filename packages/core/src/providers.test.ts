@@ -90,7 +90,7 @@ const youtubeAudio: AudioSource = {
     return [
       {
         source: 'ytm',
-        ref: parseId(track.id)?.nativeId ?? '',
+        ref: parseId(track.id).nativeId,
         kind: 'song',
         title: track.title,
         artists: track.artists.map((artist) => artist.name),
@@ -127,7 +127,7 @@ const videoAwareAudio: AudioSource = {
   async match(track, ctx) {
     const self: AudioCandidate = {
       source: 'ytm',
-      ref: parseId(track.id)?.nativeId ?? '',
+      ref: parseId(track.id).nativeId,
       kind: track.kind,
       title: track.title,
       artists: track.artists.map((artist) => artist.name),

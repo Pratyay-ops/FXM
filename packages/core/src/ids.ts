@@ -49,11 +49,11 @@ export type EntityId<K extends EntityKind = EntityKind> = `${SourceId}:${K}:${st
 }
 
 /** The three parts of an {@link EntityId}, as returned by {@link parseId}. */
-export interface EntityIdParts {
+export interface EntityIdParts<K extends EntityKind = EntityKind> {
   /** The source the entity comes from. */
   source: SourceId
   /** What the ID names. */
-  kind: EntityKind
+  kind: K
   /** The source's own ID. Never empty, and may itself contain `:`. */
   nativeId: string
 }
@@ -89,11 +89,18 @@ export function formatId<K extends EntityKind>(
 }
 
 /**
- * Splits an ID into its parts. Only the first two `:` separate parts, so the native ID may
- * contain more colons. Returns `null`, and never throws, when the input is not a string, the
- * source or kind is unknown, or the native ID is empty.
+ * Splits an {@link EntityId} into its parts, keeping its kind. A branded ID is valid by
+ * construction, so the result is never `null`. Only the first two `:` separate parts, so the
+ * native ID may contain more colons.
  */
-export function parseId(id: string): EntityIdParts | null {
+export function parseId<K extends EntityKind>(id: EntityId<K>): EntityIdParts<K>
+/**
+ * Splits a value that may be an ID into its parts. Only the first two `:` separate parts, so the
+ * native ID may contain more colons. Returns `null`, and never throws, when the value is not a
+ * string, the source or kind is unknown, or the native ID is empty.
+ */
+export function parseId(id: unknown): EntityIdParts | null
+export function parseId(id: unknown): EntityIdParts | null {
   if (typeof id !== 'string') return null
   const first = id.indexOf(':')
   const second = first < 0 ? -1 : id.indexOf(':', first + 1)

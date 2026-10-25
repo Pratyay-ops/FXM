@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   ENTITY_KINDS,
   type EntityId,
+  type EntityIdParts,
   type EntityKind,
   formatId,
   isEntityId,
@@ -140,5 +141,21 @@ describe('EntityId types', () => {
     // @ts-expect-error a plain string is not an EntityId
     const plain: EntityId = 'ytm:track:abc'
     expect(plain).toBe(track)
+  })
+
+  it('parses a branded ID without a null check and keeps its kind', () => {
+    const album = formatId('spotify', 'album', '4aawyAB9vmqN3uQ7FjRGTy')
+    const parts = parseId(album)
+    expectTypeOf(parts).toEqualTypeOf<EntityIdParts<'album'>>()
+    expect(parts.nativeId).toBe('4aawyAB9vmqN3uQ7FjRGTy')
+    expectTypeOf(parseId(album as EntityId)).toEqualTypeOf<EntityIdParts>()
+  })
+
+  it('may return null for any other value', () => {
+    const text: string = 'ytm:track:abc'
+    expectTypeOf(parseId(text)).toEqualTypeOf<EntityIdParts | null>()
+    expectTypeOf(parseId(undefined)).toEqualTypeOf<EntityIdParts | null>()
+    const maybe = formatId('ytm', 'track', 'abc') as EntityId<'track'> | undefined
+    expectTypeOf(parseId(maybe)).toEqualTypeOf<EntityIdParts | null>()
   })
 })
