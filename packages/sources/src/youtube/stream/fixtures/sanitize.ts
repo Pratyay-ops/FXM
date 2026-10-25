@@ -125,14 +125,18 @@ function isAudio(format: unknown): boolean {
   return String(asObject(format)?.mimeType).startsWith('audio/')
 }
 
-/** The offline slate of an upcoming stream: its start time and texts, without images. */
+/**
+ * The offline slate of an upcoming stream: its start time and main text ("Live in 3 days"),
+ * which tells a premiere from a stream. Its images go, and so does its subtitle, which gives the
+ * start in the time zone of the recording machine's IP address ("October 29 at 6:45 AM
+ * GMT-4"), which names a place.
+ */
 function sanitizeLiveStreamability(value: unknown): Json | undefined {
   const renderer = asObject(asObject(value)?.liveStreamabilityRenderer)
   if (renderer === undefined) return undefined
   const slate = pick(asObject(asObject(renderer.offlineSlate)?.liveStreamOfflineSlateRenderer), [
     'scheduledStartTime',
     'mainText',
-    'subtitleText',
   ])
   return {
     liveStreamabilityRenderer: {
