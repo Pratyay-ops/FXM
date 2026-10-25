@@ -167,10 +167,11 @@ describe('capabilities', () => {
     expect(capability.windows).toEqual(['main'])
   })
 
-  it('grants core and opener, and http only for the music, lyrics and metadata hosts', () => {
+  it('grants core, opener and the evaluator, and http only for the music, lyrics and metadata hosts', () => {
     expect(capability.permissions).toEqual([
       'core:default',
       'opener:default',
+      'fxm-evaluator:default',
       { identifier: 'http:default', allow: HTTP_HOSTS.map((url) => ({ url })) },
     ])
   })

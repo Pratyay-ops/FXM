@@ -6,6 +6,8 @@
 use tauri::{AppHandle, Manager};
 use tauri_plugin_window_state::StateFlags;
 
+mod evaluator;
+
 /// Label of the main window in `tauri.conf.json`.
 pub const MAIN_WINDOW: &str = "main";
 
@@ -27,6 +29,8 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         // Opens links with target="_blank" in the default browser.
         .plugin(tauri_plugin_opener::init())
+        // The isolated evaluator in a hidden webview of its own (stage 1.11, src/evaluator.rs).
+        .plugin(evaluator::init())
         .run(context())
         .expect("error while running the FXM desktop app");
 }
