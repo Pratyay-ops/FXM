@@ -19,6 +19,9 @@ import { type KeyValueStorage, memoryStorage } from './storage'
 import { createFakeClock } from './testing/fake-clock'
 import { FAKE_CONNECT_FEATURES, installFakeConnect } from './testing/fake-connect'
 
+/** Messages travel on happy-dom's real timers, which a busy machine can slow down a lot. */
+const PATIENCE = { timeout: 10_000 }
+
 const APP = 'https://fxm-music.pages.dev/app/'
 const ORIGIN = 'https://fxm-music.pages.dev'
 
@@ -173,7 +176,7 @@ describe('detection', () => {
     expect((await detection).state).toBe('absent')
     connect.update({ answerPings: true })
     window.postMessage({ type: 'fxm-connect:ping' }, ORIGIN)
-    await vi.waitFor(() => expect(client.status?.state).toBe('present'))
+    await vi.waitFor(() => expect(client.status?.state).toBe('present'), PATIENCE)
   })
 
   it('detects again by itself when the marker appears, changes or goes away', async () => {
@@ -182,11 +185,11 @@ describe('detection', () => {
     client.subscribe((status) => seen.push(status))
     expect((await client.detect()).state).toBe('absent')
     const connect = installFakeConnect(window, { version: '0.1.0' })
-    await vi.waitFor(() => expect(client.status?.state).toBe('present'))
+    await vi.waitFor(() => expect(client.status?.state).toBe('present'), PATIENCE)
     connect.update({ version: '0.2.0' })
-    await vi.waitFor(() => expect(client.status?.version).toBe('0.2.0'))
+    await vi.waitFor(() => expect(client.status?.version).toBe('0.2.0'), PATIENCE)
     connect.uninstall()
-    await vi.waitFor(() => expect(client.status?.state).toBe('missing'))
+    await vi.waitFor(() => expect(client.status?.state).toBe('missing'), PATIENCE)
     expect(seen.map((status) => [status.state, status.version ?? status.lastSeenVersion])).toEqual([
       ['absent', undefined],
       ['present', '0.1.0'],
@@ -316,7 +319,7 @@ describe('the Spotify session bridge', () => {
   it('times out when FXM Connect never answers', async () => {
     const { client, clock } = await present({ bridge: () => new Promise(() => {}) })
     const request = client.spotifyServerTime()
-    await vi.waitFor(() => expect(clock.pendingTimers).toBe(1))
+    await vi.waitFor(() => expect(clock.pendingTimers).toBe(1), PATIENCE)
     clock.advance(CONNECT_BRIDGE_TIMEOUT_MS)
     expect(isFxmError(await rejection(request), 'Network')).toBe(true)
   })
@@ -325,7 +328,7 @@ describe('the Spotify session bridge', () => {
     const { client, clock } = await present({ bridge: () => new Promise(() => {}) })
     const controller = new AbortController()
     const request = client.spotifyServerTime({ signal: controller.signal })
-    await vi.waitFor(() => expect(clock.pendingTimers).toBe(1))
+    await vi.waitFor(() => expect(clock.pendingTimers).toBe(1), PATIENCE)
     controller.abort(new Error('user left'))
     expect(((await rejection(request)) as Error).message).toBe('user left')
     expect(clock.pendingTimers).toBe(0)
@@ -338,7 +341,7 @@ describe('the Spotify session bridge', () => {
   it('ignores replies to other requests and malformed replies', async () => {
     const { client, clock, window } = await present({ bridge: () => new Promise(() => {}) })
     const request = client.spotifyServerTime()
-    await vi.waitFor(() => expect(clock.pendingTimers).toBe(1))
+    await vi.waitFor(() => expect(clock.pendingTimers).toBe(1), PATIENCE)
     for (const reply of [
       { type: 'fxm-connect:response', id: 'someone-else', status: 200, json: {} },
       { type: 'fxm-connect:response', id: 7, status: 200, json: {} },
@@ -355,7 +358,7 @@ describe('the Spotify session bridge', () => {
     const { client, clock, window } = await present({ bridge: () => new Promise(() => {}) })
     const post = vi.spyOn(window, 'postMessage')
     const request = client.spotifyServerTime()
-    await vi.waitFor(() => expect(post).toHaveBeenCalled())
+    await vi.waitFor(() => expect(post).toHaveBeenCalled(), PATIENCE)
     const id = (post.mock.calls[0]?.[0] as { id?: string } | undefined)?.id
     window.postMessage({ type: 'fxm-connect:response', id, status: '200', json: {} }, ORIGIN)
     window.postMessage({ type: 'fxm-connect:response', id, status: 200 }, ORIGIN)

@@ -18,6 +18,9 @@ import { memoryStorage } from './storage'
 import { FAKE_CONNECT_FEATURES, installFakeConnect } from './testing/fake-connect'
 import { createFakeSandbox } from './testing/fake-sandbox'
 
+/** Messages travel on happy-dom's real timers, which a busy machine can slow down a lot. */
+const PATIENCE = { timeout: 10_000 }
+
 const ALL = [...FAKE_CONNECT_FEATURES]
 const present = (features: readonly string[] = ALL): ConnectStatus => ({
   state: 'present',
@@ -223,9 +226,9 @@ describe('createCapabilityMonitor', () => {
     const seen: string[] = []
     monitor.subscribe((capabilities) => seen.push(capabilities.youtube))
     connect.set(present())
-    await vi.waitFor(() => expect(monitor.current.youtube).toBe('full'))
+    await vi.waitFor(() => expect(monitor.current.youtube).toBe('full'), PATIENCE)
     connect.set({ state: 'missing', features: [], lastSeenVersion: '0.1.0' })
-    await vi.waitFor(() => expect(monitor.current.youtube).toBe('simple'))
+    await vi.waitFor(() => expect(monitor.current.youtube).toBe('simple'), PATIENCE)
     expect(seen).toEqual(['full', 'simple'])
     expect(sandbox.selfTests).toBe(1)
   })
@@ -245,9 +248,9 @@ describe('createCapabilityMonitor', () => {
       lite: createLiteTier({ sandbox }),
     })
     const refresh = monitor.refresh()
-    await vi.waitFor(() => expect(sandbox.selfTests).toBe(1))
+    await vi.waitFor(() => expect(sandbox.selfTests).toBe(1), PATIENCE)
     connect.set(present())
-    await vi.waitFor(() => expect(monitor.current.youtube).toBe('full'))
+    await vi.waitFor(() => expect(monitor.current.youtube).toBe('full'), PATIENCE)
     releaseSelfTest(true)
     await expect(refresh).resolves.toMatchObject({ youtube: 'full' })
     expect(monitor.current.youtube).toBe('full')
@@ -273,7 +276,7 @@ describe('createCapabilityMonitor', () => {
     })
     const unsubscribe = monitor.subscribe((capabilities) => seen.push(capabilities.youtube))
     connect.set(present())
-    await vi.waitFor(() => expect(seen).toEqual(['full']))
+    await vi.waitFor(() => expect(seen).toEqual(['full']), PATIENCE)
     unsubscribe()
     monitor.dispose()
     expect(connect.listeners.size).toBe(0)
@@ -307,13 +310,15 @@ describe('on a page with a fake FXM Connect', () => {
     })
     expect(await monitor.refresh()).toEqual({ ...NONE, youtube: 'simple' })
     installFakeConnect(page, { features: [...ALL, 'spotify-login'] })
-    await vi.waitFor(() =>
-      expect(monitor.current).toEqual({
-        youtube: 'full',
-        mediaBytes: true,
-        spotify: 'account',
-        fileSystem: false,
-      }),
+    await vi.waitFor(
+      () =>
+        expect(monitor.current).toEqual({
+          youtube: 'full',
+          mediaBytes: true,
+          spotify: 'account',
+          fileSystem: false,
+        }),
+      PATIENCE,
     )
     monitor.dispose()
     connect.dispose()

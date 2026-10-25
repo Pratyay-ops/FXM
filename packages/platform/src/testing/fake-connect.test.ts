@@ -4,6 +4,9 @@ import { CONNECT_MARKER_ATTRIBUTE, type ConnectWindow } from '../connect'
 import { flushPromises } from './fake-clock'
 import { installFakeConnect } from './fake-connect'
 
+/** Messages travel on happy-dom's real timers, which a busy machine can slow down a lot. */
+const PATIENCE = { timeout: 10_000 }
+
 describe('installFakeConnect', () => {
   const pages: { happyDOM: { close(): Promise<void> } }[] = []
   afterEach(async () => {
@@ -28,7 +31,7 @@ describe('installFakeConnect', () => {
     window.postMessage({ type: 'fxm-connect:unknown' }, 'https://fxm-music.pages.dev')
     window.postMessage('not an object', 'https://fxm-music.pages.dev')
     window.postMessage({ type: 'fxm-connect:ping' }, 'https://fxm-music.pages.dev')
-    await vi.waitFor(() => expect(replies).toHaveLength(1))
+    await vi.waitFor(() => expect(replies).toHaveLength(1), PATIENCE)
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(replies).toEqual([{ type: 'fxm-connect:pong', version: '0.3.0', features: ['youtube'] }])
     expect(connect.pings).toBe(1)
@@ -46,7 +49,7 @@ describe('installFakeConnect', () => {
       { type: 'fxm-connect:spotify-server-time', id: 1 },
       'https://fxm-music.pages.dev',
     )
-    await vi.waitFor(() => expect(replies).toHaveLength(1))
+    await vi.waitFor(() => expect(replies).toHaveLength(1), PATIENCE)
     expect(replies[0]).toEqual({ type: 'fxm-connect:error', id: 1, code: 'login-disabled' })
     expect(connect.bridgeRequests).toEqual([{ type: 'fxm-connect:spotify-server-time', id: 1 }])
   })

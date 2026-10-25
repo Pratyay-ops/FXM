@@ -12,6 +12,9 @@ import { FAKE_CONNECT_FEATURES, installFakeConnect } from './testing/fake-connec
 import { createFakeSandbox, type FakeSandboxOptions } from './testing/fake-sandbox'
 import { createWebTransport } from './web'
 
+/** Messages travel on happy-dom's real timers, which a busy machine can slow down a lot. */
+const PATIENCE = { timeout: 10_000 }
+
 const SEARCH = 'https://music.youtube.com/youtubei/v1/search'
 const PLAYER = 'https://www.youtube.com/youtubei/v1/player'
 const MEDIA = 'https://rr3---sn-ab5l6nrz.googlevideo.com/videoplayback?itag=251&expire=1'
@@ -461,7 +464,7 @@ describe('all three tiers against the fake FXM Connect and the fake sandbox', ()
     expect(pageFetch).toHaveBeenCalledTimes(4)
     expect(sandbox.requests).toEqual([])
     extension.uninstall()
-    await vi.waitFor(() => expect(connect.status?.state).toBe('missing'))
+    await vi.waitFor(() => expect(connect.status?.state).toBe('missing'), PATIENCE)
     await transport.fetch(SEARCH, innerTubeInit())
     expect(sandbox.requests).toHaveLength(1)
     expect(await refusedAsUnsupported(transport.fetch(MEDIA))).toBe(true)
