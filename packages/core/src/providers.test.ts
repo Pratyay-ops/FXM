@@ -17,7 +17,7 @@ import type {
   RecommendationProvider,
   StreamOption,
 } from './providers'
-import { DEFAULT_QUALITY_PREFS, tierOf } from './quality'
+import { compareStreams, DEFAULT_QUALITY_PREFS, pickStream, tierOf } from './quality'
 
 const song: Track = {
   id: formatId('ytm', 'track', 'song1'),
@@ -99,20 +99,25 @@ const youtubeAudio: AudioSource = {
       },
     ]
   },
-  async resolve(candidate, ctx, prefs) {
+  async resolve(candidate, ctx) {
     const response = await ctx.fetch(`https://example.test/player?v=${candidate.ref}`)
-    const { bitrate } = (await response.json()) as { bitrate: number }
-    const option: StreamOption = {
-      url: `https://example.test/${candidate.ref}.webm`,
-      codec: 'opus',
-      container: 'webm',
-      bitrateKbps: bitrate,
-      tier: tierOf({ codec: 'opus', bitrateKbps: bitrate }),
-      protocol: 'progressive',
-      expiresAt: Date.now() + 6 * 3_600_000,
-      ipBound: true,
+    const { formats } = (await response.json()) as {
+      formats: Array<{ itag: number; codec: 'opus' | 'aac'; bitrate: number }>
     }
-    return prefs.streaming.wifi === 'low' ? [] : [option]
+    const options = formats.map(
+      ({ itag, codec, bitrate }): StreamOption => ({
+        url: `https://example.test/${candidate.ref}/${itag}`,
+        codec,
+        container: codec === 'opus' ? 'webm' : 'mp4',
+        bitrateKbps: bitrate,
+        tier: tierOf({ codec, bitrateKbps: bitrate }),
+        protocol: 'progressive',
+        expiresAt: Date.now() + 6 * 3_600_000,
+        ipBound: true,
+      }),
+    )
+    // Every usable option, best first; the caller applies the preferences.
+    return options.sort(compareStreams)
   },
 }
 
@@ -158,12 +163,21 @@ describe('provider interfaces', () => {
 
   it('matches then resolves audio through the injected fetch', async () => {
     const urls: string[] = []
-    const ctx = context('music', fakeFetch({ bitrate: 141 }, urls))
+    const formats = [
+      { itag: 249, codec: 'opus', bitrate: 50 },
+      { itag: 140, codec: 'aac', bitrate: 128 },
+      { itag: 251, codec: 'opus', bitrate: 141 },
+    ]
+    const ctx = context('music', fakeFetch({ formats }, urls))
     const [candidate] = await youtubeAudio.match(song, ctx)
     if (!candidate) throw new Error('expected a candidate')
-    const [stream] = await youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
+    const options = await youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
     expect(urls).toEqual(['https://example.test/player?v=song1'])
-    expect(stream).toMatchObject({ codec: 'opus', tier: 'high', ipBound: true })
+    expect(options.map((option) => option.url.split('/').at(-1))).toEqual(['251', '140', '249'])
+    expect(options[0]).toMatchObject({ codec: 'opus', tier: 'high', ipBound: true })
+    // Playback applies the tier ceiling of the current connection to the full list.
+    expect(pickStream(options, DEFAULT_QUALITY_PREFS.streaming.wifi)?.url).toMatch(/251$/)
+    expect(pickStream(options, 'low')?.url).toMatch(/249$/)
   })
 
   it('finds lyrics and account status', async () => {

@@ -249,7 +249,13 @@ export interface AudioSource {
   readonly id: SourceId
   /** Candidates for `track`, best first. Empty when the source has nothing. */
   match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
-  /** Stream options for a candidate, best first for `prefs`. */
+  /**
+   * Every usable stream option for a candidate, best first as `compareStreams` orders them. It
+   * never drops an option because of `prefs`: the same list serves playback, which applies the
+   * tier ceiling of the current connection with `pickStream`, and downloads, which want the best
+   * option (e.g. a real FLAC original). `prefs` is only a hint for ordering options of equal
+   * quality, e.g. putting first the codec that `prefs.download.format` needs no conversion for.
+   */
   resolve(
     candidate: AudioCandidate,
     ctx: ProviderContext,

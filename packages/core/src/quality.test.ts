@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import {
   CODEC_LABELS,
   type Codec,
+  compareStreams,
   compareTiers,
   containerExtension,
   DEFAULT_MP3_KBPS,
@@ -16,6 +17,7 @@ import {
   isQualityTier,
   LOSSY_TIER_THRESHOLDS,
   MP3_BITRATES,
+  pickStream,
   QUALITY_TIERS,
   type QualityPrefs,
   type QualityTier,
@@ -126,6 +128,55 @@ describe('compareTiers', () => {
     const tiers = ['bogus', 'low', 'toString', 'lossless'] as QualityTier[]
     expect(tiers.sort(compareTiers).slice(0, 2)).toEqual(['lossless', 'low'])
     expect(compareTiers('bogus' as QualityTier, 'low')).toBeGreaterThan(0)
+  })
+})
+
+describe('compareStreams and pickStream', () => {
+  const flac = { id: 'flac', tier: 'lossless' } as const
+  const opus160 = { id: 'opus160', tier: 'high', bitrateKbps: 160 } as const
+  const aac128 = { id: 'aac128', tier: 'high', bitrateKbps: 128 } as const
+  const highUnknown = { id: 'high?', tier: 'high' } as const
+  const mp3vbr = { id: 'mp3vbr', tier: 'normal', bitrateKbps: 190 } as const
+  const opus50 = { id: 'opus50', tier: 'low', bitrateKbps: 50 } as const
+  const all = [opus50, highUnknown, aac128, flac, mp3vbr, opus160]
+  const ids = (options: ReadonlyArray<{ id: string }>) => options.map((option) => option.id)
+
+  it('orders by tier, then by bitrate, unknown bitrates last within a tier', () => {
+    expect(ids([...all].sort(compareStreams))).toEqual([
+      'flac',
+      'opus160',
+      'aac128',
+      'high?',
+      'mp3vbr',
+      'opus50',
+    ])
+    expect(compareStreams(aac128, { tier: 'high', bitrateKbps: 128 })).toBe(0)
+    expect(compareStreams({ tier: 'high', bitrateKbps: Number.NaN }, highUnknown)).toBe(0)
+  })
+
+  it.each([
+    ['lossless', 'flac'],
+    ['high', 'opus160'],
+    ['normal', 'mp3vbr'],
+    ['low', 'opus50'],
+  ] as const)('picks the best option at or below a %s ceiling', (ceiling, expected) => {
+    expect(pickStream(all, ceiling)?.id).toBe(expected)
+  })
+
+  it('picks the lowest option above the ceiling when nothing is at or below it', () => {
+    expect(pickStream([flac, opus160, aac128], 'normal')?.id).toBe('aac128')
+    expect(pickStream([flac], 'low')?.id).toBe('flac')
+  })
+
+  it('takes a lower tier when the ceiling tier itself is missing', () => {
+    expect(pickStream([flac, opus50], 'high')?.id).toBe('opus50')
+  })
+
+  it('returns undefined without options and leaves the input order alone', () => {
+    expect(pickStream([], 'high')).toBeUndefined()
+    const input = [opus50, flac]
+    pickStream(input, 'high')
+    expect(ids(input)).toEqual(['opus50', 'flac'])
   })
 })
 

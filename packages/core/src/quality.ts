@@ -121,6 +121,43 @@ export function compareTiers(a: QualityTier, b: QualityTier): number {
   return tierRank(a) - tierRank(b)
 }
 
+/** What ranks a stream or file: its tier and, within a tier, its bitrate. */
+export interface RankedQuality {
+  /** Quality tier. */
+  tier: QualityTier
+  /** Average bitrate in kbps, when known. */
+  bitrateKbps?: number
+}
+
+/** A usable bitrate, or 0 when it is unknown (missing, zero, negative or not finite). */
+function knownBitrate({ bitrateKbps }: RankedQuality): number {
+  return bitrateKbps !== undefined && Number.isFinite(bitrateKbps) && bitrateKbps > 0
+    ? bitrateKbps
+    : 0
+}
+
+/**
+ * Orders streams best first: by tier (see {@link compareTiers}), then by bitrate, higher first.
+ * An unknown bitrate comes after the known ones of its tier. `options.sort(compareStreams)`.
+ */
+export function compareStreams(a: RankedQuality, b: RankedQuality): number {
+  return compareTiers(a.tier, b.tier) || knownBitrate(b) - knownBitrate(a)
+}
+
+/**
+ * The option to play under a tier ceiling such as `prefs.streaming.cellular`: the best option at
+ * or below `ceiling`, or the lowest option above it when nothing is at or below it. `undefined`
+ * when there are no options. Remove the options the player cannot decode (e.g. with
+ * `canPlayType`) before picking.
+ */
+export function pickStream<T extends RankedQuality>(
+  options: readonly T[],
+  ceiling: QualityTier,
+): T | undefined {
+  const sorted = [...options].sort(compareStreams)
+  return sorted.find((option) => compareTiers(option.tier, ceiling) >= 0) ?? sorted.at(-1)
+}
+
 /**
  * The file extension (without the dot) for audio in `container`. MP4 audio is `.m4a`, and Ogg
  * holding Opus is `.opus`.
@@ -268,8 +305,9 @@ export function isMp3Bitrate(value: unknown): value is Mp3Bitrate {
 /** The user's quality settings. Validate stored copies with {@link sanitizeQualityPrefs}. */
 export interface QualityPrefs {
   /**
-   * The best tier to stream at, per network type. A lower tier plays when nothing better
-   * exists.
+   * The highest tier to stream at, per network type: a ceiling, not a minimum. Playback picks the
+   * best option at or below it, and the lowest option above it when nothing is at or below it
+   * (see {@link pickStream}). Downloads ignore it.
    */
   streaming: {
     /** On Wi-Fi or Ethernet. */
