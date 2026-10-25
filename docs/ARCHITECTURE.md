@@ -542,7 +542,7 @@ ANDROID_VR and IOS stay in the config but are off, because their URLs are capped
 
 **PO tokens and SABR.** Google's BotGuard endpoints are CORS-open, and bgutils-js minted web PO tokens on a third-party origin in Chrome and Firefox. Whether googlevideo accepts them is untested. These tokens help only the web clients. On the web, SABR also needs FXM Connect's googlevideo preflight rule.
 
-**The isolated evaluator (1.11).** Deciphering and BotGuard run in a document that can't touch FXM's data: `/sandbox/eval.html` on the web (an opaque origin with its own CSP, the only one with `'unsafe-eval'`), a second hidden webview on desktop, and a separate WebView on Android. The parent relays BotGuard's network calls. The main app's CSP never gains `'unsafe-eval'`.
+**The isolated evaluator (1.11).** Deciphering and BotGuard run in a document that can't touch FXM's data: `/sandbox/eval.html` on the web (an opaque origin with its own CSP, the only one with `'unsafe-eval'`), a second hidden webview on desktop, and a separate WebView on Android. The parent relays BotGuard's network calls. The main web app's CSP never gains `'unsafe-eval'`, and the desktop app's doesn't have it either. 1.11 may add it to the desktop or Android app only as a recorded fallback, if the separate webview can't work there.
 
 **Legal nuance (inference).** Rungs 1 and 5 involve no signature or `n` deciphering and no attestation; rungs 2–4 do. The 2026 US and German cases turn on the rolling cipher, but the District of Massachusetts also called YouTube's player "a single authorized means to obtain access" (2026-08-18). The difference reduces exposure without removing it, so rungs 2–4 stay off by default.
 

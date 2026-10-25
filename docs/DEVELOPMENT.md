@@ -169,7 +169,7 @@ Tauri compiles against each operating system's native toolchain and webview. The
 
 The first build compiles about 300 crates and takes a few minutes. Release builds use link-time optimization for a small app (`FXM.app` is about 7.5 MB), so even a rebuild takes a few minutes. Use `make desktop-dev` while working.
 
-The content security policy only applies to release builds: `make desktop-dev` loads the Vite dev server directly. Stage 7.2 may need `'unsafe-eval'` in its `script-src` for the YouTube deciphering evaluator.
+The content security policy only applies to release builds: `make desktop-dev` loads the Vite dev server directly. It has no `'unsafe-eval'`, and stage 7.2 doesn't add it: YouTube deciphering runs in a separate, hidden evaluator webview with its own policy (stage 1.11). Only if that webview can't work may 1.11 add `'unsafe-eval'` here, recorded in the app's README.
 
 ### Where things are installed
 
