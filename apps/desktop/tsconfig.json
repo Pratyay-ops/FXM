@@ -1,6 +1,9 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // The tests import @fxm/platform, whose sources use the web platform's types.
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
   "include": ["test"]

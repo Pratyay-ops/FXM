@@ -1,4 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { HOST_RULES, type HostRule, NATIVE_ORIGINS } from '@fxm/platform'
 import { describe, expect, it } from 'vitest'
 
 // Guards the desktop shell's security-relevant configuration. The files are read as plain
@@ -21,40 +22,41 @@ interface TauriConfig {
   plugins?: Record<string, unknown>
 }
 
-/** The Tauri plugins of the shell, as `tauri-plugin-<name>` crates. */
-const PLUGINS = ['single-instance', 'window-state', 'http', 'opener']
+/** A rule in the shape of the `requestHeaders` option that plugins-workspace PR #3703 proposes. */
+interface RequestHeaderRule {
+  url: string
+  headers: Record<string, string | null>
+  mode?: 'default' | 'override'
+}
 
-/** Everything the http plugin may reach: the music, lyrics and metadata hosts. */
-const HTTP_HOSTS = [
-  'https://www.youtube.com/*',
-  'https://music.youtube.com/*',
-  'https://youtubei.googleapis.com/*',
-  'https://*.googlevideo.com/*',
-  'https://i.ytimg.com/*',
-  'https://open.spotify.com/*',
-  'https://clienttoken.spotify.com/*',
-  'https://api-partner.spotify.com/*',
-  'https://spclient.wg.spotify.com/*',
-  'https://lrclib.net/*',
-  'https://musicbrainz.org/*',
-  'https://api.listenbrainz.org/*',
-  'https://ws.audioscrobbler.com/*',
-  'https://www.last.fm/*',
-  'https://archive.org/*',
-  'https://*.archive.org/*',
-  'https://api.jamendo.com/*',
-  'https://*.jamendo.com/*',
-]
+/** The Tauri plugins of the shell, as `tauri-plugin-<name>` crates. */
+const PLUGINS = ['single-instance', 'window-state', 'http', 'dialog', 'opener']
+
+/** The app's own Rust commands (src/user_hosts.rs). */
+const COMMANDS = ['user_hosts', 'approve_user_host', 'revoke_user_host', 'user_host_fetch']
+
+/** The scope entry of a host in the platform's host table, which is FXM's network allow-list. */
+const scopeEntry = (rule: HostRule) => `https://${rule.host}${rule.pathPrefix ?? '/'}*`
+
+/** Everything the http plugin may reach: exactly the hosts in the platform's host table. */
+const HTTP_SCOPE = HOST_RULES.map(scopeEntry)
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const readJson = <T>(path: string) => JSON.parse(read(path)) as T
 
 const config = readJson<TauriConfig>('../src-tauri/tauri.conf.json')
 const capabilityFiles = readdirSync(new URL('../src-tauri/capabilities/', import.meta.url))
-const capability = readJson<Record<string, unknown>>('../src-tauri/capabilities/default.json')
+const capability = readJson<{ permissions: unknown[] } & Record<string, unknown>>(
+  '../src-tauri/capabilities/default.json',
+)
+const requestHeaders = readJson<{ requestHeaders: RequestHeaderRule[] }>(
+  '../src-tauri/request-headers.json',
+).requestHeaders
 const cargoToml = read('../src-tauri/Cargo.toml')
 // Without line comments, so commented-out code can't pass a test.
-const libRs = read('../src-tauri/src/lib.rs').replace(/\/\/.*$/gm, '')
+const withoutComments = (source: string) => source.replace(/\/\/.*$/gm, '')
+const libRs = withoutComments(read('../src-tauri/src/lib.rs'))
+const buildRs = withoutComments(read('../src-tauri/build.rs'))
 const webScripts = readJson<{ scripts: Record<string, string> }>('../../web/package.json').scripts
 
 /** Splits a CSP into `{ directive: sources }`. */
@@ -66,6 +68,29 @@ function parseCsp(csp: string) {
   return Object.fromEntries(directives.map(([name, ...sources]) => [name, sources]))
 }
 
+/** Whether a CSP source list lets the page load `url` (scheme and host sources only). */
+function cspAllows(sources: string[], url: string) {
+  const { protocol, hostname } = new URL(url)
+  return sources.some((source) => {
+    if (source === protocol) return true
+    const match = /^(https?:)\/\/(\*\.)?([^/:]+)$/.exec(source)
+    if (!match || match[1] !== protocol) return false
+    const [, , wildcard, host] = match
+    return wildcard ? hostname.endsWith(`.${host}`) : hostname === host
+  })
+}
+
+/** Whether a scope or rule pattern such as `https://*.archive.org/*` matches `url`. */
+function patternMatches(pattern: string, url: string) {
+  const toRegExp = (part: string) =>
+    part.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replaceAll('*', '.*')
+  return new RegExp(`^${toRegExp(pattern)}$`).test(url)
+}
+
+/** A URL the host rule covers, e.g. `https://ia800.archive.org/x` for `*.archive.org`. */
+const sampleUrl = (rule: HostRule) =>
+  `https://${rule.host.replace('*.', 'sub.')}${rule.pathPrefix ?? '/'}x`
+
 /** Splits a command line into its arguments. */
 const args = (command: string) => command.trim().split(/\s+/)
 
@@ -75,6 +100,9 @@ const baseArgs = (command: string) =>
 
 /** The strings in a TOML array, such as the features of a dependency. */
 const tomlStrings = (array = '') => [...array.matchAll(/"([^"]*)"/g)].map(([, value]) => value)
+
+/** The quoted strings of a Rust array or macro list. */
+const rustStrings = (list = '') => [...list.matchAll(/"([^"]*)"/g)].map(([, value]) => value)
 
 describe('tauri.conf.json', () => {
   it('identifies the app as FXM', () => {
@@ -107,10 +135,36 @@ describe('tauri.conf.json', () => {
       'default-src': ["'self'"],
       'img-src': ["'self'", 'https:', 'data:', 'blob:'],
       'media-src': ["'self'", 'https:', 'blob:'],
-      'connect-src': ['ipc:', 'http://ipc.localhost', "'self'", 'https:'],
+      'connect-src': ['ipc:', 'http://ipc.localhost', "'self'"],
       'script-src': ["'self'", "'wasm-unsafe-eval'"],
       'style-src': ["'self'", "'unsafe-inline'"],
     })
+  })
+
+  it('never allows eval: the YouTube evaluator gets a webview of its own (stage 1.11)', () => {
+    expect(config.app.security.csp).not.toContain("'unsafe-eval'")
+  })
+
+  it('lets <audio> play googlevideo, Internet Archive and Jamendo URLs', () => {
+    const media = parseCsp(config.app.security.csp)['media-src'] ?? []
+    for (const url of [
+      'https://rr3---sn-ab5l6nrz.googlevideo.com/videoplayback?itag=251',
+      'https://ia800300.us.archive.org/1/items/x/x.flac',
+      'https://prod-1.storage.jamendo.com/?trackid=1&format=flac',
+    ]) {
+      expect(cspAllows(media, url), url).toBe(true)
+    }
+  })
+
+  it('sends the page’s requests only through Tauri’s IPC, so only Rust reaches the network', () => {
+    const connect = parseCsp(config.app.security.csp)['connect-src'] ?? []
+    expect(cspAllows(connect, 'https://music.youtube.com/youtubei/v1/search')).toBe(false)
+    expect(cspAllows(connect, 'https://lrclib.net/api/get')).toBe(false)
+  })
+
+  it('checks every redirect against the http scope', () => {
+    // The plugin's config refuses unknown keys, so a typo here would stop the app at start-up.
+    expect(config.plugins).toEqual({ http: { scopeRedirects: true } })
   })
 
   it('embeds the web build that build:desktop makes with base /', () => {
@@ -147,6 +201,12 @@ describe('tauri.conf.json', () => {
 })
 
 describe('capabilities', () => {
+  const http = capability.permissions.find(
+    (permission): permission is { identifier: string; allow: { url: string }[] } =>
+      typeof permission === 'object' &&
+      (permission as { identifier?: unknown }).identifier === 'http:default',
+  )
+
   it('has default.json as its only file: Tauri enables every file in the folder', () => {
     expect(capabilityFiles).toEqual(['default.json'])
   })
@@ -167,23 +227,82 @@ describe('capabilities', () => {
     expect(capability.windows).toEqual(['main'])
   })
 
-  it('grants core and opener, and http only for the music, lyrics and metadata hosts', () => {
+  it('grants core, opener, the app’s commands and http, and nothing else', () => {
     expect(capability.permissions).toEqual([
       'core:default',
       'opener:default',
-      { identifier: 'http:default', allow: HTTP_HOSTS.map((url) => ({ url })) },
+      ...COMMANDS.map((command) => `allow-${command.replaceAll('_', '-')}`),
+      { identifier: 'http:default', allow: expect.any(Array) },
     ])
+  })
+
+  it('lets the http plugin reach exactly the hosts in the platform’s host table', () => {
+    expect(http?.allow.map(({ url }) => url).sort()).toEqual([...HTTP_SCOPE].sort())
+  })
+
+  it('narrows Last.fm to its station JSON, as the host table does', () => {
+    expect(http?.allow).toContainEqual({ url: 'https://www.last.fm/player/station/*' })
+    expect(http?.allow).not.toContainEqual({ url: 'https://www.last.fm/*' })
+  })
+
+  it('gives the web app no dialog permission: only Rust asks the user', () => {
+    const names = capability.permissions.map((permission) =>
+      typeof permission === 'string'
+        ? permission
+        : (permission as { identifier: string }).identifier,
+    )
+    expect(names.filter((name) => name.startsWith('dialog:'))).toEqual([])
+  })
+})
+
+describe('the app’s commands', () => {
+  it('are the same in build.rs, which puts each behind a permission, and in lib.rs', () => {
+    const manifest = /const COMMANDS: &\[&str\] = &\[([^\]]*)\]/.exec(buildRs)?.[1]
+    expect(rustStrings(manifest)).toEqual(COMMANDS)
+    expect(buildRs).toMatch(
+      /\.app_manifest\(\s*tauri_build::AppManifest::new\(\)\.commands\(COMMANDS\)/,
+    )
+    const handler = /generate_handler!\[([^\]]*)\]/.exec(libRs)?.[1] ?? ''
+    const registered = [...handler.matchAll(/user_hosts::(\w+)/g)].map(([, name]) => name)
+    expect(registered).toEqual(COMMANDS)
+  })
+})
+
+describe('request-headers.json (staged for plugins-workspace PR #3703)', () => {
+  /** The Origin the rules give `url`: the last matching rule wins, `null` removes it. */
+  function originFor(url: string) {
+    let origin: string | null | undefined
+    for (const rule of requestHeaders) {
+      if (patternMatches(rule.url, url) && 'Origin' in rule.headers) origin = rule.headers.Origin
+    }
+    return origin
+  }
+
+  it('gives every host in the table the Origin the native transports send', () => {
+    for (const rule of HOST_RULES) {
+      const expected = NATIVE_ORIGINS[rule.hostClass] === '' ? null : NATIVE_ORIGINS[rule.hostClass]
+      expect(originFor(sampleUrl(rule)), rule.host).toBe(expected)
+    }
+  })
+
+  it('never lets the webview’s Origin through, whatever the frontend sends', () => {
+    expect(originFor('https://unknown.example.org/x')).toBeNull()
+    for (const rule of requestHeaders) {
+      expect(rule.mode).toBe('override')
+      expect(Object.keys(rule.headers)).toEqual(['Origin'])
+    }
   })
 })
 
 describe('Cargo.toml', () => {
-  it('builds tauri-plugin-http with unsafe-headers, so requests can set Origin', () => {
-    const http = /^tauri-plugin-http = \{([^}]*)\}/m.exec(cargoToml)?.[1] ?? ''
+  const http = /^tauri-plugin-http = \{([^}]*)\}/m.exec(cargoToml)?.[1] ?? ''
+
+  it('builds tauri-plugin-http with unsafe-headers, so requests can set or drop Origin', () => {
+    // Until plugins-workspace PR #3703 lets request-headers.json do it from the config.
     expect(tomlStrings(/features = \[([^\]]*)\]/.exec(http)?.[1])).toContain('unsafe-headers')
   })
 
   it('builds tauri-plugin-http without its cookie jar, which saves cookies in plain text', () => {
-    const http = /^tauri-plugin-http = \{([^}]*)\}/m.exec(cargoToml)?.[1] ?? ''
     expect(http).toMatch(/\bdefault-features = false\b/)
     expect(tomlStrings(/features = \[([^\]]*)\]/.exec(http)?.[1])).not.toContain('cookies')
   })

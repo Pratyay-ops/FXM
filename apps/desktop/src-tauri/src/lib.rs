@@ -1,10 +1,14 @@
 //! The FXM desktop shell: the web app (apps/web, built with base `/`) in a Tauri webview.
 //!
-//! This stage only wires up the plugins. Stage 7.2 makes tauri-plugin-http the fetch for
-//! YouTube and Spotify, so the app will need no browser extension.
+//! tauri-plugin-http is the web app's network (stage 7.2): the web app's `createDesktopFetch`
+//! sends every request through it, within the scope in capabilities/default.json, so the app
+//! needs no browser extension. Hosts the user adds in Settings go through the commands in
+//! [`user_hosts`] instead.
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_window_state::StateFlags;
+
+pub mod user_hosts;
 
 /// Label of the main window in `tauri.conf.json`.
 pub const MAIN_WINDOW: &str = "main";
@@ -23,10 +27,25 @@ pub fn run() {
                 .with_state_flags(StateFlags::all() - StateFlags::VISIBLE)
                 .build(),
         )
-        // Requests are limited to the hosts in capabilities/default.json.
+        // Requests are limited to the hosts in capabilities/default.json, and so are redirects
+        // (`scopeRedirects` in tauri.conf.json).
         .plugin(tauri_plugin_http::init())
+        // Only Rust opens dialogs: the web app has no dialog permission.
+        .plugin(tauri_plugin_dialog::init())
         // Opens links with target="_blank" in the default browser.
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let file = app.path().app_config_dir()?.join(user_hosts::FILE_NAME);
+            app.manage(user_hosts::UserHosts::load(file));
+            Ok(())
+        })
+        // Keep in step with COMMANDS in build.rs, which puts each behind a permission.
+        .invoke_handler(tauri::generate_handler![
+            user_hosts::user_hosts,
+            user_hosts::approve_user_host,
+            user_hosts::revoke_user_host,
+            user_hosts::user_host_fetch,
+        ])
         .run(context())
         .expect("error while running the FXM desktop app");
 }

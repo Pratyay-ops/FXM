@@ -20,6 +20,8 @@ tauri-build = { version = "2.7.2", features = [] }
 
 [dependencies]
 tauri = { version = "2.12.3", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 # unsafe-headers lets requests set Origin, which youtubei.js needs (stage 7.2). The rest are
 # the plugin's default features minus `cookies`, a jar that would save every response cookie
 # in plain text in the app's cache folder and send it back. youtubei.js needs no jar, and
@@ -31,6 +33,9 @@ tauri-plugin-http = { version = "2.8.2", default-features = false, features = [
   "charset",
   "system-proxy",
 ] }
+# Asks the user before FXM may contact a host they typed in Settings (src/user_hosts.rs). The web
+# app gets no dialog permission: only Rust opens dialogs.
+tauri-plugin-dialog = "2.8.2"
 tauri-plugin-opener = "2.7.1"
 tauri-plugin-single-instance = "2.5.3"
 tauri-plugin-window-state = "2.5.0"

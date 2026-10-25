@@ -188,6 +188,9 @@ importers:
         specifier: ^2.12.3
         version: 2.12.3
     devDependencies:
+      '@fxm/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@tauri-apps/cli':
         specifier: ^2.12.2
         version: 2.12.2
