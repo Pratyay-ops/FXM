@@ -194,3 +194,48 @@ describe('pooledArtistCandidates', () => {
     expect(artists[0]?.evidence.map((one) => one.source)).toEqual(['spotify', 'listenbrainz'])
   })
 })
+
+describe('pooling ties', () => {
+  it('picks the same listing, cover, length and tags whatever the order', () => {
+    // Two YouTube Music uploads of one song, equally strong, one without a cover; a Spotify
+    // listing with another cover, length and tags.
+    const first = ytm('t1', 'Paper Moons', 'Basalt', { artwork: [], durationMs: 201_000 })
+    const second = ytm('t2', 'Paper Moons', 'Basalt', { durationMs: 202_000 })
+    const third = spotify('sp-t', 'Paper Moons', 'Basalt', {
+      artwork: [{ url: 'https://example.test/sp.jpg' }],
+      durationMs: 203_000,
+      tags: Array.from({ length: 12 }, (_, index) => `tag ${String.fromCharCode(108 - index)}`),
+    })
+    const candidates = [
+      ...radio(seed, [first], { source: 'lastfm', part: 'station' }),
+      ...radio(seed, [second], { source: 'listenbrainz', part: 'station' }),
+      ...radio(seed, [third], { source: 'spotify' }),
+    ]
+    const shown = (list: RecCandidate[]) => {
+      const [song] = poolCandidates(list, { mode: 'music' }).songs
+      return [song?.track?.id, song?.track?.artwork, song?.durationMs, song?.tags, song?.keys]
+    }
+    const expected = shown(candidates)
+    expect(expected[0]).toBe('ytm:track:t2')
+    expect(shown([...candidates].reverse())).toEqual(expected)
+    expect(shown(reorder(candidates))).toEqual(expected)
+    expect((expected[3] as string[]).length).toBe(10)
+  })
+
+  it('picks the same listing of an artist whatever the order', () => {
+    const named = (name: string, id: string): RecCandidate => ({
+      type: 'artist',
+      source: 'lastfm',
+      part: 'similar-artists',
+      seed: recSeedOf(seed),
+      rank: 0,
+      score: 1,
+      artist: { name, id: formatId('spotify', 'artist', id), artwork: [] },
+    })
+    const listings = [named('Basalt', 'b2'), named('BASALT', 'b1')]
+    const pick = (list: RecCandidate[]) =>
+      pooledArtistCandidates(list, { mode: 'music' })[0]?.artist
+    expect(pick(listings)).toEqual(pick([...listings].reverse()))
+    expect(pick(listings)?.id).toBe('spotify:artist:b1')
+  })
+})

@@ -292,18 +292,26 @@ function listingOf(
   return undefined
 }
 
-/** Whether `a` is a better listing to show than `b`. */
-function betterListing(a: Listing, b: Listing): boolean {
-  if ((a.track === undefined) !== (b.track === undefined)) return a.track !== undefined
+/**
+ * Orders listings best first, the same whatever order they came in: a track before a song
+ * search, then by source, a cover, the evidence's strength, and finally by key and rank.
+ */
+function byListing(a: Listing, b: Listing): number {
+  if ((a.track === undefined) !== (b.track === undefined)) return a.track === undefined ? 1 : -1
   if (a.track !== undefined && b.track !== undefined) {
     const bySource = sourceRank(a.track.source) - sourceRank(b.track.source)
-    if (bySource !== 0) return bySource < 0
+    if (bySource !== 0) return bySource
     const aArt = a.track.artwork?.length > 0
     const bArt = b.track.artwork?.length > 0
-    if (aArt !== bArt) return aArt
+    if (aArt !== bArt) return aArt ? -1 : 1
   }
-  if (a.evidence.strength !== b.evidence.strength) return a.evidence.strength > b.evidence.strength
-  return a.index < b.index
+  return (
+    b.evidence.strength - a.evidence.strength ||
+    compareKeys(a.keys[0] ?? '', b.keys[0] ?? '') ||
+    compareKeys(a.title, b.title) ||
+    a.evidence.rank - b.evidence.rank ||
+    compareKeys(a.evidence.seedKey, b.evidence.seedKey)
+  )
 }
 
 /** The evidence of a group: one per list (source, part and seed), the strongest listing of each. */
@@ -312,7 +320,13 @@ function mergeEvidence(evidence: readonly Evidence[]): Evidence[] {
   for (const one of evidence) {
     const list = `${one.source}|${one.part}|${one.seedKey}`
     const kept = byList.get(list)
-    if (kept === undefined || one.strength > kept.strength) byList.set(list, one)
+    if (
+      kept === undefined ||
+      one.strength > kept.strength ||
+      (one.strength === kept.strength && one.rank < kept.rank)
+    ) {
+      byList.set(list, one)
+    }
   }
   return [...byList.values()].sort(
     (a, b) =>
@@ -325,27 +339,24 @@ function mergeEvidence(evidence: readonly Evidence[]): Evidence[] {
 
 /** The pooled song of one group of listings. */
 function songOf(group: readonly Listing[]): PooledSong {
-  const best = group.reduce((kept, listing) => (betterListing(listing, kept) ? listing : kept))
-  const keys = [...new Set(group.flatMap((listing) => listing.keys))]
+  const ordered = [...group].sort(byListing)
+  const best = ordered[0] as Listing
+  const keys = [...new Set(ordered.flatMap((listing) => listing.keys))]
   const evidence = mergeEvidence(group.map((listing) => listing.evidence))
-  const tags: string[] = []
+  const tags = new Set<string>()
   let popularity: number | undefined
-  let durationMs = best.durationMs
-  let artworkFrom: Track | undefined
-  for (const listing of group) {
+  const durationMs = ordered.find((listing) => listing.durationMs !== undefined)?.durationMs
+  const artworkFrom = ordered.find((listing) => (listing.track?.artwork?.length ?? 0) > 0)?.track
+  for (const listing of ordered) {
     const track = listing.track
-    if (durationMs === undefined && listing.durationMs !== undefined) {
-      durationMs = listing.durationMs
-    }
     if (track === undefined) continue
     for (const tag of Array.isArray(track.tags) ? track.tags : []) {
       const key = typeof tag === 'string' ? tagAffinityKey(tag) : undefined
-      if (key !== undefined && !tags.includes(key) && tags.length < MAX_TAGS) tags.push(key)
+      if (key !== undefined) tags.add(key)
     }
     if (typeof track.popularity === 'number' && Number.isFinite(track.popularity)) {
       popularity = Math.max(popularity ?? -Infinity, track.popularity)
     }
-    if (artworkFrom === undefined && track.artwork?.length > 0) artworkFrom = track
   }
   let track = best.track
   if (track !== undefined && !(track.artwork?.length > 0) && artworkFrom !== undefined) {
@@ -361,7 +372,7 @@ function songOf(group: readonly Listing[]): PooledSong {
     title: best.title,
     artists: best.artists,
     artistKeys: artistKeysOf(best.artists),
-    tags,
+    tags: [...tags].sort(compareKeys).slice(0, MAX_TAGS),
     evidence,
     similarity: combineStrengths(evidence.map((one) => one.strength)),
   }
@@ -372,10 +383,15 @@ function songOf(group: readonly Listing[]): PooledSong {
   return song
 }
 
-/** Whether `a` is a better listing of an artist than `b`: one with an ID, then with photos. */
+/**
+ * Whether `a` is a better listing of an artist than `b`: one with an ID, then with more photos,
+ * then by ID and name, so the choice never depends on the order the listings came in.
+ */
 function betterArtist(a: RecArtist, b: RecArtist): boolean {
   if ((a.id === undefined) !== (b.id === undefined)) return a.id !== undefined
-  return (a.artwork?.length ?? 0) > (b.artwork?.length ?? 0)
+  const photos = (a.artwork?.length ?? 0) - (b.artwork?.length ?? 0)
+  if (photos !== 0) return photos > 0
+  return (compareKeys(a.id ?? '', b.id ?? '') || compareKeys(a.name, b.name)) < 0
 }
 
 /**
