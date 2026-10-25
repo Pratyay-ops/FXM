@@ -114,7 +114,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **1.12** | Matching evaluation: labelled set, report and Auto switch | `test/1.12-matching-eval` | 1.2, 1.3, 1.5, 1.6, 1.7 | ⬜ |
 | **1.13** | Signed config and resolver module | `feat/1.13-signed-updates` | 1.2, 1.3, 1.4, 7.1 | ⬜ |
 | **2.1** | Web app shell and settings | `feat/2.1-web-shell` | 0.4 | ✅ |
-| **2.2** | Player core: queue, direct audio, Media Session | `feat/2.2-player-core` | 1.1b | 🟡 |
+| **2.2** | Player core: queue, direct audio, Media Session | `feat/2.2-player-core` | 1.1b | ✅ |
 | **2.3** | Playback policy and stream lifecycle | `feat/2.3-playback-policy` | 2.2, 1.4, 1.7 | 🟡 |
 | **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | 🟡 |
 | **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | 🟡 |
@@ -543,7 +543,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - Settings: catalog mode and theme.
 - Zustand and TanStack Query, error boundaries, tests, and Playwright screenshots at 320/768/1280 px.
 
-### 2.2 Player core
+### 2.2 Player core ✅
 
 **Branch** `feat/2.2-player-core` · **Depends on** 1.1b · **Scope** `packages/player/**`, `packages/core/src/queue/**`
 
