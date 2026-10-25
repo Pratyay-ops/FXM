@@ -118,6 +118,19 @@ export type {
 } from './platform'
 export { createPlatform, detectEnvironment, ENVIRONMENT_PLATFORMS } from './platform'
 export type {
+  BrowserSandboxTransport,
+  SandboxDocumentOptions,
+  SandboxHostWindow,
+  SandboxTransportOptions,
+} from './sandbox'
+export {
+  createSandboxTransport,
+  isSandboxError,
+  SandboxError,
+  sandboxDocumentHeader,
+  sandboxDocumentPolicy,
+} from './sandbox'
+export type {
   SessionTokenOptions,
   SessionTokenSource,
   TokenEndpointResponse,
