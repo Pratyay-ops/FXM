@@ -75,7 +75,7 @@ So both probe paths end the same way. Where bytes are readable (FXM Connect, des
 | Anything, for the user's choice (a pin, or the version just picked for the item) | `keep-pin`: the user's choices are never swapped or deleted by FXM |
 | The track's own video | `not-a-match`: there is no match to replace |
 
-A resolver reports a verdict with `unplayableError({ source, ref, status, reason, state })`: an `FxmError` coded `NotFound` for `ERROR` and `Unavailable` for `UNPLAYABLE`, carrying a `PlayabilityVerdict` as its `cause`, with the source's reason and, when it gave one, a labelled `state` (1.4's `made-for-kids`, for example). `playabilityVerdictOf` reads it back and fails closed on anything else. The YouTube ladder (1.4) reports YouTube's `playabilityStatus` this way.
+A resolver reports a verdict with `unplayableError({ source, ref, status, reason, state })`: an `FxmError` coded `NotFound` for `ERROR` and `Unavailable` for `UNPLAYABLE`, carrying a `PlayabilityVerdict` as its `cause`, with the source's reason and, when it gave one, a labelled `state` (1.4's `made-for-kids`, for example). `playabilityVerdictOf` reads it back and fails closed on anything else. The YouTube ladder (1.4) reports YouTube's `playabilityStatus` with its own `YouTubeUnplayableError` (coded `NotFound`, `GeoBlocked` or `Unavailable`), whose `cause` is such a verdict; its labelled state is on the error (`unavailableStateOf`), not in the verdict.
 
 ## Playback problems
 

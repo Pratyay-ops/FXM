@@ -79,11 +79,11 @@ export interface StreamFailureReport {
  * **The YouTube ladder (1.4)** resolves `ytm` candidates: VISIONOS, then the muxed itag 18.
  * Where bytes are readable it probes the end of the file and reports `fullLength` `verified` or
  * `capped`; in the Lite tier it returns `unverified` URLs, and the lifecycle uses the media
- * element's first request as the probe. Its adapter sets `hasFallback`, answers
- * `rung: 'fallback'` by skipping every rung but itag 18 (`skipRungs`), says which rung an option
- * came from (`rungOf`), forwards {@link reportFailure} to `reportPlaybackFailure`, and reports a
- * playability verdict (`UNPLAYABLE`, `ERROR`) with `unplayableError` from `@fxm/core`, which is
- * what Smart Replace acts on.
+ * element's first request as the probe. Its adapter takes the ladder's `hasFallback`, answers
+ * `rung: 'fallback'` with the ladder's `rungs: 'fallback'` (itag 18 only), says which rung an
+ * option came from (`rungOf`) and forwards {@link reportFailure} to `reportPlaybackFailure`.
+ * The ladder's `YouTubeUnplayableError` already carries the playability verdict (`UNPLAYABLE`,
+ * `ERROR`) that Smart Replace acts on, so it passes through as it is.
  */
 export interface StreamSource {
   /** The audio source whose candidates this resolves (`ytm` for every YouTube video). */
@@ -92,11 +92,12 @@ export interface StreamSource {
   readonly hasFallback?: boolean
   /**
    * Every stream option for `candidate`, best first, as `AudioSource.resolve` returns them.
-   * Rejects with an `FxmError`: `unplayableError` for a verdict on the item itself, `BotCheck`
-   * after the ladder's bot-check handling gave up, `Unsupported` when the platform cannot reach
-   * the source, `NotFound`, `Unavailable` or `GeoBlocked` when the source refuses the item,
-   * `Network`, `Parse` or `RateLimited` for passing trouble. A YouTube candidate arrives with
-   * the source `ytm`, whichever YouTube prefix named it.
+   * Rejects with an `FxmError`: one carrying a playability verdict (`unplayableError`, or 1.4's
+   * `YouTubeUnplayableError`) for a verdict on the item itself, `BotCheck` after the ladder's
+   * bot-check handling gave up, `Unsupported` when the platform cannot reach the source,
+   * `NotFound`, `Unavailable` or `GeoBlocked` when the source refuses the item, `Network`,
+   * `Parse` or `RateLimited` for passing trouble. A YouTube candidate arrives with the source
+   * `ytm`, whichever YouTube prefix named it.
    */
   resolve(candidate: AudioCandidate, request: StreamSourceRequest): Promise<StreamOption[]>
   /**
@@ -109,9 +110,10 @@ export interface StreamSource {
   /**
    * Called when a stream's rung failed, before the lifecycle resolves on another rung: an
    * `unverified` URL failed its first request (the probe in the Lite tier, or after a CORS
-   * failure following a googlevideo redirect), or the rung answered 403 again. The YouTube
-   * ladder's adapter forwards it to `reportPlaybackFailure(stream, ctx)`, so the rung's health
-   * counts the failure and later resolutions of that video skip the rung for a while.
+   * failure following a googlevideo redirect), or the rung answered 403 again, so the
+   * recovery's reason is `probe-failed`, `fallback-failed` or `forbidden-again`. The YouTube
+   * ladder's adapter forwards it to `reportPlaybackFailure(stream, ctx, recovery.reason)`, so
+   * the rung cools down and later resolutions of every video try it last for a while.
    */
   reportFailure?(
     stream: StreamOption,
