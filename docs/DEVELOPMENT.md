@@ -223,3 +223,4 @@ Prefer releases that are at least two weeks old, and update the version and its 
 | `pnpm: command not found` in your shell | `source scripts/env.sh`, or run it through `make` |
 | Merge conflict in `pnpm-lock.yaml` | pnpm 12 doesn't repair conflict markers. Restore the target branch's lockfile (`git show origin/develop:pnpm-lock.yaml > pnpm-lock.yaml`), run `make install`, check with `scripts/run.sh pnpm install --frozen-lockfile`, then `git add pnpm-lock.yaml` and continue |
 | `make doctor` says the store is outside `.tools/` | You ran pnpm without the environment: `source scripts/env.sh` |
+| Tests time out when several worktrees run `make check` at once | Each Vitest run starts a worker per CPU core. Put `export VITEST_MAX_WORKERS=3` in `.tools/env.local.sh`; `scripts/env.sh` loads that file in every checkout, and it is never committed |
