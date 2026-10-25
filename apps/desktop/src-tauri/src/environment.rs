@@ -6,9 +6,9 @@
 //! into the live smoke test's report.
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 
-use crate::tray::Tray;
+use crate::tray;
 
 /// Where the desktop app runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -20,7 +20,7 @@ pub struct DesktopEnvironment {
     pub os_version: Option<String>,
     /// The webview's version: WebKit's on macOS, WebView2's on Windows, WebKitGTK's on Linux.
     pub webview_version: Option<String>,
-    /// Whether FXM has a tray icon.
+    /// Whether the desktop shows FXM's tray icon ([`tray::is_shown`]).
     pub tray: bool,
 }
 
@@ -31,7 +31,7 @@ pub fn desktop_environment<R: Runtime>(app: AppHandle<R>) -> DesktopEnvironment 
         os: std::env::consts::OS,
         os_version: os_version(),
         webview_version: tauri::webview_version().ok(),
-        tray: app.try_state::<Tray<R>>().is_some(),
+        tray: tray::is_shown(&app),
     }
 }
 

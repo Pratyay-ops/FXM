@@ -1181,7 +1181,11 @@ dependencies = [
 name = "fxm"
 version = "0.0.0"
 dependencies = [
+ "block2",
+ "gio",
  "libloading",
+ "objc2",
+ "objc2-app-kit",
  "objc2-foundation",
  "serde",
  "serde_json",

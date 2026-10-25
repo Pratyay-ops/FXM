@@ -14,6 +14,8 @@ use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 
 pub mod environment;
+#[cfg(target_os = "macos")]
+mod fullscreen;
 pub mod network;
 pub mod playback;
 // The live smoke test's report listener: always compiled, so lints and tests cover it, but only
@@ -29,7 +31,7 @@ pub const MAIN_WINDOW: &str = "main";
 
 /// Builds and runs the app until it quits.
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         // Registered first: a second launch only brings the running app to the front, including
         // a window hidden in the tray.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -48,11 +50,17 @@ pub fn run() {
         // Only Rust opens dialogs: the web app has no dialog permission.
         .plugin(tauri_plugin_dialog::init())
         // Opens links with target="_blank" in the default browser.
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+    // macOS: Tauri's default app menu, with Window > FXM (⌘0) to bring a hidden window back.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(window::app_menu)
+        .on_menu_event(|app, event| window::on_menu_event(app, event.id().as_ref()));
+    let app = builder
         .setup(|app| {
             let file = app.path().app_config_dir()?.join(user_hosts::FILE_NAME);
             app.manage(user_hosts::UserHosts::load(file));
-            app.manage(playback::Playback::default());
+            app.manage(window::PendingHide::default());
             // The smoke build leaves the tray out: it runs unattended, without touching the
             // menu bar or the notification area.
             #[cfg(not(feature = "smoke"))]

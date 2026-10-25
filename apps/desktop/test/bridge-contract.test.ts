@@ -107,6 +107,14 @@ describe('src/lib.rs', () => {
   it('handles the close button and the Dock icon in src/window.rs', () => {
     expect(lib).toMatch(/\.on_window_event\(window::on_window_event\)/)
     expect(lib).toMatch(/\.run\(\|app, event\| window::on_run_event\(app, &event\)\)/)
+    // The hide that waits for the window to leave full screen (macOS).
+    expect(lib).toMatch(/app\.manage\(window::PendingHide::default\(\)\)/)
+  })
+
+  it('adds Window > FXM to the macOS app menu, which brings a hidden window back', () => {
+    expect(lib).toMatch(
+      /#\[cfg\(target_os = "macos"\)\]\s*let builder = builder\s*\.menu\(window::app_menu\)\s*\.on_menu_event\(\|app, event\| window::on_menu_event\(app, event\.id\(\)\.as_ref\(\)\)\)/,
+    )
   })
 
   it('watches the network for the stream lifecycle', () => {

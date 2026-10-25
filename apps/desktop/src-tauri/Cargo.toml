@@ -41,17 +41,30 @@ tauri-plugin-opener = "2.7.1"
 tauri-plugin-single-instance = "2.5.3"
 tauri-plugin-window-state = "2.5.0"
 
-# The macOS version, which decides between Opus and AAC (src/environment.rs). Already in the
-# dependency tree through tauri, with this feature.
+# The macOS version, which decides between Opus and AAC (src/environment.rs), and the
+# notification that the window has left full screen, which the close button waits for before it
+# hides the window (src/fullscreen.rs). All already in the dependency tree through tauri.
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+  "std",
+  "NSResponder",
+  "NSWindow",
+] }
 objc2-foundation = { version = "0.3.2", default-features = false, features = [
   "std",
+  "block2",
+  "NSNotification",
+  "NSOperation",
   "NSProcessInfo",
+  "NSString",
 ] }
 
-# Whether the library behind the Linux tray icon is installed (src/tray.rs). Already in the
-# dependency tree through tray-icon's libappindicator.
+# Whether the library behind the Linux tray icon is installed, and whether a panel shows such
+# icons (src/tray.rs). Already in the dependency tree through tray-icon's libappindicator and GTK.
 [target.'cfg(target_os = "linux")'.dependencies]
+gio = "0.18.4"
 libloading = "0.7.4"
 
 [features]

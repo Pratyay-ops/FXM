@@ -2,16 +2,10 @@
 //! shows for it.
 //!
 //! The web app's player sends [`NowPlaying`] with the `set_now_playing` command whenever it
-//! changes. The tray's menu and tooltip follow it ([`crate::tray`]), and so does the close
-//! button, which keeps FXM running in the tray while music plays ([`crate::window`]).
-
-use std::sync::{
-    Mutex, PoisonError,
-    atomic::{AtomicBool, Ordering},
-};
+//! changes, and the tray's menu and tooltip follow it ([`crate::tray`]).
 
 use serde::Deserialize;
-use tauri::{AppHandle, Manager, Runtime, State};
+use tauri::{AppHandle, Manager, Runtime};
 
 use crate::tray::Tray;
 
@@ -185,45 +179,10 @@ pub fn truncate_utf16(text: &str, max: usize) -> String {
     format!("{}…", kept.trim_end())
 }
 
-/// The latest [`NowPlaying`] from the web app.
-#[derive(Debug, Default)]
-pub struct Playback {
-    playing: AtomicBool,
-    now: Mutex<NowPlaying>,
-}
-
-impl Playback {
-    /// Whether music plays, as the web app last said.
-    pub fn is_playing(&self) -> bool {
-        self.playing.load(Ordering::Acquire)
-    }
-
-    /// What the web app last said.
-    pub fn now(&self) -> NowPlaying {
-        self.now
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-
-    /// Records `now`, sanitized, and returns it.
-    pub fn set(&self, now: NowPlaying) -> NowPlaying {
-        let now = now.sanitized();
-        self.playing.store(now.is_playing(), Ordering::Release);
-        *self.now.lock().unwrap_or_else(PoisonError::into_inner) = now.clone();
-        now
-    }
-}
-
-/// Tells the shell what the web app's player is doing: the tray menu shows it, and while music
-/// plays the close button hides the window instead of quitting.
+/// Tells the shell what the web app's player is doing, for the tray's menu and tooltip.
 #[tauri::command]
-pub fn set_now_playing<R: Runtime>(
-    app: AppHandle<R>,
-    playback: State<'_, Playback>,
-    now: NowPlaying,
-) {
-    let now = playback.set(now);
+pub fn set_now_playing<R: Runtime>(app: AppHandle<R>, now: NowPlaying) {
+    let now = now.sanitized();
     if let Some(tray) = app.try_state::<Tray<R>>() {
         // Best effort: a menu that can't be updated is not worth failing the player over.
         let _ = tray.show(&now);
@@ -356,19 +315,5 @@ mod tests {
         assert_eq!(truncate_chars("héllo wörld", 6), "héllo…");
         assert_eq!(truncate_utf16("ab🎵cd", 4), "ab…");
         assert_eq!(truncate_utf16("ab🎵cd", 6), "ab🎵cd");
-    }
-
-    #[test]
-    fn playback_remembers_the_sanitized_state() {
-        let playback = Playback::default();
-        assert!(!playback.is_playing());
-        let stored = playback.set(now(PLAYING, Some(" Creep "), Some("Radiohead")));
-        assert_eq!(stored, now(PLAYING, Some("Creep"), Some("Radiohead")));
-        assert!(playback.is_playing());
-        assert_eq!(playback.now(), stored);
-        playback.set(now(ERROR, Some("Creep"), None));
-        assert!(!playback.is_playing(), "stopped on an error");
-        playback.set(now(PLAYING, None, None));
-        assert!(!playback.is_playing(), "nothing queued, nothing plays");
     }
 }

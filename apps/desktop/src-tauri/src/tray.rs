@@ -160,17 +160,37 @@ fn icon() -> Image<'static> {
     tauri::include_image!("tray/36x36.png")
 }
 
-/// The icon on Windows and Linux: the app icon.
+/// The icon on Windows and Linux: the FXM tile edge to edge with three bold bars, drawn on a
+/// 16 px grid (assets/tray-color.svg), so it stays sharp at the notification area's 16 px. The
+/// app icon, drawn on the macOS icon grid with margins, shrinks to a blur there.
 #[cfg(not(target_os = "macos"))]
 fn icon() -> Image<'static> {
-    tauri::include_image!("icons/32x32.png")
+    tauri::include_image!("tray/color/32x32.png")
 }
+
+/// Whether the desktop shows FXM's tray icon: the icon was built, and on Linux a status notifier
+/// host, the panel that draws such icons, is running. The close button hides the window to the
+/// tray only then ([`crate::window::close_action`]).
+pub fn is_shown<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.try_state::<Tray<R>>().is_some() && host_shows_icons()
+}
+
+/// The AppIndicator libraries tray-icon may load, in the order libappindicator-sys 0.9 tries
+/// them with its default `backcompat` feature: the versioned names, then the unversioned ones
+/// that some AppImages bundle alone.
+#[cfg(target_os = "linux")]
+const APPINDICATOR_LIBRARIES: [&str; 4] = [
+    "libayatana-appindicator3.so.1",
+    "libappindicator3.so.1",
+    "libayatana-appindicator3.so",
+    "libappindicator3.so",
+];
 
 /// Whether the system can show a tray icon. On Linux tray-icon loads an AppIndicator library
 /// when the icon is built, and panics when there is none.
 #[cfg(target_os = "linux")]
 fn tray_supported() -> bool {
-    ["libayatana-appindicator3.so.1", "libappindicator3.so.1"]
+    APPINDICATOR_LIBRARIES
         .into_iter()
         // SAFETY: the libraries are the ones tray-icon itself loads, and they are unloaded again
         // at once; loading them runs only their own initialisers.
@@ -179,6 +199,47 @@ fn tray_supported() -> bool {
 
 #[cfg(not(target_os = "linux"))]
 fn tray_supported() -> bool {
+    true
+}
+
+/// Linux: whether a status notifier host is registered with the session's
+/// `org.kde.StatusNotifierWatcher`, which AppIndicator icons go through. GNOME has none without
+/// its AppIndicator extension, and there the library is often installed while no icon shows.
+/// Asked at each close, since a panel can start or stop at any time; without an answer (no
+/// watcher, no session bus) the icon counts as not shown, and closing quits.
+#[cfg(target_os = "linux")]
+fn host_shows_icons() -> bool {
+    use gio::glib::{ToVariant, VariantTy};
+    // How long the session bus may take to answer.
+    const TIMEOUT_MS: i32 = 500;
+    let Ok(bus) = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE) else {
+        return false;
+    };
+    let property = (
+        "org.kde.StatusNotifierWatcher",
+        "IsStatusNotifierHostRegistered",
+    );
+    bus.call_sync(
+        Some("org.kde.StatusNotifierWatcher"),
+        "/StatusNotifierWatcher",
+        "org.freedesktop.DBus.Properties",
+        "Get",
+        Some(&property.to_variant()),
+        VariantTy::new("(v)").ok(),
+        // Never starts a watcher that isn't running: it would have no host either.
+        gio::DBusCallFlags::NO_AUTO_START,
+        TIMEOUT_MS,
+        gio::Cancellable::NONE,
+    )
+    .ok()
+    .and_then(|reply| reply.child_value(0).as_variant())
+    .and_then(|registered| registered.get::<bool>())
+    .unwrap_or(false)
+}
+
+/// Windows always has its notification area, and macOS its menu bar.
+#[cfg(not(target_os = "linux"))]
+fn host_shows_icons() -> bool {
     true
 }
 
