@@ -9,6 +9,8 @@
     --safe-right: env(safe-area-inset-right, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
     --safe-left: env(safe-area-inset-left, 0px);
+    /* Height covered by the sticky top bar (h-14 on phones). */
+    --shell-top: calc(3.5rem + var(--safe-top));
     /* Height covered by the fixed bottom bars: tab bar + mini player on phones. */
     --shell-bottom: calc(var(--spacing-tabbar) + var(--spacing-mini) + 1rem + var(--safe-bottom));
   }
@@ -16,6 +18,7 @@
   @media (width >= 48rem) {
     :root {
       --spacing-gutter: 1.5rem;
+      --shell-top: calc(var(--spacing-topbar) + var(--safe-top));
       --shell-bottom: calc(var(--spacing-player) + var(--safe-bottom));
     }
   }
@@ -27,6 +30,12 @@
   }
 
   html {
+    /*
+     * The bars cover the page: keep focused and scrolled-to elements clear of them
+     * (WCAG 2.4.11), with room for the focus ring.
+     */
+    scroll-padding-top: calc(var(--shell-top) + 0.5rem);
+    scroll-padding-bottom: calc(var(--shell-bottom) + 0.5rem);
     background-color: var(--color-background);
     color: var(--color-text);
     font-family: var(--font-sans);
@@ -195,6 +204,46 @@
     }
 
     .range::-moz-range-thumb {
+      opacity: 1;
+    }
+  }
+
+  /*
+   * Forced colors (Windows High Contrast) remove background gradients, which would
+   * hide the track and its fill: draw them in system colors, with the thumb shown.
+   */
+  @media (forced-colors: active) {
+    .range {
+      forced-color-adjust: none;
+    }
+
+    .range:focus-visible {
+      outline-color: CanvasText;
+    }
+
+    .range::-webkit-slider-runnable-track {
+      background: linear-gradient(
+        to right,
+        Highlight var(--range-fill),
+        CanvasText var(--range-fill)
+      );
+    }
+
+    .range::-moz-range-track {
+      background: CanvasText;
+    }
+
+    .range::-moz-range-progress {
+      background: Highlight;
+    }
+
+    .range::-webkit-slider-thumb {
+      background: Highlight;
+      opacity: 1;
+    }
+
+    .range::-moz-range-thumb {
+      background: Highlight;
       opacity: 1;
     }
   }

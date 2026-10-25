@@ -10,7 +10,11 @@ import { PLACEHOLDER_TRACK, usePlayerStore } from './player-store'
 
 const NOW_PLAYING_LABEL = `Open now playing: ${PLACEHOLDER_TRACK.title} by ${PLACEHOLDER_TRACK.artist}`
 
-/** Shows the catalog mode in use; links to Settings, where it is changed. */
+/**
+ * Shows the catalog mode in use; links to Settings, where it is changed. Below
+ * 1280px the bar is too narrow for "Music + Video", so only the icon shows there
+ * (the link's label still names the mode).
+ */
 export function ModeIndicator({ className }: { className?: string }) {
   const mode = useSettingsStore((state) => state.catalogMode)
   const option = CATALOG_MODE_OPTIONS.find((candidate) => candidate.value === mode)
@@ -21,12 +25,13 @@ export function ModeIndicator({ className }: { className?: string }) {
       to="/settings"
       aria-label={`Catalog mode: ${option.label}. Change it in Settings`}
       className={cn(
-        'relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border px-3 text-xs font-semibold whitespace-nowrap text-text-muted transition-colors after:absolute after:inset-x-0 after:-inset-y-1.5 hover:border-border-strong hover:text-text',
+        // The ::after extends the hit area to 44px without changing the look.
+        'relative inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-border text-xs font-semibold whitespace-nowrap text-text-muted transition-colors after:absolute after:-inset-1.5 hover:border-border-strong hover:text-text max-xl:w-8 xl:px-3',
         className,
       )}
     >
       <Icon aria-hidden="true" className="size-3.5 shrink-0" />
-      {option.label}
+      <span className="max-xl:sr-only">{option.label}</span>
     </Link>
   )
 }
@@ -54,7 +59,8 @@ export function PlayerBar() {
       aria-label="Player"
       className="fixed inset-x-safe bottom-0 z-40 hidden border-t border-border bg-surface pb-safe shadow-[0_-12px_32px_-20px_var(--shadow-color)] md:block"
     >
-      <div className="grid h-player grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1fr)] items-center gap-3 px-3 lg:gap-6 lg:px-4">
+      {/* The right column never gets narrower than its buttons, so they can't spill into the seek bar. */}
+      <div className="grid h-player grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_minmax(max-content,1fr)] items-center gap-3 px-3 lg:gap-6 lg:px-4">
         <div className="flex min-w-0 items-center gap-1">
           <Link
             to="/now-playing"

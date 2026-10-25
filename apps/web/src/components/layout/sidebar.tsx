@@ -40,8 +40,13 @@ export function Sidebar() {
       aria-label="Main"
       className="fixed top-0 bottom-[calc(var(--spacing-player)+var(--safe-bottom))] left-[var(--safe-left)] z-20 hidden w-rail flex-col border-r border-border bg-surface md:flex lg:w-sidebar"
     >
-      <div className="flex h-topbar shrink-0 items-center px-4 max-lg:justify-center lg:px-6">
-        <Link to="/" aria-label="FXM home" className="flex items-center gap-2.5 rounded-md">
+      {/* px-3 on tablets: the 72px rail then fits the 44px link. */}
+      <div className="flex h-topbar shrink-0 items-center px-3 max-lg:justify-center lg:px-6">
+        <Link
+          to="/"
+          aria-label="FXM home"
+          className="flex h-touch shrink-0 items-center gap-2.5 rounded-md max-lg:w-touch max-lg:justify-center"
+        >
           <LogoMark className="size-9" />
           <Wordmark className="hidden lg:inline" />
         </Link>
@@ -64,7 +69,8 @@ export function Sidebar() {
         >
           Your playlists
         </h2>
-        <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pb-4 scrollbar-thin">
+        {/* pt-1: the scroll box clips, so leave room for the first row's focus ring. */}
+        <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pt-1 pb-4 scrollbar-thin">
           {PLACEHOLDER_PLAYLISTS.map((playlist) => (
             <li key={playlist.id}>
               <NavLink

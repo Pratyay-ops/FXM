@@ -19,7 +19,8 @@ export function BottomNav() {
                 end={item.end ?? false}
                 className={({ isActive }) =>
                   cn(
-                    'flex flex-1 flex-col items-center justify-center gap-1 text-2xs font-semibold transition-colors',
+                    // Inset focus ring: the outer tabs touch the screen edges.
+                    'flex flex-1 flex-col items-center justify-center gap-1 rounded-lg text-2xs font-semibold transition-colors focus-visible:-outline-offset-4',
                     isActive ? 'text-text' : 'text-text-muted hover:text-text',
                   )
                 }

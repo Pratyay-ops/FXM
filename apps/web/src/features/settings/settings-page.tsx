@@ -25,7 +25,11 @@ function SettingsSection({ title, children }: { title: string; children: ReactNo
   )
 }
 
-/** One setting: a label (and optional help) beside its control; stacked on phones. */
+/**
+ * One setting: a label with optional help beside its control. Phones stack them as
+ * label, control, help, so help whose length changes with the value (catalog mode)
+ * never moves the control under the user's finger.
+ */
 function SettingRow({
   label,
   labelId,
@@ -38,14 +42,13 @@ function SettingRow({
   children: ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-4 p-4 sm:p-5 md:flex-row md:items-start md:justify-between md:gap-8">
-      <div className="min-w-0 md:max-w-xs">
-        <p id={labelId} className="font-semibold">
-          {label}
-        </p>
-        {help}
-      </div>
-      <div className="w-full md:w-auto md:shrink-0">{children}</div>
+    // From 768px: label and help (up to 20rem, narrower if needed) left, the whole control right.
+    <div className="grid gap-3 p-4 sm:p-5 md:grid-cols-[minmax(0,20rem)_max-content] md:grid-rows-[auto_1fr] md:justify-between md:gap-x-8 md:gap-y-1">
+      <p id={labelId} className="font-semibold md:col-start-1 md:row-start-1">
+        {label}
+      </p>
+      <div className="min-w-0 md:col-start-2 md:row-span-2 md:row-start-1">{children}</div>
+      {help && <div className="md:col-start-1 md:row-start-2">{help}</div>}
     </div>
   )
 }
@@ -67,7 +70,7 @@ export function SettingsPage() {
           label="Catalog mode"
           labelId={modeLabelId}
           help={
-            <p id={modeHelpId} aria-live="polite" className="mt-1 text-sm text-text-muted">
+            <p id={modeHelpId} aria-live="polite" className="text-sm text-text-muted">
               {CATALOG_MODE_DESCRIPTIONS[catalogMode]}
             </p>
           }
@@ -85,7 +88,7 @@ export function SettingsPage() {
           label="Theme"
           labelId={themeLabelId}
           help={
-            <p className="mt-1 text-sm text-text-muted">
+            <p className="text-sm text-text-muted">
               System follows your device's light or dark setting.
             </p>
           }

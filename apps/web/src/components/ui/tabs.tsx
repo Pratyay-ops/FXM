@@ -77,9 +77,12 @@ export function Tabs<V extends string>({
             onClick={() => onChange(item.value)}
             onKeyDown={(event) => onKeyDown(event, index)}
             className={cn(
-              'relative h-9 shrink-0 rounded-full px-4 text-sm font-semibold transition-colors duration-150 after:absolute after:inset-x-0 after:-inset-y-1',
+              // Forced colors (Windows High Contrast) drop the fills: outline every tab and
+              // mark the selected one in system colors (adjust-none, or the browser's text
+              // backplate hides the HighlightText label).
+              'relative h-9 shrink-0 rounded-full px-4 text-sm font-semibold transition-colors duration-150 after:absolute after:inset-x-0 after:-inset-y-1 forced-colors:border',
               selected
-                ? 'bg-text text-background'
+                ? 'bg-text text-background forced-colors:bg-[Highlight] forced-colors:text-[HighlightText] forced-colors:forced-color-adjust-none forced-colors:focus-visible:outline-[CanvasText]'
                 : 'bg-elevated text-text hover:bg-elevated-hover',
             )}
           >

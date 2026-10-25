@@ -25,7 +25,12 @@ export function CardScroller({
   return (
     <ul
       aria-hidden="true"
-      className="-mx-gutter grid auto-cols-[9rem] grid-flow-col gap-4 overflow-x-auto px-gutter pb-2 scroll-px-gutter scrollbar-thin snap-x snap-mandatory sm:auto-cols-[10.5rem] lg:auto-cols-[11.5rem]"
+      // Browsers make a scroll box with nothing focusable inside a tab stop, which here
+      // would be an unnamed stop hidden from screen readers. Real cards (links) replace
+      // the skeletons in stage 2.4: then drop this and aria-hidden.
+      tabIndex={-1}
+      // pt-1 and pb-2: the scroll box clips, so leave room for the cards' focus rings.
+      className="-mx-gutter grid auto-cols-[9rem] grid-flow-col gap-4 overflow-x-auto px-gutter pt-1 pb-2 scroll-px-gutter scrollbar-thin snap-x snap-mandatory sm:auto-cols-[10.5rem] lg:auto-cols-[11.5rem]"
     >
       {placeholderKeys(count, 'card').map((key, index) => (
         <li key={key} className="snap-start">

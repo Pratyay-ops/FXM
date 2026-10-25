@@ -49,7 +49,8 @@ export function SegmentedControl<V extends string>({
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       className={cn(
-        'relative inline-grid auto-cols-fr grid-flow-col rounded-full bg-elevated p-1',
+        // Forced colors (Windows High Contrast) drop the fills: outline the group instead.
+        'relative inline-grid auto-cols-fr grid-flow-col rounded-full bg-elevated p-1 forced-colors:border',
         className,
       )}
     >
@@ -70,7 +71,11 @@ export function SegmentedControl<V extends string>({
               // The ::after extends the hit area to 44px+ without changing the look.
               'relative z-10 flex min-w-0 cursor-pointer items-center justify-center gap-2 rounded-full font-semibold whitespace-nowrap transition-colors duration-200 select-none after:absolute after:inset-x-0 after:-inset-y-1 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus',
               size === 'md' ? 'h-10 px-3 text-sm sm:px-4' : 'h-9 px-3 text-xs',
-              checked ? 'text-on-accent' : 'text-text-muted hover:text-text',
+              // The sliding pill disappears in forced colors: mark the choice in system colors
+              // (adjust-none, or the browser's text backplate hides the HighlightText label).
+              checked
+                ? 'text-on-accent forced-colors:bg-[Highlight] forced-colors:text-[HighlightText] forced-colors:forced-color-adjust-none forced-colors:has-[:focus-visible]:outline-[CanvasText]'
+                : 'text-text-muted hover:text-text',
             )}
           >
             <input
