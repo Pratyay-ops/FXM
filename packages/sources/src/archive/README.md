@@ -9,17 +9,20 @@ const archive = createArchiveSource()            // one per app: it caches
 const { albums, tracks } = await archive.search('nine inch nails ghosts', { types: ['album', 'track'] }, ctx)
 const [candidate] = await archive.match(track, ctx) // an Archive track, or any other source's
 const options = await archive.resolve(candidate, ctx, prefs) // FLAC first
+const credit = await archive.attribution(formatId('archive', 'track', candidate.ref), ctx)
 ```
+
+The module exports only `createArchiveSource` with its types, `parseTrackRef` and `itemPageUrl`.
 
 ## What it requests
 
 | Request | When | Cached |
 |---|---|---|
 | `GET /advancedsearch.php?q=…&fl[]=…&sort[]=downloads desc&rows=…&page=…&output=json` | `search`, and `match` for another source's track | 10 minutes |
-| `GET /metadata/<identifier>` | Opening an item: song search (the first 4 items), `getTrack`, `getAlbum`, `match` (the first 3 items), `resolve` | 1 hour, one request shared by every caller |
-| `GET /download/<identifier>/<file>` with `Range: bytes=0-41` | `resolve` with `probeFlac: true`, once per FLAC file | no |
+| `GET /metadata/<identifier>` | Opening an item: song search (4 items at a time), `getTrack`, `getAlbum`, `match` (the first 3 items), `resolve`, `attribution` | 1 hour, one request shared by every caller |
+| `GET /download/<identifier>/<file>` with `Range: bytes=0-41` | `resolve` with `readFlacHeader: true`, once per FLAC file | 1 hour |
 
-Requests send no headers of their own and no credentials, so a browser never needs a CORS preflight; the probe's single range header is CORS-safelisted.
+Requests send no headers of their own and no credentials, so a browser never needs a CORS preflight; the header read's single range header (`bytes=0-41`, with a start) is CORS-safelisted.
 
 **The search query** keeps the user's words to letters and digits, lower-cased, so nothing typed can change its structure:
 
@@ -28,6 +31,8 @@ mediatype:(audio OR etree) AND format:flac AND NOT access-restricted-item:true A
 ```
 
 `etree` is the Live Music Archive's media type: concert recordings, mostly in FLAC. Results come most downloaded first. `sort: 'relevance'` leaves the order to the Archive, which for the query above ranked two concert recordings first and left the canonical album out of its top five. `match` adds alternatives, of which one must also match, because the Archive indexes items, not files: `(nine inch nails) AND ((1 ghosts i) OR (ghosts i iv))` finds a song by its title or by its album's name.
+
+**Song search** opens the first 4 items (`trackSearchItems`) and lists their tracks that fit every word of the query, `limit` (50 by default) at a time. The next pages go through the rest of those items' tracks first, with cursors such as `1.50` (page of items 1, after 50 tracks), and then open the next 4 items (cursor `2`), so every fitting track appears exactly once. Album cursors are plain page numbers; a song cursor is refused (`RangeError`) for albums, as is any cursor this source never made.
 
 ## CORS (measured 2026-10-25)
 
@@ -67,13 +72,23 @@ The Archive marks lending-library and stream-only items with `access-restricted-
 
 An unknown format name falls back to the extension (`.flac`, `.mp3`, `.ogg`, `.opus`, `.wav`, `.m4a`). Shorten, AIFF, zips, playlists, images and text never become streams. The bitrate is the Archive's own figure for MP3s, the format name's (`320Kbps`), or size × 8 ÷ length.
 
-Every option is `progressive`, `media: 'audio'`, `ipBound: false`, never expires, and has a plain `https://archive.org/download/…` URL. `fullLength` is `unverified`: the Archive does not cap its URLs, and nothing probed the end of the file.
+Every option is `progressive`, `media: 'audio'`, `ipBound: false`, never expires, and has a plain `https://archive.org/download/…` URL. `fullLength` is `unverified` because nothing probed the end of the file, not because the bytes are unreadable: the Archive does not cap its URLs, and a page can read every byte (CORS `*`). So the download manager (4.1), which downloads only probed URLs, can run its end-of-file probe on the option it picks: the bytes are readable on every tier, and a single range with a start (`bytes=<n>-`) needs no preflight.
 
-**Sample rate and bit depth.** The Archive's metadata states neither. With `probeFlac: true`, `resolve` reads each FLAC file's first 42 bytes (its STREAMINFO block) for both, e.g. 44,100 Hz and 16 bits for the known item below. Without the probe, only `24bit Flac` gives a depth.
+**Sample rate and bit depth.** The Archive's metadata states neither. With `readFlacHeader: true`, `resolve` reads each FLAC file's header, its first 42 bytes (the STREAMINFO block), for both, e.g. 44,100 Hz and 16 bits for the known item below. Without it, only `24bit Flac` gives a depth. Reading the start of a file says nothing about `fullLength`.
 
 ## Matching another source's track
 
-`match` answers an Archive track, or a track whose `externalIds.archive` names an Archive file, with that file at confidence 1, without a request. For any other track it searches by main artist and by title or album (concert recordings only when the track itself is live), opens the first three items and scores their recordings with a provisional score: 0.40 title, 0.35 artist and 0.25 duration, minus the version and duration penalties of the matching engine's scorer (ARCHITECTURE.md §12). A text-only score is capped at 0.79, below the Auto band, because the matching engine scores every candidate itself before anything plays; equal ISRCs give 1. Candidates below 0.60, the floor of the Suggest band, are left out: a concert recording of a studio song loses 0.45 for its live tag and lands there. `signals` carry `releaseId` (the item), `releaseYear`, `sourceAlbumMatch` (the track's album has the item's title) and `isrcVerified`.
+`match` answers an Archive track, or a track whose `externalIds.archive` names an Archive file, with that file at confidence 1, without a request. For any other track it searches by main artist and by title or album, opens the first three items and scores their recordings with a provisional score: 0.40 title, 0.35 artist and 0.25 duration, minus the version and duration penalties of the matching engine's scorer (ARCHITECTURE.md §12). Candidates below 0.60, the floor of the Suggest band, are left out: a concert recording of a studio song loses 0.45 for its live tag and lands there. `signals` carry `releaseId` (the item), `releaseYear`, `sourceAlbumMatch` (the track's album has the item's title) and `isrcVerified`.
+
+- **Version tags come from the title's qualifiers and the album, on both sides**, as in the matching engine: the candidate's album is the item's title, and live, unplugged, concert, tour and session count as one family. So a Spotify track of the album "Live Through This" matches the Archive item "Live Through This" (both say live), a Live Music Archive item (`etree`) counts as live whatever its title, and concert recordings are searched only for a track that is live by its title or its album ("MTV Unplugged in New York").
+- **Equal ISRCs are not enough.** An Archive file's ISRC comes from an uploader's `urn:isrc:` tag, which may be copied onto every file of an item, and ISRCs are shared by unrelated tracks (memo §6.1). A file with the track's ISRC is ISRC-verified, at confidence 1, only when it also passes the ISRC gate's checks: title similarity at least 0.8 (the matching engine's default), artist similarity at least 0.5, a duration within max(5 s, 2 %) of the track's (when the track has one), and no strong version tag on one side only. Otherwise it keeps its text score, with `isrc conflict (…)` in its evidence naming the failed checks.
+- **`track.isrc` counts as a catalog ISRC**: the source's own, or MusicBrainz's exact path. Never put an ISRC there that a fuzzy MusicBrainz search suggested (`origin: 'musicbrainz-fuzzy'`): it is only a ranking hint.
+
+**What the playback policy (2.3) may do with these candidates.** A text-only candidate is capped at 0.79, below the Auto band, and is at most a suggestion: nothing re-scores it on its way to the player (the matching engine, 1.7, reads YouTube Music pages only), and the provisional score only resembles the engine's. Only `signals.isrcVerified` may play without asking ("prefer lossless", ARCHITECTURE.md §7.4 step 4). Once 1.7 is merged, these candidates should be scored with its scorer.
+
+## Licences and credit
+
+Archive items carry their own licence, often Creative Commons or public domain. `attribution(trackId, ctx)` returns what crediting a track takes: its title and artists, `provider: 'Internet Archive'`, the item's page (`pageUrl`, the same as `itemPageUrl(identifier)`, which shows the licence) and the licence's URL when the item states one. For a candidate, pass `formatId('archive', 'track', candidate.ref)`. It costs no request for an item already loaded.
 
 ## Errors
 
@@ -86,12 +101,9 @@ Every option is `progressive`, `media: 'audio'`, `ipBound: false`, never expires
 | Unreachable, timed out (15 s by default) | `Network` |
 | An answer that is not what the API documents | `Parse` |
 | A candidate from another source | `Unsupported` |
+| A cursor this source never made, or a song cursor for albums | `RangeError` |
 
 A song search skips an item that fails to load instead of failing.
-
-## Licences and credit
-
-Archive items carry their own licence (`ArchiveItem.licenseUrl`, often Creative Commons or public domain). `itemPageUrl(identifier)` links to the item's page, which shows it: the link for crediting an item.
 
 ## Tests
 
@@ -106,7 +118,7 @@ Offline tests use responses recorded on 2026-10-25 and sanitized in `fixtures/`:
 | `item-restricted.json` | A stream-only Grateful Dead soundboard recording: restricted, with private FLAC files |
 | `item-missing.json` | The API's answer for an unknown item |
 
-The live smoke test resolves the known item `nineinchnails_ghosts_I_IV` to its FLAC original, probes it and checks CORS, in about ten requests:
+The live smoke test resolves the known item `nineinchnails_ghosts_I_IV` to its FLAC original, reads its header and checks CORS, in about ten requests:
 
 ```sh
 FXM_LIVE=1 scripts/run.sh pnpm exec vitest run packages/sources/src/archive/live.test.ts

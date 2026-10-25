@@ -46,7 +46,7 @@ import {
   type Comparable,
   MIN_CANDIDATE_CONFIDENCE,
   orderOptions,
-  scoreCandidate,
+  provisionalScore,
   wordsOf,
 } from '../shared/audio-source'
 import { TtlCache } from '../shared/ttl-cache'
@@ -334,7 +334,7 @@ class JamendoSourceImpl implements JamendoSource {
     const candidates = records.map((record): AudioCandidate => {
       const found = trackOf(record)
       const artists = found.artists.map((entry) => entry.name)
-      const score = scoreCandidate(wanted, {
+      const score = provisionalScore(wanted, {
         title: found.title,
         artists,
         ...(found.durationMs === undefined ? {} : { durationMs: found.durationMs }),

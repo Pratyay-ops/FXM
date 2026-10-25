@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { contextFor, fakeService, hangingFetch } from '../shared/fake-fetch'
-import { FLAC_HEADER_BYTES, parseFlacStreamInfo, probeFlac } from './flac'
+import { FLAC_HEADER_BYTES, fetchFlacStreamInfo, parseFlacStreamInfo } from './flac'
 
 /** Bytes from hex. */
 function bytes(hex: string): Uint8Array<ArrayBuffer> {
@@ -61,13 +61,13 @@ describe('parseFlacStreamInfo', () => {
   })
 })
 
-describe('probeFlac', () => {
+describe('fetchFlacStreamInfo', () => {
   it('asks for the first 42 bytes only and reads them', async () => {
     const service = fakeService(
       () =>
         new Response(ARCHIVE_24BIT, { status: 206, headers: { 'content-range': 'bytes 0-41/9' } }),
     )
-    const info = await probeFlac(
+    const info = await fetchFlacStreamInfo(
       contextFor(service.fetch),
       'https://archive.org/download/x/a.flac',
       1000,
@@ -92,7 +92,7 @@ describe('probeFlac', () => {
     })
     const service = fakeService(() => new Response(body, { status: 200 }))
     await expect(
-      probeFlac(contextFor(service.fetch), 'https://x.test/a.flac', 1000),
+      fetchFlacStreamInfo(contextFor(service.fetch), 'https://x.test/a.flac', 1000),
     ).resolves.toBeNull()
     expect(cancelled).toBe(true)
     expect(pulled).toBeLessThanOrEqual(1)
@@ -103,20 +103,20 @@ describe('probeFlac', () => {
       throw new TypeError('Failed to fetch')
     })
     await expect(
-      probeFlac(contextFor(failing.fetch), 'https://x.test/a.flac', 1000),
+      fetchFlacStreamInfo(contextFor(failing.fetch), 'https://x.test/a.flac', 1000),
     ).resolves.toBeNull()
     const notFound = fakeService(() => new Response('gone', { status: 404 }))
     await expect(
-      probeFlac(contextFor(notFound.fetch), 'https://x.test/a.flac', 1000),
+      fetchFlacStreamInfo(contextFor(notFound.fetch), 'https://x.test/a.flac', 1000),
     ).resolves.toBeNull()
     await expect(
-      probeFlac(contextFor(hangingFetch), 'https://x.test/a.flac', 10),
+      fetchFlacStreamInfo(contextFor(hangingFetch), 'https://x.test/a.flac', 10),
     ).resolves.toBeNull()
   })
 
   it('passes on the caller’s cancellation', async () => {
     const controller = new AbortController()
-    const probe = probeFlac(
+    const probe = fetchFlacStreamInfo(
       contextFor(hangingFetch, { signal: controller.signal }),
       'https://x.test/a.flac',
       1000,

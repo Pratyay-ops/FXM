@@ -67,6 +67,42 @@ function archive(extra: Record<string, unknown> = {}) {
   })
 }
 
+/**
+ * A fake Archive holding `items`, whose search answers the items `docsFor` picks for a query,
+ * honouring `rows` and `page`.
+ */
+function archiveWith(items: Record<string, unknown>, docsFor: (query: string) => string[]) {
+  return fakeService((url) => {
+    if (url.pathname === '/advancedsearch.php') {
+      const ids = docsFor(url.searchParams.get('q') ?? '')
+      const rows = Number(url.searchParams.get('rows'))
+      const page = Number(url.searchParams.get('page'))
+      const docs = ids.slice((page - 1) * rows, page * rows).map((identifier) => ({ identifier }))
+      return json({ response: { numFound: ids.length, start: (page - 1) * rows, docs } })
+    }
+    if (url.pathname.startsWith('/metadata/')) {
+      const identifier = decodeURIComponent(url.pathname.slice('/metadata/'.length))
+      return json(Object.hasOwn(items, identifier) ? items[identifier] : missing)
+    }
+    return json({}, { status: 404 })
+  })
+}
+
+/** An audio item with one FLAC original per song: `[title, seconds]`. */
+function albumItem(identifier: string, title: string, creator: string, songs: [string, number][]) {
+  return {
+    metadata: { identifier, title, creator, mediatype: 'audio' },
+    files: songs.map(([song, seconds], index) => ({
+      name: `${String(index + 1).padStart(2, '0')} ${song}.flac`,
+      format: 'Flac',
+      source: 'original',
+      title: song,
+      track: String(index + 1),
+      length: String(seconds),
+    })),
+  }
+}
+
 /** The request paths, without hosts. */
 function paths(calls: readonly Call[]): string[] {
   return calls.map((call) => decodeURIComponent(call.url.pathname))
@@ -220,6 +256,65 @@ describe('createArchiveSource', () => {
       expect(service.calls[0]?.url.searchParams.get('rows')).toBe('20')
     })
 
+    it('pages through every fitting track of the items it opened before opening the next', async () => {
+      const ids = Array.from({ length: 8 }, (_, index) => `big-${index + 1}`)
+      const songs = Array.from({ length: 30 }, (_, index): [string, number] => [
+        `Song ${index}`,
+        200,
+      ])
+      const items = Object.fromEntries(
+        ids.map((id, index) => [id, albumItem(id, `Big Album ${index + 1}`, 'Big Band', songs)]),
+      )
+      const service = archiveWith(items, () => ids)
+      const archive = source()
+      const ctx = contextFor(service.fetch)
+      const seen: string[] = []
+      const cursors: string[] = []
+      let cursor: string | undefined
+      do {
+        const options = { types: ['track'] as const, limit: 20, ...(cursor ? { cursor } : {}) }
+        const results = await archive.search('big band', options, ctx)
+        seen.push(...(results.tracks?.items.map((track) => track.id) ?? []))
+        cursor = results.tracks?.nextCursor
+        if (cursor !== undefined) cursors.push(cursor)
+      } while (cursor !== undefined && cursors.length < 50)
+      // 8 items of 30 tracks: every one exactly once, in item order.
+      expect(seen).toHaveLength(240)
+      expect(new Set(seen).size).toBe(240)
+      expect(seen[0]).toBe(formatId('archive', 'track', 'big-1/01 Song 0.flac'))
+      expect(seen[30]).toBe(formatId('archive', 'track', 'big-2/01 Song 0.flac'))
+      expect(cursors).toEqual([
+        '1.20',
+        '1.40',
+        '1.60',
+        '1.80',
+        '1.100',
+        '2',
+        '2.20',
+        '2.40',
+        '2.60',
+        '2.80',
+        '2.100',
+      ])
+      // Two searches (one per page of four items) and each item once.
+      expect(paths(service.calls).filter((path) => path === '/advancedsearch.php')).toHaveLength(2)
+      expect(service.calls).toHaveLength(10)
+    })
+
+    it('refuses a song cursor for albums, and cursors it would never make', async () => {
+      const service = archive()
+      const ctx = contextFor(service.fetch)
+      await expect(
+        source().search('ghosts', { types: ['album'], cursor: '1.20' }, ctx),
+      ).rejects.toThrow(RangeError)
+      for (const cursor of ['1.0', '1.020', '01.5', '0.5', '1.', '.5', '1.2.3']) {
+        await expect(source().search('ghosts', { types: ['track'], cursor }, ctx)).rejects.toThrow(
+          RangeError,
+        )
+      }
+      expect(service.calls).toHaveLength(0)
+    })
+
     it('makes no request for types it has nothing for', async () => {
       const service = archive()
       const results = await source().search(
@@ -326,6 +421,41 @@ describe('createArchiveSource', () => {
     })
   })
 
+  describe('attribution', () => {
+    it('credits a track with its item’s page and licence', async () => {
+      const service = archive()
+      const ctx = contextFor(service.fetch)
+      const archiveSource = source()
+      await archiveSource.getTrack(formatId('archive', 'track', GHOSTS_1), ctx)
+      expect(await archiveSource.attribution(formatId('archive', 'track', GHOSTS_1), ctx)).toEqual({
+        title: '1 Ghosts I',
+        artists: ['Nine Inch Nails'],
+        provider: 'Internet Archive',
+        pageUrl: `https://archive.org/details/${NIN}`,
+        licenseUrl: 'http://creativecommons.org/licenses/by-nc-sa/3.0/us/',
+      })
+      expect(service.calls).toHaveLength(1)
+    })
+
+    it('refuses what is not a free Archive track', async () => {
+      const service = archive()
+      const ctx = contextFor(service.fetch)
+      const foreign = await source()
+        .attribution(formatId('ytm', 'track', 'dQw4w9WgXcQ'), ctx)
+        .catch((caught: unknown) => caught)
+      expect(isFxmError(foreign, 'NotFound')).toBe(true)
+      const restrictedTrack = formatId(
+        'archive',
+        'track',
+        'gd1977-06-09.28614.sbeok.flac16/gd77-06-09d1t01.flac',
+      )
+      const refused = await source()
+        .attribution(restrictedTrack, ctx)
+        .catch((caught: unknown) => caught)
+      expect(isFxmError(refused, 'Unavailable')).toBe(true)
+    })
+  })
+
   it('has no artist pages or playlists', async () => {
     const service = archive()
     const ctx = contextFor(service.fetch)
@@ -416,6 +546,78 @@ describe('createArchiveSource', () => {
       ).toEqual(['mediatype:(audio)', 'mediatype:(audio OR etree)'])
     })
 
+    it('matches a studio album whose name says live, like the Spotify album of that name', async () => {
+      const hole = albumItem('hole-ltt', 'Live Through This', 'Hole', [
+        ['Violet', 204],
+        ['Miss World', 180],
+        ['Plump', 154],
+        ['Doll Parts', 211],
+      ])
+      const service = archiveWith({ 'hole-ltt': hole }, (query) =>
+        query.includes('(hole)') ? ['hole-ltt'] : [],
+      )
+      const dollParts = spotifyGhosts({
+        title: 'Doll Parts',
+        artists: [{ name: 'Hole' }],
+        album: { name: 'Live Through This' },
+        durationMs: 210_000,
+      })
+      const [found] = await source().match(dollParts, contextFor(service.fetch))
+      expect(found).toMatchObject({ ref: 'hole-ltt/04 Doll Parts.flac', confidence: 0.79 })
+      expect(found?.signals?.sourceAlbumMatch).toBe(true)
+    })
+
+    it('looks for concert recordings for a track from a live album', async () => {
+      const service = archive({ 'band1999-01-01': liveShow })
+      const fromLiveAlbum: Track = {
+        ...spotifyGhosts(),
+        title: 'Song',
+        artists: [{ name: 'Band' }],
+        album: { name: 'Live at the Hall' },
+        durationMs: 200_000,
+      }
+      const found = await source().match(fromLiveAlbum, contextFor(service.fetch))
+      expect(found.map((candidate) => candidate.ref)).toEqual(['band1999-01-01/song.flac'])
+      expect(service.calls[0]?.url.searchParams.get('q')).toMatch(/^mediatype:\(audio OR etree\)/u)
+    })
+
+    it('trusts an ISRC an item carries only when the file also fits the track', async () => {
+      const isrc = 'USABC2400001'
+      // An uploader copied one ISRC onto every file of the item.
+      const item = albumItem('copied-isrc', 'Some Album', 'Band', [
+        ['Intro', 110],
+        ['Song', 200],
+        ['Outro', 150],
+      ])
+      for (const file of item.files)
+        Object.assign(file, { 'external-identifier': `urn:isrc:${isrc}` })
+      const service = archiveWith({ 'copied-isrc': item }, () => ['copied-isrc'])
+      const ctx = contextFor(service.fetch)
+      const song = spotifyGhosts({
+        title: 'Song',
+        artists: [{ name: 'Band' }],
+        album: { name: 'Some Album' },
+        durationMs: 200_000,
+        isrc,
+      })
+      const candidates = await source().match(song, ctx)
+      expect(candidates).toHaveLength(1)
+      expect(candidates[0]).toMatchObject({
+        ref: 'copied-isrc/02 Song.flac',
+        confidence: 1,
+        evidence: expect.arrayContaining(['isrc']),
+        signals: { isrcVerified: true },
+      })
+      // The same ISRC on a file whose title does not fit is no proof.
+      const [other] = await source().match({ ...song, title: 'Other Song' }, ctx)
+      expect(other).toMatchObject({
+        ref: 'copied-isrc/02 Song.flac',
+        signals: { isrcVerified: false },
+      })
+      expect(other?.confidence).toBeLessThanOrEqual(0.79)
+      expect(other?.evidence[0]).toBe('isrc conflict (title)')
+    })
+
     it('makes no request for a track without a title or artist', async () => {
       const service = archive()
       const ctx = contextFor(service.fetch)
@@ -476,7 +678,7 @@ describe('createArchiveSource', () => {
 
     it('reads the sample rate and bit depth of each FLAC file when asked to probe', async () => {
       const service = archive()
-      const probing = source({ probeFlac: true })
+      const probing = source({ readFlacHeader: true })
       const ctx = contextFor(service.fetch)
       const options = await probing.resolve(candidate(GHOSTS_1), ctx, DEFAULT_QUALITY_PREFS)
       expect(options[0]).toMatchObject({ sampleRateHz: 44100, bitDepth: 24 })
@@ -497,7 +699,7 @@ describe('createArchiveSource', () => {
         }
         return json(ninGhosts)
       })
-      const probing = source({ probeFlac: true })
+      const probing = source({ readFlacHeader: true })
       const ctx = contextFor(service.fetch)
       const [first] = await probing.resolve(candidate(GHOSTS_1), ctx, DEFAULT_QUALITY_PREFS)
       expect(first).not.toHaveProperty('sampleRateHz')

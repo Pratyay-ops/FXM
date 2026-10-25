@@ -5,30 +5,12 @@
  * @module
  */
 
-export {
-  type ArchiveSearch,
-  type ArchiveSearchDoc,
-  type ArchiveSearchPage,
-  searchQuery,
-} from './api'
-export { type FlacStreamInfo, parseFlacStreamInfo, probeFlac } from './flac'
-export {
-  ARCHIVE_ORIGIN,
-  type ArchiveFile,
-  type ArchiveItem,
-  type AudioFormat,
-  type AudioGroup,
-  audioFormat,
-  audioGroups,
-  downloadUrl,
-  itemPageUrl,
-  parseItem,
-} from './item'
+export type { Attribution } from '../shared/audio-source'
+export { itemPageUrl } from './item'
 export {
   type ArchiveSource,
   type ArchiveSourceOptions,
   type ArchiveTrackRef,
   createArchiveSource,
   parseTrackRef,
-  trackOf,
 } from './provider'

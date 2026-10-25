@@ -4,13 +4,17 @@
  *
  * - **Search** finds items (`mediatype:audio` and the Live Music Archive's `etree`) that have a
  *   FLAC file and are not access-restricted. Albums are the items; songs are the tracks of the
- *   first few items that fit the words.
+ *   first few items that fit the words, paged through those items' tracks before the next items.
  * - **Tracks** are the items' recordings, one per audio file and its derivatives (see
  *   `audioGroups`), with IDs `archive:track:<identifier>/<file path>`. Albums are items.
  * - **Streams** are every playable file of a track: the FLAC original (`lossless`), and the MP3
  *   and Ogg Vorbis files the Archive made from it, tiered by `tierOf`. They are plain
  *   `https://archive.org/download/…` URLs that never expire and work from any IP, `unverified`
- *   because the Archive does not cap them and nothing probed their end.
+ *   because nothing probed their end (the Archive does not cap them, and their bytes are
+ *   readable on every tier, so a download manager can probe the one it picks).
+ * - **Matching** another source's track gives provisional, text-only candidates (at most
+ *   Suggest; see `../shared/audio-source.ts`), unless an ISRC both sides carry passes the ISRC
+ *   gate's checks.
  *
  * In Music mode every Archive track is a song and plays (the owner's decision), like any track
  * from a non-YouTube source.
@@ -25,7 +29,6 @@ import {
   type AudioSource,
   applyModeFilter,
   type EntityId,
-  extractVersionTags,
   FxmError,
   filterPlayable,
   formatId,
@@ -44,15 +47,17 @@ import {
   tierOf,
 } from '@fxm/core'
 import {
+  type Attribution,
   type Comparable,
+  isLive,
   MIN_CANDIDATE_CONFIDENCE,
   orderOptions,
-  scoreCandidate,
+  provisionalScore,
   wordsOf,
 } from '../shared/audio-source'
 import { LoadCache } from '../shared/ttl-cache'
 import { ArchiveApi, type ArchiveSearch, type ArchiveSearchDoc } from './api'
-import { type FlacStreamInfo, probeFlac } from './flac'
+import { type FlacStreamInfo, fetchFlacStreamInfo } from './flac'
 import {
   ARCHIVE_ORIGIN,
   type ArchiveItem,
@@ -62,6 +67,7 @@ import {
   downloadUrl,
   groupField,
   groupWithFile,
+  itemPageUrl,
   type PlayableFile,
   titleFromPath,
 } from './item'
@@ -79,16 +85,20 @@ export interface ArchiveSourceOptions {
   mediatypes?: readonly string[]
   /** `downloads` (the default): most downloaded first; `relevance`: the Archive's ranking. */
   sort?: 'downloads' | 'relevance'
-  /** How many items a song search opens to list their tracks. 4 by default. */
+  /**
+   * How many items a song search opens at a time to list their tracks. 4 by default. The pages
+   * of a song search go through every fitting track of these items, then open the next ones.
+   */
   trackSearchItems?: number
   /** How many items a match opens to look for the track. 3 by default. */
   matchItems?: number
   /**
-   * Whether `resolve` reads each FLAC stream's first 42 bytes for its sample rate and bit depth:
-   * one small range request per FLAC file. Off by default; the `24bit Flac` format name still
-   * gives the bit depth without it.
+   * Whether `resolve` reads each FLAC stream's header, its first 42 bytes, for its sample rate
+   * and bit depth: one small range request per FLAC file. Off by default; the `24bit Flac` format
+   * name still gives the bit depth without it. It reads the start of the file, so it says nothing
+   * about `fullLength`.
    */
-  probeFlac?: boolean
+  readFlacHeader?: boolean
   /** How long to keep search pages. 10 minutes by default. */
   searchTtlMs?: number
   /** How long to keep item metadata. An hour by default. */
@@ -101,6 +111,23 @@ export interface ArchiveSourceOptions {
 export interface ArchiveSource extends MetadataProvider, AudioSource {
   /** Always `archive`. */
   readonly id: 'archive'
+  /**
+   * Finds Archive files for any source's track. An Archive track, or one whose
+   * `externalIds.archive` names an Archive file, gets that file at confidence 1 without a
+   * request. Any other track gets provisional, text-only candidates, at most 0.79 (Suggest),
+   * unless an Archive file carries the track's ISRC and passes the ISRC gate's checks, which
+   * makes it ISRC-verified at 1.
+   *
+   * `track.isrc` counts as a catalog ISRC: never put an ISRC there that a fuzzy MusicBrainz
+   * search suggested (`origin: 'musicbrainz-fuzzy'`), which is only a ranking hint.
+   */
+  match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
+  /**
+   * What crediting a track takes: its title and artists, the Archive as its source, the item's
+   * page and its licence. For a candidate, pass `formatId('archive', 'track', candidate.ref)`.
+   * One request at most, shared with the other calls for the same item.
+   */
+  attribution(id: EntityId<'track'>, ctx: ProviderContext): Promise<Attribution>
 }
 
 /** The parts of an Archive track's native ID. */
@@ -133,15 +160,23 @@ function tileUrl(identifier: string): string {
   return `${ARCHIVE_ORIGIN}/services/img/${encodeURIComponent(identifier)}`
 }
 
-/** An item's artwork: uploaded covers, largest first, then the item tile. */
+/** Artwork already found, per item, so that an item's files are scanned for covers once. */
+const artworkByItem = new WeakMap<ArchiveItem, readonly Artwork[]>()
+
+/** An item's artwork, as a new list: uploaded covers, largest first, then the item tile. */
 function artworkOf(item: ArchiveItem): Artwork[] {
-  const covers = coverFiles(item).map((file): Artwork => {
-    const artwork: Artwork = { url: downloadUrl(item.identifier, file.name) }
-    if (file.width !== undefined) artwork.width = file.width
-    if (file.height !== undefined) artwork.height = file.height
-    return artwork
-  })
-  return [...covers, { url: tileUrl(item.identifier) }]
+  let artwork = artworkByItem.get(item)
+  if (artwork === undefined) {
+    const covers = coverFiles(item).map((file): Artwork => {
+      const cover: Artwork = { url: downloadUrl(item.identifier, file.name) }
+      if (file.width !== undefined) cover.width = file.width
+      if (file.height !== undefined) cover.height = file.height
+      return cover
+    })
+    artwork = [...covers, { url: tileUrl(item.identifier) }]
+    artworkByItem.set(item, artwork)
+  }
+  return artwork.map((entry) => ({ ...entry }))
 }
 
 /** The track of an item's audio group. */
@@ -236,24 +271,34 @@ function fits(track: Track, item: ArchiveItem, words: readonly string[]): boolea
   return words.every((word) => haystack.has(word))
 }
 
-/** The page a cursor from this source names, from 1; no cursor means the first page. */
-function pageOf(cursor: string | undefined): number {
-  if (cursor === undefined) return 1
-  const page = Number(cursor)
-  if (!Number.isSafeInteger(page) || page < 2 || String(page) !== cursor) {
+/** Where a page of search results starts. */
+interface SearchPosition {
+  /** The page of items, from 1. */
+  page: number
+  /** For songs: how many fitting tracks of that page's items earlier pages already listed. */
+  offset: number
+}
+
+/**
+ * The position a cursor from this source names; no cursor means the start. An album cursor is
+ * the number of the next page of items (from 2). A song cursor is that too, or
+ * `<page>.<offset>`: the rest of the tracks of a page of items, after the first `offset`.
+ */
+function positionOf(cursor: string | undefined): SearchPosition {
+  if (cursor === undefined) return { page: 1, offset: 0 }
+  const match = /^(\d{1,15})(?:\.(\d{1,15}))?$/u.exec(cursor)
+  const page = Number(match?.[1])
+  const offset = Number(match?.[2] ?? 0)
+  const canonical = offset > 0 ? `${page}.${offset}` : String(page)
+  if (match === null || page < 1 || (offset === 0 && page < 2) || canonical !== cursor) {
     throw new RangeError(`Not an Internet Archive search cursor: ${cursor}`)
   }
-  return page
+  return { page, offset }
 }
 
 /** A page size within 1-100, `fallback` when absent. */
 function rows(limit: number | undefined, fallback: number): number {
   return Math.min(Math.max(1, Math.round(limit ?? fallback)), 100)
-}
-
-/** Whether an item is a concert recording: the Live Music Archive, or "Live" in its title. */
-function isLiveItem(item: ArchiveItem): boolean {
-  return item.mediatype === 'etree' || extractVersionTags(item.title ?? '').strong.includes('live')
 }
 
 /** The year of a release date, e.g. 2008 for `2008-03-02`. */
@@ -269,8 +314,8 @@ class ArchiveSourceImpl implements ArchiveSource {
   private readonly sort: 'downloads' | 'relevance'
   private readonly trackSearchItems: number
   private readonly matchItems: number
-  private readonly probe: boolean
-  private readonly probes: LoadCache<FlacStreamInfo>
+  private readonly readHeaders: boolean
+  private readonly headers: LoadCache<FlacStreamInfo>
   private readonly timeoutMs: number
   private readonly itemTtlMs: number
 
@@ -285,12 +330,12 @@ class ArchiveSourceImpl implements ArchiveSource {
       ...(options.baseUrl === undefined ? {} : { baseUrl: options.baseUrl }),
       ...now,
     })
-    this.probes = new LoadCache({ maxEntries: 200, ...now })
+    this.headers = new LoadCache({ maxEntries: 200, ...now })
     this.mediatypes = options.mediatypes ?? ['audio', 'etree']
     this.sort = options.sort ?? 'downloads'
     this.trackSearchItems = rows(options.trackSearchItems, 4)
     this.matchItems = rows(options.matchItems, 3)
-    this.probe = options.probeFlac ?? false
+    this.readHeaders = options.readFlacHeader ?? false
   }
 
   async search(
@@ -299,10 +344,13 @@ class ArchiveSourceImpl implements ArchiveSource {
     ctx: ProviderContext,
   ): Promise<SearchResults> {
     const { types } = options
-    const page = pageOf(options.cursor)
+    const { page, offset } = positionOf(options.cursor)
     const results: SearchResults = {}
     const wantAlbums = types.includes('album')
     const wantTracks = types.includes('track')
+    if (wantAlbums && offset > 0) {
+      throw new RangeError(`Not an Internet Archive album cursor: ${options.cursor}`)
+    }
     const base = { text: query, mediatypes: this.mediatypes, page, sort: this.sort }
     // One search serves both types: its first items are opened for their tracks. Each type's
     // next page is then a page of its own size, which only that type asks for.
@@ -323,8 +371,13 @@ class ArchiveSourceImpl implements ArchiveSource {
       }
       if (wantTracks) {
         const docs = found.docs.slice(0, this.trackSearchItems)
-        results.tracks = await this.tracksOf(docs, query, rows(options.limit, 50), ctx)
-        if (page * this.trackSearchItems < found.total) results.tracks.nextCursor = String(page + 1)
+        const fitting = await this.tracksOf(docs, query, ctx)
+        const limit = rows(options.limit, 50)
+        const tracks: Page<Track> = { items: fitting.slice(offset, offset + limit) }
+        // The rest of these items' tracks first, then the next items.
+        if (offset + limit < fitting.length) tracks.nextCursor = `${page}.${offset + limit}`
+        else if (page * this.trackSearchItems < found.total) tracks.nextCursor = String(page + 1)
+        results.tracks = tracks
       }
     }
     if (types.includes('artist')) results.artists = { items: [] }
@@ -333,13 +386,12 @@ class ArchiveSourceImpl implements ArchiveSource {
     return results
   }
 
-  /** The tracks of some items that fit a search's words, at most `limit`. */
+  /** Every track of some items that fits a search's words, in order, as the mode shows them. */
   private async tracksOf(
     docs: readonly ArchiveSearchDoc[],
     query: string,
-    limit: number,
     ctx: ProviderContext,
-  ): Promise<Page<Track>> {
+  ): Promise<Track[]> {
     const words = wordsOf(query).filter((word) => !STOP_WORDS.has(word))
     const items = await this.openItems(docs, ctx)
     const tracks = items.flatMap((item) =>
@@ -347,7 +399,7 @@ class ArchiveSourceImpl implements ArchiveSource {
         .map((group) => trackOf(item, group))
         .filter((track) => fits(track, item, words)),
     )
-    return { items: applyModeFilter(tracks, ctx.mode).slice(0, limit) }
+    return applyModeFilter(tracks, ctx.mode)
   }
 
   /** The freely accessible items among search results; an item that fails to load is skipped. */
@@ -413,29 +465,47 @@ class ArchiveSourceImpl implements ArchiveSource {
     throw new FxmError('Unsupported', `The Internet Archive has no playlists in FXM: ${id}`)
   }
 
+  async attribution(id: EntityId<'track'>, ctx: ProviderContext): Promise<Attribution> {
+    const { source, nativeId } = parseId(id)
+    if (source !== 'archive') throw new FxmError('NotFound', `Not an Internet Archive track: ${id}`)
+    const [item, group] = await this.groupOf(nativeId, ctx)
+    const track = trackOf(item, group)
+    const attribution: Attribution = {
+      title: track.title,
+      artists: track.artists.map((artist) => artist.name),
+      provider: 'Internet Archive',
+      pageUrl: itemPageUrl(item.identifier),
+    }
+    if (item.licenseUrl !== undefined) attribution.licenseUrl = item.licenseUrl
+    return attribution
+  }
+
   async match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]> {
     const own = this.ownRef(track)
     if (own !== undefined) return filterPlayable([this.ownCandidate(track, own)], ctx.mode)
-    const { core, qualifiers } = splitTitle(stripPresentationNoise(track.title))
+    const { core } = splitTitle(stripPresentationNoise(track.title))
     const artist = track.artists[0]?.name ?? ''
     if (wordsOf(core).length === 0 || wordsOf(artist).length === 0) return []
-    const live = extractVersionTags(qualifiers.join(' ')).strong.includes('live')
+    const wanted: Comparable = {
+      title: track.title,
+      artists: track.artists.map((entry) => entry.name),
+      ...(track.album === undefined ? {} : { album: track.album.name }),
+      ...(track.durationMs === undefined ? {} : { durationMs: track.durationMs }),
+      ...(track.isrc === undefined ? {} : { isrc: track.isrc }),
+    }
     const search: ArchiveSearch = {
       text: artist,
       anyOf: [core, ...(track.album === undefined ? [] : [track.album.name])],
-      mediatypes: live ? this.mediatypes : this.mediatypes.filter((type) => type !== 'etree'),
+      // Concert recordings only for a live track: by its title's qualifiers or its album.
+      mediatypes: isLive(wanted)
+        ? this.mediatypes
+        : this.mediatypes.filter((type) => type !== 'etree'),
       rows: this.matchItems,
       page: 1,
       sort: this.sort,
     }
     const found = await this.api.search(search, ctx)
     const items = await this.openItems(found.docs, ctx)
-    const wanted: Comparable = {
-      title: track.title,
-      artists: track.artists.map((entry) => entry.name),
-      ...(track.durationMs === undefined ? {} : { durationMs: track.durationMs }),
-      ...(track.isrc === undefined ? {} : { isrc: track.isrc }),
-    }
     const candidates = items.flatMap((item) =>
       audioGroups(item).map((group) => this.candidateFor(track, wanted, item, group)),
     )
@@ -485,16 +555,19 @@ class ArchiveSourceImpl implements ArchiveSource {
   ): AudioCandidate {
     const found = trackOf(item, group)
     const artists = found.artists.map((artist) => artist.name)
-    const score = scoreCandidate(wanted, {
+    // The item's title is the candidate's album, whose version tags count on both sides; a Live
+    // Music Archive item is a concert whatever its title says.
+    const score = provisionalScore(wanted, {
       title: found.title,
       artists,
-      live: isLiveItem(item),
+      live: item.mediatype === 'etree',
+      ...(item.title === undefined ? {} : { album: item.title }),
       ...(found.durationMs === undefined ? {} : { durationMs: found.durationMs }),
       ...(found.isrc === undefined ? {} : { isrc: found.isrc }),
     })
     const albumWords = wordsOf(track.album?.name ?? '').join(' ')
     const signals: MatchSignals = {
-      isrcVerified: score.isrcMatch,
+      isrcVerified: score.isrcVerified,
       releaseId: item.identifier,
       sourceAlbumMatch: albumWords !== '' && albumWords === wordsOf(item.title ?? '').join(' '),
     }
@@ -524,22 +597,24 @@ class ArchiveSourceImpl implements ArchiveSource {
     }
     const [item, group] = await this.groupOf(candidate.ref, ctx)
     let options = group.playable.map((playable) => streamOption(item, playable))
-    if (this.probe) options = await Promise.all(options.map((option) => this.probed(option, ctx)))
+    if (this.readHeaders) {
+      options = await Promise.all(options.map((option) => this.withHeader(option, ctx)))
+    }
     return orderOptions(options, prefs)
   }
 
   /**
-   * A FLAC option with the sample rate and bit depth its first bytes state, when readable. A file
-   * is probed once per item lifetime; a failed probe is tried again next time.
+   * A FLAC option with the sample rate and bit depth its header states, when readable. A file's
+   * header is read once per item lifetime; a failed read is tried again next time.
    */
-  private async probed(option: StreamOption, ctx: ProviderContext): Promise<StreamOption> {
+  private async withHeader(option: StreamOption, ctx: ProviderContext): Promise<StreamOption> {
     if (option.codec !== 'flac') return option
-    const info = await this.probes
+    const info = await this.headers
       .get(
         option.url,
         this.itemTtlMs,
         async () => {
-          const found = await probeFlac(ctx, option.url, this.timeoutMs)
+          const found = await fetchFlacStreamInfo(ctx, option.url, this.timeoutMs)
           if (found === null) throw new Error('Unreadable FLAC header')
           return found
         },

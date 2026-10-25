@@ -1,7 +1,9 @@
 /**
  * Reads a FLAC file's sample rate and bit depth from its first 42 bytes: the `fLaC` marker and
  * the STREAMINFO block that must follow it. The Archive's metadata states neither (only its
- * `24bit Flac` format name hints at the depth), so the source can probe a stream when asked.
+ * `24bit Flac` format name hints at the depth), so the source can read a stream's header when
+ * asked. This reads the start of a file; it is not the end-of-file probe that `fullLength` is
+ * about.
  *
  * @module
  */
@@ -50,7 +52,7 @@ export function parseFlacStreamInfo(bytes: Uint8Array): FlacStreamInfo | null {
  * ignores the range (the body is then cancelled unread, never downloaded), answers with an error,
  * cannot be reached, or the bytes are not FLAC. Rejects only with the caller's cancellation.
  */
-export async function probeFlac(
+export async function fetchFlacStreamInfo(
   ctx: ProviderContext,
   url: string,
   timeoutMs: number,

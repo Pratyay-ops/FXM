@@ -87,7 +87,7 @@ export interface ArchiveItem {
 }
 
 /** A file format FXM can play or download. */
-export interface AudioFormat {
+export interface ArchiveAudioFormat {
   /** The audio codec. */
   codec: Codec
   /** The container. */
@@ -99,7 +99,7 @@ export interface AudioFormat {
 }
 
 /** The Archive's names for the audio formats FXM plays, lower-cased. */
-const FORMATS: Readonly<Record<string, AudioFormat>> = {
+const FORMATS: Readonly<Record<string, ArchiveAudioFormat>> = {
   flac: { codec: 'flac', container: 'flac' },
   '24bit flac': { codec: 'flac', container: 'flac', bitDepth: 24 },
   'vbr mp3': { codec: 'mp3', container: 'mp3' },
@@ -129,7 +129,7 @@ const NOT_PLAYABLE = new Set([
 ])
 
 /** The audio formats FXM knows only by extension, for format names it has not seen. */
-const EXTENSIONS: Readonly<Record<string, AudioFormat>> = {
+const EXTENSIONS: Readonly<Record<string, ArchiveAudioFormat>> = {
   flac: { codec: 'flac', container: 'flac' },
   mp3: { codec: 'mp3', container: 'mp3' },
   ogg: { codec: 'vorbis', container: 'ogg' },
@@ -147,7 +147,9 @@ const UNPLAYABLE_AUDIO = new Set(['shorten', 'aiff', 'windows media audio', "mon
  * playlists, and audio such as Shorten or AIFF. Known format names decide; for a name FXM does not
  * know, the extension does (`.flac`, `.mp3`, `.ogg`, `.opus`, `.wav`, `.m4a`).
  */
-export function audioFormat(file: Pick<ArchiveFile, 'name' | 'format'>): AudioFormat | undefined {
+export function audioFormat(
+  file: Pick<ArchiveFile, 'name' | 'format'>,
+): ArchiveAudioFormat | undefined {
   const format = file.format.trim().toLowerCase()
   const known = FORMATS[format]
   if (known !== undefined && Object.hasOwn(FORMATS, format)) return known
@@ -300,7 +302,7 @@ export interface PlayableFile {
   /** The file. */
   file: ArchiveFile
   /** Its format. */
-  format: AudioFormat
+  format: ArchiveAudioFormat
   /** Its average bitrate in kbps: as stated, from the format name, or from size and length. */
   bitrateKbps?: number
 }
@@ -311,15 +313,22 @@ export interface AudioGroup {
    * The file whose path names the track: the group's original, or the best one when the
    * uploader sent several originals of the recording.
    */
-  root: ArchiveFile
+  readonly root: ArchiveFile
   /** The files FXM can play, private ones left out, best first. */
-  playable: PlayableFile[]
+  readonly playable: readonly PlayableFile[]
   /** Every audio file of the group, root first, to read tags from and find the track by. */
+  readonly files: readonly ArchiveFile[]
+}
+
+/** A group while {@link audioGroups} builds it. */
+interface GroupDraft {
+  root: ArchiveFile
+  playable: PlayableFile[]
   files: ArchiveFile[]
 }
 
 /** The bitrate of a playable file, in kbps. */
-function bitrateOf(file: ArchiveFile, format: AudioFormat): number | undefined {
+function bitrateOf(file: ArchiveFile, format: ArchiveAudioFormat): number | undefined {
   if (file.bitrateKbps !== undefined) return Math.round(file.bitrateKbps)
   if (format.bitrateKbps !== undefined) return format.bitrateKbps
   if (file.size === undefined || file.lengthMs === undefined) return undefined
@@ -356,7 +365,7 @@ function comparePlayable(a: PlayableFile, b: PlayableFile): number {
 
 /** The first value of `field` among the group's files, root first. */
 export function groupField<K extends keyof ArchiveFile>(
-  group: AudioGroup,
+  group: Pick<AudioGroup, 'files'>,
   field: K,
 ): ArchiveFile[K] | undefined {
   for (const file of group.files) {
@@ -365,25 +374,15 @@ export function groupField<K extends keyof ArchiveFile>(
   return undefined
 }
 
-/** Whether two groups hold the same recording, sent twice by the uploader in two formats. */
-function sameRecording(a: AudioGroup, b: AudioGroup): boolean {
-  const titleA = groupField(a, 'title')
-  const titleB = groupField(b, 'title')
-  const lengthA = groupField(a, 'lengthMs')
-  const lengthB = groupField(b, 'lengthMs')
-  const trackA = groupField(a, 'track')
-  const trackB = groupField(b, 'track')
-  return (
-    titleA !== undefined &&
-    titleB !== undefined &&
-    normalizeText(titleA) === normalizeText(titleB) &&
-    lengthA !== undefined &&
-    lengthB !== undefined &&
-    Math.abs(lengthA - lengthB) <= 2000 &&
-    (trackA === undefined || trackB === undefined || trackA === trackB) &&
-    groupField(a, 'disc') === groupField(b, 'disc')
-  )
+/** A kept group that a second original of the same recording may join (see {@link audioGroups}). */
+interface TwinCandidate {
+  group: GroupDraft
+  lengthMs: number
+  track: number | undefined
 }
+
+/** Groups already computed, per item: items are shared through the item cache. */
+const groupsByItem = new WeakMap<ArchiveItem, readonly AudioGroup[]>()
 
 /**
  * The item's recordings, one group each, in album order (disc, then track number, then path).
@@ -391,8 +390,19 @@ function sameRecording(a: AudioGroup, b: AudioGroup): boolean {
  * of the same recording, such as a 320 kbps MP3 next to the FLAC (same title, track number and
  * disc, lengths within 2 s), joins the better one's group. Groups without a playable public file
  * are left out.
+ *
+ * It takes linear time, and is computed once per item object: callers share the result, so they
+ * must not change it.
  */
-export function audioGroups(item: ArchiveItem): AudioGroup[] {
+export function audioGroups(item: ArchiveItem): readonly AudioGroup[] {
+  const known = groupsByItem.get(item)
+  if (known !== undefined) return known
+  const groups = groupAudio(item)
+  groupsByItem.set(item, groups)
+  return groups
+}
+
+function groupAudio(item: ArchiveItem): AudioGroup[] {
   const byName = new Map(item.files.map((file) => [file.name, file]))
   const members = new Map<string, ArchiveFile[]>()
   for (const file of item.files) {
@@ -402,7 +412,7 @@ export function audioGroups(item: ArchiveItem): AudioGroup[] {
     list.push(file)
     members.set(root, list)
   }
-  const groups: AudioGroup[] = []
+  const groups: GroupDraft[] = []
   for (const [name, files] of members) {
     const playable = files
       .filter((file) => !file.private)
@@ -422,17 +432,36 @@ export function audioGroups(item: ArchiveItem): AudioGroup[] {
   groups.sort((a, b) =>
     comparePlayable(a.playable[0] as PlayableFile, b.playable[0] as PlayableFile),
   )
-  const kept: AudioGroup[] = []
+  // Twins share a disc and a title, so only groups in the same bucket are compared, and each
+  // title is normalized once.
+  const kept: GroupDraft[] = []
+  const buckets = new Map<string, TwinCandidate[]>()
   for (const group of groups) {
-    const twin = kept.find((other) => sameRecording(other, group))
-    if (twin === undefined) {
+    const title = groupField(group, 'title')
+    const lengthMs = groupField(group, 'lengthMs')
+    if (title === undefined || lengthMs === undefined) {
       kept.push(group)
       continue
     }
-    twin.playable = [...twin.playable, ...group.playable].sort(comparePlayable)
-    twin.files = [...twin.files, ...group.files]
+    const key = `${groupField(group, 'disc') ?? ''}\n${normalizeText(title)}`
+    const track = groupField(group, 'track')
+    const bucket = buckets.get(key) ?? []
+    const twin = bucket.find(
+      (other) =>
+        Math.abs(other.lengthMs - lengthMs) <= 2000 &&
+        (other.track === undefined || track === undefined || other.track === track),
+    )
+    if (twin === undefined) {
+      kept.push(group)
+      bucket.push({ group, lengthMs, track })
+      buckets.set(key, bucket)
+      continue
+    }
+    twin.group.playable = [...twin.group.playable, ...group.playable].sort(comparePlayable)
+    twin.group.files = [...twin.group.files, ...group.files]
+    twin.track ??= track
   }
-  const position = (group: AudioGroup) => [
+  const position = (group: GroupDraft) => [
     groupField(group, 'disc') ?? 0,
     groupField(group, 'track') ?? Number.MAX_SAFE_INTEGER,
   ]

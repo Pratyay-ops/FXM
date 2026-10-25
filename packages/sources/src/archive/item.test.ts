@@ -292,6 +292,27 @@ describe('audioGroups', () => {
     expect(audioGroups(untitled)).toHaveLength(2)
   })
 
+  it('groups a large item in one pass, once per item, merging every second original', () => {
+    const files: unknown[] = []
+    for (let index = 1; index <= 2000; index++) {
+      const tags = { title: `Song ${index % 7}`, track: String(index), length: String(100 + index) }
+      files.push({ name: `${index}.flac`, format: 'Flac', source: 'original', ...tags })
+      files.push({ name: `${index}.mp3`, format: '320Kbps MP3', source: 'original', ...tags })
+      files.push({
+        name: `${index}.ogg`,
+        format: 'Ogg Vorbis',
+        source: 'derivative',
+        original: `${index}.flac`,
+      })
+    }
+    const item = itemWith(files)
+    const groups = audioGroups(item)
+    expect(groups).toHaveLength(2000)
+    expect(groups.every((group) => group.playable.length === 3)).toBe(true)
+    expect([groups[0]?.root.name, groups[1999]?.root.name]).toEqual(['1.flac', '2000.flac'])
+    expect(audioGroups(item)).toBe(groups)
+  })
+
   it('orders tracks by disc, then track number, then path in natural order', () => {
     const item = itemWith([
       { name: 'd2t1.flac', format: 'Flac', source: 'original', disc: '2', track: '1' },

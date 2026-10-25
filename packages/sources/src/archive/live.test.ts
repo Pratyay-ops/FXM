@@ -26,7 +26,7 @@ const NIN = 'nineinchnails_ghosts_I_IV'
 const ORIGIN = 'https://fxm-music.pages.dev'
 
 describe.skipIf(!live)('Internet Archive, live', { timeout: 60_000 }, () => {
-  const archive = createArchiveSource({ probeFlac: true })
+  const archive = createArchiveSource({ readFlacHeader: true })
   const ctx: ProviderContext = {
     fetch: globalThis.fetch.bind(globalThis),
     platform: 'web',
