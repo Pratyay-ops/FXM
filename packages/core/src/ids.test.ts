@@ -4,6 +4,7 @@ import {
   type EntityId,
   type EntityIdParts,
   type EntityKind,
+  entityKey,
   formatId,
   isEntityId,
   isEntityKind,
@@ -11,6 +12,7 @@ import {
   parseId,
   SOURCE_IDS,
   type SourceId,
+  sameEntity,
 } from './ids'
 
 describe('formatId and parseId', () => {
@@ -26,7 +28,7 @@ describe('formatId and parseId', () => {
 
   it.each([
     ['a YouTube video ID with - and _', 'ytm', 'track', 'dQw4w9WgXcQ-_'],
-    ['a Spotify URI', 'spotify', 'playlist', 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M'],
+    ['colons in a local path', 'local', 'playlist', '/Volumes/Music/Live: 1977/Set: 2.m3u'],
     ['a local path', 'local', 'track', 'C:\\Music\\Song: Live.flac'],
     ['an Internet Archive file', 'archive', 'track', 'gd1977-05-08/d1t01.flac'],
     ['a trailing colon', 'yt', 'playlist', 'PL123:'],
@@ -157,5 +159,44 @@ describe('EntityId types', () => {
     expectTypeOf(parseId(undefined)).toEqualTypeOf<EntityIdParts | null>()
     const maybe = formatId('ytm', 'track', 'abc') as EntityId<'track'> | undefined
     expectTypeOf(parseId(maybe)).toEqualTypeOf<EntityIdParts | null>()
+  })
+})
+
+describe('entityKey and sameEntity', () => {
+  it.each([
+    ['ytm', 'track', 'dQw4w9WgXcQ', 'youtube:track:dQw4w9WgXcQ'],
+    ['yt', 'track', 'dQw4w9WgXcQ', 'youtube:track:dQw4w9WgXcQ'],
+    ['yt', 'artist', 'UCuAXFkgsw1L7xaCfnd5JJOw', 'youtube:artist:UCuAXFkgsw1L7xaCfnd5JJOw'],
+    ['ytm', 'playlist', 'PL1:x', 'youtube:playlist:PL1:x'],
+    ['spotify', 'track', '4uLU6hMCjMI75M1A2tKUQC', 'spotify:track:4uLU6hMCjMI75M1A2tKUQC'],
+    ['archive', 'track', 'gd1977/d1t01.flac', 'archive:track:gd1977/d1t01.flac'],
+    ['local', 'album', 'ytm:album:x', 'local:album:ytm:album:x'],
+  ] as const)('keys %s:%s:%s as %s', (source, kind, nativeId, key) => {
+    expect(entityKey(formatId(source, kind, nativeId))).toBe(key)
+  })
+
+  it('treats one YouTube item from YouTube Music and from plain YouTube as one entity', () => {
+    expect(sameEntity(formatId('ytm', 'track', 'abc'), formatId('yt', 'track', 'abc'))).toBe(true)
+    expect(sameEntity(formatId('yt', 'artist', 'UC1'), formatId('ytm', 'artist', 'UC1'))).toBe(true)
+    expect(sameEntity(formatId('jamendo', 'track', '7'), formatId('jamendo', 'track', '7'))).toBe(
+      true,
+    )
+  })
+
+  it.each([
+    ['another kind', 'ytm', 'album', 'abc'],
+    ['another source', 'spotify', 'track', 'abc'],
+    ['another native ID', 'yt', 'track', 'abd'],
+    ['a native ID in another case', 'ytm', 'track', 'ABC'],
+  ] as const)('keeps an ID with %s apart', (_label, source, kind, nativeId) => {
+    expect(sameEntity(formatId('ytm', 'track', 'abc'), formatId(source, kind, nativeId))).toBe(
+      false,
+    )
+  })
+
+  it('returns keys that are not entity IDs', () => {
+    const key = entityKey(formatId('ytm', 'track', 'abc'))
+    expect(isEntityId(key)).toBe(false)
+    expect(parseId(key)).toBeNull()
   })
 })

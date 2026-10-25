@@ -2,6 +2,26 @@
  * Source-qualified entity IDs of the form `<source>:<kind>:<nativeId>`, for example
  * `ytm:track:dQw4w9WgXcQ` or `spotify:album:4aawyAB9vmqN3uQ7FjRGTy`.
  *
+ * ## Canonical native IDs
+ *
+ * Likes, follows, history, playlists and the caches are keyed by these IDs, and several providers
+ * create them independently, so each source spells its native IDs one way only:
+ *
+ * - `ytm` and `yt`: YouTube's own IDs, bare: the videoId for tracks, the browseId (`MPREb_…`)
+ *   for albums, the channelId (`UC…`) for artists, and the playlistId without the `VL` browse
+ *   prefix for playlists
+ * - `spotify`: the 22-character base62 ID, never a `spotify:track:…` URI or an
+ *   open.spotify.com URL
+ * - `archive`: the item identifier for albums, and `<identifier>/<file path>` for tracks
+ * - `jamendo`: Jamendo's numeric ID, in decimal
+ * - `jiosaavn`: JioSaavn's own ID
+ * - `local`: an ID that the local-files feature chooses, stable across rescans of the same file
+ *
+ * YouTube Music and plain YouTube share one ID space. An item gets `ytm` when it came from
+ * YouTube Music, whatever its kind (a song, an official video, or an upload found there), and
+ * `yt` only when it came from plain YouTube. The same video can therefore have a `ytm` and a `yt`
+ * ID: {@link entityKey} gives both one key, for storage and de-duplication.
+ *
  * @module
  */
 
@@ -38,7 +58,8 @@ export type EntityKind = (typeof ENTITY_KINDS)[number]
 declare const entityIdBrand: unique symbol
 
 /**
- * A source-qualified ID, `<source>:<kind>:<nativeId>`, such as `ytm:track:dQw4w9WgXcQ`.
+ * A source-qualified ID, `<source>:<kind>:<nativeId>`, such as `ytm:track:dQw4w9WgXcQ`. The
+ * native ID is in its source's canonical form (see the module documentation).
  *
  * It is a branded string: plain strings are not accepted where an `EntityId` is expected, so
  * every ID in the app went through {@link formatId} or was checked by {@link isEntityId}.
@@ -70,7 +91,9 @@ export function isEntityKind(value: unknown): value is EntityKind {
 
 /**
  * Builds an {@link EntityId} from its parts. The native ID is kept verbatim, so it may contain
- * `:` (local file paths, Spotify URIs); {@link parseId} splits only on the first two colons.
+ * `:` (e.g. a local file path); {@link parseId} splits only on the first two colons. Pass it in
+ * its source's canonical form (see the module documentation): a Spotify ID, for example, is the
+ * bare base62 ID and never a `spotify:track:…` URI.
  *
  * @throws RangeError when the source or kind is unknown or the native ID is empty. Those are
  * programming errors, and refusing them guarantees that every formatted ID parses back.
@@ -123,4 +146,20 @@ export function isEntityId<K extends EntityKind = EntityKind>(
   if (typeof value !== 'string') return false
   const parts = parseId(value)
   return parts !== null && (kind === undefined || parts.kind === kind)
+}
+
+/**
+ * The key to store and de-duplicate an entity under: equal for IDs that name the same entity.
+ * `ytm` and `yt` share one ID space, so `ytm:track:dQw4w9WgXcQ` and `yt:track:dQw4w9WgXcQ` both
+ * have the key `youtube:track:dQw4w9WgXcQ`; any other ID is its own key. The key is only for
+ * comparing and storing: it is not an `EntityId` and need not parse as one.
+ */
+export function entityKey(id: EntityId): string {
+  const source = id.slice(0, id.indexOf(':'))
+  return source === 'ytm' || source === 'yt' ? `youtube${id.slice(source.length)}` : id
+}
+
+/** Whether two IDs name the same entity, i.e. have the same {@link entityKey}. */
+export function sameEntity(a: EntityId, b: EntityId): boolean {
+  return entityKey(a) === entityKey(b)
 }

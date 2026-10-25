@@ -190,9 +190,16 @@ export interface RecommendationProvider {
  * has to be resolved into stream URLs.
  */
 export interface AudioCandidate {
-  /** The source holding the audio. */
+  /**
+   * The audio source that resolves the candidate: the `id` of the {@link AudioSource} that
+   * returned it. YouTube has one audio source, `ytm`, for every videoId, including videos found
+   * on plain YouTube (see `entityKey` for why that is the same entity as a `yt` ID).
+   */
   source: SourceId
-  /** The source's native reference, e.g. a YouTube video ID. */
+  /**
+   * The audio's native ID in its source's canonical form (see `ids.ts`), e.g. a YouTube videoId,
+   * so `formatId(source, 'track', ref)` is the candidate's track ID.
+   */
   ref: string
   /**
    * What the candidate is. It must be playable in the context's mode (see
@@ -248,7 +255,7 @@ export interface StreamOption {
  * track from any source, and {@link AudioSource.resolve} turns the chosen one into streams.
  */
 export interface AudioSource {
-  /** The source this audio comes from. */
+  /** The source this audio comes from, and the `source` of every candidate it returns. */
   readonly id: SourceId
   /**
    * Candidates for `track`, best first. Empty when the source has nothing. Every candidate is
