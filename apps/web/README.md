@@ -1,8 +1,8 @@
 # @fxm/web
 
-The FXM web player: a React app served from `/app/`, which later also becomes the installable web applet (stage 5.1) and the shell of the Android app (stage 6.1). Everything runs in the browser: there is no FXM backend.
+The FXM web player: a React app served from `/app/`, installable as an app with its own window (a PWA, see [Installable app](#installable-app-pwa)), and the shell of the Android and desktop apps. Everything runs in the browser: there is no FXM backend.
 
-This stage (2.1) is the **shell**: routing, layout, design system, settings and placeholder pages. Search results, playback and the library plug into it in later stages.
+Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Search results, playback and the library plug into it in later stages; stage 5.1 made it installable.
 
 ## Run it
 
@@ -20,18 +20,23 @@ End-to-end tests and screenshots use Playwright and are **not** part of `make ch
 
 ```sh
 scripts/run.sh pnpm --filter @fxm/web exec playwright install chromium
-scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test: navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px
-scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, plus Music + Video and forced colors, in apps/web/screenshots/
+scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test (navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px) and the PWA test (e2e/pwa.spec.ts)
+scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, plus Music + Video and forced colors, and the PWA's states at 320/768/1280 px, in apps/web/screenshots/
+scripts/run.sh pnpm --filter @fxm/web icons        # re-render the app icons in public/ from pwa/icons.ts
 ```
 
-Every run builds this checkout and starts its own `vite preview` on port 4173 with `--strictPort`. If the port is busy, for example with another worktree's preview, the run fails instead of testing that server: set `FXM_E2E_PORT` to a free port. Screenshots and Playwright output are gitignored.
+Every run builds this checkout and starts its own `vite preview` on port 4173 with `--strictPort`. If the port is busy, for example with another worktree's preview, the run fails instead of testing that server: set `FXM_E2E_PORT` to a free port (not 6000, which Chromium refuses to load). Screenshots and Playwright output are gitignored. Service workers are blocked in every spec except `e2e/pwa.spec.ts`, which runs its tests one at a time because it publishes new versions of `dist/sw.js` (and puts the original back when it ends).
 
 ## Layout
 
 ```
-index.html              viewport, theme-color, inline SVG favicon, theme script that runs before the first paint
+index.html              viewport, theme-color, inline SVG favicon, iOS Home Screen icon and name, theme script
+                        that runs before the first paint (the PWA plugin adds the manifest link at build time)
+public/                 app icons (rendered by scripts/render-icons.ts, committed)
+pwa/                    build-time PWA config: manifest, service worker options, icon art, host needs
+scripts/                render-icons.ts
 src/
-  main.tsx              creates the browser router and renders <App>
+  main.tsx              starts the service worker and the install offer, creates the browser router and renders <App>
   app/                  App (providers), routes, router, query client, error screens, 404
   components/
     layout/             AppLayout, Sidebar, TopBar, BottomNav, SearchField, RouteAnnouncer, route metadata
@@ -39,11 +44,11 @@ src/
     ui/                 design-system pieces: buttons, IconButton, SegmentedControl, Tabs,
                         RangeSlider, Skeleton, EmptyState, ErrorState, Artwork, Logo
   features/<name>/      one folder per feature: home, search, library, album, artist,
-                        playlist, now-playing, player (bar, controls, store), settings
+                        playlist, now-playing, player (bar, controls, store), settings, pwa
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
-e2e/                    Playwright smoke test and screenshot capture
+e2e/                    Playwright smoke test, PWA test and screenshot capture
 ```
 
 Later stages own their feature folders (`features/search`, `features/now-playing`, `features/library`, …, see [PLAN.md](../../docs/PLAN.md)), so the shell rarely needs to change.
@@ -56,6 +61,35 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 - **Theme:** dark by default, plus light and system. `data-theme` on `<html>` switches the tokens; the inline script in `index.html` applies the saved theme before React loads (a content security policy must allow it by hash).
 - **Errors:** page errors render inside the shell with "Try again" (`RouteError`); a broken shell falls back to a full-page error, and `AppErrorBoundary` wraps everything. Error screens are announced to screen readers (`role="alert"`).
 - **Accessibility:** a skip link focuses `<main>` without touching the history, `RouteAnnouncer` tells screen readers which page a link opened, and forced colors (Windows High Contrast) keep sliders, segmented controls and tabs readable.
+
+## Installable app (PWA)
+
+[vite-plugin-pwa](https://vite-pwa-org.netlify.app/) builds the manifest and a Workbox service worker from `pwa/`; the browser side is `src/features/pwa/`.
+
+**Manifest** (`pwa/manifest.ts`). The id, start URL and scope are `/app/`; the id names the installed app, so it never changes. The app opens in its own window (`standalone`), on desktop with Window Controls Overlay (`display_override`). Icons: 192 and 512 px, plain and maskable (`pwa/icons.ts` draws them from the logo mark; `pnpm icons` renders the PNGs in `public/`), plus `apple-touch-icon.png` for iOS. Shortcuts open Search and the library. `launch_handler` (`focus-existing`) brings an open FXM window to the front instead of starting a second player, and `useLaunchQueue` opens the page the launch asked for inside it, so the music keeps playing.
+
+**Service worker** (`pwa/options.ts`).
+
+- **Shell only.** It precaches the build's HTML, scripts, styles and icons (and the manifest), so the player opens without a connection, and answers navigations inside `/app/` with the cached `index.html`. There is no runtime caching: audio, googlevideo, the music services' APIs, artwork and everything else go to the network untouched and are never stored. A precached file may be at most 2 MiB; a bigger chunk fails the build, so split it or leave it out of `PRECACHE_PATTERNS`.
+- **Scope `/app/`.** The site (`/`), the embed (`/embed/`) and the sandbox documents (`/sandbox/`) are outside it.
+- **Updates ask first.** A new version installs in the background and waits. The update toast offers "Reload" (`applyUpdate`, which activates it and reloads the page) or "Not now" (the new version starts the next time FXM opens), because reloading stops the music. An open window asks the site for a new version every hour (`registerServiceWorker` in `service-worker.ts`).
+- **No inline script.** `main.tsx` registers the worker from the bundle, and the Workbox runtime is inlined into `sw.js`, so the page's CSP needs nothing new beyond allowing `'self'` for the worker, the manifest, the icons and the shell download (`pwa/host.ts`).
+- **Web only.** `build:mobile` and `build:desktop` use base `/`, which turns the plugin off: the Android and desktop apps load the app from their package and get no service worker or manifest. `make dev` has no service worker either.
+
+**Install button.** Chromium offers to install FXM with `beforeinstallprompt`; `listenForInstallPrompt` keeps the offer (which also stops Chrome on Android from showing its own banner over the player), and the top bar shows "Install app" while there is one. Settings → App → Install app has the same button, or says how to install in this browser: Share → Add to Home Screen on iPhone and iPad, File → Add to Dock in Safari on a Mac.
+
+**Title bar** (`title-bar.tsx`). In an installed desktop window with Window Controls Overlay, the page draws the title bar: a strip with the mark and the window title that drags the window and keeps clear of the window buttons (`env(titlebar-area-*)`). While it shows, `data-titlebar` on `<html>` sets `--titlebar-height`, which `--safe-top` adds to the top inset, so the top bar and the sidebar move below it. The user can switch the overlay off from the window's title bar; the strip then goes away.
+
+**Media keys** (`media-keys.ts`). `useMediaKeys` connects the app's player to the Media Session with `connectMediaSession` from `@fxm/player`: the keyboard's media keys, headset buttons, the lock screen and the system's media controls play, pause, skip and seek, and show the track.
+
+**Not merged yet.** Stage 5.1 started before two stages it touches; each touch-point is one small interface with a stand-in, which the integration step replaces:
+
+| Touch-point | Where | Stand-in until then |
+|---|---|---|
+| The app's player (2.5), for the media keys | `appPlayerSource` in `src/features/pwa/integration.ts` | No player, so the Media Session stays unconnected |
+| The static host's headers (2.8) | `pwa/host.ts`: the CSP directives and the files that must not be cached for long | The `/app/*` policy from PLAN.md §2.8 (`PLANNED_APP_CSP`) |
+
+**Tests.** Unit tests cover the manifest, the plugin options, the icons, the host's CSP, registration and updates, the install offer and hints, the title bar, launches, the update toast and the media keys. `e2e/pwa.spec.ts` checks in Chromium that FXM is installable (no installability errors, the real install offer, an install through the DevTools protocol), that a launch opens its page in the open window without a reload, that the shell opens offline, that only shell files are cached and media and API requests pass the service worker by, the update flow, and the title bar.
 
 ## Conventions
 
