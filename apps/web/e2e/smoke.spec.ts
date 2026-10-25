@@ -105,7 +105,7 @@ test('skips to the page content without breaking Back', async ({ page }) => {
 
 test('keeps the catalog mode and theme across a reload', async ({ page }) => {
   await page.goto('settings')
-  await page.locator('label', { hasText: 'Music + Video' }).click()
+  await page.locator('label', { hasText: /^Music \+ Video$/ }).click()
   await page.locator('label', { hasText: /^Light$/ }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
 
@@ -126,10 +126,11 @@ test.describe('on a short desktop window', () => {
 
     expect(await tabAndCollectCovered(page, 30)).toEqual([])
 
-    // Back from the player bar to the last link of the page, which sits behind the bar.
+    // Back from the player bar to the last link of the page, which sits behind the bar: the
+    // last one in About.
     await page.getByRole('region', { name: 'Player' }).getByRole('link').first().focus()
     await page.keyboard.press('Shift+Tab')
-    await expect(page.getByRole('link', { name: /Source on GitHub/ })).toBeFocused()
+    await expect(page.getByRole('region', { name: 'About' }).getByRole('link').last()).toBeFocused()
     expect(await coveredFocus(page)).toBeNull()
   })
 })

@@ -2,6 +2,7 @@ import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
+import { SponsorBlockNotices } from '../../features/sponsorblock/sponsorblock-notices'
 import { BottomNav } from './bottom-nav'
 import { RouteAnnouncer } from './route-announcer'
 import { useDocumentTitle, useRouteHandle } from './route-meta'
@@ -64,6 +65,7 @@ export function AppLayout() {
           </div>
         </main>
       </div>
+      <SponsorBlockNotices />
       <PlayerBar />
       {/* Now Playing has its own big controls on phones. */}
       {pathname !== '/now-playing' && <MiniPlayer />}

@@ -2,7 +2,7 @@
 
 The FXM web player: a React app served from `/app/`, which later also becomes the installable web applet (stage 5.1) and the shell of the Android app (stage 6.1). Everything runs in the browser: there is no FXM backend.
 
-Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Search results and the library plug in with their own stages.
+Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Stage 8.7 added opt-in [SponsorBlock skipping](#sponsorblock-skipping-the-non-music-parts-of-videos) in Music + Video mode. Search results and the library plug in with their own stages.
 
 ## Run it
 
@@ -41,7 +41,8 @@ src/
   features/<name>/      one folder per feature: home, search, library, album, artist,
                         playlist, now-playing (page, the app's player, stream badge),
                         queue (panel, review list, saving), lyrics, player (bar, mini
-                        player, controls), settings
+                        player, controls), settings, sponsorblock (skipping, its setting
+                        and offer)
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
@@ -134,6 +135,21 @@ Each touch-point with a stage that wasn't merged when 2.5 was built sits behind 
 | 2.3 Playback policy | `features/now-playing/playback-policy.ts` | `createPendingPolicy()`: every resolution fails with `Unsupported` (nothing plays), no alternatives, no reports | `createAppPolicy()` returns 2.3's policy: its stream lifecycle as the `resolver`, its Suggest-band reports (`onNeedsReview`), the matching engine's `alternatives`, the match cache's `pin` (2.6) and "Play best guesses" |
 | 2.4 Search and browse | `features/now-playing/browse-links.ts` | Searches link to `/search?q=`; artist, album and playlist names are plain text | `entityPath(id)` returns 2.4's page for an entity |
 | 1.2 Platform | `lyricsContext()` in `features/lyrics/lyrics-source.ts` | The page's `fetch` (LRCLIB is CORS-friendly) | The platform's context, so desktop and Android use their native HTTP |
+| 1.2 Platform | `sponsorBlockContext()` in `features/sponsorblock/sponsorblock-source.ts` (8.7) | The page's `fetch` (SponsorBlock is CORS-friendly) | The platform's context, as for lyrics |
+| 2.8 Deploy | The `/app/*` CSP (8.7) | No CSP outside the deploy | `connect-src` must allow `https://sponsor.ajay.app` (PLAN.md lists it under 2.8's notes) |
+
+### SponsorBlock: skipping the non-music parts of videos
+
+Stage 8.7, in `features/sponsorblock/`. Opt-in and off by default.
+
+- **What it skips:** SponsorBlock's `music_offtopic` segments ("Non-Music Section": intros, skits, outros) of **videos playing as themselves in Music + Video mode**. Never songs, never in Music mode (`skippableVideoId` from `@fxm/sources/sponsorblock`). While skipping is off, SponsorBlock is asked nothing.
+- **Privacy:** only the first four hex characters of the videoId's SHA-256 hash leave the device, so SponsorBlock can't tell which video plays ([the client's README](../../packages/sources/src/sponsorblock/README.md)). The requests use the page's `fetch` without cookies (`sponsorblock-source.ts`).
+- **Skipping** (`skipping.ts`): the player's segment skipper (`connectSegmentSkipper` in `@fxm/player`), connected by the app's playback, asks `segmentsFor` for each track and again whenever the setting or the catalog mode changes. Each skip shows a notice, "Skipped a non-music part", with Undo while that track plays (it goes back, and that part plays this time) and a Dismiss button; it closes by itself after 8 s, but not while the pointer or focus is on it.
+- **The setting** (`sponsorblock-store.ts`, `fxm.sponsorblock.v1`): `enabled` and `offered`, both `false` at first, synced across tabs. Settings → Playback has the switch, what it does, how it keeps what plays private and the data's licence (`sponsorblock-setting.tsx`).
+- **The offer** (`sponsorblock-notices.tsx`): the first Music + Video session shows "Skip the non-music parts of videos?" above the player bar (phones: above the mini player), with Turn on and Not now, until the user answers it or sets the switch. Not on Settings, which has the switch itself. Focus moves to the page's main content when the card goes.
+- **Credit:** SponsorBlock's data is CC BY-NC-SA 4.0. "Uses SponsorBlock data licensed under CC BY-NC-SA 4.0 from sponsor.ajay.app", with both links, shows under the switch and in Settings → About.
+
+`features/sponsorblock/testing.ts` has `setupTestSponsorBlock(handler)`, a fake client the test setup removes after each test, and `testVideo` and `testSegment`.
 
 ### Tests
 
