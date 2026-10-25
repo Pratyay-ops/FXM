@@ -98,7 +98,7 @@ flowchart LR
 | **4.4** | Local music files (web) | `feat/4.4-local-files` | 2.2, 2.6 | ⬜ |
 | **5.1** | PWA "web applet" | `feat/5.1-pwa` | 2.5 | ⬜ |
 | **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3 | ⬜ |
-| **5.3** | Landing page | `feat/5.3-site` | 0.4 | 🟡 |
+| **5.3** | Landing page | `feat/5.3-site` | 0.4 | ✅ |
 | **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | 🟡 |
 | **6.2** | Android native fetch (YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | ⬜ |
 | **6.3** | Native player (Media3) | `feat/6.3-native-player` | 6.1, 2.3 | ⬜ |
@@ -457,7 +457,7 @@ A clean-room implementation from protocol facts. **Do not copy code or fixtures*
 |---|---|---|
 | 5.1 | PWA "web applet" | `vite-plugin-pwa`: manifest, maskable icons, standalone plus window-controls-overlay, scope `/app/`, offline shell, update toast, install button, media keys |
 | 5.2 | Embeddable mini-player | `/embed/track\|album\|playlist/:id` in compact and card layouts, a share dialog that copies the iframe code, a postMessage API. Plays YouTube when the visitor has FXM Connect, otherwise free sources plus an install hint |
-| 5.3 | Landing page 🟡 | An Astro static site: features, how it works, Get FXM (web + Connect, desktop, Android), FAQ, privacy, disclaimer, SEO |
+| 5.3 | Landing page ✅ | An Astro static site: features, how it works, Get FXM (web + Connect, desktop, Android), FAQ, privacy, disclaimer, SEO |
 
 ## Phase 6: Android (→ M5)
 
