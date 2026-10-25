@@ -16,7 +16,8 @@ Installing it on a phone, disk usage, licenses and cleanup are covered in [DEVEL
 ```
 capacitor.config.ts   app id, the web build to wrap, plugin settings (`cap sync` copies it into android/)
 android/              the native project from `cap add android`, committed; build output is gitignored
-  app/src/main/       AndroidManifest.xml, MainActivity, res/ (theme, icons, backup rules)
+  app/src/main/       AndroidManifest.xml, MainActivity, res/ (theme, icons, backup rules),
+                      java/.../evaluator/ (the isolated evaluator's WebView, stage 1.11)
   variables.gradle    SDK levels and AndroidX versions from Capacitor's template
 scripts/
   build-apk.sh        make apk
@@ -38,6 +39,7 @@ scripts/run.sh pnpm --filter @fxm/mobile cap sync android
 - **Networking.** Capacitor's global `CapacitorHttp` patch stays **disabled**: it drops the Cookie, Origin and Referer headers and corrupts binary bodies. Stage 6.2 injects an explicit native `fetch`. Until then the app reaches only the hosts that the web app reaches without FXM Connect.
 - **System bars and splash.** The app uses the web app's dark theme: `backgroundColor` and the window background are `#0b0b0f`, and the status and navigation bars are dark with light icons (`SystemBars.style: 'DARK'`). Android 15 and later draw the app edge to edge. Then `SystemBars.insetsHandling: 'native'` passes the insets to the page on WebView 140 and later, where the page's `viewport-fit=cover` and `env(safe-area-inset-*)` keep content clear of the bars. On older WebViews it pads the WebView instead. The splash screen shows the FXM mark on the same background: Android 12's splash API, through `core-splashscreen` on older versions.
 - **Known gap: the light theme.** The bar icons stay light when you pick the web app's light theme, or its system theme on a phone in light mode. Where the page draws behind the bars (WebView 140 and later), the clock and battery are then hard to read over the light top bar. Following the theme needs a script in the WebView that watches `<meta name="theme-color">` and calls `SystemBars.setStyle`. It must do so only while the page draws behind the bars: where Capacitor pads the WebView, the bars show the dark window background, so light icons stay right there. That script is left to a later stage that injects code into the WebView and can test it on devices.
+- **The isolated evaluator** (stage 1.11, `java/.../evaluator/EvaluatorPlugin.java`, registered in `MainActivity`). The `FxmEvaluator` plugin creates a separate WebView that is never attached to the screen and loads `apps/web/sandbox/eval.html`, handed in by the web app, with `https://www.youtube.com/` as its base URL and network loads blocked; the document's own `<meta>` policy allows no connections either. It has no JavaScript interface: the web app reads the document through the plugin's `eval` (`evaluateJavascript`). YouTube's player script and BotGuard run there, never in the app's page ([packages/platform/src/evaluator/README.md](../../packages/platform/src/evaluator/README.md)). Still to check on a device.
 - **Backups.** `android:allowBackup="false"` plus `res/xml/data_extraction_rules.xml` keep app data out of cloud backups and device-to-device transfers, because the app will hold sign-in sessions (stage 6.5).
 - **Versions.** Capacitor's defaults: minSdk 24 (Android 7), compileSdk and targetSdk 36, Android Gradle plugin 8.13 and Gradle 8.14.3. `versionName` comes from this package's `version`, and `versionCode` stays 1 until release builds (stage 6.6).
 
