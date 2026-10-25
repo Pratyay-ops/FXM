@@ -1,0 +1,30 @@
+# Toolchains and dependencies: all re-creatable, removed by `make nuke`
+/.tools/
+.venv/
+node_modules/
+
+# Build output and caches: removed by `make clean`
+dist/
+coverage/
+*.tsbuildinfo
+.wrangler/
+.astro/
+.vite/
+
+# Secrets and local environment (commit *.example files instead)
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Logs, OS and editor files
+*.log
+.DS_Store
+.idea/
+*.swp
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/

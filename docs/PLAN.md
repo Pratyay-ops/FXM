@@ -132,8 +132,8 @@ flowchart LR
 
 **Goal:** every tool and cache lives inside the repo. One command installs, one command removes everything, and it works identically from any worktree.
 
-- `scripts/env.sh` finds the **main checkout** through git's common dir, so all worktrees share one `.tools/`. It points the following into `.tools/`: corepack, pnpm store/cache/state, npm cache, uv cache/Python, Gradle, Android SDK/user home, JDK and GitHub CLI config. It also prepends `.tools/bin` to `PATH`.
-- pnpm is pinned via `packageManager` and run through corepack, with shims in `.tools/bin`.
+- `scripts/env.sh` finds the **main checkout** through git's common dir, so all worktrees share one `.tools/`. It points the following into `.tools/`: pnpm store/cache/state, npm cache, uv cache/Python, Gradle, Android SDK/user home, JDK and GitHub CLI config. It also prepends `.tools/bin` to `PATH`.
+- pnpm is pinned via `packageManager` and installed as pnpm's official standalone binary in `.tools/bin`, verified against the npm registry integrity hash. Corepack 0.34 can't run pnpm 12, and Node drops corepack from v25.
 - uv standalone binary (pinned, checksum-verified) in `.tools/bin`, plus `.python-version`. `make py-setup` creates `.venv`.
 - Optional GitHub CLI (`make gh-setup`), with its login stored in `.tools/`.
 - Makefile targets: `help`, `setup`, `install`, `doctor`, `py-setup`, `gh-setup`, `wt-new`, `wt-list`, `wt-remove`, `clean`, `nuke`.
@@ -158,7 +158,7 @@ flowchart LR
 
 **Branch** `ci/0.4-ci` · **Depends on** 0.3 · **Scope** `.github/**`
 
-- `.github/workflows/ci.yml` runs on every push and PR. It takes Node from `.nvmrc`, pnpm via corepack, caches the store, and runs `make ci` (frozen install + `make check`).
+- `.github/workflows/ci.yml` runs on every push and PR. It takes Node from `.nvmrc`, installs the pinned pnpm with `make setup`, caches the store, and runs `make ci` (frozen install + `make check`).
 - PR template with the definition-of-done checklist.
 - Dependabot (weekly, grouped, targeting `develop`). This matters for `youtubei.js`, which must track YouTube changes.
 

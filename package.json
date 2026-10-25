@@ -1,0 +1,12 @@
+{
+  "name": "fxm",
+  "version": "0.0.0",
+  "private": true,
+  "description": "FXM (Free Cross-platform Media): free, open-source music player for web, PWA and Android",
+  "license": "Apache-2.0",
+  "repository": "github:Pratyay-ops/FXM",
+  "engines": {
+    "node": ">=22.13 <23"
+  },
+  "packageManager": "pnpm@12.12.1"
+}
