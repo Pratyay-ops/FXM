@@ -8,20 +8,21 @@
  *
  * **Never edit this file once a module of contract 1 is published.** A change that breaks it
  * needs `YOUTUBE_MODULE_API` 2, a new file name and a `contract-2.ts`. Until the first module is
- * signed (none is yet), it follows `api.ts`, and it must take in develop's stage 1.4 stream API
- * (`hasFallback`, `reportPlaybackSuccess`, the playback failure reasons, `rungs` and `probe`)
- * before then.
+ * signed (none is yet), it follows `api.ts`.
  *
  * @module
  */
 
 import type {
+  Album,
+  Artist,
   AudioCandidate,
   AudioSource,
   EntityId,
   MetadataProvider,
   Page,
   PageOptions,
+  Playlist,
   ProviderContext,
   QualityPrefs,
   RadioSeed,
@@ -85,13 +86,38 @@ export interface YouTubeStreamOption extends StreamOption {
   readonly itag: number
   readonly label: string
   readonly contentLength?: number
+  readonly peakBitrateKbps?: number
 }
+
+/** Which URLs `resolve` probes at the end of their file. */
+export type ProbeMode = 'best' | 'all' | 'none'
 
 /** Options for one `resolve` call. */
 export interface YouTubeResolveOptions {
   priority?: StreamRequestPriority
-  skipRungs?: readonly string[]
+  rungs?: 'all' | 'fallback'
+  probe?: ProbeMode
 }
+
+/** Why a URL from the ladder failed to play. */
+export type PlaybackFailureReason =
+  | 'probe-failed'
+  | 'fallback-failed'
+  | 'forbidden-again'
+  | 'forbidden'
+  | 'ip-changed'
+  | 'expired'
+  | 'unauthorized'
+  | 'first-request'
+  | 'mid-play'
+  | 'decode'
+
+/** The top result of an unfiltered YouTube Music search. */
+export type TopResult =
+  | { readonly type: 'track'; readonly track: Track }
+  | { readonly type: 'album'; readonly album: Album }
+  | { readonly type: 'artist'; readonly artist: Artist }
+  | { readonly type: 'playlist'; readonly playlist: Playlist }
 
 /** What the app passes to `create`. */
 export interface YouTubeModuleOptions {
@@ -112,6 +138,8 @@ export interface YouTubeModuleMusic extends MetadataProvider, RecommendationProv
     ctx: ProviderContext,
   ): Promise<Page<Track>>
   radioPage(seed: RadioSeed, options: PageOptions, ctx: ProviderContext): Promise<Page<Track>>
+  topResult(query: string, ctx: ProviderContext): Promise<TopResult | undefined>
+  getDescription(id: EntityId<'track'>, ctx: ProviderContext): Promise<string | undefined>
 }
 
 /** Plain YouTube. */
@@ -123,11 +151,13 @@ export interface YouTubeModuleVideo extends MetadataProvider {
     options: PageOptions,
     ctx: ProviderContext,
   ): Promise<Page<Track>>
+  getDescription(id: EntityId<'track'>, ctx: ProviderContext): Promise<string | undefined>
 }
 
 /** The audio source. */
 export interface YouTubeModuleAudio extends AudioSource {
   readonly id: 'ytm'
+  readonly hasFallback: boolean
   match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
   resolve(
     candidate: AudioCandidate,
@@ -135,7 +165,13 @@ export interface YouTubeModuleAudio extends AudioSource {
     prefs: QualityPrefs,
     options?: YouTubeResolveOptions,
   ): Promise<YouTubeStreamOption[]>
-  reportPlaybackFailure(option: StreamOption, ctx: ProviderContext): void
+  reportPlaybackSuccess(option: StreamOption, ctx: ProviderContext): void
+  reportPlaybackFailure(
+    option: StreamOption,
+    ctx: ProviderContext,
+    reason: PlaybackFailureReason,
+  ): void
+  checkStatus(option: StreamOption, ctx: ProviderContext): Promise<number | undefined>
   health(ctx: ProviderContext): Promise<LadderHealth>
 }
 

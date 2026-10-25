@@ -26,14 +26,14 @@ A module exports `youtubeModule`, a `YouTubeModule` (`api.ts`):
 
 Only the types of `api.ts` cross: those members, the providers as `YouTubeModuleMusic`, `YouTubeModuleVideo` and `YouTubeModuleAudio` (the provider interfaces of `@fxm/core` plus the YouTube extras), the options, and `@fxm/core`'s entities. youtubei.js's objects never do: a provider's `session` stays inside the module, because it changes with every youtubei.js release.
 
-`contract-1.ts` freezes that shape, written out in full. `contract.test.ts` makes the type checker fail when `api.ts` stops being compatible with it in either direction: an old app must be able to use a new module, and a new app an old module. A change that breaks it needs a new `YOUTUBE_MODULE_API`, a new file name and a `contract-2.ts`; older apps then keep their last module of the old contract until they update. No module is published yet, so contract 1 must first take in develop's stage 1.4 stream API (`hasFallback`, `reportPlaybackSuccess`, playback failure reasons, `rungs` and `probe` instead of `skipRungs`); after the first module is signed, `contract-1.ts` never changes.
+`contract-1.ts` freezes that shape, written out in full. `contract.test.ts` makes the type checker fail when `api.ts` stops being compatible with it in either direction: an old app must be able to use a new module, and a new app an old module. A change that breaks it needs a new `YOUTUBE_MODULE_API`, a new file name and a `contract-2.ts`; older apps then keep their last module of the old contract until they update. No module is published yet, so contract 1 still follows `api.ts`, which has taken in stage 1.4's stream API (`hasFallback`, `reportPlaybackSuccess`, the playback failure reasons, `checkStatus`, and `rungs` and `probe` instead of `skipRungs`) and the providers' `topResult` and `getDescription`; after the first module is signed, `contract-1.ts` never changes.
 
 Some things outlive the module that made them, so every later module of the same contract must still read what earlier ones wrote:
 
 - **Cursors.** A page's `nextCursor` (search, playlists, radio) is kept, and put in URLs: a cursor works after a reload, and after a module update.
 - **Rung IDs.** The config names rungs by ID, the health store keys its counters by rung ID, and the app keeps options that name their rung.
 - **Store formats.** The visitorData store holds a visitorData string; the health store holds the ladder's health JSON. A new module reads both as an old one wrote them.
-- **Stream options.** `YouTubeStreamOption`'s fields (`videoId`, `rung`, `itag`, `label`, `contentLength`) and `StreamOption`'s, which the app keeps in its queue and downloads and hands back to `reportPlaybackFailure`.
+- **Stream options.** `YouTubeStreamOption`'s fields (`videoId`, `rung`, `itag`, `label`, `contentLength`, `peakBitrateKbps`) and `StreamOption`'s, which the app keeps in its queue and downloads and hands back to `reportPlaybackSuccess`, `reportPlaybackFailure` and `checkStatus`.
 - **IDs and errors.** Entity IDs in `@fxm/core`'s format, and errors named `FxmError` with their codes, and `YouTubeUnplayableError` with its state, which the app reads with `isFxmError` and `unavailableStateOf`.
 
 Versions continue across contracts: the first module of contract 2 has a higher version than the last of contract 1 (devices keep one floor per kind).
@@ -44,7 +44,7 @@ Errors cross as they are: a module carries its own copy of `@fxm/core`, so its `
 
 The config is published as `youtube-config-<schema>.json` (`YOUTUBE_CONFIG_FILE`, schema `YOUTUBE_CONFIG_SCHEMA` 1), and its statements carry that schema. A config published under one name must stay readable by every module that fetches that name, including the module of the oldest app still in use: a config that needs a newer module needs a new schema, and so a new file name. `scripts/sign-config.sh` refuses a config that the module built from the same commit can't read. Revisions continue across schemas.
 
-A config from the network must come through the host's `updates.config` and `@fxm/platform`'s updater, which checks its signature; `pickYouTubeConfig` and `pickStreamConfig` are only for documents that are already trusted.
+A config from the network must come through the host's `updates.config` and `@fxm/platform`'s updater, which checks its signature; `pickYouTubeConfig` and `pickYouTubeConfigs` are only for documents that are already trusted.
 
 ## The host
 

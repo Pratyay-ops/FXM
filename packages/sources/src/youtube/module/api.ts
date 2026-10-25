@@ -26,10 +26,11 @@ import type {
   StreamOption,
   Track,
 } from '@fxm/core'
+import type { TopResult } from '../music'
 import type { StreamBudget } from '../stream/budget'
 import type { YouTubeStreamOption } from '../stream/formats'
 import type { LadderHealth, RungHealthStore } from '../stream/health'
-import type { YouTubeResolveOptions } from '../stream/resolver'
+import type { PlaybackFailureReason, YouTubeResolveOptions } from '../stream/resolver'
 import type { VisitorDataStore } from '../visitor'
 import { YOUTUBE_MODULE_API } from './version'
 
@@ -67,6 +68,10 @@ export interface YouTubeModuleMusic extends MetadataProvider, RecommendationProv
   ): Promise<Page<Track>>
   /** A radio, one page at a time. */
   radioPage(seed: RadioSeed, options: PageOptions, ctx: ProviderContext): Promise<Page<Track>>
+  /** The top result of an unfiltered search (see `YouTubeMusicProvider.topResult`). */
+  topResult(query: string, ctx: ProviderContext): Promise<TopResult | undefined>
+  /** The description under a video (see `YouTubeMusicProvider.getDescription`). */
+  getDescription(id: EntityId<'track'>, ctx: ProviderContext): Promise<string | undefined>
 }
 
 /** Plain YouTube (`yt`) as a module provides it. */
@@ -81,12 +86,19 @@ export interface YouTubeModuleVideo extends MetadataProvider {
     options: PageOptions,
     ctx: ProviderContext,
   ): Promise<Page<Track>>
+  /** The description under a video (see `YouTubeVideoProvider.getDescription`). */
+  getDescription(id: EntityId<'track'>, ctx: ProviderContext): Promise<string | undefined>
 }
 
 /** YouTube's audio source (the stream ladder) as a module provides it. */
 export interface YouTubeModuleAudio extends AudioSource {
   /** Always `ytm`. */
   readonly id: 'ytm'
+  /**
+   * Whether the config in use has a last-resort rung this source runs (see
+   * `YouTubeAudioSource.hasFallback`). Read it through the live object each time.
+   */
+  readonly hasFallback: boolean
   /** The candidate for a YouTube track (see `YouTubeAudioSource.match`). */
   match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
   /** The stream options of a `ytm` candidate, best first (see `YouTubeAudioSource.resolve`). */
@@ -96,8 +108,16 @@ export interface YouTubeModuleAudio extends AudioSource {
     prefs: QualityPrefs,
     options?: YouTubeResolveOptions,
   ): Promise<YouTubeStreamOption[]>
-  /** Tells the ladder that a URL it resolved failed to play. */
-  reportPlaybackFailure(option: StreamOption, ctx: ProviderContext): void
+  /** Tells the ladder that a URL it resolved started playing. */
+  reportPlaybackSuccess(option: StreamOption, ctx: ProviderContext): void
+  /** Tells the ladder that a URL it resolved failed to play, and why. */
+  reportPlaybackFailure(
+    option: StreamOption,
+    ctx: ProviderContext,
+    reason: PlaybackFailureReason,
+  ): void
+  /** The HTTP status a URL from the ladder answers now (see `YouTubeAudioSource.checkStatus`). */
+  checkStatus(option: StreamOption, ctx: ProviderContext): Promise<number | undefined>
   /** The rungs' health on the platform and tier of `ctx`. */
   health(ctx: ProviderContext): Promise<LadderHealth>
 }

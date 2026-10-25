@@ -91,11 +91,17 @@ describe('youtubeModule', () => {
     const visitorDataStore = { load: vi.fn(async () => undefined), save: vi.fn(), clear: vi.fn() }
     const healthStore = { load: vi.fn(async () => undefined), save: vi.fn() }
     const { audio } = youtubeModule.create({ config: bundledConfig, visitorDataStore, healthStore })
-    await audio.resolve(SONG, desktopContext(youtube.fetch), DEFAULT_QUALITY_PREFS)
+    const ctx = desktopContext(youtube.fetch)
+    const [option] = await audio.resolve(SONG, ctx, DEFAULT_QUALITY_PREFS)
+    if (option === undefined) throw new Error('The song resolved to no stream')
     expect(visitorDataStore.load).toHaveBeenCalled()
     expect(visitorDataStore.save).toHaveBeenCalled()
     expect(healthStore.load).toHaveBeenCalled()
-    expect(healthStore.save).toHaveBeenCalled()
+    // Nothing could be probed, so the rung counts as working once the player reports its URL
+    // playing, and that is saved.
+    audio.reportPlaybackSuccess(option, ctx)
+    await vi.waitFor(() => expect(healthStore.save).toHaveBeenCalled())
+    expect((await audio.health(ctx)).lastWorking).toBe('visionos')
   })
 
   it('refuses a config it can’t use when creating providers', () => {
