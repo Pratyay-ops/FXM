@@ -54,7 +54,7 @@ A refused request rejects with an `Unsupported` `FxmError` that names what is mi
 
 | Class | Hosts | On the web |
 |---|---|---|
-| `open` | `musicbrainz.org`, `coverartarchive.org`, `api.listenbrainz.org`, `labs.api.listenbrainz.org`, `ws.audioscrobbler.com`, `lrclib.net`, `archive.org` and `*.archive.org`, `api.jamendo.com` and `*.jamendo.com`, `itunes.apple.com`, `sponsor.ajay.app`, `i.ytimg.com`, `*.ggpht.com`, `i.scdn.co` | Direct |
+| `open` | `musicbrainz.org`, `coverartarchive.org`, `api.listenbrainz.org`, `labs.api.listenbrainz.org`, `ws.audioscrobbler.com`, `lrclib.net`, `archive.org` and `*.archive.org`, `api.jamendo.com` and `*.jamendo.com`, `itunes.apple.com`, `sponsor.ajay.app`, `i.ytimg.com`, `*.ggpht.com`, `i.scdn.co`; `www.google.com` for BotGuard's interpreter (stage 1.11), paths under `/js/th/` only | Direct (BotGuard's interpreter sends no CORS headers: only the native apps read it) |
 | `innertube` | `www.youtube.com`, `music.youtube.com`, `youtubei.googleapis.com` | FXM Connect, or the Lite sandbox for `/youtubei/v1/…` |
 | `googlevideo` | `*.googlevideo.com` | FXM Connect |
 | `spotify` | `open.spotify.com`, `clienttoken.spotify.com`, `api-partner.spotify.com`, `spclient.wg.spotify.com` | FXM Connect |
