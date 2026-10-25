@@ -60,6 +60,19 @@ case $status in
   *) fxm_die "couldn't read wrangler's project list: $projects" ;;
 esac
 
+# Pages decides production by the project's production branch, so a project created elsewhere
+# (in the dashboard, say) must deploy main to production and nothing else, before anything is
+# uploaded: a wrong setting would publish develop as production.
+details=$(curl -sS --fail-with-body -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PROJECT") ||
+  fxm_die "couldn't read the Pages project $PROJECT: $details"
+actual=$(node -e '
+  const body = JSON.parse(require("fs").readFileSync(0, "utf8"))
+  console.log((body.result && body.result.production_branch) || "")
+' <<<"$details")
+[ "$actual" = "$PRODUCTION_BRANCH" ] ||
+  fxm_die "the Pages project $PROJECT deploys ${actual:-no branch} to production, not $PRODUCTION_BRANCH: change its production branch in the Cloudflare dashboard first"
+
 output=$(mktemp)
 trap 'rm -f "$output"' EXIT
 WRANGLER_OUTPUT_FILE_PATH=$output node "$wrangler" pages deploy "$pages" \
@@ -74,6 +87,10 @@ deployment=$(node -e '
 ' "$output") || fxm_die "wrangler reported no deployment URL"
 read -r url alias environment <<<"$deployment"
 fxm_info "Deployed to $url (${environment:-unknown} environment${alias:+, alias $alias})"
+expected=preview
+if [ "$branch" = "$PRODUCTION_BRANCH" ]; then expected=production; fi
+[ "$environment" = "$expected" ] ||
+  fxm_die "the deployment of $branch went to the ${environment:-unknown} environment, not $expected"
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   {
     echo "url=$url"
