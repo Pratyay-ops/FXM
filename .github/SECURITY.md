@@ -8,13 +8,14 @@ FXM is in early development. Until version 1.0, only the latest release gets sec
 |---|---|
 | The [latest release](https://github.com/Pratyay-ops/FXM/releases/latest) | Yes |
 | Older releases | No. Please update to the latest release |
-| `develop`, not released yet | Yes. Fixes land there first and ship in the next release |
 
 ## Reporting a vulnerability
 
 Please report security problems privately, never in a public issue, pull request or discussion.
 
 Use GitHub's private vulnerability reporting: [open a report](https://github.com/Pratyay-ops/FXM/security/advisories/new), or use **Report a vulnerability** on the repository's security tab. You need a GitHub account. The report stays private between you and the maintainers until an advisory is published.
+
+If the report form doesn't work for you, open an [issue](https://github.com/Pratyay-ops/FXM/issues) that asks for a private way to send a security report, and leave out every detail of the problem.
 
 Include what you can:
 
