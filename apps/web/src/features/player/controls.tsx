@@ -42,9 +42,10 @@ const PLAY_BUTTON_STYLES = {
 type PlayButtonAppearance = keyof typeof PLAY_BUTTON_STYLES
 
 /**
- * The big play button of the album, artist and playlist placeholder pages. It responds but
- * plays nothing, like the shell's other placeholders, rather than pausing whatever the queue
- * plays: playing a collection arrives with the search and browse pages (stage 2.4).
+ * The big play button of the library's placeholder playlist pages (`/playlist/liked`, …). It
+ * responds but plays nothing, like the shell's other placeholders, rather than pausing whatever
+ * the queue plays: those playlists play once the library (stage 2.6) gives them pages. The
+ * catalog's album, artist and playlist pages (stage 2.4) have their own play buttons.
  */
 function CollectionPlayButton() {
   const [playing, setPlaying] = useState(false)
