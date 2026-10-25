@@ -246,6 +246,18 @@ describe('createSignatureVerifier', () => {
     expect(await createSignatureVerifier().engine()).toBe('webcrypto')
   })
 
+  it('uses WebKit’s WebCrypto, which refuses only empty messages', async () => {
+    const real = crypto.subtle
+    const webkit = {
+      importKey: real.importKey.bind(real),
+      verify: (...args: Parameters<SubtleCrypto['verify']>) =>
+        (args[3] as Uint8Array).length === 0 ? Promise.resolve(false) : real.verify(...args),
+    } as unknown as SubtleCrypto
+    const verifier = createSignatureVerifier({ subtle: webkit })
+    expect(await verifier.engine()).toBe('webcrypto')
+    expect(await verifier.verify(trusted, message, signature)).toBe(true)
+  })
+
   it('uses the library without WebCrypto', async () => {
     const verifier = createSignatureVerifier({ subtle: null })
     expect(await verifier.engine()).toBe('noble')

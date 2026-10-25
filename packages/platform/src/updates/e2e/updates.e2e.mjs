@@ -128,7 +128,8 @@ test('a signed module update fixes the broken bundled parser, loaded from a blob
   expect(result.after).toMatchObject({ ok: true, rung: 'visionos', codec: 'opus' })
   expect(result.moduleOrigin).toBe('fetched')
   expect(result.moduleVersion).toBe(2)
-  expect(['webcrypto', 'noble']).toContain(result.engine)
+  // Both engines pass the known-answer test, WebKit included (see verify.ts).
+  expect(result.engine).toBe('webcrypto')
 })
 
 test('a module whose bytes were changed is refused, and the app keeps its own', async ({

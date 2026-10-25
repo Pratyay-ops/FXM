@@ -115,7 +115,7 @@ Readers verify the bytes as they are and never re-encode the statement. `format.
 
 ## Verifying on each platform
 
-Signatures are checked with WebCrypto's Ed25519 where the platform has it and it passes a known-answer test (RFC 8032, test 1, and a forged copy that must fail), and otherwise with [`@noble/curves`](https://github.com/paulmillr/noble-curves) 2.4 (MIT; audited at 2.3.0 by Trail of Bits in August 2026, and for Ed25519 at 1.6.0 by Cure53 in September 2024), in RFC 8032's strict mode (no ZIP-215 leniency). SHA-256 always comes from `@noble/hashes`, so it needs no secure context.
+Signatures are checked with WebCrypto's Ed25519 where the platform has it and it passes a known-answer test (RFC 8032, test 2, and a forged copy that must fail), and otherwise with [`@noble/curves`](https://github.com/paulmillr/noble-curves) 2.4 (MIT; audited at 2.3.0 by Trail of Bits in August 2026, and for Ed25519 at 1.6.0 by Cure53 in September 2024), in RFC 8032's strict mode (no ZIP-215 leniency). SHA-256 always comes from `@noble/hashes`, so it needs no secure context.
 
 | Platform | Ed25519 in WebCrypto | Engine |
 |---|---|---|
@@ -125,7 +125,7 @@ Signatures are checked with WebCrypto's Ed25519 where the platform has it and it
 | Firefox | 129 and later | WebCrypto, else the library |
 | Node (tests, scripts) | 22 | WebCrypto |
 
-Versions from MDN's browser-compat-data, read 2026-10-26. The library needs only `BigInt` (Chrome 67, Safari 14, Firefox 68), and importing a `blob:` module needs dynamic `import()` (Chrome 63, Safari 11.1, Firefox 67), so every webview the apps support can verify and load updates.
+Versions from MDN's browser-compat-data, read 2026-10-26. The known answer is test 2, not test 1, because WebKit's Ed25519 refuses test 1's valid signature of an empty message while it verifies non-empty ones (measured 2026-10-26 in Playwright's WebKit 27.2 and in the desktop app's WKWebView on macOS 15). FXM never signs an empty message. The library needs only `BigInt` (Chrome 67, Safari 14, Firefox 68), and importing a `blob:` module needs dynamic `import()` (Chrome 63, Safari 11.1, Firefox 67), so every webview the apps support can verify and load updates.
 
 ## F-Droid builds
 
