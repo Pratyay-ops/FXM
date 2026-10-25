@@ -10,7 +10,6 @@ Only these live on your machine:
 |---|---|
 | git, make, curl, tar, openssl | Preinstalled on macOS and most Linux distributions |
 | Node.js 22 | Version pinned in `.nvmrc`. With [nvm](https://github.com/nvm-sh/nvm): `nvm install && nvm use` |
-| ffmpeg *(optional)* | Only for the self-hosted server (stage 7.1) |
 
 ## Quick start
 
@@ -127,7 +126,7 @@ Android tools normally write to `~/.android`, `~/.gradle` and `~/.m2`. `scripts/
 
 Use the repo-local `adb` through `scripts/run.sh` (or after `source scripts/env.sh`). `./gradlew installDebug` and Android Studio start adb without the wrapper, which creates `~/.android`. Every machine, and every CI run, signs debug builds with its own key in `.tools/android-user`, and `make nuke` deletes it. Android refuses to update an app with a different signature, so run `scripts/run.sh adb uninstall io.github.pratyayops.fxm` first, which also deletes the app's data.
 
-From 2027, Google plans to require developer verification for apps installed outside the Play Store on certified Android devices: USD 25 and an ID for the publisher, or an ADB or "advanced" install flow for unverified apps. Debug builds installed with adb are expected to keep working. Stage 6.6 decides how FXM's release APKs handle it.
+From 2027, Google plans to require developer verification for apps installed outside the Play Store on certified Android devices: USD 25 and an ID for the publisher, or an ADB or "advanced" install flow for unverified apps. Debug builds installed with adb are expected to keep working. FXM stays unregistered for now (an owner decision, 2026-10-25) and revisits verification before the rollout; stage 6.6 documents the install flow for release APKs.
 
 **Cleaning up.** `make android-clean` removes this checkout's Android build output, and `make clean` does the same in every checkout. `make nuke` first stops the Gradle daemons running from `.tools/` and the adb server, which adb restarts whenever it next needs it. Then it deletes the JDK, the SDK, the Gradle caches and the keys with the rest of `.tools/`.
 

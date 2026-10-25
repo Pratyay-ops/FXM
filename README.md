@@ -5,12 +5,12 @@
 **FXM (Free Cross-platform Media)** is a free, open-source music player for the web, desktop and Android. It is in early development.
 
 - **Play practically any song** from YouTube Music, ad-free, streamed straight to your device. There are two modes:
-  - **Music:** only songs from the YouTube Music catalog, with clean album audio.
+  - **Music:** only songs (from the YouTube Music catalog, free sources and your own files), with clean album audio.
   - **Music + Video:** also any YouTube video (covers, live sets, remixes), played as music.
 - **Spotify built in, switchable.** Search, related artists and song radio from Spotify's catalog. Connect your account to sync your recommendations, liked songs and playlists. Turn it off any time.
 - **Made for you.** A home feed, daily mixes and endless radio, computed on your device from YouTube Music radio, Spotify, Last.fm and ListenBrainz.
 - **Download any track** as Original, FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art. You get real lossless audio where the source has it (Internet Archive, Jamendo), and conversions are labelled honestly.
-- **No servers, no accounts, no tracking.** Everything runs on your device. The web app uses the small **FXM Connect** browser extension to reach music services from your own browser; the desktop and Android apps don't need it.
+- **No servers, no accounts, no tracking.** Everything runs on your device. The web app uses the small **FXM Connect** browser extension to reach music services from your own browser. Without it, an experimental no-install mode (Lite) can still search and play YouTube Music where your browser allows it, alongside free music. The desktop app (macOS, Windows and Linux) and the Android app don't need the extension.
 
 Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube](https://github.com/KRTirtho/spotube). FXM is not affiliated with YouTube, Google or Spotify.
 
@@ -19,7 +19,7 @@ Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube]
 | | |
 |---|---|
 | Web page | `https://fxm-music.pages.dev/` |
-| Web app (installable PWA) + FXM Connect extension | `https://fxm-music.pages.dev/app/` |
+| Web app (installable PWA), with the FXM Connect extension or in the experimental Lite mode | `https://fxm-music.pages.dev/app/` |
 | Desktop app (macOS, Windows, Linux) | GitHub Releases |
 | Android app (APK) | GitHub Releases |
 | Embeddable mini-player | `https://fxm-music.pages.dev/embed/…` |

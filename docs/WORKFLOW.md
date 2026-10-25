@@ -125,7 +125,7 @@ The orchestrator (Claude Code) turns each wave of ready stages into a **Claude C
 3. **Fix and verify.** The implementer fixes blockers and major issues. A verifier then checks that `make check` passes, that the branch is pushed with no attribution trailers, and that the issues are resolved. Up to three rounds.
 4. **Integrate.** The orchestrator merges into `develop` once CI on the branch is green, marks the stage ✅ and starts the stages that became ready.
 
-Research questions run as their own workflows: research agents, adversarial fact-checkers, then a synthesized decision memo.
+Research questions run as their own workflows: research agents, adversarial fact-checkers, then a synthesized decision memo. Memos and their reviews are kept in [docs/research/](research/).
 
 **Watchdog.** A background monitor notifies the orchestrator when:
 
