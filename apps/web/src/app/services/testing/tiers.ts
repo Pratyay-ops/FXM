@@ -43,6 +43,12 @@ export interface TierSetup {
   readonly library?: LibraryRepository
   /** The network, to share one between setups. Default: a new one over the fixtures. */
   readonly network?: FakeNetwork
+  /**
+   * Gives the page the sandbox documents of stage 1.10 on any tier, whose user-host document
+   * answers with this: what the web app fetches from hosts outside its table, such as the
+   * Spotify secret's. The Lite tier always has the sandbox; this adds its user-host document.
+   */
+  readonly userHost?: (url: string) => Response
 }
 
 /** The services on one tier, with what a test looks at. */
@@ -53,7 +59,7 @@ export interface TierServices {
   readonly actions: MediaActionsStore
   /** Where the services keep the visitorData and the rung health. */
   readonly store: DeviceStore
-  /** The fake sandbox, on the Lite tier. */
+  /** The fake sandbox, on the Lite tier or with `userHost`. */
   readonly sandbox: FakeSandbox | undefined
   /** Waits for the platform and, on the Lite tier, for its self-test to pass. */
   ready(): Promise<FxmPlatform | undefined>
@@ -69,8 +75,9 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
   const window = new Window({ url: APP_URL })
   const page = window as unknown as PlatformWindow
   const connect = tier === 'full' ? installFakeConnect(page) : undefined
+  const { userHost } = setup
   const sandbox =
-    tier === 'lite'
+    tier === 'lite' || userHost !== undefined
       ? createFakeSandbox({
           respond: (request) =>
             network.respond({
@@ -79,6 +86,7 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
               headers: request.init.headers,
               body: request.init.body,
             }),
+          ...(userHost === undefined ? {} : { userHost: (url: string) => userHost(url) }),
         })
       : undefined
   const sources = createSources({

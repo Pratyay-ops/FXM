@@ -2,7 +2,7 @@
 
 The one place where the web app builds the real pieces of the earlier stages and plugs them into the seams its pages use. Stages 2.3 to 2.6 were built in parallel against fakes behind small adapters; this folder is what replaces the fakes. Everything runs on the user's device: FXM has no servers.
 
-`main.tsx` calls `startAppServices()` once, then renders. Creating the platform waits for FXM Connect's answer (a few milliseconds, at most 800), so the first render already shows the right tier and its sources rather than the Free tier for a moment.
+`main.tsx` calls `startAppServices()` once, then renders. Creating the platform waits for FXM Connect's answer (a few milliseconds, at most 800), so the first render already shows the right tier and its sources rather than the Free tier for a moment. If something hangs, the app renders after 3 s anyway and the services catch up.
 
 ## What it builds
 
@@ -32,7 +32,7 @@ The one place where the web app builds the real pieces of the earlier stages and
 |---|---|---|---|
 | YouTube Music search and pages | Onboarding instead | Through the sandbox | Through the page |
 | YouTube playback | Stops, with "needs FXM Connect" | VISIONOS, unprobed: the media element's first request is the probe, and the ladder hears which rung played | VISIONOS with the end-of-file probe, then itag 18 |
-| Spotify | Not offered | Not offered | While its switch is on |
+| Spotify | Not offered | Not offered | While its switch is on, once 1.10 is wired (below) |
 | Internet Archive | Yes | Yes | Yes |
 | Jamendo | When a `client_id` is configured | The same | The same |
 
@@ -44,7 +44,7 @@ The one place where the web app builds the real pieces of the earlier stages and
 
 | Stage | What changes | Where |
 |---|---|---|
-| 1.10 Lite tier | Pass `sandbox: createSandboxTransport()` to `createAppServices()`; the Spotify secret's hosts then go through its user-host document, and the YouTube config's kill switch applies before the self-test. Add the Lite tier to `e2e/playback.spec.ts` | `index.ts` |
+| 1.10 Lite tier | Pass `sandbox: createSandboxTransport()` to `createAppServices()`; the YouTube config's kill switch then applies before the self-test. It also opens Spotify in the web app: Spotify's anonymous token needs the TOTP secret, whose hosts the web app reaches only through the sandbox's user-host document, so until then every Spotify call fails at once ("Could not load the Spotify TOTP secret … needs the web app's sandbox documents"), without a request. Add the Lite tier to `e2e/playback.spec.ts` | `index.ts` |
 | 1.12 Matching evaluation | Pass `autoMatch: () => <the Auto setting>` once the report allows Auto | `index.ts` |
 | 2.5 Now playing | Its `createAppPolicy()` returns `getAppServices().policy`; its `createPlayback()` calls `getAppServices().connectPlayer(player)` and keeps the function it returns; `lyricsContext()` uses `getAppServices().context({ priority: 'interactive' })` (and may take `lyrics()`). Then delete `player.ts` and its call in `index.ts` | `features/now-playing/` |
 | 2.6 Library | Pass `library: getLibrary()`: "Add to playlist" and the match cache then use it (`library.ts`). The like button joins through 2.5's `LikeButton` seam | `index.ts` |
@@ -56,8 +56,8 @@ The one place where the web app builds the real pieces of the earlier stages and
 ## Tests
 
 ```sh
-scripts/run.sh pnpm vitest run apps/web/src/app/services        # unit and tier tests
-FXM_E2E_PORT=6401 scripts/run.sh pnpm --filter @fxm/web exec playwright test playback   # in Chromium
+scripts/run.sh pnpm vitest run apps/web/src/app/services                # unit and tier tests
+scripts/run.sh pnpm --filter @fxm/web exec playwright test playback      # in Chromium (FXM_E2E_PORT to move it off 4173)
 ```
 
 Nothing but the network is fake (`testing/fake-network.ts`): a `fetch` that answers from the providers' own recorded, sanitized fixtures (a YouTube Music songs search, a VISIONOS `/player` answer rewritten for each video with URLs valid for six hours, googlevideo ranges, an Internet Archive search and item). `testing/tiers.ts` puts the real services on each tier: a page with a fake FXM Connect, a page whose InnerTube calls go through a fake sandbox, and a page with neither.

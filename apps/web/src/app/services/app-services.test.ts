@@ -155,6 +155,35 @@ describe('the Full tier (FXM Connect)', () => {
     expect(sourceAvailability(setup.sources.getSnapshot(), 'spotify').status).toBe('spotify-off')
   })
 
+  it("asks for Spotify's secret through the sandbox's user-host document (stage 1.10)", async () => {
+    const setup = setUp('full', { userHost: () => new Response('{}', { status: 404 }) })
+    await setup.ready()
+
+    await provider(setup, 'spotify')
+      .search('creep', { types: ['track'] }, setup.sources.context({ mode: 'music' }))
+      .catch(() => {})
+
+    const hosts = setup.sandbox?.userHostRequests.map((request) => new URL(request.url).host)
+    expect(hosts).toContain('raw.githubusercontent.com')
+    expect(setup.network.requests.filter((request) => request.url.includes('github'))).toEqual([])
+  })
+
+  it('fails Spotify at once without the sandbox documents, before any request', async () => {
+    const setup = setUp('full')
+    await setup.ready()
+
+    const search = provider(setup, 'spotify').search(
+      'creep',
+      { types: ['track'] },
+      setup.sources.context({ mode: 'music' }),
+    )
+
+    await expect(search).rejects.toMatchObject({ reason: 'secret-unavailable' })
+    expect(setup.network.requests.filter((request) => /spotify|github/u.test(request.url))).toEqual(
+      [],
+    )
+  })
+
   it('plays a Spotify track as its matched song after a tap, and marks it for review', async () => {
     const setup = setUp('full')
     await setup.ready()
