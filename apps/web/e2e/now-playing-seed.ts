@@ -159,9 +159,10 @@ export async function seedNowPlaying(page: Page): Promise<void> {
       sessionStorage.setItem('fxm.e2e.seeded', '1')
       localStorage.setItem('fxm.queue.v1', JSON.stringify(queue))
       localStorage.setItem('fxm.queue-review.v1', JSON.stringify(review))
+      // The position belongs to the current item (uid 1).
       localStorage.setItem(
         'fxm.playback.v1',
-        JSON.stringify({ positionMs, volume: 0.8, muted: false }),
+        JSON.stringify({ positionMs, uid: 1, volume: 0.8, muted: false }),
       )
     },
     { queue: SEED_QUEUE, review: SEED_REVIEW, positionMs: SEED_POSITION_MS },

@@ -26,7 +26,12 @@ import {
   type PlayerState,
 } from '@fxm/player'
 import { useEffect, useEffectEvent, useSyncExternalStore } from 'react'
-import { loadSavedPlayback, type PersistOptions, persistPlayback } from '../queue/queue-storage'
+import {
+  loadSavedPlayback,
+  type PersistOptions,
+  persistPlayback,
+  restoredPosition,
+} from '../queue/queue-storage'
 import { useQueueReviewStore } from '../queue/review-store'
 import { useSettingsStore } from '../settings/settings-store'
 import { createAppPolicy, type PlaybackPolicy } from './playback-policy'
@@ -100,7 +105,11 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
     ...(saved.volume === undefined ? {} : { volume: saved.volume }),
     ...(saved.muted === undefined ? {} : { muted: saved.muted }),
   })
-  if (saved.queue !== undefined) player.restore(saved.queue, saved.positionMs)
+  if (saved.queue !== undefined && player.restore(saved.queue)) {
+    // Nothing listens yet: the seek only puts the restored item where it was.
+    const positionMs = restoredPosition(saved, currentQueueItem(player.getState().queue))
+    if (positionMs > 0) player.seek(positionMs)
+  }
   const disconnects = [
     player.subscribe(notify),
     options.mediaSession === false ? () => {} : connectMediaSession(player),
