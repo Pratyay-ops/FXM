@@ -238,12 +238,20 @@ export function createBridge(options: BridgeOptions): Bridge {
       return { type: MESSAGE.loginStatus, enabled: refusal === null }
     }
     const parsed = parseBridgeRequest(message)
-    return parsed.ok ? serve(parsed.value, sender) : errorReply(parsed.id, parsed.code)
+    if (!parsed.ok) return errorReply(parsed.id, parsed.code)
+    try {
+      return await serve(parsed.value, sender)
+    } catch {
+      // For example, the settings database could not be opened. Answer with the request's ID,
+      // so the page learns what failed instead of seeing the background as unreachable.
+      return errorReply(parsed.value.id, 'internal')
+    }
   }
 
   const listener: MessageListener = (message, sender, sendResponse) => {
     const origin = trustedSenderOrigin(sender, options.runtimeId, options.origins)
     if (origin === null) return false
+    // handle() only rejects on errors outside a bridge request, such as a failed ruleset switch.
     handle(message, { origin, privateTab: isPrivateTab(sender.tab) }).then(sendResponse, () =>
       sendResponse(errorReply(null, 'internal')),
     )

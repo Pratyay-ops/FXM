@@ -157,6 +157,7 @@ The page posts messages to its own window (`postMessage(message, location.origin
 | `timeout` | No answer within 10 seconds |
 | `too-large` | Response larger than 64 KiB |
 | `unavailable` | The extension's background could not be reached (for example, it was just updated: reload the page) |
+| `internal` | FXM Connect failed unexpectedly, for example because it could not read its settings. Retrying later may help |
 
 ## Development
 

@@ -266,6 +266,17 @@ describe('failures', () => {
     expect(await big.bridge.handle(serverTime(), PAGE)).toMatchObject({ code: 'too-large' })
   })
 
+  it('answers internal, with the request ID, when the settings cannot be read', async () => {
+    const settings = { read: vi.fn().mockRejectedValue(new Error('IndexedDB unavailable')) }
+    const { bridge, fetch } = setup({ settings })
+    expect(await bridge.handle(token('broken'), PAGE)).toEqual({
+      type: MESSAGE.error,
+      id: 'broken',
+      code: 'internal',
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it('rejects unknown messages', async () => {
     const { bridge, fetch } = setup({ login: true })
     expect(await bridge.handle({ type: 'fxm-connect:fetch', id: 1, url: FXM }, PAGE)).toEqual({
@@ -369,6 +380,21 @@ describe('runtime.onMessage listener', () => {
       }),
     )
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('answers internal without an ID when a background task fails', async () => {
+    const dnr = { updateEnabledRulesets: vi.fn().mockRejectedValue(new Error('quota')) }
+    const { bridge } = setup({ origins: fxmOrigins(true), dnr })
+    const sendResponse = vi.fn()
+    const sender = { ...tabSender, origin: 'http://localhost:5173' }
+    expect(bridge.listener({ type: MESSAGE.activateOrigin }, sender, sendResponse)).toBe(true)
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith({
+        type: MESSAGE.error,
+        id: null,
+        code: 'internal',
+      }),
+    )
   })
 
   it('answers trusted senders asynchronously', async () => {

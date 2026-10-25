@@ -150,6 +150,14 @@ describe('bridge relay', () => {
     expect(runtime.sendMessage).toHaveBeenCalledWith({ type: MESSAGE.spotifyServerTime, id: 'r1' })
   })
 
+  it("passes the background's errors on to the page", async () => {
+    const page = fakePage()
+    const reply = { type: MESSAGE.error, id: 'r2', code: 'internal' }
+    start(page, { runtime: { sendMessage: vi.fn(async () => reply) } })
+    page.dispatch({ type: MESSAGE.spotifyServerTime, id: 'r2' })
+    expect(await replies(page)).toEqual([reply])
+  })
+
   it('answers unavailable when the background fails or replies with garbage', async () => {
     const page = fakePage()
     const runtime = {
