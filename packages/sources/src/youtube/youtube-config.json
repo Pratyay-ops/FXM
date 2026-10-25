@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "revision": 1,
+  "updated": "2026-10-26",
+  "visitorData": {
+    "swJsDataUrl": "https://www.youtube.com/sw.js_data"
+  },
+  "clients": {
+    "music": { "name": "WEB_REMIX", "version": "1.20261020.10.00", "host": "music.youtube.com" },
+    "web": { "name": "WEB", "version": "2.20261023.01.00", "host": "www.youtube.com" }
+  },
+  "defaultHost": "www.youtube.com",
+  "search": {
+    "music": {
+      "songs": "EgWKAQIIAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "videos": "EgWKAQIQAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "albums": "EgWKAQIYAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "artists": "EgWKAQIgAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "playlists": "EgeKAQQoAEABahIQBBAFEAMQEBAKEAkQFRAOEBE%3D"
+    },
+    "web": {
+      "videos": "EgIQAQ%3D%3D",
+      "channels": "EgIQAg%3D%3D",
+      "playlists": "EgIQAw%3D%3D"
+    }
+  },
+  "radio": {
+    "params": "wAEB"
+  },
+  "killSwitches": {
+    "lite": false
+  },
+  "labels": {
+    "en": {
+      "albumTypes": { "album": "album", "single": "single", "ep": "ep" },
+      "itemTypes": [
+        "song",
+        "video",
+        "album",
+        "single",
+        "ep",
+        "artist",
+        "playlist",
+        "episode",
+        "podcast",
+        "profile"
+      ],
+      "trackCounts": ["song", "songs", "track", "tracks", "video", "videos", "episode", "episodes"]
+    }
+  }
+}
