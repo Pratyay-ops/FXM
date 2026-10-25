@@ -22,7 +22,13 @@ import type {
   StreamOption,
   YouTubeAccess,
 } from './providers'
-import { compareStreams, DEFAULT_QUALITY_PREFS, pickStream, tierOf } from './quality'
+import {
+  compareStreams,
+  DEFAULT_QUALITY_PREFS,
+  type FullLengthCheck,
+  pickStream,
+  tierOf,
+} from './quality'
 
 const song: Track = {
   id: formatId('ytm', 'track', 'song1'),
@@ -57,6 +63,14 @@ const LITE: NetworkCapabilities = {
   youtube: 'simple',
   spotify: 'unreachable',
   mediaBytes: false,
+  fileSystem: false,
+}
+
+/** The web app with FXM Connect: everything, including the media bytes. */
+const CONNECT: NetworkCapabilities = {
+  youtube: 'full',
+  spotify: 'anonymous',
+  mediaBytes: true,
   fileSystem: false,
 }
 
@@ -117,6 +131,21 @@ function youtubeIdOf(seed: RadioSeed): string | undefined {
   return isTrackSeed(seed) ? seed.externalIds?.ytm : undefined
 }
 
+/** A format in the fake player response. `capped` stands in for what an end-of-file probe finds. */
+type FakeFormat = {
+  itag: number
+  codec: 'opus' | 'aac'
+  bitrate: number
+  muxed?: boolean
+  capped?: boolean
+}
+
+/** What an end-of-file range probe says about a URL, where the bytes can be read at all. */
+function probe(capped: boolean, ctx: ProviderContext): FullLengthCheck {
+  if (!ctx.capabilities.mediaBytes) return 'unverified'
+  return capped ? 'capped' : 'verified'
+}
+
 const youtubeAudio: AudioSource = {
   id: 'ytm',
   async match(track) {
@@ -134,19 +163,19 @@ const youtubeAudio: AudioSource = {
   },
   async resolve(candidate, ctx) {
     const response = await ctx.fetch(`https://example.test/player?v=${candidate.ref}`)
-    const { formats } = (await response.json()) as {
-      formats: Array<{ itag: number; codec: 'opus' | 'aac'; bitrate: number }>
-    }
+    const { formats } = (await response.json()) as { formats: FakeFormat[] }
     const options = formats.map(
-      ({ itag, codec, bitrate }): StreamOption => ({
+      ({ itag, codec, bitrate, muxed = false, capped = false }): StreamOption => ({
         url: `https://example.test/${candidate.ref}/${itag}`,
         codec,
         container: codec === 'opus' ? 'webm' : 'mp4',
+        media: muxed ? 'muxed-video' : 'audio',
         bitrateKbps: bitrate,
         tier: tierOf({ codec, bitrateKbps: bitrate }),
         protocol: 'progressive',
         expiresAt: Date.now() + 6 * 3_600_000,
         ipBound: true,
+        fullLength: probe(capped, ctx),
       }),
     )
     // Every usable option, best first; the caller applies the preferences.
@@ -275,9 +304,52 @@ describe('provider interfaces', () => {
     expect(urls).toEqual(['https://example.test/player?v=song1'])
     expect(options.map((option) => option.url.split('/').at(-1))).toEqual(['251', '140', '249'])
     expect(options[0]).toMatchObject({ codec: 'opus', tier: 'high', ipBound: true })
+    // The Lite tier cannot read the bytes, so nothing was probed.
+    expect(options.every((option) => option.fullLength === 'unverified')).toBe(true)
+    expect(options.every((option) => option.media === 'audio')).toBe(true)
     // Playback applies the tier ceiling of the current connection to the full list.
     expect(pickStream(options, DEFAULT_QUALITY_PREFS.streaming.wifi)?.url).toMatch(/251$/)
     expect(pickStream(options, 'low')?.url).toMatch(/249$/)
+  })
+
+  it('probes where the bytes are readable and never chooses a capped URL', async () => {
+    const formats: FakeFormat[] = [
+      { itag: 251, codec: 'opus', bitrate: 141, capped: true },
+      { itag: 140, codec: 'aac', bitrate: 128 },
+      { itag: 18, codec: 'aac', bitrate: 96, muxed: true },
+    ]
+    const ctx = context('music', fakeFetch({ formats }), CONNECT)
+    const [candidate] = await youtubeAudio.match(song, ctx)
+    if (!candidate) throw new Error('expected a candidate')
+    const options = await youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
+    const summary = options.map((option) => [option.url.split('/').at(-1), option.fullLength])
+    expect(summary).toEqual([
+      ['140', 'verified'],
+      ['18', 'verified'],
+      ['251', 'capped'],
+    ])
+    // Neither playback nor a download, which wants the best option, gets the capped Opus.
+    expect(pickStream(options, 'high')?.url).toMatch(/140$/)
+    expect(pickStream(options, 'lossless')?.url).toMatch(/140$/)
+  })
+
+  it('falls back to the audio track of muxed itag 18 when every audio URL is capped', async () => {
+    const formats: FakeFormat[] = [
+      { itag: 251, codec: 'opus', bitrate: 141, capped: true },
+      { itag: 140, codec: 'aac', bitrate: 128, capped: true },
+      { itag: 18, codec: 'aac', bitrate: 96, muxed: true },
+    ]
+    const ctx = context('music', fakeFetch({ formats }), CONNECT)
+    const [candidate] = await youtubeAudio.match(song, ctx)
+    if (!candidate) throw new Error('expected a candidate')
+    const options = await youtubeAudio.resolve(candidate, ctx, DEFAULT_QUALITY_PREFS)
+    const fallback = pickStream(options, 'high')
+    expect(fallback).toMatchObject({ media: 'muxed-video', codec: 'aac', container: 'mp4' })
+    // Its tier is the AAC track's, whatever the video adds.
+    expect(fallback?.tier).toBe('normal')
+    expect(pickStream(options, 'low')).toBe(fallback)
+    const allCapped = options.map((option): StreamOption => ({ ...option, fullLength: 'capped' }))
+    expect(pickStream(allCapped, 'high')).toBeUndefined()
   })
 
   it('never returns a candidate that the mode cannot play as it is', async () => {
@@ -341,12 +413,26 @@ describe('stream options', () => {
     url: 'https://example.test/sabr?expire=1',
     codec: 'opus',
     container: 'webm',
+    media: 'audio',
     bitrateKbps: 141,
     tier: 'high',
     protocol: 'sabr',
     ipBound: true,
+    fullLength: 'unverified',
     playback: session,
   }
+
+  it('must say whether the URL delivers the whole file and what the file holds', () => {
+    expectTypeOf<StreamOption['fullLength']>().toEqualTypeOf<'verified' | 'unverified' | 'capped'>()
+    expectTypeOf<StreamOption['media']>().toEqualTypeOf<'audio' | 'muxed-video'>()
+    const { fullLength: _fullLength, ...withoutLength } = sabr
+    // @ts-expect-error every resolver says whether the URL delivers the whole file
+    const unprobed: StreamOption = withoutLength
+    const { media: _media, ...withoutMedia } = sabr
+    // @ts-expect-error every resolver says whether the file is audio or a muxed video
+    const unlabelled: StreamOption = withoutMedia
+    expect([unprobed.fullLength, unlabelled.media]).toEqual([undefined, undefined])
+  })
 
   it('carry the protocol data of a SABR stream as JSON', () => {
     expect(JSON.parse(JSON.stringify(sabr))).toEqual(sabr)

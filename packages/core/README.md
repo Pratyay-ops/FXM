@@ -20,8 +20,8 @@ Everything is re-exported from `src/index.ts`, so import from `@fxm/core`.
 | `ids.ts` | `SourceId`: a built-in source (`BuiltInSourceId`: `ytm`, `yt`, `spotify`, `archive`, `jamendo`, `local`) or a runtime plugin's (`PluginSourceId`, `plugin.<name>`, checked by `isPluginSourceId`). `EntityKind`, and the branded `EntityId<K>` = `<source>:<kind>:<nativeId>`. `formatId` builds one. `parseId` splits one: it never returns `null` for a branded ID and never throws for anything else. `isEntityId` checks untrusted values. `entityKey` and `sameEntity` de-duplicate, and `normalizeIsrc` gives the canonical ISRC. Native IDs may contain `:`. |
 | `model.ts` | `Track` (with `kind`: `song`, `music-video`, `video`, `episode`), `Album`, `Artist`, `Playlist`, `Artwork`, `ArtistRef`, `AlbumRef`, `Page<T>`, home-feed `Shelf`s, and `SearchResults`, where songs (`tracks`) and videos (`videos`) are paged separately. Also the `isTrackSeed` guard. |
 | `mode.ts` | `CatalogMode` (`music` = "Music", `all` = "Music + Video") and the one policy every feature goes through: `modePolicy` (`playable`, `needs-song-match`, `hidden`). `applyModeFilter` filters lists to show; `isPlayable` and `filterPlayable` filter what is about to play, such as audio candidates. In Music mode an official music video must be mapped to its song first, and other videos are hidden. |
-| `quality.ts` | `Codec`, `Container`, `QualityTier` with `tierOf` (documented per-codec thresholds), and `compareStreams` and `pickStream` to rank streams and apply a tier ceiling. `DownloadFormat` with `DOWNLOAD_FORMATS` and `describeConversion` (honest labels such as "FLAC (converted from Opus, same quality as the source)"). `QualityPrefs` with `DEFAULT_QUALITY_PREFS` (read-only), `DEFAULT_MP3_KBPS`, `sanitizeQualityPrefs` and the value guards. |
-| `providers.ts` | `MetadataProvider` (search, an optional `suggest` and the entity pages), `RecommendationProvider`, the two-phase `AudioSource` (`match` returns ranked `AudioCandidate`s with confidence and evidence; `resolve` returns `StreamOption`s), `LyricsProvider`, `AccountProvider`, and `ProviderContext` with the injected `Fetch`, `Platform` and `NetworkCapabilities` (how far YouTube and Spotify can be reached, see below). Types only. |
+| `quality.ts` | `Codec`, `Container`, `QualityTier` with `tierOf` (documented per-codec thresholds), and `compareStreams` and `pickStream` to rank streams and apply a tier ceiling, never choosing a stream whose `FullLengthCheck` is `capped`. `DownloadFormat` with `DOWNLOAD_FORMATS` and `describeConversion` (honest labels such as "FLAC (converted from Opus, same quality as the source)"). `QualityPrefs` with `DEFAULT_QUALITY_PREFS` (read-only), `DEFAULT_MP3_KBPS`, `sanitizeQualityPrefs` and the value guards. |
+| `providers.ts` | `MetadataProvider` (search, an optional `suggest` and the entity pages), `RecommendationProvider`, the two-phase `AudioSource` (`match` returns ranked `AudioCandidate`s with confidence and evidence; `resolve` returns `StreamOption`s, each saying whether its URL delivers the whole file and whether it is audio or a muxed video), `LyricsProvider`, `AccountProvider`, and `ProviderContext` with the injected `Fetch`, `Platform` and `NetworkCapabilities` (how far YouTube and Spotify can be reached, see below). Types only. |
 | `text.ts` | Matching helpers: `normalizeText`, `splitTitle` (core, qualifiers, featured artists), `stripPresentationNoise` and `extractVersionTags` (strong, medium and soft version tags). |
 | `errors.ts` | `FxmError` with a `code` (`NotFound`, `RateLimited`, `AuthRequired`, `Unavailable`, `GeoBlocked`, `Expired`, `BotCheck`, `Unsupported`, `Network`, `Parse`), an optional `cause` and `retryAfterMs`, plus the `isFxmError` guard. |
 
@@ -52,10 +52,20 @@ Runtime plugins (a later stage) add sources of their own. A plugin source ID is 
 
 ### Choosing a stream
 
-`AudioSource.resolve` returns every usable `StreamOption`, best first, and never drops one because of the preferences, because the same list serves playback and downloads. The caller decides:
+`AudioSource.resolve` returns every `StreamOption` it found, best first, and never drops one because of the preferences, because the same list serves playback and downloads. The caller decides:
 
 - **Playback** removes the options the player cannot decode, then calls `pickStream(options, prefs.streaming.wifi)` (or `.cellular`). The tier is a ceiling: it plays the best option at or below it, and the lowest option above it when nothing is at or below it.
-- **Downloads** take the best option, such as a real FLAC original, and label any conversion with `describeConversion`.
+- **Downloads** take the best option, such as a real FLAC original, with `pickStream(options, 'lossless')`, and label any conversion with `describeConversion`.
+
+**Capped URLs.** YouTube caps the stream URLs of most of its clients: they answer 403 after roughly 0.4–2 MiB, and only some are served in full. So wherever the bytes can be read (`capabilities.mediaBytes`), the resolver probes the last 64 KB of the file, and every option records the outcome in the required `fullLength` field:
+
+| `fullLength` | Meaning |
+|---|---|
+| `verified` | The end-of-file range probe succeeded |
+| `unverified` | No probe: the bytes can't be read (the `simple` YouTube tier) or the resolver didn't probe. Sources that never cap their URLs, such as Internet Archive, are `unverified` too unless probed |
+| `capped` | A probe showed that the URL stops early. It must never be played or downloaded: `compareStreams` ranks it after every other option, and `pickStream` never picks it, so playback and downloads both skip it |
+
+**Muxed video.** The required `media` field is `audio` or `muxed-video`. YouTube's last-resort rung is itag 18, a 360p MP4 whose AAC track FXM plays, or extracts for a download. Its `codec`, `bitrateKbps` and `tier` describe that audio track (AAC at about 96 kbps is `normal`), and its `container` is the video file's.
 
 For SABR streams, `url` holds the server ABR streaming URL, and `playback` carries the session parameters as JSON.
 

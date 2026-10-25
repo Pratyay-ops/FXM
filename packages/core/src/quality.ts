@@ -1,6 +1,6 @@
 /**
- * Audio quality vocabulary: codecs, containers, quality tiers, download formats and the user's
- * quality preferences.
+ * Audio quality vocabulary: codecs, containers, quality tiers, how streams are ranked and picked,
+ * download formats and the user's quality preferences.
  *
  * @module
  */
@@ -121,12 +121,35 @@ export function compareTiers(a: QualityTier, b: QualityTier): number {
   return tierRank(a) - tierRank(b)
 }
 
-/** What ranks a stream or file: its tier and, within a tier, its bitrate. */
+/**
+ * Whether a stream URL is known to deliver the whole file. YouTube caps the URLs of most of its
+ * clients: they answer HTTP 403 after roughly 0.4-2 MiB, and only some are served in full. So
+ * wherever the bytes can be read, the resolver requests the last 64 KB of the file:
+ *
+ * - `verified`: that end-of-file range probe succeeded
+ * - `unverified`: no probe, because the bytes cannot be read (YouTube's `simple` access, see
+ *   `YouTubeAccess`) or the resolver did not probe. Sources that never cap their URLs, such as
+ *   Internet Archive, are `unverified` too unless probed
+ * - `capped`: a probe showed that the URL stops early. Such a stream must never be played or
+ *   downloaded: {@link compareStreams} ranks it after every other one and {@link pickStream}
+ *   never picks it
+ */
+export type FullLengthCheck = 'verified' | 'unverified' | 'capped'
+
+/**
+ * What ranks a stream or file: whether it is capped, its tier and, within a tier, its bitrate.
+ */
 export interface RankedQuality {
   /** Quality tier. */
   tier: QualityTier
   /** Average bitrate in kbps, when known. */
   bitrateKbps?: number
+  /**
+   * Whether the stream is known to deliver the whole file. Only `capped` changes the ranking: a
+   * capped stream comes last and is never picked. Files leave it out, which counts as
+   * `unverified`, and so does an unknown value from bad data.
+   */
+  fullLength?: FullLengthCheck
 }
 
 /** A usable bitrate, or 0 when it is unknown (missing, zero, negative or not finite). */
@@ -136,26 +159,39 @@ function knownBitrate({ bitrateKbps }: RankedQuality): number {
     : 0
 }
 
-/**
- * Orders streams best first: by tier (see {@link compareTiers}), then by bitrate, higher first.
- * An unknown bitrate comes after the known ones of its tier. `options.sort(compareStreams)`.
- */
-export function compareStreams(a: RankedQuality, b: RankedQuality): number {
-  return compareTiers(a.tier, b.tier) || knownBitrate(b) - knownBitrate(a)
+/** Whether a probe showed that the stream stops early (see {@link FullLengthCheck}). */
+function isCapped({ fullLength }: RankedQuality): boolean {
+  return fullLength === 'capped'
 }
 
 /**
- * The option to play under a tier ceiling such as `prefs.streaming.cellular`: the best option at
- * or below `ceiling`, or the lowest option above it when nothing is at or below it. `undefined`
- * when there are no options. Remove the options the player cannot decode (e.g. with
+ * Orders streams best first: by tier (see {@link compareTiers}), then by bitrate, higher first.
+ * An unknown bitrate comes after the known ones of its tier, and a `capped` stream comes after
+ * every stream that is not, whatever its tier (see {@link FullLengthCheck}).
+ * `options.sort(compareStreams)`.
+ */
+export function compareStreams(a: RankedQuality, b: RankedQuality): number {
+  return (
+    Number(isCapped(a)) - Number(isCapped(b)) ||
+    compareTiers(a.tier, b.tier) ||
+    knownBitrate(b) - knownBitrate(a)
+  )
+}
+
+/**
+ * The option to play or download under a tier ceiling, such as `prefs.streaming.cellular` for
+ * playback, or `lossless` for a download, which wants the best option there is. It is the best
+ * option at or below `ceiling`, or the lowest option above it when nothing is at or below it.
+ * A `capped` option is never picked, whatever its tier (see {@link FullLengthCheck}).
+ * `undefined` when no option is left. Remove the options the player cannot decode (e.g. with
  * `canPlayType`) before picking.
  */
 export function pickStream<T extends RankedQuality>(
   options: readonly T[],
   ceiling: QualityTier,
 ): T | undefined {
-  const sorted = [...options].sort(compareStreams)
-  return sorted.find((option) => compareTiers(option.tier, ceiling) >= 0) ?? sorted.at(-1)
+  const usable = options.filter((option) => !isCapped(option)).sort(compareStreams)
+  return usable.find((option) => compareTiers(option.tier, ceiling) >= 0) ?? usable.at(-1)
 }
 
 /**

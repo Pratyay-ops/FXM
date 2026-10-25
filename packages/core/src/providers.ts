@@ -24,7 +24,7 @@ import type {
   Track,
   TrackKind,
 } from './model'
-import type { Codec, Container, QualityPrefs, QualityTier } from './quality'
+import type { Codec, Container, FullLengthCheck, QualityPrefs, QualityTier } from './quality'
 
 /**
  * The parts of `RequestInit` that providers use. Only relevant where the program has no global
@@ -289,6 +289,16 @@ export interface AudioCandidate {
 /** How a stream is delivered. `sabr` is YouTube's server-driven streaming protocol. */
 export type StreamProtocol = 'progressive' | 'hls' | 'dash' | 'sabr'
 
+/**
+ * What a stream holds:
+ *
+ * - `audio`: audio only
+ * - `muxed-video`: a video file with an audio track, such as YouTube's last-resort itag 18, a
+ *   360p MP4 whose AAC track FXM plays, or extracts for a download. It costs more data than an
+ *   audio-only stream of the same quality
+ */
+export type StreamMedia = 'audio' | 'muxed-video'
+
 /** A JSON value: data that survives `JSON.stringify` and `JSON.parse` unchanged. */
 export type JsonValue = string | number | boolean | null | readonly JsonValue[] | JsonObject
 
@@ -298,7 +308,11 @@ export type JsonValue = string | number | boolean | null | readonly JsonValue[] 
  */
 export type JsonObject = { readonly [key: string]: JsonValue }
 
-/** One concrete way to play a candidate. */
+/**
+ * One concrete way to play a candidate. The codec, bitrate, sample rate, bit depth and tier
+ * always describe the audio, even when the file is a video with an audio track (`media`
+ * `muxed-video`).
+ */
 export interface StreamOption {
   /**
    * Where the player gets the audio: the media URL for `progressive`, the manifest URL for `hls`
@@ -307,15 +321,20 @@ export interface StreamOption {
   url: string
   /** Audio codec. */
   codec: Codec
-  /** Container format. */
+  /** Container format of the file, e.g. `mp4` for a muxed video. */
   container: Container
-  /** Average bitrate in kbps. */
+  /**
+   * Audio only, or a video file whose audio track FXM plays or extracts (see
+   * {@link StreamMedia}). Required, so that no resolver forgets to say.
+   */
+  media: StreamMedia
+  /** Average bitrate of the audio in kbps. */
   bitrateKbps?: number
   /** Sample rate in Hz. */
   sampleRateHz?: number
   /** Bits per sample, for lossless streams. */
   bitDepth?: number
-  /** Quality tier, usually from `tierOf`. */
+  /** Quality tier of the audio, usually from `tierOf`. */
   tier: QualityTier
   /** How the stream is delivered. */
   protocol: StreamProtocol
@@ -323,6 +342,14 @@ export interface StreamOption {
   expiresAt?: number
   /** Whether the URL only works from the IP address that resolved it (true for YouTube). */
   ipBound: boolean
+  /**
+   * Whether the URL is known to deliver the whole file (see `FullLengthCheck`): `verified` after
+   * an end-of-file range probe, `unverified` when the bytes cannot be read or were not probed,
+   * and `capped` when a probe showed that the URL stops early. A capped option must never be
+   * played or downloaded, so `pickStream` never picks one. Required, so that no resolver forgets
+   * to say.
+   */
+  fullLength: FullLengthCheck
   /** Headers the request must send, e.g. a `Referer`. */
   requestHeaders?: Record<string, string>
   /**
@@ -349,11 +376,18 @@ export interface AudioSource {
    */
   match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
   /**
-   * Every usable stream option for a candidate, best first as `compareStreams` orders them. It
+   * Every stream option found for a candidate, best first as `compareStreams` orders them. It
    * never drops an option because of `prefs`: the same list serves playback, which applies the
    * tier ceiling of the current connection with `pickStream`, and downloads, which want the best
-   * option (e.g. a real FLAC original). `prefs` is only a hint for ordering options of equal
-   * quality, e.g. putting first the codec that `prefs.download.format` needs no conversion for.
+   * option (e.g. a real FLAC original, `pickStream(options, 'lossless')`). `prefs` is only a hint
+   * for ordering options of equal quality, e.g. putting first the codec that
+   * `prefs.download.format` needs no conversion for.
+   *
+   * Every option says whether its URL delivers the whole file (`fullLength`). Where the bytes
+   * can be read (`ctx.capabilities.mediaBytes`), a resolver whose source may cap URLs, such as
+   * YouTube's, probes the end of the file; elsewhere its options are `unverified`. An option
+   * found `capped` may stay in the list so that the caller can tell why nothing plays, but it
+   * comes last, and `pickStream` never picks it.
    */
   resolve(
     candidate: AudioCandidate,

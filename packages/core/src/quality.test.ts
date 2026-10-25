@@ -10,6 +10,7 @@ import {
   DOWNLOAD_FORMATS,
   type DownloadFormat,
   describeConversion,
+  type FullLengthCheck,
   isCodec,
   isDownloadFormat,
   isLosslessCodec,
@@ -177,6 +178,69 @@ describe('compareStreams and pickStream', () => {
     const input = [opus50, flac]
     pickStream(input, 'high')
     expect(ids(input)).toEqual(['opus50', 'flac'])
+  })
+
+  describe('with full-length checks', () => {
+    const cappedFlac = { id: 'capped flac', tier: 'lossless', fullLength: 'capped' } as const
+    const cappedOpus = {
+      id: 'capped opus',
+      tier: 'high',
+      bitrateKbps: 160,
+      fullLength: 'capped',
+    } as const
+    const verifiedLow = {
+      id: 'verified low',
+      tier: 'low',
+      bitrateKbps: 48,
+      fullLength: 'verified',
+    } as const
+
+    it('ranks a capped stream after every other one, whatever its tier', () => {
+      const sorted = [cappedOpus, verifiedLow, cappedFlac, opus50].sort(compareStreams)
+      expect(ids(sorted)).toEqual(['opus50', 'verified low', 'capped flac', 'capped opus'])
+    })
+
+    it.each([
+      ['lossless', 'aac128'],
+      ['high', 'aac128'],
+      ['normal', 'opus50'],
+      ['low', 'opus50'],
+    ] as const)('never picks a capped option under a %s ceiling', (ceiling, expected) => {
+      expect(pickStream([cappedFlac, cappedOpus, aac128, opus50], ceiling)?.id).toBe(expected)
+    })
+
+    it('picks the lowest option above the ceiling that is not capped', () => {
+      expect(pickStream([cappedOpus, flac, aac128], 'low')?.id).toBe('aac128')
+      expect(pickStream([flac, { ...aac128, fullLength: 'capped' }], 'low')?.id).toBe('flac')
+    })
+
+    it('returns undefined when every option is capped, and leaves the input alone', () => {
+      const input = [cappedOpus, cappedFlac]
+      expect(pickStream(input, 'high')).toBeUndefined()
+      expect(pickStream(input, 'lossless')).toBeUndefined()
+      expect(ids(input)).toEqual(['capped opus', 'capped flac'])
+    })
+
+    it('ranks verified, unverified and unchecked streams by quality alone', () => {
+      const verified = { tier: 'high', bitrateKbps: 128, fullLength: 'verified' } as const
+      expect(compareStreams(verified, { ...verified, fullLength: 'unverified' })).toBe(0)
+      expect(compareStreams(verified, { tier: 'high', bitrateKbps: 128 })).toBe(0)
+      const unverified = { id: 'unverified', tier: 'high', bitrateKbps: 160 } as const
+      expect(pickStream([{ ...verified, id: 'verified' }, unverified], 'high')?.id).toBe(
+        'unverified',
+      )
+    })
+
+    it('treats an unknown full-length value from bad data like an unverified one', () => {
+      const odd = {
+        id: 'odd',
+        tier: 'high' as const,
+        bitrateKbps: 160,
+        fullLength: 'odd' as FullLengthCheck,
+      }
+      expect(compareStreams(odd, opus160)).toBe(0)
+      expect(pickStream([aac128, odd], 'high')?.id).toBe('odd')
+    })
   })
 })
 
