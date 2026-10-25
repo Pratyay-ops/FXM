@@ -1,0 +1,86 @@
+name: Android
+
+# Builds the debug APK with the same repo-local toolchain as on your machine (make
+# android-setup, make apk) and keeps it as a workflow artifact.
+on:
+  push:
+    paths:
+      - apps/mobile/**
+      - apps/web/**
+      - scripts/android-setup.sh
+      - .github/workflows/android.yml
+  pull_request:
+    paths:
+      - apps/mobile/**
+      - apps/web/**
+      - scripts/android-setup.sh
+      - .github/workflows/android.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # pnpm and its store in .tools/, the same cache as ci.yml.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/bin
+            .tools/pnpm/store
+          key: tools-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'scripts/install-*.sh') }}
+          restore-keys: tools-${{ runner.os }}-
+
+      # The JDK and Android SDK, pinned by scripts/android-setup.sh.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/jdk
+            .tools/android-sdk
+          key: android-sdk-${{ runner.os }}-${{ hashFiles('scripts/android-setup.sh') }}
+
+      # The Gradle home: the wrapper's Gradle and the downloaded dependencies.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/gradle/caches
+            .tools/gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('apps/mobile/package.json', 'apps/mobile/android/**/*.gradle', 'apps/mobile/android/gradle.properties', 'apps/mobile/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Set up toolchain and dependencies (frozen lockfile)
+        run: make ci-setup
+
+      - name: Install the JDK and Android SDK into .tools
+        run: make android-setup
+
+      - name: Doctor
+        run: make doctor
+
+      - name: Build the debug APK
+        run: make apk
+
+      # Gradle's lock and garbage-collection state must not go into the cache.
+      - name: Prepare the Gradle home for caching
+        run: rm -f .tools/gradle/caches/modules-2/modules-2.lock .tools/gradle/caches/modules-2/gc.properties
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
