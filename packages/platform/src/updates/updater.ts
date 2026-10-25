@@ -52,7 +52,7 @@ import {
  * Where FXM publishes signed updates: the `/updates/` folder of the static site. A stage that
  * renames the site changes it here.
  */
-export const DEFAULT_UPDATE_BASE_URLS: readonly string[] = ['https://fxm-music.pages.dev/updates/']
+export const DEFAULT_UPDATE_BASE_URLS: readonly string[] = ['https://fxmusic.pages.dev/updates/']
 
 /** The request the updater makes: a plain GET, without credentials, that follows no redirect. */
 export interface UpdateRequestInit {

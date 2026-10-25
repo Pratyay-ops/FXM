@@ -168,7 +168,7 @@ So a build with `distribution: 'fdroid'` (`parseDistribution(FXM_DISTRIBUTION)`,
 
 ## Hosting
 
-The signed files live in `apps/site/public/updates/` once the owner publishes them, and the site serves them at `https://fxm-music.pages.dev/updates/`. A stage that renames the site changes `DEFAULT_UPDATE_BASE_URLS`. The apps fetch them through their native HTTP, so the site needs no CORS headers for them, but the desktop HTTP plugin's scope and the Android plugin's host list must include that folder. Update URLs are HTTPS folders without credentials or a query (`http://localhost` and `http://127.0.0.1` are allowed for development). Requests are plain GETs with `credentials: 'omit'` that follow no redirect, with a 15 s limit for signature files and 60 s for artifacts.
+The signed files live in `apps/site/public/updates/` once the owner publishes them, and the site serves them at `https://fxmusic.pages.dev/updates/`. A stage that renames the site changes `DEFAULT_UPDATE_BASE_URLS`. The apps fetch them through their native HTTP, so the site needs no CORS headers for them, but the desktop HTTP plugin's scope and the Android plugin's host list must include that folder. Update URLs are HTTPS folders without credentials or a query (`http://localhost` and `http://127.0.0.1` are allowed for development). Requests are plain GETs with `credentials: 'omit'` that follow no redirect, with a 15 s limit for signature files and 60 s for artifacts.
 
 ## Entry points
 
