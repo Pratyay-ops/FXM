@@ -76,3 +76,4 @@ export function createYouTubeProviders(options: YouTubeProviderOptions = {}): Yo
     video: createYouTubeVideoProvider({ session }),
   }
 }
+export * from './stream'
