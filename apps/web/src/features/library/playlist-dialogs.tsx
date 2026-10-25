@@ -1,21 +1,16 @@
 import type { EntityId, Track } from '@fxm/core'
 import { ListMusic, Plus } from 'lucide-react'
-import { type FormEvent, type ReactNode, useCallback, useState } from 'react'
+import { type FormEvent, type ReactNode, useCallback, useRef, useState } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { usePlaylistList } from '../../db/hooks'
-import { getLibrary, LibraryError } from '../../db/repo'
+import { getLibrary } from '../../db/repo'
 import { MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from '../../db/types'
 import { CoverArt } from './cover-art'
+import { failureText } from './failure'
 import { artworkUrl, countLabel } from './format'
 import { showStatus } from './status'
 import { Dialog, DialogActions } from './ui/dialog'
 import { TextAreaField, TextField } from './ui/field'
-
-/** The words to show for a failed library change. */
-export function failureText(error: unknown): string {
-  if (error instanceof LibraryError) return error.message
-  return 'That could not be saved. The browser may be out of storage space, or blocking it.'
-}
 
 /** What the dialogs need to know about a playlist. */
 export interface PlaylistRef {
@@ -195,17 +190,25 @@ export function RenamePlaylistDialog({
   )
 }
 
-/** "Delete playlist?" Calls `onDeleted` once it is gone. */
+/**
+ * "Delete playlist?" Calls `onDeleted` once it is gone, and then gives focus to `focusAfter`:
+ * the button that opened the dialog, in the deleted playlist's row, is gone too. Focus starts
+ * on Cancel, so an extra Enter deletes nothing.
+ */
 export function DeletePlaylistDialog({
   playlist,
   onClose,
   onDeleted,
+  focusAfter,
 }: {
   playlist: PlaylistRef | null
   onClose: () => void
   onDeleted?: ((id: EntityId<'playlist'>) => void) | undefined
+  focusAfter?: (() => HTMLElement | null) | undefined
 }) {
   const [error, setError] = useState('')
+  // Kept from the delete until the dialog has closed, when the props are already gone.
+  const afterDelete = useRef<(() => HTMLElement | null) | undefined>(undefined)
   const close = () => {
     setError('')
     onClose()
@@ -214,6 +217,12 @@ export function DeletePlaylistDialog({
     <Dialog
       open={playlist !== null}
       onClose={close}
+      alert
+      finalFocus={() => {
+        const target = afterDelete.current
+        afterDelete.current = undefined
+        return target?.()
+      }}
       title="Delete playlist?"
       description={
         playlist && (
@@ -226,18 +235,23 @@ export function DeletePlaylistDialog({
     >
       {error && <ErrorText>{error}</ErrorText>}
       <DialogActions>
-        <button type="button" className={buttonClasses({ variant: 'ghost' })} onClick={close}>
+        <button
+          type="button"
+          data-autofocus=""
+          className={buttonClasses({ variant: 'ghost' })}
+          onClick={close}
+        >
           Cancel
         </button>
         <button
           type="button"
-          data-autofocus=""
           className={buttonClasses({ variant: 'danger' })}
           onClick={async () => {
             if (!playlist) return
             try {
               await getLibrary().deletePlaylist(playlist.id)
               showStatus(`Deleted ${playlist.name}`)
+              afterDelete.current = focusAfter
               close()
               onDeleted?.(playlist.id)
             } catch (failure) {
@@ -349,12 +363,12 @@ export function AddToPlaylistDialog({
 type DialogState =
   | { type: 'create' }
   | { type: 'rename'; playlist: PlaylistRef }
-  | { type: 'delete'; playlist: PlaylistRef }
+  | { type: 'delete'; playlist: PlaylistRef; focusAfter?: (() => HTMLElement | null) | undefined }
   | null
 
 /**
  * The create, edit and delete dialogs, for a component that offers those actions. Render
- * `dialogs` once.
+ * `dialogs` once. `remove` takes what should get focus once the playlist is deleted.
  */
 export function usePlaylistDialogs({
   onCreated,
@@ -368,7 +382,11 @@ export function usePlaylistDialogs({
   return {
     create: useCallback(() => setState({ type: 'create' }), []),
     rename: useCallback((playlist: PlaylistRef) => setState({ type: 'rename', playlist }), []),
-    remove: useCallback((playlist: PlaylistRef) => setState({ type: 'delete', playlist }), []),
+    remove: useCallback(
+      (playlist: PlaylistRef, focusAfter?: () => HTMLElement | null) =>
+        setState({ type: 'delete', playlist, focusAfter }),
+      [],
+    ),
     dialogs: (
       <>
         <CreatePlaylistDialog
@@ -382,6 +400,7 @@ export function usePlaylistDialogs({
         />
         <DeletePlaylistDialog
           playlist={state?.type === 'delete' ? state.playlist : null}
+          focusAfter={state?.type === 'delete' ? state.focusAfter : undefined}
           onClose={close}
           onDeleted={onDeleted}
         />

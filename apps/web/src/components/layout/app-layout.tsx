@@ -1,6 +1,7 @@
 import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
+import { StatusToast } from '../../features/library/status'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { BottomNav } from './bottom-nav'
 import { RouteAnnouncer } from './route-announcer'
@@ -68,6 +69,8 @@ export function AppLayout() {
       {/* Now Playing has its own big controls on phones. */}
       {pathname !== '/now-playing' && <MiniPlayer />}
       <BottomNav />
+      {/* One toast for the library's confirmations, also of actions taken in the sidebar. */}
+      <StatusToast />
       <ScrollRestoration />
     </>
   )

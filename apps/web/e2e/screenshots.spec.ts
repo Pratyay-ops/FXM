@@ -49,7 +49,10 @@ async function restoreLibrary(page: Page) {
   await expect(page.getByText('Library replaced from the backup')).toBeVisible()
 }
 
-/** The library's interactive states: a sort view, select mode, a row menu, the backup dialog. */
+/**
+ * The library's interactive states: a sort view, select mode, a row menu, a confirmation
+ * toast, the list of playlists sorted (with the sidebar's note), the backup dialog.
+ */
 async function captureLibraryStates(page: Page, prefix: string) {
   await page.goto('playlist/local:playlist:6f1c2d3e-0000-4000-8000-000000000001')
   const main = page.getByRole('main')
@@ -65,7 +68,15 @@ async function captureLibraryStates(page: Page, prefix: string) {
   await main.getByRole('button', { name: 'More options for Gravity Letters' }).click()
   await page.getByRole('menu').waitFor()
   await page.screenshot({ path: `screenshots/${prefix}-playlist-menu.png` })
-  await page.keyboard.press('Escape')
+  await page.getByRole('menuitem', { name: 'Move to top' }).click()
+  await page.getByText('Moved Gravity Letters to position 1 of 8').waitFor()
+  await page.screenshot({ path: `screenshots/${prefix}-playlist-toast.png` })
+  await page.goto('library')
+  await main.getByRole('button', { name: 'Sort: Custom order' }).click()
+  await page.getByRole('menuitemradio', { name: 'Name' }).click()
+  await main.getByText('Sorted by name, A to Z.').waitFor()
+  await page.screenshot({ path: `screenshots/${prefix}-library-sorted.png` })
+  await main.getByRole('button', { name: 'Show custom order' }).click()
   await page.goto('library')
   await page.getByRole('main').getByRole('button', { name: 'Backup' }).click()
   await page.getByRole('dialog', { name: 'Back up your library' }).waitFor()

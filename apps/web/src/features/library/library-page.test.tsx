@@ -1,5 +1,6 @@
 import { createSeededRandom, type EntityId, fisherYatesShuffle } from '@fxm/core'
 import { screen, waitFor, within } from '@testing-library/react'
+import { Dexie } from 'dexie'
 import { describe, expect, it, vi } from 'vitest'
 import { getLibrary, resetLibrary } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from '../../db/types'
@@ -37,6 +38,23 @@ function rowNames(list: HTMLElement): string[] {
   return within(list)
     .getAllByRole('button', { name: /^More options for / })
     .map((button) => button.getAttribute('aria-label')?.replace('More options for ', '') ?? '')
+}
+
+/** A phone's window: only Tailwind's `max-sm` query (below 640 px) matches. */
+function phoneWindow() {
+  vi.spyOn(window, 'matchMedia').mockImplementation(
+    (query: string) =>
+      ({
+        matches: query === '(width < 40rem)',
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }) as MediaQueryList,
+  )
 }
 
 const main = () => within(screen.getByRole('main'))
@@ -94,7 +112,9 @@ describe('Library page', { timeout: 30_000 }, () => {
 
     await user.click(main().getByRole('button', { name: 'More options for Final' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Delete…' }))
-    const confirm = await screen.findByRole('dialog', { name: 'Delete playlist?' })
+    const confirm = await screen.findByRole('alertdialog', { name: 'Delete playlist?' })
+    // It can't be undone: focus starts on Cancel, so an extra Enter deletes nothing.
+    expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus()
     await user.click(within(confirm).getByRole('button', { name: 'Delete' }))
 
     await waitFor(() => expect(router.state.location.pathname).toBe('/library'))
@@ -213,6 +233,24 @@ describe('Library page', { timeout: 30_000 }, () => {
     )
   })
 
+  it('puts Shuffle order in the sort menu on phones, where it keeps its label', async () => {
+    phoneWindow()
+    await resetLibrary({ random: createSeededRandom(5) })
+    const id = await playlistWith('Mix', 8)
+    const { user } = renderApp(playlistPath(id))
+    await songs('Mix')
+    // Two chips with their labels fit a 320 px phone; a third would be an unlabelled icon.
+    expect(main().queryByRole('button', { name: 'Shuffle order' })).not.toBeInTheDocument()
+    expect(main().getByRole('button', { name: 'Select', pressed: false })).toHaveTextContent(
+      'Select',
+    )
+
+    await user.click(main().getByRole('button', { name: 'Sort: Custom order' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Shuffle order' }))
+
+    expect(await main().findByText('The order was shuffled.')).toBeInTheDocument()
+  })
+
   it('sorts as a view, then saves the sort as the custom order', async () => {
     const id = await getLibrary().createPlaylist({
       name: 'Mix',
@@ -244,7 +282,8 @@ describe('Library page', { timeout: 30_000 }, () => {
       expect(await getLibrary().getOrder(id)).toEqual([1, 3, 2].map((n) => track(n).id)),
     )
     expect(await main().findByText('The sorted order was saved.')).toBeInTheDocument()
-    expect(main().getByRole('button', { name: 'Sort: Custom order' })).toBeInTheDocument()
+    // The button went with the sort view: focus is on the sort button, not lost.
+    expect(main().getByRole('button', { name: 'Sort: Custom order' })).toHaveFocus()
     expect(within(list).getByRole('button', { name: 'Reorder Charlie' })).toBeInTheDocument()
   })
 
@@ -305,7 +344,11 @@ describe('Library page', { timeout: 30_000 }, () => {
     await waitFor(() =>
       expect(rowNames(list)).toEqual(['Downloads', 'Echo', 'Liked songs', 'Zulu']),
     )
-    await user.click(sidebar().getByRole('button', { name: 'Arrange playlists' }))
+    // Rows can't be dragged in a sorted view: the sidebar says which view it shows.
+    expect(sidebar().getByText('Sorted by name, A to Z')).toBeInTheDocument()
+    await user.click(
+      sidebar().getByRole('button', { name: 'Arrange playlists, sorted by name, a to z' }),
+    )
     await user.click(await screen.findByRole('menuitem', { name: 'Save as custom order' }))
     await waitFor(async () =>
       expect((await getLibrary().getPlaylistList()).items.map((item) => item.name)).toEqual([
@@ -438,9 +481,241 @@ describe('Library page', { timeout: 30_000 }, () => {
     const recent = await main().findByRole('list', { name: 'Recently played' })
     expect(rowNames(recent)).toEqual(['Song 7'])
     await user.click(main().getByRole('button', { name: 'Clear history' }))
-    const confirm = await screen.findByRole('dialog', { name: 'Clear listening history?' })
+    const confirm = await screen.findByRole('alertdialog', { name: 'Clear listening history?' })
+    expect(within(confirm).getByRole('button', { name: 'Cancel' })).toHaveFocus()
     await user.click(within(confirm).getByRole('button', { name: 'Clear history' }))
     expect(await main().findByRole('heading', { name: 'Nothing played yet' })).toBeInTheDocument()
+    // The button went with the list: the tab panel keeps focus.
+    await waitFor(() => expect(main().getByRole('tabpanel')).toHaveFocus())
+  })
+
+  it('moves focus into a menu once it is placed, never while it is hidden', async () => {
+    const id = await playlistWith('Mix', 3)
+    const { user } = renderApp(playlistPath(id))
+    const list = await songs('Mix')
+    // Browsers ignore focus() on an element that is visibility: hidden: happy-dom doesn't.
+    const focusedWhileHidden: string[] = []
+    const focus = HTMLElement.prototype.focus
+    vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (
+      this: HTMLElement,
+      options?: FocusOptions,
+    ) {
+      const menu = this.closest<HTMLElement>('[role="menu"]')
+      if (menu && getComputedStyle(menu).visibility === 'hidden') {
+        focusedWhileHidden.push(this.textContent ?? '')
+      }
+      focus.call(this, options)
+    })
+
+    const trigger = within(list).getByRole('button', { name: 'More options for Song 2' })
+    trigger.focus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByRole('menuitem', { name: 'Move to top' })).toHaveFocus()
+    await user.keyboard('{ArrowDown}')
+    expect(screen.getByRole('menuitem', { name: 'Move up' })).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+
+    // ArrowUp on a menu button opens it on its last entry; Tab closes it and moves on.
+    const sort = main().getByRole('button', { name: 'Sort: Custom order' })
+    sort.focus()
+    await user.keyboard('{ArrowUp}')
+    expect(await screen.findByRole('menuitemradio', { name: 'Duration' })).toHaveFocus()
+    await user.keyboard('{Tab}')
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(focusedWhileHidden).toEqual([])
+  })
+
+  it('says where a song moved from its menu, for screen readers too', async () => {
+    const id = await playlistWith('Mix', 4)
+    const { user } = renderApp(playlistPath(id))
+    const list = await songs('Mix')
+
+    await user.click(within(list).getByRole('button', { name: 'More options for Song 3' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Move to top' }))
+    expect(await screen.findByText('Moved Song 3 to position 1 of 4')).toBeInTheDocument()
+
+    await user.click(main().getByRole('button', { name: 'Select', pressed: false }))
+    await user.click(within(list).getByRole('checkbox', { name: 'Select Song 1' }))
+    await user.click(within(list).getByRole('checkbox', { name: 'Select Song 2' }))
+    await user.click(main().getByRole('button', { name: 'Move' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Move to bottom' }))
+    expect(await screen.findByText('Moved 2 songs to the bottom')).toBeInTheDocument()
+    await waitFor(() => expect(rowNames(list)).toEqual(['Song 3', 'Song 4', 'Song 1', 'Song 2']))
+  })
+
+  it('keeps focus in the list when songs are removed', async () => {
+    const id = await playlistWith('Mix', 4)
+    const { user } = renderApp(playlistPath(id))
+    const list = await songs('Mix')
+    const menuOf = (name: string) =>
+      within(list).getByRole('button', { name: `More options for ${name}` })
+
+    // From a song's menu: the next song's menu button takes over.
+    menuOf('Song 2').focus()
+    await user.keyboard('{Enter}')
+    await screen.findByRole('menu')
+    await user.keyboard('{End}{Enter}')
+    await waitFor(() => expect(rowNames(list)).toEqual(['Song 1', 'Song 3', 'Song 4']))
+    await waitFor(() => expect(menuOf('Song 3')).toHaveFocus())
+
+    // The last song: the one before it takes over.
+    await user.click(menuOf('Song 4'))
+    await user.click(await screen.findByRole('menuitem', { name: 'Remove from this playlist' }))
+    await waitFor(() => expect(rowNames(list)).toEqual(['Song 1', 'Song 3']))
+    await waitFor(() => expect(menuOf('Song 3')).toHaveFocus())
+
+    // From the selection bar: the checkbox of the song after the first one removed.
+    await user.click(main().getByRole('button', { name: 'Select', pressed: false }))
+    await user.click(within(list).getByRole('checkbox', { name: 'Select Song 1' }))
+    await user.click(main().getByRole('button', { name: 'Remove' }))
+    await waitFor(() => expect(rowNames(list)).toEqual(['Song 3']))
+    await waitFor(() =>
+      expect(within(list).getByRole('checkbox', { name: 'Select Song 3' })).toHaveFocus(),
+    )
+
+    // The last one: the empty playlist takes focus.
+    await user.click(within(list).getByRole('checkbox', { name: 'Select Song 3' }))
+    await user.click(main().getByRole('button', { name: 'Remove' }))
+    const empty = await main().findByRole('heading', { name: 'This playlist is empty' })
+    await waitFor(() => expect(empty.closest('[tabindex="-1"]')).toHaveFocus())
+  })
+
+  it('keeps focus in Liked songs when a song is unliked there', async () => {
+    for (const n of [1, 2]) await getLibrary().like(track(n))
+    const { user } = renderApp('/library?tab=liked')
+    const list = await songs('Liked songs')
+    await waitFor(() => expect(rowNames(list)).toEqual(['Song 2', 'Song 1']))
+
+    await user.click(within(list).getByRole('button', { name: 'Like Song 2', pressed: true }))
+
+    await waitFor(() => expect(rowNames(list)).toEqual(['Song 1']))
+    await waitFor(() =>
+      expect(within(list).getByRole('button', { name: 'Like Song 1' })).toHaveFocus(),
+    )
+  })
+
+  it('gives focus to the next playlist after deleting one', async () => {
+    await getLibrary().createPlaylist({ name: 'Alpha' })
+    await getLibrary().createPlaylist({ name: 'Bravo' })
+    const { user } = renderApp('/library')
+    const list = await main().findByRole('list', { name: 'Your playlists' })
+    await waitFor(() =>
+      expect(rowNames(list)).toEqual(['Bravo', 'Alpha', 'Liked songs', 'Downloads']),
+    )
+
+    within(list).getByRole('button', { name: 'More options for Bravo' }).focus()
+    await user.keyboard('{Enter}')
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete…' }))
+    const confirm = await screen.findByRole('alertdialog', { name: 'Delete playlist?' })
+    await user.click(within(confirm).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(rowNames(list)).toEqual(['Alpha', 'Liked songs', 'Downloads']))
+    await waitFor(() =>
+      expect(within(list).getByRole('button', { name: 'More options for Alpha' })).toHaveFocus(),
+    )
+  })
+
+  it('keeps focus in the Artists tab when an artist is unfollowed', async () => {
+    for (const [id, name] of [
+      ['UC1', 'Band'],
+      ['UC2', 'Duo'],
+    ] as const) {
+      await getLibrary().follow({
+        id: `ytm:artist:${id}` as EntityId<'artist'>,
+        source: 'ytm',
+        name,
+        artwork: [],
+      })
+    }
+    const { user } = renderApp('/library?tab=artists')
+    const artists = await main().findByRole('list', { name: 'Artists you follow' })
+
+    await user.click(within(artists).getByRole('button', { name: 'More options for Duo' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Unfollow' }))
+    await waitFor(() =>
+      expect(within(artists).getByRole('button', { name: 'More options for Band' })).toHaveFocus(),
+    )
+
+    // The last one: the tab panel, now with the empty state, keeps focus.
+    await user.click(within(artists).getByRole('button', { name: 'More options for Band' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Unfollow' }))
+    expect(
+      await main().findByRole('heading', { name: 'Follow artists you love' }),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(main().getByRole('tabpanel')).toHaveFocus())
+  })
+
+  it('shows a saved sort as the custom order at once, without the old order in between', async () => {
+    const id = await getLibrary().createPlaylist({
+      name: 'Mix',
+      tracks: [
+        track(1, { title: 'Charlie' }),
+        track(2, { title: 'alpha' }),
+        track(3, { title: 'Bravo' }),
+      ],
+    })
+    const { user } = renderApp(playlistPath(id))
+    const list = await songs('Mix')
+    await user.click(main().getByRole('button', { name: 'Sort: Custom order' }))
+    await user.click(await screen.findByRole('menuitemradio', { name: 'Title' }))
+    await waitFor(() => expect(rowNames(list)).toEqual(['alpha', 'Bravo', 'Charlie']))
+
+    // Every order the list shows from here on.
+    const shown: string[][] = []
+    const observer = new MutationObserver(() => {
+      const current = screen.queryByRole('list', { name: 'Songs in Mix' })
+      if (current) shown.push(rowNames(current))
+    })
+    observer.observe(main().getByRole('heading', { level: 1 }).closest('main') as HTMLElement, {
+      childList: true,
+      subtree: true,
+    })
+    await user.click(main().getByRole('button', { name: 'Save as custom order' }))
+    await waitFor(async () =>
+      expect(await getLibrary().getOrder(id)).toEqual([2, 3, 1].map((n) => track(n).id)),
+    )
+    await screen.findByText('The sorted order was saved.')
+    observer.disconnect()
+
+    expect(main().getByRole('button', { name: 'Sort: Custom order' })).toBeInTheDocument()
+    expect(shown.length).toBeGreaterThan(0)
+    for (const order of shown) expect(order).toEqual(['alpha', 'Bravo', 'Charlie'])
+  })
+
+  it('says when a like from the player bar could not be saved', async () => {
+    const { user } = renderApp('/library')
+    const player = within(screen.getAllByRole('region', { name: 'Player' })[0] as HTMLElement)
+    await waitFor(() => expect(player.getByRole('button', { name: 'Like' })).toBeEnabled())
+    vi.spyOn(getLibrary(), 'toggleLike').mockRejectedValue(new Error('QuotaExceededError'))
+
+    await user.click(player.getByRole('button', { name: 'Like' }))
+
+    expect(
+      await screen.findByText(
+        'That could not be saved. The browser may be out of storage space, or blocking it.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('says so at once when the browser window has no IndexedDB at all', async () => {
+    // Firefox with IndexedDB turned off, some sandboxed frames: Dexie finds none when it loads,
+    // and its live queries never answer.
+    const deps = Dexie.dependencies
+    const indexedDB = deps.indexedDB
+    deps.indexedDB = undefined as unknown as IDBFactory
+    try {
+      renderApp('/library')
+      expect(
+        await main().findByText(/Your library can.t be read in this browser window/),
+      ).toBeInTheDocument()
+      expect(
+        await screen.findByText("Your playlists can't be shown in this browser window."),
+      ).toBeInTheDocument()
+    } finally {
+      deps.indexedDB = indexedDB
+    }
   })
 
   it('says so when a local playlist does not exist', async () => {
