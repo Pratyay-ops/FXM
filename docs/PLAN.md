@@ -69,7 +69,7 @@ flowchart LR
 | **0.2** | Isolated toolchain (pnpm, uv, `.tools/`, `make nuke`) | `chore/0.2-toolchain` | 0.1 | ✅ |
 | **0.3** | Monorepo scaffold | `chore/0.3-monorepo` | 0.2 | ✅ |
 | **0.4** | Continuous integration | `ci/0.4-ci` | 0.3 | ✅ |
-| **1.1** | Core domain model, interfaces, mode and quality policy | `feat/1.1-core-model` | 0.4 | 🟡 |
+| **1.1** | Core domain model, interfaces, mode and quality policy | `feat/1.1-core-model` | 0.4 | ✅ |
 | **1.2** | Platform transports and capability detection | `feat/1.2-platform` | 1.1 | ⬜ |
 | **1.3** | YouTube Music + YouTube metadata provider | `feat/1.3-youtube` | 1.1 | ⬜ |
 | **1.4** | YouTube stream resolver | `feat/1.4-youtube-streams` | 1.3 | ⬜ |
@@ -152,7 +152,7 @@ Removed in revision 2:
 
 ## Phase 1: Core, platform and sources
 
-### 1.1 Core domain model, interfaces, mode and quality policy 🟡
+### 1.1 Core domain model, interfaces, mode and quality policy ✅
 
 **Branch** `feat/1.1-core-model` · **Depends on** 0.4 · **Scope** `packages/core/**`
 
