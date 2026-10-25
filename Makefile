@@ -119,9 +119,10 @@ desktop-build: ## Build the desktop app (FXM.app on macOS; all bundles elsewhere
 	@scripts/install-rust.sh --check
 	@$(RUN) pnpm --filter @fxm/desktop tauri build $(DESKTOP_BUNDLES) -- --locked
 
+# Naming `app` too keeps FXM.app: with only `dmg`, Tauri deletes it after packing the image.
 desktop-dmg: ## macOS: build FXM.app and the .dmg, without Finder windows
 	@scripts/install-rust.sh --check
-	@CI=true $(RUN) pnpm --filter @fxm/desktop tauri build --bundles dmg -- --locked
+	@CI=true $(RUN) pnpm --filter @fxm/desktop tauri build --bundles app,dmg -- --locked
 
 desktop-check: ## Check the desktop Rust code: rustfmt, clippy, cargo test
 	@scripts/install-rust.sh --check
