@@ -65,6 +65,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make test` / `make coverage` | Run all tests (Vitest), optionally with a coverage report |
 | `make build` | Build every app |
 | `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
+| `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make clean` | Remove build output |
@@ -77,6 +78,10 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 - **Style:** Biome formats and lints: 2 spaces, single quotes, no semicolons, 100 columns. Run `make format` before committing. The VS Code settings in `.vscode/` format on save with the Biome extension.
 - **Tests:** `*.test.ts(x)` next to the code, run by Vitest across all packages.
 - **New dependencies:** `minimumReleaseAge` in `pnpm-workspace.yaml` makes pnpm install only versions that have been public for at least 14 days, transitive dependencies included. Dependabot uses the same 14-day cooldown, and GitHub Actions are pinned to commit SHAs.
+
+## FXM Connect browser extension
+
+`apps/extension` is FXM Connect, the optional companion extension that lets the web app reach YouTube, Spotify and Last.fm from the user's browser (Manifest V3, Chromium and Firefox). `make build` includes it; `make extension` builds only it. Its end-to-end test loads the built extension into Playwright's Chromium against a local HTTPS mock on port 5240. It is not part of `make test`; run it with `scripts/run.sh pnpm --filter @fxm/extension test:e2e`. The first run installs Chromium into `.tools/playwright`. Permissions, privacy, installation and the page protocol are in [apps/extension/README.md](../apps/extension/README.md).
 
 ## Continuous integration
 
