@@ -54,6 +54,23 @@ jobs:
       - name: Set up toolchain and dependencies (frozen lockfile)
         run: make ci-setup
 
+      # TEMPORARY (stage 2.8): stand-in sandbox documents, so the deployed sandbox checks run on
+      # the real host before 1.10 ships the real ones. Only on the stage branch, never committed.
+      - name: Add stand-in sandbox documents
+        if: github.ref == 'refs/heads/ci/2.8-deploy'
+        run: |
+          mkdir -p apps/web/sandbox
+          for name in innertube userhost; do
+            cat >"apps/web/sandbox/$name.html" <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>sandbox stand-in</title><script>
+          addEventListener('message', (event) => {
+            if (event.origin !== 'https://fxm-music.pages.dev' || event.source !== parent) return
+            event.source.postMessage({ ok: true }, event.origin)
+          })
+          </script>
+          HTML
+          done
+
       - name: Compose dist/pages
         run: make dist
 
