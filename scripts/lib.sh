@@ -32,10 +32,16 @@ fxm_sha256() {
   fi
 }
 
+# fxm_curl <url> <dest>: download, retrying any failure (including mid-transfer resets).
+fxm_curl() {
+  curl --fail --location --silent --show-error --retry 4 --retry-all-errors --retry-delay 2 \
+    --output "$2" "$1"
+}
+
 # fxm_download <url> <dest> <sha256>: download and refuse anything that doesn't match the pin.
 fxm_download() {
   local url=$1 dest=$2 want=$3 got
-  curl --fail --location --silent --show-error --retry 3 --output "$dest" "$url"
+  fxm_curl "$url" "$dest"
   got=$(fxm_sha256 "$dest")
   if [ "$got" != "$want" ]; then
     rm -f "$dest"
@@ -46,7 +52,7 @@ fxm_download() {
 # fxm_download_sri <url> <dest> <sha512-…>: same, for npm registry integrity strings.
 fxm_download_sri() {
   local url=$1 dest=$2 want=$3 got
-  curl --fail --location --silent --show-error --retry 3 --output "$dest" "$url"
+  fxm_curl "$url" "$dest"
   got="sha512-$(openssl dgst -sha512 -binary "$dest" | openssl base64 -A)"
   if [ "$got" != "$want" ]; then
     rm -f "$dest"
