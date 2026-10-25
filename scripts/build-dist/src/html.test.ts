@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { decodeEntities, elementTexts, normalizeNewlines, scanPage, tokenize } from './html.ts'
+import {
+  decodeEntities,
+  elementTexts,
+  insertIntoHead,
+  normalizeNewlines,
+  scanPage,
+  tokenize,
+} from './html.ts'
 
 describe('tokenize', () => {
   it('reads tags, quoted and unquoted attributes, and text', () => {
@@ -119,5 +126,23 @@ describe('elementTexts', () => {
 describe('decodeEntities', () => {
   it('decodes named and numeric references and leaves unknown ones', () => {
     expect(decodeEntities('&lt;&#39;&#x41;&nbsp;&unknown;')).toBe("<'A &unknown;")
+  })
+})
+
+describe('insertIntoHead', () => {
+  it('inserts after the charset, which must stay in the first 1,024 bytes, or after <head>', () => {
+    expect(insertIntoHead('<html><head>\r\n<meta charset=utf-8><title>t</title>', '<x>')).toBe(
+      '<html><head>\n<meta charset=utf-8><x><title>t</title>',
+    )
+    expect(insertIntoHead('<HEAD class="a"><title>t</title><meta charset="utf-8">', '<x>')).toBe(
+      '<HEAD class="a"><title>t</title><meta charset="utf-8"><x>',
+    )
+    expect(insertIntoHead('<head><title>t</title></head><meta charset="utf-8">', '<x>')).toBe(
+      '<head><x><title>t</title></head><meta charset="utf-8">',
+    )
+  })
+
+  it('needs a head tag, and ignores one in a comment', () => {
+    expect(() => insertIntoHead('<!-- <head> --><title>t</title>', '<x>')).toThrow(/no <head> tag/)
   })
 })

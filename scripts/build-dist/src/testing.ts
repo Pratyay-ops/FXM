@@ -182,8 +182,9 @@ export function fakeAppPart(
   }))
 }
 
-/** The script of a fake sandbox document. */
-export const sandboxScript = (name: string) => `addEventListener('message', () => {}) // ${name}`
+/** The script of a fake sandbox document: inert unless its origin is opaque, as later-stages.ts asks. */
+export const sandboxScript = (name: string) =>
+  `if (self.origin === 'null') addEventListener('message', () => {}) // ${name}`
 
 /**
  * A sandbox document the way 1.10 builds them: one inline script, and its policy without

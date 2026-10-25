@@ -3,6 +3,7 @@ import {
   type HeaderRule,
   MAX_RULES,
   matchingRules,
+  normalizeRulePath,
   parseHeaders,
   ruleRegExp,
   rulesOverlap,
@@ -34,13 +35,17 @@ describe('serializeHeaders and parseHeaders', () => {
     ])
   })
 
-  it('write a % in a path as %25, and decode paths as Cloudflare does', () => {
-    const text = serializeHeaders([{ path: '/:name%*', headers: [['A', 'b']] }])
-    expect(text).toBe('/:name%25*\n  A: b\n')
-    expect(parseHeaders(text).rules.map((rule) => rule.path)).toEqual(['/:name%*'])
-    const { rules, invalid } = parseHeaders('/zza%41\n  A: b\n/zzb%*\n  A: b\n')
-    expect(rules.map((rule) => rule.path)).toEqual(['/zzaA'])
-    expect(invalid).toEqual(['line 3: an invalid percent-escape, Cloudflare ignores it: /zzb%*'])
+  it('read paths the way Cloudflare normalizes them, and match requests as sent', () => {
+    // Measured 2026-10-26: escapes of unreserved characters are decoded, others kept, and a
+    // path with an invalid escape is ignored.
+    const { rules, invalid } = parseHeaders('/zza%41\n  A: b\n/zzg%25*\n  A: b\n/zzb%*\n  A: b\n')
+    expect(rules.map((rule) => rule.path)).toEqual(['/zzaA', '/zzg%25*'])
+    expect(invalid).toEqual(['line 5: an invalid percent-escape, Cloudflare ignores it: /zzb%*'])
+    expect(matchingRules(rules, '/zza%41')).toEqual([])
+    expect(matchingRules(rules, '/zzaA')).toHaveLength(1)
+    expect(matchingRules(rules, '/zzg%2561pp/')).toHaveLength(1)
+    expect(matchingRules(rules, '/zzg%61pp/')).toEqual([])
+    expect(normalizeRulePath('/%7E%2f%2D')).toBe('/~%2f-')
   })
 
   it('join a header repeated within a rule with a comma, as Cloudflare does', () => {
@@ -104,56 +109,15 @@ describe('rulesOverlap', () => {
     ['/*', '/app/*', true],
     ['/app/*', '/embed/*', false],
     ['/sandbox/innertube', '/sandbox/innertube.html', false],
-    // The encoded-path rules: `<folder>/%*` is a prefix, `<folder>/:name%*` its own shape.
-    ['/%*', '/privacy', false],
-    ['/:name%*', '/privacy', false],
-    ['/%*', '/app/*', false],
-    ['/:name%*', '/app/*', false],
-    ['/:name%*', '/.well-known/*', false],
-    ['/%*', '/sandbox/%*', false],
-    ['/:name%*', '/sandbox/:name%*', false],
-    ['/:name%*', '/sandbox/%*', false],
-    ['/%*', '/sandbox/:name%*', false],
-    ['/sandbox/:name%*', '/sandbox/innertube', false],
-    ['/sandbox/%*', '/sandbox/innertube.html', false],
-    ['/%*', '/%*', true],
-    ['/:name%*', '/:name%*', true],
-    // A first segment that starts with % and has another one later matches both.
-    ['/%*', '/:name%*', true],
-    ['/sandbox/%*', '/sandbox/:name%*', true],
-    ['/*', '/:name%*', true],
-    ['/sandbox/*', '/sandbox/:name%*', true],
-    ['/:name%*', '/sandbox/*', false],
   ])('%s and %s: %s', (a, b, overlap) => {
     expect(rulesOverlap(a, b)).toBe(overlap)
     expect(rulesOverlap(b, a)).toBe(overlap)
   })
 
-  it('agrees with the paths the rules match', () => {
-    const paths = [
-      '/%61%62',
-      '/a%62',
-      '/%61',
-      '/sandbox/x%79',
-      '/sandbox/%78',
-      '/sandbox/x',
-      '/s%61/x',
-    ]
-    const rules = ['/%*', '/:name%*', '/sandbox/%*', '/sandbox/:name%*', '/sandbox/*', '/sandbox/x']
-    for (const a of rules) {
-      for (const b of rules) {
-        const shared = paths.some((path) => ruleRegExp(a).test(path) && ruleRegExp(b).test(path))
-        // Every pair that shares one of these paths must be reported as overlapping.
-        if (shared) expect(rulesOverlap(a, b), `${a} ${b}`).toBe(true)
-      }
-    }
-  })
-
   it('refuses rule shapes FXM never writes', () => {
     expect(() => rulesOverlap('/blog/:slug', '/a')).toThrow(/placeholders/)
     expect(() => rulesOverlap('/a*', '/a')).toThrow(/splat/)
-    expect(() => rulesOverlap('/a%b/*', '/a')).toThrow(/splat/)
-    expect(() => rulesOverlap('/a%b', '/a')).toThrow(/can't contain %/)
-    expect(() => rulesOverlap('/:name%x*', '/a')).toThrow(/placeholders/)
+    expect(() => rulesOverlap('/a%41', '/a')).toThrow(/can't contain %/)
+    expect(() => rulesOverlap('/%*', '/a')).toThrow(/can't contain %/)
   })
 })

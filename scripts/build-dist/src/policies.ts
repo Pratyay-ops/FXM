@@ -219,29 +219,13 @@ export const STATIC_FILE_POLICY: Policy = [
   ...COMMON_DOCUMENT_DIRECTIVES,
 ]
 
-/**
- * Paths with a percent-encoded character in a folder whose files have rules of their own, such
- * as `/priv%61cy`, `/%61pp/` or `/sandbox/innertub%65`. Pages decodes a path to find its file
- * but matches `_headers` against the path as sent, so without these rules such a path would
- * serve the file with none of its headers: a sandbox document at FXM's own origin, or the app
- * without its policy. Here nothing runs (`sandbox` without `allow-scripts` gives an opaque
- * origin and no scripts), nothing loads, and no site can frame it.
- */
-export const ENCODED_PATH_POLICY: Policy = [
-  ['sandbox', []],
-  ['default-src', [NONE]],
-  ['frame-ancestors', [NONE]],
-  ...COMMON_DOCUMENT_DIRECTIVES,
-]
-
 /** What a rule path serves, for the checks below. */
-export type RuleFamily = 'app' | 'embed' | 'sandbox' | 'evaluator' | 'encoded' | 'site'
+export type RuleFamily = 'app' | 'embed' | 'sandbox' | 'evaluator' | 'site'
 
 /** The family of a `_headers` rule path that make dist writes. */
 export function ruleFamily(rulePath: string): RuleFamily {
   if (rulePath === '/app/*') return 'app'
   if (rulePath === '/embed/*') return 'embed'
-  if (/\/(:[A-Za-z]\w*)?%\*$/.test(rulePath)) return 'encoded'
   const sandbox = /^\/sandbox\/([^/]+?)(\.html)?$/.exec(rulePath)?.[1]
   if (sandbox !== undefined && isSandboxDocument(`${sandbox}.html`)) {
     return sandbox === 'eval' ? 'evaluator' : 'sandbox'
@@ -252,9 +236,9 @@ export function ruleFamily(rulePath: string): RuleFamily {
 /**
  * Why a Content-Security-Policy breaks a promise FXM makes about the paths a rule serves (an
  * empty list when it doesn't): sandbox documents are opaque and only the evaluator may
- * evaluate, the web app never runs inline or evaluated script, only the embed and the sandbox
- * documents may be framed by other sites, and encoded paths run nothing. `make dist` checks
- * every rule it writes, and the header check every response.
+ * evaluate, no page runs inline script it doesn't list by hash, and only the embed and the
+ * sandbox documents may be framed by other sites. `make dist` checks every rule it writes,
+ * and the header check every response.
  */
 export function policyProblems(rulePath: string, value: string): string[] {
   let directives: Map<string, string[]>
@@ -274,13 +258,6 @@ export function policyProblems(rulePath: string, value: string): string[] {
   if (family === 'sandbox' || family === 'evaluator') {
     if (sources('sandbox').join(' ') !== 'allow-scripts') {
       problems.push('a sandbox document without "sandbox allow-scripts"')
-    }
-  } else if (family === 'encoded') {
-    if (!directives.has('sandbox') || sources('sandbox').length > 0) {
-      problems.push('an encoded path without "sandbox" (with no allow- flags)')
-    }
-    if (sources('default-src').join(' ') !== NONE) {
-      problems.push(`an encoded path without "default-src ${NONE}"`)
     }
   }
   const framable = family === 'embed' || family === 'sandbox' || family === 'evaluator'

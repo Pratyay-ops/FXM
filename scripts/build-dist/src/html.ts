@@ -60,13 +60,18 @@ function isLetter(char: string | undefined): boolean {
 
 /** Splits an HTML document into start tags, end tags and text. */
 export function tokenize(input: string): Token[] {
-  const html = normalizeNewlines(input)
-  const tokens: Token[] = []
+  return tokenizeWithOffsets(normalizeNewlines(input)).map(({ token }) => token)
+}
+
+/** The tokens of an HTML document whose newlines are normalized, with where each ends in it. */
+function tokenizeWithOffsets(html: string): { token: Token; end: number }[] {
+  const tokens: { token: Token; end: number }[] = []
   let i = 0
   let textStart = 0
+  const push = (token: Token, end: number) => tokens.push({ token, end })
 
   const flushText = (end: number) => {
-    if (end > textStart) tokens.push({ type: 'text', text: html.slice(textStart, end), raw: false })
+    if (end > textStart) push({ type: 'text', text: html.slice(textStart, end), raw: false }, end)
   }
 
   while (i < html.length) {
@@ -89,21 +94,22 @@ export function tokenize(input: string): Token[] {
     } else if (next === '/' && isLetter(html[i + 2])) {
       flushText(i)
       const nameEnd = scanName(html, i + 2)
-      tokens.push({ type: 'end', name: html.slice(i + 2, nameEnd).toLowerCase() })
+      const name = html.slice(i + 2, nameEnd).toLowerCase()
       const end = html.indexOf('>', nameEnd)
       i = end === -1 ? html.length : end + 1
+      push({ type: 'end', name }, i)
       textStart = i
     } else if (isLetter(next)) {
       flushText(i)
       const tag = readStartTag(html, i)
-      tokens.push(tag.token)
+      push(tag.token, tag.end)
       i = tag.end
       textStart = i
       // In HTML a slash doesn't close `<script/>`: a raw-text element always runs to its end tag.
       if (RAW_TEXT.has(tag.token.name)) {
         const close = findEndTag(html, i, tag.token.name)
-        tokens.push({ type: 'text', text: html.slice(i, close.contentEnd), raw: true })
-        tokens.push({ type: 'end', name: tag.token.name })
+        push({ type: 'text', text: html.slice(i, close.contentEnd), raw: true }, close.contentEnd)
+        push({ type: 'end', name: tag.token.name }, close.end)
         i = close.end
         textStart = i
       }
@@ -182,6 +188,29 @@ function findEndTag(html: string, from: number, name: string): { contentEnd: num
   if (!match) return { contentEnd: html.length, end: html.length }
   const close = html.indexOf('>', match.index)
   return { contentEnd: match.index, end: close === -1 ? html.length : close + 1 }
+}
+
+/**
+ * Inserts markup at the start of a document's head: right after its `<meta charset>` when it
+ * has one (which must stay within the first 1,024 bytes), otherwise right after `<head>`.
+ * Line endings are normalized first, as a browser does. Throws for a document without a
+ * `<head>` tag.
+ */
+export function insertIntoHead(input: string, markup: string): string {
+  const html = normalizeNewlines(input)
+  const tokens = tokenizeWithOffsets(html)
+  const head = tokens.findIndex(({ token }) => token.type === 'start' && token.name === 'head')
+  if (head === -1) throw new Error('the document has no <head> tag')
+  let at = (tokens[head] as { end: number }).end
+  for (const { token, end } of tokens.slice(head + 1)) {
+    if (token.type === 'end' && token.name === 'head') break
+    if (token.type === 'start' && token.name === 'body') break
+    if (token.type === 'start' && token.name === 'meta' && token.attributes.has('charset')) {
+      at = end
+      break
+    }
+  }
+  return html.slice(0, at) + markup + html.slice(at)
 }
 
 /** What a page contains that its Content-Security-Policy has to account for. */

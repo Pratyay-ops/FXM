@@ -6,10 +6,13 @@
  *   starts a comment, and a line over 2,000 characters is ignored. At most 100 rules count.
  * - A path matches the request's pathname; `*` matches anything (one per rule) and `:name`
  *   matches one path segment.
- * - Cloudflare percent-decodes a rule's path, but matches it against the request's path as
- *   sent, still encoded (measured 2026-10-26 on a deployment: a rule `/zza%41` applied to
- *   `/zzaA` and not to `/zza%41`, `/zzg%25*` applied to `/zzg%25x`, and a path with an invalid
- *   escape such as `/zzb%*` to nothing). So a `%` in a rule path is written as `%25`.
+ * - Cloudflare normalizes a rule's path, decoding the percent-escapes of unreserved characters
+ *   (letters, digits, `-._~`) and ignoring a path with an invalid escape, but matches it
+ *   against the request's path as sent, still encoded. Measured 2026-10-26 on two deployments:
+ *   a rule `/zza%41` applied to `/zzaA` and not to `/zza%41`; `/%25*` applied to `/%2561pp/`
+ *   and not to `/%61pp/`; `/%*` and `/:name%*` applied to nothing. So no rule can match a path
+ *   with an encoded letter, such as `/priv%61cy`, although Pages serves privacy.html there
+ *   (rules.ts deals with that). FXM's rule paths contain no `%`.
  * - A request gets the headers of every rule that matches, in file order. The first rule to
  *   set a header replaces Cloudflare's default; a later one appends, which joins the values
  *   with a comma. That is why `make dist` never lets two rules match one path.
@@ -23,10 +26,7 @@ export const MAX_RULES = 100
 export const MAX_LINE_LENGTH = 2000
 
 export interface HeaderRule {
-  /**
-   * A path pattern: an exact path, a prefix followed by one `*`, or an encoded-path rule (see
-   * rulesOverlap). As Cloudflare reads it: a `%` here is a literal one, written `%25` in the file.
-   */
+  /** A path pattern: an exact path, or a prefix followed by one `*`. */
   readonly path: string
   /** Header names as written, with their values, in order. */
   readonly headers: readonly (readonly [name: string, value: string])[]
@@ -41,18 +41,16 @@ export interface ParsedRule {
 
 const INDENT = '  '
 
-/** A rule path as written in the file: Cloudflare decodes it, so `%` must be `%25`. */
-export function encodeRulePath(path: string): string {
-  return path.replaceAll('%', '%25')
-}
-
-/** A rule path as Cloudflare reads it, or undefined when it can't be decoded (then it ignores it). */
-export function decodeRulePath(written: string): string | undefined {
-  try {
-    return decodeURIComponent(written)
-  } catch {
-    return undefined
-  }
+/**
+ * A rule path as Cloudflare reads it: the escapes of unreserved characters decoded, the others
+ * kept. Undefined for a path with an invalid escape, which Cloudflare ignores.
+ */
+export function normalizeRulePath(written: string): string | undefined {
+  if (/%(?![0-9A-Fa-f]{2})/.test(written)) return undefined
+  return written.replace(/%([0-9A-Fa-f]{2})/g, (encoded, hex: string) => {
+    const char = String.fromCharCode(Number.parseInt(hex, 16))
+    return /[A-Za-z0-9\-._~]/.test(char) ? char : encoded
+  })
 }
 
 /** Writes rules as a `_headers` file. */
@@ -63,7 +61,7 @@ export function serializeHeaders(
   const lines = comment.map((line) => (line ? `# ${line}` : '#'))
   for (const rule of rules) {
     if (lines.length > 0) lines.push('')
-    lines.push(encodeRulePath(rule.path))
+    lines.push(rule.path)
     for (const [name, value] of rule.headers) lines.push(`${INDENT}${name}: ${value}`)
   }
   return `${lines.join('\n')}\n`
@@ -121,7 +119,7 @@ export function parseHeaders(text: string): { rules: ParsedRule[]; invalid: stri
         skipping = true
         continue
       }
-      const path = decodeRulePath(line)
+      const path = normalizeRulePath(line)
       if (path === undefined) {
         invalid.push(`line ${number}: an invalid percent-escape, Cloudflare ignores it: ${line}`)
         skipping = true
@@ -171,79 +169,27 @@ export function matchingRules<Rule extends { readonly path: string }>(
 }
 
 /**
- * The shapes of rule path FXM writes, as the sets of paths they match:
- *
- * - `exact`: one path, such as `/privacy`;
- * - `prefix`: every path that starts with `literal`. `/app/*` (literal `/app/`) is one, and so
- *   is the encoded-path guard `<folder>/%*` (literal `<folder>/%`);
- * - `encoded`: the other encoded-path guard, `<folder>/:name%*`: the folder, then a segment
- *   with a `%` after its first character, then anything.
- */
-type RuleShape =
-  | { readonly kind: 'exact'; readonly path: string }
-  | { readonly kind: 'prefix'; readonly path: string; readonly literal: string }
-  | { readonly kind: 'encoded'; readonly path: string; readonly folder: string }
-
-/** The shape of a rule path, or an error for one FXM never writes. */
-export function ruleShape(path: string): RuleShape {
-  const encoded = /^((?:\/[^/:*%]+)*\/):[A-Za-z]\w*%\*$/.exec(path)
-  if (encoded) return { kind: 'encoded', path, folder: encoded[1] as string }
-  if (path.includes(':')) throw new Error(`placeholders are not used by FXM: ${path}`)
-  const star = path.indexOf('*')
-  if (star === -1) {
-    if (path.includes('%')) throw new Error(`a rule path can't contain %: ${path}`)
-    return { kind: 'exact', path }
-  }
-  const literal = path.slice(0, -1)
-  if (star !== path.length - 1 || !/\/%?$/.test(literal) || literal.slice(0, -1).includes('%')) {
-    throw new Error(`a splat must be a whole last segment (prefix/* or prefix/%*): ${path}`)
-  }
-  return { kind: 'prefix', path, literal }
-}
-
-/**
- * True when a path that starts with `start` and continues freely can still put a `%` after
- * the first character of the segment that begins right after `folder` (start begins with it).
- */
-function encodedSegmentPossible(start: string, folder: string): boolean {
-  const rest = start.slice(folder.length)
-  const slash = rest.indexOf('/')
-  // The segment isn't finished yet: whatever follows can supply a first character and a `%`.
-  if (slash === -1) return true
-  return rest.slice(0, slash).indexOf('%') > 0
-}
-
-/**
- * True when some path matches both rules. FXM's rules are exact paths, prefixes ending in `/*`
- * and the two encoded-path guards (`<folder>/%*` and `<folder>/:name%*`), which this decides
- * exactly; anything else is refused.
+ * True when some path matches both rules. FXM's rules are exact paths or a prefix ending in
+ * `/*`, which this decides exactly; anything else is refused.
  */
 export function rulesOverlap(a: string, b: string): boolean {
-  const left = ruleShape(a)
-  const right = ruleShape(b)
-  if (left.kind === 'exact' && right.kind === 'exact') return left.path === right.path
-  if (left.kind === 'exact' || right.kind === 'exact') {
-    const [exact, other] = left.kind === 'exact' ? [left, right] : [right, left]
-    return ruleRegExp(other.path).test(exact.path)
+  const shape = (path: string) => {
+    if (path.includes(':')) throw new Error(`placeholders are not used by FXM: ${path}`)
+    if (path.includes('%')) throw new Error(`a rule path can't contain %: ${path}`)
+    const star = path.indexOf('*')
+    if (star === -1) return { exact: path }
+    if (star !== path.length - 1 || !path.endsWith('/*')) {
+      throw new Error(`a splat must be a whole last segment (prefix/*): ${path}`)
+    }
+    return { prefix: path.slice(0, -1) }
   }
-  if (left.kind === 'prefix' && right.kind === 'prefix') {
-    return left.literal.startsWith(right.literal) || right.literal.startsWith(left.literal)
+  const left = shape(a)
+  const right = shape(b)
+  if (left.exact !== undefined && right.exact !== undefined) return left.exact === right.exact
+  if (left.prefix !== undefined && right.prefix !== undefined) {
+    return left.prefix.startsWith(right.prefix) || right.prefix.startsWith(left.prefix)
   }
-  if (left.kind === 'encoded' && right.kind === 'encoded') {
-    if (left.folder === right.folder) return true
-    if (right.folder.startsWith(left.folder))
-      return encodedSegmentPossible(right.folder, left.folder)
-    if (left.folder.startsWith(right.folder))
-      return encodedSegmentPossible(left.folder, right.folder)
-    return false
-  }
-  // One encoded guard and one prefix.
-  const [encoded, prefix] = (left.kind === 'encoded' ? [left, right] : [right, left]) as [
-    { folder: string },
-    { literal: string },
-  ]
-  if (prefix.literal.startsWith(encoded.folder)) {
-    return encodedSegmentPossible(prefix.literal, encoded.folder)
-  }
-  return encoded.folder.startsWith(prefix.literal)
+  const exact = (left.exact ?? right.exact) as string
+  const prefix = (left.prefix ?? right.prefix) as string
+  return exact.startsWith(prefix)
 }

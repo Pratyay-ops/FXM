@@ -1,18 +1,15 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { serializePolicy, sha256Source } from './csp.ts'
-import { type HeaderRule, matchingRules } from './headers-file.ts'
+import { metaPolicyOf, serializePolicy, sha256Source } from './csp.ts'
+import type { HeaderRule } from './headers-file.ts'
+import { scanPage } from './html.ts'
+import { appPolicy, COMMON_HEADERS, SANDBOX_DOCUMENTS, STATIC_FILE_POLICY } from './policies.ts'
 import {
-  appPolicy,
-  COMMON_HEADERS,
-  ENCODED_PATH_POLICY,
-  SANDBOX_DOCUMENTS,
-  STATIC_FILE_POLICY,
-} from './policies.ts'
-import {
+  addDocumentPolicies,
   encodedVariants,
   generateRules,
   listFiles,
-  probePaths,
   RulesError,
   servedPaths,
   validateRules,
@@ -20,6 +17,9 @@ import {
 import { removeTempDirs, sandboxDocument, tempDir, writeFiles } from './testing.ts'
 
 afterEach(removeTempDirs)
+
+/** A sandbox document's script that does nothing unless its origin is opaque. */
+const opaque = (code: string) => `if (self.origin !== 'null') throw 0; ${code}`
 
 const page = (body = '', head = '') =>
   `<!doctype html><html lang="en"><head><title>t</title>${head}</head><body><h1>t</h1>${body}</body></html>`
@@ -76,8 +76,8 @@ describe('generateRules', () => {
       'app/404.html': page('', '<script>theme()</script>'),
       'app/assets/i.js': '1',
       'embed/index.html': page('', '<script>embed()</script>'),
-      'sandbox/innertube.html': sandboxDocument('innertube.html', 'inner()'),
-      'sandbox/eval.html': sandboxDocument('eval.html', 'evaluate()'),
+      'sandbox/innertube.html': sandboxDocument('innertube.html', opaque('inner()')),
+      'sandbox/eval.html': sandboxDocument('eval.html', opaque('evaluate()')),
     })
     const rules = generateRules(dir)
     expect(rules.map((rule) => rule.path)).toEqual([
@@ -94,10 +94,6 @@ describe('generateRules', () => {
       '/sandbox/eval.html',
       '/sandbox/innertube',
       '/sandbox/innertube.html',
-      '/%*',
-      '/:name%*',
-      '/sandbox/%*',
-      '/sandbox/:name%*',
     ])
     expect(csp(rules, '/')).toBe(
       `default-src 'none'; script-src ${sha256Source('menu()')}; style-src 'self' ${sha256Source('h1{}')}; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
@@ -112,15 +108,10 @@ describe('generateRules', () => {
       serializePolicy(appPolicy([sha256Source('embed()')], { embeddable: true })),
     )
     const innertube = serializePolicy(
-      SANDBOX_DOCUMENTS['innertube.html']([sha256Source('inner()')]),
+      SANDBOX_DOCUMENTS['innertube.html']([sha256Source(opaque('inner()'))]),
     )
     expect(csp(rules, '/sandbox/innertube')).toBe(innertube)
     expect(csp(rules, '/sandbox/innertube.html')).toBe(innertube)
-    for (const path of ['/%*', '/:name%*', '/sandbox/%*', '/sandbox/:name%*']) {
-      expect(csp(rules, path)).toBe(
-        "sandbox; default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-      )
-    }
     for (const rule of rules) {
       expect(rule.headers.slice(1)).toEqual([
         ['Referrer-Policy', 'no-referrer'],
@@ -151,12 +142,16 @@ describe('generateRules', () => {
     [{ 'sandbox/innertube.html': page('<script src="/x.js"></script>') }, /must inline its script/],
     [{ 'sandbox/innertube.html': page() }, /has no inline script/],
     [
-      { 'sandbox/innertube.html': sandboxDocument('innertube.html', 'x()', { meta: false }) },
-      /must carry its policy, without sandbox, in exactly one <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/,
+      {
+        'sandbox/innertube.html': sandboxDocument('innertube.html', opaque('x()'), {
+          meta: false,
+        }),
+      },
+      /must carry its policy in exactly one <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-/,
     ],
     [
       {
-        'sandbox/userhost.html': sandboxDocument('userhost.html', 'x()').replace(
+        'sandbox/userhost.html': sandboxDocument('userhost.html', opaque('x()')).replace(
           'connect-src https:',
           'connect-src *',
         ),
@@ -165,13 +160,35 @@ describe('generateRules', () => {
     ],
     [
       {
-        'sandbox/innertube.html': `<!doctype html><title>x</title><script>x()</script>${sandboxDocument('innertube.html', 'x()').match(/<meta http-equiv[^>]*>/)?.[0]}`,
+        'sandbox/innertube.html': `<!doctype html><title>x</title><script>${opaque('x()')}</script>${sandboxDocument('innertube.html', opaque('x()')).match(/<meta http-equiv[^>]*>/)?.[0]}`,
       },
       /must put its policy's meta element before its script/,
     ],
     [
+      { 'sandbox/innertube.html': sandboxDocument('innertube.html', 'start()') },
+      /innertube\.html must do nothing unless self\.origin === 'null'/,
+    ],
+    [
+      {
+        'sandbox/innertube.html': sandboxDocument(
+          'innertube.html',
+          "if (location.origin !== 'null') start()",
+        ),
+      },
+      /must do nothing unless self\.origin === 'null'/,
+    ],
+    [
+      {
+        'index.html': page(
+          '',
+          `<meta http-equiv="Content-Security-Policy" content="default-src *">`,
+        ),
+      },
+      /index\.html has a policy in a meta element: make dist writes it/,
+    ],
+    [
       { 'priv%61cy.html': page() },
-      /priv%61cy\.html: a file name with % can't have rules of its own/,
+      /priv%61cy\.html: a file name with % can't have a rule of its own/,
     ],
     [{ 'sandbox/innertube.js': 'x' }, /sandbox\/innertube\.js has no policy/],
     [{ 'app/assets/x.js': 'x' }, /app\/ has no index\.html/],
@@ -226,17 +243,10 @@ describe('validateRules', () => {
     path,
     headers: [['Content-Security-Policy', value], ...COMMON_HEADERS],
   })
-  const encoded = (folder: string) => [
-    rule(`${folder}%*`, serializePolicy(ENCODED_PATH_POLICY)),
-    rule(`${folder}:name%*`, serializePolicy(ENCODED_PATH_POLICY)),
-  ]
 
   it('accepts rules that cover every served path exactly once', () => {
     expect(
-      validateRules(
-        [rule('/a'), rule('/a.html'), rule('/app/*'), ...encoded('/')],
-        ['a.html', 'app/index.html'],
-      ),
+      validateRules([rule('/a'), rule('/a.html'), rule('/app/*')], ['a.html', 'app/index.html']),
     ).toEqual([])
   })
 
@@ -256,23 +266,8 @@ describe('validateRules', () => {
     )
   })
 
-  it('needs encoded-path rules for each folder with rules of its own', () => {
-    const errors = validateRules([rule('/a'), rule('/a.html')], ['a.html'])
-    expect(errors).toContain('/%61 matches 0 rules')
-    expect(validateRules([rule('/a'), rule('/a.html'), ...encoded('/')], ['a.html'])).toEqual([])
-  })
-
-  it('lets only the two encoded-path rules of one folder overlap, with the same headers', () => {
-    const files = ['a.html']
-    expect(validateRules([rule('/a'), rule('/a.html'), ...encoded('/')], files)).toEqual([])
-    const looser = serializePolicy(ENCODED_PATH_POLICY).replace(
-      'sandbox; ',
-      'sandbox; img-src data:; ',
-    )
-    const [start] = encoded('/') as [HeaderRule]
-    expect(
-      validateRules([rule('/a'), rule('/a.html'), start, rule('/:name%*', looser)], files),
-    ).toContain('rules /%* and /:name%* match the same paths')
+  it('refuses a rule path Cloudflare would read differently', () => {
+    expect(validateRules([rule('/a%41')], [])).toContain('the rule for /a%41 reads back as /aA')
   })
 
   it('checks the promises each kind of rule makes', () => {
@@ -284,7 +279,6 @@ describe('validateRules', () => {
           '/sandbox/eval',
           "sandbox allow-scripts; script-src 'unsafe-eval'; frame-ancestors 'none'",
         ),
-        rule('/%*', "default-src 'none'; frame-ancestors 'none'"),
         { path: '/b', headers: [['Content-Security-Policy', SITE]] },
       ],
       [],
@@ -294,10 +288,65 @@ describe('validateRules', () => {
       '/app/*: no "frame-ancestors \'none\'"',
       '/sandbox/innertube: a sandbox document without "sandbox allow-scripts"',
       '/sandbox/eval: frame-ancestors, which would stop the embed or Lite inside other sites',
-      '/%*: an encoded path without "sandbox" (with no allow- flags)',
       '/b: Referrer-Policy must be no-referrer, once',
       '/b: X-Content-Type-Options must be nosniff, once',
     ])
+  })
+})
+
+describe('addDocumentPolicies', () => {
+  function composed(files: Record<string, string>) {
+    const dir = folder(files)
+    const rules = generateRules(dir)
+    addDocumentPolicies(dir, rules)
+    const read = (file: string) => readFileSync(join(dir, file), 'utf8')
+    return { rules, read }
+  }
+
+  it('puts each page’s policy and no-referrer at the start of its head', () => {
+    const appPage = `<!doctype html><html><head>\n<meta charset="UTF-8" />\n<title>a</title><script>theme()</script></head><body></body></html>`
+    const { rules, read } = composed({
+      'privacy.html': page('<script type="module">menu()</script>'),
+      'app/index.html': appPage,
+      'app/404.html': appPage,
+      'sandbox/innertube.html': sandboxDocument('innertube.html', opaque('inner()')),
+    })
+    const policy = (path: string) => metaPolicyOf(csp(rules, path) as string)
+    expect(read('privacy.html')).toContain(
+      `<head><meta http-equiv="Content-Security-Policy" content="${policy('/privacy')}"><meta name="referrer" content="no-referrer"><title>`,
+    )
+    // After the charset, which must stay in the first 1,024 bytes; before the theme script.
+    expect(read('app/index.html')).toContain(
+      `<meta charset="UTF-8" /><meta http-equiv="Content-Security-Policy" content="${policy('/app/*')}"><meta name="referrer" content="no-referrer">\n<title>`,
+    )
+    expect(read('app/404.html')).toBe(read('app/index.html'))
+    expect(policy('/app/*')).not.toMatch(/frame-ancestors|sandbox/)
+    // The sandbox documents bring their own.
+    expect(read('sandbox/innertube.html')).toBe(
+      sandboxDocument('innertube.html', opaque('inner()')),
+    )
+    // The hashes still hold: the pages' scripts didn't change.
+    expect(scanPage(read('app/index.html')).inlineScripts).toEqual(['theme()'])
+  })
+
+  it('keeps a referrer meta element a page already has', () => {
+    const { read } = composed({
+      'a.html': page('', '<meta name="referrer" content="no-referrer">'),
+    })
+    expect(read('a.html').match(/name="referrer"/g)).toHaveLength(1)
+    expect(read('a.html')).toContain('http-equiv="Content-Security-Policy"')
+  })
+
+  it('refuses a page without a head, or with a script before its charset', () => {
+    expect(() => composed({ 'a.html': '<!doctype html><title>a</title><h1>a</h1>' })).toThrow(
+      /a\.html: the document has no <head> tag/,
+    )
+    expect(() =>
+      composed({
+        'a.html':
+          '<!doctype html><html><head><script>early()</script><meta charset="utf-8"><title>a</title></head></html>',
+      }),
+    ).toThrow(/a\.html must put its policy's meta element before its script/)
   })
 })
 
@@ -314,30 +363,5 @@ describe('encoded paths', () => {
     expect(encodedVariants('/app/', 1)).toEqual(['/%61pp/', '/ap%70/', '/app%2F'])
     expect(encodedVariants('/x/é')).toEqual(['/%78/é', '/x%2Fé', '/x/%C3%A9'])
     expect(encodedVariants('/')).toEqual([])
-  })
-
-  it('each match exactly one rule, the encoded-path rule of their folder', () => {
-    const dir = folder({
-      'index.html': page(),
-      'privacy.html': page(),
-      'app/index.html': page(),
-      'app/assets/x.js': '1',
-      'sandbox/innertube.html': sandboxDocument('innertube.html'),
-    })
-    const rules = generateRules(dir)
-    const ruleOf = (path: string) => matchingRules(rules, path).map((match) => match.path)
-    expect(ruleOf('/%70rivacy')).toEqual(['/%*'])
-    expect(ruleOf('/privac%79')).toEqual(['/:name%*'])
-    expect(ruleOf('/%61pp/')).toEqual(['/%*'])
-    expect(ruleOf('/app%2F')).toEqual(['/:name%*'])
-    expect(ruleOf('/app/%61ssets/x.js')).toEqual(['/app/*'])
-    expect(ruleOf('/sandbox/%69nnertube')).toEqual(['/sandbox/%*'])
-    expect(ruleOf('/sandbox/innertub%65')).toEqual(['/sandbox/:name%*'])
-    expect(ruleOf('/s%61ndbox/innertube')).toEqual(['/:name%*'])
-    expect(ruleOf('/sandbox%2Finnertube')).toEqual(['/:name%*'])
-    // The documented exception: both rules of the folder, with the same headers.
-    expect(ruleOf('/%61%70p/')).toEqual(['/%*', '/:name%*'])
-    const files = listFiles(dir)
-    for (const path of probePaths(files)) expect(ruleOf(path), path).toHaveLength(1)
   })
 })

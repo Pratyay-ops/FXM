@@ -34,15 +34,16 @@ export const embedPart: Part = {
  *
  * - one inline script, which its policy allows by hash, and no other script;
  * - the same policy without `sandbox` in a `<meta http-equiv="Content-Security-Policy">`
- *   before that script, so a copy served without FXM's headers keeps its hosts and its hash;
+ *   before that script, so wherever the document is served without its headers, it keeps
+ *   its hosts and its hash;
+ * - a script that does nothing unless `self.origin === 'null'` (not `location.origin`, which a
+ *   sandboxed document still reports as FXM's). Pages also serves each document at its path
+ *   with a letter percent-encoded, such as `/sandbox/innertub%65`, where no `_headers` rule
+ *   and so no `sandbox` applies (headers-file.ts). make dist only checks that the test is
+ *   there; the browser checks confirm on each deployment that the document stays inert;
  * - no inline code that looks bundled (a licence banner, or more than 64 KiB), because this
  *   part has no source maps for the licence check. A document that bundles npm packages must
  *   be built here instead, with source maps.
- *
- * And one rule the build can't check: the script must do nothing unless `self.origin` is
- * `'null'` (not `location.origin`, which a sandboxed document still reports as FXM's). Served
- * from FXM, every path that reaches a document carries `sandbox` (its own rules, or the
- * encoded-path rules in rules.ts); the check keeps a document inert wherever it isn't.
  */
 export const sandboxPart: Part = {
   name: 'sandbox',

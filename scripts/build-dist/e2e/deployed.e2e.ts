@@ -3,10 +3,11 @@
  * deploy workflow, or against `make dist` served like Cloudflare Pages on 127.0.0.1.
  *
  * - The pages and the app start under their policies, with no violation reported.
- * - googlevideo requests from the app (and the embed, once 5.2 ships it) carry no Referer.
- * - The sandbox documents (1.10) are opaque wherever FXM serves them, their own paths and
- *   percent-encoded ones alike; they reach only their hosts, and ignore a page on another
- *   origin that frames them without the sandbox attribute.
+ * - googlevideo requests from the app (and the embed, once 5.2 ships it) carry no Referer, also
+ *   at a percent-encoded path, where no `_headers` rule applies (src/headers-file.ts).
+ * - The sandbox documents (1.10) are opaque at their own paths, reach only their hosts, and
+ *   ignore a page on another origin that frames them without the sandbox attribute. At a
+ *   percent-encoded path, which their sandbox policy can't reach, they stay inert.
  *
  * Requests to googlevideo, YouTube and the stand-in third-party sites are answered by the test
  * itself, so nothing here contacts YouTube.
@@ -55,7 +56,8 @@ test('the web app starts under its policy, deep links included', async ({ page }
 /** A googlevideo host the test answers itself. */
 const GOOGLEVIDEO = 'https://rr1---sn-fxmcheck.googlevideo.com/videoplayback?fxm-check='
 
-for (const path of ['/app/', '/embed/']) {
+// `/%61pp/` serves the app with no `_headers` rule: only its meta elements apply there.
+for (const path of ['/app/', '/embed/', '/%61pp/']) {
   test(`googlevideo requests from ${path} carry no Referer`, async ({ page }) => {
     test.skip(!(await deployed(page, path)), `nothing is deployed at ${path} yet`)
     const seen: Request[] = []
@@ -222,27 +224,30 @@ test.describe('sandbox documents', () => {
     })
   }
 
-  // Pages serves innertube.html at these paths but matches `_headers` against the path as
-  // sent, so the encoded-path rules (src/rules.ts) apply: an opaque origin, no scripts, and no
-  // framing at all (the header check confirms frame-ancestors). Browsers send them as written.
+  // Pages serves innertube.html at these paths too, but no `_headers` rule can match them
+  // (src/headers-file.ts), so the document's sandbox policy doesn't apply: its own check of
+  // self.origin must keep it from doing anything. Browsers send these paths as written.
   for (const path of ['/sandbox/innertub%65', '/sandbox%2Finnertube']) {
-    test(`a sandbox document at ${path} runs nothing`, async ({ page }) => {
+    test(`a sandbox document at ${path} stays inert`, async ({ page, baseURL }) => {
       test.skip(
         !(await deployed(page, '/sandbox/innertube')),
         'no sandbox documents deployed yet (1.10)',
       )
-      const response = await page.goto(path)
-      expect(response?.status()).toBe(200)
-      expect(new URL(page.url()).pathname).toBe(path)
-      expect(await page.title()).toMatch(/\S/)
-      expect(await page.evaluate(() => self.origin)).toBe('null')
-      expect(
-        await page.evaluate(
-          (marker) => document.documentElement.hasAttribute(marker),
-          SANDBOX_MARKER,
-        ),
-        'the document script ran',
-      ).toBe(false)
+      const { frame, close } = await frameFromElsewhere(page, baseURL as string, path)
+      try {
+        expect(frame.url()).toBe(new URL(path, baseURL).href)
+        expect(await frame.title()).toMatch(/\S/)
+        expect(
+          await frame.evaluate(
+            (marker) => document.documentElement.hasAttribute(marker),
+            SANDBOX_MARKER,
+          ),
+          'the document script started listening',
+        ).toBe(false)
+        expect(await repliesTo(page, [{ type: 'ping' }])).toEqual([])
+      } finally {
+        await close()
+      }
     })
   }
 

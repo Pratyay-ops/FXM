@@ -59,3 +59,18 @@ export function parsePolicy(value: string): Map<string, string[]> {
   }
   return directives
 }
+
+/** Directives a policy in a meta element can't carry (CSP3 §3.3): browsers ignore them there. */
+export const HEADER_ONLY_DIRECTIVES: ReadonlySet<string> = new Set([
+  'sandbox',
+  'frame-ancestors',
+  'report-uri',
+])
+
+/** A header's policy as a meta element can carry it: without the directives only a header can set. */
+export function metaPolicyOf(header: string): string {
+  return [...parsePolicy(header)]
+    .filter(([name]) => !HEADER_ONLY_DIRECTIVES.has(name))
+    .map(([name, sources]) => [name, ...sources].join(' '))
+    .join('; ')
+}

@@ -2,10 +2,10 @@ import { cpSync, readFileSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { checkDeployment, probesFor, responseProblems } from './check-headers.ts'
+import { checkDeployment, type Probe, probesFor, responseProblems } from './check-headers.ts'
 import { serializeHeaders } from './headers-file.ts'
 import { createPagesServer, listen } from './pages-server.ts'
-import { generateRules } from './rules.ts'
+import { addDocumentPolicies, generateRules } from './rules.ts'
 import { removeTempDirs, sandboxDocument, tempDir, writeFiles } from './testing.ts'
 
 const servers: Server[] = []
@@ -17,7 +17,7 @@ afterEach(async () => {
 const page = (head = '') =>
   `<!doctype html><html><head><title>t</title>${head}</head><body><h1>t</h1></body></html>`
 
-/** A small composed folder with its generated _headers. */
+/** A small composed folder: its pages carry their policies, and _headers is written. */
 function composed(): string {
   const dir = tempDir()
   writeFiles(dir, {
@@ -27,9 +27,11 @@ function composed(): string {
     'app/index.html': page('<script>theme()</script>'),
     'app/404.html': page('<script>theme()</script>'),
     'app/assets/a.js': '1',
-    'sandbox/innertube.html': sandboxDocument('innertube.html', 'inner()'),
+    'sandbox/innertube.html': sandboxDocument('innertube.html'),
   })
-  writeFileSync(join(dir, '_headers'), serializeHeaders(generateRules(dir)))
+  const rules = generateRules(dir)
+  addDocumentPolicies(dir, rules)
+  writeFileSync(join(dir, '_headers'), serializeHeaders(rules))
   return dir
 }
 
@@ -39,47 +41,54 @@ async function serve(dir: string): Promise<URL> {
   return new URL(`http://127.0.0.1:${await listen(server, 0)}/`)
 }
 
+const ruleOf = (probe: Probe | undefined) => {
+  if (!probe?.rule) throw new Error('no rule')
+  return probe.rule
+}
+
 describe('probesFor', () => {
-  it('probes each canonical path, each .html path that redirects, and a client-side route', () => {
-    const probes = probesFor(composed()).map(({ path, status, location }) => [
+  it('probes each path a file is served at, a client-side route, and documents at encoded paths', () => {
+    const probes = probesFor(composed()).map(({ path, status, location, rule, documentPolicy }) => [
       path,
       status,
       location,
+      rule !== undefined,
+      documentPolicy !== undefined,
     ])
     expect(probes).toEqual([
-      ['/app/404', 200, undefined],
-      ['/app/404.html', 308, '/app/404'],
-      ['/app/assets/a.js', 200, undefined],
-      ['/app/', 200, undefined],
-      ['/app/index.html', 308, '/app/'],
-      ['/favicon.svg', 200, undefined],
-      ['/', 200, undefined],
-      ['/index.html', 308, '/'],
-      ['/privacy', 200, undefined],
-      ['/privacy.html', 308, '/privacy'],
-      ['/sandbox/innertube', 200, undefined],
-      ['/sandbox/innertube.html', 308, '/sandbox/innertube'],
-      ['/app/__fxm-route-check__/deep/link', 404, undefined],
-      // Each document, and the app's folder, with one character percent-encoded.
-      ['/%70rivacy', 200, undefined],
-      ['/privac%79', 200, undefined],
-      ['/%73andbox/innertube', 200, undefined],
-      ['/sandbo%78/innertube', 200, undefined],
-      ['/sandbox%2Finnertube', 200, undefined],
-      ['/sandbox/%69nnertube', 200, undefined],
-      ['/sandbox/innertub%65', 200, undefined],
-      ['/%61pp/', 200, undefined],
-      ['/ap%70/', 200, undefined],
-      ['/app%2F', 200, undefined],
+      ['/app/404', 200, undefined, true, true],
+      ['/app/404.html', 308, '/app/404', true, false],
+      ['/app/assets/a.js', 200, undefined, true, false],
+      ['/app/', 200, undefined, true, true],
+      ['/app/index.html', 308, '/app/', true, false],
+      ['/favicon.svg', 200, undefined, true, false],
+      ['/', 200, undefined, true, true],
+      ['/index.html', 308, '/', true, false],
+      ['/privacy', 200, undefined, true, true],
+      ['/privacy.html', 308, '/privacy', true, false],
+      ['/sandbox/innertube', 200, undefined, true, true],
+      ['/sandbox/innertube.html', 308, '/sandbox/innertube', true, false],
+      ['/app/__fxm-route-check__/deep/link', 404, undefined, true, true],
+      // No rule reaches these: each document's meta elements must do the work.
+      ['/%61pp/', 200, undefined, false, true],
+      ['/ap%70/', 200, undefined, false, true],
+      ['/app%2F', 200, undefined, false, true],
+      ['/%70rivacy', 200, undefined, false, true],
+      ['/privac%79', 200, undefined, false, true],
+      ['/%73andbox/innertube', 200, undefined, false, true],
+      ['/sandbo%78/innertube', 200, undefined, false, true],
+      ['/sandbox%2Finnertube', 200, undefined, false, true],
+      ['/sandbox/%69nnertube', 200, undefined, false, true],
+      ['/sandbox/innertub%65', 200, undefined, false, true],
     ])
   })
 
-  it('expects the encoded-path rules on encoded paths', () => {
+  it('asks the site and the apps for no-referrer in their pages, not the sandbox', () => {
     const probes = probesFor(composed())
-    const rule = (path: string) => probes.find((probe) => probe.path === path)?.rule.path
-    expect(rule('/%70rivacy')).toBe('/%*')
-    expect(rule('/privac%79')).toBe('/:name%*')
-    expect(rule('/sandbox/innertub%65')).toBe('/sandbox/:name%*')
+    const referrer = (path: string) => probes.find((probe) => probe.path === path)?.referrerMeta
+    expect(referrer('/privacy')).toBe(true)
+    expect(referrer('/%61pp/')).toBe(true)
+    expect(referrer('/sandbox/innertube')).toBe(false)
   })
 })
 
@@ -112,32 +121,24 @@ describe('checkDeployment', () => {
     ).toBe(true)
   })
 
-  it('catches a host that serves encoded paths without the encoded-path rules', async () => {
+  it('catches a document without its policy in a meta element, at every path it is served', async () => {
     const dir = composed()
     const deployed = tempDir()
     cpSync(dir, deployed, { recursive: true })
-    const headers = readFileSync(join(dir, '_headers'), 'utf8')
-    // What Pages did before make dist wrote these rules: the file, with Cloudflare's defaults.
-    const withoutEncoded = headers.replace(/\n\/(sandbox\/)?(:name)?%25\*\n( {2}.*\n)+/g, '\n')
-    expect(withoutEncoded).not.toContain('%25*')
-    writeFileSync(join(deployed, '_headers'), withoutEncoded)
+    writeFileSync(join(deployed, 'privacy.html'), page())
     const problems = await checkDeployment(
       await serve(deployed),
-      probesFor(dir).filter(
-        (probe) =>
-          ['/priv%61cy', '/sandbox/innertub%65'].includes(probe.path) ||
-          probe.path === '/privac%79',
-      ),
+      probesFor(dir).filter((probe) => /^\/(privacy|%70rivacy|index\.html)$/.test(probe.path)),
     )
-    expect(problems).toContain(
-      '/privac%79: 0 content-security-policy headers, expected exactly one',
-    )
-    expect(problems).toContain(
-      '/sandbox/innertub%65: 0 content-security-policy headers, expected exactly one',
-    )
-    expect(problems).toContain(
-      '/sandbox/innertub%65: referrer-policy is\n      strict-origin-when-cross-origin\n    expected\n      no-referrer',
-    )
+    for (const path of ['/privacy', '/%70rivacy']) {
+      expect(problems).toContain(
+        `${path}: the document has no <meta name="referrer" content="no-referrer">`,
+      )
+      expect(
+        problems.some((problem) => problem.startsWith(`${path}: the document must carry`)),
+      ).toBe(true)
+    }
+    expect(problems.filter((problem) => problem.startsWith('/index.html'))).toEqual([])
   })
 
   it('reports a host it cannot reach, after retrying', async () => {
@@ -150,18 +151,20 @@ describe('checkDeployment', () => {
 })
 
 describe('responseProblems', () => {
-  const probe = probesFor(composed()).find((candidate) => candidate.path === '/sandbox/innertube')
+  const probes = probesFor(composed())
+  const probe = probes.find((candidate) => candidate.path === '/sandbox/innertube')
   if (!probe) throw new Error('no sandbox probe')
   const base = new URL('https://fxmusic.pages.dev/')
-  const headers = [...probe.rule.headers] as [string, string][]
+  const headers = [...ruleOf(probe).headers] as [string, string][]
+  const body = sandboxDocument('innertube.html')
 
-  it('accepts exactly the expected headers', () => {
-    expect(responseProblems(probe, { status: 200, headers }, base)).toEqual([])
+  it('accepts exactly the expected headers and document', () => {
+    expect(responseProblems(probe, { status: 200, headers, body }, base)).toEqual([])
   })
 
   it('counts repeated header lines, which a joined value would hide', () => {
     const doubled = [...headers, ['referrer-policy', 'no-referrer']] as [string, string][]
-    expect(responseProblems(probe, { status: 200, headers: doubled }, base)).toEqual([
+    expect(responseProblems(probe, { status: 200, headers: doubled, body }, base)).toEqual([
       '/sandbox/innertube: 2 referrer-policy headers, expected exactly one',
     ])
   })
@@ -172,22 +175,27 @@ describe('responseProblems', () => {
         ? [name, "default-src 'none'; script-src 'unsafe-eval'"]
         : [name, value],
     ) as [string, string][]
-    const fake = { ...probe, rule: { ...probe.rule, headers: new Map(loose) } }
-    expect(responseProblems(fake, { status: 200, headers: loose }, base)).toEqual([
+    const fake = { ...probe, rule: { ...ruleOf(probe), headers: new Map(loose) } }
+    expect(responseProblems(fake, { status: 200, headers: loose, body }, base)).toEqual([
       "/sandbox/innertube: Content-Security-Policy: 'unsafe-eval' outside the evaluator document",
       '/sandbox/innertube: Content-Security-Policy: a sandbox document without "sandbox allow-scripts"',
     ])
   })
 
   it('checks where a redirect points', () => {
-    const redirect = probesFor(composed()).find((candidate) => candidate.path === '/privacy.html')
-    if (!redirect) throw new Error('no redirect probe')
+    const redirect = probes.find((candidate) => candidate.path === '/privacy.html')
     const response = {
       status: 308,
-      headers: [...redirect.rule.headers, ['location', '/elsewhere']] as [string, string][],
+      headers: [...ruleOf(redirect).headers, ['location', '/elsewhere']] as [string, string][],
     }
-    expect(responseProblems(redirect, response, base)).toEqual([
+    expect(responseProblems(redirect as Probe, response, base)).toEqual([
       '/privacy.html: redirects to /elsewhere, expected /privacy',
+    ])
+  })
+
+  it('expects a document where it probes one', () => {
+    expect(responseProblems(probe, { status: 200, headers }, base)).toEqual([
+      '/sandbox/innertube: not an HTML document',
     ])
   })
 })

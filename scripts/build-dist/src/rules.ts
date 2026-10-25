@@ -1,6 +1,7 @@
 /**
  * Turns the composed folder into `_headers` rules: one Content-Security-Policy per path, plus
- * Referrer-Policy and X-Content-Type-Options (docs/PLAN.md, stage 2.8).
+ * Referrer-Policy and X-Content-Type-Options, with no two rules matching the same path
+ * (docs/PLAN.md, stage 2.8).
  *
  * | Files                     | Rule                                   | Policy                         |
  * |---------------------------|----------------------------------------|--------------------------------|
@@ -10,42 +11,34 @@
  * | _astro/**, .well-known/** | /_astro/*, /.well-known/*              | STATIC_FILE_POLICY             |
  * | other .html files         | each page's path and its .html path    | sitePagePolicy() for that page |
  * | other files               | each file's path                       | STATIC_FILE_POLICY             |
- * | encoded paths             | <folder>/%* and <folder>/:name%*       | ENCODED_PATH_POLICY            |
  *
  * Pages serves `privacy.html` at `/privacy` and answers `/privacy.html` with a redirect to it,
  * so a document gets a rule for both. That matters most for the sandbox documents: the app
  * frames `/sandbox/innertube.html`, the browser follows the redirect, and the document at
  * `/sandbox/innertube` must still carry its `sandbox` policy.
  *
- * Pages also decodes a request path to find its file but matches `_headers` against the path
- * as sent, so `/priv%61cy` serves privacy.html without the rules of `/privacy`. Every folder
- * that holds files with rules of their own (the root, sandbox/) therefore gets two more rules,
- * which only a path with a `%` in the segment after the folder can match: `<folder>/%*` and
- * `<folder>/:name%*`. Their policy runs nothing. The splat folders need none: `/app/*` matches
- * `/app/%61ssets/x.js` as it is.
- *
- * No two rules match the same path, with one exception: a segment that starts with `%` and has
- * another `%` later, such as `/%61%70p/`, matches both of its folder's encoded-path rules.
- * Those two rules set the same headers, so the values Cloudflare joins repeat one policy.
+ * Pages also serves a file at its path with a letter percent-encoded (`/priv%61cy`,
+ * `/%61pp/`), where no `_headers` rule can apply (headers-file.ts). So every document carries
+ * its policy in a meta element as well: make dist adds it to the site's pages and the apps'
+ * documents (addDocumentPolicies), and the sandbox documents must bring their own and stay
+ * inert unless their origin is opaque.
  */
-import { readdirSync, readFileSync } from 'node:fs'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type Policy, parsePolicy, serializePolicy, sha256Source } from './csp.ts'
+import { metaPolicyOf, type Policy, parsePolicy, serializePolicy, sha256Source } from './csp.ts'
 import {
   type HeaderRule,
   MAX_LINE_LENGTH,
   MAX_RULES,
   matchingRules,
   parseHeaders,
-  ruleShape,
   rulesOverlap,
   serializeHeaders,
 } from './headers-file.ts'
-import { type PageScan, scanPage } from './html.ts'
+import { insertIntoHead, type PageScan, scanPage } from './html.ts'
 import {
   appPolicy,
   COMMON_HEADERS,
-  ENCODED_PATH_POLICY,
   isSandboxDocument,
   policyProblems,
   SANDBOX_DOCUMENTS,
@@ -64,9 +57,6 @@ const SPLAT_FOLDERS = {
 
 /** A path inside a single-page app that no file answers: Pages serves the app's 404.html. */
 export const SPA_PROBE_SEGMENT = '__fxm-route-check__/deep/link'
-
-/** The placeholder in the `<folder>/:name%*` rules. */
-const ENCODED_PLACEHOLDER = ':name'
 
 /** Every file in a folder, as sorted POSIX paths relative to it (dot-files included). */
 export function listFiles(dir: string): string[] {
@@ -109,6 +99,11 @@ export function inSplatFolder(file: string): boolean {
   return Object.hasOwn(SPLAT_FOLDERS, topFolder(file))
 }
 
+/** The documents make dist gives a policy in a meta element: every page but the sandbox's. */
+export function isPolicyDocument(file: string): boolean {
+  return file.endsWith('.html') && topFolder(file) !== 'sandbox'
+}
+
 /** `%` and the character's UTF-8 bytes in hex, as a browser would percent-encode it. */
 function percentEncode(char: string): string {
   return [...Buffer.from(char, 'utf8')]
@@ -117,10 +112,11 @@ function percentEncode(char: string): string {
 }
 
 /**
- * The path with one character percent-encoded, which Pages serves like the path itself: the
- * first and the last character of each segment (`/privacy`: `/%70rivacy`, `/privac%79`), and
- * each slash after a segment (`/app%2F`). Browsers send such paths as written (Chromium 1248,
- * checked 2026-10-26). `segments` limits the variants to the first segments.
+ * The path with one character percent-encoded, which Pages serves like the path itself and
+ * no `_headers` rule matches: the first and the last character of each segment (`/privacy`:
+ * `/%70rivacy`, `/privac%79`), and each slash after a segment (`/app%2F`). Browsers send such
+ * paths as written (Chromium 1248, checked 2026-10-26). `segments` limits the variants to the
+ * first segments.
  */
 export function encodedVariants(path: string, segments = Number.POSITIVE_INFINITY): string[] {
   const parts = path.split('/')
@@ -143,14 +139,6 @@ export function encodedVariants(path: string, segments = Number.POSITIVE_INFINIT
     }
   })
   return [...variants]
-}
-
-/** The folder of an encoded-path rule (`/` or `/sandbox/`), or undefined for any other rule. */
-export function encodedRuleFolder(rulePath: string): string | undefined {
-  const shape = ruleShape(rulePath)
-  if (shape.kind === 'encoded') return shape.folder
-  if (shape.kind === 'prefix' && shape.literal.endsWith('%')) return shape.literal.slice(0, -1)
-  return undefined
 }
 
 /** Problems a policy can't fix: the page itself has to change. */
@@ -202,22 +190,16 @@ function samePolicy(a: ReadonlyMap<string, string[]>, b: ReadonlyMap<string, str
   )
 }
 
-/** Directives a policy in a meta element can't carry (CSP3 §3.3): browsers ignore them there. */
-const HEADER_ONLY_DIRECTIVES = new Set(['sandbox', 'frame-ancestors', 'report-uri'])
-
 /**
- * A sandbox document must repeat its policy, minus `sandbox`, in a meta element before its
- * script. Then it keeps its hosts and its script hash wherever it is served without its
- * headers: from a copy of the release zip on another host, or after a mistake in `_headers`.
+ * Why a document's policy in a meta element isn't its header policy minus the directives only a
+ * header can set (an empty list when it is). The meta element must come before every script.
  */
-function sandboxMetaProblems(file: string, scan: PageScan, policy: Policy): string[] {
-  const expected = policy.filter(([name]) => !HEADER_ONLY_DIRECTIVES.has(name))
-  const want = `<meta http-equiv="Content-Security-Policy" content="${serializePolicy(expected)}">`
+export function metaPolicyProblems(file: string, scan: PageScan, headerPolicy: string): string[] {
+  const expected = metaPolicyOf(headerPolicy)
+  const want = `<meta http-equiv="Content-Security-Policy" content="${expected}">`
   const [meta, ...more] = scan.metaPolicies
   if (!meta || more.length > 0) {
-    return [
-      `${file} must carry its policy, without sandbox, in exactly one ${want} before its script`,
-    ]
+    return [`${file} must carry its policy in exactly one ${want} before its script`]
   }
   if (!meta.beforeScripts) return [`${file} must put its policy's meta element before its script`]
   let actual: Map<string, string[]>
@@ -226,13 +208,21 @@ function sandboxMetaProblems(file: string, scan: PageScan, policy: Policy): stri
   } catch (error) {
     return [`${file}: the policy in its meta element is invalid (${(error as Error).message})`]
   }
-  if (!samePolicy(actual, parsePolicy(serializePolicy(expected)))) {
+  if (!samePolicy(actual, parsePolicy(expected))) {
     return [
-      `${file}: the policy in its meta element is\n      ${meta.content}\n    but must be\n      ${serializePolicy(expected)}`,
+      `${file}: the policy in its meta element is\n      ${meta.content}\n    but must be\n      ${expected}`,
     ]
   }
   return []
 }
+
+/**
+ * The opaque-origin test every sandbox document's script must make before anything else:
+ * `self.origin` is `'null'` only where the `sandbox` policy applied, while `location.origin`
+ * still names FXM's origin. Only the presence of the test can be checked here.
+ */
+const OPAQUE_ORIGIN_TEST =
+  /\bself\.origin\s*[!=]==?\s*(['"])null\1|(['"])null\2\s*[!=]==?\s*self\.origin\b/
 
 function rule(path: string, policy: Policy): HeaderRule {
   return {
@@ -251,11 +241,10 @@ export function generateRules(pagesDir: string): HeaderRule[] {
   const staticRules: HeaderRule[] = []
   const splatRules: HeaderRule[] = []
   const sandboxRules: HeaderRule[] = []
-  const encodedRules: HeaderRule[] = []
 
   for (const file of files.filter((name) => name.includes('%'))) {
     problems.push(
-      `${file}: a file name with % can't have rules of its own, because Pages decodes request paths: rename it`,
+      `${file}: a file name with % can't have a rule of its own, because Pages decodes request paths: rename it`,
     )
   }
 
@@ -278,20 +267,16 @@ export function generateRules(pagesDir: string): HeaderRule[] {
       const scan = scanPage(readHtml(document))
       // The app's policy allows inline styles (React sets them), so only the rest is checked.
       problems.push(...pageProblems(document, scan, { allowStyleAttributes: true }))
+      if (scan.metaPolicies.length > 0) {
+        problems.push(`${document} has a policy in a meta element: make dist writes it`)
+      }
       hashes.push(...scan.inlineScripts.map(sha256Source))
     }
     splatRules.push(rule(`/${folder}/*`, appPolicy(hashes, { embeddable: family === 'embed' })))
   }
 
-  // Folders holding files with rules of their own: each, and each folder above it.
-  const encodedFolders = new Set<string>()
   for (const file of files.filter((name) => !inSplatFolder(name))) {
-    const parts = file.split('/').slice(0, -1)
-    for (let depth = 0; depth <= parts.length; depth++) {
-      encodedFolders.add(parts.slice(0, depth).join('/'))
-    }
-    const folder = topFolder(file)
-    if (folder === 'sandbox') {
+    if (topFolder(file) === 'sandbox') {
       const name = file.slice('sandbox/'.length)
       if (!isSandboxDocument(name)) {
         problems.push(
@@ -305,14 +290,22 @@ export function generateRules(pagesDir: string): HeaderRule[] {
         problems.push(`${file} must inline its script: its policy allows scripts by hash only`)
       }
       if (scan.inlineScripts.length === 0) problems.push(`${file} has no inline script`)
+      else if (!scan.inlineScripts.every((script) => OPAQUE_ORIGIN_TEST.test(script))) {
+        problems.push(
+          `${file} must do nothing unless self.origin === 'null' (src/later-stages.ts): Pages also serves it at paths its sandbox policy can't reach`,
+        )
+      }
       const policy = SANDBOX_DOCUMENTS[name](scan.inlineScripts.map(sha256Source))
-      problems.push(...sandboxMetaProblems(file, scan, policy))
+      problems.push(...metaPolicyProblems(file, scan, serializePolicy(policy)))
       for (const path of servedPaths(file, fileSet)) sandboxRules.push(rule(path, policy))
       continue
     }
     if (file.endsWith('.html')) {
       const scan = scanPage(readHtml(file))
       problems.push(...pageProblems(file, scan))
+      if (scan.metaPolicies.length > 0) {
+        problems.push(`${file} has a policy in a meta element: make dist writes it`)
+      }
       const policy = sitePagePolicy({
         scriptHashes: scan.inlineScripts.map(sha256Source),
         styleHashes: scan.inlineStyles.map(sha256Source),
@@ -324,17 +317,54 @@ export function generateRules(pagesDir: string): HeaderRule[] {
       staticRules.push(rule(`/${file}`, STATIC_FILE_POLICY))
     }
   }
-  for (const folder of [...encodedFolders].sort()) {
-    const base = folder ? `/${folder}/` : '/'
-    encodedRules.push(rule(`${base}%*`, ENCODED_PATH_POLICY))
-    encodedRules.push(rule(`${base}${ENCODED_PLACEHOLDER}%*`, ENCODED_PATH_POLICY))
-  }
 
   if (problems.length > 0) throw new RulesError(problems)
-  const rules = [...siteRules, ...staticRules, ...splatRules, ...sandboxRules, ...encodedRules]
+  const rules = [...siteRules, ...staticRules, ...splatRules, ...sandboxRules]
   const errors = validateRules(rules, files)
   if (errors.length > 0) throw new RulesError(errors)
   return rules
+}
+
+/**
+ * Adds to every site page and app document its policy in a meta element (the header's, minus
+ * the directives only a header can set) and `<meta name="referrer" content="no-referrer">`,
+ * at the start of its head. They apply wherever Pages serves the document, also at the
+ * percent-encoded paths no `_headers` rule reaches. Throws when a document can't take them.
+ */
+export function addDocumentPolicies(pagesDir: string, rules: readonly HeaderRule[]): void {
+  const files = listFiles(pagesDir)
+  const fileSet = new Set(files)
+  const problems: string[] = []
+  for (const file of files.filter(isPolicyDocument)) {
+    const html = readFileSync(join(pagesDir, file), 'utf8')
+    const scan = scanPage(html)
+    const [canonical] = servedPaths(file, fileSet) as [string]
+    const [match, ...more] = matchingRules(rules, canonical)
+    const policy = match?.headers.find(([name]) => name === 'Content-Security-Policy')?.[1]
+    if (!policy || more.length > 0) {
+      problems.push(`${file}: ${canonical} has no single rule with a policy`)
+      continue
+    }
+    const elements = [
+      `<meta http-equiv="Content-Security-Policy" content="${escapeAttribute(metaPolicyOf(policy))}">`,
+      ...(scan.referrerMetas.length > 0 ? [] : ['<meta name="referrer" content="no-referrer">']),
+    ]
+    let updated: string
+    try {
+      updated = insertIntoHead(html, elements.join(''))
+    } catch (error) {
+      problems.push(`${file}: ${(error as Error).message}`)
+      continue
+    }
+    const check = metaPolicyProblems(file, scanPage(updated), policy)
+    if (check.length > 0) problems.push(...check)
+    else writeFileSync(join(pagesDir, file), updated)
+  }
+  if (problems.length > 0) throw new RulesError(problems)
+}
+
+function escapeAttribute(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;')
 }
 
 /** Request paths a composed folder must answer with exactly one rule's headers. */
@@ -345,19 +375,7 @@ export function probePaths(files: readonly string[]): string[] {
     if (files.some((file) => file.startsWith(`${folder}/`)))
       probes.push(`/${folder}/${SPA_PROBE_SEGMENT}`)
   }
-  // Each path with one character percent-encoded, which Pages serves like the path itself.
-  probes.push(...files.flatMap((file) => encodedVariants(servedPaths(file, fileSet)[0] as string)))
-  return [...new Set(probes)]
-}
-
-/** True when two rules are their folder's encoded-path rules, with the same headers. */
-function encodedPair(a: HeaderRule, b: HeaderRule): boolean {
-  const folder = encodedRuleFolder(a.path)
-  return (
-    folder !== undefined &&
-    folder === encodedRuleFolder(b.path) &&
-    JSON.stringify(a.headers) === JSON.stringify(b.headers)
-  )
+  return probes
 }
 
 /** Every reason the rules are not safe to deploy (an empty list when they are). */
@@ -392,10 +410,9 @@ export function validateRules(rules: readonly HeaderRule[], files: readonly stri
   }
   for (let i = 0; i < rules.length; i++) {
     for (let j = i + 1; j < rules.length; j++) {
-      const a = rules[i] as HeaderRule
-      const b = rules[j] as HeaderRule
-      if (rulesOverlap(a.path, b.path) && !encodedPair(a, b))
-        errors.push(`rules ${a.path} and ${b.path} match the same paths`)
+      const a = (rules[i] as HeaderRule).path
+      const b = (rules[j] as HeaderRule).path
+      if (rulesOverlap(a, b)) errors.push(`rules ${a} and ${b} match the same paths`)
     }
   }
   // Read back as Cloudflare will, to be sure the file means exactly these rules.

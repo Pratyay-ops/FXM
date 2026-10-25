@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { compose, DistError, NOTICES_FILE } from './compose.ts'
-import { serializePolicy, sha256Source } from './csp.ts'
+import { metaPolicyOf, serializePolicy, sha256Source } from './csp.ts'
 import { parseHeaders } from './headers-file.ts'
 import { embedPart, sandboxPart } from './later-stages.ts'
 import type { Part } from './parts.ts'
@@ -22,6 +22,7 @@ import {
   privacyPage,
   removeTempDirs,
   sandboxDocument,
+  sandboxScript,
   tempDir,
   writeFiles,
 } from './testing.ts'
@@ -112,12 +113,25 @@ describe('compose', () => {
       expect(policy(`/sandbox/${name}`)).toBe(policy(`/sandbox/${name}.html`))
       expect(policy(`/sandbox/${name}`)).toBe(
         serializePolicy(
-          SANDBOX_DOCUMENTS[`${name}.html`]([
-            sha256Source(`addEventListener('message', () => {}) // ${name}.html`),
-          ]),
+          SANDBOX_DOCUMENTS[`${name}.html`]([sha256Source(sandboxScript(`${name}.html`))]),
         ),
       )
     }
+
+    // Every page and app document carries its policy in a meta element too, sandbox documents
+    // their own.
+    expect(readFileSync(join(outDir, 'app/index.html'), 'utf8')).toContain(
+      `<head><meta http-equiv="Content-Security-Policy" content="${metaPolicyOf(policy('/app/*') as string)}"><meta name="referrer" content="no-referrer"><title>`,
+    )
+    expect(readFileSync(join(outDir, 'app/404.html'), 'utf8')).toBe(
+      readFileSync(join(outDir, 'app/index.html'), 'utf8'),
+    )
+    expect(readFileSync(join(outDir, 'privacy.html'), 'utf8')).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="${metaPolicyOf(policy('/privacy') as string)}">`,
+    )
+    expect(readFileSync(join(outDir, 'sandbox/eval.html'), 'utf8')).toBe(
+      sandboxDocument('eval.html'),
+    )
 
     const notices = readFileSync(join(outDir, NOTICES_FILE), 'utf8')
     expect(notices).toContain('react 1.0.0\nLicence: MIT\nUsed in: app, embed')
@@ -147,7 +161,7 @@ describe('compose', () => {
   it('copies the sandbox documents from apps/web/sandbox once 1.10 adds them', () => {
     const root = tempDir()
     writeFiles(root, {
-      'apps/web/sandbox/innertube.html': sandboxDocument('innertube.html', 'inner()'),
+      'apps/web/sandbox/innertube.html': sandboxDocument('innertube.html'),
       'apps/web/sandbox/notes.md': 'not a document',
     })
     const { outDir } = run(root, [fakeSitePart(root), fakeAppPart(root), sandboxPart])

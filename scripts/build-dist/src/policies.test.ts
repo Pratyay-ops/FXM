@@ -5,7 +5,6 @@ import {
   APP_SCRIPT_EXTRAS,
   APP_SERVICES,
   appPolicy,
-  ENCODED_PATH_POLICY,
   isSandboxDocument,
   policyProblems,
   ruleFamily,
@@ -116,14 +115,6 @@ describe('the web app policy', () => {
   })
 })
 
-describe('encoded paths', () => {
-  it('run nothing, load nothing and cannot be framed', () => {
-    expect(serializePolicy(ENCODED_PATH_POLICY)).toBe(
-      "sandbox; default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
-    )
-  })
-})
-
 describe('policyProblems', () => {
   it('knows what each rule path serves', () => {
     expect(
@@ -133,22 +124,10 @@ describe('policyProblems', () => {
         '/sandbox/innertube',
         '/sandbox/userhost.html',
         '/sandbox/eval',
-        '/%*',
-        '/sandbox/:name%*',
         '/privacy',
         '/_astro/*',
       ].map(ruleFamily),
-    ).toEqual([
-      'app',
-      'embed',
-      'sandbox',
-      'sandbox',
-      'evaluator',
-      'encoded',
-      'encoded',
-      'site',
-      'site',
-    ])
+    ).toEqual(['app', 'embed', 'sandbox', 'sandbox', 'evaluator', 'site', 'site'])
   })
 
   it('accepts every policy make dist writes', () => {
@@ -159,7 +138,6 @@ describe('policyProblems', () => {
       ['/app/*', appPolicy([HASH])],
       ['/embed/*', appPolicy([HASH], { embeddable: true })],
       ['/privacy', STATIC_FILE_POLICY],
-      ['/%*', ENCODED_PATH_POLICY],
       ...sandbox,
     ] as const) {
       expect(policyProblems(path, serializePolicy(policy)), path).toEqual([])
@@ -178,18 +156,6 @@ describe('policyProblems', () => {
     ).toEqual(["script-src allows 'unsafe-inline'", `no "frame-ancestors 'none'"`])
     expect(policyProblems('/embed/*', "default-src 'self'; frame-ancestors 'none'")).toEqual([
       'frame-ancestors, which would stop the embed or Lite inside other sites',
-    ])
-  })
-
-  it('refuses encoded paths that could run scripts or load anything', () => {
-    expect(
-      policyProblems(
-        '/:name%*',
-        "sandbox allow-scripts; default-src 'self'; frame-ancestors 'none'",
-      ),
-    ).toEqual([
-      'an encoded path without "sandbox" (with no allow- flags)',
-      `an encoded path without "default-src 'none'"`,
     ])
   })
 })

@@ -90,18 +90,11 @@ describe('createPagesServer', () => {
   })
 
   it('finds files by the decoded path but matches rules against the path as sent', async () => {
-    const base = await serve(
-      // Cloudflare decodes rule paths: `/%25*` is the rule for the paths that start with `/%`.
-      site(
-        '/privacy\n  Content-Security-Policy: page\n/%25*\n  Content-Security-Policy: encoded\n',
-      ),
-    )
+    const base = await serve(site('/privacy\n  Content-Security-Policy: page\n'))
     const encoded = await fetchRaw(new URL('/%70rivacy', base))
     expect(encoded.status).toBe(200)
-    expect(encoded.headers).toContainEqual(['content-security-policy', 'encoded'])
-    const unmatched = await fetchRaw(new URL('/privac%79', base))
-    expect(unmatched.status).toBe(200)
-    expect(unmatched.headers.some(([name]) => name === 'content-security-policy')).toBe(false)
+    expect(encoded.body).toBe('privacy')
+    expect(encoded.headers.some(([name]) => name === 'content-security-policy')).toBe(false)
   })
 
   it('merges repeated slashes before both, as Cloudflare does', async () => {
