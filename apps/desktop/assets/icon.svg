@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>FXM</title>
+  <!--
+    The FXM mark: the same art as the web app's favicon (apps/web/index.html) and LogoMark
+    (apps/web/src/components/ui/logo.tsx), drawn on the macOS app icon grid: an 824 px body
+    centred on a 1024 px canvas. The package's "icons" script turns it into src-tauri/icons/
+    (see apps/desktop/README.md).
+  -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#5b21b6"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(100 100) scale(25.75)">
+    <rect width="32" height="32" rx="8" fill="url(#g)"/>
+    <g fill="#fff">
+      <rect x="4.8" y="15" width="3.2" height="9" rx="1.6"/>
+      <rect x="9.6" y="8" width="3.2" height="16" rx="1.6"/>
+      <rect x="14.4" y="13" width="3.2" height="11" rx="1.6"/>
+      <rect x="19.2" y="8" width="3.2" height="16" rx="1.6"/>
+      <rect x="24" y="15" width="3.2" height="9" rx="1.6"/>
+    </g>
+  </g>
+</svg>

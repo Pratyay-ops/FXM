@@ -1,0 +1,34 @@
+[package]
+# Also the executable's name: fxm, fxm.exe, FXM.app/Contents/MacOS/fxm.
+name = "fxm"
+version = "0.0.0"
+description = "FXM desktop app: the web app in a Tauri 2 shell"
+authors = ["FXM contributors"]
+license = "Apache-2.0"
+repository = "https://github.com/Pratyay-ops/FXM"
+edition = "2024"
+publish = false
+
+# The shell lives in the library so tests can reach it. Desktop only needs the default
+# rlib: mobile targets would add staticlib and cdylib, but Android uses Capacitor.
+[lib]
+name = "fxm_desktop_lib"
+
+# Pick versions that have been public for at least 14 days, as everywhere else in the repo.
+[build-dependencies]
+tauri-build = { version = "2.7.2", features = [] }
+
+[dependencies]
+tauri = { version = "2.12.3", features = [] }
+# unsafe-headers lets requests set Origin, which youtubei.js needs (stage 7.2).
+tauri-plugin-http = { version = "2.8.2", features = ["unsafe-headers"] }
+tauri-plugin-opener = "2.7.1"
+tauri-plugin-single-instance = "2.5.3"
+tauri-plugin-window-state = "2.5.0"
+
+# A thin shell around the web build: optimize release builds for size.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

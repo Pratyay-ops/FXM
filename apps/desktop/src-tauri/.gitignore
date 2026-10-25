@@ -1,0 +1,5 @@
+# Cargo's build output (removed by `make clean`)
+/target/
+
+# Capability schemas that tauri-build regenerates on every build
+/gen/schemas

@@ -1,0 +1,10 @@
+# The Rust toolchain for the desktop app. `make rust-setup` installs it into .tools/rustup,
+# and rustup picks it whenever cargo runs in this folder. Pin a stable release that is at
+# least 14 days old, like every other tool in the repo (docs/DEVELOPMENT.md).
+#
+# 1.98.1 rather than 1.99.0: 1.99.0 miscompiles FFI `bool` returns on x86_64
+# (rust-lang/rust#163911), and the fixed 1.99.1 (2026-10-15) is younger than 14 days.
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
