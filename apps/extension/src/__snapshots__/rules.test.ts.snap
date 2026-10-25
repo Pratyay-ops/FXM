@@ -58,6 +58,9 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
       "type": "modifyHeaders",
     },
     "condition": {
+      "excludedRequestMethods": [
+        "options",
+      ],
       "initiatorDomains": [
         "fxm-music.pages.dev",
       ],
@@ -132,7 +135,10 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "fxm-music.pages.dev",
       ],
       "requestDomains": [
-        "music.youtube.com",
+        "www.youtube.com",
+      ],
+      "requestMethods": [
+        "options",
       ],
       "resourceTypes": [
         "xmlhttprequest",
@@ -140,6 +146,225 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
       ],
     },
     "id": 2,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://music.youtube.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://music.youtube.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "content-type, authorization, x-goog-visitor-id, x-youtube-client-name, x-youtube-client-version, x-goog-api-format-version, x-origin, x-youtube-bootstrap-logged-in, x-browser-validation",
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "content-length",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "excludedRequestMethods": [
+        "options",
+      ],
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "music.youtube.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 3,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://www.youtube.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://www.youtube.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "content-type, authorization, x-goog-visitor-id, x-youtube-client-name, x-youtube-client-version, x-goog-api-format-version, x-origin, x-youtube-bootstrap-logged-in, x-browser-validation",
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "content-length",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "music.youtube.com",
+      ],
+      "requestMethods": [
+        "options",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 4,
+    "priority": 1,
+  },
+  {
+    "action": {
+      "requestHeaders": [
+        {
+          "header": "origin",
+          "operation": "set",
+          "value": "https://www.youtube.com",
+        },
+        {
+          "header": "referer",
+          "operation": "set",
+          "value": "https://www.youtube.com/",
+        },
+        {
+          "header": "cookie",
+          "operation": "remove",
+        },
+      ],
+      "responseHeaders": [
+        {
+          "header": "access-control-allow-origin",
+          "operation": "set",
+          "value": "https://fxm-music.pages.dev",
+        },
+        {
+          "header": "access-control-allow-methods",
+          "operation": "set",
+          "value": "GET, POST, OPTIONS",
+        },
+        {
+          "header": "access-control-allow-headers",
+          "operation": "set",
+          "value": "content-type, authorization, x-goog-visitor-id, x-youtube-client-name, x-youtube-client-version, x-goog-api-format-version, x-origin, x-youtube-bootstrap-logged-in, x-browser-validation",
+        },
+        {
+          "header": "access-control-expose-headers",
+          "operation": "set",
+          "value": "content-length",
+        },
+        {
+          "header": "access-control-max-age",
+          "operation": "set",
+          "value": "600",
+        },
+        {
+          "header": "access-control-allow-credentials",
+          "operation": "remove",
+        },
+        {
+          "header": "set-cookie",
+          "operation": "remove",
+        },
+      ],
+      "type": "modifyHeaders",
+    },
+    "condition": {
+      "excludedRequestMethods": [
+        "options",
+      ],
+      "initiatorDomains": [
+        "fxm-music.pages.dev",
+      ],
+      "requestDomains": [
+        "youtubei.googleapis.com",
+      ],
+      "resourceTypes": [
+        "xmlhttprequest",
+        "other",
+      ],
+    },
+    "id": 5,
     "priority": 1,
   },
   {
@@ -204,12 +429,15 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
       "requestDomains": [
         "youtubei.googleapis.com",
       ],
+      "requestMethods": [
+        "options",
+      ],
       "resourceTypes": [
         "xmlhttprequest",
         "other",
       ],
     },
-    "id": 3,
+    "id": 6,
     "priority": 1,
   },
   {
@@ -257,7 +485,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "media",
       ],
     },
-    "id": 4,
+    "id": 7,
     "priority": 1,
   },
   {
@@ -310,7 +538,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "other",
       ],
     },
-    "id": 5,
+    "id": 8,
     "priority": 1,
   },
   {
@@ -373,7 +601,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
       ],
       "urlFilter": "|https://open.spotify.com/api/token^",
     },
-    "id": 6,
+    "id": 9,
     "priority": 1,
   },
   {
@@ -436,7 +664,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
       ],
       "urlFilter": "|https://open.spotify.com/api/server-time^",
     },
-    "id": 7,
+    "id": 10,
     "priority": 1,
   },
   {
@@ -501,7 +729,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "other",
       ],
     },
-    "id": 8,
+    "id": 11,
     "priority": 1,
   },
   {
@@ -556,7 +784,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "other",
       ],
     },
-    "id": 9,
+    "id": 12,
     "priority": 1,
   },
   {
@@ -611,7 +839,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "other",
       ],
     },
-    "id": 10,
+    "id": 13,
     "priority": 1,
   },
   {
@@ -649,7 +877,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
       ],
       "urlFilter": "|https://www.last.fm/player/station/",
     },
-    "id": 11,
+    "id": 14,
     "priority": 1,
   },
 ]

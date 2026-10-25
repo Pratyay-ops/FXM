@@ -44,6 +44,17 @@ function covers(pattern: string, host: string): boolean {
   return match[1] ? host === match[2] || host.endsWith(`.${match[2]}`) : host === match[2]
 }
 
+const YOUTUBE_RULES = ['youtube-www', 'youtube-music', 'youtube-api'].flatMap((name) => [
+  name,
+  `${name}-preflight`,
+])
+
+/** The request methods a rule matches: OPTIONS only, everything but OPTIONS, or all. */
+function methods(rule: DnrRule): 'options' | 'not-options' | 'all' {
+  if (rule.condition.requestMethods) return 'options'
+  return rule.condition.excludedRequestMethods ? 'not-options' : 'all'
+}
+
 describe('CORS rules for the production origin', () => {
   it('has one rule per spec with unique IDs', () => {
     expect(rules).toHaveLength(CORS_RULE_SPECS.length)
@@ -137,6 +148,24 @@ describe('CORS rules for the production origin', () => {
     }
   })
 
+  it('lets at most one rule modify any request', () => {
+    for (const [index, rule] of rules.entries()) {
+      for (const other of rules.slice(index + 1)) {
+        const sameTarget =
+          JSON.stringify(rule.condition.requestDomains ?? rule.condition.urlFilter) ===
+          JSON.stringify(other.condition.requestDomains ?? other.condition.urlFilter)
+        const sharedType = rule.condition.resourceTypes.some((type) =>
+          other.condition.resourceTypes.includes(type),
+        )
+        const sharedMethod =
+          methods(rule) === 'all' || methods(other) === 'all' || methods(rule) === methods(other)
+        expect(sameTarget && sharedType && sharedMethod, `rules ${rule.id} and ${other.id}`).toBe(
+          false,
+        )
+      }
+    }
+  })
+
   it('uses lower-case header names and only set or remove operations', () => {
     for (const rule of rules) {
       for (const operation of [...rule.action.requestHeaders, ...rule.action.responseHeaders]) {
@@ -146,20 +175,37 @@ describe('CORS rules for the production origin', () => {
     }
   })
 
+  // InnerTube answers a preflight with its own origin with 400, so preflights get the other one.
   it.each([
-    ['youtube-www', 'www.youtube.com', 'https://www.youtube.com'],
-    ['youtube-music', 'music.youtube.com', 'https://music.youtube.com'],
-    ['youtube-api', 'youtubei.googleapis.com', 'https://www.youtube.com'],
-  ])('rewrites %s requests to a YouTube Origin and Referer', (name, host, origin) => {
-    const rule = ruleNamed(name)
-    expect(rule.condition.requestDomains).toEqual([host])
-    expect(rule.condition.resourceTypes).toEqual(['xmlhttprequest', 'other'])
-    expect(setValue(rule.action.requestHeaders, 'origin')).toBe(origin)
-    expect(setValue(rule.action.requestHeaders, 'referer')).toBe(`${origin}/`)
-  })
+    ['youtube-www', 'www.youtube.com', 'https://www.youtube.com', 'https://music.youtube.com'],
+    ['youtube-music', 'music.youtube.com', 'https://music.youtube.com', 'https://www.youtube.com'],
+    [
+      'youtube-api',
+      'youtubei.googleapis.com',
+      'https://www.youtube.com',
+      'https://www.youtube.com',
+    ],
+  ])(
+    'rewrites %s requests and preflights to YouTube origins',
+    (name, host, origin, preflightOrigin) => {
+      const request = ruleNamed(name)
+      const preflight = ruleNamed(`${name}-preflight`)
+      for (const rule of [request, preflight]) {
+        expect(rule.condition.requestDomains).toEqual([host])
+        expect(rule.condition.resourceTypes).toEqual(['xmlhttprequest', 'other'])
+      }
+      expect(request.condition.excludedRequestMethods).toEqual(['options'])
+      expect(setValue(request.action.requestHeaders, 'origin')).toBe(origin)
+      expect(setValue(request.action.requestHeaders, 'referer')).toBe(`${origin}/`)
+      expect(preflight.condition.requestMethods).toEqual(['options'])
+      expect(setValue(preflight.action.requestHeaders, 'origin')).toBe(preflightOrigin)
+      expect(setValue(preflight.action.requestHeaders, 'referer')).toBe(`${preflightOrigin}/`)
+      expect(preflight.action.responseHeaders).toEqual(request.action.responseHeaders)
+    },
+  )
 
   it('lets the web app use the InnerTube headers and caches preflights for 10 minutes', () => {
-    for (const name of ['youtube-www', 'youtube-music', 'youtube-api']) {
+    for (const name of YOUTUBE_RULES) {
       const headers = ruleNamed(name).action.responseHeaders
       expect(setValue(headers, 'access-control-allow-methods')).toBe('GET, POST, OPTIONS')
       expect(setValue(headers, 'access-control-allow-headers')?.split(', ')).toEqual([

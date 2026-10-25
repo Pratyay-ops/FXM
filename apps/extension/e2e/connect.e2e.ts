@@ -35,6 +35,23 @@ const VERSION = (
 ).version
 const PORT = Number(process.env.FXM_CONNECT_E2E_PORT ?? 5240)
 const FXM = `https://${FXM_HOST}`
+
+/** Each InnerTube host, the Origin its requests get and the Origin its preflights get. */
+const INNERTUBE = [
+  ['www.youtube.com', 'https://www.youtube.com', 'https://music.youtube.com'],
+  ['music.youtube.com', 'https://music.youtube.com', 'https://www.youtube.com'],
+  ['youtubei.googleapis.com', 'https://www.youtube.com', 'https://www.youtube.com'],
+] as const
+/** Headers InnerTube web clients send. Each of them makes the browser send a preflight. */
+const INNERTUBE_HEADERS = {
+  'content-type': 'application/json',
+  'x-goog-visitor-id': 'CgtWaXNpdG9yRGF0YQ%3D%3D',
+  'x-youtube-client-name': '67',
+  'x-youtube-client-version': '1.20261020.01.00',
+}
+/** The Access-Control-Request-Headers Chromium sends for INNERTUBE_HEADERS. */
+const INNERTUBE_PREFLIGHT_HEADERS = Object.keys(INNERTUBE_HEADERS).sort().join(',')
+const INNERTUBE_BODY = { context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.0' } } }
 const FEATURES = ['youtube', 'googlevideo', 'spotify', 'lastfm', 'spotify-server-time']
 const MEDIA_URL = `https://${GOOGLEVIDEO_HOST}/videoplayback?id=e2e&itag=251`
 const TOKEN_PARAMS = {
@@ -246,14 +263,45 @@ test.describe('with FXM Connect loaded', () => {
     })
   })
 
+  test('lets the FXM page send preflighted InnerTube requests with the usual headers', async () => {
+    await page.goto(`${FXM}/`)
+    for (const [host, origin, preflightOrigin] of INNERTUBE) {
+      mock.clearLog()
+      const result = await pageFetch(page, `https://${host}/youtubei/v1/player?prettyPrint=false`, {
+        method: 'POST',
+        headers: INNERTUBE_HEADERS,
+        body: JSON.stringify(INNERTUBE_BODY),
+      })
+      expect(result, host).toMatchObject({
+        ok: true,
+        status: 200,
+        json: { host, seenOrigin: origin, seenReferer: `${origin}/`, body: INNERTUBE_BODY },
+      })
+      // InnerTube answers a preflight with its own origin with 400, so the preflight carries
+      // the other YouTube origin and the POST the host's own.
+      expect(mock.requests(host), host).toEqual([
+        expect.objectContaining({
+          method: 'OPTIONS',
+          origin: preflightOrigin,
+          referer: `${preflightOrigin}/`,
+          requestHeaders: INNERTUBE_PREFLIGHT_HEADERS,
+          status: 200,
+        }),
+        expect.objectContaining({
+          method: 'POST',
+          origin,
+          referer: `${origin}/`,
+          contentType: 'application/json',
+          status: 200,
+        }),
+      ])
+    }
+  })
+
   test('lets the FXM page POST a JSON body to InnerTube as a CORS-simple request', async () => {
     await page.goto(`${FXM}/`)
-    for (const [host, origin] of [
-      ['www.youtube.com', 'https://www.youtube.com'],
-      ['music.youtube.com', 'https://music.youtube.com'],
-      ['youtubei.googleapis.com', 'https://www.youtube.com'],
-    ] as const) {
-      const body = { context: { client: { clientName: 'WEB_REMIX', clientVersion: '1.0' } }, q: 1 }
+    for (const [host, origin] of INNERTUBE) {
+      const body = { ...INNERTUBE_BODY, q: 1 }
       const result = await pageFetch(page, `https://${host}/youtubei/v1/search?prettyPrint=false`, {
         method: 'POST',
         body: JSON.stringify(body),
@@ -270,26 +318,6 @@ test.describe('with FXM Connect loaded', () => {
       ['POST', 'text/plain;charset=UTF-8'],
       ['POST', 'text/plain;charset=UTF-8'],
       ['POST', 'text/plain;charset=UTF-8'],
-    ])
-  })
-
-  test('cannot save preflighted InnerTube requests: InnerTube rejects every OPTIONS', async () => {
-    await page.goto(`${FXM}/`)
-    const result = await pageFetch(page, 'https://www.youtube.com/youtubei/v1/player', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: '{}',
-    })
-    expect(result.ok).toBe(false)
-    // DNR rewrote the preflight's Origin too, but the status code stays 403 and the browser
-    // never sends the POST. Hence the web app sends CORS-simple requests (README).
-    expect(mock.requests('www.youtube.com')).toEqual([
-      expect.objectContaining({
-        method: 'OPTIONS',
-        origin: 'https://www.youtube.com',
-        requestHeaders: 'content-type',
-        status: 403,
-      }),
     ])
   })
 
@@ -376,12 +404,23 @@ test.describe('with FXM Connect loaded', () => {
         body: '{}',
       })
       expect(result.ok).toBe(false)
+      const preflighted = await pageFetch(other, 'https://www.youtube.com/youtubei/v1/next', {
+        method: 'POST',
+        headers: INNERTUBE_HEADERS,
+        body: '{}',
+      })
+      expect(preflighted.ok).toBe(false)
       expect(await pageFetch(other, MEDIA_URL, { headers: { range: 'bytes=0-15' } })).toMatchObject(
         { ok: false },
       )
-      // No rule touched the request: InnerTube saw the real Origin and refused it.
+      // No rule touched the requests: InnerTube saw the real Origin and refused it.
       expect(mock.requests('www.youtube.com')).toEqual([
         expect.objectContaining({ method: 'POST', origin: `https://${OTHER_HOST}`, status: 403 }),
+        expect.objectContaining({
+          method: 'OPTIONS',
+          origin: `https://${OTHER_HOST}`,
+          status: 403,
+        }),
       ])
     } finally {
       await other.close()
@@ -473,8 +512,15 @@ test('without FXM Connect the FXM page can reach neither InnerTube nor googlevid
       body: '{}',
     })
     expect(result.ok).toBe(false)
+    const preflighted = await pageFetch(page, 'https://www.youtube.com/youtubei/v1/player', {
+      method: 'POST',
+      headers: INNERTUBE_HEADERS,
+      body: '{}',
+    })
+    expect(preflighted.ok).toBe(false)
     expect(mock.requests('www.youtube.com')).toEqual([
       expect.objectContaining({ method: 'POST', origin: FXM, status: 403 }),
+      expect.objectContaining({ method: 'OPTIONS', origin: FXM, status: 403 }),
     ])
     expect(await pageFetch(page, MEDIA_URL, { headers: { range: 'bytes=0-15' } })).toMatchObject({
       ok: false,

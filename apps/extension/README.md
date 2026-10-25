@@ -18,7 +18,7 @@ FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules th
 
    | Service | Request change | Response change |
    |---|---|---|
-   | `www.youtube.com`, `music.youtube.com`, `youtubei.googleapis.com` | `Origin` and `Referer` set to `https://www.youtube.com` (`https://music.youtube.com` for YouTube Music) | ACAO, `Access-Control-Allow-Methods`, `-Allow-Headers` (InnerTube headers), `-Expose-Headers: content-length`, `-Max-Age: 600` |
+   | `www.youtube.com`, `music.youtube.com`, `youtubei.googleapis.com` | `Origin` and `Referer` set to `https://www.youtube.com` (`https://music.youtube.com` for YouTube Music). Preflights (`OPTIONS`) get the other YouTube origin, the one InnerTube accepts them from | ACAO, `Access-Control-Allow-Methods`, `-Allow-Headers` (InnerTube headers), `-Expose-Headers: content-length`, `-Max-Age: 600` |
    | `*.googlevideo.com` | `Origin` set to `https://www.youtube.com` on preflights (`OPTIONS`) only | ACAO, `Access-Control-Expose-Headers: content-length, content-range, accept-ranges, content-type` |
    | `open.spotify.com/api/token`, `/api/server-time`, `clienttoken.spotify.com` | `Origin` and `Referer` set to `https://open.spotify.com` | ACAO, allowed methods and Spotify headers, `-Max-Age: 600` |
    | `api-partner.spotify.com`, `spclient.wg.spotify.com` | none | ACAO, allowed methods and Spotify headers, `-Max-Age: 600` |
@@ -116,7 +116,7 @@ The pong lists `features`:
 
 Always fetch with `credentials: 'omit'`. Credentialed requests fail, because the rules strip `Access-Control-Allow-Credentials`, and they never carry cookies anyway.
 
-- **InnerTube: CORS-simple requests only.** InnerTube answers every `OPTIONS` request with 400 or 403, even with a YouTube `Origin`. DNR can rewrite headers but not status codes, so a preflight can never pass and any request that needs one fails. Send `POST` with the JSON as a plain string body: `fetch` labels it `text/plain;charset=UTF-8`, and InnerTube parses it as JSON. Don't set `Content-Type: application/json` or any `X-YouTube-*`/`X-Goog-*` header. Put the client name, client version and visitor data into `context.client` of the body instead, and query options such as `prettyPrint=false` into the URL.
+- **InnerTube:** requests may send `Content-Type: application/json` and the headers YouTube's web clients use: `authorization`, `x-goog-visitor-id`, `x-youtube-client-name`, `x-youtube-client-version`, `x-goog-api-format-version`, `x-origin`, `x-youtube-bootstrap-logged-in` and `x-browser-validation`. These trigger a CORS preflight. InnerTube rejects a preflight whose `Origin` is foreign or missing (403) or the host's own origin (400), but accepts the *other* YouTube origin. So FXM Connect gives preflights to `www.youtube.com` the origin `https://music.youtube.com` and the reverse (`youtubei.googleapis.com` accepts either). CORS-simple requests work too and save the preflight round trip, so prefer them where the extra headers aren't needed: send `POST` with the JSON as a plain string body (`fetch` labels it `text/plain;charset=UTF-8`, which InnerTube parses as JSON), with the client name, client version and visitor data in `context.client` and options such as `prettyPrint=false` in the URL.
 
   ```ts
   const response = await fetch('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', {

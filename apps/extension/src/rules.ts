@@ -6,13 +6,20 @@
  * Behaviour these rules answer, measured against the live services in October 2026 (the browser
  * side was verified in Chrome for Testing 156 and Firefox 158):
  * - InnerTube (www.youtube.com, music.youtube.com, youtubei.googleapis.com) answers any foreign
- *   Origin with 403 and no CORS headers, and 200 for a YouTube Origin or none. It answers every
- *   OPTIONS request with 400 or 403, even with a YouTube Origin, and DNR cannot change a status
- *   code. A CORS preflight to InnerTube therefore always fails: the web app must send
- *   CORS-simple requests (see the README).
+ *   Origin with 403 and no CORS headers, and 200 for a YouTube Origin or none. Preflights are
+ *   stricter: an OPTIONS request gets 403 with a foreign Origin or none, and 400 with the host's
+ *   own origin or without Access-Control-Request-Method. With the other YouTube origin
+ *   (https://music.youtube.com at www.youtube.com and the reverse; youtubei.googleapis.com takes
+ *   either) it gets 200 with CORS headers. So requests carry the host's own YouTube Origin and
+ *   preflights the other one, and preflighted requests (JSON content type, X-Goog-* and
+ *   X-YouTube-* headers) work.
  * - googlevideo serves media to any Origin but only sends Access-Control-Allow-Origin to YouTube
  *   origins. It answers a preflight from a YouTube Origin with 204 and from any other Origin
- *   with 400, so the Origin is rewritten on OPTIONS requests only.
+ *   with 400, so the Origin is rewritten on OPTIONS requests only. A media URL may redirect
+ *   (302) to another googlevideo host. After such a cross-origin redirect the browser sends
+ *   `Origin: null` and expects `Access-Control-Allow-Origin: null`, which no rule can give
+ *   without also breaking requests that were not redirected: fetch(), MediaSource and downloads
+ *   fail there, while a plain <audio src> still plays (see the README).
  * - open.spotify.com/api/token, /api/server-time and clienttoken.spotify.com send no CORS
  *   headers but answer OPTIONS with 200. api-partner and spclient echo any Origin today.
  *
@@ -102,20 +109,39 @@ const MEDIA_EXPOSE_HEADERS = ['content-length', 'content-range', 'accept-ranges'
 
 const API_TYPES: readonly ResourceType[] = ['xmlhttprequest', 'other']
 
-function innertube(name: string, host: string, origin: string): CorsRuleSpec {
-  return {
-    name,
+const YOUTUBE = 'https://www.youtube.com'
+const YOUTUBE_MUSIC = 'https://music.youtube.com'
+
+/**
+ * The two rules of an InnerTube host: requests get `origin`, CORS preflights get
+ * `preflightOrigin`, the YouTube origin InnerTube accepts preflights from (see above).
+ */
+function innertube(
+  name: string,
+  host: string,
+  origin: string,
+  preflightOrigin: string,
+): CorsRuleSpec[] {
+  const shared: Omit<CorsRuleSpec, 'name'> = {
     feature: 'youtube',
     hostPermission: `https://${host}/*`,
     target: { requestDomains: [host] },
     resourceTypes: API_TYPES,
-    requestOrigin: origin,
     referer: true,
     allowMethods: 'GET, POST, OPTIONS',
     allowHeaders: YOUTUBE_ALLOW_HEADERS,
     exposeHeaders: ['content-length'],
     maxAgeSeconds: 600,
   }
+  return [
+    { ...shared, name, excludedRequestMethods: ['options'], requestOrigin: origin },
+    {
+      ...shared,
+      name: `${name}-preflight`,
+      requestMethods: ['options'],
+      requestOrigin: preflightOrigin,
+    },
+  ]
 }
 
 function spotify(
@@ -139,13 +165,14 @@ function spotify(
 
 /** Every CORS rule, in rule-ID order. */
 export const CORS_RULE_SPECS: readonly CorsRuleSpec[] = [
-  innertube('youtube-www', 'www.youtube.com', 'https://www.youtube.com'),
-  innertube('youtube-music', 'music.youtube.com', 'https://music.youtube.com'),
-  innertube('youtube-api', 'youtubei.googleapis.com', 'https://www.youtube.com'),
+  ...innertube('youtube-www', 'www.youtube.com', YOUTUBE, YOUTUBE_MUSIC),
+  ...innertube('youtube-music', 'music.youtube.com', YOUTUBE_MUSIC, YOUTUBE),
+  ...innertube('youtube-api', 'youtubei.googleapis.com', YOUTUBE, YOUTUBE),
   {
     // Media bytes for fetch(), MediaSource and downloads. <audio src> already plays without the
     // extension (googlevideo sends Cross-Origin-Resource-Policy: cross-origin). The Origin is
-    // left alone: googlevideo serves any Origin, it only withholds the CORS headers.
+    // left alone: googlevideo serves any Origin, it only withholds the CORS headers. Responses
+    // after a redirect to another googlevideo host stay unreadable (see above).
     name: 'googlevideo-media',
     feature: 'googlevideo',
     hostPermission: 'https://*.googlevideo.com/*',
@@ -164,7 +191,7 @@ export const CORS_RULE_SPECS: readonly CorsRuleSpec[] = [
     target: { requestDomains: ['googlevideo.com'] },
     resourceTypes: API_TYPES,
     requestMethods: ['options'],
-    requestOrigin: 'https://www.youtube.com',
+    requestOrigin: YOUTUBE,
     exposeHeaders: MEDIA_EXPOSE_HEADERS,
   },
   spotify(
@@ -249,6 +276,10 @@ function responseHeaders(spec: CorsRuleSpec, origin: string): HeaderOperation[] 
 
 function condition(spec: CorsRuleSpec, initiator: string): DnrRule['condition'] {
   return {
+    // initiatorDomains also matches sub-domains, such as the preview deployments at
+    // <hash>.fxm-music.pages.dev. Browsers only modify headers for an initiator the extension
+    // has host access to, and hostPermissions() in manifest.ts grants it for the exact FXM host
+    // only: that is what keeps the rules away from those sub-domains.
     initiatorDomains: [initiator],
     ...('requestDomains' in spec.target
       ? { requestDomains: [...spec.target.requestDomains] }

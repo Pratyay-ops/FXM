@@ -4,8 +4,9 @@
  * match real host names) apply exactly as they would online.
  *
  * Each mock reproduces the behaviour measured against the live services:
- * - InnerTube: 403 without CORS headers for a foreign Origin, 200 for a YouTube Origin or none,
- *   and 403 for every OPTIONS request whatever the Origin.
+ * - InnerTube: 403 without CORS headers for a foreign Origin, 200 for a YouTube Origin or none.
+ *   Preflights get 403 for a foreign Origin or none, 400 for the host's own origin or without
+ *   Access-Control-Request-Method, and 200 with CORS headers for the other YouTube origin.
  * - googlevideo: media bytes for any Origin (Cross-Origin-Resource-Policy: cross-origin) but
  *   Access-Control-Allow-Origin only for YouTube origins; preflights get 204 for a YouTube
  *   Origin and 400 otherwise.
@@ -89,11 +90,30 @@ function json(value: unknown, headers: Record<string, string> = {}): Reply {
   }
 }
 
-function innertube(req: IncomingMessage, host: string, body: string): Reply {
+function innertubePreflight(req: IncomingMessage, host: string): Reply {
   const origin = req.headers.origin
-  if (req.method === 'OPTIONS') {
+  if (origin === undefined || !YOUTUBE_ORIGINS.has(origin)) {
     return { status: 403, headers: { 'content-type': 'text/html' }, body: 'Forbidden' }
   }
+  if (origin === `https://${host}` || !req.headers['access-control-request-method']) {
+    return { status: 400, headers: { 'content-type': 'text/html' }, body: 'Bad Request' }
+  }
+  return {
+    status: 200,
+    headers: {
+      'content-type': 'text/html',
+      'access-control-allow-origin': origin,
+      'access-control-allow-credentials': 'true',
+      'access-control-allow-methods': 'DELETE,GET,HEAD,OPTIONS,PATCH,POST,PUT',
+      'access-control-allow-headers': req.headers['access-control-request-headers'] ?? '',
+      'access-control-max-age': '3600',
+    },
+  }
+}
+
+function innertube(req: IncomingMessage, host: string, body: string): Reply {
+  const origin = req.headers.origin
+  if (req.method === 'OPTIONS') return innertubePreflight(req, host)
   if (origin !== undefined && !YOUTUBE_ORIGINS.has(origin)) {
     return { status: 403, headers: { 'content-type': 'text/plain' }, body: 'forbidden origin' }
   }
