@@ -12,10 +12,16 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
+import { lazy, Suspense } from 'react'
 import { IconButton, type IconButtonSize } from '../../components/ui/icon-button'
 import { RangeSlider } from '../../components/ui/range-slider'
 import { cn } from '../../lib/cn'
-import { type RepeatMode, usePlayerStore } from './player-store'
+import { PLACEHOLDER_NOW_PLAYING, type RepeatMode, usePlayerStore } from './player-store'
+
+// The library (IndexedDB) loads after the shell's first render, not with it.
+const LibraryLikeButton = lazy(() =>
+  import('../library/like-button').then((module) => ({ default: module.LibraryLikeButton })),
+)
 
 const REPEAT_LABELS: Readonly<Record<RepeatMode, string>> = {
   off: 'Enable repeat',
@@ -142,17 +148,14 @@ export function SeekBar({ className }: { className?: string }) {
   )
 }
 
+/** Likes the current track: it goes to the top of Liked songs in the library. */
 export function LikeButton({ size = 'sm' }: { size?: IconButtonSize }) {
-  const liked = usePlayerStore((state) => state.liked)
-  const toggleLiked = usePlayerStore((state) => state.toggleLiked)
   return (
-    <IconButton
-      label="Like"
-      icon={<Heart fill={liked ? 'currentColor' : 'none'} />}
-      size={size}
-      pressed={liked}
-      onClick={toggleLiked}
-    />
+    <Suspense
+      fallback={<IconButton label="Like" icon={<Heart />} size={size} pressed={false} disabled />}
+    >
+      <LibraryLikeButton track={PLACEHOLDER_NOW_PLAYING} size={size} />
+    </Suspense>
   )
 }
 
