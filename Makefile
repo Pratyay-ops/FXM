@@ -67,10 +67,16 @@ ci: ci-setup check ## What CI runs: frozen setup, then check
 
 # --- Android app (docs/DEVELOPMENT.md, "Android app") ---------------------------
 
-.PHONY: android-setup
+.PHONY: android-setup apk android-clean
 
 android-setup: ## Install the JDK and Android SDK into .tools (accepts the SDK licenses)
 	@scripts/android-setup.sh
+
+apk: ## Build the Android debug APK (run make android-setup once first)
+	@apps/mobile/scripts/build-apk.sh
+
+android-clean: ## Remove this checkout's Android build output
+	@scripts/clean.sh android
 
 # --- Worktrees (one per plan stage, see docs/WORKFLOW.md) ----------------------
 
