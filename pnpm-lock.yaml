@@ -326,6 +326,9 @@ importers:
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@fxm/sources':
+        specifier: workspace:*
+        version: link:../sources
       '@playwright/test':
         specifier: ^1.64.0
         version: 1.64.0

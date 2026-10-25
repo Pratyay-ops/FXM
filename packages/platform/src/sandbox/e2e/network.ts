@@ -37,11 +37,13 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { rolldown } from 'rolldown'
 import { sandboxDocumentHeader } from '../csp.ts'
-import type { SandboxDocumentKind } from '../document.ts'
+import { SANDBOX_PROTOCOL, type SandboxDocumentKind } from '../document.ts'
 
 /** The FXM origin the tests serve the app's side and the sandbox documents from. */
-export const FXM_HOST = 'fxm-music.pages.dev'
+export const FXM_HOST = 'fxmusic.pages.dev'
 export const FXM = `https://${FXM_HOST}`
+/** The token the test pages put in the URLs of the sandbox documents they frame by hand. */
+export const PAGE_TOKEN = '0123456789abcdef0123456789abcdef'
 /** Another site, which frames the sandbox documents itself. */
 export const OTHER_HOST = 'not-fxm.example'
 /** A user host: an Invidious instance the user typed in Settings. */
@@ -59,6 +61,8 @@ export const CAPPED_BYTES = 1024 * 1024
 const HUGE_BYTES = 9 * 1024 * 1024
 /** How long the mock waits before answering a slow request. */
 const SLOW_MS = 3000
+/** The longest a sandbox document may be held back (`?delay=`). */
+const MAX_DELAY_MS = 5000
 
 const PACKAGE_DIR = fileURLToPath(new URL('../../../', import.meta.url))
 const SANDBOX_DIR = fileURLToPath(new URL('../../../../../apps/web/sandbox/', import.meta.url))
@@ -169,13 +173,83 @@ const HARNESS_HTML = `<!doctype html>
 </html>
 `
 
-/** A page on another site that frames a sandbox document without the sandbox attribute. */
+/**
+ * An FXM page that may be framed and sets no policy, as the web app's dev server serves it: no
+ * `frame-ancestors` and no `frame-src 'self'`. It loads the harness.
+ */
+const EMBEDDED_HTML = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>FXM, framed</title></head>
+  <body><script src="/harness.js"></script></body>
+</html>
+`
+
+/**
+ * A page on another site that frames the FXM page above and, once the FXM page frames its sandbox
+ * document, sends that frame to a document of its own (`swap()`), which collects what reaches it.
+ */
+const SWAP_HTML = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Another site, framing FXM</title></head>
+  <body>
+    <iframe id="fxm" src="${FXM}/embedded.html"></iframe>
+    <script>
+      window.reports = []
+      addEventListener('message', (event) => {
+        if (event.data && event.data.impostor) window.reports.push(event.data)
+      })
+      window.swap = async () => {
+        const fxm = document.getElementById('fxm').contentWindow
+        for (let waited = 0; fxm.length === 0; waited += 10) {
+          if (waited > 10000) return false
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        }
+        fxm[0].location.href = 'https://${OTHER_HOST}/impostor.html'
+        return true
+      }
+    </script>
+  </body>
+</html>
+`
+
+/**
+ * The other site's document in FXM's sandbox frame: it says hello as a sandbox document would,
+ * without a token and with a guessed one, takes any port it is given, answers on it with the
+ * guessed token, and tells the top page everything that reaches it.
+ */
+const IMPOSTOR_HTML = `<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Not FXM</title></head>
+  <body>
+    <script>
+      const report = (what, data) => top.postMessage({ impostor: true, what, data }, '*')
+      const guess = '${'f'.repeat(32)}'
+      addEventListener('message', (event) => {
+        report('window message', event.data)
+        const port = event.ports[0]
+        if (!port) return
+        port.onmessage = (message) => report('port message', message.data)
+        port.postMessage({ type: 'fxm-sandbox:ready', token: guess })
+      })
+      report('loaded', self.origin)
+      for (const token of [undefined, guess]) {
+        parent.postMessage(
+          { type: 'fxm-sandbox:hello', protocol: ${SANDBOX_PROTOCOL}, document: 'innertube', token },
+          '*',
+        )
+      }
+    </script>
+  </body>
+</html>
+`
+
+/** A page on another site that frames a sandbox document, with a token, without the attribute. */
 function otherSitePage(kind: SandboxDocumentKind): string {
   return `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Another site</title></head>
   <body>
-    <iframe id="target" src="${FXM}/sandbox/${kind}.html"></iframe>
+    <iframe id="target" src="${FXM}/sandbox/${kind}.html#${PAGE_TOKEN}"></iframe>
     <script>
       window.received = []
       addEventListener('message', (event) => {
@@ -186,7 +260,9 @@ function otherSitePage(kind: SandboxDocumentKind): string {
         const channel = new MessageChannel()
         const portReplies = []
         channel.port1.onmessage = (event) => portReplies.push(event.data)
-        target.postMessage({ type: 'fxm-sandbox:connect', protocol: 1 }, '*', [channel.port2])
+        target.postMessage({ type: 'fxm-sandbox:connect', protocol: ${SANDBOX_PROTOCOL} }, '*', [
+          channel.port2,
+        ])
         for (const request of requests) {
           channel.port1.postMessage(request)
           target.postMessage(request, '*')
@@ -208,17 +284,22 @@ const SIBLING_HTML = `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>Siblings</title></head>
   <body>
-    <iframe sandbox="allow-scripts" src="/sandbox/innertube.html"></iframe>
+    <iframe sandbox="allow-scripts" src="/sandbox/innertube.html#${PAGE_TOKEN}"></iframe>
     <iframe src="/helper.html"></iframe>
     <script>
-      // The document's real parent, connecting as the transport does.
+      // The document's real parent, connecting as the transport does: the document says ready,
+      // then answers.
       window.probe = async (request) => {
         const channel = new MessageChannel()
         const replies = []
-        channel.port1.onmessage = (event) => replies.push(event.data)
-        frames[0].postMessage({ type: 'fxm-sandbox:connect', protocol: 1 }, '*', [channel.port2])
-        channel.port1.postMessage(request)
-        for (let waited = 0; replies.length === 0 && waited < 5000; waited += 50) {
+        channel.port1.onmessage = (event) => {
+          replies.push(event.data)
+          if (event.data.type === 'fxm-sandbox:ready') channel.port1.postMessage(request)
+        }
+        frames[0].postMessage({ type: 'fxm-sandbox:connect', protocol: ${SANDBOX_PROTOCOL} }, '*', [
+          channel.port2,
+        ])
+        for (let waited = 0; replies.length < 2 && waited < 5000; waited += 50) {
           await new Promise((resolve) => setTimeout(resolve, 50))
         }
         return replies.map((reply) => ({ ...reply, body: undefined }))
@@ -238,7 +319,9 @@ const HELPER_HTML = `<!doctype html>
         const channel = new MessageChannel()
         const replies = []
         channel.port1.onmessage = (event) => replies.push(event.data)
-        target.postMessage({ type: 'fxm-sandbox:connect', protocol: 1 }, '*', [channel.port2])
+        target.postMessage({ type: 'fxm-sandbox:connect', protocol: ${SANDBOX_PROTOCOL} }, '*', [
+          channel.port2,
+        ])
         channel.port1.postMessage(request)
         await new Promise((resolve) => setTimeout(resolve, 2000))
         return replies
@@ -345,9 +428,15 @@ function googlevideo(req: IncomingMessage, url: URL): Reply {
   return { status: 206, headers, body: MEDIA.subarray(start, end + 1) }
 }
 
-/** An Invidious instance: CORS for anyone. */
+/**
+ * An Invidious instance: CORS for anyone. `/redirect` sends the request on to another host, with
+ * CORS headers on the redirect, `/redirect-no-cors` without them.
+ */
 async function userHost(url: URL): Promise<Reply> {
   const cors = { 'access-control-allow-origin': '*' }
+  const elsewhere = { location: `https://${BLOCKED_HOST}/api/v1/stats` }
+  if (url.pathname === '/redirect') return { status: 302, headers: { ...elsewhere, ...cors } }
+  if (url.pathname === '/redirect-no-cors') return { status: 302, headers: elsewhere }
   if (url.pathname === '/big') {
     return {
       status: 200,
@@ -426,6 +515,9 @@ export async function startTestNetwork(options: { port: number }): Promise<TestN
     if (host === FXM_HOST) {
       const document = sandboxDocuments.get(url.pathname)
       if (document !== undefined) {
+        // `?delay=` holds the document back, so a test can act before it loads.
+        const delayMs = Math.min(Number(url.searchParams.get('delay') ?? 0) || 0, MAX_DELAY_MS)
+        if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
         return page(document.html, {
           'content-security-policy': document.policy,
           ...COMMON_HEADERS,
@@ -443,11 +535,15 @@ export async function startTestNetwork(options: { port: number }): Promise<TestN
       }
       if (url.pathname === '/sibling.html') return page(SIBLING_HTML, COMMON_HEADERS)
       if (url.pathname === '/helper.html') return page(HELPER_HTML, COMMON_HEADERS)
+      if (url.pathname === '/embedded.html') return page(EMBEDDED_HTML, COMMON_HEADERS)
       return { status: 404 }
     }
     if (host === OTHER_HOST) {
       const kind = url.searchParams.get('document') === 'userhost' ? 'userhost' : 'innertube'
-      return url.pathname === '/frame.html' ? page(otherSitePage(kind)) : { status: 404 }
+      if (url.pathname === '/frame.html') return page(otherSitePage(kind))
+      if (url.pathname === '/swap.html') return page(SWAP_HTML)
+      if (url.pathname === '/impostor.html') return page(IMPOSTOR_HTML)
+      return { status: 404 }
     }
     if (INNERTUBE_HOSTS.includes(host)) return innerTube(req, url, body, state)
     if (host === GOOGLEVIDEO_HOST) return googlevideo(req, url)
