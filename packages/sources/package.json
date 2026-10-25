@@ -1,0 +1,18 @@
+{
+  "name": "@fxm/sources",
+  "version": "0.0.0",
+  "private": true,
+  "description": "FXM metadata, audio, lyrics and recommendation providers (one folder per source)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./*": "./src/*/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@fxm/core": "workspace:*"
+  }
+}
