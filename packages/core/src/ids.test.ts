@@ -294,7 +294,7 @@ describe('entityKey and sameEntity', () => {
     )
   })
 
-  it('never merges a plugin source with another source', () => {
+  it('keys a plugin ID by itself, apart from every other source', () => {
     const plugin = formatId('plugin.example', 'track', 'abc')
     expect(sameEntity(plugin, formatId('plugin.example', 'track', 'abc'))).toBe(true)
     expect(sameEntity(plugin, formatId('plugin.other', 'track', 'abc'))).toBe(false)

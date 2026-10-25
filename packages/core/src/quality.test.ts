@@ -264,10 +264,16 @@ describe('compareStreams and pickStream', () => {
       const verified = { tier: 'high', bitrateKbps: 128, fullLength: 'verified' } as const
       expect(compareStreams(verified, { ...verified, fullLength: 'unverified' })).toBe(0)
       expect(compareStreams(verified, { tier: 'high', bitrateKbps: 128 })).toBe(0)
-      const unverified = { id: 'unverified', tier: 'high', bitrateKbps: 160 } as const
-      expect(pickStream([{ ...verified, id: 'verified' }, unverified], 'high')?.id).toBe(
-        'unverified',
-      )
+      const unverified = {
+        id: 'unverified',
+        tier: 'high',
+        bitrateKbps: 160,
+        fullLength: 'unverified',
+      } as const
+      const unchecked = { id: 'unchecked', tier: 'high', bitrateKbps: 192 } as const
+      const options = [{ ...verified, id: 'verified' }, unverified]
+      expect(pickStream(options, 'high')?.id).toBe('unverified')
+      expect(pickStream([...options, unchecked], 'high')?.id).toBe('unchecked')
     })
 
     it('treats an unknown full-length value from bad data like an unverified one', () => {

@@ -186,7 +186,7 @@ const youtubeAudio: AudioSource = {
         fullLength: probe(capped, ctx),
       }),
     )
-    // Every usable option, best first; the caller applies the preferences.
+    // Every option found, best first and capped ones last; the caller applies the preferences.
     return options.sort(compareStreams)
   },
 }
@@ -267,7 +267,7 @@ describe('provider interfaces', () => {
     })
   })
 
-  it('read how far the platform reaches YouTube from the context', async () => {
+  it('reads from the context how far the platform reaches YouTube', async () => {
     const plainPage: NetworkCapabilities = { ...LITE, youtube: 'none' }
     await expect(
       catalog.search('', { types: ['track'] }, context('music', fakeFetch({}), plainPage)),
