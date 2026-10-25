@@ -138,7 +138,7 @@ jobs:
     name: Check the deployment
     needs: deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -158,6 +158,20 @@ jobs:
         run: |
           scripts/install-pnpm.sh
           scripts/run.sh pnpm install --frozen-lockfile --filter @fxm/deploy
+
+      # A new project's certificate for its sub-domains, which every deployment's own address
+      # uses, arrives a few minutes after its first deploy (2.5 minutes, measured 2026-10-25).
+      # Later deploys answer at once.
+      - name: Wait for the deployment to answer
+        env:
+          URL: ${{ needs.deploy.outputs.url }}
+        run: |
+          for _ in $(seq 60); do
+            if curl -sSf -o /dev/null "$URL/"; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::$URL did not answer over HTTPS within 10 minutes"
+          exit 1
 
       - name: Check every path's headers
         env:
