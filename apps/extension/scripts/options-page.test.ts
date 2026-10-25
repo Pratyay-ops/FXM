@@ -43,6 +43,14 @@ describe('options page', () => {
     expect(html).toContain('role="status"')
   })
 
+  it("asks for Firefox's consent before it saves the login, and explains that only in Firefox", () => {
+    expect(html).toMatch(/<p id="spotify-consent-help" class="help" hidden>/)
+    expect(script).toContain("byId('spotify-consent-help', HTMLElement).hidden = !consent.needed")
+    expect(script.indexOf('consent.request()')).toBeGreaterThan(0)
+    expect(script.indexOf('consent.request()')).toBeLessThan(script.indexOf('settings.write('))
+    expect(script).toContain('consent.release()')
+  })
+
   it("hides the development build's warning and localhost toggle until the script shows them", () => {
     expect(html).toMatch(/<p id="dev-warning" class="warning" hidden>/)
     expect(html).toMatch(/<div id="localhost-login" hidden>/)

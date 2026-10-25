@@ -36,7 +36,7 @@ exports[`Chromium manifest > matches the reviewed manifest 1`] = `
       },
     ],
   },
-  "description": "Only lets the FXM web app reach music services from your own browser. Collects no data and runs no remote code.",
+  "description": "Only lets the FXM web app reach music services from your own browser. No analytics, no tracking and no remote code.",
   "host_permissions": [
     "https://fxmusic.pages.dev/*",
     "https://www.youtube.com/*",
@@ -87,6 +87,9 @@ exports[`Firefox manifest > matches the reviewed manifest 1`] = `
   "browser_specific_settings": {
     "gecko": {
       "data_collection_permissions": {
+        "optional": [
+          "authenticationInfo",
+        ],
         "required": [
           "none",
         ],
@@ -122,7 +125,7 @@ exports[`Firefox manifest > matches the reviewed manifest 1`] = `
       },
     ],
   },
-  "description": "Only lets the FXM web app reach music services from your own browser. Collects no data and runs no remote code.",
+  "description": "Only lets the FXM web app reach music services from your own browser. No analytics, no tracking and no remote code.",
   "host_permissions": [
     "https://fxmusic.pages.dev/*",
     "https://www.youtube.com/*",

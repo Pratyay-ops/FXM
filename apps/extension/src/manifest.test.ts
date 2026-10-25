@@ -46,6 +46,8 @@ describe.each(VARIANTS)('manifest for $browser (dev: $dev)', ({ browser, dev }) 
       'Only lets the FXM web app reach music services from your own browser.',
     )
     expect(m.description.length).toBeLessThanOrEqual(MAX_DESCRIPTION_LENGTH)
+    // The opt-in login bridge hands on a login token, so no "collects no data" claim.
+    expect(m.description).not.toMatch(/collects no data/i)
   })
 
   it('asks only for static header rules and storage', () => {
@@ -146,7 +148,7 @@ describe('Firefox manifest', () => {
       gecko: {
         id: FIREFOX_ADDON_ID,
         strict_min_version: '140.0',
-        data_collection_permissions: { required: ['none'] },
+        data_collection_permissions: { required: ['none'], optional: ['authenticationInfo'] },
       },
       gecko_android: { strict_min_version: '142.0' },
     })
@@ -156,6 +158,15 @@ describe('Firefox manifest', () => {
   it('requires a Firefox with MV3 declarativeNetRequest', () => {
     const version = manifest('firefox').browser_specific_settings?.gecko.strict_min_version
     expect(Number.parseFloat(version ?? '0')).toBeGreaterThanOrEqual(113)
+  })
+
+  it("declares the login bridge's token as optional authentication information, nothing else", () => {
+    // Nothing goes to the developer. The opt-in bridge hands the Spotify login's token to the
+    // FXM page; Firefox asks consent for it when the user turns the bridge on (consent.ts).
+    const gecko = manifest('firefox').browser_specific_settings?.gecko
+    expect(gecko?.data_collection_permissions.required).toEqual(['none'])
+    expect(gecko?.data_collection_permissions.optional).toEqual(['authenticationInfo'])
+    expect(manifest('chromium').browser_specific_settings).toBeUndefined()
   })
 
   it('declares Android support from the version that has the data collection settings', () => {
