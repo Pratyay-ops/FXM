@@ -2,6 +2,8 @@
 
 **Date:** 2026-10-25 · **Revision:** 2 · **Status:** proposal. Three owner decisions and four smaller confirmations are open (section 10). · **Baseline:** `docs/ARCHITECTURE.md` and `docs/PLAN.md` on `develop` at `97fe265` (PLAN revision 2), plus the in-progress branches as checked on 2026-10-25 (section 11).
 
+**Outcome (added 2026-10-25, after the owner's decisions).** The owner chose Decision 1 option A (Spotify stays built in, on by default where reachable, switchable, with optional account sync), Decision 2 option A (YouTube downloads on wherever the bytes are readable) and Decision 3 option B (free and unregistered for now). Non-YouTube sources may play in Music mode, there is no mirror for now, and no R.4a stage: a light R.4 covers the notices, the takedown playbook and the clean-room log. [PLAN.md](../PLAN.md) revision 3 and [ARCHITECTURE.md](../ARCHITECTURE.md) apply this memo with those decisions. Where they differ from the recommendations below, they win. Apart from this note and a garbled source cell fixed in section 12 (the Jamendo row), the memo is unchanged.
+
 **Inputs.**
 - Seven research reports from 2026-10-25: the Spotify plugin, Bloomee, Spotube audio, browser-only playback, matching, native apps, and legal and store risk. Also the adversarial verdicts on their decision-critical claims. Where a verdict corrected a claim, this memo uses the correction.
 - A review of revision 1 of this memo. This revision addresses every high and medium point in that review and the low ones.
@@ -1478,7 +1480,7 @@ Done when: the signed XPI is attached to a release, and the AMO and Edge outcome
 | Netlify supports the same headers file | Same `_headers` format; how matching rules combine and header removal are undocumented | docs.netlify.com, updated 2025-12-01 [stale?] |
 | The stock ffmpeg.wasm core fits Pages and the LGPL rule | Refuted: `@ffmpeg/core` 0.12.10 is GPL-2.0-or-later and its wasm is 32,232,419 bytes | npm registry and unpkg, 2026-10-25 |
 | mp4box.js can replace ffmpeg for the itag 18 remux | Licence and release confirmed: BSD-3-Clause, 2.4.1 (2026-06-19). Remux not yet built | npm registry, 2026-10-25 |
-| Jamendo's free tier is enough for a shared public ID | Unclear: up to 35,000 API requests per month for non-commercial apps, shared by every user of one ID; terms on sharing unchecked | developer.jentially.com is wrong — developer.jamendo.com (undated) |
+| Jamendo's free tier is enough for a shared public ID | Unclear: up to 35,000 API requests per month for non-commercial apps, shared by every user of one ID; terms on sharing unchecked | developer.jamendo.com (undated) |
 | F-Droid allows downloaded code | Only with explicit opt-in consent that explains it bypasses F-Droid's checks | f-droid.org Inclusion Policy (undated) |
 | Mozilla can act on self-distributed add-ons | Confirmed: policies apply "regardless of how they are distributed"; Mozilla "may reject or block affected versions or entire add-ons"; blocked add-ons are disabled with no user override | extensionworkshop.com, 2026-04-30; blocking-process page, 2021 [stale?] |
 | SponsorBlock can be queried without revealing the video | Confirmed: `/api/skipSegments/<4-hex sha256 prefix>` → 200 with `ACAO: *`. Data "CC BY-NC-SA 4.0 unless you have explicit permission" | Measured, and sponsor.ajay.app/database, 2026-10-25 |
