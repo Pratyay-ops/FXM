@@ -36,12 +36,12 @@ const services: Service[] = [
   {
     name: 'ListenBrainz',
     url: 'https://listenbrainz.org',
-    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}.`,
+    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}. If you connect your ListenBrainz account in Settings (scrobbling, off until you do): the songs you play and the one playing now, sent with the user token you entered. Your ListenBrainz profile is public.`,
   },
   {
     name: 'Last.fm',
     url: 'https://www.last.fm',
-    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}.`,
+    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}. If you connect your Last.fm account in Settings (scrobbling, off until you do): the songs you play and the one playing now, sent with the API key you entered and signed with its secret, which FXM never sends.`,
   },
   {
     name: 'Internet Archive',
@@ -64,7 +64,7 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
   description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device. Here is which services your device talks to, and why."
   heading="Privacy"
   lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device."
-  updated="2026-10-25"
+  updated="2026-10-26"
 >
   <h2>The short version</h2>
   <ul>
@@ -93,6 +93,10 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
     your browser's storage for the web app, or in the app's own storage on desktop and Android.
     {downloads}
     FXM can't see any of it.
+  </p>
+  <p>
+    The token and keys of a scrobbling account you connect are stored there too, and library backups
+    leave them out.
   </p>
   <p>Clearing this site's data in your browser, or uninstalling the app, deletes it for good.</p>
 
