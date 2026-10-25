@@ -9,6 +9,7 @@ import {
   isEntityId,
   isEntityKind,
   isSourceId,
+  normalizeIsrc,
   parseId,
   SOURCE_IDS,
   type SourceId,
@@ -199,4 +200,45 @@ describe('entityKey and sameEntity', () => {
     expect(isEntityId(key)).toBe(false)
     expect(parseId(key)).toBeNull()
   })
+})
+
+describe('normalizeIsrc', () => {
+  it.each([
+    ['GBARL9300135', 'GBARL9300135'],
+    ['gbarl9300135', 'GBARL9300135'],
+    ['GB-ARL-93-00135', 'GBARL9300135'],
+    ['GB ARL 93 00135', 'GBARL9300135'],
+    [' gb\u{2013}arl\u{2013}93\u{2013}00135 ', 'GBARL9300135'],
+    ['US.UM7.15.00001', 'USUM71500001'],
+    ['ＧＢＡＲＬ９３００１３５', 'GBARL9300135'],
+    ['ISRC: GB-ARL-93-00135', 'GBARL9300135'],
+    ['isrc GBARL9300135', 'GBARL9300135'],
+    ['QZES82012345', 'QZES82012345'],
+    // An Icelandic ISRC whose registrant code starts with RC, not an "ISRC" label.
+    ['ISRCA2400001', 'ISRCA2400001'],
+  ])('normalizes %j to %s', (input, expected) => {
+    expect(normalizeIsrc(input)).toBe(expected)
+    expect(normalizeIsrc(expected)).toBe(expected)
+  })
+
+  it.each([
+    '',
+    'ISRC:',
+    'GBARL930013',
+    'GBARL93001355',
+    '1BARL9300135',
+    'GBARL93A0135',
+    'GB_ARL_93_00135',
+    'GBARL9300135 (2009)',
+    'not an isrc',
+  ])('rejects %j', (input) => {
+    expect(normalizeIsrc(input)).toBeNull()
+  })
+
+  it.each([null, undefined, 42, {}, ['GBARL9300135']])(
+    'returns null for the non-string %j',
+    (value) => {
+      expect(normalizeIsrc(value)).toBeNull()
+    },
+  )
 })

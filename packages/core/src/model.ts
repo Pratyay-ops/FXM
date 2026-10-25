@@ -65,7 +65,11 @@ export interface Track {
   artwork: Artwork[]
   /** Whether the source marks the track as explicit. */
   explicit?: boolean
-  /** International Standard Recording Code, e.g. `GBARL9300135`. */
+  /**
+   * International Standard Recording Code in canonical form: 12 upper-case characters without
+   * hyphens or spaces, e.g. `GBARL9300135`. Providers store it through `normalizeIsrc`, so ISRCs
+   * from every source compare equal.
+   */
   isrc?: string
   /** Song, music video, video or episode. */
   kind: TrackKind

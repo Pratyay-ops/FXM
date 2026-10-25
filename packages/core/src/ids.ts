@@ -1,6 +1,6 @@
 /**
  * Source-qualified entity IDs of the form `<source>:<kind>:<nativeId>`, for example
- * `ytm:track:dQw4w9WgXcQ` or `spotify:album:4aawyAB9vmqN3uQ7FjRGTy`.
+ * `ytm:track:dQw4w9WgXcQ` or `spotify:album:4aawyAB9vmqN3uQ7FjRGTy`, and canonical ISRCs.
  *
  * ## Canonical native IDs
  *
@@ -162,4 +162,25 @@ export function entityKey(id: EntityId): string {
 /** Whether two IDs name the same entity, i.e. have the same {@link entityKey}. */
 export function sameEntity(a: EntityId, b: EntityId): boolean {
   return entityKey(a) === entityKey(b)
+}
+
+/** An ISRC: country (2 letters), registrant (3 characters), year (2 digits), number (5 digits). */
+const ISRC = /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/u
+
+/**
+ * The canonical form of an International Standard Recording Code: 12 upper-case characters
+ * without separators, e.g. `GBARL9300135` for `gb-arl-93-00135`. `Track.isrc` always holds this
+ * form, so ISRCs from Spotify, MusicBrainz, YouTube Music and file tags compare equal.
+ *
+ * Accepts lower case, hyphens, dashes, dots, spaces, full-width characters and an `ISRC:` label.
+ * Returns `null`, and never throws, when the value is not a string or not a valid ISRC.
+ */
+export function normalizeIsrc(text: unknown): string | null {
+  if (typeof text !== 'string') return null
+  const compact = text
+    .normalize('NFKC')
+    .toUpperCase()
+    .replace(/^\s*ISRC(?:\s*:\s*|\s+)/u, '')
+    .replace(/[\s.\-\u{2010}-\u{2015}\u{2212}]/gu, '')
+  return ISRC.test(compact) ? compact : null
 }
