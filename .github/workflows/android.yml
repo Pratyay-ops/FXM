@@ -1,19 +1,35 @@
 name: Android
 
 # Builds the debug APK with the same repo-local toolchain as on your machine (make
-# android-setup, make apk) and keeps it as a workflow artifact.
+# android-setup, make apk) and keeps it as a workflow artifact. It runs when the app or anything
+# its build uses changes: the web app and the packages it bundles, the toolchain scripts and the
+# Makefile, Node and the dependencies. Keep both lists the same.
 on:
   push:
     paths:
       - apps/mobile/**
       - apps/web/**
-      - scripts/android-setup.sh
+      - packages/**
+      - scripts/**
+      - Makefile
+      - .nvmrc
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
       - .github/workflows/android.yml
   pull_request:
     paths:
       - apps/mobile/**
       - apps/web/**
-      - scripts/android-setup.sh
+      - packages/**
+      - scripts/**
+      - Makefile
+      - .nvmrc
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tsconfig.base.json
       - .github/workflows/android.yml
   workflow_dispatch:
 
