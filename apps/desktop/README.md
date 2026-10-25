@@ -17,8 +17,9 @@ scripts/run.sh pnpm --filter @fxm/desktop smoke   # the live smoke test, in a hi
 ```
 assets/icon.svg           the FXM mark (same art as the web favicon), source of every icon
 scripts/prune-icons.mjs   keeps only the icons tauri.conf.json lists (run by the "icons" script)
-test/                     Vitest checks of the Tauri config, desktop.yml and the smoke test's steps;
-                          part of `make test`, no Rust needed
+test/                     Vitest checks of the Tauri config, the isolation hook, desktop.yml and the
+                          smoke test's steps; part of `make test`, no Rust needed
+isolation/                the isolation hook every IPC message passes through (see Network)
 smoke/                    the live smoke test: its page, its steps and run.mjs, which runs the app
 src-tauri/
   Cargo.toml, Cargo.lock  the Rust crate `fxm` (also the executable's name)
@@ -26,10 +27,11 @@ src-tauri/
   build.rs                tauri-build: capabilities, icons, the config for the macros, and the app's
                           commands, each behind a permission
   src/main.rs, src/lib.rs plugin wiring and window handling (`run()`)
-  src/user_hosts.rs       the hosts the user approved, and the command that fetches from them
+  src/user_hosts.rs       the hosts the user approved, their approval dialog, and the command that
+                          fetches from them
   src/smoke.rs            prints the smoke test's report and exits (with `--features smoke` only)
-  tauri.conf.json         app identity, window, CSP, the http plugin's settings, build commands and
-                          bundle settings
+  tauri.conf.json         app identity, window, CSP, the isolation pattern, the http plugin's
+                          settings, build commands and bundle settings
   tauri.smoke.conf.json   what the smoke build changes: its own identifier, its page, a hidden window
   capabilities/           what the web app may call: the http allow-list lives here
   request-headers.json    the Origin rules for when plugins-workspace PR #3703 ships (not read yet)
@@ -43,10 +45,10 @@ src-tauri/
 - **Development.** `make desktop-dev` starts Vite with `--base=/ --port 5260 --strictPort` and points the window at `http://localhost:5260`. Release-only behaviour, the CSP in particular, needs `make desktop-build`.
 - **Window.** One window labelled `main`: 1200×800, at least 360×600, titled FXM, with the dark theme's background (`#0b0b0f`) until the page paints. tauri-plugin-window-state restores its size, position, maximized and full-screen state, but never starts it hidden. tauri-plugin-single-instance brings it to the front when FXM is launched a second time. `dragDropEnabled: false` leaves drag and drop to the page, as in a browser: Tauri's native file-drop handling would turn off HTML5 drag and drop on Windows, which playlist reordering may rely on.
 - **Links.** tauri-plugin-opener opens `target="_blank"` links in the default browser.
-- **Network.** Every request goes through Rust: see [Network](#network) below.
+- **Network.** Every request the web app makes through `ctx.fetch` goes through Rust, and every IPC message through the isolation hook: see [Network](#network) below.
 - **No updater yet.** Stage 7.5 adds the updater, installers on GitHub Releases and macOS signing.
 
-The tests in `test/` pin the CSP, the http plugin's scope and settings, the permissions around them, `default.json` as the only capability file, the app's commands and the plugins `src/lib.rs` registers, so widening any of them is always a deliberate change.
+The tests in `test/` pin the CSP, the isolation pattern and its hook, the http plugin's scope and settings, the permissions around them, `default.json` as the only capability file, the app's commands and the plugins `src/lib.rs` registers, so widening any of them is always a deliberate change.
 
 ## Network
 
@@ -56,42 +58,73 @@ The web app never uses the webview's own `fetch` here. In the desktop app, `crea
 
 | Requests to | `Origin` | `User-Agent`, unless the request names one |
 |---|---|---|
-| YouTube: InnerTube, `sw.js_data`, the player JavaScript, googlevideo | None | The webview's own, which is a browser's: WebView2's, WebKitGTK's, or on macOS WKWebView's completed to Safari's |
-| Spotify | `https://open.spotify.com` | The same browser agent |
-| Every other host | None | FXM's: `FXM ( https://github.com/Pratyay-ops/FXM )`, as MusicBrainz asks apps to name themselves |
+| YouTube: InnerTube, `sw.js_data`, the player JavaScript, googlevideo, and its image servers `i.ytimg.com` and `*.ggpht.com` | None | The webview's own, which is a browser's: WebView2's, WebKitGTK's, or on macOS WKWebView's completed to Safari's |
+| Spotify's API hosts | `https://open.spotify.com` | The same browser agent |
+| Spotify's image server `i.scdn.co`, and Last.fm's web player (`www.last.fm/player/station/`) | None | The same browser agent |
+| Services that ask apps to name themselves: MusicBrainz, Cover Art Archive, ListenBrainz, the Last.fm API, LRCLIB, Internet Archive, Jamendo, iTunes Search, SponsorBlock | None | FXM's: `FXM ( https://github.com/Pratyay-ops/FXM )`, as MusicBrainz asks |
 
+- The agent goes by who runs the host (`sendsBrowserAgent`): Google and Spotify never see FXM's own agent, which would single out the same address's traffic that otherwise reads as a browser's, and give them an easy string to block. On the web, those requests carry the browser's own agent.
 - Headers travel only in `init.headers`, as a plain object: the plugin reads forbidden headers such as `Origin` only from there, and a `Request` object's headers would lose them.
 - "None" is `origin: ''`, which the plugin removes. That takes the `unsafe-headers` feature: without it the plugin always adds the webview's origin. A missing or non-`https:` origin is turned into none, so no request can ever carry the webview's.
-- The plugin's own agent, `tauri-plugin-http/<version>`, never goes out: Spotify refuses it, and it would single out FXM's traffic.
+- The plugin's own agent, `tauri-plugin-http/<version>`, never goes out: Spotify refuses it, and it would single out FXM's traffic. Neither does a `Cookie` or `Host` header.
 - InnerTube calls keep the CORS-simple shape of every platform and draw from the request budget, with `visitorData` in the request body. The session's visitorData is server-issued: native requests can read `https://www.youtube.com/sw.js_data`, which the YouTube provider (stage 1.3) takes it from.
+- Responses arrive compressed, as in a browser: the plugin is built with `gzip` and `brotli`, so InnerTube's and Spotify's JSON, often hundreds of KB, crosses the network several times smaller. A request with a `Range` header asks for `identity`, so media probes and downloads stay byte for byte.
+- Errors follow `fetch`, for the response and for reading its body, and their messages name a URL only by its scheme, host and path: a googlevideo URL's query carries the user's IP address and signatures.
 
 **Scope.** `capabilities/default.json` lets the plugin reach exactly the hosts in the platform's host table (`HOST_RULES` in [`packages/platform/src/hosts.ts`](../../packages/platform/src/hosts.ts)), HTTPS only, and Last.fm only under `/player/station/`. The test builds the expected list from the table, so a host added there fails it until it is added here too. `scopeRedirects` in `tauri.conf.json` checks every redirect against the same scope, so a redirect elsewhere fails (`Unsupported`); googlevideo's redirects to other `*.googlevideo.com` hosts and Internet Archive's to its storage hosts, such as `dn710102.ca.archive.org`, stay inside.
 
 **No cookie jar.** The plugin's default `cookies` feature is off. It would save every response cookie in plain text in `.cookies` in the app's cache folder and send it back with later requests. FXM never sends a `Cookie` header from the web app, and `Set-Cookie` never reaches page JavaScript. Stage 7.4 decides how Spotify credentials are stored.
+
+**The isolation hook.** `createDesktopFetch()` binds only the requests made through it, but page script can call the HTTP plugin through Tauri's IPC directly. So the app uses Tauri's [isolation pattern](https://v2.tauri.app/concept/inter-process-communication/isolation/) (`app.security.pattern` in `tauri.conf.json`, and the `isolation` feature of `tauri` and `tauri-build`): every IPC message from a page goes through [`isolation/hook.js`](isolation/hook.js), in a sandboxed iframe of its own origin, which then encrypts it for Rust with a key only that frame has. Rust refuses messages that aren't encrypted with it, so no page script reaches Rust around the hook. For every request to the HTTP plugin (`plugin:http|fetch`), whoever sends it, the hook:
+
+- drops the plugin's per-request `proxy` option, which no scope or setting restricts. With it, page script could make Rust open a TCP connection to any address and port, the user's own network included, read from the errors whether the port is open, send a `CONNECT` line with a `Proxy-Authorization` of its choosing, or look up a proxy host name made of data. It also drops `danger` (TLS exceptions), which the plugin refuses anyway without its `dangerous-settings` feature;
+- drops `Cookie`, `Cookie2`, `Host` and `Proxy-*` headers;
+- sends exactly one `Origin`: the `https:` origin of a real site, else none, never the webview's own.
+
+Every other message passes unchanged. `test/isolation.test.ts` runs the hook on the same origins as `createDesktopFetch()`'s rule, and a Rust test checks that the built app uses the pattern: without the crate feature Tauri would quietly ignore it. Each IPC call costs one more `postMessage` and an AES-GCM encryption.
 
 **Hosts the user adds.** Tauri can't change a plugin's scope at runtime, so hosts typed into Settings, such as an Invidious instance or a Spotify secret source, go through the app's own commands in `src/user_hosts.rs`:
 
 | Command | What it does |
 |---|---|
 | `user_hosts` | Lists the approved hosts |
-| `approve_user_host` | Asks the user, in a native dialog over the main window, whether FXM may contact the host. Only a public domain name, with an optional port, can be approved: no IP address, no single-label name, no `.local`, `.lan`, `.internal` and the like |
+| `approve_user_host` | Asks the user, in a native dialog over the main window, whether FXM may contact the host. Only a public domain name, with an optional port, can be approved: no IP address, no single-label name, no `.local`, `.lan`, `.internal` and the like. Errors: `invalid-host`, `not-focused`, `busy`, `too-soon`, `refused`, `dialog`, `storage` |
 | `revoke_user_host` | Removes a host |
-| `user_host_fetch` | Fetches from an approved host |
+| `user_host_fetch` | Fetches from an approved host. Errors: `bad-request`, `not-approved`, `forbidden-address`, `proxy-configured`, `too-large`, `network` |
 
-- Only the user can grow the list, by saying yes in the dialog: page script, a resolver module included, can read and shrink it but never add to it, so it can't make FXM contact a host of its own choosing.
-- `user_host_fetch` sends `GET` and `HEAD` only, over HTTPS, without cookies, credentials, a proxy or any header from the page, with FXM's User-Agent. Names must resolve to public internet addresses: loopback, private, link-local, shared and other special-purpose addresses are dropped after DNS resolution, so an approved name can't point FXM into the user's network. At most 5 redirects, each to an approved host; at most 8 MiB in 30 s. `Set-Cookie` is dropped.
+- Only the user can grow the list, by choosing "Allow" in the dialog: page script, a resolver module included, can read and shrink it but never add to it, so it can't make `user_host_fetch` reach a host the user didn't approve. That binds this command only: see [What page script can reach](#what-page-script-can-reach).
+- The dialog shows only while FXM's window is visible, not minimized and focused (`not-focused` otherwise): the command never brings the window forward, so a script can't pull FXM in front of another app, or raise the question just as the user presses Return in FXM's search box. On macOS and Windows "Don't Allow" is the default button, which Return presses. GTK (Linux) reports closing the dialog and its second button alike, so there "Allow" is its OK button. Either way only a click on "Allow" approves. One question at a time (`busy`), the next only 10 s after the last answer (`too-soon`), and none about a host the user refused until FXM restarts (`refused`).
+- The dialog comes from [rfd](https://github.com/PolyMeilie/rfd) directly. tauri-plugin-dialog, which wraps it, would inject a script into every page that replaces `window.alert` and `window.confirm` with IPC calls the app doesn't allow: `alert()` would show nothing, and `confirm()` would return a Promise, which is always truthy, so `if (confirm('Delete?'))` would go ahead without asking.
+- `user_host_fetch` sends `GET` and `HEAD` only, over HTTPS, without cookies, credentials or any header from the page, with FXM's User-Agent. Names must resolve to public internet addresses: loopback, private, link-local, shared and other special-purpose addresses are dropped after DNS resolution, so an approved name can't point the command into the user's network. At most 5 redirects, each to an approved host; at most 8 MiB in 30 s, counted on the body actually read (a `HEAD` response has none, whatever its `Content-Length`). `Set-Cookie` is dropped, and header values reach the page one character per byte, as browsers expose them, so a UTF-8 file name can't break the response.
+- **Never through a proxy.** The HTTP plugin follows the system's and the environment's proxy settings (`system-proxy`), but `user_host_fetch` connects directly: its public-address check has to see the address it connects to. So while a proxy is set for a host, the command refuses it (`proxy-configured`) rather than reveal the user's own address to it, which a user who set a proxy to hide that address wouldn't expect. Settings should say so next to the hosts.
+- Messages name a host or an origin, never a URL's path or query.
 - The list lives in `user-hosts.json` in the app's config folder (on macOS, `~/Library/Application Support/io.github.pratyayops.fxm/`).
 - In the web app, `createDesktopUserHosts()` from `@fxm/platform` wraps the commands. Pass `userHosts: () => hosts.current()` to `createPlatform()`, so the transport routes those hosts; Rust checks them again on every request.
 
-**App commands and permissions.** `build.rs` lists the app's commands in an app manifest, which gives each an `allow-…` permission and makes Tauri check app commands against the capabilities, as it does plugin commands. Without one, any local webview could call them, even one granted no capability, such as stage 1.11's hidden evaluator. `default.json` grants them to the main window only, and grants no `dialog:` permission: only Rust opens dialogs.
+**App commands and permissions.** `build.rs` lists the app's commands in an app manifest, which gives each an `allow-…` permission and makes Tauri check app commands against the capabilities, as it does plugin commands. Without one, any local webview could call them, even one granted no capability, such as stage 1.11's hidden evaluator. `default.json` grants them, with the HTTP plugin and its scope, to the main window's own webview (`"webviews": ["main"]`; a window's webview has the window's label), not to the main window: a capability that matches a window applies to every webview in it, so a child webview, such as an evaluator built inside the main window, would get all of it. Any other webview needs a capability of its own. The app registers no dialog plugin: only Rust opens dialogs.
 
-**Dropping `unsafe-headers`.** `unsafe-headers` lets page script send any forbidden header, `Cookie` and `Host` included, to every host in the scope. [plugins-workspace PR #3703](https://github.com/tauri-apps/plugins-workspace/pull/3703) (open on 2026-10-26, last updated 2026-10-14) lets the app's config set or remove headers per URL instead (`requestHeaders`), and set the default User-Agent (`userAgent`). `request-headers.json` already holds FXM's rules in that shape: no `Origin` for any host, Spotify's own for Spotify; a test keeps them in step with `NATIVE_ORIGINS`. Once a plugin release with the PR is 14 days old:
+**Dropping `unsafe-headers`.** `unsafe-headers` lets page script send forbidden headers to every host in the scope: the isolation hook drops `Cookie`, `Host` and `Proxy-*` and keeps `Origin` to a real site's, but others, such as `Referer`, still pass. [plugins-workspace PR #3703](https://github.com/tauri-apps/plugins-workspace/pull/3703) (open on 2026-10-26, last updated 2026-10-14) lets the app's config set or remove headers per URL instead (`requestHeaders`), and set the default User-Agent (`userAgent`). `request-headers.json` already holds FXM's rules in that shape: no `Origin` for any host, Spotify's own for Spotify; a test keeps them in step with `NATIVE_ORIGINS`. Once a plugin release with the PR is 14 days old:
 
 1. Update `tauri-plugin-http` and `@tauri-apps/plugin-http` (in `packages/platform`).
 2. Move the list into `tauri.conf.json` under `plugins > http > requestHeaders`, and delete `request-headers.json`.
 3. Drop `unsafe-headers` from `Cargo.toml`, and update the tests that pin both.
 
 The User-Agent needs no change: it isn't a forbidden header, so the web app keeps setting it per request.
+
+### What page script can reach
+
+Page script is anything that runs in the main webview: the web app, a module stage 1.13 loads, or a script injected by a bug. It reaches the network through every channel below, not only through `createDesktopFetch()`:
+
+| Channel | What page script can do with it |
+|---|---|
+| `plugin:http\|fetch`, through Tauri's IPC | Send any method, body and header to the hosts in the scope, but the isolation hook drops a proxy, `Cookie`, `Host` and `Proxy-*`, and keeps `Origin` to a real site's. `unsafe-headers` still lets it set other forbidden headers, such as `Referer`, until it is dropped (above) |
+| `user_host_fetch` | `GET` and `HEAD` to hosts the user approved, at public addresses only |
+| `img-src https:` and `media-src https:` in the CSP | Load an image or a media file from any HTTPS host and port, the user's own network included, through the webview's own networking: a `GET` whose URL can carry data, and whose success or failure the page sees |
+| `opener:default` | Open an `http(s):`, `mailto:` or `tel:` URL in the user's default browser or app, and show a file in the file manager |
+
+So the approved list and the public-address filter bind `user_host_fetch` only, and the header rules bind `ctx.fetch` and, through the hook, the HTTP plugin. None of them keeps page script from contacting a host of its own choosing: the CSP's `img-src` and `media-src` let it. Narrowing those would break artwork and playback from hosts known only at run time, such as a user's Invidious instance.
+
+**For stage 1.13.** The signed resolver module runs in this webview from a `blob:` URL, so everything in this table applies to it. "The platform host allowlists still apply, so a module can't reach new hosts" holds for what the module sends through `ctx.fetch` only. The isolation hook was added before `blob:` joins `script-src`, so a module can't use the plugin's proxy option; keeping code that isn't FXM's out of this webview is the job of the module's signature check.
 
 ## Content security policy
 
@@ -101,8 +134,9 @@ connect-src ipc: http://ipc.localhost 'self'; script-src 'self' 'wasm-unsafe-eva
 style-src 'self' 'unsafe-inline'
 ```
 
-- `connect-src` has no `https:`: page script reaches the network only through Tauri's IPC (`ipc:` on macOS and Linux, `http://ipc.localhost` on Windows), so every request goes through Rust, with its scope and header policy. A stray `fetch()` from page script is blocked instead of going out with the webview's origin and cookies.
-- `media-src https:` lets `<audio>` play googlevideo URLs directly, as well as Internet Archive's and Jamendo's media hosts and a user's Invidious instance, whose hosts can't be listed at build time. The page can't read those responses.
+- `connect-src` has no `https:`: `fetch()`, `XMLHttpRequest`, `WebSocket` and `EventSource` reach only Tauri's IPC (`ipc:` on macOS and Linux, `http://ipc.localhost` on Windows), so every request FXM makes goes through Rust, with its scope and header policy. A stray `fetch()` from page script is blocked instead of going out with the webview's origin and cookies. It doesn't keep page script off the network: see [What page script can reach](#what-page-script-can-reach).
+- `media-src https:` lets `<audio>` play googlevideo URLs directly, as well as Internet Archive's and Jamendo's media hosts and a user's Invidious instance, whose hosts can't be listed at build time. The page can't read those responses. `img-src https:` does the same for artwork.
+- At build time Tauri adds the isolation hook's own origin to `default-src`, for its iframe.
 - At build time Tauri adds the SHA-256 hash of every inline script to `script-src`, so the theme script in `apps/web/index.html` keeps running.
 - **No `'unsafe-eval'`.** The app's policy has none, and stage 7.2 added none: YouTube deciphering runs in a separate, hidden evaluator webview with a policy of its own (stage 1.11). Only if that webview can't work may 1.11 add `'unsafe-eval'` here, with the reason recorded in this README.
 
@@ -116,7 +150,7 @@ scripts/run.sh pnpm --filter @fxm/desktop smoke
 
 - It builds a debug version of the app (`smoke:build`) with the `smoke` feature, whose `src/smoke.rs` prints the page's progress and report and exits, and with `tauri.smoke.conf.json` merged over the config. That file changes only the identifier (`io.github.pratyayops.fxm.smoke`, so the test never touches the app's data), the page (`smoke/`, instead of the web app) and the window: hidden, and never suspended. Release builds never turn the feature on.
 - Then `smoke/run.mjs` runs it and prints a line per step. The exit code is 0 when no step failed; steps waiting for a stage that hasn't merged don't count as failures.
-- The steps (`smoke/steps.ts`): the platform reports native networking; `sw.js_data`, where the YouTube provider gets its server-issued visitorData, is readable; Spotify answers (its server time, which needs no token); a YouTube Music search; a VISIONOS URL whose end-of-file probe passed; that track playing to its end; then the same probe and playback for a 27-second public-domain recording on Internet Archive, whose download URL redirects within the scope. Playback is muted.
+- The steps (`smoke/steps.ts`): the platform reports native networking; `sw.js_data` issues a visitorData, at the position recorded in the YouTube clean-room log (neither the value nor the IP address next to it is reported); Spotify answers (its server time, which needs no token); a YouTube Music search; a VISIONOS URL whose end-of-file probe passed; that track playing to its end; then the same probe and playback for a 27-second public-domain recording on Internet Archive, whose download URL redirects within the scope. Playback is muted.
 - It sends 3 requests to YouTube (a few more once the resolve runs), 1 to Spotify and a few to Internet Archive, plus the tracks' own. Run it from a residential connection: YouTube's bot checks single out datacenter addresses.
 
 **The swap.** Stages 1.3 (the YouTube Music provider) and 1.4 (the stream resolver) had not merged when 7.2 was built. `smoke/youtube.ts` is the only place the test touches them: until then, its search is one plain InnerTube call in the CORS-simple shape, and the resolve waits. Its header shows the few lines that put the real providers in their place.
@@ -126,6 +160,7 @@ scripts/run.sh pnpm --filter @fxm/desktop smoke
 | Date | Where | Result |
 |---|---|---|
 | 2026-10-26 | macOS 15.5 (Apple M4), WKWebView, residential connection in India | Passed, with the two VISIONOS steps waiting for stage 1.4: `sw.js_data` read (2.7 KB), Spotify's server time, a YouTube Music search through the plugin with no `Origin` (15 results), the Internet Archive probe (206 after a redirect to another `*.archive.org` host) and its track played to the end (26.7 s), in 36 s |
+| 2026-10-26 | The same Mac, now with the isolation hook, so every IPC message crossed it | Passed, with the two VISIONOS steps still waiting for stage 1.4: `sw.js_data` issued a visitorData (446 characters), Spotify's server time, the YouTube Music search (15 results), the Internet Archive probe (206 from `dn710102.ca.archive.org`) and its track played to the end (26.7 s). The machine ran at a load average of about 145, so the track took 5.7 minutes to play |
 
 Still to run: the two VISIONOS steps (after 1.4 merges), and Windows (WebView2) and Linux (WebKitGTK), which need those machines.
 

@@ -114,6 +114,27 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * The visitorData that `sw.js_data` issues, if its answer holds one. The answer is a JSPB array
+ * behind the `)]}'` guard, with the device info at `[0][2][0][0]` and the visitorData at its
+ * index 13, as recorded in packages/sources/src/youtube/CLEAN-ROOM.md (youtubei.js `Session`
+ * reads it there; seen on 2026-10-26). The same device info holds the caller's IP address at
+ * index 3, so neither value may go into the report.
+ */
+export function swJsDataVisitorData(text: string): string | undefined {
+  if (!text.startsWith(JSON_GUARD)) return undefined
+  let json: unknown
+  try {
+    json = JSON.parse(text.slice(JSON_GUARD.length))
+  } catch {
+    return undefined
+  }
+  const at = (value: unknown, index: number): unknown =>
+    Array.isArray(value) ? value[index] : undefined
+  const visitorData = at(at(at(at(at(json, 0), 2), 0), 0), 13)
+  return typeof visitorData === 'string' && visitorData !== '' ? visitorData : undefined
+}
+
 /** The stream that stage 7.2's done-when plays: one whose end-of-file probe passed. */
 export function verifiedStream(options: readonly StreamOption[]): StreamOption | undefined {
   return options.find((option) => option.fullLength === 'verified')
@@ -160,10 +181,15 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
   await step('server-issued visitorData is readable', async () => {
     const response = await options.context().fetch(SW_JS_DATA_URL)
     const text = await response.text()
+    // Never the answer itself: it holds the caller's IP address.
     if (response.status !== 200 || !text.startsWith(JSON_GUARD)) {
-      throw new Error(`sw.js_data answered ${response.status} with ${text.slice(0, 40)}`)
+      throw new Error(`sw.js_data answered ${response.status} without its JSON guard`)
     }
-    return [true, `sw.js_data: ${text.length} characters`]
+    const visitorData = swJsDataVisitorData(text)
+    if (visitorData === undefined) {
+      throw new Error(`sw.js_data answered ${text.length} characters without a visitorData`)
+    }
+    return [true, `sw.js_data issued a visitorData of ${visitorData.length} characters`]
   })
 
   await step('Spotify answers', async () => {

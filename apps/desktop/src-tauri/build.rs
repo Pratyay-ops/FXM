@@ -10,6 +10,9 @@ const COMMANDS: &[&str] = &[
 ];
 
 fn main() {
+    // `generate_context!` embeds the isolation hook (../isolation) when the crate compiles, so a
+    // change to the hook has to recompile it.
+    println!("cargo:rerun-if-changed=../isolation");
     tauri_build::try_build(
         tauri_build::Attributes::new()
             .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS)),

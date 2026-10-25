@@ -10,6 +10,7 @@ import {
   type SmokeYouTube,
   SPOTIFY_TIME_URL,
   SW_JS_DATA_URL,
+  swJsDataVisitorData,
   verifiedStream,
 } from '../smoke/steps'
 import {
@@ -30,6 +31,19 @@ const FULL: NetworkCapabilities = {
 }
 const FREE = { url: 'https://archive.org/download/x/x.mp3', label: 'Free track' }
 const VIDEO_ID = 'dQw4w9WgXcQ'
+const VISITOR_DATA = 'CgtWaXNpdG9yRGF0YSiAgICABg%3D%3D'
+const CALLER_IP = '203.0.113.7'
+
+/** A `sw.js_data` answer: the device info at [0][2][0][0], visitorData at 13, the IP at 3. */
+function swJsData(visitorData: unknown = VISITOR_DATA): string {
+  const deviceInfo: unknown[] = Array.from({ length: 17 }, () => null)
+  deviceInfo[0] = 'en'
+  deviceInfo[1] = 'US'
+  deviceInfo[3] = CALLER_IP
+  deviceInfo[13] = visitorData
+  deviceInfo[16] = '1.20261020.10.00'
+  return `)]}'\n${JSON.stringify([[null, null, [[deviceInfo]]]])}`
+}
 
 function stream(fullLength: StreamOption['fullLength']): StreamOption {
   return {
@@ -50,7 +64,7 @@ type Route = (url: string, init?: RequestInit) => Response | Promise<Response>
 function context(route: Route = () => new Response('not found', { status: 404 })) {
   const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
-    if (url === SW_JS_DATA_URL) return new Response(`)]}'\n[["visitor"]]`)
+    if (url === SW_JS_DATA_URL) return new Response(swJsData())
     if (url === SPOTIFY_TIME_URL) return Response.json({ serverTime: 1793000000 })
     if (url === FREE.url) {
       const response = new Response(new Uint8Array(1000), {
@@ -209,6 +223,42 @@ describe('runSmoke', () => {
     const probe = stepNamed(report, 'Free track: end-of-file probe')
     expect(probe?.status).toBe('failed')
     expect(probe?.detail).toContain('answered 200')
+  })
+
+  it('reads the server-issued visitorData without reporting it or the caller’s IP', async () => {
+    const report = await runSmoke(options())
+    const step = stepNamed(report, 'server-issued visitorData is readable')
+    expect(step?.status).toBe('passed')
+    expect(step?.detail).toBe(
+      `sw.js_data issued a visitorData of ${VISITOR_DATA.length} characters`,
+    )
+    expect(JSON.stringify(report)).not.toContain(VISITOR_DATA)
+    expect(JSON.stringify(report)).not.toContain(CALLER_IP)
+  })
+
+  it.each([
+    ['no visitorData', swJsData(null)],
+    ['an empty visitorData', swJsData('')],
+    ['another shape', `)]}'\n[["visitor"]]`],
+    ['no JSON after the guard', `)]}'\n<html>`],
+  ])('fails when sw.js_data answers with %s, and never reports the answer', async (_, body) => {
+    const { ctx } = context()
+    const answering = {
+      ...ctx,
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) =>
+        String(input) === SW_JS_DATA_URL ? new Response(body) : ctx.fetch(input, init),
+    }
+    const report = await runSmoke(options({ context: () => answering as ProviderContext }))
+    const step = stepNamed(report, 'server-issued visitorData is readable')
+    expect(step?.status).toBe('failed')
+    expect(step?.detail).toMatch(/^sw\.js_data answered \d+ characters without a visitorData$/)
+    expect(JSON.stringify(report)).not.toContain(CALLER_IP)
+  })
+
+  it('finds the visitorData only where sw.js_data puts it', () => {
+    expect(swJsDataVisitorData(swJsData())).toBe(VISITOR_DATA)
+    expect(swJsDataVisitorData(swJsData(42))).toBeUndefined()
+    expect(swJsDataVisitorData(JSON.stringify([[null, null, [[[]]]]]))).toBeUndefined()
   })
 
   it('picks the verified stream', () => {

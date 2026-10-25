@@ -4,6 +4,10 @@
 //! sends every request through it, within the scope in capabilities/default.json, so the app
 //! needs no browser extension. Hosts the user adds in Settings go through the commands in
 //! [`user_hosts`] instead.
+//!
+//! Every IPC message from a page passes through the isolation hook in `../isolation` (Tauri's
+//! isolation pattern, set in tauri.conf.json) before it reaches Rust: it keeps page script from
+//! giving the HTTP plugin a proxy of its own or a forbidden header.
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_window_state::StateFlags;
@@ -34,8 +38,6 @@ pub fn run() {
         // Requests are limited to the hosts in capabilities/default.json, and so are redirects
         // (`scopeRedirects` in tauri.conf.json).
         .plugin(tauri_plugin_http::init())
-        // Only Rust opens dialogs: the web app has no dialog permission.
-        .plugin(tauri_plugin_dialog::init())
         // Opens links with target="_blank" in the default browser.
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -94,5 +96,16 @@ mod tests {
             (Some(360.0), Some(600.0))
         );
         assert!(config.app.security.csp.is_some(), "the CSP must stay on");
+    }
+
+    #[test]
+    fn every_ipc_message_passes_the_isolation_hook() {
+        // Without the crate's `isolation` feature, Tauri would quietly fall back to the brownfield
+        // pattern, and no message would pass the hook.
+        let context = context();
+        assert!(
+            matches!(context.pattern(), tauri::Pattern::Isolation { .. }),
+            "tauri.conf.json must set the isolation pattern, and Cargo.toml the feature"
+        );
     }
 }
