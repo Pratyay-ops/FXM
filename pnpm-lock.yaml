@@ -184,13 +184,16 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@fxm/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@fxm/player':
+        specifier: workspace:*
+        version: link:../../packages/player
       '@tauri-apps/api':
         specifier: ^2.12.3
         version: 2.12.3
     devDependencies:
-      '@fxm/core':
-        specifier: workspace:*
-        version: link:../../packages/core
       '@fxm/platform':
         specifier: workspace:*
         version: link:../../packages/platform
@@ -200,6 +203,9 @@ importers:
       '@types/node':
         specifier: ^22.20.5
         version: 22.20.5
+      happy-dom:
+        specifier: ^20.14.6
+        version: 20.14.6
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
