@@ -136,7 +136,7 @@ export function contextFor(fetch: typeof globalThis.fetch, signal?: AbortSignal)
   return {
     fetch,
     platform: 'web',
-    capabilities: { youtube: false, spotify: false, mediaBytes: false, fileSystem: false },
+    capabilities: { youtube: 'none', spotify: 'unreachable', mediaBytes: false, fileSystem: false },
     mode: 'music',
     ...(signal === undefined ? {} : { signal }),
   }
