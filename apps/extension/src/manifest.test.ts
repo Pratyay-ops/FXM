@@ -6,6 +6,7 @@ import {
   buildManifest,
   EXTENSION_PAGES_CSP,
   FIREFOX_ADDON_ID,
+  FIREFOX_ANDROID_MIN_VERSION,
   ICON_SIZES,
   isExtensionVersion,
   MAX_DESCRIPTION_LENGTH,
@@ -147,6 +148,7 @@ describe('Firefox manifest', () => {
         strict_min_version: '140.0',
         data_collection_permissions: { required: ['none'] },
       },
+      gecko_android: { strict_min_version: '142.0' },
     })
     expect(FIREFOX_ADDON_ID).toBe('fxm-connect@fxmusic.pages.dev')
   })
@@ -154,6 +156,14 @@ describe('Firefox manifest', () => {
   it('requires a Firefox with MV3 declarativeNetRequest', () => {
     const version = manifest('firefox').browser_specific_settings?.gecko.strict_min_version
     expect(Number.parseFloat(version ?? '0')).toBeGreaterThanOrEqual(113)
+  })
+
+  it('declares Android support from the version that has the data collection settings', () => {
+    // Firefox for Android shows data_collection_permissions from 142 (desktop: 140). AMO offers
+    // an add-on on Android only when gecko_android is present.
+    const settings = manifest('firefox').browser_specific_settings
+    expect(settings?.gecko_android.strict_min_version).toBe(FIREFOX_ANDROID_MIN_VERSION)
+    expect(Number.parseFloat(FIREFOX_ANDROID_MIN_VERSION)).toBeGreaterThanOrEqual(142)
   })
 
   it('matches the reviewed manifest', () => {
