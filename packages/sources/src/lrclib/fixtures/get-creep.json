@@ -1,0 +1,13 @@
+{
+  "id": 496,
+  "name": "Creep",
+  "trackName": "Creep",
+  "artistName": "Radiohead",
+  "albumName": "Pablo Honey",
+  "duration": 239.0,
+  "instrumental": false,
+  "hasWordSync": false,
+  "plainLyrics": "Creep, line 1\nCreep, line 2\n\nCreep, line 3\nCreep, line 4\nCreep, line 5\nCreep, line 6\n",
+  "syncedLyrics": "[00:19.16] Creep, line 1\n[00:24.09] Creep, line 2\n[00:29.24] Creep, line 3\n[00:34.49] Creep, line 4\n[00:39.77] Creep, line 5\n[00:44.77] Creep, line 6\n[03:50.78] ",
+  "lyricsfile": "version: '1.0'\nmetadata:\n  title: Creep\n  artist: Radiohead\n  album: Pablo Honey\n  duration_ms: 239000\n  instrumental: false\nlines:\n- text: Creep, line 1\n  start_ms: 19160\n  end_ms: 24090\n- text: Creep, line 2\n  start_ms: 24090\n  end_ms: 29240\n- text: Creep, line 3\n  start_ms: 29240\n  end_ms: 34490\n- text: Creep, line 4\n  start_ms: 34490\n  end_ms: 39770\n- text: Creep, line 5\n  start_ms: 39770\n  end_ms: 44770\n- text: Creep, line 6\n  start_ms: 44770\n  end_ms: 230780\n"
+}
