@@ -72,15 +72,31 @@ export interface UpdateRequestInit {
  */
 export type UpdateFetch = (url: string, init: UpdateRequestInit) => Promise<Response>
 
-/** An {@link UpdateFetch} over a platform's native HTTP: a GET with no `Origin` header. */
+/** The HTTP statuses of a redirect, which `fetch` refuses under `redirect: 'error'`. */
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308])
+
+/**
+ * An {@link UpdateFetch} over a platform's native HTTP: a GET with no headers, no `Origin` and
+ * no cookies, on the `open` route. Native HTTP hands a redirect back as it is, never following
+ * it, so a redirect fails the request here, as `redirect: 'error'` makes `fetch` do.
+ */
 export function updateFetchFromNative(http: NativeHttp): UpdateFetch {
-  return (url, init) =>
-    http(url, {
+  return async (url, init) => {
+    const response = await http(url, {
       method: 'GET',
-      headers: { origin: '' },
+      headers: {},
+      origin: null,
+      route: 'open',
+      credentials: 'omit',
+      redirect: 'manual',
       signal: init.signal,
-      redirect: init.redirect,
     })
+    if (REDIRECT_STATUSES.has(response.status)) {
+      await response.body?.cancel().catch(() => {})
+      throw new TypeError(`${url} redirects (HTTP ${response.status}), which updates never follow`)
+    }
+    return response
+  }
 }
 
 /** Why something went wrong while restoring or checking an artifact. */

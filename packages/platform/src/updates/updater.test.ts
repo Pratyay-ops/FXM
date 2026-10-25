@@ -1006,25 +1006,72 @@ describe('normalizeUpdateBaseUrl', () => {
 })
 
 describe('updateFetchFromNative', () => {
-  it('sends a GET with no Origin header through the native HTTP', async () => {
+  const updateInit = (signal: AbortSignal) =>
+    ({ method: 'GET', credentials: 'omit', redirect: 'error', signal }) as const
+
+  it('sends a GET with no headers, Origin or cookies through the native HTTP', async () => {
     const calls: Parameters<NativeHttp>[] = []
     const http: NativeHttp = async (url, init) => {
       calls.push([url, init])
       return new Response('ok')
     }
     const signal = new AbortController().signal
-    const response = await updateFetchFromNative(http)(`${BASE}${CONFIG_FILE}`, {
-      method: 'GET',
-      credentials: 'omit',
-      redirect: 'error',
-      signal,
-    })
+    const response = await updateFetchFromNative(http)(`${BASE}${CONFIG_FILE}`, updateInit(signal))
     expect(await response.text()).toBe('ok')
     expect(calls).toEqual([
       [
         `${BASE}${CONFIG_FILE}`,
-        { method: 'GET', headers: { origin: '' }, signal, redirect: 'error' },
+        {
+          method: 'GET',
+          headers: {},
+          origin: null,
+          route: 'open',
+          credentials: 'omit',
+          redirect: 'manual',
+          signal,
+        },
       ],
+    ])
+  })
+
+  it('refuses a redirect, which native HTTP hands back unfollowed', async () => {
+    const http: NativeHttp = async () =>
+      new Response(null, { status: 302, headers: { location: 'https://elsewhere.test/' } })
+    const fetch = updateFetchFromNative(http)
+    await expect(
+      fetch(`${BASE}${CONFIG_FILE}`, updateInit(new AbortController().signal)),
+    ).rejects.toThrow(/redirects \(HTTP 302\)/)
+  })
+
+  it('passes other answers on, for the updater to judge', async () => {
+    const http: NativeHttp = async () => new Response('missing', { status: 404 })
+    const response = await updateFetchFromNative(http)(
+      `${BASE}${CONFIG_FILE}`,
+      updateInit(new AbortController().signal),
+    )
+    expect(response.status).toBe(404)
+  })
+
+  it('makes the updater count a redirect as unreachable and try the next URL', async () => {
+    const world = setup()
+    await publishModule(world.site, MIRROR, 3)
+    const http: NativeHttp = async (url, init) =>
+      url.startsWith(BASE)
+        ? new Response(null, { status: 301, headers: { location: `${MIRROR}${MODULE_FILE}` } })
+        : world.site.fetch(url, {
+            method: 'GET',
+            credentials: 'omit',
+            redirect: 'error',
+            signal: init.signal as AbortSignal,
+          })
+    const report = await updater(world, {
+      artifacts: [moduleArtifact(world.events)],
+      baseUrls: [BASE, MIRROR],
+      fetch: updateFetchFromNative(http),
+    }).check()
+    expect(entry(report, 'test-module')).toMatchObject({ outcome: 'updated', version: 3 })
+    expect(entry(report, 'test-module').problems).toEqual([
+      expect.objectContaining({ reason: 'unreachable', url: `${BASE}${MODULE_FILE}.sig` }),
     ])
   })
 })
