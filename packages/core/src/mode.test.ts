@@ -5,7 +5,9 @@ import {
   CATALOG_MODES,
   type CatalogMode,
   DEFAULT_CATALOG_MODE,
+  filterPlayable,
   isCatalogMode,
+  isPlayable,
   isVideoKind,
   type ModeVerdict,
   modePolicy,
@@ -96,6 +98,40 @@ describe('applyModeFilter', () => {
     const bad = [{ kind: 'toString' }, { kind: '__proto__' }, { kind: 'song' }] as const
     const kept = applyModeFilter(bad as unknown as ReadonlyArray<{ kind: TrackKind }>, 'music')
     expect(kept).toEqual([{ kind: 'song' }])
+  })
+})
+
+describe('isPlayable and filterPlayable', () => {
+  it.each([
+    ['song', 'music', true],
+    ['music-video', 'music', false],
+    ['video', 'music', false],
+    ['episode', 'music', false],
+    ['song', 'all', true],
+    ['music-video', 'all', true],
+    ['video', 'all', true],
+    ['episode', 'all', false],
+  ] as const)('a %s in %s mode plays as it is: %s', (kind, mode, expected) => {
+    expect(isPlayable({ kind }, mode)).toBe(expected)
+    expect(isPlayable({ kind }, mode)).toBe(modePolicy({ kind }, mode) === 'playable')
+  })
+
+  it('drops a music-video candidate in Music mode, which applyModeFilter keeps', () => {
+    const candidates = [
+      { kind: 'music-video', ref: 'omv' },
+      { kind: 'song', ref: 'atv' },
+      { kind: 'video', ref: 'ugc' },
+    ] as const
+    expect(applyModeFilter(candidates, 'music').map((item) => item.ref)).toEqual(['omv', 'atv'])
+    expect(filterPlayable(candidates, 'music').map((item) => item.ref)).toEqual(['atv'])
+    expect(filterPlayable(candidates, 'all').map((item) => item.ref)).toEqual(['omv', 'atv', 'ugc'])
+  })
+
+  it('returns a new array and fails closed on bad kinds', () => {
+    const input = [{ kind: 'song' as TrackKind }, { kind: 'toString' as TrackKind }]
+    const output = filterPlayable(input, 'all')
+    expect(output).not.toBe(input)
+    expect(output).toEqual([{ kind: 'song' }])
   })
 })
 

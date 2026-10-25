@@ -194,7 +194,10 @@ export interface AudioCandidate {
   source: SourceId
   /** The source's native reference, e.g. a YouTube video ID. */
   ref: string
-  /** What the candidate is; the catalog-mode policy applies to it like to a track. */
+  /**
+   * What the candidate is. It must be playable in the context's mode (see
+   * {@link AudioSource.match}), so in Music mode it is always a `song`.
+   */
   kind: TrackKind
   /** The candidate's title, as the source shows it. */
   title: string
@@ -247,7 +250,12 @@ export interface StreamOption {
 export interface AudioSource {
   /** The source this audio comes from. */
   readonly id: SourceId
-  /** Candidates for `track`, best first. Empty when the source has nothing. */
+  /**
+   * Candidates for `track`, best first. Empty when the source has nothing. Every candidate is
+   * playable in `ctx.mode` as it is (`isPlayable(candidate, ctx.mode)`, or `filterPlayable` on
+   * the list): in Music mode a music-video track is matched to its song, and the video itself is
+   * never returned as a candidate.
+   */
   match(track: Track, ctx: ProviderContext): Promise<AudioCandidate[]>
   /**
    * Every usable stream option for a candidate, best first as `compareStreams` orders them. It

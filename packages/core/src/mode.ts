@@ -1,7 +1,7 @@
 /**
  * The catalog-mode policy: which kinds of tracks each mode shows and plays. Search, radio,
- * recommendations, imports and the queue all go through {@link modePolicy} or
- * {@link applyModeFilter}, so no feature can bypass the mode.
+ * recommendations, imports, audio candidates and the queue all go through {@link modePolicy} or
+ * one of the helpers built on it, so no feature can bypass the mode.
  *
  * @module
  */
@@ -78,15 +78,37 @@ export function modePolicy(track: Pick<Track, 'kind'>, mode: CatalogMode): ModeV
 }
 
 /**
- * Drops the tracks that `mode` hides and keeps the rest in order. Items that need a song match
- * stay in the list, so check {@link modePolicy} before playing one. Works on anything with a
- * `kind`, such as tracks or audio candidates.
+ * Drops the tracks that `mode` hides and keeps the rest in order: the filter for lists to show,
+ * such as search results, radio, recommendations and imports. Items that need a song match stay
+ * in the list, so check {@link isPlayable} before playing one. For audio candidates, which must
+ * be playable as they are, use {@link filterPlayable} instead.
  */
 export function applyModeFilter<T extends Pick<Track, 'kind'>>(
   tracks: readonly T[],
   mode: CatalogMode,
 ): T[] {
   return tracks.filter((track) => modePolicy(track, mode) !== 'hidden')
+}
+
+/**
+ * Whether `mode` lets an item play as it is, i.e. its verdict is `playable`. An official music
+ * video in Music mode is not: it plays only through the song it was matched to. Every audio
+ * candidate must pass this check (see `AudioSource.match`).
+ */
+export function isPlayable(item: Pick<Track, 'kind'>, mode: CatalogMode): boolean {
+  return modePolicy(item, mode) === 'playable'
+}
+
+/**
+ * Keeps, in order, only the items that `mode` lets play as they are. Unlike
+ * {@link applyModeFilter} it also drops items that need a song match, so it suits audio
+ * candidates and anything else about to be played.
+ */
+export function filterPlayable<T extends Pick<Track, 'kind'>>(
+  items: readonly T[],
+  mode: CatalogMode,
+): T[] {
+  return items.filter((item) => isPlayable(item, mode))
 }
 
 /** Whether a track kind is a video (an official music video or any other video). */

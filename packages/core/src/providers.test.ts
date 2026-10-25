@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { FxmError } from './errors'
 import { type EntityId, formatId, parseId } from './ids'
-import { applyModeFilter } from './mode'
+import { applyModeFilter, filterPlayable, isPlayable } from './mode'
 import type { Track } from './model'
 import type {
   AbortSignalLike,
@@ -121,6 +121,33 @@ const youtubeAudio: AudioSource = {
   },
 }
 
+/** Offers a music video itself only where the mode plays videos, and its song everywhere. */
+const videoAwareAudio: AudioSource = {
+  id: 'ytm',
+  async match(track, ctx) {
+    const self: AudioCandidate = {
+      source: 'ytm',
+      ref: parseId(track.id)?.nativeId ?? '',
+      kind: track.kind,
+      title: track.title,
+      artists: track.artists.map((artist) => artist.name),
+      confidence: 1,
+      evidence: ['same video'],
+    }
+    const song: AudioCandidate = {
+      ...self,
+      ref: 'song1',
+      kind: 'song',
+      confidence: 0.91,
+      evidence: ['title 0.97', 'artist 1.00'],
+    }
+    return filterPlayable([self, song], ctx.mode)
+  },
+  async resolve() {
+    return []
+  },
+}
+
 const lyrics: LyricsProvider = {
   id: 'lrclib',
   async getLyrics(track) {
@@ -178,6 +205,19 @@ describe('provider interfaces', () => {
     // Playback applies the tier ceiling of the current connection to the full list.
     expect(pickStream(options, DEFAULT_QUALITY_PREFS.streaming.wifi)?.url).toMatch(/251$/)
     expect(pickStream(options, 'low')?.url).toMatch(/249$/)
+  })
+
+  it('never returns a candidate that the mode cannot play as it is', async () => {
+    const officialVideo: Track = {
+      ...song,
+      id: formatId('ytm', 'track', 'omv1'),
+      kind: 'music-video',
+    }
+    const music = await videoAwareAudio.match(officialVideo, context('music'))
+    const all = await videoAwareAudio.match(officialVideo, context('all'))
+    expect(music.map((candidate) => candidate.ref)).toEqual(['song1'])
+    expect(all.map((candidate) => candidate.ref)).toEqual(['omv1', 'song1'])
+    expect(music.every((candidate) => isPlayable(candidate, 'music'))).toBe(true)
   })
 
   it('finds lyrics and account status', async () => {
