@@ -1,6 +1,8 @@
 import { testTracks } from '@fxm/player/testing'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { getLibrary } from '../../db/repo'
 import { setupTestPlayback } from '../now-playing/testing'
 import { LikeButton, SeekBar } from './controls'
 
@@ -47,6 +49,31 @@ describe('the like button', () => {
 
     await act(() => player.setQueue(testTracks('a'), { autoplay: false }))
 
-    expect(screen.getByRole('button', { name: 'Like' })).toBeEnabled()
+    // The library's like button loads just after: a disabled stand-in until then.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Like' })).toBeEnabled())
+  })
+
+  it('saves the current track in the library, and follows the queue', async () => {
+    const { player } = setupTestPlayback()
+    const [first, second] = testTracks('a', 'b')
+    if (!first || !second) throw new Error('two test tracks')
+    await player.setQueue([first, second], { autoplay: false })
+    const user = userEvent.setup()
+    render(<LikeButton />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Like' })).toBeEnabled())
+
+    await user.click(screen.getByRole('button', { name: 'Like', pressed: false }))
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Like' })).toHaveAttribute('aria-pressed', 'true'),
+    )
+    expect(await getLibrary().isLiked(first.id)).toBe(true)
+
+    await act(() => player.next())
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Like' })).toHaveAttribute('aria-pressed', 'false'),
+    )
+    expect(await getLibrary().isLiked(second.id)).toBe(false)
   })
 })

@@ -2,7 +2,7 @@
 
 The FXM web player: a React app served from `/app/`, which later also becomes the installable web applet (stage 5.1) and the shell of the Android app (stage 6.1). Everything runs in the browser: there is no FXM backend.
 
-Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Search results and the library plug in with their own stages.
+Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB.
 
 Search and the album, artist and playlist pages (stage 2.4), with the app's single place for music sources (providers, tier and the Spotify switch) and the fake catalog for development and tests, are described in [src/features/search/README.md](src/features/search/README.md).
 
@@ -22,8 +22,8 @@ End-to-end tests and screenshots use Playwright and are **not** part of `make ch
 
 ```sh
 scripts/run.sh pnpm --filter @fxm/web exec playwright install chromium
-scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test (navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px) and Now playing (saved queue, lyrics, reordering, review, phone and laptop layouts)
-scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, Now playing in use at 320/768/1280 (lyrics, versions, queue, move buttons, review, a song that can't play), plus Music + Video, forced colors and search and browse with the fake catalog, in apps/web/screenshots/
+scripts/run.sh pnpm --filter @fxm/web e2e          # smoke test (navigation, Back, settings across reloads, keyboard focus, no overflow at 320 px, playlist order by keyboard and mouse across reloads, menus by keyboard, also with reduced motion, focus when rows leave a list, sidebar confirmations on any page) and Now playing (saved queue, lyrics, reordering, review, phone and laptop layouts)
+scripts/run.sh pnpm --filter @fxm/web screenshots  # every page at 320/768/1280/1920 px in both themes, Now playing in use at 320/768/1280 (lyrics, versions, queue, move buttons, review, a song that can't play), plus Music + Video, forced colors, the library restored from a backup and search and browse with the fake catalog, in apps/web/screenshots/
 ```
 
 Every run builds this checkout and starts its own `vite preview` on port 4173 with `--strictPort`. If the port is busy, for example with another worktree's preview, the run fails instead of testing that server: set `FXM_E2E_PORT` to a free port. Screenshots and Playwright output are gitignored.
@@ -40,6 +40,8 @@ src/
     media/              collection header, card/track/video placeholders
     ui/                 design-system pieces: buttons, IconButton, SegmentedControl, Tabs,
                         RangeSlider, Skeleton, EmptyState, ErrorState, Artwork, Logo
+  db/                   the library database: schema and migrations, repository, live-query
+                        hooks, ordering, match cache, backups (see src/db/README.md)
   features/<name>/      one folder per feature: home, search, library, album, artist,
                         playlist, now-playing (page, the app's player, stream badge),
                         queue (panel, review list, saving), lyrics, player (bar, mini
@@ -47,7 +49,7 @@ src/
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
-e2e/                    Playwright smoke test, Now playing test (with now-playing-seed.ts) and screenshot capture
+e2e/                    Playwright smoke test, Now playing test (with now-playing-seed.ts) and screenshot capture; fixtures/ holds a library backup to restore
 ```
 
 Later stages own their feature folders (`features/search`, `features/now-playing`, `features/library`, …, see [PLAN.md](../../docs/PLAN.md)), so the shell rarely needs to change.
@@ -56,10 +58,12 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 
 - **Routing:** React Router 7 in data mode (`createBrowserRouter`, library mode, no framework plugin), which is what makes `errorElement` and lazy route modules work. The basename is `import.meta.env.BASE_URL` unchanged (`base: '/app/'` in `vite.config.ts`): with the trailing slash, links to Home point at `/app/`, which Vite serves (`/app` is a 404 there). Home and Search ship with the shell; the other pages are lazy chunks. React Router 8 needs Node 22.22+, newer than the toolchain's Node, so it is a later upgrade.
 - **Layout:** desktop (1024 px+) has the sidebar, top bar and player bar; tablets (768–1023 px) get an icon rail; phones (< 768 px) get a top bar with the page title, a mini player and a tab bar, except on Now playing, which fills the screen (`data-full-screen` on `<main>` drops the bars' room from `--shell-bottom`). The page scrolls with the window, so mobile browser bars collapse and `<ScrollRestoration>` works. Bottom bars pad for `env(safe-area-inset-bottom)`. `--shell-top` and `--shell-bottom` (in `styles/index.css`) hold the height the bars cover; `html` uses them as `scroll-padding`, so keyboard focus never lands behind a bar. Page content and the top bar row share `max-w-page`.
-- **State:** Zustand. `features/settings/settings-store.ts` persists `{ catalogMode, theme }` to `localStorage` under `fxm.settings.v1`; invalid or unreadable data falls back to the defaults, and other open tabs follow changes. `features/player/player-store.ts` is the player bar's view of the app's player (seconds, `isPlaying`), with actions that drive it; its `liked` is a placeholder until the library (2.6). TanStack Query holds search and browse results (`features/search/queries.ts`), the lyrics and the alternative versions.
+- **State:** Zustand. `features/settings/settings-store.ts` persists `{ catalogMode, theme }` to `localStorage` under `fxm.settings.v1`; invalid or unreadable data falls back to the defaults, and other open tabs follow changes. `features/player/player-store.ts` is the player bar's view of the app's player (seconds, `isPlaying`), with actions that drive it; the like button reads and saves likes in the library. TanStack Query holds search and browse results (`features/search/queries.ts`), the lyrics and the alternative versions.
+- **Library:** IndexedDB through Dexie, in `src/db/` (its [README](src/db/README.md) has the schema, migrations and why orders are stored as they are). Pages read with live queries (`src/db/hooks.ts`), so every view of a playlist, the sidebar and the like buttons update together, in every tab. `features/library/` holds the Library page (`/library?tab=…`: Playlists, Liked songs, Downloads, Artists, Albums, Recently played), the page of a local playlist (`/playlist/local:playlist:…`, chosen by `app/playlist-route.tsx`; other sources' playlists stay with `features/playlist`), the sidebar's playlists and the backup dialog. Its links to followed artists, albums and playlists use the helpers of `features/search/catalog/links.ts` (`playlistPath` in `features/library/paths.ts` picks the right address for any playlist), and a link from those helpers to a local playlist (`/playlist/local:<id>`) moves to the library's address. Confirmations and failures of library actions (`showStatus` in `features/library/status.tsx`) show in the app's one toast, `FeedbackToast` from `features/search/feedback.tsx`, which the shell renders above the player on every page, so an action taken in the sidebar is confirmed wherever the user is.
+- **Ordering:** every playlist, Liked songs and Downloads included, and the list of playlists keep a custom order the user controls: drag and drop on dnd-kit (pointer, touch and keyboard: Space picks a row up, the arrow keys move it, Space drops it, Escape cancels), Move up, down, to top and to bottom in each row's menu, multi-select moves, **Shuffle order** (a permanent random order, with Undo until the next change) and sort views by title, artist, album, date added or duration that "Save as custom order" makes permanent. In the sidebar a row drags by itself (with the mouse after a few pixels, by a long press on touch); its menu has the moves. Long lists skip the drag animations, and their rows re-render only when their own data changes.
 - **Theme:** dark by default, plus light and system. `data-theme` on `<html>` switches the tokens; the inline script in `index.html` applies the saved theme before React loads (a content security policy must allow it by hash).
 - **Errors:** page errors render inside the shell with "Try again" (`RouteError`); a broken shell falls back to a full-page error, and `AppErrorBoundary` wraps everything. Error screens are announced to screen readers (`role="alert"`).
-- **Accessibility:** a skip link focuses `<main>` without touching the history, `RouteAnnouncer` tells screen readers which page a link opened, and forced colors (Windows High Contrast) keep sliders, segmented controls and tabs readable.
+- **Accessibility:** a skip link focuses `<main>` without touching the history, `RouteAnnouncer` tells screen readers which page a link opened, and forced colors (Windows High Contrast) keep sliders, segmented controls and tabs readable. Menus take focus once they are shown and give it back to their button; when a row leaves a list (removed, unliked, unfollowed, deleted), the next row keeps focus.
 
 ## Conventions
 
@@ -86,10 +90,11 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 - Don't override a component's own classes through `className` (two `size-*` or `text-*` classes on one element win by CSS order, not by intent). Components expose props instead, such as `IconButton size="custom"`, `Artwork rounded="lg"` or `Skeleton` without a default radius.
 - Icon-only buttons need a `label` (it becomes `aria-label`); toggles use `pressed` (`aria-pressed`). Touch targets stay at least 44 px below 1024 px and on touch screens (`size-touch`). Focus rings come from the global `:focus-visible` style; don't remove outlines. Scroll boxes clip rings, so give them a little padding, and draw rings inside elements that touch the screen edge (`focus-visible:-outline-offset-4`).
 - Selection shown only by a fill disappears in forced colors: add a `forced-colors:` style in system colors (see `SegmentedControl` and `Tabs`).
-- Respect reduced motion: transitions and animations are shortened globally, skeletons stop shimmering.
+- Respect reduced motion: transitions and animations are shortened globally, skeletons stop shimmering. That rule gives every property a 0.01 ms transition, `visibility` included, so something shown by removing `visibility: hidden` stays hidden for a few frames, and `focus()` on it does nothing: hide what must take focus right away with `opacity` (see `MenuPopup`).
 - Respect the catalog mode wherever results appear: `useSettingsStore((s) => s.catalogMode)`. Music shows catalog songs only; Music + Video also shows videos, played as music.
 - Read sources, the tier and the Spotify switch from the sources module (`useSourcesSnapshot()` in `features/search`), never from a provider or the platform directly, and link to album, artist and playlist pages with `albumPath`, `artistPath` and `playlistPath`.
-- Tests use `renderApp(path)` from `src/test/render.tsx`, which renders the real providers and routes with a memory router. Stores and `localStorage` are reset after every test. Behaviour that depends on the browser history (basename, back and forward, the skip link) is tested with the real browser router in `src/app/router.test.tsx`.
+- Tests use `renderApp(path)` from `src/test/render.tsx`, which renders the real providers and routes with a memory router. Stores, `localStorage` and the library database (fake-indexeddb) are reset after every test. Behaviour that depends on the browser history (basename, back and forward, the skip link) is tested with the real browser router in `src/app/router.test.tsx`.
+- Read and write the library only through the repository: `getLibrary()` for writes, the hooks in `src/db/hooks.ts` for reads. Never open Dexie tables directly. Seed tests with `getLibrary()`, or use `testRepo()` and `track()` from `src/test/library-fixtures.ts`. happy-dom lays nothing out, so drag-and-drop tests give rows positions first (see `stubRowLayout` in `features/library/library-page.test.tsx`).
 
 ## Playback, Now playing, queue and lyrics
 
@@ -106,7 +111,7 @@ One `Player` facade from [`@fxm/player`](../../packages/player/README.md) for th
 
 Components read it with `usePlayerState(selector)` (the selector returns a value from the state or a primitive), `useCurrentItem()` and `usePlayerEvent(type, handler)`. Event handlers call `getPlayer()`'s methods directly, so playback starts inside the user's gesture. Other features queue music the same way: `getPlayer().setQueue(tracks, { context, startIndex, shuffle })`, `playNext(tracks)`, `addToQueue(tracks)`.
 
-The player bar and the mini player follow it too: Play, Previous, Next, Seek and Like are off while the queue is empty, and the seek slider seeks when its thumb is let go (or on each key press), not on every step of a drag. When playback stops on a problem (`PlayerState.error`), both bars say "Couldn’t play" instead of the artists, and `PlaybackAnnouncer` (`features/now-playing/playback-problem.tsx`, in the app layout) tells screen readers why, in a polite live region, on every page. The big play button of the library's placeholder playlist pages (`/playlist/liked`, …) stays a placeholder until stage 2.6; the album, artist and playlist pages of stage 2.4 have their own.
+The player bar and the mini player follow it too: Play, Previous, Next, Seek and Like are off while the queue is empty, and the seek slider seeks when its thumb is let go (or on each key press), not on every step of a drag. When playback stops on a problem (`PlayerState.error`), both bars say "Couldn’t play" instead of the artists, and `PlaybackAnnouncer` (`features/now-playing/playback-problem.tsx`, in the app layout) tells screen readers why, in a polite live region, on every page. The big play button of the library's playlist pages (`/playlist/local:playlist:…`, and the shell's old `/playlist/liked`, …) stays a placeholder until they play the playlist (see the table below); the album, artist and playlist pages of stage 2.4 have their own.
 
 ### Now playing (`features/now-playing/`)
 
@@ -140,8 +145,8 @@ Each touch-point with a stage that wasn't merged when 2.5 was built sits behind 
 |---|---|---|---|
 | 2.3 Playback policy | `features/now-playing/playback-policy.ts` | `createPendingPolicy()`: every resolution fails with `Unsupported` (nothing plays), no alternatives, no reports | `createAppPolicy()` returns 2.3's policy: its stream lifecycle as the `resolver`, its Suggest-band reports (`onNeedsReview`), the matching engine's `alternatives`, the match cache's `pin` (2.6) and "Play best guesses" |
 | 2.4 Search and browse | `features/now-playing/browse-links.ts` | Searches link to `/search?q=`; artist, album and playlist names are plain text | `entityPath(id)` returns 2.4's page for an entity |
-| 2.6 Library | `PlayPauseButton appearance="cta"` in `features/player/controls.tsx` | A placeholder that toggles itself, apart from the queue, on the library's placeholder playlist pages (2.4's pages have their own play buttons) | The library's playlist pages play the playlist, with Pause only while the queue's `context` is that page's |
-| 2.6 Library | `LikeButton` in `features/player/controls.tsx` | A placeholder `liked` in the player bar's store, off while nothing plays | 2.6's like button, given `useCurrentItem()?.track` |
+| 2.6 Library | `PlayPauseButton appearance="cta"` in `features/player/controls.tsx` | A placeholder that toggles itself, apart from the queue, on the library's playlist pages (2.4's pages have their own play buttons) | The library's playlist pages play the playlist, with Pause only while the queue's `context` is that page's |
+| 2.6 Library | `LikeButton` in `features/player/controls.tsx` | Merged: 2.6's like button (`LibraryLikeButton`), given `useCurrentItem()?.track`, off while nothing plays | Done |
 | 1.2 Platform | `lyricsContext()` in `features/lyrics/lyrics-source.ts` | The page's `fetch` (LRCLIB is CORS-friendly) | The platform's context, so desktop and Android use their native HTTP |
 
 ### Tests
