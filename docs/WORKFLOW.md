@@ -37,7 +37,11 @@ flowchart LR
 2. **Start.** `make wt-new BRANCH=feat/1.5-spotify`. This creates `../FXM-worktrees/feat-1.5-spotify` on a new branch from `origin/develop`, then installs dependencies. The pnpm store is shared, so this takes seconds.
 3. **Work** only inside the stage's **Scope** paths. Make small, focused commits.
 4. **Verify.** `make check` (format/lint, typecheck, tests, build) must pass.
-5. **Sync.** Run `git fetch origin && git rebase origin/develop`, then `make check` again. If `pnpm-lock.yaml` conflicts, run `make install` (pnpm resolves lockfile conflicts) and continue the rebase.
+5. **Sync.** Run `git fetch origin && git rebase origin/develop`, then `make check` again. If `pnpm-lock.yaml` conflicts, don't hand-edit it. pnpm 12 does not repair conflict markers, so:
+   1. Restore `develop`'s lockfile: `git show origin/develop:pnpm-lock.yaml > pnpm-lock.yaml`.
+   2. Run `make install` to re-resolve it for the merged `package.json` files.
+   3. Confirm with `scripts/run.sh pnpm install --frozen-lockfile`.
+   4. `git add pnpm-lock.yaml` and continue.
 6. **Push** the stage branch: `git push -u origin <branch>`.
 7. **Integrate** (orchestrator):
    ```sh

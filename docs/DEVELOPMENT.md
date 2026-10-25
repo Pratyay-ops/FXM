@@ -55,7 +55,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | Command | What it does |
 |---|---|
 | `make setup` | First-time setup: check prerequisites, install pinned pnpm, install deps |
-| `make install` | Install or refresh dependencies (also resolves `pnpm-lock.yaml` merge conflicts) |
+| `make install` | Install or refresh dependencies, and re-resolve the lockfile after a merge (see Troubleshooting) |
 | `make doctor` | Check prerequisites; fail if anything would install outside `.tools/` |
 | `make py-setup` | Install uv and create `.venv` with the Python from `.python-version` |
 | `make gh-setup` | Install the GitHub CLI (only for the PR workflow) |
@@ -115,5 +115,5 @@ Prefer releases that are at least two weeks old, and update the version and its 
 |---|---|
 | `Node 22 is required` | `nvm install && nvm use` in the repo folder |
 | `pnpm: command not found` in your shell | `source scripts/env.sh`, or run it through `make` |
-| Merge conflict in `pnpm-lock.yaml` | `make install`, then continue the merge or rebase |
+| Merge conflict in `pnpm-lock.yaml` | pnpm 12 doesn't repair conflict markers. Restore the target branch's lockfile (`git show origin/develop:pnpm-lock.yaml > pnpm-lock.yaml`), run `make install`, check with `scripts/run.sh pnpm install --frozen-lockfile`, then `git add pnpm-lock.yaml` and continue |
 | `make doctor` says the store is outside `.tools/` | You ran pnpm without the environment: `source scripts/env.sh` |
