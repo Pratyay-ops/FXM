@@ -1,3 +1,4 @@
+import { FxmError } from '@fxm/core'
 import { testTrack } from '@fxm/player/testing'
 import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
@@ -95,10 +96,51 @@ describe('app layout', () => {
     expect(bar.getByRole('button', { name: 'Play' })).toBeEnabled()
   })
 
-  it('hides the mini player on Now Playing, which has its own controls', async () => {
+  it('shows Now Playing full screen on phones: no mini player, no tab bar', async () => {
     renderApp('/now-playing')
     await screen.findByRole('heading', { level: 1, name: 'Now playing' })
+    // The player bar (768px+) and the sidebar stay.
     expect(screen.getAllByRole('region', { name: 'Player' })).toHaveLength(1)
+    expect(mainNavs()).toHaveLength(1)
+    expect(screen.getByRole('main')).toHaveAttribute('data-full-screen', 'true')
+    // The top bar's back arrow leaves it.
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+  })
+
+  it('says in the player bar and the mini player that a song couldn’t play', async () => {
+    const { player, resolver } = setupTestPlayback()
+    resolver.handler = () => {
+      throw new FxmError('NotFound', 'Gone')
+    }
+    await player.setQueue([testTrack('Creep', { artists: [{ name: 'Radiohead' }] })])
+    renderApp('/')
+
+    for (const region of screen.getAllByRole('region', { name: 'Player' })) {
+      const bar = within(region)
+      expect(
+        bar.getByRole('link', { name: 'Open now playing: Creep by Radiohead. Couldn’t play' }),
+      ).toBeInTheDocument()
+      expect(bar.getByText('Couldn’t play')).toBeInTheDocument()
+      expect(bar.queryByText('Radiohead')).not.toBeInTheDocument()
+    }
+    // Screen readers hear why, on any page.
+    expect(screen.getByText(/^Couldn’t play “Creep”\. It may be unavailable/)).toHaveAttribute(
+      'aria-live',
+      'polite',
+    )
+  })
+
+  it('keeps the play buttons of collection pages apart from the queue', async () => {
+    const { player } = setupTestPlayback()
+    await player.setQueue([testTrack('Creep')])
+    const { user } = renderApp('/album/one')
+    await screen.findByRole('heading', { level: 1, name: 'Album one' })
+    const main = within(screen.getByRole('main'))
+
+    await user.click(main.getByRole('button', { name: 'Play' }))
+
+    expect(main.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
+    expect(player.getState().status).toBe('playing')
   })
 
   it('announces new pages to screen readers, but not the first page or query changes', async () => {

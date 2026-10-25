@@ -1,7 +1,7 @@
 import { FxmError } from '@fxm/core'
 import { testStream, testTrack } from '@fxm/player/testing'
 import { act, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/render'
 import { setupTestLyrics, setupTestPlayback, spotifyTrack, testCandidate } from './testing'
 
@@ -26,6 +26,7 @@ describe('now playing', () => {
     expect(trackRegion().getByRole('button', { name: 'Play' })).toBeDisabled()
     expect(trackRegion().getByRole('button', { name: 'Next' })).toBeDisabled()
     expect(trackRegion().getByRole('slider', { name: 'Seek' })).toBeDisabled()
+    for (const like of screen.getAllByRole('button', { name: 'Like' })) expect(like).toBeDisabled()
   })
 
   it('shows the track that plays, with a stream badge that opens the stream details', async () => {
@@ -108,21 +109,68 @@ describe('now playing', () => {
     expect(await within(dialog).findByText(/No other versions found/)).toBeInTheDocument()
   })
 
-  it('asks whether a best guess is right, and approves it', async () => {
+  it('asks whether a best guess is right, shows it, and approves it', async () => {
     const { player, policy } = setupTestPlayback()
     setupTestLyrics()
-    const track = spotifyTrack('Creep')
-    const guess = testCandidate('guess', { confidence: 0.72 })
+    const track = spotifyTrack('Creep', { durationMs: 238_000 })
+    const guess = testCandidate('guess', {
+      title: 'Creep (Live)',
+      artists: ['Radiohead'],
+      durationMs: 247_000,
+      confidence: 0.72,
+    })
     await player.setQueue([track], { autoplay: false })
     act(() => policy.reportNeedsReview(track, guess))
     const { user } = await renderNowPlaying()
 
     expect(await trackRegion().findByText('Is this the right version?')).toBeInTheDocument()
+    expect(trackRegion().getByText('Best guess on YouTube Music · match 0.72')).toBeInTheDocument()
+    expect(trackRegion().getByText('Creep (Live)')).toBeInTheDocument()
+    expect(trackRegion().getByText('Radiohead · 4:07 (original 3:58)')).toBeInTheDocument()
     await user.click(trackRegion().getByRole('button', { name: 'It’s right' }))
 
     expect(trackRegion().queryByText('Is this the right version?')).not.toBeInTheDocument()
     expect(policy.pins).toEqual([{ track, candidate: guess }])
     expect(player.getState().queue.items[0]?.candidate).toBe(guess)
+    // The notice went with the focused button: "Not the right version?" took its place.
+    expect(trackRegion().getByRole('button', { name: 'Not the right version?' })).toHaveFocus()
+  })
+
+  it('plays a best guess that is waiting for review, to check it', async () => {
+    const { player, policy, resolver } = setupTestPlayback()
+    setupTestLyrics()
+    const track = spotifyTrack('Creep')
+    const guess = testCandidate('guess')
+    await player.setQueue([track], { autoplay: false })
+    act(() => policy.reportNeedsReview(track, guess))
+    const { user } = await renderNowPlaying()
+
+    await user.click(await trackRegion().findByRole('button', { name: 'Play it' }))
+
+    await expect.poll(() => resolver.requests.length).toBe(1)
+    expect(resolver.requests[0]?.item.candidate).toBe(guess)
+    expect(trackRegion().queryByRole('button', { name: 'Play it' })).not.toBeInTheDocument()
+    expect(trackRegion().getByRole('button', { name: 'It’s right' })).toHaveFocus()
+    // Played, not approved: it still asks.
+    expect(policy.pins).toEqual([])
+  })
+
+  it('focuses “Not the right version?” once a version is picked for a best guess', async () => {
+    const { player, policy } = setupTestPlayback()
+    setupTestLyrics()
+    const track = spotifyTrack('Creep')
+    const other = testCandidate('other', { title: 'Creep (Remastered)' })
+    policy.alternativesOf.set(track.id, [other])
+    await player.setQueue([track], { autoplay: false })
+    act(() => policy.reportNeedsReview(track, testCandidate('guess')))
+    const { user } = await renderNowPlaying()
+
+    await user.click(await trackRegion().findByRole('button', { name: 'Not the right version?' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Choose the right version' })
+    await user.click(await within(dialog).findByRole('button', { name: /Creep \(Remastered\)/ }))
+
+    expect(policy.pins.map((pin) => pin.candidate.ref)).toEqual(['other'])
+    expect(trackRegion().getByRole('button', { name: 'Not the right version?' })).toHaveFocus()
   })
 
   it('says why playback stopped, and tries again', async () => {
@@ -134,14 +182,18 @@ describe('now playing', () => {
     await player.setQueue([testTrack('Creep')])
     const { user } = await renderNowPlaying()
 
-    const alert = await trackRegion().findByRole('alert')
-    expect(alert).toHaveTextContent('This song can’t play here')
+    expect(await trackRegion().findByText('This song can’t play here')).toBeInTheDocument()
+    // Screen readers hear it from the app's announcer.
+    expect(screen.getByText(/^This song can’t play here\. This browser/)).toHaveAttribute(
+      'aria-live',
+      'polite',
+    )
 
     resolver.handler = (item) => ({ stream: testStream(item.track.title) })
-    await user.click(within(alert).getByRole('button', { name: 'Try again' }))
+    await user.click(trackRegion().getByRole('button', { name: 'Try again' }))
 
     await expect.poll(() => player.getState().status).toBe('playing')
-    expect(trackRegion().queryByRole('alert')).not.toBeInTheDocument()
+    expect(trackRegion().queryByText('This song can’t play here')).not.toBeInTheDocument()
   })
 
   it('names the track that couldn’t play', async () => {
@@ -153,7 +205,7 @@ describe('now playing', () => {
     await player.setQueue([testTrack('Creep')])
     await renderNowPlaying()
 
-    expect(await trackRegion().findByRole('alert')).toHaveTextContent('Couldn’t play “Creep”')
+    expect(await trackRegion().findByText('Couldn’t play “Creep”')).toBeInTheDocument()
   })
 
   it('switches between the lyrics and the queue', async () => {
@@ -166,5 +218,29 @@ describe('now playing', () => {
 
     expect(router.state.location.search).toBe('?tab=queue')
     expect(screen.getByRole('heading', { name: 'Next up' })).toBeInTheDocument()
+  })
+
+  it('opens the lyrics and the queue from under the phone controls', async () => {
+    const { player } = setupTestPlayback()
+    setupTestLyrics()
+    await player.setQueue([testTrack('Creep')], { autoplay: false })
+    const { user, router } = await renderNowPlaying()
+    const scrolled: Element[] = []
+    vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(function (this: Element) {
+      scrolled.push(this)
+    })
+    const panels = screen.getByRole('region', { name: 'Lyrics and queue' })
+
+    await user.click(trackRegion().getByRole('button', { name: 'Queue' }))
+
+    expect(router.state.location.search).toBe('?tab=queue')
+    expect(screen.getByRole('tab', { name: 'Queue' })).toHaveFocus()
+    expect(scrolled).toEqual([panels])
+
+    await user.click(trackRegion().getByRole('button', { name: 'Lyrics' }))
+
+    expect(router.state.location.search).toBe('')
+    expect(screen.getByRole('tab', { name: 'Lyrics' })).toHaveFocus()
+    expect(scrolled).toEqual([panels, panels])
   })
 })
