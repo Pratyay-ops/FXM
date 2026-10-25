@@ -22,19 +22,23 @@ Run them from the repository root.
 | `make dist` | Builds the site and the app, composes `dist/pages/` and runs every check below. Takes a few seconds once the dependencies are installed |
 | `scripts/run.sh pnpm --filter @fxm/deploy preview` | Serves `dist/pages/` the way Cloudflare Pages does (redirects, 404 pages, `_headers`) at `http://127.0.0.1:5800` (`FXM_PREVIEW_PORT` to change it; the port is strict) |
 | `scripts/run.sh pnpm --filter @fxm/deploy check:headers <url>` | The header check of a deployment (below), for example `https://develop.fxmusic.pages.dev` |
-| `scripts/run.sh pnpm --filter @fxm/deploy e2e` | The browser checks: against `FXM_DEPLOY_URL` if set, otherwise against `dist/pages/` served on port 5800. Needs Chromium from `.tools/playwright` (`scripts/run.sh pnpm --filter @fxm/deploy exec playwright install chromium`) |
+| `scripts/run.sh pnpm --filter @fxm/deploy e2e` | The browser checks: against `FXM_DEPLOY_URL` if set, otherwise against `dist/pages/` (or the folder in `FXM_PAGES_DIR`) served on port 5800, with a second local origin on 5801 and up. Needs Chromium from `.tools/playwright` (`scripts/run.sh pnpm --filter @fxm/deploy exec playwright install chromium`) |
 
-`make test` runs this package's unit tests with everything else; they need no network and no build.
+`make test` runs this package's unit tests with everything else, `deploy.sh`'s among them; they need no network and no build.
 
 ## What make dist does
 
-1. **Builds each part** into `dist/.staging/`: the site with `apps/site`'s own config plus hidden source maps (`site.astro.config.mjs`), the app with `vite build --sourcemap hidden`. The embed and the sandbox documents come from stages that haven't merged yet; `src/later-stages.ts` holds those touch-points, and they are skipped while they don't exist.
-2. **Lists the bundled npm packages** from the source maps (every source under `node_modules/`) and from `/*! name vX.Y.Z` banners in stylesheets, such as Tailwind's base styles. It fails when one is GPL or AGPL, has no licence, or has a licence that isn't SPDX (ARCHITECTURE.md §17 and §18), and when JavaScript ships without a source map, because then nobody knows what it contains. After a human review, `LICENCE_OVERRIDES` in `src/licenses.ts` can record a licence a package doesn't declare.
-3. **Composes** the parts under their paths, refusing two parts that write the same file, and copies each single-page app's `index.html` to its `404.html`. Source maps are never deployed: they would publish the build machine's paths.
+1. **Builds each part** into `dist/.staging/`: the site with `apps/site`'s own config plus hidden source maps and the bundle inventory (`site.astro.config.mjs`), the app the same way (`app.vite.config.ts`, with `vite build --sourcemap hidden`). The embed and the sandbox documents come from stages that haven't merged yet; `src/later-stages.ts` holds those touch-points, and they are skipped while they don't exist.
+2. **Lists the bundled npm packages**: from the source maps (every source under `node_modules/`), from the bundle inventory (`src/bundle-inventory.ts`: the stylesheets, fonts, images and WebAssembly a build takes from packages, which source maps don't show), and from `/*! name vX.Y.Z` banners in stylesheets, such as Tailwind's base styles. It fails when:
+   - a package's licence is not on the list FXM accepts (`ACCEPTED_LICENCES` in `src/licenses.ts`: permissive licences, MPL-2.0, LGPL, and licences for fonts and data). GPL and AGPL, in any spelling (`GPL-3.0`, `GPLv3`, `AGPL3`), never pass. Anything else, such as a missing licence, `BSD` (not an SPDX id), SSPL or a non-commercial licence, passes only after a human review recorded in `LICENCE_OVERRIDES`;
+   - JavaScript ships without a source map, because then nobody knows what it contains;
+   - WebAssembly ships that no npm package supplied, such as a binary copied into `public/`, unless its SHA-256 is in `REVIEWED_BINARIES` (the stock ffmpeg core is GPL, ARCHITECTURE.md §17);
+   - a part without source maps (the sandbox documents) inlines code with a licence banner, or more than 64 KiB of it.
+3. **Composes** the parts under their paths, refusing two parts that write the same file, and copies each single-page app's `index.html` to its `404.html`. Source maps and inventories are never deployed: they would publish the build machine's paths.
 4. **Writes `third-party-notices.txt`** with every bundled package, its licence and its licence files.
-5. **Writes `_headers`** and checks it: at most 100 rules, no line over 2,000 characters, no two rules matching one path, and every path a file is served at matched by exactly one rule. It reads the file back with a parser that follows Cloudflare's, so the file means exactly the rules it generated.
+5. **Writes `_headers`** and checks it: at most 100 rules, no line over 2,000 characters, no two rules matching one path (one exception below), every path a file is served at matched by exactly one rule, the same with one character percent-encoded, and every policy keeping its promises (sandbox documents opaque, `'unsafe-eval'` only in the evaluator, no `'unsafe-inline'` scripts, `frame-ancestors 'none'` except for the embed and the sandbox documents). Every service host in `APP_SERVICES` must be a plain HTTPS host. It reads the file back with a parser that follows Cloudflare's, so the file means exactly the rules it generated.
 6. **Checks the privacy page**: every host a policy names must belong to a service in `APP_SERVICES`, and `privacy.html` must list that service.
-7. **Refuses** `_worker.js`, `_routes.json`, `_redirects` and `functions/`, more than 20,000 files and files over 25 MiB (Cloudflare Pages' limits).
+7. **Refuses** `_worker.js`, `_routes.json`, `_redirects` and `functions/`, file names with `%`, more than 20,000 files and files over 25 MiB (Cloudflare Pages' limits).
 
 Only then does `dist/pages/` replace the previous build.
 
@@ -50,12 +54,19 @@ Cloudflare gives a request the headers of every `_headers` rule that matches it 
 | each other `.html` page | its path and its `.html` path, such as `/privacy` and `/privacy.html` | `sitePagePolicy()`: that page's own inline scripts and styles by hash, its own files |
 | `_astro/**`, `.well-known/**` | `/_astro/*`, `/.well-known/*` | `STATIC_FILE_POLICY`: nothing allowed |
 | each other file | its path | `STATIC_FILE_POLICY` |
+| percent-encoded paths in `/` and `/sandbox/` | `/%*`, `/:name%*`, `/sandbox/%*`, `/sandbox/:name%*` | `ENCODED_PATH_POLICY`: `sandbox` with no `allow-` flag, nothing loads, no framing |
 
 Things Cloudflare does that the rules account for (from wrangler 4.149's copy of the Pages asset server, read 2026-10-26, and confirmed on a real deployment the same day):
 
 - **Pages serves `x.html` at `/x`** and answers `/x.html` with a 308 redirect, `/index.html` and `/app` too. A sandbox document framed as `/sandbox/innertube.html` therefore ends up at `/sandbox/innertube`, which must carry the sandbox policy: each document gets a rule for both paths. The plan lists the 404 page as `/404.html`; it is served at `/404`.
+- **Pages decodes a path to find its file, but matches `_headers` against the path as sent.** `/priv%61cy` serves `privacy.html` and `/sandbox%2Finnertube` serves `innertube.html`, and browsers send such paths as written. Without more rules they would get none of their file's headers: a sandbox document would run at FXM's own origin, the app without its policy. So every folder that holds files with rules of their own (the root, `sandbox/`) gets two more rules that only a path with a `%` in the segment after the folder can match: `<folder>/%*` (the segment starts with `%`) and `<folder>/:name%*` (a `%` later in it). Their policy runs nothing. The splat folders need none: `/app/*` matches `/app/%61ssets/x.js` as it is. Cloudflare merges repeated slashes first (`//privacy` gets `/privacy`'s rule), and no file name may contain `%`.
+- **The one overlap:** a segment that starts with `%` and has another `%` later, such as `/%61%70p/`, matches both of its folder's encoded-path rules. They set the same headers, so the values Cloudflare joins (`sandbox; …, sandbox; …`, `no-referrer, no-referrer`) still mean one policy. `make dist` allows exactly this pair to overlap.
 - **`_redirects` rules win over files.** A rule such as `/app/* /app/index.html 200` would send the app's own scripts back as HTML. Pages serves the nearest `404.html` for a path no file answers, so the app's routes get `app/404.html`, a copy of its `index.html`, with status 404; the app reads the URL and shows the page.
 - **Headers apply to the request path**, so a 404 under `/app/` gets the app's policy. A path no rule matches, such as a mistyped page at the root, gets the site's 404 page with Cloudflare's defaults (`Referrer-Policy: strict-origin-when-cross-origin`) and no policy; it is a static page with nothing to protect.
+
+### The sandbox documents
+
+`make dist` holds each sandbox document (1.10's `innertube.html` and `userhost.html`, 1.11's `eval.html`) to a contract, listed in `src/later-stages.ts`: one inline script, which its policy allows by hash; the same policy without `sandbox` in a `<meta http-equiv="Content-Security-Policy">` before that script, so a copy served without these headers (from the release zip, say) keeps its hosts and hash; and no inline code that looks bundled. One more rule it can't check: each document's script does nothing unless `self.origin` is `'null'`. Every path FXM serves a document at carries `sandbox`, its own rules or the encoded-path ones, and that check keeps the document inert wherever it doesn't.
 
 ### When a stage adds a service
 
@@ -63,18 +74,29 @@ A stage that makes the web app contact a new service adds it to `APP_SERVICES` i
 
 ## Deploying
 
-`.github/workflows/deploy.yml` runs `make dist` on every push. A push to `develop` deploys to the preview at `https://develop.fxmusic.pages.dev`; a push to `main`, which only release pull requests and hotfixes reach, deploys to production at `https://fxmusic.pages.dev`. `workflow_dispatch` redeploys a branch by hand.
+`.github/workflows/deploy.yml` runs `make dist` on every push. Only `develop` and `main` deploy:
 
-- **Owner setup:** a free Cloudflare account and two repository secrets, `CLOUDFLARE_API_TOKEN` (a token with Account > Cloudflare Pages > Edit) and `CLOUDFLARE_ACCOUNT_ID`.
+- **develop** deploys to the preview at `https://develop.fxmusic.pages.dev`, and the verify job checks it.
+- **main**, which only release pull requests reach (they must pass `make check`), deploys first to a candidate at `https://main-candidate.fxmusic.pages.dev`. The verify job checks the candidate, and only then does the promote job deploy the same folder to production, `https://fxmusic.pages.dev` (Pages uploads no file twice). A last job checks production's headers.
+- `workflow_dispatch` redeploys `develop` or `main` by hand; on any other branch it only runs `make dist`.
+
+The deploy jobs run in GitHub environments, `preview` for develop and `production` for main, and `deploy.sh` refuses any other branch, and any branch but the one its run was started for. Owner setup:
+
+- a free Cloudflare account, and an API token with Account > Cloudflare Pages > Edit;
+- the GitHub environments `preview` (deployment branches: `develop` only) and `production` (`main` only; a required reviewer is optional and then approves both the candidate and the promotion), each with the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and no repository-level copies of them. Repository secrets reach a workflow on any branch, so one pushed branch could otherwise publish over the one origin FXM Connect trusts;
+- `develop` protected, by required pull requests or restricted pushers: Cloudflare can't limit a token to one branch, so a develop run could still deploy production.
+
+More about the deploy:
+
 - **The Pages project** is `fxmusic`, with `main` as its production branch, deployed by direct upload (`wrangler pages deploy`). The first deploy creates it. Use Pages, not Workers, even though Cloudflare's dashboard and wrangler suggest Workers for new static projects; since wrangler 4.108 an AI agent running `wrangler pages` on its own machine is redirected to Workers unless the project exists, which is one more reason deploys run only in CI.
-- **The token** is only in the deploy job, which runs nothing but `scripts/build-dist-wrangler/deploy.sh` and wrangler. wrangler is pinned with its own lockfile in `scripts/build-dist-wrangler/` (a separate pnpm root, so `make setup` never downloads its 200 MB of binaries) and installed without a cache.
+- **The token** is only in the deploy and promote jobs, which run nothing but `scripts/build-dist-wrangler/deploy.sh` and wrangler. wrangler is pinned with its own lockfile in `scripts/build-dist-wrangler/` (a separate pnpm root, so `make setup` never downloads its 200 MB of binaries) and installed without a cache. Before uploading, `deploy.sh` checks that the project's production branch is `main`, and after it that the deployment landed in the expected environment.
 - **After each deploy** the verify job runs the header check and the browser checks against the new deployment's own address. On a project's first deploy it first waits for that address to answer: the certificate for a new project's sub-domains arrived 2.5 minutes after its first deploy (measured 2026-10-26).
 - **If the project can't be created**, Cloudflare answers with its generic error 8000000. That is how the first name was refused on 2026-10-26, while the same account and token created other projects: the name was taken (ARCHITECTURE.md D24), so FXM uses `fxmusic`. `FXM_PAGES_PROJECT` makes `deploy.sh` use another project, to try the pipeline without touching `fxmusic`.
 
 ### Checking a deployment
 
-- **Header check** (`src/check-headers.ts`): fetches every path `dist/pages/` serves, every `.html` path that redirects, and a client-side route of each app, without following redirects. Each response must carry exactly one `Content-Security-Policy` line, the one `_headers` gives that path (with the expected directives), plus `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`, each once, and the expected status. It also checks that sandbox documents carry `sandbox allow-scripts` and that only the evaluator allows `'unsafe-eval'`.
-- **Browser checks** (`e2e/deployed.e2e.ts`): the site's pages and the app render with no policy violation; googlevideo requests from the app (and the embed) carry no Referer, both from a media element and from `fetch` (answered by the test, so nothing reaches YouTube); the sandbox documents are opaque however they are loaded, reach only their hosts, and ignore messages from a page on another origin that frames them without the `sandbox` attribute. The sandbox checks skip themselves until 1.10 deploys the documents.
+- **Header check** (`src/check-headers.ts`): fetches every path `dist/pages/` serves, every `.html` path that redirects, a client-side route of each app, and each document (and each splat folder) with one character percent-encoded, without following redirects. Each response must carry exactly one `Content-Security-Policy` line, the one `_headers` gives that path (with the expected directives), plus `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`, each once, and the expected status. The policies must keep the promises `make dist` checks (above).
+- **Browser checks** (`e2e/deployed.e2e.ts`): the site's pages and the app render with no policy violation; googlevideo requests from the app (and the embed) carry no Referer, both from a media element and from `fetch` (answered by the test, so nothing reaches YouTube). For the sandbox documents: `innertube.html` is opaque, reaches its three hosts, and only its policy stops a request to a fourth that would answer; framed by a page on another origin without the `sandbox` attribute, each document loads (not an error page), runs, stays opaque and ignores that page's messages; at a percent-encoded path it runs nothing. The sandbox checks skip themselves until 1.10 deploys the documents.
 
 ### Previews and FXM Connect
 
@@ -87,7 +109,9 @@ FXM Connect trusts only `https://fxmusic.pages.dev` (plus localhost in its dev b
 | `src/main.ts` | `make dist` |
 | `src/compose.ts` | Builds the parts, runs the checks, writes `dist/pages/` |
 | `src/parts.ts` | The site and the app; `src/later-stages.ts`: the embed (5.2) and the sandbox documents (1.10, 1.11) |
-| `src/policies.ts` | Every policy, and the services the web app contacts |
+| `site.astro.config.mjs`, `app.vite.config.ts` | The site's and the app's own configs, plus source maps and the bundle inventory |
+| `src/bundle-inventory.ts` | The Vite plugin that records which files a build takes from where |
+| `src/policies.ts` | Every policy, the promises they keep, and the services the web app contacts |
 | `src/rules.ts` | Files → `_headers` rules, and their validation |
 | `src/headers-file.ts` | Writing, reading and matching `_headers` as Cloudflare does |
 | `src/html.ts` | The small HTML tokenizer behind the hashes |
@@ -97,5 +121,6 @@ FXM Connect trusts only `https://fxmusic.pages.dev` (plus localhost in its dev b
 | `src/pages-server.ts` | The local stand-in for Cloudflare Pages |
 | `src/check-headers.ts` | The header check of a deployment |
 | `src/testing.ts` | Fakes for the tests, including the later stages' parts |
+| `src/deploy-script.test.ts` | `deploy.sh`'s tests, with stand-ins for wrangler and curl |
 | `e2e/deployed.e2e.ts` | The browser checks |
 | `../build-dist-wrangler/` | wrangler, its lockfile and `deploy.sh` (CI only) |
