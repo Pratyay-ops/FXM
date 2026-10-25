@@ -94,9 +94,31 @@ function candidate(ref: string, overrides: Partial<AudioCandidate> = {}): AudioC
   }
 }
 
+/** A fake Jamendo whose answers wait until the test releases them. */
+function heldJamendo(answer: () => Response) {
+  const held: Array<() => void> = []
+  const service = fakeService(
+    () =>
+      new Promise<Response>((resolve) => {
+        held.push(() => resolve(answer()))
+      }),
+  )
+  const release = () => {
+    for (const next of held.splice(0)) next()
+  }
+  return { service, release }
+}
+
+/** Lets pending promise callbacks run. */
+async function settle(): Promise<void> {
+  for (let turn = 0; turn < 10; turn++) await Promise.resolve()
+}
+
 describe('createJamendoSource', () => {
-  it('is the jamendo source', () => {
-    expect(source().jamendoSource.id).toBe('jamendo')
+  it('is the jamendo source, to be called only when the user asks for Jamendo', () => {
+    const { jamendoSource } = source()
+    expect(jamendoSource.id).toBe('jamendo')
+    expect(jamendoSource.requestPolicy).toBe('explicit')
   })
 
   describe('client_id', () => {
@@ -107,7 +129,8 @@ describe('createJamendoSource', () => {
       const error = await jamendoSource
         .search('rock', { types: ['track'] }, contextFor(service.fetch))
         .catch((caught: unknown) => caught)
-      expect(isFxmError(error, 'Unsupported')).toBe(true)
+      // Like an ID Jamendo refuses: the app asks for a client_id in Settings.
+      expect(isFxmError(error, 'AuthRequired')).toBe(true)
       expect(service.calls).toHaveLength(0)
     })
 
@@ -152,11 +175,54 @@ describe('createJamendoSource', () => {
         expect(isFxmError(error, 'AuthRequired')).toBe(true)
       }
       expect(service.calls).toHaveLength(1)
-      expect(jamendoSource.access()).toEqual({ status: 'invalid-client-id', client: 'public' })
+      expect(jamendoSource.access()).toEqual({
+        status: 'invalid-client-id',
+        client: 'public',
+        retryAt: 1_000_000 + 15 * 60_000,
+      })
       refuse = false
       jamendoSource.setUserClientId(USER_ID)
       await expect(jamendoSource.search('jazz', { types: ['track'] }, ctx)).resolves.toBeDefined()
       expect(service.calls.at(-1)?.url.searchParams.get('client_id')).toBe(USER_ID)
+    })
+
+    it('tests a refused client_id again once the wait is over', async () => {
+      let refuse = true
+      const service = jamendo(() => (refuse ? json(invalidClientId) : undefined))
+      const { jamendoSource, clock } = source()
+      const ctx = contextFor(service.fetch)
+      await jamendoSource.search('rock', { types: ['track'] }, ctx).catch(() => undefined)
+      clock.now += 15 * 60_000 - 1
+      await jamendoSource.search('jazz', { types: ['track'] }, ctx).catch(() => undefined)
+      expect(service.calls).toHaveLength(1)
+      clock.now += 1
+      refuse = false
+      await expect(jamendoSource.search('jazz', { types: ['track'] }, ctx)).resolves.toBeDefined()
+      expect(service.calls).toHaveLength(2)
+      expect(jamendoSource.access()).toEqual({ status: 'ready', client: 'public' })
+    })
+
+    it('tests a client_id at once when the user enters it again, or asks to try again', async () => {
+      let refuse = true
+      const service = jamendo(() => (refuse ? json(invalidClientId) : undefined))
+      const { jamendoSource } = source({ userClientId: USER_ID })
+      const ctx = contextFor(service.fetch)
+      await jamendoSource.search('rock', { types: ['track'] }, ctx).catch(() => undefined)
+      expect(jamendoSource.access()).toMatchObject({ status: 'invalid-client-id', client: 'user' })
+      // Not active yet when first entered; the user enters the same ID again.
+      jamendoSource.setUserClientId(undefined)
+      jamendoSource.setUserClientId(USER_ID)
+      expect(jamendoSource.access()).toEqual({ status: 'ready', client: 'user' })
+      await jamendoSource.search('jazz', { types: ['track'] }, ctx).catch(() => undefined)
+      expect(service.calls).toHaveLength(2)
+      refuse = false
+      jamendoSource.tryAgain()
+      await expect(jamendoSource.search('blues', { types: ['track'] }, ctx)).resolves.toBeDefined()
+      expect(service.calls.map((call) => call.url.searchParams.get('client_id'))).toEqual([
+        USER_ID,
+        USER_ID,
+        USER_ID,
+      ])
     })
 
     it('reports a suspended application', async () => {
@@ -170,7 +236,11 @@ describe('createJamendoSource', () => {
         .search('rock', { types: ['track'] }, contextFor(service.fetch))
         .catch((caught: unknown) => caught)
       expect(isFxmError(error, 'AuthRequired')).toBe(true)
-      expect(jamendoSource.access()).toEqual({ status: 'suspended', client: 'public' })
+      expect(jamendoSource.access()).toEqual({
+        status: 'suspended',
+        client: 'public',
+        retryAt: 1_000_000 + 15 * 60_000,
+      })
     })
   })
 
@@ -203,6 +273,55 @@ describe('createJamendoSource', () => {
       await expect(search('jazz')).resolves.toMatchObject({ tracks: { items: expect.any(Array) } })
       expect(service.calls).toHaveLength(2)
       expect(jamendoSource.access()).toEqual({ status: 'ready', client: 'public' })
+    })
+
+    it('counts concurrent refusals once, and lets one request test the client_id after the wait', async () => {
+      const { service, release } = heldJamendo(() => json(rateLimit))
+      const { jamendoSource, clock } = source()
+      const ctx = contextFor(service.fetch)
+      const search = (query: string) =>
+        jamendoSource.search(query, { types: ['track'] }, ctx).catch((caught: unknown) => caught)
+
+      // The quota runs out in the middle of a burst: three refusals, one strike.
+      const burst = ['a', 'b', 'c'].map(search)
+      await settle()
+      release()
+      for (const error of await Promise.all(burst))
+        expect(isFxmError(error, 'RateLimited')).toBe(true)
+      expect(jamendoSource.access()).toMatchObject({ retryAt: 1_000_000 + 15 * 60_000 })
+
+      // After the wait one request goes out; the others fail at once until it answers.
+      clock.now += 15 * 60_000
+      const after = ['d', 'e', 'f', 'g'].map(search)
+      await settle()
+      expect(service.calls).toHaveLength(4)
+      release()
+      const errors = await Promise.all(after)
+      expect(errors.every((error) => isFxmError(error, 'RateLimited'))).toBe(true)
+      expect(errors.slice(1)).toEqual(
+        Array.from({ length: 3 }, () => expect.objectContaining({ retryAfterMs: 15_000 })),
+      )
+      expect(jamendoSource.access()).toMatchObject({ retryAt: clock.now + 60 * 60_000 })
+      expect(jamendoSource.quota.recorded(PUBLIC_ID)).toMatchObject({ strikes: 2 })
+    })
+
+    it('tests again after a test request that never got an answer', async () => {
+      let offline = false
+      const service = jamendo(() => {
+        if (offline) throw new TypeError('Failed to fetch')
+        return json(rateLimit)
+      })
+      const { jamendoSource, clock } = source()
+      const ctx = contextFor(service.fetch)
+      const search = (query: string) =>
+        jamendoSource.search(query, { types: ['track'] }, ctx).catch((caught: unknown) => caught)
+      await search('rock')
+      clock.now += 15 * 60_000
+      offline = true
+      expect(isFxmError(await search('jazz'), 'Network')).toBe(true)
+      offline = false
+      expect(isFxmError(await search('blues'), 'RateLimited')).toBe(true)
+      expect(service.calls).toHaveLength(3)
     })
 
     it('treats HTTP 429 like Jamendo’s own rate-limit code', async () => {
@@ -419,6 +538,26 @@ describe('createJamendoSource', () => {
       expect(isFxmError(error, 'NotFound')).toBe(true)
     })
 
+    it('says how to credit a track, from the answers it already has', async () => {
+      const service = jamendo()
+      const { jamendoSource } = source()
+      const ctx = contextFor(service.fetch)
+      await jamendoSource.search('funk', { types: ['track'] }, ctx)
+      const credit = await jamendoSource.attribution(formatId('jamendo', 'track', '1880336'), ctx)
+      expect(credit).toEqual({
+        title: 'Queensland [High Energy Funk Instrumental]',
+        artists: ['Lofi Lopez'],
+        provider: 'Jamendo',
+        pageUrl: 'https://www.jamendo.com/track/1880336',
+        licenseUrl: 'http://creativecommons.org/licenses/by-nc-nd/3.0/',
+      })
+      expect(service.calls).toHaveLength(1)
+      const missing = await jamendoSource
+        .attribution(formatId('jamendo', 'track', '999'), ctx)
+        .catch((caught: unknown) => caught)
+      expect(isFxmError(missing, 'NotFound')).toBe(true)
+    })
+
     it('has no playlists', async () => {
       const service = jamendo()
       const error = await source()
@@ -506,6 +645,13 @@ describe('createJamendoSource', () => {
       preferLossless = false
       await expect(jamendoSource.match(spotifyManana({ title: 'Other' }), ctx)).resolves.toEqual([])
       expect(service.calls).toHaveLength(1)
+    })
+
+    it('reads version tags from both albums, so a live album never matches a studio one', async () => {
+      const service = jamendo()
+      const { jamendoSource } = source({ preferLossless: () => true })
+      const live = spotifyManana({ album: { name: 'mañana será tarde (Live at the Hall)' } })
+      await expect(jamendoSource.match(live, contextFor(service.fetch))).resolves.toEqual([])
     })
 
     it('finds nothing when no result fits', async () => {

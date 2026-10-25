@@ -23,7 +23,7 @@ import {
 import { asObject, releaseDate, text } from '../shared/json'
 
 /** The size of the images FXM asks for (`imagesize`), in pixels. */
-export const IMAGE_SIZE = 300
+export const JAMENDO_IMAGE_SIZE = 300
 
 /** One Jamendo track, with the fields FXM uses. */
 export interface JamendoTrackRecord {
@@ -45,7 +45,7 @@ export interface JamendoTrackRecord {
   position?: number
   /** The release date (`2021-04-11`). */
   releaseDate?: string
-  /** The cover image, {@link IMAGE_SIZE} pixels square. */
+  /** The cover image, {@link JAMENDO_IMAGE_SIZE} pixels square. */
   image?: string
   /** The stream URL, in the format FXM asked for (FLAC). */
   audio?: string
@@ -146,7 +146,7 @@ export function trackOf(record: JamendoTrackRecord): Track {
     artwork:
       record.image === undefined
         ? []
-        : [{ url: record.image, width: IMAGE_SIZE, height: IMAGE_SIZE }],
+        : [{ url: record.image, width: JAMENDO_IMAGE_SIZE, height: JAMENDO_IMAGE_SIZE }],
     kind: 'song',
   }
   if (record.albumId !== undefined && record.albumName !== undefined) {
@@ -226,7 +226,10 @@ export function toAlbum(value: unknown): { album: Album; records: JamendoTrackRe
               ...(artistId === undefined ? {} : { id: formatId('jamendo', 'artist', artistId) }),
             },
           ],
-    artwork: image === undefined ? [] : [{ url: image, width: IMAGE_SIZE, height: IMAGE_SIZE }],
+    artwork:
+      image === undefined
+        ? []
+        : [{ url: image, width: JAMENDO_IMAGE_SIZE, height: JAMENDO_IMAGE_SIZE }],
   }
   if (date !== undefined) album.releaseDate = date
   let records: JamendoTrackRecord[] = []

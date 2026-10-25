@@ -5,8 +5,9 @@
  * The free tier allows up to 35,000 API requests a month for one `client_id`, which every user of
  * FXM's public ID shares, so the source asks Jamendo only when it must:
  *
- * - `search`, `getTrack`, `getAlbum` and `getArtist` run only because the user asked for Jamendo
- *   (the app calls them for explicit Jamendo searches and pages, never in the background);
+ * - `search`, `getTrack`, `getAlbum` and `getArtist` run only because the user asked for Jamendo:
+ *   the source says `requestPolicy: 'explicit'`, so the app calls them for explicit Jamendo
+ *   searches and pages, never in a search across sources, for suggestions or in the background;
  * - `match` looks another source's track up on Jamendo only while the user's "prefer lossless"
  *   setting is on (`preferLossless`), and answers a Jamendo track without a request;
  * - every answer is kept in memory (searches for an hour, pages for six), and `resolve` reuses
@@ -14,6 +15,9 @@
  *
  * When the quota is used up, calls reject with `RateLimited` without a request, and `access()`
  * tells the settings screen to offer a field for the user's own `client_id`.
+ *
+ * A candidate `match` finds by searching is provisional and text-only: at most 0.79, a
+ * suggestion, never ISRC-verified (Jamendo has no ISRCs); see `../shared/audio-source.ts`.
  *
  * In Music mode every Jamendo track is a song and plays (the owner's decision).
  *
@@ -43,6 +47,7 @@ import {
   type Track,
 } from '@fxm/core'
 import {
+  type Attribution,
   type Comparable,
   MIN_CANDIDATE_CONFIDENCE,
   orderOptions,
@@ -52,9 +57,10 @@ import {
 import { TtlCache } from '../shared/ttl-cache'
 import { type JamendoAccess, JamendoApi } from './api'
 import {
-  IMAGE_SIZE,
+  JAMENDO_IMAGE_SIZE,
   type JamendoTrackRecord,
   jamendoId,
+  jamendoTrackUrl,
   streamOptions,
   toAlbum,
   toArtist,
@@ -99,12 +105,32 @@ export interface JamendoSourceOptions {
 export interface JamendoSource extends MetadataProvider, AudioSource {
   /** Always `jamendo`. */
   readonly id: 'jamendo'
+  /**
+   * Always `explicit`: call `search`, `getTrack`, `getAlbum` and `getArtist` only for what the
+   * user asked of Jamendo, never in a search across sources, for suggestions or in the
+   * background, because every user of the public `client_id` shares its monthly quota.
+   */
+  readonly requestPolicy: 'explicit'
   /** The blocks on the `client_id`s used, to save and to watch. */
   readonly quota: JamendoQuota
   /** What the source can do right now, for the settings screen. */
   access(): JamendoAccess
-  /** Sets the user's own `client_id` from Settings, or clears it with `undefined` or `''`. */
+  /**
+   * Sets the user's own `client_id` when the user enters it in Settings, or clears it with
+   * `undefined` or `''`. Entering an ID, even the same one again, forgets its block, so that the
+   * next request tests it at once. On start, pass a saved ID as `userClientId` instead, which
+   * keeps its block.
+   */
   setUserClientId(clientId: string | undefined): void
+  /** Forgets the block on the `client_id` in use, for a "Try again" button in Settings. */
+  tryAgain(): void
+  /**
+   * What crediting a track takes, as Jamendo's API terms ask (§4.1): its title and artist,
+   * Jamendo as its source, the track's page on Jamendo and its Creative Commons licence. For a
+   * candidate, pass `formatId('jamendo', 'track', candidate.ref)`. No request for a track that a
+   * search, page or `resolve` already returned.
+   */
+  attribution(id: EntityId<'track'>, ctx: ProviderContext): Promise<Attribution>
 }
 
 /** The most results Jamendo returns per request. */
@@ -114,7 +140,7 @@ const MAX_LIMIT = 200
 const TRACK_FORMAT = {
   audioformat: 'flac',
   audiodlformat: 'flac',
-  imagesize: String(IMAGE_SIZE),
+  imagesize: String(JAMENDO_IMAGE_SIZE),
 } as const
 
 /** The offset a cursor from this source names: 0 for the first page. */
@@ -134,6 +160,7 @@ function page<T>(items: T[], offset: number, limit: number, received: number): P
 
 class JamendoSourceImpl implements JamendoSource {
   readonly id = 'jamendo' as const
+  readonly requestPolicy = 'explicit' as const
   readonly quota: JamendoQuota
   private readonly api: JamendoApi
   private readonly preferLossless: () => boolean
@@ -165,6 +192,10 @@ class JamendoSourceImpl implements JamendoSource {
 
   setUserClientId(clientId: string | undefined): void {
     this.api.setUserClientId(clientId)
+  }
+
+  tryAgain(): void {
+    this.api.tryAgain()
   }
 
   /** Track records from a list of tracks, remembered for `resolve`. */
@@ -219,7 +250,7 @@ class JamendoSourceImpl implements JamendoSource {
       else {
         const found = await this.api.get(
           'albums',
-          { namesearch: words, imagesize: String(IMAGE_SIZE), ...paging },
+          { namesearch: words, imagesize: String(JAMENDO_IMAGE_SIZE), ...paging },
           this.searchTtlMs,
           ctx,
         )
@@ -269,6 +300,18 @@ class JamendoSourceImpl implements JamendoSource {
 
   async getTrack(id: EntityId<'track'>, ctx: ProviderContext): Promise<Track> {
     return trackOf(await this.record(this.nativeId(id, 'track'), ctx))
+  }
+
+  async attribution(id: EntityId<'track'>, ctx: ProviderContext): Promise<Attribution> {
+    const record = await this.record(this.nativeId(id, 'track'), ctx)
+    const attribution: Attribution = {
+      title: record.name,
+      artists: record.artistName === undefined ? [] : [record.artistName],
+      provider: 'Jamendo',
+      pageUrl: jamendoTrackUrl(record.id),
+    }
+    if (record.licenseUrl !== undefined) attribution.licenseUrl = record.licenseUrl
+    return attribution
   }
 
   async getAlbum(id: EntityId<'album'>, ctx: ProviderContext): Promise<Album> {
@@ -325,9 +368,11 @@ class JamendoSourceImpl implements JamendoSource {
       this.searchTtlMs,
       ctx,
     )
+    // Jamendo has no ISRCs, so its candidates are never ISRC-verified.
     const wanted: Comparable = {
       title: track.title,
       artists: track.artists.map((entry) => entry.name),
+      ...(track.album === undefined ? {} : { album: track.album.name }),
       ...(track.durationMs === undefined ? {} : { durationMs: track.durationMs }),
     }
     const albumWords = wordsOf(track.album?.name ?? '').join(' ')
@@ -337,6 +382,7 @@ class JamendoSourceImpl implements JamendoSource {
       const score = provisionalScore(wanted, {
         title: found.title,
         artists,
+        ...(record.albumName === undefined ? {} : { album: record.albumName }),
         ...(found.durationMs === undefined ? {} : { durationMs: found.durationMs }),
       })
       const candidate: AudioCandidate = {

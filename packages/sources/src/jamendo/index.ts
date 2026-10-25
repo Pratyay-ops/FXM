@@ -6,20 +6,13 @@
  * @module
  */
 
-export { JAMENDO_API, type JamendoAccess, type JamendoClientKind } from './api'
-export {
-  IMAGE_SIZE,
-  type JamendoTrackRecord,
-  jamendoAlbumUrl,
-  jamendoArtistUrl,
-  jamendoTrackUrl,
-  streamOptions,
-  toTrackRecord,
-} from './map'
+export type { Attribution } from '../shared/audio-source'
+export type { JamendoAccess, JamendoClientKind } from './api'
+export { jamendoAlbumUrl, jamendoArtistUrl, jamendoTrackUrl } from './map'
 export { createJamendoSource, type JamendoSource, type JamendoSourceOptions } from './provider'
 export {
   type JamendoBlock,
-  type JamendoOutcome,
+  type JamendoBlockReason,
   JamendoQuota,
   type JamendoQuotaOptions,
   type JamendoQuotaSnapshot,

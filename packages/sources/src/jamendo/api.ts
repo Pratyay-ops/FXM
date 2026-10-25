@@ -6,7 +6,8 @@
  * `Access-Control-Allow-Origin: *` (measured 2026-10-25), so a browser page reaches it directly.
  * Jamendo answers errors with HTTP 200 and a code in its `headers` object: 5 for an unknown
  * `client_id`, 6 when the rate limit is used up, 11 for a suspended app. Codes 5, 6 and 11 are
- * recorded in the {@link JamendoQuota}, so FXM stops sending requests that cannot succeed.
+ * recorded in the {@link JamendoQuota}, so FXM stops sending requests that cannot succeed until
+ * the block's wait is over; then one request tests the ID again while the others fail at once.
  *
  * Answers are kept in memory, keyed without the `client_id`, so switching IDs costs nothing.
  *
@@ -16,7 +17,7 @@
 import { FxmError, type ProviderContext } from '@fxm/core'
 import { asObject, getJson, statusError, text } from '../shared/json'
 import { LoadCache } from '../shared/ttl-cache'
-import type { JamendoBlock, JamendoQuota } from './quota'
+import type { JamendoBlock, JamendoBlockReason, JamendoQuota } from './quota'
 
 /** The read API's root. */
 export const JAMENDO_API = 'https://api.jamendo.com/v3.0/'
@@ -83,14 +84,17 @@ interface Client {
   kind: JamendoClientKind
 }
 
-/** The error for a request that a block stops. */
-function blockError(block: JamendoBlock, kind: JamendoClientKind, now: number): FxmError {
+/**
+ * The error for a request that a block stops: `RateLimited` with `retryAfterMs` for a used-up
+ * quota, `AuthRequired` for an ID Jamendo refuses.
+ */
+function blockError(block: JamendoBlock, kind: JamendoClientKind, retryAfterMs: number): FxmError {
   if (block.reason === 'quota-exceeded') {
     const message =
       kind === 'public'
         ? "Jamendo's quota for FXM's client_id is used up: add your own client_id"
         : 'The rate limit of your Jamendo client_id is used up'
-    return new FxmError('RateLimited', message, { retryAfterMs: Math.max(0, block.retryAt - now) })
+    return new FxmError('RateLimited', message, { retryAfterMs: Math.max(0, retryAfterMs) })
   }
   return new FxmError(
     'AuthRequired',
@@ -107,6 +111,8 @@ export class JamendoApi {
   private userClientId: string | undefined
   private readonly cache: LoadCache<unknown[]>
   private readonly now: () => number
+  /** The `client_id`s whose test request, after a block's wait, has not answered yet. */
+  private readonly testing = new Set<string>()
 
   constructor(private readonly options: JamendoApiOptions) {
     const base = options.baseUrl ?? JAMENDO_API
@@ -117,9 +123,21 @@ export class JamendoApi {
     this.cache = new LoadCache({ maxEntries: 200, now: this.now })
   }
 
-  /** Sets the user's own `client_id`, or clears it with `undefined` or a blank string. */
+  /**
+   * Sets the user's own `client_id`, or clears it with `undefined` or a blank string. Entering an
+   * ID, even the same one again, forgets its block, so that the next request tests it at once:
+   * call this when the user enters an ID in Settings, and pass a saved one as `userClientId` on
+   * start instead, which keeps its block.
+   */
   setUserClientId(clientId: string | undefined): void {
     this.userClientId = text(clientId)
+    if (this.userClientId !== undefined) this.options.quota.forget(this.userClientId)
+  }
+
+  /** Forgets the block on the `client_id` in use, so that the next request tests it again. */
+  tryAgain(): void {
+    const client = this.client()
+    if (client !== undefined) this.options.quota.forget(client.id)
   }
 
   /** The `client_id` requests use, or `undefined` when none is set. */
@@ -130,8 +148,8 @@ export class JamendoApi {
   }
 
   /**
-   * What the source can do right now. A rate-limited `client_id` stays `quota-exceeded` until a
-   * request succeeds, even once FXM may try it again.
+   * What the source can do right now. A blocked `client_id` keeps its status until a request
+   * succeeds, even once FXM may try it again.
    */
   access(): JamendoAccess {
     const client = this.client()
@@ -139,17 +157,14 @@ export class JamendoApi {
     if (!CLIENT_ID.test(client.id)) return { status: 'invalid-client-id', client: client.kind }
     const block = this.options.quota.recorded(client.id)
     if (block === undefined) return { status: 'ready', client: client.kind }
-    if (block.reason === 'quota-exceeded') {
-      return { status: 'quota-exceeded', client: client.kind, retryAt: block.retryAt }
-    }
-    return { status: block.reason, client: client.kind }
+    return { status: block.reason, client: client.kind, retryAt: block.retryAt }
   }
 
   /**
    * The `results` of `GET <entity>/?…` with `params`, kept for `ttlMs`. Rejects with
-   * `Unsupported` when no `client_id` is set, with `RateLimited` while its rate limit is used up
-   * (with the time until FXM tries again), and with `AuthRequired` when Jamendo does not accept
-   * it, all without a request once Jamendo has said so.
+   * `AuthRequired` when no `client_id` is set or Jamendo does not accept it, and with
+   * `RateLimited` while its rate limit is used up (with the time until FXM tries again), all
+   * without a request once Jamendo has said so: the app then asks for a `client_id` in Settings.
    */
   async get(
     entity: string,
@@ -159,7 +174,7 @@ export class JamendoApi {
   ): Promise<unknown[]> {
     const client = this.client()
     if (client === undefined) {
-      throw new FxmError('Unsupported', 'Jamendo needs a client_id, and none is set')
+      throw new FxmError('AuthRequired', 'Jamendo needs a client_id, and none is set')
     }
     if (!CLIENT_ID.test(client.id)) {
       throw new FxmError('AuthRequired', 'The Jamendo client_id is not one Jamendo issues')
@@ -174,7 +189,10 @@ export class JamendoApi {
     )
   }
 
-  /** One request with `client`, mapped to its results or an error. */
+  /**
+   * One request with `client`, unless a block stops it. Once a block's wait is over, this is the
+   * one request that tests the ID again, and the others fail at once until it answers.
+   */
   private async fetchResults(
     client: Client,
     entity: string,
@@ -183,13 +201,33 @@ export class JamendoApi {
   ): Promise<unknown[]> {
     const { quota, timeoutMs } = this.options
     const block = quota.blocked(client.id)
-    if (block !== undefined) throw blockError(block, client.kind, this.now())
+    if (block !== undefined) throw blockError(block, client.kind, block.retryAt - this.now())
+    const lapsed = quota.recorded(client.id)
+    if (lapsed === undefined) return this.send(client, entity, params, ctx)
+    // The test request answers, or times out, within `timeoutMs`.
+    if (this.testing.has(client.id)) throw blockError(lapsed, client.kind, timeoutMs)
+    this.testing.add(client.id)
+    try {
+      return await this.send(client, entity, params, ctx)
+    } finally {
+      this.testing.delete(client.id)
+    }
+  }
+
+  /** Sends one request with `client` and maps the answer to its results or an error. */
+  private async send(
+    client: Client,
+    entity: string,
+    params: ReadonlyArray<readonly [string, string]>,
+    ctx: ProviderContext,
+  ): Promise<unknown[]> {
+    const { quota, timeoutMs } = this.options
     const url = new URL(`${entity}/`, this.baseUrl)
     url.searchParams.set('client_id', client.id)
     url.searchParams.set('format', 'json')
     for (const [name, value] of params) url.searchParams.set(name, value)
     const reply = await getJson(ctx, url.href, { service: SERVICE, timeoutMs })
-    if (reply.status === 429) return this.refused(client, 'rate-limited')
+    if (reply.status === 429) return this.refused(client, 'quota-exceeded')
     if (reply.status !== 200) throw statusError(SERVICE, `the ${entity} request`, reply)
     const body = asObject(reply.body)
     const headers = asObject(body?.headers)
@@ -202,8 +240,8 @@ export class JamendoApi {
       quota.record(client.id, 'ok')
       return body.results
     }
-    if (code === 6 || code === '6') return this.refused(client, 'rate-limited')
-    if (code === 5 || code === '5') return this.refused(client, 'invalid')
+    if (code === 6 || code === '6') return this.refused(client, 'quota-exceeded')
+    if (code === 5 || code === '5') return this.refused(client, 'invalid-client-id')
     if (code === 11 || code === '11') return this.refused(client, 'suspended')
     if (headers === undefined) {
       throw new FxmError('Parse', 'Jamendo sent an answer FXM does not understand')
@@ -214,12 +252,12 @@ export class JamendoApi {
     )
   }
 
-  /** Records a refusal of `client` and rejects with the error it means. */
-  private refused(client: Client, outcome: 'rate-limited' | 'invalid' | 'suspended'): never {
+  /** Records a refusal of `client` and rejects with the error the block on it means. */
+  private refused(client: Client, reason: JamendoBlockReason): never {
     const { quota } = this.options
-    quota.record(client.id, outcome)
+    quota.record(client.id, reason)
     const block = quota.recorded(client.id)
     if (block === undefined) throw new FxmError('Unavailable', 'Jamendo refused the request')
-    throw blockError(block, client.kind, this.now())
+    throw blockError(block, client.kind, block.retryAt - this.now())
   }
 }

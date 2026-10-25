@@ -13,19 +13,23 @@ const jamendo = createJamendoSource({
 })
 jamendo.quota.onChange(() => save({ jamendoQuota: jamendo.quota.snapshot() }))
 jamendo.access() // { status: 'ready', client: 'public' }, 'not-configured', 'quota-exceeded', …
+jamendo.requestPolicy // 'explicit': only for what the user asked of Jamendo
+settingsField.onSubmit((id) => jamendo.setUserClientId(id)) // tests the entered ID at once
+tryAgainButton.onClick(() => jamendo.tryAgain())
 ```
+
+The module exports only `createJamendoSource` with its types, `JamendoQuota` with its options, snapshot and block types, `JamendoAccess`, `JamendoClientKind` and the `jamendoTrackUrl`, `jamendoAlbumUrl` and `jamendoArtistUrl` helpers.
 
 ## The client_id and the shared quota
 
 Every request needs a `client_id`. The free, non-commercial tier allows **up to 35,000 API requests a month** per ID (developer.jamendo.com, read 2026-10-25), and every FXM user of the public ID shares that budget. So:
 
-- **The public ID comes from configuration**, never from the code: without it, and without a user's own, Jamendo is off (`access()` returns `not-configured`, calls reject with `Unsupported`).
-- **The user's own ID** (`userClientId`, or `setUserClientId()` from Settings) replaces the public one and has its own record.
-- **Jamendo is asked only when it must.** `search`, `getTrack`, `getAlbum` and `getArtist` are for explicit Jamendo searches and pages; the app never calls them in the background. `match` asks Jamendo about another source's track only while "prefer lossless" is on (`preferLossless`), and answers a Jamendo track without a request.
-- **Answers are cached** in memory, keyed without the `client_id`: searches for an hour, tracks, albums and artists for six. `resolve` reuses every track that a search or page already returned.
-- **A used-up quota stops the requests.** Jamendo answers code 6 ("Rate Limit Exceeded: this requester app or the requester IP have exceeded the permitted rate limit") or HTTP 429. FXM then records a block for that ID and rejects with `RateLimited` without sending anything: for 15 minutes, then four times as long after each further refusal (1 h, 4 h, 16 h), at most a day; one request after the wait tells whether it works again. Meanwhile `access()` returns `{ status: 'quota-exceeded', client, retryAt }`, and for the public ID the app shows **"Jamendo's quota is used up: add your own client_id"**. A user's own ID starts clean.
-- **Unknown or suspended IDs** (codes 5 and 11) are blocked until a request with them succeeds again, and calls reject with `AuthRequired`.
-- **Blocks survive restarts** if the app saves `quota.snapshot()` and passes it back as `saved`.
+- **The public ID comes from configuration**, never from the code: without it, and without a user's own, Jamendo is off (`access()` returns `not-configured`, calls reject with `AuthRequired`, like an ID Jamendo refuses, so the app asks for a `client_id` in Settings).
+- **The user's own ID** replaces the public one and has its own record. Pass a saved one as `userClientId` on start, which keeps its record, and call `setUserClientId()` when the user enters one in Settings: entering an ID, even the same one again, forgets its block so that the next request tests it at once (a newly registered ID that Jamendo did not know yet works as soon as it is active).
+- **Jamendo is asked only when it must**, and the code says so: the source has `requestPolicy: 'explicit'` (an optional `MetadataProvider` field in `@fxm/core`). **Stage 2.4 must honour it**: call `search`, `getTrack`, `getAlbum` and `getArtist` only for explicit Jamendo searches and pages, never in a search across all sources, for suggestions or in the background. `match` asks Jamendo about another source's track only while "prefer lossless" is on (`preferLossless`), and answers a Jamendo track without a request.
+- **Answers are cached** in memory, keyed without the `client_id`: searches for an hour, tracks, albums and artists for six. `resolve` and `attribution` reuse every track that a search or page already returned.
+- **A refusal stops the requests for a while.** Jamendo answers code 6 ("Rate Limit Exceeded: this requester app or the requester IP have exceeded the permitted rate limit") or HTTP 429 when the quota is used up, code 5 for an unknown ID and code 11 for a suspended app. FXM then records a block for that ID and rejects without sending anything: for 15 minutes, then four times as long after each further refusal for the same reason (1 h, 4 h, 16 h), at most a day. Once the wait is over, one request tests the ID again; until it answers, the others fail at once (`RateLimited` with the request timeout as `retryAfterMs`, or `AuthRequired`). A burst of concurrent refusals counts as one, and answers to requests sent before a block was recorded never change it. Meanwhile `access()` returns `{ status: 'quota-exceeded' | 'invalid-client-id' | 'suspended', client, retryAt }`, and for a used-up public ID the app shows **"Jamendo's quota is used up: add your own client_id"**. `tryAgain()` (or `quota.forget(id)`) forgets the block on the ID in use, for a "Try again" button. A user's own ID starts clean.
+- **Blocks survive restarts** if the app saves `quota.snapshot()` and passes it back as `saved`. A saved wait is cut to at most a day from now (a clock that was wrong, or a damaged store, could otherwise block an ID for months), and anything malformed is dropped.
 
 ## What it requests
 
@@ -57,15 +61,17 @@ The `audio` URL Jamendo returns for `audioformat=flac` streams real FLAC: the sa
 | `ogg` | Vorbis, `ogg` | `normal` (no stated bitrate) |
 | `mp31` ("96kbs") | MP3, 96 kbps | `low` |
 
-Options are `progressive`, `media: 'audio'`, `ipBound: false`, never expire, and are `unverified` (nothing probed their end). The lossy versions let playback stay under a lower ceiling, such as `normal` on mobile data.
+Options are `progressive`, `media: 'audio'`, `ipBound: false`, never expire, and are `unverified` because nothing probed their end, not because their bytes are unreadable: Jamendo's storage host echoes the page's origin, so the download manager (4.1) can run its end-of-file probe on the option it picks. The lossy versions let playback stay under a lower ceiling, such as `normal` on mobile data.
 
 **Downloads.** When an artist allows streaming but not downloads (`audiodownload_allowed: false`), every option carries `downloadAllowed: false` (an optional `StreamOption` field added to `@fxm/core` for this), and the download manager must skip them. Answers without the flag count as allowing downloads only when they hold a download URL.
 
 ## Tracks, albums and artists
 
-IDs are Jamendo's numbers in decimal: `jamendo:track:1848357`, `jamendo:album:368084`, `jamendo:artist:421168`. Tracks are songs, so they show and play in Music mode (the owner's decision). Artwork is the 300-pixel cover. `jamendoTrackUrl()`, `jamendoAlbumUrl()` and `jamendoArtistUrl()` give the Jamendo pages that the API terms ask apps to link to; `JamendoTrackRecord.licenseUrl` holds each track's Creative Commons licence.
+IDs are Jamendo's numbers in decimal: `jamendo:track:1848357`, `jamendo:album:368084`, `jamendo:artist:421168`. Tracks are songs, so they show and play in Music mode (the owner's decision). Artwork is the 300-pixel cover.
 
-`match` scores another source's track the way the Internet Archive source does: a provisional 0.40 title / 0.35 artist / 0.25 duration score with the engine's penalties, capped at 0.79 so that nothing plays without the matching engine's checks, and nothing below 0.60 returned.
+**Credit.** `attribution(trackId, ctx)` returns what the API terms (§4.1) and the track's Creative Commons licence ask for: its title and artist, `provider: 'Jamendo'`, the track's page on Jamendo (`pageUrl`) and the licence's URL. For a candidate, pass `formatId('jamendo', 'track', candidate.ref)`. It costs no request for a track that a search, page or `resolve` already returned. `jamendoTrackUrl()`, `jamendoAlbumUrl()` and `jamendoArtistUrl()` give the other Jamendo pages.
+
+`match` scores another source's track the way the Internet Archive source does: a provisional 0.40 title / 0.35 artist / 0.25 duration score with the engine's penalties, version tags read from the title's qualifiers and both albums, nothing below 0.60 returned. Jamendo has no ISRCs, so its candidates are never ISRC-verified: they are at most 0.79, a suggestion. The playback policy (2.3) must not play them without asking, and nothing re-scores them on the way (the matching engine, 1.7, reads YouTube Music pages only), so "prefer lossless" can pick a Jamendo match only once the user confirms it.
 
 ## The API terms and one shared client_id
 
@@ -81,9 +87,9 @@ The terms do not say whether one application's `client_id` may be embedded in a 
 
 | Situation | `FxmError` code |
 |---|---|
-| No `client_id` set | `Unsupported` |
+| No `client_id` set | `AuthRequired` |
 | Quota used up (code 6 or HTTP 429), now or recorded earlier | `RateLimited`, with the time until FXM tries again |
-| Unknown or malformed `client_id` (code 5), suspended app (code 11) | `AuthRequired` |
+| Unknown or malformed `client_id` (code 5), suspended app (code 11), now or recorded earlier | `AuthRequired` |
 | Unknown track, album or artist; malformed ID | `NotFound` |
 | A track without a stream URL | `Unavailable` |
 | Any other code, HTTP error | `Unavailable` |
@@ -92,7 +98,7 @@ The terms do not say whether one application's `client_id` may be embedded in a 
 
 ## Tests
 
-No `client_id` was available when this source was written, so most fixtures follow Jamendo's documentation instead of a recording. `error-invalid-client-id.json` is a real answer, recorded on 2026-10-25. `tracks-docs-sample.json` is the sample answer published on developer.jamendo.com/v3.0/tracks (its pretty-printing undone and the waveform shortened). `tracks-flac.json` is that answer as FXM requests it (`audioformat=flac`, `audiodlformat=flac`); its FLAC URLs were checked live against the storage host. `error-rate-limit.json`, `albums-tracks.json`, `artists-tracks.json`, `albums-search.json` and `artists-search.json` are built from the documented fields of those endpoints and the response-code table. Re-record them from real answers once a `client_id` exists, removing the `client_id` from anything kept.
+No `client_id` was available when this source was written, so most fixtures follow Jamendo's documentation instead of a recording, and the live test below has not run yet. **Open item:** run it and re-record the fixtures before the app turns Jamendo on. `error-invalid-client-id.json` is a real answer, recorded on 2026-10-25. `tracks-docs-sample.json` is the sample answer published on developer.jamendo.com/v3.0/tracks (its pretty-printing undone and the waveform shortened). `tracks-flac.json` is that answer as FXM requests it (`audioformat=flac`, `audiodlformat=flac`); its FLAC URLs were checked live against the storage host. `error-rate-limit.json`, `albums-tracks.json`, `artists-tracks.json`, `albums-search.json` and `artists-search.json` are built from the documented fields of those endpoints and the response-code table. Re-record them from real answers once a `client_id` exists, removing the `client_id` from anything kept.
 
 The live smoke test needs a `client_id` of your own (register one at devportal.jamendo.com; never commit it), and makes four requests:
 
