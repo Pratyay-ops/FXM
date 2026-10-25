@@ -111,9 +111,7 @@ describe('PwaShell', () => {
       },
     )
     const players: AppPlayerSource = { usePlayer: () => player }
-    const router = createMemoryRouter([
-      { path: '/', element: <PwaShell title="Home" players={players} /> },
-    ])
+    const router = createMemoryRouter([{ path: '/', element: <PwaShell players={players} /> }])
     render(<RouterProvider router={router} />)
 
     await act(() => player.setQueue(testTracks('Song')))

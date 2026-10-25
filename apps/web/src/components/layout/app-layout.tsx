@@ -44,7 +44,9 @@ export function AppLayout() {
           event.preventDefault()
           main.current?.focus()
         }}
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-full focus:bg-accent focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-on-accent"
+        // Clear of a notch, and of the window buttons in an installed desktop window that
+        // draws its own title bar (--overlay-top, styles/index.css).
+        className="sr-only focus:not-sr-only focus:fixed focus:top-[calc(var(--overlay-top)+0.75rem)] focus:left-[calc(var(--safe-left)+0.75rem)] focus:z-50 focus:rounded-full focus:bg-accent focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-on-accent"
       >
         Skip to content
       </a>
@@ -69,7 +71,7 @@ export function AppLayout() {
       {/* Now Playing has its own big controls on phones. */}
       {pathname !== '/now-playing' && <MiniPlayer />}
       <BottomNav />
-      <PwaShell title={handle?.title} />
+      <PwaShell />
       <ScrollRestoration />
     </>
   )

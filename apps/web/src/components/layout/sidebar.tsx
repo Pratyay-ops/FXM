@@ -40,8 +40,9 @@ export function Sidebar() {
       aria-label="Main"
       className="fixed top-[var(--safe-top)] bottom-[calc(var(--spacing-player)+var(--safe-bottom))] left-[var(--safe-left)] z-20 hidden w-rail flex-col border-r border-border bg-surface md:flex lg:w-sidebar"
     >
-      {/* px-3 on tablets: the 72px rail then fits the 44px link. */}
-      <div className="flex h-topbar shrink-0 items-center px-3 max-lg:justify-center lg:px-6">
+      {/* px-3 on tablets: the 72px rail then fits the 44px link. In an installed window with
+          Window Controls Overlay, this row is part of the title bar (titlebar-* in index.css). */}
+      <div className="titlebar-drag titlebar-logo flex h-topbar shrink-0 items-center px-3 max-lg:justify-center lg:px-6">
         <Link
           to="/"
           aria-label="FXM home"
