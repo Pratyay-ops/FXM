@@ -1,16 +1,18 @@
 import { describe, expect, expectTypeOf, it } from 'vitest'
 import { type EntityKind, formatId } from './ids'
-import type {
-  Album,
-  Artist,
-  Page,
-  Playlist,
-  SearchResults,
-  SearchType,
-  Shelf,
-  ShelfItem,
-  Track,
-  TrackKind,
+import {
+  type Album,
+  type Artist,
+  type ArtistRef,
+  isTrackSeed,
+  type Page,
+  type Playlist,
+  type SearchResults,
+  type SearchType,
+  type Shelf,
+  type ShelfItem,
+  type Track,
+  type TrackKind,
 } from './model'
 
 /** A track with only its required fields. */
@@ -109,5 +111,16 @@ describe('collections', () => {
     const shelf: Shelf = { id: 'quick-picks', title: 'Quick picks', items }
     const titles = shelf.items.map((item) => (item.type === 'track' ? item.track.title : ''))
     expect(titles).toEqual(['Never Gonna Give You Up'])
+  })
+})
+
+describe('isTrackSeed', () => {
+  it('tells a track seed from an artist seed', () => {
+    expect(isTrackSeed(minimal)).toBe(true)
+    expect(isTrackSeed({ name: 'Rick Astley' })).toBe(false)
+    expect(isTrackSeed({ id: formatId('ytm', 'artist', 'UC123'), name: 'Rick Astley' })).toBe(false)
+    const seed = minimal as Track | ArtistRef
+    if (isTrackSeed(seed)) expectTypeOf(seed).toEqualTypeOf<Track>()
+    else expectTypeOf(seed).toEqualTypeOf<ArtistRef>()
   })
 })

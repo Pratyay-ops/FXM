@@ -1,6 +1,6 @@
 /**
  * The domain model shared by every provider and app: tracks, albums, artists, playlists, pages,
- * search results and home-feed shelves. Types only.
+ * search results and home-feed shelves. Types, plus one type guard.
  *
  * Optional fields are declared as `field?: T`. Under `exactOptionalPropertyTypes` that means
  * "leave it out when unknown": never set an optional field to `undefined`.
@@ -89,6 +89,14 @@ export interface Track {
    * e.g. `{ spotify: '4uLU6hMCjMI75M1A2tKUQC' }`.
    */
   externalIds?: Partial<Record<SourceId, string>>
+}
+
+/**
+ * Whether a radio seed (`RadioSeed`, a track or an artist reference) is a track. Tracks always
+ * have a `kind`; artist references never do.
+ */
+export function isTrackSeed(seed: Track | ArtistRef): seed is Track {
+  return 'kind' in seed
 }
 
 /** The release type of an album. */

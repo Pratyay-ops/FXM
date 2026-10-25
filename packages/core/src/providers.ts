@@ -180,14 +180,27 @@ export interface MetadataProvider {
   getRelatedArtists?(id: EntityId<'artist'>, ctx: ProviderContext): Promise<Artist[]>
 }
 
-/** What a radio starts from: a track, or an artist. */
+/**
+ * What a radio starts from: a track, or an artist (tell them apart with `isTrackSeed`).
+ *
+ * Seeds may come from any source: a Spotify track can seed YouTube Music radio. A provider uses
+ * `seed.id` when it belongs to its own source (for YouTube, `ytm` and `yt` IDs both do), else a
+ * track's `externalIds` entry for its source. Failing both, it may look the seed up, e.g. by
+ * title and artist, or it rejects with an `Unsupported` `FxmError`.
+ *
+ * In Music mode, seed radio with a song: map an official music video to its song first (the
+ * matching engine does that), because radio from a video drifts into videos.
+ */
 export type RadioSeed = Track | ArtistRef
 
 /** Recommendations: radio stations and, optionally, a personal home feed. */
 export interface RecommendationProvider {
   /** Provider ID, e.g. `ytm` or `spotify`. */
   readonly id: string
-  /** Tracks to play after `seed`, best first, respecting `ctx.mode`. */
+  /**
+   * Tracks to play after `seed`, best first, respecting `ctx.mode`. See {@link RadioSeed} for
+   * seeds from other sources.
+   */
   radio(seed: RadioSeed, ctx: ProviderContext): Promise<Track[]>
   /** A home feed, e.g. Spotify's personal shelves when the user is logged in. */
   home?(ctx: ProviderContext): Promise<Shelf[]>

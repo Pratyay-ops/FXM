@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { FxmError } from './errors'
 import { type EntityId, formatId, parseId } from './ids'
 import { applyModeFilter, filterPlayable, isPlayable, isVideoKind } from './mode'
-import type { SearchResults, SearchType, Track } from './model'
+import { isTrackSeed, type SearchResults, type SearchType, type Track } from './model'
 import type {
   AbortSignalLike,
   AccountProvider,
@@ -14,6 +14,7 @@ import type {
   MinimalAbortSignal,
   MinimalFetch,
   ProviderContext,
+  RadioSeed,
   RecommendationProvider,
   StreamOption,
 } from './providers'
@@ -90,9 +91,18 @@ const catalog: MetadataProvider & RecommendationProvider = {
     return { id, source: 'ytm', name: 'Playlist', artwork: [], tracks: { items: [song] } }
   },
   async radio(seed, ctx) {
-    const seedTitle = 'title' in seed ? seed.title : seed.name
-    return applyModeFilter([song, video], ctx.mode).filter((track) => track.title !== seedTitle)
+    const seedId = youtubeIdOf(seed)
+    if (seedId === undefined) throw new FxmError('Unsupported', 'The seed has no YouTube ID')
+    const tracks = applyModeFilter([song, video], ctx.mode)
+    return tracks.filter((track) => parseId(track.id).nativeId !== seedId)
   },
+}
+
+/** A seed's YouTube ID: its own ID when it is a YouTube one, else a track's external ID. */
+function youtubeIdOf(seed: RadioSeed): string | undefined {
+  const own = seed.id === undefined ? undefined : parseId(seed.id)
+  if (own?.source === 'ytm' || own?.source === 'yt') return own.nativeId
+  return isTrackSeed(seed) ? seed.externalIds?.ytm : undefined
 }
 
 const youtubeAudio: AudioSource = {
@@ -185,7 +195,26 @@ describe('provider interfaces', () => {
     expect([kinds(music, 'tracks'), kinds(music, 'videos')]).toEqual([['song'], []])
     expect([kinds(all, 'tracks'), kinds(all, 'videos')]).toEqual([['song'], ['video']])
     expect(await catalog.search('', { types: ['album'] }, context('all'))).toEqual({})
-    expect(await catalog.radio({ name: 'Artist' }, context('music'))).toEqual([song])
+    const artist = { id: formatId('ytm', 'artist', 'UC1'), name: 'Artist' }
+    expect(await catalog.radio(artist, context('music'))).toEqual([song])
+  })
+
+  it('takes radio seeds from other sources through their external IDs', async () => {
+    const spotifyTrack: Track = {
+      ...song,
+      id: formatId('spotify', 'track', '4uLU6hMCjMI75M1A2tKUQC'),
+      source: 'spotify',
+    }
+    const matched: Track = { ...spotifyTrack, externalIds: { ytm: 'song1' } }
+    expect(isTrackSeed(matched)).toBe(true)
+    expect(await catalog.radio(matched, context('all'))).toEqual([video])
+    expect(await catalog.radio(video, context('all'))).toEqual([song])
+    await expect(catalog.radio(spotifyTrack, context('all'))).rejects.toMatchObject({
+      code: 'Unsupported',
+    })
+    await expect(catalog.radio({ name: 'Artist' }, context('all'))).rejects.toMatchObject({
+      code: 'Unsupported',
+    })
   })
 
   it('suggests queries when the provider can', async () => {
