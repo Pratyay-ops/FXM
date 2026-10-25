@@ -1,5 +1,6 @@
 ---
 import { APP_PATH, AVAILABLE, RELEASES_URL } from '../config'
+import { noExtensionNote, webCardIntro } from '../lib/tiers'
 import ComingSoon from './ComingSoon.astro'
 import Icon from './Icon.astro'
 ---
@@ -24,9 +25,7 @@ import Icon from './Icon.astro'
           </div>
           <span class="icon-tile"><Icon name="browser" /></span>
         </div>
-        <p>
-          Runs in your browser. Add the free FXM Connect extension to use YouTube Music and Spotify.
-        </p>
+        <p>{webCardIntro(AVAILABLE.lite)}</p>
         <ol class="install">
           <li>
             Download the Chromium zip (<code>fxm-connect-chromium-….zip</code>) from the latest
@@ -35,7 +34,8 @@ import Icon from './Icon.astro'
           <li>
             Type <code>chrome://extensions</code> in the address bar (<code>edge://extensions</code>
             in Edge, <code>brave://extensions</code> in Brave) and turn on
-            <strong>Developer mode</strong>.
+            <strong>Developer mode</strong>. Leave it on: when it's off, the browser turns FXM
+            Connect off too.
           </li>
           <li>Choose <strong>Load unpacked</strong>, pick that folder, then reload the web app.</li>
         </ol>
@@ -56,10 +56,7 @@ import Icon from './Icon.astro'
         </div>
         <p class="no-extension">
           <Icon name="library" size={20} />
-          <span>
-            No extension, or on a phone or tablet? The web app still plays free music from Internet
-            Archive and Jamendo.
-          </span>
+          <span>{noExtensionNote(AVAILABLE.lite)}</span>
         </p>
       </div>
 

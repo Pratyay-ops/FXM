@@ -12,8 +12,8 @@ const account = AVAILABLE.spotifyAccount
 const label = [
   "Illustration of FXM's Spotify settings. The Spotify integration is on, which is the default, and shows related artists from Spotify's catalog.",
   account
-    ? 'A button connects a Spotify account to sync recommendations, liked songs and playlists.'
-    : 'Connecting a Spotify account to sync recommendations, liked songs and playlists is coming soon.',
+    ? 'A button connects a Spotify account for a read-only sync of recommendations, liked songs and playlists.'
+    : 'Connecting a Spotify account for a read-only sync of recommendations, liked songs and playlists is coming soon.',
   "A note says that when the integration is off, FXM doesn't contact Spotify.",
 ].join(' ')
 ---
@@ -41,7 +41,7 @@ const label = [
   <div class="setting account">
     <span class="meta">
       <span class="title">Spotify account</span>
-      <span class="desc">Sync recommendations, liked songs and playlists</span>
+      <span class="desc">Read-only sync of recommendations, liked songs and playlists</span>
     </span>
     {account ? <span class="pill">Connect</span> : <span class="pill soon">Coming soon</span>}
   </div>
