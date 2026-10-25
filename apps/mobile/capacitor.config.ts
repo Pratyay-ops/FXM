@@ -14,9 +14,14 @@ const config: CapacitorConfig = {
   // The dark theme's --color-background (apps/web/src/styles/tokens.css), shown until the
   // page paints, so the app never flashes white.
   backgroundColor: '#0b0b0f',
+  // No bridge logging, also not in debug builds: Capacitor would log every plugin result to the
+  // console and from there to logcat, including FxmHttp's response bodies (Spotify tokens among
+  // them). Debug the WebView with chrome://inspect instead.
+  loggingBehavior: 'none',
   plugins: {
     // Keep Capacitor's global fetch/XHR patch off: it drops the Cookie, Origin and Referer
-    // headers and corrupts binary bodies. Stage 6.2 injects an explicit native fetch instead.
+    // headers and corrupts binary bodies, and sends WebView cookies. The web app's fetch is the
+    // FxmHttp plugin (android/fxm-http), which @fxm/platform uses on Android.
     CapacitorHttp: { enabled: false },
     SystemBars: {
       // The web app uses viewport-fit=cover and pads its bars with env(safe-area-inset-*),

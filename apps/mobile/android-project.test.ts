@@ -1,10 +1,22 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const local = (path: string) => fileURLToPath(new URL(path, import.meta.url))
+
+/** The source files under `dir` (relative to this file) whose names end in one of `extensions`. */
+function sources(dir: string, extensions: readonly string[]): string[] {
+  return readdirSync(local(dir), { recursive: true, encoding: 'utf8' })
+    .filter((file) => extensions.some((extension) => file.endsWith(extension)))
+    .filter((file) => !/\.test\.tsx?$/.test(file))
+    .map((file) => join(dir, file))
+}
+
+/** Code without its comments, which may name what the code must not use. */
+const withoutComments = (code: string) =>
+  code.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
 describe('the Android project', () => {
   it('compiles against the SDK platform that make android-setup installs', () => {
@@ -60,6 +72,46 @@ describe('the Android project', () => {
     expect(styles).toContain(
       '<item name="windowSplashScreenBackground">@color/fxm_background</item>',
     )
+  })
+
+  it('builds FXM’s native HTTP into the app and registers its plugin before the bridge starts', () => {
+    expect(read('android/settings.gradle')).toMatch(/^include ':fxm-http'$/m)
+    expect(read('android/app/build.gradle')).toContain("implementation project(':fxm-http')")
+    const activity = read('android/app/src/main/java/io/github/pratyayops/fxm/MainActivity.java')
+    const register = activity.indexOf('registerPlugin(FxmHttpPlugin.class)')
+    expect(register).toBeGreaterThan(-1)
+    expect(register).toBeLessThan(activity.indexOf('super.onCreate'))
+  })
+
+  it('gives native code no HTTP stack that shares the WebView’s cookies', () => {
+    // Capacitor's process-wide cookie handler makes every HttpURLConnection send and store the
+    // WebView's cookies: CapacitorHttp and Media3's DefaultHttpDataSource included.
+    const files = [
+      ...sources('android/fxm-http/src/main', ['.kt', '.java']),
+      ...sources('android/app/src/main/java', ['.kt', '.java']),
+    ]
+    expect(files.length).toBeGreaterThan(5)
+    for (const file of files) {
+      expect(withoutComments(read(file)), file).not.toMatch(
+        /HttpURLConnection|openConnection\(|CapacitorHttp|DefaultHttpDataSource|JavaNetCookieJar/,
+      )
+    }
+  })
+
+  it('never lets the web app’s code call CapacitorHttp', () => {
+    for (const file of [
+      ...sources('../../packages/platform/src', ['.ts']),
+      ...sources('../web/src', ['.ts', '.tsx']),
+    ]) {
+      expect(withoutComments(read(file)), file).not.toMatch(/CapacitorHttp\b(?!WebFetch)/)
+    }
+  })
+
+  it('builds OkHttp and its MockWebServer from one release', () => {
+    const gradle = read('android/fxm-http/build.gradle')
+    expect(gradle).toContain('"com.squareup.okhttp3:okhttp:$okhttpVersion"')
+    expect(gradle).toContain('"com.squareup.okhttp3:mockwebserver3:$okhttpVersion"')
+    expect(read('android/variables.gradle')).toMatch(/^ {4}okhttpVersion = '\d+\.\d+\.\d+'$/m)
   })
 
   describe('the cap script', () => {
