@@ -91,6 +91,8 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 
 Offline tests replay recorded answers, so they can't notice when YouTube or another service changes. `make live-smoke` runs every `live.test.ts` against the real services, one file at a time, with a few requests each (about 20 to YouTube in all, fewer than 30 per service). Run it from a residential connection: GitHub's runners use datacenter addresses that meet YouTube's bot checks, so CI's live runs are only advisory. Run it before every release.
 
+It never runs code it downloads. The signed-updates check verifies the signature, size and SHA-256 of what FXM's site publishes and reads the config as data, but never imports the module: code imported there would run with your rights, unattended, with access to your files, keys and GitHub credentials. The YouTube module it runs is the one built from your checkout.
+
 To run it every day on the owner's Mac, save this as `~/Library/LaunchAgents/io.github.pratyayops.fxm.live-smoke.plist` (it assumes the checkout in `~/Documents/Code/FXM` and Node from nvm; adjust both if needed):
 
 ```xml
