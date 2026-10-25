@@ -27,16 +27,16 @@ export interface LrclibOptions {
    * Default {@link DEFAULT_LRCLIB_CLIENT}. A fork should name itself here.
    */
   client?: string
-  /** Abort a request after this many milliseconds. Default 10,000. */
+  /** Abort a request, body included, after this many milliseconds. Default 10,000. */
   timeoutMs?: number
   /**
-   * Start requests at least this many milliseconds apart, as LRCLIB asks (200-500 ms).
-   * Default 250.
+   * Requests go one at a time, as LRCLIB asks; pause this many milliseconds between the end of
+   * one and the start of the next (LRCLIB suggests 200-500 ms). Default 250.
    */
   minIntervalMs?: number
   /**
-   * Wait at most this long for a turn, e.g. for a `Retry-After`; fail with `RateLimited`
-   * instead when LRCLIB asks for longer. Default 5,000.
+   * Wait at most this long for a `Retry-After` from a 503; fail with `RateLimited` instead when
+   * LRCLIB asks for longer. Default 5,000.
    */
   maxWaitMs?: number
 }
@@ -119,11 +119,14 @@ function searchText(query: LyricsQuery): string {
  * 3. `GET /api/get/<id>`, only when a search result comes without its lyrics. LRCLIB's search
  *    results carry them today (checked on 2026-10-25), so this is a fallback.
  *
+ * One provider sends its requests one at a time, as LRCLIB asks, so concurrent calls queue up
+ * in order; a call's `ctx.signal` takes it out of the queue.
+ *
  * It returns `null` for a track without a title or an artist (without a request), when nothing
  * fits, and for instrumentals. It rejects with an `FxmError`: `RateLimited` (with
- * `retryAfterMs`) when LRCLIB asks to slow down, `Network` when it cannot be reached or times
- * out, `Unavailable` for other HTTP errors and `Parse` for answers it cannot read. A cancelled
- * call rejects with the signal's reason.
+ * `retryAfterMs`) when LRCLIB asks to slow down, `Network` when it cannot be reached, breaks off
+ * or times out, `Unavailable` for other HTTP errors and `Parse` for answers it cannot read. A
+ * cancelled call rejects with the signal's reason.
  */
 export function createLrclibProvider(options: LrclibOptions = {}): LyricsProvider {
   const api = new LrclibApi({

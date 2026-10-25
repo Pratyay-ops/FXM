@@ -22,15 +22,21 @@ const PROJECT_URL = 'https://github.com/Pratyay-ops/FXM'
 /** How FXM introduces itself to LRCLIB: name, version and project page. */
 export const DEFAULT_LRCLIB_CLIENT = `${APP_NAME} v${APP_VERSION} (${PROJECT_URL})`
 
+/**
+ * The most UTF-16 code units FXM keeps of a title, artist or album from LRCLIB. Records are
+ * user-submitted: a longer name is junk, and the cap keeps every later pattern on short input.
+ */
+export const MAX_NAME_LENGTH = 500
+
 /** One lyrics record as LRCLIB returns it, checked, with the fields FXM uses. */
 export interface LrclibRecord {
   /** LRCLIB's ID of the record. */
   id: number
-  /** Title, as whoever published the record wrote it. */
+  /** Title, as whoever published the record wrote it, cleaned by {@link toRecord}. */
   trackName: string
-  /** Artist credit, e.g. `Calvin Harris, Dua Lipa`. Empty when the record has none. */
+  /** Artist credit, e.g. `Calvin Harris, Dua Lipa`, cleaned. Empty when the record has none. */
   artistName: string
-  /** Album, when the record names one. */
+  /** Album, cleaned, when the record names one. */
   albumName?: string
   /** Duration in seconds, when the record has a positive one. */
   duration?: number
@@ -60,11 +66,11 @@ export interface LrclibApiOptions {
   baseUrl: string
   /** The `Lrclib-Client` header. */
   client: string
-  /** Abort a request after this many milliseconds. */
+  /** Abort a request, body included, after this many milliseconds. */
   timeoutMs: number
-  /** Start requests at least this many milliseconds apart. */
+  /** Pause this many milliseconds between the end of one request and the start of the next. */
   minIntervalMs: number
-  /** Wait at most this long for a turn; fail with `RateLimited` when LRCLIB asks for longer. */
+  /** Wait at most this long for a `Retry-After`; fail with `RateLimited` when LRCLIB asks more. */
   maxWaitMs: number
 }
 
@@ -77,6 +83,10 @@ type Answer =
 /** Resolves after `ms`, or rejects with the signal's reason when it aborts first. */
 function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason)
+      return
+    }
     const onAbort = () => {
       clearTimeout(timer)
       reject(signal?.reason)
@@ -96,14 +106,24 @@ function rateLimited(retryAfterMs: number): FxmError {
 }
 
 /**
- * Spaces requests out and honours LRCLIB's `Retry-After`, per provider instance. LRCLIB asks
- * for one request at a time with a short pause in between, and for clients to wait out a 429
- * (plus some jitter) or risk a temporary ban.
+ * Runs the requests of one provider instance one at a time, as LRCLIB asks: each starts once the
+ * request before it has finished, body read or cancelled, and `minIntervalMs` more have passed.
+ * Calls wait their turn in order, however long the queue; a cancelled call leaves it.
+ *
+ * It also honours `Retry-After`, plus up to 30 % jitter, which LRCLIB requires on pain of a
+ * temporary ban. After a 429, calls fail at once with `RateLimited` until the wait is over. After
+ * a 503, they wait, unless LRCLIB asked for longer than `maxWaitMs`.
  */
 class RequestGate {
-  /** The earliest start of the next request, in epoch milliseconds. */
-  private nextAt = 0
-  /** After a 429: requests before this fail at once, without reaching LRCLIB. */
+  /** Whether a call holds the gate: waiting for its start, or with its request in flight. */
+  private busy = false
+  /** Wakes each call waiting for the gate, in order. */
+  private readonly waiting: Array<() => void> = []
+  /** When the last request finished, in epoch milliseconds. */
+  private lastEndAt = Number.NEGATIVE_INFINITY
+  /** No request starts before this time, which LRCLIB's `Retry-After` set. */
+  private retryAt = 0
+  /** Until this time, set by a 429, calls fail at once instead of waiting. */
   private blockedUntil = 0
 
   constructor(
@@ -111,25 +131,70 @@ class RequestGate {
     private readonly maxWaitMs: number,
   ) {}
 
-  /** Waits for this request's turn, or fails with `RateLimited` when that would take too long. */
-  async enter(signal: AbortSignal | undefined): Promise<void> {
+  /** Sends `request` in its turn and holds the gate until it settles. */
+  async run<T>(signal: AbortSignal | undefined, request: () => Promise<T>): Promise<T> {
     signal?.throwIfAborted()
-    const now = Date.now()
-    if (now < this.blockedUntil) throw rateLimited(this.blockedUntil - now)
-    const at = Math.max(now, this.nextAt)
-    if (at - now > this.maxWaitMs) throw rateLimited(at - now)
-    this.nextAt = at + this.minIntervalMs
-    if (at > now) await sleep(at - now, signal)
+    this.checkRetryAfter()
+    await this.acquire(signal)
+    let sent = false
+    try {
+      // The request before this one may have been told to wait.
+      this.checkRetryAfter()
+      const waitMs = Math.max(this.lastEndAt + this.minIntervalMs, this.retryAt) - Date.now()
+      if (waitMs > 0) await sleep(waitMs, signal)
+      sent = true
+      return await request()
+    } finally {
+      if (sent) this.lastEndAt = Date.now()
+      this.release()
+    }
   }
 
   /**
-   * Holds every request back for `delayMs` plus up to 30 % jitter, as LRCLIB asks. With
-   * `block`, requests in that time fail at once instead of waiting.
+   * Holds every request back for `delayMs` plus up to 30 % jitter. With `block` (a 429), calls
+   * fail at once until then instead of waiting. Returns how long requests are now held back.
    */
-  backOff(delayMs: number, block: boolean): void {
-    const until = Date.now() + Math.round(delayMs * (1 + Math.random() * 0.3))
-    this.nextAt = Math.max(this.nextAt, until)
+  backOff(delayMs: number, block: boolean): number {
+    const now = Date.now()
+    const until = now + Math.round(delayMs * (1 + Math.random() * 0.3))
+    this.retryAt = Math.max(this.retryAt, until)
     if (block) this.blockedUntil = Math.max(this.blockedUntil, until)
+    return this.retryAt - now
+  }
+
+  /** Fails while a 429 blocks calls, or when LRCLIB asked for a wait longer than `maxWaitMs`. */
+  private checkRetryAfter(): void {
+    const now = Date.now()
+    const waitMs = this.retryAt - now
+    if (now < this.blockedUntil || waitMs > this.maxWaitMs) throw rateLimited(waitMs)
+  }
+
+  /** Takes the gate, after the calls already waiting for it. */
+  private acquire(signal: AbortSignal | undefined): Promise<void> {
+    if (!this.busy) {
+      this.busy = true
+      return Promise.resolve()
+    }
+    return new Promise((resolve, reject) => {
+      const onAbort = () => {
+        const index = this.waiting.indexOf(wake)
+        if (index !== -1) this.waiting.splice(index, 1)
+        reject(signal?.reason)
+      }
+      const wake = () => {
+        signal?.removeEventListener('abort', onAbort)
+        resolve()
+      }
+      this.waiting.push(wake)
+      signal?.addEventListener('abort', onAbort, { once: true })
+    })
+  }
+
+  /** Hands the gate to the next waiting call, or frees it. */
+  private release(): void {
+    const next = this.waiting.shift()
+    if (next === undefined) this.busy = false
+    else next()
   }
 }
 
@@ -148,27 +213,41 @@ export function retryAfterMs(header: string | null, fallbackMs: number, now = Da
     : fallbackMs
 }
 
-/** A non-blank string, or `undefined`. */
-function text(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() !== '' ? value : undefined
+/**
+ * A name from LRCLIB, cleaned: runs of whitespace fold into one space, the ends are trimmed, and
+ * it is cut to {@link MAX_NAME_LENGTH} code units, never inside a character. `undefined` for a
+ * value that is not a string, or is blank.
+ */
+function cleanName(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const folded = value.replace(/\s+/gu, ' ').trim()
+  if (folded === '') return undefined
+  if (folded.length <= MAX_NAME_LENGTH) return folded
+  const cut = folded.slice(0, MAX_NAME_LENGTH)
+  const last = cut.charCodeAt(cut.length - 1)
+  // A high surrogate at the end is half of a character that the cut split.
+  return (last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut).trimEnd()
 }
 
-/** Checks one record from LRCLIB. Returns `null` when it lacks an ID or a title. */
+/**
+ * Checks one record from LRCLIB, and cleans its title, artist and album (see `cleanName`).
+ * Returns `null` when it lacks an ID or a title.
+ */
 export function toRecord(value: unknown): LrclibRecord | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
   const fields = value as Record<string, unknown>
   const { id, duration } = fields
-  const trackName = text(fields.trackName) ?? text(fields.name)
+  const trackName = cleanName(fields.trackName) ?? cleanName(fields.name)
   if (typeof id !== 'number' || !Number.isSafeInteger(id) || id <= 0 || trackName === undefined) {
     return null
   }
   const record: LrclibRecord = {
     id,
     trackName,
-    artistName: typeof fields.artistName === 'string' ? fields.artistName : '',
+    artistName: cleanName(fields.artistName) ?? '',
     instrumental: fields.instrumental === true,
   }
-  const albumName = text(fields.albumName)
+  const albumName = cleanName(fields.albumName)
   if (albumName !== undefined) record.albumName = albumName
   if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
     record.duration = duration
@@ -189,8 +268,8 @@ function recordIn(answer: { body: unknown }): LrclibRecord {
 }
 
 /**
- * A client for LRCLIB's read endpoints. One instance spaces out all of its requests, so share
- * it (the provider does).
+ * A client for LRCLIB's read endpoints. One instance sends all of its requests one at a time, so
+ * share it (the provider does).
  */
 export class LrclibApi {
   private readonly gate: RequestGate
@@ -203,8 +282,9 @@ export class LrclibApi {
 
   /**
    * `GET /api/get`: the record LRCLIB picks for a track's signature, or `null` when it has none.
-   * LRCLIB answers a miss with 404, or today with `503 ServerOverloaded` after about 1.5 s; both
-   * count as a miss, and the 503's `Retry-After` delays the next request.
+   * LRCLIB answers a miss after about 1.5 s with 404, or, as on 2026-10-25, with
+   * `503 ServerOverloaded`. Both count as a miss, and the 503's `Retry-After` delays the next
+   * request.
    */
   async get(signature: LrclibSignature, ctx: ProviderContext): Promise<LrclibRecord | null> {
     const params: Record<string, string> = {
@@ -238,53 +318,66 @@ export class LrclibApi {
     return recordIn(answer)
   }
 
-  /** One GET, in turn, mapped to an {@link Answer} or an `FxmError`. */
-  private async request(
+  /** One GET, in its turn, mapped to an {@link Answer} or an `FxmError`. */
+  private request(
     path: string,
     params: Record<string, string>,
     ctx: ProviderContext,
   ): Promise<Answer> {
-    const { signal } = ctx
-    await this.gate.enter(signal)
     const url = new URL(path, this.baseUrl)
     for (const [name, value] of Object.entries(params)) url.searchParams.set(name, value)
-    let response: Response
-    try {
-      response = await fetchWithTimeout(ctx.fetch, url.href, {
-        headers: { 'Lrclib-Client': this.options.client },
-        credentials: 'omit',
-        timeoutMs: this.options.timeoutMs,
-        ...(signal === undefined ? {} : { signal }),
-      })
-    } catch (error) {
-      if (signal?.aborted) throw signal.reason
-      const timedOut = (error as { name?: unknown } | null)?.name === 'TimeoutError'
-      const message = timedOut
-        ? `LRCLIB did not answer within ${this.options.timeoutMs} ms`
-        : 'LRCLIB could not be reached'
-      throw new FxmError('Network', message, { cause: error })
-    }
+    return this.gate.run(ctx.signal, () => this.send(url, path, ctx))
+  }
+
+  /** Sends one GET. It settles only once the body is read or cancelled, so the gate can open. */
+  private async send(url: URL, path: string, ctx: ProviderContext): Promise<Answer> {
+    const { signal } = ctx
+    const response = await fetchWithTimeout(ctx.fetch, url.href, {
+      headers: { 'Lrclib-Client': this.options.client },
+      credentials: 'omit',
+      timeoutMs: this.options.timeoutMs,
+      ...(signal === undefined ? {} : { signal }),
+    }).catch((error: unknown) => this.failed(error, signal, 'LRCLIB could not be reached'))
     const { status } = response
-    if (status === 200) {
-      try {
-        return { kind: 'ok', body: await response.json() }
-      } catch (error) {
-        if (signal?.aborted) throw signal.reason
-        throw new FxmError('Parse', 'LRCLIB answered with invalid JSON', { cause: error })
-      }
-    }
+    if (status === 200) return { kind: 'ok', body: await this.json(response, signal) }
     // Error bodies are small and not always JSON; nothing in them changes what FXM does.
     await response.body?.cancel().catch(() => undefined)
     if (status === 404) return { kind: 'not-found' }
     if (status === 429 || status === 503) {
-      const delayMs = retryAfterMs(
-        response.headers.get('retry-after'),
-        status === 429 ? 60_000 : 1_000,
-      )
-      this.gate.backOff(delayMs, status === 429)
-      if (status === 429) throw rateLimited(delayMs)
-      return { kind: 'busy', retryAfterMs: delayMs }
+      const fallbackMs = status === 429 ? 60_000 : 1_000
+      const delayMs = retryAfterMs(response.headers.get('retry-after'), fallbackMs)
+      // The wait with its jitter: a caller that retries after it is not refused again.
+      const waitMs = this.gate.backOff(delayMs, status === 429)
+      if (status === 429) throw rateLimited(waitMs)
+      return { kind: 'busy', retryAfterMs: waitMs }
     }
     throw new FxmError('Unavailable', `LRCLIB answered ${path} with HTTP ${status}`)
+  }
+
+  /** A response's JSON body: `Network` when reading it fails, `Parse` when it is not JSON. */
+  private async json(response: Response, signal: AbortSignal | undefined): Promise<unknown> {
+    const text = await response
+      .text()
+      .catch((error: unknown) => this.failed(error, signal, 'The answer from LRCLIB broke off'))
+    signal?.throwIfAborted()
+    try {
+      return JSON.parse(text)
+    } catch (error) {
+      throw new FxmError('Parse', 'LRCLIB answered with invalid JSON', { cause: error })
+    }
+  }
+
+  /**
+   * Rethrows a request that failed: as the signal's reason when the caller cancelled it, else as
+   * a `Network` error, which names the timeout when that is what stopped it.
+   */
+  private failed(error: unknown, signal: AbortSignal | undefined, message: string): never {
+    if (signal?.aborted) throw signal.reason
+    const timedOut = (error as { name?: unknown } | null)?.name === 'TimeoutError'
+    throw new FxmError(
+      'Network',
+      timedOut ? `LRCLIB did not answer within ${this.options.timeoutMs} ms` : message,
+      { cause: error },
+    )
   }
 }

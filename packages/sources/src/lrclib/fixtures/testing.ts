@@ -47,6 +47,45 @@ export function busy(): Response {
   return json(overloaded, { status: 503, headers: { 'retry-after': '1' } })
 }
 
+/** A 200 whose headers arrive at once, and whose JSON body only after `ms` (on the test clock). */
+export function slowBody(body: unknown, ms: number): Response {
+  const bytes = new TextEncoder().encode(JSON.stringify(body))
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      setTimeout(() => {
+        controller.enqueue(bytes)
+        controller.close()
+      }, ms)
+    },
+  })
+  return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } })
+}
+
+/**
+ * A 200 whose body starts and never ends. Like a real `fetch`'s, it fails with the reason of
+ * the request's signal when that aborts, e.g. on a timeout.
+ */
+export function stalledBody(signal: AbortSignal | null | undefined): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('[{"id":1,'))
+      signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true })
+    },
+  })
+  return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } })
+}
+
+/** A 200 whose body breaks off after its first bytes, like a connection that was reset. */
+export function brokenBody(cause: Error): Response {
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('[{"id":1,'))
+      controller.error(cause)
+    },
+  })
+  return new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } })
+}
+
 /** One request the fake LRCLIB received. */
 export interface Call {
   /** The URL. */
@@ -60,10 +99,12 @@ export interface Call {
 }
 
 /**
- * A fake LRCLIB that answers each request with `route(url)` and records it. Like a real
+ * A fake LRCLIB that answers each request with `route(url, init)` and records it. Like a real
  * `fetch`, it rejects with the signal's reason when the request is cancelled.
  */
-export function fakeLrclib(route: (url: URL) => Response | Promise<Response>): {
+export function fakeLrclib(
+  route: (url: URL, init: RequestInit | undefined) => Response | Promise<Response>,
+): {
   fetch: typeof fetch
   calls: Call[]
 } {
@@ -72,9 +113,14 @@ export function fakeLrclib(route: (url: URL) => Response | Promise<Response>): {
     init?.signal?.throwIfAborted()
     const url = new URL(input instanceof Request ? input.url : String(input))
     calls.push({ url, headers: new Headers(init?.headers), init, at: Date.now() })
-    return route(url)
+    return route(url, init)
   }
   return { fetch: fakeFetch, calls }
+}
+
+/** A promise of `value()` after `ms` on the test clock. */
+export function after<T>(ms: number, value: () => T): Promise<T> {
+  return new Promise((resolve) => setTimeout(() => resolve(value()), ms))
 }
 
 /** A `fetch` that never answers, and rejects like a real one when its signal aborts. */

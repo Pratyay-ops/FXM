@@ -53,16 +53,21 @@ FXM is not registered with LRCLIB. Registering it as a client-side application w
 
 A track without a title or an artist gets `null` without a request.
 
+## Untrusted records
+
+Records are user-submitted, so nothing in them may stall the app. `toRecord` folds runs of whitespace in titles, artists and albums and cuts them to 500 characters before any matching pattern sees them. Lyrics go through `parseLrc`, which stays fast on any input (see the core lyrics README).
+
 ## Being a good client
 
-LRCLIB asks for the following, and one provider instance does it for all its calls:
+LRCLIB's documentation (Implementation Requirements, read 2026-10-25) asks clients to "send requests sequentially by waiting for each one to finish before starting the next", with "a short delay between requests (200–500 ms)", and to honour `Retry-After` plus some jitter, or risk a temporary ban. One provider instance does all of this for every call it gets:
 
-- **One request at a time, with a short pause.** Requests start at least `minIntervalMs` (250) apart.
-- **Honour `Retry-After` with jitter, or risk a ban.**
-  - A 429 holds every request back for `Retry-After` plus up to 30 %. Until then, calls fail at once with a `RateLimited` `FxmError` that carries `retryAfterMs`.
-  - A 503 delays the next request the same way. A wait longer than `maxWaitMs` (5 s) fails with `RateLimited` instead of blocking the caller.
+- **One request at a time.** A request starts only after the one before it has finished, body read or cancelled, and `minIntervalMs` (250) more have passed.
+- **Calls queue up.** Concurrent calls wait their turn in order, however long the queue is, and each lookup's later requests queue behind those already waiting. A call's `ctx.signal` takes it out of the queue, so drop lookups you no longer need.
+- **`Retry-After` with jitter.**
+  - A 429 holds every request back for `Retry-After` plus up to 30 %. Until then, calls fail at once with a `RateLimited` `FxmError`. Its `retryAfterMs` covers the jitter, so a retry after exactly that long goes through.
+  - A 503 holds the next request back the same way, and calls wait for it. When LRCLIB asks for longer than `maxWaitMs` (5 s), they fail with `RateLimited` instead of waiting.
 
-**Misses answer 503.** On 2026-10-25, LRCLIB answered every miss (`/api/get` with no matching record, `/api/get/<id>` with an unknown ID) with `503 ServerOverloaded` and `Retry-After: 1` after about 1.5 s, not the documented 404. So a 503 from `/api/get` counts as a miss: the provider waits about a second, then searches. A miss therefore takes about 3 to 4 seconds.
+**Misses may answer 503.** On 2026-10-25, LRCLIB answered every miss (`/api/get` with no matching record, `/api/get/<id>` with an unknown ID) with `503 ServerOverloaded` and `Retry-After: 1` after about 1.5 s, not the documented 404. On 2026-10-26 it answered 404 again, after the same 1.5 s. So a 503 from `/api/get` also counts as a miss: the provider waits about a second, then searches. A miss takes about 2 seconds, or 3 to 4 while misses answer 503, and holds up the queue for as long.
 
 ## Errors
 
@@ -70,8 +75,8 @@ LRCLIB asks for the following, and one provider instance does it for all its cal
 
 | Code | When |
 |---|---|
-| `RateLimited` | LRCLIB answered 429, or 503 to a search or ID lookup, or the wait would exceed `maxWaitMs`. `retryAfterMs` says how long to wait |
-| `Network` | The request failed or took longer than `timeoutMs` (10 s) |
+| `RateLimited` | LRCLIB answered 429, or 503 to a search or ID lookup, or asked to wait longer than `maxWaitMs`. `retryAfterMs` says how long to wait, jitter included |
+| `Network` | The request failed, its body broke off, or it took longer than `timeoutMs` (10 s), body included |
 | `Unavailable` | Any other HTTP error, e.g. 500 or 400 |
 | `Parse` | The answer is not the JSON LRCLIB documents |
 
@@ -83,9 +88,9 @@ A call whose `ctx.signal` aborts rejects with the signal's reason. There is no c
 |---|---|---|
 | `baseUrl` | `https://lrclib.net` | Another LRCLIB server, e.g. a self-hosted one (paths are kept) |
 | `client` | `FXM v<version> (https://github.com/Pratyay-ops/FXM)` | The `Lrclib-Client` header. A fork should name itself |
-| `timeoutMs` | 10,000 | Per request |
-| `minIntervalMs` | 250 | Between request starts |
-| `maxWaitMs` | 5,000 | The longest wait for a turn before failing with `RateLimited` |
+| `timeoutMs` | 10,000 | Per request, body included |
+| `minIntervalMs` | 250 | The pause between one request's end and the next one's start |
+| `maxWaitMs` | 5,000 | The longest `Retry-After` from a 503 that calls wait out. Beyond it they fail with `RateLimited` |
 
 ## Tests
 

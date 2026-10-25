@@ -5,10 +5,12 @@ import {
   LRCLIB_ORIGIN,
   LrclibApi,
   type LrclibApiOptions,
+  MAX_NAME_LENGTH,
   retryAfterMs,
   toRecord,
 } from './api'
 import {
+  brokenBody,
   busy,
   type Call,
   contextFor,
@@ -16,6 +18,8 @@ import {
   fixtures,
   hangingFetch,
   json,
+  slowBody,
+  stalledBody,
 } from './fixtures/testing'
 
 const OPTIONS: LrclibApiOptions = {
@@ -45,6 +49,22 @@ function setup(
 /** The query parameters of a request. */
 function params(call: Call | undefined): Record<string, string> {
   return Object.fromEntries(call?.url.searchParams ?? [])
+}
+
+/** The `retryAfterMs` of a `RateLimited` error, or a failed test. */
+function waitOf(error: unknown): number {
+  if (!isFxmError(error, 'RateLimited') || error.retryAfterMs === undefined) {
+    throw new Error(`expected a RateLimited error, got ${String(error)}`)
+  }
+  return error.retryAfterMs
+}
+
+/** The error a call rejects with. */
+function failure(call: Promise<unknown>): Promise<unknown> {
+  return call.then(
+    () => new Error('expected the call to fail'),
+    (error: unknown) => error,
+  )
 }
 
 describe('LrclibApi.get', () => {
@@ -139,10 +159,10 @@ describe('LrclibApi.search', () => {
     const overloaded = setup(busy)
     vi.useFakeTimers()
     try {
-      await expect(overloaded.api.search('x', overloaded.ctx)).rejects.toMatchObject({
-        code: 'RateLimited',
-        retryAfterMs: 1_000,
-      })
+      const waitMs = waitOf(await failure(overloaded.api.search('x', overloaded.ctx)))
+      // Retry-After: 1, plus up to 30 % jitter.
+      expect(waitMs).toBeGreaterThanOrEqual(1_000)
+      expect(waitMs).toBeLessThanOrEqual(1_300)
     } finally {
       vi.useRealTimers()
     }
@@ -207,6 +227,24 @@ describe('LrclibApi errors', () => {
     expect((error as Error).message).toContain('20 ms')
   })
 
+  it('maps a body that stalls past timeoutMs to Network, not Parse', async () => {
+    const api = new LrclibApi({ ...OPTIONS, timeoutMs: 20 })
+    const { fetch } = fakeLrclib((_url, init) => stalledBody(init?.signal))
+    const error = await failure(api.search('x', contextFor(fetch)))
+    expect(isFxmError(error, 'Network')).toBe(true)
+    expect((error as Error).message).toBe('LRCLIB did not answer within 20 ms')
+    expect((error as Error).cause).toMatchObject({ name: 'TimeoutError' })
+  })
+
+  it('maps a body that breaks off to Network, not Parse', async () => {
+    const cause = new TypeError('terminated')
+    const { api, ctx } = setup(() => brokenBody(cause))
+    const error = await failure(api.search('x', ctx))
+    expect(isFxmError(error, 'Network')).toBe(true)
+    expect((error as Error).message).toBe('The answer from LRCLIB broke off')
+    expect((error as Error).cause).toBe(cause)
+  })
+
   it('rejects with the reason of a cancelled call, before or during the request', async () => {
     const { api, calls, ctx } = setup(() => json([]))
     const controller = new AbortController()
@@ -241,13 +279,38 @@ describe('LrclibApi request pacing', () => {
     vi.useRealTimers()
   })
 
-  it('starts requests at least minIntervalMs apart', async () => {
-    const { api, ctx, calls } = setup(() => json([]), { minIntervalMs: 250 })
-    const both = Promise.all([api.search('a', ctx), api.search('b', ctx)])
-    await vi.advanceTimersByTimeAsync(1_000)
-    await both
-    expect(calls).toHaveLength(2)
-    expect((calls[1]?.at ?? 0) - (calls[0]?.at ?? 0)).toBeGreaterThanOrEqual(250)
+  it('sends one request at a time, minIntervalMs after the one before it has finished', async () => {
+    // Every body arrives a second after its headers: a request lasts until its body is read.
+    const { api, ctx, calls } = setup(() => slowBody([], 1_000), { minIntervalMs: 250 })
+    const all = Promise.all([api.search('a', ctx), api.search('b', ctx), api.search('c', ctx)])
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(await all).toEqual([[], [], []])
+    const first = calls[0]?.at ?? 0
+    expect(calls.map((call) => call.at - first)).toEqual([0, 1_250, 2_500])
+    expect(calls.map((call) => params(call).q)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('takes a cancelled call out of the queue', async () => {
+    const { api, ctx, calls } = setup(() => slowBody([], 1_000))
+    const first = api.search('a', ctx)
+    const controller = new AbortController()
+    const cancelled = failure(api.search('b', contextFor(ctx.fetch, controller.signal)))
+    const third = api.search('c', ctx)
+    controller.abort()
+    expect(await cancelled).toMatchObject({ name: 'AbortError' })
+    await vi.advanceTimersByTimeAsync(5_000)
+    expect([await first, await third]).toEqual([[], []])
+    expect(calls.map((call) => params(call).q)).toEqual(['a', 'c'])
+    expect((calls[1]?.at ?? 0) - (calls[0]?.at ?? 0)).toBe(1_000)
+  })
+
+  it('queues any number of calls instead of failing them', async () => {
+    const { api, ctx, calls } = setup(() => json([]), { minIntervalMs: 250, maxWaitMs: 5_000 })
+    const all = Promise.allSettled(Array.from({ length: 30 }, (_, i) => api.search(`${i}`, ctx)))
+    await vi.advanceTimersByTimeAsync(30 * 250)
+    const settled = await all
+    expect(settled.filter((result) => result.status === 'rejected')).toEqual([])
+    expect(calls).toHaveLength(30)
   })
 
   it('waits out the Retry-After of a 503 before the next request', async () => {
@@ -264,36 +327,47 @@ describe('LrclibApi request pacing', () => {
     expect(gap).toBeLessThanOrEqual(1_300)
   })
 
-  it('fails fast while LRCLIB rate-limits, then tries again', async () => {
+  it('fails fast while LRCLIB rate-limits, and lets a call through once the wait is over', async () => {
     let limited = true
     const { api, ctx, calls } = setup(() =>
       limited
         ? json(fixtures.rateLimited, { status: 429, headers: { 'retry-after': '30' } })
         : json([]),
     )
-    await expect(api.search('x', ctx)).rejects.toMatchObject({
-      code: 'RateLimited',
-      retryAfterMs: 30_000,
-    })
-    const error = await api.search('y', ctx).catch((caught: unknown) => caught)
-    expect(isFxmError(error, 'RateLimited')).toBe(true)
-    const waitMs = (error as { retryAfterMs: number }).retryAfterMs
-    expect(waitMs).toBeGreaterThan(29_000)
+    const waitMs = waitOf(await failure(api.search('x', ctx)))
+    // Retry-After: 30, plus up to 30 % jitter, which the error includes.
+    expect(waitMs).toBeGreaterThanOrEqual(30_000)
     expect(waitMs).toBeLessThanOrEqual(39_000)
+    expect(waitOf(await failure(api.search('y', ctx)))).toBe(waitMs)
     expect(calls).toHaveLength(1)
     limited = false
-    await vi.advanceTimersByTimeAsync(39_001)
+    await vi.advanceTimersByTimeAsync(waitMs - 1)
+    expect(waitOf(await failure(api.search('z', ctx)))).toBe(1)
+    await vi.advanceTimersByTimeAsync(1)
+    // A call made exactly retryAfterMs after the 429 reaches LRCLIB.
     expect(await api.search('z', ctx)).toEqual([])
     expect(calls).toHaveLength(2)
   })
 
-  it('fails instead of waiting longer than maxWaitMs', async () => {
+  it('fails instead of waiting when LRCLIB asks for longer than maxWaitMs', async () => {
     const { api, ctx, calls } = setup(
       () => json(fixtures.overloaded, { status: 503, headers: { 'retry-after': '120' } }),
       { maxWaitMs: 5_000 },
     )
     expect(await api.get(SIGNATURE, ctx)).toBeNull()
-    await expect(api.search('x', ctx)).rejects.toMatchObject({ code: 'RateLimited' })
+    expect(waitOf(await failure(api.search('x', ctx)))).toBeGreaterThanOrEqual(120_000)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('fails a queued call when the request before it gets a 429', async () => {
+    const { api, ctx, calls } = setup(() =>
+      json(fixtures.rateLimited, { status: 429, headers: { 'retry-after': '30' } }),
+    )
+    const [first, second] = await Promise.all([
+      failure(api.search('a', ctx)),
+      failure(api.search('b', ctx)),
+    ])
+    expect(waitOf(second)).toBe(waitOf(first))
     expect(calls).toHaveLength(1)
   })
 
@@ -366,6 +440,20 @@ describe('toRecord', () => {
       instrumental: false,
       syncedLyrics: null,
     })
+  })
+
+  it('folds whitespace in names and caps their length, never inside a character', () => {
+    const emoji = String.fromCodePoint(0x1f600)
+    const record = toRecord({
+      id: 3,
+      trackName: ' Creep \n (Live)\t',
+      artistName: `a${emoji.repeat(300)}`,
+      albumName: `${'x'.repeat(MAX_NAME_LENGTH - 1)} y`,
+    })
+    expect(record?.trackName).toBe('Creep (Live)')
+    // "a" and 249 emoji fit; the cut would split the 250th in half.
+    expect(record?.artistName).toBe(`a${emoji.repeat(249)}`)
+    expect(record?.albumName).toBe('x'.repeat(MAX_NAME_LENGTH - 1))
   })
 
   it.each([

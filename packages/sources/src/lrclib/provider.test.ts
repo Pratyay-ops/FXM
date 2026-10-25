@@ -2,6 +2,7 @@ import { isFxmError, type Lyrics, lineAt } from '@fxm/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_LRCLIB_CLIENT, LRCLIB_ORIGIN, type LrclibRecord } from './api'
 import {
+  after,
   busy,
   contextFor,
   creep,
@@ -258,15 +259,57 @@ describe('the LRCLIB provider', () => {
       get: () => json(fixtures.rateLimited, { status: 429, headers: { 'retry-after': '20' } }),
     })
     const lyricsProvider = provider()
-    await expect(lyricsProvider.getLyrics(creep(), contextFor(fetch))).rejects.toMatchObject({
-      code: 'RateLimited',
-      retryAfterMs: 20_000,
-    })
+    const error = await lyricsProvider
+      .getLyrics(creep(), contextFor(fetch))
+      .catch((e: unknown) => e)
+    expect(isFxmError(error, 'RateLimited')).toBe(true)
+    // Retry-After: 20, plus up to 30 % jitter.
+    const waitMs = (error as { retryAfterMs: number }).retryAfterMs
+    expect(waitMs).toBeGreaterThanOrEqual(20_000)
+    expect(waitMs).toBeLessThanOrEqual(26_000)
     const again = await lyricsProvider
       .getLyrics(creep(), contextFor(fetch))
       .catch((e: unknown) => e)
     expect(isFxmError(again, 'RateLimited')).toBe(true)
     expect(calls).toHaveLength(1)
+  })
+
+  it('sends one request at a time across concurrent lookups', async () => {
+    vi.useFakeTimers()
+    let inFlight = 0
+    let most = 0
+    // LRCLIB answers a miss with a 503 after about 1.5 s.
+    const { fetch, calls } = fakeLrclib(async (url) => {
+      inFlight++
+      most = Math.max(most, inFlight)
+      const response = url.pathname === '/api/get' ? await after(1_500, busy) : json([])
+      inFlight--
+      return response
+    })
+    const lyricsProvider = provider({ minIntervalMs: 250 })
+    const lookups = Promise.all(
+      [1, 2, 3].map(() => lyricsProvider.getLyrics(creep(), contextFor(fetch))),
+    )
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(await lookups).toEqual([null, null, null])
+    expect(most).toBe(1)
+    expect(requests(calls)).toEqual([
+      ...[GET_CREEP, GET_CREEP, GET_CREEP],
+      ...[SEARCH_CREEP, SEARCH_CREEP, SEARCH_CREEP],
+    ])
+  })
+
+  it('answers more than 20 concurrent lookups without failing any', async () => {
+    vi.useFakeTimers()
+    const { fetch, calls } = lrclib({ get: () => json(fixtures.getCreep) })
+    const lyricsProvider = createLrclibProvider()
+    const lookups = Promise.allSettled(
+      Array.from({ length: 30 }, () => lyricsProvider.getLyrics(creep(), contextFor(fetch))),
+    )
+    await vi.advanceTimersByTimeAsync(30 * 250)
+    const results = await lookups
+    expect(results.filter((result) => result.status === 'rejected')).toEqual([])
+    expect(calls).toHaveLength(30)
   })
 
   it('rejects with a Network error when LRCLIB cannot be reached', async () => {
