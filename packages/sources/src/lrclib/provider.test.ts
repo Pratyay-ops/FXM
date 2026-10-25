@@ -47,6 +47,10 @@ const GET_CREEP =
   '/api/get?track_name=Creep&artist_name=Radiohead&album_name=Pablo+Honey&duration=239'
 const SEARCH_CREEP = '/api/search?q=Radiohead+Creep'
 
+/** Plain lyrics with one stray timestamp, and the lines they hold. */
+const STRAY_STAMP = 'Line 1\nLine 2\n[00:10.00]Line 3\nLine 4\n\nLine 5'
+const STRAY_STAMP_LINES = ['Line 1', 'Line 2', 'Line 3', 'Line 4', '', 'Line 5']
+
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
@@ -127,6 +131,30 @@ describe('the LRCLIB provider', () => {
       'Creep, line 6',
     ])
     expect(lyrics.metadata?.lengthMs).toBe(250_000)
+  })
+
+  it('trusts every record /api/get matches for the whole seconds it was sent', async () => {
+    // Creep lasts 238.64 s and is sent as 239, which LRCLIB matches to records of 237-241 s.
+    const { fetch, calls } = lrclib({ get: () => json({ ...fixtures.getCreep, duration: 241 }) })
+    const lyrics = present(await provider().getLyrics(creep(), contextFor(fetch)))
+    expect(lyrics.synced).toBe(true)
+    expect(requests(calls)).toEqual([GET_CREEP])
+  })
+
+  it('keeps every line of plain lyrics that have a stray timestamp', async () => {
+    const { fetch } = lrclib({ get: () => json({ ...plainOnly, plainLyrics: STRAY_STAMP }) })
+    const lyrics = present(await provider().getLyrics(creep(), contextFor(fetch)))
+    expect(lyrics.synced).toBe(false)
+    expect(lyrics.lines.map((line) => line.text)).toEqual(STRAY_STAMP_LINES)
+  })
+
+  it('reads "synced" lyrics with a stray timestamp as plain, after looking for better', async () => {
+    const stray = { ...fixtures.getCreep, plainLyrics: null, syncedLyrics: STRAY_STAMP }
+    const { fetch, calls } = lrclib({ get: () => json(stray) })
+    const lyrics = present(await provider().getLyrics(creep(), contextFor(fetch)))
+    expect(lyrics.synced).toBe(false)
+    expect(lyrics.lines.map((line) => line.text)).toEqual(STRAY_STAMP_LINES)
+    expect(requests(calls)).toEqual([GET_CREEP, SEARCH_CREEP])
   })
 
   it('trusts the exact synced lyrics of a track whose duration is unknown', async () => {
@@ -392,6 +420,26 @@ describe('lyricsOf', () => {
     expect(
       lyricsOf({ ...base, plainLyrics: '[00:01.00]One\n[00:02.00]\n[00:03.00]Two' }, false)?.lines,
     ).toEqual([{ text: 'One' }, { text: '' }, { text: 'Two' }])
+  })
+
+  it('keeps every line of lyrics with a stray timestamp, in either field', () => {
+    for (const record of [
+      { ...base, plainLyrics: STRAY_STAMP },
+      { ...base, syncedLyrics: STRAY_STAMP },
+    ]) {
+      const lyrics = lyricsOf(record, true)
+      expect(lyrics?.synced).toBe(false)
+      expect(lyrics?.lines.map((line) => line.text)).toEqual(STRAY_STAMP_LINES)
+    }
+  })
+
+  it('reads LRC that is not known to keep time as plain, line for line', () => {
+    const lrc = '[00:20.00]Chorus\n[00:05.00][00:30.00]<00:05.00>Verse <00:05.50>line\nCredits'
+    expect(lyricsOf({ ...base, syncedLyrics: lrc }, false)?.lines).toEqual([
+      { text: 'Chorus' },
+      { text: 'Verse line' },
+      { text: 'Credits' },
+    ])
   })
 
   it('returns null for records without text', () => {

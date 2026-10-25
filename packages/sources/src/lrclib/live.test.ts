@@ -39,19 +39,23 @@ describe.skipIf(!live)('LRCLIB, live', { timeout: 30_000 }, () => {
   })
 
   it('falls back to a search, and only syncs lyrics that keep time', async () => {
-    // A music video runs longer than the album track, so the exact lookup misses.
+    // A ten-minute video is longer than any recording of the song on LRCLIB, so the exact lookup
+    // misses, and no record found by the search keeps time with it.
     const video = creep({
       title: 'Radiohead - Creep (Official Music Video)',
       artists: [{ name: 'RadioheadVEVO' }],
-      durationMs: 256_000,
+      durationMs: 600_000,
       kind: 'music-video',
     })
-    const lyrics = await lyricsProvider.getLyrics(video, ctx)
-    expect(lyrics?.lines.length).toBeGreaterThan(10)
-    if (lyrics?.synced) {
-      // Only a record of the video's own length may give synced lyrics.
-      expect(Math.abs((lyrics.metadata?.lengthMs ?? 0) - 256_000)).toBeLessThanOrEqual(2_000)
+    const paths: string[] = []
+    const recording: typeof fetch = (input, init) => {
+      paths.push(new URL(input instanceof Request ? input.url : String(input)).pathname)
+      return globalThis.fetch(input, init)
     }
+    const lyrics = await lyricsProvider.getLyrics(video, contextFor(recording))
+    expect(paths.slice(0, 2)).toEqual(['/api/get', '/api/search'])
+    expect(lyrics?.synced).toBe(false)
+    expect(lyrics?.lines.length).toBeGreaterThan(10)
   })
 
   it('lets any web page call it, with the Lrclib-Client header', async () => {

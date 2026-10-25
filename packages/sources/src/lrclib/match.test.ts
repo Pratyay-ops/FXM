@@ -77,6 +77,8 @@ describe('cleanArtist', () => {
     ['Radiohead - Topic', 'Radiohead'],
     ['VEVO', 'VEVO'],
     ['  Radiohead  ', 'Radiohead'],
+    ['Radiohead  -   Topic', 'Radiohead'],
+    ['Taylor \t Swift', 'Taylor Swift'],
   ])('cleans %j to %j', (name, clean) => {
     expect(cleanArtist(name)).toBe(clean)
   })
@@ -183,14 +185,15 @@ describe('matchRecord', () => {
     expect(matchRecord(acoustic, record())).toBeNull()
   })
 
-  it('scores the duration, and trusts synced lyrics only within 2 s', () => {
+  it('scores the duration, and trusts synced lyrics only within 2.5 s', () => {
     const within = matchRecord(query, record({ duration: 236.7 }))
     const off = matchRecord(query, record({ duration: 242.64 }))
     const far = matchRecord(query, record({ duration: 256 }))
     const unknown = matchRecord(query, record({ duration: undefined as unknown as number }))
     expect([within?.content, off?.content, far?.content, unknown?.content]).toEqual([3, 2, 2, 2])
     expect(within?.score).toBeCloseTo(1)
-    expect(off?.score).toBeCloseTo(0.75 + 0.25 * 0.75)
+    // 4 s off is 1.5 s past the tolerance: the duration score falls by 1.5 / 8.
+    expect(off?.score).toBeCloseTo(0.75 + 0.25 * (1 - 1.5 / 8))
     expect(far?.score).toBeCloseTo(0.75)
     expect(unknown?.score).toBeCloseTo(0.875)
     expect(off?.durationDiff).toBeCloseTo(4)
@@ -209,6 +212,39 @@ describe('matchRecord', () => {
     expect(matchRecord(query, leftOut)?.content).toBe(1)
   })
 
+  it('does not count LRC that only reads as plain as synced lyrics', () => {
+    const strayStamp = record({ id: 1, duration: 238.64, syncedLyrics: 'A\nB\n[00:03.00]C\nD' })
+    const synced = record({ id: 2, albumName: 'Singles', duration: 240 })
+    expect(matchRecord(query, strayStamp)?.content).toBe(2)
+    expect(bestMatch(query, [strayStamp, synced])?.record.id).toBe(2)
+    // Timestamps without words are no lyrics at all.
+    const empty = record({ plainLyrics: ' ', syncedLyrics: '[00:01.00]\n[00:02.00] ' })
+    expect(matchRecord(query, empty)).toBeNull()
+  })
+
+  it('reads credits with long runs of spaces in linear time', () => {
+    const spaces = ' '.repeat(50_000)
+    const started = Date.now()
+    const checked = toRecord({
+      id: 1,
+      trackName: `Radiohead${spaces}-${spaces}Creep`,
+      artistName: `Radiohead${spaces}&${spaces}Someone`,
+      plainLyrics: 'Line',
+    })
+    const unchecked = record({ artistName: `Radiohead${spaces}feat.${spaces}Someone` })
+    const matches = [checked, unchecked].map((each) => each && matchRecord(query, each))
+    // Linear work takes a few milliseconds; backtracking through the spaces takes seconds.
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(checked).toMatchObject({
+      trackName: 'Radiohead - Creep',
+      artistName: 'Radiohead & Someone',
+    })
+    expect(matches.map((match) => [match?.title, match?.artist])).toEqual([
+      [1, 1],
+      [1, 1],
+    ])
+  })
+
   it('recognizes the same album across editions', () => {
     const deluxe = record({ albumName: "Pablo Honey (Collector's Edition)" })
     expect(matchRecord(query, deluxe)?.sameAlbum).toBe(true)
@@ -221,11 +257,13 @@ describe('matchRecord', () => {
 })
 
 describe('syncedFits', () => {
-  it('needs the record duration within 2 s, unless the track duration is unknown', () => {
+  it('needs the record duration within 2.5 s, unless the track duration is unknown', () => {
+    // Creep lasts 238.64 s and is sent to /api/get as 239, which LRCLIB matches to 237-241 s.
     const query = creepQuery()
+    const fits = (duration: number) => syncedFits(query, record({ duration }))
+    expect([236.2, 237, 238.64, 241, 241.1].map(fits)).toEqual([true, true, true, true, true])
+    expect([236.1, 241.2, 250].map(fits)).toEqual([false, false, false])
     const { duration: _duration, ...noDuration } = record()
-    expect(syncedFits(query, record({ duration: 240.64 }))).toBe(true)
-    expect(syncedFits(query, record({ duration: 240.65 }))).toBe(false)
     expect(syncedFits(query, noDuration)).toBe(false)
     const { duration: _unknown, ...unknownQuery } = query
     expect(syncedFits(unknownQuery, noDuration)).toBe(true)

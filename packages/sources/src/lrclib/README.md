@@ -43,15 +43,17 @@ FXM is not registered with LRCLIB. Registering it as a client-side application w
 
    What the record holds decides the next step:
    - **Instrumental:** no lyrics (`null`).
-   - **Synced:** returned at once.
+   - **Synced:** returned at once. Every record `/api/get` returns for the track fits it in time (see **Sync** below).
    - **Plain only:** one search looks for synced lyrics of the same cut. If that finds none or fails, the plain lyrics are returned.
 2. **`GET /api/search?q=<main artist> <core title>`** when the exact lookup misses. The core title is the title without qualifiers or featured artists. Results are scored with the core text helpers (`match.ts`):
    - **Gates:** title similarity of at least 0.9 and artist similarity of at least 0.6, after `stripPresentationNoise`, removing the artist prefix and `splitTitle`. Both sides must have the same strong version tags (live, remix, acoustic and so on).
    - **Ranking:** synced lyrics that fit, then any lyrics, then the rest. Then the score `0.40·title + 0.35·artist + 0.25·duration` (the matching engine's weights), then the same album, then the closest duration, then LRCLIB's order.
-   - **Sync:** synced lyrics are used only when the record's duration is within 2 s of the track's, or the track's duration is unknown. Otherwise the record's text comes back as plain lyrics, because its times would run early or late. This is what a music video with an intro gets.
+   - **Sync:** synced lyrics are used only when the record's duration is within 2.5 s of the track's, or the track's duration is unknown. That is LRCLIB's own ±2 s plus the half second that rounding to whole seconds may add, so the records `/api/get` returns always fit. Otherwise the record's text comes back as plain lyrics, because its times would run early or late. This is what a music video with an intro gets.
 3. **`GET /api/get/<id>`**, only when a search result comes without its lyrics. Today search results carry the full record (checked 2026-10-25), so this step is a safeguard rather than a round trip on every miss.
 
 A track without a title or an artist gets `null` without a request.
+
+**Synced means synced.** LRC counts as synced only when `parseLrc` reads it as synced. Text whose untimed lines outnumber its timed ones is plain lyrics with stray timestamps. Plain lyrics keep every line, with any timestamps dropped, whichever field they came from.
 
 ## Untrusted records
 

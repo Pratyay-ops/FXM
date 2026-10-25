@@ -13,7 +13,7 @@ import {
   type Track,
 } from '@fxm/core'
 import { DEFAULT_LRCLIB_CLIENT, LRCLIB_ORIGIN, LrclibApi, type LrclibRecord } from './api'
-import { bestMatch, hasText, type LyricsQuery, queryFor, syncedFits } from './match'
+import { bestMatch, hasLines, hasText, type LyricsQuery, queryFor, syncedFits } from './match'
 
 /** The provider's ID, which is also the `source` of the lyrics it returns. */
 export const LRCLIB_PROVIDER_ID = 'lrclib'
@@ -50,30 +50,23 @@ function metadataOf(record: LrclibRecord): LyricsMetadata {
   return metadata
 }
 
-/** Whether lyrics have a line with text. */
-function hasLines(lyrics: Lyrics): boolean {
-  return lyrics.lines.some((line) => line.text.trim() !== '')
-}
-
 /**
- * The lyrics in `record`: synced when `synced` allows it and the record has usable LRC, else
- * plain (from `plainLyrics`, or from the LRC without its times). `null` for an instrumental
- * record or one without text.
+ * The lyrics in `record`: synced when `synced` allows it and the record has LRC that reads as
+ * synced, else plain: `plainLyrics`, or else the LRC, with every line kept and any timestamps
+ * dropped. `null` for an instrumental record or one without text.
  */
 export function lyricsOf(record: LrclibRecord, synced: boolean): Lyrics | null {
   if (record.instrumental) return null
   let lyrics: Lyrics | null = null
   if (synced && hasText(record.syncedLyrics)) {
+    // parseLrc reads LRC whose untimed text outnumbers its timed lines as plain.
     const parsed = parseLrc(record.syncedLyrics, LRCLIB_PROVIDER_ID)
     if (parsed.synced && hasLines(parsed)) lyrics = parsed
   }
   if (lyrics === null) {
     const text = hasText(record.plainLyrics) ? record.plainLyrics : (record.syncedLyrics ?? '')
-    const parsed = parseLrc(text, LRCLIB_PROVIDER_ID)
-    // Drop any timestamps: these lyrics are not known to keep time with the track.
-    lyrics = parsed.synced
-      ? parseLrc(parsed.lines.map((line) => line.text).join('\n'), LRCLIB_PROVIDER_ID)
-      : parsed
+    // These lyrics are not known to keep time with the track, so any timestamps go.
+    lyrics = parseLrc(text, LRCLIB_PROVIDER_ID, { plain: true })
   }
   if (!hasLines(lyrics)) return null
   return { ...lyrics, metadata: { ...lyrics.metadata, ...metadataOf(record) } }
@@ -90,7 +83,8 @@ async function syncedAlternative(
 ): Promise<Lyrics | null> {
   try {
     const best = bestMatch(query, await api.search(searchText(query), ctx))
-    return best?.content === 3 ? lyricsOf(best.record, true) : null
+    const lyrics = best?.content === 3 ? lyricsOf(best.record, true) : null
+    return lyrics?.synced ? lyrics : null
   } catch (error) {
     if (ctx.signal?.aborted) throw error
     return null
@@ -114,7 +108,7 @@ function searchText(query: LyricsQuery): string {
  *    recording first.
  * 2. On a miss, `GET /api/search?q=<main artist> <core title>`, whose results are scored on
  *    title, artist and duration with the core text helpers (see `match.ts`). Synced lyrics are only
- *    used when the record's duration is within 2 s of the track's; otherwise its text comes
+ *    used when the record's duration is within 2.5 s of the track's; otherwise its text comes
  *    back as plain lyrics, because the times would be off.
  * 3. `GET /api/get/<id>`, only when a search result comes without its lyrics. LRCLIB's search
  *    results carry them today (checked on 2026-10-25), so this is a fallback.

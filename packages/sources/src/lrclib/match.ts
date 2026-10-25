@@ -15,7 +15,9 @@
 
 import {
   extractVersionTags,
+  type Lyrics,
   normalizeText,
+  parseLrc,
   splitTitle,
   stripPresentationNoise,
   type Track,
@@ -24,10 +26,12 @@ import type { LrclibRecord } from './api'
 
 /**
  * Synced lyrics are only trusted when the record's duration is within this many seconds of the
- * track's, LRCLIB's own tolerance for `/api/get`. Further off, the record is another cut (an
- * edit, a video with an intro, a live take) and its timestamps would run early or late.
+ * track's. That is LRCLIB's own ±2 s for `/api/get`, plus the half second by which the whole
+ * seconds FXM sends there may be off, so every record `/api/get` returns for the track fits.
+ * Further off, the record is another cut (an edit, a video with an intro, a live take) and its
+ * timestamps would run early or late.
  */
-export const DURATION_TOLERANCE_S = 2
+export const DURATION_TOLERANCE_S = 2.5
 
 /** Below this title similarity a record is another song. */
 const MIN_TITLE = 0.9
@@ -60,8 +64,8 @@ export interface RecordMatch {
   record: LrclibRecord
   /**
    * What the record offers: 3 = synced lyrics that fit the track's duration, 2 = lyrics (plain,
-   * or synced for another cut), 1 = unknown (the response left the lyrics out), 0 = an
-   * instrumental record.
+   * synced for another cut, or LRC that only reads as plain), 1 = unknown (the response left the
+   * lyrics out), 0 = an instrumental record.
    */
   content: 0 | 1 | 2 | 3
   /** `0.40·title + 0.35·artist + 0.25·duration`, from 0 to 1. */
@@ -111,14 +115,23 @@ export function similarity(a: string, b: string): number {
   return (2 * shared) / (left.length - 1 + right.length - 1)
 }
 
+/**
+ * `text` with each run of whitespace folded into one space, and trimmed. Patterns that start with
+ * `\s*` or `\s+` backtrack through a long run of spaces from every position in it, so text from
+ * outside goes through this first.
+ */
+function foldSpaces(text: string): string {
+  return text.replace(/\s+/gu, ' ').trim()
+}
+
 /** An artist name without YouTube's channel suffixes: "RadioheadVEVO", "Radiohead - Topic". */
 export function cleanArtist(name: string): string {
-  const cleaned = name
-    .trim()
+  const folded = foldSpaces(name)
+  const cleaned = folded
     .replace(/\s+-\s+topic$/iu, '')
     .replace(/(?<=\S)\s*vevo$/iu, '')
     .trim()
-  return cleaned === '' ? name.trim() : cleaned
+  return cleaned === '' ? folded : cleaned
 }
 
 /** Separators between the names of an artist credit: "A, B & C", "A feat. B", "A x B". */
@@ -126,7 +139,8 @@ const ARTIST_SEPARATOR = /\s*(?:[,;/&×、]|\s(?:and|x|feat\.?|ft\.?|featuring|w
 
 /** The {@link comparable} names in an artist credit: the whole credit, then each name in it. */
 function namesIn(credit: string): string[] {
-  const names = [credit, ...credit.split(ARTIST_SEPARATOR)].map(comparable)
+  const folded = foldSpaces(credit)
+  const names = [folded, ...folded.split(ARTIST_SEPARATOR)].map(comparable)
   return [...new Set(names)].filter((name) => name !== '')
 }
 
@@ -187,6 +201,26 @@ export function hasText(value: string | null | undefined): value is string {
   return typeof value === 'string' && value.trim() !== ''
 }
 
+/** Whether lyrics have a line with text. */
+export function hasLines(lyrics: Lyrics): boolean {
+  return lyrics.lines.some((line) => line.text.trim() !== '')
+}
+
+/**
+ * Whether LRC text gives synced lyrics with words in them: not timestamps without text, and not
+ * plain text with a few stray timestamps, which `parseLrc` reads as plain.
+ */
+export function hasSyncedLines(lrc: string | null | undefined): boolean {
+  if (!hasText(lrc)) return false
+  const lyrics = parseLrc(lrc)
+  return lyrics.synced && hasLines(lyrics)
+}
+
+/** Whether lyrics, plain or LRC, have a line of words once any timestamps are dropped. */
+function hasWords(text: string | null | undefined): boolean {
+  return hasText(text) && hasLines(parseLrc(text, 'lrc', { plain: true }))
+}
+
 /**
  * Whether a record's synced lyrics can be trusted to keep time with the track: its duration is
  * within {@link DURATION_TOLERANCE_S} of the track's, or the track's duration is unknown (then
@@ -210,8 +244,8 @@ function sameAlbum(album: string, other: string | undefined): boolean {
 /** What a record offers for the query, or `null` when it holds nothing at all. */
 function contentOf(query: LyricsQuery, record: LrclibRecord): RecordMatch['content'] | null {
   if (record.instrumental) return 0
-  if (hasText(record.syncedLyrics) && syncedFits(query, record)) return 3
-  if (hasText(record.syncedLyrics) || hasText(record.plainLyrics)) return 2
+  if (syncedFits(query, record) && hasSyncedLines(record.syncedLyrics)) return 3
+  if (hasWords(record.syncedLyrics) || hasWords(record.plainLyrics)) return 2
   if (record.syncedLyrics === undefined && record.plainLyrics === undefined) return 1
   return null
 }
