@@ -9,7 +9,7 @@ RUN := scripts/run.sh
 
 .DEFAULT_GOAL := help
 .PHONY: help setup install doctor py-setup gh-setup dev lint format typecheck test coverage build check \
-	wt-new wt-list wt-remove clean nuke
+	ci-setup ci wt-new wt-list wt-remove clean nuke
 
 help: ## List available commands
 	@echo "FXM commands (docs/DEVELOPMENT.md has the details):"
@@ -56,6 +56,11 @@ build: ## Build every app
 	@$(RUN) pnpm run build
 
 check: lint typecheck test build ## Everything a stage must pass before merging
+
+ci-setup: ## CI only: setup with a frozen lockfile
+	@scripts/setup.sh --frozen-lockfile
+
+ci: ci-setup check ## What CI runs: frozen setup, then check
 
 # --- Worktrees (one per plan stage, see docs/WORKFLOW.md) ----------------------
 
