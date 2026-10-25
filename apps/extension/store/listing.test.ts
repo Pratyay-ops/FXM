@@ -8,6 +8,7 @@ import {
   AMO_LICENSE,
   AMO_SUMMARY_MAX,
   amoMetadata,
+  EDGE_DATA_USAGE,
   EDGE_DESCRIPTION_MAX,
   EDGE_DESCRIPTION_MIN,
   EDGE_SEARCH_TERMS,
@@ -41,9 +42,9 @@ describe('AMO summary', () => {
     expect(summary).not.toContain('\n')
   })
 
-  it('says what the extension is for and that it collects nothing', () => {
+  it('says what the extension is for, and that it has no analytics and no remote code', () => {
     expect(summary).toContain('FXM')
-    expect(summary).toContain('Collects no data and runs no remote code')
+    expect(summary).toContain('No analytics, no tracking and no remote code')
   })
 })
 
@@ -66,6 +67,28 @@ describe('store description', () => {
     expect(description).toContain('https://fxmusic.pages.dev')
   })
 
+  it('limits the cookie claim to the rules, since the opt-in bridge does use the login', () => {
+    expect(description).toContain(
+      'these rules never make the web app act as your logged-in account. Only the optional ' +
+        'Spotify login bridge below does that, and only after you turn it on.',
+    )
+    expect(description).not.toContain('so the web app never acts as your logged-in account')
+  })
+
+  it('names the server-time request that FXM Connect makes on its own, without any setting', () => {
+    expect(description).toContain(
+      "FXM Connect itself also fetches Spotify's public server time " +
+        '(open.spotify.com/api/server-time, without cookies)',
+    )
+  })
+
+  it('marks radio and the Last.fm recommendations as coming in a later version', () => {
+    const texts = [...description.split('\n'), ...Object.values(PERMISSION_JUSTIFICATIONS)]
+    const mentions = texts.filter((line) => /radio/i.test(line))
+    expect(mentions.length).toBeGreaterThan(0)
+    for (const line of mentions) expect(line).toContain('in a later FXM version')
+  })
+
   it("describes the opt-in Spotify bridge, Spotify's terms and the account link plainly", () => {
     expect(description).toContain('Spotify login bridge (optional, off by default)')
     expect(description).toContain('Use my Spotify login from this browser')
@@ -73,6 +96,18 @@ describe('store description', () => {
     expect(description).toContain("Spotify's terms don't permit")
     expect(description).toContain('Spotify knows that the web app')
     expect(description).toContain('private windows and container tabs')
+    expect(description).toContain("asks for Firefox's consent to share authentication information")
+  })
+
+  it("says that the bridge's token is the only personal data FXM Connect handles", () => {
+    expect(description).toContain(
+      'Nothing goes to FXM: no analytics, no telemetry and no FXM servers.',
+    )
+    expect(description).toContain(
+      'The only personal data FXM Connect handles is your Spotify token, and only with the login ' +
+        'bridge on',
+    )
+    expect(description).not.toMatch(/no data collection/i)
   })
 
   it('matches the code it describes', () => {
@@ -136,10 +171,40 @@ describe('notes for reviewers', () => {
     expect(notes).toContain('apps/extension/dist/firefox/')
   })
 
-  it('explain the data collection declaration and the bridge', () => {
-    expect(notes).toContain('data_collection_permissions required: ["none"]')
+  it('explain the data collection declaration and the bridge, as the manifest declares it', () => {
+    expect(notes).toContain(
+      'data_collection_permissions with required: ["none"] and optional: ["authenticationInfo"]',
+    )
+    const manifest = buildManifest({ browser: 'firefox', version: '1.0.0', dev: false })
+    expect(manifest.browser_specific_settings?.gecko.data_collection_permissions).toEqual({
+      required: ['none'],
+      optional: ['authenticationInfo'],
+    })
     expect(notes).toContain("credentials: 'include'")
     expect(notes).toContain('off by default')
+    expect(notes).toContain('requests the optional data collection permission authenticationInfo')
+    expect(EDGE_DATA_USAGE).toContain('Tick "Authentication information" and no other data type')
+  })
+
+  it('give the server-time relay its own item, as always on, apart from the opt-in bridge', () => {
+    expect(notes).toContain(
+      '3. Always on, without cookies: when the FXM page asks, the background relays GET ' +
+        'https://open.spotify.com/api/server-time',
+    )
+    expect(notes).toMatch(/^4\. An optional Spotify login bridge, off by default/m)
+    expect(EDGE_SINGLE_PURPOSE).toContain("relays Spotify's public server time without cookies")
+  })
+
+  it("say that the web app doesn't use the login bridge yet", () => {
+    expect(notes).toContain(
+      'comes in a later FXM release: until then, turning the toggle on changes nothing visible',
+    )
+  })
+
+  it("test the extension with a check that the no-install mode can't pass", () => {
+    expect(notes).toContain('Access-Control-Allow-Origin: https://fxmusic.pages.dev')
+    expect(notes).toContain('Spotify is unreachable')
+    expect(notes).not.toMatch(/succeed only with the extension/)
   })
 })
 

@@ -54,8 +54,9 @@ export const EDGE_SEARCH_TERMS = [
 export const EDGE_SINGLE_PURPOSE =
   'FXM Connect lets the FXM web app at https://fxmusic.pages.dev reach the music services it ' +
   "plays from (YouTube, YouTube Music, Spotify and Last.fm) from the user's own browser. Fixed " +
-  "rules adjust the CORS headers of the web app's own requests to those services, and an " +
-  "optional bridge, off by default, gets a Spotify token for the user's own Spotify login."
+  "rules adjust the CORS headers of the web app's own requests to those services. FXM Connect " +
+  "also relays Spotify's public server time without cookies, and an optional bridge, off by " +
+  "default, gets a Spotify token for the user's own Spotify login."
 
 /** Why FXM Connect needs each permission and host permission of its manifest. */
 export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
@@ -66,8 +67,9 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     "https://fxmusic.pages.dev. FXM Connect has no webRequest permission, so it can't see " +
     'any other traffic.',
   storage:
-    "Keeps the Spotify login bridge's rate-limit counter in storage.session, which lives in " +
-    'memory and is cleared when the browser closes.',
+    "Keeps the rate-limit counter of the background's two Spotify requests (the public server " +
+    'time and the optional login token) in storage.session, which lives in memory and is ' +
+    'cleared when the browser closes.',
   'https://fxmusic.pages.dev/*':
     'Runs the presence content script on the FXM web app, and lets the header rules apply to ' +
     "the requests the web app starts: browsers change a request's headers only when the " +
@@ -76,8 +78,9 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     "YouTube's API (search, video details): the rules set YouTube's Origin and add CORS " +
     'headers, so the FXM web app can read the answers.',
   'https://music.youtube.com/*':
-    "YouTube Music's API (search, song details, radio): the rules set YouTube Music's Origin " +
-    'and add CORS headers, so the FXM web app can read the answers.',
+    "YouTube Music's API (search and song details, and radio in a later FXM version): the " +
+    "rules set YouTube Music's Origin and add CORS headers, so the FXM web app can read the " +
+    'answers.',
   'https://youtubei.googleapis.com/*':
     "The same YouTube API on Google's API host: the rules set a YouTube Origin and add CORS " +
     'headers.',
@@ -86,24 +89,33 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     'audio it plays.',
   'https://open.spotify.com/*':
     "Spotify's web-player token and server time: the rules set Spotify's Origin on these two " +
-    'endpoints only, and the optional login bridge requests the token from there.',
+    'endpoints only. The background relays the public server time, without cookies, and the ' +
+    'optional login bridge requests the token from there.',
   'https://clienttoken.spotify.com/*':
     "Spotify's client-token endpoint: the rules set Spotify's Origin and add CORS headers.",
   'https://api-partner.spotify.com/*':
-    "Spotify's web-player API (search, details, radio): the rules add CORS headers, so the " +
-    'FXM web app can read the answers.',
+    "Spotify's web-player API (search and details, and radio in a later FXM version): the " +
+    'rules add CORS headers, so the FXM web app can read the answers.',
   'https://spclient.wg.spotify.com/*':
-    "Spotify's web-player API (radio, track details): the rules add CORS headers, so the FXM " +
-    'web app can read the answers.',
+    "Spotify's web-player API (track details, and radio in a later FXM version): the rules " +
+    'add CORS headers, so the FXM web app can read the answers.',
   'https://www.last.fm/*':
-    "Last.fm's radio stations: the rule adds CORS headers to the station JSON only.",
+    "Last.fm's radio stations, for recommendations in a later FXM version: the rule adds CORS " +
+    'headers to the station JSON only.',
 }
 
-/** Partner Center's data usage section: what to tick and why. */
+/**
+ * Partner Center's data usage section: what to tick and why. The login bridge hands the token
+ * of the user's Spotify login to the FXM page, and the Chrome Web Store's categories, which
+ * Edge's follow, count a login token as authentication information even though none of it
+ * reaches the developer. The Firefox manifest declares the same, as optional (src/manifest.ts).
+ */
 export const EDGE_DATA_USAGE =
-  'Tick none of the data types: FXM Connect collects nothing and sends nothing to the ' +
-  'developer. Its optional Spotify bridge passes a token from open.spotify.com to the FXM web ' +
-  'app in the same browser. Tick the certifications.'
+  'Tick "Authentication information" and no other data type. FXM Connect sends nothing to the ' +
+  'developer. Its optional Spotify login bridge, off by default, passes the access token of ' +
+  "the user's own Spotify login from open.spotify.com to the FXM web app in the same browser, " +
+  'which uses it only for its requests to Spotify; where Partner Center asks why, say that. ' +
+  'Tick the certifications.'
 
 const LISTING_DIR = new URL('listing/', import.meta.url)
 
