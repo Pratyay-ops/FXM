@@ -6,7 +6,7 @@ import { checkDeployment, probesFor, responseProblems } from './check-headers.ts
 import { serializeHeaders } from './headers-file.ts'
 import { createPagesServer, listen } from './pages-server.ts'
 import { generateRules } from './rules.ts'
-import { removeTempDirs, tempDir, writeFiles } from './testing.ts'
+import { removeTempDirs, sandboxDocument, tempDir, writeFiles } from './testing.ts'
 
 const servers: Server[] = []
 afterEach(async () => {
@@ -27,7 +27,7 @@ function composed(): string {
     'app/index.html': page('<script>theme()</script>'),
     'app/404.html': page('<script>theme()</script>'),
     'app/assets/a.js': '1',
-    'sandbox/innertube.html': page('<script>inner()</script>'),
+    'sandbox/innertube.html': sandboxDocument('innertube.html', 'inner()'),
   })
   writeFileSync(join(dir, '_headers'), serializeHeaders(generateRules(dir)))
   return dir
@@ -60,7 +60,26 @@ describe('probesFor', () => {
       ['/sandbox/innertube', 200, undefined],
       ['/sandbox/innertube.html', 308, '/sandbox/innertube'],
       ['/app/__fxm-route-check__/deep/link', 404, undefined],
+      // Each document, and the app's folder, with one character percent-encoded.
+      ['/%70rivacy', 200, undefined],
+      ['/privac%79', 200, undefined],
+      ['/%73andbox/innertube', 200, undefined],
+      ['/sandbo%78/innertube', 200, undefined],
+      ['/sandbox%2Finnertube', 200, undefined],
+      ['/sandbox/%69nnertube', 200, undefined],
+      ['/sandbox/innertub%65', 200, undefined],
+      ['/%61pp/', 200, undefined],
+      ['/ap%70/', 200, undefined],
+      ['/app%2F', 200, undefined],
     ])
+  })
+
+  it('expects the encoded-path rules on encoded paths', () => {
+    const probes = probesFor(composed())
+    const rule = (path: string) => probes.find((probe) => probe.path === path)?.rule.path
+    expect(rule('/%70rivacy')).toBe('/%*')
+    expect(rule('/privac%79')).toBe('/:name%*')
+    expect(rule('/sandbox/innertub%65')).toBe('/sandbox/:name%*')
   })
 })
 
@@ -91,6 +110,34 @@ describe('checkDeployment', () => {
     expect(
       problems.some((problem) => problem.startsWith('/favicon.svg: content-security-policy is')),
     ).toBe(true)
+  })
+
+  it('catches a host that serves encoded paths without the encoded-path rules', async () => {
+    const dir = composed()
+    const deployed = tempDir()
+    cpSync(dir, deployed, { recursive: true })
+    const headers = readFileSync(join(dir, '_headers'), 'utf8')
+    // What Pages did before make dist wrote these rules: the file, with Cloudflare's defaults.
+    const withoutEncoded = headers.replace(/\n\/(sandbox\/)?(:name)?%\*\n( {2}.*\n)+/g, '\n')
+    expect(withoutEncoded).not.toContain('%*')
+    writeFileSync(join(deployed, '_headers'), withoutEncoded)
+    const problems = await checkDeployment(
+      await serve(deployed),
+      probesFor(dir).filter(
+        (probe) =>
+          ['/priv%61cy', '/sandbox/innertub%65'].includes(probe.path) ||
+          probe.path === '/privac%79',
+      ),
+    )
+    expect(problems).toContain(
+      '/privac%79: 0 content-security-policy headers, expected exactly one',
+    )
+    expect(problems).toContain(
+      '/sandbox/innertub%65: 0 content-security-policy headers, expected exactly one',
+    )
+    expect(problems).toContain(
+      '/sandbox/innertub%65: referrer-policy is\n      strict-origin-when-cross-origin\n    expected\n      no-referrer',
+    )
   })
 
   it('reports a host it cannot reach, after retrying', async () => {
@@ -127,8 +174,8 @@ describe('responseProblems', () => {
     ) as [string, string][]
     const fake = { ...probe, rule: { ...probe.rule, headers: new Map(loose) } }
     expect(responseProblems(fake, { status: 200, headers: loose }, base)).toEqual([
-      '/sandbox/innertube: a sandbox document without "sandbox allow-scripts"',
-      "/sandbox/innertube: 'unsafe-eval' outside the evaluator document",
+      "/sandbox/innertube: Content-Security-Policy: 'unsafe-eval' outside the evaluator document",
+      '/sandbox/innertube: Content-Security-Policy: a sandbox document without "sandbox allow-scripts"',
     ])
   })
 

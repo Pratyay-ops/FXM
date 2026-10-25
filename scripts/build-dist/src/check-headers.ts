@@ -3,8 +3,10 @@
  * folder serves and confirms that each response carries exactly one Content-Security-Policy,
  * the one `_headers` gives that path, plus `Referrer-Policy: no-referrer` and
  * `X-Content-Type-Options: nosniff`, each exactly once. It reads the raw header lines, so a
- * policy Cloudflare joined from two rules shows up as an error. (That googlevideo requests carry
- * no Referer is checked in a browser, by e2e/deployed.e2e.ts.)
+ * policy Cloudflare joined from two rules shows up as an error. It also fetches each document
+ * at a path with one character percent-encoded, which Pages serves like the path itself, and
+ * expects the encoded-path rules' headers there. (That googlevideo requests carry no Referer is
+ * checked in a browser, by e2e/deployed.e2e.ts.)
  *
  *   node check-headers.ts <base URL> [folder]     (default folder: dist/pages)
  */
@@ -12,10 +14,16 @@ import { readFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { join, resolve } from 'node:path'
-import { parsePolicy } from './csp.ts'
 import { matchingRules, type ParsedRule, parseHeaders } from './headers-file.ts'
 import { isMain, PAGES_DIR } from './paths.ts'
-import { listFiles, SPA_PROBE_SEGMENT, servedPaths } from './rules.ts'
+import { policyProblems } from './policies.ts'
+import {
+  encodedVariants,
+  inSplatFolder,
+  listFiles,
+  SPA_PROBE_SEGMENT,
+  servedPaths,
+} from './rules.ts'
 
 export interface Probe {
   readonly path: string
@@ -42,6 +50,22 @@ export function probesFor(dir: string): Probe[] {
     if (fileSet.has(`${folder}/index.html`))
       wanted.push({ path: `/${folder}/${SPA_PROBE_SEGMENT}`, status: 404 })
   }
+  // Pages decodes a path to find its file: every document with rules of its own, and each
+  // splat folder (its name only, since its rule covers the rest), with one character encoded.
+  const encoded = new Set<string>()
+  for (const file of files.filter((name) => !inSplatFolder(name) && name.endsWith('.html'))) {
+    for (const path of encodedVariants(servedPaths(file, fileSet)[0] as string)) encoded.add(path)
+  }
+  const splatFolders = new Set(files.filter(inSplatFolder).map((file) => file.split('/')[0]))
+  for (const folder of [...splatFolders].sort()) {
+    const file = fileSet.has(`${folder}/index.html`)
+      ? `${folder}/index.html`
+      : (files.find((name) => name.startsWith(`${folder}/`)) as string)
+    for (const path of encodedVariants(servedPaths(file, fileSet)[0] as string, 1)) {
+      encoded.add(path)
+    }
+  }
+  for (const path of encoded) wanted.push({ path, status: 200 })
   return wanted.map((probe) => {
     const matches = matchingRules(rules, probe.path)
     if (matches.length !== 1)
@@ -103,18 +127,8 @@ export function responseProblems(probe: Probe, response: RawResponse, base: URL)
   }
   const policies = values('content-security-policy')
   if (policies.length === 1) {
-    try {
-      const directives = parsePolicy(policies[0] as string)
-      const isSandbox = probe.path.startsWith('/sandbox/')
-      if (isSandbox && (directives.get('sandbox') ?? []).join(' ') !== 'allow-scripts') {
-        say('a sandbox document without "sandbox allow-scripts"')
-      }
-      const evaluator = probe.path === '/sandbox/eval' || probe.path === '/sandbox/eval.html'
-      if (!evaluator && (directives.get('script-src') ?? []).includes("'unsafe-eval'")) {
-        say("'unsafe-eval' outside the evaluator document")
-      }
-    } catch (error) {
-      say(`Content-Security-Policy: ${(error as Error).message}`)
+    for (const problem of policyProblems(probe.rule.path, policies[0] as string)) {
+      say(`Content-Security-Policy: ${problem}`)
     }
   }
   return problems

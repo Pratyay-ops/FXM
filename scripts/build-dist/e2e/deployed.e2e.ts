@@ -4,13 +4,15 @@
  *
  * - The pages and the app start under their policies, with no violation reported.
  * - googlevideo requests from the app (and the embed, once 5.2 ships it) carry no Referer.
- * - The sandbox documents (1.10) are opaque however they are loaded, reach only their hosts,
- *   and ignore a page on another origin that frames them without the sandbox attribute.
+ * - The sandbox documents (1.10) are opaque wherever FXM serves them, their own paths and
+ *   percent-encoded ones alike; they reach only their hosts, and ignore a page on another
+ *   origin that frames them without the sandbox attribute.
  *
- * Requests to googlevideo, YouTube and the stand-in third-party site are answered by the test
+ * Requests to googlevideo, YouTube and the stand-in third-party sites are answered by the test
  * itself, so nothing here contacts YouTube.
  */
-import { expect, type Page, type Request, test } from '@playwright/test'
+import { createServer } from 'node:http'
+import { expect, type Frame, type Page, type Request, test } from '@playwright/test'
 
 /** Collects the Content-Security-Policy violations a page reports. */
 async function watchViolations(page: Page): Promise<() => Promise<string[]>> {
@@ -77,33 +79,110 @@ for (const path of ['/app/', '/embed/']) {
   })
 }
 
+/**
+ * The attribute 1.10's documents set on their `<html>` once their script listens for the page
+ * (SANDBOX_MARKER_ATTRIBUTE in packages/platform/src/sandbox). It tells a document that ignores
+ * a message from one whose script never ran. 1.10's integration keeps the two in sync.
+ */
+const SANDBOX_MARKER = 'data-fxm-sandbox'
+
+/** The InnerTube hosts innertube.html may reach, each answered by the test. */
+const INNERTUBE_HOSTS = [
+  'https://www.youtube.com',
+  'https://music.youtube.com',
+  'https://youtubei.googleapis.com',
+]
+
+/**
+ * Opens a page on another origin that frames `path` without the sandbox attribute, and returns
+ * the frame and a function that closes what it started.
+ *
+ * Against a deployment, the page is a made-up public site the test answers itself. Locally it
+ * must be a real server: Chrome treats a page the test answers as public, and blocks a public
+ * page from framing a local address (it shows its error page instead). So a server on the next
+ * free port above the preview's (5801 and up, one per test worker) serves it as `localhost`,
+ * another origin than `127.0.0.1`.
+ */
+async function frameFromElsewhere(
+  page: Page,
+  baseURL: string,
+  path: string,
+): Promise<{ frame: Frame; close: () => Promise<void> }> {
+  const base = new URL(baseURL)
+  const html = `<!doctype html><title>elsewhere</title><iframe src="${new URL(path, base)}"></iframe>`
+  let close = async () => {}
+  let other = `${base.protocol}//fxm-check.example/`
+  if (['127.0.0.1', 'localhost'].includes(base.hostname)) {
+    const port = Number(base.port) + 1 + test.info().parallelIndex
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(html)
+    })
+    await new Promise<void>((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(port, '127.0.0.1', resolve)
+    })
+    close = () => new Promise((resolve) => server.close(() => resolve()))
+    other = `http://${base.hostname === 'localhost' ? '127.0.0.1' : 'localhost'}:${port}/`
+  } else {
+    await page.route(other, (route) => route.fulfill({ contentType: 'text/html', body: html }))
+  }
+  await page.goto(other)
+  const frame = page.frames().find((candidate) => candidate !== page.mainFrame())
+  if (!frame) throw new Error('the page has no frame')
+  await frame.waitForLoadState()
+  return { frame, close }
+}
+
+/** Posts messages to the page's frame and returns whatever comes back within 1.5 s. */
+async function repliesTo(page: Page, messages: readonly unknown[]): Promise<unknown[]> {
+  return page.evaluate(async (messages) => {
+    const target = document.querySelector('iframe')?.contentWindow
+    const received: unknown[] = []
+    addEventListener('message', (event) => received.push(event.data))
+    for (const message of messages) target?.postMessage(message, '*')
+    await new Promise((wait) => setTimeout(wait, 1500))
+    return received
+  }, messages)
+}
+
 test.describe('sandbox documents', () => {
-  test('innertube.html is opaque and reaches only its three hosts', async ({ page }) => {
+  test('innertube.html is opaque and only its policy keeps it to its three hosts', async ({
+    page,
+  }) => {
     test.skip(
       !(await deployed(page, '/sandbox/innertube')),
       'no sandbox documents deployed yet (1.10)',
     )
-    await page.route('https://www.youtube.com/**', (route) =>
-      route.fulfill({
-        status: 200,
-        headers: { 'access-control-allow-origin': 'null' },
-        body: '{}',
-      }),
-    )
+    // Every host answers, the disallowed one too, so only connect-src can stop a request.
+    const answer = { status: 200, headers: { 'access-control-allow-origin': '*' }, body: '{}' }
+    for (const host of [...INNERTUBE_HOSTS, 'https://example.com']) {
+      await page.route(`${host}/**`, (route) => route.fulfill(answer))
+    }
     await page.goto('/sandbox/innertube.html')
-    const result = await page.evaluate(async () => {
+    const result = await page.evaluate(async (hosts) => {
+      const violations: string[] = []
+      document.addEventListener('securitypolicyviolation', (event) => {
+        violations.push(`${event.effectiveDirective} ${event.blockedURI}`)
+      })
       const attempt = (url: string) =>
         fetch(url, { method: 'POST', body: '{}', credentials: 'omit' }).then(
           () => 'reached',
           () => 'blocked',
         )
-      return {
-        origin: self.origin,
-        youtube: await attempt('https://www.youtube.com/youtubei/v1/search?prettyPrint=false'),
-        elsewhere: await attempt('https://example.com/'),
-      }
+      const reached: Record<string, string> = {}
+      for (const host of hosts) reached[host] = await attempt(`${host}/youtubei/v1/search`)
+      const elsewhere = await attempt('https://example.com/')
+      await new Promise((wait) => setTimeout(wait, 100))
+      return { origin: self.origin, reached, elsewhere, violations }
+    }, INNERTUBE_HOSTS)
+    expect(result).toMatchObject({
+      origin: 'null',
+      reached: Object.fromEntries(INNERTUBE_HOSTS.map((host) => [host, 'reached'])),
+      elsewhere: 'blocked',
     })
-    expect(result).toEqual({ origin: 'null', youtube: 'reached', elsewhere: 'blocked' })
+    // One report from the header's policy, and one from the meta element's copy of it.
+    expect(result.violations.length).toBeGreaterThan(0)
+    expect(new Set(result.violations)).toEqual(new Set(['connect-src https://example.com/']))
   })
 
   for (const name of ['innertube', 'userhost']) {
@@ -115,35 +194,55 @@ test.describe('sandbox documents', () => {
         !(await deployed(page, `/sandbox/${name}`)),
         'no sandbox documents deployed yet (1.10)',
       )
-      const base = new URL(baseURL as string)
-      // Another origin, on the same scheme so the frame isn't blocked as mixed content.
-      const other = `${base.protocol}//fxm-check.example/`
-      await page.route(other, (route) =>
-        route.fulfill({
-          contentType: 'text/html',
-          body: `<!doctype html><iframe src="${new URL(`/sandbox/${name}.html`, base)}"></iframe>`,
-        }),
+      const { frame, close } = await frameFromElsewhere(
+        page,
+        baseURL as string,
+        `/sandbox/${name}.html`,
       )
-      await page.goto(other)
-      const frame = page.frames().find((candidate) => candidate !== page.mainFrame())
-      expect(frame).toBeDefined()
-      await frame?.waitForLoadState()
-      expect(await frame?.evaluate(() => self.origin)).toBe('null')
-      // TODO(1.10 integration): post the transport's real request messages here.
-      const replies = await page.evaluate(async () => {
-        const target = document.querySelector('iframe')?.contentWindow
-        const received: unknown[] = []
-        addEventListener('message', (event) => received.push(event.data))
-        for (const message of [
+      try {
+        // The document itself, after Pages' redirect to the extension-less path, not an error page.
+        expect(frame.url()).toBe(new URL(`/sandbox/${name}`, baseURL).href)
+        expect(await frame.evaluate(() => self.origin)).toBe('null')
+        expect(
+          await frame.evaluate(
+            (marker) => document.documentElement.hasAttribute(marker),
+            SANDBOX_MARKER,
+          ),
+          'the document script ran',
+        ).toBe(true)
+        // TODO(1.10 integration): post the transport's real request messages here.
+        const replies = await repliesTo(page, [
           { type: 'ping' },
           { id: 1, method: 'POST', url: 'https://www.youtube.com/' },
-        ]) {
-          target?.postMessage(message, '*')
-        }
-        await new Promise((wait) => setTimeout(wait, 1500))
-        return received
-      })
-      expect(replies).toEqual([])
+        ])
+        expect(replies).toEqual([])
+      } finally {
+        await close()
+      }
+    })
+  }
+
+  // Pages serves innertube.html at these paths but matches `_headers` against the path as
+  // sent, so the encoded-path rules (src/rules.ts) apply: an opaque origin, no scripts, and no
+  // framing at all (the header check confirms frame-ancestors). Browsers send them as written.
+  for (const path of ['/sandbox/innertub%65', '/sandbox%2Finnertube']) {
+    test(`a sandbox document at ${path} runs nothing`, async ({ page }) => {
+      test.skip(
+        !(await deployed(page, '/sandbox/innertube')),
+        'no sandbox documents deployed yet (1.10)',
+      )
+      const response = await page.goto(path)
+      expect(response?.status()).toBe(200)
+      expect(new URL(page.url()).pathname).toBe(path)
+      expect(await page.title()).toMatch(/\S/)
+      expect(await page.evaluate(() => self.origin)).toBe('null')
+      expect(
+        await page.evaluate(
+          (marker) => document.documentElement.hasAttribute(marker),
+          SANDBOX_MARKER,
+        ),
+        'the document script ran',
+      ).toBe(false)
     })
   }
 

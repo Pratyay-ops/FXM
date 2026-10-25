@@ -95,13 +95,56 @@ describe('rulesOverlap', () => {
     ['/*', '/app/*', true],
     ['/app/*', '/embed/*', false],
     ['/sandbox/innertube', '/sandbox/innertube.html', false],
+    // The encoded-path rules: `<folder>/%*` is a prefix, `<folder>/:name%*` its own shape.
+    ['/%*', '/privacy', false],
+    ['/:name%*', '/privacy', false],
+    ['/%*', '/app/*', false],
+    ['/:name%*', '/app/*', false],
+    ['/:name%*', '/.well-known/*', false],
+    ['/%*', '/sandbox/%*', false],
+    ['/:name%*', '/sandbox/:name%*', false],
+    ['/:name%*', '/sandbox/%*', false],
+    ['/%*', '/sandbox/:name%*', false],
+    ['/sandbox/:name%*', '/sandbox/innertube', false],
+    ['/sandbox/%*', '/sandbox/innertube.html', false],
+    ['/%*', '/%*', true],
+    ['/:name%*', '/:name%*', true],
+    // A first segment that starts with % and has another one later matches both.
+    ['/%*', '/:name%*', true],
+    ['/sandbox/%*', '/sandbox/:name%*', true],
+    ['/*', '/:name%*', true],
+    ['/sandbox/*', '/sandbox/:name%*', true],
+    ['/:name%*', '/sandbox/*', false],
   ])('%s and %s: %s', (a, b, overlap) => {
     expect(rulesOverlap(a, b)).toBe(overlap)
     expect(rulesOverlap(b, a)).toBe(overlap)
   })
 
+  it('agrees with the paths the rules match', () => {
+    const paths = [
+      '/%61%62',
+      '/a%62',
+      '/%61',
+      '/sandbox/x%79',
+      '/sandbox/%78',
+      '/sandbox/x',
+      '/s%61/x',
+    ]
+    const rules = ['/%*', '/:name%*', '/sandbox/%*', '/sandbox/:name%*', '/sandbox/*', '/sandbox/x']
+    for (const a of rules) {
+      for (const b of rules) {
+        const shared = paths.some((path) => ruleRegExp(a).test(path) && ruleRegExp(b).test(path))
+        // Every pair that shares one of these paths must be reported as overlapping.
+        if (shared) expect(rulesOverlap(a, b), `${a} ${b}`).toBe(true)
+      }
+    }
+  })
+
   it('refuses rule shapes FXM never writes', () => {
     expect(() => rulesOverlap('/blog/:slug', '/a')).toThrow(/placeholders/)
     expect(() => rulesOverlap('/a*', '/a')).toThrow(/splat/)
+    expect(() => rulesOverlap('/a%b/*', '/a')).toThrow(/splat/)
+    expect(() => rulesOverlap('/a%b', '/a')).toThrow(/can't contain %/)
+    expect(() => rulesOverlap('/:name%x*', '/a')).toThrow(/placeholders/)
   })
 })

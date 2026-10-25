@@ -144,26 +144,79 @@ export function matchingRules<Rule extends { readonly path: string }>(
 }
 
 /**
- * True when some path matches both rules. FXM's rules are exact paths or a prefix ending in
- * `/*`, which this decides exactly; anything else is refused.
+ * The shapes of rule path FXM writes, as the sets of paths they match:
+ *
+ * - `exact`: one path, such as `/privacy`;
+ * - `prefix`: every path that starts with `literal`. `/app/*` (literal `/app/`) is one, and so
+ *   is the encoded-path guard `<folder>/%*` (literal `<folder>/%`);
+ * - `encoded`: the other encoded-path guard, `<folder>/:name%*`: the folder, then a segment
+ *   with a `%` after its first character, then anything.
+ */
+type RuleShape =
+  | { readonly kind: 'exact'; readonly path: string }
+  | { readonly kind: 'prefix'; readonly path: string; readonly literal: string }
+  | { readonly kind: 'encoded'; readonly path: string; readonly folder: string }
+
+/** The shape of a rule path, or an error for one FXM never writes. */
+export function ruleShape(path: string): RuleShape {
+  const encoded = /^((?:\/[^/:*%]+)*\/):[A-Za-z]\w*%\*$/.exec(path)
+  if (encoded) return { kind: 'encoded', path, folder: encoded[1] as string }
+  if (path.includes(':')) throw new Error(`placeholders are not used by FXM: ${path}`)
+  const star = path.indexOf('*')
+  if (star === -1) {
+    if (path.includes('%')) throw new Error(`a rule path can't contain %: ${path}`)
+    return { kind: 'exact', path }
+  }
+  const literal = path.slice(0, -1)
+  if (star !== path.length - 1 || !/\/%?$/.test(literal) || literal.slice(0, -1).includes('%')) {
+    throw new Error(`a splat must be a whole last segment (prefix/* or prefix/%*): ${path}`)
+  }
+  return { kind: 'prefix', path, literal }
+}
+
+/**
+ * True when a path that starts with `start` and continues freely can still put a `%` after
+ * the first character of the segment that begins right after `folder` (start begins with it).
+ */
+function encodedSegmentPossible(start: string, folder: string): boolean {
+  const rest = start.slice(folder.length)
+  const slash = rest.indexOf('/')
+  // The segment isn't finished yet: whatever follows can supply a first character and a `%`.
+  if (slash === -1) return true
+  return rest.slice(0, slash).indexOf('%') > 0
+}
+
+/**
+ * True when some path matches both rules. FXM's rules are exact paths, prefixes ending in `/*`
+ * and the two encoded-path guards (`<folder>/%*` and `<folder>/:name%*`), which this decides
+ * exactly; anything else is refused.
  */
 export function rulesOverlap(a: string, b: string): boolean {
-  const shape = (path: string) => {
-    if (path.includes(':')) throw new Error(`placeholders are not used by FXM: ${path}`)
-    const star = path.indexOf('*')
-    if (star === -1) return { exact: path }
-    if (star !== path.length - 1 || !path.endsWith('/*')) {
-      throw new Error(`a splat must be a whole last segment (prefix/*): ${path}`)
-    }
-    return { prefix: path.slice(0, -1) }
+  const left = ruleShape(a)
+  const right = ruleShape(b)
+  if (left.kind === 'exact' && right.kind === 'exact') return left.path === right.path
+  if (left.kind === 'exact' || right.kind === 'exact') {
+    const [exact, other] = left.kind === 'exact' ? [left, right] : [right, left]
+    return ruleRegExp(other.path).test(exact.path)
   }
-  const left = shape(a)
-  const right = shape(b)
-  if (left.exact !== undefined && right.exact !== undefined) return left.exact === right.exact
-  if (left.prefix !== undefined && right.prefix !== undefined) {
-    return left.prefix.startsWith(right.prefix) || right.prefix.startsWith(left.prefix)
+  if (left.kind === 'prefix' && right.kind === 'prefix') {
+    return left.literal.startsWith(right.literal) || right.literal.startsWith(left.literal)
   }
-  const exact = (left.exact ?? right.exact) as string
-  const prefix = (left.prefix ?? right.prefix) as string
-  return exact.startsWith(prefix)
+  if (left.kind === 'encoded' && right.kind === 'encoded') {
+    if (left.folder === right.folder) return true
+    if (right.folder.startsWith(left.folder))
+      return encodedSegmentPossible(right.folder, left.folder)
+    if (left.folder.startsWith(right.folder))
+      return encodedSegmentPossible(left.folder, right.folder)
+    return false
+  }
+  // One encoded guard and one prefix.
+  const [encoded, prefix] = (left.kind === 'encoded' ? [left, right] : [right, left]) as [
+    { folder: string },
+    { literal: string },
+  ]
+  if (prefix.literal.startsWith(encoded.folder)) {
+    return encodedSegmentPossible(prefix.literal, encoded.folder)
+  }
+  return encoded.folder.startsWith(prefix.literal)
 }

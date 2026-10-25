@@ -44,6 +44,22 @@ describe('tokenize', () => {
   it('runs an unterminated raw-text element to the end of the document', () => {
     expect(tokenize('<style>a{}')[1]).toEqual({ type: 'text', text: 'a{}', raw: true })
   })
+
+  it('finds end tags after letters that lower-case to more characters, such as İ', () => {
+    // 'İ'.toLowerCase() is two UTF-16 units: indices into a lower-cased copy would drift.
+    expect(scanPage('<title>İstanbul</title><script>menu()</script>').inlineScripts).toEqual([
+      'menu()',
+    ])
+    const scan = scanPage('<p>İİ</p><style>h1{}</style><script>menu()</script>')
+    expect(scan.inlineStyles).toEqual(['h1{}'])
+    expect(scan.inlineScripts).toEqual(['menu()'])
+  })
+
+  it('matches end tags in any case, and only whole tag names', () => {
+    const tokens = tokenize('<SCRIPT>a("</scripty>")</ScRiPt\n><p>')
+    expect(tokens[1]).toEqual({ type: 'text', text: 'a("</scripty>")', raw: true })
+    expect(tokens[3]).toMatchObject({ type: 'start', name: 'p' })
+  })
 })
 
 describe('normalizeNewlines', () => {
@@ -74,11 +90,22 @@ describe('scanPage', () => {
       eventHandlers: ['button[onclick]'],
       javascriptUrls: ['a[href]'],
       referrerMetas: ['origin'],
+      metaPolicies: [],
     })
   })
 
   it('reads an empty inline script as empty', () => {
     expect(scanPage('<script></script>').inlineScripts).toEqual([''])
+  })
+
+  it('reads policies in meta elements, decoded, and whether they precede every script', () => {
+    const scan = scanPage(
+      `<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;"><script>a()</script><meta HTTP-EQUIV="content-security-policy" content="img-src 'self'">`,
+    )
+    expect(scan.metaPolicies).toEqual([
+      { content: "default-src 'none'", beforeScripts: true },
+      { content: "img-src 'self'", beforeScripts: false },
+    ])
   })
 })
 

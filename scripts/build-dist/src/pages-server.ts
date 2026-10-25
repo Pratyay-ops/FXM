@@ -7,6 +7,9 @@
  *   extension-less path, and `/app` to `/app/`.
  * - A path no file answers gets the nearest `404.html` with status 404 (a single-page app's
  *   copy of its index.html serves its client-side routes).
+ * - Files are looked up by the decoded path, so `/priv%61cy` serves `privacy.html`, but
+ *   `_headers` rules match the path as sent, still encoded (measured on a deployment
+ *   2026-10-26). Repeated slashes are merged before both, as Cloudflare's edge does.
  * - Every response gets Pages' defaults (`Access-Control-Allow-Origin: *`,
  *   `Referrer-Policy: strict-origin-when-cross-origin`, `X-Content-Type-Options: nosniff`),
  *   then the headers of every `_headers` rule matching the request path, redirects and 404s
@@ -103,14 +106,19 @@ export function createPagesServer(dir: string): Server {
   const headersFile = join(dir, '_headers')
   const rules = existsSync(headersFile) ? parseHeaders(readFileSync(headersFile, 'utf8')).rules : []
   return createServer((request, response) => {
-    const url = new URL(request.url ?? '/', 'http://localhost')
+    // Prefixed rather than resolved, so `//privacy` stays a path and doesn't become a host.
+    const target = request.url ?? '/'
+    const url = target.startsWith('/')
+      ? new URL(`http://localhost${target}`)
+      : new URL(target, 'http://localhost')
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       response.writeHead(405).end()
       return
     }
-    let pathname = url.pathname
+    const raw = url.pathname.replace(/\/{2,}/g, '/')
+    let pathname = raw
     try {
-      pathname = decodeURIComponent(pathname)
+      pathname = decodeURIComponent(raw)
     } catch {
       // Pages keeps the raw path when it can't be decoded.
     }
@@ -133,7 +141,7 @@ export function createPagesServer(dir: string): Server {
     } else {
       response.statusCode = 404
     }
-    applyHeaders(response, rules, url.pathname)
+    applyHeaders(response, rules, raw)
     if (response.statusCode === 404) response.setHeader('cache-control', 'no-store')
     if (resolution.kind === 'file' && request.method === 'GET')
       response.end(readFileSync(resolution.file))

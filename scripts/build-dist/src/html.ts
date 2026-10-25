@@ -170,20 +170,18 @@ function readStartTag(html: string, start: number): { token: StartTag; end: numb
   return { token: { type: 'start', name, attributes }, end: i }
 }
 
+/**
+ * The end tag that closes a raw-text element: `</name` in any case, followed by a space, `/`,
+ * `>` or the end of the document. Searched in the original string, because lower-casing it
+ * can change its length (`İ` becomes two characters) and so every index after it.
+ */
 function findEndTag(html: string, from: number, name: string): { contentEnd: number; end: number } {
-  const lower = html.toLowerCase()
-  let search = from
-  while (search < html.length) {
-    const at = lower.indexOf(`</${name}`, search)
-    if (at === -1) break
-    const after = html[at + 2 + name.length]
-    if (after === undefined || SPACE.test(after) || after === '/' || after === '>') {
-      const close = html.indexOf('>', at)
-      return { contentEnd: at, end: close === -1 ? html.length : close + 1 }
-    }
-    search = at + 1
-  }
-  return { contentEnd: html.length, end: html.length }
+  const endTag = new RegExp(`</${name}(?=[\\t\\n\\f\\r />]|$)`, 'gi')
+  endTag.lastIndex = from
+  const match = endTag.exec(html)
+  if (!match) return { contentEnd: html.length, end: html.length }
+  const close = html.indexOf('>', match.index)
+  return { contentEnd: match.index, end: close === -1 ? html.length : close + 1 }
 }
 
 /** What a page contains that its Content-Security-Policy has to account for. */
@@ -206,6 +204,11 @@ export interface PageScan {
   javascriptUrls: string[]
   /** `content` of every `<meta name="referrer">`, which would override Referrer-Policy. */
   referrerMetas: string[]
+  /**
+   * Every `<meta http-equiv="Content-Security-Policy">`, with whether it comes before the
+   * page's first script (a policy in a meta element governs only what follows it).
+   */
+  metaPolicies: { content: string; beforeScripts: boolean }[]
 }
 
 /** Scans a page for inline code and the scripts and styles it loads. */
@@ -220,8 +223,10 @@ export function scanPage(html: string): PageScan {
     eventHandlers: [],
     javascriptUrls: [],
     referrerMetas: [],
+    metaPolicies: [],
   }
   const tokens = tokenize(html)
+  let seenScript = false
   for (let index = 0; index < tokens.length; index++) {
     const token = tokens[index] as Token
     if (token.type !== 'start') continue
@@ -231,6 +236,7 @@ export function scanPage(html: string): PageScan {
       if (attribute.startsWith('on')) scan.eventHandlers.push(`${name}[${attribute}]`)
       if (/^\s*javascript:/i.test(value)) scan.javascriptUrls.push(`${name}[${attribute}]`)
     }
+    if (name === 'script') seenScript = true
     if (name === 'script' || name === 'style') {
       const content = tokens[index + 1]
       const text = content?.type === 'text' && content.raw ? content.text : ''
@@ -246,6 +252,14 @@ export function scanPage(html: string): PageScan {
       } else if (rel.includes('modulepreload')) scan.modulePreloadUrls.push(href)
     } else if (name === 'meta' && attributes.get('name')?.toLowerCase() === 'referrer') {
       scan.referrerMetas.push(attributes.get('content') ?? '')
+    } else if (
+      name === 'meta' &&
+      attributes.get('http-equiv')?.trim().toLowerCase() === 'content-security-policy'
+    ) {
+      scan.metaPolicies.push({
+        content: decodeEntities(attributes.get('content') ?? ''),
+        beforeScripts: !seenScript,
+      })
     }
   }
   return scan

@@ -5,9 +5,13 @@ import {
   APP_SCRIPT_EXTRAS,
   APP_SERVICES,
   appPolicy,
+  ENCODED_PATH_POLICY,
   isSandboxDocument,
+  policyProblems,
+  ruleFamily,
   SANDBOX_DOCUMENTS,
   STATIC_FILE_POLICY,
+  serviceProblems,
   sitePagePolicy,
 } from './policies.ts'
 import { isHostSource } from './privacy.ts'
@@ -88,13 +92,105 @@ describe('the web app policy', () => {
   })
 
   it('names only HTTPS hosts, each under the service the privacy page lists', () => {
+    expect(serviceProblems()).toEqual([])
     for (const service of APP_SERVICES) {
-      expect(service.privacyName).toMatch(/\S/)
       for (const host of [...(service.connect ?? []), ...(service.img ?? [])]) {
-        expect(host).toMatch(/^https:\/\/(\*\.)?[a-z0-9.-]+$/)
         expect(isHostSource(host)).toBe(true)
       }
     }
+  })
+
+  it('refuses a service with a host that is not plain HTTPS, at every build', () => {
+    expect(
+      serviceProblems([
+        { privacyName: 'Plain', connect: ['http://plain.example'] },
+        { privacyName: 'Wide', img: ['https:', 'https://*.example.com/path'] },
+        { privacyName: ' ', connect: ['https://ok.example'] },
+      ]),
+    ).toEqual([
+      'Plain: http://plain.example is not an HTTPS host such as https://example.com or https://*.example.com',
+      'Wide: https: is not an HTTPS host such as https://example.com or https://*.example.com',
+      'Wide: https://*.example.com/path is not an HTTPS host such as https://example.com or https://*.example.com',
+      'a service in APP_SERVICES has no name',
+    ])
+  })
+})
+
+describe('encoded paths', () => {
+  it('run nothing, load nothing and cannot be framed', () => {
+    expect(serializePolicy(ENCODED_PATH_POLICY)).toBe(
+      "sandbox; default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+    )
+  })
+})
+
+describe('policyProblems', () => {
+  it('knows what each rule path serves', () => {
+    expect(
+      [
+        '/app/*',
+        '/embed/*',
+        '/sandbox/innertube',
+        '/sandbox/userhost.html',
+        '/sandbox/eval',
+        '/%*',
+        '/sandbox/:name%*',
+        '/privacy',
+        '/_astro/*',
+      ].map(ruleFamily),
+    ).toEqual([
+      'app',
+      'embed',
+      'sandbox',
+      'sandbox',
+      'evaluator',
+      'encoded',
+      'encoded',
+      'site',
+      'site',
+    ])
+  })
+
+  it('accepts every policy make dist writes', () => {
+    const sandbox = Object.entries(SANDBOX_DOCUMENTS).map(
+      ([name, policy]) => [`/sandbox/${name.replace('.html', '')}`, policy([HASH])] as const,
+    )
+    for (const [path, policy] of [
+      ['/app/*', appPolicy([HASH])],
+      ['/embed/*', appPolicy([HASH], { embeddable: true })],
+      ['/privacy', STATIC_FILE_POLICY],
+      ['/%*', ENCODED_PATH_POLICY],
+      ...sandbox,
+    ] as const) {
+      expect(policyProblems(path, serializePolicy(policy)), path).toEqual([])
+    }
+  })
+
+  it('reports policies joined from two rules', () => {
+    expect(policyProblems('/privacy', "default-src 'none', default-src 'self'")).toEqual([
+      'more than one policy (the value contains a comma)',
+    ])
+  })
+
+  it("refuses 'unsafe-inline' scripts and framing of the app and the site", () => {
+    expect(
+      policyProblems('/app/*', "default-src 'self'; script-src 'self' 'unsafe-inline'"),
+    ).toEqual(["script-src allows 'unsafe-inline'", `no "frame-ancestors 'none'"`])
+    expect(policyProblems('/embed/*', "default-src 'self'; frame-ancestors 'none'")).toEqual([
+      'frame-ancestors, which would stop the embed or Lite inside other sites',
+    ])
+  })
+
+  it('refuses encoded paths that could run scripts or load anything', () => {
+    expect(
+      policyProblems(
+        '/:name%*',
+        "sandbox allow-scripts; default-src 'self'; frame-ancestors 'none'",
+      ),
+    ).toEqual([
+      'an encoded path without "sandbox" (with no allow- flags)',
+      `an encoded path without "default-src 'none'"`,
+    ])
   })
 })
 
