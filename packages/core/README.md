@@ -24,6 +24,7 @@ Everything is re-exported from `src/index.ts`, so import from `@fxm/core`.
 | `providers.ts` | `MetadataProvider` (search, an optional `suggest` and the entity pages), `RecommendationProvider`, the two-phase `AudioSource` (`match` returns ranked `AudioCandidate`s with confidence, evidence and, once computed, `MatchSignals`: ISRC verified, release, year, label and album match; `resolve` returns `StreamOption`s, each saying whether its URL delivers the whole file and whether it is audio or a muxed video), `LyricsProvider`, `AccountProvider`, and `ProviderContext` with the injected `Fetch`, `Platform` and `NetworkCapabilities` (how far YouTube and Spotify can be reached, see below). Types only. |
 | `text.ts` | Matching helpers: `normalizeText`, `splitTitle` (core, qualifiers, featured artists), `stripPresentationNoise` and `extractVersionTags` (strong, medium and soft version tags). |
 | `errors.ts` | `FxmError` with a `code` (`NotFound`, `RateLimited`, `AuthRequired`, `Unavailable`, `GeoBlocked`, `Expired`, `BotCheck`, `Unsupported`, `Network`, `Parse`), an optional `cause` and `retryAfterMs`, plus the `isFxmError` guard. |
+| `playback-policy/` | The playback policy (stage 2.3): `planPlayback` (the order of preference), `mayPlayMatch` (when a Suggest-band guess may play), `choosePlaybackStream` (the format choice), `planStreamRecovery` (probing and re-resolution after a failed stream), playability verdicts and playback problems, and `smartReplaceAction`. See [its README](src/playback-policy/README.md). |
 
 ### Canonical native IDs
 
