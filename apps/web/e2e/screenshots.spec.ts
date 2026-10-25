@@ -108,9 +108,18 @@ async function captureNowPlaying(page: Page, prefix: string) {
   await page.getByRole('heading', { name: 'Next up' }).waitFor()
   await scrollToPanels()
   await shoot('now-playing-queue')
+  await page.getByRole('button', { name: 'Move Winter Radio', exact: true }).click()
+  await page.getByRole('group', { name: 'Move Winter Radio' }).waitFor()
+  await shoot('now-playing-queue-move')
   await page.getByRole('button', { name: 'Review', exact: true }).click()
   await page.getByRole('dialog', { name: 'Review best guesses' }).waitFor()
   await shoot('now-playing-review')
+
+  // Nothing can play until stage 2.3: selecting a song shows why.
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: /^Play Slow Flare/ }).click()
+  await page.getByText('This song can’t play here', { exact: true }).waitFor()
+  await shoot('now-playing-problem')
 }
 
 for (const theme of THEMES) {
