@@ -11,12 +11,12 @@ FXM has no servers: all of this runs on the user's device. Providers only ever u
 ## Quick start
 
 ```ts
-import { createPlatform } from '@fxm/platform'
+import { createPlatform, createSandboxTransport } from '@fxm/platform'
 
 // Picks the environment, wires the transport, the budget, FXM Connect and the Lite tier,
 // and resolves after the first capability detection.
 const platform = await createPlatform({
-  sandbox, // the Lite tier's sandbox documents (stage 1.10); leave out for no Lite tier
+  sandbox: createSandboxTransport(), // the Lite tier's sandbox documents; leave out for no Lite tier
   killSwitches: () => remoteConfig.killSwitches, // { lite?: boolean }
 })
 
@@ -131,6 +131,8 @@ Detection follows the architecture's order: FXM Connect first, and the Lite self
 
 `src/lite.ts` holds the `SandboxTransport` contract that stage 1.10 implements with `/sandbox/innertube.html` and `/sandbox/userhost.html`: `selfTest()`, `innerTube(request)` for requests in the simple shape, and the optional `userHost(url, init)`. `createLiteTier({ sandbox, killSwitches, budget })` is the gate the transport and the capabilities share: `ready` is true while the self-test passed and the kill switch is off, so flipping the switch closes the route at once.
 
+`createSandboxTransport()` (`src/sandbox/`) is the implementation: it frames each document on first use, hidden and with `sandbox="allow-scripts"`, and talks to it over a private `MessagePort`. Both documents are generated from `src/sandbox/document.ts` into `apps/web/sandbox/`. How they stay opaque, what each sends, their errors and protocol, the browser tests, and the 2026-10-26 test record (Chromium 156 and Firefox 157 played a song to its end through the sandbox; Safari not tested) are in [src/sandbox/README.md](src/sandbox/README.md).
+
 ## Native transports
 
 Desktop and Android reach every host directly through a `NativeHttp` function: `(url, init) => Promise<Response>`, where `init.headers` is a plain object, the only place headers go (a webview drops forbidden headers set on a `Request` object). The native layer must send exactly those headers, treat `origin: ''` as "no `Origin` header" and keep no cookie jar shared with the webview. On top of it, `createNativeTransport` applies the routing, the budget and the header policy:
@@ -163,6 +165,7 @@ Tests that need a page create their own happy-dom `Window` at the FXM origin: in
 scripts/run.sh pnpm vitest run packages/platform                      # this package's tests
 scripts/run.sh pnpm vitest run --coverage --coverage.include='packages/platform/src/**' packages/platform
 scripts/run.sh pnpm --filter @fxm/platform typecheck
+scripts/run.sh pnpm --filter @fxm/platform test:e2e                 # the sandbox documents in Chromium and Firefox
 ```
 
 ## Layout
@@ -179,7 +182,8 @@ scripts/run.sh pnpm --filter @fxm/platform typecheck
 | `src/capabilities.ts` | Capability rules, detection and the monitor |
 | `src/clock.ts`, `src/storage.ts` | Injectable time and key-value storage |
 | `src/testing/` | The test helpers |
+| `src/sandbox/` | The Lite tier's sandbox documents and `createSandboxTransport` (stage 1.10, [its README](src/sandbox/README.md)) |
 
-`src/sandbox/` (stage 1.10), `src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
+`src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
 
 See [ARCHITECTURE.md §8](../../docs/ARCHITECTURE.md#8-platforms-and-network-transports).
