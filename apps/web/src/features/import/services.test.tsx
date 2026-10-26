@@ -4,9 +4,11 @@ import { renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it } from 'vitest'
 import {
+  connectAppImportServices,
   createImportServices,
   type ImportServiceParts,
   ImportServicesProvider,
+  loadAppImportServices,
   useImportServices,
 } from './services'
 import { fakeServices } from './testing'
@@ -75,5 +77,38 @@ describe('useImportServices', () => {
   it('creates nothing before an import asks for it', () => {
     const { result } = renderHook(() => useImportServices())
     expect(result.current.current).toBeUndefined()
+  })
+})
+
+describe("the app's import services", () => {
+  it('come from the composition root, and wait for it when asked first', async () => {
+    const { platform } = fakePlatform()
+    const services = createImportServices({ platform, youtube: YOUTUBE_IMPORT_UNAVAILABLE })
+    // The Import page may ask before the composition root (loaded beside the first render) has
+    // connected them.
+    const asked = loadAppImportServices()
+    let built = 0
+    const disconnect = connectAppImportServices(async () => {
+      built += 1
+      return services
+    })
+
+    await expect(asked).resolves.toBe(services)
+    await expect(loadAppImportServices()).resolves.toBe(services)
+    // Created once, and shared.
+    expect(built).toBe(1)
+    disconnect()
+  })
+
+  it('say why they can’t run, and are tried again the next time', async () => {
+    const { platform } = fakePlatform()
+    const disconnect = connectAppImportServices(() => Promise.reject(new Error('No platform')))
+    await expect(loadAppImportServices()).rejects.toThrow('No platform')
+
+    const services = createImportServices({ platform, youtube: YOUTUBE_IMPORT_UNAVAILABLE })
+    const next = connectAppImportServices(async () => services)
+    await expect(loadAppImportServices()).resolves.toBe(services)
+    disconnect()
+    next()
   })
 })

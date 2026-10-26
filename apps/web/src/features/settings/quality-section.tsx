@@ -7,19 +7,22 @@ import {
   streamingProfile,
 } from '@fxm/core'
 import { type ReactNode, useId, useMemo } from 'react'
+import { RELEASED } from '../connect/config'
 import {
   type AudioReach,
+  CONVERSIONS_COMING,
   connectionHelp,
   connectionOptions,
   DATA_SAVER_HELP,
   DATA_SAVER_OVERRIDES,
-  DOWNLOAD_FORMAT_OPTIONS,
   downloadFormatHelp,
+  effectiveDownloadFormat,
   IN_USE,
   MOBILE_DATA_HINT,
   MP3_BITRATE_HELP,
   MP3_BITRATE_OPTIONS,
   type Mp3BitrateValue,
+  offeredDownloadFormats,
   QUALITY_TO_USE,
   shownConnection,
   TIER_OPTIONS,
@@ -182,8 +185,15 @@ function DataSaverRow() {
   )
 }
 
-function DownloadFormatRow({ capabilities }: { capabilities: NetworkCapabilities }) {
-  const format = useQualityStore((state) => state.prefs.download.format)
+function DownloadFormatRow({
+  capabilities,
+  conversions,
+}: {
+  capabilities: NetworkCapabilities
+  conversions: boolean
+}) {
+  const stored = useQualityStore((state) => state.prefs.download.format)
+  const format = effectiveDownloadFormat(stored, conversions)
   const setDownloadFormat = useQualityStore((state) => state.setDownloadFormat)
   const labelId = useId()
   const helpId = useId()
@@ -196,6 +206,7 @@ function DownloadFormatRow({ capabilities }: { capabilities: NetworkCapabilities
           {downloadFormatHelp(format, capabilities).map((line) => (
             <p key={line}>{line}</p>
           ))}
+          {!conversions && <p>{CONVERSIONS_COMING}</p>}
         </LiveHelp>
       }
     >
@@ -203,7 +214,7 @@ function DownloadFormatRow({ capabilities }: { capabilities: NetworkCapabilities
         labelledBy={labelId}
         describedBy={helpId}
         value={format}
-        options={DOWNLOAD_FORMAT_OPTIONS}
+        options={offeredDownloadFormats(conversions)}
         onChange={setDownloadFormat}
         className="w-full md:w-auto"
       />
@@ -246,8 +257,16 @@ function Mp3BitrateRow() {
  * platform reaches) and the YouTube codecs this browser plays. The stream lifecycle and the
  * download manager read the settings from `useQualityStore`.
  */
-export function QualitySection({ capabilities }: { capabilities: NetworkCapabilities }) {
-  const format = useQualityStore((state) => state.prefs.download.format)
+export function QualitySection({
+  capabilities,
+  conversions = RELEASED.conversions,
+}: {
+  capabilities: NetworkCapabilities
+  /** Whether downloads convert (stage 4.2). Default: `RELEASED.conversions`. */
+  conversions?: boolean
+}) {
+  const stored = useQualityStore((state) => state.prefs.download.format)
+  const format = effectiveDownloadFormat(stored, conversions)
   // The browser's formats never change while the page is open: ask once per mount.
   const codecs = useMemo(() => browserYouTubeCodecs(), [])
   const reach = useMemo<AudioReach>(() => ({ capabilities, codecs }), [capabilities, codecs])
@@ -257,7 +276,7 @@ export function QualitySection({ capabilities }: { capabilities: NetworkCapabili
       <StreamingTierRow connection="wifi" label="Streaming on Wi-Fi" reach={reach} />
       <StreamingTierRow connection="cellular" label="Streaming on mobile data" reach={reach} />
       <QualityToUseRow />
-      <DownloadFormatRow capabilities={capabilities} />
+      <DownloadFormatRow capabilities={capabilities} conversions={conversions} />
       {format === 'mp3' && <Mp3BitrateRow />}
     </SettingsSection>
   )

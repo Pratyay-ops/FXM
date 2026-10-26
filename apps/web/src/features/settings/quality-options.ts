@@ -21,6 +21,8 @@ import {
   type QualityTier,
 } from '@fxm/core'
 import { freeSources } from '../../lib/free-sources'
+import { RELEASED } from '../connect/config'
+import { connectOrApps } from '../connect/explain'
 import type { SelectOption } from './setting-select'
 import type { ConnectionStatus } from './use-connection'
 import type { YouTubeCodec } from './youtube-codecs'
@@ -184,8 +186,35 @@ export const DOWNLOAD_FORMAT_OPTIONS: readonly SelectOption<DownloadFormat>[] = 
   Object.keys(DOWNLOAD_FORMATS) as DownloadFormat[]
 ).map((format) => ({ value: format, label: DOWNLOAD_FORMATS[format].label }))
 
-const YOUTUBE_DOWNLOADS =
-  'YouTube songs can be downloaded with FXM Connect, the desktop app or the Android app.'
+/**
+ * The download formats this version offers: only Original until conversions ship (stage 4.2,
+ * `RELEASED.conversions`), with the others listed as coming soon and not offered.
+ */
+export function offeredDownloadFormats(
+  conversions: boolean = RELEASED.conversions,
+): readonly SelectOption<DownloadFormat>[] {
+  if (conversions) return DOWNLOAD_FORMAT_OPTIONS
+  return DOWNLOAD_FORMAT_OPTIONS.map((option) =>
+    option.value === 'original'
+      ? option
+      : { ...option, label: `${option.label} (coming soon)`, disabled: true },
+  )
+}
+
+/** The format downloads are saved in: the setting, while conversions ship, else Original. */
+export function effectiveDownloadFormat(
+  format: DownloadFormat,
+  conversions: boolean = RELEASED.conversions,
+): DownloadFormat {
+  return conversions ? format : 'original'
+}
+
+/** What the download format help adds while only Original is offered. */
+export const CONVERSIONS_COMING =
+  'Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon.'
+
+/** Where YouTube songs download: FXM Connect, and the apps once they are out (`RELEASED`). */
+const youtubeDownloads = () => `YouTube songs can be downloaded with ${connectOrApps()}.`
 
 /**
  * What a download in `format` will be, in the conversion labels downloads show
@@ -206,7 +235,7 @@ export function downloadFormatHelp(
         ]
       : [
           `Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from ${freeSources().and}.`,
-          YOUTUBE_DOWNLOADS,
+          youtubeDownloads(),
         ]
   }
   const lines = [
@@ -222,7 +251,7 @@ export function downloadFormatHelp(
         : 'Lossy audio never becomes lossless: converting it gives a bigger file, not a better one.',
     )
   }
-  if (!youTube) lines.push(YOUTUBE_DOWNLOADS)
+  if (!youTube) lines.push(youtubeDownloads())
   return lines
 }
 

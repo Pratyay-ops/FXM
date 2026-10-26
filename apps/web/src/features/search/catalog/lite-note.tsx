@@ -1,27 +1,27 @@
 import { FlaskConical } from 'lucide-react'
+import { Link } from 'react-router'
 import { cn } from '../../../lib/cn'
+import { getMoreLabel } from '../../connect/explain'
 import { ONBOARDING_URL } from '../onboarding'
 
 /**
- * Explains the Lite tier where it matters: on YouTube items, which have no downloads and no
- * equalizer there. Search shows it above YouTube results, and album, artist and playlist pages
- * under their actions, where those entries are missing from the menus.
+ * Explains the Lite tier where it matters: on YouTube items, whose songs can't be downloaded
+ * there (their bytes are unreadable). Search shows it above YouTube results, and album, artist
+ * and playlist pages under their actions, where the Download entries are missing from the menus.
  */
 export function LiteNote({ className }: { className?: string }) {
   return (
     <p className={cn('flex items-start gap-2 text-sm text-text-muted', className)}>
       <FlaskConical aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
       <span>
-        Lite mode, experimental: YouTube Music without an install, but no downloads or equalizer.{' '}
-        <a
-          href={ONBOARDING_URL}
-          target="_blank"
-          rel="noreferrer"
+        Lite tier, experimental: YouTube Music without an install, but its songs can't be downloaded
+        here.{' '}
+        <Link
+          to={ONBOARDING_URL}
           className="font-semibold whitespace-nowrap text-text underline underline-offset-2"
         >
-          Get FXM Connect
-          <span className="sr-only"> (opens in a new tab)</span>
-        </a>
+          {getMoreLabel()}
+        </Link>
       </span>
     </p>
   )

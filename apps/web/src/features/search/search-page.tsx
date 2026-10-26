@@ -279,7 +279,8 @@ export function SearchPage() {
       {/* From 768px the search box lives in the top bar. */}
       <SearchField className="md:hidden" />
       <SearchFilters />
-      {query && (
+      {/* The user's files, above any source's results; not when they are the results. */}
+      {query && source !== 'local' && (
         <Suspense fallback={null}>
           <LocalSearchSection query={query} />
         </Suspense>

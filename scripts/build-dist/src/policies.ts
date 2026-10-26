@@ -51,12 +51,13 @@ export const INNERTUBE_HOSTS = [
  * policy. Only what shipped stages use (docs/PLAN.md, the notes on the `/app/*` rule). Stages
  * add theirs when they ship:
  *
- * - 1.11: the BotGuard hosts, once one of its rungs is on;
- * - 3.2's recommendation providers, once the app calls them: the hosts in the table in
- *   packages/sources/src/recommend/README.md. It leaves out the plan's `api.listenbrainz.org`
- *   and `lastfm.freetls.fastly.net`, which its providers don't contact (8.2's scrobbling, below,
- *   sends to `api.listenbrainz.org`), and adds Internet Archive's hosts, already here, for the
- *   Cover Art Archive's redirects.
+ * - 1.11: the BotGuard hosts, once one of its rungs is on.
+ *
+ * 3.2's recommendation providers, which Home calls since stage 2.9b wired it, added their hosts
+ * from the table in packages/sources/src/recommend/README.md: ListenBrainz's labs API, Last.fm's
+ * stations (FXM Connect only) and the Cover Art Archive (whose redirects go to Internet
+ * Archive's hosts, already here). Not iTunes Search, which the app doesn't call, nor the plan's
+ * `lastfm.freetls.fastly.net`, which no provider contacts.
  *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
  * storage hosts and a user's Invidious proxy, and page script can't read media responses.
@@ -96,11 +97,21 @@ export const APP_SERVICES: readonly Service[] = [
   { privacyName: 'LRCLIB', connect: ['https://lrclib.net'] },
   // 8.7: opt-in, and only for videos in Music + Video mode.
   { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
-  // 8.2: scrobbling, once the user connects an account in Settings. Only the write APIs.
-  { privacyName: 'ListenBrainz', connect: ['https://api.listenbrainz.org'] },
-  { privacyName: 'Last.fm', connect: ['https://ws.audioscrobbler.com'] },
+  // 8.2: scrobbling, once the user connects an account in Settings (the write APIs); 3.2:
+  // Home's recommendations (ListenBrainz's similar artists, Last.fm's stations).
+  {
+    privacyName: 'ListenBrainz',
+    connect: ['https://api.listenbrainz.org', 'https://labs.api.listenbrainz.org'],
+  },
+  { privacyName: 'Last.fm', connect: ['https://ws.audioscrobbler.com', 'https://www.last.fm'] },
   // 8.4: library sync, only once the user turns it on, with a secret gist on their account.
   { privacyName: 'GitHub', connect: ['https://api.github.com'] },
+  // 3.2: covers for Home's songs that come without one.
+  {
+    privacyName: 'Cover Art Archive',
+    connect: ['https://coverartarchive.org'],
+    img: ['https://coverartarchive.org'],
+  },
 ]
 
 /**

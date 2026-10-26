@@ -35,15 +35,15 @@ The work is done by `@fxm/sources/import` (see [its README](../../../../../packa
 
 `useImportServices()` gives the pages an `ImportServices`: provider contexts at the budget's `bulk` priority (or `interactive` for a link), the budget's next bulk slot, bot-check reports, the capabilities and their changes, whether songs can be found here (`matching()`), whether the device is online, the YouTube adapter, the Spotify provider, the MusicBrainz client and the Auto setting. The import pages create them when they open (`useMatchingAvailability`); that sends no request: nothing reaches the network until an import runs or a link loads. Tests pass fakes with `ImportServicesProvider` (`testing.tsx`).
 
-The app's own services (`loadAppImportServices`) are, for now, created in `services.tsx`, because no merged stage wires the platform and providers app-wide yet. When that wiring lands, these lines change:
+The app's own services (`loadAppImportServices`) come from the app's composition root (`src/app/services/imports.ts`, stage 2.9b), which connects them with `connectAppImportServices`; an import page that asks first waits for them:
 
-| Touch-point | Now | Then |
-|---|---|---|
-| Platform (stage 1.2) | `createPlatform()` here, without the Lite sandbox (1.10) | The app's one shared platform |
-| YouTube Music and YouTube (1.3) | `YOUTUBE_IMPORT_UNAVAILABLE`: YouTube links can't load, matching pauses, and the pages say finding songs isn't available yet | `createYouTubeImport({ music, video, topResult, releaseFacts })` over 1.3's providers |
-| Spotify (1.5) | `createSpotifyProvider()`, always on. In a browser its key still needs 1.10's user-host document, so Spotify lookups fall back to MusicBrainz until then | The app's shared provider, with the Settings switch (2.4) and `secretFetch` (1.10) |
-| MusicBrainz (1.6) | `createMusicBrainzClient()` | The app's shared client |
-| Auto setting (1.12) | Off | The matching config's setting |
+| Touch-point | In the app |
+|---|---|
+| Platform (stage 1.2) | The app's one platform: provider contexts at the budget's `bulk` priority (`interactive` for a link), its next bulk slot, bot-check reports, its capabilities |
+| YouTube Music and YouTube (1.3) | `createYouTubeImport({ music, video, topResult, releaseFacts })` over the app's YouTube providers, loaded with the first import that searches |
+| Spotify (1.5) | The app's one Spotify provider, which follows the Settings switch and the tier (`isAvailable` without loading its code) |
+| MusicBrainz (1.6) | The app's shared client |
+| Auto setting and matching config (1.12) | The user's Auto setting where the matching config allows the band (off in this release); every row matches with `matchingOptions`, so the config's thresholds and measured fallback apply (`matchingConfig` defaults to the one FXM ships with) |
 | Match cache band (2.6) | `recordDecision` in `sink.ts` stores the band with the Auto setting applied, because 2.6's `getConfirmedMatch` reads `record.band` as it is | Once 2.6's `isConfirmedMatch` applies the setting when it reads (`effectiveMatchBand(record.candidate?.verdict, autoOn)`), store `decision.verdictBand`, as core's `MatchVerdict` asks |
 | Progress storage (2.6) | The whole progress in the record's `state`, saved at most every 20 seconds; the import list's `listImports()` reads every import's progress | The results per row or in chunks, or at least `state` kept out of the list's query |
 

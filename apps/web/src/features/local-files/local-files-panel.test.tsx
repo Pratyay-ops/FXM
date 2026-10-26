@@ -3,9 +3,12 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { renderApp } from '../../test/render'
+import { appActions } from '../search/actions'
+import { appSources } from '../search/sources-context'
 import { renderCatalog, resetCatalogState } from '../search/testing'
 import { resetLocalFiles } from './local-files'
 import { configureLocalPlayer, getLocalPlayer, resetLocalPlayer } from './player'
+import { createLocalMetadataProvider } from './provider'
 import { type ReadTags, readTags } from './tags'
 import {
   asHandle,
@@ -508,6 +511,32 @@ describe('local files in search', () => {
       query: 'night',
       title: 'night',
     })
+  })
+
+  it('lists the songs once while searching this device itself', async () => {
+    await withFolder()
+    // As the app's composition root registers it, once there is music on the device, with the
+    // catalog's Download entries wired in.
+    const unregister = appSources.register(createLocalMetadataProvider())
+    const actions = appActions.get()
+    appActions.set({ ...actions, downloads: { download: vi.fn() } })
+    try {
+      const { user } = renderApp('/search?q=night')
+      expect(await screen.findByRole('heading', { name: 'On this device' })).toBeVisible()
+
+      await user.click(await screen.findByRole('radio', { name: 'This device' }))
+
+      const songs = await screen.findByRole('list', { name: 'Songs' })
+      expect(within(songs).getByText('Night Drive')).toBeVisible()
+      expect(screen.queryByRole('heading', { name: 'On this device' })).toBeNull()
+      // A file on the device has nothing to download.
+      await user.click(within(songs).getByRole('button', { name: 'More options for Night Drive' }))
+      const menu = await screen.findByRole('menu')
+      expect(within(menu).queryByRole('menuitem', { name: 'Download' })).toBeNull()
+    } finally {
+      unregister()
+      appActions.set(actions)
+    }
   })
 
   it('shows nothing when no local file matches', async () => {

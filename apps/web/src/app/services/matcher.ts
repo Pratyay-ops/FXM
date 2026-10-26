@@ -17,8 +17,13 @@
  * A page that can't be fetched (a network error, a bot check, the budget's refusal) is skipped:
  * the outcome is `incomplete`, so the lifecycle plays it but doesn't keep it. Candidates the
  * lifecycle excludes (Smart Replace found them gone) are taken off the pages before the engine
- * ranks them, so its verdict is about the candidates that are left. The Auto band stays off
- * until stage 1.12's report allows it (`autoMatch`).
+ * ranks them, so its verdict is about the candidates that are left.
+ *
+ * **Matching options** (stage 1.12): every match runs with `matchingOptions(settings)` from
+ * `@fxm/core` (`matchOptions`), so the matching config's thresholds and its measured fallback
+ * (`requireReleaseAgreement`) apply, and the Auto band only where the config makes it available
+ * and the user's Auto setting is on. The band the lifecycle gets is the best candidate's verdict
+ * under that setting (`effectiveMatchBand`), which 2.3's `mayPlayMatch` reads.
  *
  * @module
  */
@@ -26,13 +31,18 @@
 import {
   type AudioCandidate,
   type AudioSource,
+  type CatalogMode,
   candidateKey,
+  effectiveMatchBand,
   entityKey,
+  type MatchOptions,
   type MatchRequest,
   type MatchResponse,
   type MatchResult,
   type MatchSource,
+  type MatchVerdict,
   type MetadataProvider,
+  matchingOptions,
   matchVideoToSong,
   modePolicy,
   type ProviderContext,
@@ -46,12 +56,12 @@ import {
 import type { MatchOutcome, TrackMatcher, TrackMatchRequest } from '@fxm/player'
 import type { IsrcFinding } from '@fxm/sources/musicbrainz'
 import type { SpotifyProvider } from '@fxm/sources/spotify'
-import type { YouTubeMusicProvider } from '@fxm/sources/youtube'
+import type { YouTubeModuleMusic } from '@fxm/sources/youtube/module'
 
 /** The searches the engine's pages come from. */
 export interface MatcherSearches {
   /** YouTube Music: songs and videos searches, top-result cards and descriptions. */
-  readonly music: Pick<YouTubeMusicProvider, 'search' | 'topResult' | 'getDescription'>
+  readonly music: Pick<YouTubeModuleMusic, 'search' | 'topResult' | 'getDescription'>
   /** Plain YouTube's search, for Music + Video mode. */
   readonly video: Pick<MetadataProvider, 'search'>
 }
@@ -70,8 +80,11 @@ export interface TrackMatcherOptions {
     track: Track,
     request: TrackMatchRequest,
   ) => Promise<Partial<MatchSource> | undefined>
-  /** The Auto setting, which stage 1.12's report turns on. Default: off. */
-  readonly autoMatch?: () => boolean
+  /**
+   * The options a match in `mode` runs with: `matchingOptions({ mode, autoMatch })` with the
+   * user's Auto setting. Default: `matchingOptions({ mode })`, Auto off.
+   */
+  readonly matchOptions?: (mode: CatalogMode) => MatchOptions
   /** Hears every error of a page that was skipped, e.g. `FxmPlatform.report`. */
   readonly report?: (error: unknown) => void
 }
@@ -125,14 +138,19 @@ async function fetchPage(
   }
 }
 
-/** The lifecycle's view of the engine's decision. */
+/**
+ * The lifecycle's view of the engine's decision. Its band is the best candidate's verdict under
+ * the Auto setting the match ran with (`effectiveMatchBand`), which the lifecycle hands to
+ * `mayPlayMatch`: a verdict of another matcher version, or none, is a suggestion.
+ */
 function outcomeOf(
-  result: Pick<MatchResult, 'band' | 'best' | 'candidates' | 'evidence'>,
+  result: Pick<MatchResult, 'best' | 'candidates' | 'evidence'>,
   incomplete: boolean,
+  autoOn: boolean,
 ): MatchOutcome {
   const { best } = result
   return {
-    band: best === undefined ? 'none' : result.band,
+    band: best === undefined ? 'none' : effectiveMatchBand(best.verdict, autoOn),
     ...(best === undefined ? {} : { best }),
     alternatives: result.candidates.filter((candidate) => candidate !== best),
     evidence: result.evidence,
@@ -215,13 +233,15 @@ export function matchDetails(
 /** Creates the app's {@link TrackMatcher}: see the module documentation. */
 export function createTrackMatcher(options: TrackMatcherOptions): TrackMatcher {
   const report = options.report ?? (() => {})
-  const autoMatch = () => options.autoMatch?.() === true
+  const matchOptions = options.matchOptions ?? ((mode: CatalogMode) => matchingOptions({ mode }))
 
   async function matchSong(track: Track, request: TrackMatchRequest): Promise<MatchOutcome> {
     const { ctx } = request
     const excludedKeys = new Set(request.exclude.map(candidateKey))
     const excluded: Excluded = (candidate) => excludedKeys.has(entityKey(candidate.id))
     const searches = await options.youtube()
+    const settings = matchOptions(ctx.mode)
+    const autoOn = settings.auto === true
     let incomplete = false
     const verdict = modePolicy(track, ctx.mode)
     if (verdict === 'needs-song-match' || verdict === 'plays-linked-song') {
@@ -240,8 +260,12 @@ export function createTrackMatcher(options: TrackMatcherOptions): TrackMatcher {
         report(error)
         incomplete = true
       }
-      const match = matchVideoToSong(track, songs, { auto: autoMatch(), ignoreLink: true })
-      return outcomeOf(match, incomplete)
+      const match = matchVideoToSong(track, songs, {
+        auto: autoOn,
+        ignoreLink: true,
+        ...(settings.thresholds === undefined ? {} : { thresholds: settings.thresholds }),
+      })
+      return outcomeOf(match, incomplete, autoOn)
     }
     const source: MatchSource = { ...track, ...(await options.details?.(track, request)) }
     const result = await runMatch(
@@ -255,9 +279,9 @@ export function createTrackMatcher(options: TrackMatcherOptions): TrackMatcher {
           return null
         }
       },
-      { mode: ctx.mode, auto: autoMatch() },
+      { ...settings, mode: ctx.mode },
     )
-    return outcomeOf(result, result.incomplete)
+    return outcomeOf(result, result.incomplete, autoOn)
   }
 
   async function matchLossless(track: Track, request: TrackMatchRequest): Promise<MatchOutcome> {
@@ -294,4 +318,71 @@ export function createTrackMatcher(options: TrackMatcherOptions): TrackMatcher {
     match: (track, request) =>
       request.target === 'lossless' ? matchLossless(track, request) : matchSong(track, request),
   }
+}
+
+/** A song known by its title and artists, as Home's song candidates name one (stage 3.3). */
+export interface SongToFind {
+  readonly title: string
+  readonly artists: readonly string[]
+  readonly durationMs?: number
+}
+
+/**
+ * The YouTube Music song for a song known by name (a Last.fm station's item, say): the matching
+ * engine's best over its own searches, with the matching config's options, as a track of the
+ * songs search that listed it, or `null` when nothing matched. Home shows such songs as
+ * recommendations: they play as YouTube Music songs, their own audio, never through a match.
+ */
+export async function findSongTrack(
+  song: SongToFind,
+  searches: MatcherSearches,
+  ctx: ProviderContext,
+  options: MatchOptions,
+): Promise<Track | null> {
+  const seen = new Map<string, Track>()
+  const source: MatchSource = {
+    title: song.title,
+    artists: song.artists.map((name) => ({ name })),
+    ...(song.durationMs === undefined ? {} : { durationMs: song.durationMs }),
+  }
+  const result = await runMatch(
+    source,
+    async (page) => {
+      try {
+        const response = await fetchPage(page, searches, ctx, () => false)
+        if ('tracks' in response) for (const track of response.tracks) seen.set(track.id, track)
+        return response
+      } catch (error) {
+        rethrowAbort(ctx, error)
+        return null
+      }
+    },
+    { ...options, mode: ctx.mode },
+  )
+  const { best } = result
+  if (best === undefined || result.band === 'none' || best.source !== 'ytm') return null
+  return seen.get(`ytm:track:${best.ref}`) ?? null
+}
+
+/**
+ * The song of an official music video (stage 1.7's video-to-song rule over one songs search),
+ * for the recommendation collector's `songForVideo` (stage 3.2): a link the video carries, or
+ * the rule's match with its verdict, or `null` when it maps to none.
+ */
+export async function songForVideo(
+  video: Track,
+  searches: MatcherSearches,
+  ctx: ProviderContext,
+  options: MatchOptions,
+): Promise<{ song: Track; via: 'link' | 'match'; verdict?: MatchVerdict } | null> {
+  const results = await searches.music.search(videoSongsQuery(video), { types: ['track'] }, ctx)
+  const songs = results.tracks?.items ?? []
+  const match = matchVideoToSong(video, songs, {
+    auto: options.auto === true,
+    ...(options.thresholds === undefined ? {} : { thresholds: options.thresholds }),
+  })
+  const song = songs.find((track) => track.id === match.songId)
+  if (match.via === 'none' || song === undefined) return null
+  const verdict = match.best?.verdict
+  return { song, via: match.via, ...(verdict === undefined ? {} : { verdict }) }
 }

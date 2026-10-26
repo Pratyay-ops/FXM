@@ -499,6 +499,7 @@ describe('compose', () => {
         'ListenBrainz',
         'Last.fm',
         'GitHub',
+        'Cover Art Archive',
       ]),
     })
     expect(problemsOf(() => run(root, [site, fakeAppPart(root)]))).toEqual([

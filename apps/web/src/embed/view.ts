@@ -8,6 +8,7 @@
 
 import { type ArtistRef, type Artwork, parseId, type Track } from '@fxm/core'
 import type { PlayerStatus } from '@fxm/player'
+import { RELEASED } from '../features/connect/config'
 import type { EmbedAttribution, EmbedEntity } from './catalog'
 import type { EmbedProblem, EmbedState, PlaybackNotice } from './controller'
 import {
@@ -158,6 +159,12 @@ export function joinArtists(artists: readonly ArtistRef[]): string {
   return `${names.slice(0, -1).join(', ')} & ${names.at(-1)}`
 }
 
+/**
+ * Whether the install hint may offer the FXM app: once the desktop app (stage 7.5) or the
+ * Android app (6.6) is out. Until then it names only FXM Connect.
+ */
+const APP_OUT: boolean = RELEASED.desktop || RELEASED.android
+
 /** The texts and action for each message. */
 export function messageFor(kind: EmbedMessageKind, target: EmbedKind): EmbedMessage {
   const what = target === 'track' ? 'song' : target
@@ -165,8 +172,10 @@ export function messageFor(kind: EmbedMessageKind, target: EmbedKind): EmbedMess
     case 'needs-youtube':
       return {
         kind,
-        text: "FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension, or get the FXM app.",
-        short: 'Needs FXM Connect or the FXM app to play here.',
+        text: `FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension${APP_OUT ? ', or get the FXM app' : ''}.`,
+        short: APP_OUT
+          ? 'Needs FXM Connect or the FXM app to play here.'
+          : 'Needs FXM Connect to play here.',
         action: 'install',
       }
     case 'not-found':
