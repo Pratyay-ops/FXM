@@ -42,6 +42,8 @@ export class FakeSourceBuffer extends EventTarget {
   readonly buffered = new FakeTimeRanges()
   secondsPerByte = 1
   quotaSeconds = Number.POSITIVE_INFINITY
+  /** When set, appends fail as MSE's append error does: an `error` event, then `updateend`. */
+  refuseAppends = false
 
   #finish(): void {
     this.updating = true
@@ -56,6 +58,15 @@ export class FakeSourceBuffer extends EventTarget {
   }
 
   appendBuffer(data: Uint8Array): void {
+    if (this.refuseAppends) {
+      this.updating = true
+      queueMicrotask(() => {
+        this.updating = false
+        this.dispatchEvent(new Event('error'))
+        this.dispatchEvent(new Event('updateend'))
+      })
+      return
+    }
     const seconds = data.byteLength * this.secondsPerByte
     if (this.#bufferedSeconds() + seconds > this.quotaSeconds) {
       throw new DOMException('The source buffer is full', 'QuotaExceededError')
@@ -82,8 +93,12 @@ export class FakeMediaSource extends EventTarget {
   duration = Number.NaN
   mimeType: string | undefined
   readonly sourceBuffers: FakeSourceBuffer[] = []
+  /** When set, `addSourceBuffer` throws `NotSupportedError`, as for a codec MSE doesn't take. */
+  refuseTypes = false
 
   addSourceBuffer(mimeType: string): FakeSourceBuffer {
+    if (this.refuseTypes)
+      throw new DOMException(`${mimeType} is not supported`, 'NotSupportedError')
     this.mimeType = mimeType
     const buffer = new FakeSourceBuffer()
     this.sourceBuffers.push(buffer)

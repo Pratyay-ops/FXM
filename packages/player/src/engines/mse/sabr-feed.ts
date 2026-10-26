@@ -13,7 +13,7 @@
 
 import { SabrStream } from 'googlevideo/sabr-stream'
 import { EnabledTrackTypes } from 'googlevideo/utils'
-import type { SabrPlayback } from './sabr-playback'
+import { isGoogleVideoUrl, type SabrPlayback } from './sabr-playback'
 
 /**
  * How often a failed request is tried again (after 0.5, 1 and 2 s) before the session fails.
@@ -38,12 +38,34 @@ export type SabrFeedStarter = (
 ) => Promise<SabrFeed>
 
 /**
+ * `fetch`, for googlevideo only: `SabrStream` follows the server's redirects wherever they point
+ * and posts the session's PO token there, so every request to another place is refused before it
+ * leaves, whatever `fetch` itself would allow.
+ */
+export function googleVideoOnly(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return (input, init) => {
+    const url = input instanceof Request ? input.url : String(input)
+    if (!isGoogleVideoUrl(url)) {
+      const host = URL.canParse(url) ? new URL(url).host : 'an invalid URL'
+      return Promise.reject(
+        new TypeError(`A SABR session may only reach googlevideo.com, not ${host}`),
+      )
+    }
+    return fetch(input, init)
+  }
+}
+
+/**
  * Starts the session of `playback` at `url` (the server ABR streaming URL, its `n` deciphered),
  * with `fetch` for its requests: FXM Connect's page `fetch` on the web, the native one on desktop.
+ * The session reaches googlevideo hosts only ({@link googleVideoOnly}).
  */
 export const startSabrFeed: SabrFeedStarter = async (playback, url, fetch) => {
+  if (!isGoogleVideoUrl(url)) {
+    throw new TypeError('A SABR session may only reach googlevideo.com')
+  }
   const stream = new SabrStream({
-    fetch,
+    fetch: googleVideoOnly(fetch),
     serverAbrStreamingUrl: url,
     videoPlaybackUstreamerConfig: playback.ustreamerConfig,
     poToken: playback.poToken,

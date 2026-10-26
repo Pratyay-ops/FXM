@@ -14,8 +14,9 @@ export {
   MseEngine,
   type MseEngineOptions,
 } from './mse-engine'
-export { type SabrFeed, type SabrFeedStarter, startSabrFeed } from './sabr-feed'
+export { googleVideoOnly, type SabrFeed, type SabrFeedStarter, startSabrFeed } from './sabr-feed'
 export {
+  isGoogleVideoUrl,
   parseSabrPlayback,
   SABR_PLAYBACK_FORMAT,
   type SabrPlayback,

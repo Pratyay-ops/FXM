@@ -66,6 +66,14 @@ describe('the MediaSource engine', () => {
       audio: { ...SESSION.audio, mimeType: 'audio/mp4; codecs="mp4a.40.2"' },
     }
     expect(engine.canPlay(sabrStream({ playback: aac }))).toBe('no')
+    // Only googlevideo, which is where the session's requests may go.
+    for (const url of [
+      'https://evil.example/videoplayback?sabr=1',
+      'http://rr1---sn-fxm.googlevideo.com/videoplayback?sabr=1',
+      'https://rr1---sn-fxm.googlevideo.com:8443/videoplayback?sabr=1',
+    ]) {
+      expect(engine.canPlay(sabrStream({ url }))).toBe('no')
+    }
   })
 
   it('starts the session on sourceopen and appends its audio in order, then ends the stream', async () => {
@@ -197,6 +205,40 @@ describe('the MediaSource engine', () => {
     expect(media.created).toHaveLength(2)
     expect(feed.aborted).toBe(1)
     expect(media.revoked).toEqual(['blob:https://fxm.test/0'])
+  })
+
+  it('reports a buffer that refuses data once: through the element, as a decode error', async () => {
+    const { audio, engine, feed, errors, opened } = setup()
+    await engine.load({ stream: sabrStream() })
+    const source = await opened()
+    const buffer = source.sourceBuffers[0]
+    if (buffer === undefined) throw new Error('no source buffer')
+    buffer.refuseAppends = true
+    feed.push(4)
+    await settle()
+    await settle()
+    // MSE's append error ends the stream with a decode error, which the element reports.
+    audio.error = { code: 3, message: 'append failed' }
+    audio.fire('error')
+    expect(errors().map((error) => error.type)).toEqual(['decode'])
+  })
+
+  it('reports a codec the source buffer refuses as unsupported', async () => {
+    const { engine, media, errors } = setup()
+    await engine.load({ stream: sabrStream() })
+    const source = media.created[0] as FakeMediaSource
+    source.refuseTypes = true
+    source.open()
+    await settle()
+    expect(errors().map((error) => error.type)).toEqual(['unsupported'])
+  })
+
+  it('refuses a session that is not on googlevideo, without a media source', async () => {
+    const { engine, media, errors } = setup()
+    await engine.load({ stream: sabrStream({ url: 'https://evil.example/videoplayback?sabr=1' }) })
+    await settle()
+    expect(errors().map((error) => error.type)).toEqual(['unsupported'])
+    expect(media.created).toHaveLength(0)
   })
 
   it('reports the element failing to decode', async () => {

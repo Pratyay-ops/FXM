@@ -10,6 +10,23 @@
 /** The only session format this engine plays. */
 export const SABR_PLAYBACK_FORMAT = 'youtube-sabr/1'
 
+/**
+ * Whether `url` is one a SABR session may reach: HTTPS on a googlevideo host, on the default
+ * port and without credentials. The session's own URL and every redirect it follows must be.
+ */
+export function isGoogleVideoUrl(url: string | URL): boolean {
+  const text = String(url)
+  if (!URL.canParse(text)) return false
+  const parsed = new URL(text)
+  return (
+    parsed.protocol === 'https:' &&
+    parsed.port === '' &&
+    parsed.username === '' &&
+    parsed.password === '' &&
+    parsed.hostname.toLowerCase().endsWith('.googlevideo.com')
+  )
+}
+
 /** One format of the session, as googlevideo's `SabrFormat` takes it. */
 export type SabrPlaybackFormat = {
   readonly itag: number

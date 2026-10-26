@@ -14,7 +14,8 @@
  * The session downloads the song as fast as the server lets it, and the engine appends each
  * chunk as the source buffer takes it. When the buffer is full (`QuotaExceededError`), the engine
  * removes what lies more than 10 s behind the playhead, or waits for playback to move on. A seek
- * into data already removed starts the session again from the beginning.
+ * into data already removed starts the session again from the beginning. The session reaches
+ * googlevideo hosts only (`googleVideoOnly` of `sabr-feed.ts`), and each failure is reported once.
  *
  * @module
  */
@@ -30,7 +31,7 @@ import {
   type PlaySupport,
 } from './engine-contract'
 import { type SabrFeed, type SabrFeedStarter, startSabrFeed } from './sabr-feed'
-import { parseSabrPlayback, type SabrPlayback } from './sabr-playback'
+import { isGoogleVideoUrl, parseSabrPlayback, type SabrPlayback } from './sabr-playback'
 
 /** `HTMLMediaElement.HAVE_FUTURE_DATA`: enough is buffered to play on for a while. */
 const HAVE_FUTURE_DATA = 3
@@ -115,6 +116,17 @@ function errorName(error: unknown): string {
   return typeof error === 'object' && error !== null && 'name' in error ? String(error.name) : ''
 }
 
+/**
+ * A source buffer refused data (its `error` event). MSE then ends the stream with a decode
+ * error, so the element reports the failure itself.
+ */
+class SourceBufferRefused extends Error {
+  constructor() {
+    super('The source buffer refused the data')
+    this.name = 'SourceBufferRefused'
+  }
+}
+
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
@@ -123,6 +135,7 @@ function messageOf(error: unknown): string {
 function unsupportedReason(stream: StreamOption): string | undefined {
   if (stream.protocol !== 'sabr') return `The MediaSource engine plays SABR, not ${stream.protocol}`
   if (stream.fullLength === 'capped') return 'The stream stops before the end'
+  if (!isGoogleVideoUrl(stream.url)) return 'The SABR session is not on googlevideo.com'
   if (parseSabrPlayback(stream.playback) === undefined) return 'The stream carries no SABR session'
   return undefined
 }
@@ -353,7 +366,7 @@ export class MseEngine implements Engine {
       const failed = () => {
         buffer.removeEventListener('updateend', done)
         buffer.removeEventListener('error', failed)
-        reject(new Error('The source buffer refused the data'))
+        reject(new SourceBufferRefused())
       }
       buffer.addEventListener('updateend', done)
       buffer.addEventListener('error', failed)
@@ -429,11 +442,16 @@ export class MseEngine implements Engine {
       }
     } catch (error) {
       if (!this.#current(session)) return
+      // One failure, one error event: the element reports its own failures, and a source buffer
+      // that refused data makes the element fail with a decode error.
+      if (this.#audio.error !== null && this.#audio.error !== undefined) return
+      if (error instanceof SourceBufferRefused) return
       const expiresAt = session.source.stream.expiresAt
       const type: EngineErrorType =
         expiresAt !== undefined && expiresAt <= this.#now()
           ? 'expired'
-          : /attestation|reload/iu.test(messageOf(error))
+          : errorName(error) === 'NotSupportedError' ||
+              /attestation|reload/iu.test(messageOf(error))
             ? 'unsupported'
             : 'network'
       this.#emit(
