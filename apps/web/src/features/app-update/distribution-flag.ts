@@ -1,9 +1,10 @@
 /**
  * The `FXM_DISTRIBUTION` build flag, as vite.config.ts checks it before it builds it into the
  * app (`import.meta.env.FXM_DISTRIBUTION`), where `parseDistribution` of `@fxm/platform` reads it.
- * F-Droid builds (stage R.3) set it to `fdroid`; the other builds leave it unset or `standard`.
- * Without imports, so that the Vite config can load it: `distribution-flag.test.ts` keeps it in
- * step with `parseDistribution`.
+ * The Android app from GitHub Releases is built with `standard` (`release-apk.sh build`), the only
+ * build that checks for new app versions (`isGitHubReleasesBuild` in support.ts); F-Droid builds
+ * (stage R.3) set `fdroid`, and the other builds leave it unset. Without imports, so that the Vite
+ * config can load it: a test in support.test.ts keeps it in step with `parseDistribution`.
  *
  * @module
  */

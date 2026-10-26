@@ -1,48 +1,83 @@
 import { parseDistribution } from '@fxm/platform'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { distributionFlag, isDistributionFlag } from './distribution-flag'
-import { appUpdateSupport, buildDistribution } from './support'
+import { appUpdateSupport, buildDistribution, isGitHubReleasesBuild } from './support'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('appUpdateSupport', () => {
   it('checks in the Android app from GitHub Releases, for a released version', () => {
-    expect(
-      appUpdateSupport({ environment: 'capacitor', distribution: 'standard', version: '0.5.0' }),
-    ).toEqual({ checks: true, version: '0.5.0' })
+    for (const distributionFlag of ['standard', ' Standard ']) {
+      expect(
+        appUpdateSupport({ environment: 'capacitor', distributionFlag, version: '0.5.0' }),
+      ).toEqual({ checks: true, version: '0.5.0' })
+    }
   })
 
   it('never in the web or desktop app, which update otherwise', () => {
     for (const environment of ['browser', 'tauri', 'node'] as const) {
-      expect(appUpdateSupport({ environment, distribution: 'standard', version: '0.5.0' })).toEqual(
-        { checks: false, reason: 'not-android' },
-      )
+      expect(
+        appUpdateSupport({ environment, distributionFlag: 'standard', version: '0.5.0' }),
+      ).toEqual({ checks: false, reason: 'not-android' })
     }
     // Vitest runs as a browser page.
     expect(appUpdateSupport()).toEqual({ checks: false, reason: 'not-android' })
   })
 
   it('never in F-Droid builds, which F-Droid updates', () => {
-    expect(
-      appUpdateSupport({ environment: 'capacitor', distribution: 'fdroid', version: '0.5.0' }),
-    ).toEqual({ checks: false, reason: 'fdroid' })
+    for (const distributionFlag of ['fdroid', 'F-Droid']) {
+      expect(
+        appUpdateSupport({ environment: 'capacitor', distributionFlag, version: '0.5.0' }),
+      ).toEqual({ checks: false, reason: 'fdroid' })
+    }
+  })
+
+  it('never in a build that doesn’t say it is the one from GitHub Releases', () => {
+    // A development build, `make apk` at a release tag, or someone else's rebuild: signed with
+    // another key, so the APK it would offer couldn't install over it.
+    for (const distributionFlag of ['', ' ']) {
+      expect(
+        appUpdateSupport({ environment: 'capacitor', distributionFlag, version: '0.5.0' }),
+      ).toEqual({ checks: false, reason: 'unofficial-build' })
+    }
+    // This build's flag, as vite.config.ts builds it in: unset in tests.
+    expect(appUpdateSupport({ environment: 'capacitor', version: '0.5.0' })).toEqual({
+      checks: false,
+      reason: 'unofficial-build',
+    })
+    vi.stubEnv('FXM_DISTRIBUTION', 'standard')
+    expect(appUpdateSupport({ environment: 'capacitor', version: '0.5.0' })).toEqual({
+      checks: true,
+      version: '0.5.0',
+    })
   })
 
   it('never in a build of no released version', () => {
     for (const version of ['0.0.0', 'dev', '']) {
       expect(
-        appUpdateSupport({ environment: 'capacitor', distribution: 'standard', version }),
+        appUpdateSupport({ environment: 'capacitor', distributionFlag: 'standard', version }),
       ).toEqual({ checks: false, reason: 'unreleased' })
     }
   })
 })
 
 describe('the FXM_DISTRIBUTION build flag', () => {
-  it('is fdroid in F-Droid builds and standard otherwise', () => {
+  it('is fdroid in F-Droid builds and standard otherwise, for the platform’s update policy', () => {
     expect(buildDistribution('fdroid')).toBe('fdroid')
     expect(buildDistribution('')).toBe('standard')
     expect(buildDistribution(undefined)).toBe('standard')
     vi.stubEnv('FXM_DISTRIBUTION', 'F-Droid')
     expect(buildDistribution()).toBe('fdroid')
-    vi.unstubAllEnvs()
+  })
+
+  it('names the build from GitHub Releases only when it says standard', () => {
+    expect(isGitHubReleasesBuild('standard')).toBe(true)
+    expect(isGitHubReleasesBuild(' STANDARD ')).toBe(true)
+    for (const flag of ['', ' ', undefined, 'fdroid', 'f-droid', 'standard,fdroid', 1]) {
+      expect(isGitHubReleasesBuild(flag), String(flag)).toBe(false)
+    }
   })
 
   it('turns the check off for a value it doesn’t know', () => {
