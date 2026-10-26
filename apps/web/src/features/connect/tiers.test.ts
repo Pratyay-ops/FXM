@@ -135,4 +135,29 @@ describe('missingSummary', () => {
     expect(missingSummary('lite').map((line) => line.tier)).toEqual(['full'])
     expect(missingSummary('full')).toEqual([])
   })
+
+  it('says what comes later in one sentence, whatever the features are called', async () => {
+    vi.resetModules()
+    vi.doMock('./config', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./config')>()
+      return {
+        ...actual,
+        RELEASED: { ...actual.RELEASED, downloads: false, spotifyAccount: false },
+      }
+    })
+    try {
+      const { missingSummary: summary } = await import('./tiers')
+      expect(summary('lite')).toEqual([
+        {
+          tier: 'full',
+          adds: "YouTube Music without Lite's experimental route and Spotify search and related artists",
+          later:
+            'Coming soon: YouTube Music downloads and a read-only sync of your Spotify account.',
+        },
+      ])
+    } finally {
+      vi.doUnmock('./config')
+      vi.resetModules()
+    }
+  })
 })
