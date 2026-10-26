@@ -509,6 +509,26 @@ describe('history', () => {
     await repo.clearHistory()
     expect(await repo.recentlyPlayed()).toEqual([])
   })
+
+  it('tells when the history starts, which only forgetting or older plays change', async () => {
+    const repo = testRepo()
+    const play = (n: number, playedAt: number) =>
+      repo.recordPlay({
+        track: track(n),
+        playedAt,
+        playedMs: 1000,
+        completed: false,
+        skipped: false,
+      })
+    expect(await repo.historyStart()).toBeUndefined()
+    await play(1, 5000)
+    await play(2, 9000)
+    expect(await repo.historyStart()).toBe(5000)
+    await play(3, 2000)
+    expect(await repo.historyStart()).toBe(2000)
+    await repo.clearHistory()
+    expect(await repo.historyStart()).toBeUndefined()
+  })
 })
 
 describe('match cache', () => {

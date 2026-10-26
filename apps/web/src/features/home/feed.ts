@@ -3,33 +3,46 @@
  * (stage 3.3, `packages/core/src/recommend`).
  *
  * 1. **The taste profile** from the library (stage 3.1): the top tracks, artists and tags of the
- *    listening affinity, the tracks' cached metadata, the recent plays, plus the onboarding
- *    picks.
- * 2. **The seeds** the engine plans (`planSeeds`), with YouTube Music's own artist for an
+ *    listening affinity, the tracks' cached metadata, the recent plays with their affinity, plus
+ *    the onboarding picks.
+ * 2. **The user's own shelves** (On repeat, Rediscover, and Discover and the Daily Mixes kept
+ *    from earlier builds), from the library alone: a first pass Home shows at once
+ *    (`onLocal`), while the sources are asked.
+ * 3. **The seeds** the engine plans (`planSeeds`), with YouTube Music's own artist for an
  *    artist known only by name (`findArtist`), and for each seed the recommendation sources'
  *    candidates (`collect`, stage 3.2), a few seeds at a time. Collections are cached for half
  *    an hour, so rebuilding Home costs nothing new.
- * 3. **Expansions:** the few similar artists and song searches the engine ranks highest
+ * 4. **The rest of the taste:** the profile holds the top of the affinity only, so the affinity
+ *    of every track and main artist the candidates name is read as well (two bulk reads), and
+ *    a song the user skips or played long ago is never offered as new.
+ * 5. **Expansions:** the few similar artists and song searches the engine ranks highest
  *    (`planExpansions`) become tracks through the catalog.
- * 4. **Spotify's personal sections**, when Spotify is switched on, reachable and the account is
- *    connected (stage 3.5).
- * 5. **The shelves** (`buildHome`), with Discover and the Daily Mixes kept for their week and
- *    day in storage.
+ * 6. **Spotify's personal sections**, when Spotify is switched on, reachable and the account is
+ *    connected (stage 3.5), asked alongside the collections.
+ * 7. **The shelves** (`buildHome`), with Discover and the Daily Mixes kept for their week and
+ *    day in storage, along with the listening history they came from.
  *
  * Only YouTube Music's songs can play from recommendations, so Home recommends new music only
  * where YouTube Music is reachable (Lite or Full); in the Free-only tier it keeps to the user's
- * own music. A source that fails adds nothing; only a cancellation rejects.
+ * own music. A source that fails adds nothing, and the network steps get
+ * {@link FEED_LIMITS}`.deadlineMs` in all: Home is then built from what arrived, and what is
+ * still on its way is cached for the next build. Only a build that heard from every source in
+ * time keeps its lists for their period. Only a cancellation rejects.
  *
  * @module
  */
 
 import {
   type ArtistRef,
+  artistAffinityKey,
   artistKeyOf,
   artistTrackCandidates,
   buildHome,
   type CatalogMode,
+  entityKey,
   type HomeFeed,
+  type HomeInput,
+  type HomeOptionsInput,
   indexTaste,
   isEntityId,
   isTrackSeed,
@@ -50,7 +63,7 @@ import {
   type TastePicks,
   type TasteProfile,
 } from '@fxm/core'
-import type { LibraryRepo } from '../../db/repo'
+import type { LibraryRepo, RecentRow } from '../../db/repo'
 import {
   canRecommend,
   type HomeCatalog,
@@ -59,15 +72,25 @@ import {
   type HomeSourceShelf,
   type HomeSourcesSnapshot,
 } from './services'
-import type { StableStore } from './stable-storage'
+import type { HistoryBasis, StableStore } from './stable-storage'
 
 /** How much of the library the profile reads. */
-export const PROFILE_LIMITS = Object.freeze({
+export interface ProfileLimits {
   /** Tracks by affinity: enough to hold old favourites for Rediscover. */
+  readonly tracks: number
+  /** Artists by affinity. */
+  readonly artists: number
+  /** Tags by affinity. */
+  readonly tags: number
+  /** Distinct recently played tracks, for the history filters. */
+  readonly recent: number
+}
+
+/** How much of the library the profile reads by default. */
+export const PROFILE_LIMITS: ProfileLimits = Object.freeze({
   tracks: 400,
   artists: 120,
   tags: 60,
-  /** Distinct recently played tracks, for the history filters. */
   recent: 200,
 })
 
@@ -81,16 +104,36 @@ export const FEED_LIMITS = Object.freeze({
   artists: 4,
   /** Song searches turned into tracks. */
   songs: 6,
+  /**
+   * How long the network steps may take in all, in milliseconds. Home is then built from what
+   * arrived. The user's own shelves show at once either way.
+   */
+  deadlineMs: 8_000,
 })
 
 /** How long a seed's collection is reused. */
 export const COLLECTION_TTL_MS = 30 * 60_000
 
-/** The taste profile the library holds, with the onboarding picks. */
+/**
+ * The first pass: no new lists of recommendations, which need the sources. What the library
+ * alone gives stays: On repeat, Rediscover, and Discover and the mixes kept for their period.
+ */
+const LOCAL_PASS: HomeOptionsInput = {
+  quickPicks: { limit: 0 },
+  because: { shelves: 0 },
+  mixes: { count: 0 },
+}
+
+/**
+ * The taste profile the library holds, with the onboarding picks: the top of the affinity, and
+ * the recent plays with theirs. A song the user skips at once has no affinity, only skips, so it
+ * never makes the top: its recent plays bring it in, with its metadata, so other sources'
+ * listings of it count as skipped too.
+ */
 export async function loadTasteProfile(
   repo: LibraryRepo,
   picks?: TastePicks,
-  limits: typeof PROFILE_LIMITS = PROFILE_LIMITS,
+  limits: ProfileLimits = PROFILE_LIMITS,
 ): Promise<TasteProfile> {
   const [tracks, artists, tags, recent] = await Promise.all([
     repo.topAffinity('track', limits.tracks),
@@ -98,15 +141,29 @@ export async function loadTasteProfile(
     repo.topAffinity('tag', limits.tags),
     repo.recentlyPlayed(limits.recent),
   ])
-  const cached = await Promise.all(
-    tracks.map(({ entry }) => {
-      const id = entry.ids.find((one) => isEntityId(one, 'track'))
-      return id === undefined ? undefined : repo.getTrack(id)
-    }),
-  )
+  const top = new Set(tracks.map(({ entry }) => entry.key))
+  const others = new Map<string, RecentRow>()
+  for (const row of recent) {
+    const key = entityKey(row.id)
+    if (!top.has(key) && !others.has(key)) others.set(key, row)
+  }
+  const [cached, otherScores] = await Promise.all([
+    Promise.all(
+      tracks.map(({ entry }) => {
+        const id = entry.ids.find((one) => isEntityId(one, 'track'))
+        return id === undefined ? undefined : repo.getTrack(id)
+      }),
+    ),
+    others.size === 0 ? [] : repo.getAffinity('track', [...others.keys()]),
+  ])
   const profileTracks: ProfileTrack[] = tracks.map(({ entry }, index) => {
     const track = cached[index]
     return track === undefined ? { entry } : { entry, track }
+  })
+  ;[...others.values()].forEach((row, index) => {
+    const entry = otherScores[index]?.entry
+    if (entry === undefined) return
+    profileTracks.push(row.track === undefined ? { entry } : { entry, track: row.track })
   })
   const recentPlays: RecentPlay[] = recent.map((row) =>
     row.track === undefined
@@ -119,6 +176,58 @@ export async function loadTasteProfile(
     tags: tags.map(({ entry }) => entry),
     recent: recentPlays,
     ...(picks === undefined ? {} : { picks }),
+  }
+}
+
+/**
+ * The profile with the affinity of what `candidates` name and the profile lacks: their tracks
+ * and main artists (two bulk reads, however many candidates). The profile holds the top of the
+ * affinity only; without these, a song or artist the user skips (skips, no affinity) or a song
+ * played long ago would count as unheard, and come back as new. Entries without metadata are
+ * enough: candidates are matched to them by track and artist key.
+ */
+export async function completeProfile(
+  repo: LibraryRepo,
+  profile: TasteProfile,
+  candidates: readonly RecCandidate[],
+): Promise<TasteProfile> {
+  const trackKeys = new Set<string>()
+  const artistKeys = new Set<string>()
+  const addArtist = (name: unknown) => {
+    if (typeof name !== 'string') return
+    // The affinity keys an artist by the name as credited; the engine merges the spellings a
+    // YouTube channel suffix keeps apart ("Basalt - Topic"), so read both.
+    for (const key of [artistAffinityKey(name), artistKeyOf(name)]) {
+      if (key !== undefined) artistKeys.add(key)
+    }
+  }
+  for (const candidate of candidates) {
+    if (candidate?.type === 'track') {
+      const { id, artists } = candidate.track ?? {}
+      if (isEntityId(id, 'track')) trackKeys.add(entityKey(id))
+      addArtist(Array.isArray(artists) ? artists[0]?.name : undefined)
+    } else if (candidate?.type === 'song-search') {
+      addArtist(Array.isArray(candidate.artists) ? candidate.artists[0] : undefined)
+    } else if (candidate?.type === 'artist') {
+      addArtist(candidate.artist?.name)
+    }
+  }
+  for (const { entry } of profile.tracks ?? []) trackKeys.delete(entry?.key)
+  for (const entry of profile.artists ?? []) artistKeys.delete(entry?.key)
+  if (trackKeys.size === 0 && artistKeys.size === 0) return profile
+  const [trackScores, artistScores] = await Promise.all([
+    trackKeys.size === 0 ? [] : repo.getAffinity('track', [...trackKeys]),
+    artistKeys.size === 0 ? [] : repo.getAffinity('artist', [...artistKeys]),
+  ])
+  const tracks = trackScores.flatMap((score) =>
+    score === undefined ? [] : [{ entry: score.entry }],
+  )
+  const artists = artistScores.flatMap((score) => (score === undefined ? [] : [score.entry]))
+  if (tracks.length === 0 && artists.length === 0) return profile
+  return {
+    ...profile,
+    tracks: [...(profile.tracks ?? []), ...tracks],
+    artists: [...(profile.artists ?? []), ...artists],
   }
 }
 
@@ -188,6 +297,11 @@ export interface FeedRequest {
   readonly picks?: TastePicks
   /** Cancels the build. */
   readonly signal?: AbortSignal
+  /**
+   * Called with the first pass, the user's own shelves, as soon as the library has been read,
+   * when the sources are still to be asked.
+   */
+  readonly onLocal?: (feed: HomeFeedResult) => void
   /** The time. Default: now. */
   readonly now?: number
   /** Local time's offset from UTC in minutes. Default: the browser's. */
@@ -198,6 +312,10 @@ export interface FeedRequest {
   readonly cache?: CollectionCache
   /** Artists found by name, reused between builds. Default: the app's, for this catalog. */
   readonly artists?: Map<string, ArtistRef | null>
+  /** How long the network steps may take in all. Default: {@link FEED_LIMITS}`.deadlineMs`. */
+  readonly deadlineMs?: number
+  /** How much of the library the profile reads. Default: {@link PROFILE_LIMITS}. */
+  readonly profileLimits?: ProfileLimits
 }
 
 /** A built Home and what it could reach. */
@@ -206,6 +324,13 @@ export interface HomeFeedResult extends HomeFeed {
   readonly recommending: boolean
   /** Whether a connected Spotify account's sections were asked for. */
   readonly spotifyConnected: boolean
+  /**
+   * `local` for the first pass, the user's own shelves from the library alone, shown while the
+   * sources are asked; `full` for the whole of Home.
+   */
+  readonly phase: 'local' | 'full'
+  /** Whether every source answered in time. A Home that misses some is built again sooner. */
+  readonly complete: boolean
 }
 
 function abortReason(signal: AbortSignal | undefined): unknown {
@@ -214,6 +339,87 @@ function abortReason(signal: AbortSignal | undefined): unknown {
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw abortReason(signal)
+}
+
+/** The time limit of a build's network steps, and its cancellation. */
+interface Clock {
+  /** Whether the time is up. */
+  readonly passed: boolean
+  /** Resolves when the time is up; never, without a limit. */
+  readonly reached: Promise<void>
+  /** Rejects with the reason when the build is cancelled. */
+  readonly cancelled: Promise<never>
+  /** Stops the clock. */
+  dispose(): void
+}
+
+function startClock(ms: number, signal: AbortSignal | undefined): Clock {
+  let passed = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let onAbort: (() => void) | undefined
+  const reached = new Promise<void>((resolve) => {
+    if (!Number.isFinite(ms)) return
+    timer = setTimeout(
+      () => {
+        passed = true
+        resolve()
+      },
+      Math.max(0, ms),
+    )
+  })
+  const cancelled = new Promise<never>((_, reject) => {
+    if (signal === undefined) return
+    onAbort = () => reject(abortReason(signal))
+    if (signal.aborted) onAbort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+  })
+  // Raced against every step; nothing else waits for it.
+  cancelled.catch(() => {})
+  return {
+    get passed() {
+      return passed
+    },
+    reached,
+    cancelled,
+    dispose() {
+      clearTimeout(timer)
+      if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort)
+    },
+  }
+}
+
+/** One build's network steps: what they share, and whether everything answered so far. */
+interface Run {
+  readonly request: FeedRequest
+  readonly ctx: ProviderContext
+  readonly reach: HomeSourcesSnapshot
+  readonly now: number
+  readonly clock: Clock
+  /** Whether every collection, artist search and expansion so far answered in time. */
+  complete: boolean
+}
+
+/**
+ * Runs one network step: its result, or `fallback` when it fails or the time is up first. A
+ * step the time cut short goes on, so what it caches serves the next build. `ok` says whether
+ * the step answered. Only a cancellation rejects.
+ */
+async function step<R>(
+  run: Run,
+  fallback: R,
+  work: () => Promise<R>,
+): Promise<{ value: R; ok: boolean }> {
+  throwIfAborted(run.request.signal)
+  if (run.clock.passed) return { value: fallback, ok: false }
+  const answer = work().then(
+    (value) => ({ value, ok: true }),
+    () => {
+      throwIfAborted(run.request.signal)
+      return { value: fallback, ok: false }
+    },
+  )
+  const late = run.clock.reached.then(() => ({ value: fallback, ok: false }))
+  return Promise.race([answer, late, run.clock.cancelled])
 }
 
 /** `work` for every item, at most `limit` at a time, results in order. */
@@ -232,16 +438,6 @@ async function mapLimit<T, R>(
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
   return results
-}
-
-/** Runs `work`; a failure counts as `fallback`, unless the build was cancelled. */
-async function quietly<R>(signal: AbortSignal | undefined, fallback: R, work: () => Promise<R>) {
-  try {
-    return await work()
-  } catch {
-    if (signal?.aborted) throw abortReason(signal)
-    return fallback
-  }
 }
 
 /**
@@ -268,17 +464,17 @@ function hasYouTubeId(seed: PlannedSeed): boolean {
  * only an artist with the same name counts, so the seed keeps its key. Seeds that can't be
  * found stay as they are, for the sources that work from names.
  */
-async function withYouTubeArtists(
-  request: FeedRequest,
-  seeds: readonly PlannedSeed[],
-  ctx: ProviderContext,
-): Promise<PlannedSeed[]> {
-  const catalog = request.services.catalog
+async function withYouTubeArtists(run: Run, seeds: readonly PlannedSeed[]): Promise<PlannedSeed[]> {
+  const catalog = run.request.services.catalog
   const findArtist = catalog?.findArtist?.bind(catalog)
-  if (catalog === undefined || findArtist === undefined || ctx.capabilities.youtube === 'none') {
+  if (
+    catalog === undefined ||
+    findArtist === undefined ||
+    run.ctx.capabilities.youtube === 'none'
+  ) {
     return [...seeds]
   }
-  const found = request.artists ?? artistsOf(catalog)
+  const found = run.request.artists ?? artistsOf(catalog)
   return mapLimit(seeds, FEED_LIMITS.concurrency, async (seed) => {
     if (hasYouTubeId(seed) || isTrackSeed(seed.seed)) return seed
     const { name } = seed.seed
@@ -286,15 +482,15 @@ async function withYouTubeArtists(
     if (key === undefined) return seed
     let artist = found.get(key)
     if (artist === undefined) {
-      try {
-        artist = await findArtist(name, ctx)
+      const answer = await step(run, null, async () => {
+        const one = await findArtist(name, run.ctx)
         // Only answers are kept: after a failure, the next build asks again.
         if (found.size >= MAX_FOUND_ARTISTS) found.clear()
-        found.set(key, artist)
-      } catch {
-        throwIfAborted(request.signal)
-        artist = null
-      }
+        found.set(key, one)
+        return one
+      })
+      if (!answer.ok) run.complete = false
+      artist = answer.value
     }
     if (artist === null || artistKeyOf(artist.name) !== key || !isEntityId(artist.id, 'artist')) {
       return seed
@@ -304,44 +500,41 @@ async function withYouTubeArtists(
 }
 
 /** The candidates the sources suggest for every seed. */
-async function collectAll(
-  request: FeedRequest,
-  seeds: readonly PlannedSeed[],
-  ctx: ProviderContext,
-  reach: HomeSourcesSnapshot,
-  now: number,
-): Promise<RecCandidate[]> {
+async function collectAll(run: Run, seeds: readonly PlannedSeed[]): Promise<RecCandidate[]> {
+  const { request, reach, now } = run
   const recommendations = request.services.recommendations
   if (recommendations === undefined) return []
   const cache = request.cache ?? collectionsOf(recommendations)
-  const collections = await mapLimit(seeds, FEED_LIMITS.concurrency, (seed) => {
+  const empty = { candidates: [] as readonly RecCandidate[], whole: false }
+  const collections = await mapLimit(seeds, FEED_LIMITS.concurrency, async (seed) => {
     const key = collectionKey(seed, request.mode, reach)
     const cached = cache.get(key, now)
-    if (cached !== undefined) return Promise.resolve(cached)
-    return quietly(request.signal, [] as readonly RecCandidate[], async () => {
-      const { candidates, outcomes = [] } = await recommendations.collect(seed.seed, ctx, {
+    if (cached !== undefined) return cached
+    const { value, ok } = await step(run, empty, async () => {
+      const { candidates, outcomes = [] } = await recommendations.collect(seed.seed, run.ctx, {
         parts: seed.parts,
         limit: FEED_LIMITS.perSource,
       })
       // A source that failed (a network blip, a pause) may answer next time: keep only whole
       // collections.
-      if (!outcomes.some((outcome) => outcome.status === 'failed')) {
-        cache.set(key, candidates, now)
-      }
-      return candidates
+      const whole = !outcomes.some((outcome) => outcome.status === 'failed')
+      if (whole) cache.set(key, candidates, now)
+      return { candidates, whole }
     })
+    if (!ok || !value.whole) run.complete = false
+    return value.candidates
   })
   return collections.flat()
 }
 
 /** The tracks of the similar artists and song searches worth fetching, as candidates. */
 async function expansions(
-  request: FeedRequest,
+  run: Run,
   candidates: readonly RecCandidate[],
   taste: TasteIndex,
   seeds: readonly PlannedSeed[],
-  ctx: ProviderContext,
 ): Promise<RecCandidate[]> {
+  const { request, ctx } = run
   const catalog = request.services.catalog
   if (catalog === undefined) return []
   const weights = new Map(seeds.map((seed) => [seed.key, seed.weight]))
@@ -370,36 +563,55 @@ async function expansions(
       return track === undefined || track === null ? [] : songTrackCandidates(song, track)
     }),
   ]
-  const results = await mapLimit(jobs, 2, (job) => quietly(request.signal, [], job))
+  const results = await mapLimit(jobs, 2, async (job) => {
+    const { value, ok } = await step(run, [] as RecCandidate[], job)
+    if (!ok) run.complete = false
+    return value
+  })
   return results.flat()
+}
+
+/** Whether Spotify's personal sections may be asked for: switched on, reachable, wired in. */
+function asksSpotify(services: HomeServices, reach: HomeSourcesSnapshot): boolean {
+  return (
+    services.recommendations !== undefined &&
+    services.spotifyAccount !== undefined &&
+    reach.spotifyEnabled &&
+    reach.capabilities.spotify !== 'unreachable'
+  )
 }
 
 /**
  * Spotify's personal sections: only when Spotify is switched on and reachable and the account
- * is connected. Anything that fails means none.
+ * is connected. Anything that fails or comes too late means none; `answered` says whether
+ * Spotify did answer.
  */
 async function spotifySections(
-  request: FeedRequest,
-  ctx: ProviderContext,
-  reach: HomeSourcesSnapshot,
-): Promise<{ connected: boolean; shelves: readonly HomeSourceShelf[] }> {
-  const { recommendations, spotifyAccount } = request.services
+  run: Run,
+): Promise<{ connected: boolean; shelves: readonly HomeSourceShelf[]; answered: boolean }> {
+  const { recommendations, spotifyAccount } = run.request.services
   if (
     recommendations === undefined ||
     spotifyAccount === undefined ||
-    !reach.spotifyEnabled ||
-    reach.capabilities.spotify === 'unreachable'
+    !asksSpotify(run.request.services, run.reach)
   ) {
-    return { connected: false, shelves: [] }
+    return { connected: false, shelves: [], answered: true }
   }
-  const connected = await quietly(request.signal, false, async () => {
-    return (await spotifyAccount.status(ctx)).connected === true
-  })
-  if (!connected) return { connected: false, shelves: [] }
-  const shelves = await quietly(request.signal, [] as readonly HomeSourceShelf[], async () =>
-    (await recommendations.home(ctx)).shelves.filter((shelf) => shelf.source === 'spotify'),
+  const status = await step(
+    run,
+    false,
+    async () => (await spotifyAccount.status(run.ctx)).connected === true,
   )
-  return { connected: true, shelves }
+  if (!status.value) return { connected: false, shelves: [], answered: status.ok }
+  const home = await step(run, [] as readonly HomeSourceShelf[], async () =>
+    (await recommendations.home(run.ctx)).shelves.filter((shelf) => shelf.source === 'spotify'),
+  )
+  return { connected: true, shelves: home.value, answered: home.ok }
+}
+
+/** The listening history Home's lists are built from (see `stable-storage.ts`). */
+async function historyBasis(repo: LibraryRepo): Promise<HistoryBasis> {
+  return (await repo.historyStart()) ?? null
 }
 
 /** Builds Home (see the module documentation). */
@@ -407,35 +619,92 @@ export async function buildHomeFeed(request: FeedRequest): Promise<HomeFeedResul
   const { mode, services, signal } = request
   const now = request.now ?? Date.now()
   const utcOffsetMinutes = request.utcOffsetMinutes ?? -new Date(now).getTimezoneOffset()
-  const profile = await loadTasteProfile(request.repo, request.picks)
+  const [profile, history] = await Promise.all([
+    loadTasteProfile(request.repo, request.picks, request.profileLimits),
+    historyBasis(request.repo),
+  ])
   throwIfAborted(signal)
   const taste = indexTaste(profile, now)
   const seeds = planSeeds(taste, { mode })
   const reach = services.sources.getSnapshot()
   const recommending = canRecommend(services, reach)
-  const ctx = services.sources.context({ mode, ...(signal === undefined ? {} : { signal }) })
-
-  const candidates: RecCandidate[] = []
-  if (recommending) {
-    const sought = await withYouTubeArtists(request, seeds, ctx)
-    candidates.push(...(await collectAll(request, sought, ctx, reach, now)))
-    candidates.push(...(await expansions(request, candidates, taste, seeds, ctx)))
-  }
-  const spotify = await spotifySections(request, ctx, reach)
-  throwIfAborted(signal)
-
-  const feed = buildHome({
-    profile,
-    candidates,
+  const common: Omit<HomeInput, 'profile'> = {
     seeds,
-    sourceShelves: spotify.shelves,
-    spotifyConnected: spotify.connected,
     mode,
     now,
     utcOffsetMinutes,
-    stable: request.stable.load(),
+    stable: request.stable.load(history),
     ...(request.random === undefined ? {} : { random: request.random }),
-  })
-  request.stable.save(feed.stable)
-  return { ...feed, recommending, spotifyConnected: spotify.connected }
+  }
+
+  if (!recommending && !asksSpotify(services, reach)) {
+    // Nothing to ask anyone: the user's own music is all of Home. Lists made without the
+    // sources aren't kept, so the first build that can ask them makes its own.
+    const feed = buildHome({ ...common, profile, taste })
+    return { ...feed, recommending, spotifyConnected: false, phase: 'full', complete: true }
+  }
+
+  if (request.onLocal !== undefined) {
+    const local = buildHome({ ...common, profile, taste, options: LOCAL_PASS })
+    request.onLocal({
+      ...local,
+      recommending,
+      spotifyConnected: false,
+      phase: 'local',
+      complete: false,
+    })
+  }
+
+  const clock = startClock(request.deadlineMs ?? FEED_LIMITS.deadlineMs, signal)
+  try {
+    const run: Run = {
+      request,
+      ctx: services.sources.context({ mode, ...(signal === undefined ? {} : { signal }) }),
+      reach,
+      now,
+      clock,
+      complete: true,
+    }
+    const spotifyAsked = spotifySections(run)
+    // Awaited below; a cancellation that ends the build first must not leave it unhandled.
+    spotifyAsked.catch(() => {})
+    let candidates: RecCandidate[] = []
+    let completed = profile
+    let index = taste
+    if (recommending) {
+      const collected = await collectAll(run, await withYouTubeArtists(run, seeds))
+      completed = await completeProfile(request.repo, profile, collected)
+      if (completed !== profile) index = indexTaste(completed, now)
+      const expanded = await expansions(run, collected, index, seeds)
+      const final = await completeProfile(request.repo, completed, expanded)
+      if (final !== completed) {
+        completed = final
+        index = indexTaste(final, now)
+      }
+      candidates = [...collected, ...expanded]
+    }
+    const spotify = await spotifyAsked
+    throwIfAborted(signal)
+
+    const feed = buildHome({
+      ...common,
+      profile: completed,
+      taste: index,
+      candidates,
+      sourceShelves: spotify.shelves,
+      spotifyConnected: spotify.connected,
+    })
+    // Only a build that heard from every source keeps its lists for their period: a Discover
+    // made while a source failed or was slow would be thin all week.
+    if (recommending && run.complete) request.stable.save(feed.stable, history)
+    return {
+      ...feed,
+      recommending,
+      spotifyConnected: spotify.connected,
+      phase: 'full',
+      complete: run.complete && spotify.answered,
+    }
+  } finally {
+    clock.dispose()
+  }
 }

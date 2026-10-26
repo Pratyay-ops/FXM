@@ -1067,6 +1067,16 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
     },
 
     /**
+     * When the listening history starts: its oldest play's start, or `undefined` while it is
+     * empty. New plays leave it alone; it changes when plays are forgotten (the history cleared
+     * or replaced from a backup) or older ones come in (a backup merged, an import), so what was
+     * built from the history can tell that it is out of date.
+     */
+    async historyStart(): Promise<number | undefined> {
+      return (await db.history.orderBy('playedAt').first())?.playedAt
+    },
+
+    /**
      * Deletes the whole listening history, and with it everything plays added to the
      * affinity: recommendations forget what was played. Likes and playlists keep theirs.
      */
