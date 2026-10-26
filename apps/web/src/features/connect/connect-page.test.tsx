@@ -134,21 +134,29 @@ describe('the onboarding page', { timeout: 30_000 }, () => {
     const full = tierCards().getByRole('heading', { level: 3, name: 'Full' }).closest('li')
     expect(
       within(full as HTMLElement).getByText(
-        'FXM Connect, the desktop app (coming soon) or the Android app (coming soon).',
+        'FXM Connect, the desktop app or the Android app (coming soon).',
       ),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/The desktop and Android apps, which need no extension, are coming soon\./),
+      screen.getByText(
+        /The desktop app needs no extension: it has everything built in\. The Android app is coming soon\./,
+      ),
     ).toBeInTheDocument()
-    // Their guides say where to follow the release, with no steps for a file that isn't there.
-    for (const name of [/^Desktop app/, /^Android app/]) {
-      const guide = within(guides())
-        .getByRole('heading', { level: 3, name })
-        .closest('details') as HTMLElement
-      expect(within(guide).getByText('Coming soon')).toBeInTheDocument()
-      expect(within(guide).getByText(/Not released yet/)).toBeInTheDocument()
-      expect(guide.querySelector('ol')).toBeNull()
-    }
+    // The Android app's guide says where to follow the release, with no steps for a file that
+    // isn't there; the desktop app's has steps, and links its install steps.
+    const guide = (name: RegExp) =>
+      within(guides()).getByRole('heading', { level: 3, name }).closest('details') as HTMLElement
+    const android = guide(/^Android app/)
+    expect(within(android).getByText('Coming soon')).toBeInTheDocument()
+    expect(within(android).getByText(/Not released yet/)).toBeInTheDocument()
+    expect(android.querySelector('ol')).toBeNull()
+    const desktop = guide(/^Desktop app/)
+    expect(within(desktop).queryByText('Coming soon')).toBeNull()
+    expect(desktop.querySelector('ol')).not.toBeNull()
+    expect(within(desktop).getByRole('link', { name: /install steps/ })).toHaveAttribute(
+      'href',
+      'https://github.com/Pratyay-ops/FXM/blob/main/apps/desktop/INSTALL.md',
+    )
   })
 
   it('leads with the Chromium guide in Chrome: Developer mode stays on, updates are manual', async () => {
@@ -265,11 +273,12 @@ describe('the onboarding page', { timeout: 30_000 }, () => {
     expect(within(missing).getByText(/turns it off whenever Developer mode is off/)).toBeVisible()
     expect(
       within(missing).getByText(
-        'The desktop and Android apps, which need no extension, are coming soon.',
+        'The desktop app needs no extension: it has everything built in. The Android app is coming soon.',
       ),
     ).toBeVisible()
-    // No app is out, so there is no button for one.
-    expect(within(missing).queryByRole('button', { name: /Desktop app|Android app/ })).toBeNull()
+    // The desktop app is out, so it gets a button; the Android app isn't.
+    expect(within(missing).getByRole('button', { name: 'Desktop app' })).toBeVisible()
+    expect(within(missing).queryByRole('button', { name: /Android app/ })).toBeNull()
 
     await user.click(within(missing).getByRole('button', { name: 'I removed it on purpose' }))
     await waitFor(() =>

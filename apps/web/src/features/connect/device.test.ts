@@ -88,8 +88,8 @@ describe('recommendedGuide', () => {
     expect(recommendedGuide(at(UA.safariMac))).toBe('apple')
   })
 
-  it("suggests the Chromium guide to a browser it doesn't know, until the desktop app is out", () => {
-    expect(recommendedGuide({ browser: 'other', os: 'linux' })).toBe('chromium')
+  it("suggests the desktop app to a computer browser it doesn't know, now that the app is out", () => {
+    expect(recommendedGuide({ browser: 'other', os: 'linux' })).toBe('desktop')
   })
 })
 

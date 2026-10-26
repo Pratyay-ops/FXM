@@ -11,7 +11,7 @@
 
 import { CircleAlert, Info, RefreshCw, Wrench } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { RELEASED, RELEASES_URL } from './config'
+import { DESKTOP_INSTALL_URL, RELEASED, RELEASES_URL } from './config'
 import {
   BROWSER_NAMES,
   type BrowserFamily,
@@ -316,23 +316,35 @@ export function InstallGuides({ device, openFirst }: InstallGuidesProps) {
               For macOS, Windows and Linux, with everything built in: no extension needed.
             </p>
             {RELEASED.desktop ? (
-              <Steps>
-                <li>
-                  Download the installer for your computer from the{' '}
-                  <ReleaseLink>latest release on GitHub</ReleaseLink>: the <code>.dmg</code> for
-                  macOS, the <code>.msi</code> or <code>.exe</code> for Windows, the AppImage or{' '}
-                  <code>.deb</code> for Linux.
-                </li>
-                <li>
-                  On macOS, the first time you open it, go to System Settings → Privacy &amp;
-                  Security and choose <strong>Open Anyway</strong>: the app isn't notarized by
-                  Apple.
-                </li>
-                <li>
-                  On Windows, if SmartScreen warns about an unrecognized app, choose{' '}
-                  <strong>More info</strong>, then <strong>Run anyway</strong>.
-                </li>
-              </Steps>
+              <>
+                <Steps>
+                  <li>
+                    Download the installer for your computer from the{' '}
+                    <ReleaseLink>latest release on GitHub</ReleaseLink>: the <code>.dmg</code> for
+                    macOS (<code>macos-arm64</code> for Apple silicon, <code>macos-x64</code> for
+                    Intel), the <code>-setup.exe</code> for Windows, the <code>.deb</code> or the
+                    AppImage for Linux.
+                  </li>
+                  <li>
+                    On macOS, the first time you open it, go to System Settings → Privacy &amp;
+                    Security and choose <strong>Open Anyway</strong>: the app isn't notarized by
+                    Apple.
+                  </li>
+                  <li>
+                    On Windows, if SmartScreen warns about an unrecognized app, choose{' '}
+                    <strong>More info</strong>, then <strong>Run anyway</strong>. Smart App Control
+                    blocks it outright, as the installer isn't signed.
+                  </li>
+                </Steps>
+                <p className="text-sm">
+                  The{' '}
+                  <ExternalLink href={DESKTOP_INSTALL_URL} className={textLinkClasses}>
+                    install steps
+                  </ExternalLink>{' '}
+                  have the details, Smart App Control and Linux's packages included. The app updates
+                  itself after asking you.
+                </p>
+              </>
             ) : (
               <NotReleased />
             )}

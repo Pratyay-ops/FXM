@@ -64,7 +64,7 @@ describe('the tiers', () => {
 
   it('marks the apps of Full as coming soon until they are out', () => {
     expect(TIER_INFO.full.how).toBe(
-      'FXM Connect, the desktop app (coming soon) or the Android app (coming soon).',
+      'FXM Connect, the desktop app or the Android app (coming soon).',
     )
   })
 
