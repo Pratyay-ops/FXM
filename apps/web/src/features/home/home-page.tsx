@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { PageWash } from '../../components/media/collection-header'
+import { InstallCard } from '../pwa/install-card'
 import { HomeSkeleton } from './home-skeleton'
 
 /** Everything below the greeting, which needs the library and the engine: a lazy chunk. */
@@ -25,6 +26,10 @@ export function HomePage() {
           Free music from everywhere. No account, no ads from FXM.
         </p>
       </div>
+
+      {/* Phones only, while the browser offers to install FXM (stage 5.1). */}
+      <InstallCard />
+
       <Suspense fallback={<HomeSkeleton />}>
         <HomeContent />
       </Suspense>

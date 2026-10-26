@@ -83,7 +83,7 @@ In `make dev`, `?fake-home=lite` or `?fake-home=full` plugs fake services into H
 
 | File | What |
 |---|---|
-| `home-page.tsx` | The page and its greeting, which ship with the shell; the rest loads as a chunk of its own, so the library database and the engine don't weigh on the first load |
+| `home-page.tsx` | The page and its greeting, which ship with the shell, and on phones the install offer of stage 5.1 (`InstallCard`); the rest loads as a chunk of its own, so the library database and the engine don't weigh on the first load |
 | `home-content.tsx`, `home-skeleton.tsx` | The notes, the onboarding, the shelves, Your artists and the mix dialog, and where focus goes; Home while it loads |
 | `shelves.tsx` | Shelf sections, song cards and lines, mix cards, a service's section |
 | `onboarding.tsx` | The onboarding (for the cold start, and to change the picks), its reminder, and Your artists |

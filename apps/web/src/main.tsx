@@ -1,11 +1,18 @@
 import './styles/index.css'
+import { registerSW } from 'virtual:pwa-register'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/app'
 import { createAppRouter } from './app/router'
+import { listenForInstallPrompt } from './features/pwa/install'
+import { registerServiceWorker } from './features/pwa/service-worker'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('index.html is missing the #root element')
+
+// Before the first render: the browser may offer to install FXM as soon as the page loads.
+listenForInstallPrompt()
+registerServiceWorker(registerSW)
 
 createRoot(root).render(
   <StrictMode>
