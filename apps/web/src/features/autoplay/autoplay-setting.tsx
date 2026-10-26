@@ -1,8 +1,10 @@
 import type { QueueItem } from '@fxm/core'
 import { InfinityIcon } from 'lucide-react'
-import { useId } from 'react'
+import { useId, useMemo } from 'react'
 import { Link } from 'react-router'
 import { cn } from '../../lib/cn'
+import { currentDevice, type DeviceInfo } from '../connect/device'
+import { reachSentence } from '../connect/explain'
 import { standaloneLinkClasses } from '../connect/ui'
 import {
   canRecommend,
@@ -23,9 +25,14 @@ import { useAutoplayStore } from './autoplay-store'
 export const AUTOPLAY_HELP =
   'When your queue runs low, FXM adds songs like the ones you just played, so the music keeps going. The songs you like and skip steer what comes next. Songs it adds are marked “Autoplay” in the queue, and you can remove them there. Switching it off also takes out the ones that haven’t played yet, unless you moved them.'
 
-/** Why autoplay adds nothing here, for Settings in the Free tier. */
-export const AUTOPLAY_NEEDS_YOUTUBE =
-  'Autoplay needs YouTube Music. FXM reaches it with the free FXM Connect extension, the desktop and Android apps, or the experimental Lite tier.'
+/**
+ * Why autoplay adds nothing here, for Settings in the Free tier: it needs YouTube Music, and how
+ * this device reaches it (`reachSentence`): FXM Connect where its browser can add it, the apps
+ * once they are out, else what works here instead. It never offers what this device can't get.
+ */
+export function autoplayNeedsYouTube(device: DeviceInfo = currentDevice()): string {
+  return `Autoplay needs YouTube Music. ${reachSentence('YouTube Music', device)}`
+}
 
 /** What autoplay does, beside its switch in the queue. */
 export const AUTOPLAY_QUEUE_HELP =
@@ -61,6 +68,7 @@ export function AutoplaySetting() {
   const reach = useHomeReach(services)
   const { detecting = false } = useSourcesSnapshot()
   const note = autoplayNote(services, reach, detecting)
+  const device = useMemo(currentDevice, [])
   const labelId = useId()
   const helpId = useId()
   return (
@@ -71,7 +79,7 @@ export function AutoplaySetting() {
         <div className="space-y-2 text-sm text-text-muted">
           <div id={helpId} className="space-y-2">
             <p>{AUTOPLAY_HELP}</p>
-            {note === 'needs-youtube' && <p>{AUTOPLAY_NEEDS_YOUTUBE}</p>}
+            {note === 'needs-youtube' && <p>{autoplayNeedsYouTube(device)}</p>}
           </div>
           {note === 'needs-youtube' && (
             <p>

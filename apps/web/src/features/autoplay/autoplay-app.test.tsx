@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { homeSourcesUntil } from '../../app/services/home'
 import { getLibrary } from '../../db/repo'
 import { renderApp } from '../../test/render'
+import { detectDevice } from '../connect/device'
+import { reachSentence } from '../connect/explain'
+import { asBrowser, USER_AGENTS } from '../connect/testing'
 import { appHomeServices } from '../home/services'
 import { fakeRecommendations, homeServices, song } from '../home/testing'
 import { setupTestPlayback } from '../now-playing/testing'
@@ -11,10 +14,13 @@ import { playbackFromPlayer } from '../search/actions'
 import { renderCatalog } from '../search/testing'
 import { AUTOPLAY_SETTLE_MS } from './autoplay'
 import { AUTOPLAY_TITLE } from './autoplay-marks'
-import { AUTOPLAY_FINDING, AUTOPLAY_HELP, AUTOPLAY_NEEDS_YOUTUBE } from './autoplay-setting'
+import { AUTOPLAY_FINDING, AUTOPLAY_HELP, autoplayNeedsYouTube } from './autoplay-setting'
 import { AUTOPLAY_STORAGE_KEY, useAutoplayStore } from './autoplay-store'
 
 const MINUTE = 60_000
+
+/** The Free tier's note in Settings: what autoplay needs, and how this device reaches it. */
+const NEEDS_YOUTUBE = /^Autoplay needs YouTube Music\. /
 
 /** How long autoplay may take to add songs: it waits for the queue to settle first. */
 const ADDING = { timeout: AUTOPLAY_SETTLE_MS + 5_000 }
@@ -240,6 +246,27 @@ describe('autoplay in the app', () => {
 })
 
 describe('autoplay in Settings', () => {
+  it('says how this device reaches YouTube Music, offering only what it can get', async () => {
+    const device = (userAgent: string) => detectDevice({ userAgent })
+    const chrome = device(USER_AGENTS.chromeWindows)
+    const iphone = device(USER_AGENTS.iphone)
+    // explain.ts's sentence, which offers the apps only once they are out.
+    for (const each of [chrome, iphone, device(USER_AGENTS.safariMac)]) {
+      expect(autoplayNeedsYouTube(each)).toBe(
+        `Autoplay needs YouTube Music. ${reachSentence('YouTube Music', each)}`,
+      )
+    }
+    expect(autoplayNeedsYouTube(chrome)).toContain('the free FXM Connect browser extension')
+    expect(autoplayNeedsYouTube(iphone)).not.toMatch(/add the free FXM Connect/)
+    expect(autoplayNeedsYouTube(iphone)).toContain("isn't available on iPhone and iPad")
+
+    // Settings, on an iPhone in the Free tier.
+    asBrowser(USER_AGENTS.iphone)
+    const { sources } = renderCatalog('/settings', { tier: 'free' })
+    act(() => appHomeServices.set({ sources, recommendations: fakeRecommendations() }))
+    expect(await screen.findByText(autoplayNeedsYouTube(iphone))).toBeInTheDocument()
+  })
+
   it.each(['free', 'lite', 'full'] as const)(
     'says only what it does until the recommendation sources are wired in, in the %s tier',
     async (tier) => {
@@ -248,7 +275,7 @@ describe('autoplay in Settings', () => {
       expect(toggle).toHaveAttribute('aria-checked', 'true')
       // The app wires them in once the platform is ready: until then the tier isn't known.
       expect(toggle).toHaveAccessibleDescription(AUTOPLAY_HELP)
-      expect(screen.queryByText(AUTOPLAY_NEEDS_YOUTUBE)).not.toBeInTheDocument()
+      expect(screen.queryByText(NEEDS_YOUTUBE)).not.toBeInTheDocument()
       await user.click(toggle)
       expect(useAutoplayStore.getState().enabled).toBe(false)
       expect(toggle).toHaveAttribute('aria-checked', 'false')
@@ -263,7 +290,7 @@ describe('autoplay in Settings', () => {
     const { sources } = renderCatalog('/settings', { tier })
     act(() => appHomeServices.set({ sources, recommendations: fakeRecommendations() }))
     const toggle = await screen.findByRole('switch', { name: 'Autoplay' })
-    expect(screen.queryByText(AUTOPLAY_NEEDS_YOUTUBE) !== null).toBe(needs)
+    expect(screen.queryByText(NEEDS_YOUTUBE) !== null).toBe(needs)
     const guides = screen.queryByRole('link', { name: 'Tiers and install guides' })
     expect(guides !== null).toBe(needs)
     if (needs) {
@@ -279,9 +306,9 @@ describe('autoplay in Settings', () => {
       appHomeServices.set({ sources, recommendations: fakeRecommendations() })
     })
     await screen.findByRole('switch', { name: 'Autoplay' })
-    expect(screen.queryByText(AUTOPLAY_NEEDS_YOUTUBE)).not.toBeInTheDocument()
+    expect(screen.queryByText(NEEDS_YOUTUBE)).not.toBeInTheDocument()
     act(() => sources.setDetecting(false))
-    await waitFor(() => expect(screen.getByText(AUTOPLAY_NEEDS_YOUTUBE)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(NEEDS_YOUTUBE)).toBeInTheDocument())
   })
 
   it('waits for the app to know the tier, as Home’s sources say, before it says what autoplay needs', async () => {
@@ -298,8 +325,8 @@ describe('autoplay in Settings', () => {
     act(() => appHomeServices.set({ sources: home, recommendations: fakeRecommendations() }))
     await screen.findByRole('switch', { name: 'Autoplay' })
     expect(sources.getSnapshot().detecting).not.toBe(true)
-    expect(screen.queryByText(AUTOPLAY_NEEDS_YOUTUBE)).not.toBeInTheDocument()
+    expect(screen.queryByText(NEEDS_YOUTUBE)).not.toBeInTheDocument()
     act(() => known())
-    await waitFor(() => expect(screen.getByText(AUTOPLAY_NEEDS_YOUTUBE)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(NEEDS_YOUTUBE)).toBeInTheDocument())
   })
 })
