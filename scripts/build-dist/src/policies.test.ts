@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMBED_HEADERS } from '../../../apps/web/embed/headers.ts'
 import { pwaCspProblems } from '../../../apps/web/pwa/host.ts'
+import { EMBED_SOURCES } from '../../../apps/web/src/embed/target.ts'
+import { WIRED_SOURCES } from '../../../apps/web/src/embed/wired.ts'
 import { parsePolicy, serializePolicy, sha256Source, UNSAFE_EVAL, WASM_UNSAFE_EVAL } from './csp.ts'
 import {
   APP_SCRIPT_EXTRAS,
@@ -63,8 +65,11 @@ const SHARED_POLICY = PLAN_APP_POLICY.replace(
   )
   .replace("worker-src 'self' blob:;", "worker-src 'self';")
 
-/** The `/embed/*` policy today: the shared one, without frame-ancestors. */
-const EMBED_POLICY = SHARED_POLICY.replace(" frame-ancestors 'none';", '')
+/**
+ * The `/embed/*` policy today: no frame-ancestors, no worker, and the hosts of the two services
+ * the embed plays from, YouTube's and Internet Archive's, only.
+ */
+const EMBED_POLICY = `default-src 'self'; script-src 'self' ${HASH}; worker-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://archive.org https://*.archive.org; media-src 'self' blob: https:; connect-src 'self' https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com https://*.googlevideo.com https://archive.org https://*.archive.org; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'`
 
 /**
  * What 4.2 adds for the app alone, after each service's hosts: the exact image hosts it fetches
@@ -354,7 +359,42 @@ describe('the site policies', () => {
 describe('the app policy and the installable web app', () => {
   it('allows what the PWA needs: its service worker, manifest, icons and shell download', () => {
     expect(pwaCspProblems(serializePolicy(appPolicy([HASH])))).toEqual([])
-    expect(pwaCspProblems(serializePolicy(appPolicy([HASH], { embeddable: true })))).toEqual([])
+    // The embed installs nothing and starts no worker.
+    expect(pwaCspProblems(serializePolicy(appPolicy([HASH], { embeddable: true })))).toEqual([
+      'worker-src',
+    ])
+  })
+})
+
+/** The service each source the embed can name loads from (EMBED_SOURCES). */
+const SOURCE_SERVICES: Readonly<Record<string, string>> = {
+  ytm: 'YouTube',
+  yt: 'YouTube',
+  archive: 'Internet Archive',
+  jamendo: 'Jamendo',
+}
+
+describe('the embed policy', () => {
+  it('allows the services of the sources the embed plays, and nothing else', () => {
+    expect(Object.keys(SOURCE_SERVICES).sort()).toEqual([...EMBED_SOURCES].sort())
+    const played = new Set([...WIRED_SOURCES].map((source) => SOURCE_SERVICES[source]))
+    expect(
+      APP_SERVICES.filter((service) => service.embed).map((service) => service.privacyName),
+    ).toEqual(APP_SERVICES.map((service) => service.privacyName).filter((name) => played.has(name)))
+    // Even in a build that offers every service, Jamendo's client_id included.
+    const embed = parsePolicy(serializePolicy(appPolicy([HASH], { ...ALL, embeddable: true })))
+    const allowed = [...(embed.get('connect-src') ?? []), ...(embed.get('img-src') ?? [])]
+    for (const service of APP_SERVICES.filter((candidate) => !candidate.embed)) {
+      for (const host of [...(service.connect ?? []), ...(service.img ?? [])]) {
+        expect(allowed, `${service.privacyName}: ${host}`).not.toContain(host)
+      }
+    }
+  })
+
+  it('lets the embed start no worker, which it never does', () => {
+    const embed = parsePolicy(serializePolicy(appPolicy([HASH], { embeddable: true })))
+    expect(embed.get('worker-src')).toEqual(["'none'"])
+    expect(parsePolicy(serializePolicy(appPolicy([HASH]))).get('worker-src')).toEqual(["'self'"])
   })
 })
 

@@ -62,7 +62,7 @@ Cloudflare gives a request the headers of every `_headers` rule that matches it 
 | Files | Rule | Policy (`src/policies.ts`) |
 |---|---|---|
 | `app/**` | `/app/*` | `appPolicy()`: the policy in docs/PLAN.md, with the hash of the app's inline theme script, the hosts of the services later stages added, and two differences: workers only from the app's own origin, and Jamendo's hosts only in a build with its client_id ([Jamendo](#jamendo)). 4.2 adds `'wasm-unsafe-eval'`, for the conversion worker, and the exact hosts the app reads covers from (`appConnect`) |
-| `embed/**` | `/embed/*` | `appPolicy({ embeddable: true })`: the same without `frame-ancestors`, and without what only the app needs (4.2's `'wasm-unsafe-eval'` and cover hosts) |
+| `embed/**` | `/embed/*` | `appPolicy({ embeddable: true })`: the same without `frame-ancestors`, without what only the app needs (4.2's `'wasm-unsafe-eval'` and cover hosts), with `worker-src 'none'`, since the embed starts no worker, and with only the hosts of the services it plays from, YouTube's and Internet Archive's (`embed` in `APP_SERVICES`, which a test keeps equal to the embed's `WIRED_SOURCES`): no Spotify, MusicBrainz, LRCLIB, SponsorBlock, ListenBrainz, Last.fm, GitHub or Cover Art Archive, which only the app contacts |
 | `sandbox/<doc>.html` | `/sandbox/<doc>` and `/sandbox/<doc>.html` | `SANDBOX_DOCUMENTS`: `sandbox allow-scripts`, the document's inline script by hash, and its hosts |
 | each other `.html` page | its path and its `.html` path, such as `/privacy` and `/privacy.html` | `sitePagePolicy()`: that page's own inline scripts and styles by hash, its own files |
 | `_astro/**`, `.well-known/**`, `source/**` | `/_astro/*`, `/.well-known/*`, `/source/*` | `STATIC_FILE_POLICY`: nothing allowed |
