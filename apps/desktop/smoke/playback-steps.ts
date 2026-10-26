@@ -49,6 +49,11 @@ export interface PlaylistRun {
   readonly mediaSessionTitles?: readonly string[]
   /** The page's visibility while it played, e.g. `hidden`. */
   readonly visibility: readonly string[]
+  /**
+   * When each track started playing, in seconds since the page loaded: in the smoke build's
+   * hidden window, how long the page had been hidden. `undefined` where unknown.
+   */
+  readonly startsS?: readonly number[]
 }
 
 /** Plays a playlist to its end through the app's player, muted. */
@@ -159,6 +164,12 @@ export function runProblem(run: PlaylistRun, playlist: SmokePlaylist): string | 
   return undefined
 }
 
+/** `seconds` as minutes and seconds, such as `6:08`. */
+export function clockTime(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
+}
+
 /** The report's line about a playlist that played. */
 export function describeRun(run: PlaylistRun): string {
   const lengths = run.tracks.map((track) => `${track.durationS.toFixed(1)} s`).join(' + ')
@@ -170,7 +181,11 @@ export function describeRun(run: PlaylistRun): string {
       ? 'no Media Session'
       : `the Media Session showed each title`
   const visibility = [...new Set(run.visibility)].join(', ') || 'unknown'
-  return `${lengths} of ${codecs}, one after another; ${lock}; ${session}; page ${visibility}`
+  const starts =
+    run.startsS === undefined || run.startsS.length === 0
+      ? ''
+      : `; tracks started ${run.startsS.map(clockTime).join(', ')} after the page loaded`
+  return `${lengths} of ${codecs}, one after another; ${lock}; ${session}; page ${visibility}${starts}`
 }
 
 /**

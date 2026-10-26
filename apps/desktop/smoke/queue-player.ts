@@ -25,6 +25,8 @@ export interface PlaybackSample {
   readonly mediaSessionTitle?: string
   /** The page's visibility, e.g. `hidden`. */
   readonly visibility: string
+  /** How long the page has been loaded, in seconds; in the smoke build, how long it was hidden. */
+  readonly pageS?: number
 }
 
 /** Options for {@link appQueuePlayer}. */
@@ -175,10 +177,12 @@ function runOf(tallies: readonly Tally[], samples: readonly PlaybackSample[]): P
   const titles = samples.flatMap((seen) =>
     seen.mediaSessionTitle === undefined ? [] : [seen.mediaSessionTitle],
   )
+  const starts = samples.flatMap((seen) => (seen.pageS === undefined ? [] : [seen.pageS]))
   return {
     tracks,
     ...(locks.length === 0 ? {} : { webLock: locks.every(Boolean) }),
     ...(titles.length === 0 ? {} : { mediaSessionTitles: titles }),
     visibility: samples.map((seen) => seen.visibility),
+    ...(starts.length === 0 ? {} : { startsS: starts }),
   }
 }

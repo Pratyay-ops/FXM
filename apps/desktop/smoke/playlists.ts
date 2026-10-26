@@ -1,8 +1,8 @@
 /**
  * The smoke test's playlists for stage 7.3's done-when, three tracks each:
  *
- * - {@link FREE_PLAYLIST}: three short public-domain recordings on Internet Archive, which play
- *   today;
+ * - {@link FREE_PLAYLIST}: three public-domain recordings on Internet Archive, about 9 minutes in
+ *   all, which play today;
  * - {@link youtubeSongs}: three YouTube Music songs, which wait for stage 1.4's resolver.
  *
  * @module
@@ -16,17 +16,37 @@ import { Pending } from './steps'
 /** Internet Archive's download path: `/download/<identifier>/<file>`. */
 export const ARCHIVE_DOWNLOAD = 'https://archive.org/download/'
 
+/** The Internet Archive item of Musopen's recordings of Chopin's complete works. */
+export const MUSOPEN_CHOPIN = 'musopen-chopin-complete-works-flac'
+
 /**
- * Three short recordings on Internet Archive, each in the public domain: the Public Domain
- * Mark (`long_temple_bell`) or Creative Commons' public domain dedication
- * (`onomonopoetic_sounds`). The longest plays first, so the player prepares each next track
- * while the one before plays (30 s before its end). About 2 minutes in all.
+ * Three Chopin waltzes from Musopen's recordings of his complete works, which Musopen released
+ * into the public domain (CC0) after its 2012 Kickstarter; the item keeps an MP3 of each. About
+ * 9 minutes in all, longest first: the page stays hidden past 5 minutes while they play, the
+ * point after which Chromium, and so WebView2, throttles a hidden, silent page's timers hardest,
+ * so at least one change of track and one whole track happen under it (see the README's live
+ * smoke test).
  */
 export const FREE_FILES = [
-  { file: 'onomonopoetic_sounds/gong.mp3', title: 'gong', seconds: 64.2 },
-  { file: 'onomonopoetic_sounds/plang_pleng_pling.mp3', title: 'plang pleng pling', seconds: 31.4 },
-  { file: 'long_temple_bell/long_temple_bell.mp3', title: 'long temple bell', seconds: 27 },
+  {
+    file: `${MUSOPEN_CHOPIN}/Waltz in F minor, Op. 70 no. 2.mp3`,
+    title: 'Waltz in F minor, Op. 70 No. 2',
+    seconds: 185.5,
+  },
+  {
+    file: `${MUSOPEN_CHOPIN}/Waltz in A flat major, Op. 64 no. 3.mp3`,
+    title: 'Waltz in A-flat major, Op. 64 No. 3',
+    seconds: 184.2,
+  },
+  {
+    file: `${MUSOPEN_CHOPIN}/Waltz in E minor, B. 56.mp3`,
+    title: 'Waltz in E minor, B. 56',
+    seconds: 175.8,
+  },
 ] as const
+
+/** Who the free playlist's recordings are by. */
+export const FREE_ARTIST = 'Frédéric Chopin'
 
 /** The URL of an Internet Archive file, from its `<identifier>/<file>` path. */
 export function archiveUrl(path: string): string {
@@ -34,12 +54,12 @@ export function archiveUrl(path: string): string {
 }
 
 /** The track of an Internet Archive file: `archive:track:<identifier>/<file>`. */
-export function archiveTrack(file: string, title: string): Track {
+export function archiveTrack(file: string, title: string, artist = 'Internet Archive'): Track {
   return {
     id: formatId('archive', 'track', file),
     source: 'archive',
     title,
-    artists: [{ name: 'Internet Archive' }],
+    artists: [{ name: artist }],
     artwork: [],
     kind: 'song',
   }
@@ -73,7 +93,7 @@ export function archiveFileSource(): StreamSource {
 /** Three Internet Archive tracks and their source. */
 export const FREE_PLAYLIST: SmokePlaylist = {
   label: 'Internet Archive tracks',
-  tracks: FREE_FILES.map(({ file, title }) => archiveTrack(file, title)),
+  tracks: FREE_FILES.map(({ file, title }) => archiveTrack(file, title, FREE_ARTIST)),
   sources: [archiveFileSource()],
 }
 

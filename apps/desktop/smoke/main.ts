@@ -62,6 +62,7 @@ async function samplePage(): Promise<PlaybackSample> {
     ...(webLock === undefined ? {} : { webLock }),
     ...(mediaSessionTitle === undefined ? {} : { mediaSessionTitle }),
     visibility: document.visibilityState,
+    pageS: performance.now() / 1000,
   }
 }
 

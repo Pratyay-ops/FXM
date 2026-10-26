@@ -104,6 +104,12 @@ describe('src/lib.rs', () => {
     )
   })
 
+  it('leaves the single-instance plugin out of the smoke build, so overlapping runs never meet', () => {
+    expect(lib).toMatch(
+      /#\[cfg\(not\(feature = "smoke"\)\)\]\s*let builder = builder\.plugin\(tauri_plugin_single_instance::init\(/,
+    )
+  })
+
   it('handles the close button and the Dock icon in src/window.rs', () => {
     expect(lib).toMatch(/\.on_window_event\(window::on_window_event\)/)
     expect(lib).toMatch(/\.run\(\|app, event\| window::on_run_event\(app, &event\)\)/)

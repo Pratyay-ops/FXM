@@ -5,12 +5,13 @@
  * Tauri turns background throttling off only on macOS 14 and later (`backgroundThrottling` in
  * `tauri.conf.json`, WebKit's inactive scheduling policy). WebView2 (Windows) and WebKitGTK
  * (Linux) have no such switch, and Tauri's documentation suggests a pending Web Lock instead.
- * Chromium, and so WebView2, keeps a page that holds a Web Lock out of its aggressive
- * background throttling and never freezes it, so another page waiting for the lock is never
- * stuck behind a throttled one. Without that, a page hidden for some minutes may wake its timers
- * only once a minute while nothing is audible, and the player's timers matter exactly then:
- * between tracks, for retries and for the stall watch. Whether WebKitGTK gains anything from the
- * lock is part of the manual check in `apps/desktop/README.md`.
+ * Chromium, and so WebView2, never freezes a page that holds a Web Lock, so another page waiting
+ * for the lock is never stuck behind a frozen one. Whether the lock also spares the page the
+ * intensive throttling that starts after 5 minutes hidden, when a page that plays nothing
+ * audible may wake its timers only once a minute, is what the smoke test's 9-minute playlist
+ * shows on WebView2: the player's timers matter then, for retries and for the stall watch, while
+ * it moves between tracks on media events. Whether WebKitGTK gains anything from the lock is part
+ * of the manual check in `apps/desktop/README.md`.
  *
  * The lock is released while paused, so an idle FXM in the tray is throttled as usual. Holding
  * it costs nothing, so it is held on macOS too, including macOS 11 to 13, which have no inactive

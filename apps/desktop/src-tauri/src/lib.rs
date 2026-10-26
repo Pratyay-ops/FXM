@@ -31,12 +31,16 @@ pub const MAIN_WINDOW: &str = "main";
 
 /// Builds and runs the app until it quits.
 pub fn run() {
-    let builder = tauri::Builder::default()
-        // Registered first: a second launch only brings the running app to the front, including
-        // a window hidden in the tray.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            window::show_main_window(app);
-        }))
+    let builder = tauri::Builder::default();
+    // Registered first: a second launch only brings the running app to the front, including a
+    // window hidden in the tray. Left out of the smoke build, whose runs from different checkouts
+    // may overlap on one machine: the plugin would hand one run over to the other's app and show
+    // that app's hidden window.
+    #[cfg(not(feature = "smoke"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        window::show_main_window(app);
+    }));
+    let builder = builder
         // Size, position, maximized and full screen survive restarts. Visibility does not:
         // the app always opens with its window showing.
         .plugin(
