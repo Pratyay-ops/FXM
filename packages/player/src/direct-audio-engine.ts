@@ -370,8 +370,8 @@ export class DirectAudioEngine implements Engine {
    * inside the user gesture this is called from, so the browser lets it start later without
    * one (WebKit and Android WebView unlock elements one by one). An element the browser refuses
    * to start stays locked. Elements that hold a source are left alone: they unlock with their
-   * first successful `play()`. With the equalizer on, it also lets the Web Audio context run,
-   * which browsers allow only from a gesture.
+   * first successful `play()`. With the equalizer on, it also creates the Web Audio context
+   * and lets it run, which browsers allow only from a gesture.
    */
   unlock(): void {
     if (this.#destroyed) return
@@ -393,9 +393,9 @@ export class DirectAudioEngine implements Engine {
         if (errorName(error) === 'NotAllowedError') this.#unlocked.delete(element)
       })
     }
-    if (this.#effects?.equalizer.enabled === true || this.#context !== undefined) {
-      this.#resumeContext()
-    }
+    // Browsers let an audio context start only from a user's action: this is one.
+    if (this.#effects?.equalizer.enabled === true) this.#ensureContext()
+    this.#resumeContext()
   }
 
   /**
@@ -412,8 +412,9 @@ export class DirectAudioEngine implements Engine {
       const stream = this.#streamOf(slot)
       if (slot !== undefined && stream !== undefined) slot.gainDb = this.#gainFor(slot, stream)
     }
-    if (effects.equalizer.enabled) {
-      // Called from the switch's click: a gesture, in which the context may start.
+    if (effects.equalizer.enabled && this.#source !== undefined) {
+      // The switch's click while something is loaded: a gesture, in which the context may
+      // start. Otherwise the next play's `unlock()` starts it, not the settings read at startup.
       this.#ensureContext()
       this.#resumeContext()
     }

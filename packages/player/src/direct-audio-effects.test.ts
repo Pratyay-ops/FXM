@@ -243,6 +243,20 @@ describe('DirectAudioEngine: routing through Web Audio', () => {
     expect(statuses.at(-1)?.equalizer).toBe('on')
   })
 
+  it('creates the context in a user gesture, not when the settings arrive at startup', async () => {
+    const { engine, contexts, context } = setup()
+    engine.setEffects(EQ_ON)
+    expect(contexts()).toBe(0)
+    engine.unlock()
+    expect(contexts()).toBe(1)
+    expect(context.resumes).toBe(0)
+    // Switched on again while something plays (the switch's click): the context runs on.
+    await engine.load(source('a'))
+    engine.setEffects(EQ_OFF)
+    engine.setEffects(EQ_ON)
+    expect(contexts()).toBe(1)
+  })
+
   it('lets the context run from a user gesture', () => {
     const { engine, context } = setup()
     context.state = 'suspended'
