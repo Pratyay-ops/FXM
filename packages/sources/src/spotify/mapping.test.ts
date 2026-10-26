@@ -10,6 +10,7 @@ import {
   mapLibraryPlaylists,
   mapLibraryTracks,
   mapPlaylist,
+  mapPlaylistContent,
   mapProfile,
   mapRelatedArtists,
   mapSearch,
@@ -377,6 +378,9 @@ describe('library answers (shaped after the web player, not recorded)', () => {
     expect(mapLibraryTracks({ me: { library: { tracks: { __typename: 'Error' } } } }, 0, 50)).toBe(
       undefined,
     )
+    // A page without its list of items can't be read: it never passes for an empty library.
+    const noItems = { __typename: 'UserLibraryTrackPage', totalCount: 120 }
+    expect(mapLibraryTracks({ me: { library: { tracks: noItems } } }, 0, 50)).toBeUndefined()
   })
 
   it('maps saved playlists with their revision, and leaves out what can not be read', () => {
@@ -445,6 +449,27 @@ describe('library answers (shaped after the web player, not recorded)', () => {
     expect(mapLibraryPlaylists({ me: { libraryV3: { __typename: 'NotFound' } } }, 0, 50)).toBe(
       undefined,
     )
+    expect(
+      mapLibraryPlaylists(
+        { me: { libraryV3: { __typename: 'LibraryPage', totalCount: 6 } } },
+        0,
+        50,
+      ),
+    ).toBeUndefined()
+  })
+
+  it("reads a playlist's tracks only from a list of items", () => {
+    const { playlistV2 } = fixtures.playlistRadio.data
+    expect(mapPlaylistContent(playlistV2, 0, 50)?.items).toHaveLength(
+      mapPlaylist(playlistV2, { offset: 0, limit: 50 })?.tracks?.items.length ?? -1,
+    )
+    expect(mapPlaylistContent({ ...playlistV2, content: undefined }, 0, 50)).toBeUndefined()
+    expect(
+      mapPlaylistContent({ ...playlistV2, content: { totalCount: 50 } }, 0, 50),
+    ).toBeUndefined()
+    expect(mapPlaylistContent({ ...playlistV2, content: { items: [] } }, 0, 50)).toEqual({
+      items: [],
+    })
   })
 
   it('reads revisions only as short strings', () => {

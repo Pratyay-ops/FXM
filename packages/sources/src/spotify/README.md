@@ -80,6 +80,8 @@ GraphQL calls are `POST https://api-partner.spotify.com/pathfinder/v2/query` wit
 
 Every Spotify track is a catalog song (`kind: 'song'`) with `externalIds.spotify` set to its base62 ID, `explicit` from its content rating, artwork, `durationMs`, track and disc numbers, and its album's release date. IDs are canonical: `spotify:<kind>:<22-character base62 ID>`. Spotify has no videos for FXM, so the `video` search type is always an empty page.
 
+**The logged-in library calls never read an answer they don't understand as empty.** A `fetchLibraryTracks` or `libraryV3` page, or a logged-in `fetchPlaylist`'s `content`, without its list of items fails as `bad-response` (`mapLibraryTracks`, `mapLibraryPlaylists` and `mapPlaylistContent` return `undefined`), where the anonymous calls read a missing list as an empty page. A sync that took such an answer for an emptied playlist would take every song out of its copy.
+
 **Track details.** `getTrackDetails(id)` returns the ISRC (a property of the recording) and the label, release date and album type (`album`, `single`, `ep`, `compilation`) of the release Spotify lists the track on, plus its popularity. Look details up only for tracks being played, prefetched or imported. `getTrack` includes the ISRC once `getTrackDetails` has found it.
 
 - `enrichTrack(track)` adds what a track lacks. A Spotify track gets the ISRC, release date and popularity. **A track of another source**, found through its `externalIds.spotify`, **gets only the ISRC**: Spotify's release date and popularity describe Spotify's release, which may not be the compilation or remaster the other source lists, and a wrong year would reach download tags and the matching engine's re-recording guard.

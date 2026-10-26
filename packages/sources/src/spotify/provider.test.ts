@@ -1034,6 +1034,55 @@ describe('library (logged in)', () => {
     expectReason(await failure(provider.getLibraryTracks({}, ctx)), 'bad-response')
     expectReason(await failure(provider.getLibraryPlaylists({}, ctx)), 'bad-response')
   })
+
+  it('refuses answers without a list of items, never reading them as an empty library', async () => {
+    const clock = fakeClock()
+    let content: unknown
+    const { provider, spotify } = setup({
+      spotify: {
+        clock,
+        graphql: {
+          fetchLibraryTracks: () =>
+            json({
+              data: {
+                me: {
+                  library: { tracks: { __typename: 'UserLibraryTrackPage', totalCount: 120 } },
+                },
+              },
+            }),
+          libraryV3: () =>
+            json({ data: { me: { libraryV3: { __typename: 'LibraryPage', totalCount: 12 } } } }),
+          fetchPlaylist: () =>
+            json({
+              data: {
+                playlistV2: {
+                  ...fixtures.playlistRadio.data.playlistV2,
+                  revisionId: 'AAAAB2fixture-revision',
+                  content,
+                },
+              },
+            }),
+        },
+      },
+      provider: withAccount(loggedIn(clock)),
+    })
+    const ctx = accountContext(spotify)
+    expectReason(await failure(provider.getLibraryTracks({}, ctx)), 'bad-response')
+    expectReason(await failure(provider.getLibraryPlaylists({}, ctx)), 'bad-response')
+    for (const answer of [undefined, { __typename: 'PlaylistItemsPage', totalCount: 50 }]) {
+      content = answer
+      expectReason(
+        await failure(provider.getLibraryPlaylistTracks(creepRadio, {}, ctx)),
+        'bad-response',
+      )
+    }
+    // An empty list is an empty playlist.
+    content = { __typename: 'PlaylistItemsPage', totalCount: 0, items: [] }
+    expect(await provider.getLibraryPlaylistTracks(creepRadio, {}, ctx)).toEqual({
+      tracks: { items: [], total: 0 },
+      revisionId: 'AAAAB2fixture-revision',
+    })
+  })
 })
 
 describe('track details', () => {

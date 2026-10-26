@@ -60,6 +60,7 @@ import {
   mapLibraryPlaylists,
   mapLibraryTracks,
   mapPlaylist,
+  mapPlaylistContent,
   mapProfile,
   mapRelatedArtists,
   mapSearch,
@@ -929,7 +930,8 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
   /**
    * One page of the user's liked songs (at most 50), newest first, each with when it was liked.
    * Needs a connected account; without one it fails before any request. Never cached: a sync
-   * wants what Spotify holds now.
+   * wants what Spotify holds now. An answer without a list of items fails as `bad-response`,
+   * never as an empty page.
    *
    * @experimental The request and field paths follow Spotify's own web player, rechecked on
    * 2026-10-26 (see the clean-room log), but no live logged-in session has confirmed them yet.
@@ -952,7 +954,8 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
    * One page of the playlists in the user's library (at most 50), folders flattened, each with
    * its revision, which tells a sync whether the playlist changed since it last read it.
    * Playlists Spotify's own player can't show (no revision, or not viewable) are left out.
-   * Needs a connected account; without one it fails before any request. Never cached.
+   * Needs a connected account; without one it fails before any request. Never cached. An answer
+   * without a list of items fails as `bad-response`, never as an empty page.
    *
    * @experimental Like {@link SpotifyProvider.getLibraryTracks}.
    */
@@ -989,7 +992,9 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
    * account, so the user's private, collaborative and personal ("Made for you") playlists can be
    * read too, with the playlist's revision. Needs a connected account; without one it fails
    * before any request. Never cached. Unlike {@link SpotifyProvider.getPlaylistTracks}, it keeps
-   * every track, whatever the catalog mode: Spotify's tracks are all songs.
+   * every track, whatever the catalog mode: Spotify's tracks are all songs. An answer without a
+   * list of tracks fails as `bad-response`, never as an empty page, so a sync never takes it for
+   * a playlist that Spotify emptied.
    *
    * @experimental Like {@link SpotifyProvider.getLibraryTracks}; `fetchPlaylist` itself is
    * confirmed anonymously.
@@ -1015,14 +1020,15 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
       ctx,
       'account',
     )
-    const playlist = this.#entity(
-      data.playlistV2,
-      'Playlist',
-      (value) => mapPlaylist(value, { offset, limit }),
-      `playlist ${nativeId}`,
-    )
+    this.#entity(data.playlistV2, 'Playlist', (value) => mapPlaylist(value), `playlist ${nativeId}`)
+    const tracks = mapPlaylistContent(data.playlistV2, offset, limit)
+    if (!tracks) {
+      throw new SpotifyError(
+        'bad-response',
+        `fetchPlaylist sent no tracks for playlist ${nativeId}`,
+      )
+    }
     const revisionId = revisionOf((data.playlistV2 as JsonRecord).revisionId)
-    const tracks = playlist.tracks ?? emptyPage<Track>()
     return revisionId === undefined ? { tracks } : { tracks, revisionId }
   }
 

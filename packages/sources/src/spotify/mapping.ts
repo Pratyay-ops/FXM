@@ -415,6 +415,21 @@ export function mapPlaylistItems(content: unknown, offset: number, limit: number
 }
 
 /**
+ * The page of tracks in a `fetchPlaylist` answer's `playlistV2`, starting at `offset`, `limit`
+ * long, or `undefined` when its `content` holds no list of items. Unlike {@link mapPlaylist},
+ * which reads a missing list as an empty page, it never lets an answer it can't read pass for a
+ * playlist that Spotify emptied: a sync would take the songs out of its copy.
+ */
+export function mapPlaylistContent(
+  playlistV2: unknown,
+  offset: number,
+  limit: number,
+): Page<Track> | undefined {
+  const content = at(playlistV2, 'content')
+  return Array.isArray(at(content, 'items')) ? mapPlaylistItems(content, offset, limit) : undefined
+}
+
+/**
  * A playlist from `fetchPlaylist`'s `playlistV2`, a search result, a home item or a library
  * item. With `page`, `tracks` holds that page of its `content`.
  */
@@ -623,7 +638,8 @@ export function mapLibraryPlaylist(item: unknown): SpotifyLibraryPlaylist | unde
 
 /**
  * The liked songs in a `fetchLibraryTracks` answer (`me.library.tracks`, a
- * `UserLibraryTrackPage`), or `undefined` when the answer is not such a page.
+ * `UserLibraryTrackPage`), or `undefined` when the answer is not such a page or holds no list of
+ * items: a sync must never take an answer it can't read for an empty library.
  */
 export function mapLibraryTracks(
   data: unknown,
@@ -631,8 +647,11 @@ export function mapLibraryTracks(
   limit: number,
 ): Page<SpotifyLikedTrack> | undefined {
   const page = at(data, 'me', 'library', 'tracks')
-  if (text(at(page, '__typename')) !== 'UserLibraryTrackPage') return undefined
-  const items = list(at(page, 'items'))
+  const raw = at(page, 'items')
+  if (text(at(page, '__typename')) !== 'UserLibraryTrackPage' || !Array.isArray(raw)) {
+    return undefined
+  }
+  const items = raw
     .map(mapLibraryTrack)
     .filter((liked): liked is SpotifyLikedTrack => liked !== undefined)
   return pageOf(items, offset, limit, count(at(page, 'totalCount')))
@@ -640,7 +659,8 @@ export function mapLibraryTracks(
 
 /**
  * The saved playlists in a `libraryV3` answer (`me.libraryV3`, a `LibraryPage`), or `undefined`
- * when the answer is not such a page. Folders and other kinds of items are left out.
+ * when the answer is not such a page or holds no list of items. Folders and other kinds of
+ * items are left out.
  */
 export function mapLibraryPlaylists(
   data: unknown,
@@ -648,8 +668,9 @@ export function mapLibraryPlaylists(
   limit: number,
 ): Page<SpotifyLibraryPlaylist> | undefined {
   const page = at(data, 'me', 'libraryV3')
-  if (text(at(page, '__typename')) !== 'LibraryPage') return undefined
-  const items = list(at(page, 'items'))
+  const raw = at(page, 'items')
+  if (text(at(page, '__typename')) !== 'LibraryPage' || !Array.isArray(raw)) return undefined
+  const items = raw
     .map(mapLibraryPlaylist)
     .filter((playlist): playlist is SpotifyLibraryPlaylist => playlist !== undefined)
   return pageOf(items, offset, limit, count(at(page, 'totalCount')))
