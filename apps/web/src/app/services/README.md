@@ -86,6 +86,8 @@ What stage 2.9 left open is wired now (stage 2.9b). These remain:
 | 6.3/6.4 Native player | On Android, 6.3's `NativeEngine` (Media3) in place of the direct audio engine, its `wrapResolver` around the policy's resolver, its network monitor for the lifecycle, and `connect` before 2.5's restore of the saved queue ([its README](../../../../../packages/player/src/native/README.md)); stage 6.4 wires it | `features/now-playing/playback.ts`, `app-services.ts` |
 | 8.4 Sync | GitHub's API isn't in the platform's host table, nor in the desktop and Android apps' scopes: sync keeps the page's `fetch` (`features/sync/controller.ts`), which reaches it from every app's webview | `@fxm/platform` hosts, the apps' scopes |
 
+**The Android app's update check** (stage 6.6, `features/app-update`) needs nothing from this folder, and stays out of it on purpose. It asks only GitHub's API, which isn't in the platform's host table either, so like sync it sends its one request with the WebView's own `fetch`, and it uses no provider, budget or tier. The shell starts it (`AppUpdateToast` in the app layout), so a release whose music services fail to load still learns that a newer version is out, which is when its users need the fix most.
+
 ## Tests
 
 ```sh
