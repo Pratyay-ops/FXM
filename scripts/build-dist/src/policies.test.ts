@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { EMBED_HEADERS } from '../../../apps/web/embed/headers.ts'
+import { pwaCspProblems } from '../../../apps/web/pwa/host.ts'
 import { parsePolicy, serializePolicy, sha256Source, UNSAFE_EVAL, WASM_UNSAFE_EVAL } from './csp.ts'
 import {
   APP_SCRIPT_EXTRAS,
@@ -238,6 +239,13 @@ describe('the site policies', () => {
     expect(serializePolicy(STATIC_FILE_POLICY)).toBe(
       "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     )
+  })
+})
+
+describe('the app policy and the installable web app', () => {
+  it('allows what the PWA needs: its service worker, manifest, icons and shell download', () => {
+    expect(pwaCspProblems(serializePolicy(appPolicy([HASH])))).toEqual([])
+    expect(pwaCspProblems(serializePolicy(appPolicy([HASH], { embeddable: true })))).toEqual([])
   })
 })
 

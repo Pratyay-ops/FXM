@@ -38,8 +38,9 @@ Run them from the repository root.
 4. **Writes `third-party-notices.txt`** with every bundled package, its licence and its licence files.
 5. **Writes `_headers`** and checks it: at most 100 rules, no line over 2,000 characters, no two rules matching one path, every path a file is served at matched by exactly one rule, and every policy keeping its promises (sandbox documents opaque, `'unsafe-eval'` only in the evaluator, no `'unsafe-inline'` scripts, `frame-ancestors 'none'` except for the embed and the sandbox documents), and every rule sending the opener policy and a `Permissions-Policy` that turns off only features FXM never uses. Every service host in `APP_SERVICES` must be a plain HTTPS host. It reads the file back with a parser that follows Cloudflare's, so the file means exactly the rules it generated.
 6. **Adds each page's policy in a meta element**, with `<meta name="referrer" content="no-referrer">`, to every page of the site and every document of the apps: for the paths Pages serves them at that no rule reaches (below). The sandbox documents must bring their own.
-7. **Checks the privacy page**: every host a policy names must belong to a service in `APP_SERVICES`, and `privacy.html` must list that service.
-8. **Refuses** `_worker.js`, `_routes.json`, `_redirects` and `functions/`, file names with `%`, more than 20,000 files and files over 25 MiB (Cloudflare Pages' limits).
+7. **Gives the app's page a new precache revision** in its service worker, `app/sw.js` (`src/service-worker.ts`): a fingerprint of the final `app/index.html` and of the `/app/*` rule, in place of the build's, which can know neither. The worker serves its stored copy of the page with the headers it came with, so a deploy that changes only the rule still reaches installed apps.
+8. **Checks the privacy page**: every host a policy names must belong to a service in `APP_SERVICES`, and `privacy.html` must list that service.
+9. **Refuses** `_worker.js`, `_routes.json`, `_redirects` and `functions/`, file names with `%`, more than 20,000 files and files over 25 MiB (Cloudflare Pages' limits).
 
 Only then does `dist/pages/` replace the previous build.
 
@@ -157,6 +158,7 @@ A copy on another origin runs without FXM Connect, which trusts only `https://fx
 | `src/csp.ts` | Policy values and hashes |
 | `src/licenses.ts` | Bundled packages, licence checks, the notices file |
 | `src/privacy.ts` | The privacy page check |
+| `src/service-worker.ts` | The page's precache revision in the app's service worker |
 | `src/pages-server.ts` | The local stand-in for Cloudflare Pages |
 | `src/check-headers.ts` | The header check of a deployment |
 | `src/testing.ts` | Fakes for the tests, including the later stages' parts |
