@@ -7,6 +7,7 @@
 
 import type { NetworkCapabilities, Platform } from '@fxm/core'
 import type { AudioEffectsStatus } from '@fxm/player'
+import { freeSources } from '../../lib/free-sources'
 
 /** Where the app runs, as far as the notes depend on it. */
 export interface StatusContext {
@@ -14,8 +15,16 @@ export interface StatusContext {
   readonly capabilities: Pick<NetworkCapabilities, 'youtube' | 'mediaBytes'>
 }
 
-/** Where the equalizer always works on the web and in the desktop app. */
-const READABLE_SOURCES = 'local files, downloads, Internet Archive and Jamendo'
+/**
+ * Where the equalizer always works on the web and in the desktop app: the user's files and the
+ * free sources this build offers (`freeSources()`, which names Jamendo only where it is offered).
+ */
+function readableSources(): string {
+  const free = freeSources()
+  return free.several
+    ? `local files, downloads, ${free.and}`
+    : `local files, downloads and ${free.and}`
+}
 
 /**
  * Why the equalizer can't process the track that plays, or `undefined` when it can (or is off,
@@ -27,16 +36,16 @@ export function equalizerNote(
 ): string | undefined {
   if (status.equalizer !== 'unavailable') return undefined
   if (context.platform === 'desktop') {
-    return `Not available for this track: the desktop app can’t read YouTube audio for the equalizer yet. It works on ${READABLE_SOURCES}.`
+    return `Not available for this track: the desktop app can’t read YouTube audio for the equalizer yet. It works on ${readableSources()}.`
   }
   if (context.platform === 'android') {
-    return `Not available for this track: the Android app can’t read YouTube audio for the equalizer yet. It works on ${READABLE_SOURCES}.`
+    return `Not available for this track: the Android app can’t read YouTube audio for the equalizer yet. It works on ${readableSources()}.`
   }
   if (context.platform === 'web' && context.capabilities.mediaBytes) {
     return 'Not available for this track: its audio couldn’t be read (the stream moved to another server, or the browser blocked Web Audio). The equalizer applies again from the next track.'
   }
   if (context.platform === 'web') {
-    return `Not available for this track: without FXM Connect, FXM can’t read YouTube audio. It works on ${READABLE_SOURCES}.`
+    return `Not available for this track: without FXM Connect, FXM can’t read YouTube audio. It works on ${readableSources()}.`
   }
   return 'Not available for this track here.'
 }

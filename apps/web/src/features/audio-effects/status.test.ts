@@ -1,5 +1,5 @@
 import type { AudioEffectsStatus } from '@fxm/player'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   describeGain,
   equalizerNote,
@@ -17,6 +17,10 @@ const UNAVAILABLE: AudioEffectsStatus = {
   loudness: 'off',
   loudnessGainDb: 0,
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('equalizerNote', () => {
   it('says why the equalizer can’t process the track, by where FXM runs', () => {
@@ -40,6 +44,30 @@ describe('equalizerNote', () => {
       capabilities: { youtube: 'full', mediaBytes: true },
     } as const
     expect(equalizerNote(UNAVAILABLE, android)).toMatch(/Android app can’t read YouTube audio/)
+  })
+
+  it('names the free sources this build offers, Jamendo only with its client_id', () => {
+    const lite = {
+      platform: 'web',
+      capabilities: { youtube: 'simple', mediaBytes: false },
+    } as const
+    // The tests' build has none, as deployed until the owner sets one (lib/free-sources.ts).
+    expect(equalizerNote(UNAVAILABLE, lite)).toBe(
+      'Not available for this track: without FXM Connect, FXM can’t read YouTube audio. It works on local files, downloads and Internet Archive.',
+    )
+    const desktop = {
+      platform: 'desktop',
+      capabilities: { youtube: 'full', mediaBytes: true },
+    } as const
+    expect(equalizerNote(UNAVAILABLE, desktop)).toMatch(
+      /It works on local files, downloads and Internet Archive\.$/,
+    )
+
+    vi.stubEnv('VITE_FXM_JAMENDO_CLIENT_ID', 'public-id')
+
+    expect(equalizerNote(UNAVAILABLE, lite)).toMatch(
+      /It works on local files, downloads, Internet Archive and Jamendo\.$/,
+    )
   })
 
   it('says nothing while it works or is off', () => {
