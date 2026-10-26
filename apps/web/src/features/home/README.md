@@ -59,25 +59,21 @@ The network steps get eight seconds in all (`FEED_LIMITS.deadlineMs`); Home is t
 
 ## Wiring in the other stages
 
-Home reaches everything through one seam, `services.tsx` (`appHomeServices`, a store like 2.4's `appActions`). Until the parts are wired in, Home is the Free-only tier with no recommendation sources: the user's own shelves and the note.
+Home reaches everything through one seam, `services.tsx` (`appHomeServices`, a store like 2.4's `appActions`). The app's composition root (`src/app/services/home.ts`, stage 2.9b) sets it once the platform is ready; until then, and where the services don't run, Home is the Free-only tier with no recommendation sources: the user's own shelves and the note.
 
-| Part | From | Wire in (e.g. in `main.tsx`) |
+| Part | From | In the app |
 |---|---|---|
-| `sources` | 2.4's `appSources`, which holds 1.2's platform and the Spotify switch | `sources: appSources` |
-| `recommendations` | 3.2's `createRecommendationCollector({ youtube, youtubeLookup, spotify, spotifyMetadata, spotifyEnabled, lastfmStations, listenbrainz, … })` with 1.3's and 1.5's providers | `recommendations: collector` (it fits the seam as it is; `feed.collector.test.ts` checks) |
-| `catalog` | 1.3: artist search (`findArtist`), artist pages' top songs (`artistTracks`); 1.7: song search (`findSong`) | `catalog: { findArtist, artistTracks, findSong }` |
-| `spotifyAccount` | 1.5's Spotify provider (`status`), connected by 3.5 | `spotifyAccount: spotify` |
-| `playback` | 2.2's player, as 2.4's `PlaybackActions` | `playback: appActions.get().playback` |
+| `sources` | 2.4's `appSources`, which holds 1.2's platform and the Spotify switch | `appSources` |
+| `recommendations` | 3.2's `createRecommendationCollector` | Over the app's providers: YouTube Music radio, Spotify (while switched on and reachable), Last.fm's stations (where the platform reaches them), ListenBrainz's similar artists, with covers from the Cover Art Archive for the few candidate tracks without one; loaded with Home's first build |
+| `catalog` | 1.3: artist search (`findArtist`), artist pages' top songs (`artistTracks`); 1.7: song search (`findSong`) | YouTube Music's artist search (the same name only), its artist pages, and the matching engine over its song searches |
+| `spotifyAccount` | 1.5's Spotify provider (`status`), connected by 3.5 | The app's Spotify provider, where Spotify is registered |
+| `playback` | 2.2's player, as 2.4's `PlaybackActions` | `appActions.get().playback` |
 
-```ts
-appHomeServices.set({ sources: appSources, recommendations: collector, catalog, spotifyAccount: spotify, playback })
-```
-
-Album, artist and playlist cards (in Spotify's sections) link to `/<kind>/<source>:<native ID>`, the form of 2.4's pages (`entityPath` in `shelves.tsx`).
+Album, artist and playlist cards (in Spotify's sections) link to their pages with 2.4's link helpers (`albumPath`, `artistPath`) and the library's `playlistPath` (`entityPath` in `shelves.tsx`).
 
 ## Development
 
-In `make dev`, `?fake-home=lite` or `?fake-home=full` plugs fake services into Home (`dev-fakes.ts`: an invented catalog, no network, no artwork); the tab keeps the choice until `?fake-home=off`. Restore `e2e/fixtures/library-backup.json` from the Library page to see the user's own shelves too. Builds with `VITE_FXM_FAKE_CATALOG=on` (2.4's screenshot builds) include the fakes; production builds leave them out. The end-to-end checks of Home with recommendations, and its onboarding's forced-colors screenshot, need such a build: `VITE_FXM_FAKE_CATALOG=on pnpm --filter @fxm/web e2e`.
+In `make dev`, `?fake-home=lite` or `?fake-home=full` plugs fake services into Home (`dev-fakes.ts`: an invented catalog, no network, no artwork); the tab keeps the choice until `?fake-home=off`. The screenshot run (`pnpm --filter @fxm/web screenshots`) captures Home that way, with `?fake-home=full`. Restore `e2e/fixtures/library-backup.json` from the Library page to see the user's own shelves too. Builds with `VITE_FXM_FAKE_CATALOG=on` (2.4's screenshot builds) include the fakes; production builds leave them out. The end-to-end checks of Home with recommendations, and its onboarding's forced-colors screenshot, need such a build: `VITE_FXM_FAKE_CATALOG=on pnpm --filter @fxm/web e2e`.
 
 ## Files
 

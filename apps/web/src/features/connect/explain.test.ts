@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { RELEASED } from './config'
 import { detectDevice } from './device'
 import {
+  appsReachSentence,
   appsSentence,
   canGetMoreHere,
+  connectExtensionOrApps,
+  connectOrApps,
   describeConnect,
   describeLite,
   describeSpotify,
@@ -178,5 +182,16 @@ describe('how a device gets more', () => {
     expect(canGetMoreHere(macSafari)).toBe(true)
     expect(canGetMoreHere(iphone)).toBe(false)
     expect(canGetMoreHere(android)).toBe(false)
+  })
+})
+
+describe('the sentences that name the apps', () => {
+  it('offer only FXM Connect while the desktop and Android apps are not out', () => {
+    expect(RELEASED.desktop || RELEASED.android).toBe(false)
+    expect(connectOrApps()).toBe('FXM Connect')
+    expect(connectExtensionOrApps()).toBe('the free FXM Connect browser extension')
+    expect(appsReachSentence('YouTube Music')).toBe(
+      'FXM reaches YouTube Music through the free FXM Connect browser extension. The desktop and Android apps are coming soon.',
+    )
   })
 })

@@ -163,6 +163,10 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
     deviceStore: store,
     network: createStaticNetworkMonitor(),
     jamendoClientId: undefined,
+    // Nothing of the device's own: no downloads or music files, and no update checks.
+    offline: undefined,
+    localProvider: undefined,
+    updates: false,
     catalogMode: () => mode,
     ...(sandbox === undefined ? {} : { sandbox }),
     ...(setup.library === undefined ? {} : { library: setup.library }),

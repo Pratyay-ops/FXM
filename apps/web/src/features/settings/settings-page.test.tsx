@@ -1,5 +1,5 @@
 import { APP_VERSION } from '@fxm/core'
-import { act, screen } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderApp } from '../../test/render'
 import { SETTINGS_STORAGE_KEY, useSettingsStore } from './settings-store'
@@ -11,7 +11,7 @@ describe('Settings page', () => {
     const { user } = renderApp('/settings')
     const musicAndVideo = await screen.findByRole('radio', { name: 'Music + Video' })
     expect(screen.getByRole('radio', { name: 'Music' })).toBeChecked()
-    expect(screen.getByText(/only songs from the YouTube Music catalog/)).toBeInTheDocument()
+    expect(screen.getByText(/songs only, from any source/)).toBeInTheDocument()
 
     await user.click(musicAndVideo)
 
@@ -24,7 +24,7 @@ describe('Settings page', () => {
   it('names the mode control and links it to its explanation', async () => {
     renderApp('/settings')
     const group = await screen.findByRole('radiogroup', { name: 'Catalog mode' })
-    expect(group).toHaveAccessibleDescription(/only songs from the YouTube Music catalog/)
+    expect(group).toHaveAccessibleDescription(/songs only, from any source/)
   })
 
   it('follows mode changes made elsewhere, such as the search page', async () => {
@@ -52,5 +52,31 @@ describe('Settings page', () => {
       'href',
       'https://github.com/Pratyay-ops/FXM',
     )
+  })
+})
+
+describe('Settings → About', () => {
+  it('says FXM is independent, and links its privacy page, disclaimer and notices', async () => {
+    renderApp('/settings')
+    const about = await screen.findByRole('region', { name: 'About' })
+    expect(about).toHaveTextContent(
+      'FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google or Spotify, and it hosts no music.',
+    )
+    const legal = within(about).getByRole('list', { name: 'Legal' })
+    expect(
+      within(legal)
+        .getAllByRole('link')
+        .map((link) => link.getAttribute('href')),
+    ).toEqual([
+      'https://fxmusic.pages.dev/privacy',
+      'https://fxmusic.pages.dev/disclaimer',
+      'https://fxmusic.pages.dev/third-party-notices.txt',
+    ])
+  })
+
+  it('offers no Auto setting while the matching config keeps the band off', async () => {
+    renderApp('/settings')
+    await screen.findByRole('region', { name: 'Playback' })
+    expect(screen.queryByRole('checkbox', { name: /Play sure matches automatically/ })).toBeNull()
   })
 })

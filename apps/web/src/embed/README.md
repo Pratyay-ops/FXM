@@ -39,9 +39,9 @@ The player creates the platform of `@fxm/platform` as the app does, and its tier
 | Lite (no install, experimental) | Plays: InnerTube calls go through the sandbox document, nested inside the player, and the media element's first request is the probe (stage 2.3) | Plays |
 | Free only | The install hint: "FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension, or get the FXM app" | Plays |
 
-- **Lite inside other sites.** The player frames `/sandbox/innertube.html` with `sandbox="allow-scripts"`, as the app does. The sandbox documents set no `frame-ancestors`, so they load inside a player inside any page, and their messages check only the player (their parent, at FXM's origin). The Lite self-test runs only for YouTube content, so a free-source player costs no InnerTube call. Until the remote kill switch (1.3's config) is wired in, it fails closed: Lite is off in every build but the browser tests'.
+- **Lite inside other sites.** The player frames `/sandbox/innertube.html` with `sandbox="allow-scripts"`, as the app does. The sandbox documents set no `frame-ancestors`, so they load inside a player inside any page, and their messages check only the player (their parent, at FXM's origin). The Lite self-test runs only for YouTube content, so a free-source player costs no InnerTube call. Its remote kill switch is the YouTube config's: the one the build ships with until YouTube's code has loaded, then the config in use, which a newer signed config from FXM's site replaces (stage 1.13), so the owner can switch Lite off for players on every site.
 - **FXM Connect inside other sites.** Its header rules apply to the player's requests (they are scoped to the requests' initiator, FXM's origin), but its content script is declared with `all_frames: false`, so it doesn't mark a player framed by another page, and the player can't detect it there: it uses Lite. Opened at top level, the player detects Connect and uses it. That is deliberate for now: see "Not yet" for why turning it on in frames would let sites tell whether their visitors have Connect.
-- **Catalog mode.** A song plays in both modes. In Music mode, an official video plays as the song it links (`Track.songId`); one without a link needs the matching engine (a `matcher`, not wired in yet), and the mode hides other videos. A single video that can't play says "This is a video, and this player plays songs only"; an album or a playlist leaves such tracks out.
+- **Catalog mode.** A song plays in both modes. In Music mode, an official video plays as the song it links (`Track.songId`); for one without a link the app's matching engine looks for its song on YouTube Music (loaded with the first such video; Auto stays off, so only a song it is sure of plays), and the mode hides other videos. A single video that can't play says "This is a video, and this player plays songs only"; an album or a playlist leaves such tracks out.
 - **Autoplay.** The player never starts by itself. A click in it plays; the embedding page can ask it to play through the API, which browsers allow when the iframe has `allow="autoplay"` (the share dialog's code has it) and the page itself has had a user gesture.
 
 ## The postMessage API (protocol 1)
@@ -133,24 +133,24 @@ The browser tests serve the player with exactly that rule and check that it repo
 | `view.ts` | The view model the layouts render, also for the share dialog's preview |
 | `components/` | The two layouts and their parts; they adapt to the player's own width (container queries), so the preview matches the iframe |
 | `embed-app.tsx`, `theme.ts`, `embed.css` | The React root, the theme and the styles |
-| `integration.ts`, `wired.ts` | The touch-points with stages that hadn't merged (below), and the sources wired in |
+| `integration.ts`, `wired.ts` | The providers, stream sources and matcher the player uses (below), and the sources wired in |
 | `testing/` | Fakes for the unit tests, and the test doubles of the browser tests' build |
 
-## Touch-points with other stages
+## Providers (touch-points with other stages)
 
-Stage 5.2 started before 1.3, 1.4 and 1.6 were in its base (an early start). Everything it needs from them comes through `integration.ts` and `wired.ts`, behind interfaces the tests already drive with fakes. Until they are wired in, a built player says it can't play its content here, without contacting any service, and production builds of the app offer no Share entry (`canShare` in `features/share/share-store.ts`; development builds and the tests always offer it, so the dialog can be tried).
+Stage 5.2 started before 1.3, 1.4 and 1.6 were in its base (an early start), so everything it needs from them comes through `integration.ts` and `wired.ts`, behind interfaces the tests drive with fakes. Stage 2.9b wired them in, through the composition root's adapters in `src/app/services` (`youtube.ts`, `matcher.ts`, `updates.ts`), so the player and the app load and play YouTube the same way. A player for a source outside `WIRED_SOURCES` still says it can't play its content here, without contacting any service. Production builds of the app offer the Share entry for the wired sources only (`canShare` in `features/share/share-store.ts`; development builds and the tests always offer it, so the dialog can be tried).
 
-| Touch-point | Stage | Wire in |
+| Touch-point | Stage | Wired as |
 |---|---|---|
-| YouTube Music and YouTube metadata | 1.3 | `createYouTubeProviders()`'s `music` and `video` in `createProviderCatalog([…])`, and `ytm` and `yt` in `WIRED_SOURCES` |
-| Internet Archive and Jamendo metadata and credits | 1.6 | `createArchiveSource()`, `createJamendoSource()` and their attribution, and `archive` and `jamendo` in `WIRED_SOURCES` |
-| YouTube streams | 1.4 | The ladder as the `ytm` `StreamSource`; the stream lifecycle gives its calls their budget priority (`context(priority)` in `controller.ts`) |
-| Free-source streams | 1.6 | `fromAudioSource(archive)`, `fromAudioSource(jamendo)` |
-| Songs for unlinked official videos | 1.7 | A `TrackMatcher` (optional) |
-| Lite's kill switch and self-test request | 1.3's config | `embedPlatformOptions()` (until then Lite is off outside the browser tests' build), `embedSandboxOptions()` |
-| The `/embed/*` header rule and the build | 2.8 | The rule in "Headers" above, with COOP; `embedPart.build()` runs `vite build -c vite.embed.config.ts --sourcemap hidden --outDir <dir>` in `apps/web` |
+| YouTube Music and YouTube metadata | 1.3 | The YouTube module host's live `music` and `video` providers in `createProviderCatalog([…])`, loaded with the first YouTube content; `ytm` and `yt` in `WIRED_SOURCES` |
+| Internet Archive metadata and credits | 1.6 | `createArchiveSource()`, with each track's credits (its item page and licence) read when the catalog loads it; `archive` in `WIRED_SOURCES` |
+| YouTube streams | 1.4 | The ladder as the `ytm` `StreamSource` (`youtubeStreamSource`); the stream lifecycle gives its calls their budget priority (`context(priority)` in `controller.ts`), and its bot checks reach the platform's budget |
+| Free-source streams | 1.6 | `fromAudioSource(archive)` |
+| Songs for unlinked official videos | 1.7, 1.12 | The app's `TrackMatcher` over YouTube Music, with the matching config's options (Auto off) |
+| Lite's kill switch and self-test request | 1.3, 1.13 | `embedPlatformOptions()`: the config's kill switches, the bundled config's until YouTube's code loads, then the config in use, kept current from FXM's site (`keepYouTubeCurrent`); `embedSandboxOptions()`: the self-test asks as the config's YouTube Music client |
+| The `/embed/*` header rule and the build | 2.8 | The rule in "Headers" above, with `Cross-Origin-Opener-Policy: same-origin`; `make dist` builds the player into `/embed/` (`embedPart.build()`) |
 
-`integration.test.ts` fails when `WIRED_SOURCES` and the catalog's providers disagree, or a wired source has no stream source. Turn the site's `AVAILABLE.embed` on with the same integration, once a deployed player plays real songs.
+Jamendo stays out until the build has a `client_id` for it. `integration.test.ts` fails when `WIRED_SOURCES` and the catalog's providers disagree, or a wired source has no stream source, and drives the real providers and ladder against the composition root's fake network. The site's `AVAILABLE.embed` stays off until a browser test proves the built player, with these providers, plays in Lite inside a page on another origin: the browser tests below still use test doubles for YouTube.
 
 ## Tests
 
@@ -181,7 +181,8 @@ FXM_SCREENSHOTS=1 scripts/run.sh pnpm --filter @fxm/web e2e:embed               
 
 - **FXM Connect inside other sites:** blocked, on purpose. A content-script entry for `https://fxmusic.pages.dev/embed/*` with `all_frames: true` would make the player use Connect inside other sites, but any embedding page could then tell whether its visitor has Connect, without a click: the player frames the sandbox document only without Connect, and `iframe.contentWindow.length` is readable across origins (measured by the review in Chromium 156 and Firefox 157: 0 frames with Connect, 1 without). The `ready` and `unavailable` answers would differ too whenever Lite is off or fails. It needs a player whose frame tree and timing don't depend on the tier first; until then Connect stays off in third-party frames.
 - **Click-to-load** (`?load=click`): a facade that contacts no service until the visitor presses play, for embedders who don't want any third-party request on page load. The press would have to start playback after the content has loaded, outside the gesture that Safari requires for audio, so it needs the player to unlock its audio element on that press first.
-- **Wiring the real providers** (above) once 1.3, 1.4 and 1.6 are in the player's base, and the build in 2.8's `embedPart`. youtubei.js loads lazily in its own chunk (about 800 KB, 1.3's README), which a YouTube player then loads too.
+- **Browser tests of the built player with the real providers.** The browser tests build the player with `--mode e2e`, whose YouTube metadata and ladder are test doubles; a run of the production build against the test network (its InnerTube and googlevideo mocks answering youtubei.js's calls) would prove the real providers play in Lite inside another site, and let the site's `AVAILABLE.embed` turn on. A YouTube player loads YouTube's code, youtubei.js included, in one lazy chunk (about 200 KB gzipped).
+- **Jamendo**, once the build has a `client_id` for it.
 - **Spotify** tracks, albums and playlists: they need FXM Connect, the Spotify provider (1.5) and the matching engine.
 - **Long playlists** play their first page.
-- **The site's `AVAILABLE.embed`** stays off until a deployed player plays real songs, and so does the app's Share entry in production builds (`canShare`).
+- **The site's `AVAILABLE.embed`** stays off until that test passes (above).

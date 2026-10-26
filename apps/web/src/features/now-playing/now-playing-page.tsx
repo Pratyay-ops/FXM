@@ -6,6 +6,7 @@ import { Artwork } from '../../components/ui/artwork'
 import { buttonClasses } from '../../components/ui/button'
 import { PageTitle } from '../../components/ui/page'
 import { type TabItem, TabPanel, Tabs } from '../../components/ui/tabs'
+import { DownloadButton } from '../downloads/download-button'
 import { LyricsPanel } from '../lyrics/lyrics-panel'
 import { LikeButton, PlayerControls, SeekBar } from '../player/controls'
 import { QueuePanel } from '../queue/queue-panel'
@@ -88,6 +89,7 @@ function CurrentTrack({ item, headingId }: { item: QueueItem; headingId: string 
           </h2>
           <Byline track={track} />
         </div>
+        <DownloadButton track={track} size="md" />
         <LikeButton size="md" />
       </div>
     </>

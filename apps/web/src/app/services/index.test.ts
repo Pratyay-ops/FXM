@@ -11,6 +11,7 @@ afterEach(() => {
   stop?.()
   stop = undefined
   vi.doUnmock('./app-services')
+  vi.doUnmock('./updates')
   vi.doUnmock('../../features/connect/app-platform')
   vi.resetModules()
   window.history.replaceState(null, '', '/')
@@ -18,12 +19,22 @@ afterEach(() => {
 })
 
 async function load() {
+  // The signed updates of stage 1.13 would ask this page's origin, which nothing serves here.
+  const keepYouTubeCurrent = vi.fn()
+  vi.doMock('./updates', () => ({ keepYouTubeCurrent }))
   // Stage 2.7's app platform, without the Lite tier's sandbox documents, which this page can't
   // frame: one platform for the test, as the app has one.
+  const userHosts: (() => Iterable<string>)[] = []
   vi.doMock('../../features/connect/app-platform', async () => {
     const { createPlatform } = await import('@fxm/platform')
     let pending: ReturnType<typeof createPlatform> | undefined
-    return { getAppPlatform: () => (pending ??= createPlatform({ reportLoginRequired: false })) }
+    return {
+      APP_PLATFORM_REACHES_USER_HOSTS: true,
+      setAppUserHosts: (source: (() => Iterable<string>) | undefined) => {
+        if (source !== undefined) userHosts.push(source)
+      },
+      getAppPlatform: () => (pending ??= createPlatform({ reportLoginRequired: false })),
+    }
   })
   const services = await import('./index')
   stop = services.stopAppServices
@@ -32,6 +43,10 @@ async function load() {
   const { createAppPolicy } = await import('../../features/now-playing/playback-policy')
   const { getPlayer } = await import('../../features/now-playing/playback')
   const { getAppPlatform } = await import('../../features/connect/app-platform')
+  const { appHomeServices } = await import('../../features/home/services')
+  const { loadAppImportServices } = await import('../../features/import/services')
+  const { createAppDownloadEnvironment } = await import('../../features/downloads/environment')
+  const { appContext } = await import('../../lib/app-context')
   return {
     ...services,
     appSources,
@@ -39,6 +54,12 @@ async function load() {
     appPolicy: createAppPolicy(),
     getPlayer,
     getAppPlatform,
+    appHomeServices,
+    loadAppImportServices,
+    createAppDownloadEnvironment,
+    appContext,
+    keepYouTubeCurrent,
+    userHosts,
   }
 }
 
@@ -59,11 +80,20 @@ describe('startAppServices', () => {
 
     await startAppServices()
 
-    // This page has no FXM Connect and no Lite tier: the Free tier. Spotify isn't listed: a
-    // browser reads it only through the sandbox documents of stage 1.10.
+    // This page has no FXM Connect and no Lite tier: the Free tier. Spotify is registered, since
+    // the app's platform reaches its secret through the sandbox's user-host document (stage
+    // 1.10), but it can't be reached here, so the pages don't offer it. Local files are a
+    // catalog of their own (stage 4.4).
     expect(getAppServices().platform?.environment).toBe('browser')
     expect(appSources.getSnapshot().capabilities.youtube).toBe('none')
-    expect([...appSources.getSnapshot().providers.keys()].sort()).toEqual(['archive', 'yt', 'ytm'])
+    expect([...appSources.getSnapshot().providers.keys()].sort()).toEqual([
+      'archive',
+      'local',
+      'spotify',
+      'yt',
+      'ytm',
+    ])
+    expect(appSources.getSnapshot().capabilities.spotify).toBe('unreachable')
     expect(appActions.get().playback).toBeDefined()
     // "Add to playlist" lists the library's playlists (stage 2.6): Liked songs, not Downloads.
     const playlists = await appActions.get().library?.playlists()
@@ -89,8 +119,92 @@ describe('startAppServices', () => {
     const youtube = await getAppServices().youtube.load()
 
     expect(getSongResolver()).not.toBe(unavailableResolver)
-    expect(getSongResolver().hasFallback).toBe(youtube.fallbackRung !== undefined)
-    expect(appKillSwitches()).toEqual(youtube.session.config.killSwitches)
+    expect(getSongResolver().hasFallback).toBe(youtube.fallbackRung() !== undefined)
+    expect(appKillSwitches()).toEqual(youtube.killSwitches())
+  })
+
+  it("keeps YouTube's config current from FXM's site, and follows its kill switches", async () => {
+    const { startAppServices, getAppServices, keepYouTubeCurrent } = await load()
+    const { appKillSwitches } = await import('../../features/connect/kill-switches')
+    await startAppServices()
+    expect(keepYouTubeCurrent).not.toHaveBeenCalled()
+
+    const youtube = await getAppServices().youtube.load()
+
+    expect(keepYouTubeCurrent).toHaveBeenCalledWith(youtube)
+    expect(appKillSwitches()).toEqual({ lite: false })
+    // A newer signed config that switches the Lite tier off (what the updater activates).
+    const { youtubeModule } = await import('@fxm/sources/youtube/module')
+    const bundled = youtubeModule.config as { revision: number }
+    const next = { ...bundled, revision: bundled.revision + 1, killSwitches: { lite: true } }
+    const spec = youtube.host.updates.config
+    spec.activate(spec.accept(next, { version: next.revision }), {
+      origin: 'fetched',
+      version: next.revision,
+    })
+    expect(appKillSwitches()).toEqual({ lite: true })
+  })
+
+  it("passes the Spotify secret's hosts to the app's platform", async () => {
+    const { startAppServices, userHosts } = await load()
+    await startAppServices()
+
+    expect(userHosts).toHaveLength(1)
+    // Known once Spotify's code has loaded, before its first fetch from them.
+    expect([...(userHosts[0]?.() ?? [])]).toEqual([])
+  })
+
+  it("connects imports to the app's platform and providers", async () => {
+    const { startAppServices, getAppServices, loadAppImportServices } = await load()
+    const imports = loadAppImportServices()
+    await startAppServices()
+
+    const services = await imports
+    const platform = getAppServices().platform
+    // The app's one platform: here, the Free tier, so imports say what would find songs.
+    expect(services.capabilities()).toBe(platform?.capabilities.current)
+    expect(services.matching()).toBe('needs-connect')
+    expect(services.context('music').capabilities).toEqual(platform?.capabilities.current)
+    expect(services.autoMatch()).toBe(false)
+    // Spotify follows the switch and the tier: unreachable here.
+    expect(services.spotify?.isAvailable(services.context('music'))).toBe(false)
+  })
+
+  it("gives Home the app's sources, recommendations, catalog and playback", async () => {
+    const { startAppServices, appHomeServices, appSources, appActions } = await load()
+    await startAppServices()
+
+    const home = appHomeServices.get()
+    expect(home.sources).toBe(appSources)
+    expect(home.recommendations).toBeDefined()
+    expect(home.catalog?.findArtist).toBeDefined()
+    expect(home.catalog?.artistTracks).toBeDefined()
+    expect(home.catalog?.findSong).toBeDefined()
+    expect(home.playback).toBe(appActions.get().playback)
+    expect(home.spotifyAccount).toBeDefined()
+  })
+
+  it("runs downloads, lyrics, SponsorBlock and scrobbles on the app's platform", async () => {
+    const {
+      startAppServices,
+      getAppServices,
+      appActions,
+      createAppDownloadEnvironment,
+      appContext,
+    } = await load()
+    await startAppServices()
+    const app = getAppServices()
+    const context = vi.spyOn(app, 'context')
+
+    // Downloads: the platform's context at the bulk priority, and the catalog's Download entry.
+    expect(appActions.get().downloads).toBeDefined()
+    createAppDownloadEnvironment().context()
+    expect(context).toHaveBeenLastCalledWith({ priority: 'bulk' })
+    // Lyrics, SponsorBlock and scrobbles: the platform's context, which the desktop and Android
+    // apps send through their native HTTP.
+    const signal = new AbortController().signal
+    appContext('all', signal)
+    expect(context).toHaveBeenLastCalledWith({ priority: 'interactive', mode: 'all', signal })
   })
 
   it("keeps a song resolver set before YouTube's code loaded, such as the fake mode's", async () => {
@@ -167,6 +281,7 @@ describe('startAppServices', () => {
 
     expect(appActions.get().playback).toBeUndefined()
     expect(appActions.get().library).toBeUndefined()
+    expect(appActions.get().downloads).toBeUndefined()
     expect(appSources.getSnapshot().providers.size).toBe(0)
     expect(getAppServices()).not.toBe(services)
   })

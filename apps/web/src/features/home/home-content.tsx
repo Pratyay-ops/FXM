@@ -1,11 +1,13 @@
 import type { DailyMix, HomeShelf, PickedArtist, QueueContext } from '@fxm/core'
 import { isEntityId } from '@fxm/core'
-import { ExternalLink, Plug, RotateCw, Search, SlidersHorizontal } from 'lucide-react'
+import { Plug, RotateCw, Search, SlidersHorizontal } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
+import { connectExtensionOrApps } from '../connect/explain'
 import { showStatus } from '../library/status'
 import { Dialog } from '../library/ui/dialog'
+import { ONBOARDING_URL } from '../search/onboarding'
 import { CATALOG_MODE_LABELS } from '../settings/options'
 import { useSettingsStore } from '../settings/settings-store'
 import { HomeSkeleton } from './home-skeleton'
@@ -26,10 +28,10 @@ import { useTasteStore } from './taste-store'
 import { useHomeFeed } from './use-home-feed'
 
 /**
- * Where to get FXM Connect, the desktop app or the Android app: the landing page's "Get FXM"
- * section, until stage 2.7 builds the in-app onboarding (2.4's `ONBOARDING_URL`).
+ * Where to get FXM Connect (and the apps, once they are out): the in-app onboarding of stage
+ * 2.7, the same page as search's entry point (2.4's `ONBOARDING_URL`).
  */
-export const GET_FXM_URL = 'https://fxmusic.pages.dev/#get'
+export const GET_FXM_URL = ONBOARDING_URL
 
 /** The line under each kind of shelf. */
 const DESCRIPTIONS: Partial<Record<HomeShelf['type'], string>> = {
@@ -40,15 +42,13 @@ const DESCRIPTIONS: Partial<Record<HomeShelf['type'], string>> = {
   rediscover: 'Songs you loved a while ago.',
 }
 
-/** "Get FXM Connect", which opens the landing page in a new tab. */
+/** "Get FXM Connect", which opens the in-app onboarding. */
 function GetConnectLink({ variant }: { variant: 'primary' | 'secondary' }) {
   return (
-    <a href={GET_FXM_URL} target="_blank" rel="noreferrer" className={buttonClasses({ variant })}>
+    <Link to={GET_FXM_URL} className={buttonClasses({ variant })}>
       <Plug aria-hidden="true" />
       Get FXM Connect
-      <ExternalLink aria-hidden="true" />
-      <span className="sr-only">(opens in a new tab)</span>
-    </a>
+    </Link>
   )
 }
 
@@ -82,7 +82,7 @@ function WelcomeCard({ freeOnly }: { freeOnly: boolean }) {
         </h2>
         <p className="mt-2 text-text-muted">
           {freeOnly
-            ? 'FXM plays the YouTube Music catalog, and finds new music there for you, with the free FXM Connect browser extension or the desktop and Android apps. Until then, Home shows what you play.'
+            ? `FXM plays the YouTube Music catalog, and finds new music there for you, with ${connectExtensionOrApps()}. Until then, Home shows what you play.`
             : catalogMode === 'music'
               ? 'Clean album audio from the YouTube Music catalog. Switch to Music + Video for covers, live sets and remixes.'
               : 'Songs plus any YouTube video – covers, live sets, remixes – all played as music.'}
@@ -123,8 +123,8 @@ function RecommendationsNote() {
             Recommendations need YouTube Music
           </h2>
           <p className="text-sm text-text-muted">
-            FXM finds new music for you on YouTube Music, through the free FXM Connect browser
-            extension or the desktop and Android apps. Until then, Home shows what you play.
+            FXM finds new music for you on YouTube Music, through {connectExtensionOrApps()}. Until
+            then, Home shows what you play.
           </p>
         </div>
       </div>

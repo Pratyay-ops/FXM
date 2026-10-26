@@ -133,6 +133,15 @@ export const TIER_FEATURES: readonly TierFeature[] = [
     released: true,
   },
   {
+    id: 'downloads',
+    label: RELEASED.conversions
+      ? 'Downloads of YouTube Music songs, in the format you want'
+      : 'Downloads of YouTube Music songs, in their original format (conversions coming soon)',
+    short: 'YouTube Music downloads',
+    from: 'full',
+    released: RELEASED.downloads,
+  },
+  {
     id: 'spotify',
     label: 'Spotify search and related artists, built in (you can switch it off)',
     short: 'Spotify search and related artists',
@@ -145,13 +154,6 @@ export const TIER_FEATURES: readonly TierFeature[] = [
     short: 'a read-only sync of your Spotify account',
     from: 'full',
     released: RELEASED.spotifyAccount,
-  },
-  {
-    id: 'downloads',
-    label: 'Downloads of YouTube Music songs, in the format you want',
-    short: 'downloads',
-    from: 'full',
-    released: RELEASED.downloads,
   },
 ]
 
@@ -201,7 +203,7 @@ export function missingSummary(tier: Tier): MissingLine[] {
     // Full also gives what Lite gives, without Lite's experimental route.
     const adds =
       other === 'full'
-        ? `YouTube Music without Lite's experimental route, and ${joinList(out)}`
+        ? joinList(["YouTube Music without Lite's experimental route", ...out])
         : joinList(out)
     if (later.length === 0) return { tier: other, adds }
     const sentence = joinList(later)

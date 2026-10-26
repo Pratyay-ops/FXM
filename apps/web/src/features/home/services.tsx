@@ -148,7 +148,8 @@ const refuseFetch: Fetch = () =>
 
 /**
  * Sources with fixed capabilities (Free only unless told otherwise) and the Spotify switch on:
- * the stand-in until 2.4's `appSources` is wired in, and what tests use.
+ * Home's default until the composition root sets the app's services (stage 2.9b), after it
+ * takes them back, and what tests use.
  */
 export function staticSources(
   capabilities: NetworkCapabilities = FREE_ONLY,

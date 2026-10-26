@@ -75,10 +75,8 @@ export function useTracksMenu(tracks: readonly Track[], title: string): MenuActi
       key: 'download',
       label: 'Download',
       icon: Download,
-      onSelect: () => {
-        downloads.download(tracks)
-        showFeedback(tracks.length === 1 ? `Downloading ${title}` : `Downloading ${count}`)
-      },
+      // The downloads say what became of it: queued, there already, or not here.
+      onSelect: () => downloads.download(tracks),
     })
   }
   return items

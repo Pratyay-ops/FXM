@@ -116,6 +116,8 @@ describe('generateRules', () => {
       expect(rule.headers.slice(1)).toEqual([
         ['Referrer-Policy', 'no-referrer'],
         ['X-Content-Type-Options', 'nosniff'],
+        // A page that opens the player can't count its frames (the embed's README, "Headers").
+        ...(rule.path === '/embed/*' ? [['Cross-Origin-Opener-Policy', 'same-origin']] : []),
       ])
     }
   })

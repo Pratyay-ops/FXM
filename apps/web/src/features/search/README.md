@@ -49,9 +49,9 @@ Every touch-point with a stage built in parallel goes through one interface here
 | 1.3 YouTube Music, 1.5 Spotify (and 1.6) | `MetadataProvider` from `@fxm/core` | No providers | `appSources.register(provider)` for each |
 | 2.2 player facade (merged), playing once 2.3 resolves streams | `PlaybackActions` (`play`, `playNext`, `addToQueue`); `playbackFromPlayer(player)` maps the facade onto it | No play or queue buttons | `appActions.set({ ...appActions.get(), playback: playbackFromPlayer(player) })` with the app's `Player` |
 | 2.6 library | `LibraryActions` (`playlists`, `addToPlaylist`, `createPlaylist`) | No "Add to playlist" | `appActions.set({ ...appActions.get(), library })` |
-| 4.1 downloads | `DownloadActions` | No "Download" | `appActions.set({ …, downloads })` |
+| 4.1 downloads | `DownloadActions` | No "Download" | Wired (2.9b): the downloads' own action, which says what became of the click |
 | 8.1 audio effects | `EqualizerActions` | No "Equalizer" | `appActions.set({ …, equalizer })` |
-| 2.7 onboarding | `ONBOARDING_URL` in `onboarding.tsx` | The landing page's "Get FXM" section | Point it at the in-app onboarding |
+| 2.7 onboarding | `ONBOARDING_URL` in `onboarding.tsx` | — | Wired (2.9b): `/connect`, the in-app onboarding, opened in the app |
 
 An action appears in the UI only when its group is wired in, so the app never shows a button that does nothing. Queues start with `QueueContext` from `@fxm/core`: the album, artist or playlist, or the search query, so "Playing from …" can link back.
 

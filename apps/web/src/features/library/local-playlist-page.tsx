@@ -195,7 +195,13 @@ export function LocalPlaylistPage({ id }: { id: EntityId<'playlist'> }) {
       <PageWash color={seedWash(`playlist:${playlist.id}`)} />
       <PlaylistHeader view={live.data} />
       <div className="flex items-center justify-center gap-3 sm:justify-start">
-        <PlayPauseButton appearance="cta" />
+        <PlayPauseButton
+          appearance="cta"
+          collection={{
+            tracks: rows.flatMap((row) => (row.track === undefined ? [] : [row.track])),
+            context: { type: 'playlist', id: playlist.id, title: playlist.name },
+          }}
+        />
         <Menu
           label={`More options for ${playlist.name}`}
           iconOnly

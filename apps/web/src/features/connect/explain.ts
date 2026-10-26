@@ -140,6 +140,55 @@ export function appsSentence(): string {
   return 'The desktop and Android apps, which need no extension, are coming soon.'
 }
 
+/** The apps that are out, by name: the desktop app (stage 7.5), the Android app (stage 6.6). */
+function releasedApps(): string[] {
+  return [
+    ...(RELEASED.desktop ? ['the desktop app'] : []),
+    ...(RELEASED.android ? ['the Android app'] : []),
+  ]
+}
+
+/** "a", "a or b", "a, b or c". */
+function orList(items: readonly string[]): string {
+  if (items.length <= 1) return items.join('')
+  return `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`
+}
+
+/**
+ * What reaches everything, for sentences such as "Downloading it needs …": FXM Connect, and the
+ * desktop and Android apps once they are out ("FXM Connect, the desktop app or the Android app").
+ * Until they are, only FXM Connect, so the app never offers an app that isn't out.
+ */
+export function connectOrApps(): string {
+  return orList(['FXM Connect', ...releasedApps()])
+}
+
+/**
+ * The same with the extension named in full: "the free FXM Connect browser extension", then "or
+ * the desktop and Android apps" once they are out.
+ */
+export function connectExtensionOrApps(): string {
+  const apps = releasedApps()
+  if (apps.length === 0) return 'the free FXM Connect browser extension'
+  const named = apps.length === 2 ? 'the desktop and Android apps' : (apps[0] as string)
+  return `the free FXM Connect browser extension or ${named}`
+}
+
+/**
+ * How FXM reaches `what` (YouTube Music, Spotify), in a sentence or two: through FXM Connect,
+ * and the apps that are out, with the others "coming soon" ({@link appsSentence}'s rule).
+ */
+export function appsReachSentence(what: string): string {
+  const apps = releasedApps()
+  const through = `FXM reaches ${what} through the free FXM Connect browser extension`
+  if (apps.length === 2) return `${through}, or through the desktop and Android apps.`
+  if (apps.length === 1) {
+    const missing = RELEASED.desktop ? 'The Android app' : 'The desktop app'
+    return `${through}, or through ${apps[0]}. ${missing} is coming soon.`
+  }
+  return `${through}. The desktop and Android apps are coming soon.`
+}
+
 /** The app's name on each platform. */
 const APP_NAMES = { desktop: 'desktop app', android: 'Android app' } as const
 

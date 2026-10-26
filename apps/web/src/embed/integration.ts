@@ -1,63 +1,217 @@
 /**
- * Where the embed meets the stages that hadn't merged when stage 5.2 was built (an early start,
- * owner decision of 2026-10-26). Everything the embed needs from them comes through the
- * functions below and `WIRED_SOURCES` (`wired.ts`), behind interfaces the embed already uses
- * with fakes in its tests (`./testing`). When a stage merges, its integration changes only what
- * is named for it here:
+ * The embed's providers (stage 5.2, wired by stage 2.9b): the real YouTube Music and YouTube
+ * providers and stream ladder (stages 1.3 and 1.4) and the Internet Archive source (1.6), on the
+ * embed's own platform, through the app's composition-root adapters (`youtube.ts`,
+ * `matcher.ts`, `updates.ts` in `src/app/services`).
  *
- * | Touch-point | Stage | What to wire in |
+ * | Touch-point | Stage | Here |
  * |---|---|---|
- * | `catalog`: YouTube Music and YouTube metadata | 1.3 | `createYouTubeProviders()`'s `music` and `video` (`@fxm/sources/youtube`), in `createProviderCatalog([...])`; add `ytm` and `yt` to `WIRED_SOURCES` |
- * | `catalog`: Internet Archive and Jamendo metadata, and their credits | 1.6 | `createArchiveSource()` and `createJamendoSource()`, plus their attribution, in `createProviderCatalog([...], { attribution })`; add `archive` and `jamendo` to `WIRED_SOURCES` |
- * | `sources`: YouTube streams | 1.4 | The resolution ladder as a `StreamSource` for `ytm` (`hasFallback: true`); the stream lifecycle gives its calls their budget priority |
- * | `sources`: free-source streams | 1.6 | `fromAudioSource(archive)`, `fromAudioSource(jamendo)` from `@fxm/player` |
- * | `matcher`: songs for official videos in Music mode | 1.7 with 1.3's searches | A `TrackMatcher`; optional, without it only linked songs play |
- * | `killSwitches`: the Lite tier's remote kill switch | 1.3's config | `() => ({ lite: youtubeConfig.killSwitches.lite })`; until then Lite is off outside the browser tests' build |
- * | `selfTestRequest`: the Lite self-test's client version | 1.3's config | The provider's own request, as the sandbox README suggests |
+ * | `catalog`: YouTube Music and YouTube metadata | 1.3 | `ytm` and `yt`, loaded with the first YouTube content |
+ * | `catalog`: Internet Archive metadata and credits | 1.6 | `archive`, with each track's credits (its item page and licence) |
+ * | `sources`: YouTube streams | 1.4 | The ladder as the `ytm` stream source; the lifecycle gives its calls their budget priority |
+ * | `sources`: free-source streams | 1.6 | `fromAudioSource(archive)` |
+ * | `matcher`: songs for official videos in Music mode | 1.7 | The app's matcher over YouTube Music, loaded with the first such video |
+ * | `killSwitches`: the Lite tier's remote kill switch | 1.3, 1.13 | The YouTube config in use: the bundled one, or a newer signed one from FXM's site |
+ * | `selfTestRequest`: the Lite self-test's client | 1.3 | The YouTube Music client of the config |
  *
- * `integration.test.ts` checks that `WIRED_SOURCES` names exactly the sources the catalog has
- * providers for, each with a stream source.
+ * Jamendo stays out: it needs a `client_id`, which the build has none of today. `WIRED_SOURCES`
+ * (`wired.ts`) names exactly the sources wired here; `integration.test.ts` keeps them in step.
  *
  * The `/embed/*` header rule is stage 2.8's (`appPolicy({ embeddable: true })` there): the
  * app's policy without `frame-ancestors`, so any site may frame the player, plus
- * `Cross-Origin-Opener-Policy: same-origin` (README, "Headers"). 2.8's `embedPart.build()` runs
- * `vite build -c vite.embed.config.ts --sourcemap hidden --outDir <dir>` from `apps/web`.
+ * `Cross-Origin-Opener-Policy: same-origin` (README, "Headers").
  *
  * @module
  */
 
-import type { KillSwitches, PlatformOptions, SandboxTransportOptions } from '@fxm/platform'
-import { createProviderCatalog } from './catalog'
+import { type MetadataProvider, type ProviderContext, parseId, type Track } from '@fxm/core'
+import {
+  createKillSwitchStore,
+  type PlatformOptions,
+  type SandboxTransportOptions,
+  SIMPLE_CONTENT_TYPE,
+  type SimpleInnerTubeRequest,
+} from '@fxm/platform'
+import { fromAudioSource, type TrackMatcher } from '@fxm/player'
+import type { ArchiveSource } from '@fxm/sources/archive'
+// The config FXM ships with, as data only: importing `@fxm/sources/youtube` for it would bring
+// the providers and youtubei.js into the player's first chunk.
+import bundledConfig from '../../../../packages/sources/src/youtube/youtube-config.json'
+import { createIndexedDbStore } from '../app/services/device-store'
+import { createLoader, lazyProvider } from '../app/services/lazy-provider'
+import { keepYouTubeCurrent } from '../app/services/updates'
+import {
+  createYouTubeLoader,
+  platformStreamBudget,
+  type YouTube,
+  youtubeStreamSource,
+} from '../app/services/youtube'
+import { createProviderCatalog, type EmbedAttribution, type EmbedCatalog } from './catalog'
 import type { EmbedPlatform, EmbedServices } from './controller'
 
-/** The platform options that come from other stages: the remote config's switches (1.3). */
+/**
+ * The embed's kill switches: the YouTube config's, the bundled one until YouTube's code has
+ * loaded, then the config in use, which follows signed updates (stage 1.13).
+ */
+const killSwitches = createKillSwitchStore({ lite: bundledConfig.killSwitches.lite === true })
+
+/** The YouTube Music client the Lite self-test asks as: the config's (its version stays current). */
+let musicClient: { readonly name: string; readonly version: string } = bundledConfig.clients.music
+
+/** The platform options that come from other stages: the YouTube config's kill switches. */
 export function embedPlatformOptions(): Pick<PlatformOptions, 'killSwitches'> {
-  // 1.3: read `killSwitches.lite` from the YouTube config, so the remote config can turn the
-  // Lite tier off in players on other sites too. Until that is wired, the switch fails closed:
-  // Lite stays off (no self-test) in every build but the browser tests' (`--mode e2e`).
-  const lite = import.meta.env.MODE !== 'e2e'
-  const killSwitches = (): KillSwitches => ({ lite })
   return { killSwitches }
+}
+
+/**
+ * The Lite self-test's request: YouTube Music's search suggestions, the smallest call on the
+ * sandbox's allowlist, as the YouTube config's own client.
+ */
+export function liteSelfTestRequest(): SimpleInnerTubeRequest {
+  return {
+    url: 'https://music.youtube.com/youtubei/v1/music/get_search_suggestions?prettyPrint=false',
+    init: {
+      method: 'POST',
+      headers: { 'content-type': SIMPLE_CONTENT_TYPE },
+      body: JSON.stringify({
+        context: {
+          client: { clientName: musicClient.name, clientVersion: musicClient.version, hl: 'en' },
+        },
+        input: 'music',
+      }),
+      credentials: 'omit',
+    },
+  }
 }
 
 /** The sandbox options that come from other stages: the self-test's request (1.3). */
 export function embedSandboxOptions(): Pick<SandboxTransportOptions, 'selfTestRequest'> {
-  // 1.3: the YouTube provider's own self-test request, so its client version stays current.
-  // Until then the sandbox's default request (`defaultSelfTestRequest`) runs.
-  return {}
+  return { selfTestRequest: liteSelfTestRequest }
 }
 
 /**
- * The providers an embed loads and plays through. Until 1.3, 1.4 and 1.6 are wired in, the
- * catalog has no providers and there are no stream sources: `WIRED_SOURCES` is empty, so every
- * player says it can't play its content here, without contacting any service.
+ * The credits of Internet Archive tracks, which Creative Commons licences ask for where a track
+ * plays: read with the item when the catalog loads it, so the player can show them at once.
  */
-export function createEmbedServices(_platform: EmbedPlatform): EmbedServices {
+function archiveCredits(archive: () => Promise<ArchiveSource>) {
+  const credits = new Map<string, EmbedAttribution>()
   return {
-    // 1.3: music and video providers; 1.6: the Internet Archive and Jamendo sources, with
-    // their attribution.
-    catalog: createProviderCatalog([]),
-    // 1.4: the YouTube ladder; 1.6: fromAudioSource(archive), fromAudioSource(jamendo).
-    sources: [],
+    async remember(tracks: readonly Track[], ctx: ProviderContext): Promise<void> {
+      const source = await archive()
+      await Promise.all(
+        tracks
+          .filter((track) => track.source === 'archive' && !credits.has(track.id))
+          .map(async (track) => {
+            try {
+              const { provider, pageUrl, licenseUrl } = await source.attribution(track.id, ctx)
+              credits.set(track.id, {
+                provider,
+                pageUrl,
+                ...(licenseUrl === undefined ? {} : { licenseUrl }),
+              })
+            } catch {
+              // Without its credits, the track still plays; the player names the source.
+            }
+          }),
+      )
+    },
+    of: (track: Track) => credits.get(track.id),
+  }
+}
+
+/** Options for {@link createEmbedServices}. */
+export interface EmbedServicesOptions {
+  /**
+   * Keeps the YouTube config current from FXM's site once YouTube's code has loaded (stage
+   * 1.13), so a kill switch the owner sets reaches players on other sites too. Default:
+   * `keepYouTubeCurrent`; `false` for none (tests).
+   */
+  readonly updates?: ((youtube: YouTube) => void) | false
+}
+
+/**
+ * The providers an embed loads and plays through, on `platform`: YouTube Music and YouTube
+ * (`ytm`, `yt`) and Internet Archive (`archive`), each loaded with the first content it serves.
+ */
+export function createEmbedServices(
+  platform: EmbedPlatform,
+  options: EmbedServicesOptions = {},
+): EmbedServices {
+  const updates = options.updates ?? keepYouTubeCurrent
+  const youtube = createYouTubeLoader({
+    store: createIndexedDbStore(),
+    budget: platformStreamBudget(() => platform.budget),
+    onLoad: (loaded) => {
+      const follow = () => {
+        killSwitches.set(loaded.killSwitches())
+        const config = loaded.host.current().config as { clients?: { music?: typeof musicClient } }
+        if (config.clients?.music !== undefined) musicClient = config.clients.music
+      }
+      follow()
+      loaded.subscribe(follow)
+      if (updates !== false) updates(loaded)
+    },
+  })
+  const archive = createLoader(
+    'Internet Archive',
+    () => import('@fxm/sources/archive'),
+    ({ createArchiveSource }) => createArchiveSource(),
+  )
+  const report = (error: unknown) => {
+    platform.report?.(error)
+  }
+  const providers: MetadataProvider[] = [
+    lazyProvider({
+      id: 'ytm',
+      getPlaylistTracks: true,
+      load: async () => (await youtube.load()).music,
+      report,
+    }),
+    lazyProvider({
+      id: 'yt',
+      getPlaylistTracks: true,
+      load: async () => (await youtube.load()).video,
+      report,
+    }),
+    lazyProvider({ id: 'archive', load: () => archive.load() }),
+  ]
+  const credits = archiveCredits(() => archive.load())
+  const base = createProviderCatalog(providers)
+  const catalog: EmbedCatalog = {
+    supports: (source) => base.supports(source),
+    async load(target, ctx) {
+      const entity = await base.load(target, ctx)
+      if (parseId(target.id).source === 'archive') await credits.remember(entity.tracks, ctx)
+      return entity
+    },
+    attribution: (track) => credits.of(track),
+  }
+  // Songs for official videos without a link, in Music mode: the matching engine over YouTube
+  // Music's searches, loaded with the first such video. Auto stays off (stage 1.12).
+  const engine = createLoader(
+    'the matching engine',
+    () => import('../app/services/matcher'),
+    ({ createTrackMatcher }) =>
+      createTrackMatcher({
+        youtube: () => youtube.load(),
+        lossless: async () => [await archive.load()],
+        report,
+      }),
+  )
+  const matcher: TrackMatcher = {
+    match: async (track, request) => (await engine.load()).match(track, request),
+  }
+  return {
+    catalog,
+    sources: [
+      youtubeStreamSource(youtube),
+      fromAudioSource({
+        id: 'archive',
+        match: async (track, ctx) => (await archive.load()).match(track, ctx),
+        resolve: async (candidate, ctx, prefs) =>
+          (await archive.load()).resolve(candidate, ctx, prefs),
+      }),
+    ],
+    matcher,
   }
 }

@@ -333,10 +333,15 @@ describe('ImportPage', () => {
       file('kitchen.csv', 'Title,Artist\nOne,Band\nTwo,Band', 'text/csv'),
     )
     const notice = await screen.findByRole('complementary', { name: 'Finding songs' })
+    // The app's own onboarding, and no app that isn't out yet.
     expect(within(notice).getByRole('link', { name: 'add FXM Connect' })).toHaveAttribute(
       'href',
-      '/#get-web',
+      '/connect',
     )
+    expect(notice).toHaveTextContent(
+      'The desktop and Android apps, which need no extension, are coming soon.',
+    )
+    expect(within(notice).queryByRole('link', { name: /desktop|Android/ })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Start import' }))
     const list = await screen.findByRole('region', { name: 'Your imports' })
     expect(await within(list).findByText('Paused: needs FXM Connect')).toHaveClass(

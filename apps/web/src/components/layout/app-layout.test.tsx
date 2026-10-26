@@ -134,14 +134,14 @@ describe('app layout', () => {
   it('keeps the play buttons of collection pages apart from the queue', async () => {
     const { player } = setupTestPlayback()
     await player.setQueue([testTrack('Creep')])
-    // The library's playlist pages keep this placeholder until they play their playlist.
-    const { user } = renderApp('/playlist/local:playlist:liked')
+    renderApp('/playlist/local:playlist:liked')
     await screen.findByRole('heading', { level: 1, name: 'Liked songs' })
     const main = within(screen.getByRole('main'))
 
-    await user.click(main.getByRole('button', { name: 'Play' }))
-
-    expect(main.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
+    // Another queue plays: the playlist's button offers to play the playlist, which is empty,
+    // never to pause what plays.
+    expect(main.getByRole('button', { name: 'Play' })).toBeDisabled()
+    expect(main.queryByRole('button', { name: 'Pause' })).toBeNull()
     expect(player.getState().status).toBe('playing')
   })
 

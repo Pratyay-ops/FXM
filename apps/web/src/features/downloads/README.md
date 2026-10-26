@@ -7,7 +7,7 @@ The web app's side of stage 4.1: where downloads are stored, which tab runs the 
 | `runtime.ts` | The app's downloads, created on first use (`getDownloads`): the manager over the `fxm-downloads` database and the Origin Private File System, the Downloads playlist kept in step, `startDownloads` (the tab with the Web Lock runs the queue), `getOfflineStore` for the player, `resetDownloads` for tests |
 | `download-db.ts` | The `fxm-downloads` IndexedDB database (Dexie) and the `DownloadStore` on it |
 | `opfs/` | The `DownloadStorage` on the Origin Private File System: `storage.ts` on the page, `worker.ts` and `handler.ts` in a dedicated worker that writes through sync access handles, `protocol.ts` for their messages |
-| `environment.ts` | The one place where downloads meet stages that hadn't merged (the provider context of 1.2, whose `fetch` draws on the request budget at the `bulk` priority; the sources, matching engine and match cache behind the resolver), and the stand-in until then |
+| `environment.ts` | Where downloads meet the rest of FXM: the environment the app's composition root connects (`connectDownloadEnvironment`: the platform's context at the request budget's `bulk` priority, and the resolver over the stream lifecycle's own sources, matching engine and match cache), and the stand-in until then |
 | `persistence.ts` | `navigator.storage.estimate()`, `persisted()` and `persist()` for the usage meter |
 | `hooks.ts` | Live reads of the downloads, availability per track, storage numbers |
 | `actions.ts` | What buttons and menus do, with their confirmations |
@@ -36,15 +36,16 @@ The running tab also keeps the **Downloads playlist** in step: a completed downl
 
 ## Offline playback
 
-`getOfflineStore()` is the `offline` option of the player's `StreamLifecycle` (stage 2.3), so the playback policy plays a downloaded track from the device before resolving anything, also without a network (once the app itself is loaded; the offline app shell is stage 5.1). The player is wired in by stage 2.5; until then the store is ready but unused.
+`getOfflineStore()` is the `offline` option of the player's `StreamLifecycle` (stage 2.3): the app's composition root asks it first (`src/app/services/offline.ts`, before the user's own files tagged with the track's ISRC), so the playback policy plays a downloaded track from the device before resolving anything, also without a network (once the app itself is loaded; the offline app shell is stage 5.1).
 
 ## UI
 
 - **The Downloads tab** of the library shows, above the playlist in its custom order: a notice when the browser can't store downloads, or when YouTube songs can't be downloaded here (no FXM Connect, the Lite tier included); the storage card with the usage meter, persistence and "Remove all downloads"; the downloads on their way with a progress bar, a pause/resume/retry button and a cancel button each, and "Pause all"/"Resume all"; and songs in the playlist that aren't downloaded on this device (after restoring a backup from another device), to download or remove.
 - **Track lists** (playlists, Liked songs, Downloads) have "Download", "Cancel download" or "Remove download" in each song's menu, and "Download" for a selection. In Downloads, "Remove download" is the only way out of the list. A playlist's menu has "Download all".
-- **`DownloadButton`** is ready for the pages that show tracks elsewhere (search, album and artist pages, now playing: stages 2.4 and 2.5).
+- **The catalog pages** (search, album, artist and playlist pages, stage 2.4) have "Download" in their menus: the composition root sets 2.4's `DownloadActions` to the downloads' own action, which says what became of the click.
+- **`DownloadButton`** sits beside the like button on Now playing (stage 2.5).
 
-Nothing is offered where the bytes are unreadable (YouTube audio needs FXM Connect, the desktop app or the Android app, and never the Lite tier), nor what the app can't resolve: until the stream sources are wired in (see `environment.ts`), that is every track, Internet Archive and Jamendo included. A download the manager paused on its own says why in its row ("Paused · There is no room left for downloads", or after a YouTube bot check).
+Downloads keep the source's own file; converting it to another format is stage 4.2, so Settings offers only Original until then. Nothing is offered where the bytes are unreadable (YouTube audio needs FXM Connect, and later the desktop app or the Android app, and never the Lite tier), nor what the app can't resolve (before the composition root connected its environment, nothing). A download the manager paused on its own says why in its row ("Paused · There is no room left for downloads", or after a YouTube bot check).
 
 ## Testing
 

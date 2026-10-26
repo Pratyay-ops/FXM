@@ -21,6 +21,7 @@ import { cn } from '../../lib/cn'
 import { downloadTracks, removeDownloads } from '../downloads/actions'
 import { useCanDownload } from '../downloads/hooks'
 import { useDownloadMenuItem } from '../downloads/menu'
+import { getPlayer } from '../now-playing/playback'
 import { CoverArt } from './cover-art'
 import { failureText } from './failure'
 import { addedLabel, artistNames, artworkUrl, countLabel, trackDuration } from './format'
@@ -78,12 +79,16 @@ interface RowBodyProps {
   cover: string | undefined
   liked: boolean
   canLike: boolean
+  /** Whether the row's song can play: the library has its track. */
+  canPlay: boolean
   selecting: boolean
   selected: boolean
   menuOpen: boolean
   onToggleSelect: (id: string, extend: boolean) => void
   onToggleLike: (id: string) => void
   onOpenMenu: (id: string, anchor: HTMLElement) => void
+  /** Plays the list from this row. */
+  onPlay: (id: string) => void
 }
 
 /**
@@ -101,12 +106,14 @@ const RowBody = memo(function RowBody({
   cover,
   liked,
   canLike,
+  canPlay,
   selecting,
   selected,
   menuOpen,
   onToggleSelect,
   onToggleLike,
   onOpenMenu,
+  onPlay,
 }: RowBodyProps) {
   return (
     <>
@@ -130,7 +137,18 @@ const RowBody = memo(function RowBody({
       )}
       <CoverArt src={cover} seed={id} icon={Music} rounded="sm" className="size-10" />
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold">{title}</p>
+        {canPlay && !selecting ? (
+          <button
+            type="button"
+            onClick={() => onPlay(id)}
+            aria-label={artists ? `Play ${title} by ${artists}` : `Play ${title}`}
+            className="block max-w-full truncate rounded-xs text-left font-semibold hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus"
+          >
+            {title}
+          </button>
+        ) : (
+          <p className="truncate font-semibold">{title}</p>
+        )}
         <p className="truncate text-sm text-text-muted">{artists}</p>
       </div>
       <p className="hidden w-1/4 min-w-0 truncate text-sm text-text-muted lg:block">{album}</p>
@@ -253,6 +271,25 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   const titleOf = useCallback(
     (id: string) => byIdRef.current.get(id)?.track?.title ?? UNKNOWN_TITLE,
     [],
+  )
+
+  const nameRef = useRef(name)
+  nameRef.current = name
+  /**
+   * Plays the list as it shows, from `id`, through the app's player, with the list as the
+   * queue's context ("Playing from …"). Songs the library has no track for are left out.
+   */
+  const play = useCallback(
+    (id: string) => {
+      const tracks = idsRef.current.flatMap((rowId) => byIdRef.current.get(rowId)?.track ?? [])
+      const startIndex = tracks.findIndex((track) => track.id === id)
+      if (startIndex < 0) return
+      void getPlayer().setQueue(tracks, {
+        startIndex,
+        context: { type: 'playlist', id: listId, title: nameRef.current },
+      })
+    },
+    [listId],
   )
 
   /** Keeps focus in the list when `gone` leave it: on the next row's `control`, else the list. */
@@ -512,12 +549,14 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
               cover={artworkUrl(row.track?.artwork, 80)}
               liked={row.liked}
               canLike={row.track !== undefined}
+              canPlay={row.track !== undefined}
               selecting={selecting}
               selected={selection.selected.has(row.id)}
               menuOpen={menu?.id === row.id}
               onToggleSelect={selection.toggle}
               onToggleLike={toggleLike}
               onOpenMenu={openMenu}
+              onPlay={play}
             />
           ))}
         </ol>

@@ -70,7 +70,7 @@ describe('Search: tiers', () => {
   it('offers download and the equalizer on YouTube items in the full tier', async () => {
     const { user } = renderCatalog('/search?q=harbor lights nova', { tier: 'full' })
     await findList('Songs')
-    expect(screen.queryByText(/Lite mode, experimental/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Lite tier, experimental/)).not.toBeInTheDocument()
     const items = await menuItemsOf(user, 'More options for Harbor Lights')
     expect(items).toEqual(
       expect.arrayContaining([
@@ -87,7 +87,7 @@ describe('Search: tiers', () => {
     const { user, ytm } = renderCatalog('/search?q=harbor lights nova', { tier: 'lite' })
     await findList('Songs')
     expect(ytm.calls.some((call) => call.method === 'search')).toBe(true)
-    expect(screen.getByText(/Lite mode, experimental/)).toBeInTheDocument()
+    expect(screen.getByText(/Lite tier, experimental/)).toBeInTheDocument()
 
     const items = await menuItemsOf(user, 'More options for Harbor Lights')
     expect(items).toEqual(expect.arrayContaining(['Play next', 'Add to queue', 'Add to playlist…']))

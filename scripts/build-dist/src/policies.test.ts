@@ -25,19 +25,29 @@ const PLAN_APP_POLICY =
   )
 
 /**
- * The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm) and
- * 8.4's library sync (GitHub).
+ * The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm), 3.2's
+ * recommendations on Home (ListenBrainz's labs API, Last.fm's stations, the Cover Art Archive)
+ * and 8.4's library sync (GitHub).
  */
 const LATER_CONNECT_HOSTS = [
   'https://api.listenbrainz.org',
+  'https://labs.api.listenbrainz.org',
   'https://ws.audioscrobbler.com',
+  'https://www.last.fm',
   'https://api.github.com',
+  'https://coverartarchive.org',
 ]
+
+/** The hosts later stages added to `img-src`: the Cover Art Archive's covers (3.2). */
+const LATER_IMG_HOSTS = ['https://coverartarchive.org']
 
 /** The `/app/*` policy today: the plan's, with the hosts later stages added after its own. */
 const APP_POLICY = PLAN_APP_POLICY.replace(
   "; frame-src 'self';",
   ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
+).replace(
+  'https://*.jamendo.com; media-src',
+  `https://*.jamendo.com ${LATER_IMG_HOSTS.join(' ')}; media-src`,
 )
 
 describe('csp helpers', () => {

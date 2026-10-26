@@ -29,8 +29,14 @@ export const RELEASED = {
   desktop: false,
   /** The Android app (APK) on GitHub Releases: stage 6.6. */
   android: false,
-  /** Downloads in any format: stage 4.1. */
-  downloads: false,
+  /**
+   * Downloads, in the format the source has (the original file): stage 4.1, on with the app's
+   * composition root (stage 2.9b). YouTube songs where their bytes are readable (FXM Connect,
+   * the desktop and Android apps), Internet Archive and Jamendo everywhere.
+   */
+  downloads: true,
+  /** Converting downloads to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags: stage 4.2. */
+  conversions: false,
   /** Connecting a Spotify account for a read-only sync: stage 3.5. */
   spotifyAccount: false,
   /** Playing music files from the device: stage 4.4, in the Library's Local files tab. */

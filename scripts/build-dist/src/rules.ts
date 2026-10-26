@@ -6,7 +6,7 @@
  * | Files                     | Rule                                   | Policy                         |
  * |---------------------------|----------------------------------------|--------------------------------|
  * | app/**                    | /app/*                                 | appPolicy()                    |
- * | embed/**                  | /embed/*                               | appPolicy({ embeddable })      |
+ * | embed/**                  | /embed/*                               | appPolicy({ embeddable }), COOP |
  * | sandbox/<doc>.html        | /sandbox/<doc> and /sandbox/<doc>.html | SANDBOX_DOCUMENTS[<doc>.html]  |
  * | _astro/**, .well-known/** | /_astro/*, /.well-known/*              | STATIC_FILE_POLICY             |
  * | other .html files         | each page's path and its .html path    | sitePagePolicy() for that page |
@@ -224,12 +224,26 @@ export function metaPolicyProblems(file: string, scan: PageScan, headerPolicy: s
 const OPAQUE_ORIGIN_TEST =
   /\bself\.origin\s*[!=]==?\s*(['"])null\1|(['"])null\2\s*[!=]==?\s*self\.origin\b/
 
-function rule(path: string, policy: Policy): HeaderRule {
+function rule(
+  path: string,
+  policy: Policy,
+  extra: readonly (readonly [name: string, value: string])[] = [],
+): HeaderRule {
   return {
     path,
-    headers: [['Content-Security-Policy', serializePolicy(policy)], ...COMMON_HEADERS],
+    headers: [['Content-Security-Policy', serializePolicy(policy)], ...COMMON_HEADERS, ...extra],
   }
 }
+
+/**
+ * The embed's extra header (apps/web/src/embed/README.md, "Headers"):
+ * `Cross-Origin-Opener-Policy: same-origin` cuts a player opened at top level off from the page
+ * that opened it, which could otherwise count the player's frames and so tell whether the
+ * visitor has FXM Connect. Browsers ignore it in frames, so embedding works as before.
+ */
+export const EMBED_EXTRA_HEADERS: readonly (readonly [name: string, value: string])[] = [
+  ['Cross-Origin-Opener-Policy', 'same-origin'],
+]
 
 /** The `_headers` rules for a composed folder. Throws when a file can't get a correct policy. */
 export function generateRules(pagesDir: string): HeaderRule[] {
@@ -272,7 +286,14 @@ export function generateRules(pagesDir: string): HeaderRule[] {
       }
       hashes.push(...scan.inlineScripts.map(sha256Source))
     }
-    splatRules.push(rule(`/${folder}/*`, appPolicy(hashes, { embeddable: family === 'embed' })))
+    const embeddable = family === 'embed'
+    splatRules.push(
+      rule(
+        `/${folder}/*`,
+        appPolicy(hashes, { embeddable }),
+        embeddable ? EMBED_EXTRA_HEADERS : [],
+      ),
+    )
   }
 
   for (const file of files.filter((name) => !inSplatFolder(name))) {
