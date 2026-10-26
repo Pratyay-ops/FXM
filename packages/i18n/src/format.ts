@@ -5,7 +5,7 @@
  * @module
  */
 
-import { dateTimeFormat, numberFormat, pluralRules } from './intl'
+import { dateTimeFormat, numberFormat, pluralRules, timeOf } from './intl'
 import type { MessageNode, MessageOptions } from './parse'
 
 /** Values for a message's arguments, by name. */
@@ -13,7 +13,10 @@ export type Values = Readonly<Record<string, unknown>>
 
 /** What went wrong with a value: the message shows `{name}` in its place. */
 export interface ValueProblem {
-  /** `missing`: no value; `type`: a value of the wrong kind, such as text for a plural. */
+  /**
+   * `missing`: no value; `type`: a value of the wrong kind, such as text for a plural or an
+   * invalid date (`new Date(NaN)`).
+   */
   readonly kind: 'missing' | 'type'
   /** The argument's name. */
   readonly name: string
@@ -52,6 +55,12 @@ export function formatToParts<T>(
     return undefined
   }
 
+  /** A date or time value formatted with `style`; an invalid date is a value of the wrong kind. */
+  const date = (name: string, value: Date | number, style: Intl.DateTimeFormatOptions): string => {
+    const time = timeOf(value)
+    return Number.isNaN(time) ? problem('type', name) : dateTimeFormat(locale, style).format(time)
+  }
+
   const pick = (choices: MessageOptions, selector: string): readonly MessageNode[] =>
     (Object.hasOwn(choices, selector) ? choices[selector] : choices.other) ?? []
 
@@ -73,8 +82,7 @@ export function formatToParts<T>(
           const value = Object.hasOwn(values, node.name) ? values[node.name] : undefined
           if (value === undefined || value === null) push(problem('missing', node.name))
           else if (typeof value === 'number') push(numberFormat(locale).format(value))
-          else if (value instanceof Date)
-            push(dateTimeFormat(locale, { dateStyle: 'medium' }).format(value))
+          else if (value instanceof Date) push(date(node.name, value, { dateStyle: 'medium' }))
           else push(String(value))
           break
         }
@@ -98,7 +106,7 @@ export function formatToParts<T>(
           if (typeof value === 'number' || value instanceof Date) {
             const style =
               node.type === 'date' ? { dateStyle: node.style } : { timeStyle: node.style }
-            push(dateTimeFormat(locale, style).format(value))
+            push(date(node.name, value, style))
           } else push(problem(value === undefined ? 'missing' : 'type', node.name))
           break
         }

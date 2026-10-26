@@ -112,7 +112,11 @@ export interface Formatters {
    * from a minute, else seconds. Negative or invalid input is no time at all: `0:00`, `0 seconds`.
    */
   duration(seconds: number, style?: DurationStyle): string
-  /** A date: `Oct 26, 2026` (`medium`, the default) in `en-US`, `26 Oct 2026` in `en-GB`. */
+  /**
+   * A date: `Oct 26, 2026` (`medium`, the default) in `en-US`, `26 Oct 2026` in `en-GB`. An
+   * invalid date (`new Date(NaN)`) is an empty string, as it is for {@link time} and
+   * {@link timeAgo}.
+   */
   date(value: Date | number, style?: DateTimeStyle | Intl.DateTimeFormatOptions): string
   /** A time of day: `5:30 PM` (`short`, the default) in `en-US`, `17:30` in `de`. */
   time(value: Date | number, style?: DateTimeStyle): string
@@ -146,8 +150,11 @@ const TIME_AGO_STEPS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[
   ['year', Number.POSITIVE_INFINITY],
 ]
 
-const timeOf = (value: Date | number): number =>
-  typeof value === 'number' ? value : value.getTime()
+/**
+ * The time of `value` in milliseconds, or `NaN` for an invalid date (`new Date(NaN)`, or a time
+ * outside the range a `Date` holds), which `Intl.DateTimeFormat` would throw on.
+ */
+export const timeOf = (value: Date | number): number => new Date(value).getTime()
 
 /** See {@link Formatters.number}. */
 export function formatNumber(
@@ -243,9 +250,10 @@ export function formatDate(
   value: Date | number,
   style: DateTimeStyle | Intl.DateTimeFormatOptions = 'medium',
 ): string {
-  return dateTimeFormat(locale, typeof style === 'string' ? { dateStyle: style } : style).format(
-    value,
-  )
+  const time = timeOf(value)
+  return Number.isNaN(time)
+    ? ''
+    : dateTimeFormat(locale, typeof style === 'string' ? { dateStyle: style } : style).format(time)
 }
 
 /** See {@link Formatters.time}. */
@@ -254,7 +262,8 @@ export function formatTime(
   value: Date | number,
   style: DateTimeStyle = 'short',
 ): string {
-  return dateTimeFormat(locale, { timeStyle: style }).format(value)
+  const time = timeOf(value)
+  return Number.isNaN(time) ? '' : dateTimeFormat(locale, { timeStyle: style }).format(time)
 }
 
 /** See {@link Formatters.relativeTime}. */
@@ -275,6 +284,7 @@ export function formatTimeAgo(
   // Halves round away from zero, the same both ways: 90 seconds ago is 2 minutes ago.
   const rounded = (amount: number) => Math.sign(amount) * Math.round(Math.abs(amount))
   let delta = (timeOf(value) - timeOf(now)) / 1000
+  if (Number.isNaN(delta)) return ''
   for (const [unit, size] of TIME_AGO_STEPS) {
     if (Math.abs(delta) < size) return formatRelativeTime(locale, rounded(delta), unit)
     delta /= size

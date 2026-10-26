@@ -74,6 +74,15 @@ describe('createFormatters', () => {
     expect(gb.time(evening)).toBe('17:30')
   })
 
+  it('writes nothing for an invalid date rather than throw', () => {
+    const invalid = new Date(Number.NaN)
+    expect(en.date(invalid)).toBe('')
+    expect(en.date(Number.NaN, { month: 'short' })).toBe('')
+    expect(en.time(1e20)).toBe('')
+    expect(en.timeAgo(invalid)).toBe('')
+    expect(en.timeAgo(day, invalid)).toBe('')
+  })
+
   it('formats relative times, with words for the nearest', () => {
     expect(en.relativeTime(-1, 'day')).toBe('yesterday')
     expect(en.relativeTime(3, 'day')).toBe('in 3 days')

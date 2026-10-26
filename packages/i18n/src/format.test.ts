@@ -98,6 +98,24 @@ describe('formatToString', () => {
     ])
   })
 
+  it('shows {name} for an invalid date instead of throwing, and says so', () => {
+    const onProblem = vi.fn()
+    const nodes = parseMessage('Added {a, date} at {b, time}; {c}')
+    const invalid = new Date(Number.NaN)
+    expect(
+      formatToString(nodes, {
+        locale: 'en',
+        values: { a: invalid, b: 1e20, c: invalid },
+        onProblem,
+      }),
+    ).toBe('Added {a} at {b}; {c}')
+    expect(onProblem.mock.calls).toEqual([
+      [{ kind: 'type', name: 'a' }],
+      [{ kind: 'type', name: 'b' }],
+      [{ kind: 'type', name: 'c' }],
+    ])
+  })
+
   it('reads only its own properties of the values', () => {
     expect(format('{toString}', {})).toBe('{toString}')
   })
