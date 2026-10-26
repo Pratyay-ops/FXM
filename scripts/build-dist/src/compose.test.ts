@@ -202,6 +202,59 @@ describe('compose', () => {
     ])
   })
 
+  it("ships a chunk without a source map only when it holds just the bundler's runtime", () => {
+    const appWith = (root: string, chunks: Record<string, readonly string[]>) => {
+      writeFiles(root, { 'apps/web/src/app.ts': 'export {}\n' })
+      return fakePart(
+        { name: 'app', mount: 'app', spa: true, required: true },
+        (outDir) => ({
+          'index.html':
+            '<!doctype html><html><head><title>a</title></head><body><h1>a</h1></body></html>',
+          ...bundle(outDir, 'assets/index.js', [join(root, 'apps/web/src/app.ts')]),
+          ...Object.fromEntries(Object.keys(chunks).map((file) => [file, 'export {}\n'])),
+        }),
+        () => [
+          {
+            environment: 'client',
+            modules: [],
+            assets: [],
+            chunks: Object.entries(chunks).map(([fileName, modules]) => ({ fileName, modules })),
+          },
+        ],
+      )
+    }
+    const root = tempDir()
+    const { logs } = run(root, [
+      fakeSitePart(root),
+      appWith(root, {
+        'assets/rolldown-runtime.js': ['\0rolldown/runtime.js'],
+        'assets/preload-helper.js': ['\0vite/preload-helper.js'],
+      }),
+    ])
+    expect(logs).toContain(
+      "app: assets/rolldown-runtime.js holds only the bundler's runtime (rolldown/runtime.js)",
+    )
+    expect(logs).toContain(
+      "app: assets/preload-helper.js holds only the bundler's runtime (vite/preload-helper.js)",
+    )
+
+    const other = tempDir()
+    expect(
+      problemsOf(() =>
+        run(other, [
+          fakeSitePart(other),
+          appWith(other, {
+            'assets/mixed.js': ['\0vite/preload-helper.js', join(other, 'apps/web/src/app.ts')],
+            'assets/virtual.js': ['\0virtual:some-plugin'],
+          }),
+        ]),
+      ),
+    ).toEqual([
+      'app: assets/mixed.js has no source map, so its packages are unknown',
+      'app: assets/virtual.js has no source map, so its packages are unknown',
+    ])
+  })
+
   it('lists the packages a build takes stylesheets and assets from, from its inventory', () => {
     const root = tempDir()
     const fonts = installPackage(root, { name: 'fonts', version: '1.0.0', license: 'OFL-1.1' })

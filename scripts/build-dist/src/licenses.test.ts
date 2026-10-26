@@ -7,6 +7,7 @@ import {
   addPackagesFromSourceMaps,
   type BundledPackage,
   binaryProblems,
+  bundlerRuntimeChunks,
   evaluateLicense,
   findInstalledPackage,
   inlineCodeProblems,
@@ -365,6 +366,31 @@ describe('the bundle inventory', () => {
       'ssr',
     ])
     expect(readInventory(join(dir, 'missing.jsonl'))).toEqual([])
+    expect(() => readInventory(join(dir, 'bad.jsonl'))).toThrow(/line 1: not an inventory entry/)
+  })
+
+  it("reads each chunk's modules, and finds the chunks that hold only the bundler's runtime", () => {
+    const dir = tempDir()
+    const chunks = [
+      { fileName: 'assets/index.js', modules: ['/repo/apps/web/src/main.ts'] },
+      { fileName: 'assets/rolldown-runtime.js', modules: ['\0rolldown/runtime.js'] },
+      {
+        fileName: 'assets/preload-helper.js',
+        modules: ['\0vite/preload-helper.js', '\0vite/modulepreload-polyfill.js'],
+      },
+      { fileName: 'assets/empty.js', modules: [] },
+    ]
+    const entry = { environment: 'client', modules: [], assets: [], chunks }
+    writeFiles(dir, {
+      'ok.jsonl': `${JSON.stringify(entry)}\n`,
+      'bad.jsonl': `${JSON.stringify({ ...entry, chunks: [{ fileName: 'a.js', modules: [1] }] })}\n`,
+    })
+    const entries = readInventory(join(dir, 'ok.jsonl'))
+    expect(entries[0]?.chunks).toEqual(chunks)
+    expect(Object.fromEntries(bundlerRuntimeChunks(entries))).toEqual({
+      'assets/rolldown-runtime.js': ['\0rolldown/runtime.js'],
+      'assets/preload-helper.js': ['\0vite/preload-helper.js', '\0vite/modulepreload-polyfill.js'],
+    })
     expect(() => readInventory(join(dir, 'bad.jsonl'))).toThrow(/line 1: not an inventory entry/)
   })
 })

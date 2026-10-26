@@ -1,8 +1,9 @@
 /**
  * A Vite plugin that records what a build takes from where, for the licence check
- * (licenses.ts): every module the bundler loaded, and the source files of every file it emits
- * other than chunks. That shows the stylesheets, fonts, images and WebAssembly a build takes
- * from npm packages, which source maps don't.
+ * (licenses.ts): every module the bundler loaded, the source files of every file it emits
+ * other than chunks, and the modules of every chunk. That shows the stylesheets, fonts, images
+ * and WebAssembly a build takes from npm packages, which source maps don't, and the chunks that
+ * hold only the bundler's own runtime, which have no source map.
  *
  * Each build of each environment (Astro builds a prerender and a client environment) appends
  * one JSON line to the file named by FXM_BUNDLE_INVENTORY, which make dist sets for the parts
@@ -20,6 +21,8 @@ interface BundleOutput {
   readonly fileName: string
   /** Rollup and Rolldown: the source files an emitted asset came from, relative to the root. */
   readonly originalFileNames?: readonly string[]
+  /** Rollup and Rolldown: the modules in an emitted chunk. */
+  readonly moduleIds?: readonly string[]
 }
 
 interface PluginContext {
@@ -50,10 +53,14 @@ export function bundleInventory() {
             isAbsolute(name) ? name : resolve(root, name),
           ),
         }))
+      const chunks = Object.values(bundle)
+        .filter((output) => output.type === 'chunk')
+        .map((chunk) => ({ fileName: chunk.fileName, modules: [...(chunk.moduleIds ?? [])] }))
       const entry = {
         environment: this.environment?.name ?? 'client',
         modules: [...this.getModuleIds()],
         assets,
+        chunks,
       }
       appendFileSync(file, `${JSON.stringify(entry)}\n`)
     },

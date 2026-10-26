@@ -22,6 +22,7 @@ import {
   addPackagesFromSourceMaps,
   type BundledPackage,
   binaryProblems,
+  bundlerRuntimeChunks,
   inlineCodeProblems,
   licenseProblems,
   readInventory,
@@ -106,12 +107,22 @@ export function compose(options: ComposeOptions): ComposeResult {
     const dir = join(stagingDir, 'parts', part.name)
     const files = listFiles(dir)
     const maps = files.filter((file) => file.endsWith('.map')).map((file) => join(dir, file))
+    const inventory = readInventory(inventoryOf(part))
+    const runtimeChunks = bundlerRuntimeChunks(inventory)
     for (const script of files.filter((file) => /\.m?js$/.test(file))) {
       if (!part.sourceMaps) {
         problems.push(
           `${part.name} ships ${script}, but builds no source maps to show which packages it contains`,
         )
-      } else if (!files.includes(`${script}.map`)) {
+        continue
+      }
+      if (files.includes(`${script}.map`)) continue
+      // A chunk of the bundler's own runtime has no source map, and nothing from a package.
+      const runtime = runtimeChunks.get(script)
+      if (runtime) {
+        const modules = runtime.map((id) => id.replace(/^\0/, '')).join(', ')
+        log(`${part.name}: ${script} holds only the bundler's runtime (${modules})`)
+      } else {
         problems.push(`${part.name}: ${script} has no source map, so its packages are unknown`)
       }
     }
@@ -122,7 +133,7 @@ export function compose(options: ComposeOptions): ComposeResult {
       )
     }
     // Stylesheets, fonts, images and WebAssembly the build took from packages.
-    const origins = addPackagesFromInventory(readInventory(inventoryOf(part)), part.name, packages)
+    const origins = addPackagesFromInventory(inventory, part.name, packages)
     const stylesheets = files.filter((file) => file.endsWith('.css')).map((file) => join(dir, file))
     addPackagesFromBanners(stylesheets, part.name, root, packages)
     problems.push(...binaryProblems(part.name, dir, files, origins))

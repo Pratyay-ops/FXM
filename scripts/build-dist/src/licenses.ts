@@ -10,6 +10,9 @@
  * - `/*! name vX.Y.Z | Licence` banners in stylesheets, which build tools such as Tailwind add
  *   when they copy their own code into the output.
  *
+ * JavaScript without a source map fails, unless the module list shows that its chunk holds only
+ * the bundler's own runtime (BUNDLER_RUNTIME_MODULES).
+ *
  * From that list `make dist` writes the third-party notices file, and fails when a package's
  * licence is not one FXM accepts (ARCHITECTURE.md §17 and §18): GPL and AGPL never, and any
  * other licence only after a human review recorded in LICENCE_OVERRIDES.
@@ -244,6 +247,8 @@ export interface InventoryEntry {
   readonly modules: readonly string[]
   /** The files the build emitted that are not chunks, with the source files they came from. */
   readonly assets: readonly { readonly fileName: string; readonly sources: readonly string[] }[]
+  /** The chunks the build emitted, with the modules in each. */
+  readonly chunks?: readonly { readonly fileName: string; readonly modules: readonly string[] }[]
 }
 
 /** Reads a part's inventory file: one JSON object per line, one line per build. */
@@ -264,12 +269,51 @@ export function readInventory(file: string): InventoryEntry[] {
         !entry.assets.every(
           (asset) =>
             isObject(asset) && typeof asset.fileName === 'string' && strings(asset.sources),
-        )
+        ) ||
+        (entry.chunks !== undefined &&
+          !(
+            Array.isArray(entry.chunks) &&
+            entry.chunks.every(
+              (chunk) =>
+                isObject(chunk) && typeof chunk.fileName === 'string' && strings(chunk.modules),
+            )
+          ))
       ) {
         throw new Error(`${file}, line ${index + 1}: not an inventory entry`)
       }
       return entry as unknown as InventoryEntry
     })
+}
+
+/**
+ * The modules the bundler writes itself, from no source file: Rolldown's runtime (its
+ * CommonJS and namespace helpers) and Vite's preload helper and polyfill. Builds usually keep
+ * them inside other chunks. When the bundler gives them a chunk of their own, that chunk has no
+ * source map, and needs none: it holds no dependency's code. Any other chunk without a source
+ * map still fails.
+ */
+export const BUNDLER_RUNTIME_MODULES: ReadonlySet<string> = new Set([
+  '\0rolldown/runtime.js',
+  '\0vite/preload-helper.js',
+  '\0vite/modulepreload-polyfill.js',
+])
+
+/** The chunks that hold only the bundler's runtime, by output file name, with their modules. */
+export function bundlerRuntimeChunks(
+  entries: readonly InventoryEntry[],
+): Map<string, readonly string[]> {
+  const runtime = new Map<string, readonly string[]>()
+  for (const entry of entries) {
+    for (const chunk of entry.chunks ?? []) {
+      if (
+        chunk.modules.length > 0 &&
+        chunk.modules.every((id) => BUNDLER_RUNTIME_MODULES.has(id))
+      ) {
+        runtime.set(chunk.fileName, chunk.modules)
+      }
+    }
+  }
+  return runtime
 }
 
 /** Modules whose code reaches the output through the source maps: scripts without a query. */

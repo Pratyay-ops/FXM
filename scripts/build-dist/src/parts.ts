@@ -2,7 +2,7 @@
  * The pieces `make dist` composes into one folder for Cloudflare Pages (docs/PLAN.md, 2.8):
  * the landing page at `/`, the web app at `/app/`, the embed at `/embed/` and the sandbox
  * documents at `/sandbox/`. The site and the app are built here; the embed and the sandbox
- * documents come from stages that haven't merged yet, behind the adapters in later-stages.ts.
+ * documents come from other stages, through the adapters in later-stages.ts.
  */
 import { spawnSync } from 'node:child_process'
 import { join, relative } from 'node:path'

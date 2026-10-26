@@ -28,10 +28,10 @@ Run them from the repository root.
 
 ## What make dist does
 
-1. **Builds each part** into `dist/.staging/`: the site with `apps/site`'s own config plus hidden source maps and the bundle inventory (`site.astro.config.mjs`), the app the same way (`app.vite.config.ts`, with `vite build --sourcemap hidden`). The embed and the sandbox documents come from stages that haven't merged yet; `src/later-stages.ts` holds those touch-points, and they are skipped while they don't exist.
+1. **Builds each part** into `dist/.staging/`: the site with `apps/site`'s own config plus hidden source maps and the bundle inventory (`site.astro.config.mjs`), the app the same way (`app.vite.config.ts`, with `vite build --sourcemap hidden`). The embed and the sandbox documents come from other stages through `src/later-stages.ts`, which skips what doesn't exist yet: today the embed (5.2) and `eval.html` (1.11).
 2. **Lists the bundled npm packages**: from the source maps (every source under `node_modules/`), from the bundle inventory (`src/bundle-inventory.ts`: the stylesheets, fonts, images and WebAssembly a build takes from packages, which source maps don't show), and from `/*! name vX.Y.Z` banners in stylesheets, such as Tailwind's base styles. It fails when:
    - a package's licence is not on the list FXM accepts (`ACCEPTED_LICENCES` in `src/licenses.ts`: permissive licences, MPL-2.0, LGPL, and licences for fonts and data). GPL and AGPL, in any spelling (`GPL-3.0`, `GPLv3`, `AGPL3`), never pass. Anything else, such as a missing licence, `BSD` (not an SPDX id), SSPL or a non-commercial licence, passes only after a human review recorded in `LICENCE_OVERRIDES`;
-   - JavaScript ships without a source map, because then nobody knows what it contains;
+   - JavaScript ships without a source map, because then nobody knows what it contains. The one exception is a chunk that the bundle inventory shows holds only the bundler's own runtime (`BUNDLER_RUNTIME_MODULES`: Rolldown's helpers, Vite's preload helper), which comes from no source file and so has no map;
    - WebAssembly ships that no npm package supplied, such as a binary copied into `public/`, unless its SHA-256 is in `REVIEWED_BINARIES` (the stock ffmpeg core is GPL, ARCHITECTURE.md §17);
    - a part without source maps (the sandbox documents) inlines code with a licence banner, or more than 64 KiB of it.
 3. **Composes** the parts under their paths, refusing two parts that write the same file, and copies each single-page app's `index.html` to its `404.html`. Source maps and inventories are never deployed: they would publish the build machine's paths.
@@ -113,7 +113,7 @@ FXM Connect trusts only `https://fxmusic.pages.dev` (plus localhost in its dev b
 | `src/compose.ts` | Builds the parts, runs the checks, writes `dist/pages/` |
 | `src/parts.ts` | The site and the app; `src/later-stages.ts`: the embed (5.2) and the sandbox documents (1.10, 1.11) |
 | `site.astro.config.mjs`, `app.vite.config.ts` | The site's and the app's own configs, plus source maps and the bundle inventory |
-| `src/bundle-inventory.ts` | The Vite plugin that records which files a build takes from where |
+| `src/bundle-inventory.ts` | The Vite plugin that records which files a build takes from where, and the modules in each chunk |
 | `src/policies.ts` | Every policy, the promises they keep, and the services the web app contacts |
 | `src/rules.ts` | Files → `_headers` rules, and their validation |
 | `src/headers-file.ts` | Writing, reading and matching `_headers` as Cloudflare does |
