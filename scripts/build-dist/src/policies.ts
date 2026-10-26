@@ -75,6 +75,8 @@ export const APP_SERVICES: readonly Service[] = [
   },
   { privacyName: 'Jamendo', connect: ['https://*.jamendo.com'], img: ['https://*.jamendo.com'] },
   { privacyName: 'LRCLIB', connect: ['https://lrclib.net'] },
+  // 8.4: library sync, only once the user turns it on, with a secret gist on their account.
+  { privacyName: 'GitHub', connect: ['https://api.github.com'] },
 ]
 
 /**

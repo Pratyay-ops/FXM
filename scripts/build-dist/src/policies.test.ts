@@ -24,6 +24,12 @@ const PLAN_APP_POLICY =
     HASH,
   )
 
+/** That policy with the hosts of the stages that shipped after it: 8.4's library sync. */
+const APP_POLICY = PLAN_APP_POLICY.replace(
+  'https://lrclib.net;',
+  'https://lrclib.net https://api.github.com;',
+)
+
 describe('csp helpers', () => {
   it('hashes inline code as browsers do, after normalizing line endings', () => {
     const expected = `'sha256-${createHash('sha256').update('a\nb').digest('base64')}'`
@@ -55,8 +61,8 @@ describe('csp helpers', () => {
 })
 
 describe('the web app policy', () => {
-  it('is the policy docs/PLAN.md specifies for /app/*', () => {
-    expect(serializePolicy(appPolicy([HASH]))).toBe(PLAN_APP_POLICY)
+  it('is the policy docs/PLAN.md specifies for /app/*, with the later stages’ hosts', () => {
+    expect(serializePolicy(appPolicy([HASH]))).toBe(APP_POLICY)
   })
 
   it('stays under the 850-character estimate at M1, far below 2,000', () => {
@@ -65,7 +71,7 @@ describe('the web app policy', () => {
 
   it('drops only frame-ancestors for the embed', () => {
     const embed = serializePolicy(appPolicy([HASH], { embeddable: true }))
-    expect(embed).toBe(PLAN_APP_POLICY.replace(" frame-ancestors 'none';", ''))
+    expect(embed).toBe(APP_POLICY.replace(" frame-ancestors 'none';", ''))
   })
 
   it('takes later stages’ hosts and script sources from the lists', () => {

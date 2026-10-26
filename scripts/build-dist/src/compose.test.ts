@@ -327,7 +327,14 @@ describe('compose', () => {
   it('refuses a privacy page that misses a service the policies name', () => {
     const root = tempDir()
     const site = fakeSitePart(root, {
-      privacy: privacyPage(['YouTube', 'Spotify', 'MusicBrainz', 'Internet Archive', 'Jamendo']),
+      privacy: privacyPage([
+        'YouTube',
+        'Spotify',
+        'MusicBrainz',
+        'Internet Archive',
+        'Jamendo',
+        'GitHub',
+      ]),
     })
     expect(problemsOf(() => run(root, [site, fakeAppPart(root)]))).toEqual([
       "the privacy page doesn't list LRCLIB, whose hosts the policies allow: add it to apps/site/src/pages/privacy.astro",
