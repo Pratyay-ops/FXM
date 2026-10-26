@@ -21,6 +21,7 @@ import { type RouteHandle, useRouteHandle } from '../../components/layout/route-
 import { buttonClasses } from '../../components/ui/button'
 import { IconButton } from '../../components/ui/icon-button'
 import { cn } from '../../lib/cn'
+import { freeSources } from '../../lib/free-sources'
 import { type ConnectionState, useConnection } from './connection'
 import { currentDevice, type DeviceInfo } from './device'
 import { howToGetMore } from './explain'
@@ -44,6 +45,8 @@ interface NoticeCopy {
 export function noticeCopy(notice: Notice, state: NoticeInputs, device: DeviceInfo): NoticeCopy {
   const meanwhile =
     state.lite === 'passed' ? ' Meanwhile, FXM uses the experimental Lite tier.' : ''
+  // Internet Archive, and Jamendo in a build that offers it (lib/free-sources.ts).
+  const free = freeSources()
   switch (notice.kind) {
     case 'outdated':
       return {
@@ -69,7 +72,7 @@ export function noticeCopy(notice: Notice, state: NoticeInputs, device: DeviceIn
           }
         : {
             title: 'This browser plays free music',
-            body: `Internet Archive and Jamendo work here. ${howToGetMore(device, 'youtube-and-spotify')}`,
+            body: `${free.and} ${free.several ? 'work' : 'works'} here. ${howToGetMore(device, 'youtube-and-spotify')}`,
             action: { label: 'See your options', to: '/connect' },
             tone: 'info',
           }

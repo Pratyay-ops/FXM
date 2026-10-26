@@ -1,6 +1,6 @@
 ---
 import { AVAILABLE } from '../config'
-import { MUSIC_MODE, noExtensionHighlight, SPOTIFY_ACCOUNT } from '../lib/tiers'
+import { losslessSources, musicMode, noExtensionHighlight, SPOTIFY_ACCOUNT } from '../lib/tiers'
 import ComingSoon from './ComingSoon.astro'
 import DownloadsDemo from './demos/DownloadsDemo.astro'
 import FeedDemo from './demos/FeedDemo.astro'
@@ -16,7 +16,7 @@ const spotify = [
   { text: SPOTIFY_ACCOUNT, available: AVAILABLE.spotifyAccount },
 ]
 
-const noExtension = noExtensionHighlight(AVAILABLE.lite)
+const noExtension = noExtensionHighlight(AVAILABLE.lite, AVAILABLE.jamendo)
 
 const extras = [
   {
@@ -69,7 +69,7 @@ const extras = [
           <dl class="modes">
             <div>
               <dt>Music</dt>
-              <dd>{MUSIC_MODE}</dd>
+              <dd>{musicMode(AVAILABLE.jamendo)}</dd>
             </div>
             <div>
               <dt>Music + Video</dt>
@@ -134,7 +134,7 @@ const extras = [
             Connect; free sources download in any browser.
           </p>
           <p>
-            You get real lossless FLAC where the source has it (Internet Archive, Jamendo).
+            You get real lossless FLAC where the source has it {losslessSources(AVAILABLE.jamendo)}.
             Conversions from lossy sources are labelled honestly, so you always know what you have.
           </p>
         </div>

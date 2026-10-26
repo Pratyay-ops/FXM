@@ -76,7 +76,20 @@ Things Cloudflare does that the rules account for (from wrangler 4.149's copy of
 
 ### When a stage adds a service
 
-A stage that makes the web app contact a new service adds it to `APP_SERVICES` in `src/policies.ts`, with its `connect` and `img` hosts and its name exactly as the privacy page lists it, and adds it to `apps/site/src/pages/privacy.astro` (docs/PLAN.md, Definition of done). 4.2 adds `WASM_UNSAFE_EVAL` to `APP_SCRIPT_EXTRAS`. Nothing else changes but the tests that pin the list: the policy `src/policies.test.ts` expects for `/app/*` takes the new hosts too (8.2 added ListenBrainz's and Last.fm's to `LATER_CONNECT_HOSTS`, and 8.4 GitHub's, as the plan's policy row doesn't print them), and the privacy pages of `src/privacy.test.ts` and `src/compose.test.ts` that miss one service list the new one. `make dist` fails if the page misses the service.
+A stage that makes the web app contact a new service adds it to `APP_SERVICES` in `src/policies.ts`, with its `connect` and `img` hosts and its name exactly as the privacy page lists it, and adds it to `apps/site/src/pages/privacy.astro` (docs/PLAN.md, Definition of done). 4.2 adds `WASM_UNSAFE_EVAL` to `APP_SCRIPT_EXTRAS`. Nothing else changes but the tests that pin the list: the policy `src/policies.test.ts` expects for `/app/*` takes the new hosts too (8.2 added ListenBrainz's and Last.fm's to `LATER_CONNECT_HOSTS`, and 8.4 GitHub's, as the plan's policy row doesn't print them), and the privacy pages of `src/privacy.test.ts` and `src/compose.test.ts` that miss one service list the new one. `make dist` fails if the page misses the service. A service the app offers only with some build configuration names that variable in `requires`, and builds without it leave its hosts out (`offeredServices`), as for Jamendo below.
+
+### Jamendo
+
+Jamendo's API needs a `client_id`, and FXM's public one would be shared by every user, which Jamendo's terms leave unclear, so the owner confirms with Jamendo first ([its README](../../packages/sources/src/jamendo/README.md#turning-jamendo-on-owner)). Until then the build leaves Jamendo out, behind one switch: the GitHub Actions variable `FXM_JAMENDO_CLIENT_ID`, which `deploy.yml` passes to `make dist` and `release.yml` to the release build (whose web zip is `make dist`'s folder) as `VITE_FXM_JAMENDO_CLIENT_ID`. `make dist` builds the site and the app with it and writes the policies from it, so everything follows it together:
+
+| | Variable empty (v0.1.0) | Variable set |
+|---|---|---|
+| Web app | registers no Jamendo provider, and its copy names Internet Archive alone (`apps/web/src/lib/free-sources.ts`) | registers Jamendo and names it |
+| Landing page | `AVAILABLE.jamendo` off: the free-music sentences name Internet Archive, the places that name Jamendo say it is coming soon | `AVAILABLE.jamendo` on |
+| Privacy page | lists Jamendo, contacted only once it is on | lists Jamendo as contacted |
+| `/app/*` policy | no `https://*.jamendo.com` (Jamendo's `requires` in `APP_SERVICES`) | `https://*.jamendo.com` in `connect-src` and `img-src` |
+
+Locally: `VITE_FXM_JAMENDO_CLIENT_ID=<client_id> make dist`.
 
 ## Deploying
 

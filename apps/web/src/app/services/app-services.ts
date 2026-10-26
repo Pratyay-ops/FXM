@@ -70,6 +70,7 @@ import type { Sources } from '../../features/search/sources'
 import { appSources } from '../../features/search/sources-context'
 import { lifecycleQualityOptions } from '../../features/settings/quality-store'
 import { useSettingsStore } from '../../features/settings/settings-store'
+import { buildJamendoClientId } from '../../lib/free-sources'
 import { createIndexedDbStore, type DeviceStore } from './device-store'
 import { createLoader, type Loader, lazyProvider } from './lazy-provider'
 import { type LibraryRepository, libraryActionsFrom, matchStoreFrom } from './library'
@@ -210,9 +211,7 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
   const ownNetwork = options.network === undefined ? createBrowserNetworkMonitor() : undefined
   const network = options.network ?? (ownNetwork as NetworkMonitor)
   const jamendoClientId =
-    'jamendoClientId' in options
-      ? options.jamendoClientId
-      : (import.meta.env.VITE_FXM_JAMENDO_CLIENT_ID as string | undefined) || undefined
+    'jamendoClientId' in options ? options.jamendoClientId : buildJamendoClientId()
   // With a Lite tier, its self-test is a request to YouTube that the YouTube config's kill
   // switch may forbid: the tier waits, switched off, until that config has loaded.
   const killSwitches = createKillSwitchStore(options.sandbox === undefined ? {} : { lite: true })

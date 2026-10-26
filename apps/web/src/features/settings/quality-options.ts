@@ -20,6 +20,7 @@ import {
   QUALITY_TIERS,
   type QualityTier,
 } from '@fxm/core'
+import { freeSources } from '../../lib/free-sources'
 import type { SelectOption } from './setting-select'
 import type { ConnectionStatus } from './use-connection'
 import type { YouTubeCodec } from './youtube-codecs'
@@ -58,13 +59,19 @@ export interface AudioReach {
 }
 
 const NEXT_UP = 'A song with nothing this low plays at the next quality up.'
-const LOSSLESS =
-  'Lossless: FLAC where the source has it, as Internet Archive and Jamendo often do, at several times the data of High.'
 const MP3 = LOSSY_TIER_THRESHOLDS.mp3
+
+/** The lossless tier, with the free sources this build offers (lib/free-sources.ts). */
+function lossless(): string {
+  const free = freeSources()
+  return `Lossless: FLAC where the source has it, as ${free.and} often ${free.several ? 'do' : 'does'}, at several times the data of High.`
+}
 
 /** Without YouTube (Free only): in the MP3 bitrates where `tierOf` draws the lines. */
 const FREE_ONLY_TIERS: Readonly<Record<QualityTier, string>> = {
-  lossless: LOSSLESS,
+  get lossless() {
+    return lossless()
+  },
   high: `High: the best lossy quality, such as MP3 at ${MP3.high} kbps or more.`,
   normal: `Normal: less data, such as MP3 at ${MP3.normal}–${MP3.high - 1} kbps. ${NEXT_UP}`,
   low: `Low: the least data, such as MP3 below ${MP3.normal} kbps. ${NEXT_UP}`,
@@ -83,7 +90,7 @@ export function tierDescription(tier: QualityTier, reach: AudioReach): string {
   const codecs = only === 'opus' ? 'Opus' : only === 'aac' ? 'AAC' : 'Opus or AAC'
   switch (tier) {
     case 'lossless':
-      return `${LOSSLESS} YouTube audio is never lossless, so YouTube songs play at High.`
+      return `${lossless()} YouTube audio is never lossless, so YouTube songs play at High.`
     case 'high':
       return only === 'aac'
         ? 'High: the best YouTube audio this browser plays, AAC at about 130 kbps.'
@@ -198,14 +205,14 @@ export function downloadFormatHelp(
           'Saves each file as its source has it, with no conversion and no quality loss: Opus or AAC for YouTube songs, FLAC where a source is lossless.',
         ]
       : [
-          'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive and Jamendo.',
+          `Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from ${freeSources().and}.`,
           YOUTUBE_DOWNLOADS,
         ]
   }
   const lines = [
     youTube
       ? `A YouTube song in Opus: ${describeConversion('opus', format).label}.`
-      : `An MP3 from Internet Archive or Jamendo: ${describeConversion('mp3', format).label}.`,
+      : `An MP3 from ${freeSources().or}: ${describeConversion('mp3', format).label}.`,
     `A lossless source in FLAC: ${describeConversion('flac', format).label}.`,
   ]
   if (DOWNLOAD_FORMATS[format].lossless) {

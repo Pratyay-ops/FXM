@@ -25,6 +25,7 @@ export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`
 
 export type Feature =
   | 'lite'
+  | 'jamendo'
   | 'homeFeed'
   | 'radio'
   | 'spotifyAccount'
@@ -34,6 +35,14 @@ export type Feature =
   | 'android'
   | 'desktop'
   | 'firefox'
+
+/**
+ * The environment the site is built in: Node's while Astro renders the pages (and in the tests),
+ * none in the browser. Flags that depend on how the deploy builds the site read it, so they
+ * matter to the pages' HTML only: a page's script in the browser sees them off.
+ */
+const BUILD_ENV: Readonly<Record<string, string | undefined>> =
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env ?? {}
 
 /**
  * What is released, feature by feature. The site goes live with the web app at milestone
@@ -50,6 +59,15 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
    * src/lib/tiers.ts.
    */
   lite: false,
+  /**
+   * Free music from Jamendo (stage 1.6), which needs FXM's public Jamendo client_id: the deploy
+   * passes the repository variable FXM_JAMENDO_CLIENT_ID to make dist as
+   * VITE_FXM_JAMENDO_CLIENT_ID once the owner has registered one and confirmed Jamendo's terms
+   * (packages/sources/src/jamendo/README.md). The same variable turns Jamendo on in the web app
+   * and in its policy, so all three follow it together. The sentences it changes are in
+   * src/lib/tiers.ts, the privacy page and the lossless lines of Features.astro and Faq.astro.
+   */
+  jamendo: Boolean(BUILD_ENV.VITE_FXM_JAMENDO_CLIENT_ID?.trim()),
   /** Home feed with quick picks, daily mixes and endless radio: stages 3.3 and 3.4 (M2) */
   homeFeed: false,
   /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */

@@ -52,7 +52,7 @@ The one place where the web app builds the real pieces of the earlier stages and
 
 **The ladder hears which URL played** (`reportPlaybackStarts`): on the media element's first `playing` event, which the player reports as `playing` without `buffering`. The player says `playing` with `buffering` as soon as it asks the engine to play, before a byte arrived, so that alone never counts a rung as working.
 
-**Jamendo** needs a `client_id`. The public one comes from the build (`VITE_FXM_JAMENDO_CLIENT_ID`); without it Jamendo isn't offered, since its API refuses every call. Whether one ID may be shared by every user is open ([the Jamendo README](../../../../../packages/sources/src/jamendo/README.md)).
+**Jamendo** needs a `client_id`. The public one comes from the build (`VITE_FXM_JAMENDO_CLIENT_ID`, read by `src/lib/free-sources.ts`); without it Jamendo isn't offered, since its API refuses every call, and the app's copy names Internet Archive alone (`freeSources()`). Whether one ID may be shared by every user is open, so the deploy sets it only once the owner has confirmed it ([the Jamendo README](../../../../../packages/sources/src/jamendo/README.md#turning-jamendo-on-owner)).
 
 **The Auto band** of the matching engine stays off (`autoMatch`) until stage 1.12's held-out report allows it, so matches are best guesses that play after a tap and wait for review.
 

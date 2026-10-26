@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TIER_CAPABILITIES } from './testing'
 import {
   featuresAddedBy,
@@ -11,6 +11,10 @@ import {
   tierLabel,
   tierOf,
 } from './tiers'
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
 
 describe('tierOf', () => {
   it('follows YouTube access: full is Full, simple is Lite, none is Free only', () => {
@@ -60,6 +64,19 @@ describe('the tiers', () => {
     const spotify = TIER_FEATURES.find((feature) => feature.id === 'spotify')
     expect(spotify?.from).toBe('full')
     if (spotify !== undefined) expect(hasFeature('lite', spotify)).toBe(false)
+  })
+
+  it('names Jamendo among the free sources only in a build that offers it', () => {
+    const free = TIER_FEATURES.find((feature) => feature.id === 'free-sources')
+    expect(TIER_INFO.free.summary).toBe('Free music from Internet Archive.')
+    expect(free?.label).toBe('Free music from Internet Archive, in lossless FLAC where it has it')
+    expect(free?.short).toBe('free music from Internet Archive')
+    vi.stubEnv('VITE_FXM_JAMENDO_CLIENT_ID', 'public-id')
+    expect(TIER_INFO.free.summary).toBe('Free music from Internet Archive and Jamendo.')
+    expect(free?.label).toBe(
+      'Free music from Internet Archive and Jamendo, in lossless FLAC where they have it',
+    )
+    expect(free?.short).toBe('free music from Internet Archive and Jamendo')
   })
 
   it('marks the apps of Full as coming soon until they are out', () => {

@@ -19,6 +19,7 @@ import { usePlaylistView } from '../../db/hooks'
 import type { TrackRow } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID } from '../../db/types'
 import { cn } from '../../lib/cn'
+import { freeSources } from '../../lib/free-sources'
 import { CoverArt } from '../library/cover-art'
 import { artistNames, artworkUrl, countLabel } from '../library/format'
 import { chipClasses } from '../library/order-controls'
@@ -370,7 +371,7 @@ export function DownloadsPanel() {
       {support === 'supported' && !ctx.capabilities.mediaBytes && (
         <Notice icon={Info}>
           Downloading songs from YouTube Music takes FXM Connect, the desktop app or the Android
-          app. Songs from Internet Archive and Jamendo download in any browser.
+          app. Songs from {freeSources().and} download in any browser.
         </Notice>
       )}
       {records.length > 0 && <StorageCard records={records} />}

@@ -26,6 +26,12 @@ export interface Service {
   readonly connect?: readonly string[]
   /** img-src: hosts the app shows images from. */
   readonly img?: readonly string[]
+  /**
+   * The build variable without which the web app doesn't offer the service, such as Jamendo's
+   * public `client_id` (`VITE_FXM_JAMENDO_CLIENT_ID`): a build without it leaves the service's
+   * hosts out of the policies (offeredServices).
+   */
+  readonly requires?: string
 }
 
 /** YouTube's API hosts (InnerTube): the app with FXM Connect, and the Lite sandbox document. */
@@ -73,7 +79,15 @@ export const APP_SERVICES: readonly Service[] = [
     connect: ['https://archive.org', 'https://*.archive.org'],
     img: ['https://archive.org', 'https://*.archive.org'],
   },
-  { privacyName: 'Jamendo', connect: ['https://*.jamendo.com'], img: ['https://*.jamendo.com'] },
+  // 1.6: only in a build with FXM's public Jamendo client_id, which the deploy passes from the
+  // repository variable FXM_JAMENDO_CLIENT_ID (README.md, "Jamendo"). The web app registers Jamendo
+  // only then, and the site calls it coming soon until then.
+  {
+    privacyName: 'Jamendo',
+    connect: ['https://*.jamendo.com'],
+    img: ['https://*.jamendo.com'],
+    requires: 'VITE_FXM_JAMENDO_CLIENT_ID',
+  },
   { privacyName: 'LRCLIB', connect: ['https://lrclib.net'] },
   // 8.7: opt-in, and only for videos in Music + Video mode.
   { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
@@ -83,6 +97,20 @@ export const APP_SERVICES: readonly Service[] = [
   // 8.4: library sync, only once the user turns it on, with a secret gist on their account.
   { privacyName: 'GitHub', connect: ['https://api.github.com'] },
 ]
+
+/**
+ * The services a build offers: those of `services` whose `requires` variable the build's
+ * environment has (make dist's own, in which it also builds the web app), so the policies allow
+ * exactly what the app it ships can contact.
+ */
+export function offeredServices(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  services: readonly Service[] = APP_SERVICES,
+): Service[] {
+  return services.filter(
+    (service) => service.requires === undefined || Boolean(env[service.requires]?.trim()),
+  )
+}
 
 /**
  * Extra script-src sources for the web app and the embed. 4.2 adds WASM_UNSAFE_EVAL here for
@@ -120,7 +148,8 @@ const COMMON_DOCUMENT_DIRECTIVES: readonly Directive[] = [
 
 /**
  * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the same without
- * `frame-ancestors`, because any site may embed the player.
+ * `frame-ancestors`, because any site may embed the player. Its hosts are those of the services
+ * this build offers (offeredServices) unless `services` says otherwise.
  */
 export function appPolicy(
   scriptHashes: readonly string[],
@@ -130,7 +159,7 @@ export function appPolicy(
     scriptExtras?: readonly string[]
   } = {},
 ): Policy {
-  const services = options.services ?? APP_SERVICES
+  const services = options.services ?? offeredServices()
   const extras = options.scriptExtras ?? APP_SCRIPT_EXTRAS
   for (const source of extras) {
     if (source === UNSAFE_EVAL || source === UNSAFE_INLINE) {

@@ -60,7 +60,13 @@ const services: Service[] = [
     url: 'https://archive.org',
     use: 'Free music, including lossless FLAC.',
   },
-  { name: 'Jamendo', url: 'https://www.jamendo.com', use: 'Free music, including lossless FLAC.' },
+  {
+    name: 'Jamendo',
+    url: 'https://www.jamendo.com',
+    use: AVAILABLE.jamendo
+      ? 'Free music, including lossless FLAC.'
+      : "Free music, including lossless FLAC (coming soon). FXM contacts Jamendo only once it is turned on, and this version doesn't have it on.",
+  },
   {
     name: 'SponsorBlock',
     url: 'https://sponsor.ajay.app',

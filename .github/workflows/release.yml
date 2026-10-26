@@ -105,7 +105,11 @@ jobs:
       - name: Set up toolchain and dependencies (frozen lockfile)
         run: make ci-setup
 
+      # The same Jamendo switch as the deploy's make dist (deploy.yml), so the web zip is what
+      # Cloudflare Pages serves.
       - name: Build the release files
+        env:
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: scripts/release-build.sh dist/release
 
       # AMO's linter (web-ext lint) on the Firefox zip, here where no store key is around. The
