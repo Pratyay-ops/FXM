@@ -113,6 +113,8 @@ The Windows build of `.github/workflows/desktop-release.yml` signs through Tauri
 | Release, with `WINDOWS_CERTIFICATE` in the `windows-signing` environment | That certificate | Every file signed by it, checked, and trusted by Windows |
 | Release without it | None | Unsigned, with a notice in the run; the check makes sure nothing is signed |
 
+A dry run on 2026-10-26 showed it working on GitHub's Windows runner: Tauri signed `fxm.exe` (once for each installer), the NSIS plugins and uninstaller, the NSIS installer, WiX's extension libraries and the MSI with the throwaway certificate, each timestamped by Certum's server, and the check found both installers and the `fxm.exe` inside each signed by that certificate. The run before it had looked for `fxm.exe` in `target/`, where Tauri leaves the unsigned binary.
+
 ### Setting up the certificate
 
 1. Make the environment, limited to `main`, so that only release runs can read its secrets. Adding the owner as a required reviewer also makes each release's Windows build wait for the owner's approval:
