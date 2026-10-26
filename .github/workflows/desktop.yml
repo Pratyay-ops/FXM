@@ -144,6 +144,8 @@ jobs:
         shell: bash
         env:
           pnpm_config_store_dir: ${{ github.workspace }}/.tools/pnpm/store
+          # What scripts/env.sh sets on macOS and Linux: refuse a Node outside "engines".
+          pnpm_config_engine_strict: true
         run: pnpm install --frozen-lockfile
 
       # CI=true (set by GitHub) makes the DMG step skip its Finder layout script.
