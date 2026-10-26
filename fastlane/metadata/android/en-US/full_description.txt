@@ -3,6 +3,7 @@ FXM is a free, open-source music player. Search YouTube Music, Spotify’s catal
 • Two modes: Music plays songs only, from YouTube Music’s album audio and free music from Internet Archive; Music + Video also plays any YouTube video, such as covers and live sets, as music.
 • Spotify built in, and switchable: search Spotify’s catalog and get its recommendations on your home feed.
 • A home feed made on your device, with quick picks and daily mixes.
+• Endless radio: when your queue runs low, FXM adds songs like the ones you just played, steered by your likes and skips.
 • Your library: likes, playlists in the order you choose, your listening history and backups.
 • Synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account.
 • Music keeps playing with the screen off, with controls in the notification and on the lock screen.

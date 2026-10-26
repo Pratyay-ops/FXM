@@ -6,8 +6,8 @@
  * keep it within each store's limits.
  *
  * Keep it current: it describes what the Android and desktop apps do in the release a listing is
- * built from. Downloads (stages 6.4 and 7.4), the Spotify login (6.5, 7.4) and endless radio
- * (3.4) are left out until they ship in those apps.
+ * built from. Downloads (stages 6.4 and 7.4) and the Spotify login (6.5, 7.4), with the account
+ * sync that needs it (3.5), are left out until they ship in those apps.
  *
  * Imports nothing, so that the release workflow can run the generators with Node alone.
  *
@@ -84,6 +84,7 @@ const FEATURES = [
   'Two modes: Music plays songs only, from YouTube Music’s album audio and free music from Internet Archive; Music + Video also plays any YouTube video, such as covers and live sets, as music.',
   'Spotify built in, and switchable: search Spotify’s catalog and get its recommendations on your home feed.',
   'A home feed made on your device, with quick picks and daily mixes.',
+  'Endless radio: when your queue runs low, FXM adds songs like the ones you just played, steered by your likes and skips.',
   'Your library: likes, playlists in the order you choose, your listening history and backups.',
   'Synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account.',
 ] as const
