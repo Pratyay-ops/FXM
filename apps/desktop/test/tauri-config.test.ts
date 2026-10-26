@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { HOST_RULES, type HostRule, NATIVE_ORIGINS } from '@fxm/platform'
 import { describe, expect, it } from 'vitest'
+import { decodePublicKey } from '../release/minisign.ts'
 
 // Guards the desktop shell's security-relevant configuration. The files are read as plain
 // text and JSON, so this runs in `make test` without a Rust toolchain.
@@ -8,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 interface TauriConfig {
   productName: string
   identifier: string
+  version: string
   build: {
     beforeDevCommand: string
     devUrl: string
@@ -18,8 +20,14 @@ interface TauriConfig {
     windows: Record<string, unknown>[]
     security: { csp: string; pattern?: unknown }
   }
-  bundle: { useLocalToolsDir?: boolean; icon: string[]; createUpdaterArtifacts?: unknown }
-  plugins?: Record<string, unknown>
+  bundle: {
+    useLocalToolsDir?: boolean
+    icon: string[]
+    createUpdaterArtifacts?: unknown
+    macOS: Record<string, unknown>
+    linux: { deb: { section: string; depends: string[] }; appimage: Record<string, unknown> }
+  }
+  plugins: { http: unknown; updater: Record<string, unknown> & { pubkey: string } }
 }
 
 /** A rule in the shape of the `requestHeaders` option that plugins-workspace PR #3703 proposes. */
@@ -34,7 +42,10 @@ interface RequestHeaderRule {
  * script would replace `window.alert` and `window.confirm` in every page with IPC calls the app
  * doesn't allow, so `confirm()` would return a Promise, which is always truthy.
  */
-const PLUGINS = ['single-instance', 'window-state', 'http', 'opener']
+const PLUGINS = ['single-instance', 'window-state', 'http', 'opener', 'updater']
+
+/** Where installed apps look for a newer version: latest.json of the latest release. */
+const UPDATE_ENDPOINT = 'https://github.com/Pratyay-ops/FXM/releases/latest/download/latest.json'
 
 /** The app's own Rust commands: src/user_hosts.rs, then src/playback.rs and src/environment.rs. */
 const COMMANDS = [
@@ -229,7 +240,8 @@ describe('tauri.conf.json', () => {
 
   it('checks every redirect against the http scope', () => {
     // The plugin's config refuses unknown keys, so a typo here would stop the app at start-up.
-    expect(config.plugins).toEqual({ http: { scopeRedirects: true } })
+    expect(config.plugins.http).toEqual({ scopeRedirects: true })
+    expect(Object.keys(config.plugins).sort()).toEqual(['http', 'updater'])
   })
 
   it('embeds the web build that build:desktop makes with base /', () => {
@@ -258,10 +270,48 @@ describe('tauri.conf.json', () => {
     }
   })
 
-  it('has no updater yet (stage 7.5 adds it)', () => {
-    expect(config.plugins?.updater).toBeUndefined()
+  it('takes its version from its package.json, which every release sets', () => {
+    expect(config.version).toBe('../package.json')
+  })
+})
+
+describe('the updater', () => {
+  const { updater } = config.plugins
+
+  it('looks for updates in latest.json of the latest release on GitHub, over HTTPS only', () => {
+    expect(updater.endpoints).toEqual([UPDATE_ENDPOINT])
+    for (const setting of [
+      'dangerousInsecureTransportProtocol',
+      'dangerousAcceptInvalidCerts',
+      'dangerousAcceptInvalidHostnames',
+      'allowDowngrades',
+    ]) {
+      expect(updater[setting], setting).toBeUndefined()
+    }
+  })
+
+  it('needs each signature to name the version latest.json announces', () => {
+    // So an older, validly signed release can't pass for a newer one.
+    expect(updater.requireSignedVersion).toBe(true)
+  })
+
+  it('installs on Windows with a progress bar, then opens FXM again', () => {
+    expect(updater.windows).toEqual({ installMode: 'passive' })
+  })
+
+  it('carries FXM’s updater key, or the placeholder that stops every release', () => {
+    if (updater.pubkey.startsWith('PLACEHOLDER')) {
+      // Not base64, so `tauri build` fails on it once the updater's files are on
+      // (tauri.release.conf.json), and release.ts check refuses it.
+      expect(() => decodePublicKey(updater.pubkey)).toThrow()
+    } else {
+      expect(decodePublicKey(updater.pubkey).key).toHaveLength(32)
+    }
+  })
+
+  it('makes no updater files in local builds, which then need no key', () => {
+    // The release workflow turns them on with tauri.release.conf.json.
     expect(config.bundle.createUpdaterArtifacts).toBeUndefined()
-    expect(cargoToml).not.toContain('tauri-plugin-updater')
   })
 })
 
@@ -325,6 +375,15 @@ describe('capabilities', () => {
   it('narrows Last.fm to its station JSON, as the host table does', () => {
     expect(http?.allow).toContainEqual({ url: 'https://www.last.fm/player/station/*' })
     expect(http?.allow).not.toContainEqual({ url: 'https://www.last.fm/*' })
+  })
+
+  it('gives the web app no updater permission: only Rust checks for, downloads and installs updates', () => {
+    const names = capability.permissions.map((permission) =>
+      typeof permission === 'string'
+        ? permission
+        : (permission as { identifier: string }).identifier,
+    )
+    expect(names.filter((name) => name.startsWith('updater:'))).toEqual([])
   })
 
   it('gives the web app no dialog permission: only Rust asks the user', () => {
@@ -441,6 +500,11 @@ describe('Cargo.toml', () => {
     expect(features).not.toMatch(/^default = /m)
     expect(libRs).toMatch(/#\[cfg\(feature = "smoke"\)\]\s*smoke::listen\(/)
     expect(libRs.match(/smoke::listen\(/g)).toHaveLength(1)
+  })
+
+  it('builds tauri-plugin-updater without the zip feature, for Tauri 1 bundles only', () => {
+    expect(dependency('tauri-plugin-updater')).toMatch(/\bdefault-features = false\b/)
+    expect(featuresOf('tauri-plugin-updater').sort()).toEqual(['rustls-tls', 'system-proxy'])
   })
 
   it('includes exactly the plugins of the shell', () => {
