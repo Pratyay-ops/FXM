@@ -129,3 +129,11 @@ The facts the Lite tier's sandbox documents (`packages/platform/src/sandbox/`) r
 | A search sent from the sandbox without visitorData is answered with a server-issued one, and with it VISIONOS answers `player` from the sandbox with `OK` and direct URLs: Opus 251 among `adaptiveFormats` with no `signatureCipher` (a hand-built call), and five options of the `visionos` rung through 1.4's resolver | Lite-26a; Lite-26b | 2026-10-26 |
 | `<audio src>` on the FXM page played a VISIONOS URL resolved through the sandbox: `playing` after 0.7 s (Opus 251) and 0.8 s (AAC 140) in Chromium, and 0.1 s and 0.7 s in Firefox | Lite-26a; Lite-26b | 2026-10-26 |
 | VISIONOS URLs resolved through the sandbox are served in full to `<audio>`: "Blitzkrieg Bop (2016 Remaster)" (Opus 251, 134.481 s) and "Blitzkrieg Bop" (AAC 140, 134.467 s) played to `ended` in both browsers, without a stall, in 135–136 s of wall time | Lite-26a; Lite-26b | 2026-10-26 |
+
+## Cover images for saved files (stage 4.2)
+
+The facts `fetchCover` in `packages/convert` relies on when it embeds a YouTube or YouTube Music track's cover in a file the user saves.
+
+| Fact | Source | Date |
+|---|---|---|
+| YouTube's and YouTube Music's image hosts answer a request carrying another site's `Origin` with `Access-Control-Allow-Origin: *` (and `Cross-Origin-Resource-Policy: cross-origin`), so a page can read a thumbnail's bytes with `fetch`: `i.ytimg.com` (a video's `hqdefault.jpg`), `lh3.googleusercontent.com` and `yt3.ggpht.com` | FXM's own `curl` requests with `Origin: https://fxmusic.pages.dev`, one per host, the answers read and not kept | 2026-10-26 |
