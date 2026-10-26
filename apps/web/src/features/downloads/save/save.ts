@@ -5,8 +5,8 @@
  *
  * Two pieces can be replaced: the converter (the worker running FXM's ffmpeg core) and the
  * device saver (the browser's file picker or downloads). The desktop app (stage 7.4) and the
- * Android app (6.4) set their own saver with {@link setDeviceSaver}, so a saved file goes
- * through a native dialog or into the device's music library.
+ * Android app are to set their own saver with {@link setDeviceSaver}, so a saved file goes
+ * through a native dialog or into the device's music library; neither does yet.
  *
  * @module
  */
@@ -65,8 +65,8 @@ export function getDeviceSaver(): DeviceSaver {
 }
 
 /**
- * Replaces the device saver: the desktop and Android apps save their own way (stages 7.4 and
- * 6.4); tests pass fakes. `undefined` goes back to the browser's.
+ * Replaces the device saver: the desktop and Android apps are to save their own way; tests pass
+ * fakes. `undefined` goes back to the browser's.
  */
 export function setDeviceSaver(next: DeviceSaver | undefined): void {
   saver = next

@@ -1,8 +1,8 @@
 /**
  * "Save to device": putting a file where the user keeps files. A small interface, so that each
  * platform saves its own way: the browser through its file picker or its downloads, the desktop
- * app (stage 7.4) through a native save dialog, the Android app (stage 6.4) into the device's
- * music library.
+ * app (stage 7.4) through a native save dialog, the Android app into the device's music library
+ * (not yet: stage 6.4's "Save to Music folder" copies a download as it is).
  *
  * Saving takes two steps, because converting takes time. `choose` runs straight from the click,
  * while the browser still lets a page open its file picker, and only after the conversion does
