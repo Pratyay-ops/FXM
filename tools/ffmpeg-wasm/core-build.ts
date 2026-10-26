@@ -97,6 +97,9 @@ export const RECIPE_ARCHIVE = 'fxm-ffmpeg-core-recipe.tar'
  */
 export const CORE_SOURCE_PATH = 'source/ffmpeg-core'
 
+/** FXM's own site, on which the notice gives each source file's full address. */
+export const FXM_SITE_URL = 'https://fxmusic.pages.dev'
+
 /** Cloudflare Pages refuses files of 25 MiB or more (ARCHITECTURE.md §3). */
 export const MAX_CORE_FILE_BYTES = 25 * 1024 * 1024
 
@@ -558,6 +561,12 @@ export function coreNotice(dir: string, options: CoreNoticeOptions): string {
     `${options.repositoryUrl}/${kind}/${options.commit}/${path}`
   const here = (name: string) => `/${CORE_SOURCE_PATH}/${name}`
   const recipe = manifest.sources[RECIPE_ARCHIVE]
+  // The source files, as the parts and the recipe below name them. The notice gives each one's
+  // full address on FXM's own site: Pages lists no folder, so the folder's address answers 404.
+  const sources = [
+    ...components.flatMap((component) => (component.archive ? [component.archive] : [])),
+    ...(recipe === undefined ? [] : [RECIPE_ARCHIVE]),
+  ]
   const lines = [
     `FXM's ffmpeg core (app/ffmpeg/${CORE_FILES.script}, app/ffmpeg/${CORE_FILES.wasm})`,
     `Licence: LGPL-2.1-or-later (FFmpeg reports: ${manifest.ffmpegLicense})`,
@@ -567,7 +576,13 @@ export function coreNotice(dir: string, options: CoreNoticeOptions): string {
     ),
     '',
     ...wrap(
-      `Its source is next to it, on the site that serves this file: in /${CORE_SOURCE_PATH}/ are the release tarballs of FFmpeg, LAME and Opus exactly as the core was built from them, and FXM's recipe, which builds the core from them (${RECIPE_ARCHIVE}: tools/ffmpeg-wasm and the scripts it runs). On FXM's own site that is https://fxmusic.pages.dev/${CORE_SOURCE_PATH}/, in a release's web zip (fxm-web-<version>.zip) the folder ${CORE_SOURCE_PATH}/, and every GitHub Release of FXM attaches the same files as fxm-ffmpeg-core-source-<version>.zip. The parts' projects publish their tarballs too, at the addresses below; the SHA-256 tells the right file.`,
+      `Its source is next to it, on the site that serves this file: in /${CORE_SOURCE_PATH}/ are the release tarballs of FFmpeg, LAME and Opus exactly as the core was built from them, and FXM's recipe, which builds the core from them (${RECIPE_ARCHIVE}: tools/ffmpeg-wasm and the scripts it runs). On FXM's own site they are at:`,
+    ),
+    '',
+    ...sources.map((name) => `  ${FXM_SITE_URL}${here(name)}`),
+    '',
+    ...wrap(
+      `A release's web zip (fxm-web-<version>.zip) has them in the folder ${CORE_SOURCE_PATH}/, and every GitHub Release of FXM attaches the same files as fxm-ffmpeg-core-source-<version>.zip. The parts' projects publish their tarballs too, at the addresses below; the SHA-256 tells the right file.`,
     ),
     '',
     'It contains:',
@@ -611,7 +626,7 @@ export function coreNotice(dir: string, options: CoreNoticeOptions): string {
   lines.push(
     '',
     ...wrap(
-      `This software uses code of FFmpeg (https://ffmpeg.org/) licensed under the LGPLv2.1, of LAME (https://lame.sourceforge.io/) licensed under the LGPL, and of Opus (https://opus-codec.org/) licensed under the BSD-3-Clause licence; their sources are on this site, in /${CORE_SOURCE_PATH}/. Their licences follow in full, then the parts' copyright lines and the notices of the files linked into the core that are under licences of their own (FFmpeg's MIT and BSD files, Opus's BSD files), and the licences of Emscripten and musl.`,
+      `This software uses code of FFmpeg (https://ffmpeg.org/) licensed under the LGPLv2.1, of LAME (https://lame.sourceforge.io/) licensed under the LGPL, and of Opus (https://opus-codec.org/) licensed under the BSD-3-Clause licence; their sources are on this site, in /${CORE_SOURCE_PATH}/, each at the address given above. Their licences follow in full, then the parts' copyright lines and the notices of the files linked into the core that are under licences of their own (FFmpeg's MIT and BSD files, Opus's BSD files), and the licences of Emscripten and musl.`,
     ),
   )
   for (const text of CORE_LICENSE_TEXTS) {

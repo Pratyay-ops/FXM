@@ -329,10 +329,25 @@ describe('coreNotice', () => {
         `  SHA-256: ${recipe?.sha256}`,
       ].join('\n'),
     )
+    // Each file's full address on FXM's own site, never the folder's: Pages lists no folder, so
+    // that address answers 404.
+    expect(notice).toContain(
+      [
+        "On FXM's own site they are at:",
+        '',
+        '  https://fxmusic.pages.dev/source/ffmpeg-core/ffmpeg-9.0.2.tar.xz',
+        '  https://fxmusic.pages.dev/source/ffmpeg-core/lame-4.0.tar.gz',
+        '  https://fxmusic.pages.dev/source/ffmpeg-core/opus-1.6.1.tar.gz',
+        `  https://fxmusic.pages.dev/source/ffmpeg-core/${RECIPE_ARCHIVE}`,
+        '',
+      ].join('\n'),
+    )
+    expect(notice).not.toMatch(/https:\/\/fxmusic\.pages\.dev\/source\/ffmpeg-core\/?(\s|[,.]|$)/)
     const flat = notice.replace(/\s+/g, ' ')
-    expect(flat).toContain('https://fxmusic.pages.dev/source/ffmpeg-core/')
     expect(flat).toContain('fxm-ffmpeg-core-source-<version>.zip')
-    expect(flat).toContain('their sources are on this site, in /source/ffmpeg-core/')
+    expect(flat).toContain(
+      'their sources are on this site, in /source/ffmpeg-core/, each at the address given above',
+    )
     expect(CORE_SOURCE_PATH).toBe('source/ffmpeg-core')
   })
 
