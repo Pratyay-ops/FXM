@@ -1,6 +1,6 @@
 # @fxm/deploy: make dist and the deploy checks
 
-`make dist` composes everything Cloudflare Pages serves at `https://fxmusic.pages.dev` into one folder, `dist/pages/`, and the deploy workflow uploads that folder (docs/PLAN.md, stage 2.8). There are no Pages Functions and no Worker: only static files and a generated `_headers` file.
+`make dist` composes everything Cloudflare Pages serves at `https://fxmusic.pages.dev` into one folder, `dist/pages/`, and the deploy workflow uploads that folder (docs/PLAN.md, stage 2.8). Each release ships the same folder as `fxm-web-<version>.zip`, for [self-hosting](#self-hosting). There are no Pages Functions and no Worker: only static files and a generated `_headers` file.
 
 ```
 dist/pages/
@@ -104,6 +104,17 @@ More about the deploy:
 ### Previews and FXM Connect
 
 FXM Connect trusts only `https://fxmusic.pages.dev` (plus localhost in its dev build), so the develop preview runs without it: free sources and Lite only. Adding the exact preview origin to the dev build is possible but not done: DNR's `initiatorDomains` also matches sub-domains, so the production ruleset would need `excludedInitiatorDomains` for the preview first, and every develop merge would gain the dev build's trust. Test FXM Connect with its dev build against `vite preview` on port 4173, and on production after a release.
+
+## Self-hosting
+
+Each GitHub Release has this folder as `fxm-web-<version>.zip`: `scripts/release-build.sh` runs `make dist` on the release commit and zips `dist/pages/` as it is, so the zip holds exactly what `https://fxmusic.pages.dev` serves, `_headers`, `third-party-notices.txt` and `.well-known/` included. Check the download as the release notes describe, then serve it from any static host:
+
+- **At the root of a site**, such as `https://music.example.org/`, over HTTPS (or on `localhost`): browsers offer Web Crypto, which some features use, only in a secure context. The pages refer to `/app/`, `/_astro/` and `/sandbox/` from the root, so a sub-folder such as `https://example.org/fxm/` doesn't work.
+- **With the headers in `_headers`.** Cloudflare Pages and Netlify read the file as it is. Any other host (nginx, Caddy, Apache, a CDN in front of a bucket) must send the same headers on the same paths: each rule in the file is a path (a final `*` stands for the rest of the path) followed by its headers, and no two rules match one path ([Header rules](#header-rules) explains them). Take them from the zip you serve: the policies carry the hashes of that build's inline scripts, so they change between releases. Without the headers, each page still applies its policy from a meta element, but nothing stops other sites from framing it (`frame-ancestors`), the sandbox documents lose their `sandbox` policy, and no file gets `X-Content-Type-Options: nosniff`.
+- **Answering paths as Cloudflare Pages does.** Pages serves each `x.html` at `/x` (the site links to `/privacy` and `/disclaimer`), and answers a path no file serves with the nearest `404.html`, so the app's routes, such as `/app/library`, get `app/404.html`, a copy of the app's `index.html`. Netlify also serves `x.html` at `/x`, but on its own uses only the root `404.html`: add a `_redirects` file with the line `/app/* /app/404.html 404`, which Netlify applies only where no file answers. Cloudflare Pages needs no such file, and there `_redirects` rules win over files.
+- **With `third-party-notices.txt`.** The licences of the bundled packages (MIT, ISC and others) require their notices in every copy, so keep the file with the others.
+
+A copy on another origin runs without FXM Connect, which trusts only `https://fxmusic.pages.dev`: free sources and Lite only, as on the develop preview. `robots.txt`, the sitemaps and `.well-known/security.txt` name `fxmusic.pages.dev`; edit them for your site or delete them.
 
 ## Layout
 

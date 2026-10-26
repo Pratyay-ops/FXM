@@ -5,6 +5,7 @@
 #                                       dist/pages as it is, with the landing page at the root,
 #                                       the web app in app/, the sandbox documents, _headers,
 #                                       third-party-notices.txt and .well-known/
+#                                       (scripts/build-dist/README.md, "Self-hosting")
 #   fxm-connect-chromium-<version>.zip  FXM Connect for Chromium browsers (apps/extension)
 #   fxm-connect-firefox-<version>.zip   FXM Connect for Firefox
 #

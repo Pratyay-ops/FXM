@@ -744,6 +744,8 @@ expect "with every file, SHA256SUMS included" test "$(sort "$GH_STUB_DIR/release
 expect "with the notes" has "$GH_STUB_DIR/release-notes.md" "- **core:** Add a thing"
 expect "and a table of the files from the catalog" has "$GH_STUB_DIR/release-notes.md" \
   "| \`fxm-web-0.1.0.zip\` | The website and web app for self-hosting"
+expect "and where the self-hosting steps are" has "$GH_STUB_DIR/release-notes.md" \
+  "(https://github.com/test/fxm/blob/v0.1.0/scripts/build-dist/README.md#self-hosting)"
 expect "that ends with SHA256SUMS" \
   test "$(grep '^| `' "$GH_STUB_DIR/release-notes.md" | tail -1 | cut -d'`' -f2)" = SHA256SUMS
 expect "and how to verify them against the release workflow on main" \

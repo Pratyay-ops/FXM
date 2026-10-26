@@ -167,7 +167,7 @@ flowchart LR
 |---|---|
 | `fxm-connect-chromium-x.y.z.zip`, `fxm-connect-firefox-x.y.z.zip` | FXM Connect, as `make extension` builds it |
 | `fxm-connect-firefox-x.y.z.xpi` | FXM Connect for Firefox, signed by Mozilla. Releases have it once the owner has added the AMO keys, while `AMO_CHANNEL` is `unlisted` (the default). With `listed`, Firefox users get FXM Connect from addons.mozilla.org instead |
-| `fxm-web-x.y.z.zip` | Exactly what Cloudflare Pages serves at `https://fxmusic.pages.dev`, for self-hosting: `make dist`'s `dist/pages/`, with the landing page at the root, the web app in `app/`, the sandbox documents, `_headers`, `third-party-notices.txt` and `.well-known/` |
+| `fxm-web-x.y.z.zip` | Exactly what Cloudflare Pages serves at `https://fxmusic.pages.dev`, for self-hosting: `make dist`'s `dist/pages/`, with the landing page at the root, the web app in `app/`, the sandbox documents, `_headers`, `third-party-notices.txt` and `.well-known/`. [scripts/build-dist/README.md](../scripts/build-dist/README.md#self-hosting) says how to serve it |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |
 
 Anyone can check a download. `sha256sum --check --ignore-missing SHA256SUMS` compares it with the checksums, and this checks that FXM's release workflow, run for `main` on GitHub's own runners, built it:
