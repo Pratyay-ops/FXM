@@ -88,11 +88,18 @@ describe('store description', () => {
     )
   })
 
-  it('marks radio and the Last.fm recommendations as coming in a later version', () => {
+  it("ties radio to the web app's home feed, and marks song radio as coming in a later version", () => {
+    // The home feed (stages 3.2 and 3.3) uses YouTube Music's and Spotify's radio and Last.fm's
+    // stations; song radio (3.4) is still to come.
     const texts = [...description.split('\n'), ...Object.values(PERMISSION_JUSTIFICATIONS)]
     const mentions = texts.filter((line) => /radio/i.test(line))
     expect(mentions.length).toBeGreaterThan(0)
-    for (const line of mentions) expect(line).toContain('in a later FXM version')
+    for (const line of mentions) {
+      expect(line).toContain('home feed')
+      expect(line).not.toMatch(/(?<!song )radio in a later FXM version|recommendations in a later/)
+      if (/song radio/i.test(line)) expect(line).toContain('song radio in a later FXM version')
+    }
+    expect(description).toContain('song radio in a later FXM version')
   })
 
   it("describes the opt-in Spotify bridge, Spotify's terms and the account link plainly", () => {
@@ -115,6 +122,10 @@ describe('store description', () => {
     const onlyWhenConnected = 'only after you also connect your Spotify account in FXM.'
     expect(description).toContain(`The web app asks for one ${onlyWhenConnected}`)
     expect(loginHelp()).toContain(`The app asks for one ${onlyWhenConnected}`)
+    // Connecting an account is stage 3.5, as the notes for reviewers say too.
+    expect(loginHelp()).toContain(
+      `${onlyWhenConnected} Connecting comes in a later version of FXM: until then, this setting changes nothing.`,
+    )
   })
 
   it("says that the bridge's token is the only personal data FXM Connect handles", () => {
