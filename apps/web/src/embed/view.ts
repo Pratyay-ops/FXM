@@ -9,6 +9,8 @@
 import { type ArtistRef, type Artwork, parseId, type Track } from '@fxm/core'
 import type { PlayerStatus } from '@fxm/player'
 import { RELEASED } from '../features/connect/config'
+import { canAddConnect, currentDevice, type DeviceInfo } from '../features/connect/device'
+import { howToGetMore } from '../features/connect/explain'
 import type { EmbedAttribution, EmbedEntity } from './catalog'
 import type { EmbedProblem, EmbedState, PlaybackNotice } from './controller'
 import {
@@ -165,19 +167,62 @@ export function joinArtists(artists: readonly ArtistRef[]): string {
  */
 const APP_OUT: boolean = RELEASED.desktop || RELEASED.android
 
+/** Where the player runs, for the messages that depend on it. */
+export interface EmbedPlace {
+  /**
+   * Whether the player is in a frame, as on another site's page, rather than a page of its own.
+   * FXM Connect never reaches a framed player (its content script skips frames), so a framed
+   * player never suggests adding it. Default: framed, the player's usual place.
+   */
+  readonly framed?: boolean
+  /** The visitor's device, for the advice of a player on a page of its own. Default: this one. */
+  readonly device?: DeviceInfo
+}
+
+/**
+ * What YouTube content needs where the player can't reach YouTube. In another site's frame,
+ * FXM Connect wouldn't help, so it offers to open the content in FXM. On a page of its own, the
+ * install hint, worded for the device as the app words it: FXM Connect where the browser can
+ * add it, and elsewhere what the device can do instead (`howToGetMore`).
+ */
+function needsYouTubeMessage(kind: EmbedMessageKind, place: EmbedPlace): EmbedMessage {
+  if (place.framed ?? true) {
+    return {
+      kind,
+      text: "YouTube Music can't play in this player in this browser. Open it in FXM instead.",
+      short: "YouTube Music can't play here.",
+      action: 'open',
+    }
+  }
+  const device = place.device ?? currentDevice()
+  if (!canAddConnect(device)) {
+    return {
+      kind,
+      text: howToGetMore(device, 'youtube'),
+      short: "YouTube Music can't play in this browser.",
+      action: 'install',
+    }
+  }
+  return {
+    kind,
+    text: `FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension${APP_OUT ? ', or get the FXM app' : ''}.`,
+    short: APP_OUT
+      ? 'Needs FXM Connect or the FXM app to play here.'
+      : 'Needs FXM Connect to play here.',
+    action: 'install',
+  }
+}
+
 /** The texts and action for each message. */
-export function messageFor(kind: EmbedMessageKind, target: EmbedKind): EmbedMessage {
+export function messageFor(
+  kind: EmbedMessageKind,
+  target: EmbedKind,
+  place: EmbedPlace = {},
+): EmbedMessage {
   const what = target === 'track' ? 'song' : target
   switch (kind) {
     case 'needs-youtube':
-      return {
-        kind,
-        text: `FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension${APP_OUT ? ', or get the FXM app' : ''}.`,
-        short: APP_OUT
-          ? 'Needs FXM Connect or the FXM app to play here.'
-          : 'Needs FXM Connect to play here.',
-        action: 'install',
-      }
+      return needsYouTubeMessage(kind, place)
     case 'not-found':
       return {
         kind,
@@ -231,12 +276,12 @@ export function messageFor(kind: EmbedMessageKind, target: EmbedKind): EmbedMess
 }
 
 /** The playback notices' texts differ from the load problems' where both exist. */
-function noticeMessage(notice: PlaybackNotice, target: EmbedKind): EmbedMessage {
+function noticeMessage(notice: PlaybackNotice, target: EmbedKind, place: EmbedPlace): EmbedMessage {
   if (notice === 'failed') {
     const text = "Couldn't play this. Try again."
     return { kind: notice, text, short: text }
   }
-  return messageFor(notice, target)
+  return messageFor(notice, target, place)
 }
 
 /**
@@ -303,7 +348,7 @@ function kindLabelOf(kind: EmbedKind, count: number | undefined): string {
 }
 
 /** Options for {@link embedView}. */
-export interface EmbedViewOptions {
+export interface EmbedViewOptions extends EmbedPlace {
   /** The layout from the address. */
   readonly layout: EmbedLayout
   /** What the address named. */
@@ -326,10 +371,10 @@ export function embedView(state: EmbedState, options: EmbedViewOptions): EmbedVi
   const tracks = items.map((item) => item.track)
   const message =
     state.phase === 'unavailable' && state.problem !== undefined
-      ? messageFor(state.problem, target.kind)
+      ? messageFor(state.problem, target.kind, options)
       : state.notice === undefined
         ? undefined
-        : noticeMessage(state.notice, target.kind)
+        : noticeMessage(state.notice, target.kind, options)
   const credits = current === undefined ? undefined : options.attribution?.(current)
   const attribution = credits === undefined ? undefined : creditOf(credits)
   const durationMs = player?.durationMs ?? current?.durationMs ?? items[index]?.track.durationMs

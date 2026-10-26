@@ -818,8 +818,8 @@ test('the production embed plays in Lite inside a page on another site', async (
     seen.push(`ready: ${JSON.stringify(ready.embed)}, status ${ready.state?.status}`)
 
     // The Lite tier: the player's own state says so, its sandbox document runs in an opaque
-    // origin, and the free-sources fallback's install hint is not there. No extension is loaded,
-    // so FXM Connect can't answer.
+    // origin, and the free-sources fallback's hint for YouTube is not there, in its wording since
+    // v0.2.0 or before. No extension is loaded, so FXM Connect can't answer.
     const state = await embedState(frame)
     if (state === null) {
       throw new Error(
@@ -835,7 +835,9 @@ test('the production embed plays in Lite inside a page on another site', async (
     }))
     expect(isolated).toEqual({ origin: 'null', listening: 'listening' })
     const view = page.frameLocator('iframe')
-    await expect(view.getByText("FXM can't reach YouTube Music", { exact: false })).toHaveCount(0)
+    await expect(
+      view.getByText(/YouTube Music can't play in this player|FXM can't reach YouTube Music/),
+    ).toHaveCount(0)
     seen.push(
       `the embed's state ${JSON.stringify(state)}, its sandbox document ${documentOf(lite.url())} in origin ${isolated.origin}`,
     )

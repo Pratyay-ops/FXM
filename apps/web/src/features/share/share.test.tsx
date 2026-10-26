@@ -224,6 +224,14 @@ describe('Share dialog', () => {
     expect(preview).toHaveAttribute('data-theme', 'dark')
   })
 
+  it('says visitors play YouTube Music through Lite, as FXM Connect stays out of other sites', async () => {
+    const { dialog } = await openFromAlbumPage()
+    expect(within(dialog).getByText(/through the experimental Lite tier/)).toHaveTextContent(
+      "Visitors play YouTube Music through the experimental Lite tier, which needs no install, where their browser allows it: FXM Connect isn't used inside other sites.",
+    )
+    expect(within(dialog).queryByText(/without FXM Connect/)).not.toBeInTheDocument()
+  })
+
   it('says what a player on a page loads before anyone presses play', async () => {
     const { dialog } = await openFromAlbumPage()
     expect(
