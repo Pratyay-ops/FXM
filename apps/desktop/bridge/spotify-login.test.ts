@@ -225,6 +225,12 @@ describe('the desktop Spotify login', () => {
     const error = await login.login().catch((e: unknown) => e)
     expect(error).toBeInstanceOf(DesktopCommandError)
     expect(error).toMatchObject({ code: 'not-focused', message: 'Not in front' })
+    // Logged in, but the credential store refused to keep it: the user hears why.
+    plugin.failNext(SPOTIFY_COMMANDS.login, refusal('keychain', 'The keychain refused'))
+    await expect(login.login()).rejects.toMatchObject({
+      code: 'keychain',
+      message: 'The keychain refused',
+    })
     plugin.failNext(SPOTIFY_COMMANDS.status, refusal('keychain', 'No Secret Service'))
     await expect(login.status()).rejects.toMatchObject({ code: 'keychain' })
     plugin.failNext(SPOTIFY_COMMANDS.logout, 'not allowed')

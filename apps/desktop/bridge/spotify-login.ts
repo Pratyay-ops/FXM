@@ -127,7 +127,9 @@ export interface DesktopSpotifyLogin {
   /**
    * Opens Spotify's login window, or brings it forward, and resolves once it ends: `true` when
    * the user logged in, `false` when the window was closed. Call it from a click: it rejects with
-   * a {@link DesktopCommandError} (`not-focused`) unless FXM's window is in front.
+   * a {@link DesktopCommandError} `not-focused` unless FXM's window is in front, and `keychain`
+   * when the user logged in but the system's credential store couldn't keep the login (a denied
+   * keychain prompt, no Secret Service on Linux).
    */
   login(): Promise<boolean>
   /**

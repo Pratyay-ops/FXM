@@ -276,6 +276,17 @@ describe('the Spotify login window', () => {
     expect(rustConst(raw, 'LOGIN_URL')).toMatch(/^https:\/\/accounts\.spotify\.com\//)
   })
 
+  it('downloads nothing, grants no permission, and shows Spotify’s pages and its sign-ins', () => {
+    expect(spotifyRs).toMatch(/\.on_download\(\|_, _\| false\)/)
+    expect(spotifyRs).toMatch(/\.on_permission_request\(\|_, _\| PermissionResponse::Deny\)/)
+    // As each page commits, not once it has loaded: a page that never finishes can't hide.
+    expect(spotifyRs).toMatch(/PageLoadEvent::Started => on_page_commit\(/)
+    const sites = rustStrings(
+      /pub const PAGE_SITES: &\[&str\] = &\[([^\]]*)\]/.exec(spotifyRs)?.[1],
+    )
+    expect(sites).toContain('spotify.com')
+  })
+
   it('keeps the login under the app’s own identifier, so the smoke build never touches it', () => {
     expect(spotifyRs).toMatch(/KeychainStore::new\(app\.config\(\)\.identifier\.clone\(\)\)/)
   })

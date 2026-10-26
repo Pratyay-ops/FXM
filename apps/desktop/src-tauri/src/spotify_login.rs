@@ -18,12 +18,17 @@
 //! - **Logging out** (`logout`) deletes the cookie from the credential store and from FXM's
 //!   memory, and clears and closes the login window if it is open.
 //!
-//! The login window gets no capability, so its pages can call no command. It loads only `https:`
-//! pages (and the `about:` and `blob:` frames pages make), opens no other window, and
-//! its title names the site it shows, as an address bar would.
+//! The login window gets no capability, so its pages can call no command. Its frames load only
+//! `https:` pages (and the `about:` and `blob:` frames pages make), and its page only Spotify's
+//! and those of the sign-ins Spotify offers (Google, Facebook, Apple): another site goes back to
+//! the login page. It opens no other window, downloads nothing, grants no permission (camera,
+//! microphone, notifications…), and its title names the site it shows from the moment the page
+//! commits, as an address bar would.
 //!
 //! The cookie is read from the credential store once per run, then kept in memory, zeroed when it
-//! is dropped. It is never logged, and messages never carry it or a token.
+//! is dropped. A read that failed (a denied keychain prompt, a missing Secret Service) is
+//! remembered too, so a page that asks again doesn't bring the system's prompt back; a login or a
+//! logout tries the store again. It is never logged, and messages never carry it or a token.
 //!
 //! Error codes (`CommandError`): `logged-out`, `keychain` (the credential store failed or is
 //! missing), `rate-limited`, `network`, `too-large`, `bad-request`, `not-focused` and `window`.
@@ -31,7 +36,7 @@
 use std::{
     sync::{
         Arc, Mutex, MutexGuard, PoisonError,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicU32, AtomicU64, Ordering},
     },
     thread,
     time::{Duration, Instant},
@@ -43,7 +48,7 @@ use tauri::{
     AppHandle, Emitter, Manager, RunEvent, Runtime, State, Url, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
     plugin::{Builder, TauriPlugin},
-    webview::{Cookie, NewWindowResponse, PageLoadEvent},
+    webview::{Cookie, NewWindowResponse, PageLoadEvent, PermissionResponse},
 };
 use tauri_plugin_http::reqwest::{
     self,
@@ -109,6 +114,18 @@ pub const TOKEN_FIELDS: &[&str] = &[
 
 /// The login window's title, before and between pages.
 const WINDOW_TITLE: &str = "Log in to Spotify";
+
+/// The sites whose pages, on any of their hosts, the login window may show: Spotify's, and
+/// Facebook's, whose sign-in Spotify's login offers.
+pub const PAGE_SITES: &[&str] = &["spotify.com", "facebook.com"];
+
+/// The other hosts whose pages the login window may show: the sign-ins of Google and Apple that
+/// Spotify's login offers.
+pub const PAGE_HOSTS: &[&str] = &["accounts.google.com", "appleid.apple.com"];
+
+/// How many times the login window goes back to the login page from another site before it
+/// closes, so a login page that keeps sending it elsewhere doesn't loop.
+const MAX_RETURNS: u32 = 3;
 
 /// Whether the user is logged in to Spotify in FXM, as the main window hears it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -185,6 +202,9 @@ enum Cached {
     Absent,
     /// The cookie's value.
     Present(Zeroizing<String>),
+    /// The credential store failed or refused (the user denied its prompt, say): FXM doesn't ask
+    /// it again until a login or a logout.
+    Failed(CommandError),
 }
 
 /// At most `max` requests in any `window`.
@@ -350,23 +370,43 @@ pub fn login_cookie(cookies: &[Cookie<'_>]) -> Option<String> {
 /// Whether the login window may load `url`: `https:` pages, and the `about:` and `blob:` frames
 /// that pages make (a `blob:` URL carries the site that made it). Never FXM's own schemes, files,
 /// plain `http:`, or `data:`, whose page would name no site at all. WebKit asks about frames too,
-/// so the rule can't tell a page from a frame.
+/// so the rule can't tell a page from a frame: [`allowed_page`] is the page's own rule.
 pub fn allowed_navigation(url: &Url) -> bool {
     matches!(url.scheme(), "https" | "about" | "blob")
+}
+
+/// The host of the site whose page `url` is: an `https:` page's host, and for a `blob:` page the
+/// host of the `https:` site that made it.
+fn page_host(url: &Url) -> Option<String> {
+    match url.scheme() {
+        "https" => url.host_str().map(str::to_ascii_lowercase),
+        "blob" => Url::parse(url.path())
+            .ok()
+            .filter(|inner| inner.scheme() == "https")
+            .and_then(|inner| inner.host_str().map(str::to_ascii_lowercase)),
+        _ => None,
+    }
+}
+
+/// Whether the login window may show `url` as its page: one of Spotify's, or of the sign-ins
+/// Spotify offers ([`PAGE_SITES`], [`PAGE_HOSTS`]), or a blank page. Its frames may load more
+/// ([`allowed_navigation`]): Spotify's login has Google's reCAPTCHA in one.
+pub fn allowed_page(url: &Url) -> bool {
+    if url.as_str() == "about:blank" {
+        return true;
+    }
+    page_host(url).is_some_and(|host| {
+        PAGE_HOSTS.contains(&host.as_str())
+            || PAGE_SITES
+                .iter()
+                .any(|site| host == *site || host.ends_with(&format!(".{site}")))
+    })
 }
 
 /// The login window's title for the page at `url`: it names the site, as an address bar would;
 /// for a `blob:` page, the site that made it.
 pub fn window_title(url: &Url) -> String {
-    let site = match url.scheme() {
-        "https" => url.host_str().map(str::to_owned),
-        "blob" => Url::parse(url.path())
-            .ok()
-            .filter(|inner| inner.scheme() == "https")
-            .and_then(|inner| inner.host_str().map(str::to_owned)),
-        _ => None,
-    };
-    match site {
+    match page_host(url) {
         Some(host) => format!("{WINDOW_TITLE} – {host}"),
         None => WINDOW_TITLE.to_owned(),
     }
@@ -462,6 +502,9 @@ async fn request_token(
     })
 }
 
+/// How a login window ended: whether the user logged in, or why the login couldn't be kept.
+type LoginOutcome = Result<bool, CommandError>;
+
 /// The user's Spotify login in the desktop app: the cookie, where it is kept, the token requests'
 /// rate limit, and the callers waiting for the login window.
 pub struct SpotifyLogin {
@@ -469,7 +512,7 @@ pub struct SpotifyLogin {
     cookie: Mutex<Cached>,
     limiter: Mutex<RateLimiter>,
     /// The callers of `login` waiting for the login window to end.
-    waiting: Mutex<Vec<tauri::async_runtime::Sender<bool>>>,
+    waiting: Mutex<Vec<tauri::async_runtime::Sender<LoginOutcome>>>,
     /// Counts login windows, so a watcher knows when its window was replaced.
     generation: AtomicU64,
     token_url: String,
@@ -496,19 +539,22 @@ impl SpotifyLogin {
         self.cookie.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The cookie, read from the store on first use. Blocks while the store answers.
+    /// The cookie, read from the store on first use. Blocks while the store answers. A read that
+    /// failed fails again without asking the store, until a login or a logout.
     fn cookie(&self) -> Result<Option<Zeroizing<String>>, CommandError> {
         let mut cached = self.cached();
         if matches!(*cached, Cached::Unknown) {
-            *cached = match self.store.read()? {
-                Some(secret) if is_cookie_value(&secret) => Cached::Present(secret),
-                _ => Cached::Absent,
+            *cached = match self.store.read() {
+                Ok(Some(secret)) if is_cookie_value(&secret) => Cached::Present(secret),
+                Ok(_) => Cached::Absent,
+                Err(error) => Cached::Failed(error),
             };
         }
-        Ok(match &*cached {
-            Cached::Present(secret) => Some(secret.clone()),
-            _ => None,
-        })
+        match &*cached {
+            Cached::Present(secret) => Ok(Some(secret.clone())),
+            Cached::Failed(error) => Err(error.clone()),
+            Cached::Unknown | Cached::Absent => Ok(None),
+        }
     }
 
     /// Whether a login is kept. Blocks while the store answers.
@@ -537,35 +583,43 @@ impl SpotifyLogin {
         self.store.delete()
     }
 
-    /// Asks Spotify for a token with the kept login (see [`request_token`]).
-    pub async fn token(
-        &self,
-        params: &TokenParams,
-        user_agent: Option<&str>,
-    ) -> Result<TokenAnswer, CommandError> {
-        let pairs = params.pairs()?;
-        let cookie = self.cookie()?.ok_or_else(|| {
-            CommandError::new("logged-out", "You are not logged in to Spotify in FXM")
-        })?;
+    /// Takes a slot of the token requests' rate limit, or says when one frees up.
+    fn admit(&self) -> Result<(), CommandError> {
         let limited = self
             .limiter
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .acquire(Instant::now());
-        if let Err(wait) = limited {
-            return Err(CommandError::new(
+        limited.map_err(|wait| {
+            CommandError::new(
                 "rate-limited",
                 format!(
                     "FXM asks Spotify for at most {RATE_LIMIT} tokens a minute: try again in {} s",
                     wait.as_secs().max(1)
                 ),
-            ));
-        }
+            )
+        })
+    }
+
+    /// Asks Spotify for a token with the kept login (see [`request_token`]). The rate limit comes
+    /// before the credential store, so requests in a loop never become the system's prompts in a
+    /// loop. The store's first read waits on a thread for blocking work.
+    pub async fn token(
+        self: &Arc<Self>,
+        params: &TokenParams,
+        user_agent: Option<&str>,
+    ) -> Result<TokenAnswer, CommandError> {
+        let pairs = params.pairs()?;
+        self.admit()?;
+        let reader = self.clone();
+        let cookie = blocking(move || reader.cookie()).await?.ok_or_else(|| {
+            CommandError::new("logged-out", "You are not logged in to Spotify in FXM")
+        })?;
         request_token(&self.token_url, &cookie, &pairs, &browser_agent(user_agent)).await
     }
 
     /// Registers a caller waiting for the login window to end.
-    fn wait(&self) -> tauri::async_runtime::Receiver<bool> {
+    fn wait(&self) -> tauri::async_runtime::Receiver<LoginOutcome> {
         let (sender, receiver) = tauri::async_runtime::channel(1);
         self.waiting
             .lock()
@@ -575,11 +629,11 @@ impl SpotifyLogin {
     }
 
     /// Tells every waiting caller how the login window ended.
-    fn finish(&self, logged_in: bool) {
+    fn finish(&self, outcome: LoginOutcome) {
         let waiting =
             std::mem::take(&mut *self.waiting.lock().unwrap_or_else(PoisonError::into_inner));
         for sender in waiting {
-            let _ = sender.try_send(logged_in);
+            let _ = sender.try_send(outcome.clone());
         }
     }
 }
@@ -617,8 +671,9 @@ fn in_front<R: Runtime>(window: &WebviewWindow<R>) -> bool {
 }
 
 /// Opens the login window, or brings it forward when it is open, and waits until it ends:
-/// answers whether the user logged in. Only from the main window while it is in front
-/// (`not-focused`). `user_agent` is the browser agent the window's pages see.
+/// answers whether the user logged in, or fails with `keychain` when the credential store
+/// couldn't keep the login. Only from the main window while it is in front (`not-focused`).
+/// `user_agent` is the browser agent the window's pages see.
 #[tauri::command]
 async fn login<R: Runtime>(
     app: AppHandle<R>,
@@ -639,11 +694,33 @@ async fn login<R: Runtime>(
         let _ = open.show();
         let _ = open.set_focus();
     } else if let Err(error) = open_login_window(&app, &shared, user_agent.as_deref()) {
-        shared.finish(false);
+        shared.finish(Ok(false));
         return Err(error);
     }
-    let logged_in = finished.recv().await.unwrap_or(false);
+    let logged_in = finished.recv().await.unwrap_or(Ok(false))?;
     Ok(LoginState { logged_in })
+}
+
+/// What the login window does as a page commits at `url`: names its site in the title, or, for a
+/// site it may not show ([`allowed_page`]), goes back to the login page, at most [`MAX_RETURNS`]
+/// times before it closes. `returns` counts the times so far.
+fn on_page_commit<R: Runtime>(window: &WebviewWindow<R>, url: &Url, returns: &AtomicU32) {
+    if allowed_page(url) {
+        let _ = window.set_title(&window_title(url));
+        return;
+    }
+    let _ = window.set_title(WINDOW_TITLE);
+    let window = window.clone();
+    let again = returns.fetch_add(1, Ordering::AcqRel) < MAX_RETURNS;
+    // From another thread: the webview is in the middle of its own call here.
+    tauri::async_runtime::spawn(async move {
+        let login = LOGIN_URL.parse::<Url>();
+        if let (true, Ok(login)) = (again, login) {
+            let _ = window.navigate(login);
+        } else {
+            let _ = window.destroy();
+        }
+    });
 }
 
 /// Opens the login window and starts watching its cookies.
@@ -654,6 +731,7 @@ fn open_login_window<R: Runtime>(
 ) -> Result<(), CommandError> {
     let url: Url = LOGIN_URL.parse().expect("a valid URL");
     let generation = spotify.generation.fetch_add(1, Ordering::AcqRel) + 1;
+    let returns = AtomicU32::new(0);
     let window = WebviewWindowBuilder::new(app, LOGIN_WINDOW, WebviewUrl::External(url))
         .title(WINDOW_TITLE)
         .inner_size(480.0, 760.0)
@@ -665,8 +743,15 @@ fn open_login_window<R: Runtime>(
         .user_agent(&browser_agent(user_agent))
         .on_navigation(allowed_navigation)
         .on_new_window(|_, _| NewWindowResponse::Deny)
-        .on_page_load(|window, payload| {
-            if matches!(payload.event(), PageLoadEvent::Finished) {
+        // No file from a page in a window that bears FXM's name, and no camera, microphone or
+        // notification prompt either.
+        .on_download(|_, _| false)
+        .on_permission_request(|_, _| PermissionResponse::Deny)
+        // `Started` comes as the top frame commits, before the page has loaded anything else, so
+        // a page that never finishes loading can't show itself under the last page's title.
+        .on_page_load(move |window, payload| match payload.event() {
+            PageLoadEvent::Started => on_page_commit(&window, payload.url(), &returns),
+            PageLoadEvent::Finished => {
                 let _ = window.set_title(&window_title(payload.url()));
             }
         })
@@ -682,7 +767,7 @@ fn open_login_window<R: Runtime>(
         if matches!(event, WindowEvent::Destroyed)
             && closed.generation.load(Ordering::Acquire) == generation
         {
-            closed.finish(false);
+            closed.finish(Ok(false));
         }
     });
     watch_login(app.clone(), spotify.clone(), generation);
@@ -692,7 +777,7 @@ fn open_login_window<R: Runtime>(
 /// Looks for the login cookie in the login window's cookie store every [`POLL_INTERVAL`], on a
 /// thread of its own (WebView2 deadlocks when its cookies are read on the main thread), for as
 /// long as the window of `generation` is open. Once the cookie is there, keeps it, closes the
-/// window and tells the main window.
+/// window and tells the main window, or tells the callers why the store couldn't keep it.
 fn watch_login<R: Runtime>(app: AppHandle<R>, spotify: Shared, generation: u64) {
     let watcher = spotify.clone();
     let spawned = thread::Builder::new()
@@ -713,18 +798,18 @@ fn watch_login<R: Runtime>(app: AppHandle<R>, spotify: Shared, generation: u64) 
                 let Some(cookie) = login_cookie(&cookies).map(Zeroizing::new) else {
                     continue;
                 };
-                let kept = spotify.keep(&cookie).is_ok();
-                if kept {
+                let kept = spotify.keep(&cookie);
+                if kept.is_ok() {
                     announce(&app, true);
                 }
                 // Before the window goes, whose end would tell the callers it was cancelled.
-                spotify.finish(kept);
+                spotify.finish(kept.map(|()| true));
                 let _ = window.destroy();
                 return;
             }
         });
     if spawned.is_err() {
-        spotify.finish(false);
+        spotify.finish(Ok(false));
     }
 }
 
@@ -740,7 +825,7 @@ async fn logout<R: Runtime>(
         let _ = window.clear_all_browsing_data();
         let _ = window.destroy();
     }
-    shared.finish(false);
+    shared.finish(Ok(false));
     let forgotten = blocking(move || shared.forget()).await;
     announce(&app, false);
     forgotten
@@ -754,9 +839,6 @@ async fn token(
     user_agent: Option<String>,
 ) -> Result<TokenAnswer, CommandError> {
     let shared = spotify.inner().clone();
-    // The first read of the credential store blocks; later ones answer from memory.
-    let reader = shared.clone();
-    blocking(move || reader.cookie().map(|_| ())).await?;
     shared.token(&params, user_agent.as_deref()).await
 }
 
@@ -836,8 +918,8 @@ mod tests {
         }
     }
 
-    fn login_with(store: &Arc<MemoryStore>, url: &str) -> SpotifyLogin {
-        SpotifyLogin::with_token_url(Box::new(store.clone()), url)
+    fn login_with(store: &Arc<MemoryStore>, url: &str) -> Arc<SpotifyLogin> {
+        Arc::new(SpotifyLogin::with_token_url(Box::new(store.clone()), url))
     }
 
     /// A test server answering every request with `response`, recording each request's head.
@@ -1049,6 +1131,44 @@ mod tests {
     }
 
     #[test]
+    fn the_login_window_shows_spotifys_pages_and_its_sign_ins_only() {
+        let url = |text: &str| text.parse::<Url>().unwrap();
+        for allowed in [
+            LOGIN_URL,
+            "https://open.spotify.com/",
+            "https://spotify.com/",
+            "https://challenge.spotify.com/c/abc",
+            "https://ACCOUNTS.Spotify.com/en/login",
+            "https://www.facebook.com/login.php",
+            "https://m.facebook.com/dialog/oauth",
+            "https://accounts.google.com/o/oauth2/auth",
+            "https://appleid.apple.com/auth/authorize",
+            "blob:https://accounts.spotify.com/1234",
+            "about:blank",
+        ] {
+            assert!(allowed_page(&url(allowed)), "{allowed}");
+        }
+        for refused in [
+            "https://evil.example/login",
+            "https://spotify.com.evil.example/",
+            "https://notspotify.com/",
+            "https://www.google.com/recaptcha/api2/anchor",
+            "https://google.com/",
+            "https://apple.com/",
+            "https://idmsa.apple.com/",
+            "https://facebook.com.evil.example/",
+            "http://accounts.spotify.com/login",
+            "blob:https://evil.example/1234",
+            "blob:null/1234",
+            "about:srcdoc",
+            "data:text/html,<h1>Log in</h1>",
+            "fxm-download://localhost/abc",
+        ] {
+            assert!(!allowed_page(&url(refused)), "{refused}");
+        }
+    }
+
+    #[test]
     fn the_window_title_names_the_site() {
         let title = |text: &str| window_title(&text.parse::<Url>().unwrap());
         assert_eq!(title(LOGIN_URL), "Log in to Spotify – accounts.spotify.com");
@@ -1084,17 +1204,42 @@ mod tests {
     }
 
     #[test]
-    fn a_failing_credential_store_says_so() {
+    fn a_failing_credential_store_says_so_without_being_asked_again() {
         let store = Arc::new(MemoryStore {
             fail: true,
             ..MemoryStore::default()
         });
         let spotify = login_with(&store, TOKEN_URL);
         assert_eq!(spotify.state().unwrap_err().code, "keychain");
+        assert_eq!(spotify.state().unwrap_err().code, "keychain");
         assert_eq!(
             run(spotify.token(&params(), None)).unwrap_err().code,
             "keychain"
         );
+        // One prompt the user denied is one read: checks in a loop don't bring it back.
+        assert_eq!(store.reads.load(Ordering::Relaxed), 1);
+        // A login the store keeps, or a logout, starts afresh.
+        spotify.keep(COOKIE).unwrap();
+        assert!(spotify.state().unwrap().logged_in);
+        spotify.forget().unwrap();
+        assert!(!spotify.state().unwrap().logged_in);
+        assert_eq!(store.reads.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn the_rate_limit_comes_before_the_credential_store() {
+        let (port, seen) = serve(http("200 OK", "", "{}"));
+        let store = Arc::new(MemoryStore::default());
+        let spotify = login_with(&store, &format!("http://127.0.0.1:{port}/api/token"));
+        for _ in 0..RATE_LIMIT {
+            let _ = spotify.limiter.lock().unwrap().acquire(Instant::now());
+        }
+        assert_eq!(
+            run(spotify.token(&params(), None)).unwrap_err().code,
+            "rate-limited"
+        );
+        assert_eq!(store.reads.load(Ordering::Relaxed), 0);
+        assert!(seen.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1266,13 +1411,18 @@ mod tests {
         let spotify = login_with(&store, TOKEN_URL);
         let mut first = spotify.wait();
         let mut second = spotify.wait();
-        spotify.finish(true);
-        assert_eq!(run(first.recv()), Some(true));
-        assert_eq!(run(second.recv()), Some(true));
+        spotify.finish(Ok(true));
+        assert_eq!(run(first.recv()), Some(Ok(true)));
+        assert_eq!(run(second.recv()), Some(Ok(true)));
         // Finishing again tells no one: the window ended once.
-        spotify.finish(false);
+        spotify.finish(Ok(false));
         let mut third = spotify.wait();
-        spotify.finish(false);
-        assert_eq!(run(third.recv()), Some(false));
+        spotify.finish(Ok(false));
+        assert_eq!(run(third.recv()), Some(Ok(false)));
+        // A login the credential store couldn't keep says why.
+        let mut fourth = spotify.wait();
+        let refused = CommandError::new("keychain", "The user denied access");
+        spotify.finish(Err(refused.clone()));
+        assert_eq!(run(fourth.recv()), Some(Err(refused)));
     }
 }
