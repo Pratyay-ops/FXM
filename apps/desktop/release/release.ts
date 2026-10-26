@@ -105,6 +105,16 @@ export function readUpdaterPubkey(path = TAURI_CONFIG): string {
 
 /** The updater's public key, or why a release can't use it. */
 export function releaseKey(pubkey: string): PublicKey {
+  // tauri-plugin-updater and the Tauri CLI decode the key exactly as it stands: with a space or a
+  // line break around it, every build job would fail, and an app built with it would refuse
+  // every update.
+  if (pubkey !== pubkey.trim()) {
+    throw new Error(
+      'The updater public key in apps/desktop/src-tauri/tauri.conf.json has spaces or line ' +
+        "breaks around it, which the Tauri CLI and the updater refuse: put the .pub file's " +
+        `single line there, and nothing else (${KEY_HELP}).`,
+    )
+  }
   try {
     return decodePublicKey(pubkey)
   } catch {

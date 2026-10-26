@@ -74,11 +74,12 @@ pub fn enabled(debug_build: bool, pubkey: Option<&str>) -> bool {
 }
 
 /// Whether `pubkey`, the `plugins > updater > pubkey` of `tauri.conf.json`, is a minisign public
-/// key as the plugin reads it: the key file's text in base64. The placeholder that ships until the
-/// owner commits FXM's key isn't, so such a build never offers an update it couldn't verify.
+/// key as the plugin reads it: the key file's text in base64, decoded as it stands, so a key with
+/// a space or a line break around it isn't. Nor is the placeholder that ships until the owner
+/// commits FXM's key, so such a build never offers an update it couldn't verify.
 pub fn is_usable_pubkey(pubkey: &str) -> bool {
     base64::engine::general_purpose::STANDARD
-        .decode(pubkey.trim())
+        .decode(pubkey)
         .ok()
         .and_then(|text| String::from_utf8(text).ok())
         .is_some_and(|text| minisign_verify::PublicKey::decode(&text).is_ok())
@@ -363,9 +364,17 @@ mod tests {
     }
 
     #[test]
-    fn a_minisign_public_key_is_usable() {
+    fn a_minisign_public_key_is_usable_exactly_as_the_plugin_reads_it() {
         assert!(is_usable_pubkey(TEST_PUBKEY));
-        assert!(is_usable_pubkey(&format!("  {}\n", TEST_PUBKEY.trim())));
+        // The plugin decodes the key as it stands, so it would refuse every update signed for a
+        // key with whitespace around it.
+        for padded in [
+            format!("{TEST_PUBKEY}\n"),
+            format!(" {TEST_PUBKEY}"),
+            format!("{TEST_PUBKEY} "),
+        ] {
+            assert!(!is_usable_pubkey(&padded), "{padded:?}");
+        }
     }
 
     #[test]

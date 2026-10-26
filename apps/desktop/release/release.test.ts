@@ -107,6 +107,23 @@ describe('check', () => {
     SLOW,
   )
 
+  it(
+    'stops a release whose key has whitespace around it, which the CLI and the updater refuse',
+    () => {
+      const { reporter } = recorder()
+      const { publicKey } = generateKeyPair('')
+      for (const pubkey of [`${publicKey}\n`, ` ${publicKey}`, `${publicKey} `]) {
+        expect(() =>
+          checkRelease(
+            { mode: 'release', version: '0.7.0', appVersion: '0.7.0', pubkey },
+            reporter,
+          ),
+        ).toThrow(/spaces or line breaks around it/)
+      }
+    },
+    SLOW,
+  )
+
   it('stops when the app has another version than the release', () => {
     const { reporter } = recorder()
     expect(() =>

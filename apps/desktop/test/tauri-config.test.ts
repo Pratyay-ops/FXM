@@ -300,6 +300,8 @@ describe('the updater', () => {
   })
 
   it('carries FXM’s updater key, or the placeholder that stops every release', () => {
+    // As the plugin and the CLI decode it: nothing around the key.
+    expect(updater.pubkey).toBe(updater.pubkey.trim())
     if (updater.pubkey.startsWith('PLACEHOLDER')) {
       // Not base64, so `tauri build` fails on it once the updater's files are on
       // (tauri.release.conf.json), and release.ts check refuses it.
