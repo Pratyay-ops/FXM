@@ -5,6 +5,7 @@ import { PageWash } from '../../components/media/collection-header'
 import { CardScroller, SongGrid } from '../../components/media/placeholders'
 import { buttonClasses } from '../../components/ui/button'
 import { Shelf } from '../../components/ui/page'
+import { InstallCard } from '../pwa/install-card'
 import { CATALOG_MODE_LABELS } from '../settings/options'
 import { useSettingsStore } from '../settings/settings-store'
 
@@ -65,6 +66,9 @@ export function HomePage() {
           Free music from everywhere. No account, no ads from FXM.
         </p>
       </div>
+
+      {/* Phones only, while the browser offers to install FXM (stage 5.1). */}
+      <InstallCard />
 
       <WelcomeCard />
 
