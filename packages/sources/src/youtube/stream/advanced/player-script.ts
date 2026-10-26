@@ -20,6 +20,7 @@ import { FxmError, isFxmError, type ProviderContext } from '@fxm/core'
 import { Player } from 'youtubei.js'
 import { fetchWithTimeout } from '../../../shared'
 import { requestFailure } from '../../errors'
+import { untilAborted } from './abort'
 
 /** Where the current player's ID is read. */
 export const IFRAME_API_URL = 'https://www.youtube.com/iframe_api'
@@ -157,19 +158,25 @@ export class PlayerScripts {
    */
   async current(ctx: ProviderContext): Promise<PlayerScript> {
     this.#loaded ??= this.#load()
-    await this.#loaded
+    await untilAborted(this.#loaded, ctx.signal)
     const current = this.#current
     if (current !== undefined && this.#now() - current.checkedAt < this.#maxAgeMs) return current
-    // One fetch at a time for every caller, without any one caller's signal.
-    this.#pending ??= this.#refresh(ctx).finally(() => {
+    // One fetch at a time for every caller, without any one caller's signal: each waits with its own.
+    this.#pending ??= this.#refresh(ctx.fetch).finally(() => {
       this.#pending = undefined
     })
-    return this.#pending
+    return untilAborted(this.#pending, ctx.signal)
   }
 
-  /** Forgets the script, e.g. after its functions failed, so the next call fetches it again. */
+  /**
+   * Marks the player's ID as stale, e.g. after its functions failed: the next call checks it
+   * again (one small request), and fetches the script again only when the ID changed. The same
+   * player always gives the same extract.
+   */
   invalidate(): void {
-    this.#current = undefined
+    if (this.#current !== undefined) {
+      this.#current = { ...this.#current, checkedAt: Number.NEGATIVE_INFINITY }
+    }
   }
 
   async #load(): Promise<void> {
@@ -193,16 +200,17 @@ export class PlayerScripts {
     return script
   }
 
-  async #get(ctx: ProviderContext, url: string): Promise<Response> {
+  /** A request of the shared refresh: it has no caller's signal, only its timeout. */
+  async #get(fetch: ProviderContext['fetch'], url: string): Promise<Response> {
     let response: Response
     try {
-      response = await fetchWithTimeout(ctx.fetch, url, {
+      response = await fetchWithTimeout(fetch, url, {
         method: 'GET',
         credentials: 'omit',
         timeoutMs: this.#timeoutMs,
       })
     } catch (error) {
-      throw requestFailure(error, url, ctx.signal)
+      throw requestFailure(error, url)
     }
     if (!response.ok) {
       throw new FxmError('Network', `YouTube answered ${url} with HTTP ${response.status}`)
@@ -210,8 +218,8 @@ export class PlayerScripts {
     return response
   }
 
-  async #refresh(ctx: ProviderContext): Promise<PlayerScript> {
-    const playerId = playerIdOf(await (await this.#get(ctx, IFRAME_API_URL)).text())
+  async #refresh(fetch: ProviderContext['fetch']): Promise<PlayerScript> {
+    const playerId = playerIdOf(await (await this.#get(fetch, IFRAME_API_URL)).text())
     if (playerId === undefined) {
       throw new FxmError('Parse', "YouTube's iframe_api names no player")
     }
@@ -224,7 +232,7 @@ export class PlayerScripts {
         if (!url.startsWith(`${PLAYER_SCRIPT_PREFIX}${playerId}/`)) {
           return Promise.reject(new FxmError('Unsupported', `Not the player script: ${url}`))
         }
-        return this.#get(ctx, url)
+        return this.#get(fetch, url)
       })
     } catch (error) {
       if (isFxmError(error)) throw error

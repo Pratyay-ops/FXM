@@ -15,16 +15,32 @@
  * @module
  */
 
-import { FxmError, type ProviderContext } from '@fxm/core'
+import { FxmError, isFxmError, type ProviderContext } from '@fxm/core'
 import { arrayAt, asNumber, asRecord, asString, at, type JsonRecord } from '../../json'
 import type { StreamRungConfig } from '../config'
 import { streamOptionsOf } from '../formats'
 import { WebPoTokens } from './botguard'
-import { cipheredUrlOf, decipherUrls } from './decipher'
-import { ATTESTATION_ORIGIN, type StreamEvaluator } from './evaluator'
+import { type CipheredUrl, cipheredUrlOf, decipherUrls } from './decipher'
+import {
+  ATTESTATION_ORIGIN,
+  evaluatorCodeOf,
+  isEvaluatorDown,
+  type StreamEvaluator,
+} from './evaluator'
 import type { AdvancedPlayerCall, AdvancedRungs } from './hook'
-import { type PlayerScriptExtractor, type PlayerScriptStore, PlayerScripts } from './player-script'
+import {
+  type PlayerScript,
+  type PlayerScriptExtractor,
+  type PlayerScriptStore,
+  PlayerScripts,
+} from './player-script'
 import { sabrStreamOptions } from './sabr'
+
+/**
+ * How long the rungs leave an evaluator alone after its document could not start, or was gone,
+ * in milliseconds: meanwhile no rung that needs it is tried, so no resolution waits for it.
+ */
+export const EVALUATOR_RETRY_MS = 10 * 60_000
 
 /** Options for {@link createAdvancedRungs}. */
 export interface AdvancedRungsOptions {
@@ -46,6 +62,8 @@ export interface AdvancedRungsOptions {
   playerScriptMaxAgeMs?: number
   /** How long one request may take, in milliseconds; 30 s by default. */
   timeoutMs?: number
+  /** How long an evaluator that could not start is left alone; {@link EVALUATOR_RETRY_MS} by default. */
+  evaluatorRetryMs?: number
   /** The clock, for tests. */
   now?: () => number
   /** Extracts the player script's functions; youtubei.js by default. For tests. */
@@ -78,10 +96,53 @@ function withParam(url: string, name: string, value: string): string {
   return parsed.href
 }
 
+/**
+ * Whether deciphering failed in the player's functions themselves (they threw, answered no JSON,
+ * or gave no signature or `n`), which a new player may explain. A cancellation, a timeout or an
+ * evaluator that can't be reached says nothing about the script.
+ */
+function scriptFailed(error: unknown): boolean {
+  const code = evaluatorCodeOf(error)
+  if (code !== undefined) return code === 'script-error' || code === 'not-json'
+  return isFxmError(error, 'Parse')
+}
+
+/**
+ * `evaluator`, with every failure that says its document could not start or is gone reported to
+ * `down`.
+ */
+function watched(evaluator: StreamEvaluator, down: () => void): StreamEvaluator {
+  const watch = <T>(work: Promise<T>): Promise<T> =>
+    work.catch((error: unknown) => {
+      if (isEvaluatorDown(error)) down()
+      throw error
+    })
+  return {
+    origin: evaluator.origin,
+    ready: (callOptions) => watch(evaluator.ready(callOptions)),
+    evaluate: (source, args, callOptions) => watch(evaluator.evaluate(source, args, callOptions)),
+    botguardSnapshot: (challenge, callOptions) =>
+      watch(evaluator.botguardSnapshot(challenge, callOptions)),
+    mintWebPoTokens: (integrityToken, bindings, callOptions) =>
+      watch(evaluator.mintWebPoTokens(integrityToken, bindings, callOptions)),
+  }
+}
+
 /** Creates the hook for the experimental rungs. */
 export function createAdvancedRungs(options: AdvancedRungsOptions = {}): AdvancedRungsHook {
-  const { evaluator } = options
   const now = options.now ?? Date.now
+  const retryMs = options.evaluatorRetryMs ?? EVALUATOR_RETRY_MS
+  /** Until when the evaluator is left alone, after its document could not start. */
+  let evaluatorDownUntil = Number.NEGATIVE_INFINITY
+  const evaluator =
+    options.evaluator === undefined
+      ? undefined
+      : watched(options.evaluator, () => {
+          evaluatorDownUntil = now() + retryMs
+        })
+  // BotGuard's attestation works only in a document at YouTube's origin, which the evaluator
+  // knows without starting.
+  const attestable = evaluator?.origin === ATTESTATION_ORIGIN
   const playerScripts = new PlayerScripts({
     ...(options.playerScriptStore === undefined ? {} : { store: options.playerScriptStore }),
     ...(options.playerScriptMaxAgeMs === undefined
@@ -110,12 +171,22 @@ export function createAdvancedRungs(options: AdvancedRungsOptions = {}): Advance
     return { evaluator, poTokens }
   }
 
-  /** The evaluator's document origin, or `undefined` when it does not start. */
-  async function evaluatorOrigin(ctx: ProviderContext): Promise<string | undefined> {
+  /**
+   * Deciphers `entries` with the player's functions. When the functions themselves fail, a new
+   * player may have changed them: its ID is checked again before the next use.
+   */
+  async function decipher(
+    ctx: ProviderContext,
+    player: PlayerScript,
+    entries: readonly CipheredUrl[],
+  ): Promise<string[]> {
     try {
-      return (await evaluator?.ready(ctx.signal ? { signal: ctx.signal } : {}))?.origin
-    } catch {
-      return undefined
+      return await decipherUrls(required().evaluator, player, entries, {
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+      })
+    } catch (error) {
+      if (scriptFailed(error)) playerScripts.invalidate()
+      throw error
     }
   }
 
@@ -129,7 +200,6 @@ export function createAdvancedRungs(options: AdvancedRungsOptions = {}): Advance
     response: JsonRecord,
     tokenFor?: () => Promise<string>,
   ): Promise<JsonRecord> {
-    const tools = required()
     const player = await playerScripts.current(ctx)
     const wanted = new Set(rung.itags)
     const picked = formatsOf(response).filter((format) => {
@@ -140,19 +210,11 @@ export function createAdvancedRungs(options: AdvancedRungsOptions = {}): Advance
       const entry = cipheredUrlOf(format)
       return entry === undefined ? [] : [{ format, entry }]
     })
-    let urls: string[]
-    try {
-      urls = await decipherUrls(
-        tools.evaluator,
-        player,
-        ciphered.map(({ entry }) => entry),
-        ctx.signal ? { signal: ctx.signal } : {},
-      )
-    } catch (error) {
-      // A new player may have changed its functions: read it again next time.
-      playerScripts.invalidate()
-      throw error
-    }
+    const urls = await decipher(
+      ctx,
+      player,
+      ciphered.map(({ entry }) => entry),
+    )
     const token = ciphered.length === 0 ? undefined : await tokenFor?.()
     const replaced = new Map<JsonRecord, string>()
     ciphered.forEach(({ format }, index) => {
@@ -183,24 +245,20 @@ export function createAdvancedRungs(options: AdvancedRungsOptions = {}): Advance
     playerScripts,
     poTokens,
 
-    async supported(rungs, ctx) {
-      const supported = new Set<string>()
+    canRun(rung, ctx) {
       // The player script and BotGuard's challenge are YouTube pages: only the full tier reads them.
-      if (evaluator === undefined || ctx.capabilities.youtube !== 'full') return supported
-      const needsOrigin = rungs.some((rung) => rung.kind === 'attested' || rung.kind === 'sabr')
-      const attestable = needsOrigin && (await evaluatorOrigin(ctx)) === ATTESTATION_ORIGIN
-      for (const rung of rungs) {
-        const ok =
-          rung.kind === 'deciphered'
-            ? rung.client.fields.userAgent === undefined || options.sendsUserAgent === true
-            : rung.kind === 'attested'
-              ? attestable
-              : rung.kind === 'sabr'
-                ? attestable && ctx.capabilities.mediaBytes && ctx.platform !== 'android'
-                : false
-        if (ok) supported.add(rung.id)
+      if (evaluator === undefined || ctx.capabilities.youtube !== 'full') return false
+      if (now() < evaluatorDownUntil) return false
+      switch (rung.kind) {
+        case 'deciphered':
+          return rung.client.fields.userAgent === undefined || options.sendsUserAgent === true
+        case 'attested':
+          return attestable
+        case 'sabr':
+          return attestable && ctx.capabilities.mediaBytes && ctx.platform !== 'android'
+        default:
+          return false
       }
-      return supported
     },
 
     async prepare(ctx, rung): Promise<AdvancedPlayerCall> {
@@ -238,9 +296,7 @@ export function createAdvancedRungs(options: AdvancedRungsOptions = {}): Advance
       const entry = sabrUrl === undefined ? undefined : cipheredUrlOf({ url: sabrUrl })
       if (entry === undefined) return []
       const player = await playerScripts.current(ctx)
-      const [url] = await decipherUrls(tools.evaluator, player, [entry], {
-        ...(ctx.signal ? { signal: ctx.signal } : {}),
-      })
+      const [url] = await decipher(ctx, player, [entry])
       if (url === undefined) return []
       return sabrStreamOptions(response, {
         videoId,

@@ -113,6 +113,33 @@ describe('the player script', () => {
     expect(saved.map((script) => script.playerId)).toEqual([FAKE_PLAYER_ID])
   })
 
+  it('checks the ID again after invalidate, and keeps the script while the player is the same', async () => {
+    const { scripts, ctx, requests, extracted, setPlayer } = setup()
+    await scripts.current(ctx)
+    scripts.invalidate()
+    expect((await scripts.current(ctx)).playerId).toBe(FAKE_PLAYER_ID)
+    expect(requests.map((request) => request.url.pathname)).toEqual([
+      '/iframe_api',
+      `/s/player/${FAKE_PLAYER_ID}/player_es6.vflset/en_US/base.js`,
+      '/iframe_api',
+    ])
+    scripts.invalidate()
+    setPlayer('abcdef12')
+    expect((await scripts.current(ctx)).playerId).toBe('abcdef12')
+    expect(extracted).toEqual([FAKE_PLAYER_ID, 'abcdef12'])
+  })
+
+  it('lets a caller stop waiting without stopping the fetch for the others', async () => {
+    const { scripts, ctx, requests } = setup()
+    const controller = new AbortController()
+    const cancelled = scripts.current({ ...ctx, signal: controller.signal })
+    const waiting = scripts.current(ctx)
+    controller.abort(new Error('skipped'))
+    await expect(cancelled).rejects.toThrow('skipped')
+    expect((await waiting).playerId).toBe(FAKE_PLAYER_ID)
+    expect(requests).toHaveLength(2)
+  })
+
   it('ignores a malformed stored script', async () => {
     const { scripts, ctx, requests } = setup({ store: { value: { playerId: '../evil' } } })
     expect((await scripts.current(ctx)).playerId).toBe(FAKE_PLAYER_ID)

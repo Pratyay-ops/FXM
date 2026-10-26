@@ -7,6 +7,7 @@
 
 export {
   BOTGUARD_REQUEST_KEY,
+  consentRedirect,
   GENERATE_IT_URL,
   INTERPRETER_PREFIX,
   type PageChallenge,
@@ -18,6 +19,8 @@ export {
 export { type CipheredUrl, cipheredUrlOf, DECIPHER_PROCESSOR, decipherUrls } from './decipher'
 export {
   ATTESTATION_ORIGIN,
+  evaluatorCodeOf,
+  isEvaluatorDown,
   type StreamEvaluator,
   type StreamEvaluatorCallOptions,
 } from './evaluator'
@@ -37,6 +40,7 @@ export {
   type AdvancedRungsHook,
   type AdvancedRungsOptions,
   createAdvancedRungs,
+  EVALUATOR_RETRY_MS,
 } from './rungs'
 export {
   CLIENT_NAME_IDS,

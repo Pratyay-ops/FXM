@@ -28,7 +28,7 @@ The resolver keeps everything the rungs share: the ladder and its health, bot ch
 | Its TV's `User-Agent` on the `/player` request (`sendsUserAgent`) | Yes | No | No |
 | Media bytes, and not Android (no MediaSource engine there) | No | No | Yes |
 
-`supported()` leaves out the rungs a context can't try, before any request, so a switched-on rung costs nothing where it can't work.
+`canRun()` decides which rungs a context can try at once, without a request and without starting the evaluator, whose `origin` is known before it starts; the resolver leaves the others out of the ladder. So a switched-on rung costs nothing where it can't work, and VISIONOS never waits for the evaluator. An evaluator whose document could not start, or is gone, is left alone for 10 minutes (`EVALUATOR_RETRY_MS`): meanwhile no rung that needs it is tried, so no resolution waits for it again.
 
 ### Where they can run today
 
@@ -40,13 +40,13 @@ The resolver keeps everything the rungs share: the ladder and its health, bot ch
 
 ## How they work
 
-1. **The player script** (`player-script.ts`): the player's ID from `/iframe_api`, then `/s/player/<id>/player_es6.vflset/en_US/base.js` (about 2.6 MB), from which youtubei.js (MIT) extracts the signature and `n` functions without running them. Kept in memory (and an optional store) by player ID; the ID is checked again after 6 hours.
+1. **The player script** (`player-script.ts`): the player's ID from `/iframe_api`, then `/s/player/<id>/player_es6.vflset/en_US/base.js` (about 2.6 MB), from which youtubei.js (MIT) extracts the signature and `n` functions without running them. Kept in memory (and an optional store) by player ID; the ID is checked again after 6 hours, and after the functions themselves failed (they threw, answered no JSON, or gave no signature or `n`). The script is fetched again only when the ID changed; a cancelled or timed-out deciphering, or an evaluator that can't be reached, leaves it alone. One fetch serves every caller, each waiting with its own signal.
 2. **The `/player` call** sends `playbackContext.contentPlaybackContext.signatureTimestamp` of that player (and `html5Preference: HTML5_PREF_WANTS`), in the same CORS-simple shape as every InnerTube call. The TV rung also sends its user agent where `sendsUserAgent` is set.
 3. **Deciphering** (`decipher.ts`): every URL of the answer in one evaluator call. The extract is defined in the evaluator once per player (key `player:<id>`).
-4. **Web PO tokens** (`botguard.ts`), for `mweb`, `web-remix` and `web-sabr`: the challenge from YouTube's home page (`window.ytAtN`, plus its `EVENT_ID`), BotGuard's interpreter from `www.google.com/js/th/…`, the snapshot in the evaluator, an integrity token from `www.youtube.com/api/jnn/v1/GenerateIT` (12 hours), then one token per video, minted in the evaluator. The parent makes every request; BotGuard makes none (`connect-src 'none'`). A refused attestation is remembered for 30 minutes.
+4. **Web PO tokens** (`botguard.ts`), for `mweb`, `web-remix` and `web-sabr`: the challenge from YouTube's home page (`window.ytAtN`, plus its `EVENT_ID`), BotGuard's interpreter from `www.google.com/js/th/…`, the snapshot in the evaluator, an integrity token from `www.youtube.com/api/jnn/v1/GenerateIT` (12 hours), then one token per video, minted in the evaluator. The parent makes every request; BotGuard can make none (`connect-src 'none'`). The session is shared by every caller, each waiting with its own signal, so a skipped track never fails another's resolution. A refused attestation is remembered for 30 minutes, and so is a home page that YouTube answers with its cookie consent page (`consent.youtube.com`), as it does for requests without cookies from some regions, the European Union among them: that page carries no challenge, so the PO-token rungs can't run there (not measured: this stage's live runs came from India).
 5. **Stream options**: deciphered URLs (with `pot`) go through the same option builder and end-of-file probe as direct URLs. The SABR rung returns one `protocol: 'sabr'` option per audio format, with `playback` = `{ format: 'youtube-sabr/1', videoId, ustreamerConfig, poToken, client, durationMs, audio, video }` (`sabr.ts`), `unverified` because a session has no file to probe.
 
-A failure in the rung's own steps (the player script, deciphering, BotGuard, the evaluator) counts against the rung (`lastFailure: 'error'`, with its cool-down), and the ladder moves on.
+A failure in the rung's own steps (the player script, deciphering, BotGuard, the evaluator) counts against the rung (`lastFailure: 'error'`, with its cool-down), and the ladder moves on. The resolver's touch-point is `canRun`, `prepare` and `streamOptions` of `hook.ts`; `canRun` is synchronous, like the `canRun` of the rung kinds the merged stage 1.4 has on `develop`, so the integration maps the hook onto those kinds in a few lines.
 
 **Requests**, on top of a direct rung's: `iframe_api` and the player script once per player (6 hours); the home page (about 1 MB), the interpreter (cached by URL) and `GenerateIT` once per 12 hours for the PO-token rungs. They draw on the request budget like any other YouTube page.
 
@@ -62,6 +62,8 @@ From Node on a residential connection, with BotGuard in Playwright's Chromium (`
 | `web-sabr` | **Session passed, playback pending:** googlevideo's `SabrStream` in Node got 256 KiB of the song's Opus audio from the session. The done-when, 30 s of MediaSource playback in Chromium with FXM Connect, can't pass in FXM's web app: its `eval.html` can't attest (above), so no web build gets a valid token | Off |
 
 What BotGuard needs, measured the same day: tokens minted from Google's generic `Create` challenge (`jnn-pa.googleapis.com`) were refused by googlevideo whatever their content binding (visitorData, visitor ID, video ID) and wherever they were minted (happy-dom, headless Chromium at `about:blank` or at a youtube.com URL). The challenge of YouTube's own page earns an integrity token only in a real browser engine whose document is at `https://www.youtube.com`: at `about:blank`, and in happy-dom, `GenerateIT` answered no token (`[null, 43200, null, <fallback>]`). The page's `EVENT_ID` is the only part of its config BotGuard needed.
+
+InnerTube's own challenge (`/youtubei/v1/att/get`, `ENGAGEMENT_TYPE_UNBOUND`), measured once the same day because it would avoid the home page and its cookie consent redirect: it earned an integrity token in the same Chromium document, but googlevideo refused the token minted from it (403 for the last 64 KiB of MWEB's Opus 251). So the rungs keep the home page's challenge, and where YouTube answers that page with its consent page they fail, are remembered for 30 minutes, and say why.
 
 ## Tests
 

@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { context, fakeInnerTube, type Route } from '../../fixtures/testing'
 import {
   BOTGUARD_REQUEST_KEY,
+  consentRedirect,
   GENERATE_IT_URL,
   parsePageChallenge,
   WebPoTokens,
@@ -110,6 +111,7 @@ describe('web PO tokens', () => {
     // A restarted document has no BotGuard session: the first mint fails that way.
     const tokens = new WebPoTokens({
       evaluator: {
+        origin: evaluator.origin,
         ready: (options) => evaluator.ready(options),
         evaluate: (source, args, options) => evaluator.evaluate(source, args, options),
         botguardSnapshot: (challenge, options) => evaluator.botguardSnapshot(challenge, options),
@@ -128,6 +130,47 @@ describe('web PO tokens', () => {
       fakeWebPoToken(FAKE_INTEGRITY_KEY, 'abc'),
     )
     expect(requests.filter((request) => request.url.href === GENERATE_IT_URL)).toHaveLength(2)
+  })
+
+  it('shares one session between callers: a cancellation stops only its own wait', async () => {
+    const { tokens, requests, ctx } = setup()
+    const controller = new AbortController()
+    const skipped = tokens.tokenFor({ ...ctx, signal: controller.signal }, 'zFYEYRcjK2g')
+    const playing = tokens.tokenFor(ctx, 'XqZsoesa55w')
+    controller.abort(new Error('skipped'))
+    await expect(skipped).rejects.toThrow('skipped')
+    expect(await playing).toBe(fakeWebPoToken(FAKE_INTEGRITY_KEY, 'XqZsoesa55w'))
+    // One session for both, and the cancelled caller's video gets its token later from it.
+    expect(await tokens.tokenFor(ctx, 'zFYEYRcjK2g')).toBe(
+      fakeWebPoToken(FAKE_INTEGRITY_KEY, 'zFYEYRcjK2g'),
+    )
+    expect(requests.filter((request) => request.url.href === GENERATE_IT_URL)).toHaveLength(1)
+  })
+
+  it('reports a cookie consent page instead of the home page, and remembers it', async () => {
+    const consentPage =
+      '<html><form action="https://consent.youtube.com/save" method="POST"></form></html>'
+    // A transport that reports the redirected URL, and one that doesn't.
+    const redirected = new Response(consentPage)
+    Object.defineProperty(redirected, 'url', { value: 'https://consent.youtube.com/m?continue=x' })
+    for (const answer of [redirected, new Response(consentPage)]) {
+      const { tokens, requests, ctx } = setup([
+        (request) => (request.url.href === YOUTUBE_HOME_URL ? answer.clone() : undefined),
+      ])
+      await expect(tokens.tokenFor(ctx, 'zFYEYRcjK2g')).rejects.toMatchObject({
+        code: 'Unsupported',
+        message: expect.stringContaining('consent.youtube.com'),
+      })
+      await expect(tokens.tokenFor(ctx, 'zFYEYRcjK2g')).rejects.toMatchObject({
+        code: 'Unsupported',
+      })
+      expect(requests).toHaveLength(1)
+    }
+    expect(consentRedirect('https://www.youtube.com/', '<html></html>')).toBeUndefined()
+    // A link to the consent settings is no consent page.
+    expect(
+      consentRedirect('', '<a href="https://consent.youtube.com/d?continue=x">Privacy</a>'),
+    ).toBeUndefined()
   })
 
   it('fails with Network when YouTube does not answer', async () => {

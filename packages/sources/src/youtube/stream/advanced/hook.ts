@@ -24,10 +24,11 @@ export interface AdvancedPlayerCall {
 /** The resolver's hook for rungs whose kind is not `direct`. */
 export interface AdvancedRungs {
   /**
-   * The IDs of the rungs among `rungs` that can be tried in `ctx` (its tier, platform and the
-   * evaluator it has). The resolver leaves the others out of the ladder, as if they were off.
+   * Whether `rung` can be tried in `ctx` (its tier, platform and the evaluator it has), decided
+   * at once, without a request and without starting the evaluator: the resolver leaves the
+   * others out of the ladder, as if they were off, and never waits for this.
    */
-  supported(rungs: readonly StreamRungConfig[], ctx: ProviderContext): Promise<ReadonlySet<string>>
+  canRun(rung: StreamRungConfig, ctx: ProviderContext): boolean
   /** Prepares the `/player` call of `rung` for `videoId`. */
   prepare(
     ctx: ProviderContext,

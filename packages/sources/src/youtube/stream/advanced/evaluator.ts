@@ -19,9 +19,12 @@ export interface StreamEvaluatorCallOptions {
 /** The isolated evaluator, as the experimental rungs use it. */
 export interface StreamEvaluator {
   /**
-   * Starts the document if needed; `origin` is the origin of the document's URL, the location
-   * scripts such as BotGuard see.
+   * The origin its document runs at, the location scripts such as BotGuard see. The platform's
+   * evaluators know it when they are created, so the rungs decide where they can run without
+   * starting the document.
    */
+  readonly origin: string
+  /** Starts the document if needed. */
   ready(options?: StreamEvaluatorCallOptions): Promise<{ readonly origin: string }>
   /** Runs `source` as the body of an async function of `args`; resolves with its JSON result. */
   evaluate(
@@ -55,3 +58,21 @@ export interface StreamEvaluator {
  * document cannot.
  */
 export const ATTESTATION_ORIGIN = 'https://www.youtube.com'
+
+/**
+ * The `evaluatorCode` of a failure of the platform's evaluator (its `EvaluatorError`), read
+ * without depending on `@fxm/platform`.
+ */
+export function evaluatorCodeOf(error: unknown): string | undefined {
+  const code = (error as { evaluatorCode?: unknown } | null | undefined)?.evaluatorCode
+  return typeof code === 'string' ? code : undefined
+}
+
+/**
+ * Whether `error` says the evaluator's document could not start or is gone (`unavailable`,
+ * `closed`), as opposed to a failure of what ran in it.
+ */
+export function isEvaluatorDown(error: unknown): boolean {
+  const code = evaluatorCodeOf(error)
+  return code === 'unavailable' || code === 'closed'
+}

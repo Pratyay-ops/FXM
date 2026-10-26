@@ -11,6 +11,7 @@ import {
   type QualityPrefs,
 } from '@fxm/core'
 import {
+  createEvaluator,
   createInProcessEvaluator,
   FAKE_BOTGUARD_GLOBAL,
   fakeWebPoToken,
@@ -38,19 +39,21 @@ import {
 } from '../fixtures/testing'
 import { createYouTubeAudioSource } from '../resolver'
 import { GENERATE_IT_URL } from './botguard'
+import type { StreamEvaluator } from './evaluator'
 import { FAKE_SIGNATURE } from './fixtures/sanitize'
 import {
   ADVANCED_FIXTURES,
   botGuardRoutes,
   decipheredSignature,
   FAKE_INTEGRITY_KEY,
+  FAKE_PLAYER_ID,
   FAKE_SIGNATURE_TIMESTAMP,
   fakeExtractor,
   onIframeApi,
   onPlayerScript,
   transformedN,
 } from './fixtures/testing'
-import { type AdvancedRungsOptions, createAdvancedRungs } from './rungs'
+import { type AdvancedRungsOptions, createAdvancedRungs, EVALUATOR_RETRY_MS } from './rungs'
 
 afterEach(() => {
   delete (globalThis as Record<string, unknown>)[FAKE_BOTGUARD_GLOBAL]
@@ -103,10 +106,35 @@ interface Setup {
   capabilities?: NetworkCapabilities
   platform?: Platform
   origin?: string | null
+  /** An evaluator of the test's own instead of the in-process one. */
+  evaluator?: StreamEvaluator
   advanced?: Omit<AdvancedRungsOptions, 'evaluator' | 'extractPlayerScript'>
   extract?: ReturnType<typeof fakeExtractor>
   /** Whether GenerateIT refuses the attestation. */
   refuse?: boolean
+}
+
+/** An evaluator whose document never starts, at YouTube's origin, counting its starts. */
+function neverStarting(openTimeoutMs: number) {
+  let starts = 0
+  const evaluator = createEvaluator(
+    'android',
+    {
+      open() {
+        starts += 1
+        return new Promise(() => {})
+      },
+      send: () => new Promise(() => {}),
+      close() {},
+    },
+    { origin: YOUTUBE, openTimeoutMs },
+  )
+  return {
+    evaluator,
+    get starts() {
+      return starts
+    },
+  }
 }
 
 function setup(setupOptions: Setup) {
@@ -118,10 +146,11 @@ function setup(setupOptions: Setup) {
     ...(setupOptions.routes ?? []),
     attestedGoogleVideo,
   )
-  const evaluator =
-    setupOptions.origin === null
+  const inProcess =
+    setupOptions.evaluator !== undefined || setupOptions.origin === null
       ? undefined
       : createInProcessEvaluator({ origin: setupOptions.origin ?? YOUTUBE })
+  const evaluator = setupOptions.evaluator ?? inProcess
   const extractor = setupOptions.extract ?? fakeExtractor()
   const advanced = createAdvancedRungs({
     ...(evaluator === undefined ? {} : { evaluator }),
@@ -142,7 +171,7 @@ function setup(setupOptions: Setup) {
     advanced,
     ctx,
     requests,
-    evaluator,
+    evaluator: inProcess,
     players: () =>
       requests.filter((request) => request.url.pathname === '/youtubei/v1/player').map(clientOf),
     probes: () => requests.filter(isGoogleVideo),
@@ -167,34 +196,70 @@ describe('the experimental rungs', () => {
     const all = only('tv-samsung', 'mweb', 'web-remix', 'web-sabr', 'android-muxed')
     const supported = (setupOptions: Omit<Setup, 'config'>) => {
       const { advanced, ctx } = setup({ config: all, ...setupOptions })
-      return advanced.supported(
-        all.rungs.filter((rung) => rung.kind !== 'direct'),
-        { ...ctx, platform: setupOptions.platform ?? ctx.platform },
-      )
+      const context = { ...ctx, platform: setupOptions.platform ?? ctx.platform }
+      return all.rungs
+        .filter((rung) => rung.kind !== 'direct' && advanced.canRun(rung, context))
+        .map((rung) => rung.id)
     }
 
-    it('none without an evaluator, or in the Lite tier', async () => {
-      expect([...(await supported({ origin: null }))]).toEqual([])
-      expect([...(await supported({ capabilities: SIMPLE }))]).toEqual([])
+    it('none without an evaluator, or in the Lite tier', () => {
+      expect(supported({ origin: null })).toEqual([])
+      expect(supported({ capabilities: SIMPLE })).toEqual([])
     })
 
-    it('the attested and SABR rungs only with an evaluator at YouTube’s origin', async () => {
-      expect([...(await supported({ origin: 'fxm-eval://localhost' }))]).toEqual([])
-      expect([...(await supported({ origin: YOUTUBE }))]).toEqual(['mweb', 'web-remix', 'web-sabr'])
+    it('the attested and SABR rungs only with an evaluator at YouTube’s origin', () => {
+      expect(supported({ origin: 'fxm-eval://localhost' })).toEqual([])
+      expect(supported({ origin: YOUTUBE })).toEqual(['mweb', 'web-remix', 'web-sabr'])
     })
 
-    it('SABR not on Android, which has no MediaSource engine, nor without media bytes', async () => {
-      expect([...(await supported({ platform: 'android' }))]).toEqual(['mweb', 'web-remix'])
+    it('SABR not on Android, which has no MediaSource engine, nor without media bytes', () => {
+      expect(supported({ platform: 'android' })).toEqual(['mweb', 'web-remix'])
     })
 
-    it('the TV rung only where a request can set its User-Agent', async () => {
-      expect([...(await supported({ advanced: { sendsUserAgent: true } }))]).toContain('tv-samsung')
-      expect([
-        ...(await supported({
-          origin: 'fxm-eval://localhost',
-          advanced: { sendsUserAgent: true },
-        })),
-      ]).toEqual(['tv-samsung'])
+    it('the TV rung only where a request can set its User-Agent', () => {
+      expect(supported({ advanced: { sendsUserAgent: true } })).toContain('tv-samsung')
+      expect(
+        supported({ origin: 'fxm-eval://localhost', advanced: { sendsUserAgent: true } }),
+      ).toEqual(['tv-samsung'])
+    })
+
+    it('decides without starting the evaluator, so VISIONOS never waits for it', async () => {
+      const never = neverStarting(60_000)
+      const { audio, ctx, players } = setup({
+        config: only('visionos', 'mweb', 'web-remix', 'android-muxed'),
+        routes: [ON.visionos],
+        evaluator: never.evaluator,
+      })
+      const started = Date.now()
+      const [option] = await audio.resolve(SONG, ctx, PREFS)
+      expect(option?.rung).toBe('visionos')
+      expect(players()).toEqual(['VISIONOS'])
+      expect(never.starts).toBe(0)
+      expect(Date.now() - started).toBeLessThan(5_000)
+    })
+
+    it('leaves an evaluator that could not start alone for a while', async () => {
+      const never = neverStarting(20)
+      let time = Date.UTC(2026, 9, 26, 12)
+      const { audio, advanced, ctx, players } = setup({
+        config: only('mweb', 'android-muxed'),
+        routes: [ON.mweb, ON.android],
+        evaluator: never.evaluator,
+        advanced: { now: () => time },
+      })
+      const mweb = BUNDLED_STREAM_CONFIG.rungs.find((rung) => rung.id === 'mweb')
+      if (mweb === undefined) throw new Error('no mweb rung')
+      expect(advanced.canRun(mweb, ctx)).toBe(true)
+      const [muxed] = await audio.resolve(SONG, ctx, PREFS)
+      expect(muxed?.rung).toBe('android-muxed')
+      expect(players()).toEqual(['MWEB', 'ANDROID'])
+      expect(never.starts).toBe(1)
+      // No rung that needs the evaluator is tried, or waits for it, until the retry time.
+      expect(advanced.canRun(mweb, ctx)).toBe(false)
+      await audio.resolve(SONG, ctx, PREFS)
+      expect(never.starts).toBe(1)
+      time += EVALUATOR_RETRY_MS
+      expect(advanced.canRun(mweb, ctx)).toBe(true)
     })
 
     it('skips enabled rungs it cannot try, without a request for them', async () => {
@@ -250,6 +315,48 @@ describe('the experimental rungs', () => {
       const [muxed] = await audio.resolve(SONG, ctx, PREFS)
       expect(muxed?.rung).toBe('android-muxed')
       expect(players()).toEqual(['TVHTML5', 'ANDROID'])
+    })
+
+    it('keeps the player script after a deciphering that timed out, and checks its ID after one that failed', async () => {
+      const inner = createInProcessEvaluator({ origin: YOUTUBE })
+      const failures = [
+        Object.assign(new Error('The evaluator did not answer invoke in time'), {
+          evaluatorCode: 'timeout',
+        }),
+        Object.assign(new Error('TypeError: the player changed'), {
+          evaluatorCode: 'script-error',
+        }),
+      ]
+      const evaluator: StreamEvaluator = {
+        origin: inner.origin,
+        ready: (callOptions) => inner.ready(callOptions),
+        evaluate: (source, args, callOptions) => {
+          const failure = failures.shift()
+          return failure === undefined
+            ? inner.evaluate(source, args, callOptions)
+            : Promise.reject(failure)
+        },
+        botguardSnapshot: (challenge, callOptions) =>
+          inner.botguardSnapshot(challenge, callOptions),
+        mintWebPoTokens: (token, bindings, callOptions) =>
+          inner.mintWebPoTokens(token, bindings, callOptions),
+      }
+      const extract = fakeExtractor()
+      const { audio, ctx, paths } = setup({
+        config: only('tv-samsung'),
+        routes: [ON.tv],
+        advanced: { sendsUserAgent: true },
+        evaluator,
+        extract,
+      })
+      for (let failed = 0; failed < 2; failed += 1) {
+        await expect(audio.resolve(SONG, ctx, PREFS)).rejects.toThrow('The tv-samsung rung failed')
+      }
+      const [option] = await audio.resolve(SONG, ctx, PREFS)
+      expect(option?.rung).toBe('tv-samsung')
+      // One extract in all; the ID was checked again once, after the script failed.
+      expect(extract.extracted).toEqual([FAKE_PLAYER_ID])
+      expect(paths().filter((path) => path === '/iframe_api')).toHaveLength(2)
     })
 
     it('counts a player script it cannot read against the rung and moves on', async () => {

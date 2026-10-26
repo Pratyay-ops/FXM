@@ -216,17 +216,17 @@ export function createYouTubeAudioSource(
 
   /**
    * The rungs to try, in order: the healthy ones first, the cooling ones after. A rung whose kind
-   * is not `direct` is tried only when the advanced hook supports it here (`supported`).
+   * is not `direct` is tried only when the advanced hook can run it here (`canRun`).
    */
   function ladderFor(
     config: StreamConfig,
     scope: string,
     videoId: string,
     skip: ReadonlySet<string>,
-    supported: ReadonlySet<string>,
+    ctx: ProviderContext,
   ): StreamRungConfig[] {
     const enabled = config.rungs.filter(
-      (rung) => rung.enabled && (rung.kind === 'direct' || supported.has(rung.id)),
+      (rung) => rung.enabled && (rung.kind === 'direct' || advanced?.canRun(rung, ctx) === true),
     )
     if (enabled.length === 0) {
       throw new FxmError('Unsupported', 'Every YouTube stream rung is switched off in the config')
@@ -487,13 +487,8 @@ export function createYouTubeAudioSource(
       ctx.signal?.throwIfAborted()
       await book.ready()
       const config = configOf()
-      const experimental = config.rungs.filter((rung) => rung.enabled && rung.kind !== 'direct')
-      const supported =
-        advanced === undefined || experimental.length === 0
-          ? new Set<string>()
-          : await advanced.supported(experimental, ctx)
       const skip = new Set(resolveOptions.skipRungs)
-      const ladder = ladderFor(config, scopeOf(ctx), videoId, skip, supported)
+      const ladder = ladderFor(config, scopeOf(ctx), videoId, skip, ctx)
       const priority = resolveOptions.priority ?? 'current-track'
       const attempt: Attempt = {
         refreshed: false,

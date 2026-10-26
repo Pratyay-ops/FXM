@@ -19,6 +19,11 @@
  * tokens from Google's generic `Create` challenge are refused by googlevideo wherever they are
  * minted. So these rungs only run with an evaluator at that origin (`ATTESTATION_ORIGIN`).
  *
+ * The session is shared: every caller waits for the same one, each with its own signal, and only
+ * timeouts stop it. A refused attestation is remembered for a while, and so is a home page that
+ * YouTube answers with its cookie consent page (`consent.youtube.com`, for requests without
+ * cookies from some regions such as the European Union), which carries no challenge.
+ *
  * @module
  */
 
@@ -27,6 +32,7 @@ import { GOOG_API_KEY, parseLooseJSON } from 'bgutils-js/utils'
 import { fetchWithTimeout } from '../../../shared'
 import { requestFailure } from '../../errors'
 import { arrayAt, asRecord, asString, at } from '../../json'
+import { untilAborted } from './abort'
 import type { StreamEvaluator } from './evaluator'
 
 /** YouTube's home page, which carries the challenge. */
@@ -49,6 +55,28 @@ const REFUSAL_MEMORY_MS = 30 * 60_000
 
 /** How many videos' tokens are kept. */
 const MAX_TOKENS = 64
+
+/** The host of {@link YOUTUBE_HOME_URL}: an answer from anywhere else was redirected. */
+const YOUTUBE_HOST = 'www.youtube.com'
+
+/**
+ * The form of YouTube's cookie consent page, where it sends a request without cookies from some
+ * regions (the European Union, for one) instead of its home page.
+ */
+const CONSENT_FORM = /<form[^>]*\saction="https:\/\/consent\.(?:youtube|google)\.com\//u
+
+/**
+ * Why the home page carries no challenge when YouTube answered it from `finalUrl` (the URL of
+ * the response, empty where the transport doesn't say) with `html`: its cookie consent page
+ * instead of the home page, or `undefined` for another reason.
+ */
+export function consentRedirect(finalUrl: string, html: string): string | undefined {
+  const host = URL.canParse(finalUrl) ? new URL(finalUrl).host : undefined
+  if (host !== undefined && host !== YOUTUBE_HOST) return host
+  return CONSENT_FORM.test(html) && !html.includes('window.ytAtN(')
+    ? 'consent.youtube.com'
+    : undefined
+}
 
 /** The challenge of YouTube's home page. */
 export interface PageChallenge {
@@ -144,7 +172,8 @@ export class WebPoTokens {
     const cached = this.#tokens.get(videoId)
     if (cached !== undefined && cached.until > now) return cached.token
     for (let attempt = 0; ; attempt += 1) {
-      const session = await this.#sessionFor(ctx)
+      // The session is shared by every caller; a cancellation stops only this caller's wait.
+      const session = await untilAborted(this.#sessionFor(ctx), ctx.signal)
       let token: string | undefined
       try {
         ;[token] = await this.#evaluator.mintWebPoTokens(session.integrityToken, [videoId], {
@@ -171,21 +200,37 @@ export class WebPoTokens {
     }
   }
 
-  async #sessionFor(ctx: ProviderContext): Promise<Session> {
+  #sessionFor(ctx: ProviderContext): Promise<Session> {
     const now = this.#now()
-    if (this.#session !== undefined && this.#session.renewAt > now) return this.#session
-    if (this.#refusal !== undefined && this.#refusal.until > now) throw this.#refusal.error
-    this.#pending ??= this.#start(ctx).finally(() => {
+    if (this.#session !== undefined && this.#session.renewAt > now) {
+      return Promise.resolve(this.#session)
+    }
+    if (this.#refusal !== undefined && this.#refusal.until > now) {
+      return Promise.reject(this.#refusal.error)
+    }
+    // One session for every caller, without any one caller's signal: only timeouts stop it.
+    this.#pending ??= this.#start(ctx.fetch).finally(() => {
       this.#pending = undefined
     })
     return this.#pending
   }
 
-  async #request(ctx: ProviderContext, url: string, init: RequestInit = {}): Promise<string> {
+  /** Remembers `error` as BotGuard's verdict on this device for a while, and returns it. */
+  #refuse(error: FxmError): FxmError {
+    this.#refusal = { error, until: this.#now() + REFUSAL_MEMORY_MS }
+    return error
+  }
+
+  /** A request of the shared session: it has no caller's signal, only its timeout. */
+  async #request(
+    fetch: ProviderContext['fetch'],
+    url: string,
+    init: RequestInit = {},
+  ): Promise<{ readonly text: string; readonly url: string }> {
     let response: Response
     let text: string
     try {
-      response = await fetchWithTimeout(ctx.fetch, url, {
+      response = await fetchWithTimeout(fetch, url, {
         method: 'GET',
         credentials: 'omit',
         ...init,
@@ -193,37 +238,53 @@ export class WebPoTokens {
       })
       text = await response.text()
     } catch (error) {
-      throw requestFailure(error, url, ctx.signal)
+      throw requestFailure(error, url)
     }
     if (!response.ok) {
       throw new FxmError('Network', `${url} answered HTTP ${response.status}`)
     }
-    return text
+    return { text, url: response.url }
   }
 
-  async #interpreter(ctx: ProviderContext, url: string): Promise<string> {
+  async #interpreter(fetch: ProviderContext['fetch'], url: string): Promise<string> {
     const cached = this.#interpreters.get(url)
     if (cached !== undefined) return cached
-    const script = await this.#request(ctx, url)
+    const { text: script } = await this.#request(fetch, url)
     this.#interpreters.clear()
     this.#interpreters.set(url, script)
     return script
   }
 
-  async #start(ctx: ProviderContext): Promise<Session> {
+  /** The challenge of YouTube's home page. */
+  async #challenge(fetch: ProviderContext['fetch']): Promise<PageChallenge> {
+    const page = await this.#request(fetch, YOUTUBE_HOME_URL)
+    try {
+      return parsePageChallenge(page.text)
+    } catch (error) {
+      const consent = consentRedirect(page.url, page.text)
+      if (consent === undefined) throw error
+      // Asking again soon would only download the same page.
+      throw this.#refuse(
+        new FxmError(
+          'Unsupported',
+          `YouTube answered its home page with ${consent} (a cookie consent page), which carries no attestation challenge`,
+          { cause: error },
+        ),
+      )
+    }
+  }
+
+  async #start(fetch: ProviderContext['fetch']): Promise<Session> {
     this.#tokens.clear()
-    const challenge = parsePageChallenge(await this.#request(ctx, YOUTUBE_HOME_URL))
-    const interpreter = await this.#interpreter(ctx, challenge.interpreterUrl)
-    const snapshot = await this.#evaluator.botguardSnapshot(
-      {
-        interpreter,
-        program: challenge.program,
-        globalName: challenge.globalName,
-        pageConfig: { EVENT_ID: challenge.eventId },
-      },
-      ctx.signal ? { signal: ctx.signal } : {},
-    )
-    const answer = await this.#request(ctx, GENERATE_IT_URL, {
+    const challenge = await this.#challenge(fetch)
+    const interpreter = await this.#interpreter(fetch, challenge.interpreterUrl)
+    const snapshot = await this.#evaluator.botguardSnapshot({
+      interpreter,
+      program: challenge.program,
+      globalName: challenge.globalName,
+      pageConfig: { EVENT_ID: challenge.eventId },
+    })
+    const { text: answer } = await this.#request(fetch, GENERATE_IT_URL, {
       method: 'POST',
       headers: {
         'content-type': 'application/json+protobuf',
@@ -243,12 +304,12 @@ export class WebPoTokens {
     const [integrityToken, ttl] = arrayAt(parsed)
     if (typeof integrityToken !== 'string' || integrityToken === '') {
       // BotGuard's verdict on this document: no token. Asking again soon would not change it.
-      const error = new FxmError(
-        'Parse',
-        'BotGuard refused the attestation: GenerateIT answered no integrity token',
+      throw this.#refuse(
+        new FxmError(
+          'Parse',
+          'BotGuard refused the attestation: GenerateIT answered no integrity token',
+        ),
       )
-      this.#refusal = { error, until: this.#now() + REFUSAL_MEMORY_MS }
-      throw error
     }
     const seconds = Number(ttl)
     const lifetimeMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 3_600_000
