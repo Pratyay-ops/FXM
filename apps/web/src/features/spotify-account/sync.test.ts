@@ -434,6 +434,18 @@ describe('limits and failures', () => {
     expect(await playlistNames(repo)).toContain('Third')
   })
 
+  it("doesn't hurry back when its budget went on playlists that all failed", async () => {
+    const repo = testRepo()
+    const account = fakeAccount()
+    account.data.playlists.push({ id: nativeId('p', 3), name: 'Third', tracks: [spotifyTrack(31)] })
+    account.blank.add(`tracks ${P1}`)
+    account.failures.set(`tracks ${P2}`, new SpotifyError('bad-response', 'unreadable'))
+    // The profile, liked songs, the list, and two playlists that fail.
+    const result = await sync(account, repo, { limits: { requests: 5 } })
+    expect(result.summary).toMatchObject({ pending: 0, skipped: 2, complete: false })
+    expect(await playlistNames(repo)).not.toContain('Third')
+  })
+
   it("refuses an account Spotify doesn't name, and writes nothing", async () => {
     const repo = testRepo()
     const account = fakeAccount({ username: undefined })

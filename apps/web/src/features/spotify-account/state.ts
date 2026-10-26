@@ -54,8 +54,9 @@ export interface SyncSummary {
   /** Lists left out: over the limits, or unreadable. */
   readonly skipped: number
   /**
-   * Playlists left for the next sync, which goes on from there: this one had made as many
-   * requests as one sync may (`SYNC_LIMITS.requests`, `sync.ts`).
+   * Playlists left for the next sync, which goes on from there soon: this one had made as many
+   * requests as one sync may (`SYNC_LIMITS.requests`, `sync.ts`). Zero when every playlist it
+   * set out to read failed: those count as `skipped`, and the next sync comes at the usual time.
    */
   readonly pending: number
   /** Whether the personal home was read. */

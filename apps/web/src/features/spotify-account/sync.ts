@@ -374,7 +374,15 @@ export async function runSpotifySync(
     complete: true,
   }
   const copies = await copySummaries(library)
-  const sync: ListSync = { library, store, lists: new Map(state.lists), copies, counters }
+  const sync: ListSync = {
+    library,
+    store,
+    lists: new Map(state.lists),
+    copies,
+    counters,
+    tried: 0,
+    read: 0,
+  }
 
   // Liked songs.
   progress({ step: 'liked' })
@@ -425,6 +433,9 @@ export async function runSpotifySync(
       ([list, entry]) => list !== LIKED_LIST && entry.dismissed !== true,
     ).length,
     ...counters,
+    // A budget spent on playlists that all failed: going on soon would only fail again, so the
+    // next sync comes at the usual time, and the summary says what couldn't be read.
+    pending: sync.tried > 0 && sync.read === 0 ? 0 : counters.pending,
     home,
   }
   await writeMeta(store, { account, lastSyncAt: summary.at, last: summary })
@@ -453,6 +464,10 @@ interface ListSync {
   readonly lists: Map<string, ListState>
   readonly copies: ReadonlyMap<string, CopySummary>
   readonly counters: Counters
+  /** Playlists this run set out to read. */
+  tried: number
+  /** Playlists this run read and brought into their copies. */
+  read: number
 }
 
 interface Reader {
@@ -601,6 +616,7 @@ async function syncPlaylist(
     sync.counters.pending += 1
     return
   }
+  sync.tried += 1
   let read: PlaylistRead
   try {
     read = await readPlaylist(spotify, item, reader)
@@ -626,6 +642,7 @@ async function syncPlaylist(
     artwork,
     ...(read.revision === undefined ? {} : { revision: read.revision }),
   })
+  sync.read += 1
 }
 
 /** What reading a playlist's pages got. */
