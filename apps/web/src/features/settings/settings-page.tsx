@@ -5,8 +5,11 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { DiagnosticsSection } from '../connect/diagnostics'
+import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
+import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { SyncSettings } from '../sync/sync-settings'
@@ -92,6 +95,8 @@ export function SettingsPage() {
         </SettingRow>
       </SettingsSection>
 
+      <ScrobblingSettings />
+
       <SettingsSection title="Sync">
         <SyncSettings />
       </SettingsSection>
@@ -108,6 +113,10 @@ export function SettingsPage() {
           </SettingRow>
         </SettingsSection>
       )}
+
+      <ConnectSettingsEntry />
+
+      <DiagnosticsSection />
 
       <SettingsSection title="About">
         <div className="flex flex-col gap-5 p-4 sm:flex-row sm:items-center sm:p-5">

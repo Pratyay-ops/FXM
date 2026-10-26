@@ -9,26 +9,43 @@
 //! set in tauri.conf.json) before Rust reads them. Whatever the command, the hook keeps page
 //! script from giving the HTTP plugin a proxy of its own or a forbidden header, except in a
 //! start-up gap that the app's README describes.
+//!
+//! Playback and OS integration (stage 7.3): the [`tray`] icon controls playback while the window
+//! is hidden, the close button keeps music playing in the background ([`window`]), the
+//! [`network`] watcher tells the web app when stream URLs need resolving again, and
+//! [`environment`] tells it which macOS it runs on.
 
-use tauri::{AppHandle, Manager};
+use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 
+pub mod environment;
+#[cfg(target_os = "macos")]
+mod fullscreen;
+pub mod network;
+pub mod playback;
 // The live smoke test's report listener: always compiled, so lints and tests cover it, but only
 // started in the smoke build (`--features smoke`, apps/desktop/smoke).
 #[cfg_attr(not(feature = "smoke"), allow(dead_code))]
 mod smoke;
+pub mod tray;
 pub mod user_hosts;
+pub mod window;
 
 /// Label of the main window in `tauri.conf.json`.
 pub const MAIN_WINDOW: &str = "main";
 
-/// Builds and runs the app until its last window closes.
+/// Builds and runs the app until it quits.
 pub fn run() {
-    tauri::Builder::default()
-        // Registered first: a second launch only brings the running app to the front.
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            show_main_window(app);
-        }))
+    let builder = tauri::Builder::default();
+    // Registered first: a second launch only brings the running app to the front, including a
+    // window hidden in the tray. Left out of the smoke build, whose runs from different checkouts
+    // may overlap on one machine: the plugin would hand one run over to the other's app and show
+    // that app's hidden window.
+    #[cfg(not(feature = "smoke"))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        window::show_main_window(app);
+    }));
+    let builder = builder
         // Size, position, maximized and full screen survive restarts. Visibility does not:
         // the app always opens with its window showing.
         .plugin(
@@ -40,39 +57,49 @@ pub fn run() {
         // (`scopeRedirects` in tauri.conf.json).
         .plugin(tauri_plugin_http::init())
         // Opens links with target="_blank" in the default browser.
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+    // macOS: Tauri's default app menu, with Window > FXM (⌘0) to bring a hidden window back.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .menu(window::app_menu)
+        .on_menu_event(|app, event| window::on_menu_event(app, event.id().as_ref()));
+    let app = builder
         .setup(|app| {
             let file = app.path().app_config_dir()?.join(user_hosts::FILE_NAME);
             app.manage(user_hosts::UserHosts::load(file));
+            app.manage(window::PendingHide::default());
+            // The smoke build leaves the tray out: it runs unattended, without touching the
+            // menu bar or the notification area.
+            #[cfg(not(feature = "smoke"))]
+            if let Err(error) = tray::create(app.handle()) {
+                // FXM works without a tray icon; its close button then quits it.
+                eprintln!("FXM runs without a tray icon: {error}");
+            }
+            network::watch(app.handle().clone());
             // The live smoke test's build only (apps/desktop/smoke).
             #[cfg(feature = "smoke")]
             smoke::listen(app.handle());
             Ok(())
         })
+        .on_window_event(window::on_window_event)
         // Keep in step with COMMANDS in build.rs, which puts each behind a permission.
         .invoke_handler(tauri::generate_handler![
             user_hosts::user_hosts,
             user_hosts::approve_user_host,
             user_hosts::revoke_user_host,
             user_hosts::user_host_fetch,
+            playback::set_now_playing,
+            environment::desktop_environment,
         ])
-        .run(context())
-        .expect("error while running the FXM desktop app");
+        .build(context())
+        .expect("error while building the FXM desktop app");
+    app.run(|app, event| window::on_run_event(app, &event));
 }
 
 /// The app's configuration, icons and, in release builds, the embedded web app. The macro
 /// may expand only once per crate (it defines a symbol on macOS), so tests share this.
 fn context() -> tauri::Context<tauri::Wry> {
     tauri::generate_context!()
-}
-
-fn show_main_window(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        // Best effort: a window that can't be raised is not worth crashing over.
-        let _ = window.unminimize();
-        let _ = window.show();
-        let _ = window.set_focus();
-    }
 }
 
 #[cfg(test)]
@@ -97,6 +124,23 @@ mod tests {
             (Some(360.0), Some(600.0))
         );
         assert!(config.app.security.csp.is_some(), "the CSP must stay on");
+    }
+
+    #[test]
+    fn the_main_window_keeps_running_in_the_background() {
+        use tauri::utils::config::BackgroundThrottlingPolicy;
+        let context = context();
+        let main = context
+            .config()
+            .app
+            .windows
+            .iter()
+            .find(|window| window.label == MAIN_WINDOW)
+            .expect("tauri.conf.json has no window labelled \"main\"");
+        assert!(matches!(
+            main.background_throttling,
+            Some(BackgroundThrottlingPolicy::Disabled)
+        ));
     }
 
     #[test]

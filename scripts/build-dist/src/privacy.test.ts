@@ -54,6 +54,8 @@ describe('privacyProblems', () => {
       'Internet Archive',
       'LRCLIB',
       'SponsorBlock',
+      'ListenBrainz',
+      'Last.fm',
       'GitHub',
     ])
     expect(privacyProblems(RULES, page)).toEqual([

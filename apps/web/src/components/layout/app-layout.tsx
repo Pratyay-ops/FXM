@@ -1,10 +1,12 @@
 import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
+import { ConnectNotice } from '../../features/connect/connect-notice'
 import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { PwaShell } from '../../features/pwa/pwa-shell'
 import { FeedbackToast } from '../../features/search/feedback'
+import { ShareDialogHost } from '../../features/share/share-dialog'
 import { SponsorBlockNotices } from '../../features/sponsorblock/sponsorblock-notices'
 import { SyncAgent } from '../../features/sync/agent'
 import { BottomNav } from './bottom-nav'
@@ -72,6 +74,8 @@ export function AppLayout() {
         >
           <div className="mx-auto w-full max-w-page">
             <Outlet />
+            {/* Floats above the bottom bars: after the page, where it shows. */}
+            <ConnectNotice />
           </div>
         </main>
       </div>
@@ -87,6 +91,7 @@ export function AppLayout() {
       <SyncAgent />
       {/* Phones: Now Playing's own controls fill the screen, so the update toast goes on top. */}
       <PwaShell fullScreen={fullScreen} />
+      <ShareDialogHost />
       <ScrollRestoration />
     </>
   )

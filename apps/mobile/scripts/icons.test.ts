@@ -1,6 +1,12 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { androidResources, LEGACY_DENSITIES, MARK } from './icons.ts'
+import {
+  androidResources,
+  LEGACY_DENSITIES,
+  MARK,
+  NOTIFICATION_ICON_PATH,
+  notificationIcon,
+} from './icons.ts'
 import { decodePng } from './png.ts'
 
 const res = new URL('../android/app/src/main/res/', import.meta.url)
@@ -25,6 +31,23 @@ describe('the launcher and splash icons', () => {
     expect(mipmaps).toEqual(expected.sort())
     expect(png.size).toBe(Object.keys(LEGACY_DENSITIES).length * 2)
     expect(files.filter((file) => /splash\.png$/.test(file))).toEqual([])
+  })
+
+  it('has the notification icon icons.ts draws, inside the status bar’s live area', () => {
+    const icon = notificationIcon()
+    expect(
+      readFileSync(new URL(`../android/${NOTIFICATION_ICON_PATH}`, import.meta.url), 'utf8'),
+    ).toBe(icon)
+    expect(icon).toContain('android:viewportWidth="24"')
+    const numbers = [...icon.matchAll(/M([\d.]+),([\d.]+)/g)].flatMap((match) => [
+      Number(match[1]),
+      Number(match[2]),
+    ])
+    expect(numbers).toHaveLength(MARK.bars.length * 2)
+    for (const value of numbers) {
+      expect(value).toBeGreaterThanOrEqual(2)
+      expect(value).toBeLessThanOrEqual(22)
+    }
   })
 
   it('draws the same mark as the web app favicon', () => {

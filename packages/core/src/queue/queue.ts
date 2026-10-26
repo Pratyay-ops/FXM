@@ -86,8 +86,10 @@ export type QueueContext =
 export interface QueueItem {
   /**
    * Identifies this entry within its queue, so duplicates of a track stay apart. uids are
-   * comparable only within one queue and the queues built from it by this module's functions:
-   * a restored or newly created queue numbers its items from 0 again.
+   * comparable only within one queue and the queues built from it by this module's functions,
+   * including `restoreQueue`, which keeps every valid stored uid: a queue saved with
+   * `JSON.stringify` and restored names its items as before. A newly created queue numbers its
+   * items from 0, so uids from another queue may name other items.
    */
   readonly uid: number
   /** The track to play. */

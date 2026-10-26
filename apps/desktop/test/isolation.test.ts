@@ -352,6 +352,27 @@ const FXM_MESSAGES: [string, IpcMessage][] = [
   ],
   ['approve_user_host', message({ host: 'invidious.example' }, 'approve_user_host')],
   ['a command without arguments', message({}, 'user_hosts')],
+  // Stage 7.3's playback bridge (bridge/shell.ts): the tray's text, where the app runs, and the
+  // tray's and the network's events.
+  [
+    'set_now_playing',
+    message(
+      { now: { state: 'playing', title: 'Mrs. Robinson 🎶', artist: 'Simon & Garfunkel' } },
+      'set_now_playing',
+    ),
+  ],
+  ['desktop_environment', message({}, 'desktop_environment')],
+  [
+    'a listener for the tray’s media actions',
+    message(
+      { event: 'fxm-media-action', target: { kind: 'Any' }, handler: 8 },
+      'plugin:event|listen',
+    ),
+  ],
+  [
+    'an event listener’s end',
+    message({ event: 'fxm-network-change', eventId: 9 }, 'plugin:event|unlisten'),
+  ],
   ['a request for a channel’s data', message(null, 'plugin:__TAURI_CHANNEL__|fetch')],
 ]
 

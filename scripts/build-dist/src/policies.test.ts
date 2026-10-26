@@ -24,10 +24,20 @@ const PLAN_APP_POLICY =
     HASH,
   )
 
-/** That policy with the hosts of the stages that shipped after it: 8.4's library sync. */
+/**
+ * The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm) and
+ * 8.4's library sync (GitHub).
+ */
+const LATER_CONNECT_HOSTS = [
+  'https://api.listenbrainz.org',
+  'https://ws.audioscrobbler.com',
+  'https://api.github.com',
+]
+
+/** The `/app/*` policy today: the plan's, with the hosts later stages added after its own. */
 const APP_POLICY = PLAN_APP_POLICY.replace(
-  'https://sponsor.ajay.app;',
-  'https://sponsor.ajay.app https://api.github.com;',
+  "; frame-src 'self';",
+  ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
 )
 
 describe('csp helpers', () => {
@@ -61,11 +71,13 @@ describe('csp helpers', () => {
 })
 
 describe('the web app policy', () => {
-  it('is the policy docs/PLAN.md specifies for /app/*, with the later stages’ hosts', () => {
+  it('is the policy docs/PLAN.md specifies for /app/*, with the hosts later stages added', () => {
+    expect(APP_POLICY).not.toBe(PLAN_APP_POLICY)
     expect(serializePolicy(appPolicy([HASH]))).toBe(APP_POLICY)
   })
 
   it('stays under the 850-character estimate at M1, far below 2,000', () => {
+    expect(PLAN_APP_POLICY.length).toBeLessThan(850)
     expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(900)
   })
 
@@ -78,12 +90,16 @@ describe('the web app policy', () => {
     const policy = parsePolicy(
       serializePolicy(
         appPolicy([HASH], {
-          services: [...APP_SERVICES, { privacyName: 'Later', connect: ['https://later.example'] }],
+          services: [
+            ...APP_SERVICES,
+            // A host no shipped stage uses yet: 3.2's, once the app calls its providers.
+            { privacyName: 'Cover Art Archive', connect: ['https://coverartarchive.org'] },
+          ],
           scriptExtras: [WASM_UNSAFE_EVAL],
         }),
       ),
     )
-    expect(policy.get('connect-src')?.at(-1)).toBe('https://later.example')
+    expect(policy.get('connect-src')?.at(-1)).toBe('https://coverartarchive.org')
     expect(policy.get('script-src')).toEqual(["'self'", HASH, WASM_UNSAFE_EVAL])
   })
 

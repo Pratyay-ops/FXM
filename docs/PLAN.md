@@ -119,7 +119,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | ✅ |
 | **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | ✅ |
 | **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | ✅ |
-| **2.7** | Tiers, onboarding and install guides | `feat/2.7-connect-onboarding` | 2.1, 1.2, 1.6, 1.9, 1.10 | 🟡 |
+| **2.7** | Tiers, onboarding and install guides | `feat/2.7-connect-onboarding` | 2.1, 1.2, 1.6, 1.9, 1.10 | ✅ |
 | **2.8** | Static deploy to `fxmusic.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 2.9, 5.3, R.1, R.4, 1.10 | ✅ |
 | **2.9** | App composition: real providers, resolver and player | `feat/2.9-app-wiring` | 1.4, 2.3, 2.4, 2.6 | 🟡 |
 | **3.1** | Listening signals and affinity | `feat/3.1-signals` | 2.2, 2.6 | ✅ |
@@ -133,17 +133,17 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **4.3** | Quality settings | `feat/4.3-quality` | 2.3 | ✅ |
 | **4.4** | Local music files (web) | `feat/4.4-local-files` | 2.2, 2.6 | ✅ |
 | **5.1** | PWA "web applet" | `feat/5.1-pwa` | 2.5 | ✅ |
-| **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3, 1.10 | 🟡 |
+| **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3, 1.10 | ✅ |
 | **5.3** | Landing page | `feat/5.3-site` | 0.4 | ✅ |
 | **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | ✅ |
 | **6.2** | Android native fetch (OkHttp plugin; YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | ✅ |
-| **6.3** | Native player (Media3) | `feat/6.3-native-player` | 6.1, 2.3 | 🟡 |
+| **6.3** | Native player (Media3) | `feat/6.3-native-player` | 6.1, 2.3 | ✅ |
 | **6.4** | Native downloads + device music | `feat/6.4-native-downloads` | 6.3, 4.1 | ⬜ |
 | **6.5** | Spotify login on Android | `feat/6.5-android-spotify-login` | 6.2, 3.5 | ⬜ |
 | **6.6** | Signed APK release | `ci/6.6-apk-release` | 6.3, R.1 | ⬜ |
 | **7.1** | Desktop shell (Tauri 2, Rust toolchain in `.tools/`) | `feat/7.1-desktop-shell` | 2.1 | ✅ |
 | **7.2** | Desktop native fetch | `feat/7.2-desktop-fetch` | 7.1, 1.2, 1.4 | ✅ |
-| **7.3** | Desktop playback and OS integration | `feat/7.3-desktop-playback` | 7.2, 2.3 | 🟡 |
+| **7.3** | Desktop playback and OS integration | `feat/7.3-desktop-playback` | 7.2, 2.3 | ✅ |
 | **7.4** | Desktop downloads + Spotify login window | `feat/7.4-desktop-downloads` | 7.2, 4.1, 3.5 | ⬜ |
 | **7.5** | Desktop release: installers and auto-update | `ci/7.5-desktop-release` | 7.3, R.1 | ⬜ |
 | **7.6** | Desktop trust: signing and EQ path | `chore/7.6-desktop-trust` | 7.5, 1.11 | ⬜ |
@@ -152,7 +152,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **R.3** | More channels: F-Droid/IzzyOnDroid/Obtainium, Flathub, winget (Homebrew only if notarized) | `chore/r3-channels` | 6.6, 7.5 | ⬜ |
 | **R.4** | Legal notices and clean-room log | `docs/r4-legal-notices` | 0.4, 5.3 | ✅ |
 | **8.1** | Audio effects: EQ, crossfade, sleep timer, speed, loudness | `feat/8.1-audio-fx` | 2.3, 6.3, 7.3 | ⬜ |
-| **8.2** | Scrobbling (Last.fm, ListenBrainz) | `feat/8.2-scrobbling` | 3.1 | 🟡 |
+| **8.2** | Scrobbling (Last.fm, ListenBrainz) | `feat/8.2-scrobbling` | 3.1 | ✅ |
 | **8.3** | Plugin system for sources and resolvers | `feat/8.3-plugins` | 1.4, 1.5, 1.11 | ⬜ |
 | **8.4** | Backup sync (GitHub Gist) | `feat/8.4-sync` | 2.6 | 🟡 |
 | **8.5** | i18n, accessibility, e2e tests, performance | `chore/8.5-quality-pass` | 5.1 | ⬜ |
@@ -735,6 +735,7 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
     - 1.11: the BotGuard hosts, once one of its rungs is on;
     - 3.2: Last.fm (`www.last.fm`, `ws.audioscrobbler.com`, `lastfm.freetls.fastly.net`), ListenBrainz (`api.listenbrainz.org`, `labs.api.listenbrainz.org`), Cover Art Archive (`coverartarchive.org`) and iTunes Search (`itunes.apple.com`, `*.mzstatic.com`);
     - 4.2: `'wasm-unsafe-eval'`, for ffmpeg.wasm in its worker.
+  - 8.2 (shipped) added ListenBrainz (`api.listenbrainz.org`) and Last.fm (`ws.audioscrobbler.com`) after the row's hosts; the deploy tests list them as later hosts.
   - The line is about 850 characters at M1, and about 1,200 with all of the above, under the 2,000-character limit.
   - The `sha256-…` hashes, here and in the sandbox rules, are computed at build: for the app, the inline theme script in `apps/web/index.html`.
   - `media-src https:` covers googlevideo, Internet Archive's redirect hosts (`ia*.us.archive.org`), Jamendo's storage hosts and a user's Invidious proxy. Page script can't read media responses.

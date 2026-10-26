@@ -7,15 +7,19 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && vite build -c vite.embed.config.ts",
+    "build:embed": "vite build -c vite.embed.config.ts",
     "build:mobile": "vite build --base=/ --outDir dist-mobile",
     "build:desktop": "vite build --base=/ --outDir dist-desktop",
     "preview": "vite preview",
+    "dev:embed": "vite -c vite.embed.config.ts",
+    "preview:embed": "vite preview -c vite.embed.config.ts",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e && tsc --noEmit -p pwa",
     "test": "vitest run",
     "e2e": "playwright test",
     "screenshots": "FXM_SCREENSHOTS=1 VITE_FXM_FAKE_CATALOG=on playwright test screenshots pwa.spec",
-    "icons": "node scripts/render-icons.ts"
+    "icons": "node scripts/render-icons.ts",
+    "e2e:embed": "playwright install --no-shell chromium firefox && vite build -c vite.embed.config.ts --mode e2e --outDir ../dist-embed-e2e && playwright test -c e2e/embed/playwright.config.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -24,6 +28,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fxm/core": "workspace:*",
     "@fxm/downloads": "workspace:*",
+    "@fxm/platform": "workspace:*",
     "@fxm/player": "workspace:*",
     "@fxm/sources": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
