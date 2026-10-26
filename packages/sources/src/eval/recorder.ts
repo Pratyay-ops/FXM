@@ -5,19 +5,23 @@
  * For each input it runs the matching planner exactly as `runMatch` does, once per option set of
  * `matchingEval.RECORDING_OPTIONS` and once more with the ISRC-miss cap lifted, and fetches every
  * page any of them asks for that is not recorded yet. Then it fetches the descriptions the label
- * rules still need (at most two per group). Pages are shared: a page two inputs ask for is
- * fetched once.
+ * rules still need, for the most important picks first (at most `maxEvidence` per group and run,
+ * two by default). Pages are shared: a page two inputs ask for is fetched once.
  *
  * **Resumable.** Each page is written to the group's file as soon as it arrives, and a group is
- * marked done in the checkpoint once all of its pages are there. A run that stops (Ctrl-C, a
- * crash, two bot checks) loses nothing: the next run skips the done groups and the recorded
- * pages, and goes on.
+ * marked done in the checkpoint, with a fingerprint of its inputs, once all of its pages are
+ * there. A run that stops (Ctrl-C, a crash, two bot checks) loses nothing: the next run skips
+ * the done groups and the recorded pages, and goes on. A done group whose inputs changed since
+ * (the inputs phase completed or rebuilt them) is planned again, and only its missing pages are
+ * fetched.
  *
  * **Budget.** Before every page it waits for a bulk slot (`whenAvailable('bulk')`), outside the
  * provider's request timeout, and the provider context's `fetch` draws the slot (the platform
  * transport's `bulk` fetch): at least 5 s apart, and only while 100 calls of the hour remain.
- * A bot check pauses bulk work (30 minutes, doubling); the recorder waits it out, and stops after
- * `maxBotChecks` of them, so a flagged IP address is left alone.
+ * A bot check pauses bulk work (30 minutes, doubling); the recorder writes the pause to the
+ * checkpoint at once, waits it out, and stops after `maxBotChecks` of them, so a flagged IP
+ * address is left alone. Groups that fail one after another (YouTube changed, the network is
+ * down) stop the run too.
  *
  * @module
  */
@@ -25,6 +29,7 @@
 import {
   addMatchResponse,
   isFxmError,
+  MATCHER_VERSION,
   type MatchPages,
   matchingEval,
   nextMatchRequest,
@@ -42,6 +47,8 @@ export interface RecorderBudget {
   whenAvailable(priority: 'bulk', options?: { signal?: AbortSignal }): Promise<void>
   /** Reports a bot check, which pauses bulk work. */
   reportBotCheck(cause: 'login-required' | 'rate-limited'): void
+  /** The budget's state: `bulkPausedUntil` (epoch milliseconds) while bulk work is paused. */
+  snapshot(): { bulkPausedUntil?: number }
 }
 
 /** Options for {@link recordGroups}. */
@@ -60,12 +67,19 @@ export interface RecorderOptions {
   limit?: number
   /** Records only these groups. */
   only?: readonly string[]
-  /** Descriptions fetched per group for the label rules, at most. Default 2. */
+  /**
+   * Plans every group again, done or not, and fetches whatever page is missing: after a change
+   * to the planner that `MATCHER_VERSION` does not mark. Offline for complete groups.
+   */
+  recheck?: boolean
+  /** Descriptions fetched per group and run for the label rules, at most. Default 2. */
   maxEvidence?: number
   /** Tries per page before the group is deferred to the next run. Default 3. */
   maxAttempts?: number
   /** Bot checks (or YouTube 429s) after which the run stops. Default 2. */
   maxBotChecks?: number
+  /** Groups deferred one after another after which the run stops. Default 3. */
+  maxFailuresInRow?: number
   /** How long to wait after a network error, in milliseconds. Default 15 s. */
   retryDelayMs?: number
   /** Waits; `setTimeout` by default. */
@@ -128,6 +142,17 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error)
 }
 
+/**
+ * What a group's recording is for: its inputs, the recorder's option sets and the matcher
+ * version. A done group whose fingerprint changed needs its pages planned again.
+ */
+export function recordingFingerprint(group: EvalGroup): string {
+  const text = JSON.stringify([group.variants, matchingEval.RECORDING_OPTIONS, MATCHER_VERSION])
+  const forward = matchingEval.stableHash(text)
+  const backward = matchingEval.stableHash([...text].reverse().join(''))
+  return `${forward.toString(16).padStart(8, '0')}${backward.toString(16).padStart(8, '0')}`
+}
+
 /** Records the pages of the groups in the store that are not done yet. */
 export async function recordGroups(options: RecorderOptions): Promise<RecordSummary> {
   const {
@@ -137,9 +162,11 @@ export async function recordGroups(options: RecorderOptions): Promise<RecordSumm
     store,
     limit,
     only,
+    recheck = false,
     maxEvidence = 2,
     maxAttempts = 3,
     maxBotChecks = 2,
+    maxFailuresInRow = 3,
     retryDelayMs = 15_000,
     sleep = defaultSleep,
     now = () => new Date(),
@@ -147,17 +174,26 @@ export async function recordGroups(options: RecorderOptions): Promise<RecordSumm
     signal,
   } = options
   const checkpoint = options.checkpoint ?? (await store.readCheckpoint())
-  const done = new Set(checkpoint.record.done)
   const ids = only ?? (await store.listGroups())
-  const todo = ids.filter((id) => !done.has(id))
-  const summary: RecordSummary = { recorded: [], deferred: [], remaining: todo.length, pages: 0 }
+  const summary: RecordSummary = { recorded: [], deferred: [], remaining: 0, pages: 0 }
   let botChecks = 0
+  let failuresInRow = 0
+
+  /** Waits for a bulk slot, saying so when a bot-check pause holds it up. */
+  async function waitForSlot(): Promise<void> {
+    const pausedUntil = budget.snapshot().bulkPausedUntil
+    if (pausedUntil !== undefined) {
+      log(`bulk work is paused until ${new Date(pausedUntil).toISOString()}; waiting`)
+    }
+    await budget.whenAvailable('bulk', signal === undefined ? {} : { signal })
+    if (pausedUntil !== undefined) log('bulk work resumed')
+  }
 
   /** Fetches one page, waiting for the budget and retrying passing failures. */
   async function fetchOne(key: string, recording: EvalRecording): Promise<void> {
     let attempt = 1
     for (;;) {
-      await budget.whenAvailable('bulk', signal === undefined ? {} : { signal })
+      await waitForSlot()
       try {
         await fetchPage(key, providers, ctx, recording)
         summary.pages += 1
@@ -167,9 +203,18 @@ export async function recordGroups(options: RecorderOptions): Promise<RecordSumm
         if (signal?.aborted) throw error
         if (isBudgetRefusal(error)) continue
         if (isFxmError(error, 'BotCheck') || isFxmError(error, 'RateLimited')) {
+          // A 429 was reported by the transport already; a bot-check answer is reported here.
           if (isFxmError(error, 'BotCheck')) budget.reportBotCheck('login-required')
           botChecks += 1
-          log(`bot check ${botChecks} of ${maxBotChecks} on ${key}: ${messageOf(error)}`)
+          const pausedUntil = budget.snapshot().bulkPausedUntil
+          log(
+            `bot check ${botChecks} of ${maxBotChecks} on ${key}: ${messageOf(error)}` +
+              (pausedUntil === undefined
+                ? ''
+                : `; bulk work paused until ${new Date(pausedUntil).toISOString()}`),
+          )
+          // The pause reaches disk before the wait, so a run killed meanwhile still honours it.
+          await store.writeCheckpoint(checkpoint)
           if (botChecks >= maxBotChecks) {
             throw new RecorderStop(`stopped after ${botChecks} bot checks; resume later`)
           }
@@ -182,13 +227,9 @@ export async function recordGroups(options: RecorderOptions): Promise<RecordSumm
           recording.pages[key] = { error: 'NotFound' }
           return
         }
-        if (attempt >= maxAttempts) {
-          if (isFxmError(error, 'Parse')) {
-            recording.pages[key] = { error: 'Parse' }
-            return
-          }
-          throw error
-        }
+        // Anything else (a network error, an answer the parsers do not understand) defers the
+        // group after the last try: a page is filed as failed only when YouTube says it is gone.
+        if (attempt >= maxAttempts) throw error
         attempt += 1
         log(`retrying ${key} after ${messageOf(error)}`)
         await sleep(retryDelayMs, signal)
@@ -226,7 +267,8 @@ export async function recordGroups(options: RecorderOptions): Promise<RecordSumm
         }
       }
     }
-    // Descriptions that may settle an ambiguous label, for the picks that need one most.
+    // Descriptions that may settle an ambiguous label, for the most important picks first (the
+    // main input's pick with the default options leads; see `labelTargets`).
     let evidence = 0
     for (const videoId of matchingEval.labelTargets(group)) {
       if (evidence >= maxEvidence) break
@@ -240,24 +282,35 @@ export async function recordGroups(options: RecorderOptions): Promise<RecordSumm
     await store.writeGroup(group)
   }
 
+  const isDone = (group: EvalGroup) =>
+    !recheck && checkpoint.record.done[group.id] === recordingFingerprint(group)
+
   try {
-    for (const id of todo) {
+    for (const id of ids) {
       if (limit !== undefined && summary.recorded.length + summary.deferred.length >= limit) break
       signal?.throwIfAborted()
       const group = await store.readGroup(id)
-      if (group === undefined) continue
+      if (group === undefined || isDone(group)) continue
       try {
         await recordGroup(group)
-        checkpoint.record.done.push(id)
+        checkpoint.record.done[id] = recordingFingerprint(group)
         delete checkpoint.record.deferred[id]
         summary.recorded.push(id)
+        failuresInRow = 0
         log(`recorded ${id} (${summary.pages} pages so far)`)
       } catch (error) {
         if (error instanceof RecorderStop || signal?.aborted) throw error
+        delete checkpoint.record.done[id]
         const attempts = (checkpoint.record.deferred[id]?.attempts ?? 0) + 1
         checkpoint.record.deferred[id] = { attempts, error: messageOf(error) }
         summary.deferred.push(id)
+        failuresInRow += 1
         log(`deferred ${id}: ${messageOf(error)}`)
+        if (failuresInRow >= maxFailuresInRow) {
+          throw new RecorderStop(
+            `stopped after ${failuresInRow} groups in a row failed (last: ${messageOf(error)}); YouTube may have changed or the network is down, so resume later`,
+          )
+        }
       }
       await store.writeCheckpoint(checkpoint)
     }
@@ -269,7 +322,11 @@ export async function recordGroups(options: RecorderOptions): Promise<RecordSumm
   } finally {
     await store.writeCheckpoint(checkpoint)
   }
-  const doneNow = new Set(checkpoint.record.done)
-  summary.remaining = ids.filter((id) => !doneNow.has(id)).length
+  for (const id of ids) {
+    const group = await store.readGroup(id)
+    if (group !== undefined && checkpoint.record.done[id] !== recordingFingerprint(group)) {
+      summary.remaining += 1
+    }
+  }
   return summary
 }

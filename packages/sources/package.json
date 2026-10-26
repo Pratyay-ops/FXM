@@ -15,8 +15,5 @@
   "dependencies": {
     "@fxm/core": "workspace:*",
     "youtubei.js": "^18.1.0"
-  },
-  "devDependencies": {
-    "@fxm/platform": "workspace:*"
   }
 }

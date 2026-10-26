@@ -12,8 +12,9 @@
  */
 
 import { type MatchSource, matchingEval, normalizeIsrc } from '@fxm/core'
-import { parseCsv } from './review'
 import type { PoolTrack } from './store'
+
+const { parseCsv } = matchingEval
 
 type EvalGroup = matchingEval.EvalGroup
 
@@ -141,11 +142,10 @@ export function poolTrackOfRow(row: CsvRow): PoolTrack | undefined {
 /**
  * A group for a CSV row: the `csv` input, its categories, its split, and the Spotify ID for
  * MusicBrainz's exact path. The data-export and MusicBrainz inputs follow once MusicBrainz has
- * answered (as for Spotify's tracks).
- *
- * @param file The CSV's name, for the provenance.
+ * answered (as for Spotify's tracks). The provenance names the row, not the file, whose name
+ * may say more about the owner than the labelled set should.
  */
-export function csvGroup(row: CsvRow, file: string, today: string): EvalGroup {
+export function csvGroup(row: CsvRow, today: string): EvalGroup {
   const id = csvGroupId(row)
   const group: EvalGroup = {
     id,
@@ -156,7 +156,7 @@ export function csvGroup(row: CsvRow, file: string, today: string): EvalGroup {
       ...(row.source.album === undefined ? {} : { album: row.source.album.name }),
       ...(row.popularity === undefined ? {} : { popularity: row.popularity }),
     }),
-    provenance: [`${file} row ${row.row}, read ${today}`],
+    provenance: [`the owner's Exportify-style CSV, row ${row.row}, read ${today}`],
     variants: [{ slice: 'csv', source: row.source }],
   }
   if (row.spotifyId !== undefined) {

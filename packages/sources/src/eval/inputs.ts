@@ -6,15 +6,17 @@
  * (see `matchingEval.EvalSlice`):
  *
  * - `spotify`: Spotify's metadata as the matcher gets it in the app;
- * - `data-export`: the row Spotify's "Download your data" export would have (names and the URI,
- *   no duration, no ISRC), filled in by the MusicBrainz exact path as imports do;
+ * - `data-export`: the row Spotify's "Download your data" export would have (the title, the
+ *   main artist only, the album and the URI; no duration, no ISRC), filled in by the MusicBrainz
+ *   exact path as imports do;
  * - `musicbrainz-exact`: the recording MusicBrainz links to the track, with its own title,
  *   credits, length and ISRCs: an input that does not use Spotify's metadata;
  * - `musicbrainz-fuzzy`: the track's names and length with the ISRC of a MusicBrainz recording
  *   search, a hint only.
  *
  * Building is resumable like the recording: the tracks each source gave are kept in the
- * checkpoint, and a group is written as soon as its Spotify facts are in.
+ * checkpoint, a group is written as soon as its Spotify facts are in, and each group's
+ * provenance names the source that created it, so a source counts only its own groups.
  *
  * @module
  */
@@ -88,9 +90,10 @@ function search(
 
 /**
  * The input plans. `proof` is the recorder's small proof run (8 tracks); `full` is the set the
- * report's gate needs: about 330 tracks, so that the held-out split (70 %) holds more than 200.
- * Chart and editorial playlists change daily; the inputs keep what they held when they were
- * read, with the date in their provenance.
+ * report's gate needs: about 370 distinct tracks (each source takes tracks no earlier source
+ * took), so that the held-out split (70 %) holds about 260, well above the gate's 200 even when
+ * a source cannot be read or some groups fail to record. Chart and editorial playlists change
+ * daily; the inputs keep what they held when they were read, with the date in their provenance.
  */
 export const INPUT_PLANS: Readonly<Record<'proof' | 'full', readonly InputSource[]>> = {
   proof: [
@@ -103,41 +106,64 @@ export const INPUT_PLANS: Readonly<Record<'proof' | 'full', readonly InputSource
   ],
   full: [
     // Mainstream: global charts and decades.
-    playlist('37i9dQZEVXbMDoHDwVN2tF', 'Top 50 - Global', 40),
+    playlist('37i9dQZEVXbMDoHDwVN2tF', 'Top 50 - Global', 45),
     playlist('37i9dQZF1DXcBWIGoYBM5M', "Today's Top Hits", 25),
     playlist('37i9dQZEVXbLRQDuF5jeBp', 'Top 50 - USA', 15),
     playlist('37i9dQZEVXbLnolsZ8PSNw', 'Top 50 - UK', 10),
-    playlist('37i9dQZF1DXaKIA8E7WcJj', 'All Out 60s', 7),
-    playlist('37i9dQZF1DWTJ7xPn4vNaz', 'All Out 70s', 8),
-    playlist('37i9dQZF1DX4UtSsGT1Sbe', 'All Out 80s', 10),
-    playlist('37i9dQZF1DXbTxeAdrVG2l', 'All Out 90s', 10),
-    playlist('37i9dQZF1DX4o1oenSJRJd', 'All Out 2000s', 10),
-    playlist('37i9dQZF1DX5Ejj0EkURtP', 'All Out 2010s', 10),
-    playlist('37i9dQZF1DWXRqgorJj26U', 'Rock Classics', 10),
+    playlist('37i9dQZF1DXaKIA8E7WcJj', 'All Out 60s', 8),
+    playlist('37i9dQZF1DWTJ7xPn4vNaz', 'All Out 70s', 9),
+    playlist('37i9dQZF1DX4UtSsGT1Sbe', 'All Out 80s', 11),
+    playlist('37i9dQZF1DXbTxeAdrVG2l', 'All Out 90s', 11),
+    playlist('37i9dQZF1DX4o1oenSJRJd', 'All Out 2000s', 11),
+    playlist('37i9dQZF1DX5Ejj0EkURtP', 'All Out 2010s', 11),
+    playlist('37i9dQZF1DWXRqgorJj26U', 'Rock Classics', 12),
     // Regional, several scripts.
-    playlist('37i9dQZEVXbLZ52XmnySJg', 'Top 50 - India', 15, ['regional']),
-    playlist('37i9dQZEVXbKXQ4mDTEBXq', 'Top 50 - Japan', 10, ['regional']),
-    playlist('37i9dQZEVXbNxXF4SkHj9F', 'Top 50 - South Korea', 10, ['regional']),
-    playlist('37i9dQZEVXbMXbN3EUUhlg', 'Top 50 - Brazil', 8, ['regional']),
-    playlist('37i9dQZEVXbO3qyFxbkOE1', 'Top 50 - Mexico', 8, ['regional']),
-    playlist('37i9dQZEVXbKY7jLzlJ11V', 'Top 50 - Nigeria', 6, ['regional']),
-    playlist('37i9dQZEVXbLn7RQmT5Xv2', 'Top 50 - Egypt', 5, ['regional']),
+    playlist('37i9dQZEVXbLZ52XmnySJg', 'Top 50 - India', 18, ['regional']),
+    playlist('37i9dQZEVXbKXQ4mDTEBXq', 'Top 50 - Japan', 12, ['regional']),
+    playlist('37i9dQZEVXbNxXF4SkHj9F', 'Top 50 - South Korea', 12, ['regional']),
+    playlist('37i9dQZEVXbMXbN3EUUhlg', 'Top 50 - Brazil', 10, ['regional']),
+    playlist('37i9dQZEVXbO3qyFxbkOE1', 'Top 50 - Mexico', 10, ['regional']),
+    playlist('37i9dQZEVXbKY7jLzlJ11V', 'Top 50 - Nigeria', 8, ['regional']),
+    playlist('37i9dQZEVXbLn7RQmT5Xv2', 'Top 50 - Egypt', 6, ['regional']),
     // Classical.
-    playlist('37i9dQZF1DWWEJlAGA9gs0', 'Classical Essentials', 20, ['classical']),
+    playlist('37i9dQZF1DWWEJlAGA9gs0', 'Classical Essentials', 22, ['classical']),
     search('Symphony No. 5', 5, 'classical', ['classical']),
     // Long tail: emerging artists.
-    playlist('37i9dQZF1DWWjGdmeTyeJ6', 'Fresh Finds', 25, ['long-tail']),
+    playlist('37i9dQZF1DWWjGdmeTyeJ6', 'Fresh Finds', 28, ['long-tail']),
     // Spotify Singles: Spotify's own recordings.
-    search('Spotify Singles', 15, 'spotify-singles'),
+    search('Spotify Singles', 18, 'spotify-singles'),
     search('Recorded at Spotify Studios', 5, 'spotify-singles'),
     // Re-recordings.
-    search("Taylor's Version", 10, 're-recording'),
+    search("Taylor's Version", 12, 're-recording'),
     search('Re-Recorded', 10, 're-recording'),
     search('Rerecorded', 5, 're-recording'),
     // Compilations.
-    search("Now That's What I Call Music", 8, 'compilation'),
-    search('Greatest Hits', 8, 'compilation'),
+    search("Now That's What I Call Music", 10, 'compilation'),
+    search('Greatest Hits', 10, 'compilation'),
   ],
+}
+
+/**
+ * The held-out groups an input plan should give at least before the recording starts: the
+ * gate's 200 recorded groups, with room for groups that fail to record. The record command
+ * refuses to start the full set below it (see `README.md`).
+ */
+export const MIN_PLANNED_HELD_OUT = 215
+
+/** How many of these groups fall in each split (see `matchingEval.splitOf`). */
+export function projectedSplits(ids: readonly string[]): { heldOut: number; calibration: number } {
+  const calibration = ids.filter((id) => matchingEval.splitOf(id) === 'calibration').length
+  return { heldOut: ids.length - calibration, calibration }
+}
+
+/** A group's provenance line for a track a source gave: `<name> #<position> (<key>), read <date>`. */
+export function provenanceLine(source: InputSource, index: number, readOn: string): string {
+  return `${source.name} #${index + 1} (${source.key}), read ${readOn}`
+}
+
+/** The key of the source a provenance line names (see {@link provenanceLine}), if any. */
+export function sourceKeyOf(provenance: string): string | undefined {
+  return /^.* #\d+ \(((?:playlist|search):.+)\), read \d{4}-\d{2}-\d{2}$/u.exec(provenance)?.[1]
 }
 
 /**
@@ -256,9 +282,11 @@ function exactIsrc(exact: EvalMusicBrainzExact): Pick<MatchSource, 'isrc' | 'isr
 
 /**
  * Every input of a track, from its primary input (`spotify` or `csv`): the primary, then
- * `data-export` (always: the names only, filled in by MusicBrainz's exact path),
- * `musicbrainz-exact` (when the exact path linked a recording) and `musicbrainz-fuzzy` (when the
- * fuzzy path found an ISRC).
+ * `data-export` (always: the title, the main artist and the album, as a row of the export names
+ * them, filled in by MusicBrainz's exact path), `musicbrainz-exact` (when the exact path linked a
+ * recording) and `musicbrainz-fuzzy` (when the fuzzy path found an ISRC: the primary's names,
+ * duration and explicit mark with that ISRC as a hint, the evaluation's case of full metadata
+ * without a trusted ISRC).
  */
 export function buildVariants(
   primary: EvalVariant,
@@ -267,16 +295,24 @@ export function buildVariants(
 ): EvalVariant[] {
   const { source } = primary
   const variants: EvalVariant[] = [primary]
+  const album = source.album === undefined ? undefined : { name: source.album.name }
   const names = defined<MatchSource>({
     title: source.title,
     artists: source.artists.map((artist) => ({ name: artist.name })),
-    album: source.album === undefined ? undefined : { name: source.album.name },
+    album,
+  })
+  // A row of the export names one artist ("Name of the artist, band or podcast", in Spotify's
+  // description of the export; see the Spotify clean-room log).
+  const row = defined<MatchSource>({
+    title: source.title,
+    artists: source.artists.slice(0, 1).map((artist) => ({ name: artist.name })),
+    album,
   })
   const filled =
     exact === null || exact === undefined
       ? {}
       : defined<MatchSource>({ ...exactIsrc(exact), durationMs: exact.lengthMs })
-  variants.push({ slice: 'data-export', source: { ...names, ...filled } })
+  variants.push({ slice: 'data-export', source: { ...row, ...filled } })
   if (exact !== null && exact !== undefined) {
     variants.push({
       slice: 'musicbrainz-exact',
@@ -357,8 +393,11 @@ export interface InputOptions {
   limit?: number
   /** The date the sources are read, for provenance (`YYYY-MM-DD`). */
   today: string
-  /** The owner's Exportify-style CSV, to add as `csv` inputs. */
-  csv?: { file: string; text: string }
+  /**
+   * The text of the owner's Exportify-style CSV, whose rows become `csv` groups. They are
+   * published with the labelled set (see `README.md`).
+   */
+  csv?: string
   /** Progress, one line at a time. */
   log?: (line: string) => void
 }
@@ -367,11 +406,21 @@ export interface InputOptions {
 export interface InputSummary {
   /** Groups written in this run. */
   created: string[]
-  /** Groups whose MusicBrainz facts or inputs were completed in this run. */
+  /** Groups whose MusicBrainz facts or inputs were completed or rebuilt in this run. */
   completed: string[]
   /** Sources or tracks that failed, with why. */
   failed: Record<string, string>
+  /** Sources that gave fewer tracks than they should, with how many they gave. */
+  short: Record<string, number>
+  /** Why the run stopped reading Spotify or MusicBrainz early, if it did; the next run resumes. */
+  stopped?: string
+  /** The groups in the store by split after this run, for the gate's 200 held-out groups. */
+  heldOut: number
+  calibration: number
 }
+
+/** Failures in a row after which a service is left alone for this run. */
+const MAX_FAILURES_IN_ROW = 3
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error)
@@ -389,7 +438,7 @@ async function readPool(
     const first = await providers.spotify.getPlaylist(id, ctx)
     tracks.push(...(first.tracks?.items ?? []))
     let cursor = first.tracks?.nextCursor
-    while (cursor !== undefined && tracks.length < source.take * 2 && tracks.length < 200) {
+    while (cursor !== undefined && tracks.length < source.take * 3 && tracks.length < 200) {
       const page = await providers.spotify.getPlaylistTracks(id, { cursor, limit: 100 }, ctx)
       tracks.push(...page.items)
       cursor = page.nextCursor
@@ -404,17 +453,39 @@ async function readPool(
 /**
  * Builds the inputs of a plan, resumably: reads each source once (kept in the checkpoint),
  * creates a group per new track with its Spotify facts, then completes every group's
- * MusicBrainz facts and inputs. A track two sources give is one group, filed under the first.
+ * MusicBrainz facts and inputs.
+ *
+ * A track two sources give is one group, created by the first; each source counts only the
+ * groups it created (its provenance names it), so its `take` is met with distinct tracks, in
+ * this run or across runs. A track Spotify does not know (`NotFound`) is skipped for good; any
+ * other failure only for this run. Spotify's or MusicBrainz's rate limit, or three failures in
+ * a row, stop that service for this run, and the next run goes on from there.
  */
 export async function buildInputs(options: InputOptions): Promise<InputSummary> {
-  const { providers, spotifyCtx, musicBrainzCtx, store, plan, limit, today } = options
+  const { providers, spotifyCtx, store, plan, limit, today } = options
   const log = options.log ?? (() => {})
   const checkpoint = options.checkpoint ?? (await store.readCheckpoint())
   checkpoint.inputs.plan = plan
-  const summary: InputSummary = { created: [], completed: [], failed: {} }
-  const existing = new Set(await store.listGroups())
+  const summary: InputSummary = {
+    created: [],
+    completed: [],
+    failed: {},
+    short: {},
+    heldOut: 0,
+    calibration: 0,
+  }
+  /** Every group in the store, with the key of the source that created it. */
+  const existing = new Map<string, string | undefined>()
+  for (const id of await store.listGroups()) {
+    const group = await store.readGroup(id)
+    existing.set(id, sourceKeyOf(group?.provenance[0] ?? ''))
+  }
   const sources = INPUT_PLANS[plan]
   const save = () => store.writeCheckpoint(checkpoint)
+  const stop = (why: string) => {
+    summary.stopped = why
+    log(`stopped: ${why}`)
+  }
 
   const withFixed = options.fixed ?? plan === 'full'
   if (withFixed) {
@@ -428,49 +499,74 @@ export async function buildInputs(options: InputOptions): Promise<InputSummary> 
         variants: [{ slice: 'fixed', source: fixed.source }],
       }
       await store.writeGroup(group)
-      existing.add(fixed.id)
+      existing.set(fixed.id, undefined)
       summary.created.push(fixed.id)
     }
   }
 
   // 1. Read the sources and create the groups, with Spotify's facts.
+  let spotifyFailures = 0
+  /** Counts a passing Spotify failure; false once the run should leave Spotify alone. */
+  const spotifyFailed = (error: unknown): boolean => {
+    if (isFxmError(error, 'RateLimited')) {
+      stop(`Spotify rate-limited the run (${messageOf(error)}); run it again later`)
+      return false
+    }
+    spotifyFailures += 1
+    if (spotifyFailures >= MAX_FAILURES_IN_ROW) {
+      stop(`${spotifyFailures} Spotify requests in a row failed (${messageOf(error)})`)
+      return false
+    }
+    return true
+  }
   for (const source of sources) {
+    if (summary.stopped !== undefined) break
+    if (limit !== undefined && summary.created.length >= limit) break
     let pool = checkpoint.inputs.pools[source.key]
     if (pool === undefined) {
       try {
         pool = await readPool(source, providers, spotifyCtx)
+        spotifyFailures = 0
       } catch (error) {
         summary.failed[source.key] = messageOf(error)
         log(`could not read ${source.name}: ${messageOf(error)}`)
+        if (!spotifyFailed(error)) break
         continue
       }
       checkpoint.inputs.pools[source.key] = pool
+      checkpoint.inputs.readAt[source.key] = today
       await save()
       log(`read ${source.name}: ${pool.length} tracks`)
     }
-    let taken = 0
+    const readOn = checkpoint.inputs.readAt[source.key] ?? today
+    let taken = [...existing.values()].filter((key) => key === source.key).length
+    let limited = false
     for (const [index, track] of pool.entries()) {
-      if (taken >= source.take) break
+      if (taken >= source.take || summary.stopped !== undefined) break
       if (!passesFilter(track, source.filter)) continue
       const id = `sp:${track.id}`
-      if (existing.has(id)) {
-        // Taken by an earlier source or run: it still counts for this source.
-        taken += 1
-        continue
-      }
-      if (limit !== undefined && summary.created.length >= limit) break
+      // Created by this source in an earlier run (counted above), or by another source.
+      if (existing.has(id)) continue
       if (checkpoint.inputs.failed[id] !== undefined) continue
+      if (limit !== undefined && summary.created.length >= limit) {
+        limited = true
+        break
+      }
       let details: SpotifyTrackDetails
       try {
         details = await providers.spotify.getTrackDetails(
           formatId('spotify', 'track', track.id),
           spotifyCtx,
         )
+        spotifyFailures = 0
       } catch (error) {
-        checkpoint.inputs.failed[id] = messageOf(error)
         summary.failed[id] = messageOf(error)
-        await save()
-        if (isFxmError(error, 'RateLimited')) break
+        if (isFxmError(error, 'NotFound')) {
+          checkpoint.inputs.failed[id] = messageOf(error)
+          await save()
+          continue
+        }
+        if (!spotifyFailed(error)) break
         continue
       }
       const categories = matchingEval.categoriesOfInput({
@@ -485,7 +581,7 @@ export async function buildInputs(options: InputOptions): Promise<InputSummary> 
         id,
         split: matchingEval.splitOf(id),
         categories,
-        provenance: [`${source.name} #${index + 1} (${source.key}), read ${today}`],
+        provenance: [provenanceLine(source, index, readOn)],
         spotify: defined<NonNullable<EvalGroup['spotify']>>({
           id: track.id,
           popularity: details.popularity,
@@ -494,30 +590,55 @@ export async function buildInputs(options: InputOptions): Promise<InputSummary> 
         variants: [{ slice: 'spotify', source: spotifyInput(track, details) }],
       }
       await store.writeGroup(group)
-      existing.add(id)
+      existing.set(id, source.key)
       taken += 1
       summary.created.push(id)
       log(`created ${id}: ${track.title} - ${track.artists.join(', ')} [${categories.join(', ')}]`)
+    }
+    if (taken < source.take && summary.stopped === undefined && !limited) {
+      summary.short[source.key] = taken
+      log(`${source.name} gave ${taken} of ${source.take} tracks: no more of its tracks fit`)
     }
   }
 
   // The owner's CSV rows, as they are.
   if (options.csv !== undefined) {
-    for (const row of parseExportifyCsv(options.csv.text)) {
-      const group = csvGroup(row, options.csv.file, today)
+    for (const row of parseExportifyCsv(options.csv)) {
+      const group = csvGroup(row, today)
       if (existing.has(group.id)) continue
       await store.writeGroup(group)
-      existing.add(group.id)
+      existing.set(group.id, undefined)
       summary.created.push(group.id)
     }
   }
 
-  // 2. MusicBrainz: the exact path for every group without its answer (batched), then the fuzzy path.
+  // 2. MusicBrainz: the exact path for every group without its answer (batched), then the
+  // fuzzy path, and 3. the inputs, once both paths have answered.
+  await completeGroups(options, summary, log, stop)
+  await save()
+  Object.assign(summary, projectedSplits(await store.listGroups()))
+  return summary
+}
+
+/**
+ * Steps 2 and 3 of {@link buildInputs}: MusicBrainz's answers, then every group's inputs, built
+ * again from its primary input and those answers, so that a group gets the inputs of the rules
+ * in `buildVariants` even when they changed after it was recorded (the recorder records what
+ * they need then).
+ */
+async function completeGroups(
+  options: InputOptions,
+  summary: InputSummary,
+  log: (line: string) => void,
+  stop: (why: string) => void,
+): Promise<void> {
+  const { providers, musicBrainzCtx, store } = options
   const groups: EvalGroup[] = []
   for (const id of await store.listGroups()) {
     const group = await store.readGroup(id)
     if (group?.spotify !== undefined) groups.push(group)
   }
+  const changed = new Set<EvalGroup>()
   const needExact = groups.filter((group) => group.musicBrainz?.exact === undefined)
   if (needExact.length > 0) {
     try {
@@ -526,18 +647,21 @@ export async function buildInputs(options: InputOptions): Promise<InputSummary> 
       for (const group of needExact) {
         const finding = findings.get(`spotify:track:${group.spotify?.id ?? ''}`)
         group.musicBrainz = { ...group.musicBrainz, exact: exactOf(finding) }
+        changed.add(group)
       }
     } catch (error) {
       summary.failed['musicbrainz:exact'] = messageOf(error)
       log(`MusicBrainz's exact path failed: ${messageOf(error)}`)
     }
   }
+  let failures = 0
+  let fuzzyStopped = false
   for (const group of groups) {
     const primary = group.variants.find(
       (variant) => variant.slice === 'spotify' || variant.slice === 'csv',
     )
     if (primary === undefined) continue
-    if (group.musicBrainz?.fuzzy === undefined) {
+    if (group.musicBrainz?.fuzzy === undefined && !fuzzyStopped) {
       try {
         const query = {
           title: primary.source.title,
@@ -547,24 +671,32 @@ export async function buildInputs(options: InputOptions): Promise<InputSummary> 
             : { durationMs: primary.source.durationMs }),
         }
         const hint = await providers.findIsrcHint(query, musicBrainzCtx)
+        failures = 0
         group.musicBrainz = {
           ...group.musicBrainz,
           fuzzy: hint === null ? null : { recording: hint.recording.id, isrcs: hint.isrcs },
         }
+        changed.add(group)
       } catch (error) {
         summary.failed[`${group.id}:fuzzy`] = messageOf(error)
         log(`MusicBrainz's fuzzy path failed for ${group.id}: ${messageOf(error)}`)
+        failures += 1
+        if (isFxmError(error, 'RateLimited') || failures >= MAX_FAILURES_IN_ROW) {
+          stop(`MusicBrainz's fuzzy path failed ${failures} times in a row (${messageOf(error)})`)
+          fuzzyStopped = true
+        }
       }
     }
-    // 3. The inputs, once both paths have answered.
     const exact = group.musicBrainz?.exact
     const fuzzy = group.musicBrainz?.fuzzy
-    if (exact !== undefined && fuzzy !== undefined && group.variants.length === 1) {
-      group.variants = buildVariants(primary, exact, fuzzy?.isrcs[0])
-      summary.completed.push(group.id)
+    if (exact !== undefined && fuzzy !== undefined) {
+      const variants = buildVariants(primary, exact, fuzzy?.isrcs[0])
+      if (JSON.stringify(variants) !== JSON.stringify(group.variants)) {
+        group.variants = variants
+        summary.completed.push(group.id)
+        changed.add(group)
+      }
     }
-    await store.writeGroup(group)
+    if (changed.has(group)) await store.writeGroup(group)
   }
-  await save()
-  return summary
 }

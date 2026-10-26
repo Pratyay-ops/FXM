@@ -67,11 +67,12 @@ describe('csvGroup', () => {
 
   it('makes a group with the csv input, its split and its categories', () => {
     if (creep === undefined) throw new Error('no row')
-    const group = csvGroup(creep, 'liked.csv', '2026-10-26')
+    const group = csvGroup(creep, '2026-10-26')
     expect(group).toMatchObject({
       id: 'csv:70LcF31zb1H0PyJoS1Sx1r',
       categories: ['mainstream'],
-      provenance: ['liked.csv row 1, read 2026-10-26'],
+      // The row, not the file, whose name may say more about the owner.
+      provenance: ["the owner's Exportify-style CSV, row 1, read 2026-10-26"],
       spotify: { id: '70LcF31zb1H0PyJoS1Sx1r', popularity: 87 },
       variants: [{ slice: 'csv', source: creep.source }],
     })
@@ -82,7 +83,7 @@ describe('csvGroup', () => {
   it('names a row without a URI by its number', () => {
     if (noUri === undefined) throw new Error('no row')
     expect(csvGroupId(noUri)).toBe('csv:row-3')
-    expect(csvGroup(noUri, 'x.csv', '2026-10-26')).not.toHaveProperty('spotify')
+    expect(csvGroup(noUri, '2026-10-26')).not.toHaveProperty('spotify')
     expect(poolTrackOfRow(noUri)).toBeUndefined()
   })
 })

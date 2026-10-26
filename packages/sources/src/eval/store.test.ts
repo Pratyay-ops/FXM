@@ -50,11 +50,46 @@ describe('file names', () => {
 describe('the checkpoint', () => {
   it('reads back what it wrote, and starts afresh from anything else', () => {
     const checkpoint = emptyCheckpoint()
-    checkpoint.record.done.push('sp:a')
+    checkpoint.record.done['sp:a'] = '0123456789abcdef'
+    checkpoint.record.deferred['sp:b'] = { attempts: 2, error: 'FxmError: offline' }
+    checkpoint.inputs.pools['playlist:x'] = [{ id: 'a', title: 'A', artists: ['B'] }]
+    checkpoint.inputs.readAt['playlist:x'] = '2026-10-26'
     checkpoint.requests.youtube = 3
     expect(parseCheckpoint(JSON.parse(JSON.stringify(checkpoint)))).toEqual(checkpoint)
     expect(parseCheckpoint({ version: 2 })).toEqual(emptyCheckpoint())
     expect(parseCheckpoint('nope')).toEqual(emptyCheckpoint())
+  })
+
+  it('starts each malformed section afresh, keeping the others', () => {
+    const parsed = parseCheckpoint({
+      version: 1,
+      budget: { 'fxm.requestBudget': '{"v":1}', broken: 7 },
+      inputs: {
+        plan: 'full',
+        pools: { good: [{ id: 'a', title: 'A', artists: ['B'] }], bad: [{ id: 'a' }], odd: 'x' },
+        readAt: 'yesterday',
+        failed: { 'sp:x': 'FxmError: gone', 'sp:y': 1 },
+      },
+      record: { done: 'sp:a', deferred: { 'sp:b': { attempts: '2', error: 'x' } } },
+      requests: { youtube: '12', spotify: 4, musicbrainz: -1 },
+      updatedAt: 5,
+    })
+    expect(parsed).toEqual({
+      ...emptyCheckpoint(),
+      budget: { 'fxm.requestBudget': '{"v":1}' },
+      inputs: {
+        plan: 'full',
+        pools: { good: [{ id: 'a', title: 'A', artists: ['B'] }] },
+        readAt: {},
+        failed: { 'sp:x': 'FxmError: gone' },
+      },
+      requests: { youtube: 0, spotify: 4, musicbrainz: 0 },
+    })
+  })
+
+  it('checks the groups of an older checkpoint again', () => {
+    const old = { ...emptyCheckpoint(), record: { done: ['sp:a', 3], deferred: {} } }
+    expect(parseCheckpoint(old).record.done).toEqual({ 'sp:a': '' })
   })
 
   it("holds the request budget's storage", () => {
@@ -103,10 +138,10 @@ describe('fileStore', async () => {
     expect(await store.readGroup(GROUP.id)).toEqual(GROUP)
     expect(await node.readdir(`${root}/eval/fixtures/groups`)).toEqual([groupFileName(GROUP.id)])
     const checkpoint = emptyCheckpoint()
-    checkpoint.record.done.push(GROUP.id)
+    checkpoint.record.done[GROUP.id] = 'fingerprint'
     await store.writeCheckpoint(checkpoint)
     const saved = await store.readCheckpoint()
-    expect(saved.record.done).toEqual([GROUP.id])
+    expect(saved.record.done).toEqual({ [GROUP.id]: 'fingerprint' })
     expect(saved.updatedAt).not.toBe(emptyCheckpoint().updatedAt)
     await store.writeText('REVIEW.csv', 'a,b\r\n')
     expect(await store.readText('REVIEW.csv')).toBe('a,b\r\n')

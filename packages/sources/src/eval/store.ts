@@ -46,13 +46,19 @@ export interface EvalCheckpoint {
     plan?: string
     /** The tracks each input source gave, in order, once read. */
     pools: Record<string, PoolTrack[]>
-    /** Inputs that could not be built, by group ID, with why. */
+    /** When each pool was read (`YYYY-MM-DD`), for the provenance. */
+    readAt: Record<string, string>
+    /** Tracks Spotify does not know (`NotFound`), by group ID, with why: never tried again. */
     failed: Record<string, string>
   }
   /** The recording phase. */
   record: {
-    /** Groups whose pages are all recorded. */
-    done: string[]
+    /**
+     * Groups whose pages are all recorded, with the fingerprint of the inputs and recording
+     * options they were recorded for: a group whose inputs changed since is recorded again
+     * (only its missing pages are fetched).
+     */
+    done: Record<string, string>
     /** Groups that failed for now and are tried again on the next run. */
     deferred: Record<string, { attempts: number; error: string }>
   }
@@ -67,33 +73,92 @@ export function emptyCheckpoint(): EvalCheckpoint {
   return {
     version: 1,
     budget: {},
-    inputs: { pools: {}, failed: {} },
-    record: { done: [], deferred: {} },
+    inputs: { pools: {}, readAt: {}, failed: {} },
+    record: { done: {}, deferred: {} },
     requests: { youtube: 0, spotify: 0, musicbrainz: 0 },
     updatedAt: new Date(0).toISOString(),
   }
 }
 
-/** A checkpoint read back, or a new one when it is missing or not one of ours. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** The entries of a record whose values pass `check`; anything else gives an empty one. */
+function recordOf<T>(value: unknown, check: (entry: unknown) => entry is T): Record<string, T> {
+  if (!isRecord(value)) return {}
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => check(entry))) as Record<
+    string,
+    T
+  >
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string'
+
+function isPoolTrack(value: unknown): value is PoolTrack {
+  if (!isRecord(value)) return false
+  const { id, title, artists, album, durationMs, explicit, releaseDate } = value
+  return (
+    typeof id === 'string' &&
+    typeof title === 'string' &&
+    Array.isArray(artists) &&
+    artists.every(isString) &&
+    (album === undefined || typeof album === 'string') &&
+    (durationMs === undefined || (typeof durationMs === 'number' && durationMs > 0)) &&
+    (explicit === undefined || typeof explicit === 'boolean') &&
+    (releaseDate === undefined || typeof releaseDate === 'string')
+  )
+}
+
+function isPool(value: unknown): value is PoolTrack[] {
+  return Array.isArray(value) && value.every(isPoolTrack)
+}
+
+function isDeferral(value: unknown): value is { attempts: number; error: string } {
+  return (
+    isRecord(value) &&
+    typeof value.attempts === 'number' &&
+    Number.isInteger(value.attempts) &&
+    value.attempts > 0 &&
+    typeof value.error === 'string'
+  )
+}
+
+function count(value: unknown): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0
+}
+
+/**
+ * A checkpoint read back, or a new one when it is missing or not one of ours. Each section is
+ * checked on its own, and a malformed one starts afresh (a malformed pool is read again, a
+ * malformed list of done groups only costs an offline check of their pages).
+ */
 export function parseCheckpoint(value: unknown): EvalCheckpoint {
   const fresh = emptyCheckpoint()
-  if (typeof value !== 'object' || value === null) return fresh
-  const given = value as Partial<EvalCheckpoint>
-  if (given.version !== 1) return fresh
+  if (!isRecord(value) || value.version !== 1) return fresh
+  const inputs = isRecord(value.inputs) ? value.inputs : {}
+  const record = isRecord(value.record) ? value.record : {}
+  const requests = isRecord(value.requests) ? value.requests : {}
+  // Before fingerprints, `done` was a list of IDs: those groups are checked again.
+  const done = Array.isArray(record.done)
+    ? Object.fromEntries(record.done.filter(isString).map((id) => [id, '']))
+    : recordOf(record.done, isString)
   return {
     version: 1,
-    budget: { ...fresh.budget, ...given.budget },
+    budget: recordOf(value.budget, isString),
     inputs: {
-      ...(given.inputs?.plan === undefined ? {} : { plan: given.inputs.plan }),
-      pools: { ...given.inputs?.pools },
-      failed: { ...given.inputs?.failed },
+      ...(typeof inputs.plan === 'string' ? { plan: inputs.plan } : {}),
+      pools: recordOf(inputs.pools, isPool),
+      readAt: recordOf(inputs.readAt, isString),
+      failed: recordOf(inputs.failed, isString),
     },
-    record: {
-      done: [...(given.record?.done ?? [])],
-      deferred: { ...given.record?.deferred },
+    record: { done, deferred: recordOf(record.deferred, isDeferral) },
+    requests: {
+      youtube: count(requests.youtube),
+      spotify: count(requests.spotify),
+      musicbrainz: count(requests.musicbrainz),
     },
-    requests: { ...fresh.requests, ...given.requests },
-    updatedAt: typeof given.updatedAt === 'string' ? given.updatedAt : fresh.updatedAt,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : fresh.updatedAt,
   }
 }
 

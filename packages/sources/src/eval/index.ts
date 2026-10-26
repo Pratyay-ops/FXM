@@ -25,22 +25,33 @@ export {
   type InputProviders,
   type InputSource,
   type InputSummary,
+  MIN_PLANNED_HELD_OUT,
   passesFilter,
   poolTrackOf,
+  projectedSplits,
+  provenanceLine,
+  sourceKeyOf,
   spotifyInput,
 } from './inputs'
 export { fetchPage, type PageProviders } from './pages'
+export {
+  loadPlatform,
+  type PlatformBudget,
+  type PlatformModule,
+  type RecorderNetwork,
+  recorderNetwork,
+} from './platform'
 export {
   type RecorderBudget,
   type RecorderOptions,
   type RecordSummary,
   recordGroups,
+  recordingFingerprint,
 } from './recorder'
 export {
   applyReview,
   type LabelSummary,
   labelGroups,
-  parseCsv,
   REVIEW_FILE,
   type ReviewSummary,
   readGroups,
