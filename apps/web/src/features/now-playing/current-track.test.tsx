@@ -1,6 +1,7 @@
 import {
   createQueue,
   currentQueueItem,
+  formatId,
   type QueueState,
   setQueue,
   setQueueCandidate,
@@ -40,6 +41,14 @@ function marks(state: PlayerState, tracks: readonly Track[]) {
 const PICKED = spotifyTrack('Neon Harbor')
 const RECORDING = testTrack('nEoNhArBoR1', { title: 'Neon Harbor' })
 const MATCH = testCandidate('nEoNhArBoR1', { title: 'Neon Harbor' })
+
+// One video under both of its IDs: found on YouTube Music, and on plain YouTube.
+const SONG = testTrack('pApErLaNt01', { title: 'Paper Lanterns' })
+const VIDEO = testTrack('pApErLaNt01', {
+  id: formatId('yt', 'track', 'pApErLaNt01'),
+  source: 'yt',
+  title: 'Paper Lanterns',
+})
 
 /** The queue playing `PICKED` through its match, as the player records it. */
 function playingThroughMatch(): QueueState {
@@ -110,6 +119,24 @@ describe('nowPlayingStatusOf', () => {
     expect(marks(state, [namesake])).toEqual([undefined])
   })
 
+  it('marks a video’s row whichever of its IDs the list has, YouTube Music’s or YouTube’s', () => {
+    // Played from YouTube Music, the same video in a list from plain YouTube (search, say).
+    const played = stateOf(queueOf([SONG]))
+    expect(marks(played, [testTrack('Intro'), VIDEO])).toEqual([undefined, 'playing'])
+    // Played from YouTube, the YouTube Music copy in another list.
+    expect(marks(stateOf(queueOf([VIDEO]), 'paused'), [SONG])).toEqual(['paused'])
+    // Another video of the same title is another track.
+    const namesake = testTrack('pApErLaNt02', { title: 'Paper Lanterns' })
+    expect(marks(played, [namesake])).toEqual([undefined])
+  })
+
+  it('counts a video’s two IDs as two copies of it, in the queue as in the list', () => {
+    const list = [SONG, testTrack('b'), VIDEO]
+    expect(currentTrackOf(stateOf(queueOf(list, 2)))?.copy).toBe(2)
+    expect(marks(stateOf(queueOf(list, 0)), list)).toEqual(['playing', undefined, undefined])
+    expect(marks(stateOf(queueOf(list, 2)), list)).toEqual([undefined, undefined, 'playing'])
+  })
+
   it('marks one copy of a track a list repeats: the one the queue plays', () => {
     const [a, b] = testTracks('a', 'b') as [Track, Track]
     const list = [a, b, a]
@@ -137,6 +164,14 @@ describe('rowCopies', () => {
       { copy: 1, copies: 1 },
       { copy: 2, copies: 3 },
       { copy: 3, copies: 3 },
+    ])
+  })
+
+  it('counts a video’s YouTube Music and YouTube IDs as copies of one track', () => {
+    expect(rowCopies([SONG.id, PICKED.id, VIDEO.id])).toEqual([
+      { copy: 1, copies: 2 },
+      { copy: 1, copies: 1 },
+      { copy: 2, copies: 2 },
     ])
   })
 })
@@ -183,6 +218,19 @@ describe('useNowPlayingStatus', () => {
     expect(currentQueueItem(player.getState().queue)?.candidate).toEqual(MATCH)
     expect(player.getState().status).toBe('playing')
     expect(result.current).toEqual(['playing', undefined])
+  })
+
+  it('marks a video’s rows under both of its IDs while it plays', async () => {
+    const { player } = setupTestPlayback()
+    const { result } = renderHook(() => [
+      useNowPlayingStatus(SONG.id),
+      useNowPlayingStatus(VIDEO.id),
+    ])
+
+    await act(() => player.setQueue([VIDEO]))
+    expect(result.current).toEqual(['playing', 'playing'])
+    act(() => player.pause())
+    expect(result.current).toEqual(['paused', 'paused'])
   })
 
   it('re-renders no row on a playback tick, and only the rows that change on a new track', async () => {

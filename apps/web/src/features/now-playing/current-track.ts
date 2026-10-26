@@ -2,13 +2,15 @@
  * Which track the app's player is on, for the track lists that mark the row of the song that
  * plays (`components/ui/now-playing-marker.tsx`).
  *
- * **Identity.** A row is the current track's when its track ID is the current queue item's
- * `track.id`, never by title. The queue keeps there the track the user picked, also when it
+ * **Identity.** A row is the current track's when its track ID names the same entity as the
+ * current queue item's `track.id` (`@fxm/core`'s `entityKey`, so a video's `ytm` and `yt` IDs
+ * are one track), never by title. The queue keeps there the track the user picked, also when it
  * plays through a match: a Spotify or imported track that plays a YouTube recording keeps its
  * own ID, and the recording is the item's `candidate`. So the row that was tapped is the one
  * marked, not a row of the recording itself, nor another song of the same name. A track that
- * two lists show is marked in both. A list that shows a track more than once (a playlist can
- * repeat a song) marks one of its copies, the one the queue plays (see {@link CurrentTrack.copy}).
+ * two lists show is marked in both, whichever of its IDs each list has. A list that shows a
+ * track more than once (a playlist can repeat a song) marks one of its copies, the one the
+ * queue plays (see {@link CurrentTrack.copy}).
  *
  * **Performance.** Rows subscribe through {@link useNowPlayingStatus} to the current item's
  * identity and status only, over one subscription to the player: a playback tick (the position
@@ -18,7 +20,7 @@
  * @module
  */
 
-import { currentQueueItem, type EntityId, type QueueState } from '@fxm/core'
+import { currentQueueItem, type EntityId, entityKey, type QueueState } from '@fxm/core'
 import type { PlayerState, PlayerStatus } from '@fxm/player'
 import { useSyncExternalStore } from 'react'
 import type { NowPlayingStatus } from '../../components/ui/now-playing-marker'
@@ -33,8 +35,8 @@ export interface CurrentTrack {
   readonly id: EntityId<'track'>
   /**
    * Which copy of that track the current item is, from 1, among the queue's items of the same
-   * track, in the order the queue was given them (before any shuffle). 1 unless the queue holds
-   * the track more than once.
+   * track (by `entityKey`), in the order the queue was given them (before any shuffle). 1 unless
+   * the queue holds the track more than once.
    */
   readonly copy: number
   /** Whether it plays (or loads), or is paused. */
@@ -56,10 +58,18 @@ export function nowPlayingStatusFor(status: PlayerStatus): NowPlayingStatus {
 
 type TrackKey = Pick<CurrentTrack, 'id' | 'copy'>
 
-/** The copy number of the item with `uid` among the items of track `id`, in original order. */
-function copyOf(queue: QueueState, uid: number, id: string): number {
+/**
+ * The identity rows are matched by: `@fxm/core`'s `entityKey`, under which a video's `ytm` and
+ * `yt` IDs are one track. A list's row IDs come in as strings (the library's, say).
+ */
+function keyOf(id: string): string {
+  return entityKey(id as EntityId)
+}
+
+/** The copy number of item `uid` among the items whose track is keyed `key`, in original order. */
+function copyOf(queue: QueueState, uid: number, key: string): number {
   const same = new Set<number>()
-  for (const item of queue.items) if (item.track.id === id) same.add(item.uid)
+  for (const item of queue.items) if (keyOf(item.track.id) === key) same.add(item.uid)
   if (same.size < 2) return 1
   let copy = 0
   for (const entry of queue.unshuffled ?? queue.items.map((item) => item.uid)) {
@@ -74,7 +84,7 @@ function copyOf(queue: QueueState, uid: number, id: string): number {
 function trackOf(queue: QueueState): TrackKey | undefined {
   const item = currentQueueItem(queue)
   if (item === undefined) return undefined
-  return { id: item.track.id, copy: copyOf(queue, item.uid, item.track.id) }
+  return { id: item.track.id, copy: copyOf(queue, item.uid, keyOf(item.track.id)) }
 }
 
 /** The current track of a player's state, or `undefined` while the queue is empty. */
@@ -85,31 +95,35 @@ export function currentTrackOf(state: PlayerState): CurrentTrack | undefined {
 
 /**
  * Which copy of its track each entry of `ids` is, for lists that may show a track more than
- * once, such as a catalog playlist.
+ * once, such as a catalog playlist. Two IDs of one track (a video's `ytm` and `yt` IDs) are two
+ * copies of it, as the queue counts them.
  */
 export function rowCopies(ids: readonly string[]): RowCopy[] {
+  const keys = ids.map(keyOf)
   const counts = new Map<string, number>()
-  for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1)
+  for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1)
   const seen = new Map<string, number>()
-  return ids.map((id) => {
-    const copy = (seen.get(id) ?? 0) + 1
-    seen.set(id, copy)
-    return { copy, copies: counts.get(id) ?? 1 }
+  return keys.map((key) => {
+    const copy = (seen.get(key) ?? 0) + 1
+    seen.set(key, copy)
+    return { copy, copies: counts.get(key) ?? 1 }
   })
 }
 
 /**
  * The marker of the row that shows track `trackId`: the current track's status when the row is
- * that track's, else `undefined`. Of several rows of one list that show the track (`rowCopy`),
- * only the copy the queue plays is marked: the same copy number, or the list's last copy when
- * the queue holds more copies than the list.
+ * that track's (by `entityKey`: a video's `ytm` and `yt` IDs are one track), else `undefined`.
+ * Of several rows of one list that show the track (`rowCopy`), only the copy the queue plays is
+ * marked: the same copy number, or the list's last copy when the queue holds more copies than
+ * the list.
  */
 export function nowPlayingStatusOf(
   current: CurrentTrack | undefined,
   trackId: string | undefined,
   rowCopy?: RowCopy,
 ): NowPlayingStatus | undefined {
-  if (current === undefined || trackId === undefined || trackId !== current.id) return undefined
+  if (current === undefined || trackId === undefined) return undefined
+  if (keyOf(trackId) !== keyOf(current.id)) return undefined
   if (rowCopy !== undefined && rowCopy.copies > 1) {
     if (rowCopy.copy !== Math.min(current.copy, rowCopy.copies)) return undefined
   }
