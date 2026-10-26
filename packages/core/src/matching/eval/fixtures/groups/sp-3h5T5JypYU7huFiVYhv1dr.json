@@ -1,0 +1,590 @@
+{
+  "id": "sp:3h5T5JypYU7huFiVYhv1dr",
+  "split": "calibration",
+  "categories": ["mainstream"],
+  "provenance": ["Top 50 - Global #2 (playlist:37i9dQZEVXbMDoHDwVN2tF), read 2026-10-25"],
+  "spotify": {
+    "id": "3h5T5JypYU7huFiVYhv1dr",
+    "popularity": 100,
+    "albumType": "album"
+  },
+  "variants": [
+    {
+      "slice": "spotify",
+      "source": {
+        "title": "BbY WOW",
+        "artists": [
+          {
+            "name": "KAROL G"
+          },
+          {
+            "name": "Judeline"
+          },
+          {
+            "name": "rusowsky"
+          }
+        ],
+        "album": {
+          "name": "NO ME ARREPIENTO DE SENTIR TANTO"
+        },
+        "durationMs": 225834,
+        "isrc": "USUG12607940",
+        "isrcOrigin": "catalog",
+        "explicit": false,
+        "releaseDate": "2026-08-07",
+        "label": "Bichota/Interscope Records",
+        "albumType": "album"
+      }
+    },
+    {
+      "slice": "data-export",
+      "source": {
+        "title": "BbY WOW",
+        "artists": [
+          {
+            "name": "KAROL G"
+          }
+        ],
+        "album": {
+          "name": "NO ME ARREPIENTO DE SENTIR TANTO"
+        }
+      }
+    },
+    {
+      "slice": "musicbrainz-fuzzy",
+      "source": {
+        "title": "BbY WOW",
+        "artists": [
+          {
+            "name": "KAROL G"
+          },
+          {
+            "name": "Judeline"
+          },
+          {
+            "name": "rusowsky"
+          }
+        ],
+        "album": {
+          "name": "NO ME ARREPIENTO DE SENTIR TANTO"
+        },
+        "durationMs": 225834,
+        "explicit": false,
+        "isrc": "USUG12607940",
+        "isrcOrigin": "musicbrainz-fuzzy"
+      }
+    }
+  ],
+  "musicBrainz": {
+    "exact": null,
+    "fuzzy": {
+      "recording": "083ef898-e858-452b-b292-497ce07646b0",
+      "isrcs": ["USUG12607940"]
+    }
+  },
+  "recording": {
+    "recordedAt": ["2026-10-25"],
+    "items": {
+      "ljAH6jNaApU": {
+        "kind": "song",
+        "title": "BbY WOW",
+        "artists": ["KAROL G", "rusowsky"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 226000
+      },
+      "mIQvQMidELc": {
+        "kind": "song",
+        "title": "MONTAGEM URANIUM (Ultra Slowed)",
+        "artists": ["ZAYLO"],
+        "album": "MONTAGEM URANIUM",
+        "albumId": "MPREb_huQS0JlqW4L",
+        "durationMs": 126000
+      },
+      "6snDsbwxRUI": {
+        "kind": "song",
+        "title": "MONTAGEM ALQUIMIA (SLOWED)",
+        "artists": ["h6itam", "n7san7os", "Mc Menor Do Alvorada"],
+        "album": "MONTAGEM ALQUIMIA",
+        "albumId": "MPREb_hFZBMSZCnF4",
+        "durationMs": 114000,
+        "explicit": true
+      },
+      "MvNmZi1aYv0": {
+        "kind": "song",
+        "title": "BBY WOW (En Vivo)",
+        "artists": ["Valentina Marquez"],
+        "album": "BBY WOW (En Vivo)",
+        "albumId": "MPREb_ZheuHlKH8lM",
+        "durationMs": 149000
+      },
+      "az3_6jmrcHY": {
+        "kind": "song",
+        "title": "KOKO",
+        "artists": ["Omar Courtz"],
+        "album": "POR SI MAÑANA NO ESTOY",
+        "albumId": "MPREb_cLAwkqCiDuK",
+        "durationMs": 196000,
+        "explicit": true
+      },
+      "2C29r956v40": {
+        "kind": "song",
+        "title": "Amor",
+        "artists": ["Emmanuel Cortes"],
+        "album": "Memorias <3",
+        "albumId": "MPREb_XhyYYDoPSR8",
+        "durationMs": 200000
+      },
+      "gDD0pxL1arg": {
+        "kind": "song",
+        "title": "Baby, Wow",
+        "artists": ["BABEL"],
+        "album": "Baby, Wow",
+        "albumId": "MPREb_NVBLviaoX2p",
+        "durationMs": 249000
+      },
+      "WsGnCt-gT44": {
+        "kind": "song",
+        "title": "LA CANCIÓN",
+        "artists": ["J Balvin", "Bad Bunny"],
+        "album": "OASIS",
+        "albumId": "MPREb_qdf0sAvVWoh",
+        "durationMs": 243000
+      },
+      "YGLNUSZ8GqM": {
+        "kind": "song",
+        "title": "BbY WOW (SLOWED)",
+        "artists": ["oversky"],
+        "album": "BbY WOW (BRAZILIAN PHONK)",
+        "albumId": "MPREb_IYW2NHGxd8p",
+        "durationMs": 212000
+      },
+      "O9YHwmLF6JQ": {
+        "kind": "song",
+        "title": "BBY WOW",
+        "artists": ["La Revulsiva"],
+        "album": "BBY WOW",
+        "albumId": "MPREb_hzagdFu2uuX",
+        "durationMs": 187000
+      },
+      "4BUNakm87_M": {
+        "kind": "song",
+        "title": "Hot Body (Remix) (feat. Danny Ocean)",
+        "artists": ["Ayra Starr"],
+        "album": "Starrgirl",
+        "albumId": "MPREb_F57CnJTDWrt",
+        "durationMs": 182000
+      },
+      "-kDOaQfzQyI": {
+        "kind": "song",
+        "title": "Ocean",
+        "artists": ["KAROL G"],
+        "album": "OCEAN",
+        "albumId": "MPREb_ay3UerEHn5t",
+        "durationMs": 156000
+      },
+      "tkYnyh5LIWo": {
+        "kind": "song",
+        "title": "Pineapple",
+        "artists": ["KAROL G"],
+        "album": "OCEAN",
+        "albumId": "MPREb_ay3UerEHn5t",
+        "durationMs": 181000
+      },
+      "YgiSdQsEaFc": {
+        "kind": "song",
+        "title": "Quiero Saber",
+        "artists": ["Ivy Queen"],
+        "album": "Diva (Platinum Edition)",
+        "albumId": "MPREb_Lz4obHxeiXu",
+        "durationMs": 176000
+      },
+      "ZlLJoi13WuM": {
+        "kind": "song",
+        "title": "Luna",
+        "artists": ["Flex"],
+        "album": "A Todo Romantic Style",
+        "albumId": "MPREb_KoNJgwYlmmM",
+        "durationMs": 197000
+      },
+      "jcplbd_wIqE": {
+        "kind": "song",
+        "title": "EL BARCO",
+        "artists": ["KAROL G"],
+        "album": "KG0516",
+        "albumId": "MPREb_MLvc2qKxMya",
+        "durationMs": 204000
+      },
+      "bzBc-5ZiEaQ": {
+        "kind": "song",
+        "title": "Culpables",
+        "artists": ["KAROL G", "Anuel AA"],
+        "album": "OCEAN",
+        "albumId": "MPREb_ay3UerEHn5t",
+        "durationMs": 229000
+      },
+      "JYekRpqL4O8": {
+        "kind": "song",
+        "title": "EoO",
+        "artists": ["Bad Bunny"],
+        "album": "DeBÍ TiRAR MáS FOToS",
+        "albumId": "MPREb_tZC7e1H5mfm",
+        "durationMs": 205000,
+        "explicit": true
+      },
+      "9ODws3zu818": {
+        "kind": "song",
+        "title": "No Me Cansare",
+        "artists": ["Sevdaliza", "Karol G"],
+        "album": "HEROINA",
+        "albumId": "MPREb_fsZbNC0SNlM",
+        "durationMs": 163000
+      },
+      "v5Zf4RclcBU": {
+        "kind": "song",
+        "title": "BbY WOW",
+        "artists": ["The Second Voice Official"],
+        "album": "BbY WOW",
+        "albumId": "MPREb_sLn91GepJF6",
+        "durationMs": 154000
+      },
+      "mi-JD4jGVUQ": {
+        "kind": "song",
+        "title": "Si Antes Te Hubiera Conocido",
+        "artists": ["KAROL G"],
+        "album": "Tropicoqueta",
+        "albumId": "MPREb_GTexBv5Ci7o",
+        "durationMs": 196000
+      },
+      "OaQVrIiO61k": {
+        "kind": "song",
+        "title": "Bby Wow (Turreo Edit)",
+        "artists": ["DJ Mutha"],
+        "album": "Bby Wow (Turreo Edit)",
+        "albumId": "MPREb_PeiJoHqGGSq",
+        "durationMs": 275000
+      },
+      "OlEHhsX3w0c": {
+        "kind": "song",
+        "title": "Ahí",
+        "artists": ["KAROL G", "Drake"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 177000
+      },
+      "hjMKaLmuvsQ": {
+        "kind": "song",
+        "title": "Eclipse",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 130000
+      },
+      "YRlqgEQ4D5M": {
+        "kind": "song",
+        "title": "For u My lova",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 211000
+      },
+      "w94lnWZkKhU": {
+        "kind": "song",
+        "title": "Bebiendo Lágrimas",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 181000
+      },
+      "WpG_9kQLH-4": {
+        "kind": "song",
+        "title": "Con quién andará?",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 182000,
+        "explicit": true
+      },
+      "panzEiP61EY": {
+        "kind": "song",
+        "title": "Maybe",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 145000
+      },
+      "ga1_BfpqbAk": {
+        "kind": "song",
+        "title": "Muñeco De Lego",
+        "artists": ["KAROL G"],
+        "album": "Muñeco De Lego",
+        "albumId": "MPREb_1foyy1zGHZJ",
+        "durationMs": 163000
+      },
+      "GeDQbyJSUGE": {
+        "kind": "song",
+        "title": "Un Viaje (feat. Moffa)",
+        "artists": ["Jotaerre", "KAROL G", "Alejo"],
+        "album": "Un Viaje",
+        "albumId": "MPREb_MBqUjTw1aO9",
+        "durationMs": 286000,
+        "explicit": true
+      },
+      "JrwsKHFkYx0": {
+        "kind": "song",
+        "title": "Te llevas To",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 153000,
+        "explicit": true
+      },
+      "r9kcj3aQ6rA": {
+        "kind": "song",
+        "title": "BbY WOW (Sped Up)",
+        "artists": ["shubham"],
+        "album": "BbY WOW",
+        "albumId": "MPREb_PcpXK81Bypg",
+        "durationMs": 77000
+      },
+      "dk1W_fcqvT0": {
+        "kind": "song",
+        "title": "Punto G",
+        "artists": ["KAROL G"],
+        "album": "OCEAN",
+        "albumId": "MPREb_ay3UerEHn5t",
+        "durationMs": 184000
+      },
+      "Ivn2f7AEaLw": {
+        "kind": "song",
+        "title": "Alguien que te amaba",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 195000
+      },
+      "NlEReLYihAs": {
+        "kind": "song",
+        "title": "MATADORA",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 145000,
+        "explicit": true
+      },
+      "Fc_q9oY7Msk": {
+        "kind": "song",
+        "title": "Lo Sabe Dios",
+        "artists": ["KAROL G"],
+        "album": "Unstoppable",
+        "albumId": "MPREb_aDx5dZJPeyd",
+        "durationMs": 148000
+      },
+      "ikArVUhC6pE": {
+        "kind": "song",
+        "title": "Miedito o Qué? (feat. KAROL G)",
+        "artists": ["Ovy On The Drums", "Danny Ocean"],
+        "album": "Miedito o Qué?",
+        "albumId": "MPREb_zoVyNCSdrDV",
+        "durationMs": 210000
+      },
+      "q4D6aTNiO-Y": {
+        "kind": "song",
+        "title": "Final feliz",
+        "artists": ["KAROL G"],
+        "album": "NO ME ARREPIENTO DE SENTIR TANTO",
+        "albumId": "MPREb_gtAqZBtFDvm",
+        "durationMs": 187000
+      },
+      "K3zfkVlhxqs": {
+        "kind": "song",
+        "title": "Love With A Quality",
+        "artists": ["KAROL G", "Damian \"Jr. Gong\" Marley"],
+        "album": "OCEAN",
+        "albumId": "MPREb_ay3UerEHn5t",
+        "durationMs": 224000
+      },
+      "7sLeWFaNRfM": {
+        "kind": "song",
+        "title": "BbY WOW (Edit)",
+        "artists": ["shubham"],
+        "album": "BbY WOW",
+        "albumId": "MPREb_PcpXK81Bypg",
+        "durationMs": 82000
+      },
+      "7mnGB_h6MTY": {
+        "kind": "song",
+        "title": "Drunk on love (Karol G-Bby wow remix)",
+        "artists": ["Amavio"],
+        "album": "Drunk on love (Karol G-Bby wow remix)",
+        "albumId": "MPREb_B1Q9smENFbY",
+        "durationMs": 278000
+      },
+      "F_bif9x6ZPE": {
+        "kind": "song",
+        "title": "Baby esti WOW (Live)",
+        "artists": ["Costel Biju"],
+        "album": "Baby esti WOW (Live)",
+        "albumId": "MPREb_uH2e3jOO1kK",
+        "durationMs": 274000
+      },
+      "zk24FRDya1g": {
+        "kind": "song",
+        "title": "Mayores",
+        "artists": ["Becky G", "Bad Bunny"],
+        "album": "MALA SANTA",
+        "albumId": "MPREb_MLaHty9dxXc",
+        "durationMs": 204000
+      },
+      "hYPYslGNZ28": {
+        "kind": "song",
+        "title": "Gatita",
+        "artists": ["Bellakath"],
+        "album": "Gatita",
+        "albumId": "MPREb_KfCxg2w2xvv",
+        "durationMs": 161000
+      },
+      "eWvJxFjizAU": {
+        "kind": "song",
+        "title": "PROVENZA (REMIX)",
+        "artists": ["KAROL G", "Tiësto"],
+        "album": "MAÑANA SERÁ BONITO (BICHOTA SEASON)",
+        "albumId": "MPREb_0UlZ08cNYMK",
+        "durationMs": 188000
+      },
+      "oVr0wpamTLk": {
+        "kind": "song",
+        "title": "brujita",
+        "artists": ["rusowsky", "Saramalacara"],
+        "album": "BABAYAGA",
+        "albumId": "MPREb_7YUqkfBwtky",
+        "durationMs": 160000
+      },
+      "xfutz1YKZ38": {
+        "kind": "song",
+        "title": "La Vida Es Una (From Puss in Boots: The Last Wish)",
+        "artists": ["KAROL G"],
+        "album": "La Vida Es Una (From Puss in Boots: The Last Wish)",
+        "albumId": "MPREb_VT4rEM0nPY8",
+        "durationMs": 190000
+      },
+      "pJPmdSkO6RE": {
+        "kind": "song",
+        "title": "Tá OK (Remix)",
+        "artists": ["DENNIS", "Maluma", "MC Kevin o Chris"],
+        "album": "Tá OK (Remix)",
+        "albumId": "MPREb_md64qGEFJoN",
+        "durationMs": 172000
+      },
+      "D9BqbKCo18E": {
+        "kind": "song",
+        "title": "BBY ROMEO",
+        "artists": ["rusowsky", "Ralphie Choo"],
+        "album": "DAISY",
+        "albumId": "MPREb_PJs3buvLflg",
+        "durationMs": 199000
+      },
+      "H_1ZnrwWZCM": {
+        "kind": "song",
+        "title": "Bby Wow (Techengue)",
+        "artists": ["Jere Suez", "Laucha Frankkk", "js music"],
+        "album": "Bby Wow (Techengue)",
+        "albumId": "MPREb_UYeWNsvcMA8",
+        "durationMs": 143000
+      },
+      "KPZKwzwPk1g": {
+        "kind": "song",
+        "title": "DISPO",
+        "artists": ["KAROL G", "Young Miko"],
+        "album": "DISPO",
+        "albumId": "MPREb_dKBnK2O5J3H",
+        "durationMs": 194000,
+        "explicit": true
+      }
+    },
+    "pages": {
+      "isrc-songs/1/USUG12607940": {
+        "items": ["ljAH6jNaApU", "mIQvQMidELc", "6snDsbwxRUI"]
+      },
+      "songs/KAROL G Judeline rusowsky BbY WOW": {
+        "items": [
+          "ljAH6jNaApU",
+          "MvNmZi1aYv0",
+          "az3_6jmrcHY",
+          "2C29r956v40",
+          "gDD0pxL1arg",
+          "WsGnCt-gT44",
+          "YGLNUSZ8GqM",
+          "O9YHwmLF6JQ",
+          "4BUNakm87_M",
+          "-kDOaQfzQyI",
+          "tkYnyh5LIWo",
+          "YgiSdQsEaFc",
+          "ZlLJoi13WuM",
+          "jcplbd_wIqE",
+          "bzBc-5ZiEaQ",
+          "JYekRpqL4O8",
+          "9ODws3zu818",
+          "v5Zf4RclcBU",
+          "mi-JD4jGVUQ",
+          "OaQVrIiO61k"
+        ]
+      },
+      "songs/KAROL G Judeline rusowsky BbY WOW NO ME ARREPIENTO DE SENTIR TANTO": {
+        "items": [
+          "ljAH6jNaApU",
+          "OlEHhsX3w0c",
+          "hjMKaLmuvsQ",
+          "YRlqgEQ4D5M",
+          "OaQVrIiO61k",
+          "w94lnWZkKhU",
+          "WpG_9kQLH-4",
+          "panzEiP61EY",
+          "ga1_BfpqbAk",
+          "GeDQbyJSUGE",
+          "JrwsKHFkYx0",
+          "r9kcj3aQ6rA",
+          "dk1W_fcqvT0",
+          "Ivn2f7AEaLw",
+          "NlEReLYihAs",
+          "Fc_q9oY7Msk",
+          "ikArVUhC6pE",
+          "q4D6aTNiO-Y",
+          "K3zfkVlhxqs",
+          "7sLeWFaNRfM"
+        ]
+      },
+      "songs/KAROL G BbY WOW": {
+        "items": [
+          "ljAH6jNaApU",
+          "7mnGB_h6MTY",
+          "F_bif9x6ZPE",
+          "zk24FRDya1g",
+          "YgiSdQsEaFc",
+          "az3_6jmrcHY",
+          "2C29r956v40",
+          "ZlLJoi13WuM",
+          "WsGnCt-gT44",
+          "hYPYslGNZ28",
+          "eWvJxFjizAU",
+          "oVr0wpamTLk",
+          "xfutz1YKZ38",
+          "pJPmdSkO6RE",
+          "O9YHwmLF6JQ",
+          "D9BqbKCo18E",
+          "H_1ZnrwWZCM",
+          "tkYnyh5LIWo",
+          "KPZKwzwPk1g",
+          "gDD0pxL1arg"
+        ]
+      }
+    }
+  },
+  "labels": {
+    "ljAH6jNaApU": {
+      "label": "exact",
+      "by": "rule",
+      "evidence": ["length +0.2 s", "found by the ISRC search for USUG12607940 (#1, attempt 1)"]
+    }
+  }
+}

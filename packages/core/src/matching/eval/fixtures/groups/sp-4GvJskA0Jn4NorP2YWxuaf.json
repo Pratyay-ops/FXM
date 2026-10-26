@@ -1,0 +1,511 @@
+{
+  "id": "sp:4GvJskA0Jn4NorP2YWxuaf",
+  "split": "calibration",
+  "categories": ["mainstream", "regional"],
+  "provenance": ["Top 50 - Japan #1 (playlist:37i9dQZEVXbKXQ4mDTEBXq), read 2026-10-25"],
+  "spotify": {
+    "id": "4GvJskA0Jn4NorP2YWxuaf",
+    "popularity": 74,
+    "albumType": "album"
+  },
+  "variants": [
+    {
+      "slice": "spotify",
+      "source": {
+        "title": "しわあわせ",
+        "artists": [
+          {
+            "name": "Vaundy"
+          }
+        ],
+        "album": {
+          "name": "replica"
+        },
+        "durationMs": 273535,
+        "isrc": "JPR652100006",
+        "isrcOrigin": "catalog",
+        "explicit": false,
+        "releaseDate": "2023-11-15",
+        "label": "SDR Inc.",
+        "albumType": "album"
+      }
+    },
+    {
+      "slice": "data-export",
+      "source": {
+        "title": "しわあわせ",
+        "artists": [
+          {
+            "name": "Vaundy"
+          }
+        ],
+        "album": {
+          "name": "replica"
+        },
+        "isrc": "JPR652100006",
+        "isrcOrigin": "musicbrainz-exact",
+        "durationMs": 273546
+      }
+    },
+    {
+      "slice": "musicbrainz-exact",
+      "source": {
+        "title": "しわあわせ",
+        "artists": [
+          {
+            "name": "Vaundy"
+          }
+        ],
+        "durationMs": 273546,
+        "isrc": "JPR652100006",
+        "isrcOrigin": "musicbrainz-exact",
+        "releaseDate": "2021-04-11"
+      }
+    },
+    {
+      "slice": "musicbrainz-fuzzy",
+      "source": {
+        "title": "しわあわせ",
+        "artists": [
+          {
+            "name": "Vaundy"
+          }
+        ],
+        "album": {
+          "name": "replica"
+        },
+        "durationMs": 273535,
+        "explicit": false,
+        "isrc": "JPR652100006",
+        "isrcOrigin": "musicbrainz-fuzzy"
+      }
+    }
+  ],
+  "musicBrainz": {
+    "exact": {
+      "recording": "33fdd4f2-5762-4d9d-80cd-81c40a6d1aeb",
+      "title": "しわあわせ",
+      "artists": ["Vaundy"],
+      "lengthMs": 273546,
+      "isrcs": ["JPR652100006"],
+      "firstReleaseDate": "2021-04-11"
+    },
+    "fuzzy": {
+      "recording": "33fdd4f2-5762-4d9d-80cd-81c40a6d1aeb",
+      "isrcs": ["JPR652100006"]
+    }
+  },
+  "recording": {
+    "recordedAt": ["2026-10-25"],
+    "items": {
+      "Xay0HJ4LsNc": {
+        "kind": "song",
+        "title": "しわあわせ - Shiwaawase",
+        "artists": ["Vaundy"],
+        "album": "Shiwaawase",
+        "albumId": "MPREb_fMMTyUpVHx3",
+        "durationMs": 279000
+      },
+      "RLRsEBTIgeI": {
+        "kind": "song",
+        "title": "Eze Yoyo (DJ Starkeed Remix Street Mix) (feat. DJ Starkeed)",
+        "artists": ["David Jones David"],
+        "album": "Eze Yoyo (DJ Starkeed Remix Street Mix)",
+        "albumId": "MPREb_kp1CkLvkMph",
+        "durationMs": 110000
+      },
+      "-aiZrR1PStM": {
+        "kind": "song",
+        "title": "Amarim Ebelu Jekor",
+        "artists": ["Philo De Iron Lady", "Professional Dance Band of Africa"],
+        "album": "Ohuma Nme Onye Oya",
+        "albumId": "MPREb_0TtgXsV5Jhr",
+        "durationMs": 694000
+      },
+      "A-U0mfbEYPA": {
+        "kind": "song",
+        "title": "Emu Omuyenim",
+        "artists": ["Philo De Iron Lady", "Professional Dance Band of Africa"],
+        "album": "Emu Omuyenim",
+        "albumId": "MPREb_DSLqmyD9PKD",
+        "durationMs": 666000
+      },
+      "0NHkVDwkyyk": {
+        "kind": "song",
+        "title": "Yadından Çıxart Məni",
+        "artists": ["Rəssam", "MadTeen"],
+        "album": "Yadından Çıxart Məni",
+        "albumId": "MPREb_GLbXsZAcqWz",
+        "durationMs": 178000
+      },
+      "6bUgadr960s": {
+        "kind": "song",
+        "title": "しわあわせ (DOME TOUR 2026 \"SILENCE\") - Shiwaawase (DOME TOUR 2026 \"SILENCE\")",
+        "artists": ["Vaundy"],
+        "album": "Vaundy DOME TOUR 2026 \"SILENCE\" LIVE SELECTION from TOKYO DOME",
+        "albumId": "MPREb_4ZCzgFYL3U0",
+        "durationMs": 280000
+      },
+      "CBTyoxueKp0": {
+        "kind": "song",
+        "title": "しあわせ - Happiness",
+        "artists": ["john,SEKAI"],
+        "album": "Musical Isotope SEKAI 1st COMPILATION ALBUM METAPHOR vol.3 Afterimage Metaphor",
+        "albumId": "MPREb_c3x2oz8C8bk",
+        "durationMs": 168000
+      },
+      "9Mf_11XSZBM": {
+        "kind": "song",
+        "title": "花占い (DOME TOUR 2026 \"SILENCE\") - hanauranai (DOME TOUR 2026 \"SILENCE\")",
+        "artists": ["Vaundy"],
+        "album": "Vaundy DOME TOUR 2026 \"SILENCE\" LIVE SELECTION from TOKYO DOME",
+        "albumId": "MPREb_4ZCzgFYL3U0",
+        "durationMs": 218000
+      },
+      "I6a94-60esE": {
+        "kind": "song",
+        "title": "シアワセ - Shiawase",
+        "artists": ["aiko"],
+        "album": "Shiawase",
+        "albumId": "MPREb_rQ5LBeTCuxZ",
+        "durationMs": 326000
+      },
+      "v_Qv9xZg-KY": {
+        "kind": "song",
+        "title": "しあわせ - Shiawase (feat. Ms.OOJA & Salu)",
+        "artists": ["SPICY CHOCOLATE"],
+        "album": "Shibuya Jyunai Monogatari",
+        "albumId": "MPREb_Lt4yl3UXyLz",
+        "durationMs": 271000
+      },
+      "IIYLv53Dvuo": {
+        "kind": "song",
+        "title": "ふつうがいちばん",
+        "artists": ["石村吹雪"],
+        "album": "しわあわせ",
+        "albumId": "MPREb_KNA5E7fIH2S",
+        "durationMs": 186000
+      },
+      "lh9Lbs5MsX8": {
+        "kind": "song",
+        "title": "benefits",
+        "artists": ["Vaundy"],
+        "album": "benefits",
+        "albumId": "MPREb_V2ZJHgoHYdf",
+        "durationMs": 246000
+      },
+      "A6o4Dbcxsu0": {
+        "kind": "song",
+        "title": "まぶた - mabuta",
+        "artists": ["Vaundy"],
+        "album": "mabuta",
+        "albumId": "MPREb_qKSrePtqVRt",
+        "durationMs": 257000
+      },
+      "iLnfe7uQuGw": {
+        "kind": "song",
+        "title": "置き手紙 - okitegami",
+        "artists": ["Vaundy"],
+        "album": "okitegami",
+        "albumId": "MPREb_syTvzczDUAV",
+        "durationMs": 240000
+      },
+      "yedEqZW27bc": {
+        "kind": "song",
+        "title": "泣き地蔵 - NakiJizo",
+        "artists": ["Vaundy"],
+        "album": "NakiJizo",
+        "albumId": "MPREb_f3VLeMj4hfi",
+        "durationMs": 150000
+      },
+      "0ahTUQn7Oho": {
+        "kind": "song",
+        "title": "忘れ物 - wasuremono",
+        "artists": ["Vaundy"],
+        "album": "wasuremono",
+        "albumId": "MPREb_gZ99Dt10AwR",
+        "durationMs": 199000
+      },
+      "o7aOhAYyTTU": {
+        "kind": "song",
+        "title": "二人話 - Futaribanashi",
+        "artists": ["Vaundy"],
+        "album": "Hadaka no yusha",
+        "albumId": "MPREb_y6hRXFXL9Rq",
+        "durationMs": 205000
+      },
+      "vfVPx5afZ3E": {
+        "kind": "song",
+        "title": "Imagine -3Key(原曲歌手:John Lennon) - IMAGINE -3Key No Guide melody Original by JOHN LENNON",
+        "artists": ["歌っちゃ王"],
+        "album": "IMAGINE No Guide melody Original by JOHN LENNON",
+        "albumId": "MPREb_m69kpu4stDZ",
+        "durationMs": 185000
+      },
+      "WxJzIivAB3M": {
+        "kind": "song",
+        "title": "しあわせ",
+        "artists": ["35.7"],
+        "album": "しあわせ",
+        "albumId": "MPREb_KtGDpR4BWUa",
+        "durationMs": 170000
+      },
+      "tqmvLCZkq5A": {
+        "kind": "song",
+        "title": "前前前世 - Zenzenzense",
+        "artists": ["Vaundy"],
+        "album": "Zenzenzense",
+        "albumId": "MPREb_AjRxgqxL6Iv",
+        "durationMs": 263000
+      },
+      "Xr0RRdBNNUg": {
+        "kind": "song",
+        "title": "ZERO",
+        "artists": ["Vaundy"],
+        "album": "ZERO",
+        "albumId": "MPREb_yo9ygVSF8S1",
+        "durationMs": 236000
+      },
+      "ZZ1v3u-o6Es": {
+        "kind": "song",
+        "title": "Salamander -3Key(原曲歌手:ELLEGARDEN) - Salamander -3Key No Guide melody Original by ELLEGARDEN",
+        "artists": ["歌っちゃ王"],
+        "album": "Salamander No Guide melody Original by ELLEGARDEN",
+        "albumId": "MPREb_U5zpliI47Td",
+        "durationMs": 220000
+      },
+      "hS2BVRnQiYI": {
+        "kind": "song",
+        "title": "東京フラッシュ - Tokyo Flash",
+        "artists": ["Vaundy"],
+        "album": "Tokyo Flash",
+        "albumId": "MPREb_XcD9mtrQAkN",
+        "durationMs": 259000
+      },
+      "qoKG_A2ovv8": {
+        "kind": "song",
+        "title": "Imagine -4Key(原曲歌手:John Lennon) - IMAGINE -4Key No Guide melody Original by JOHN LENNON",
+        "artists": ["歌っちゃ王"],
+        "album": "IMAGINE No Guide melody Original by JOHN LENNON",
+        "albumId": "MPREb_m69kpu4stDZ",
+        "durationMs": 185000
+      },
+      "_zOjqIAiZDA": {
+        "kind": "song",
+        "title": "Audio 015 (DOME TOUR 2026 \"SILENCE\")",
+        "artists": ["Vaundy"],
+        "album": "Vaundy DOME TOUR 2026 \"SILENCE\" LIVE SELECTION from TOKYO DOME",
+        "albumId": "MPREb_4ZCzgFYL3U0",
+        "durationMs": 55000
+      },
+      "uY2eIgDqigk": {
+        "kind": "song",
+        "title": "怪獣の花唄 (Cover Ver.) [Mixed] - Kaijuuno Hanauta (Cover Ver.) [Mixed]",
+        "artists": ["mei"],
+        "album": "Hit Medore- J-Pop! ~Chosaisin & Teiban Ninki 99 Mix~ (DJ MIX)",
+        "albumId": "MPREb_htTAK43L4Eu",
+        "durationMs": 51000
+      },
+      "SUKHstcNm64": {
+        "kind": "song",
+        "title": "そんなbitterな話(カラオケ)[原曲歌手:Vaundy] - SONNA BITTER NA HANASHI KARAOKE Original by Vaundy",
+        "artists": ["歌っちゃ王"],
+        "album": "SONNA BITTER NA HANASHI KARAOKE Original by Vaundy",
+        "albumId": "MPREb_CV7ZIhqIRVm",
+        "durationMs": 276000
+      },
+      "hurYJCgf-7Y": {
+        "kind": "song",
+        "title": "イデアが溢れて眠れない - idea ga afurete nemurenai",
+        "artists": ["Vaundy"],
+        "album": "idea ga afurete nemurenai",
+        "albumId": "MPREb_hZ29QARnYjb",
+        "durationMs": 263000
+      },
+      "1mfI5MZOzaI": {
+        "kind": "song",
+        "title": "東京フラッシュ (DOME TOUR 2026 \"SILENCE\") - Tokyo Flash (DOME TOUR 2026 \"SILENCE\")",
+        "artists": ["Vaundy"],
+        "album": "Vaundy DOME TOUR 2026 \"SILENCE\" LIVE SELECTION from TOKYO DOME",
+        "albumId": "MPREb_4ZCzgFYL3U0",
+        "durationMs": 267000
+      },
+      "JPZo1PJIArQ": {
+        "kind": "song",
+        "title": "偉生人 - Iseijin",
+        "artists": ["Vaundy"],
+        "album": "Iseijin",
+        "albumId": "MPREb_xKJ9nTNrKhu",
+        "durationMs": 209000
+      },
+      "-Xd4V7CBqAg": {
+        "kind": "song",
+        "title": "おもかげ -self cover- - Omokage -self cover",
+        "artists": ["Vaundy"],
+        "album": "Hadaka no yusha",
+        "albumId": "MPREb_y6hRXFXL9Rq",
+        "durationMs": 210000
+      },
+      "vs1tv0heg0Y": {
+        "kind": "song",
+        "title": "かげろう (short2 ver.) - Kagerou (short2 ver.)",
+        "artists": ["Vaundy"],
+        "album": "Kagerou (short2 ver.)",
+        "albumId": "MPREb_cctu96ZwxWq",
+        "durationMs": 60000
+      },
+      "KKtShO8kJPg": {
+        "kind": "song",
+        "title": "ASH feat. Vaundy （n-buna from ヨルシカ Remix） - ASH feat. Vaundy (n-buna from YORUSHIKA Remix) (feat. Vaundy)",
+        "artists": ["Nulbarich"],
+        "album": "ASH feat. Vaundy",
+        "albumId": "MPREb_duiLAhSpQPJ",
+        "durationMs": 197000
+      },
+      "WMMlqpcWBr8": {
+        "kind": "song",
+        "title": "呼び声 - Yobigoe",
+        "artists": ["Vaundy"],
+        "album": "Yobigoe",
+        "albumId": "MPREb_HnxyrBTF6nF",
+        "durationMs": 234000
+      },
+      "uYyfD5A-w8Q": {
+        "kind": "song",
+        "title": "気まぐれ - kimagure",
+        "artists": ["Vaundy"],
+        "album": "kimagure",
+        "albumId": "MPREb_wJea1QELEq8",
+        "durationMs": 210000
+      },
+      "stss6w2io68": {
+        "kind": "song",
+        "title": "シンギュラリティ - SINGULARITY",
+        "artists": ["Vaundy"],
+        "album": "SINGULARITY",
+        "albumId": "MPREb_4uLPMnHWFqd",
+        "durationMs": 249000
+      },
+      "ymHi_JaDEmQ": {
+        "kind": "song",
+        "title": "Gift",
+        "artists": ["Vaundy"],
+        "album": "Homunculus / Gift",
+        "albumId": "MPREb_T4r2J8yzZZI",
+        "durationMs": 243000
+      },
+      "uj1DkgXSR4w": {
+        "kind": "song",
+        "title": "走れSAKAMOTO – RUN SAKAMOTO RUN – Opening theme to SAKAMOTO DAYS - RUN SAKAMOTO RUN Opening theme to SAKAMOTO DAYS",
+        "artists": ["Vaundy"],
+        "album": "RUN SAKAMOTO RUN Opening theme to SAKAMOTO DAYS",
+        "albumId": "MPREb_VgEIRpPG8tW",
+        "durationMs": 206000
+      },
+      "CZP11p3DklQ": {
+        "kind": "song",
+        "title": "軌跡 - Kiseki",
+        "artists": ["Vaundy"],
+        "album": "Kiseki",
+        "albumId": "MPREb_SZ3XkMxX59s",
+        "durationMs": 268000
+      },
+      "bGQQfNgtlz8": {
+        "kind": "song",
+        "title": "不可幸力 - Fukakouryoku",
+        "artists": ["Vaundy"],
+        "album": "Fukakouryoku",
+        "albumId": "MPREb_yqXdbZB8SwI",
+        "durationMs": 200000
+      },
+      "RFVHj-vmJIw": {
+        "kind": "song",
+        "title": "GORILLA芝居 - GORILLA SHIBAI",
+        "artists": ["Vaundy"],
+        "album": "GORILLA SHIBAI",
+        "albumId": "MPREb_iqpgwaoWgdh",
+        "durationMs": 191000
+      }
+    },
+    "pages": {
+      "isrc-songs/1/JPR652100006": {
+        "items": ["Xay0HJ4LsNc", "RLRsEBTIgeI", "-aiZrR1PStM", "A-U0mfbEYPA", "0NHkVDwkyyk"]
+      },
+      "isrc-top-card/JPR652100006": {
+        "item": "Xay0HJ4LsNc"
+      },
+      "isrc-songs/2/JPR652100006": {
+        "items": ["Xay0HJ4LsNc", "-aiZrR1PStM", "RLRsEBTIgeI", "A-U0mfbEYPA", "0NHkVDwkyyk"]
+      },
+      "songs/Vaundy しわあわせ": {
+        "items": [
+          "Xay0HJ4LsNc",
+          "6bUgadr960s",
+          "CBTyoxueKp0",
+          "9Mf_11XSZBM",
+          "I6a94-60esE",
+          "v_Qv9xZg-KY",
+          "IIYLv53Dvuo",
+          "lh9Lbs5MsX8",
+          "A6o4Dbcxsu0",
+          "iLnfe7uQuGw",
+          "yedEqZW27bc",
+          "0ahTUQn7Oho",
+          "o7aOhAYyTTU",
+          "vfVPx5afZ3E",
+          "WxJzIivAB3M",
+          "tqmvLCZkq5A",
+          "Xr0RRdBNNUg",
+          "ZZ1v3u-o6Es",
+          "hS2BVRnQiYI",
+          "qoKG_A2ovv8"
+        ]
+      },
+      "songs/Vaundy しわあわせ replica": {
+        "items": [
+          "Xay0HJ4LsNc",
+          "6bUgadr960s",
+          "_zOjqIAiZDA",
+          "uY2eIgDqigk",
+          "SUKHstcNm64",
+          "hurYJCgf-7Y",
+          "1mfI5MZOzaI",
+          "JPZo1PJIArQ",
+          "-Xd4V7CBqAg",
+          "hS2BVRnQiYI",
+          "vs1tv0heg0Y",
+          "KKtShO8kJPg",
+          "WMMlqpcWBr8",
+          "uYyfD5A-w8Q",
+          "stss6w2io68",
+          "ymHi_JaDEmQ",
+          "uj1DkgXSR4w",
+          "CZP11p3DklQ",
+          "bGQQfNgtlz8",
+          "RFVHj-vmJIw"
+        ]
+      },
+      "description/Xay0HJ4LsNc": {
+        "facts": {
+          "providedBy": "SDR Inc.",
+          "label": "SDR Inc.",
+          "releaseYear": 2021
+        },
+        "excerpt": "Provided to YouTube by SDR Inc.\nしわあわせ · Vaundy\nしわあわせ\n℗ SDR Inc.\nReleased on: 2021-04-11"
+      }
+    }
+  },
+  "labels": {
+    "Xay0HJ4LsNc": {
+      "label": "exact",
+      "by": "agent",
+      "ambiguous": true,
+      "evidence": [
+        "length +5.5 s",
+        "first item of both ISRC searches for JPR652100006 and their top-result card",
+        "same title (しわあわせ), artist and label (SDR Inc.); released 2021-04-11, the first release MusicBrainz gives the recording with this ISRC",
+        "the album version on \"replica\" is the same master; the 5.5 s are probably a longer file (the ISRC gate's window is 5.47 s here); confirm by ear"
+      ]
+    }
+  }
+}
