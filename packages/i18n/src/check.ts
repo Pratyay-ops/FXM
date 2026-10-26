@@ -165,6 +165,11 @@ export function checkTranslation(options: {
   for (const tag of english.tags) {
     if (!translated.tags.has(tag)) error(`Leaves out the tag <${tag}>`)
   }
+  // A self-closing tag is text (as in FormatJS), so the screen would show it as written.
+  const selfClosing = /<[A-Za-z][\w-]*\s*\/>/.exec(translation)?.[0]
+  if (selfClosing !== undefined && !source.includes(selfClosing)) {
+    warning(`${selfClosing} shows as text: a self-closing tag isn't a tag`)
+  }
   problems.push(...pluralProblems(id, locale, translated))
   // A value whose option a translation lacks gets its `other` text, which says something else,
   // or nothing at all where a release flag's select ends in `other {}`.

@@ -101,6 +101,10 @@ describe('parseMessage', () => {
     expect(parseMessage('Under <5 minutes, a < b')).toEqual(['Under <5 minutes, a < b'])
   })
 
+  it('keeps a self-closing tag as text, as FormatJS does', () => {
+    expect(parseMessage('a<br/>b <img />')).toEqual(['a<br/>b <img />'])
+  })
+
   it('quotes as ICU does, so ordinary apostrophes need nothing', () => {
     expect(parseMessage("Can't play {title}")).toEqual([
       "Can't play ",

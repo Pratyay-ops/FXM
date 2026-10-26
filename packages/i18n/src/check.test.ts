@@ -77,6 +77,16 @@ describe('checkTranslation', () => {
     ).toEqual(["Has the tag <a>, which the English message doesn't", 'Leaves out the tag <link>'])
   })
 
+  it('warns about a self-closing tag, which shows as text', () => {
+    expect(check('title', 'Biblio-<br/>thek')).toEqual([
+      {
+        severity: 'warning',
+        id: 'library.title',
+        problem: "<br/> shows as text: a self-closing tag isn't a tag",
+      },
+    ])
+  })
+
   it('needs every plural form of the language, and warns about forms it never uses', () => {
     expect(check('songs', '{count, plural, one {# utwór} other {# utworu}}', 'pl')).toEqual([
       { severity: 'error', id: 'library.songs', problem: '{count} needs the pl forms few, many' },

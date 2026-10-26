@@ -12,14 +12,15 @@
  * - `{v, select, a {…} b {…} other {…}}`: the option named by the value, else `other`.
  * - `<name>…</name>`: a tag around part of a message, such as a link, so a sentence stays one
  *   message. Rich formatting renders it (`Translator.rich`); plain formatting keeps what it
- *   encloses. A `<` that doesn't start a tag is plain text.
+ *   encloses. A `<` that doesn't start a tag is plain text, and so is a self-closing tag
+ *   (`<br/>`), as FormatJS reads it.
  * - Apostrophes quote as in ICU 4.8 and later (`ApostropheMode.DOUBLE_OPTIONAL`): `''` is one
  *   apostrophe; an apostrophe before `{`, `}`, `<`, or `#` inside a plural, starts quoted text that
  *   runs to the next single apostrophe; any other apostrophe is itself, so "doesn't" needs nothing.
  *
  * Everything else ICU has is refused with a {@link MessageSyntaxError}, so a message never means
  * something different here than in a translator's tool: `offset:`, skeletons (`::`), `choice`,
- * `spellout`, `duration` and `ordinal` arguments, other number and date styles, self-closing tags.
+ * `spellout`, `duration` and `ordinal` arguments, other number and date styles.
  *
  * @module
  */
