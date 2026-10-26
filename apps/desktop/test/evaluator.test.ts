@@ -18,7 +18,8 @@ const config = JSON.parse(read('../src-tauri/tauri.conf.json')) as {
   app: { security: { csp: string } }
 }
 const capability = JSON.parse(read('../src-tauri/capabilities/default.json')) as {
-  windows: string[]
+  windows?: string[]
+  webviews: string[]
   permissions: unknown[]
 }
 const platformHost = read('../../../packages/platform/src/evaluator/tauri.ts')
@@ -33,7 +34,10 @@ describe('the desktop evaluator host', () => {
   it('serves it from its own scheme, to windows no capability names', () => {
     expect(evaluatorRs).toContain('pub const SCHEME: &str = "fxm-eval";')
     expect(evaluatorRs).toContain('pub const WINDOW_PREFIX: &str = "fxm-evaluator-";')
-    expect(capability.windows).toEqual(['main'])
+    // The capability names the main window's webview only, which has that window's label; an
+    // evaluator window's webview has the evaluator window's.
+    expect(capability.webviews).toEqual(['main'])
+    expect(capability.windows).toBeUndefined()
     expect(capability.permissions).toContain('fxm-evaluator:default')
     expect(platformHost).toContain("TAURI_EVALUATOR_ORIGIN = 'fxm-eval://localhost'")
   })
@@ -79,7 +83,7 @@ describe('the desktop evaluator host', () => {
       buildRs,
     )
     if (!manifest) expect(appCommands.map(({ name }) => name)).toEqual([])
-    else expect(capability.windows).toEqual(['main'])
+    else expect(capability.webviews).toEqual(['main'])
   })
 
   it("leaves 'unsafe-eval' out of the main window's policy", () => {
