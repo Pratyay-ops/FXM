@@ -180,6 +180,16 @@ describe('the listening affinity in the library', () => {
     expect(await stored(repo, trackId(1))).toBeUndefined()
   })
 
+  it('forgets what downloads removed together added, and keeps the rest', async () => {
+    const { repo } = setup()
+    for (const n of [1, 2, 3]) await repo.addDownload(track(n))
+    expect(await repo.removeDownloads([track(1).id, track(2).id, track(9).id])).toBe(2)
+    expect(await stored(repo, trackId(1))).toBeUndefined()
+    expect(await stored(repo, artistId(2))).toBeUndefined()
+    expect((await stored(repo, trackId(3)))?.score).toBe(ADD)
+    await expectRebuildEquals(repo, T0)
+  })
+
   it('scores plays by the share played, and skips by the share left', async () => {
     const { repo } = setup()
     const song = track(1, { durationMs: 200_000 })

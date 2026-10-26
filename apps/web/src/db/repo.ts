@@ -1176,11 +1176,12 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
     /**
      * Removes deleted downloads from Downloads in one change, however many there are (stage
-     * 4.1's "Remove all downloads" and batches). Returns how many left it.
+     * 4.1's "Remove all downloads" and batches), and what they added to the affinity. Returns
+     * how many left it.
      */
     async removeDownloads(trackIds: readonly EntityId<'track'>[]): Promise<number> {
       if (trackIds.length === 0) return 0
-      return db.transaction('rw', db.playlists, async () => {
+      return db.transaction('rw', [db.playlists, db.tracks, db.affinity], async () => {
         const record = await requirePlaylist(DOWNLOADS_PLAYLIST_ID)
         const removing = new Set(trackIds.map(keyOf))
         const kept = record.trackIds.filter((id) => !removing.has(keyOf(id)))
@@ -1190,7 +1191,9 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
           Object.entries(record.addedAt).filter(([id]) => !removing.has(keyOf(id))),
         )
         await db.playlists.put(next)
-        return record.trackIds.length - kept.length
+        const removed = record.trackIds.filter((id) => removing.has(keyOf(id)))
+        await signal(removalSignals(record, removed))
+        return removed.length
       })
     },
 
