@@ -73,7 +73,7 @@
       "scopeRedirects": true
     },
     "updater": {
-      "pubkey": "PLACEHOLDER: this build has no updater key yet. Make the key pair as apps/desktop/README.md says (Updates) and put its public key here. Release builds stop while this text is here.",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFDREYwOTYyREQ1MkUxOTUKUldTVjRWTGRZZ25mSEZrQ2p1bXA1NzIwdDlhVWFXRUxPdHdta1hZcDRCa011c2dqZ2w4VkJhN24K",
       "endpoints": ["https://github.com/Pratyay-ops/FXM/releases/latest/download/latest.json"],
       "requireSignedVersion": true,
       "windows": {
