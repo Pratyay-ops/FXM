@@ -6,6 +6,7 @@ import {
   Suspense,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
@@ -101,7 +102,12 @@ function SourcePicker({
 }) {
   const name = useId()
   return (
-    <div role="radiogroup" aria-labelledby={labelledBy} className="flex gap-2 sm:flex-wrap">
+    <div
+      role="radiogroup"
+      aria-labelledby={labelledBy}
+      data-source-picker
+      className="flex gap-2 sm:flex-wrap"
+    >
       {options.map((option) => {
         const checked = option === value
         return (
@@ -170,6 +176,20 @@ function useScrollFade(box: RefObject<HTMLElement | null>, content: string): CSS
 }
 
 /**
+ * Scrolls a sideways scrolling row just enough to show `item` whole, clear of `margin` pixels at
+ * either edge (where the row fades out), and no more. Only the row moves, never the page, which
+ * `scrollIntoView` could scroll as well.
+ */
+export function scrollIntoRow(row: HTMLElement, item: HTMLElement, margin = 0): void {
+  const box = row.getBoundingClientRect()
+  const target = item.getBoundingClientRect()
+  const before = target.left - (box.left + margin)
+  const after = target.right - (box.right - margin)
+  if (before < 0) row.scrollLeft += before
+  else if (after > 0) row.scrollLeft += Math.min(after, before)
+}
+
+/**
  * The mode chip, the source switch (when there is more than one source) and the tier note.
  * Phones get them in one row that scrolls sideways, with the labels for screen readers only, so
  * the results start high on the screen; wider screens show the mode's hint and "Search in".
@@ -184,6 +204,19 @@ function SearchFilters() {
   const row = useRef<HTMLDivElement>(null)
   const fade = useScrollFade(row, options.join())
   const several = options.length > 1
+  // On phones the row scrolls sideways and can hide the selected source: bring its chip into
+  // view when the page opens and whenever the source changes, before the browser paints.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the chip to show follows the source
+  useLayoutEffect(() => {
+    const element = row.current
+    // The source's chip, not the mode chip's radio, which shares the row.
+    const chip = element
+      ?.querySelector<HTMLInputElement>('[data-source-picker] input[type="radio"]:checked')
+      ?.closest('label')
+    if (!element || !chip) return
+    const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
+    scrollIntoRow(element, chip, Number.parseFloat(EDGE_FADE) * rem)
+  }, [source, options.join()])
   return (
     <div className="space-y-3">
       {/* py-1 and px-gutter: the scroll box clips, so leave room for the focus rings. */}

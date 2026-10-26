@@ -298,13 +298,19 @@ test.describe('the notices never move the page', () => {
       await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Good /)
       // The page itself: the first child of the content column, before the notice's layer.
       const content = page.locator('main > div > :first-child')
-      const before = await content.boundingBox()
+      // Where it is, not how tall: Home swaps its skeleton for its shelves once the tier is
+      // known, which is when the notice appears too.
+      const place = async () => {
+        const box = await content.boundingBox()
+        return box === null ? null : { x: box.x, y: box.y, width: box.width }
+      }
+      const before = await place()
 
       const shown = page.getByRole('region', { name: notice })
       await expect(shown).toBeVisible()
 
       // It floats above the mini player and the tab bar: nothing on the page moved.
-      expect(await content.boundingBox()).toEqual(before)
+      expect(await place()).toEqual(before)
       expect(await layoutShift(page)).toBeLessThan(0.01)
       // The end of the page still scrolls clear of it.
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
@@ -316,6 +322,54 @@ test.describe('the notices never move the page', () => {
     })
   }
 })
+
+/** Names the focused element when something else covers its centre (a floating notice, say). */
+function coveredFocus(page: Page) {
+  return page.evaluate(() => {
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement) || active === document.body) return null
+    const target = active.closest('label') ?? active
+    const { left, top, width, height } = target.getBoundingClientRect()
+    const hit = document.elementFromPoint(left + width / 2, top + height / 2)
+    if (hit && (hit === target || target.contains(hit))) return null
+    return active.getAttribute('aria-label') ?? active.textContent?.trim() ?? active.tagName
+  })
+}
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 1280, height: 800 },
+] as const) {
+  test.describe(`the notice keeps clear of the page at ${viewport.width} px`, () => {
+    test.use({ viewport })
+
+    test('keyboard focus never lands behind it, and the page scrolls clear of it', async ({
+      page,
+    }) => {
+      await fakeYouTube(page, false)
+      // Local files: the buttons a phone without FXM Connect needs, low on a short page.
+      await page.goto('library?tab=local')
+      const notice = page.getByRole('region', { name: 'This browser plays free music' })
+      await expect(notice).toBeVisible()
+      const covered: string[] = []
+      for (let press = 0; press < 40; press++) {
+        await page.keyboard.press('Tab')
+        const name = await coveredFocus(page)
+        if (name) covered.push(name)
+      }
+      expect(covered).toEqual([])
+
+      // Scrolled to its end, the page's last content sits above the notice.
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      const content = page.locator('main > div > :first-child')
+      await expect(async () => {
+        const [end, box] = await Promise.all([content.boundingBox(), notice.boundingBox()])
+        expect((end?.y ?? 0) + (end?.height ?? 0)).toBeLessThanOrEqual(box?.y ?? 0)
+      }).toPass()
+      await page.screenshot({ path: `screenshots/notice-clear-${viewport.width}.png` })
+    })
+  })
+}
 
 test.describe('with the other floating layers, on a 390 px phone', () => {
   test.use({ viewport: { width: 390, height: 844 } })
