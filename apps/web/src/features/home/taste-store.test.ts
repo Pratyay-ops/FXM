@@ -85,6 +85,19 @@ describe('the taste store', () => {
     })
   })
 
+  it('clears the picks, and only them', () => {
+    const storage = memoryStorage()
+    const store = createTasteStore(() => storage)
+    store.getState().savePicks({ artists: [{ name: 'Basalt' }], genres: [] }, 42)
+    store.getState().dismiss(50)
+    store.getState().clearPicks()
+    expect(store.getState().picks).toBeUndefined()
+    expect(store.getState().dismissedAt).toBe(50)
+    expect(JSON.parse(storage.items.get(TASTE_STORAGE_KEY) ?? '{}').state).toEqual({
+      dismissedAt: 50,
+    })
+  })
+
   it('reads stored picks back, and ignores corrupt ones', () => {
     const good = createTasteStore(() =>
       memoryStorage({

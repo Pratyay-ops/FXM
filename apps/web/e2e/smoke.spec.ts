@@ -252,6 +252,27 @@ test.describe('on a 320 px phone', () => {
     expect(await tabAndCollectCovered(page, 30)).toEqual([])
   })
 
+  test('lets the keyboard reach every row of Home that scrolls', async ({ page }) => {
+    await restoreLibrary(page)
+    await page.goto('./')
+    await expect(page.getByRole('region', { name: 'Rediscover' })).toBeVisible()
+    // A row that scrolls sideways takes focus itself or holds something that does (axe's
+    // scrollable-region-focusable): Safari doesn't make it a Tab stop on its own.
+    const unreachable = await page.getByRole('main').evaluate((main) =>
+      [...main.querySelectorAll('ul')]
+        .filter((list) => list.scrollWidth > list.clientWidth)
+        .filter(
+          (list) =>
+            list.tabIndex < 0 &&
+            list.querySelector(
+              'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ) === null,
+        )
+        .map((list) => list.getAttribute('aria-label')),
+    )
+    expect(unreachable).toEqual([])
+  })
+
   test('uses the tab bar and opens Now Playing from the mini player', async ({ page }) => {
     await page.goto('./')
     await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Search' }).tap()
@@ -261,5 +282,40 @@ test.describe('on a 320 px phone', () => {
 
     await expect(page).toHaveURL(/\/app\/now-playing$/)
     await expect(page.getByRole('button', { name: 'Play' })).toBeVisible()
+  })
+})
+
+// Home's recommendations need services of other stages; a build with VITE_FXM_FAKE_CATALOG=on
+// has Home's development fakes (`?fake-home=lite`), e.g.
+// `VITE_FXM_FAKE_CATALOG=on pnpm --filter @fxm/web e2e`.
+test.describe('Home with its development fakes, on a 320 px phone', () => {
+  test.skip(
+    process.env.VITE_FXM_FAKE_CATALOG !== 'on',
+    'Needs a build with VITE_FXM_FAKE_CATALOG=on',
+  )
+  test.use({ viewport: { width: 320, height: 640 }, hasTouch: true, isMobile: true })
+
+  test('builds Home from the picks, and keeps every song focus reaches in view', async ({
+    page,
+  }) => {
+    await page.goto('./?fake-home=lite')
+    const onboarding = page.getByRole('region', { name: 'What do you like to listen to?' })
+    for (const name of ['Aurora Lane', 'Basalt', 'Cinder']) {
+      await onboarding.getByRole('button', { name }).click()
+    }
+    await onboarding.getByRole('button', { name: 'Build my Home' }).press('Enter')
+    await expect(page.getByRole('heading', { name: 'Quick picks' })).toBeFocused()
+    // Through Quick picks' columns: a song that only shows in part scrolls into view.
+    for (let press = 0; press < 10; press++) {
+      await page.keyboard.press('Tab')
+      await expect
+        .poll(() =>
+          page.evaluate(() => {
+            const item = document.activeElement?.closest('li')?.getBoundingClientRect()
+            return item === undefined || (item.left >= 0 && item.right <= innerWidth)
+          }),
+        )
+        .toBe(true)
+    }
   })
 })

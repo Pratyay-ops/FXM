@@ -1,7 +1,8 @@
 /**
  * Home's shelves: the rows of songs and mixes, and a connected Spotify account's sections.
  * Every song is a button that plays its shelf from that song, when playback is wired in (see
- * `services.tsx`); otherwise the shelves only show.
+ * `services.tsx`); otherwise the shelves only show, and a row that scrolls takes focus itself,
+ * so the keyboard can scroll it too.
  *
  * @module
  */
@@ -16,7 +17,7 @@ import {
   type Track,
 } from '@fxm/core'
 import { Disc3, ListMusic, MicVocal, Play } from 'lucide-react'
-import { type ReactNode, useId } from 'react'
+import { type FocusEvent, type ReactNode, useId } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
@@ -60,7 +61,13 @@ export function ShelfSection({
     <section aria-labelledby={headingId} className="space-y-4">
       <div className="flex items-end justify-between gap-4">
         <div className="min-w-0">
-          <h2 id={headingId} className="text-xl font-bold tracking-tight md:text-2xl">
+          {/* Focusable from code: Home moves focus here once it has been built. */}
+          <h2
+            id={headingId}
+            tabIndex={-1}
+            data-home-heading=""
+            className="text-xl font-bold tracking-tight md:text-2xl"
+          >
             {title}
           </h2>
           {description && <p className="mt-1 text-sm text-text-muted">{description}</p>}
@@ -89,14 +96,49 @@ export function PlayAllButton({ play, label }: { play: PlayFrom; label: string }
 }
 
 const SCROLLER =
-  '-mx-gutter grid grid-flow-col gap-4 overflow-x-auto px-gutter pt-1 pb-2 scroll-px-gutter scrollbar-thin snap-x snap-mandatory'
+  '-mx-gutter grid grid-flow-col gap-4 overflow-x-auto px-gutter pt-1 pb-2 scroll-px-gutter scrollbar-thin snap-x snap-mandatory focus-visible:-outline-offset-2'
 
-/** A row of cards that scrolls sideways and bleeds to the screen edge on phones. */
-function CardRow({ label, children }: { label: string; children: ReactNode[] }) {
+/**
+ * Scrolls a row so that the item focus moved into shows whole: browsers leave an item that
+ * shows in part where it is, half off screen, and the next Tab would land out of sight.
+ */
+export function revealFocused(event: FocusEvent<HTMLElement>): void {
+  const row = event.currentTarget
+  const item = event.target instanceof Element ? event.target.closest('li') : null
+  if (item === null || item.parentElement !== row) return
+  const box = row.getBoundingClientRect()
+  const style = getComputedStyle(row)
+  // The row keeps the page's side padding clear when it scrolls (scroll-px-gutter).
+  const start = box.left + (Number.parseFloat(style.scrollPaddingLeft) || 0)
+  const end = box.right - (Number.parseFloat(style.scrollPaddingRight) || 0)
+  const { left, right } = item.getBoundingClientRect()
+  if (left >= start - 0.5 && right <= end + 0.5) return
+  item.scrollIntoView?.({ inline: 'start', block: 'nearest' })
+}
+
+/**
+ * A row of cards that scrolls sideways and bleeds to the screen edge on phones, where part of
+ * the next card always shows, so the row reads as one that scrolls. `focusable` when nothing
+ * in it can take focus: the row itself does, so the keyboard can scroll it.
+ */
+function CardRow({
+  label,
+  focusable = false,
+  children,
+}: {
+  label: string
+  focusable?: boolean
+  children: ReactNode[]
+}) {
   return (
     <ul
       aria-label={label}
-      className={cn(SCROLLER, 'auto-cols-[9rem] sm:auto-cols-[10.5rem] lg:auto-cols-[11.5rem]')}
+      tabIndex={focusable ? 0 : undefined}
+      onFocus={revealFocused}
+      className={cn(
+        SCROLLER,
+        'auto-cols-[min(9rem,calc((100%+var(--spacing-gutter)-2rem)/2.3))] sm:auto-cols-[10.5rem] lg:auto-cols-[11.5rem]',
+      )}
     >
       {children}
     </ul>
@@ -187,7 +229,7 @@ export function TrackRow({
   play: PlayFrom
 }) {
   return (
-    <CardRow label={label}>
+    <CardRow label={label} focusable={play === undefined}>
       {items.map((item, index) => (
         <li key={item.track.id} className="snap-start">
           <TrackCard track={item.track} play={play === undefined ? undefined : () => play(index)} />
@@ -232,6 +274,8 @@ export function QuickPicksGrid({ items, play }: { items: readonly HomeTrack[]; p
   return (
     <ul
       aria-label="Quick picks"
+      tabIndex={play === undefined ? 0 : undefined}
+      onFocus={revealFocused}
       className={cn(
         SCROLLER,
         // A sliver of the next column shows, so the grid reads as one that scrolls.
@@ -388,8 +432,10 @@ export function SourceRow({
   play: PlayFrom
 }) {
   let trackIndex = 0
+  // Albums, artists and playlists are links; songs are buttons only with playback.
+  const focusable = play === undefined && items.every((item) => item.type === 'track')
   return (
-    <CardRow label={label}>
+    <CardRow label={label} focusable={focusable}>
       {items.map((item) => {
         const index = item.type === 'track' ? trackIndex++ : -1
         const id =

@@ -150,6 +150,19 @@ for (const theme of THEMES) {
 test.describe('forced colors (Windows High Contrast) at 1280px', () => {
   test.use({ ...viewport(1280), forcedColors: 'active' })
 
+  test("captures Home's onboarding, with artists and genres picked", async ({ page }) => {
+    test.skip(
+      process.env.VITE_FXM_FAKE_CATALOG !== 'on',
+      "Home's development fakes need a build with VITE_FXM_FAKE_CATALOG=on",
+    )
+    await seedSettings(page, 'music', 'dark')
+    await page.goto('./?fake-home=lite')
+    const onboarding = page.getByRole('region', { name: 'What do you like to listen to?' })
+    await onboarding.getByRole('button', { name: 'Aurora Lane' }).click()
+    await onboarding.getByRole('button', { name: 'Jazz' }).click()
+    await onboarding.screenshot({ path: 'screenshots/forced-colors-1280-onboarding.png' })
+  })
+
   test('captures the sliders, segmented controls and tabs', async ({ page }) => {
     await seedSettings(page, 'all', 'dark')
     await capture(

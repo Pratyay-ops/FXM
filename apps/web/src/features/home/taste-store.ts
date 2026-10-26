@@ -34,6 +34,8 @@ export interface TasteState extends Taste {
     picks: { artists: readonly PickedArtist[]; genres: readonly string[] },
     at: number,
   ): void
+  /** Forgets the picks: Home grows from what the user plays only. */
+  clearPicks(): void
   /** Puts the onboarding off. */
   dismiss(at: number): void
   /** Brings the onboarding back. */
@@ -103,6 +105,11 @@ export function createTasteStore(storage?: () => Storage | undefined) {
           const clean = cleanPicks(picks)
           set({ picks: { ...clean, at } })
         },
+        clearPicks: () =>
+          set((state) => {
+            const { picks: _picks, ...rest } = state
+            return rest
+          }, true),
         dismiss: (at) => set({ dismissedAt: at }),
         reopen: () =>
           set((state) => {

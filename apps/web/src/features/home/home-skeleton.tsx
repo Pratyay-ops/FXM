@@ -1,11 +1,17 @@
 import { placeholderKeys, Skeleton } from '../../components/ui/skeleton'
 
-/** Home while its shelves load. */
-export function HomeSkeleton() {
+/** Home while its shelves load: `shelves` placeholder rows, and what screen readers hear. */
+export function HomeSkeleton({
+  shelves = 3,
+  label = 'Loading your Home…',
+}: {
+  shelves?: number
+  label?: string
+}) {
   return (
     <div role="status" className="space-y-10">
-      <span className="sr-only">Loading your Home…</span>
-      {placeholderKeys(3, 'home-shelf').map((key) => (
+      <span className="sr-only">{label}</span>
+      {placeholderKeys(shelves, 'home-shelf').map((key) => (
         <div key={key} className="space-y-4">
           <Skeleton className="h-6 w-48 rounded-full" />
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-6">
