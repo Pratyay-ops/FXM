@@ -7,6 +7,12 @@ import { privacyLiteCheck } from '../lib/tiers'
 /** " (coming soon)" after anything AVAILABLE in src/config.ts doesn't mark as released. */
 const soon = (released: boolean) => (released ? '' : ' (coming soon)')
 
+/**
+ * After "your Spotify account": the account sync is experimental once it is out, tested only with
+ * a stand-in for Spotify (SPOTIFY_ACCOUNT_NOTE in src/lib/tiers.ts), and coming soon before.
+ */
+const accountSync = AVAILABLE.spotifyAccount ? ' (an experimental feature)' : ' (coming soon)'
+
 interface Service {
   name: string
   /** The service's home page; left out when there is no single site to name. */
@@ -18,12 +24,12 @@ const services: Service[] = [
   {
     name: 'YouTube',
     url: 'https://www.youtube.com',
-    use: `YouTube Music and YouTube: search, song and video details, audio, the playlists you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)} (YouTube Music radio, started from the artists you pick and the songs you play), and song radio${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)} Only while one of FXM's experimental ways of playing YouTube songs is switched on (they ship switched off), also Google's BotGuard service, to get the token YouTube asks for before it plays a song.`,
+    use: `YouTube Music and YouTube: search, song and video details, audio, the playlists you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)} (YouTube Music radio, started from the artists you pick and the songs you play), and the songs autoplay adds when your queue runs low${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)} Only while one of FXM's experimental ways of playing YouTube songs is switched on (they ship switched off), also Google's BotGuard service, to get the token YouTube asks for before it plays a song.`,
   },
   {
     name: 'Spotify',
     url: 'https://www.spotify.com',
-    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, the playlists, albums and songs whose links you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)}, and song radio${soon(AVAILABLE.radio)}. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account.`,
+    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, the albums, artists and playlists you open, the playlists, albums and songs whose links you import, and recommendations for your home feed${soon(AVAILABLE.homeFeed)} and for autoplay${soon(AVAILABLE.radio)}. If you connect your Spotify account${accountSync}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account. When you play or download a Spotify song, or your home feed or autoplay starts from one, FXM also asks Spotify for that song's details, such as its ISRC and release date, to find it on YouTube Music. These requests go to open.spotify.com (for an access token, and for Spotify's server time), api-partner.spotify.com and spclient.wg.spotify.com. Covers of Spotify songs, albums and playlists load from Spotify's image servers (scdn.co and spotifycdn.com), and saving a Spotify song to your device fetches its cover from there. While the integration is off, FXM contacts none of Spotify's servers, not even for covers: Spotify songs already in your library show a placeholder instead.`,
   },
   {
     name: 'Spotify key source',
@@ -79,11 +85,11 @@ const services: Service[] = [
   },
 ]
 
-const cookies = `FXM doesn't set cookies or use them to follow you. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, FXM uses your Spotify login as described in`
+const cookies = `FXM doesn't set cookies or use them to follow you. If you connect your Spotify account${accountSync}, FXM uses your Spotify login as described in`
 const downloads = AVAILABLE.downloads
   ? 'So are your downloads.'
   : 'Downloads will be stored there too, once they arrive.'
-const spotifyLogin = `Connecting your Spotify account is optional${AVAILABLE.spotifyAccount ? '' : ' and coming soon'}. If you do, FXM uses your Spotify login to get an access token from Spotify.`
+const spotifyLogin = `Connecting your Spotify account is optional${AVAILABLE.spotifyAccount ? ' and experimental: the sync has been tested with a stand-in for Spotify, not yet with real accounts' : ' and coming soon'}. If you do, FXM uses your Spotify login to get an access token from Spotify.`
 const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates. When they start, they fetch FXM's YouTube settings file from this website, and download FXM's signed YouTube code from it too, so YouTube keeps working between app releases. That code is checked against FXM's signature before it runs.`
 const embeds = `Other websites can show an FXM player for a song, an album or a playlist${soon(AVAILABLE.embed)}. The player runs in your browser, like the web app. As soon as the page shows it, even before you press play, your browser loads what it shows from its source: the details and cover art, and for YouTube a check that it can reach YouTube Music. So that source, such as YouTube, receives your IP address and which song, album or playlist the player shows, even if you have never used FXM. FXM doesn't see it. The website that shows the player can start or pause it and learns what it plays, as with any embedded player.`
 const connectInstall = privacyInstall(AVAILABLE.firefox)
@@ -96,9 +102,9 @@ const plugins =
 
 <Document
   title="Privacy · FXM"
-  description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device unless you turn on sync. Here is which services your device talks to, and why."
+  description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your library stays on your device unless you turn on sync or scrobbling, and your searches and plays go straight to the services that answer them. Here is which services, and why."
   heading="Privacy"
-  lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device unless you turn on sync."
+  lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM and no FXM servers. Your library, history and settings stay on your device unless you turn on sync or scrobbling, and what you search for and play goes straight from your device to the services that answer it."
   updated="2026-10-26"
 >
   <h2>The short version</h2>
@@ -119,6 +125,15 @@ const plugins =
     <li>
       <strong>No FXM servers.</strong>
       Searches and plays don't pass through FXM, so FXM can't see what you look for or listen to.
+    </li>
+    <li>
+      <strong>What leaves your device.</strong>
+      What you search for and play goes to the services that answer it, and to a plugin's services
+      if you add one (see
+      <a href="#services">Services your device talks to</a>). The web app also checks this website
+      for updates. Your library and history leave your device only if you turn on sync (a copy in a
+      secret gist on your own GitHub account) or scrobbling (the songs you play go to Last.fm or
+      ListenBrainz).
     </li>
   </ul>
 
@@ -146,7 +161,7 @@ const plugins =
     and choose to delete it.
   </p>
 
-  <h2>Services your device talks to</h2>
+  <h2 id="services">Services your device talks to</h2>
   <p>
     FXM gets music, information and lyrics straight from the services below. Your device connects to
     them directly; in the web app, FXM Connect adjusts some of these requests so the services

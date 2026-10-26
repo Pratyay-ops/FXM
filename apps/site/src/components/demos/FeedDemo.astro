@@ -1,5 +1,4 @@
 ---
-import { AVAILABLE } from '../../config'
 import Icon from '../Icon.astro'
 
 const picks = [
@@ -13,10 +12,10 @@ const mixes = [
   { number: 3, art: 'art-2' },
 ]
 
-// Endless radio (stage 3.4) shows once it is out.
-const label = AVAILABLE.radio
-  ? 'A home feed with three quick picks, three daily mixes and an endless radio station based on a song.'
-  : 'A home feed with three quick picks and three daily mixes.'
+// Shelves Home has (apps/web/src/features/home/README.md): autoplay keeps the queue going, so it
+// isn't on Home, and there is no radio station to start.
+const label =
+  'A home feed with three quick picks, three daily mixes and a shelf of new songs like one you played.'
 ---
 
 <div class="demo" role="img" aria-label={label}>
@@ -46,17 +45,15 @@ const label = AVAILABLE.radio
       </span>
     ))}
   </div>
-  {AVAILABLE.radio && (
-    <div class="radio">
-      <span class="radio-icon">
-        <Icon name="radio" size={18} />
-      </span>
-      <span class="meta">
-        <span class="title">Endless radio</span>
-        <span class="artist">Based on Paper Lanterns · keeps going</span>
-      </span>
-    </div>
-  )}
+  <div class="radio">
+    <span class="radio-icon">
+      <Icon name="radio" size={18} />
+    </span>
+    <span class="meta">
+      <span class="title">Because you listened to Paper Lanterns</span>
+      <span class="artist">New songs like it</span>
+    </span>
+  </div>
 </div>
 
 <style>
@@ -171,6 +168,8 @@ const label = AVAILABLE.radio
   letter-spacing: -0.03em;
 }
 
+/* The shelf's title wraps on narrow cards rather than losing the song's name. */
+.radio .title,
 .radio .artist {
   white-space: normal;
 }

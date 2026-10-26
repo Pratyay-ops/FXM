@@ -8,14 +8,19 @@ const related = [
   { name: 'Kōda', art: 'art-3' },
   { name: 'Nova Reyes', art: 'art-5' },
 ]
+// The account sync is experimental (SPOTIFY_ACCOUNT_NOTE in src/lib/tiers.ts).
 const account = AVAILABLE.spotifyAccount
 const label = [
   "Illustration of FXM's Spotify settings. The Spotify integration is on, which is the default, and shows related artists from Spotify's catalog.",
   account
-    ? 'A button connects a Spotify account for a read-only sync of recommendations, liked songs and playlists.'
+    ? 'A button connects a Spotify account for an experimental, read-only sync of recommendations, liked songs and playlists.'
     : 'Connecting a Spotify account for a read-only sync of recommendations, liked songs and playlists is coming soon.',
-  "A note says that when the integration is off, FXM doesn't contact Spotify.",
+  // With the switch off, the app shows no Spotify-hosted image either (privacy page, Spotify).
+  "A note says that when the integration is off, FXM doesn't contact Spotify at all.",
 ].join(' ')
+const accountText = account
+  ? 'Experimental: a read-only sync of recommendations, liked songs and playlists'
+  : 'Read-only sync of recommendations, liked songs and playlists'
 ---
 
 <div class="demo" role="img" aria-label={label}>
@@ -41,13 +46,13 @@ const label = [
   <div class="setting account">
     <span class="meta">
       <span class="title">Spotify account</span>
-      <span class="desc">Read-only sync of recommendations, liked songs and playlists</span>
+      <span class="desc">{accountText}</span>
     </span>
     {account ? <span class="pill">Connect</span> : <span class="pill soon">Coming soon</span>}
   </div>
   <div class="note">
     <Icon name="plug" size={16} />
-    Switch it off and FXM doesn't contact Spotify.
+    Switch it off and FXM doesn't contact Spotify at all.
   </div>
 </div>
 
