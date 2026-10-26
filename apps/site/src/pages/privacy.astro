@@ -14,6 +14,16 @@ interface Service {
   use: string
 }
 
+// What the apps that are out ask GitHub for by themselves, with no setting to turn on.
+const appUpdateChecks = [
+  AVAILABLE.desktop
+    ? "The desktop app: when it starts and once a day while it runs, it checks the latest FXM release on GitHub (github.com, which sends it on to GitHub's download server) for a new version, and downloads an update only after you accept it."
+    : '',
+  AVAILABLE.android ? 'The Android app: it checks GitHub for a new version of itself.' : '',
+].filter((sentence) => sentence !== '')
+const githubSync =
+  "Only if you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions."
+
 const services: Service[] = [
   {
     name: 'YouTube',
@@ -69,7 +79,7 @@ const services: Service[] = [
   {
     name: 'GitHub',
     url: 'https://github.com',
-    use: "Only if you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions.",
+    use: [...appUpdateChecks, githubSync].join(' '),
   },
 ]
 
@@ -88,7 +98,7 @@ const updatingApps =
         ? 'The Android app, and the desktop app once it is out,'
         : 'The desktop and Android apps (coming soon)'
 const desktopChecks = AVAILABLE.desktop
-  ? ' The desktop app checks when it starts and once a day while it runs.'
+  ? ' The desktop app checks when it starts and once a day while it runs, and an hour after a check that failed, say while offline.'
   : ''
 const updates = `${updatingApps} also check GitHub for updates.${desktopChecks} When they start, they fetch FXM's YouTube settings file from this website, and download FXM's signed YouTube code from it too, so YouTube keeps working between app releases. That code is checked against FXM's signature before it runs.`
 const embeds = `Other websites can show an FXM player for a song, an album or a playlist${soon(AVAILABLE.embed)}. The player runs in your browser, like the web app. As soon as the page shows it, even before you press play, your browser loads what it shows from its source: the details and cover art, and for YouTube a check that it can reach YouTube Music. So that source, such as YouTube, receives your IP address and which song, album or playlist the player shows, even if you have never used FXM. FXM doesn't see it. The website that shows the player can start or pause it and learns what it plays, as with any embedded player.`
