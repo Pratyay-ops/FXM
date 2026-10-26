@@ -30,7 +30,7 @@ The tiers come from `ctx.capabilities`: YouTube runs unless `youtube` is `none`;
 
 **Catalog modes.** In Music mode, and in any mode the collector doesn't know (it fails closed, as core's `modePolicy` does), radio and recommendations hold songs only:
 
-- **YouTube Music radio** is seeded with a song. An official music video seeds with its song: the one it links, else the one the video-to-song rule finds (`songForVideo`, at any band but `none`: a guess only steers the radio). A seed YouTube Music can't start from as it is (a Spotify or Archive track, an artist from Spotify, Last.fm or ListenBrainz) goes to the `youtubeSeed` adapter; without either, YouTube Music sits this one out (`unsupported-seed`), as it does for other videos. Its results are filtered to songs.
+- **YouTube Music radio** is seeded with a song. An official music video seeds with its song: the one it links, else the one the video-to-song rule finds (`songForVideo`, at any band but `none`: a guess only steers the radio). A seed YouTube Music can't start from as it is (a Spotify or Archive track, an artist from Spotify, Last.fm or ListenBrainz) goes to the `youtubeSeed` adapter; without either, YouTube Music sits this one out (`unsupported-seed`), as it does for other videos. Its results are filtered to songs. A track of another source seeds it with the song its match found (`youtubeSeed`, which answers only with a match the engine is sure of), and only when that song is the track's own: by the track's main artist as its own main artist, with the same title proper and version (`namesSameSong`). That radio counts only when it follows the track: it begins with the song, or holds another song by the track's main artist. Otherwise YouTube Music sits the seed out too (`unsupported-seed`): a wrong song's radio would fill the recommendations with music that has nothing to do with the track.
 - **Spotify** tracks are songs, so they stay (they are matched to audio when they play, by the playback policy).
 - **Last.fm's station** names songs with YouTube videos, which Music mode must classify before anything is queued. The collector looks up each video (`youtubeLookup`), at most `maxClassifications` (8) calls per station, only while the budget allows (`classificationBudget`), at the budget's priority, and for at most `maxClassificationMs` (6 s), after which the call in flight is cancelled:
   - a song becomes a track candidate;
@@ -74,7 +74,7 @@ Candidates come grouped by source, in each source's order, and are not de-duplic
 | `status` | Extra fields | When |
 |---|---|---|
 | `ok` | `count` | It ran |
-| `skipped` | `reason` | The collector's own checks: `not-configured`, `switched-off`, `unreachable`, `needs-full-tier`, or `unsupported-seed` (no artist name, no MBID, no YouTube seed, no Spotify artist found). A provider's refusal is a skip only when it is explicitly about the seed or the switch: Spotify's `unsupported-seed`, `disabled` and `unreachable` |
+| `skipped` | `reason` | The collector's own checks: `not-configured`, `switched-off`, `unreachable`, `needs-full-tier`, or `unsupported-seed` (no artist name, no MBID, no YouTube seed, a match that isn't the track's own song or a radio that doesn't follow it, no Spotify artist found). A provider's refusal is a skip only when it is explicitly about the seed or the switch: Spotify's `unsupported-seed`, `disabled` and `unreachable` |
 | `failed` | `code`, `message`, `error` | Anything else it threw, `Unsupported` included: a closed transport route (`isRouteUnavailable(error)`, with `needs` and `connectFeature` to offer the fix), Spotify's `client-rejected` or `operation-unsupported`, the budget's refusal (`isBudgetError(error)`) |
 | `timed-out` | `afterMs` | It had not finished at the deadline |
 
@@ -109,7 +109,7 @@ const listenbrainz = createListenBrainzClient()                           // sha
 const collector = createRecommendationCollector({
   youtube: ytm,                 // radio, home
   youtubeLookup: ytm,           // getTrack classifies a videoId: one InnerTube call
-  youtubeSeed: async (seed, ctx) => /* 1.7: matchTrack over a YouTube Music search, or the match cache */ null,
+  youtubeSeed: async (seed, ctx) => /* 1.7: matchTrack over a YouTube Music search, or the match cache; a sure match only */ null,
   spotify,                      // radio, home; its isAvailable is the switch
   spotifyMetadata: spotify,     // search, getRelatedArtists
   classificationBudget: {       // 1.2
@@ -156,4 +156,4 @@ The provider clients (`lastfm`, `listenbrainz`, `coverart`, `itunes`) depend onl
 
 ## Tests
 
-`*.test.ts` run offline with the fakes in `testing/`, and with the providers' recorded fixtures through a fake network (`fakeFetch`, from `shared/fake-network.ts`). They cover each tier, both modes and an unknown one, the Spotify switch, classification within the budget, its time limit and the match verdicts, versioned artwork, failures, deadlines, progressive delivery and cancellation. The providers' own live tests run with `FXM_LIVE=1`.
+`*.test.ts` run offline with the fakes in `testing/`, and with the providers' recorded fixtures through a fake network (`fakeFetch`, from `shared/fake-network.ts`). They cover each tier, both modes and an unknown one, the Spotify switch, a track of another source's match and its radio (an Internet Archive rag whose match is another song, or whose radio drifted, seeds nothing), classification within the budget, its time limit and the match verdicts, versioned artwork, failures, deadlines, progressive delivery and cancellation. The providers' own live tests run with `FXM_LIVE=1`.
