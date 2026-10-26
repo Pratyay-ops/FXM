@@ -240,6 +240,7 @@ Without `http`, both are stubs: CORS-friendly hosts through the webview's own `f
 - `createFakeSandbox()`: a `SandboxTransport` that refuses requests the real sandbox could not send (not CORS-simple, or not one of the allowed InnerTube paths) and records the rest. `selfTest` answers `'pass'` unless told otherwise.
 - `installFakeConnect(window)`: marks a page and answers pings and bridge requests the way FXM Connect's content script does.
 - `createFakeFxmHttp(options)`: the Android app's `FxmHttp` plugin, answering from a handler that returns a `Response`. It streams bodies in chunks, honours aborts, hands redirects back as they are, and refuses hosts as the native plugin does (`HOST_NOT_APPROVED` with `data.host`, which `answer` can then approve). `fxmHttpError(code)` makes the errors the plugin rejects with.
+- `createTestSigner()`, `fakeUpdateSite()` and `nodeModuleImporter`: a throwaway update signing key, a fake static site for signed updates, and a way to load verified modules in Node ([`src/updates/`](src/updates/README.md)).
 
 Tests that need a page create their own happy-dom `Window` at the FXM origin: in Vitest's global happy-dom environment, a message's `event.source` is not the page's `window`. happy-dom delivers `postMessage` on real timers, so the clients take an injectable `clock` for their timeouts.
 
@@ -248,6 +249,7 @@ scripts/run.sh pnpm vitest run packages/platform                      # this pac
 scripts/run.sh pnpm vitest run --coverage --coverage.include='packages/platform/src/**' packages/platform
 scripts/run.sh pnpm --filter @fxm/platform typecheck
 scripts/run.sh pnpm --filter @fxm/platform test:e2e                 # the sandbox documents in Chromium and Firefox
+scripts/run.sh pnpm --filter @fxm/platform test:e2e:updates         # a signed module loaded from blob: (src/updates/e2e)
 ```
 
 ## Layout
@@ -269,7 +271,8 @@ scripts/run.sh pnpm --filter @fxm/platform test:e2e                 # the sandbo
 | `src/clock.ts`, `src/storage.ts` | Injectable time and key-value storage |
 | `src/testing/` | The test helpers |
 | `src/sandbox/` | The Lite tier's sandbox documents and `createSandboxTransport` (stage 1.10, [its README](src/sandbox/README.md)) |
+| `src/updates/` | Signed updates for the desktop and Android apps: the YouTube config and resolver module, verified with Ed25519 ([its README](src/updates/README.md), stage 1.13) |
 
-`src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
+`src/evaluator/` (1.11) belongs to a later stage.
 
 See [ARCHITECTURE.md §8](../../docs/ARCHITECTURE.md#8-platforms-and-network-transports).

@@ -3,14 +3,15 @@
  * (its kind), which InnerTube client it calls, which formats it offers, where it may run and
  * which one is the last resort. It lives in the `streams` section of `youtube-config.json`, next
  * to the metadata config of `../config.ts`, so one versioned document (shipped with the app, or a
- * newer one fetched from the static site) can reorder, disable or update the rungs without new
- * code. {@link pickYouTubeConfigs} decides on both parts of a new document at once.
+ * newer signed one fetched from the static site) can reorder, disable or update the rungs without
+ * new code. {@link pickYouTubeConfigs} decides on both parts of a new document at once.
  *
  * {@link parseStreamConfig} checks every field it reads and refuses any host outside
  * `INNERTUBE_HOSTS`, so a config can change values but never send a request to another host. A
  * newer document of the same schema still loads in an older build: a rung that build can't run
  * (a kind, client field or requirement it doesn't know) is left out, a state it doesn't know is
- * ignored, and so are fields it doesn't read. Stage 1.13 adds signature checks.
+ * ignored, and so are fields it doesn't read. A config from the network must have its signature
+ * checked first: the apps take one only through `youtube/module`'s host.
  *
  * @module
  */
@@ -409,13 +410,14 @@ export interface YouTubeConfigsChoice {
 }
 
 /**
- * Chooses between the configs in use and a candidate document, e.g. one fetched from the static
- * site, for both parts at once, so that they never come from different documents: the candidate
- * wins only when its metadata part (`parseYouTubeConfig`) and its `streams` part are both valid
- * and its `revision` is higher than the current one. It never throws, so a broken or older
- * document leaves the current configs in place, and `reason` says why. Create a new session
- * with the new metadata config, and hand the stream config to the audio source (its
- * `streamConfig` can be a function that returns the one in use).
+ * Chooses between the configs in use and a candidate document that is already trusted (bundled,
+ * or verified by `@fxm/platform`'s updater), for both parts at once, so that they never come from
+ * different documents: the candidate wins only when its metadata part (`parseYouTubeConfig`) and
+ * its `streams` part are both valid and its `revision` is higher than the current one. It never
+ * throws, so a broken or older document leaves the current configs in place, and `reason` says
+ * why. Create a new session with the new metadata config, and hand the stream config to the audio
+ * source (its `streamConfig` can be a function that returns the one in use). It checks no
+ * signature: never pass it a document straight from the network.
  */
 export function pickYouTubeConfigs(
   candidate: unknown,
