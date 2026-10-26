@@ -1,6 +1,7 @@
 ---
 import { APP_PATH, AVAILABLE } from '../config'
 import { comingSoon, joinList, unreleased } from '../lib/copy'
+import { heroNote } from '../lib/tiers'
 import Icon from './Icon.astro'
 import PlayerMockup from './PlayerMockup.astro'
 
@@ -52,7 +53,7 @@ const highlights = [
         </a>
       </div>
       <p class="note">
-        In the browser, YouTube Music and Spotify need the free FXM Connect extension.
+        {heroNote(AVAILABLE.lite)}
         {appsNote}
       </p>
     </div>

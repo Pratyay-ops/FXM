@@ -1,6 +1,7 @@
 import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
+import { ConnectNotice } from '../../features/connect/connect-notice'
 import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { PwaShell } from '../../features/pwa/pwa-shell'
@@ -71,6 +72,8 @@ export function AppLayout() {
         >
           <div className="mx-auto w-full max-w-page">
             <Outlet />
+            {/* Floats above the bottom bars: after the page, where it shows. */}
+            <ConnectNotice />
           </div>
         </main>
       </div>
