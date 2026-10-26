@@ -1,6 +1,6 @@
 # @fxm/mobile
 
-The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitorjs.com) 8 WebView. Stage 6.1 built the shell and its repo-local toolchain, and stage 6.2 its native networking ([`android/fxm-http`](android/fxm-http/README.md)). The Media3 player for background audio (6.3) comes later.
+The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitorjs.com) 8 WebView. Stage 6.1 built the shell and its repo-local toolchain, stage 6.2 its native networking ([`android/fxm-http`](android/fxm-http/README.md)), and stage 6.3 its native player ([`android/fxm-player`](android/fxm-player/README.md)): Media3 in a foreground service, with the media notification and lock-screen controls.
 
 ## Build it
 
@@ -20,13 +20,14 @@ android/              the native project from `cap add android`, committed; buil
   app/src/main/       AndroidManifest.xml, MainActivity, res/ (theme, icons, backup rules),
                       java/.../evaluator/ (the isolated evaluator's WebView, stage 1.11)
   fxm-http/           FXM's native HTTP: the shared OkHttp client and the FxmHttp plugin (6.2)
-  variables.gradle    SDK levels and AndroidX versions from Capacitor's template, plus OkHttp's
+  fxm-player/         FXM's native player: Media3 in a foreground service and the FxmPlayer plugin (6.3)
+  variables.gradle    SDK levels and AndroidX versions from Capacitor's template, plus OkHttp's and Media3's
 scripts/
   build-apk.sh        make apk
-  test-native.sh      make android-test
+  test-native.sh      make android-test: the JVM tests of fxm-http and fxm-player
   native-tables.ts    writes fxm-http's PlatformTables.kt from @fxm/platform (host table, bridge codes)
-  icons.ts            the launcher and splash icons, drawn from the FXM mark
-  generate-icons.ts   writes them into android/app/src/main/res (`pnpm icons`)
+  icons.ts            the launcher, splash and notification icons, drawn from the FXM mark
+  generate-icons.ts   writes them into the app's and fxm-player's res folders (`pnpm icons`)
   png.ts              a minimal PNG encoder and decoder
 *.test.ts             checks of the config and the native project
 ```
@@ -41,6 +42,7 @@ scripts/run.sh pnpm --filter @fxm/mobile cap sync android
 
 - **Web app.** `build:mobile` in `apps/web` builds the app with base `/` into `apps/web/dist-mobile`, and `cap sync` copies it into the APK. The WebView serves it from `https://localhost/`, so the router's basename, which follows `import.meta.env.BASE_URL`, is `/` instead of the web's `/app/`. Native requests never send that origin to a service: the plugin refuses any `Origin` a host may not receive.
 - **Networking.** The web app's `fetch` for providers is `FxmHttp`, FXM's own OkHttp plugin in [`android/fxm-http`](android/fxm-http/README.md): `@fxm/platform` picks it up by itself on Android (`createAndroidHttp`), and the app then reaches YouTube, googlevideo, Spotify and Last.fm like the web app with FXM Connect (`youtube: 'full'`). The plugin's client keeps no cookies at all, applies FXM's host and header rules in native code, sends a reduced Chrome `User-Agent` instead of the WebView's, and only contacts hosts outside FXM's table after the user approved them in a system dialog. Capacitor's global `CapacitorHttp` patch stays **disabled**: it drops the Cookie, Origin and Referer headers, corrupts binary bodies and, like `CapacitorHttp.request`, sends the WebView's cookies. Because the bridge registers the `CapacitorHttp` plugin whatever the config says, `MainActivity` replaces it with `DisabledCapacitorHttp`, which refuses every call. Bridge logging is off (`loggingBehavior: 'none'`), because Capacitor would log response bodies and tokens to logcat; debug the WebView with `chrome://inspect`.
+- **Playback.** The native player is in place: `FxmPlayer`, FXM's Media3 player in [`android/fxm-player`](android/fxm-player/README.md), and `NativeEngine` in `@fxm/player`, its engine for the web app's player. The web app switches to them when its player is wired to them (the app composition, stage 2.9, picks the engine through `createEngine` in `apps/web/src/features/now-playing/playback.ts`, as [the engine's README](../../packages/player/src/native/README.md#using-it) shows); until then the web app's player uses its direct audio engine, the WebView's `<audio>` elements. Media3 runs in a `mediaPlayback` foreground service, which keeps the app running with the screen off, shows the media notification and lock-screen controls, and holds a queue of resolved items, so tracks change without waiting for JavaScript. Its audio and artwork go through fxm-http's OkHttp client. When the WebView's renderer dies, the plugin keeps the app alive, Media3 plays on, and the activity is recreated so the web app picks up where Media3 is.
 - **System bars and splash.** The app uses the web app's dark theme: `backgroundColor` and the window background are `#0b0b0f`, and the status and navigation bars are dark with light icons (`SystemBars.style: 'DARK'`). Android 15 and later draw the app edge to edge. Then `SystemBars.insetsHandling: 'native'` passes the insets to the page on WebView 140 and later, where the page's `viewport-fit=cover` and `env(safe-area-inset-*)` keep content clear of the bars. On older WebViews it pads the WebView instead. The splash screen shows the FXM mark on the same background: Android 12's splash API, through `core-splashscreen` on older versions.
 - **Known gap: the light theme.** The bar icons stay light when you pick the web app's light theme, or its system theme on a phone in light mode. Where the page draws behind the bars (WebView 140 and later), the clock and battery are then hard to read over the light top bar. Following the theme needs a script in the WebView that watches `<meta name="theme-color">` and calls `SystemBars.setStyle`. It must do so only while the page draws behind the bars: where Capacitor pads the WebView, the bars show the dark window background, so light icons stay right there. That script is left to a later stage that injects code into the WebView and can test it on devices.
 - **The isolated evaluator** (stage 1.11, `java/.../evaluator/EvaluatorPlugin.java`, registered in `MainActivity`). The `FxmEvaluator` plugin creates a separate WebView that is never attached to the screen and loads `apps/web/sandbox/eval.html`, handed in by the web app, with `https://www.youtube.com/` as its base URL and network loads blocked; the document's own `<meta>` policy allows no connections either. YouTube's player script and BotGuard run there, never in the app's page ([packages/platform/src/evaluator/README.md](../../packages/platform/src/evaluator/README.md)). What keeps it apart:
@@ -53,7 +55,7 @@ scripts/run.sh pnpm --filter @fxm/mobile cap sync android
 
 What differs from Capacitor's template:
 
-- the `fxm-http` module, whose `FxmHttp` plugin and `CapacitorHttp` stub `MainActivity` registers, with Kotlin for it;
+- the `fxm-http` and `fxm-player` modules, whose `FxmHttp` and `FxmPlayer` plugins and `CapacitorHttp` stub `MainActivity` registers, with Kotlin for them;
 - the app id and package;
 - the icons, the splash screen and the theme colours;
 - the backup rules;
@@ -92,7 +94,9 @@ scripts/run.sh pnpm --filter @fxm/mobile icons
 
 ## Checks on a device
 
-The unit tests cover the native side on the JVM and the TypeScript side with fakes. What only a device or an emulator can show, for the owner to check (stage 6.2's "done when" needs the first three):
+The native player's checks (stage 6.3's "done when": 30 minutes with the screen off, a killed renderer, a queue that runs out) are in [its README](android/fxm-player/README.md#checks-on-a-device).
+
+The unit tests cover the native side on the JVM and the TypeScript side with fakes. What only a device or an emulator can show for the native HTTP, for the owner to check (stage 6.2's "done when" needs the first three):
 
 1. **A YouTube Music search.** Needs the YouTube provider (1.3) and a search screen wired to `createPlatform` (2.4). In the app: search for a song; results appear.
 2. **A VISIONOS resolve that passes the end-of-file probe.** Needs the stream resolver (1.4). Play a YouTube Music song: the resolver's ranged `GET` of the last 64 KB of the VISIONOS URL returns 206 through the plugin (`fullLength: 'verified'`).
