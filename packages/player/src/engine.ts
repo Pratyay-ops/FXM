@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { QueueItem, StreamOption } from '@fxm/core'
+import type { EqualizerSettings, LoudnessSettings, QueueItem, StreamOption } from '@fxm/core'
 
 /** Every {@link EngineErrorType}. */
 export const ENGINE_ERROR_TYPES = [
@@ -74,6 +74,52 @@ export interface PlaybackSource {
 }
 
 /**
+ * What the audio effects do to the source an engine plays (stage 8.1), as it reports them with
+ * its `effects` event.
+ */
+export interface AudioEffectsStatus {
+  /**
+   * The equalizer:
+   *
+   * - `off`: switched off
+   * - `on`: it processes the source
+   * - `unavailable`: switched on, but it can't process this source. On the web and the desktop
+   *   app the equalizer needs to read the audio's bytes, which a page can't for YouTube audio in
+   *   the Lite tier or without FXM Connect, nor the desktop app for YouTube audio yet; or the
+   *   browser has no Web Audio, or doesn't let it start
+   */
+  readonly equalizer: 'off' | 'on' | 'unavailable'
+  /**
+   * Loudness normalization:
+   *
+   * - `off`: switched off
+   * - `on`: the source plays at `loudnessGainDb`
+   * - `no-data`: the source doesn't say how loud it is, so it plays as it is
+   * - `unavailable`: the engine can't change this source's level (iOS doesn't let a page set a
+   *   media element's volume)
+   */
+  readonly loudness: 'off' | 'on' | 'no-data' | 'unavailable'
+  /** The loudness gain the source plays at, in dB: 0 when none applies. */
+  readonly loudnessGainDb: number
+}
+
+/** The effects an engine applies itself ({@link Engine.setEffects}). */
+export interface EngineEffects {
+  /** The equalizer. */
+  readonly equalizer: EqualizerSettings
+  /** Loudness normalization. */
+  readonly loudness: LoudnessSettings
+}
+
+/**
+ * A sleep timer an engine runs itself ({@link Engine.setSleepTimer}): pause at `endsAt` (epoch
+ * milliseconds), fading out over the `fadeMs` before it, or at the end of the current track.
+ */
+export type EngineSleepTimer =
+  | { readonly endsAt: number; readonly fadeMs: number }
+  | { readonly endOfTrack: true }
+
+/**
  * The events an engine reports, with their payloads. They describe the source loaded last;
  * an engine never reports events of a source it has replaced.
  */
@@ -102,6 +148,17 @@ export interface EngineEventMap {
   waiting: undefined
   /** Enough data has arrived to start playing. */
   canplay: undefined
+  /**
+   * What the audio effects do to the source (see {@link AudioEffectsStatus}): after a load, a
+   * change of the effects, and whenever it changes otherwise. Only from engines with
+   * {@link Engine.setEffects}.
+   */
+  effects: AudioEffectsStatus
+  /**
+   * The engine's own sleep timer ({@link Engine.setSleepTimer}) paused playback: at its time, or
+   * at the end of the track. A `pause` event comes too.
+   */
+  sleep: { readonly reason: 'timer' | 'end-of-track' }
 }
 
 /** One of the {@link EngineEventMap} event types. */
@@ -144,6 +201,39 @@ export interface Engine {
    * WebView). Engines without such a rule leave it out.
    */
   unlock?(): void
+  /**
+   * Applies the equalizer and loudness normalization to what plays from now on (stage 8.1), and
+   * reports with `effects` what they do to the current source. Engines without effects leave it
+   * out.
+   */
+  setEffects?(effects: EngineEffects): void
+  /**
+   * Sets the playback speed, 1 being normal, for this source and the ones after it. The pitch
+   * stays. Engines that can't change the speed leave it out.
+   */
+  setPlaybackRate?(rate: number): void
+  /**
+   * Starts `source`, which {@link preload} prepared, at once and fades the current source out over
+   * `durationMs` while the new one fades in: a crossfade. From then on the engine reports the new
+   * source's events, as after a {@link load} (its `play` once the call has returned), and the old
+   * one stops by itself once it has faded. Returns `false`, changing nothing, when it can't:
+   * `source` isn't prepared and ready to play, or nothing plays now. Engines without crossfade
+   * leave it out.
+   */
+  crossfade?(source: PlaybackSource, durationMs: number): boolean
+  /**
+   * Fades the output to `gain` (0 to 1, a factor on the volume) over `durationMs`, at once for 0,
+   * whatever plays meanwhile; the sleep timer fades out with it. The volume stays what
+   * {@link setVolume} set. Engines without fades leave it out.
+   */
+  fadeOutput?(gain: number, durationMs: number): void
+  /**
+   * Runs a sleep timer in the engine itself, `null` to cancel it, for engines whose playback goes
+   * on while the page may not run (Android's native player): it pauses, fading out, at the time,
+   * or at the end of the current track, and reports `sleep`. Others leave it out; the player then
+   * runs the timer.
+   */
+  setSleepTimer?(timer: EngineSleepTimer | null): void
   /** Adds a listener. Returns a function that removes it again. */
   on<K extends EngineEventType>(type: K, listener: (payload: EngineEventMap[K]) => void): () => void
   /** Stops playback and releases everything. The engine is unusable afterwards. */

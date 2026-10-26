@@ -546,17 +546,21 @@ class Skipper implements SegmentSkipper {
   /** Sets a timer that skips the next segment right at its start, when it is close. */
   #schedule(state: PlayerState, segments: readonly SkipSegment[], item: QueueItem): void {
     if (state.status !== 'playing' || state.buffering) return
-    // The position moves on between the player's reports.
-    const position = state.positionMs + Math.max(0, this.#now() - this.#reportedAt)
+    // The position moves on between the player's reports, at the playback speed.
+    const rate = state.playbackRate > 0 ? state.playbackRate : 1
+    const position = state.positionMs + Math.max(0, this.#now() - this.#reportedAt) * rate
     const next = segments.find((segment) => segment.startMs > position && !this.#ignores(segment))
     if (next === undefined || next.startMs - position > this.#config.lookaheadMs) return
-    this.#timer = setTimeout(() => {
-      this.#timer = undefined
-      const now = this.#player.getState()
-      if (this.#disconnected || this.#item?.uid !== item.uid || this.#ignores(next)) return
-      if (now.status !== 'playing' || now.buffering) return
-      this.#skip(item, next, next.startMs, now)
-    }, next.startMs - position)
+    this.#timer = setTimeout(
+      () => {
+        this.#timer = undefined
+        const now = this.#player.getState()
+        if (this.#disconnected || this.#item?.uid !== item.uid || this.#ignores(next)) return
+        if (now.status !== 'playing' || now.buffering) return
+        this.#skip(item, next, next.startMs, now)
+      },
+      (next.startMs - position) / rate,
+    )
   }
 
   /** Whether the user chose to hear `segment`: they undid its skip, or moved playback into it. */
@@ -619,7 +623,7 @@ class Skipper implements SegmentSkipper {
  * no longer undo it.
  *
  * It times a skip by the position the player last reported plus the time playback has moved
- * since, never counting time paused, loading or waiting for data.
+ * since, at the player's playback speed, never counting time paused, loading or waiting for data.
  */
 export function connectSegmentSkipper(
   player: SkipperPlayer,

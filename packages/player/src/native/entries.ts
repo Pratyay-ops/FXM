@@ -4,7 +4,15 @@
  * @module
  */
 
-import type { Artwork, Codec, Container, QueueItem, StreamOption, Track } from '@fxm/core'
+import {
+  type Artwork,
+  type Codec,
+  type Container,
+  type QueueItem,
+  type StreamOption,
+  sanitizeStreamLoudness,
+  type Track,
+} from '@fxm/core'
 import type { PlaySupport } from '../engine'
 import {
   FXM_PLAYER_MAX_ENTRY_DATA,
@@ -142,6 +150,7 @@ export function streamFileKey(url: string): string | undefined {
 export function nativeSource(stream: StreamOption, network?: number): FxmPlayerSource {
   const headers = stream.requestHeaders
   const fileKey = streamFileKey(stream.url)
+  const loudness = stream.loudness
   return {
     url: stream.url,
     ipBound: stream.ipBound,
@@ -153,6 +162,14 @@ export function nativeSource(stream: StreamOption, network?: number): FxmPlayerS
       : {}),
     ...(network === undefined ? {} : { network }),
     ...(fileKey === undefined ? {} : { fileKey }),
+    ...(loudness === undefined
+      ? {}
+      : {
+          loudness: {
+            trackLufs: loudness.trackLufs,
+            ...(loudness.albumLufs === undefined ? {} : { albumLufs: loudness.albumLufs }),
+          },
+        }),
   }
 }
 
@@ -238,5 +255,7 @@ export function restoreStream(entry: FxmPlayerEntry): StreamOption | undefined {
     if (isFiniteNumber(field) && field >= 0) stream[key] = field
   }
   if (isStringRecord(value.requestHeaders)) stream.requestHeaders = { ...value.requestHeaders }
+  const loudness = sanitizeStreamLoudness(value.loudness)
+  if (loudness !== undefined) stream.loudness = loudness
   return nativeSupport(stream) === 'no' ? undefined : stream
 }

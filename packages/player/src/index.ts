@@ -1,12 +1,16 @@
 export { DirectAudioEngine, type DirectAudioEngineOptions } from './direct-audio-engine'
+export * from './effects'
 export type { Listener } from './emitter'
 export {
+  type AudioEffectsStatus,
   ENGINE_ERROR_TYPES,
   type Engine,
+  type EngineEffects,
   EngineError,
   type EngineErrorType,
   type EngineEventMap,
   type EngineEventType,
+  type EngineSleepTimer,
   isEngineError,
   type PlaybackSource,
   type PlaySupport,
@@ -28,6 +32,7 @@ export { mimeTypeOf } from './mime'
 export * from './native'
 export {
   classifyFailure,
+  type EffectsSupport,
   type FailureClass,
   PLAYER_DEFAULTS,
   Player,
@@ -40,6 +45,9 @@ export {
   type PlayerStateListener,
   type PlayerStatus,
   type SeekCause,
+  type SleepReason,
+  type SleepTimerRequest,
+  type SleepTimerState,
   type TrackChangeCause,
 } from './player'
 export type {

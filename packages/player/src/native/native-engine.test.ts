@@ -18,7 +18,8 @@ describe('NativeEngine', () => {
     engine.setMuted(false)
     await settle()
     expect(plugin.calls).toEqual(['attach', 'setVolume:0.5', 'setVolume:0', 'setVolume:0.5'])
-    expect(plugin.listeners).toBe(6)
+    // state, transition, error, request, command, network and sleep (stage 8.1).
+    expect(plugin.listeners).toBe(7)
     engine.destroy()
   })
 
@@ -26,7 +27,7 @@ describe('NativeEngine', () => {
     const plugin = createFakeFxmPlayer({ syncListeners: true })
     const engine = new NativeEngine({ plugin })
     await settle()
-    expect(plugin.listeners).toBe(6)
+    expect(plugin.listeners).toBe(7)
     engine.destroy()
     expect(plugin.listeners).toBe(0)
   })

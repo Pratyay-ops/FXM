@@ -11,11 +11,13 @@
 
 import {
   type AudioCandidate,
+  type AudioEffectsSettings,
   addToQueue,
   type CatalogMode,
   clearUpcoming,
   createQueue,
   currentQueueItem,
+  DEFAULT_AUDIO_EFFECTS,
   type FxmErrorCode,
   hasNextQueueItem,
   isFxmError,
@@ -32,6 +34,7 @@ import {
   restoreQueue,
   type SetQueueOptions,
   type StreamOption,
+  sanitizeAudioEffects,
   setQueue,
   setQueueCandidate,
   setQueueMode,
@@ -43,7 +46,7 @@ import {
   upcomingQueueItems,
 } from '@fxm/core'
 import { callSafely, Emitter, type Listener } from './emitter'
-import { type Engine, EngineError, type PlaySupport } from './engine'
+import { type AudioEffectsStatus, type Engine, EngineError, type PlaySupport } from './engine'
 import type { ResolvedStream, ResolveReason, StreamFailure, StreamResolver } from './resolver'
 
 /**
@@ -101,6 +104,42 @@ export interface PlayerState {
   readonly stream: StreamOption | undefined
   /** Why playback stopped, while the status is `error`. */
   readonly error: PlayerError | undefined
+  /**
+   * The playback speed, 1 being normal (see {@link Player.setAudioEffects}). Always 1 with an
+   * engine that can't change it.
+   */
+  readonly playbackRate: number
+  /** What the equalizer and loudness normalization do to the current track. */
+  readonly effects: AudioEffectsStatus
+  /** The sleep timer, while one runs (see {@link Player.setSleepTimer}). */
+  readonly sleepTimer: SleepTimerState | undefined
+}
+
+/**
+ * A sleep timer to start ({@link Player.setSleepTimer}): pause `afterMs` from now, fading out
+ * over the last seconds, or when the current track ends.
+ */
+export type SleepTimerRequest = { readonly afterMs: number } | { readonly endOfTrack: true }
+
+/**
+ * The sleep timer that runs: pausing at `endsAt` (epoch milliseconds, the player's clock) after a
+ * fade of `fadeMs`, or at the end of the current track.
+ */
+export type SleepTimerState =
+  | { readonly endsAt: number; readonly fadeMs: number }
+  | { readonly endOfTrack: true }
+
+/** Why the sleep timer paused playback: its time came, or the track it waited for ended. */
+export type SleepReason = 'timer' | 'end-of-track'
+
+/** What a player's engine supports of the audio effects, for the settings to offer. */
+export interface EffectsSupport {
+  /** The equalizer and loudness normalization: the engine applies them. */
+  readonly effects: boolean
+  /** Playback speed. */
+  readonly playbackRate: boolean
+  /** Crossfade. */
+  readonly crossfade: boolean
 }
 
 /**
@@ -163,6 +202,8 @@ export interface PlayerEventMap {
    * not wrap around for repeat `all`, so it can be empty while `next` is the first item again.
    */
   preload: { next: QueueItem; upcoming: readonly QueueItem[] }
+  /** The sleep timer paused playback (see {@link Player.setSleepTimer}). */
+  sleep: { reason: SleepReason }
 }
 
 /** Receives every new {@link PlayerState}, with the one it replaces. */
@@ -247,6 +288,14 @@ export interface PlayerOptions {
    * {@link classifyFailure}; wrap it to change single cases.
    */
   classifyFailure?: (error: Error, item: QueueItem) => FailureClass
+  /**
+   * The audio effects to start with: the equalizer, loudness normalization, crossfade and speed.
+   * Default: `DEFAULT_AUDIO_EFFECTS` from `@fxm/core`. Change them with
+   * {@link Player.setAudioEffects}.
+   */
+  effects?: AudioEffectsSettings
+  /** How long the sleep timer fades out before it pauses, at most. Default: 12 s. */
+  sleepFadeMs?: number
 }
 
 /** Options for {@link Player.setQueue}. */
@@ -266,7 +315,23 @@ export const PLAYER_DEFAULTS = Object.freeze({
   stallTimeoutMs: 15_000,
   preloadLeadMs: 30_000,
   refreshBeforeExpiryMs: 10 * 60_000,
+  sleepFadeMs: 12_000,
 })
+
+/**
+ * The shortest crossfade worth starting, in milliseconds: closer to the end than this, the track
+ * just ends and the next one follows as usual.
+ */
+const MIN_CROSSFADE_MS = 1000
+
+/**
+ * How long after its time the player pauses for an engine whose own sleep timer should have
+ * done it already (Android's native player), in milliseconds.
+ */
+const SLEEP_GRACE_MS = 2000
+
+/** How fast the output comes back when a sleep timer is cancelled during its fade. */
+const SLEEP_RESTORE_MS = 400
 
 /**
  * How much of a track must play after a (re)load before it counts as healthy, which resets its
@@ -299,6 +364,8 @@ interface Preload {
   abort: AbortController
   /** Its resolution, shared with the load when the item comes up. */
   promise: Promise<ResolvedStream>
+  /** The resolution, once it was handed to the engine to prepare: what a crossfade starts. */
+  resolved?: ResolvedStream
 }
 
 /** The stream the engine holds for the current item. */
@@ -319,6 +386,20 @@ function nonNegative(value: number | undefined, fallback: number): number {
 
 function clampVolume(volume: number): number {
   return Math.min(1, Math.max(0, volume))
+}
+
+/** What the effects do where the engine applies none: whatever is on is unavailable. */
+function effectsWithoutEngine(settings: AudioEffectsSettings): AudioEffectsStatus {
+  return {
+    equalizer: settings.equalizer.enabled ? 'unavailable' : 'off',
+    loudness: settings.loudness.enabled ? 'unavailable' : 'off',
+    loudnessGainDb: 0,
+  }
+}
+
+/** Whether `a` and `b` are on the same album, by the album's ID. */
+function sameAlbum(a: Track, b: Track): boolean {
+  return a.album?.id !== undefined && a.album.id === b.album?.id
 }
 
 /**
@@ -345,6 +426,7 @@ export class Player {
     preload: boolean
     preloadLeadMs: number
     refreshBeforeExpiryMs: number
+    sleepFadeMs: number
   }
   readonly #events = new Emitter<PlayerEventMap>()
   readonly #subscribers = new Set<PlayerStateListener>()
@@ -377,6 +459,16 @@ export class Player {
   #stallFromMs: number | undefined
   #retryTimer: ReturnType<typeof setTimeout> | undefined
   #stallTimer: ReturnType<typeof setTimeout> | undefined
+  /** The audio effects in use. */
+  #effects: AudioEffectsSettings = DEFAULT_AUDIO_EFFECTS
+  /** Set while a crossfade hands playback to the next item: the engine must not pause then. */
+  #handover = false
+  /** The sleep timer's deadline. */
+  #sleepTimer: ReturnType<typeof setTimeout> | undefined
+  /** When the sleep timer's fade starts. */
+  #sleepFadeTimer: ReturnType<typeof setTimeout> | undefined
+  /** Whether the sleep timer has started fading the output. */
+  #sleepFading = false
   #destroyed = false
 
   constructor(options: PlayerOptions) {
@@ -403,6 +495,7 @@ export class Player {
         options.refreshBeforeExpiryMs,
         PLAYER_DEFAULTS.refreshBeforeExpiryMs,
       ),
+      sleepFadeMs: nonNegative(options.sleepFadeMs, PLAYER_DEFAULTS.sleepFadeMs),
     }
     const volume = clampVolume(nonNegative(options.volume, 1))
     const muted = options.muted ?? false
@@ -416,6 +509,9 @@ export class Player {
       muted,
       stream: undefined,
       error: undefined,
+      playbackRate: 1,
+      effects: effectsWithoutEngine(DEFAULT_AUDIO_EFFECTS),
+      sleepTimer: undefined,
     }
     const engine = this.#engine
     engine.setVolume(volume)
@@ -429,7 +525,10 @@ export class Player {
       engine.on('error', (error) => this.#onError(error)),
       engine.on('waiting', () => this.#onWaiting()),
       engine.on('stalled', () => this.#onWaiting()),
+      engine.on('effects', (status) => this.#onEffects(status)),
+      engine.on('sleep', ({ reason }) => this.#onEngineSleep(reason)),
     ]
+    this.#applyEffects(sanitizeAudioEffects(options.effects ?? DEFAULT_AUDIO_EFFECTS))
   }
 
   // --- Reading -------------------------------------------------------------------------------
@@ -720,11 +819,94 @@ export class Player {
     this.#commit({ muted })
   }
 
+  // --- Audio effects -------------------------------------------------------------------------
+
+  /**
+   * Applies the audio effects (stage 8.1): the equalizer and loudness normalization go to the
+   * engine, which reports what they do to the current track in `effects`; the speed to the
+   * engine as well (`playbackRate`); crossfade the player does itself. `settings` is validated
+   * with `sanitizeAudioEffects`, so stored settings can be passed as they are.
+   */
+  setAudioEffects(settings: AudioEffectsSettings): void {
+    if (this.#destroyed) return
+    this.#applyEffects(sanitizeAudioEffects(settings))
+  }
+
+  /** The audio effects in use. */
+  getAudioEffects(): AudioEffectsSettings {
+    return this.#effects
+  }
+
+  /** Sets the playback speed, 1 being normal, keeping the other effects. The pitch stays. */
+  setPlaybackRate(rate: number): void {
+    this.setAudioEffects({ ...this.#effects, playbackRate: rate })
+  }
+
+  /** What the engine supports of the audio effects. */
+  effectsSupport(): EffectsSupport {
+    const engine = this.#engine
+    return {
+      effects: engine.setEffects !== undefined,
+      playbackRate: engine.setPlaybackRate !== undefined,
+      crossfade: engine.crossfade !== undefined,
+    }
+  }
+
+  /**
+   * Starts a sleep timer, replacing the one that runs, or cancels it with `null`:
+   *
+   * - `{ afterMs }`: pauses that long from now, after fading out over the last `sleepFadeMs`
+   *   (12 s by default), where the engine fades. Pausing or playing meanwhile doesn't stop it.
+   * - `{ endOfTrack: true }`: pauses when the current track ends, on the next track, ready to
+   *   play it (with repeat one, at the start of the same track); no crossfade into it.
+   *
+   * It announces `sleep` when it paused playback, and the state's `sleepTimer` shows it while it
+   * runs. Engines that run their own timer (Android's native player, whose playback goes on while
+   * the page may not run) get it too, and whichever comes first pauses.
+   */
+  setSleepTimer(request: SleepTimerRequest | null): void {
+    if (this.#destroyed) return
+    this.#clearSleepTimers(true)
+    const engine = this.#engine
+    if (request === null) {
+      engine.setSleepTimer?.(null)
+      this.#commit({ sleepTimer: undefined })
+      return
+    }
+    if ('endOfTrack' in request) {
+      const timer: SleepTimerState = { endOfTrack: true }
+      engine.setSleepTimer?.(timer)
+      this.#commit({ sleepTimer: timer })
+      return
+    }
+    const afterMs = nonNegative(request.afterMs, 0)
+    const endsAt = this.#now() + afterMs
+    const fadeMs = Math.min(this.#config.sleepFadeMs, afterMs)
+    const timer: SleepTimerState = { endsAt, fadeMs }
+    if (engine.setSleepTimer !== undefined) {
+      engine.setSleepTimer(timer)
+    } else if (engine.fadeOutput !== undefined && fadeMs > 0) {
+      this.#sleepFadeTimer = setTimeout(() => {
+        this.#sleepFadeTimer = undefined
+        this.#sleepFading = true
+        engine.fadeOutput?.(0, Math.max(0, endsAt - this.#now()))
+      }, afterMs - fadeMs)
+    }
+    // An engine with its own timer pauses on time; the player's deadline is the safety net.
+    const graceMs = engine.setSleepTimer === undefined ? 0 : SLEEP_GRACE_MS
+    this.#sleepTimer = setTimeout(() => {
+      this.#sleepTimer = undefined
+      this.#sleep('timer')
+    }, afterMs + graceMs)
+    this.#commit({ sleepTimer: timer })
+  }
+
   /** Stops everything, destroys the engine and drops every listener. */
   destroy(): void {
     if (this.#destroyed) return
     this.#cancel()
     this.#cancelPreload()
+    this.#clearSleepTimers(false)
     this.#destroyed = true
     for (const detach of this.#detach) detach()
     this.#engine.destroy()
@@ -844,7 +1026,8 @@ export class Player {
     this.#clearStallTimer()
     if (this.#loaded !== undefined) {
       this.#loaded = undefined
-      this.#engine.pause()
+      // A crossfade's engine plays the next item already: the old one fades out by itself.
+      if (!this.#handover) this.#engine.pause()
     }
   }
 
@@ -1154,6 +1337,7 @@ export class Player {
     promise.then(
       (resolved) => {
         if (this.#preload !== preload || this.#refusal(resolved.stream) !== undefined) return
+        preload.resolved = resolved
         this.#engine.preload?.({ stream: resolved.stream, item: next })
       },
       () => {
@@ -1189,6 +1373,153 @@ export class Player {
     this.#cancelPreload()
   }
 
+  // --- Effects, crossfade and the sleep timer ------------------------------------------------
+
+  #applyEffects(settings: AudioEffectsSettings): void {
+    this.#effects = settings
+    const engine = this.#engine
+    if (engine.setEffects !== undefined) {
+      // The engine reports what they do to the current track with `effects`.
+      engine.setEffects({ equalizer: settings.equalizer, loudness: settings.loudness })
+    } else {
+      this.#commit({ effects: effectsWithoutEngine(settings) })
+    }
+    const playbackRate = engine.setPlaybackRate === undefined ? 1 : settings.playbackRate
+    engine.setPlaybackRate?.(playbackRate)
+    this.#commit({ playbackRate })
+  }
+
+  /**
+   * Starts the crossfade into the next item once the current track is that close to its end
+   * (in real time, so at the playback speed): only for the item that follows by itself (not on
+   * repeat one, nor at the end of the queue), when its stream is resolved and prepared in the
+   * engine, not between tracks of one album unless the setting says so, and not while a sleep
+   * timer waits for the end of the track. Tried on every position report until the engine can.
+   */
+  #maybeCrossfade(): void {
+    const { durationMs: crossfadeMs, sameAlbum: acrossAlbum } = this.#effects.crossfade
+    const engine = this.#engine
+    if (crossfadeMs <= 0 || engine.crossfade === undefined) return
+    const state = this.#state
+    if (state.status !== 'playing' || state.buffering) return
+    if (state.sleepTimer !== undefined && 'endOfTrack' in state.sleepTimer) return
+    const loaded = this.#loaded
+    if (loaded === undefined || !loaded.played) return
+    const { queue, durationMs, positionMs, playbackRate } = state
+    const current = currentQueueItem(queue)
+    const next = nextQueueItem(queue)
+    if (queue.repeat === 'one' || current === undefined || next === undefined) return
+    if (next.uid === current.uid || (!acrossAlbum && sameAlbum(current.track, next.track))) return
+    const preload = this.#preload
+    const resolved = preload?.uid === next.uid ? preload.resolved : undefined
+    if (resolved === undefined || this.#isExpiring(resolved.stream) || durationMs === undefined) {
+      return
+    }
+    const remainingMs = (durationMs - positionMs) / playbackRate
+    if (remainingMs > crossfadeMs || remainingMs < MIN_CROSSFADE_MS) return
+    if (!engine.crossfade({ stream: resolved.stream, item: next }, remainingMs)) return
+    this.#adoptCrossfade(next, resolved)
+  }
+
+  /**
+   * The engine started `next` in a crossfade: the current track counts as played to its end
+   * (cause `ended`), and `next` becomes current with the stream the engine plays, without a new
+   * load. Its `play` event comes from the engine.
+   */
+  #adoptCrossfade(next: QueueItem, resolved: ResolvedStream): void {
+    // The preparation is taken: its stream plays.
+    this.#preload = undefined
+    this.#markHealthy()
+    this.#clearStallTimer()
+    this.#handover = true
+    try {
+      this.#changeQueue(skipToNext(this.#state.queue), 'ended')
+    } finally {
+      this.#handover = false
+    }
+    // A listener of the track change may have moved on already: its action wins.
+    if (currentQueueItem(this.#state.queue)?.uid !== next.uid || this.#loaded !== undefined) return
+    if (resolved.candidate !== undefined) {
+      this.#commit({ queue: setQueueCandidate(this.#state.queue, next.uid, resolved.candidate) })
+    }
+    const { stream } = resolved
+    this.#loaded = { uid: next.uid, stream, played: false }
+    this.#healthyAtMs = HEALTHY_AFTER_MS
+    if (!this.#wantsPlayback()) {
+      // A listener paused meanwhile.
+      this.#engine.pause()
+      this.#commit({ stream })
+      return
+    }
+    this.#commit({ status: 'playing', buffering: true, stream, error: undefined })
+    this.#armStallTimer()
+  }
+
+  /** The sleep timer's time came: pause, if playing, and put the output back for later. */
+  #sleep(reason: SleepReason): void {
+    const playing = this.#wantsPlayback()
+    this.#clearSleepTimers(false)
+    this.#engine.setSleepTimer?.(null)
+    if (playing) this.pause()
+    if (this.#engine.fadeOutput !== undefined) this.#engine.fadeOutput(1, 0)
+    this.#commit({ sleepTimer: undefined })
+    if (playing) this.#events.emit('sleep', { reason })
+  }
+
+  /**
+   * The track a sleep timer waited for ended: the next item becomes current, paused, ready to
+   * play; with repeat one, or a queue of one repeating, the track goes back to its start, paused;
+   * at the end of the queue it ends as usual.
+   */
+  #sleepAtEnd(): void {
+    this.#engine.setSleepTimer?.(null)
+    this.#commit({ sleepTimer: undefined })
+    const { queue, durationMs, positionMs } = this.#state
+    if (!hasNextQueueItem(queue)) {
+      this.#commit({ status: 'ended', buffering: false, positionMs: durationMs ?? positionMs })
+      this.#events.emit('queueend', undefined)
+    } else if (queue.repeat !== 'one' && this.#changeQueue(skipToNext(queue), 'ended')) {
+      this.#commit({ status: 'paused', buffering: false })
+    } else {
+      this.#seekTo(0, 'repeat')
+      this.#commit({ status: 'paused', buffering: false })
+    }
+    this.#events.emit('sleep', { reason: 'end-of-track' })
+  }
+
+  /** What the effects do now, as the engine reports it; an unchanged report changes nothing. */
+  #onEffects(status: AudioEffectsStatus): void {
+    const { effects } = this.#state
+    if (
+      effects.equalizer === status.equalizer &&
+      effects.loudness === status.loudness &&
+      effects.loudnessGainDb === status.loudnessGainDb
+    ) {
+      return
+    }
+    this.#commit({ effects: { ...status } })
+  }
+
+  /** The engine's own sleep timer paused playback. */
+  #onEngineSleep(reason: SleepReason): void {
+    if (this.#state.sleepTimer === undefined) return
+    const playing = this.#wantsPlayback()
+    this.#clearSleepTimers(false)
+    if (playing) this.pause()
+    this.#commit({ sleepTimer: undefined })
+    this.#events.emit('sleep', { reason })
+  }
+
+  /** Stops the sleep timer's timers; `restore` brings the output back if it was fading. */
+  #clearSleepTimers(restore: boolean): void {
+    if (this.#sleepTimer !== undefined) clearTimeout(this.#sleepTimer)
+    if (this.#sleepFadeTimer !== undefined) clearTimeout(this.#sleepFadeTimer)
+    this.#sleepTimer = undefined
+    this.#sleepFadeTimer = undefined
+    if (this.#sleepFading && restore) this.#engine.fadeOutput?.(1, SLEEP_RESTORE_MS)
+    this.#sleepFading = false
+  }
+
   // --- Engine events -------------------------------------------------------------------------
 
   #onTimeUpdate(positionMs: number): void {
@@ -1209,6 +1540,7 @@ export class Player {
     }
     if (this.#healthyAtMs !== undefined && positionMs >= this.#healthyAtMs) this.#markHealthy()
     this.#maybePreload()
+    this.#maybeCrossfade()
   }
 
   #onDurationChange(durationMs: number): void {
@@ -1243,7 +1575,11 @@ export class Player {
     if (this.#loaded === undefined) return
     this.#markHealthy()
     this.#clearStallTimer()
-    const { queue } = this.#state
+    const { queue, sleepTimer } = this.#state
+    if (sleepTimer !== undefined && 'endOfTrack' in sleepTimer) {
+      this.#sleepAtEnd()
+      return
+    }
     if (queue.repeat === 'one') {
       void this.#restart(true, 'repeat')
       return
