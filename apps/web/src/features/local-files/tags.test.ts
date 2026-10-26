@@ -219,6 +219,44 @@ describe('loudness tags', () => {
     })
   })
 
+  it('reads gains however taggers write them', async () => {
+    for (const gain of ['-7.89dB', '-7,89 dB', '-7.89']) {
+      const extra: [string, string][] = [
+        ['REPLAYGAIN_TRACK_GAIN', gain],
+        ['REPLAYGAIN_TRACK_PEAK', '0,5'],
+      ]
+      const result = await read(flacFile({ tags: { ...TAGS, extra } }), 'Night Drive.flac')
+      expect(result.tags.loudness, gain).toEqual({
+        trackLufs: -10.11,
+        trackPeak: 0.5,
+        source: 'replaygain',
+      })
+    }
+  })
+
+  it('reads ReplayGain from ID3 and iTunes tags, whatever the case of their names', () => {
+    const id3 = loudnessOfTags({
+      common: {},
+      native: {
+        'ID3v2.4': [
+          { id: 'TXXX:replaygain_track_gain', value: '-7,89 dB' },
+          { id: 'TXXX:REPLAYGAIN_ALBUM_GAIN', value: '-8.20 dB' },
+        ],
+      },
+    } as never)
+    expect(id3).toEqual({ trackLufs: -10.11, albumLufs: -9.8, source: 'replaygain' })
+    const itunes = loudnessOfTags({
+      common: {},
+      native: {
+        iTunes: [
+          { id: '----:com.apple.iTunes:replaygain_track_gain', value: '+2.5dB' },
+          { id: '----:com.apple.iTunes:replaygain_track_peak', value: '0.25' },
+        ],
+      },
+    } as never)
+    expect(itunes).toEqual({ trackLufs: -20.5, trackPeak: 0.25, source: 'replaygain' })
+  })
+
   it('reads R128 gains from an Opus file', async () => {
     const extra: [string, string][] = [
       ['R128_TRACK_GAIN', '-1280'],
@@ -231,7 +269,7 @@ describe('loudness tags', () => {
   it('leaves loudness out without valid tags', async () => {
     const result = await read(flacFile({ tags: TAGS }), 'Night Drive.flac')
     expect(result.tags.loudness).toBeUndefined()
-    // A gain written without its unit reads as a ratio, which says nothing.
+    // Without the tag's own text, a gain the parser read as a ratio (no unit) says nothing.
     const unitless = loudnessOfTags({
       common: { replaygain_track_gain: { dB: Number.NaN, ratio: -7.89 } },
     } as never)

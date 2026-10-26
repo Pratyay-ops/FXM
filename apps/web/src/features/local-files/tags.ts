@@ -15,6 +15,7 @@ import {
   loudnessFromReplayGain,
   normalizeIsrc,
   parseR128GainDb,
+  parseReplayGainDb,
   type StreamLoudness,
 } from '@fxm/core'
 import type { IAudioMetadata, IOptions } from 'music-metadata'
@@ -319,23 +320,56 @@ function r128Loudness(native: IAudioMetadata['native'] | undefined): StreamLoudn
 }
 
 /**
+ * The text of the ReplayGain tag `name` (e.g. `REPLAYGAIN_TRACK_GAIN`) as the file holds it, in
+ * whichever of its tag formats has it: a Vorbis comment or an APE tag of that name, an ID3
+ * `TXXX:replaygain_track_gain` frame, an iTunes `----:com.apple.iTunes:replaygain_track_gain`
+ * atom. Taggers spell the name in either case.
+ */
+function replayGainText(
+  native: IAudioMetadata['native'] | undefined,
+  name: string,
+): string | undefined {
+  for (const tags of Object.values(native ?? {})) {
+    for (const { id, value } of tags) {
+      if (typeof id !== 'string' || typeof value !== 'string') continue
+      if (id.slice(id.lastIndexOf(':') + 1).toUpperCase() === name) return value
+    }
+  }
+  return undefined
+}
+
+/** A ReplayGain peak's text as a number, e.g. `0.988525`; also with a decimal comma. */
+function parsePeak(text: string | undefined): number | undefined {
+  if (text === undefined || text.trim() === '') return undefined
+  const value = Number(text.trim().replace(',', '.'))
+  return Number.isFinite(value) ? value : undefined
+}
+
+/**
  * How loud a file is (stage 8.1): its ReplayGain tags (`REPLAYGAIN_TRACK_GAIN` and `_PEAK`, and
- * the album pair), which the tag reader finds in ID3, MP4, Vorbis and APE tags; for an Opus file
- * its R128 gains first (RFC 7845: Opus taggers write those, relative to the header's output gain,
- * which the decoder applies). `undefined` without either.
+ * the album pair), in ID3, MP4, Vorbis or APE tags; for an Opus file its R128 gains first (RFC
+ * 7845: Opus taggers write those, relative to the header's output gain, which the decoder
+ * applies). `undefined` without either.
+ *
+ * The gains are read from the tags' own text with `parseReplayGainDb`, which takes what taggers
+ * write: `-7.89 dB`, `-7.89dB`, `-7,89 dB`, a bare `-7.89`. The parser's own reading (`common`)
+ * splits at a space, so it drops `-7.89dB` and reads `-7,89 dB` as -7 dB: it serves only for tag
+ * formats not found here.
  */
 export function loudnessOfTags(
   metadata: Pick<IAudioMetadata, 'common'> & Partial<Pick<IAudioMetadata, 'native' | 'format'>>,
 ): StreamLoudness | undefined {
-  const { common } = metadata
-  const r128 = r128Loudness(metadata.native)
+  const { common, native } = metadata
+  const r128 = r128Loudness(native)
   const opus = (metadata.format?.codec ?? '').toLowerCase().includes('opus')
   if (opus && r128 !== undefined) return r128
+  const gain = (name: string) => parseReplayGainDb(replayGainText(native, name))
+  const peak = (name: string) => parsePeak(replayGainText(native, name))
   const replayGain = loudnessFromReplayGain({
-    trackGainDb: common.replaygain_track_gain?.dB,
-    trackPeak: common.replaygain_track_peak?.ratio,
-    albumGainDb: common.replaygain_album_gain?.dB,
-    albumPeak: common.replaygain_album_peak?.ratio,
+    trackGainDb: gain('REPLAYGAIN_TRACK_GAIN') ?? common.replaygain_track_gain?.dB,
+    trackPeak: peak('REPLAYGAIN_TRACK_PEAK') ?? common.replaygain_track_peak?.ratio,
+    albumGainDb: gain('REPLAYGAIN_ALBUM_GAIN') ?? common.replaygain_album_gain?.dB,
+    albumPeak: peak('REPLAYGAIN_ALBUM_PEAK') ?? common.replaygain_album_peak?.ratio,
   })
   return replayGain ?? r128
 }
