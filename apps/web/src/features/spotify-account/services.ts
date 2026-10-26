@@ -4,25 +4,20 @@
  * contexts and capabilities from the platform (1.2), the Spotify switch (2.4) and the library
  * (2.6).
  *
- * The app's provider should be shared by every feature. Until the composition root (stage 2.9)
- * wires one in with {@link setAppSpotifyAccountServices}, this module builds its own on first
- * use, from the app's one platform (`getAppPlatform()`, stage 2.7), so the account works on
- * `develop` already. Nothing is loaded or contacted until the user connects the account.
+ * The app has one Spotify provider: the composition root's (stage 2.9), created with this
+ * feature's opt-in as its `isAccountEnabled` (`spotifyAccountOptedIn`). This module takes it
+ * from there on first use; only where the root has none it builds one of its own over the app's
+ * platform. Nothing is loaded or contacted until the user connects the account.
  *
  * @module
  */
 
-import {
-  type AccountStatus,
-  type Fetch,
-  FxmError,
-  type NetworkCapabilities,
-  type ProviderContext,
-} from '@fxm/core'
+import type { AccountStatus, NetworkCapabilities, ProviderContext } from '@fxm/core'
 import type { FxmPlatform } from '@fxm/platform'
 import type { SpotifyProvider } from '@fxm/sources/spotify'
 import { getLibrary } from '../../db/repo'
 import { appSources } from '../search/sources-context'
+import { secretFetchFor } from './secret-fetch'
 import type { SyncLibrary, SyncSpotify } from './sync'
 
 /** What the feature uses of the Spotify provider: its logged-in calls and its account switches. */
@@ -54,51 +49,6 @@ export interface SpotifyAccountServices {
    * (in another tab, which FXM Connect doesn't announce).
    */
   refresh(): Promise<void>
-}
-
-/**
- * The `fetch` for the TOTP secret's community sources (which the provider needs for every
- * token, the account's too). Their hosts aren't in the app's content security policy: in a
- * browser the secret goes through the Lite tier's sandboxed user-host document (stage 1.10),
- * GET only and size-capped. `make dev` doesn't serve that document and has no policy, so there
- * the page fetches it directly. Only the provider's secret hosts are allowed.
- */
-export function createSecretFetch(options: {
-  readonly hosts: readonly string[]
-  readonly userHost?: (
-    url: string,
-    init: { method: 'GET'; signal?: AbortSignal },
-  ) => Promise<Response>
-  readonly direct?: Fetch
-}): Fetch {
-  return async (input, init) => {
-    const url = new URL(String(input))
-    if (url.protocol !== 'https:' || !options.hosts.includes(url.hostname)) {
-      throw new FxmError('Unsupported', `FXM doesn't read Spotify's secret from ${url.hostname}`)
-    }
-    const signal = init?.signal ?? undefined
-    if (options.userHost) {
-      return options.userHost(url.href, { method: 'GET', ...(signal ? { signal } : {}) })
-    }
-    if (options.direct) {
-      return options.direct(url.href, {
-        credentials: 'omit',
-        headers: { Accept: 'application/json' },
-        ...(signal ? { signal } : {}),
-      })
-    }
-    throw new FxmError('Unsupported', "FXM can't read Spotify's secret here")
-  }
-}
-
-/** The secret's `fetch` on `platform` (see {@link createSecretFetch}), or none outside a browser. */
-function secretFetchFor(platform: FxmPlatform, hosts: readonly string[]): Fetch | undefined {
-  if (platform.environment !== 'browser') return undefined
-  if (import.meta.env.DEV)
-    return createSecretFetch({ hosts, direct: globalThis.fetch.bind(globalThis) })
-  const sandbox = platform.lite?.sandbox
-  const userHost = sandbox?.userHost?.bind(sandbox)
-  return userHost === undefined ? undefined : createSecretFetch({ hosts, userHost })
 }
 
 /** Builds the services over the app's platform, a provider and the library. */
@@ -138,35 +88,39 @@ export function servicesFrom(
 let given: SpotifyAccountServices | undefined
 let built: Promise<SpotifyAccountServices> | undefined
 
-/**
- * Wires in the app's own services: the composition root (stage 2.9) passes the app's shared
- * Spotify provider, created with `isAccountEnabled: spotifyAccountOptedIn` (`start.ts`).
- */
+/** Wires in other services (another app shell, or a test), in place of the composition root's. */
 export function setAppSpotifyAccountServices(services: SpotifyAccountServices): void {
   given = services
 }
 
 /**
- * The app's services: those wired in, or a provider of this feature's own over the app's
- * platform, built on first use.
+ * The app's services: those wired in, else the composition root's (stage 2.9) Spotify provider
+ * over the app's platform, so the app has one provider; only where the root has none (it could
+ * not start, or Spotify can't be read there) a provider of this feature's own over the app's
+ * platform. Built on first use.
  */
 export function loadAppSpotifyAccountServices(
   isAccountEnabled: () => boolean,
 ): Promise<SpotifyAccountServices> {
   if (given !== undefined) return Promise.resolve(given)
   built ??= (async () => {
+    const { getAppServices } = await import('../../app/services')
+    const app = getAppServices()
+    const platform = await app.start()
+    const shared = platform === undefined ? undefined : await app.spotify()
+    if (platform !== undefined && shared !== undefined) return servicesFrom(platform, shared)
     const [{ getAppPlatform }, { createSpotifyProvider, SPOTIFY_SECRET_SOURCE_HOSTS }] =
       await Promise.all([import('../connect/app-platform'), import('@fxm/sources/spotify')])
-    const platform = await getAppPlatform()
-    const session = platform.spotifySession
-    const secretFetch = secretFetchFor(platform, SPOTIFY_SECRET_SOURCE_HOSTS)
+    const own = await getAppPlatform()
+    const session = own.spotifySession
+    const secretFetch = secretFetchFor(own, SPOTIFY_SECRET_SOURCE_HOSTS)
     const spotify: SpotifyProvider = createSpotifyProvider({
       isEnabled: () => appSources.getSnapshot().spotifyEnabled,
       isAccountEnabled,
       ...(session === undefined ? {} : { session }),
       ...(secretFetch === undefined ? {} : { secretFetch }),
     })
-    return servicesFrom(platform, spotify)
+    return servicesFrom(own, spotify)
   })().catch((error: unknown) => {
     built = undefined
     throw error

@@ -1,7 +1,7 @@
 import { isFxmError } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import { createAccountChoice, SPOTIFY_ACCOUNT_STORAGE_KEY } from './account-store'
-import { createSecretFetch } from './services'
+import { createSecretFetch } from './secret-fetch'
 
 const HOSTS = ['raw.githubusercontent.com', 'gist.githubusercontent.com']
 const SECRET = 'https://raw.githubusercontent.com/someone/secrets/main/secret.json'

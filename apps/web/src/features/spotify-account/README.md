@@ -32,16 +32,16 @@ Right after Connect (in the background: Disconnect stays possible meanwhile), wh
 
 The Spotify provider keeps the account's token in memory only, and asks FXM Connect's bridge for it, about once an hour. Nothing here ever holds it: `localStorage` keeps only the opt-in (`fxm.spotify-account.v1`, `{ optedIn }`), the library keeps the copies and the state, and neither URLs nor logs carry a token. Disconnect makes the provider forget the token at once. The browser test checks storage, IndexedDB, the URL and the console for the token.
 
-The Spotify TOTP secret, which every token request needs, comes from the community sources the provider names. In the deployed app it goes through the sandboxed `/sandbox/userhost.html` (stage 1.10), so no new host enters the app's policy; `make dev`, which doesn't serve that document and has no policy, fetches it directly (`createSecretFetch` in `services.ts`).
+The Spotify TOTP secret, which every token request needs, comes from the community sources the provider names. In the deployed app it goes through the sandboxed `/sandbox/userhost.html` (stage 1.10), so no new host enters the app's policy; `make dev`, which doesn't serve that document and has no policy, fetches it directly (`secret-fetch.ts`, which the composition root uses for the app's provider too).
 
 ## Wiring (`start.ts`, `services.ts`)
 
-`main.tsx` calls `startSpotifyAccount()`: it gives Home its view of the account and loads nothing unless the account is connected. Until the composition root (stage 2.9) wires an app-wide Spotify provider in, the feature builds its own on first use, over the app's one platform (`getAppPlatform()`, 2.7) and the Spotify switch (2.4). When the composition root lands:
+`main.tsx` calls `startSpotifyAccount()`: it gives Home its view of the account and loads nothing unless the account is connected. The app has one Spotify provider, the composition root's (stage 2.9, `app/services/app-services.ts`): it is created with `isAccountEnabled: spotifyAccountOptedIn`, reads the secret through the platform's user-host document in a browser (`secret-fetch.ts`, shared with this folder), and serves search and the account alike. The runtime takes it with the root's `spotify()`; only where the root has none (it couldn't start) does `loadAppSpotifyAccountServices()` build a provider of its own over the app's platform (`getAppPlatform()`, stage 2.7). Another shell, or a test, can hand in services with `setAppSpotifyAccountServices`.
 
-| Touch-point | Now | Then |
+| Touch-point | Today | Later |
 |---|---|---|
-| The Spotify provider | `loadAppSpotifyAccountServices()` creates one, with `isAccountEnabled: spotifyAccountOptedIn`, the platform's `spotifySession` and the secret's `fetch` | The app's shared provider, created with `isAccountEnabled: spotifyAccountOptedIn` (and the secret's hosts in the platform's `userHosts`), handed in with `setAppSpotifyAccountServices(servicesFrom(platform, spotify))` |
-| Home's Spotify sections (3.3) | `appHomeServices` gets `spotifyAccount: spotifyAccountForHome` at start | Keep `spotifyAccount: spotifyAccountForHome` when the composition root sets Home's services. Home asks `status`, then `sections` (stage 3.5's addition to its seam), and needs its `sources` wired to the platform to ask at all |
+| Home's Spotify sections (3.3) | `appHomeServices` gets `spotifyAccount: spotifyAccountForHome` at start | Keep it when Home's services are wired in (`app/services/README.md`, the 3.3 row): Home asks `status`, then `sections` (stage 3.5's addition to its seam), and asks at all only once its `sources` follow the platform |
+| Desktop (7.4) and Android (6.5) logins | `capabilities.spotify` is `anonymous` there, and Settings says the app's own login comes later | Their login windows give the platform a `spotifySession`; this folder needs no change |
 | Capabilities in Settings | The connection store of 2.7 (`useConnection`) | Unchanged |
 
 ## Tests
@@ -116,4 +116,5 @@ Once it passes, the provider's library calls can lose their `@experimental` mark
 | `state.ts`, `home.ts` | The sync's state and the kept home in the library, read back field by field |
 | `ids.ts` | The copies' IDs, the settings keys, the account key |
 | `services.ts`, `start.ts` | The seam to the provider, the platform and the library; start-up and Home's view |
+| `secret-fetch.ts` | How the web app reads Spotify's TOTP secret: the sandboxed user-host document, or directly in `make dev` |
 | `testing.ts` | A fake account, fake services and Web Locks |

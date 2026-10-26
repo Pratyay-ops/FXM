@@ -60,6 +60,7 @@ import {
   type StreamSource,
   type TrackMatcher,
 } from '@fxm/player'
+import type { SpotifyProvider } from '@fxm/sources/spotify'
 import {
   appActions,
   type MediaActions,
@@ -70,6 +71,8 @@ import type { Sources } from '../../features/search/sources'
 import { appSources } from '../../features/search/sources-context'
 import { lifecycleQualityOptions } from '../../features/settings/quality-store'
 import { useSettingsStore } from '../../features/settings/settings-store'
+import { secretFetchFor, userHostOf } from '../../features/spotify-account/secret-fetch'
+import { spotifyAccountOptedIn } from '../../features/spotify-account/start'
 import { createIndexedDbStore, type DeviceStore } from './device-store'
 import { createLoader, type Loader, lazyProvider } from './lazy-provider'
 import { type LibraryRepository, libraryActionsFrom, matchStoreFrom } from './library'
@@ -122,6 +125,11 @@ export interface AppServicesOptions {
    * Default: the app's, from Settings (`lifecycleQualityOptions()`), read for every stream.
    */
   readonly quality?: Pick<StreamLifecycleOptions, 'qualityPrefs' | 'streaming'>
+  /**
+   * Whether the user connected their Spotify account (stage 3.5's opt-in): the Spotify
+   * provider's `isAccountEnabled`. Default: the app's choice (`spotifyAccountOptedIn`).
+   */
+  readonly spotifyAccount?: () => boolean
   /** Imports `@fxm/sources/youtube`. Default: `import()`; tests pass one they control. */
   readonly importYouTube?: () => Promise<YouTubeModule>
   /**
@@ -166,6 +174,12 @@ export interface AppServices {
   context(options: AppContextOptions): ProviderContext
   /** The lyrics provider (stage 1.8), loaded on first use. Call it with {@link context}. */
   lyrics(): Promise<LyricsProvider>
+  /**
+   * The Spotify provider, loaded on first use, once the platform is ready: `undefined` where
+   * Spotify can't be read (see `canReadSpotify`). Stage 3.5's account feature uses it, so the app
+   * has one Spotify provider, whose `isAccountEnabled` is the account's opt-in.
+   */
+  spotify(): Promise<SpotifyProvider | undefined>
   /**
    * Connects the app's player: the lifecycle follows it (prefetching, Smart Replace), the ladder
    * learns which URLs started playing, and the catalog pages' play buttons drive it. Returns a
@@ -250,9 +264,17 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
       // Only Spotify fetches from them, so they are known before the first such fetch.
       userHosts = SPOTIFY_SECRET_SOURCE_HOSTS
       const session = platform?.spotifySession
+      // In a browser the secret goes through the sandbox's user-host document: the services'
+      // own, or the platform's (stage 2.7's, which the app passes in without its options).
+      const secretFetch =
+        platform === undefined
+          ? undefined
+          : secretFetchFor(platform, SPOTIFY_SECRET_SOURCE_HOSTS, options.sandbox)
       return createSpotifyProvider({
         isEnabled: () => sources.getSnapshot().spotifyEnabled,
+        isAccountEnabled: options.spotifyAccount ?? spotifyAccountOptedIn,
         ...(session === undefined ? {} : { session }),
+        ...(secretFetch === undefined ? {} : { secretFetch }),
       })
     },
   )
@@ -398,7 +420,7 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
    */
   function canReadSpotify(current: FxmPlatform | undefined): boolean {
     if (current === undefined) return false
-    return current.environment !== 'browser' || options.sandbox?.userHost !== undefined
+    return current.environment !== 'browser' || userHostOf(current, options.sandbox) !== undefined
   }
 
   /** Registers the providers with the registry, each loading its code on first use. */
@@ -553,6 +575,10 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
     },
     context,
     lyrics: () => lrclib.load(),
+    async spotify() {
+      await start()
+      return spotifyRegistered ? spotify.load() : undefined
+    },
     connectPlayer(player) {
       const own = playbackFromPlayer(player)
       const stops = [lifecycle.attach(player), reportPlaybackStarts(player)]

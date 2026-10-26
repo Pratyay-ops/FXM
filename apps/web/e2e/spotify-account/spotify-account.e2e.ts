@@ -245,6 +245,9 @@ test('connects through FXM Connect, syncs read-only, and disconnects', async () 
     await page.goto(`${FXM}/app/settings`)
     // Third-party cookies are allowed in this run.
     expect(await sendsThirdPartyCookies(page)).toBe(true)
+    // With FXM Connect, the app reads Spotify in this browser: its one provider serves search
+    // and the account alike.
+    await expect(page.getByText('Search and browse Spotify too.', { exact: false })).toBeVisible()
 
     const clicked = Date.now()
     const section = await connect(page, browser)

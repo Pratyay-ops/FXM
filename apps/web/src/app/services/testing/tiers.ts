@@ -67,6 +67,13 @@ export interface TierSetup {
    * Spotify secret's. The Lite tier always has the sandbox; this adds its user-host document.
    */
   readonly userHost?: (url: string) => Response
+  /**
+   * Gives the sandbox to the platform only, as the app does: it hands in stage 2.7's platform,
+   * which brings its own sandbox, and passes the services no `sandbox` option.
+   */
+  readonly sandboxOnPlatformOnly?: boolean
+  /** Whether the user connected their Spotify account (`AppServicesOptions.spotifyAccount`). */
+  readonly spotifyAccount?: AppServicesOptions['spotifyAccount']
 }
 
 /** The services on one tier, with what a test looks at. */
@@ -152,6 +159,7 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
       platformOptions = options
       return createPlatform({
         ...options,
+        ...(setup.sandboxOnPlatformOnly && sandbox !== undefined ? { sandbox } : {}),
         environment: 'browser',
         window: page,
         fetch: network.fetch,
@@ -164,7 +172,8 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
     network: createStaticNetworkMonitor(),
     jamendoClientId: undefined,
     catalogMode: () => mode,
-    ...(sandbox === undefined ? {} : { sandbox }),
+    ...(sandbox === undefined || setup.sandboxOnPlatformOnly ? {} : { sandbox }),
+    ...(setup.spotifyAccount === undefined ? {} : { spotifyAccount: setup.spotifyAccount }),
     ...(setup.library === undefined ? {} : { library: setup.library }),
     ...(setup.importYouTube === undefined ? {} : { importYouTube: setup.importYouTube }),
     ...(setup.onYouTube === undefined ? {} : { onYouTube: setup.onYouTube }),
