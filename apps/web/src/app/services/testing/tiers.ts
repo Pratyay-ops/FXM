@@ -59,6 +59,8 @@ export interface TierSetup {
   readonly connect?: FakeConnectOptions
   /** Imports `@fxm/sources/youtube`, e.g. to hold it back. Default: `import()`. */
   readonly importYouTube?: AppServicesOptions['importYouTube']
+  /** Called once YouTube's code has loaded (`AppServicesOptions.onYouTube`). */
+  readonly onYouTube?: AppServicesOptions['onYouTube']
   /**
    * Gives the page the sandbox documents of stage 1.10 on any tier, whose user-host document
    * answers with this: what the web app fetches from hosts outside its table, such as the
@@ -165,6 +167,7 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
     ...(sandbox === undefined ? {} : { sandbox }),
     ...(setup.library === undefined ? {} : { library: setup.library }),
     ...(setup.importYouTube === undefined ? {} : { importYouTube: setup.importYouTube }),
+    ...(setup.onYouTube === undefined ? {} : { onYouTube: setup.onYouTube }),
   })
   return {
     services,

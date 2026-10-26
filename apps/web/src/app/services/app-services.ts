@@ -124,6 +124,11 @@ export interface AppServicesOptions {
   readonly quality?: Pick<StreamLifecycleOptions, 'qualityPrefs' | 'streaming'>
   /** Imports `@fxm/sources/youtube`. Default: `import()`; tests pass one they control. */
   readonly importYouTube?: () => Promise<YouTubeModule>
+  /**
+   * Called once YouTube's code has loaded, with its session, config and stream ladder: the app
+   * shares them with stage 2.7 (the config's kill switches, the Diagnostics self-test).
+   */
+  readonly onYouTube?: (youtube: YouTube) => void
 }
 
 /** What one provider call's context is built from (see {@link AppServices.context}). */
@@ -231,7 +236,10 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
     budget: platformStreamBudget(() => platform?.budget),
     ...(options.importYouTube === undefined ? {} : { importModule: options.importYouTube }),
     // The config's kill switches, the Lite tier's included (stage 1.10).
-    onLoad: (loaded) => killSwitches.set(loaded.session.config.killSwitches),
+    onLoad: (loaded) => {
+      killSwitches.set(loaded.session.config.killSwitches)
+      options.onYouTube?.(loaded)
+    },
   })
   /** Hosts outside the platform's table that FXM may fetch from: the Spotify secret's. */
   let userHosts: readonly string[] = []

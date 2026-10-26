@@ -7,6 +7,15 @@
  */
 
 import { getLibrary } from '../../db/repo'
+import { getAppPlatform } from '../../features/connect/app-platform'
+import { recheckConnection } from '../../features/connect/connection'
+import { appKillSwitches, setKillSwitchSource } from '../../features/connect/kill-switches'
+import {
+  fromAudioSource,
+  getSongResolver,
+  setSongResolver,
+  unavailableResolver,
+} from '../../features/connect/resolver'
 import { withLocalFilesFirst } from '../../features/local-files/player'
 import { getPlayer } from '../../features/now-playing/playback'
 import {
@@ -17,6 +26,7 @@ import {
 import { appSources } from '../../features/search/sources-context'
 import { type AppServices, createAppServices } from './app-services'
 import { lazyLibrary } from './library'
+import type { YouTube } from './youtube'
 
 export {
   type AppContextOptions,
@@ -29,11 +39,31 @@ export type { AppPlaybackPolicy } from './policy'
 let services: AppServices | undefined
 
 /**
- * The app's services, created on first use, with the library of stage 2.6 ("Add to playlist" and
- * the match cache), whose database opens on first use.
+ * Shares what YouTube's code brings with stage 2.7's connection store: the YouTube config's kill
+ * switches, which the app's platform reads (and a changed Lite switch re-checks the tier), and
+ * the stream ladder for the Diagnostics self-test, unless a resolver is set already (the
+ * development fake mode's `?fake-song=`).
+ */
+function shareYouTube(youtube: YouTube): void {
+  const switches = youtube.session.config.killSwitches
+  const liteChanged = Boolean(appKillSwitches().lite) !== Boolean(switches.lite)
+  setKillSwitchSource(() => switches)
+  if (liteChanged) void recheckConnection()
+  if (getSongResolver() === unavailableResolver) setSongResolver(fromAudioSource(youtube.audio))
+}
+
+/**
+ * The app's services, created on first use: on the app's one platform, which stage 2.7's
+ * connection store follows too (`getAppPlatform()`: FXM Connect, the Lite tier's sandbox
+ * documents in a browser, the kill switches), with the library of stage 2.6 ("Add to playlist"
+ * and the match cache), whose database opens on first use.
  */
 export function getAppServices(): AppServices {
-  services ??= createAppServices({ library: lazyLibrary(getLibrary) })
+  services ??= createAppServices({
+    createPlatform: () => getAppPlatform(),
+    library: lazyLibrary(getLibrary),
+    onYouTube: shareYouTube,
+  })
   return services
 }
 

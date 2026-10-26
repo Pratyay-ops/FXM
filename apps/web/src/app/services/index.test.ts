@@ -11,19 +11,35 @@ afterEach(() => {
   stop?.()
   stop = undefined
   vi.doUnmock('./app-services')
+  vi.doUnmock('../../features/connect/app-platform')
   vi.resetModules()
   window.history.replaceState(null, '', '/')
   sessionStorage.clear()
 })
 
 async function load() {
+  // Stage 2.7's app platform, without the Lite tier's sandbox documents, which this page can't
+  // frame: one platform for the test, as the app has one.
+  vi.doMock('../../features/connect/app-platform', async () => {
+    const { createPlatform } = await import('@fxm/platform')
+    let pending: ReturnType<typeof createPlatform> | undefined
+    return { getAppPlatform: () => (pending ??= createPlatform({ reportLoginRequired: false })) }
+  })
   const services = await import('./index')
   stop = services.stopAppServices
   const { appSources } = await import('../../features/search/sources-context')
   const { appActions } = await import('../../features/search/actions')
   const { createAppPolicy } = await import('../../features/now-playing/playback-policy')
   const { getPlayer } = await import('../../features/now-playing/playback')
-  return { ...services, appSources, appActions, appPolicy: createAppPolicy(), getPlayer }
+  const { getAppPlatform } = await import('../../features/connect/app-platform')
+  return {
+    ...services,
+    appSources,
+    appActions,
+    appPolicy: createAppPolicy(),
+    getPlayer,
+    getAppPlatform,
+  }
 }
 
 const ITEM: QueueItem = { uid: 0, track: testTrack('a') }
@@ -52,6 +68,43 @@ describe('startAppServices', () => {
     // "Add to playlist" lists the library's playlists (stage 2.6): Liked songs, not Downloads.
     const playlists = await appActions.get().library?.playlists()
     expect(playlists?.map((playlist) => playlist.name)).toEqual(['Liked songs'])
+  })
+
+  it("runs on the app's one platform, which stage 2.7's connection store follows too", async () => {
+    const { startAppServices, getAppServices, getAppPlatform } = await load()
+
+    await startAppServices()
+
+    expect(getAppServices().platform).toBe(await getAppPlatform())
+  })
+
+  it("shares YouTube's kill switches and stream ladder with stage 2.7", async () => {
+    const { startAppServices, getAppServices } = await load()
+    const { appKillSwitches } = await import('../../features/connect/kill-switches')
+    const { getSongResolver, unavailableResolver } = await import('../../features/connect/resolver')
+    await startAppServices()
+    expect(getSongResolver()).toBe(unavailableResolver)
+
+    // The Diagnostics self-test resolves with the ladder once YouTube's code is in.
+    const youtube = await getAppServices().youtube.load()
+
+    expect(getSongResolver()).not.toBe(unavailableResolver)
+    expect(getSongResolver().hasFallback).toBe(youtube.fallbackRung !== undefined)
+    expect(appKillSwitches()).toEqual(youtube.session.config.killSwitches)
+  })
+
+  it("keeps a song resolver set before YouTube's code loaded, such as the fake mode's", async () => {
+    const { startAppServices, getAppServices } = await load()
+    const { getSongResolver, setSongResolver, unavailableResolver } = await import(
+      '../../features/connect/resolver'
+    )
+    const fake = { ...unavailableResolver, hasFallback: true }
+    setSongResolver(fake)
+    await startAppServices()
+
+    await getAppServices().youtube.load()
+
+    expect(getSongResolver()).toBe(fake)
   })
 
   it("makes the app's player play through the services' policy", async () => {

@@ -167,6 +167,20 @@ describe('the Full tier (FXM Connect)', () => {
     expect(player.getState().stream?.tier).toBe('low')
   })
 
+  it("tells the app once YouTube's code has loaded, with its config and ladder", async () => {
+    const loaded: string[] = []
+    const setup = setUp('full', {
+      onYouTube: (youtube) =>
+        loaded.push(`${typeof youtube.session.config.killSwitches}:${youtube.audio.id}`),
+    })
+    await setup.ready()
+
+    await setup.services.youtube.load()
+    await setup.services.youtube.load()
+
+    expect(loaded).toEqual(['object:ytm'])
+  })
+
   it('keeps one server-issued visitorData for the device, saved for the next visit', async () => {
     const setup = setUp('full')
     await setup.ready()
