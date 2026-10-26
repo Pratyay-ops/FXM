@@ -1,9 +1,10 @@
 /**
  * The header check of a deployment (docs/PLAN.md, stage 2.8): fetches every path the composed
  * folder serves and confirms that each response carries exactly one Content-Security-Policy,
- * the one `_headers` gives that path, plus `Referrer-Policy: no-referrer` and
- * `X-Content-Type-Options: nosniff`, each exactly once. It reads the raw header lines, so a
- * policy Cloudflare joined from two rules shows up as an error.
+ * the one `_headers` gives that path, plus `Referrer-Policy: no-referrer`,
+ * `X-Content-Type-Options: nosniff`, `Cross-Origin-Opener-Policy: same-origin` and the
+ * Permissions-Policy, each exactly once and as `_headers` gives them. It reads the raw header
+ * lines, so a policy Cloudflare joined from two rules shows up as an error.
  *
  * Each document must also carry its policy in a meta element (and the site's pages and the
  * apps' documents `<meta name="referrer" content="no-referrer">`), which the check reads in
@@ -20,7 +21,7 @@ import { join, resolve } from 'node:path'
 import { matchingRules, type ParsedRule, parseHeaders } from './headers-file.ts'
 import { scanPage } from './html.ts'
 import { isMain, PAGES_DIR } from './paths.ts'
-import { policyProblems } from './policies.ts'
+import { permissionsPolicyProblems, policyProblems } from './policies.ts'
 import {
   encodedVariants,
   inSplatFolder,
@@ -172,6 +173,12 @@ export function responseProblems(probe: Probe, response: RawResponse, base: URL)
     if (policies.length === 1) {
       for (const problem of policyProblems(probe.rule.path, policies[0] as string)) {
         say(`Content-Security-Policy: ${problem}`)
+      }
+    }
+    const permissions = values('permissions-policy')
+    if (permissions.length === 1) {
+      for (const problem of permissionsPolicyProblems(permissions[0] as string)) {
+        say(`Permissions-Policy: ${problem}`)
       }
     }
   }

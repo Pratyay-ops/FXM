@@ -74,6 +74,8 @@ Each GitHub release carries FXM Connect in these files:
 | `fxm-connect-chromium-<version>.zip` | Chrome, Edge, Brave and other Chromium browsers, version 120 or later, loaded unpacked |
 | `fxm-connect-firefox-<version>.zip` | Unsigned: for review, or for a temporary install in Firefox, which removes it when it restarts. A release's `.xpi` has the same files |
 
+Each of them also holds the repository's `LICENSE` (Apache-2.0) and FXM Connect's [`NOTICE`](NOTICE), which says that it bundles no third-party code.
+
 FXM Connect is not in the Chrome Web Store and isn't submitted there by default: its policy bans extensions that facilitate unauthorized streaming or downloading, and names YouTube downloads as a common reason for rejection. Its store channels are Firefox Add-ons and Edge Add-ons; [Store channels](#store-channels) has their status.
 
 **Firefox (version 140 or later)**
@@ -210,9 +212,11 @@ scripts/run.sh pnpm --filter @fxm/extension lint:firefox   # AMO's linter on dis
 
 Those are Vite's default ports, so the dev build treats any app served there as FXM: other projects, their dependencies and any local tool that binds the ports. Its options page warns about this. Localhost pages only get your Spotify login if you also turn on **Also let localhost pages use my Spotify login**, which only the dev build shows. Keep that off, or use a separate browser profile for development.
 
+The dev build's own parts of the options page (its badge, that warning and the localhost toggle) are marked `data-dev` in `src/options/options.html`, and the release build leaves them out (`scripts/options-page.ts`), so its page names no localhost origin. `options.ts` looks them up only in the dev build.
+
 DNR matches the page that starts a request by host name only, not port, so each localhost origin gets its own static ruleset. When an FXM page opens on one of them, the background enables that origin's ruleset and disables the other, and the content script holds back its replies, the pong included, until the switch is done. So requests the app sends after the pong get the rules; requests sent earlier may not. If both are open at once, the most recently loaded one gets the CORS rules.
 
-**Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, Firefox's consent, the settings store, the rate limit, the icons and the zips. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, `clienttoken`, pathfinder, `spclient` and Last.fm. Chromium's `--host-resolver-rules` points the real host names, `fxmusic.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
+**Tests.** Unit tests (Vitest, offline) cover the rule generation, both manifests, message validation, the bridge, Firefox's consent, the settings store, the rate limit, the icons and the zips, and they make a release build in a temporary folder to check its zips: `LICENSE` and `NOTICE` in both, scripts bundled from `src/` alone, and an options page without the dev build's parts. The end-to-end test loads `dist/chromium` into Playwright's Chromium in the new headless mode. A local HTTPS mock on port 5240 (`FXM_CONNECT_E2E_PORT` to change it) reproduces the measured behaviour of every host the rules cover: the three InnerTube hosts, googlevideo (including redirects), `open.spotify.com`, `clienttoken`, pathfinder, `spclient` and Last.fm. Chromium's `--host-resolver-rules` points the real host names, `fxmusic.pages.dev` included, at it, so the DNR rules apply as they do online and nothing reaches the network. The test builds the extension first, installs Chromium into `.tools/playwright` on the first run, and needs `openssl` for the throwaway certificate. `make test` does not run it.
 
 **Keep the FXM host permissions exact.** DNR's `initiatorDomains` also matches sub-domains, so `fxmusic.pages.dev` alone would cover every preview deployment. Browsers only modify headers for a request when the extension has host access to the page that started it as well (the e2e test checks this in Chromium; MDN documents it for Firefox, and a manual run in Firefox 158 confirmed it), and FXM Connect only asks for `https://fxmusic.pages.dev/*`. Adding a pattern such as `https://*.fxmusic.pages.dev/*` would quietly widen every rule to all sub-domains; a unit test refuses it.
 
@@ -229,7 +233,9 @@ DNR matches the page that starts a request by host name only, not port, so each 
 | `src/consent.ts` | Firefox's consent for the Spotify login (optional data collection) |
 | `src/messages.ts` | Message protocol and validation |
 | `src/options/` | Options page |
-| `scripts/build.ts` | Build: Vite bundles, manifests, rulesets, icons (the FXM mark, rendered at build time) and zips |
+| `scripts/build.ts` | Build: Vite bundles, manifests, rulesets, icons (the FXM mark, rendered at build time), the licence files and zips |
+| `scripts/options-page.ts` | The options page each build ships: the release build drops the elements marked `data-dev` |
+| `NOTICE` | The notice every build ships next to the repository's `LICENSE` |
 | `e2e/` | Playwright end-to-end test and the HTTPS mock |
 | `store/` | Store listings and the release workflow's store jobs ([Store channels](#store-channels)) |
 
