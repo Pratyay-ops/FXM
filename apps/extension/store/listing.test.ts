@@ -99,6 +99,16 @@ describe('store description', () => {
     expect(description).toContain("asks for Firefox's consent to share authentication information")
   })
 
+  it("repeats its sentence on Spotify's terms on the options page, by the login toggle", () => {
+    const terms = /Spotify's terms [^.]*\./.exec(description)?.[0] ?? ''
+    expect(terms).toContain('suspend accounts')
+    const page = readFileSync(new URL('../src/options/options.html', import.meta.url), 'utf8')
+    const help = /<p id="spotify-login-help"[^>]*>([^<]*)<\/p>/
+      .exec(page)?.[1]
+      ?.replace(/\s+/g, ' ')
+    expect(help).toContain(terms)
+  })
+
   it("says that the bridge's token is the only personal data FXM Connect handles", () => {
     expect(description).toContain(
       'Nothing goes to FXM: no analytics, no telemetry and no FXM servers.',
