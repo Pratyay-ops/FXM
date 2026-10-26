@@ -4,9 +4,10 @@
  * cannot allow `'unsafe-eval'` for the evaluator alone. Instead, the app's `fxm-evaluator` plugin
  * (`apps/desktop/src-tauri/src/evaluator.rs`) opens a second, hidden webview window on a custom
  * URI scheme, `fxm-eval://localhost/eval.html`, whose Rust handler serves `eval.html` with its
- * own policy. No capability names that window, so its page can call no plugin command, and the
- * app registers no command of its own (`apps/desktop/test/evaluator.test.ts` fails if one comes
- * without an access-control manifest). It can't navigate away from its document.
+ * own policy. No capability names that window, so its page can call no command: none of the
+ * plugins', and none of the app's own, which the app's access-control manifest puts behind
+ * permissions too (`apps/desktop/test/evaluator.test.ts` fails if one comes without it). It can't
+ * navigate away from its document.
  *
  * The main window drives it through three plugin commands: `open` creates a new window (and
  * destroys any earlier one), `eval` runs a script in it and answers the result as JSON text
