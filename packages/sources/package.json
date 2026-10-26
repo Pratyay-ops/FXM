@@ -1,6 +1,6 @@
 {
   "name": "@fxm/sources",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "FXM metadata, audio, lyrics and recommendation providers (one folder per source)",
   "license": "Apache-2.0",
