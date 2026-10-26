@@ -1,11 +1,13 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { ExternalLink } from 'lucide-react'
-import { type ReactNode, useId, useState } from 'react'
+import { type ReactNode, useId, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { useStore } from 'zustand'
 import { buttonClasses } from '../../components/ui/button'
 import { REPOSITORY_URL } from '../connect/config'
 import { useConnection } from '../connect/connection'
+import { currentDevice } from '../connect/device'
+import { getMoreLabel, reachSentence } from '../connect/explain'
 import { ExperimentalChip } from '../connect/ui'
 import { Dialog, DialogActions } from '../library/ui/dialog'
 import { useSourcesSnapshot } from '../search/sources-context'
@@ -387,6 +389,7 @@ export function SpotifyAccountSettings() {
   const [message, setMessage] = useState('')
   const headingId = useId()
   const now = Date.now()
+  const device = useMemo(currentDevice, [])
 
   const connect = async () => {
     setDialog(null)
@@ -438,14 +441,16 @@ export function SpotifyAccountSettings() {
     if (!spotifyEnabled) {
       status = <p>Switch Spotify on, above, to connect your account.</p>
     } else if (capabilities.spotify === 'unreachable') {
+      // What this device can do about it: FXM Connect where its browser can add it, else what
+      // works here (nothing to install on iPhone and iPad, the Android app once it is out).
       status = (
         <p>
-          Connecting your account needs Spotify, which FXM reaches in a browser with FXM Connect.{' '}
+          Connecting your account needs Spotify. {reachSentence('Spotify', device)}{' '}
           <Link
             to="/connect"
             className="font-semibold text-accent underline-offset-2 hover:underline"
           >
-            Get FXM Connect
+            {getMoreLabel(device)}
           </Link>
         </p>
       )

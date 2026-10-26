@@ -3,11 +3,12 @@ import { SpotifyError } from '@fxm/sources/spotify'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../../app/app'
 import { routes } from '../../app/routes'
 import { getLibrary } from '../../db/repo'
 import { INITIAL_CONNECTION, useConnection } from '../connect/connection'
+import { asBrowser, USER_AGENTS } from '../connect/testing'
 import { appSources } from '../search/sources-context'
 import { createSyncStore } from '../sync/sync-store'
 import { createAccountChoice, SPOTIFY_ACCOUNT_STORAGE_KEY } from './account-store'
@@ -34,6 +35,7 @@ const FULL: NetworkCapabilities = {
 afterEach(() => {
   useConnection.setState(INITIAL_CONNECTION, true)
   appSources.setSpotifyEnabled(true)
+  vi.restoreAllMocks()
 })
 
 /** The tier the page sees, as FXM Connect's detection would set it. */
@@ -164,14 +166,51 @@ describe('Settings → Spotify account', () => {
   })
 
   it('points to FXM Connect where Spotify is out of reach, and offers nothing to connect', async () => {
+    asBrowser(USER_AGENTS.chromeWindows)
     tier({ youtube: 'simple', spotify: 'unreachable', mediaBytes: false, fileSystem: false })
     setup()
     const account = await section()
+    expect(
+      account.getByText(/^Connecting your account needs Spotify\. FXM reaches Spotify through/),
+    ).toBeVisible()
     expect(account.getByRole('link', { name: 'Get FXM Connect' })).toHaveAttribute(
       'href',
       '/connect',
     )
     expect(account.queryByRole('button', { name: 'Connect your account' })).toBeNull()
+  })
+
+  it('offers no FXM Connect on iPhone and iPad, where it can’t be added', async () => {
+    tier({ youtube: 'simple', spotify: 'unreachable', mediaBytes: false, fileSystem: false })
+    asBrowser(USER_AGENTS.iphone)
+    setup()
+    const account = await section()
+    expect(
+      account.getByText(
+        "Connecting your account needs Spotify. Spotify needs FXM Connect, which isn't available on iPhone and iPad.",
+        { exact: false },
+      ),
+    ).toBeVisible()
+    expect(account.queryByRole('link', { name: 'Get FXM Connect' })).toBeNull()
+    expect(account.getByRole('link', { name: 'See your options' })).toHaveAttribute(
+      'href',
+      '/connect',
+    )
+  })
+
+  it('offers no FXM Connect on Android either, where browsers can’t add it', async () => {
+    tier({ youtube: 'simple', spotify: 'unreachable', mediaBytes: false, fileSystem: false })
+    asBrowser(USER_AGENTS.androidChrome)
+    setup()
+    const account = await section()
+    expect(
+      account.getByText(
+        "Connecting your account needs Spotify. Spotify needs FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
+        { exact: false },
+      ),
+    ).toBeVisible()
+    expect(account.queryByRole('link', { name: 'Get FXM Connect' })).toBeNull()
+    expect(account.getByRole('link', { name: 'See your options' })).toBeVisible()
   })
 
   it('says the sync is experimental, how it was tested, and where to report problems', async () => {
