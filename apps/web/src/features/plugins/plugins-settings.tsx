@@ -216,8 +216,9 @@ function PluginManager() {
             shows you which addresses it can contact.
           </p>
           <p>
-            Each plugin runs apart from the app, reaches only the addresses it lists, and is updated
-            only when you approve the update.
+            Each plugin runs apart from the app, sends its requests only to the addresses it lists
+            (though the servers its songs play from may pass the audio on to other hosts), and is
+            updated only when you approve the update.
           </p>
         </div>
         {runs === false ? (

@@ -97,7 +97,7 @@ const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
 const webAppUpdates =
   "The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself, and when it first uses YouTube Music, it fetches FXM's signed YouTube settings file from this website too."
 const plugins =
-  'FXM comes with no plugins and suggests none. If you add one, from an address or a file you choose, FXM downloads it from that address and checks it against the checksum its author published. A plugin runs apart from FXM’s pages and your data, and contacts only the addresses it lists, which FXM shows you before you add it. Those services then receive your IP address and what you ask of the plugin, such as what you search for in its catalog, and their own privacy policies apply. FXM checks for an update of a plugin only when you ask, and installs it only when you approve it.'
+  'FXM comes with no plugins and suggests none. If you add one, from an address or a file you choose, FXM downloads it from that address and checks it against the checksum its author published. A plugin runs apart from FXM’s pages and your data, and its requests start only at the addresses it lists, which FXM shows you before you add it, though the servers its songs play from may pass the audio on to other hosts. Those services then receive your IP address and what you ask of the plugin, such as what you search for in its catalog, and their own privacy policies apply. FXM checks for an update of a plugin only when you ask, and installs it only when you approve it.'
 ---
 
 <Document
