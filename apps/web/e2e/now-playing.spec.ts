@@ -282,3 +282,48 @@ test.describe('on a 320 px phone', () => {
     await expect(page.getByText(/^This song can’t play here\. /)).toBeAttached()
   })
 })
+
+// The mini player: the track, then Like, Previous, Play and Next, each a 44 px target. Below
+// 360 px Like makes room for the title (Now playing has it); a long title is cut short.
+for (const width of [320, 360, 390]) {
+  test.describe(`the mini player on a ${width} px phone`, () => {
+    test.use({ viewport: { width, height: 720 }, hasTouch: true, isMobile: true })
+
+    test('fits its controls, and steps the queue without opening Now playing', async ({ page }) => {
+      await seedNowPlaying(page, { current: LONG_CREDITS })
+      await page.goto('./')
+      const player = page.getByRole('region', { name: 'Player' })
+      const like = player.getByRole('button', { name: 'Like' })
+      const narrow = width < 360
+      await (narrow ? expect(like).toBeHidden() : expect(like).toBeEnabled())
+
+      const card = await player.locator(':scope > div').boundingBox()
+      const track = await player.getByRole('link').boundingBox()
+      if (card === null || track === null) throw new Error('The mini player is not laid out')
+      let end = track.x + track.width
+      for (const name of [...(narrow ? [] : ['Like']), 'Previous', 'Play', 'Next']) {
+        const box = await player.getByRole('button', { name, exact: true }).boundingBox()
+        if (box === null) throw new Error(`${name} is not laid out`)
+        expect(box.width, name).toBeGreaterThanOrEqual(44)
+        expect(box.height, name).toBeGreaterThanOrEqual(44)
+        expect(box.x, `${name} after what comes before it`).toBeGreaterThanOrEqual(end - 0.5)
+        end = box.x + box.width
+        expect(end, `${name} inside the card`).toBeLessThanOrEqual(card.x + card.width)
+      }
+      const title = player.getByText(LONG_CREDITS.title, { exact: true })
+      const cut = await title.evaluate((element) => element.scrollWidth > element.clientWidth)
+      expect(cut, 'the long title is cut short').toBe(true)
+      expect(await horizontalOverflow(page)).toBeLessThanOrEqual(0)
+
+      await player.getByRole('button', { name: 'Next', exact: true }).tap()
+      await expect(player.getByRole('link')).toHaveAccessibleName(
+        /^Open now playing: Slow Flare by Odessa Rain/,
+      )
+      await player.getByRole('button', { name: 'Previous', exact: true }).tap()
+      await expect(player.getByRole('link')).toHaveAccessibleName(
+        /^Open now playing: Neon Harbor \(Extended Night Drive Version\)/,
+      )
+      await expect(page).toHaveURL(/\/app\/$/)
+    })
+  })
+}
