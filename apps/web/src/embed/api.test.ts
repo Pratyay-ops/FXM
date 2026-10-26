@@ -220,6 +220,9 @@ function readyState(player: Partial<PlayerState> = {}, started = false): EmbedSt
       muted: false,
       stream: undefined,
       error: undefined,
+      playbackRate: 1,
+      effects: { equalizer: 'off', loudness: 'off', loudnessGainDb: 0 },
+      sleepTimer: undefined,
       ...player,
     },
   }

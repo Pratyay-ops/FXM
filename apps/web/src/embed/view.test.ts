@@ -1,6 +1,7 @@
 import { createQueue, formatId, jumpInQueue, setQueue, type Track } from '@fxm/core'
 import type { PlayerState } from '@fxm/player'
 import { describe, expect, it } from 'vitest'
+import type { DeviceInfo } from '../features/connect/device'
 import type { EmbedEntity } from './catalog'
 import type { EmbedState } from './controller'
 import type { EmbedTarget } from './target'
@@ -17,6 +18,7 @@ import {
   CREDIT_HOSTS,
   creditLink,
   creditOf,
+  type EmbedPlace,
   embedView,
   joinArtists,
   messageFor,
@@ -50,6 +52,9 @@ function player(tracks: readonly Track[], index = 0, overrides: Partial<PlayerSt
     muted: false,
     stream: undefined,
     error: undefined,
+    playbackRate: 1,
+    effects: { equalizer: 'off', loudness: 'off', loudnessGainDb: 0 },
+    sleepTimer: undefined,
     ...overrides,
   } satisfies PlayerState
 }
@@ -184,9 +189,62 @@ describe('embedView', () => {
     expect(unavailable).toMatchObject({
       title: 'A song from YouTube Music',
       canPlay: false,
-      message: { kind: 'needs-youtube', action: 'install' },
+      // In another site's frame FXM Connect can't reach the player, so it offers FXM instead.
+      message: {
+        kind: 'needs-youtube',
+        text: "YouTube Music can't play in this player in this browser. Open it in FXM instead.",
+        short: "YouTube Music can't play here.",
+        action: 'open',
+      },
     })
-    expect(unavailable.message?.text).toMatch(/FXM Connect/)
+    expect(unavailable.message?.text).not.toMatch(/FXM Connect/)
+  })
+
+  it('suggests FXM Connect only on a page of its own, worded for the device', () => {
+    const target = { kind: 'track', id: SONG_A.id } as const
+    const onItsOwn = (device: DeviceInfo) =>
+      embedView(
+        { phase: 'unavailable', problem: 'needs-youtube' },
+        { layout: 'card', target, origin: ORIGIN, framed: false, device },
+      ).message
+    // Only FXM Connect until the desktop or Android app is out (RELEASED).
+    expect(onItsOwn({ browser: 'chrome', os: 'windows' })).toEqual({
+      kind: 'needs-youtube',
+      text: "FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension.",
+      short: 'Needs FXM Connect to play here.',
+      action: 'install',
+    })
+    // Where the browser can't add it, what the device can do instead, as the app says it.
+    expect(onItsOwn({ browser: 'safari', os: 'macos' })).toEqual({
+      kind: 'needs-youtube',
+      text: "YouTube Music needs FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there.",
+      short: "YouTube Music can't play in this browser.",
+      action: 'install',
+    })
+    expect(onItsOwn({ browser: 'safari', os: 'ios' })?.text).toBe(
+      "YouTube Music needs FXM Connect, which isn't available on iPhone and iPad.",
+    )
+    expect(onItsOwn({ browser: 'chrome', os: 'android' })?.text).toBe(
+      "YouTube Music needs FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
+    )
+
+    // A track that stopped for want of YouTube says the same, next to the play button.
+    const stopped: EmbedState = {
+      phase: 'ready',
+      entity: albumEntity,
+      player: player(albumEntity.tracks),
+      notice: 'needs-youtube',
+    }
+    expect(view(stopped).message).toMatchObject({ short: "YouTube Music can't play here." })
+    expect(
+      embedView(stopped, {
+        layout: 'card',
+        target: ALBUM_TARGET,
+        origin: ORIGIN,
+        framed: false,
+        device: { browser: 'firefox', os: 'linux' },
+      }).message,
+    ).toMatchObject({ short: 'Needs FXM Connect to play here.', action: 'install' })
   })
 
   it('shows the latest playback notice while ready', () => {
@@ -291,13 +349,28 @@ describe('helpers', () => {
       'bot-check',
       'unavailable',
     ] as const
+    // In a frame, and on a page of its own on each kind of device.
+    const places: readonly EmbedPlace[] = [
+      {},
+      ...(
+        [
+          { browser: 'chrome', os: 'windows' },
+          { browser: 'safari', os: 'macos' },
+          { browser: 'safari', os: 'ios' },
+          { browser: 'chrome', os: 'android' },
+          { browser: 'other', os: 'other' },
+        ] as const
+      ).map((device) => ({ framed: false, device })),
+    ]
     for (const kind of kinds) {
-      const message = messageFor(kind, 'playlist')
-      expect(message.kind).toBe(kind)
-      expect(message.text.length).toBeGreaterThan(10)
-      // Two lines at about 130 px in the compact layout.
-      expect(message.short.length).toBeLessThanOrEqual(46)
-      expect(['install', 'open', 'retry']).toContain(message.action)
+      for (const place of places) {
+        const message = messageFor(kind, 'playlist', place)
+        expect(message.kind).toBe(kind)
+        expect(message.text.length).toBeGreaterThan(10)
+        // Two lines at about 130 px in the compact layout.
+        expect(message.short.length).toBeLessThanOrEqual(46)
+        expect(['install', 'open', 'retry']).toContain(message.action)
+      }
     }
     expect(messageFor('not-found', 'track').text).toBe("This song isn't available.")
     expect(messageFor('empty', 'album').text).toBe('This album has nothing this player can play.')

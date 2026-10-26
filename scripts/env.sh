@@ -35,6 +35,11 @@ export pnpm_config_state_dir="$FXM_TOOLS/pnpm/state"
 export pnpm_config_global_dir="$FXM_TOOLS/pnpm/global"
 export pnpm_config_global_bin_dir="$FXM_TOOLS/pnpm/global-bin"
 export pnpm_config_update_notifier=false
+# Refuse to install with a Node outside "engines" in package.json, or a dependency whose own
+# "engines" leave this Node out. Turned on here rather than in pnpm-workspace.yaml so that it
+# covers every make target, scripts/run.sh command and CI job, but not Dependabot, which runs pnpm
+# on its own, newer Node (docs/DEVELOPMENT.md, "Node version").
+export pnpm_config_engine_strict=true
 export npm_config_cache="$FXM_TOOLS/npm/cache"
 export npm_config_devdir="$FXM_TOOLS/node-gyp"
 export npm_config_update_notifier=false

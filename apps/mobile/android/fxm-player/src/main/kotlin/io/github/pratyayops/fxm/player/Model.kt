@@ -33,7 +33,15 @@ data class Source(
    * ([StreamIdentity]). Opaque here; the web app sets it from what it knows about the stream.
    */
   val fileKey: String? = null,
+  /** How loud the audio is, when the web app knows (stage 8.1): loudness normalization uses it. */
+  val loudness: Loudness? = null,
 )
+
+/**
+ * A sleep timer the web app set (stage 8.1): pause at [endsAt] (epoch milliseconds) after fading
+ * out over [fadeMs], or at the end of the current entry ([endOfTrack]).
+ */
+data class SleepTimer(val endsAt: Long?, val fadeMs: Long, val endOfTrack: Boolean)
 
 /** What the media notification, the lock screen and other system controls show for an entry. */
 data class Metadata(

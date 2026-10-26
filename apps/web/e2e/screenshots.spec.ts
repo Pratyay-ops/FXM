@@ -1,5 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
+import { createFakeNetwork, wavTone } from '../src/app/services/testing/fake-network'
+import { FIXTURES, stubNetwork } from './fake-services'
 import { seedNowPlaying } from './now-playing-seed'
 
 // Visual check, not a test: `pnpm --filter @fxm/web screenshots` saves every page at
@@ -402,6 +404,55 @@ for (const theme of THEMES) {
   }
 }
 
+// The current song marked in a track list: Internet Archive's recorded album, answered by the
+// fake network (so nothing reaches the internet and the stream is a quiet tone, muted), with its
+// second song playing, then paused.
+const PLAYING_ALBUM = 'album/archive:nineinchnails_ghosts_I_IV'
+const PLAYING_WIDTHS = [390, 1280] as const
+
+async function captureAlbumPlaying(page: Page, prefix: string) {
+  await stubNetwork(page, createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(120) }))
+  await page.goto(PLAYING_ALBUM)
+  const rows = page.getByRole('list', { name: 'Tracks' }).getByRole('listitem')
+  const second = rows.nth(1)
+  await second.getByRole('button', { name: /^Play / }).click()
+  await expect(second.getByRole('button', { name: /\. Now playing$/ })).toBeVisible()
+  // Playing, not still loading: the player's button shows Pause, not its spinner.
+  const player = page.getByRole('region', { name: 'Player' })
+  await expect(player.getByRole('button', { name: 'Pause' }).locator('.animate-spin')).toHaveCount(
+    0,
+  )
+  await waitForShell(page)
+  // The row at rest, not under the pointer that played it.
+  await page.getByRole('heading', { level: 1 }).hover()
+  await page.screenshot({ path: `screenshots/${prefix}-album-playing.png` })
+  await player.getByRole('button', { name: 'Pause' }).click()
+  await expect(second.getByRole('button', { name: /\. Paused$/ })).toBeVisible()
+  // Reduced motion makes every change a transition of a few frames: let the bars settle low.
+  const heights = () =>
+    second
+      .locator('svg[data-now-playing] rect')
+      .evaluateAll((bars) => bars.map((bar) => getComputedStyle(bar).transform))
+  await expect.poll(heights).toEqual(Array(4).fill('matrix(1, 0, 0, 0.4, 0, 0)'))
+  await page.getByRole('heading', { level: 1 }).hover()
+  await page.screenshot({ path: `screenshots/${prefix}-album-paused.png` })
+}
+
+for (const theme of THEMES) {
+  for (const width of PLAYING_WIDTHS) {
+    test.describe(`${theme} at ${width}px with an album playing`, () => {
+      test.use(viewport(width))
+
+      test('captures the album with its second song marked, playing and paused', async ({
+        page,
+      }) => {
+        await seedSettings(page, 'music', theme)
+        await captureAlbumPlaying(page, `${theme}-${width}`)
+      })
+    })
+  }
+}
+
 test.describe('forced colors (Windows High Contrast) at 1280px', () => {
   test.use({ ...viewport(1280), forcedColors: 'active' })
 
@@ -437,5 +488,10 @@ test.describe('forced colors (Windows High Contrast) at 1280px', () => {
     await seedSettings(page, 'music', 'dark')
     await seedNowPlaying(page)
     await captureNowPlaying(page, 'forced-colors-1280')
+  })
+
+  test('captures an album with its second song marked', async ({ page }) => {
+    await seedSettings(page, 'music', 'dark')
+    await captureAlbumPlaying(page, 'forced-colors-1280')
   })
 })

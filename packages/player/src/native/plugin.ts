@@ -73,6 +73,49 @@ export interface FxmPlayerSource {
    * only an equal URL counts as the same file.
    */
   readonly fileKey?: string
+  /**
+   * How loud the audio is, when the source says (`StreamOption.loudness`, stage 8.1): the native
+   * player applies loudness normalization itself, so an entry it moves on to by itself plays at
+   * its own level from its first sample.
+   */
+  readonly loudness?: FxmPlayerLoudness
+}
+
+/** How loud an entry's audio is, for loudness normalization. */
+export interface FxmPlayerLoudness {
+  /** The track's integrated loudness, in LUFS. */
+  readonly trackLufs: number
+  /** Its album's, in LUFS, when known (album mode). */
+  readonly albumLufs?: number
+}
+
+/**
+ * The audio effects, as {@link FxmPlayerPlugin.setEffects} takes them (stage 8.1). The native
+ * player runs the same ten peaking filters as the web (`EQUALIZER_BANDS_HZ` in `@fxm/core`), and
+ * turns loud tracks down to the target; it doesn't turn quiet ones up yet.
+ */
+export interface FxmPlayerEffects {
+  /** The equalizer: on or off, and one gain per band in dB (-12 to 12). */
+  readonly equalizer: { readonly enabled: boolean; readonly gainsDb: readonly number[] }
+  /** Loudness normalization: on or off, the target level in LUFS, track or album gain. */
+  readonly loudness: {
+    readonly enabled: boolean
+    readonly targetLufs: number
+    readonly mode: 'track' | 'album'
+  }
+  /** Playback speed, from 0.5 to 2; the pitch stays. */
+  readonly speed: number
+}
+
+/**
+ * A sleep timer, as {@link FxmPlayerPlugin.setSleepTimer} takes it: pause at `endsAt` (epoch
+ * milliseconds) after fading out over `fadeMs`, or at the end of the current entry
+ * (`endOfTrack`). With neither, it cancels the timer.
+ */
+export interface FxmPlayerSleepTimer {
+  readonly endsAt: number | null
+  readonly fadeMs: number
+  readonly endOfTrack: boolean
 }
 
 /** What the media notification and the lock screen show for an entry. */
@@ -211,6 +254,8 @@ export interface FxmPlayerEventMap {
   command: { readonly command: 'next' | 'previous' }
   /** The device changed network: IP-bound URLs resolved before may fail now. */
   network: FxmPlayerNetwork
+  /** The sleep timer paused playback: at its time, or at the end of the entry it waited for. */
+  sleep: { readonly reason: 'timer' | 'end-of-track' }
 }
 
 /** A listener registration, as Capacitor returns it. */
@@ -284,6 +329,17 @@ export interface FxmPlayerPlugin {
   saveSnapshot(options: { readonly data: string | null }): Promise<void>
   /** Stops playback and forgets the queue and the snapshot; the notification goes away. */
   release(): Promise<void>
+  /**
+   * Applies the audio effects (stage 8.1): the equalizer, loudness normalization and the speed.
+   * Optional, so a native side without them is still found; the engine then reports the effects
+   * as unavailable.
+   */
+  setEffects?(options: FxmPlayerEffects): Promise<void>
+  /**
+   * Starts, replaces or cancels the native sleep timer, which keeps time while the page may not
+   * run (screen off). When it pauses, the plugin sends `sleep`. Optional, like `setEffects`.
+   */
+  setSleepTimer?(options: FxmPlayerSleepTimer): Promise<void>
   /** Adds a listener for one of the {@link FxmPlayerEventMap} events. */
   addListener<K extends keyof FxmPlayerEventMap>(
     eventName: K,

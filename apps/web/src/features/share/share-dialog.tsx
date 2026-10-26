@@ -171,8 +171,8 @@ export function ShareDialog({ request, onClose }: { request: ShareRequest; onClo
           <p className="text-xs text-text-muted">
             {theme === 'auto' && "Auto follows each visitor's light or dark setting. "}
             {mode === 'all' && 'It plays in Music + Video mode, like your app. '}
-            Visitors without FXM Connect can play YouTube Music through the experimental Lite tier,
-            which needs no install, where their browser allows it.
+            Visitors play YouTube Music through the experimental Lite tier, which needs no install,
+            where their browser allows it: FXM Connect isn't used inside other sites.
           </p>
           <p className="text-xs text-text-muted">
             Once your page shows the player, each visitor's browser loads the {noun}'s details and

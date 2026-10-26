@@ -1,6 +1,7 @@
 import { formatId, type Track } from '@fxm/core'
 import { testStream, testTrack } from '@fxm/player/testing'
 import { describe, expect, it } from 'vitest'
+import { streamOptionOf } from '../local-files/local-files'
 import {
   describeStream,
   formatConfidence,
@@ -100,6 +101,44 @@ describe('stream badge', () => {
     const description = describeStream(track, undefined, stream)
     expect(description.badge).toBe('FLAC · Internet Archive')
     expect(details(description)).toMatchObject({ Format: 'FLAC, 912 kbps', Quality: 'Lossless' })
+  })
+
+  it('never calls a file converted from lossy audio lossless, nor plain FLAC', () => {
+    // A FLAC that Save to device made from YouTube's Opus, played from the user's files: as a
+    // local track, and as the offline copy of the song it was saved from (by its ISRC).
+    const stream = streamOptionOf(
+      {
+        codec: 'flac',
+        container: 'flac',
+        tier: 'high',
+        bitrateKbps: 912,
+        sampleRateHz: 48_000,
+        bitDepth: 16,
+        convertedFrom: { codec: 'opus', bitrateKbps: 160 },
+      },
+      'blob:converted',
+    )
+    expect(stream).toMatchObject({
+      tier: 'high',
+      convertedFrom: { codec: 'opus', bitrateKbps: 160 },
+    })
+    const local = testTrack('Sine 440', { id: formatId('local', 'track', 'f1'), source: 'local' })
+    const asLocal = describeStream(local, undefined, stream)
+    expect(asLocal.badge).toBe('FLAC from Opus · Your files')
+    expect(details(asLocal)).toMatchObject({
+      Format: 'FLAC from Opus, 160 kbps',
+      Quality: 'High',
+      File: 'FLAC',
+    })
+    const asCopy = describeStream(song, undefined, stream)
+    expect(asCopy.badge).toBe('FLAC from Opus · YouTube Music')
+    expect(details(asCopy).Quality).toBe('High')
+    expect(JSON.stringify(asCopy)).not.toContain('Lossless')
+    // Without the source's bitrate, no bitrate at all: the FLAC's own says nothing of quality.
+    expect(
+      details(describeStream(local, undefined, { ...stream, convertedFrom: { codec: 'aac' } }))
+        .Format,
+    ).toBe('FLAC from AAC')
   })
 
   it('leaves out a bitrate it doesn’t know', () => {

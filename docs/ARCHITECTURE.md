@@ -240,10 +240,16 @@ packages/
               evaluator, signed updates, storage and download sinks
   sources/    One folder per provider: youtube, spotify, archive, jamendo, lrclib, lastfm,
               listenbrainz, musicbrainz
-  player/     Player facade and engines (direct audio, MediaSource, native bridge), offline store,
-              conversion worker
+  player/     Player facade and engines (direct audio, MediaSource, native bridge), offline store
   downloads/  Download manager (4.1): a resumable queue, the storage and record interfaces each
               platform implements, and the offline store the playback policy plays downloads from
+  convert/    Conversion and tagging (4.2): formats and honest labels, the ffmpeg core worker,
+              mp4box.js extraction, tag writers, Save to device
+  plugins/    Plugin system (8.3): manifests, checksums, installs and approved updates, the host
+              that runs plugin code in workers of the isolated evaluator, and its declared-hosts
+              fetch broker
+tools/
+  ffmpeg-wasm/  The LGPL ffmpeg core's recipe (built into .tools, shipped by make dist)
 docs/         Architecture, plan, workflow, development guide; research/ holds the decision memos
 scripts/      Toolchain bootstrap (everything installs into .tools/)
 ```
@@ -441,7 +447,7 @@ The UI adapts to what each platform can do:
 | Last.fm stations | — | — | ✅ | ✅ | ✅ |
 | Downloads | Free sources only | Free sources only | ✅ every track | ✅ every track, to disk | ✅ every track |
 | Background playback | ✅ tab or PWA window | ✅ | ✅ | ✅ tray, hidden window | ✅ foreground service |
-| Equalizer | Free sources | Free sources | ✅ (bytes through Connect + MediaSource, unless the stream was redirected) | Later (MediaSource or a local stream) | ✅ ExoPlayer effects |
+| Equalizer | Free sources | Free sources | ✅ (bytes readable through Connect, unless the stream was redirected) | Free sources and local files; YouTube later (7.6: MediaSource or a local stream) | ✅ ExoPlayer effects (a Media3 audio processor) |
 | Local music files | ✅ (folder access in Chromium, file picker elsewhere) | ✅ | ✅ | ✅ | ✅ MediaStore |
 
 ### Services, CORS and keys (measured 2026-10-25)
@@ -588,7 +594,7 @@ Settings → Spotify offers:
 - **On/Off.** On by default whenever the platform can reach Spotify. The switch is a setting; `capabilities.spotify` only says whether Spotify is reachable (`unreachable`, `anonymous` or `account`).
 - **Connect your account.** Opt-in. Opens Spotify's login and syncs the personalized home, liked songs and playlists, read-only. The opt-in says that Spotify's User Guidelines forbid automated access, with suspension as the remedy, and that there is no public report of an account actioned for metadata use.
 - **Disconnect.** Clears the tokens.
-- **Secret source.** The default, another URL, or pasted JSON (below).
+- **Secret source (planned).** Another URL or pasted JSON in place of the default sources (below). The Spotify provider already accepts them (`setSources`), but Settings doesn't offer the choice yet, so the app always uses the default sources.
 
 ### Where it runs
 
@@ -601,15 +607,15 @@ Settings → Spotify offers:
 
 FXM never handles the password, and cookies never reach page JavaScript.
 
-Untested so far: whether the bridge receives `open.spotify.com` cookies when the browser blocks third-party cookies (3.5 tests it), and Safari, which omits SameSite cookies on such requests (WebKit bug 260676). Google sign-in doesn't work inside embedded WebViews.
+Whether the bridge receives `open.spotify.com` cookies when the browser blocks third-party cookies: in Chromium it does, whatever the cookie's `SameSite` (stage 3.5's browser test against a local mock, Chromium 156, 2026-10-26), because Chromium doesn't count an extension's request to a host it has permission for as a third-party one. Firefox is the owner's manual test with a real account (`apps/web/src/features/spotify-account/README.md`); Safari, which omits SameSite cookies on such requests (WebKit bug 260676), stays untested. Google sign-in doesn't work inside embedded WebViews.
 
 ### Anonymous token
 
 `GET open.spotify.com/api/token?reason=init&productType=web-player&totp=…&totpServer=…&totpVer=…`
 
 - **TOTP:** RFC 6238 (HMAC-SHA1, 6 digits, 30 s), computed with WebCrypto from `open.spotify.com/api/server-time`, falling back to the local clock.
-- **Secret and version:** fetched at runtime from a configurable source and cached on the device. The default is the community source the Spotube plugin uses; Settings accepts another URL or the pasted JSON. The web fetches it through `userhost.html`, so its host isn't in the app's CSP. The secret is **never committed**, bundled or mirrored.
-- **When minting fails:** re-fetch the secret once, then pause Spotify and say so ("Spotify is paused: its secret stopped working"), with a way to enter a new source.
+- **Secret and version:** fetched at runtime from a configurable source and cached on the device. The default is the community source the Spotube plugin uses, with a second community file as a fallback. The provider can take another URL or the pasted JSON (`setSources`), which a Settings entry is planned to offer; today's Settings has none. The web fetches it through `userhost.html`, so its host isn't in the app's CSP. The secret is **never committed**, bundled or mirrored.
+- **When minting fails:** re-fetch the secret once, then pause Spotify and say so (Settings' Spotify account section: "Spotify is paused: its web player's secret stopped working. FXM tries again later."), and try again later. A way to enter a new source comes with the planned Settings entry.
 - **Token handling:** tokens live in memory only and are never logged. One refresh at a time, triggered lazily when the next request finds less than 60 s left; the plugin's background refresh loop caused its issues #16 and #74.
 - Three mints from one machine within about 30 minutes returned the same anonymous token, so Spotify probably caches them, and they may share a rate budget (inference).
 
@@ -806,17 +812,17 @@ YouTube downloads are on by default (Decision 2, option A, 2026-10-25). Every st
 
 YouTube audio is never labelled lossless.
 
-**itag 18** is a video file. Its AAC track is extracted with a JavaScript MP4 remux, mp4box.js (BSD-3-Clause, 2.4.1), not ffmpeg. Spotube issue #3085, where downloads came out as video files, is the trap to avoid.
+**itag 18** is a video file. Its AAC track is extracted with a JavaScript MP4 remux, mp4box.js (BSD-3-Clause, 2.4.1), not ffmpeg: mp4box.js reads the samples, and FXM writes them alone into a plain M4A. Spotube issue #3085, where downloads came out as video files, is the trap to avoid.
 
 **Pipeline:**
 
 1. Fetch the bytes (ranged and resumable).
-2. Convert with ffmpeg.wasm in a worker, using FXM's own LGPL, audio-only build under 25 MiB, hosted with the site (FLAC, ALAC, WAV, MP3 via LAME, AAC and Opus encoders; no GPL-only libraries). The stock `@ffmpeg/core` is GPL-2.0-or-later and 30.7 MiB, over Cloudflare Pages' 25 MiB file limit, and loading it from a CDN would break the no-third-party-scripts rule.
-3. Write tags (title, artists, album, track number, ISRC, lyrics) and cover art.
+2. Convert with ffmpeg.wasm in a worker, using FXM's own LGPL, audio-only build under 25 MiB, hosted with the site (FLAC, ALAC, WAV, MP3 via LAME, AAC and Opus encoders; no GPL-only libraries). The stock `@ffmpeg/core` is GPL-2.0-or-later and 30.7 MiB, over Cloudflare Pages' 25 MiB file limit, and loading it from a CDN would break the no-third-party-scripts rule. FXM's build (FFmpeg 9.0.2, about 2.4 MiB, [tools/ffmpeg-wasm](../tools/ffmpeg-wasm/README.md)) has no `ffmpeg` command-line tool: it needs threads since FFmpeg 7, and WebAssembly threads need a cross-origin isolated page, which would block the covers and media FXM loads from other sites. A small C converter calls FFmpeg's libraries instead. CI builds it, checks the size and the licence, and the deploy ships it at `/app/ffmpeg/`; the app's policy allows `'wasm-unsafe-eval'`, never `'unsafe-eval'`. Its source, the release tarballs of FFmpeg, LAME and Opus and FXM's recipe, ships with it, as the LGPL asks: at `/source/ffmpeg-core/` on the same site (outside `/app/`, so the service worker never answers for it), in each release's web zip, and as `fxm-ffmpeg-core-source-<version>.zip` on every GitHub Release. The third-party notices say where, with the parts' licences and the notices of the files linked into the core.
+3. Write tags (title, artists, album, track and disc number, date, ISRC, lyrics) and cover art, with FXM's own writers for ID3v2.3, FLAC, Ogg, MP4 and RIFF ([packages/convert](../packages/convert/README.md)); WebM's Matroska tags come from the core's muxer.
 4. Store the file:
-   - **Browser:** OPFS plus "Save to device".
-   - **Desktop:** the filesystem.
-   - **Android:** the app's own storage, plus MediaStore export.
+   - **Browser:** OPFS keeps the original for offline playback; "Save to device" converts a copy in the format the user picks and saves it through the browser's file picker or downloads.
+   - **Desktop:** the filesystem (7.4 implements "Save to device" natively).
+   - **Android:** the app's own storage, plus MediaStore export (6.4).
 
 Offline copies come first in the playback policy.
 

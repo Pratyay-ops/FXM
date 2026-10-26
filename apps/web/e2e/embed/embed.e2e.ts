@@ -263,7 +263,7 @@ test('plays in Lite inside a page on another origin', async ({ page, network, ho
   expect(full.some((entry) => entry.status === 200 || entry.status === 206)).toBe(true)
 
   // Media requests carry no Referer, no page reached a host outside the test network, and the
-  // player ran under the app's policy minus frame-ancestors without a violation.
+  // player ran under the `/embed/*` policy without a violation.
   expect(media.every((entry) => entry.referer === undefined)).toBe(true)
   expect([...hosts].filter((host) => !PAGE_HOSTS.has(host))).toEqual([])
   expect(await playerViolations(page)).toEqual([])
@@ -333,17 +333,22 @@ test('announces itself only to the origin its address names', async ({ page }) =
   expect(await received(page)).toEqual([])
 })
 
-test('plays free sources and shows the install hint without Lite', async ({ page, network }) => {
+test('plays free sources and offers FXM for YouTube without Lite', async ({ page, network }) => {
   // InnerTube stops answering opaque origins: the self-test fails, and YouTube is out of reach.
   network.state.refuseOpaque = true
   const frame = await openEmbedder(page, TRACK_PATH)
   await waitForMessage(page, hasStatus('unavailable'))
-  await expect(frame.getByText(/FXM can't reach YouTube Music in this browser/)).toBeVisible()
-  await expect(frame.getByRole('link', { name: 'Get FXM (opens a new tab)' })).toHaveAttribute(
-    'href',
-    `${FXM}/#get`,
-  )
-  await screenshot(frame, 'card-install-hint')
+  // FXM Connect never reaches a player in another site's frame, so the player offers FXM.
+  await expect(
+    frame.getByText(
+      "YouTube Music can't play in this player in this browser. Open it in FXM instead.",
+    ),
+  ).toBeVisible()
+  await expect(frame.getByText(/FXM Connect/)).toHaveCount(0)
+  await expect(
+    frame.getByRole('link', { name: 'Open in FXM (opens a new tab)' }).last(),
+  ).toHaveAttribute('href', `${FXM}/app/`)
+  await screenshot(frame, 'card-youtube-hint')
   // The self-test was the only InnerTube call; nothing else was tried.
   const innerTube = INNERTUBE_HOSTS.flatMap((host) => network.requests(host))
   expect(innerTube.map((entry) => entry.path?.split('?')[0])).toEqual([
@@ -419,7 +424,7 @@ test('comes in a compact layout, light or dark', async ({ page }) => {
   }
 })
 
-test('fits the install hint in the compact layout, also on phones', async ({ page, network }) => {
+test('fits the YouTube hint in the compact layout, also on phones', async ({ page, network }) => {
   for (const width of [320, 375, undefined]) {
     network.reset()
     network.state.refuseOpaque = true
@@ -431,25 +436,27 @@ test('fits the install hint in the compact layout, also on phones', async ({ pag
     await expect(frame.getByRole('heading', { name: 'A song from YouTube Music' })).toBeAttached()
     await expect(frame.locator('p', { hasText: 'A song from YouTube Music' })).toBeVisible()
     const message = frame.getByRole('status').locator('p')
-    await expect(message).toHaveText('Needs FXM Connect to play here.')
+    await expect(message).toHaveText("YouTube Music can't play here.")
     // Two lines at most, nothing clamped, and the action (an icon on phones) in reach.
     expect(await message.evaluate((text) => text.scrollHeight <= text.clientHeight)).toBe(true)
-    await expect(frame.getByRole('link', { name: 'Get FXM (opens a new tab)' })).toBeVisible()
+    await expect(frame.getByRole('link', { name: 'Open in FXM (opens a new tab)' })).toBeVisible()
     expect(await fits(frame)).toBe(true)
-    await screenshot(frame, `compact-install-hint-${width ?? 'wide'}`)
+    await screenshot(frame, `compact-youtube-hint-${width ?? 'wide'}`)
   }
 })
 
 test('fits every message in the track card at phone widths', async ({ page, network }) => {
-  // The install hint, the longest message, in a phone's blog column.
+  // The YouTube hint, the longest message, in a phone's blog column.
   for (const width of [320, 343]) {
     network.reset()
     network.state.refuseOpaque = true
     const frame = await openEmbedder(page, TRACK_PATH, { width })
     await waitForMessage(page, hasStatus('unavailable'))
-    await expect(frame.getByRole('link', { name: 'Get FXM (opens a new tab)' })).toBeVisible()
+    await expect(
+      frame.getByRole('link', { name: 'Open in FXM (opens a new tab)' }).last(),
+    ).toBeVisible()
     expect(await fits(frame)).toBe(true)
-    await screenshot(frame, `card-install-hint-${width}`)
+    await screenshot(frame, `card-youtube-hint-${width}`)
   }
   // A notice with an action, next to the play button: YouTube says the video is unplayable.
   for (const width of [320, 768]) {

@@ -31,7 +31,7 @@ FXM Connect fixes this with a fixed list of declarativeNetRequest (DNR) rules th
 3. **Spotify bridge.** The background makes two requests for the FXM page, both to open.spotify.com, and returns only the HTTP status and the JSON body. Together they are limited to about ten a minute. Everything else is rejected.
 
    - **Server time, always on.** `GET https://open.spotify.com/api/server-time`, without credentials, whenever an FXM page asks: Spotify's web-player tokens need Spotify's clock. It needs no setting, also serves private windows and isn't tied to any account.
-   - **Your Spotify login (optional, off by default).** Cross-site cookies are not sent on the page's own requests, so only the extension can get a token for your Spotify login. If you turn on **Use my Spotify login from this browser** on the options page, the FXM page can ask FXM Connect for one. The background then makes one request: `GET https://open.spotify.com/api/token`. It forwards only the query parameters `reason`, `productType`, `totp`, `totpServer` and `totpVer`, each validated, and sends your browser's existing open.spotify.com cookies (`credentials: 'include'`).
+   - **Your Spotify login (optional, off by default).** Cross-site cookies are not sent on the page's own requests, so only the extension can get a token for your Spotify login. If you turn on **Use my Spotify login from this browser** on the options page, the FXM page can ask FXM Connect for one; the web app does so only for its Spotify account sync, which is experimental (tested against a stand-in for Spotify, not yet with real accounts) and off until you connect your account in its Settings. The background then makes one request: `GET https://open.spotify.com/api/token`. It forwards only the query parameters `reason`, `productType`, `totp`, `totpServer` and `totpVer`, each validated, and sends your browser's existing open.spotify.com cookies (`credentials: 'include'`).
 
    In Firefox, turning the login on also asks for Firefox's consent to share authentication information. The Firefox manifest declares `authenticationInfo` as optional data collection, the options page requests it with `permissions.request()`, and the background serves tokens only while Firefox reports it as granted ([`src/consent.ts`](src/consent.ts)). Withdrawing the consent in `about:addons` turns the login off, and turning the login off gives the consent back. Firefox's prompt says "Share authentication information with extension developer": here the developer's code that gets the token is the FXM web app in the same browser, and no server receives it, as the options page explains.
 
@@ -70,41 +70,14 @@ Each GitHub release carries FXM Connect in these files:
 
 | File | For |
 |---|---|
-| `fxm-connect-firefox-<version>.xpi` | Firefox 140 or later and Firefox for Android 142 or later. Signed by Mozilla, so it stays installed. Releases have it while AMO signing runs in the unlisted channel ([Store channels](#store-channels)) |
 | `fxm-connect-chromium-<version>.zip` | Chrome, Edge, Brave and other Chromium browsers, version 120 or later, loaded unpacked |
-| `fxm-connect-firefox-<version>.zip` | Unsigned: for review, or for a temporary install in Firefox, which removes it when it restarts. A release's `.xpi` has the same files |
+| `fxm-connect-firefox-<version>.zip` | Firefox 140 or later, as a temporary add-on, which Firefox removes when it restarts. It is unsigned; store reviewers get the same file |
 
-Each of them also holds the repository's `LICENSE` (Apache-2.0) and FXM Connect's [`NOTICE`](NOTICE), which says that it bundles no third-party code.
+A Firefox add-on signed by Mozilla, `fxm-connect-firefox-<version>.xpi`, is coming soon: no release carries one yet. Releases attach it once AMO signing runs in the unlisted channel ([Store channels](#store-channels)). It is for Firefox 140 or later and Firefox for Android 142 or later, stays installed, and holds the same files as the release's Firefox zip.
+
+Each of these files also holds the repository's `LICENSE` (Apache-2.0) and FXM Connect's [`NOTICE`](NOTICE), which says that it bundles no third-party code.
 
 FXM Connect is not in the Chrome Web Store and isn't submitted there by default: its policy bans extensions that facilitate unauthorized streaming or downloading, and names YouTube downloads as a common reason for rejection. Its store channels are Firefox Add-ons and Edge Add-ons; [Store channels](#store-channels) has their status.
-
-**Firefox (version 140 or later)**
-
-1. Download `fxm-connect-firefox-<version>.xpi` from the release.
-2. In Firefox, open `about:addons`, click the gear button, choose **Install Add-on From File…** and pick the file. Dropping the file onto a Firefox window works too.
-3. Firefox lists the sites FXM Connect may access. Click **Add**.
-4. Open or reload `https://fxmusic.pages.dev/app/`.
-
-Firefox doesn't update an add-on installed from a file by itself while no listed version exists: until FXM Connect is listed on Firefox Add-ons, install each new release's `.xpi` the same way. Your settings stay. Once a listed version is out, Firefox finds it on addons.mozilla.org by the add-on's ID and updates copies installed from a file too (Mozilla, "Distributing an add-on yourself", checked 2026-10-26). The listed channel is therefore how FXM Connect gets automatic updates, security fixes included. Until then, the web app's prompt for an outdated FXM Connect (stage 2.7) is the reminder to update.
-
-**Firefox for Android (version 142 or later)**
-
-1. Download `fxm-connect-firefox-<version>.xpi` on the phone.
-2. In Firefox, open **Settings → About Firefox** and tap the Firefox logo five times. This shows **Install extension from file** in Settings.
-3. Back in **Settings**, tap **Install extension from file**, pick the file and tap **Add**.
-4. Open or reload `https://fxmusic.pages.dev/app/`.
-
-These are Mozilla's steps for self-distributed add-ons. FXM Connect hasn't been tried on a phone yet (2026-10-26). Once it is listed on Firefox Add-ons, Android users can install it from there.
-
-**Firefox, from a release without an `.xpi`**
-
-Releases have no `.xpi` before AMO signing is set up, and none once FXM Connect is listed on Firefox Add-ons: then install it from addons.mozilla.org instead. Otherwise, a temporary install works:
-
-1. Download `fxm-connect-firefox-<version>.zip`.
-2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick the zip.
-3. Open or reload `https://fxmusic.pages.dev/app/`.
-
-Firefox removes temporary add-ons when it restarts, so repeat step 2 after a restart. If FXM does not detect the extension, open `about:addons` → FXM Connect → **Permissions** and allow access to the listed sites.
 
 **Chrome, Edge, Brave and other Chromium browsers (version 120 or later)**
 
@@ -114,6 +87,34 @@ Firefox removes temporary add-ons when it restarts, so repeat step 2 after a res
 4. Open or reload `https://fxmusic.pages.dev/app/`.
 
 Keep Developer mode on: Chrome 134 and later turn unpacked extensions off while it is off. To update, unzip the new release over the same folder and click the reload button on the extension's card. Browsers managed by an organization may block unpacked extensions. Once FXM Connect is on Edge Add-ons, Edge users can install it from there instead.
+
+**Firefox (version 140 or later), as a temporary add-on**
+
+Until a release carries the signed `.xpi`, Firefox loads the release's Firefox zip as a temporary add-on. Releases have no `.xpi` once FXM Connect is listed on Firefox Add-ons either: then install it from addons.mozilla.org instead.
+
+1. Download `fxm-connect-firefox-<version>.zip`.
+2. Open `about:debugging#/runtime/this-firefox`, click **Load Temporary Add-on…** and pick the zip.
+3. Open or reload `https://fxmusic.pages.dev/app/`.
+
+Firefox removes temporary add-ons when it restarts, so repeat step 2 after a restart. If FXM does not detect the extension, open `about:addons` → FXM Connect → **Permissions** and allow access to the listed sites.
+
+**Firefox, from the signed `.xpi` (coming soon: no release carries one yet)**
+
+1. Download `fxm-connect-firefox-<version>.xpi` from the release.
+2. In Firefox, open `about:addons`, click the gear button, choose **Install Add-on From File…** and pick the file. Dropping the file onto a Firefox window works too.
+3. Firefox lists the sites FXM Connect may access. Click **Add**.
+4. Open or reload `https://fxmusic.pages.dev/app/`.
+
+Firefox doesn't update an add-on installed from a file by itself while no listed version exists: until FXM Connect is listed on Firefox Add-ons, install each new release's `.xpi` the same way. Your settings stay. Once a listed version is out, Firefox finds it on addons.mozilla.org by the add-on's ID and updates copies installed from a file too (Mozilla, "Distributing an add-on yourself", checked 2026-10-26). The listed channel is therefore how FXM Connect gets automatic updates, security fixes included. Until then, the web app's prompt for an outdated FXM Connect (stage 2.7) is the reminder to update.
+
+**Firefox for Android (version 142 or later; coming soon, with the signed `.xpi`)**
+
+1. Download `fxm-connect-firefox-<version>.xpi` on the phone.
+2. In Firefox, open **Settings → About Firefox** and tap the Firefox logo five times. This shows **Install extension from file** in Settings.
+3. Back in **Settings**, tap **Install extension from file**, pick the file and tap **Add**.
+4. Open or reload `https://fxmusic.pages.dev/app/`.
+
+These are Mozilla's steps for self-distributed add-ons. FXM Connect hasn't been tried on a phone yet (2026-10-26). Once it is listed on Firefox Add-ons, Android users can install it from there.
 
 ## For the web app
 
@@ -259,7 +260,7 @@ A store key lets whoever holds it publish versions of FXM Connect. Mozilla signs
 
 1. On GitHub, open **Settings → Environments → New environment**, name it `stores` and click **Configure environment**.
 2. Under **Deployment branches and tags**, choose **Selected branches and tags**, click **Add deployment branch or tag rule**, enter `main` (ref type: branch) and save.
-3. Under **Required reviewers**, add yourself, and leave **Prevent self-review** off so that you can approve your own releases. Every release then waits for your approval before a store job starts, so a pull request merged into `main` by mistake, or by a tool, can't reach the keys on its own.
+3. Under **Required reviewers**, add yourself, and leave **Prevent self-review** off so that you can approve your own releases. Every release then waits for your approval before a store job starts, so a pull request merged into `main` by mistake, or by a tool, can't reach the keys on its own. The wait also holds the GitHub Release, which the release workflow publishes only after its Firefox job, and with it the production deploy, which promotes a release only once its GitHub Release is out and waits for it up to 90 minutes ([scripts/build-dist/README.md](../../scripts/build-dist/README.md#deploying)). Approve within that time, or re-run the deploy workflow's failed jobs once the release is published.
 4. Keep `main` protected. The `Protect main` ruleset must require a pull request before merging and block force pushes, with nobody on its bypass list: anyone who can push to `main` directly can run any workflow on it.
 5. Turn on two-step authentication for both store accounts. AMO requires it for its Developer Hub; keep the recovery codes safe, because Mozilla can't restore a locked account. For the Microsoft account, turn on two-step verification at https://account.microsoft.com/security.
 
@@ -286,7 +287,7 @@ Anyone with admin rights on the repository can change the environment and the ru
    ```
 
 4. That is all for unlisted signing. The next release's **Signed Firefox add-on** job signs FXM Connect, and the release attaches `fxm-connect-firefox-<version>.xpi`. The first signing creates the add-on in your AMO account, unlisted, so it has no public page. Its ID is `fxm-connect@fxmusic.pages.dev`: never change it, because Firefox treats an add-on with another ID as a different add-on.
-5. Install the signed file in Firefox ([Install](#install)) and check that the web app finds FXM Connect. Then record the outcome above, and update the site:
+5. Install the signed file in Firefox ([Install](#install)) and check that the web app finds FXM Connect. Then record the outcome above, put the `.xpi` in [Install](#install)'s table of release files and take the "coming soon" off its Firefox and Android steps, and update the site:
    - turn on `AVAILABLE.firefox` in `apps/site/src/config.ts`. The copy it switches is written: the Firefox install steps and notes in `GetFxm.astro`, the FAQ's browser and phone answers, and on the privacy page the install sentence and a sentence saying that Firefox checks addons.mozilla.org for updates;
    - change the `updated` date of the privacy page (`apps/site/src/pages/privacy.astro`), whose FXM Connect section changes with the flag;
    - the site still suggests no card to Android visitors (`apps/site/src/lib/platform.ts`, whose comment says that FXM Connect can't be added to a phone's browser). Once FXM Connect works on Firefox for Android (step 1 of the listed submission below), make it suggest the web card to Firefox on Android and update that comment.
@@ -341,7 +342,7 @@ The jobs that hold the keys install nothing. They run Node and the store scripts
 | `store/edge.ts` | The Edge submission job (Edge Add-ons API v1.1) |
 | `store/actions.ts` | The jobs' annotations, step outputs and job summary in GitHub Actions |
 
-**Keep the listing current.** The texts say that the web app's home feed uses YouTube Music's and Spotify's radio and Last.fm's stations, and that song radio and the web app's Spotify account connection come in a later FXM version; the notes and the options page say that the login toggle has no visible effect yet. When FXM ships song radio (stage 3.4) or the Spotify account connection (3.5), update `description.md`, `reviewer-notes.txt`, the login toggle's help on the options page (`src/options/options.html`) and the permission justifications in `store/listing.ts`.
+**Keep the listing current.** The texts say that the web app's home feed and autoplay (stage 3.4) use YouTube Music's and Spotify's radio, the home feed also Last.fm's stations. The web app's Spotify account connection (stage 3.5) shipped as experimental: the description and the notes say what it does with the login bridge and that it has been tested only with a stand-in for Spotify, the notes say how a reviewer can try it, and the login toggle's help on the options page (`src/options/options.html`) no longer says that the toggle changes nothing. When the web app uses these services for something new, update `description.md`, `reviewer-notes.txt` and the permission justifications in `store/listing.ts`.
 
 The tests in `store/` keep the texts within the stores' limits and the trademark rules (services named in plain text, no lookalike names) and check them against the code: the login is off by default, the server time needs no setting, both share about ten requests a minute, and the manifest declares the data collection the texts describe. They also run the jobs against fake stores, offline, and run AMO's linter over a zip laid out like the release's Firefox zip. To try the Firefox jobs without contacting AMO, build the extension and run:
 

@@ -7,7 +7,8 @@ import { LIKED_PLAYLIST_ID } from '../../db/types'
 import { countLabel } from '../library/format'
 import { AddToPlaylistDialog } from '../library/playlist-dialogs'
 import { MenuPopup } from '../library/ui/menu'
-import { getLocalPlayer, usePlayingTrack } from './player'
+import { nowPlayingStatusOf, useCurrentTrack } from '../now-playing/current-track'
+import { getLocalPlayer } from './player'
 import {
   type BlockedRoots,
   LocalTrackRow,
@@ -59,15 +60,16 @@ export function LocalTrackList({
   const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null)
   const [adding, setAdding] = useState<Track[] | null>(null)
   const liked = useLikedKeys()
-  const playing = usePlayingTrack()
+  // The current track's identity and status only: no re-render on a playback tick.
+  const current = useCurrentTrack()
   const byId = useMemo(
     () => new Map(tracks.map((item) => [item.track.id as string, item])),
     [tracks],
   )
   // The row callbacks read the latest list through a ref, so they never change and a scan that
   // adds files, or a new track playing, re-renders only the rows whose values changed.
-  const latest = useRef({ tracks, byId, context, blocked, playingId: playing.id })
-  latest.current = { tracks, byId, context, blocked, playingId: playing.id }
+  const latest = useRef({ tracks, byId, context, blocked, playingId: current?.id })
+  latest.current = { tracks, byId, context, blocked, playingId: current?.id }
 
   const play = useCallback((id: string) => {
     const { tracks: list, byId: items, context: from, blocked: off, playingId } = latest.current
@@ -105,8 +107,7 @@ export function LocalTrackList({
           <LocalTrackRow
             key={item.track.id}
             {...rowFields(item)}
-            current={playing.id === item.track.id}
-            playing={playing.playing}
+            nowPlaying={nowPlayingStatusOf(current, item.track.id)}
             liked={liked.has(entityKey(item.track.id))}
             blocked={blocked?.get(item.file.rootId)?.badge}
             menuOpen={menu?.id === item.track.id}

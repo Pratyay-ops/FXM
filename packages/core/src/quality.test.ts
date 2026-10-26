@@ -5,6 +5,7 @@ import {
   compareStreams,
   compareTiers,
   containerExtension,
+  convertedTier,
   DEFAULT_MP3_KBPS,
   DEFAULT_QUALITY_PREFS,
   DOWNLOAD_FORMATS,
@@ -14,6 +15,7 @@ import {
   isCodec,
   isDownloadFormat,
   isLosslessCodec,
+  isLossyCodec,
   isMp3Bitrate,
   isQualityTier,
   LOSSY_TIER_THRESHOLDS,
@@ -149,6 +151,46 @@ describe('YouTube audio', () => {
     expect(describeConversion('opus', 'flac').label).toBe(
       'FLAC (converted from Opus, same quality as the source)',
     )
+  })
+})
+
+describe('isLossyCodec', () => {
+  it.each([
+    ['opus', true],
+    ['aac', true],
+    ['mp3', true],
+    ['vorbis', true],
+    ['flac', false],
+    ['alac', false],
+    ['pcm', false],
+    ['OPUS', false],
+    ['', false],
+    [undefined, false],
+    [42, false],
+  ] as const)('%s is lossy: %s', (codec, expected) => {
+    expect(isLossyCodec(codec)).toBe(expected)
+  })
+})
+
+describe('convertedTier', () => {
+  it('never calls a lossless file made from lossy audio lossless', () => {
+    // YouTube's Opus 251 saved as FLAC, ALAC or WAV: as good as the Opus, no better.
+    for (const codec of ['flac', 'alac', 'pcm'] as const) {
+      expect(convertedTier({ codec }, { codec: 'opus', bitrateKbps: 160 })).toBe('high')
+      expect(convertedTier({ codec, bitrateKbps: 1411 }, { codec: 'opus' })).toBe('normal')
+      expect(convertedTier({ codec }, { codec: 'aac', bitrateKbps: 48 })).toBe('low')
+    }
+  })
+
+  it("keeps a lossy file's own tier when it is the lower one", () => {
+    // Opus at 160 kbps (high) saved as MP3 at 128 kbps (normal): normal, as the MP3 is.
+    expect(
+      convertedTier({ codec: 'mp3', bitrateKbps: 128 }, { codec: 'opus', bitrateKbps: 160 }),
+    ).toBe('normal')
+    // MP3 320 (high) from AAC at 96 kbps (normal): normal, as its source.
+    expect(
+      convertedTier({ codec: 'mp3', bitrateKbps: 320 }, { codec: 'aac', bitrateKbps: 96 }),
+    ).toBe('normal')
   })
 })
 

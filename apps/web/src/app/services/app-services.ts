@@ -82,6 +82,8 @@ import { appSources } from '../../features/search/sources-context'
 import { appMatchOptions } from '../../features/settings/matching-store'
 import { lifecycleQualityOptions } from '../../features/settings/quality-store'
 import { useSettingsStore } from '../../features/settings/settings-store'
+import { secretFetchFor } from '../../features/spotify-account/secret-fetch'
+import { spotifyAccountOptedIn } from '../../features/spotify-account/start'
 import { buildJamendoClientId } from '../../lib/free-sources'
 import { createIndexedDbStore, type DeviceStore } from './device-store'
 import { createLoader, type Loader, lazyProvider } from './lazy-provider'
@@ -186,6 +188,11 @@ export interface AppServicesOptions {
    * Default: the app's, from Settings (`lifecycleQualityOptions()`), read for every stream.
    */
   readonly quality?: Pick<StreamLifecycleOptions, 'qualityPrefs' | 'streaming'>
+  /**
+   * Whether the user connected their Spotify account (stage 3.5's opt-in): the Spotify
+   * provider's `isAccountEnabled`. Default: the app's choice (`spotifyAccountOptedIn`).
+   */
+  readonly spotifyAccount?: () => boolean
   /** Imports `@fxm/sources/youtube`. Default: `import()`; tests pass one they control. */
   readonly importYouTube?: () => Promise<YouTubeModule>
   /** Imports `@fxm/sources/youtube/module`. Default: `import()`; tests pass one they control. */
@@ -224,7 +231,8 @@ export interface AppServices {
   readonly youtube: Loader<YouTube>
   /**
    * Spotify (stage 1.5), loaded on first use: the one provider of the app, which follows the
-   * Spotify switch. Ask {@link AppServices.spotifyAvailable} before using it.
+   * Spotify switch. Ask {@link AppServices.spotifyAvailable} before using it. Stage 3.5's account
+   * feature uses it too, where it is registered, so its `isAccountEnabled` is the account's opt-in.
    */
   readonly spotify: Loader<SpotifyProvider>
   /** MusicBrainz (stage 1.6), loaded on first use. */
@@ -373,9 +381,17 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
       // Only Spotify fetches from them, so they are known before the first such fetch.
       userHosts = SPOTIFY_SECRET_SOURCE_HOSTS
       const session = platform?.spotifySession
+      // In a browser the secret goes through the sandbox's user-host document: the services'
+      // own, or the platform's (stage 2.7's, which the app passes in without its options).
+      const secretFetch =
+        platform === undefined
+          ? undefined
+          : secretFetchFor(platform, SPOTIFY_SECRET_SOURCE_HOSTS, options.sandbox)
       return createSpotifyProvider({
         isEnabled: () => sources.getSnapshot().spotifyEnabled,
+        isAccountEnabled: options.spotifyAccount ?? spotifyAccountOptedIn,
         ...(session === undefined ? {} : { session }),
+        ...(secretFetch === undefined ? {} : { secretFetch }),
       })
     },
   )

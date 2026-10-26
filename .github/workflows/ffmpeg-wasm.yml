@@ -1,0 +1,135 @@
+name: ffmpeg core
+
+# Builds FXM's LGPL, audio-only ffmpeg core for WebAssembly (stage 4.2, tools/ffmpeg-wasm),
+# checks it and hands it on: deploy.yml calls this workflow on every push and ships the core
+# with the app (make dist puts it at /app/ffmpeg/). release.yml builds its own, without caches,
+# as it builds everything a release ships.
+#
+# The checks fail the job when the WebAssembly file is 25 MiB or larger (Cloudflare Pages'
+# limit per file), when FFmpeg's configure reported a licence other than LGPL, when the licence
+# texts of its parts or its source (the pinned tarballs and the recipe) are missing, or when the
+# files aren't the ones the build's manifest names (make ffmpeg-wasm-check). The build itself
+# fails when a file linked into the core states the GPL or a licence the notice can't carry
+# (recipe/linked-licences.ts). The core is then tested end to end on generated audio (make
+# ffmpeg-wasm-test).
+#
+# Building takes minutes, so make check never does it. Here the finished core (about 27 MB, 24 of
+# them its source) is cached by the recipe's hash (core-build.ts hashes tools/ffmpeg-wasm/recipe). GitHub scopes a
+# cache to its branch: a run reads its own branch's caches and main's, not develop's. So each
+# branch builds a recipe's core once (about 4 minutes), until main holds its cache. emsdk, the
+# source tarballs and the built libraries (keyed by versions.sh, libs.sh and pkg-config.sh) are
+# about 800 MB: every run may restore them, but only main saves them, so stage branches don't
+# fill the repository's 10 GB of caches with copies. A failed job saves no cache.
+on:
+  workflow_call:
+    outputs:
+      recipe-hash:
+        description: The hash of the recipe the core was built from
+        value: ${{ jobs.core.outputs.hash }}
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Build and check the ffmpeg core
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      hash: ${{ steps.recipe.outputs.hash }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # pnpm and its store in .tools/, the same cache as ci.yml: the end-to-end test runs Vitest.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/bin
+            .tools/pnpm/store
+          key: tools-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'scripts/install-*.sh') }}
+          restore-keys: tools-${{ runner.os }}-
+
+      - name: Set up toolchain and dependencies (frozen lockfile)
+        run: make ci-setup
+
+      - name: Hash the recipe
+        id: recipe
+        run: |
+          core_build=(node --experimental-strip-types --disable-warning=ExperimentalWarning tools/ffmpeg-wasm/core-build.ts)
+          echo "hash=$("${core_build[@]}" hash)" >>"$GITHUB_OUTPUT"
+          echo "libs=$("${core_build[@]}" libs-hash)" >>"$GITHUB_OUTPUT"
+          echo "dir=$(scripts/run.sh "${core_build[@]}" dir)" >>"$GITHUB_OUTPUT"
+
+      - name: Restore the built core
+        id: built
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.recipe.outputs.dir }}
+          key: ffmpeg-core-${{ steps.recipe.outputs.hash }}
+
+      # Restored wherever main saved it; saved below on main only (about 800 MB).
+      - name: Restore emsdk, the libraries and the sources
+        id: libs
+        if: steps.built.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/emsdk
+            .tools/ffmpeg-wasm/downloads
+            .tools/ffmpeg-wasm/libs/${{ steps.recipe.outputs.libs }}
+          key: ffmpeg-libs-${{ runner.os }}-${{ steps.recipe.outputs.libs }}
+
+      - name: Build the core
+        if: steps.built.outputs.cache-hit != 'true'
+        run: FXM_FFMPEG_JOBS="$(nproc)" make ffmpeg-wasm
+
+      - name: Save emsdk, the libraries and the sources (main only)
+        if: >-
+          github.ref == 'refs/heads/main' && steps.built.outputs.cache-hit != 'true' &&
+          steps.libs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/emsdk
+            .tools/ffmpeg-wasm/downloads
+            .tools/ffmpeg-wasm/libs/${{ steps.recipe.outputs.libs }}
+          key: ffmpeg-libs-${{ runner.os }}-${{ steps.recipe.outputs.libs }}
+
+      - name: Show the build log
+        if: failure()
+        env:
+          DIR: ${{ steps.recipe.outputs.dir }}
+        run: tail -n 200 "$(dirname "$DIR")/build.log" || true
+
+      - name: Check it is under 25 MiB and LGPL
+        run: make ffmpeg-wasm-check
+
+      - name: Test it end to end
+        run: make ffmpeg-wasm-test
+
+      - name: Summary
+        env:
+          DIR: ${{ steps.recipe.outputs.dir }}
+          HASH: ${{ steps.recipe.outputs.hash }}
+        run: |
+          {
+            echo "### ffmpeg core"
+            echo
+            echo "- Recipe: \`$HASH\`"
+            echo "- ffmpeg-core.wasm: $(stat -c %s "$DIR/ffmpeg-core.wasm") bytes (limit 26214400)"
+            echo "- FFmpeg's licence: $(node -p 'require(process.argv[1]).ffmpegLicense' "$DIR/ffmpeg-core.json")"
+          } >>"$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ffmpeg-core
+          path: ${{ steps.recipe.outputs.dir }}
+          if-no-files-found: error
+          retention-days: 7

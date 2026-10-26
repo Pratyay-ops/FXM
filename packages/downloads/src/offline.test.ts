@@ -13,7 +13,13 @@ import { createMemoryDownloadStorage } from './storage'
 import { createMemoryDownloadStore } from './store'
 import { mediaUrl, setup } from './test-harness'
 import { downloadCandidate } from './testing/fake-resolver'
-import { type DownloadRecord, downloadId, fileFormatOf, newDownloadRecord } from './types'
+import {
+  type DownloadRecord,
+  downloadId,
+  fileFormatOf,
+  isDownloadRecord,
+  newDownloadRecord,
+} from './types'
 
 const players: Player[] = []
 
@@ -144,6 +150,25 @@ describe('the offline store', () => {
     })
     expect((await offline.find(track, testContext('full')))?.url).toBe('blob:x')
     expect(types).toEqual(['application/octet-stream'])
+  })
+
+  it('keeps the level the stream had, and drops a malformed one', () => {
+    const loudness = { trackLufs: -10.11, source: 'youtube' } as const
+    const format = fileFormatOf({
+      codec: 'opus',
+      container: 'webm',
+      media: 'audio',
+      tier: 'high',
+      loudness,
+    })
+    expect(format.loudness).toEqual(loudness)
+    const record = completed(testTrack('a'), 'file-a', { format })
+    expect(offlineStream(record, 'memory:x')?.loudness).toEqual(loudness)
+    const broken = completed(testTrack('a'), 'file-a', {
+      format: { ...format, loudness: { trackLufs: 'loud' } as never },
+    })
+    expect(isDownloadRecord(broken)).toBe(true)
+    expect(offlineStream(broken, 'memory:x')).not.toHaveProperty('loudness')
   })
 
   it('needs a format to describe the stream', () => {

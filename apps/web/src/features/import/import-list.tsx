@@ -437,9 +437,9 @@ function ImportCard({
           </h3>
           <p className="text-sm text-text-muted">
             {kindLabel(record.kind)} · {addedLabel(record.createdAt)}
-            <span aria-hidden="true" className="max-sm:hidden">
-              {' · '}
-            </span>
+            {/* On phones the counts start a line of their own: the separator is for screen
+                readers only there, so they never hear "today2 songs". */}
+            <span className="max-sm:sr-only">{' · '}</span>
             <span className="block sm:inline">{countsText(record)}</span>
           </p>
         </div>

@@ -53,6 +53,12 @@ export interface MediaSessionOptions {
   positionIntervalMs?: number
   /** The clock, in milliseconds, for spacing position updates. Default: `Date.now`. */
   now?: () => number
+  /**
+   * Which artwork the system's controls may load, by URL, asked each time the track changes: the
+   * web app passes its own rule, so they never load an image its policy doesn't allow, nor
+   * Spotify's while Spotify is switched off. Default: every image.
+   */
+  showImage?: (url: string) => boolean
 }
 
 /** The default seek step of the backward and forward actions, in milliseconds. */
@@ -67,13 +73,19 @@ export function mediaImages(artwork: readonly Artwork[]): MediaImage[] {
   )
 }
 
-/** The Media Session metadata for `track`: title, artists, album and every artwork size. */
-export function mediaMetadataInit(track: Track): MediaMetadataInit {
+/**
+ * The Media Session metadata for `track`: title, artists, album and every artwork size, or only
+ * those `showImage` allows.
+ */
+export function mediaMetadataInit(
+  track: Track,
+  showImage: (url: string) => boolean = () => true,
+): MediaMetadataInit {
   return {
     title: track.title,
     artist: track.artists.map((artist) => artist.name).join(', '),
     album: track.album?.name ?? '',
-    artwork: mediaImages(track.artwork),
+    artwork: mediaImages(track.artwork.filter((image) => showImage(image.url))),
   }
 }
 
@@ -126,6 +138,7 @@ export function connectMediaSession(
   const seekOffsetMs = options.seekOffsetMs ?? MEDIA_SESSION_SEEK_OFFSET_MS
   const intervalMs = options.positionIntervalMs ?? 1000
   const now = options.now ?? Date.now
+  const showImage = options.showImage
 
   const offsetOf = (details: MediaSessionActionDetails) =>
     details.seekOffset !== undefined && details.seekOffset > 0
@@ -152,7 +165,7 @@ export function connectMediaSession(
   /** The metadata for `track`; without artwork if the browser rejects an image URL. */
   const metadataFor = (track: Track | undefined): MediaMetadata | null => {
     if (track === undefined || createMetadata === undefined) return null
-    const init = mediaMetadataInit(track)
+    const init = mediaMetadataInit(track, showImage)
     try {
       return createMetadata(init)
     } catch {
@@ -179,7 +192,9 @@ export function connectMediaSession(
       }
       const duration = durationMs / 1000
       const position = Math.min(Math.max(positionMs / 1000, 0), duration)
-      session.setPositionState({ duration, playbackRate: 1, position })
+      // A speed the browser can't take (0, say) would make it reject the whole state.
+      const playbackRate = state.playbackRate > 0 ? state.playbackRate : 1
+      session.setPositionState({ duration, playbackRate, position })
     } catch {
       // The browser rejected the values; the next update tries again.
     }
@@ -202,6 +217,8 @@ export function connectMediaSession(
       immediate = true
     }
     if (state.durationMs !== previous?.durationMs) immediate = true
+    // The system extrapolates the position at the speed it was told: tell it at once.
+    if (state.playbackRate !== previous?.playbackRate) immediate = true
     if (immediate) sendPosition(state)
     else if (state.positionMs !== previous?.positionMs && now() - positionSentAt >= intervalMs) {
       sendPosition(state)

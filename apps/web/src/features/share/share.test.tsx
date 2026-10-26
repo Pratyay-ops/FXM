@@ -3,6 +3,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WIRED_SOURCES } from '../../embed/wired'
+import { RELEASED } from '../connect/config'
 import { renderCatalog, resetCatalogState } from '../search/testing'
 import { useSettingsStore } from '../settings/settings-store'
 import { PREFERS_LIGHT_QUERY } from '../settings/theme'
@@ -88,13 +89,20 @@ describe('share entry points', () => {
     expect(shareMenuItems(formatId('spotify', 'album', '4aawyAB9vmqN3uQ7FjRGTy'), info)).toEqual([])
   })
 
-  it('are offered in production builds only once the embed is out, for what it can play', () => {
+  it('are offered in production builds once the embed is out, for what it can play', () => {
     expect(canShare(ALBUM, { PROD: false })).toBe(true)
-    // Until the embed is released (RELEASED.embed, with the site's AVAILABLE.embed), nothing.
-    expect(canShare(ALBUM, { PROD: true })).toBe(false)
-    expect(canShare(ALBUM, { PROD: true }, true)).toBe(WIRED_SOURCES.has('ytm'))
-    const archive = { kind: 'album', id: formatId('jamendo', 'album', '123') } as const
-    expect(canShare(archive, { PROD: true }, true)).toBe(WIRED_SOURCES.has('jamendo'))
+    // The embed is released (RELEASED.embed, with the site's AVAILABLE.embed): production
+    // builds offer it for the sources it plays.
+    expect(RELEASED.embed).toBe(true)
+    expect(canShare(ALBUM, { PROD: true })).toBe(WIRED_SOURCES.has('ytm'))
+    expect(WIRED_SOURCES.has('ytm')).toBe(true)
+    const archive = { kind: 'album', id: formatId('archive', 'album', 'nin-ghosts') } as const
+    expect(canShare(archive, { PROD: true })).toBe(WIRED_SOURCES.has('archive'))
+    const jamendo = { kind: 'album', id: formatId('jamendo', 'album', '123') } as const
+    expect(canShare(jamendo, { PROD: true })).toBe(WIRED_SOURCES.has('jamendo'))
+    // Turned off again, production builds offer nothing.
+    expect(canShare(ALBUM, { PROD: true }, false)).toBe(false)
+    expect(canShare(archive, { PROD: true }, false)).toBe(false)
     // The tests run as a development build: the dialog can be tried.
     expect(canShare(ALBUM)).toBe(true)
   })
@@ -214,6 +222,14 @@ describe('Share dialog', () => {
     expect(preview).toHaveAttribute('data-theme', 'light')
     await user.click(within(dialog).getByRole('radio', { name: 'Dark' }))
     expect(preview).toHaveAttribute('data-theme', 'dark')
+  })
+
+  it('says visitors play YouTube Music through Lite, as FXM Connect stays out of other sites', async () => {
+    const { dialog } = await openFromAlbumPage()
+    expect(within(dialog).getByText(/through the experimental Lite tier/)).toHaveTextContent(
+      "Visitors play YouTube Music through the experimental Lite tier, which needs no install, where their browser allows it: FXM Connect isn't used inside other sites.",
+    )
+    expect(within(dialog).queryByText(/without FXM Connect/)).not.toBeInTheDocument()
   })
 
   it('says what a player on a page loads before anyone presses play', async () => {

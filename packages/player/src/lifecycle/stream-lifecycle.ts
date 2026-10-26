@@ -398,7 +398,9 @@ function asAudio(candidate: AudioCandidate): AudioCandidate {
  * also lets the lifecycle work that out.
  */
 export class StreamLifecycle implements StreamResolver {
-  readonly #sources: ReadonlyMap<SourceId, StreamSource>
+  readonly #sources: Map<SourceId, StreamSource>
+  /** The IDs of the sources it was created with, which {@link addSource} never replaces. */
+  readonly #ownSources: ReadonlySet<SourceId>
   readonly #matcher: TrackMatcher | undefined
   readonly #matches: MatchStore
   readonly #offline: OfflineStore | undefined
@@ -456,6 +458,7 @@ export class StreamLifecycle implements StreamResolver {
 
   constructor(options: StreamLifecycleOptions) {
     this.#sources = new Map(options.sources.map((source) => [source.id, source]))
+    this.#ownSources = new Set(this.#sources.keys())
     this.#matcher = options.matcher
     this.#matches = options.matches ?? createMemoryMatchStore()
     this.#offline = options.offline
@@ -505,6 +508,25 @@ export class StreamLifecycle implements StreamResolver {
   }
 
   // --- The player ----------------------------------------------------------------------------
+
+  /**
+   * Adds a stream source after the lifecycle was created, such as a runtime plugin's (stage
+   * 8.3), replacing one added before with the same `id`. Returns a function that removes it
+   * again, if it is still the one registered. A resolution under way keeps the source it started
+   * with.
+   *
+   * @throws RangeError for the `id` of a source the lifecycle was created with: those stay, so
+   * removing an added source never leaves a built-in source missing.
+   */
+  addSource(source: StreamSource): () => void {
+    if (this.#ownSources.has(source.id)) {
+      throw new RangeError(`The stream source ${source.id} is built in: it can't be replaced`)
+    }
+    this.#sources.set(source.id, source)
+    return () => {
+      if (this.#sources.get(source.id) === source) this.#sources.delete(source.id)
+    }
+  }
 
   /**
    * Follows `player`: its `preload` events, to prefetch the next tracks, and its queue, so that

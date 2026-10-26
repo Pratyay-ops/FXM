@@ -80,6 +80,34 @@ ci-setup: ## CI only: setup with a frozen lockfile
 
 ci: ci-setup check ## What CI runs: frozen setup, then check
 
+# Not part of check: it asks the npm registry about every package in both pnpm roots' lockfiles.
+# The Audit workflow runs it every week and whenever a lockfile changes.
+.PHONY: audit
+audit: ## Check both pnpm roots' lockfiles for high and critical advisories (needs the network)
+	@status=0; \
+	echo "Repository root:"; \
+	$(RUN) pnpm audit --audit-level high || status=1; \
+	echo "The deploy's wrangler (scripts/build-dist-wrangler):"; \
+	$(RUN) pnpm audit --audit-level high --dir scripts/build-dist-wrangler || status=1; \
+	exit $$status
+
+# --- ffmpeg core (stage 4.2; tools/ffmpeg-wasm/README.md) -------------------------
+# FXM's LGPL, audio-only FFmpeg for WebAssembly, which the web app converts downloads with.
+# Built into .tools/ (emsdk too), so `make nuke` removes it; `make check` never needs it.
+
+.PHONY: ffmpeg-wasm ffmpeg-wasm-check ffmpeg-wasm-test
+
+CORE_BUILD = node --experimental-strip-types --disable-warning=ExperimentalWarning tools/ffmpeg-wasm/core-build.ts
+
+ffmpeg-wasm: ## Build the LGPL ffmpeg core into .tools (minutes; FXM_FFMPEG_JOBS=2 by default)
+	@tools/ffmpeg-wasm/recipe/build.sh
+
+ffmpeg-wasm-check: ## Check the built ffmpeg core: under 25 MiB, LGPL, from the current recipe
+	@$(RUN) $(CORE_BUILD) check
+
+ffmpeg-wasm-test: ## Test the built ffmpeg core end to end, in every format, on generated audio
+	@FXM_FFMPEG_CORE_DIR="$$($(RUN) $(CORE_BUILD) dir)" $(RUN) pnpm exec vitest run packages/convert/src/core.wasm.test.ts
+
 # --- Android app (docs/DEVELOPMENT.md, "Android app") ---------------------------
 
 .PHONY: android-setup apk android-test android-clean

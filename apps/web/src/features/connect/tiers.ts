@@ -96,6 +96,11 @@ export interface TierFeature {
   readonly from: Tier
   /** Whether it is released; the panels mark the others "Coming soon". */
   readonly released: boolean
+  /**
+   * Whether it is released but experimental, as Lite is: the panels mark it "Experimental" and
+   * the summaries say "(experimental)". Absent means not.
+   */
+  readonly experimental?: boolean
 }
 
 /** What the tiers give, in the order the panels list it. */
@@ -129,8 +134,9 @@ export const TIER_FEATURES: readonly TierFeature[] = [
   },
   {
     id: 'free-downloads',
+    // A download stays the original file; Save to device converts a copy (stage 4.2).
     label: RELEASED.conversions
-      ? 'Downloads of free music for offline listening, in the format you want'
+      ? 'Downloads of free music for offline listening, to save in the format you want'
       : 'Downloads of free music for offline listening, in their original format',
     short: 'downloads of free music',
     from: 'free',
@@ -153,7 +159,7 @@ export const TIER_FEATURES: readonly TierFeature[] = [
   {
     id: 'downloads',
     label: RELEASED.conversions
-      ? 'Downloads of YouTube Music songs, in the format you want'
+      ? 'Downloads of YouTube Music songs, to save in the format you want'
       : 'Downloads of YouTube Music songs, in their original format (conversions coming soon)',
     short: 'YouTube Music downloads',
     from: 'full',
@@ -172,8 +178,16 @@ export const TIER_FEATURES: readonly TierFeature[] = [
     short: 'a read-only sync of your Spotify account',
     from: 'full',
     released: RELEASED.spotifyAccount,
+    // Tested only against a stand-in for Spotify so far, never a real account: Settings says so
+    // (features/spotify-account, "Manual test with a real account" in its README).
+    experimental: true,
   },
 ]
+
+/** " (experimental)" after a feature that is, nothing after the rest: as `tierLabel` marks Lite. */
+export function featureMark(feature: Pick<TierFeature, 'experimental'>): string {
+  return feature.experimental === true ? ' (experimental)' : ''
+}
 
 /** Whether `tier` gives `feature`. */
 export function hasFeature(tier: Tier, feature: TierFeature): boolean {
@@ -206,7 +220,7 @@ export interface MissingLine {
   readonly tier: Tier
   /** What it adds today, as a phrase. */
   readonly adds: string
-  /** What it adds later, as a sentence ("… are coming soon."), if anything. */
+  /** What it adds later, as a sentence ("Coming soon: …."), if anything. */
   readonly later?: string
 }
 
@@ -216,7 +230,9 @@ export interface MissingLine {
  */
 export function missingSummary(tier: Tier): MissingLine[] {
   return missingFeatures(tier).map(({ tier: other, features }) => {
-    const out = features.filter((feature) => feature.released).map((feature) => feature.short)
+    const out = features
+      .filter((feature) => feature.released)
+      .map((feature) => `${feature.short}${featureMark(feature)}`)
     const later = features.filter((feature) => !feature.released).map((feature) => feature.short)
     // Full also gives what Lite gives, without Lite's experimental route.
     const adds =
@@ -224,11 +240,7 @@ export function missingSummary(tier: Tier): MissingLine[] {
         ? joinList(["YouTube Music without Lite's experimental route", ...out])
         : joinList(out)
     if (later.length === 0) return { tier: other, adds }
-    const sentence = joinList(later)
-    return {
-      tier: other,
-      adds,
-      later: `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} ${later.length === 1 ? 'is' : 'are'} coming soon.`,
-    }
+    // "Coming soon: …" reads right for one feature and for several, whatever their names.
+    return { tier: other, adds, later: `Coming soon: ${joinList(later)}.` }
   })
 }

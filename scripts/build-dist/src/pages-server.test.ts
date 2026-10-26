@@ -104,6 +104,43 @@ describe('createPagesServer', () => {
     expect(response.headers).toContainEqual(['content-security-policy', 'page'])
   })
 
+  it("answers the embed's routes with its page through _redirects, under the path's rule", async () => {
+    const dir = site('/embed/*\n  Content-Security-Policy: embed\n')
+    writeFiles(dir, {
+      'embed/index.html': 'player',
+      'embed/404.html': 'player again',
+      'embed/assets/e.js': 'js',
+      _redirects: '# make dist\n/embed/track/* /embed/ 200\n',
+    })
+    const base = await serve(dir)
+    const route = await fetchRaw(new URL('/embed/track/ytm:abc?layout=compact', base))
+    expect([route.status, route.body]).toEqual([200, 'player'])
+    expect(route.headers).toContainEqual(['content-security-policy', 'embed'])
+    const encoded = await fetchRaw(new URL('/embed/track/archive:item%2Fsong.flac', base))
+    expect([encoded.status, encoded.body]).toEqual([200, 'player'])
+    // Files and the other paths answer as before.
+    const asset = await fetchRaw(new URL('/embed/assets/e.js', base))
+    expect([asset.status, asset.headers]).toEqual([
+      200,
+      expect.arrayContaining([['content-security-policy', 'embed']]),
+    ])
+    expect((await fetchRaw(new URL('/embed/album/ytm:abc', base))).status).toBe(404)
+    expect((await fetchRaw(new URL('/_redirects', base))).status).toBe(404)
+  })
+
+  it('looks a rewrite’s file up as a request for its target, redirects included', async () => {
+    // Why make dist rewrites to the folder: Pages answers /embed/index.html with a redirect (and
+    // its _redirects parser drops a /* rule to an /index path as a loop).
+    const dir = site('')
+    writeFiles(dir, {
+      'embed/index.html': 'player',
+      _redirects: '/embed/track/* /embed/index.html 200\n',
+    })
+    const response = await fetchRaw(new URL('/embed/track/ytm:abc', await serve(dir)))
+    expect(response.status).toBe(308)
+    expect(response.headers).toContainEqual(['location', '/embed/'])
+  })
+
   it('answers only GET and HEAD', async () => {
     const base = await serve(site(''))
     const response = await fetch(new URL('/', base), { method: 'POST' })

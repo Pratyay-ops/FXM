@@ -27,11 +27,24 @@ export interface Service {
   /** img-src: hosts the app shows images from. */
   readonly img?: readonly string[]
   /**
+   * connect-src for the web app only, never the embed: hosts the app reads bytes from that the
+   * embed has no use for. 4.2: the image hosts whose covers go into saved files, each by its
+   * exact name and only once measured to allow it (connect-src lets page script read what it
+   * fetches, so it stays narrower than img-src).
+   */
+  readonly appConnect?: readonly string[]
+  /**
    * The build variable without which the web app doesn't offer the service, such as Jamendo's
    * public `client_id` (`VITE_FXM_JAMENDO_CLIENT_ID`): a build without it leaves the service's
    * hosts out of the policies (offeredServices).
    */
   readonly requires?: string
+  /**
+   * The embed contacts it too: it is the service of a source the embed plays (`WIRED_SOURCES`
+   * in apps/web/src/embed/wired.ts, which a test keeps in step). The `/embed/*` policy allows
+   * these services' `connect` and `img` hosts only.
+   */
+  readonly embed?: true
 }
 
 /**
@@ -46,6 +59,35 @@ export const INNERTUBE_HOSTS = [
   'https://youtubei.googleapis.com',
 ] as const
 
+/** Where YouTube's and YouTube Music's thumbnails, covers and channel images come from. */
+const YOUTUBE_IMAGE_HOSTS = [
+  'https://*.ytimg.com',
+  'https://*.googleusercontent.com',
+  'https://*.ggpht.com',
+] as const
+
+/** Where Spotify's covers and playlist images come from. */
+const SPOTIFY_IMAGE_HOSTS = ['https://*.scdn.co', 'https://*.spotifycdn.com'] as const
+
+/**
+ * The hosts YouTube's and YouTube Music's track covers come from, whose bytes the app reads to
+ * embed them in saved files (4.2). Each answers with `Access-Control-Allow-Origin: *`
+ * (packages/sources/src/youtube/CLEAN-ROOM.md, 2026-10-26). A cover elsewhere is left out.
+ */
+const YOUTUBE_COVER_HOSTS = [
+  'https://i.ytimg.com',
+  'https://lh3.googleusercontent.com',
+  'https://yt3.ggpht.com',
+  'https://yt3.googleusercontent.com',
+] as const
+
+/**
+ * Spotify's host for track covers, which answers with `Access-Control-Allow-Origin: *`
+ * (packages/sources/src/spotify/README.md, 2026-10-26). Its `*.spotifycdn.com` hosts serve only
+ * playlist and radio images, which no saved file needs.
+ */
+const SPOTIFY_COVER_HOSTS = ['https://i.scdn.co'] as const
+
 /**
  * Every service the web app and the embed contact, in the order their hosts appear in the
  * policy. Only what shipped stages use (docs/PLAN.md, the notes on the `/app/*` rule). Stages
@@ -59,6 +101,15 @@ export const INNERTUBE_HOSTS = [
  * Archive's hosts, already here). Not iTunes Search, which the app doesn't call, nor the plan's
  * `lastfm.freetls.fastly.net`, which no provider contacts.
  *
+ * 4.2 lets the web app (not the embed) fetch the track covers it already shows from YouTube's
+ * and Spotify's image hosts (`appConnect`: exact hosts, unlike img-src's wildcards), to embed
+ * them in saved files; Internet Archive's and Jamendo's covers come from hosts it reaches
+ * already. Those hosts send `Access-Control-Allow-Origin: *` (checked 2026-10-26).
+ *
+ * The embed (5.2) plays YouTube Music, YouTube and Internet Archive, and loads nothing else:
+ * no Spotify, matching, lyrics, scrobbling, recommendations or sync (apps/web/src/embed/
+ * integration.ts). Those two services are `embed`, and its policy allows nothing else.
+ *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
  * storage hosts and a user's Invidious proxy, and page script can't read media responses.
  */
@@ -66,7 +117,9 @@ export const APP_SERVICES: readonly Service[] = [
   {
     privacyName: 'YouTube',
     connect: [...INNERTUBE_HOSTS, 'https://*.googlevideo.com'],
-    img: ['https://*.ytimg.com', 'https://*.googleusercontent.com', 'https://*.ggpht.com'],
+    img: YOUTUBE_IMAGE_HOSTS,
+    appConnect: YOUTUBE_COVER_HOSTS,
+    embed: true,
   },
   {
     // Built in and on by default (Decision 1, option A). The secret source goes through the
@@ -77,13 +130,15 @@ export const APP_SERVICES: readonly Service[] = [
       'https://api-partner.spotify.com',
       'https://spclient.wg.spotify.com',
     ],
-    img: ['https://*.scdn.co', 'https://*.spotifycdn.com'],
+    img: SPOTIFY_IMAGE_HOSTS,
+    appConnect: SPOTIFY_COVER_HOSTS,
   },
   { privacyName: 'MusicBrainz', connect: ['https://musicbrainz.org'] },
   {
     privacyName: 'Internet Archive',
     connect: ['https://archive.org', 'https://*.archive.org'],
     img: ['https://archive.org', 'https://*.archive.org'],
+    embed: true,
   },
   // 1.6: only in a build with FXM's public Jamendo client_id, which the deploy passes from the
   // repository variable FXM_JAMENDO_CLIENT_ID (README.md, "Jamendo"). The web app registers Jamendo
@@ -129,10 +184,11 @@ export function offeredServices(
 }
 
 /**
- * Extra script-src sources for the web app and the embed. 4.2 adds WASM_UNSAFE_EVAL here for
- * ffmpeg.wasm in its worker. Never UNSAFE_EVAL or UNSAFE_INLINE: appPolicy() refuses them.
+ * Extra script-src sources for the web app, not the embed. 4.2's WASM_UNSAFE_EVAL lets the
+ * conversion worker compile FXM's ffmpeg core (WebAssembly); the embed converts nothing. Never
+ * UNSAFE_EVAL or UNSAFE_INLINE: appPolicy() refuses them.
  */
-export const APP_SCRIPT_EXTRAS: readonly string[] = []
+export const APP_SCRIPT_EXTRAS: readonly string[] = [WASM_UNSAFE_EVAL]
 
 /** An HTTPS origin, optionally with a `*.` sub-domain wildcard, and nothing else. */
 const HTTPS_HOST = /^https:\/\/(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$/
@@ -146,7 +202,11 @@ export function serviceProblems(services: readonly Service[] = APP_SERVICES): st
   const problems: string[] = []
   for (const service of services) {
     if (!/\S/.test(service.privacyName)) problems.push('a service in APP_SERVICES has no name')
-    for (const host of [...(service.connect ?? []), ...(service.img ?? [])]) {
+    for (const host of [
+      ...(service.connect ?? []),
+      ...(service.img ?? []),
+      ...(service.appConnect ?? []),
+    ]) {
       if (!HTTPS_HOST.test(host)) {
         problems.push(
           `${service.privacyName}: ${host} is not an HTTPS host such as https://example.com or https://*.example.com`,
@@ -169,12 +229,17 @@ const COMMON_DOCUMENT_DIRECTIVES: readonly Directive[] = [
  * built without threads (`--disable-pthreads`), so it starts no worker of its own, from a `blob:`
  * URL or otherwise (checked on its branch, feat/4.2-convert, on 2026-10-26). docs/PLAN.md's policy
  * row also allows `blob:`; a stage that needs a worker from a `blob:` URL adds it here, with why.
+ * Stage 8.3's plugin workers don't: the isolated evaluator's document starts them from `blob:`
+ * URLs under its own policy (`eval.html` in {@link SANDBOX_DOCUMENTS}), never the app's page.
+ * The embed starts no worker at all, so its policy allows none.
  */
 export const WORKER_SOURCES: readonly string[] = [SELF]
 
 /**
- * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the same without
- * `frame-ancestors`, because any site may embed the player. Its hosts are those of the services
+ * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the embed's has no
+ * `frame-ancestors`, because any site may embed the player, nothing only the app needs
+ * (`scriptExtras`, `appConnect`: the embed converts and saves nothing), no worker, and only the
+ * hosts of the services the embed plays from (`embed`). The hosts are those of the services
  * this build offers (offeredServices) unless `services` says otherwise.
  */
 export function appPolicy(
@@ -185,19 +250,27 @@ export function appPolicy(
     scriptExtras?: readonly string[]
   } = {},
 ): Policy {
-  const services = options.services ?? offeredServices()
+  const app = !options.embeddable
+  const services = (options.services ?? offeredServices()).filter(
+    (service) => app || service.embed === true,
+  )
   const extras = options.scriptExtras ?? APP_SCRIPT_EXTRAS
   for (const source of extras) {
     if (source === UNSAFE_EVAL || source === UNSAFE_INLINE) {
       throw new Error(`the web app's script-src must never allow ${source}`)
     }
   }
-  const connect = unique(services.flatMap((service) => service.connect ?? []))
+  const connect = unique(
+    services.flatMap((service) => [
+      ...(service.connect ?? []),
+      ...(app ? (service.appConnect ?? []) : []),
+    ]),
+  )
   const img = unique(services.flatMap((service) => service.img ?? []))
   return [
     ['default-src', [SELF]],
-    ['script-src', unique([SELF, ...scriptHashes, ...extras])],
-    ['worker-src', [...WORKER_SOURCES]],
+    ['script-src', unique([SELF, ...scriptHashes, ...(app ? extras : [])])],
+    ['worker-src', app ? [...WORKER_SOURCES] : [NONE]],
     ['style-src', [SELF, UNSAFE_INLINE]],
     ['img-src', [SELF, 'data:', 'blob:', ...img]],
     ['media-src', [SELF, 'blob:', 'https:']],
@@ -227,12 +300,16 @@ export const SANDBOX_DOCUMENTS = {
     ['connect-src', ['https:']],
     ...COMMON_DOCUMENT_DIRECTIVES,
   ],
-  /** 1.11: the isolated evaluator, the only document with 'unsafe-eval'. */
+  /**
+   * 1.11: the isolated evaluator, the only document with 'unsafe-eval'. 8.3 runs each plugin in a
+   * worker it starts from a blob: URL, which inherits this policy and so connects nowhere either.
+   */
   'eval.html': (scriptHashes: readonly string[]): Policy => [
     ['sandbox', ['allow-scripts']],
     ['default-src', [NONE]],
     ['script-src', [...scriptHashes, UNSAFE_EVAL, WASM_UNSAFE_EVAL]],
     ['connect-src', [NONE]],
+    ['worker-src', ['blob:']],
     ...COMMON_DOCUMENT_DIRECTIVES,
   ],
 } as const satisfies Record<string, (scriptHashes: readonly string[]) => Policy>

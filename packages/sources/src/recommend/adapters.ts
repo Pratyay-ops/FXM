@@ -55,10 +55,13 @@ export type YouTubeLookup = Pick<MetadataProvider, 'getTrack'>
  * A seed YouTube Music radio can start from, for a seed that has no YouTube ID: for a track,
  * its YouTube Music song (the matching engine's `matchTrack` over a YouTube Music search, or the
  * match cache); for an artist, its YouTube Music artist (an artist search whose top result has
- * the same name). `null` when there is none. The collector checks that the answer is a track
- * with a YouTube ID (a song, in Music mode) or an artist with a YouTube channel ID, and skips
- * YouTube Music radio otherwise. **Cost:** whatever the app's implementation calls, typically
- * one InnerTube search from the request budget.
+ * the same name). `null` when there is none. Answer for a track only with a match the engine is
+ * sure of: a guess may be another song, whose radio has nothing to do with the seed. The
+ * collector checks that the answer is a track with a YouTube ID (a song, in Music mode) or an
+ * artist with a YouTube channel ID, that a track's answer is a track by its main artist with its
+ * title and version, and that the radio follows the track (see `RecommendationCollector`), and
+ * skips YouTube Music radio otherwise. **Cost:** whatever the app's implementation calls,
+ * typically one InnerTube search from the request budget.
  */
 export type YouTubeSeedFinder = (
   seed: RecommendationSeed,

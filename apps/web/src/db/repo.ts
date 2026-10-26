@@ -30,6 +30,7 @@ import {
   formatId,
   isEntityId,
   isSignalTime,
+  type JsonValue,
   type ListeningSignal,
   type ListeningSignalTrack,
   type Playlist,
@@ -38,6 +39,7 @@ import {
   playContextOf,
   type QueueContext,
   type RandomSource,
+  skippedEarly,
   type Track,
 } from '@fxm/core'
 import { Dexie } from 'dexie'
@@ -92,9 +94,10 @@ import {
   type SettingRecord,
   type StreamInfo,
   type SystemPlaylist,
+  systemPlaylistOf,
   type TrackRecord,
 } from './types'
-import { MAX_PLAYLIST_TRACKS } from './validate'
+import { MAX_PLAYLIST_TRACKS, sanitizeArtwork } from './validate'
 
 /** Why the library refused a change. */
 export type LibraryErrorCode =
@@ -195,6 +198,11 @@ export interface PlaylistView {
 export interface RecentRow extends TrackRow {
   /** When it last played. */
   playedAt: number
+  /**
+   * Whether the user skipped that last play before hearing half of it (`skippedEarly` in
+   * `@fxm/core`): the autoplay radio grows from none such (stage 3.4).
+   */
+  skipped?: boolean
 }
 
 /**
@@ -878,20 +886,38 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
     /**
      * Creates a playlist, optionally with `tracks` in their given order, at the top of the
-     * list of playlists. Returns its ID.
+     * list of playlists (or at `position`). Returns its ID.
+     *
+     * `id` gives it a fixed ID instead of a random one, e.g. one a sync derives from the playlist
+     * it copies, so every device and every backup names that copy alike. It must be a playlist
+     * ID of this library (`local:playlist:…`) that no playlist has and that isn't built in;
+     * anything else is refused as `invalid`.
      */
     async createPlaylist(input: {
       name: string
       description?: string
       tracks?: readonly Track[]
+      /** A fixed ID, see above. Default: a new random one. */
+      id?: EntityId<'playlist'>
+      /** Cover art, e.g. the copied playlist's. Lists show the first track's otherwise. */
+      artwork?: readonly Artwork[]
+      /** Where it goes in the list of playlists. Default `top`. */
+      position?: Position
     }): Promise<EntityId<'playlist'>> {
       const name = cleanName(input.name)
       const description = cleanDescription(input.description)
-      const id = formatId('local', 'playlist', uuid())
+      const id = input.id ?? formatId('local', 'playlist', uuid())
+      if (!isLocalPlaylistId(id) || systemPlaylistOf(id) !== undefined) {
+        throw new LibraryError('invalid', `${String(id)} can't name a playlist of this library`)
+      }
+      const artwork = sanitizeArtwork(input.artwork ?? [])
       return db.transaction(
         'rw',
         [db.tracks, db.playlists, db.likes, db.orders, db.follows, db.affinity],
         async () => {
+          if ((await db.playlists.get(id)) !== undefined) {
+            throw new LibraryError('invalid', `A playlist ${id} exists already`)
+          }
           const at = now()
           const tracks = dedupeTracks(input.tracks ?? []).slice(0, MAX_PLAYLIST_TRACKS)
           await putTracks(tracks)
@@ -904,25 +930,29 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
             addedAt: Object.fromEntries(tracks.map((track) => [track.id, at])),
           }
           if (description !== undefined) record.description = description
+          if (artwork.length > 0) record.artwork = artwork
           await db.playlists.add(record)
-          await addToPlaylistOrder(id, 'top')
+          await addToPlaylistOrder(id, input.position ?? 'top')
           await signal(tracks.map((track) => ({ type: 'playlist-add', at, track, playlistId: id })))
           return id
         },
       )
     },
 
-    /** Renames a playlist and changes its description. Built-in playlists refuse. */
+    /**
+     * Renames a playlist and changes its description, or its cover art (an empty list removes
+     * it, so lists show the first track's again). Built-in playlists refuse.
+     */
     async updatePlaylist(
       id: EntityId<'playlist'>,
-      changes: { name?: string; description?: string },
+      changes: { name?: string; description?: string; artwork?: readonly Artwork[] },
     ): Promise<void> {
       await db.transaction('rw', db.playlists, async () => {
         const record = await requirePlaylist(id)
         if (record.system !== undefined) {
           throw new LibraryError('protected', `${record.name} can't be renamed`)
         }
-        const { description: _old, ...rest } = record
+        const { description: _old, artwork: _oldArtwork, ...rest } = record
         const next: PlaylistRecord = { ...rest, updatedAt: now() }
         if (changes.name !== undefined) next.name = cleanName(changes.name)
         const description =
@@ -930,6 +960,9 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
             ? record.description
             : cleanDescription(changes.description)
         if (description !== undefined) next.description = description
+        const artwork =
+          changes.artwork === undefined ? record.artwork : sanitizeArtwork(changes.artwork)
+        if (artwork !== undefined && artwork.length > 0) next.artwork = artwork
         await db.playlists.put(next)
       })
     },
@@ -1269,7 +1302,10 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
     recordPlays,
 
-    /** The most recently played distinct tracks, most recent first. */
+    /**
+     * The most recently played distinct tracks, most recent first, each with when it last
+     * played and whether the user skipped that play.
+     */
     async recentlyPlayed(limit = 50): Promise<RecentRow[]> {
       const seen = new Set<string>()
       const entries: HistoryRecord[] = []
@@ -1285,7 +1321,11 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
         })
       const order = entries.map((entry) => entry.trackId)
       const rows = await rowsFor(order, () => undefined)
-      return rows.map((row, index) => ({ ...row, playedAt: entries[index]?.playedAt ?? 0 }))
+      return rows.map((row, index) => {
+        const entry = entries[index]
+        const skipped = entry !== undefined && skippedEarly(entry)
+        return { ...row, playedAt: entry?.playedAt ?? 0, skipped }
+      })
     },
 
     /** Every history entry, oldest first. */
@@ -1562,6 +1602,49 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
       )
     },
 
+    // --- Settings: features' state that outgrows localStorage ---------------------------
+
+    /**
+     * The value of the setting `key`, or `undefined`. Features keep state here that outgrows
+     * `localStorage` and belongs with the library, so that clearing or restoring the library
+     * takes it along (backups carry it). The library's own rows are off limits (see
+     * {@link putSettings}).
+     */
+    async getSetting(key: string): Promise<JsonValue | undefined> {
+      return (await db.settings.get(settingKey(key)))?.value
+    },
+
+    /** Every setting whose key starts with `prefix`, by key. */
+    async getSettings(prefix: string): Promise<Map<string, JsonValue>> {
+      if (prefix === '') throw new LibraryError('invalid', 'A settings prefix must not be empty')
+      const rows = await db.settings.where('key').startsWith(prefix).toArray()
+      return new Map(
+        rows.filter((row) => !isReservedSetting(row.key)).map((row) => [row.key, row.value]),
+      )
+    },
+
+    /**
+     * Writes settings in one transaction: each key gets its value, and a key whose value is
+     * `undefined` is removed. Keys are 1 to 200 characters. The library's own rows
+     * (`affinity.model`) are refused. Rows whose key starts with `sync.` reach the user's other
+     * devices through their sync gist (stage 8.4), which anyone with its link can read: never use
+     * that prefix for credentials, endpoints or anything that must stay on this device.
+     */
+    async putSettings(values: Readonly<Record<string, JsonValue | undefined>>): Promise<void> {
+      const entries = Object.entries(values).map(
+        ([key, value]) => [settingKey(key), value] as const,
+      )
+      await db.transaction('rw', db.settings, async () => {
+        const at = now()
+        const removed = entries.filter(([, value]) => value === undefined).map(([key]) => key)
+        const rows: SettingRecord[] = entries.flatMap(([key, value]) =>
+          value === undefined ? [] : [{ key, value, updatedAt: at }],
+        )
+        if (removed.length > 0) await db.settings.bulkDelete(removed)
+        if (rows.length > 0) await db.settings.bulkPut(rows)
+      })
+    },
+
     /**
      * Library sync only (stage 8.4, `features/sync/library-io.ts`): runs `work` in one
      * transaction on the tables sync carries, every one but import progress. Sync reads this
@@ -1711,6 +1794,20 @@ function trackRef(id: EntityId<'track'>): ListeningSignalTrack {
 function negated(entry: AffinityEntry): AffinityEntry {
   const { lastPlayedAt: _last, ...rest } = entry
   return { ...rest, score: -entry.score, skips: -entry.skips, plays: -entry.plays }
+}
+
+/** Whether `key` is one of the library's own settings, which only the repository writes. */
+function isReservedSetting(key: string): boolean {
+  return key === AFFINITY_MODEL_SETTING
+}
+
+/** `key` when features may use it, else a refusal. */
+function settingKey(key: string): string {
+  if (typeof key !== 'string' || key.length === 0 || key.length > 200) {
+    throw new LibraryError('invalid', 'A setting key has 1 to 200 characters')
+  }
+  if (isReservedSetting(key)) throw new LibraryError('protected', `${key} is the library's own`)
+  return key
 }
 
 /** Whether a setting belongs in a backup: all but the affinity's own, which is rebuilt. */

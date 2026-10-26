@@ -228,6 +228,60 @@ describe('buildHomeFeed', () => {
     ).toEqual([])
   })
 
+  it("takes Spotify's sections from the account's sync when it keeps them", async () => {
+    const synced = {
+      id: 'spotify:section:made-for-you',
+      title: 'Made For You',
+      items: [{ type: 'track' as const, track: song('s1', 'Somewhere', 'Halcyon') }],
+    }
+    const asked: string[] = []
+    const spotifyAccount = {
+      ...fakeSpotifyAccount(true),
+      async sections() {
+        asked.push('sections')
+        return [synced]
+      },
+    }
+    const sections = async (services: HomeServices) =>
+      (await build(services)).shelves
+        .filter((shelf) => shelf.type === 'source')
+        .map((shelf) => shelf.id)
+    // With the recommendation sources too, their home isn't asked for Spotify's sections.
+    const recommendations = fakeRecommendations({
+      home: [
+        {
+          source: 'spotify',
+          shelf: {
+            id: 'generic',
+            title: 'Generic',
+            items: [{ type: 'track' as const, track: a1 }],
+          },
+        },
+      ],
+    })
+    expect(await sections(homeServices('full', { recommendations, spotifyAccount }))).toEqual([
+      'spotify:spotify:section:made-for-you',
+    ])
+    // Without recommendation sources (stage 3.2 not wired in), the sync's sections still show.
+    expect(await sections(homeServices('full', { spotifyAccount }))).toEqual([
+      'spotify:spotify:section:made-for-you',
+    ])
+    // Not connected, switched off or unreachable: not asked.
+    asked.length = 0
+    expect(
+      await sections(
+        homeServices('full', {
+          spotifyAccount: { ...fakeSpotifyAccount(false), sections: spotifyAccount.sections },
+        }),
+      ),
+    ).toEqual([])
+    expect(await sections(homeServices('full', { spotifyAccount, spotifyEnabled: false }))).toEqual(
+      [],
+    )
+    expect(await sections(homeServices('lite', { spotifyAccount }))).toEqual([])
+    expect(asked).toEqual([])
+  })
+
   it('turns the best similar artists and song searches into tracks through the catalog', async () => {
     const recommendations = fakeRecommendations({
       radio: { '*': variedSongs('r', 12) },
@@ -435,6 +489,43 @@ describe('buildHomeFeed', () => {
       { repo },
     )
     expect(whole.complete).toBe(true)
+    expect(stored.size).toBe(1)
+  })
+
+  it("keeps no lists from a build where YouTube Music's radio skipped a seed", async () => {
+    const repo = await library()
+    const cache = createCollectionCache()
+    let skipping = true
+    const fake = fakeRecommendations({ radio: { '*': variedSongs('r', 100) } })
+    const recommendations: HomeRecommendations = {
+      async collect(seed, ctx, options) {
+        const name = isTrackSeed(seed) ? seed.title : seed.name
+        // As for a track of another source whose match isn't surely its own song.
+        if (skipping && name === 'Static Bloom') {
+          return { candidates: [], outcomes: [{ source: 'ytm', part: 'radio', status: 'skipped' }] }
+        }
+        const { candidates } = await fake.collect(seed, ctx, options)
+        const outcomes = [
+          { source: 'ytm', part: 'radio', status: 'ok' },
+          // Other sources' skips don't count: Spotify has no radio for a song it lacks.
+          { source: 'spotify', part: 'radio', status: 'skipped' },
+        ]
+        return { candidates, outcomes }
+      },
+      home: fake.home,
+    }
+    const services = homeServices('lite', { recommendations })
+    const skipped = await build(services, { repo, cache })
+    // Home shows what the other seeds brought, as a whole build...
+    expect(skipped.complete).toBe(true)
+    expect(types(skipped.shelves)).toContain('discover')
+    // ...but doesn't keep it for the week, nor while the collection comes from the cache.
+    expect(stored.size).toBe(0)
+    await build(services, { repo, cache, now: NOW + 10 * 60_000 })
+    expect(stored.size).toBe(0)
+    // Once every seed has its radio, the lists are kept.
+    skipping = false
+    await build(services, { repo, cache, now: NOW + 31 * 60_000 })
     expect(stored.size).toBe(1)
   })
 

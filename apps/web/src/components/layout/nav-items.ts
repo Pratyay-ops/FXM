@@ -1,4 +1,4 @@
-import { Heart, House, LibraryBig, type LucideIcon, Search } from 'lucide-react'
+import { House, LibraryBig, type LucideIcon, Search } from 'lucide-react'
 
 export interface NavItem {
   to: string
@@ -13,19 +13,4 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   { to: '/', label: 'Home', icon: House, end: true },
   { to: '/search', label: 'Search', icon: Search },
   { to: '/library', label: 'Library', icon: LibraryBig },
-]
-
-export interface PlaylistLink {
-  id: string
-  name: string
-  icon?: LucideIcon
-}
-
-/** Placeholder "Your playlists" entries until the library lands (stage 2.6). */
-export const PLACEHOLDER_PLAYLISTS: readonly PlaylistLink[] = [
-  { id: 'liked', name: 'Liked songs', icon: Heart },
-  { id: 'chill-mix', name: 'Chill mix' },
-  { id: 'focus-flow', name: 'Focus flow' },
-  { id: 'workout', name: 'Workout' },
-  { id: 'road-trip', name: 'Road trip' },
 ]

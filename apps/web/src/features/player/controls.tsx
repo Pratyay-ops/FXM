@@ -48,28 +48,6 @@ const PLAY_BUTTON_STYLES = {
 
 type PlayButtonAppearance = keyof typeof PLAY_BUTTON_STYLES
 
-/**
- * The big play button of the shell's placeholder playlist pages (a bare `/playlist/liked`, …).
- * It responds but plays nothing, like the shell's other placeholders, rather than pausing
- * whatever the queue plays. The library's own playlists (stage 2.6) pass their tracks and get
- * {@link CollectionPlayButton}; the catalog's pages (stage 2.4) have their own play buttons.
- */
-function PlaceholderPlayButton() {
-  const [playing, setPlaying] = useState(false)
-  const Icon = playing ? Pause : Play
-  const style = PLAY_BUTTON_STYLES.cta
-  return (
-    <IconButton
-      label={playing ? 'Pause' : 'Play'}
-      icon={<Icon fill="currentColor" strokeWidth={0} className={cn(!playing && 'ml-0.5')} />}
-      size="custom"
-      variant={style.variant}
-      className={style.className}
-      onClick={() => setPlaying(!playing)}
-    />
-  )
-}
-
 /** A list of tracks a big play button plays, and what the queue says it plays from. */
 export interface PlayableCollection {
   readonly tracks: readonly Track[]
@@ -117,8 +95,8 @@ function CollectionPlayButton({ collection }: { collection: PlayableCollection }
 
 /**
  * Play/pause for the app's player. `cta` is the big button of a collection page: with
- * `collection`, it plays that list (see {@link CollectionPlayButton}); without, the shell's
- * placeholder.
+ * `collection`, it plays that list (see {@link CollectionPlayButton}); without, it plays and
+ * pauses the player like the others.
  */
 export function PlayPauseButton({
   appearance = 'bar',
@@ -127,12 +105,10 @@ export function PlayPauseButton({
   appearance?: PlayButtonAppearance
   collection?: PlayableCollection
 }) {
-  if (appearance !== 'cta') return <PlayerPlayPauseButton appearance={appearance} />
-  return collection === undefined ? (
-    <PlaceholderPlayButton />
-  ) : (
-    <CollectionPlayButton collection={collection} />
-  )
+  if (appearance === 'cta' && collection !== undefined) {
+    return <CollectionPlayButton collection={collection} />
+  }
+  return <PlayerPlayPauseButton appearance={appearance} />
 }
 
 function PlayerPlayPauseButton({ appearance }: { appearance: PlayButtonAppearance }) {
@@ -163,6 +139,37 @@ function PlayerPlayPauseButton({ appearance }: { appearance: PlayButtonAppearanc
   )
 }
 
+const SKIP_BUTTONS = {
+  previous: { label: 'Previous', Icon: SkipBack },
+  next: { label: 'Next', Icon: SkipForward },
+} as const
+
+/**
+ * Previous or Next for the app's player, off while the queue is empty. The player bar, Now
+ * playing and the mini player all use it, so they step the queue alike.
+ */
+export function SkipButton({
+  direction,
+  size = 'sm',
+}: {
+  direction: keyof typeof SKIP_BUTTONS
+  size?: IconButtonSize
+}) {
+  const hasTrack = usePlayerStore((state) => state.hasTrack)
+  const skip = usePlayerStore((state) => state[direction])
+  const { label, Icon } = SKIP_BUTTONS[direction]
+  return (
+    <IconButton
+      label={label}
+      icon={<Icon fill="currentColor" />}
+      size={size}
+      variant="plain"
+      disabled={!hasTrack}
+      onClick={skip}
+    />
+  )
+}
+
 /** Shuffle, previous, play/pause, next and repeat. */
 export function PlayerControls({
   size = 'md',
@@ -172,13 +179,10 @@ export function PlayerControls({
   size?: 'md' | 'lg'
   className?: string
 }) {
-  const hasTrack = usePlayerStore((state) => state.hasTrack)
   const shuffle = usePlayerStore((state) => state.shuffle)
   const repeat = usePlayerStore((state) => state.repeat)
   const toggleShuffle = usePlayerStore((state) => state.toggleShuffle)
   const cycleRepeat = usePlayerStore((state) => state.cycleRepeat)
-  const previous = usePlayerStore((state) => state.previous)
-  const next = usePlayerStore((state) => state.next)
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat
   const skipSize: IconButtonSize = size === 'lg' ? 'lg' : 'sm'
 
@@ -198,23 +202,9 @@ export function PlayerControls({
         dot
         onClick={toggleShuffle}
       />
-      <IconButton
-        label="Previous"
-        icon={<SkipBack fill="currentColor" />}
-        size={skipSize}
-        variant="plain"
-        disabled={!hasTrack}
-        onClick={previous}
-      />
+      <SkipButton direction="previous" size={skipSize} />
       <PlayPauseButton appearance={size === 'lg' ? 'hero' : 'bar'} />
-      <IconButton
-        label="Next"
-        icon={<SkipForward fill="currentColor" />}
-        size={skipSize}
-        variant="plain"
-        disabled={!hasTrack}
-        onClick={next}
-      />
+      <SkipButton direction="next" size={skipSize} />
       <IconButton
         label={REPEAT_LABELS[repeat]}
         icon={<RepeatIcon />}

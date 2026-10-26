@@ -3,6 +3,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { asBrowser, USER_AGENTS } from '../connect/testing'
+import { setupTestPlayback } from '../now-playing/testing'
 import { GET_FXM_URL } from './home-content'
 import { greetingFor } from './home-page'
 import {
@@ -84,6 +85,16 @@ describe('the greeting', () => {
     expect(greetingFor(13)).toBe('Good afternoon')
     expect(greetingFor(21)).toBe('Good evening')
     expect(greetingFor(3)).toBe('Good evening')
+  })
+
+  it('heads Home on its own, with no tagline under it', async () => {
+    renderHome(homeServices('free'))
+    expect(await screen.findByRole('region', { name: 'Play practically any song' })).toBeVisible()
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      /^Good (morning|afternoon|evening)$/,
+    )
+    expect(screen.queryByText(/Free music from everywhere|no ads from FXM/i)).toBeNull()
   })
 })
 
@@ -242,6 +253,40 @@ describe('Home', () => {
       'title' in seed ? seed.title : seed.name,
     )
     expect(seeds).toEqual(expect.arrayContaining(['Halcyon', 'Kestrel', 'Fable Kin']))
+  })
+
+  it('says to type artists in where nothing can be suggested, as in the Lite tier', async () => {
+    // Lite: YouTube Music's provider has no home feed, and Spotify needs FXM Connect.
+    renderHome(homeServices('lite', { recommendations: fakeRecommendations() }))
+    const onboarding = await shelfNamed('What do you like to listen to?')
+    const hint = await within(onboarding).findByText(/^FXM has no artists to suggest here yet\./)
+    expect(hint).toHaveTextContent(
+      'FXM has no artists to suggest here yet. Type the name of an artist you like below, then select Add.',
+    )
+    expect(
+      within(onboarding).getByRole('textbox', { name: 'Add an artist' }),
+    ).toHaveAccessibleDescription(hint.textContent ?? '')
+  })
+
+  it('suggests the artists of the songs a new user played, before Home knows enough', async () => {
+    // Two artists: too few for Home, enough to suggest.
+    const now = Date.now()
+    await getLibrary().recordPlays(
+      favourites.slice(0, 3).map((track, index) => ({
+        track,
+        playedAt: now - (index + 1) * DAY,
+        playedMs: 200_000,
+        completed: true,
+        skipped: false,
+      })),
+    )
+    renderHome(homeServices('lite', { recommendations: fakeRecommendations() }))
+    const onboarding = await shelfNamed('What do you like to listen to?')
+    expect(
+      await within(onboarding).findByRole('button', { name: 'Aurora Lane', pressed: false }),
+    ).toBeInTheDocument()
+    expect(within(onboarding).getByRole('button', { name: 'Basalt', pressed: false })).toBeVisible()
+    expect(within(onboarding).queryByText(/^FXM has no artists to suggest here yet/)).toBeNull()
   })
 
   it('puts the onboarding off with "Not now", and brings it back', async () => {
@@ -426,6 +471,34 @@ describe('Home', () => {
     })
   })
 
+  it('marks the song that plays in its shelf, and says whether it plays or is paused', async () => {
+    await listen()
+    const { player } = setupTestPlayback()
+    const { user } = renderHome(
+      homeServices('lite', {
+        recommendations: fakeRecommendations({ radio: { '*': variedSongs('r', 80) } }),
+        playback: { play: (tracks, options) => void player.setQueue(tracks, options) },
+      }),
+    )
+    const picks = within(await shelfNamed('Quick picks')).getByRole('list')
+    const items = within(picks).getAllByRole('listitem')
+    const third = items[2] as HTMLElement
+    const name = within(third).getByRole('button').getAttribute('aria-label') ?? ''
+
+    await user.click(within(third).getByRole('button'))
+
+    await waitFor(() => expect(player.getState().status).toBe('playing'))
+    expect(items.filter((item) => item.getAttribute('aria-current') === 'true')).toEqual([third])
+    expect(within(third).getByRole('button')).toHaveAccessibleName(`${name}. Now playing`)
+    expect(third.querySelector('svg[data-now-playing]')).toHaveAttribute(
+      'data-now-playing',
+      'playing',
+    )
+    act(() => player.pause())
+    expect(within(third).getByRole('button')).toHaveAccessibleName(`${name}. Paused`)
+    expect(picks).toBeInTheDocument()
+  })
+
   it('opens a Daily Mix and plays it', async () => {
     await listen()
     const playback = fakePlayback()
@@ -469,7 +542,10 @@ describe('Home', () => {
       }),
     )
     const section = await shelfNamed('Made For You')
-    expect(within(section).getByText('From your Spotify account.')).toBeInTheDocument()
+    // The account sync is experimental, and its sections say so.
+    expect(
+      within(section).getByText('From your Spotify account (experimental sync).'),
+    ).toBeInTheDocument()
     expect(within(section).getByText('Somewhere')).toBeInTheDocument()
   })
 })

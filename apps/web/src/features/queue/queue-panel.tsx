@@ -3,7 +3,6 @@ import { formatTime } from '@fxm/player'
 import {
   ArrowDown,
   ArrowUp,
-  AudioLines,
   ChevronsUp,
   CircleAlert,
   CircleHelp,
@@ -12,13 +11,33 @@ import {
   type LucideIcon,
   X,
 } from 'lucide-react'
-import { type CSSProperties, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
 import { iconButtonClasses } from '../../components/ui/icon-button'
+import { NowPlayingBars, nowPlayingText } from '../../components/ui/now-playing-marker'
 import { cn } from '../../lib/cn'
+import { autoplayChangeMessage, useAutoplayActivity } from '../autoplay/autoplay-activity'
+import { autoplayContextOf, useAutoplayMarks } from '../autoplay/autoplay-marks'
+import {
+  AUTOPLAY_FINDING,
+  AutoplayFinding,
+  AutoplayMark,
+  AutoplaySwitch,
+  useAutoplayFinding,
+  useIsAutoplayItem,
+} from '../autoplay/autoplay-setting'
 import { entityPath, searchPath } from '../now-playing/browse-links'
+import { nowPlayingStatusFor } from '../now-playing/current-track'
 import { getPlayer, usePlayerState } from '../now-playing/playback'
 import { KIND_LABELS } from '../now-playing/stream-label'
 import { TrackArtwork } from '../now-playing/track-artwork'
@@ -168,8 +187,9 @@ function CurrentRow({
   bestGuess: AudioCandidate | undefined
   playBestGuesses: boolean
 }) {
-  const playing = usePlayerState((state) => state.status === 'playing')
+  const status = usePlayerState((state) => nowPlayingStatusFor(state.status))
   const failed = usePlayerState((state) => state.error !== undefined)
+  const autoplay = useIsAutoplayItem(item)
   const { track } = item
   const label = reviewLabel(item, bestGuess, playBestGuesses)
   return (
@@ -182,13 +202,21 @@ function CurrentRow({
         className="size-12"
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold text-accent">{track.title}</p>
+        <p className="truncate font-semibold text-accent forced-colors:text-[Highlight]">
+          {track.title}
+        </p>
         <p className="truncate text-sm text-text-muted">{byline(track)}</p>
         {failed ? <FailedMark /> : label !== undefined && <ReviewMark label={label} />}
+        {autoplay && <AutoplayMark />}
       </div>
-      {playing && (
-        <AudioLines role="img" aria-label="Playing" className="mr-1 size-5 shrink-0 text-accent" />
-      )}
+      {/* The marker of the track lists: moving while it plays, still while paused or failed. */}
+      <span className="mr-1 flex shrink-0 text-accent">
+        <NowPlayingBars status={status} size="md" />
+        {/* A song that couldn't play says so under its title already (FailedMark). */}
+        {!(failed && status === 'error') && (
+          <span className="sr-only">{nowPlayingText(status)}</span>
+        )}
+      </span>
     </div>
   )
 }
@@ -277,6 +305,7 @@ function QueueRow({
 }: RowProps) {
   const { track, uid } = item
   const toolbarId = useId()
+  const autoplay = useIsAutoplayItem(item)
   const label = reviewLabel(item, bestGuess, playBestGuesses)
   const length = duration(track)
   const play = () => {
@@ -332,6 +361,7 @@ function QueueRow({
             <span className="block truncate font-semibold">{track.title}</span>
             <span className="block truncate text-sm text-text-muted">{byline(track)}</span>
             {label !== undefined && <ReviewMark label={label} />}
+            {autoplay && <AutoplayMark />}
           </span>
         </button>
         {length !== undefined && (
@@ -391,6 +421,8 @@ function QueueRow({
 /**
  * The songs after the current one, in play order. To reorder them: drag a handle; or select it
  * for move buttons that need one tap each; or focus it and press the arrow keys, Home or End.
+ * A song autoplay added becomes the user's once they move it. While autoplay finds songs to add,
+ * a line at the end says so.
  */
 function UpNext({
   items,
@@ -416,6 +448,7 @@ function UpNext({
   const pendingFocus = useRef<string | null>(null)
   const headingId = useId()
   const hintId = useId()
+  const finding = useAutoplayFinding()
   const visible = items.slice(0, limit)
 
   /** Moves the song at `from` to `to`, keeping the focus on the control named `focus`. */
@@ -423,6 +456,8 @@ function UpNext({
     const item = items[from]
     if (item === undefined || to < 0 || to >= items.length || to === from) return
     getPlayer().move(offset + from, offset + to)
+    // The user placed it: autoplay leaves it in the queue when switched off.
+    useAutoplayMarks.getState().adopt(item.uid)
     if (to >= limit) setLimit(to + 1)
     if (focus !== null) pendingFocus.current = focus
     announce(`Moved ${item.track.title} to position ${to + 1} of ${items.length}.`)
@@ -493,7 +528,9 @@ function UpNext({
       </p>
       {items.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-text-muted">
-          Nothing up next. Songs you add with “Play next” or “Add to queue” show up here.
+          {finding
+            ? AUTOPLAY_FINDING
+            : 'Nothing up next. Songs you add with “Play next” or “Add to queue” show up here.'}
         </p>
       ) : (
         <ol ref={listRef} className="mt-2 space-y-0.5">
@@ -532,6 +569,8 @@ function UpNext({
           Show all {items.length} songs
         </button>
       )}
+      {items.length > 0 && finding && <AutoplayFinding className="mt-3 px-2" />}
+      <AutoplaySwitch className="mt-4 border-t border-border pt-4" />
     </section>
   )
 }
@@ -544,17 +583,31 @@ export function QueuePanel() {
   const queue = usePlayerState((state) => state.queue)
   const entries = useQueueReviewStore((state) => state.entries)
   const playBestGuesses = useQueueReviewStore((state) => state.playBestGuesses)
+  const marks = useAutoplayMarks((state) => state.marks)
   const [reviewing, setReviewing] = useState(false)
   const [announcement, setAnnouncement] = useState('')
   const nowPlayingRef = useRef<HTMLHeadingElement>(null)
   const focusNowPlaying = useRef(false)
   const nowPlayingId = useId()
   const current = queue.items[queue.index]
+  // A song autoplay added plays from its radio: "Playing from Autoplay".
+  const context =
+    current === undefined ? queue.context : autoplayContextOf(current, queue.context, marks)
   // The same array until the queue changes, so a drag survives unrelated renders.
   const upcoming = useMemo(() => queue.items.slice(queue.index + 1), [queue.items, queue.index])
   const reviewCount = new Set(
     queue.items.flatMap((item) => (entries[item.track.id] === undefined ? [] : [item.track.id])),
   ).size
+
+  // Screen readers hear what autoplay adds, or takes out when switched off, while this shows.
+  useEffect(
+    () =>
+      useAutoplayActivity.subscribe((state, previous) => {
+        if (state.change === undefined || state.change === previous.change) return
+        setAnnouncement(autoplayChangeMessage(state.change))
+      }),
+    [],
+  )
 
   // The review notice is gone once nothing needs review: don't leave focus on nothing.
   useLayoutEffect(() => {
@@ -613,7 +666,7 @@ export function QueuePanel() {
           <UpNext
             items={upcoming}
             offset={queue.index + 1}
-            context={queue.context}
+            context={context}
             announce={setAnnouncement}
           />
         </>

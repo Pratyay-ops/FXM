@@ -2,7 +2,7 @@
 
 The download manager (stage 4.1): a queue that downloads tracks for offline playback, with concurrency, progress, pause, resume, retry, cancel and delete, and transfers that continue from the bytes already stored. It is runtime-agnostic: it fetches with the platform's injected `fetch`, keeps bytes in a `DownloadStorage` and records in a `DownloadStore` that each platform implements, and plays downloads offline through the stream lifecycle's `OfflineStore` (stage 2.3). The web app's storage (the Origin Private File System) and records (IndexedDB) are in [`apps/web/src/features/downloads`](../../apps/web/src/features/downloads/README.md).
 
-Downloads keep the **original bytes** of the stream (WebM/Opus, M4A/AAC, FLAC, MP3, or YouTube's itag 18 as the MP4 it is). Converting, tagging and "Save to device" are stage 4.2.
+Downloads keep the **original bytes** of the stream (WebM/Opus, M4A/AAC, FLAC, MP3, or YouTube's itag 18 as the MP4 it is). Converting, tagging and "Save to device" are stage 4.2: [`@fxm/convert`](../convert/README.md) saves a copy of a completed download (`storage.read`) in the format the user picks, and the stored original keeps playing offline.
 
 | Piece | What it is |
 |---|---|
@@ -61,7 +61,7 @@ With a resolver, `downloadAvailability` also asks `canResolve`: a track whose au
 `createPolicyDownloadResolver` follows the playback policy's order of preference (`planPlayback`): the user's pin, the track's own audio, its linked song or its match, and with "prefer lossless" an ISRC-verified or Auto lossless match first. It differs from playback where a download must:
 
 - **Only downloadable streams:** progressive and not capped, and for YouTube only URLs that **passed the end-of-file probe** (`fullLength: 'verified'`). When the top rung has none, it asks the fallback rung (itag 18).
-- **The best quality:** `lossless` as the ceiling, audio only before a muxed video, and streams this device can play first (`canPlay`, `canPlayType` in a browser), so the copy plays offline here.
+- **The best quality:** `lossless` as the ceiling, audio only before a muxed video, and only streams this device can play (`canPlay`, `canPlayType` in a browser), so the copy plays offline here. Quality comes before how sure the browser is: Firefox and Safari answer `maybe` for a type without codecs (`audio/flac`, `audio/mpeg`) and `probably` for `audio/ogg; codecs="vorbis"`, and an Internet Archive download there is still the item's FLAC or 320 kbps MP3 original, not its lossy Vorbis derivative. Among streams of the same quality, the one the browser is surest of wins, so a browser unsure of Opus in WebM downloads YouTube's AAC.
 - **No best guesses:** a Suggest-band match is never downloaded, because the offline copy would then play without review from then on. Only a pin, an Auto match or "Play best guesses" let it through; otherwise the download fails as `needs-review`.
 - **Fresh every time:** nothing is cached, so every call is a fresh resolution.
 - **Background work:** sources and the matcher are asked at the request budget's `bulk` priority (`priority` changes it), and the provider context's `fetch` must draw at the same one. The budget (1.2) then spaces the calls out, stops them while it keeps the last 100 calls of the hour for search and playback, and pauses them after a bot check, so "Download all" on a long playlist never blocks searching.
@@ -124,7 +124,7 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 
 ## Offline playback
 
-`createOfflineStore({ store, storage })` is the stream lifecycle's `OfflineStore`. For a track with a completed download whose audio may play in the catalog mode, it returns a `verified`, not IP-bound stream of the stored file at the storage's playback URL (a `blob:` URL in a browser). The same file keeps its URL, so a copy that failed to play is skipped. The mode rule is the playback policy's: a download of an official video's own audio (made in Music + Video mode) never plays in Music mode, while a downloaded song stands in for its music video there.
+`createOfflineStore({ store, storage })` is the stream lifecycle's `OfflineStore`. For a track with a completed download whose audio may play in the catalog mode, it returns a `verified`, not IP-bound stream of the stored file at the storage's playback URL (a `blob:` URL in a browser), with the loudness the stream had when it was downloaded (`format.loudness`, e.g. YouTube's `loudnessDb`; stage 8.1), so loudness normalization plays the copy at the stream's level; a malformed value is dropped (`sanitizeStreamLoudness`) without making the record invalid. The same file keeps its URL, so a copy that failed to play is skipped. The mode rule is the playback policy's: a download of an official video's own audio (made in Music + Video mode) never plays in Music mode, while a downloaded song stands in for its music video there.
 
 ## Storage contract
 

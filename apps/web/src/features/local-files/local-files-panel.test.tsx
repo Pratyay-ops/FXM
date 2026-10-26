@@ -1,3 +1,4 @@
+import { writeFlacTags } from '@fxm/convert'
 import { FakeEngine } from '@fxm/player/testing'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -171,6 +172,33 @@ describe('the Local files tab', () => {
     expect(within(rows[1] as HTMLElement).getByText('MP3 · 128 kbps')).toBeInTheDocument()
   })
 
+  it('marks a FLAC that FXM converted from Opus as such, never lossless', async () => {
+    // Tagged by Save to device's own writer, as it tags a song saved from YouTube's Opus.
+    const converted = writeFlacTags(flacFile(), {
+      title: 'Saved Song',
+      artists: ['Aria Vale'],
+      convertedFrom: { codec: 'opus', bitrateKbps: 160 },
+    })
+    await withFolder(
+      fakeFolder('Music', {
+        'Aria Vale - Saved Song.flac': audioFile(converted, 'Aria Vale - Saved Song.flac'),
+        'Real.flac': audioFile(
+          flacFile({ tags: { title: 'Real', artists: ['Low Orbit'] } }),
+          'Real.flac',
+        ),
+      }),
+    )
+    renderApp('/library?tab=local')
+    const list = await songList()
+    const saved = within(list).getByText('Saved Song').closest('li') as HTMLElement
+    expect(within(saved).queryByText('Lossless')).toBeNull()
+    expect(within(saved).getByText('From Opus')).toBeInTheDocument()
+    expect(within(saved).getByText('FLAC · converted from Opus')).toBeInTheDocument()
+    const real = within(list).getByText('Real').closest('li') as HTMLElement
+    expect(within(real).getByText('Lossless')).toBeInTheDocument()
+    expect(within(real).queryByText(/^From /)).toBeNull()
+  })
+
   it('plays a song through the player, from its object URL, and pauses it', async () => {
     await withFolder()
     const { user } = renderApp('/library?tab=local')
@@ -188,11 +216,15 @@ describe('the Local files tab', () => {
       id: 'local-files',
       title: 'Local files',
     })
-    await user.click(await screen.findByRole('button', { name: 'Pause Slow Tide' }))
+    await user.click(await screen.findByRole('button', { name: 'Pause Slow Tide. Now playing' }))
     expect(getLocalPlayer().getState().status).toBe('paused')
-    // Paused, the song is still the current one, and not by color alone.
-    const resume = await screen.findByRole('button', { name: 'Resume Slow Tide' })
+    // Paused, the song is still the current one, and not by color alone: the marker stays, still.
+    const resume = await screen.findByRole('button', { name: 'Resume Slow Tide. Paused' })
     expect(resume.closest('li')).toHaveAttribute('aria-current', 'true')
+    expect(resume.closest('li')?.querySelector('svg[data-now-playing]')).toHaveAttribute(
+      'data-now-playing',
+      'paused',
+    )
     expect(
       within(await songList())
         .getAllByRole('listitem')

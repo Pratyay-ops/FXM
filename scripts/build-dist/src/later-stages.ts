@@ -11,9 +11,10 @@ import type { Part } from './parts.ts'
 
 /**
  * 5.2, the embeddable mini-player at `/embed/`: a single-page app built for base `/embed/`
- * (apps/web/vite.embed.config.ts), with the app's policy minus `frame-ancestors`, and the
- * headers every response gets, `Cross-Origin-Opener-Policy: same-origin` among them
- * (COMMON_HEADERS in policies.ts). Built the way appPart builds the app: hidden source maps, the
+ * (apps/web/vite.embed.config.ts), with its own policy (`appPolicy({ embeddable: true })`: no
+ * `frame-ancestors`, no worker, only the hosts of the services it plays from), and the headers
+ * every response gets, `Cross-Origin-Opener-Policy: same-origin` among them (COMMON_HEADERS in
+ * policies.ts). Its player addresses answer 200 through `_redirects` (redirects.ts). Built the way appPart builds the app: hidden source maps, the
  * bundle inventory and no `.env` files (embed.vite.config.ts, src/dist-configs.ts).
  */
 export const embedPart: Part = {

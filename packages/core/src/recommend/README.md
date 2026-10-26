@@ -1,6 +1,6 @@
 # The recommendation engine (`@fxm/core`)
 
-Stage 3.3: what Home shows and why, computed on the device from the user's taste (stage 3.1's affinity) and the candidates the recommendation sources collect (stage 3.2). Nothing leaves the device.
+Stage 3.3: what Home shows and why, computed on the device from the user's taste (stage 3.1's affinity) and the candidates the recommendation sources collect (stage 3.2). Stage 3.4 adds endless radio, which keeps a queue going from the same pieces ([below](#endless-radio-stage-34)). Nothing leaves the device.
 
 - **Pure and deterministic.** No network, no storage, no clock and no global randomness: the time (`now`), the local time's offset from UTC and the random source are inputs. The same input always gives the same shelves, whatever order the candidates come in.
 - **Fail closed.** Candidates, profile entries and stored lists that can't be read are left out, never thrown on.
@@ -68,7 +68,7 @@ ARCHITECTURE.md §13: **score = affinity + similarity + popularity + novelty −
 | `mix` | 1 | 0.8 | 0.1 | 0.2 | 1 | 0.5 |
 | `radio` (for 3.4) | 0.6 | 1.2 | 0.1 | 0.3 | 1.2 | 1 |
 
-A recommendation list never holds a song with a score of 0 or less, nor one whose track or main artist the user mostly skips (at least one whole skip, and twice as much skipping as listening).
+A recommendation list never holds a song with a score of 0 or less, nor one whose track or main artist the user mostly skips (at least one whole skip, and twice as much skipping as listening): `welcomeSongs`, with `mostlySkipped`.
 
 **History de-duplication** (`filterHistory`): leave out songs the user knows (`unheard`), songs played within a time (`playedWithinMs`), songs among the last N plays (`lastPlays`, for 3.4's "no repeats within N tracks") and given keys (`exclude`).
 
@@ -96,10 +96,33 @@ A recommendation list never holds a song with a score of 0 or less, nor one whos
 
 Quick picks' noise comes from the `random` input, by default a source seeded with the hour, so rebuilding Home within an hour changes nothing.
 
-## For endless radio (stage 3.4)
+## Endless radio (stage 3.4)
 
-The same pieces rank a radio: pool what the sources suggest for the last plays, score with `SCORE_PRESETS.radio` (likes and skips retune it through the affinity), filter with `{ lastPlays: N }`, and `diversify`.
+`radio.ts` keeps a queue going: when it runs low, it grows with songs like the last plays, ranked by the same pieces as Home. The app runs the library reads and the one network call (`apps/web/src/features/autoplay`); everything else is here.
+
+```
+radioShortfall(queue)                  4 tracks once fewer than 3 remain after the current one; 0 with repeat on
+planRadioSeeds(taste, { mode, current })   the last 5 plays of the session, the track playing now first
+nextRadioSeed(seeds, isCached)         the one seed whose radio to fetch now: the heaviest not cached
+   ↓ the app: collector.collect(seed, ctx, { parts: ['radio'] })   (network, one call, cached)
+buildRadioBatch(input)                 the songs to add, from the radios of every seed at hand
+```
+
+**Seeds** are the last 5 plays (`seedPlays`) of the listening session: the track playing now, then the history's plays back to the first pause of more than 2 hours (`sessionGapMs`, measured from the end of a play). Of those, a play the user skipped seeds nothing, however much they like its song: `RecentPlay.skipped`, which the app sets with `skippedEarly` (skipped before half of it played; a later skip, say of an outro, is a listen, as the affinity counts it). A played track also seeds only when the user likes it enough (`likedEnough`: at least half a play, more listening than skipping), the playing one unless they skip it more than they listen to it. Never a track the mode hides (`modePolicy`: an official music video seeds in Music mode too, since the recommendation sources start its radio from its song), one by an artist the user mostly skips, or a second listing of one song. When the user skipped all of them, the newest play of the session they didn't skip seeds alone. A seed's weight is how much the user likes it (`seedWeight`, 0.5 to 1), less 15 % for each play since it, down to 40 %.
+
+**One radio fetch per extension.** `nextRadioSeed` names the heaviest seed whose radio the app hasn't cached; the app fetches it and keeps every seed's radio for a while, so the batch blends the radios of every seed at hand. A batch is 4 tracks (`batchSize`), so the play the last extension fetched for is still among the last 5 plays at the next one when the user plays on.
+
+**The batch** (`buildRadioBatch`):
+
+1. Pool the candidates of the seeds' radios, each listing weighed by its seed's weight; candidates of other seeds count for nothing. Songs without a track (a search would cost requests) and tracks that can't play unattended (`playsUnattended`: a Spotify track plays only through a match, which a queue skips until the user reviews it) are left out; Spotify's listings still raise the songs another source suggests too.
+2. Score with `SCORE_PRESETS.radio` and a little noise (`jitter`, 0.05) from the injected `random`, by default seeded with `now`.
+3. Leave out what `welcomeSongs` refuses, songs among the last 50 plays (`noRepeatTracks`: "no repeats within N tracks"), everything in the queue, and the keys the app excludes (the radio's songs the user removed from the queue).
+4. Diversify with MMR (λ 0.7) and a cap of 2 per artist, counting the tracks already up next, from which the batch also keeps its distance.
+
+**Likes and skips retune it** through stage 3.1's signals, which the app reads afresh for every extension: a play the user skipped seeds nothing, its song and artist score lower (the skip penalty), and a song or artist they mostly skip never comes; a like makes its song a heavier seed, whose radio counts more and is fetched sooner, and lifts every song by its artist.
+
+`DEFAULT_RADIO_OPTIONS` holds every number above; each function takes overrides (`resolveRadioOptions` reads them defensively). Like Home, the radio is pure and deterministic: the time and the noise are inputs.
 
 ## Tests
 
-`*.test.ts` build taste profiles from listening histories through stage 3.1's own `AffinityIndex` (`test-fixtures.ts`) and run on a fixed clock (Monday 2026-10-26). `home.test.ts` builds a whole Home from a fictional history and checks each shelf, the cross-shelf de-duplication, the caps, the modes, the Spotify sections, the cold start, determinism under reordered candidates, and the lists kept for their week and day. `diversify.test.ts` checks MMR's invariants on 200 random lists.
+`*.test.ts` build taste profiles from listening histories through stage 3.1's own `AffinityIndex` (`test-fixtures.ts`) and run on a fixed clock (Monday 2026-10-26). `home.test.ts` builds a whole Home from a fictional history and checks each shelf, the cross-shelf de-duplication, the caps, the modes, the Spotify sections, the cold start, determinism under reordered candidates, and the lists kept for their week and day. `diversify.test.ts` checks MMR's invariants on 200 random lists. `radio.test.ts` checks when a queue needs more, the seeds of a session (skips, a favourite skipped just now, late skips, likes, the current track, sessions, modes and music videos, the fall-back), which radio to fetch, and the batch: blending, the caps, no repeats, unattended playback, retuning by skips and likes, modes and determinism.

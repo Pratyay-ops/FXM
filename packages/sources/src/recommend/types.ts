@@ -169,8 +169,9 @@ export interface ArtistCandidate extends CandidateBase {
 export type RecommendationCandidate = TrackCandidate | SongSearchCandidate | ArtistCandidate
 
 /**
- * Why a source did not run. Each is the collector's own decision before it asks the source, or,
- * for `unsupported-seed`, a refusal the source makes explicitly about the seed:
+ * Why a source did not run. Each is the collector's own decision before it asks the source (or,
+ * for a radio that doesn't follow a track of another source, after), or, for `unsupported-seed`,
+ * a refusal the source makes explicitly about the seed:
  *
  * - `not-configured`: the app did not register it, or it lacks what it needs (an API key)
  * - `switched-off`: the user switched it off (Spotify)
@@ -179,7 +180,8 @@ export type RecommendationCandidate = TrackCandidate | SongSearchCandidate | Art
  * - `unsupported-seed`: it cannot start from this seed: the seed names no artist; ListenBrainz
  *   finds no MusicBrainz ID for its artist; YouTube Music has no YouTube seed for it (an official
  *   video without a song in Music mode, a track or artist without a YouTube ID and no
- *   `youtubeSeed` adapter that finds one); Spotify finds no artist for it, or refuses it as
+ *   `youtubeSeed` adapter that finds one, a track of another source whose match is not its own
+ *   song, or whose radio doesn't follow it); Spotify finds no artist for it, or refuses it as
  *   `unsupported-seed` itself
  *
  * Every other refusal, `Unsupported` ones included (a transport route that is closed, Spotify's

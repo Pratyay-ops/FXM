@@ -3,11 +3,21 @@ import { Link, useLocation, useSearchParams } from 'react-router'
 import { Artwork } from '../../components/ui/artwork'
 import { iconButtonClasses } from '../../components/ui/icon-button'
 import { cn } from '../../lib/cn'
+import { useAudioEffectsStore } from '../audio-effects/effects-store'
+import { SoundButton } from '../audio-effects/sound-button'
+import { formatRate } from '../audio-effects/status'
 import { useCurrentItem, usePlayerState } from '../now-playing/playback'
 import { TrackArtwork } from '../now-playing/track-artwork'
 import { CATALOG_MODE_OPTIONS } from '../settings/options'
 import { useSettingsStore } from '../settings/settings-store'
-import { LikeButton, PlayerControls, PlayPauseButton, SeekBar, VolumeControl } from './controls'
+import {
+  LikeButton,
+  PlayerControls,
+  PlayPauseButton,
+  SeekBar,
+  SkipButton,
+  VolumeControl,
+} from './controls'
 import { usePlayerStore } from './player-store'
 
 /**
@@ -131,6 +141,7 @@ export function PlayerBar() {
         </div>
 
         <div className="flex min-w-0 items-center justify-end gap-1">
+          <SoundButton />
           <QueueButton />
           <VolumeControl />
           <ModeIndicator className="ml-1" />
@@ -140,11 +151,17 @@ export function PlayerBar() {
   )
 }
 
-/** Compact player above the tab bar on phones; tapping it opens Now Playing. */
+/**
+ * Compact player above the tab bar on phones; tapping the track opens Now Playing, while Like,
+ * Previous, Play/Pause and Next beside it act in place. Below 360 px the track's text needs the
+ * room, so Like stays on Now Playing. While the speed isn't 1× (stage 8.1), it shows the speed,
+ * which the link's name says too.
+ */
 export function MiniPlayer() {
   const { title, artists, failed, label } = useNowPlaying()
   const position = usePlayerStore((state) => state.position)
   const duration = usePlayerStore((state) => state.duration)
+  const rate = useAudioEffectsStore((state) => state.effects.playbackRate)
   const progress = duration > 0 ? (position / duration) * 100 : 0
   return (
     <section
@@ -154,7 +171,7 @@ export function MiniPlayer() {
       <div className="relative flex h-mini items-center gap-1 overflow-hidden rounded-lg bg-elevated pr-1 pl-2 shadow-lg">
         <Link
           to="/now-playing"
-          aria-label={label}
+          aria-label={rate === 1 ? label : `${label}. Speed ${formatRate(rate)}`}
           // Inset focus ring: the card clips anything drawn outside it.
           className="flex min-w-0 flex-1 items-center gap-3 self-stretch rounded-md focus-visible:-outline-offset-2"
         >
@@ -163,9 +180,21 @@ export function MiniPlayer() {
             <span className="block truncate text-sm font-semibold">{title}</span>
             <Subtitle artists={artists} failed={failed} />
           </span>
+          {rate !== 1 && (
+            <span className="ml-auto shrink-0 pr-1 text-xs font-semibold text-accent tabular-nums">
+              {formatRate(rate)}
+            </span>
+          )}
         </Link>
-        <LikeButton />
-        <PlayPauseButton appearance="mini" />
+        <div className="flex max-[359px]:hidden">
+          <LikeButton />
+        </div>
+        {/* No gap: each button is a 44 px target already, and the title keeps the room. */}
+        <div className="flex">
+          <SkipButton direction="previous" />
+          <PlayPauseButton appearance="mini" />
+          <SkipButton direction="next" />
+        </div>
         <div
           aria-hidden="true"
           className="absolute inset-x-2 bottom-0 h-0.5 overflow-hidden rounded-full bg-text/15"

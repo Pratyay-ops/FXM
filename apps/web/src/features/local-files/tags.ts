@@ -10,7 +10,17 @@
  * @module
  */
 
-import { normalizeIsrc } from '@fxm/core'
+import { SOURCE_BITRATE_TAG, SOURCE_CODEC_TAG } from '@fxm/convert'
+import {
+  isLossyCodec,
+  type LossySource,
+  loudnessFromR128,
+  loudnessFromReplayGain,
+  normalizeIsrc,
+  parseR128GainDb,
+  parseReplayGainDb,
+  type StreamLoudness,
+} from '@fxm/core'
 import type { IAudioMetadata, IOptions } from 'music-metadata'
 import {
   AUDIO_EXTENSIONS,
@@ -24,9 +34,11 @@ import type { LocalAudioFormat, LocalTags, SkipReason } from './types'
 
 /**
  * The version of this reader. Records written by an older one are read again on the next scan,
- * so a reader that learns a new tag fills it in for files already listed.
+ * so a reader that learns a new tag fills it in for files already listed. 2: ReplayGain and R128
+ * gains (stage 8.1). 3: the lossy source of a file FXM converted (`convertedFromTags`), so a
+ * FLAC saved from YouTube's Opus that was listed before stops passing for lossless.
  */
-export const READER_VERSION = 1
+export const READER_VERSION = 3
 
 /** The longest tag value kept; longer ones are cut. */
 const MAX_TAG_LENGTH = 500
@@ -100,7 +112,7 @@ async function parse(parseBlob: Parser['parseBlob'], file: Blob, type: string, e
       if (sub.validBits !== undefined) parsed.bitsPerSample = sub.validBits
     }
   }
-  const result = audioFormatOf(parsed, extension)
+  const result = audioFormatOf(parsed, extension, convertedFromTags(metadata.native))
   if ('unsupported' in result) {
     return {
       metadata,
@@ -269,7 +281,7 @@ function uniqueNames(values: readonly unknown[]): string[] {
 
 /** The tags FXM keeps from what the parser read, with the file name as the fallback title. */
 export function cleanTags(
-  metadata: Pick<IAudioMetadata, 'common' | 'format'>,
+  metadata: Pick<IAudioMetadata, 'common' | 'format'> & Partial<Pick<IAudioMetadata, 'native'>>,
   name: string,
 ): LocalTags {
   const { common, format } = metadata
@@ -295,5 +307,95 @@ export function cleanTags(
   if (seconds !== undefined && Number.isFinite(seconds) && seconds > 0) {
     tags.durationMs = Math.round(seconds * 1000)
   }
+  const loudness = loudnessOfTags(metadata)
+  if (loudness !== undefined) tags.loudness = loudness
   return tags
+}
+
+/** An Opus file's R128 gain tags (Vorbis comments), as loudness. */
+function r128Loudness(native: IAudioMetadata['native'] | undefined): StreamLoudness | undefined {
+  const comments = native?.vorbis ?? []
+  const value = (id: string) =>
+    comments.find((tag) => typeof tag.id === 'string' && tag.id.toUpperCase() === id)?.value
+  return loudnessFromR128({
+    trackGainDb: parseR128GainDb(value('R128_TRACK_GAIN')),
+    albumGainDb: parseR128GainDb(value('R128_ALBUM_GAIN')),
+  })
+}
+
+/**
+ * The text of the free-form tag `name` (e.g. `REPLAYGAIN_TRACK_GAIN`) as the file holds it, in
+ * whichever of its tag formats has it: a Vorbis comment, an APE or Matroska tag of that name, an
+ * ID3 `TXXX:replaygain_track_gain` frame, an iTunes `----:com.apple.iTunes:replaygain_track_gain`
+ * atom. Taggers spell the name in either case.
+ */
+function nativeTagText(
+  native: IAudioMetadata['native'] | undefined,
+  name: string,
+): string | undefined {
+  for (const tags of Object.values(native ?? {})) {
+    for (const { id, value } of tags) {
+      if (typeof id !== 'string') continue
+      if (id.slice(id.lastIndexOf(':') + 1).toUpperCase() !== name) continue
+      const text = Array.isArray(value) ? value[0] : value
+      if (typeof text === 'string') return text
+    }
+  }
+  return undefined
+}
+
+/** The highest source bitrate believed, in kbps: anything above is bad data. */
+const MAX_SOURCE_KBPS = 10_000
+
+/**
+ * The lossy audio a file says it was converted from: FXM's `FXM_SOURCE_CODEC` tag (a lossy core
+ * codec, such as `opus`) and `FXM_SOURCE_BITRATE` (whole kbps), which Save to device writes into
+ * every file it makes by re-encoding lossy audio (`@fxm/convert`), in whichever tag format the
+ * file has. `undefined` without one, or for a codec that isn't lossy: such a tag says nothing.
+ */
+export function convertedFromTags(
+  native: IAudioMetadata['native'] | undefined,
+): LossySource | undefined {
+  const codec = nativeTagText(native, SOURCE_CODEC_TAG)?.trim().toLowerCase()
+  if (!isLossyCodec(codec)) return undefined
+  const bitrate = Number(nativeTagText(native, SOURCE_BITRATE_TAG)?.trim() || Number.NaN)
+  return Number.isSafeInteger(bitrate) && bitrate > 0 && bitrate <= MAX_SOURCE_KBPS
+    ? { codec, bitrateKbps: bitrate }
+    : { codec }
+}
+
+/** A ReplayGain peak's text as a number, e.g. `0.988525`; also with a decimal comma. */
+function parsePeak(text: string | undefined): number | undefined {
+  if (text === undefined || text.trim() === '') return undefined
+  const value = Number(text.trim().replace(',', '.'))
+  return Number.isFinite(value) ? value : undefined
+}
+
+/**
+ * How loud a file is (stage 8.1): its ReplayGain tags (`REPLAYGAIN_TRACK_GAIN` and `_PEAK`, and
+ * the album pair), in ID3, MP4, Vorbis or APE tags; for an Opus file its R128 gains first (RFC
+ * 7845: Opus taggers write those, relative to the header's output gain, which the decoder
+ * applies). `undefined` without either.
+ *
+ * The gains are read from the tags' own text with `parseReplayGainDb`, which takes what taggers
+ * write: `-7.89 dB`, `-7.89dB`, `-7,89 dB`, a bare `-7.89`. The parser's own reading (`common`)
+ * splits at a space, so it drops `-7.89dB` and reads `-7,89 dB` as -7 dB: it serves only for tag
+ * formats not found here.
+ */
+export function loudnessOfTags(
+  metadata: Pick<IAudioMetadata, 'common'> & Partial<Pick<IAudioMetadata, 'native' | 'format'>>,
+): StreamLoudness | undefined {
+  const { common, native } = metadata
+  const r128 = r128Loudness(native)
+  const opus = (metadata.format?.codec ?? '').toLowerCase().includes('opus')
+  if (opus && r128 !== undefined) return r128
+  const gain = (name: string) => parseReplayGainDb(nativeTagText(native, name))
+  const peak = (name: string) => parsePeak(nativeTagText(native, name))
+  const replayGain = loudnessFromReplayGain({
+    trackGainDb: gain('REPLAYGAIN_TRACK_GAIN') ?? common.replaygain_track_gain?.dB,
+    trackPeak: peak('REPLAYGAIN_TRACK_PEAK') ?? common.replaygain_track_peak?.ratio,
+    albumGainDb: gain('REPLAYGAIN_ALBUM_GAIN') ?? common.replaygain_album_gain?.dB,
+    albumPeak: peak('REPLAYGAIN_ALBUM_PEAK') ?? common.replaygain_album_peak?.ratio,
+  })
+  return replayGain ?? r128
 }

@@ -35,19 +35,27 @@ export const RELEASED = {
    * the desktop and Android apps), Internet Archive and Jamendo everywhere.
    */
   downloads: true,
-  /** Converting downloads to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags: stage 4.2. */
-  conversions: false,
-  /** Connecting a Spotify account for a read-only sync: stage 3.5. */
-  spotifyAccount: false,
+  /**
+   * Converting downloads to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags, cover art and lyrics:
+   * stage 4.2. A download stays the original file, which plays offline; a downloaded song's
+   * "Save to device…" saves a copy in the format the user picks, converted on the device by
+   * FXM's ffmpeg core (the app's `ffmpeg/` folder, which make dist fills). Off, Settings and Save
+   * to device offer the original alone.
+   */
+  conversions: true,
+  /** Connecting a Spotify account for a read-only sync: stage 3.5 (the web app with FXM Connect). */
+  spotifyAccount: true,
   /** Playing music files from the device: stage 4.4, in the Library's Local files tab. */
   localFiles: true,
   /**
    * The embeddable mini-player (stage 5.2), and with it the app's Share entry, which hands out
-   * its code. Turn it on with the landing page's `AVAILABLE.embed`, once a browser test shows the
-   * production embed playing in the Lite tier inside a page on another origin: until then nobody
-   * is invited to publish a player that may not play.
+   * its code. On, with the landing page's `AVAILABLE.embed`, since a browser test showed the
+   * production embed playing in the Lite tier inside a page on another site, in Chromium on
+   * 2026-10-26 (scripts/build-dist/README.md, "The embed on the deployed site", which says how to
+   * check again with `scripts/build-dist/e2e/embed.e2e.ts`). Turn it off, with the site's flag,
+   * if that check stops passing: nobody should be invited to publish a player that doesn't play.
    */
-  embed: false,
+  embed: true,
 } as const
 
 /** A flag of {@link RELEASED}. */

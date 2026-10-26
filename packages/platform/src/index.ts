@@ -81,6 +81,8 @@ export {
   createConnectClient,
   hasConnectFeature,
   MIN_CONNECT_VERSION,
+  SPOTIFY_LOGIN_TEXT_VERSION,
+  saysSpotifyLoginUnused,
 } from './connect'
 export { corsUnsafeRequestHeaderNames, isCorsSimpleRequest } from './cors'
 export type {
@@ -119,6 +121,7 @@ export {
   HOST_RULES,
   INNERTUBE_API_PREFIX,
   isInnerTubeApiUrl,
+  serviceHostRule,
 } from './hosts'
 export type { SimpleInnerTubeInit, SimpleInnerTubeRequest } from './innertube'
 export { SIMPLE_CONTENT_TYPE, toSimpleInnerTubeRequest } from './innertube'

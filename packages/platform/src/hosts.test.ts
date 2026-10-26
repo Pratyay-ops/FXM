@@ -8,6 +8,7 @@ import {
   isPlainHttpsUrl,
   matchesHost,
   parseUrl,
+  serviceHostRule,
 } from './hosts'
 
 function unsupported(run: () => unknown): boolean {
@@ -35,6 +36,8 @@ describe('classifyUrl', () => {
     ['https://sponsor.ajay.app/api/skipSegments/abcd', 'open'],
     ['https://i.ytimg.com/vi/x/hqdefault.jpg', 'open'],
     ['https://yt3.ggpht.com/abc=s120', 'open'],
+    ['https://lh3.googleusercontent.com/abc=w544-h544-l90-rj', 'open'],
+    ['https://yt3.googleusercontent.com/abc=s120-c-k-c0x00ffffff-no-rj', 'open'],
     ['https://i.scdn.co/image/ab67616d0000b273', 'open'],
     ['https://www.youtube.com/youtubei/v1/search', 'innertube'],
     ['https://music.youtube.com/youtubei/v1/browse', 'innertube'],
@@ -59,6 +62,9 @@ describe('classifyUrl', () => {
     ['a look-alike domain', 'https://evilgooglevideo.com/videoplayback'],
     ['a domain that only starts like a listed one', 'https://googlevideo.com.evil.example/x'],
     ['an unlisted sub-domain', 'https://m.youtube.com/youtubei/v1/search'],
+    ['other Google user content', 'https://doc-0s-docs.googleusercontent.com/docs/x'],
+    // Not in the web app's connect-src, which allows yt3.ggpht.com alone.
+    ['another ggpht host', 'https://yt4.ggpht.com/abc=s120'],
     ['a Spotify host FXM has no use for', 'https://clienttoken.spotify.com/v1/clienttoken'],
     ['an unlisted parent domain', 'https://youtube.com/youtubei/v1/search'],
     ['a trailing dot', 'https://music.youtube.com./youtubei/v1/search'],
@@ -100,7 +106,9 @@ describe('the host table', () => {
       'itunes.apple.com': 'open',
       'sponsor.ajay.app': 'open',
       'i.ytimg.com': 'open',
-      '*.ggpht.com': 'open',
+      'yt3.ggpht.com': 'open',
+      'lh3.googleusercontent.com': 'open',
+      'yt3.googleusercontent.com': 'open',
       'i.scdn.co': 'open',
       'www.google.com': 'open',
       'www.youtube.com': 'innertube',
@@ -143,6 +151,24 @@ describe('matchesHost', () => {
     expect(matchesHost('googlevideo.com', '*.googlevideo.com')).toBe(false)
     expect(matchesHost('.googlevideo.com', '*.googlevideo.com')).toBe(false)
     expect(matchesHost('xgooglevideo.com', '*.googlevideo.com')).toBe(false)
+  })
+})
+
+describe('serviceHostRule', () => {
+  it('finds FXM’s own service on a host name, whatever the path or the port would be', () => {
+    expect(serviceHostRule('music.youtube.com')?.hostClass).toBe('innertube')
+    expect(serviceHostRule('rr1---sn-abc.googlevideo.com')?.hostClass).toBe('googlevideo')
+    expect(serviceHostRule(' Open.Spotify.COM ')?.service).toBe('Spotify')
+    // Rules with a path prefix count for the whole host.
+    expect(serviceHostRule('www.last.fm')?.hostClass).toBe('lastfm-web')
+    expect(serviceHostRule('www.google.com')?.service).toBe("Google's BotGuard")
+    expect(serviceHostRule('musicbrainz.org')?.hostClass).toBe('open')
+  })
+
+  it('finds nothing on other hosts', () => {
+    expect(serviceHostRule('api.example.org')).toBeUndefined()
+    expect(serviceHostRule('googlevideo.com')).toBeUndefined()
+    expect(serviceHostRule('youtube.com.example.org')).toBeUndefined()
   })
 })
 

@@ -88,18 +88,34 @@ describe('store description', () => {
     )
   })
 
-  it("ties radio to the web app's home feed, and marks song radio as coming in a later version", () => {
+  it("ties radio to the web app's home feed and autoplay, which are both out", () => {
     // The home feed (stages 3.2 and 3.3) uses YouTube Music's and Spotify's radio and Last.fm's
-    // stations; song radio (3.4) is still to come.
+    // stations; autoplay, the endless radio of 3.4, YouTube Music's and Spotify's radio. The web
+    // app calls it Autoplay, and has no other radio to start.
     const texts = [...description.split('\n'), ...Object.values(PERMISSION_JUSTIFICATIONS)]
     const mentions = texts.filter((line) => /radio/i.test(line))
     expect(mentions.length).toBeGreaterThan(0)
     for (const line of mentions) {
       expect(line).toContain('home feed')
-      expect(line).not.toMatch(/(?<!song )radio in a later FXM version|recommendations in a later/)
-      if (/song radio/i.test(line)) expect(line).toContain('song radio in a later FXM version')
+      expect(line).not.toMatch(/radio in a later FXM version|recommendations in a later/)
+      expect(line).not.toMatch(/endless radio|song radio/i)
     }
-    expect(description).toContain('song radio in a later FXM version')
+    expect(description).toContain("the radio the web app's home feed and autoplay are made from")
+  })
+
+  it('calls the account sync that uses the login experimental, as the web app does', () => {
+    // Tested only against a stand-in for Spotify, never a real account (the owner shipped it
+    // labelled so in v0.2.0: apps/web/src/features/spotify-account/README.md).
+    const untested = 'it has been tested with a stand-in for Spotify, not yet with real accounts'
+    expect(description).toContain(
+      "The web app's Spotify account sync, which uses the bridge, is experimental and off until " +
+        `you connect your account: ${untested}.`,
+    )
+    expect(loginHelp()).toContain(`That account sync is experimental: ${untested}.`)
+    expect(notes).toContain('uses this bridge for an experimental, opt-in account sync')
+    expect(notes).toContain(
+      'The account sync is experimental: it has been tested against a stand-in',
+    )
   })
 
   it("describes the opt-in Spotify bridge, Spotify's terms and the account link plainly", () => {
@@ -110,6 +126,7 @@ describe('store description', () => {
     expect(description).toContain('Spotify knows that the web app')
     expect(description).toContain('private windows and container tabs')
     expect(description).toContain("asks for Firefox's consent to share authentication information")
+    expect(description).toContain('It never changes anything in your Spotify account.')
   })
 
   it("repeats its sentence on Spotify's terms on the options page, by the login toggle", () => {
@@ -122,10 +139,9 @@ describe('store description', () => {
     const onlyWhenConnected = 'only after you also connect your Spotify account in FXM.'
     expect(description).toContain(`The web app asks for one ${onlyWhenConnected}`)
     expect(loginHelp()).toContain(`The app asks for one ${onlyWhenConnected}`)
-    // Connecting an account is stage 3.5, as the notes for reviewers say too.
-    expect(loginHelp()).toContain(
-      `${onlyWhenConnected} Connecting comes in a later version of FXM: until then, this setting changes nothing.`,
-    )
+    // Connecting an account shipped with stage 3.5: the help no longer says that the toggle
+    // changes nothing, as the notes for reviewers no longer do.
+    expect(loginHelp()).not.toMatch(/changes nothing|later version/)
   })
 
   it("says that the bridge's token is the only personal data FXM Connect handles", () => {
@@ -224,16 +240,22 @@ describe('notes for reviewers', () => {
     expect(EDGE_SINGLE_PURPOSE).toContain("relays Spotify's public server time without cookies")
   })
 
-  it("say that the web app doesn't use the login bridge yet", () => {
-    expect(notes).toContain(
-      'comes in a later FXM release: until then, turning the toggle on changes nothing visible',
+  it('say what the web app does with the login bridge, and how to try it', () => {
+    expect(notes).toContain("The web app's Settings, Spotify account section, uses this bridge")
+    expect(notes).toContain('read-only')
+    expect(notes).not.toContain('changes nothing visible')
+    expect(notes).toMatch(
+      /^5\. Optional, with a Spotify account: sign in at https:\/\/open\.spotify\.com/m,
     )
   })
 
-  it("test the extension with a check that the no-install mode can't pass", () => {
+  it("test the extension with a check that the Lite tier can't pass", () => {
     expect(notes).toContain('Access-Control-Allow-Origin: https://fxmusic.pages.dev')
     expect(notes).toContain('Spotify is unreachable')
     expect(notes).not.toMatch(/succeed only with the extension/)
+    // Lite is a tier, as the web app and the site call it: Music and Music + Video are the modes.
+    expect(notes).toContain("the web app's experimental Lite tier")
+    expect(notes).not.toMatch(/no-install mode|Lite mode/)
   })
 })
 

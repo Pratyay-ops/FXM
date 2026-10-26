@@ -1,6 +1,6 @@
 {
   "name": "@fxm/desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "FXM desktop app: the web app in a Tauri 2 shell for macOS, Windows and Linux",
   "license": "Apache-2.0",

@@ -515,7 +515,14 @@ describe('Player: transport', () => {
   it('does nothing when asked to play while playing or with an empty queue', async () => {
     const { player, engine } = setup()
     await player.play()
-    expect(engine.calls).toEqual([
+    // Only the output set up at construction: volume, mute, the effects and the speed.
+    expect(engine.calls.map((call) => call.method)).toEqual([
+      'setVolume',
+      'setMuted',
+      'setEffects',
+      'setPlaybackRate',
+    ])
+    expect(engine.calls.slice(0, 2)).toEqual([
       { method: 'setVolume', args: [1] },
       { method: 'setMuted', args: [false] },
     ])

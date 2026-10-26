@@ -12,9 +12,13 @@
  * serves too but where no `_headers` rule applies (headers-file.ts). (That googlevideo
  * requests carry no Referer is checked in a browser, by e2e/deployed.e2e.ts.)
  *
+ * Each `_redirects` rewrite (the embed's routes, src/redirects.ts) must answer 200 with its
+ * target's document, under the rule of the path asked for: `/embed/track/<id>` with the embed's
+ * page and the `/embed/*` rule.
+ *
  *   node check-headers.ts <base URL> [folder]     (default folder: dist/pages)
  */
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { join, resolve } from 'node:path'
@@ -22,6 +26,7 @@ import { matchingRules, type ParsedRule, parseHeaders } from './headers-file.ts'
 import { scanPage } from './html.ts'
 import { isMain, PAGES_DIR } from './paths.ts'
 import { permissionsPolicyProblems, policyProblems } from './policies.ts'
+import { parseRedirects } from './redirects.ts'
 import {
   encodedVariants,
   inSplatFolder,
@@ -48,11 +53,22 @@ export interface Probe {
   readonly referrerMeta?: boolean
 }
 
+/** The path a rewrite probe asks for in place of a rule's `*`: an ID no player has. */
+export const REWRITE_PROBE_ID = 'ytm:__fxm-route-check__'
+
 /** Every request path worth checking for a composed folder, with what it must return. */
 export function probesFor(dir: string): Probe[] {
   const { rules, invalid } = parseHeaders(readFileSync(join(dir, '_headers'), 'utf8'))
   if (invalid.length > 0) throw new Error(`_headers is invalid:\n  ${invalid.join('\n  ')}`)
-  const files = listFiles(dir).filter((file) => file !== '_headers')
+  const redirectsFile = join(dir, '_redirects')
+  const redirects = existsSync(redirectsFile)
+    ? parseRedirects(readFileSync(redirectsFile, 'utf8'))
+    : { rules: [], invalid: [] }
+  if (redirects.invalid.length > 0) {
+    throw new Error(`_redirects is invalid:\n  ${redirects.invalid.join('\n  ')}`)
+  }
+  // Neither file is served: Pages reads them as its configuration.
+  const files = listFiles(dir).filter((file) => file !== '_headers' && file !== '_redirects')
   const fileSet = new Set(files)
   const only = (path: string): ParsedRule => {
     const matches = matchingRules(rules, path)
@@ -85,6 +101,14 @@ export function probesFor(dir: string): Probe[] {
     if (!fileSet.has(`${folder}/index.html`)) continue
     const path = `/${folder}/${SPA_PROBE_SEGMENT}`
     probes.push({ path, status: 404, rule: only(path), ...documentOf(`${folder}/404.html`, path) })
+  }
+  // Each rewrite answers 200 with its target's document, under the rule of the path asked for.
+  for (const redirect of redirects.rules) {
+    const target = files.find((file) => servedPaths(file, fileSet)[0] === redirect.to)
+    if (target === undefined) throw new Error(`no file answers ${redirect.to} (_redirects)`)
+    const path = redirect.from.replace('*', REWRITE_PROBE_ID)
+    const document = documentOf(target, redirect.to)
+    probes.push({ path, status: 200, rule: only(path), ...document })
   }
   // The documents at paths with one character encoded: each page with rules of its own, and
   // each app's shell with its folder's name encoded.

@@ -8,7 +8,7 @@
 
 import type { EntityId, Track } from '@fxm/core'
 import { downloadId } from '@fxm/downloads'
-import { ArrowDownToLine, CircleMinus, CircleX } from 'lucide-react'
+import { ArrowDownToLine, CircleMinus, CircleX, HardDriveDownload } from 'lucide-react'
 import { useCallback } from 'react'
 import type { MenuItem } from '../library/ui/menu'
 import { downloadTracks, removeDownloads } from './actions'
@@ -68,5 +68,28 @@ export function useDownloadMenuItem(): DownloadMenuItem {
       }
     },
     [statuses, canDownload],
+  )
+}
+
+/**
+ * The "Save to device…" entry of a row's menu: only for a song downloaded on this device, whose
+ * file can be saved in another format (stage 4.2). `onSave` opens the save dialog.
+ */
+export function useSaveMenuItem(
+  onSave: (track: Track) => void,
+): (row: DownloadMenuRow) => MenuItem | undefined {
+  const statuses = useDownloadStatuses()
+  return useCallback(
+    (row) => {
+      const { track } = row
+      if (track === undefined || statuses?.get(downloadId(row)) !== 'completed') return undefined
+      return {
+        id: 'save-to-device',
+        label: 'Save to device…',
+        icon: HardDriveDownload,
+        onSelect: () => onSave(track),
+      }
+    },
+    [statuses, onSave],
   )
 }

@@ -7,6 +7,9 @@
  *   extension-less path, and `/app` to `/app/`.
  * - A path no file answers gets the nearest `404.html` with status 404 (a single-page app's
  *   copy of its index.html serves its client-side routes).
+ * - A `_redirects` rule with status 200 (FXM writes only those, src/redirects.ts) that matches
+ *   the path as sent comes first: the file is looked up by its target's path instead, as if the
+ *   browser had asked for that, while the headers still follow the path the browser asked for.
  * - Files are looked up by the decoded path, so `/priv%61cy` serves `privacy.html`, but
  *   `_headers` rules match the path as sent, still encoded (measured on a deployment
  *   2026-10-26). Repeated slashes are merged before both, as Cloudflare's edge does.
@@ -24,6 +27,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http'
 import { extname, join, resolve } from 'node:path'
 import { matchingRules, type ParsedRule, parseHeaders } from './headers-file.ts'
 import { isMain, PAGES_DIR } from './paths.ts'
+import { matchRedirect, parseRedirects } from './redirects.ts'
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.html': 'text/html; charset=utf-8',
@@ -41,6 +45,9 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
   '.xml': 'application/xml',
+  '.tar': 'application/x-tar',
+  '.gz': 'application/gzip',
+  '.xz': 'application/x-xz',
 }
 
 type Resolution =
@@ -105,6 +112,10 @@ function applyHeaders(
 export function createPagesServer(dir: string): Server {
   const headersFile = join(dir, '_headers')
   const rules = existsSync(headersFile) ? parseHeaders(readFileSync(headersFile, 'utf8')).rules : []
+  const redirectsFile = join(dir, '_redirects')
+  const redirects = existsSync(redirectsFile)
+    ? parseRedirects(readFileSync(redirectsFile, 'utf8')).rules
+    : []
   return createServer((request, response) => {
     // Prefixed rather than resolved, so `//privacy` stays a path and doesn't become a host.
     const target = request.url ?? '/'
@@ -116,9 +127,11 @@ export function createPagesServer(dir: string): Server {
       return
     }
     const raw = url.pathname.replace(/\/{2,}/g, '/')
-    let pathname = raw
+    // A rewrite replaces the path the file is looked up by, never the one rules match.
+    const rewrite = matchRedirect(redirects, raw)
+    let pathname = rewrite?.to ?? raw
     try {
-      pathname = decodeURIComponent(raw)
+      pathname = decodeURIComponent(pathname)
     } catch {
       // Pages keeps the raw path when it can't be decoded.
     }

@@ -81,7 +81,7 @@ The web app never uses the webview's own `fetch` here. In the desktop app, `crea
 
 | Requests to | `Origin` | `User-Agent`, unless the request names one |
 |---|---|---|
-| YouTube: InnerTube, `sw.js_data`, the player JavaScript, googlevideo, and its image servers `i.ytimg.com` and `*.ggpht.com` | None | The webview's own, which is a browser's: WebView2's, WebKitGTK's, or on macOS WKWebView's completed to Safari's |
+| YouTube: InnerTube, `sw.js_data`, the player JavaScript, googlevideo, and its image servers `i.ytimg.com`, `yt3.ggpht.com`, `lh3.googleusercontent.com` and `yt3.googleusercontent.com` | None | The webview's own, which is a browser's: WebView2's, WebKitGTK's, or on macOS WKWebView's completed to Safari's |
 | Spotify's API hosts | `https://open.spotify.com` | The same browser agent |
 | Spotify's image server `i.scdn.co`, and Last.fm's web player (`www.last.fm/player/station/`) | None | The same browser agent |
 | Services that ask apps to name themselves: MusicBrainz, Cover Art Archive, ListenBrainz, the Last.fm API, LRCLIB, Internet Archive, Jamendo, iTunes Search, SponsorBlock | None | FXM's: `FXM ( https://github.com/Pratyay-ops/FXM )`, as MusicBrainz asks |
@@ -364,5 +364,7 @@ RUSTC_BOOTSTRAP=1 ../../../scripts/run.sh cargo generate-lockfile -Zunstable-opt
 ```
 
 `RUSTC_BOOTSTRAP=1` unlocks Cargo's unstable `--publish-time` flag for this one command, which only resolves versions and compiles nothing. Builds always use `--locked` in CI.
+
+**glib stays at 0.18.** On Linux, Tauri builds its windows on GTK 3 through gtk-rs's gtk 0.18, which requires glib 0.18. glib before 0.20 has an unsound iterator, `VariantStrIter`, which only `Variant::array_iter_str()` returns ([GHSA-wrw7-89jp-8q8g](https://github.com/advisories/GHSA-wrw7-89jp-8q8g)). gtk 0.19 moved to the fixed glib 0.22, but on 2026-10-26 no Tauri release allows it: tauri 2.12.5 and 3.0.0-alpha.5, wry 0.57.1, tao 0.37.2, muda 0.21.2, tray-icon 0.26.1 and webkit2gtk 2.0.2 all require gtk 0.18. Neither FXM's code nor any crate in its Linux build calls `array_iter_str()`, and the macOS and Windows builds contain no glib at all. Update glib when Tauri moves on, and FXM's own gio with it: gio follows the glib that GTK uses, since a newer gio would add a second glib instead of replacing the old one.
 
 **Tauri updates.** The isolation hook depends on how Tauri's frame serializes and sends a payload, and on the plugin's request fields. `test/isolation.test.ts` copies both from tauri 2.12.3, tauri-utils 2.10.1 and tauri-plugin-http 2.8.2, and fails once `Cargo.lock` holds other releases of them. Compare `scripts/process-ipc-message-fn.js` and `scripts/ipc.js` (tauri), `src/pattern/isolation.js` (tauri-utils), `src/ipc/protocol.rs` (tauri, how Rust reads a payload) and `ClientConfig` in `src/commands.rs` (tauri-plugin-http) between the releases. Adjust the hook and the test's copy to any change, then update the versions in the test.

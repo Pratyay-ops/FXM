@@ -312,3 +312,79 @@ test.describe('the Lite tier (no FXM Connect, the sandbox documents)', () => {
     )
   })
 })
+
+test.describe('the current song in track lists', () => {
+  test('marks the album’s song that plays, and follows the player', async ({ page }) => {
+    // Long enough that no song ends by itself during the test.
+    const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(120) })
+    await stubNetwork(page, network)
+    await trackMediaElements(page)
+
+    // Internet Archive's recorded album, which the Free tier reaches without FXM Connect.
+    await page.goto('album/archive:nineinchnails_ghosts_I_IV')
+    const tracks = page.getByRole('list', { name: 'Tracks' })
+    const rows = tracks.getByRole('listitem')
+    await expect(rows).toHaveCount(3)
+    const [, second] = await titles(page, 'Tracks')
+    const current = tracks.locator('li[aria-current="true"]')
+    await expect(current).toHaveCount(0)
+
+    await rows
+      .nth(1)
+      .getByRole('button', { name: /^Play / })
+      .click()
+    await waitUntilPlaying(page, second, 'archive.org')
+
+    await expect(current).toHaveCount(1)
+    await expect(rows.nth(1)).toHaveAttribute('aria-current', 'true')
+    await expect(rows.nth(1).getByRole('button', { name: /^Play / })).toHaveAccessibleName(
+      /\. Now playing$/,
+    )
+    await expect(rows.nth(1).locator('svg[data-now-playing]')).toHaveAttribute(
+      'data-now-playing',
+      'playing',
+    )
+    // The bars move: Chromium runs an animation on each of them. Not with reduced motion.
+    const bars = rows.nth(1).locator('svg[data-now-playing]')
+    const animations = () =>
+      bars.locator('rect').evaluateAll((rects) => rects.map((rect) => rect.getAnimations().length))
+    await expect.poll(animations).toEqual([1, 1, 1, 1])
+    // Each in its own time, not in step.
+    const delays = await bars
+      .locator('rect')
+      .evaluateAll((rects) => rects.map((rect) => getComputedStyle(rect).animationDelay))
+    expect(new Set(delays).size).toBe(4)
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await expect.poll(animations).toEqual([0, 0, 0, 0])
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    await expect.poll(animations).toEqual([1, 1, 1, 1])
+    // In forced colours they take the system's text colour, never its background's.
+    await page.emulateMedia({ forcedColors: 'active' })
+    const colours = await bars.evaluate((svg) => ({
+      bars: getComputedStyle(svg).fill,
+      canvas: getComputedStyle(document.body).backgroundColor,
+    }))
+    expect(colours.bars).not.toBe(colours.canvas)
+    await page.emulateMedia({ forcedColors: 'none' })
+
+    // Paused from the player bar: still marked, with still bars.
+    const player = page.getByRole('region', { name: 'Player' })
+    await player.getByRole('button', { name: 'Pause' }).click()
+    await expect(rows.nth(1).getByRole('button', { name: /^Play / })).toHaveAccessibleName(
+      /\. Paused$/,
+    )
+    await expect(rows.nth(1).locator('svg[data-now-playing]')).toHaveAttribute(
+      'data-now-playing',
+      'paused',
+    )
+
+    // Next, from the player bar: the marker moves with it.
+    await player.getByRole('button', { name: 'Next' }).click()
+    await expect(rows.nth(2)).toHaveAttribute('aria-current', 'true')
+    await expect(current).toHaveCount(1)
+    await player.getByRole('button', { name: 'Play', exact: true }).click()
+    await expect(rows.nth(2).getByRole('button', { name: /^Play / })).toHaveAccessibleName(
+      /\. Now playing$/,
+    )
+  })
+})

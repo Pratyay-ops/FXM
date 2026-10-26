@@ -37,6 +37,15 @@ interface PlayerPort {
 
   fun setVolume(volume: Float)
 
+  /** Applies the equalizer to everything that plays (stage 8.1). */
+  fun setEqualizer(settings: EqualizerSettings)
+
+  /** Sets the playback speed, keeping the pitch. */
+  fun setSpeed(speed: Float)
+
+  /** Whether the player pauses at the end of each item: the sleep timer's "end of track". */
+  fun setPauseAtEndOfMediaItems(pause: Boolean)
+
   /** Stops and empties the playlist. */
   fun clear()
 }

@@ -49,8 +49,10 @@ The app's own policy never gains `'unsafe-eval'`, on the web or on desktop: only
 One HTML file whose only script is inline, built from `document-entry.ts` (with `document.ts`, `runtime.ts`, `protocol.ts`, `messages.ts` and bgutils-js) by `build.ts`. Its `<meta>` policy:
 
 ```
-default-src 'none'; script-src 'sha256-…' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'
+default-src 'none'; script-src 'sha256-…' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; worker-src blob:; base-uri 'none'; form-action 'none'
 ```
+
+`worker-src blob:` is for stage 8.3's plugins, which `@fxm/plugins` runs each in a worker that a script in this document starts from a `blob:` URL ([its README](../../../plugins/README.md#where-plugins-run)). A worker started that way inherits this policy, so it can't connect or load anything either, and it has no DOM, no WebRTC and no way to navigate: what a plugin's code can do there is less than what code in the document itself can.
 
 The web deployment (stage 2.8's `_headers`) and the desktop scheme serve it with `sandbox allow-scripts; ` in front of that, which makes its origin opaque however it is loaded (a `<meta>` policy can't carry `sandbox`). `pnpm --filter @fxm/platform build:evaluator` rewrites the file and the Android plugin's pin of it (`EvaluatorDocument.java`), and prints that header; `build.test.ts` fails while either committed file is out of date.
 

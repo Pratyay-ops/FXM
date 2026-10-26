@@ -12,6 +12,7 @@ import {
   modePolicy,
   type ProviderContext,
   type StreamOption,
+  sanitizeStreamLoudness,
   songForVideo,
   type Track,
 } from '@fxm/core'
@@ -45,6 +46,7 @@ export function offlineIds(track: Track, mode: ProviderContext['mode']): string[
 export function offlineStream(record: DownloadRecord, url: string): StreamOption | undefined {
   const { format } = record
   if (format === undefined) return undefined
+  const loudness = sanitizeStreamLoudness(format.loudness)
   return {
     url,
     codec: format.codec,
@@ -58,6 +60,8 @@ export function offlineStream(record: DownloadRecord, url: string): StreamOption
     ipBound: false,
     // The whole file is on the device.
     fullLength: 'verified',
+    // The level the stream had, so the copy plays as loud as it did (stage 8.1).
+    ...(loudness === undefined ? {} : { loudness }),
   }
 }
 

@@ -27,7 +27,8 @@
  * own music. A source that fails adds nothing, and the network steps get
  * {@link FEED_LIMITS}`.deadlineMs` in all: Home is then built from what arrived, and what is
  * still on its way is cached for the next build. Only a build that heard from every source in
- * time keeps its lists for their period. Only a cancellation rejects.
+ * time, and got YouTube Music's radio for every seed, keeps its lists for their period. Only a
+ * cancellation rejects.
  *
  * @module
  */
@@ -69,6 +70,7 @@ import {
   type HomeCatalog,
   type HomeRecommendations,
   type HomeServices,
+  type HomeSourceOutcome,
   type HomeSourceShelf,
   type HomeSourcesSnapshot,
 } from './services'
@@ -126,9 +128,9 @@ const LOCAL_PASS: HomeOptionsInput = {
 
 /**
  * The taste profile the library holds, with the onboarding picks: the top of the affinity, and
- * the recent plays with theirs. A song the user skips at once has no affinity, only skips, so it
- * never makes the top: its recent plays bring it in, with its metadata, so other sources'
- * listings of it count as skipped too.
+ * the recent plays with theirs and whether the user skipped each. A song the user skips at once
+ * has no affinity, only skips, so it never makes the top: its recent plays bring it in, with its
+ * metadata, so other sources' listings of it count as skipped too.
  */
 export async function loadTasteProfile(
   repo: LibraryRepo,
@@ -165,11 +167,13 @@ export async function loadTasteProfile(
     if (entry === undefined) return
     profileTracks.push(row.track === undefined ? { entry } : { entry, track: row.track })
   })
-  const recentPlays: RecentPlay[] = recent.map((row) =>
-    row.track === undefined
-      ? { trackId: row.id, playedAt: row.playedAt }
-      : { trackId: row.id, playedAt: row.playedAt, track: row.track },
-  )
+  const recentPlays: RecentPlay[] = recent.map((row) => ({
+    trackId: row.id,
+    playedAt: row.playedAt,
+    ...(row.track === undefined ? {} : { track: row.track }),
+    // The autoplay radio grows from no play the user skipped (stage 3.4).
+    ...(row.skipped === true ? { skipped: true } : {}),
+  }))
   return {
     tracks: profileTracks,
     artists: artists.map(({ entry }) => entry),
@@ -231,24 +235,37 @@ export async function completeProfile(
   }
 }
 
+/** What the sources suggest for one seed, as builds reuse it. */
+export interface SeedCollection {
+  /** The candidates. */
+  readonly candidates: readonly RecCandidate[]
+  /**
+   * Whether YouTube Music's radio skipped the seed: it had nothing to start from, such as a
+   * track of another source without a sure match of its own song, or that song's radio didn't
+   * follow the track. Discover and the mixes then lack what the radio would have brought, so a
+   * build with such a seed doesn't keep them for their period.
+   */
+  readonly radioSkipped: boolean
+}
+
 /** Seed collections reused between builds, for {@link COLLECTION_TTL_MS}. */
 export interface CollectionCache {
-  get(key: string, now: number): readonly RecCandidate[] | undefined
-  set(key: string, candidates: readonly RecCandidate[], now: number): void
+  get(key: string, now: number): SeedCollection | undefined
+  set(key: string, collection: SeedCollection, now: number): void
 }
 
 /** A {@link CollectionCache} in memory, holding at most `size` collections. */
 export function createCollectionCache(ttlMs = COLLECTION_TTL_MS, size = 64): CollectionCache {
-  const entries = new Map<string, { at: number; candidates: readonly RecCandidate[] }>()
+  const entries = new Map<string, { at: number; collection: SeedCollection }>()
   return {
     get(key, now) {
       const entry = entries.get(key)
       if (entry === undefined || now - entry.at > ttlMs || now < entry.at) return undefined
-      return entry.candidates
+      return entry.collection
     },
-    set(key, candidates, now) {
+    set(key, collection, now) {
       entries.delete(key)
-      entries.set(key, { at: now, candidates })
+      entries.set(key, { at: now, collection })
       while (entries.size > size) {
         const oldest = entries.keys().next().value
         if (oldest === undefined) break
@@ -264,7 +281,11 @@ export function createCollectionCache(ttlMs = COLLECTION_TTL_MS, size = 64): Col
  */
 const appCollections = new WeakMap<HomeRecommendations, CollectionCache>()
 
-function collectionsOf(recommendations: HomeRecommendations): CollectionCache {
+/**
+ * The app's cache of the collections of `recommendations`: Home's, which the autoplay radio
+ * (stage 3.4) shares, so a recent play's radio is fetched once for both.
+ */
+export function collectionsOf(recommendations: HomeRecommendations): CollectionCache {
   let cache = appCollections.get(recommendations)
   if (cache === undefined) {
     cache = createCollectionCache()
@@ -397,6 +418,8 @@ interface Run {
   readonly clock: Clock
   /** Whether every collection, artist search and expansion so far answered in time. */
   complete: boolean
+  /** Whether YouTube Music's radio skipped a seed so far (see {@link SeedCollection}). */
+  radioSkipped: boolean
 }
 
 /**
@@ -444,7 +467,11 @@ async function mapLimit<T, R>(
  * The cache key of a seed's collection: the seed (with the artist found for it, if any), its
  * parts and what the sources could reach.
  */
-function collectionKey(seed: PlannedSeed, mode: CatalogMode, reach: HomeSourcesSnapshot): string {
+export function collectionKey(
+  seed: PlannedSeed,
+  mode: CatalogMode,
+  reach: HomeSourcesSnapshot,
+): string {
   const { youtube, spotify, mediaBytes } = reach.capabilities
   const artistId = isTrackSeed(seed.seed) ? '' : (seed.seed.id ?? '')
   const parts = seed.parts.join('+')
@@ -499,30 +526,42 @@ async function withYouTubeArtists(run: Run, seeds: readonly PlannedSeed[]): Prom
   })
 }
 
+/**
+ * Whether an outcome says YouTube Music's radio skipped the seed. The autoplay radio (stage 3.4)
+ * keeps its collections in Home's cache with the same mark.
+ */
+export function skipsRadio(outcome: HomeSourceOutcome): boolean {
+  return outcome.source === 'ytm' && outcome.part === 'radio' && outcome.status === 'skipped'
+}
+
 /** The candidates the sources suggest for every seed. */
 async function collectAll(run: Run, seeds: readonly PlannedSeed[]): Promise<RecCandidate[]> {
   const { request, reach, now } = run
   const recommendations = request.services.recommendations
   if (recommendations === undefined) return []
   const cache = request.cache ?? collectionsOf(recommendations)
-  const empty = { candidates: [] as readonly RecCandidate[], whole: false }
+  const empty = { candidates: [] as readonly RecCandidate[], radioSkipped: false, whole: false }
   const collections = await mapLimit(seeds, FEED_LIMITS.concurrency, async (seed) => {
     const key = collectionKey(seed, request.mode, reach)
-    const cached = cache.get(key, now)
-    if (cached !== undefined) return cached
-    const { value, ok } = await step(run, empty, async () => {
-      const { candidates, outcomes = [] } = await recommendations.collect(seed.seed, run.ctx, {
-        parts: seed.parts,
-        limit: FEED_LIMITS.perSource,
+    let collection = cache.get(key, now)
+    if (collection === undefined) {
+      const { value, ok } = await step(run, empty, async () => {
+        const { candidates, outcomes = [] } = await recommendations.collect(seed.seed, run.ctx, {
+          parts: seed.parts,
+          limit: FEED_LIMITS.perSource,
+        })
+        const answer: SeedCollection = { candidates, radioSkipped: outcomes.some(skipsRadio) }
+        // A source that failed (a network blip, a pause) may answer next time: keep only whole
+        // collections.
+        const whole = !outcomes.some((outcome) => outcome.status === 'failed')
+        if (whole) cache.set(key, answer, now)
+        return { ...answer, whole }
       })
-      // A source that failed (a network blip, a pause) may answer next time: keep only whole
-      // collections.
-      const whole = !outcomes.some((outcome) => outcome.status === 'failed')
-      if (whole) cache.set(key, candidates, now)
-      return { candidates, whole }
-    })
-    if (!ok || !value.whole) run.complete = false
-    return value.candidates
+      if (!ok || !value.whole) run.complete = false
+      collection = value
+    }
+    if (collection.radioSkipped) run.radioSkipped = true
+    return collection.candidates
   })
   return collections.flat()
 }
@@ -574,7 +613,7 @@ async function expansions(
 /** Whether Spotify's personal sections may be asked for: switched on, reachable, wired in. */
 function asksSpotify(services: HomeServices, reach: HomeSourcesSnapshot): boolean {
   return (
-    services.recommendations !== undefined &&
+    (services.recommendations !== undefined || services.spotifyAccount?.sections !== undefined) &&
     services.spotifyAccount !== undefined &&
     reach.spotifyEnabled &&
     reach.capabilities.spotify !== 'unreachable'
@@ -583,18 +622,15 @@ function asksSpotify(services: HomeServices, reach: HomeSourcesSnapshot): boolea
 
 /**
  * Spotify's personal sections: only when Spotify is switched on and reachable and the account
- * is connected. Anything that fails or comes too late means none; `answered` says whether
- * Spotify did answer.
+ * is connected. They come from the account's sync (`spotifyAccount.sections`, stage 3.5) when it
+ * is wired in, else from the recommendation sources' home feeds. Anything that fails or comes
+ * too late means none; `answered` says whether Spotify did answer.
  */
 async function spotifySections(
   run: Run,
 ): Promise<{ connected: boolean; shelves: readonly HomeSourceShelf[]; answered: boolean }> {
   const { recommendations, spotifyAccount } = run.request.services
-  if (
-    recommendations === undefined ||
-    spotifyAccount === undefined ||
-    !asksSpotify(run.request.services, run.reach)
-  ) {
+  if (spotifyAccount === undefined || !asksSpotify(run.request.services, run.reach)) {
     return { connected: false, shelves: [], answered: true }
   }
   const status = await step(
@@ -603,9 +639,16 @@ async function spotifySections(
     async () => (await spotifyAccount.status(run.ctx)).connected === true,
   )
   if (!status.value) return { connected: false, shelves: [], answered: status.ok }
-  const home = await step(run, [] as readonly HomeSourceShelf[], async () =>
-    (await recommendations.home(run.ctx)).shelves.filter((shelf) => shelf.source === 'spotify'),
-  )
+  const home = await step(run, [] as readonly HomeSourceShelf[], async () => {
+    if (spotifyAccount.sections !== undefined) {
+      const shelves = await spotifyAccount.sections(run.ctx)
+      return shelves.map((shelf) => ({ source: 'spotify', shelf }))
+    }
+    if (recommendations === undefined) return []
+    return (await recommendations.home(run.ctx)).shelves.filter(
+      (shelf) => shelf.source === 'spotify',
+    )
+  })
   return { connected: true, shelves: home.value, answered: home.ok }
 }
 
@@ -664,6 +707,7 @@ export async function buildHomeFeed(request: FeedRequest): Promise<HomeFeedResul
       now,
       clock,
       complete: true,
+      radioSkipped: false,
     }
     const spotifyAsked = spotifySections(run)
     // Awaited below; a cancellation that ends the build first must not leave it unhandled.
@@ -694,9 +738,12 @@ export async function buildHomeFeed(request: FeedRequest): Promise<HomeFeedResul
       sourceShelves: spotify.shelves,
       spotifyConnected: spotify.connected,
     })
-    // Only a build that heard from every source keeps its lists for their period: a Discover
-    // made while a source failed or was slow would be thin all week.
-    if (recommending && run.complete) request.stable.save(feed.stable, history)
+    // Only a build that heard from every source, and got YouTube Music's radio for every seed,
+    // keeps its lists for their period: a Discover made while a source failed or was slow, or
+    // without a seed's radio, would be thin or lopsided all week.
+    if (recommending && run.complete && !run.radioSkipped) {
+      request.stable.save(feed.stable, history)
+    }
     return {
       ...feed,
       recommending,

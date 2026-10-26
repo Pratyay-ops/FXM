@@ -6,7 +6,7 @@ package io.github.pratyayops.fxm.evaluator;
 final class EvaluatorDocument {
 
     /** Lowercase hexadecimal, of the file's UTF-8 text with LF line endings. */
-    static final String SHA256 = "37f761e12f574fa07544422df7b29b3d34109a2a2a889af01f926bbd2c3a2945";
+    static final String SHA256 = "26d44ba762011694269805bd718c6ceb80b432b88954ac55694f7f26dd3429ac";
 
     private EvaluatorDocument() {}
 }

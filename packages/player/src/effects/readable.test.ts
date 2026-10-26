@@ -1,0 +1,67 @@
+import { describe, expect, it } from 'vitest'
+import { isLocalMediaUrl, isMediaReadable, type MediaReadabilityContext } from './readable'
+
+const ORIGIN = 'https://fxmusic.pages.dev'
+const CONNECT: MediaReadabilityContext = { platform: 'web', capabilities: { mediaBytes: true } }
+const LITE: MediaReadabilityContext = { platform: 'web', capabilities: { mediaBytes: false } }
+const DESKTOP: MediaReadabilityContext = { platform: 'desktop', capabilities: { mediaBytes: true } }
+const ANDROID: MediaReadabilityContext = { platform: 'android', capabilities: { mediaBytes: true } }
+
+const readable = (url: string, context: MediaReadabilityContext) =>
+  isMediaReadable({ url }, context, ORIGIN)
+
+describe('isLocalMediaUrl', () => {
+  it('takes blob:, data: and same-origin URLs', () => {
+    expect(isLocalMediaUrl('blob:https://fxmusic.pages.dev/1234', ORIGIN)).toBe(true)
+    expect(isLocalMediaUrl('data:audio/wav;base64,UklGRg==', ORIGIN)).toBe(true)
+    expect(isLocalMediaUrl('/app/sound.mp3', ORIGIN)).toBe(true)
+    expect(isLocalMediaUrl('https://fxmusic.pages.dev/x.flac', ORIGIN)).toBe(true)
+  })
+
+  it('refuses other origins, and everything without an origin', () => {
+    expect(isLocalMediaUrl('https://example.com/x.mp3', ORIGIN)).toBe(false)
+    expect(isLocalMediaUrl('http://fxmusic.pages.dev/x.mp3', ORIGIN)).toBe(false)
+    expect(isLocalMediaUrl('/x.mp3', 'null')).toBe(false)
+    expect(isLocalMediaUrl('https://[::1', ORIGIN)).toBe(false)
+  })
+
+  it('reads the page origin by default', () => {
+    expect(isLocalMediaUrl(`${globalThis.location.origin}/a.mp3`)).toBe(true)
+  })
+})
+
+describe('isMediaReadable', () => {
+  const googlevideo = 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=251'
+
+  it('reads googlevideo only through FXM Connect in a browser', () => {
+    expect(readable(googlevideo, CONNECT)).toBe(true)
+    expect(readable(googlevideo, LITE)).toBe(false)
+    expect(readable(googlevideo, DESKTOP)).toBe(false)
+    expect(readable(googlevideo, ANDROID)).toBe(false)
+  })
+
+  it('reads Internet Archive and Jamendo everywhere', () => {
+    for (const context of [CONNECT, LITE, DESKTOP]) {
+      expect(readable('https://archive.org/download/item/01.flac', context)).toBe(true)
+      expect(readable('https://ia800300.us.archive.org/1/items/item/01.flac', context)).toBe(true)
+      expect(
+        readable('https://prod-1.storage.jamendo.com/?trackid=1848357&format=flac', context),
+      ).toBe(true)
+    }
+  })
+
+  it('reads local URLs everywhere', () => {
+    expect(readable('blob:https://fxmusic.pages.dev/5', LITE)).toBe(true)
+    expect(readable('blob:tauri://localhost/5', DESKTOP)).toBe(true)
+  })
+
+  it('treats unknown hosts, plain HTTP and credentials as opaque', () => {
+    expect(readable('https://invidious.example/latest_version?id=x', CONNECT)).toBe(false)
+    expect(readable('http://archive.org/download/item/01.flac', CONNECT)).toBe(false)
+    expect(readable('https://user:pw@archive.org/download/item/01.flac', CONNECT)).toBe(false)
+    expect(readable('https://archive.org.evil.example/01.flac', CONNECT)).toBe(false)
+    expect(readable('https://notjamendo.com/01.mp3', CONNECT)).toBe(false)
+    expect(readable('ftp://archive.org/01.flac', CONNECT)).toBe(false)
+    expect(readable('https://[::1', CONNECT)).toBe(false)
+  })
+})

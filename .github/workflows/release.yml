@@ -6,8 +6,10 @@ name: Release
 #
 #   plan            reads the version and decides whether to release (scripts/release-plan.sh)
 #   bundles         builds the web zip, which is make dist's dist/pages (the landing page, the web
-#                   app, _headers and the third-party notices, as Cloudflare Pages serves them), and
-#                   the FXM Connect zips (scripts/release-build.sh), and runs AMO's linter on the
+#                   app with its ffmpeg core and the core's source, _headers and the third-party
+#                   notices, as Cloudflare Pages serves them), the core's source again as a file of
+#                   its own (the LGPL asks to offer it from the same place as the core), and the
+#                   FXM Connect zips (scripts/release-build.sh), and runs AMO's linter on the
 #                   Firefox zip (apps/extension/store/firefox.ts)
 #   firefox         with AMO_CHANNEL unlisted (the default): has Firefox Add-ons (AMO) sign that
 #                   Firefox zip and passes on the signed XPI (apps/extension/store/firefox.ts)
@@ -88,7 +90,8 @@ jobs:
     needs: plan
     if: needs.plan.outputs.release == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Building the ffmpeg core from scratch takes about 4 of them.
+    timeout-minutes: 30
     permissions:
       contents: read
     outputs:
@@ -106,10 +109,22 @@ jobs:
       - name: Set up toolchain and dependencies (frozen lockfile)
         run: make ci-setup
 
+      # The ffmpeg core that make dist puts into the app at /app/ffmpeg/ (tools/ffmpeg-wasm):
+      # built here from its pinned and hashed sources, without the cache ffmpeg-wasm.yml keeps for
+      # deploys, then checked (under 25 MiB, LGPL, with its source and the notices of its linked
+      # files) and tested on generated audio. make dist takes it from .tools/ and, in CI, fails
+      # without it; release-build.sh attaches its source as fxm-ffmpeg-core-source-<version>.zip.
+      - name: Build the ffmpeg core
+        run: FXM_FFMPEG_JOBS="$(nproc)" make ffmpeg-wasm
+
+      - name: Test the ffmpeg core
+        run: make ffmpeg-wasm-test
+
       # The same Jamendo switch as the deploy's make dist (deploy.yml), so the web zip is what
       # Cloudflare Pages serves.
       - name: Build the release files
         env:
+          FXM_REQUIRE_FFMPEG_CORE: '1'
           VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: scripts/release-build.sh dist/release
 
