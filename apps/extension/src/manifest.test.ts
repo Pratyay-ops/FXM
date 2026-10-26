@@ -21,7 +21,6 @@ const RELEASE_HOSTS = [
   'https://youtubei.googleapis.com/*',
   'https://*.googlevideo.com/*',
   'https://open.spotify.com/*',
-  'https://clienttoken.spotify.com/*',
   'https://api-partner.spotify.com/*',
   'https://spclient.wg.spotify.com/*',
   'https://www.last.fm/*',

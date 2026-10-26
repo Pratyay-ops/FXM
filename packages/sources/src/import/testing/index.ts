@@ -18,6 +18,8 @@ import {
   FxmError,
   formatId,
   MATCHER_VERSION,
+  MATCHING_CONFIG,
+  type MatchingConfig,
   type MatchResponse,
   normalizeText,
   type Page,
@@ -253,6 +255,12 @@ export function testContext(mode: CatalogMode = 'music', signal?: AbortSignal): 
   }
 }
 
+/**
+ * A matching config that makes the Auto band available (stage 1.12), so that the user's Auto
+ * setting counts: the one FXM ships with keeps it off.
+ */
+export const AUTO_AVAILABLE: MatchingConfig = Object.freeze({ ...MATCHING_CONFIG, auto: true })
+
 /** A fake environment and what it saw. */
 export interface FakeEnvironment extends ImportEnvironment {
   /** How many times a bulk slot was waited for. */
@@ -263,7 +271,10 @@ export interface FakeEnvironment extends ImportEnvironment {
   waits: number[]
 }
 
-/** An environment with a fake budget (slots come at once) and a timer that does not wait. */
+/**
+ * An environment with a fake budget (slots come at once) and a timer that does not wait, with the
+ * Auto setting on under a config that allows it ({@link AUTO_AVAILABLE}).
+ */
 export function fakeEnvironment(
   overrides: Partial<ImportEnvironment> & { mode?: CatalogMode } = {},
 ): FakeEnvironment {
@@ -283,6 +294,7 @@ export function fakeEnvironment(
     },
     youtube: fakeYouTube(),
     autoMatch: true,
+    matchingConfig: AUTO_AVAILABLE,
     now: () => clock,
     async sleep(ms, signal) {
       signal.throwIfAborted()

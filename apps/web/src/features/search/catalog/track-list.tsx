@@ -13,6 +13,7 @@ import { Fragment } from 'react'
 import { Link } from 'react-router'
 import { cn } from '../../../lib/cn'
 import { useConnection } from '../../connect/connection'
+import { type DownloadMenuItem, useDownloadMenuItem } from '../../downloads/menu'
 import { useMediaActions } from '../actions'
 import { showFeedback } from '../feedback'
 import { itemFeatures } from '../sources'
@@ -76,21 +77,43 @@ export function useTracksMenu(tracks: readonly Track[], title: string): MenuActi
       key: 'download',
       label: 'Download',
       icon: Download,
-      onSelect: () => {
-        downloads.download(tracks)
-        showFeedback(tracks.length === 1 ? `Downloading ${title}` : `Downloading ${count}`)
-      },
+      // The downloads say what became of it: queued, there already, or not here.
+      onSelect: () => downloads.download(tracks),
     })
   }
   return items
 }
 
-/** The menu of one track: the list actions, its album and artist, and the equalizer. */
-function useTrackMenu(track: Track): MenuAction[] {
-  const items = useTracksMenu([track], track.title)
-  const { equalizer } = useMediaActions()
+/**
+ * The menu of one track: the list actions, its album and artist, and the equalizer. With
+ * `downloadEntry` (the list's `useDownloadMenuItem`, stage 4.1), a track whose download exists
+ * already gets "Cancel download" or "Remove download" in place of "Download", as in the
+ * library's menus, once downloads are wired in (2.4's `downloads`).
+ */
+function useTrackMenu(track: Track, downloadEntry?: DownloadMenuItem): MenuAction[] {
+  const listed = useTracksMenu([track], track.title)
+  const { equalizer, downloads } = useMediaActions()
   const { capabilities } = useSourcesSnapshot()
   const platform = useConnection((state) => state.platform)
+  const entry = downloads === undefined ? undefined : downloadEntry?.({ id: track.id, track })
+  const existing =
+    entry !== undefined &&
+    (entry.kind === undefined || entry.kind === 'action') &&
+    entry.id !== 'download'
+      ? entry
+      : undefined
+  const items: MenuAction[] =
+    existing === undefined
+      ? listed
+      : [
+          ...listed.filter((item) => item.key !== 'download'),
+          {
+            key: existing.id,
+            label: existing.label,
+            icon: existing.icon ?? Download,
+            onSelect: existing.onSelect,
+          },
+        ]
   const links: MenuAction[] = []
   if (track.album?.id) {
     links.push({ key: 'album', label: 'Go to album', icon: Disc3, to: albumPath(track.album.id) })
@@ -179,6 +202,11 @@ export interface TrackRowProps {
   showAlbum?: boolean | undefined
   /** Plays the track (in its list). Without it the row only shows the track. */
   onPlay?: (() => void) | undefined
+  /**
+   * The download entries of the row's list (`useDownloadMenuItem`), read once for the whole
+   * list: the menu's entry then follows where the track's download stands.
+   */
+  downloadEntry?: DownloadMenuItem | undefined
 }
 
 /**
@@ -187,8 +215,14 @@ export interface TrackRowProps {
  * links (on wide screens with a mouse) and the menu stay clickable on top of it. Phones put the
  * badges on a third line; wider screens put them after the names, so the names line up.
  */
-export function TrackRow({ track, number, showAlbum = false, onPlay }: TrackRowProps) {
-  const menu = useTrackMenu(track)
+export function TrackRow({
+  track,
+  number,
+  showAlbum = false,
+  onPlay,
+  downloadEntry,
+}: TrackRowProps) {
+  const menu = useTrackMenu(track, downloadEntry)
   const artists = artistNames(track.artists)
   const duration = formatDuration(track.durationMs)
   const video = isVideoKind(track.kind)
@@ -291,6 +325,8 @@ export function TrackList({
   className,
 }: TrackListProps) {
   const keys = listKeys(tracks)
+  // One read of the downloads for the whole list, not one per row.
+  const downloadEntry = useDownloadMenuItem()
   return (
     <ul aria-label={label} className={cn('space-y-0.5', className)}>
       {tracks.map((track, index) => (
@@ -300,6 +336,7 @@ export function TrackList({
             number={numbered ? index + 1 : undefined}
             showAlbum={showAlbum}
             onPlay={onPlay ? () => onPlay(index) : undefined}
+            downloadEntry={downloadEntry}
           />
         </li>
       ))}

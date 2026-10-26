@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { serializePolicy } from './csp.ts'
 import type { HeaderRule } from './headers-file.ts'
-import { appPolicy, SANDBOX_DOCUMENTS } from './policies.ts'
+import { APP_SERVICES, appPolicy, SANDBOX_DOCUMENTS } from './policies.ts'
 import { isHostSource, policyHosts, privacyPageServices, privacyProblems } from './privacy.ts'
 import { privacyPage } from './testing.ts'
 
@@ -14,7 +14,8 @@ const rule = (path: string, policy: string): HeaderRule => ({
 })
 
 const RULES = [
-  rule('/app/*', serializePolicy(appPolicy(["'sha256-x'"]))),
+  // Every service, Jamendo included, as a build with its client_id allows them.
+  rule('/app/*', serializePolicy(appPolicy(["'sha256-x'"], { services: APP_SERVICES }))),
   rule('/sandbox/innertube', serializePolicy(SANDBOX_DOCUMENTS['innertube.html'](["'sha256-y'"]))),
   rule('/sandbox/userhost', serializePolicy(SANDBOX_DOCUMENTS['userhost.html'](["'sha256-z'"]))),
 ]
@@ -57,6 +58,7 @@ describe('privacyProblems', () => {
       'ListenBrainz',
       'Last.fm',
       'GitHub',
+      'Cover Art Archive',
     ])
     expect(privacyProblems(RULES, page)).toEqual([
       "the privacy page doesn't list Jamendo, whose hosts the policies allow: add it to apps/site/src/pages/privacy.astro",

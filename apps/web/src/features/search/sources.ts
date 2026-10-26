@@ -418,7 +418,8 @@ export interface ItemFeatures {
  * - YouTube items need `mediaBytes`, which only `full` YouTube access has. So in the Lite tier
  *   (`simple`), download and equalizer are hidden on YouTube items.
  * - Spotify items play from a matched song, usually on YouTube, so they follow the same rule.
- * - Internet Archive, Jamendo and local files are always readable.
+ * - Internet Archive, Jamendo and local files are always readable. A local file is on the
+ *   device already: it gets the equalizer, but nothing to download.
  * - Plugin sources are unknown, so they get neither.
  * - The equalizer reads YouTube audio only in a browser with FXM Connect (stage 8.1, the player's
  *   `isMediaReadable`). The desktop and Android apps (`platform`) play it in their webview without
@@ -435,5 +436,8 @@ export function itemFeatures(
   const readable = streamed
     ? capabilities.mediaBytes
     : source === 'archive' || source === 'jamendo' || source === 'local'
-  return { download: readable, equalizer: readable && !(streamed && platform !== 'web') }
+  return {
+    download: readable && source !== 'local',
+    equalizer: readable && !(streamed && platform !== 'web'),
+  }
 }

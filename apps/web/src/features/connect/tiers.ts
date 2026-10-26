@@ -14,6 +14,7 @@
  */
 
 import type { NetworkCapabilities } from '@fxm/core'
+import { freeSources } from '../../lib/free-sources'
 import { RELEASED, soon } from './config'
 
 /** The tier FXM runs in. */
@@ -50,7 +51,10 @@ export const TIER_INFO: Readonly<Record<Tier, TierInfo>> = {
   free: {
     name: 'Free only',
     experimental: false,
-    summary: 'Free music from Internet Archive and Jamendo.',
+    // The free sources this build offers: Jamendo only with its client_id (lib/free-sources.ts).
+    get summary() {
+      return `Free music from ${freeSources().and}.`
+    },
     how: 'Any browser, with nothing to install.',
   },
   lite: {
@@ -98,8 +102,13 @@ export interface TierFeature {
 export const TIER_FEATURES: readonly TierFeature[] = [
   {
     id: 'free-sources',
-    label: 'Free music from Internet Archive and Jamendo, in lossless FLAC where they have it',
-    short: 'free music from Internet Archive and Jamendo',
+    get label() {
+      const free = freeSources()
+      return `Free music from ${free.and}, in lossless FLAC where ${free.several ? 'they have' : 'it has'} it`
+    },
+    get short() {
+      return `free music from ${freeSources().and}`
+    },
     from: 'free',
     released: true,
   },
@@ -119,6 +128,15 @@ export const TIER_FEATURES: readonly TierFeature[] = [
     released: RELEASED.localFiles,
   },
   {
+    id: 'free-downloads',
+    label: RELEASED.conversions
+      ? 'Downloads of free music for offline listening, in the format you want'
+      : 'Downloads of free music for offline listening, in their original format',
+    short: 'downloads of free music',
+    from: 'free',
+    released: RELEASED.downloads,
+  },
+  {
     id: 'youtube-music',
     label: 'YouTube Music: search, albums, artists and playlists',
     short: 'YouTube Music',
@@ -133,6 +151,15 @@ export const TIER_FEATURES: readonly TierFeature[] = [
     released: true,
   },
   {
+    id: 'downloads',
+    label: RELEASED.conversions
+      ? 'Downloads of YouTube Music songs, in the format you want'
+      : 'Downloads of YouTube Music songs, in their original format (conversions coming soon)',
+    short: 'YouTube Music downloads',
+    from: 'full',
+    released: RELEASED.downloads,
+  },
+  {
     id: 'spotify',
     label: 'Spotify search and related artists, built in (you can switch it off)',
     short: 'Spotify search and related artists',
@@ -145,13 +172,6 @@ export const TIER_FEATURES: readonly TierFeature[] = [
     short: 'a read-only sync of your Spotify account',
     from: 'full',
     released: RELEASED.spotifyAccount,
-  },
-  {
-    id: 'downloads',
-    label: 'Downloads of YouTube Music songs, in the format you want',
-    short: 'downloads',
-    from: 'full',
-    released: RELEASED.downloads,
   },
 ]
 
@@ -201,7 +221,7 @@ export function missingSummary(tier: Tier): MissingLine[] {
     // Full also gives what Lite gives, without Lite's experimental route.
     const adds =
       other === 'full'
-        ? `YouTube Music without Lite's experimental route, and ${joinList(out)}`
+        ? joinList(["YouTube Music without Lite's experimental route", ...out])
         : joinList(out)
     if (later.length === 0) return { tier: other, adds }
     const sentence = joinList(later)

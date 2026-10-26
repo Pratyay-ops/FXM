@@ -168,7 +168,7 @@ describe('Album page', () => {
   it('offers downloads in the full tier but not in Lite', async () => {
     const full = renderCatalog(NEON_HARBOR, { tier: 'full' })
     await findTitle('Neon Harbor')
-    expect(screen.queryByText(/Lite mode, experimental/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Lite tier, experimental/)).not.toBeInTheDocument()
     let menu = await openMoreMenu(full.user, 'Neon Harbor')
     await full.user.click(within(menu).getByRole('menuitem', { name: 'Download' }))
     expect(full.actions.log).toMatchObject([{ action: 'download' }])
@@ -177,7 +177,7 @@ describe('Album page', () => {
     const lite = renderCatalog(NEON_HARBOR, { tier: 'lite' })
     await findTitle('Neon Harbor')
     // The page says why the menus have no download and no equalizer.
-    expect(screen.getByText(/Lite mode, experimental/)).toBeInTheDocument()
+    expect(screen.getByText(/Lite tier, experimental/)).toBeInTheDocument()
     menu = await openMoreMenu(lite.user, 'Neon Harbor')
     expect(within(menu).queryByRole('menuitem', { name: 'Download' })).not.toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Go to artist' })).toHaveAttribute(

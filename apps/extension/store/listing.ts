@@ -91,8 +91,6 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     "Spotify's web-player token and server time: the rules set Spotify's Origin on these two " +
     'endpoints only. The background relays the public server time, without cookies, and the ' +
     'optional login bridge requests the token from there.',
-  'https://clienttoken.spotify.com/*':
-    "Spotify's client-token endpoint: the rules set Spotify's Origin and add CORS headers.",
   'https://api-partner.spotify.com/*':
     "Spotify's web-player API (search and details, and radio in a later FXM version): the " +
     'rules add CORS headers, so the FXM web app can read the answers.',
