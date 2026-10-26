@@ -1,0 +1,130 @@
+/**
+ * Automatic sync: a scheduler (see `scheduler.ts`) fed by the browser's events. The agent
+ * (`agent.tsx`) loads this module only while sync is on, so the app's first load doesn't carry
+ * the sync code.
+ *
+ * @module
+ */
+
+import { Dexie, type IntervalTree, type ObservabilitySet, RangeSet, rangesOverlap } from 'dexie'
+import { DB_NAME } from '../../db/types'
+import { useSettingsStore } from '../settings/settings-store'
+import { runResult, runSync, schedulerOptions } from './controller'
+import type { SyncReport } from './engine'
+import { nameBeforeCopy } from './merge'
+import { stoppedMessage } from './messages'
+import { type ChangeKind, createSyncScheduler } from './scheduler'
+import { SYNCED_SETTING_PREFIX } from './snapshot'
+import { needsUser } from './sync-store'
+
+/** How often a visible app checks the gist for changes from other devices. */
+export const SYNC_INTERVAL_MS = 15 * 60_000
+
+/** Library tables whose changes the user made, which sync soon. */
+const EDIT_TABLES = new Set(['likes', 'playlists', 'orders', 'follows', 'settings'])
+/** Library tables that change in the background (plays, metadata, pins), which sync later. */
+const BACKGROUND_TABLES = new Set(['history', 'tracks', 'matchCache'])
+
+/**
+ * The keys of the reserved settings that sync. The library keeps its own settings in the same
+ * table, such as the model version every rebuild of the listening affinity writes, and those
+ * stay on the device: changing them has nothing to sync.
+ */
+const SYNCED_SETTING_KEYS = new RangeSet(SYNCED_SETTING_PREFIX, `${SYNCED_SETTING_PREFIX}\uffff`)
+
+/**
+ * Whether a change of a table touched nothing that syncs: no row at all (a write that changed
+ * nothing still names its table, as a rebuild of the affinity does with the likes and plays
+ * when no time lies after now), or in `settings` no reserved setting that syncs. `keys` is
+ * Dexie's range of the keys `index` changed; anything else counts as a change.
+ */
+function touchesNothingSynced(table: string, index: string | undefined, keys: unknown): boolean {
+  if (typeof keys !== 'object' || keys === null) return false
+  const range = keys as IntervalTree
+  if (!('from' in range)) return true
+  // The table's primary keys: `''` for the rows written, `:dels` for the rows deleted.
+  if (table !== 'settings' || (index !== '' && index !== ':dels')) return false
+  return !rangesOverlap(range, SYNCED_SETTING_KEYS)
+}
+
+/** Which kind of synced change a database change is, if any. */
+export function changeKindOf(parts: ObservabilitySet): ChangeKind | undefined {
+  let kind: ChangeKind | undefined
+  for (const [part, keys] of Object.entries(parts)) {
+    // `idb://<database>/<table>/<index>`
+    const [database, table, index] = part.replace(/^idb:\/\//, '').split('/')
+    if (database !== DB_NAME || table === undefined) continue
+    if (touchesNothingSynced(table, index, keys)) continue
+    if (EDIT_TABLES.has(table)) return 'edit'
+    if (BACKGROUND_TABLES.has(table)) kind = 'background'
+  }
+  return kind
+}
+
+/** What to tell the user about a sync that ran by itself, if anything. */
+export function reportMessage(report: SyncReport): string | undefined {
+  const { copies, notices } = report
+  if (copies.length === 1) {
+    return `Sync kept two versions of “${nameBeforeCopy(copies[0]?.name ?? '')}”.`
+  }
+  if (copies.length > 1) return `Sync kept two versions of ${copies.length} playlists.`
+  if (notices.length > 0) return 'Sync kept a playlist that one device had deleted.'
+  return undefined
+}
+
+/**
+ * Starts automatic sync: at once, when the user comes back, when the device is back online,
+ * after changes to the library or the synced app settings, and periodically while the app is
+ * visible. `onMessage` hears what a sync kept for the user to review, and why it stopped when
+ * only the user can fix it. Returns the function that stops it.
+ */
+export function startAutoSync(onMessage: (text: string) => void): () => void {
+  const options = schedulerOptions()
+  const scheduler = createSyncScheduler({
+    ...options,
+    run: async (trigger) => {
+      const run = await runSync(trigger)
+      if (run.kind === 'synced') {
+        const text = reportMessage(run.report)
+        if (text !== undefined) onMessage(text)
+      } else if (run.kind === 'failed' && needsUser(run.error.code)) {
+        onMessage(stoppedMessage(run.error))
+      }
+      return runResult(run)
+    },
+  })
+  const visible = () => document.visibilityState === 'visible'
+  const onFocus = () => scheduler.trigger('focus')
+  const onVisibility = () => {
+    if (visible()) scheduler.trigger('focus')
+  }
+  const onOnline = () => scheduler.online()
+  const onMutated = (parts: ObservabilitySet) => {
+    const kind = changeKindOf(parts)
+    if (kind !== undefined) scheduler.changed(kind)
+  }
+  window.addEventListener('focus', onFocus)
+  window.addEventListener('online', onOnline)
+  document.addEventListener('visibilitychange', onVisibility)
+  Dexie.on('storagemutated', onMutated)
+  // The app settings sync carries live in their own store, not in the library database. A
+  // change a sync applied syncs nothing more: the library then still matches the gist.
+  const stopSettings = useSettingsStore.subscribe((state, previous) => {
+    if (state.catalogMode !== previous.catalogMode || state.theme !== previous.theme) {
+      scheduler.changed('edit')
+    }
+  })
+  const interval = setInterval(() => {
+    if (visible()) scheduler.trigger('interval')
+  }, options.intervalMs ?? SYNC_INTERVAL_MS)
+  scheduler.trigger('start')
+  return () => {
+    scheduler.stop()
+    window.removeEventListener('focus', onFocus)
+    window.removeEventListener('online', onOnline)
+    document.removeEventListener('visibilitychange', onVisibility)
+    Dexie.on.storagemutated.unsubscribe(onMutated)
+    stopSettings()
+    clearInterval(interval)
+  }
+}

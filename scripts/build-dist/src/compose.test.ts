@@ -336,6 +336,7 @@ describe('compose', () => {
         'SponsorBlock',
         'ListenBrainz',
         'Last.fm',
+        'GitHub',
       ]),
     })
     expect(problemsOf(() => run(root, [site, fakeAppPart(root)]))).toEqual([

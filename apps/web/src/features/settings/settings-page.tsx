@@ -12,6 +12,7 @@ import { isInstallableWebApp } from '../pwa/web-app'
 import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
+import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { ASSUMED_CAPABILITIES } from './quality-options'
@@ -95,6 +96,10 @@ export function SettingsPage() {
       </SettingsSection>
 
       <ScrobblingSettings />
+
+      <SettingsSection title="Sync">
+        <SyncSettings />
+      </SettingsSection>
 
       {/* Only the web build installs; the Android and desktop apps are installed already. */}
       {isInstallableWebApp() && (

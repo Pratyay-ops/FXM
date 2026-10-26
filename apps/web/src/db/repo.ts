@@ -2,7 +2,8 @@
  * The library repository: the only code that reads and writes the library database. Pages read
  * through the hooks in `hooks.ts`, which run these reads as live queries; everything else,
  * backups included (`backup.ts` validates the file, then calls `restore`), calls the methods
- * directly. The database itself is not part of the repository's API.
+ * directly. The database itself is not part of the repository's API: only library sync borrows
+ * the tables it carries, for one transaction at a time (`syncTransaction`).
  *
  * Every write runs in one IndexedDB transaction, so a change either lands whole or not at all,
  * and every order change is a single write of one record (see `ordering.ts`). Transaction
@@ -1561,6 +1562,47 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
       )
     },
 
+    /**
+     * Library sync only (stage 8.4, `features/sync/library-io.ts`): runs `work` in one
+     * transaction on the tables sync carries, every one but import progress. Sync reads this
+     * device's library, merges the other devices' changes and writes what changed in that one
+     * transaction, so a change made meanwhile, in another tab too, waits for it and is never
+     * overwritten. Everything else reads and writes through the methods above.
+     *
+     * Sync writes those tables directly, so the listening affinity can't follow it change by
+     * change: `work` calls `affinityChanged()` when it changed what the affinity is derived from
+     * (the track cache, the likes, the playlists or the plays), and the affinity is rebuilt from
+     * the result before the transaction ends, as after a backup's restore. The affinity itself
+     * never syncs: every device derives its own.
+     */
+    async syncTransaction<T>(
+      mode: 'r' | 'rw',
+      work: (tables: SyncedTables, affinityChanged: () => void) => Promise<T>,
+    ): Promise<T> {
+      const tables: SyncedTables = {
+        tracks: db.tracks,
+        likes: db.likes,
+        playlists: db.playlists,
+        orders: db.orders,
+        follows: db.follows,
+        history: db.history,
+        settings: db.settings,
+        matchCache: db.matchCache,
+      }
+      // A read changes nothing, so it leaves the affinity out of its scope.
+      if (mode === 'r') {
+        return db.transaction('r', Object.values(tables), async () => work(tables, () => {}))
+      }
+      return db.transaction('rw', [...Object.values(tables), db.affinity], async () => {
+        let rebuild = false
+        const result = await work(tables, () => {
+          rebuild = true
+        })
+        if (rebuild) await rebuildAffinity(affinityTables, now())
+        return result
+      })
+    },
+
     /** Empties every table, then recreates the built-in playlists. */
     async clearLibrary(): Promise<void> {
       await db.transaction(
@@ -1577,6 +1619,12 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
 /** The library repository. */
 export type LibraryRepo = ReturnType<typeof createLibraryRepo>
+
+/** The tables library sync carries: every one but import progress (`syncTransaction`). */
+export type SyncedTables = Pick<
+  FxmDatabase,
+  'tracks' | 'likes' | 'playlists' | 'orders' | 'follows' | 'history' | 'settings' | 'matchCache'
+>
 
 /**
  * Why {@link LibraryRepo.recordPlays} would refuse `play` at `now`, for people, or `undefined`
