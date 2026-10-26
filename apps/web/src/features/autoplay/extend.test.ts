@@ -21,6 +21,7 @@ import {
 } from './extend'
 
 const MINUTE = 60_000
+const DAY = 24 * 60 * MINUTE
 
 /** `count` songs by `artist`, ids `<prefix>1`…, titled `<artist> <n>`. */
 const songs = (artist: string, prefix: string, count: number) =>
@@ -193,6 +194,38 @@ describe('planExtension', () => {
     await played(song('i9', 'Iris Vale 9', 'Iris Vale'), 2 * MINUTE, true)
     const after = await planExtension(request(services))
     expect(titles(after.picks)).toEqual(['Lark Avenue 1', 'Lark Avenue 2'])
+  })
+
+  it('fetches no radio for a song the user skipped just now, however much they like it', async () => {
+    // Low Tide is a favourite, heard through on the three days before…
+    for (const day of [1, 2, 3]) await played(lowTide, day * DAY)
+    // …but skipped at once a moment ago.
+    await played(lowTide, 4 * MINUTE, true)
+    await played(bloom, 8 * MINUTE)
+    const recommendations = fakeRecommendations({ radio: radios })
+    const services = homeServices('full', { recommendations })
+    const cache = createCollectionCache()
+    for (let extension = 0; extension < 3; extension++) {
+      await planExtension(request(services, { cache }))
+    }
+    expect(recommendations.calls.map((call) => seedName(call.seed)).sort()).toEqual([
+      'Night Swim',
+      'Static Bloom',
+    ])
+  })
+
+  it('grows from an official music video in Music mode', async () => {
+    const video = song('mv1', 'Night Swim (Official Video)', 'Juniper Coast', {
+      kind: 'music-video',
+    })
+    const recommendations = fakeRecommendations({ radio: { [video.title]: radios['Night Swim'] } })
+    const plan = await planExtension(
+      request(homeServices('full', { recommendations }), { queue: queueOf(video) }),
+    )
+    expect(plan.fetched?.ref.name).toBe(video.title)
+    // Two, the most a batch holds of one artist.
+    expect(titles(plan.picks)).toHaveLength(2)
+    for (const title of titles(plan.picks)) expect(title).toMatch(/^Kestrel/)
   })
 
   it('doesn’t keep a radio a source failed in, and asks again next time', async () => {
