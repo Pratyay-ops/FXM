@@ -138,6 +138,24 @@ const noExtension = noExtensionNote(AVAILABLE.firefox, { lite: AVAILABLE.lite })
         <ul class="platforms bare-list">
           <li>Android APK</li>
         </ul>
+        {AVAILABLE.android && (
+          <>
+            <ol class="install">
+              <li>
+                On your phone, download the universal APK (<code>fxm-android-universal-….apk</code>)
+                from the latest GitHub release.
+              </li>
+              <li>
+                Open it. If Android asks, allow your browser to install apps, then tap
+                <strong>Install</strong>.
+              </li>
+            </ol>
+            <p class="fine">
+              Android 7 or later. FXM tells you when a new version is out, and the release notes
+              give the fingerprint of FXM's signing key, to check the download.
+            </p>
+          </>
+        )}
         <div class="actions">
           <a class="button button-secondary" href={RELEASES_URL}>
             {AVAILABLE.android ? 'Download the APK' : 'Follow releases on GitHub'}
