@@ -10,7 +10,7 @@ No app imports it yet: converting the apps' text is phase 2 of the design.
 | `@fxm/i18n/react` | `I18nProvider`, `useT`, `useLocale`, `useFormat`, `useI18n` | Yes |
 | `@fxm/i18n/pseudo` | `PSEUDO_LOCALES`: `en-XA` (accented, longer) and `ar-XB` (right to left) | Development builds and Diagnostics only |
 | `@fxm/i18n/check` | `checkSource`, `checkCatalog`, `checkTranslation`, `sourceCatalog`, `completion` | Never: tests and CI |
-| `@fxm/i18n/testing` | `findUntranslated`, `strictReporters` | Never: tests |
+| `@fxm/i18n/testing` | `findUntranslated`, `UNTRANSLATED_FORMAT_LOCALE`, `strictReporters` | Never: tests |
 
 ## Messages
 
@@ -97,9 +97,10 @@ createI18n({ derived: PSEUDO_LOCALES, … }) // en-XA: ⟦Šééţţîîñĝš�
 
 ## Tests
 
-Tests keep asserting English, which is the default locale and bundled. To prove a screen has no hard-coded text, render it in `en-XA` and ask `findUntranslated` (from `@fxm/i18n/testing`) what still reads as plain English, ignoring the test's data:
+Tests keep asserting English, which is the default locale and bundled. To prove a screen has no hard-coded text, render it in `en-XA` and ask `findUntranslated` (from `@fxm/i18n/testing`) what still reads as plain English, ignoring the test's data. Format in `UNTRANSLATED_FORMAT_LOCALE`, whose numbers, dates and units have no Latin letters, so what Intl writes isn't taken for untranslated English:
 
 ```ts
+await i18n.setLocale('en-XA', UNTRANSLATED_FORMAT_LOCALE)
 expect(findUntranslated(document.body, { ignore: [track.title, track.artist] })).toEqual([])
 ```
 

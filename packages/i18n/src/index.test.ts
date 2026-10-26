@@ -60,6 +60,7 @@ describe('@fxm/i18n', () => {
     ])
     expect(Object.keys(testing).sort()).toEqual([
       'TRANSLATED_ATTRIBUTES',
+      'UNTRANSLATED_FORMAT_LOCALE',
       'findUntranslated',
       'strictReporters',
     ])

@@ -6,8 +6,13 @@
  * render it once in the accented pseudo-locale (`en-XA`) and ask {@link findUntranslated} what
  * still reads as plain English: every translated message is accented and bracketed there.
  *
+ * Numbers, dates and sizes formatted outside a message (`4.2 MB`, `Oct 26, 2026`, `5 minutes
+ * ago`) are Intl's text, not copy, but in English they read as plain English too. So format in
+ * a locale whose Intl text has no Latin letters, {@link UNTRANSLATED_FORMAT_LOCALE}: then only
+ * text no message produced is left, English glued to a formatted value included (`3 songs`).
+ *
  * ```ts
- * await i18n.setLocale('en-XA')
+ * await i18n.setLocale('en-XA', UNTRANSLATED_FORMAT_LOCALE)
  * render(<NowPlaying />)
  * expect(findUntranslated(document.body, { ignore: [track.title, track.artist] })).toEqual([])
  * ```
@@ -46,6 +51,13 @@ export interface FindUntranslatedOptions {
    */
   readonly ignore?: readonly (string | RegExp)[] | ((text: string) => boolean)
 }
+
+/**
+ * The format locale for an `en-XA` pass of {@link findUntranslated}: Egyptian Arabic, whose
+ * digits, month names, units and relative times (`٤٫٢ م.ب`, `قبل ٥ دقائق`) have no Latin letters,
+ * so what Intl formats never reads as untranslated English.
+ */
+export const UNTRANSLATED_FORMAT_LOCALE = 'ar-EG'
 
 /** Plain Latin letters: accented text has none of them. */
 const PLAIN_LETTER = /[A-Za-z]/
