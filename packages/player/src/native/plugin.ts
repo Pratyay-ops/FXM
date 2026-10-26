@@ -40,16 +40,22 @@ export function fxmPlayerErrorCode(error: unknown): FxmPlayerErrorCode | undefin
 
 /**
  * Where an entry's audio comes from: a resolved stream, fetched with plain `GET`s through the
- * app's OkHttp client and FXM's network rules.
+ * app's OkHttp client and FXM's network rules, or a file on the device.
  */
 export interface FxmPlayerSource {
   /**
-   * What kind of source it is. Only `http` (the default): an HTTPS URL. Reserved so that offline
-   * copies (`file`, app storage or a `content://` URI, stage 6.4) can join without a breaking
-   * change; the plugin refuses kinds it does not know.
+   * What kind of source it is:
+   *
+   * - `http` (the default): an HTTPS URL;
+   * - `file` (stage 6.4): a file on the device, read from there: an offline copy in the app's
+   *   downloads folder (a `file:` URI) or a song of the device's own (a MediaStore
+   *   `content://media/<volume>/audio/media/<id>` URI). The plugin refuses any other file, and a
+   *   file source has nothing but its URL.
+   *
+   * The plugin refuses kinds it does not know.
    */
-  readonly kind?: 'http'
-  /** The absolute HTTPS URL of the whole file. */
+  readonly kind?: 'http' | 'file'
+  /** The absolute HTTPS URL of the whole file; for a `file` source, its `file:` or `content:` URI. */
   readonly url: string
   /**
    * Headers the URL needs (`StreamOption.requestHeaders`); the player sets them on every request

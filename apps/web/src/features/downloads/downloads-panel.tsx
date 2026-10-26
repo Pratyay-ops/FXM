@@ -90,10 +90,19 @@ function StorageCard({ records }: { records: readonly DownloadRecord[] }) {
   const completed = records.filter((record) => record.status === 'completed').length
   const info = useStorageInfo(downloads)
   const [confirming, setConfirming] = useState(false)
-  const quota = info.estimate?.quota
-  const usage = info.estimate?.usage
+  // In the Android app the downloads take the device's space, not the browser's quota.
+  const quota = info.native
+    ? info.free === undefined
+      ? undefined
+      : downloads + info.free
+    : info.estimate?.quota
+  const usage = info.native ? undefined : info.estimate?.usage
   const other = usage === undefined ? 0 : Math.max(0, usage - downloads)
-  const free = quota === undefined || usage === undefined ? undefined : Math.max(0, quota - usage)
+  const free = info.native
+    ? info.free
+    : quota === undefined || usage === undefined
+      ? undefined
+      : Math.max(0, quota - usage)
   return (
     <section
       aria-labelledby={headingId}
@@ -141,15 +150,26 @@ function StorageCard({ records }: { records: readonly DownloadRecord[] }) {
             Other FXM data: {formatBytes(other)}
           </li>
         )}
-        {free !== undefined && <li>{formatBytes(free)} free for FXM</li>}
+        {free !== undefined && (
+          <li>
+            {formatBytes(free)} {info.native ? 'free for downloads' : 'free for FXM'}
+          </li>
+        )}
       </ul>
-      {info.persisted === true && (
+      {info.native && (
+        <p className="flex items-center gap-2 text-sm text-text-muted">
+          <ShieldCheck aria-hidden="true" className="size-4 shrink-0 text-accent" />
+          FXM keeps these downloads until you remove them. Save a song to your Music folder to play
+          it in other apps too.
+        </p>
+      )}
+      {!info.native && info.persisted === true && (
         <p className="flex items-center gap-2 text-sm text-text-muted">
           <ShieldCheck aria-hidden="true" className="size-4 shrink-0 text-accent" />
           Your browser keeps these downloads even when the device runs low on space.
         </p>
       )}
-      {info.persisted === false && (
+      {!info.native && info.persisted === false && (
         <div className="flex flex-wrap items-center gap-3">
           <p className="min-w-60 flex-1 text-sm text-text-muted">
             {info.refused

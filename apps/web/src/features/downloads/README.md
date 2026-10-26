@@ -4,16 +4,16 @@ The web app's side of stages 4.1 and 4.2: where downloads are stored, which tab 
 
 | File | What it holds |
 |---|---|
-| `runtime.ts` | The app's downloads, created on first use (`getDownloads`): the manager over the `fxm-downloads` database and the Origin Private File System, the Downloads playlist kept in step, `startDownloads` (the tab with the Web Lock runs the queue), `getOfflineStore` for the player, `resetDownloads` for tests |
+| `runtime.ts` | The app's downloads, created on first use (`getDownloads`): the manager over the `fxm-downloads` database and the Origin Private File System (in the Android app, the app's own storage), the Downloads playlist kept in step, `startDownloads` (the tab with the Web Lock runs the queue; in the Android app, with the background service), `getOfflineStore` for the player, `resetDownloads` for tests |
 | `download-db.ts` | The `fxm-downloads` IndexedDB database (Dexie) and the `DownloadStore` on it |
 | `opfs/` | The `DownloadStorage` on the Origin Private File System: `storage.ts` on the page, `worker.ts` and `handler.ts` in a dedicated worker that writes through sync access handles, `protocol.ts` for their messages |
 | `environment.ts` | Where downloads meet the rest of FXM: the environment the app's composition root connects (`connectDownloadEnvironment`: the platform's context at the request budget's `bulk` priority, and the resolver over the stream lifecycle's own sources, matching engine and match cache), and the stand-in until then |
 | `persistence.ts` | `navigator.storage.estimate()`, `persisted()` and `persist()` for the usage meter |
 | `hooks.ts` | Live reads of the downloads, availability per track, storage numbers |
-| `actions.ts` | What buttons and menus do, with their confirmations |
+| `actions.ts` | What buttons and menus do, with their confirmations; in the Android app, "Save to Music folder" and the one-time notification question |
 | `download-button.tsx` | A download button for any track: download, progress, pause, resume, retry, remove |
 | `downloads-panel.tsx` | The download manager in the library's Downloads tab |
-| `menu.ts` | The download entry of track-list menus |
+| `menu.ts` | The download entry of track-list menus, and "Save to Music folder" in the Android app |
 | `format.ts`, `progress.tsx` | Sizes, states, errors; the progress ring and bar |
 | `testing.ts`, `opfs/fake-opfs.ts` | Test setup: fakes for the network, the resolver and the file system |
 | `save/save.ts` | Save to device (4.2): the converter (a worker running FXM's ffmpeg core) and the device saver, both replaceable (`setConverter`, `setDeviceSaver`), and `saveDownload` |
@@ -29,6 +29,17 @@ The web app's side of stages 4.1 and 4.2: where downloads are stored, which tab 
 - **Room for the library.** Downloads share the browser's quota with the library, so a download that would leave less than the smaller of 10 % of the quota and 200 MB for the rest of FXM fails as `storage-full` (checked when a file opens and every 8 MiB written), and the queue pauses before the library's own writes can fail.
 - **Records** live in their own IndexedDB database, `fxm-downloads`, apart from the library's `fxm`: downloads describe files on this device, so they stay out of library backups. The Downloads playlist (in the library, stage 2.6) holds their order.
 - **Persistence.** The first download asks the browser to keep FXM's data when space runs low (`navigator.storage.persist()`), from the click, where Firefox can ask the user and Chromium decides by itself. The Downloads tab shows whether it agreed, with a button to ask again, and a usage meter: what downloads take, what the rest of FXM takes, and what is free for FXM (`navigator.storage.estimate()`).
+
+## In the Android app
+
+Stage 6.4. Where the `FxmDownloads` plugin is on the Capacitor bridge, the app's downloads use it ([`@fxm/downloads`' native side](../../../../../packages/downloads/src/native/README.md), [the Android module](../../../../../apps/mobile/android/fxm-downloads/README.md)); the queue, its records and the UI stay the same:
+
+- **Files** live in the app's own storage, not in the browser's. Support is tried the same way (the plugin's `info`), and the storage card shows the room left for downloads on the phone (what Android's low-storage reserve leaves free) instead of the browser's quota, and says that FXM keeps the downloads: the system never deletes them for space, so there is no "Keep my downloads".
+- **In the background.** `startDownloads` reports the queue to the app whenever it changes (`connectBackgroundDownloads`), and a `dataSync` foreground service with a progress notification keeps the app, and the queue in its page, running while it has work, also with the screen off. On Android 13 and later the first download asks once to show notifications (`NOTIFICATIONS_ASKED_KEY` remembers it); refused, downloads run all the same.
+- **Save to Music folder.** Track lists offer it for finished downloads: a copy in Music/FXM, where every music app finds it, named `Artist - Title`. A download of a video file (YouTube's itag 18) says it can't be saved yet: its audio must be taken out first (stage 4.2).
+- **Offline playback** uses the same offline store; the playback URL of a file is the WebView URL Capacitor serves it at, which the native player (Media3) plays from the device.
+
+The composition root's environment and queue (`src/app/services/downloads.ts`, stage 2.9b) are the same there: the app's platform fetches through Android's native HTTP, which reads YouTube's bytes (`mediaBytes`), so YouTube songs download in the app too, from URLs that passed the end-of-file probe and are resolved again once they expire, and the queue starts once the tier is known.
 
 ## One tab runs the queue
 
@@ -61,8 +72,8 @@ Save works in two steps. Straight from the click, the device saver asks where to
 
 The conversion worker loads FXM's ffmpeg core from the app's `ffmpeg/` folder on the first save that needs it (the deploy puts it there; `make dev` serves a local build from `make ffmpeg-wasm`, tools/ffmpeg-wasm/README.md), and the service worker keeps it for offline saves (`pwa/options.ts`). Saving an original MP3, FLAC, Ogg or WAV, or an M4A as M4A, needs no core: FXM's own writers tag those. An original WebM (YouTube's usual audio) gets its tags from the core, and where the core can't load is saved as it is, untagged, which the confirmation says ("without its tags").
 
-The desktop app (7.4) and the Android app (6.4) save natively: they pass their own `DeviceSaver` to `setDeviceSaver` (a save dialog, the device's music library) and nothing else changes.
+The desktop app (7.4) and the Android app are to save natively: they pass their own `DeviceSaver` to `setDeviceSaver` (a save dialog, the device's music library) and nothing else changes. Stage 6.4 didn't give the Android app one; there, "Save to Music folder" (above) keeps a copy of the original file meanwhile.
 
 ## Testing
 
-`setupDownloads()` from `testing.ts` gives the app's downloads an in-memory storage, a `FakeMediaServer` as the network and a `FakeDownloadResolver`, for a tier the test picks, and runs the queue; the test setup resets everything after each test. OPFS is tested against `opfs/fake-opfs.ts`, with the worker's handler run in-process and through a fake worker. Save to device is tested with `createInProcessConverter` from `@fxm/convert/testing` (the whole pipeline on a fake core, or on a core that never loads, without the worker), a converter that runs until it is cancelled, a fake device saver and a fake lyrics provider, so nothing reaches the network. A cover is fetched once through a real platform transport over a fake `fetch`, which checks that the host table lets YouTube Music's and Spotify's cover hosts through. In a real browser, `e2e/save.spec.ts` downloads a song from Internet Archive through the app's composition and saves it as FLAC with the real ffmpeg core (skipped where none is built), also against `make dist` under its real headers ([the app's README](../../../README.md)).
+`setupDownloads()` from `testing.ts` gives the app's downloads an in-memory storage, a `FakeMediaServer` as the network and a `FakeDownloadResolver`, for a tier the test picks, and runs the queue; with `android: true` the files go to a fake `FxmDownloads` plugin instead (`android.test.tsx`: the app's storage, the background reports, the notification question, Save to Music, the storage card). The test setup resets everything after each test. OPFS is tested against `opfs/fake-opfs.ts`, with the worker's handler run in-process and through a fake worker. Save to device is tested with `createInProcessConverter` from `@fxm/convert/testing` (the whole pipeline on a fake core, or on a core that never loads, without the worker), a converter that runs until it is cancelled, a fake device saver and a fake lyrics provider, so nothing reaches the network. A cover is fetched once through a real platform transport over a fake `fetch`, which checks that the host table lets YouTube Music's and Spotify's cover hosts through. In a real browser, `e2e/save.spec.ts` downloads a song from Internet Archive through the app's composition and saves it as FLAC with the real ffmpeg core (skipped where none is built), also against `make dist` under its real headers ([the app's README](../../../README.md)).

@@ -11,6 +11,14 @@
  *   IDs.
  * - **Playing**: `streamFor()` opens the file of a local track and hands out an object URL for
  *   it (`object-urls.ts`), as a `StreamOption` the player plays like any other stream.
+ * - **The device's music** (the Android app, stage 6.4): `addDeviceMusic()` asks the user to let
+ *   FXM read it, from the click, and lists what MediaStore knows (`device-scanner.ts`); its songs
+ *   play from their MediaStore URIs. It is scanned again once per visit while FXM may read it.
+ *   Android shows its permission dialog whenever the app asks, so FXM asks only from the user's
+ *   own actions: opening the device's music, "Allow access", or Play on one of its songs
+ *   (`streamFor` with `ask`), never from a preload or the queue moving on. There, folders and
+ *   chosen files aren't offered (`canAddFiles()`): the app's native player reads files from the
+ *   device, never the WebView's object URLs.
  * - **Scans** run one at a time (`lane.ts`): others wait their turn as `queued`. Covers no file
  *   uses any more are deleted when no scan runs or waits.
  *
@@ -28,11 +36,18 @@ import {
   sanitizeStreamLoudness,
   type Track,
 } from '@fxm/core'
+import { webViewFileUrl } from '@fxm/player'
 import { Dexie } from 'dexie'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { getLibrary, randomUuid } from '../../db/repo'
 import { type MakeThumbnail, makeThumbnail } from './artwork'
 import { LOCAL_DB_NAME, openLocalDatabase } from './database'
+import {
+  type DeviceMusicAccess,
+  type FxmDeviceMusicPlugin,
+  findFxmDeviceMusicPlugin,
+} from './device-music'
+import { scanDeviceRoot } from './device-scanner'
 import {
   canChooseFolders,
   canKeepFolders,
@@ -56,7 +71,12 @@ import { createLocalFilesRepo, type LocalFilesRepo } from './repo'
 import { type ScanOutcome, type ScanProgress, scanRoot } from './scanner'
 import { type ReadTags, readTags } from './tags'
 import { toLocalTracks } from './tracks'
-import type { LocalAudioFormat, LocalFileRecord, LocalRootRecord } from './types'
+import {
+  DEVICE_ROOT_NAME,
+  type LocalAudioFormat,
+  type LocalFileRecord,
+  type LocalRootRecord,
+} from './types'
 
 /** Where a root stands in this visit. */
 export type RootStatus =
@@ -104,6 +124,8 @@ export interface LocalFilesDeps {
   /** Whether a file input can pick a whole folder. */
   canChooseFolders: () => boolean
   objectUrls: ObjectUrlCache
+  /** The Android app's `FxmDeviceMusic` plugin, for the device's own music; elsewhere none. */
+  deviceMusic: FxmDeviceMusicPlugin | undefined
   now: () => number
   uuid: () => string
 }
@@ -129,6 +151,45 @@ export type AddPickedResult =
   | { status: 'updated'; root: LocalRootRecord }
   /** None of the files is a format FXM reads. */
   | { status: 'empty' }
+
+/** What opening the device's music did. */
+export type AddDeviceResult =
+  /** Listed now: its scan runs. */
+  | { status: 'added'; root: LocalRootRecord }
+  /** Listed before: it is scanned again. */
+  | { status: 'exists'; root: LocalRootRecord }
+  /**
+   * The user didn't let FXM read it. `forGood`: Android won't ask again, so only its settings
+   * can allow it ({@link LocalFiles.openDeviceSettings}).
+   */
+  | { status: 'denied'; forGood: boolean }
+
+/**
+ * Why folders and chosen files aren't added in the Android app: its native player can't play the
+ * WebView's object URLs of them (`canAddFiles`).
+ */
+function choosingUnsupported(): FxmError {
+  return new FxmError(
+    'Unsupported',
+    'Songs you choose play in a browser. In the app, add the music on this device',
+  )
+}
+
+/** The status of the device's music when FXM may not read it (yet). */
+function accessStatus(access: DeviceMusicAccess): RootStatus {
+  return access === 'denied' ? { state: 'denied' } : { state: 'needs-access' }
+}
+
+/** How {@link LocalFiles.streamFor} may get to the file. */
+export interface StreamForOptions {
+  /**
+   * Whether the user asked for this song (a tap on it, or Play), so FXM may ask for the
+   * permission to read the device's music, which Android shows whenever the app asks: never for
+   * a preload, the queue moving on by itself or the native player's queue filling up. Default:
+   * false. Folders ask regardless, since the browser shows its prompt only within a click.
+   */
+  ask?: boolean
+}
 
 /** A local file opened for playing. */
 export interface OpenedFile {
@@ -282,23 +343,43 @@ export function createLocalFiles(deps: LocalFilesDeps) {
     }
   }
 
+  /** How a root's scan reads it: a folder's files, or the device's music. */
+  type Scanner = (
+    signal: AbortSignal,
+    onProgress: (progress: ScanProgress) => void,
+  ) => Promise<ScanOutcome>
+
+  /** The scan of a folder or picked files: their directories, read with the tag reader. */
+  function walk(
+    root: LocalRootRecord,
+    directories: (signal: AbortSignal) => AsyncIterable<FoundDirectory> | Iterable<FoundDirectory>,
+  ): Scanner {
+    return (signal, onProgress) =>
+      scanRoot(deps, {
+        root,
+        directories: directories(signal),
+        complete: root.kind !== 'picked-files',
+        signal,
+        onProgress,
+      })
+  }
+
+  /** The scan of the device's music: what MediaStore lists. */
+  function list(root: LocalRootRecord, plugin: FxmDeviceMusicPlugin): Scanner {
+    return (signal, onProgress) => scanDeviceRoot(deps, { root, plugin, signal, onProgress })
+  }
+
   /** One scan of `root`, once its turn in the lane came. */
   async function scanNow(
     root: LocalRootRecord,
-    directories: (signal: AbortSignal) => AsyncIterable<FoundDirectory> | Iterable<FoundDirectory>,
+    scanner: Scanner,
     signal: AbortSignal,
     current: () => boolean,
   ): Promise<ScanOutcome | undefined> {
     setStatus(root.id, { state: 'scanning', found: 0, read: 0, walked: false })
     const progress = progressOf(root.id, current)
     try {
-      const outcome = await scanRoot(deps, {
-        root,
-        directories: directories(signal),
-        complete: root.kind !== 'picked-files',
-        signal,
-        onProgress: progress.report,
-      }).finally(progress.stop)
+      const outcome = await scanner(signal, progress.report).finally(progress.stop)
       if (outcome.status === 'done') {
         scannedThisVisit.add(root.id)
         const latest = await repo.getRoot(root.id)
@@ -321,13 +402,10 @@ export function createLocalFiles(deps: LocalFilesDeps) {
   }
 
   /**
-   * Scans `root` from `directories` once the scans queued before it are over, unless it is
-   * already being scanned or waits for its turn.
+   * Scans `root` with `scanner` once the scans queued before it are over, unless it is already
+   * being scanned or waits for its turn.
    */
-  function runScan(
-    root: LocalRootRecord,
-    directories: (signal: AbortSignal) => AsyncIterable<FoundDirectory> | Iterable<FoundDirectory>,
-  ): Promise<ScanOutcome | undefined> {
+  function runScan(root: LocalRootRecord, scanner: Scanner): Promise<ScanOutcome | undefined> {
     const running = scans.get(root.id)
     if (running !== undefined) return running.done
     const controller = new AbortController()
@@ -341,7 +419,7 @@ export function createLocalFiles(deps: LocalFilesDeps) {
       try {
         const outcome = await lane.run(() => {
           started = true
-          return scanNow(root, directories, signal, current)
+          return scanNow(root, scanner, signal, current)
         }, signal)
         // Stopped before its turn: nothing changed.
         if (!started && current()) setStatus(root.id, { state: 'ready' })
@@ -360,6 +438,30 @@ export function createLocalFiles(deps: LocalFilesDeps) {
     await running.done
   }
 
+  /** The stream of a song of the device's music: see `streamFor`. */
+  async function deviceStream(
+    record: LocalFileRecord,
+    root: LocalRootRecord,
+    ask: boolean,
+  ): Promise<StreamOption> {
+    const plugin = deps.deviceMusic
+    if (plugin === undefined || record.uri === undefined) {
+      throw new FxmError('Unavailable', 'This song is on an Android device: play it in FXM there')
+    }
+    let { music } = await plugin.checkAccess()
+    if (ask && (music === 'prompt' || music === 'prompt-with-rationale')) {
+      music = (await plugin.requestAccess()).music
+    }
+    if (music !== 'granted') {
+      setStatus(root.id, accessStatus(music))
+      throw new FxmError(
+        'AuthRequired',
+        'Allow FXM to see the music on this device to play this song',
+      )
+    }
+    return streamOptionOf(record.format, webViewFileUrl(record.uri) ?? record.uri)
+  }
+
   /** Scans a kept folder again, when FXM may read it. */
   async function rescanFolder(root: LocalRootRecord): Promise<unknown> {
     const handle = await handleOf(root.id)
@@ -373,12 +475,54 @@ export function createLocalFiles(deps: LocalFilesDeps) {
       setStatus(root.id, { state: access === 'denied' ? 'denied' : 'needs-access' })
       return
     }
-    return runScan(root, (signal) => walkDirectory(handle, signal))
+    return runScan(
+      root,
+      walk(root, (signal) => walkDirectory(handle, signal)),
+    )
+  }
+
+  /**
+   * Scans the device's music when FXM may read it; otherwise says what it needs. With
+   * `request`, asks the user first (from a click), where Android still asks.
+   */
+  async function rescanDevice(
+    root: LocalRootRecord,
+    { request = false }: { request?: boolean } = {},
+  ): Promise<DeviceMusicAccess> {
+    const plugin = deps.deviceMusic
+    if (plugin === undefined) {
+      // Not in the Android app: there is no device's music to read here.
+      setStatus(root.id, { state: 'unavailable' })
+      return 'denied'
+    }
+    const { music } = await (request ? plugin.requestAccess() : plugin.checkAccess())
+    if (music !== 'granted') {
+      setStatus(root.id, accessStatus(music))
+      return music
+    }
+    void runScan(root, list(root, plugin))
+    return music
   }
 
   async function checkAll(): Promise<void> {
     for (const root of await repo.listRoots()) {
       if (scans.has(root.id)) continue
+      if (root.kind === 'device') {
+        try {
+          if (deps.deviceMusic === undefined) {
+            setStatus(root.id, { state: 'unavailable' })
+          } else if (scannedThisVisit.has(root.id)) {
+            const { music } = await deps.deviceMusic.checkAccess()
+            setStatus(root.id, music === 'granted' ? { state: 'ready' } : accessStatus(music))
+          } else {
+            // Never asks: only the user's click on "Allow access" does.
+            await rescanDevice(root)
+          }
+        } catch (error) {
+          setStatus(root.id, statusForError(error))
+        }
+        continue
+      }
       if (root.kind !== 'folder') {
         setStatus(root.id, sessions.has(root.id) ? { state: 'ready' } : { state: 'unavailable' })
         continue
@@ -401,7 +545,10 @@ export function createLocalFiles(deps: LocalFilesDeps) {
         setStatus(root.id, { state: 'ready' })
       } else {
         // Readable again in a new visit: pick up what changed while FXM was closed.
-        void runScan(root, (signal) => walkDirectory(handle, signal))
+        void runScan(
+          root,
+          walk(root, (signal) => walkDirectory(handle, signal)),
+        )
       }
     }
   }
@@ -446,7 +593,10 @@ export function createLocalFiles(deps: LocalFilesDeps) {
       clearStatus(rootId)
     }
     scannedThisVisit.delete(root.id)
-    void runScan(root, (signal) => walkDirectory(handle, signal))
+    void runScan(
+      root,
+      walk(root, (signal) => walkDirectory(handle, signal)),
+    )
   }
 
   const facade = {
@@ -483,9 +633,11 @@ export function createLocalFiles(deps: LocalFilesDeps) {
      * their songs move into it with their IDs, unread.
      *
      * With `replace`, the folder picked becomes that root's folder, for a folder that was moved
-     * (or that FXM was refused): its songs keep their IDs where the paths inside match.
+     * (or that FXM was refused): its songs keep their IDs where the paths inside match. Refused
+     * like {@link addPicked} where a folder's songs can't play.
      */
     async addFolder({ replace }: { replace?: string } = {}): Promise<AddFolderResult> {
+      if (!facade.canAddFiles()) throw choosingUnsupported()
       const handle = await deps.pickDirectory()
       if (handle === null) return { status: 'cancelled' }
       const kept: { root: LocalRootRecord; handle: FileSystemDirectoryHandle }[] = []
@@ -528,9 +680,11 @@ export function createLocalFiles(deps: LocalFilesDeps) {
     /**
      * Adds files chosen through a file input: a folder (`webkitdirectory`) or single files. A
      * folder chosen again under the same name is the same root: its songs come back with their
-     * IDs, and files no longer in it go. Single files add up.
+     * IDs, and files no longer in it go. Single files add up. Refused (`Unsupported`) where
+     * chosen files can't play ({@link canAddFiles}).
      */
     async addPicked(files: readonly File[]): Promise<AddPickedResult> {
+      if (!facade.canAddFiles()) throw choosingUnsupported()
       const picked = groupPickedFiles(files)
       if (picked.files.size === 0) return { status: 'empty' }
       let root = await repo.findPickedRoot(picked.kind, picked.rootName)
@@ -551,7 +705,10 @@ export function createLocalFiles(deps: LocalFilesDeps) {
       } else {
         sessions.set(root.id, picked)
       }
-      void runScan(root, () => picked.directories)
+      void runScan(
+        root,
+        walk(root, () => picked.directories),
+      )
       return { status, root }
     },
 
@@ -562,13 +719,23 @@ export function createLocalFiles(deps: LocalFilesDeps) {
     async requestAccess(rootId: string): Promise<FolderAccess> {
       // From memory when the folder was checked: the prompt must open within the click.
       const handle = await handleOf(rootId)
-      if (handle === undefined) return 'denied'
+      if (handle === undefined) {
+        // The device's music has no handle: Android asks, whenever the app requests it.
+        const root = await repo.getRoot(rootId)
+        if (root?.kind !== 'device') return 'denied'
+        scannedThisVisit.delete(rootId)
+        const music = await rescanDevice(root, { request: true })
+        return music === 'granted' || music === 'denied' ? music : 'prompt'
+      }
       const access = await folderAccess(handle, { request: true })
       if (access === 'granted') {
         const root = await repo.getRoot(rootId)
         if (root !== undefined) {
           scannedThisVisit.delete(rootId)
-          void runScan(root, (signal) => walkDirectory(handle, signal))
+          void runScan(
+            root,
+            walk(root, (signal) => walkDirectory(handle, signal)),
+          )
         }
       } else {
         setStatus(rootId, { state: access === 'denied' ? 'denied' : 'needs-access' })
@@ -584,12 +751,20 @@ export function createLocalFiles(deps: LocalFilesDeps) {
         await rescanFolder(root)
         return
       }
+      if (root.kind === 'device') {
+        await rescanDevice(root)
+        await scans.get(rootId)?.done
+        return
+      }
       const session = sessions.get(rootId)
       if (session === undefined) {
         setStatus(rootId, { state: 'unavailable' })
         return
       }
-      await runScan(root, () => session.directories)
+      await runScan(
+        root,
+        walk(root, () => session.directories),
+      )
     },
 
     /**
@@ -683,12 +858,69 @@ export function createLocalFiles(deps: LocalFilesDeps) {
 
     /**
      * The stream to play a local track from: its file's object URL, with its codec, container
-     * and tier (lossless for FLAC, ALAC and WAV only). Rejects like {@link openFile}.
+     * and tier (lossless for FLAC, ALAC and WAV only). Rejects like {@link openFile}. A song of
+     * the device's own music plays from the WebView's URL of its MediaStore URI, which the
+     * native player reads from the device. Without the permission it rejects with
+     * `AuthRequired`, after asking for it only when the user asked for the song (`ask`, see
+     * {@link StreamForOptions}).
      */
-    async streamFor(nativeId: string): Promise<StreamOption> {
+    async streamFor(
+      nativeId: string,
+      { ask = false }: StreamForOptions = {},
+    ): Promise<StreamOption> {
+      const listed = await repo.fileById(nativeId)
+      const listedRoot = listed === undefined ? undefined : await repo.getRoot(listed.rootId)
+      if (listed !== undefined && listedRoot?.kind === 'device') {
+        return deviceStream(listed, listedRoot, ask)
+      }
       const { file, record } = await facade.openFile(nativeId)
       const url = objectUrls.urlFor(`${record.key}|${file.size}|${file.lastModified}`, file)
       return streamOptionOf(record.format, url, sanitizeStreamLoudness(record.tags.loudness))
+    },
+
+    /** Whether FXM can list the device's own music here: in the Android app. */
+    canListDeviceMusic(): boolean {
+      return deps.deviceMusic !== undefined
+    },
+
+    /**
+     * Whether music can be added from folders and chosen files here: everywhere but the Android
+     * app, whose native player reads files from the device and can't play the WebView's object
+     * URLs of them. "Music on this device" lists the same songs there.
+     */
+    canAddFiles(): boolean {
+      return deps.deviceMusic === undefined
+    },
+
+    /**
+     * Lists the device's own music, in the Android app: asks the user to let FXM read it, where
+     * Android still asks, then scans what MediaStore lists. Call it from the click that opens
+     * the device's music: FXM never asks on its own.
+     */
+    async addDeviceMusic(): Promise<AddDeviceResult> {
+      const plugin = deps.deviceMusic
+      if (plugin === undefined) {
+        throw new FxmError('Unsupported', 'Only the Android app can list the music on this device')
+      }
+      const { music } = await plugin.requestAccess()
+      if (music !== 'granted') return { status: 'denied', forGood: music === 'denied' }
+      let root = (await repo.listRoots()).find((candidate) => candidate.kind === 'device')
+      const status = root === undefined ? 'added' : 'exists'
+      if (root === undefined) {
+        root = { id: uuid(), kind: 'device', name: DEVICE_ROOT_NAME, addedAt: now() }
+        await repo.putRoot(root)
+      }
+      scannedThisVisit.delete(root.id)
+      void runScan(root, list(root, plugin))
+      return { status, root }
+    },
+
+    /**
+     * Opens FXM's page in Android's settings, where the user can let it read the device's music
+     * after refusing for good.
+     */
+    async openDeviceSettings(): Promise<void> {
+      await deps.deviceMusic?.openSettings()
     },
 
     /** Stops every scan and revokes every object URL. */
@@ -715,6 +947,7 @@ export function defaultLocalFilesDeps(): LocalFilesDeps {
     canKeepFolders,
     canChooseFolders,
     objectUrls: new ObjectUrlCache(),
+    deviceMusic: findFxmDeviceMusicPlugin(),
     now: () => Date.now(),
     uuid: randomUuid,
   }

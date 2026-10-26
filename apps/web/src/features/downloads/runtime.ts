@@ -10,18 +10,25 @@
  *   playlist (stage 2.6), and a deleted one leaves it.
  * - **Offline playback:** {@link getOfflineStore} is the stream lifecycle's `offline` store
  *   (stage 2.3), so the player plays downloads first.
+ * - **In the Android app** (stage 6.4) the files go to the app's own storage through the
+ *   `FxmDownloads` plugin instead of the Origin Private File System, and while the queue has work
+ *   a foreground service keeps the app, and the queue, running in the background.
  *
  * @module
  */
 
 import { type EntityId, entityKey } from '@fxm/core'
 import {
+  connectBackgroundDownloads,
+  createNativeDownloadStorage,
   createOfflineStore,
   DownloadManager,
   type DownloadManagerOptions,
   type DownloadNetwork,
   type DownloadStorage,
   type DownloadStore,
+  type FxmDownloadsPlugin,
+  findFxmDownloadsPlugin,
   storageUnavailableError,
 } from '@fxm/downloads'
 import type { OfflineStore } from '@fxm/player'
@@ -77,12 +84,26 @@ export interface Downloads {
   readonly offline: OfflineStore
   /** What the downloads run with. */
   readonly environment: DownloadEnvironment
+  /** Whether the device is online, as the manager hears it. */
+  readonly network: DownloadNetwork
+  /**
+   * The Android app's `FxmDownloads` plugin, when FXM runs there: the files are in the app's own
+   * storage, a foreground service keeps the queue going in the background, and a download can be
+   * saved to Music/FXM.
+   */
+  readonly plugin: FxmDownloadsPlugin | undefined
 }
 
-/** What tests (and later the desktop and Android apps) may replace. */
+/** What tests (and later the desktop app) may replace. */
 export interface DownloadsConfig {
   environment?: DownloadEnvironment
   storage?: DownloadStorage
+  /**
+   * The Android app's `FxmDownloads` plugin. Default: the one on the Capacitor bridge, in the
+   * Android app only; `null` for none. With a plugin and no `storage`, the files go to the app's
+   * own storage.
+   */
+  plugin?: FxmDownloadsPlugin | null
   /**
    * Whether the storage works here, or a promise of it (a check under way). Default: true with
    * a given storage, else what trying the Origin Private File System finds.
@@ -195,11 +216,18 @@ let stopRunner: (() => void) | undefined
 
 function create(options: DownloadsConfig): Downloads & { readonly dispose: () => void } {
   const environment = options.environment ?? createAppDownloadEnvironment()
+  const plugin =
+    options.plugin === undefined ? findFxmDownloadsPlugin() : (options.plugin ?? undefined)
   let storage: DownloadStorage
   let check: Promise<boolean> | boolean
   if (options.storage !== undefined) {
     storage = options.storage
     check = options.supported ?? true
+  } else if (plugin !== undefined && options.supported !== false) {
+    // The Android app: its own storage, tried before anything is offered.
+    const native = createNativeDownloadStorage({ plugin })
+    storage = native
+    check = native.probe()
   } else if (options.supported === false || !opfsSupported()) {
     storage = unsupportedStorage()
     check = false
@@ -213,12 +241,13 @@ function create(options: DownloadsConfig): Downloads & { readonly dispose: () =>
   const support = supportState(check)
   const db = openDownloadsDatabase(options.dbName ?? DOWNLOADS_DB_NAME)
   const store = createDexieDownloadStore(db)
+  const network = options.network ?? browserNetwork()
   const manager = new DownloadManager({
     store,
     storage,
     resolver: environment.resolver,
     context: () => environment.context(),
-    network: options.network ?? browserNetwork(),
+    network,
     ...options.manager,
   })
   // The tab that runs the queue completes and deletes downloads: it keeps the playlist in step.
@@ -239,6 +268,8 @@ function create(options: DownloadsConfig): Downloads & { readonly dispose: () =>
     support,
     offline: createOfflineStore({ store, storage }),
     environment,
+    network,
+    plugin,
     dispose: () => cleaner.cancel(),
   }
 }
@@ -277,7 +308,8 @@ export async function reconcileDownloadsPlaylist(
 /**
  * Runs the download queue in this tab once it holds the `fxm-downloads` Web Lock, which only
  * one tab holds at a time (without Web Locks, at once), and only once this browser is known to
- * store downloads. Returns a function that stops it. The app's composition root calls it once
+ * store downloads. In the Android app it also keeps the app running in the background while the
+ * queue has work. Returns a function that stops it. The app's composition root calls it once
  * the tier is known (`startAppDownloads` in `src/app/services/downloads.ts`), so a download
  * resumed from an earlier visit never meets the Free tier of a page whose FXM Connect is still
  * waking up; tests call it to run the queue.
@@ -288,11 +320,15 @@ export function startDownloads(): () => void {
   const stop = new AbortController()
   const run = async () => {
     await downloads.manager.start()
+    const { plugin, store, network } = downloads
+    const stopBackground =
+      plugin === undefined ? undefined : connectBackgroundDownloads({ plugin, store, network })
     await reconcileDownloadsPlaylist(downloads.manager, getLibrary()).catch(() => 0)
     await new Promise<void>((resolve) => {
       if (stop.signal.aborted) resolve()
       else stop.signal.addEventListener('abort', () => resolve(), { once: true })
     })
+    stopBackground?.()
     await downloads.manager.stop()
   }
   const begin = () => {

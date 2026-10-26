@@ -199,6 +199,13 @@ export function useCanDownload(): (track: Track | undefined) => boolean {
 
 /** The storage meter's numbers and the persistence state, refreshed with `refresh()`. */
 export interface StorageInfo {
+  /**
+   * Whether the downloads are in the Android app's own storage (stage 6.4) rather than the
+   * browser's: the system never deletes them for space there, and {@link free} says the room.
+   */
+  native: boolean
+  /** In the Android app: the bytes downloads may still take on the device. */
+  free: number | undefined
   estimate: StorageEstimate | undefined
   /** Whether the browser keeps FXM's data when space runs low; `undefined` when unknown. */
   persisted: boolean | undefined
@@ -219,7 +226,9 @@ export const STORAGE_REFRESH_MS = 5_000
  * and at once on `refresh()`.
  */
 export function useStorageInfo(key: unknown): StorageInfo {
+  const { plugin } = getDownloads()
   const [estimate, setEstimate] = useState<StorageEstimate | undefined>()
+  const [free, setFree] = useState<number | undefined>()
   const [persisted, setPersisted] = useState<boolean | undefined>()
   const [refused, setRefused] = useState(false)
   const [tick, setTick] = useState(0)
@@ -240,6 +249,16 @@ export function useStorageInfo(key: unknown): StorageInfo {
     // A later change moves this read, but a read under way still lands.
     const timer = setTimeout(() => {
       lastRead.current = Date.now()
+      if (plugin !== undefined) {
+        // The app's own storage: the device's free space, as the app reckons it.
+        void plugin.info().then(
+          ({ freeBytes }) => {
+            if (mounted.current) setFree(freeBytes)
+          },
+          () => {},
+        )
+        return
+      }
       void Promise.all([estimateStorage(), isStoragePersisted()]).then(([size, kept]) => {
         if (!mounted.current) return
         setEstimate(size)
@@ -255,5 +274,5 @@ export function useStorageInfo(key: unknown): StorageInfo {
     if (kept === false) setRefused(true)
     return kept
   }, [])
-  return { estimate, persisted, refused, refresh, persist }
+  return { native: plugin !== undefined, free, estimate, persisted, refused, refresh, persist }
 }

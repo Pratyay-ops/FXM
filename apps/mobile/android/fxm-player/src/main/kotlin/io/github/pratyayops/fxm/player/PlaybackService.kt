@@ -12,6 +12,7 @@ import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.datasource.DataSourceBitmapLoader
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -33,7 +34,8 @@ import io.github.pratyayops.fxm.http.FxmHttp
  * WebView whose JavaScript resolves the streams.
  *
  * Every request, audio and artwork alike, goes through fxm-http's shared OkHttp client
- * ([FxmHttp.client]): FXM's host and header rules, no cookies, a browser `User-Agent`.
+ * ([FxmHttp.client]): FXM's host and header rules, no cookies, a browser `User-Agent`. Offline
+ * copies and the device's music play from the device (fxm-downloads' `DeviceFiles`, stage 6.4).
  * The [Coordinator] decides what plays; the FxmPlayer plugin binds this service to reach it.
  */
 class PlaybackService : MediaSessionService() {
@@ -61,10 +63,12 @@ class PlaybackService : MediaSessionService() {
     super.onCreate()
     val client = FxmHttp.client(this)
     val table = SourceTable()
+    // HTTPS through the shared OkHttp client (never DefaultHttpDataSource: DefaultDataSource
+    // uses the base factory it is given), and the files DeviceFiles allowed from the device.
+    val upstream = DefaultDataSource.Factory(this, OkHttpDataSource.Factory(client))
     val media =
-      ProgressiveMediaSource.Factory(
-        ResolvingDataSource.Factory(OkHttpDataSource.Factory(client), EntryResolver(table)),
-      ).setLoadErrorHandlingPolicy(LoadErrorPolicy())
+      ProgressiveMediaSource.Factory(ResolvingDataSource.Factory(upstream, EntryResolver(table)))
+        .setLoadErrorHandlingPolicy(LoadErrorPolicy())
     // The equalizer (stage 8.1) runs in the audio sink, on every stream's decoded audio.
     val equalizer = EqualizerProcessor()
     player =

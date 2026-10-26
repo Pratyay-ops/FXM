@@ -15,6 +15,7 @@ import { readTags } from '../tags'
 import type { LocalFileRecord, LocalTags } from '../types'
 
 export * from './audio-files'
+export * from './fake-device-music'
 export * from './fake-fs'
 
 /** A thumbnail maker that decodes nothing: its URL names the image's size. */
@@ -68,6 +69,8 @@ export function testLocalFilesDeps(overrides: Partial<LocalFilesDeps> = {}) {
     canKeepFolders: () => true,
     canChooseFolders: () => true,
     objectUrls: objectUrls.urls,
+    // Not the Android app, unless a test gives the device's music.
+    deviceMusic: undefined,
     now: () => {
       clock += 1000
       return clock

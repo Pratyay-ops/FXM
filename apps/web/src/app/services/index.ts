@@ -30,7 +30,7 @@ import {
 } from '../../features/home/services'
 import { connectAppImportServices } from '../../features/import/services'
 import { withLocalFilesFirst } from '../../features/local-files/player'
-import { getPlayer } from '../../features/now-playing/playback'
+import { getPlayback, getPlayer } from '../../features/now-playing/playback'
 import {
   connectAppPolicy,
   createPendingPolicy,
@@ -91,11 +91,15 @@ function shareYouTube(youtube: YouTube): void {
  * The app's services, created on first use: on the app's one platform, which stage 2.7's
  * connection store follows too (`getAppPlatform()`: FXM Connect, the Lite tier's sandbox
  * documents in a browser, the kill switches, the Spotify secret's hosts), with the library of
- * stage 2.6 ("Add to playlist" and the match cache), whose database opens on first use.
+ * stage 2.6 ("Add to playlist" and the match cache), whose database opens on first use. Its
+ * stream lifecycle follows the desktop app's network monitor and URL margin there (stage 7.3),
+ * and in the Android app the native player's network, Android's own callbacks (stage 6.3).
  */
 export function getAppServices(): AppServices {
+  if (services !== undefined) return services
   const desktop = setup.desktop
-  services ??= createAppServices({
+  const network = desktop?.network ?? getPlayback().network
+  services = createAppServices({
     createPlatform: (options) => {
       // The hosts the services may fetch from outside the platform's table: the Spotify secret's.
       setAppUserHosts(options.userHosts)
@@ -104,9 +108,8 @@ export function getAppServices(): AppServices {
     reachesUserHosts: APP_PLATFORM_REACHES_USER_HOSTS,
     library: lazyLibrary(getLibrary),
     onYouTube: shareYouTube,
-    ...(desktop === undefined
-      ? {}
-      : { network: desktop.network, refreshBeforeExpiryMs: desktop.refreshBeforeExpiryMs }),
+    ...(network === undefined ? {} : { network }),
+    ...(desktop === undefined ? {} : { refreshBeforeExpiryMs: desktop.refreshBeforeExpiryMs }),
   })
   return services
 }

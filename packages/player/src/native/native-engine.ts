@@ -45,6 +45,7 @@ import {
 import type { DisposableNetworkMonitor } from '../lifecycle/network'
 import type { Player, PlayerState } from '../player'
 import type { ResolvedStream, ResolveRequest, StreamResolver } from '../resolver'
+import { pageOrigin } from './device-files'
 import { nativeEntry, nativeSource, nativeSupport, restoreStream } from './entries'
 import {
   FXM_PLAYER_MAX_UPCOMING,
@@ -74,6 +75,12 @@ export interface NativeEngineOptions {
   plugin?: FxmPlayerPlugin
   /** The clock, in epoch milliseconds. Default: `Date.now`. */
   now?: () => number
+  /**
+   * The page's origin, whose `_capacitor_file_` and `_capacitor_content_` URLs name files on the
+   * device (offline copies, the device's music: `device-files.ts`), which Media3 plays from the
+   * device. Default: the page's own (`location.origin`).
+   */
+  origin?: string
 }
 
 /** Options for {@link NativeEngine.connect}. */
@@ -350,6 +357,7 @@ export class NativeEngine implements Engine {
 
   readonly #plugin: FxmPlayerPlugin
   readonly #now: () => number
+  readonly #origin: string | null
   readonly #events = new Emitter<EngineEventMap>()
   readonly #ready: Promise<FxmPlayerSession | undefined>
   readonly #handles: FxmPlayerListenerHandle[] = []
@@ -357,6 +365,8 @@ export class NativeEngine implements Engine {
   readonly #prefix = `n${Math.floor(Math.random() * 2 ** 32).toString(36)}`
   #sequence = 0
   #attached = false
+  /** Why attaching to the native player failed, if it did. */
+  #attachError: unknown
   #destroyed = false
   #volume = 1
   #muted = false
@@ -431,6 +441,7 @@ export class NativeEngine implements Engine {
     liveEngines.set(plugin, this)
     this.#plugin = plugin
     this.#now = options.now ?? Date.now
+    this.#origin = options.origin ?? pageOrigin() ?? null
     this.network = this.#createNetworkMonitor()
     this.#ready = this.#start()
   }
@@ -438,7 +449,8 @@ export class NativeEngine implements Engine {
   /**
    * A native engine on the Android app's plugin (see the class's "One engine per page"), or
    * `undefined` elsewhere. It cannot tell whether attaching to the native player works; if that
-   * fails, the engine logs it and plays without events. {@link create} waits and tells.
+   * fails, the engine logs it, plays without events and {@link connect} rejects. {@link create}
+   * waits and tells.
    *
    * @throws an `Error` while another engine is alive on the plugin.
    */
@@ -496,10 +508,10 @@ export class NativeEngine implements Engine {
         ? {
             id,
             uid: 0,
-            source: nativeSource(stream, this.#networkId),
+            source: nativeSource(stream, this.#networkId, this.#origin),
             metadata: { title: APP_NAME, artists: [] },
           }
-        : nativeEntry(id, item, stream, this.#networkId)
+        : nativeEntry(id, item, stream, this.#networkId, this.#origin)
     this.#remember(entry, item, stream, undefined)
     this.#loaded = id
     this.#reported = freshReported()
@@ -627,7 +639,8 @@ export class NativeEngine implements Engine {
   preload(source: PlaybackSource | null): void {
     if (this.#destroyed) return
     const item = source?.item
-    const usable = source !== null && item !== undefined && nativeSupport(source.stream) !== 'no'
+    const usable =
+      source !== null && item !== undefined && nativeSupport(source.stream, this.#origin) !== 'no'
     if (this.#player === undefined) {
       if (!usable) {
         if (this.#upcomingIds.size === 0) return
@@ -640,7 +653,7 @@ export class NativeEngine implements Engine {
       const id = this.#queuedFor(item) ?? this.#nextId()
       this.#upcomingIds.clear()
       this.#upcomingIds.set(item.uid, id)
-      const entry = nativeEntry(id, item, source.stream, this.#networkId)
+      const entry = nativeEntry(id, item, source.stream, this.#networkId, this.#origin)
       this.#remember(entry, item, source.stream, undefined)
       void this.#call((plugin) =>
         plugin.setUpcoming({ upcoming: [entry], hasMore: false, repeat: 'off' }),
@@ -662,11 +675,12 @@ export class NativeEngine implements Engine {
 
   /**
    * How sure Media3 is that it plays `stream`: `no` unless it is a progressive, uncapped stream
-   * at an absolute HTTPS URL with headers the plugin takes; `probably` for the formats every
-   * supported Android version plays, `maybe` for the rest.
+   * at an absolute HTTPS URL with headers the plugin takes, or a file on the device (an offline
+   * copy, a song of the device's own); `probably` for the formats every supported Android version
+   * plays, `maybe` for the rest.
    */
   canPlay(stream: StreamOption): PlaySupport {
-    return nativeSupport(stream)
+    return nativeSupport(stream, this.#origin)
   }
 
   on<K extends EngineEventType>(
@@ -715,6 +729,11 @@ export class NativeEngine implements Engine {
    * queue, the engine takes Media3's entry over only when it plays the player's current item,
    * and otherwise releases Media3. Connecting again with the same player resolves with the same
    * connection; another player is refused with an error in the console.
+   *
+   * Rejects with an `Unavailable` `FxmError`, whose `cause` is the plugin's error, when attaching
+   * to the native player failed (its service could not be bound): nothing would play for the
+   * player, which is left as it was, and the app can fall back to the direct audio engine, as
+   * {@link create} lets it.
    */
   connect(options: NativeConnectOptions): Promise<NativeConnection> {
     if (this.#destroyed) return Promise.resolve(NOT_CONNECTED)
@@ -739,6 +758,15 @@ export class NativeEngine implements Engine {
     this.#aheadMs = Math.max(0, options.aheadMs ?? NATIVE_ENGINE_DEFAULTS.aheadMs)
     const session = await this.#ready
     if (this.#destroyed || this.#player !== player) return NOT_CONNECTED
+    if (!this.#attached) {
+      // Nothing would play for the player: Media3's service could not be bound.
+      this.#player = undefined
+      this.#resolver = undefined
+      this.#connection = undefined
+      throw new FxmError('Unavailable', 'The native player is not available', {
+        cause: this.#attachError,
+      })
+    }
     const resumed =
       session !== undefined && this.#loaded === undefined && this.#resync(session, player)
     const stop = player.subscribe((state, previous) => this.#onPlayerState(state, previous))
@@ -864,7 +892,7 @@ export class NativeEngine implements Engine {
       const known: Known = {
         entry,
         item: track === undefined ? undefined : { uid: entry.uid, track },
-        stream: restoreStream(entry),
+        stream: restoreStream(entry, this.#origin),
         candidate: undefined,
       }
       this.#setKnown(entry.id, known)
@@ -1015,6 +1043,7 @@ export class NativeEngine implements Engine {
       return session
     } catch (error) {
       console.error(error)
+      this.#attachError = error
       return undefined
     }
   }
@@ -1322,7 +1351,7 @@ export class NativeEngine implements Engine {
       let entry: FxmPlayerEntry
       if (resolved !== undefined) {
         const id = this.#queuedFor(item) ?? this.#nextId()
-        entry = nativeEntry(id, item, resolved.stream, resolved.network)
+        entry = nativeEntry(id, item, resolved.stream, resolved.network, this.#origin)
         this.#remember(entry, item, resolved.stream, resolved.candidate)
       } else if (kept !== undefined) {
         // Media3 has it already: it stays queued while a fresh source is on its way.
@@ -1429,7 +1458,7 @@ export class NativeEngine implements Engine {
             track: item.track.id,
             network,
           }
-          if (nativeSupport(stream) === 'no' || this.#isStale(resolved)) {
+          if (nativeSupport(stream, this.#origin) === 'no' || this.#isStale(resolved)) {
             this.#failedAhead.add(item.uid)
             return
           }

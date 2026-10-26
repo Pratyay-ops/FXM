@@ -216,6 +216,32 @@ describe('NativeEngine', () => {
     errors.mockRestore()
   })
 
+  it('connect rejects when the native player is unavailable, and leaves the player alone', async () => {
+    const plugin = createFakeFxmPlayer()
+    const unavailable = Object.assign(new Error('The player service is not available'), {
+      code: 'UNAVAILABLE',
+    })
+    plugin.attach = async () => {
+      throw unavailable
+    }
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const engine = new NativeEngine({ plugin })
+    const resolver = new FakeResolver()
+    const player = new Player({ engine, resolver: engine.wrapResolver(resolver) })
+    const connecting = engine.connect({ player, resolver })
+    // Asking again while it waits gets the same answer.
+    expect(engine.connect({ player, resolver })).toBe(connecting)
+    const error: unknown = await connecting.catch((reason: unknown) => reason)
+    expect(isFxmError(error, 'Unavailable')).toBe(true)
+    expect((error as Error).cause).toBe(unavailable)
+    // No native queue or snapshots for a player that Media3 can't play for.
+    await player.setQueue(testTracks('a', 'b'), { autoplay: false })
+    await settle()
+    expect(plugin.calls.filter((call) => /^(setUpcoming|saveSnapshot|ack)/.test(call))).toEqual([])
+    errors.mockRestore()
+    player.destroy()
+  })
+
   it('connects once per player', async () => {
     const { engine, player, connect } = nativeSetup()
     const first = connect()
@@ -246,6 +272,25 @@ describe('NativeEngine', () => {
     expect(engine.canPlay(testStream('a', { protocol: 'hls' }))).toBe('no')
     expect(engine.canPlay(testStream('a', { fullLength: 'capped' }))).toBe('no')
     expect(engine.canPlay(testStream('a', { url: 'http://media.test/a' }))).toBe('no')
+    engine.destroy()
+  })
+
+  it('plays offline copies and the device’s music from the device', async () => {
+    const plugin = createFakeFxmPlayer()
+    const engine = new NativeEngine({ plugin, origin: 'https://localhost' })
+    const copy = testStream('a', {
+      url: 'https://localhost/_capacitor_file_/data/data/app/files/downloads/2f1c',
+      fullLength: 'verified',
+    })
+    expect(engine.canPlay(copy)).toBe('probably')
+    // A blob: URL is nothing Media3 can read.
+    expect(engine.canPlay({ ...copy, url: 'blob:https://localhost/2f1c' })).toBe('no')
+    await engine.load({ stream: copy, item: { uid: 1, track: testTrack('a') } })
+    await settle()
+    expect(plugin.entries[0]?.source).toEqual({
+      kind: 'file',
+      url: 'file:///data/data/app/files/downloads/2f1c',
+    })
     engine.destroy()
   })
 

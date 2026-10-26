@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- The dataSync foreground service that keeps the app running while downloads do
+         (DownloadService), with the partial wake lock and Wi-Fi lock it holds meanwhile. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Its progress notification (Android 13 and later ask once, from the first download). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- The device's music (FxmDeviceMusic), asked for only when the user opens it: Android 13
+         and later have READ_MEDIA_AUDIO, older versions READ_EXTERNAL_STORAGE. Never
+         MANAGE_EXTERNAL_STORAGE. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Saving a download to Music/FXM on Android 9 and older, where MediaStore needs it;
+         Android 10 and later add the app's own files to MediaStore without a permission. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+
+    <application>
+        <!-- Not exported: only FXM starts it, from the FxmDownloads plugin. -->
+        <service
+            android:name=".DownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

@@ -87,8 +87,9 @@ class PlayerMessagesTest {
     bad { PlayerMessages.entry(entryJson("e", "data" to "x".repeat(PlayerMessages.MAX_ENTRY_DATA_CHARS + 1))) }
     bad { PlayerMessages.source(source("fileKey" to 7)) }
     bad { PlayerMessages.source(source("fileKey" to "k".repeat(PlayerMessages.MAX_FILE_KEY_CHARS + 1))) }
-    // Offline copies are another kind, which this version does not play yet.
-    assertTrue(bad { PlayerMessages.source(source("kind" to "file")) }.contains("kind"))
+    assertTrue(bad { PlayerMessages.source(source("kind" to "magnet")) }.contains("kind"))
+    // A file source must be a file the player may play (FileSourcesTest): an HTTPS URL isn’t.
+    bad { PlayerMessages.source(source("kind" to "file")) }
     bad { PlayerMessages.source(source("ipBound" to "yes")) }
   }
 

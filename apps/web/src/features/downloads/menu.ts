@@ -1,18 +1,19 @@
 /**
  * Download entries for the menus of track lists: "Download", "Cancel download" and "Remove
  * download", depending on where the track's download stands and whether it can be downloaded
- * here.
+ * here; "Save to device…" for a finished one, and in the Android app "Save to Music folder" too.
  *
  * @module
  */
 
 import type { EntityId, Track } from '@fxm/core'
 import { downloadId } from '@fxm/downloads'
-import { ArrowDownToLine, CircleMinus, CircleX, HardDriveDownload } from 'lucide-react'
+import { ArrowDownToLine, CircleMinus, CircleX, FolderDown, HardDriveDownload } from 'lucide-react'
 import { useCallback } from 'react'
 import type { MenuItem } from '../library/ui/menu'
-import { downloadTracks, removeDownloads } from './actions'
+import { downloadTracks, removeDownloads, saveDownloadToMusic } from './actions'
 import { useCanDownload, useDownloadStatuses } from './hooks'
+import { getDownloads } from './runtime'
 
 /** A row a download entry is for: its track ID, and its track when the cache has it. */
 export interface DownloadMenuRow {
@@ -91,5 +92,28 @@ export function useSaveMenuItem(
       }
     },
     [statuses, onSave],
+  )
+}
+
+/**
+ * "Save to Music folder" for the rows of a list whose download is finished, in the Android app
+ * only (stage 6.4): a copy in Music/FXM, where every music app finds it. Elsewhere, and for a
+ * song that isn't downloaded, no entry.
+ */
+export function useSaveToMusicMenuItem(): (row: DownloadMenuRow) => MenuItem | undefined {
+  const statuses = useDownloadStatuses()
+  const android = getDownloads().plugin !== undefined
+  return useCallback(
+    (row) => {
+      if (!android || statuses?.get(downloadId(row)) !== 'completed') return undefined
+      const title = row.track?.title ?? 'This song'
+      return {
+        id: 'save-to-music',
+        label: 'Save to Music folder',
+        icon: FolderDown,
+        onSelect: () => void saveDownloadToMusic({ id: row.id, title }),
+      }
+    },
+    [android, statuses],
   )
 }

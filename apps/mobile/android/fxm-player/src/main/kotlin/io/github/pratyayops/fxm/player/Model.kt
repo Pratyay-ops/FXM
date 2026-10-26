@@ -10,12 +10,27 @@ enum class Repeat {
   ONE,
 }
 
+/** Where a [Source]'s bytes are. */
+enum class SourceKind(val wire: String) {
+  /** At an HTTPS URL, fetched through fxm-http's shared client. */
+  HTTP("http"),
+
+  /**
+   * On the device (fxm-downloads' `DeviceFiles`): an offline copy in the app's downloads folder
+   * (a `file:` URI) or the device's own music (a MediaStore `content:` URI).
+   */
+  FILE("file"),
+}
+
 /**
  * Where an entry's audio comes from: a resolved stream URL and how to request it. The web app
  * resolves it (`StreamOption` in `@fxm/core`); native code never resolves anything itself.
  */
 data class Source(
-  /** The HTTPS URL of the whole file, fetched with plain `GET`s. */
+  /**
+   * The HTTPS URL of the whole file, fetched with plain `GET`s; for a [SourceKind.FILE] source,
+   * the `file:` or `content:` URI `DeviceFiles` checked.
+   */
   val url: String,
   /** Request headers the URL needs, e.g. a `Referer`. FXM's network rules still apply. */
   val headers: Map<String, String> = emptyMap(),
@@ -35,6 +50,8 @@ data class Source(
   val fileKey: String? = null,
   /** How loud the audio is, when the web app knows (stage 8.1): loudness normalization uses it. */
   val loudness: Loudness? = null,
+  /** Where the bytes are. A file never expires and is bound to no network. */
+  val kind: SourceKind = SourceKind.HTTP,
 )
 
 /**

@@ -1,0 +1,61 @@
+# Clean-room log: fxm-downloads
+
+Where each fact this module and its web side (`packages/downloads/src/native`, `apps/web/src/features/local-files/device-*.ts`) rely on comes from, with the date it was checked. The code was written from these facts and from the public APIs of Android, AndroidX Core and Capacitor (MIT). No code was copied, and no GPL or AGPL project (NewPipe, Bloomee, Spotube or its plugins, Seal) was opened for it.
+
+## Android SDK platform 36 (`.tools/android-sdk/platforms/android-36`, read 2026-10-26)
+
+From `data/api-versions.xml` (when each API appeared) and the Javadoc in `android-stubs-src.jar`:
+
+| Fact | Source |
+|---|---|
+| MediaStore's audio columns: `_ID`, `DISPLAY_NAME`, `TITLE`, `ARTIST`, `ALBUM`, `ALBUM_ID`, `TRACK`, `YEAR`, `DURATION` (in `AudioColumns`), `MIME_TYPE`, `SIZE`, `DATE_MODIFIED` and `IS_MUSIC` exist from API 1; `RELATIVE_PATH`, `VOLUME_NAME` and `IS_PENDING` from 29; `ALBUM_ARTIST`, `BITRATE`, `CD_TRACK_NUMBER`, `DISC_NUMBER` and `COMPILATION` (in `MediaColumns`) from 30; `SAMPLERATE` and `BITS_PER_SAMPLE` from 36. `DATA` (`_data`) is deprecated (36 in the API database). A query naming a column the platform doesn't know fails, so `DeviceMusicQuery` asks for each only where it exists | `api-versions.xml`; column names (`album_artist`, `cd_track_number`, `disc_number`, `bitrate`, `compilation`, `samplerate`, `bits_per_sample`, `relative_path`, `volume_name`, `is_pending`) from `MediaStore.java` in the stubs |
+| `TRACK` "encodes both the track number and the disc number. For multi-disc sets, this number will be 1xxx for tracks on the first disc, 2xxx for tracks on the second disc, etc." `CD_TRACK_NUMBER` is the text of `MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER` | `MediaStore.Audio.AudioColumns.TRACK`, `MediaStore.MediaColumns.CD_TRACK_NUMBER` (stubs) |
+| MediaStore writes `<unknown>` for a tag a file lacks (`UNKNOWN_STRING`); its volumes are named `external` (every external volume, from 29) and `external_primary` | `MediaStore.UNKNOWN_STRING`, `VOLUME_EXTERNAL`, `VOLUME_EXTERNAL_PRIMARY` (stubs) |
+| `ContentResolver.loadThumbnail` exists from API 29, `MediaStore.getExternalVolumeNames` from 29, `QUERY_ARG_LIMIT`/`QUERY_ARG_OFFSET` from 26 (FXM pages by `_ID` instead, which every version supports) | `api-versions.xml` |
+| `READ_MEDIA_AUDIO` and `POST_NOTIFICATIONS` exist from API 33, `FOREGROUND_SERVICE_DATA_SYNC` from 34, `ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC` and `Service.startForeground(int, Notification, int)` from 29, `ForegroundServiceStartNotAllowedException` from 31, `Service.onTimeout(int, int)` from 35. `WifiManager.WIFI_MODE_FULL_HIGH_PERF` is deprecated from 34 | `api-versions.xml` |
+| `android.R.drawable.stat_sys_download` and `stat_sys_download_done` are public framework drawables | `android.jar` |
+| `MediaStore.Audio.AudioColumns.IS_RECORDING` (`is_recording`) exists from API 31; `ServiceWorkerController` and `ServiceWorkerClient` from 24, FXM's `minSdkVersion` | `api-versions.xml` |
+
+## Android documentation (read 2026-10-26)
+
+| Fact | Source |
+|---|---|
+| "The system permits `dataSync` and `mediaProcessing` foreground services to run for a total of 6 hours in a 24-hour period, after which the system calls the running service's `Service.onTimeout(int, int)` method (introduced in Android 15)." The service then "has a few seconds to call `Service.stopSelf()`"; "if the user brings the app to the foreground, the timer resets"; a new `dataSync` service can't start until then. `adb shell device_config put activity_manager data_sync_fgs_timeout_duration <ms>` shortens the limit for testing | [Foreground service timeouts](https://developer.android.com/develop/background-work/services/fgs/timeout) |
+| "On devices that run Android 10 or higher, you don't need storage-related permissions to access and modify media files that your app owns"; on Android 9 and lower, modifying media files needs `WRITE_EXTERNAL_STORAGE`. While `IS_PENDING` is 1, "Only your app can view the file"; `RELATIVE_PATH` tells where a new file goes (with `DISPLAY_NAME`); `loadThumbnail` loads a media item's thumbnail at a size | [Access media files from shared storage](https://developer.android.com/training/data-storage/shared/media) |
+| An app targeting Android 13 or higher that reads media other apps created "must request one or more of the following granular media permissions instead of the `READ_EXTERNAL_STORAGE` permission", `READ_MEDIA_AUDIO` for audio; earlier versions need `READ_EXTERNAL_STORAGE` | [Android 13 behavior changes](https://developer.android.com/about/versions/13/behavior-changes-13), the page above |
+| Without the notification permission users "don't see notices related to foreground services in the notification drawer", but "still see notices related to foreground services in the Task Manager" | [Android 13 behavior changes](https://developer.android.com/about/versions/13/behavior-changes-13) |
+| From Android 14, cached processes are frozen; a foreground service keeps a process out of the cached state. A foreground service may not be started from the background from Android 12 on, except in listed cases | [fxm-player's log](../fxm-player/CLEAN-ROOM.md#android-documentation-read-2026-10-26) |
+
+## AOSP MediaProvider (`packages/providers/MediaProvider`, branch `main`, read 2026-10-26)
+
+Read on android.googlesource.com (Apache-2.0) for the facts below; no code was copied.
+
+| Fact | Source |
+|---|---|
+| MediaStore decides `IS_MUSIC` from a file's path alone: for each folder of `sAudioTypes` (`Ringtones` → `IS_RINGTONE`, `Notifications`, `Alarms`, `Podcasts`, `Audiobooks`, `Music` → `IS_MUSIC`, and `Recordings` → `IS_RECORDING`), the column is 1 when the lower-cased path contains `/<folder>/`; when none matches, `IS_MUSIC` is 1. So a voice note under `Android/media/<package>/…`, or a recording in a recorder's own folder, is music to MediaStore. On Android 12 and later the `Recordings` folder is `Environment.DIRECTORY_RECORDINGS`, before it the same name as FileUtils' own constant | `src/com/android/providers/media/util/FileUtils.java` (`computeAudioTypeValuesFromData`, `sAudioTypes`) |
+| `is_recording` is `INTEGER DEFAULT 0`, also when an upgrade adds it (`updateAddRecording`, which resets `date_modified` of the music rows so they are scanned again): no row has `NULL` there, so `is_recording = 0` keeps every song that isn't a recording | `src/com/android/providers/media/DatabaseHelper.java` |
+| A name that is taken gets a number: the name itself, then `name (1).ext` up to `name (31).ext` (`buildUniqueNameIterator`, a space before the parenthesis); after that the insert fails ("Failed to create unique file"). `ExportFormats.unique` numbers the same way on Android 9 and older, and `savedBefore` recognises both | `src/com/android/providers/media/util/FileUtils.java` (`buildUniqueNameIterator`, `buildUniqueFileWithExtension`) |
+
+## Capacitor 8.5.3 (`@capacitor/android`, read 2026-10-26)
+
+| Fact | Source |
+|---|---|
+| Capacitor runs every plugin method on one `HandlerThread` (`CapacitorPlugins`), so a plugin that blocks it delays every other plugin's calls | `Bridge.java` (`handlerThread`, `taskHandler`) |
+| The WebView's local server serves `<origin>/_capacitor_file_<absolute path>` from that file (`AndroidProtocolHandler.openFile`) and `<origin>/_capacitor_content_<authority>/<path>` through `ContentResolver.openInputStream` of `content://<authority>/<path>` (`openContentUrl`); `convertFileSrc` in the Android bridge turns `file://…` and `content://…` into those URLs. A request with `Range` gets a 206 whose `Content-Range` uses the stream's `available()` | `WebViewLocalServer.java`, `AndroidProtocolHandler.java`, `src/main/assets/native-bridge.js` (`convertFileSrcServerUrl`) |
+| A plugin's permissions are declared in `@CapacitorPlugin(permissions = …)` by alias; `getPermissionState` reports `granted`, `prompt`, `prompt-with-rationale` or `denied` (the last cached after Android stopped asking); `requestPermissionForAlias` asks and calls a `@PermissionCallback` method; an alias whose permission the manifest doesn't declare (e.g. above its `maxSdkVersion`) is refused | `Plugin.java`, `Bridge.java` (`getPermissionStates`), `util/PermissionHelper.java` |
+| `WebViewListener.onPageStarted` is called for every page the WebView starts loading, `onRenderProcessGone` when its renderer died | `BridgeWebViewClient.java`, `WebViewListener.java` |
+| The local server answers every request of the app's host: `WebViewLocalServer.shouldInterceptRequest` treats a decoded path (`Uri.getPath()`) that starts with `/_capacitor_content_` or `/_capacitor_file_` as a device file, its handler testing the content prefix first. `AndroidProtocolHandler.openContentUrl` opens `ContentResolver.openInputStream` of the URL (`Uri.toString()`) with every `<scheme>://<host>[:<port>]/_capacitor_content_` replaced by `content:/`, any authority, query included; `openFile` opens `new File(path)` of the decoded path with every `/_capacitor_file_` removed. Neither checks what it opens | `WebViewLocalServer.java`, `AndroidProtocolHandler.java`, `Bridge.java` (`CAPACITOR_FILE_START`, `CAPACITOR_CONTENT_START`) |
+| `BridgeWebViewClient.shouldInterceptRequest` hands every request to the local server; `Bridge.setWebViewClient` replaces the WebView's client with any `BridgeWebViewClient`. While `android.resolveServiceWorkerRequests` is on (the default), the bridge also sets `ServiceWorkerController`'s client to one that hands service workers' requests to the local server | `BridgeWebViewClient.java`, `Bridge.java` (`loadWebView`, `setWebViewClient`), `CapConfig.java` |
+| `BridgeActivity.onCreate` creates the bridge, which starts loading the page (`loadUrl`) before it returns; `bridge` is `null` when the layout can't be made (no WebView) | `BridgeActivity.java` (`onCreate`, `load`), `Bridge.java` (`loadWebView`) |
+
+## FXM's own choices, and what a device must confirm
+
+| Choice | Why |
+|---|---|
+| Downloads leave free the smaller of 5 % of the storage and 500 MiB | The level at which Android itself warns that storage runs low: AOSP's `StorageManager` defaults (`DEFAULT_THRESHOLD_PERCENTAGE` 5, `DEFAULT_THRESHOLD_MAX_BYTES` 500 MB), recalled from AOSP's source and not re-read for this stage; the numbers are FXM's to tune either way |
+| Opus and Vorbis in WebM are saved to Music/FXM as `.mka` (`audio/x-matroska`), never `.webm` | Android's media scanner types a file by its extension and files `.webm` as video; WebM is Matroska, and `.mka` is Matroska audio. Recalled, not re-read: [the on-device check](README.md#checks-on-a-device) confirms that the copy shows among the songs |
+| The device's music is read from MediaStore's columns, never from the files | Fast for a phone's whole library and needs no file access beyond the permission; ISRCs and the ALAC/AAC difference in M4A files are not in MediaStore, so device songs carry no ISRC and an M4A is AAC (never called lossless when it may not be) |
+| The listing leaves out `Android/media/` and, from Android 12, recordings | `IS_MUSIC` can't tell voice notes from songs (above), and a song that plays enters the listening history that later stages sync and scrobble. Music saved by a messaging app there is left out too; letting the user hide or show folders is a follow-up |
+| In "This device", an `.oga` in Music/FXM is FLAC and an `.mka` is Opus in WebM | What `ExportFormats` saves there under those extensions; elsewhere an `.oga` may be Vorbis and stays lossy, and an `.mka` whose codec MediaStore doesn't say is played as the Matroska it is |
+| The page reads no device file but its downloads and MediaStore's songs (`DeviceFileFilter`) | Capacitor's local server would serve it any file the app can read and any content URI (above); with the music permission that is the user's photos, videos and recordings too |
+| An `<audio>` element plays a device file through Capacitor's URLs | The WebView seeks within a stream it intercepts, as far as known; whether seeking works in a song played that way is [an on-device check](README.md#checks-on-a-device). Media3, which plays them in the app, reads the files themselves |

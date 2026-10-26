@@ -35,6 +35,8 @@ kotlin {
 dependencies {
     implementation project(':capacitor-android')
     implementation project(':fxm-http')
+    // The downloads folder, whose offline copies the player plays (stage 6.4).
+    implementation project(':fxm-downloads')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.media3:media3-exoplayer:$media3Version"
     implementation "androidx.media3:media3-session:$media3Version"

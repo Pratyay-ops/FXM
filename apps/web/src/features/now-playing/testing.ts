@@ -89,7 +89,14 @@ export function setupTestPlayback(
     ...options,
     player: { retryDelaysMs: [0], stallTimeoutMs: 0, ...options.player },
   })
-  return { player: playback.player, policy, engine, resolver: policy.resolver }
+  return {
+    player: playback.player,
+    policy,
+    engine,
+    resolver: policy.resolver,
+    ready: playback.ready,
+    network: playback.network,
+  }
 }
 
 /** A Spotify track titled `name`: metadata only, so it plays through a match. */

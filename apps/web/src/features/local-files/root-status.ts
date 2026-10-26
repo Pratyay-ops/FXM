@@ -44,8 +44,29 @@ export function scanText(status: RootStatus): string {
   return `Reading files: ${status.read.toLocaleString('en')} of ${status.found.toLocaleString('en')}`
 }
 
+/** Whether a root's songs stay listed across reloads: a kept folder, or the device's music. */
+function isKept(root: LocalRootRecord): boolean {
+  return root.kind === 'folder' || root.kind === 'device'
+}
+
+/** The line under the device's music: what FXM needs to read it (the Android app, stage 6.4). */
+function deviceStatusText(status: RootStatus): string | undefined {
+  switch (status.state) {
+    case 'needs-access':
+      return 'FXM needs your permission to see the music on this device'
+    case 'denied':
+      return 'You didn’t let FXM see your music. Allow it in Android’s settings'
+    case 'unavailable':
+      return 'These songs are on an Android device: they play in FXM there'
+    default:
+      return undefined
+  }
+}
+
 /** The line under a root's name: its songs, or what it needs. */
 export function statusText(root: LocalRootRecord, status: RootStatus, songs: number): string {
+  const device = root.kind === 'device' ? deviceStatusText(status) : undefined
+  if (device !== undefined) return device
   switch (status.state) {
     case 'queued':
     case 'scanning':
@@ -64,7 +85,7 @@ export function statusText(root: LocalRootRecord, status: RootStatus, songs: num
       return status.message
     default: {
       const parts = [countLabel(songs, 'song')]
-      if (root.kind !== 'folder') parts.push('until FXM reloads')
+      if (!isKept(root)) parts.push('until FXM reloads')
       else if (root.scannedAt !== undefined) parts.push(`updated ${playedLabel(root.scannedAt)}`)
       const skipped = skippedText(root.skipped)
       if (skipped !== undefined) parts.push(skipped)
@@ -90,7 +111,7 @@ export function sourcesSummary(
     const songs = songCounts.get(first.id) ?? 0
     if (isScanning(status)) return `${first.name} · ${scanText(status)}`
     const parts = [first.name, countLabel(songs, 'song')]
-    if (first.kind !== 'folder') parts.push('until FXM reloads')
+    if (!isKept(first)) parts.push('until FXM reloads')
     else if (first.scannedAt !== undefined) parts.push(`updated ${playedLabel(first.scannedAt)}`)
     return parts.join(' · ')
   }
@@ -118,6 +139,22 @@ export function blockedRootsOf(
 ): Map<string, BlockedRoot> {
   const blocked = new Map<string, BlockedRoot>()
   for (const root of roots) {
+    if (root.kind === 'device') {
+      // A click on Play asks for permission while Android still asks.
+      const state = statuses[root.id]?.state
+      if (state === 'denied') {
+        blocked.set(root.id, {
+          badge: 'No access',
+          message: 'Allow FXM to see your music in Android’s settings to play this song',
+        })
+      } else if (state === 'unavailable') {
+        blocked.set(root.id, {
+          badge: 'Android',
+          message: 'This song is on an Android device: play it in FXM there',
+        })
+      }
+      continue
+    }
     switch (statuses[root.id]?.state) {
       case 'unavailable':
         blocked.set(root.id, {
@@ -165,6 +202,13 @@ export function scanSummary(
         ? 'None of those files can be played here'
         : `Added ${countLabel(listed, 'song')}`
     return listed > 0 && skipped !== undefined ? `${text}. ${skipped}` : text
+  }
+  if (root.kind === 'device') {
+    const text =
+      songs === 0
+        ? 'No songs were found on this device'
+        : `${verb} ${countLabel(songs, 'song')} on this device`
+    return skipped === undefined ? text : `${text}. ${skipped}`
   }
   if (songs === 0) {
     return skipped === undefined

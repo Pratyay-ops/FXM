@@ -21,7 +21,7 @@ import type { OrderUndo } from '../../db/types'
 import { cn } from '../../lib/cn'
 import { downloadTracks, removeDownloads } from '../downloads/actions'
 import { useCanDownload } from '../downloads/hooks'
-import { useDownloadMenuItem, useSaveMenuItem } from '../downloads/menu'
+import { useDownloadMenuItem, useSaveMenuItem, useSaveToMusicMenuItem } from '../downloads/menu'
 import { SaveToDeviceDialog } from '../downloads/save/save-dialog'
 import { getPlayer } from '../now-playing/playback'
 import { CoverArt } from './cover-art'
@@ -285,6 +285,7 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   const plural = 'songs'
   const downloadMenuItem = useDownloadMenuItem()
   const saveMenuItem = useSaveMenuItem(setSaving)
+  const saveToMusicMenuItem = useSaveToMusicMenuItem()
   const canDownload = useCanDownload()
 
   const titleOf = useCallback(
@@ -438,6 +439,8 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
     const save = row && saveMenuItem(row)
     if (save) items.push(save)
     if (download) items.push(download)
+    const saveToMusic = row && saveToMusicMenuItem(row)
+    if (saveToMusic) items.push(saveToMusic)
     if (kind !== 'downloads') {
       items.push({
         id: 'remove',

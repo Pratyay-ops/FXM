@@ -14,6 +14,7 @@ import {
   type Track,
 } from '@fxm/core'
 import type { PlaySupport } from '../engine'
+import { deviceFileUri, pageOrigin, webViewFileUrl } from './device-files'
 import {
   FXM_PLAYER_MAX_ENTRY_DATA,
   type FxmPlayerEntry,
@@ -75,15 +76,19 @@ function sendable(stream: StreamOption): boolean {
 
 /**
  * How sure the native player is that it can play `stream` (see `PlaySupport`): `no` for streams
- * it refuses (not progressive, `capped`, not an absolute HTTPS URL, or headers the plugin would
- * refuse), `probably` for the formats Media3 plays on every Android version FXM supports (Opus
- * 251 in WebM, AAC 140 and itag 18 in MP4, MP3, FLAC, Vorbis, WAV), `maybe` for the rest. Unlike
- * an `<audio>` element, it can send request headers. Offline copies (`blob:` URLs) are `no`
- * until 6.4 gives the plugin file sources.
+ * it refuses (not progressive, `capped`, neither an absolute HTTPS URL nor a file on the device,
+ * or headers the plugin would refuse), `probably` for the formats Media3 plays on every Android
+ * version FXM supports (Opus 251 in WebM, AAC 140 and itag 18 in MP4, MP3, FLAC, Vorbis, WAV),
+ * `maybe` for the rest. Unlike an `<audio>` element, it can send request headers. Files on the
+ * device (stage 6.4: offline copies and the device's music, at the WebView URLs of
+ * `device-files.ts` for the page's `origin`) play from the device; a `blob:` URL can't.
  */
-export function nativeSupport(stream: StreamOption): PlaySupport {
+export function nativeSupport(
+  stream: StreamOption,
+  origin: string | null = pageOrigin() ?? null,
+): PlaySupport {
   if (stream.fullLength === 'capped' || stream.protocol !== 'progressive') return 'no'
-  if (!sendable(stream)) return 'no'
+  if (deviceFileUri(stream.url, origin) === undefined && !sendable(stream)) return 'no'
   return PROBABLY.has(formatOf(stream.codec, stream.container)) ? 'probably' : 'maybe'
 }
 
@@ -146,8 +151,18 @@ export function streamFileKey(url: string): string | undefined {
   return ['googlevideo', itag, lmt, params.get('clen') ?? '', params.get('dur') ?? ''].join(':')
 }
 
-/** `stream` as a native source; `network` is the native network it was resolved on. */
-export function nativeSource(stream: StreamOption, network?: number): FxmPlayerSource {
+/**
+ * `stream` as a native source; `network` is the native network it was resolved on. A file on the
+ * device is a `file` source of its `file:` or `content:` URI, which never expires and is bound to
+ * no network.
+ */
+export function nativeSource(
+  stream: StreamOption,
+  network?: number,
+  origin: string | null = pageOrigin() ?? null,
+): FxmPlayerSource {
+  const file = deviceFileUri(stream.url, origin)
+  if (file !== undefined) return { kind: 'file', url: file }
   const headers = stream.requestHeaders
   const fileKey = streamFileKey(stream.url)
   const loudness = stream.loudness
@@ -186,12 +201,13 @@ export function nativeEntry(
   item: QueueItem,
   stream: StreamOption,
   network?: number,
+  origin: string | null = pageOrigin() ?? null,
 ): FxmPlayerEntry {
   const data = streamData(stream)
   return {
     id,
     uid: item.uid,
-    source: nativeSource(stream, network),
+    source: nativeSource(stream, network, origin),
     metadata: nativeMetadata(item.track),
     ...(data === undefined ? {} : { data }),
   }
@@ -211,10 +227,14 @@ function isStringRecord(value: unknown): value is Record<string, string> {
 
 /**
  * The stream an entry plays, read back from its data in a session: `undefined` unless the data
- * is a stream the native player can play, for the entry's URL. The data comes back from the
- * native side, so it is checked like anything read from storage; only known fields are copied.
+ * is a stream the native player can play, for the entry's URL (for a file on the device, the
+ * WebView URL of its URI, as the stream had it). The data comes back from the native side, so it
+ * is checked like anything read from storage; only known fields are copied.
  */
-export function restoreStream(entry: FxmPlayerEntry): StreamOption | undefined {
+export function restoreStream(
+  entry: FxmPlayerEntry,
+  origin: string | null = pageOrigin() ?? null,
+): StreamOption | undefined {
   if (entry.data === undefined) return undefined
   let value: unknown
   try {
@@ -240,8 +260,12 @@ export function restoreStream(entry: FxmPlayerEntry): StreamOption | undefined {
   ) {
     return undefined
   }
+  const url =
+    entry.source.kind === 'file'
+      ? (webViewFileUrl(entry.source.url, origin) ?? entry.source.url)
+      : entry.source.url
   const stream: StreamOption = {
-    url: entry.source.url,
+    url,
     codec: codec as Codec,
     container: container as Container,
     media: media as StreamOption['media'],
@@ -257,5 +281,5 @@ export function restoreStream(entry: FxmPlayerEntry): StreamOption | undefined {
   if (isStringRecord(value.requestHeaders)) stream.requestHeaders = { ...value.requestHeaders }
   const loudness = sanitizeStreamLoudness(value.loudness)
   if (loudness !== undefined) stream.loudness = loudness
-  return nativeSupport(stream) === 'no' ? undefined : stream
+  return nativeSupport(stream, origin) === 'no' ? undefined : stream
 }

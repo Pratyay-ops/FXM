@@ -445,4 +445,32 @@ describe('startAppServices', () => {
     // The fake catalog plugs itself in: wait for it, so it isn't still loading after the test.
     await vi.waitFor(() => expect(appSources.getSnapshot().providers.size).toBeGreaterThan(0))
   })
+
+  it("follows the Android app's network, the native player's, for its streams", async () => {
+    const created: { readonly network?: unknown }[] = []
+    const { getAppServices } = await load({
+      appServices: () => ({
+        createAppServices: (options: { readonly network?: unknown }) => {
+          created.push(options)
+          return { dispose: () => {} }
+        },
+      }),
+    })
+    const { NativeEngine } = await import('@fxm/player')
+    const { createFakeFxmPlayer } = await import('@fxm/player/testing')
+    const { configurePlayback, resetPlayback } = await import('../../features/now-playing/playback')
+    const playback = configurePlayback({
+      createEngine: () =>
+        new NativeEngine({ plugin: createFakeFxmPlayer(), origin: 'https://localhost' }),
+      mediaSession: false,
+      recordPlays: false,
+    })
+
+    getAppServices()
+
+    // Android's own callbacks, which keep arriving with the screen off.
+    expect(playback.network).toBeDefined()
+    expect(created.map((options) => options.network)).toEqual([playback.network])
+    resetPlayback()
+  })
 })
