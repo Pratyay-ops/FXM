@@ -55,6 +55,15 @@ enum class RequestReason(val wire: String) {
   NETWORK("network"),
 }
 
+/** Why the native sleep timer paused playback (stage 8.1). */
+enum class SleepReason(val wire: String) {
+  /** Its time came. */
+  TIMER("timer"),
+
+  /** The entry it waited for ended. */
+  END_OF_TRACK("end-of-track"),
+}
+
 /** A media control the web app decides about, because it owns the queue. */
 enum class SystemCommand(val wire: String) {
   NEXT("next"),
@@ -80,6 +89,9 @@ sealed interface Event {
 
   /** The device changed network; [id] counts the changes. */
   data class Network(val id: Int, val cellular: Boolean) : Event
+
+  /** The sleep timer paused playback. */
+  data class Sleep(val reason: SleepReason) : Event
 }
 
 /**

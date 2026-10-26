@@ -88,7 +88,55 @@ object PlayerMessages {
         else -> throw bad("ipBound must be a boolean")
       }
     val fileKey = optionalString(json, "fileKey", MAX_FILE_KEY_CHARS)?.takeIf { it.isNotEmpty() }
-    return Source(url, headers, expiresAt, ipBound, network, fileKey)
+    return Source(url, headers, expiresAt, ipBound, network, fileKey, loudness(json.optJSONObject("loudness")))
+  }
+
+  /**
+   * An entry's loudness (stage 8.1): `trackLufs` and an optional `albumLufs`, each a finite number
+   * from -70 to 6 LUFS. Anything else is left out rather than refused: the entry plays as it is.
+   */
+  fun loudness(json: JSONObject?): Loudness? {
+    if (json == null) return null
+    val track = lufs(json.opt("trackLufs")) ?: return null
+    return Loudness(track, lufs(json.opt("albumLufs")))
+  }
+
+  /** The audio effects of `setEffects` (stage 8.1). */
+  fun effects(json: JSONObject): EffectsSettings {
+    val equalizer = json.optJSONObject("equalizer") ?: throw bad("The equalizer is missing")
+    val gains = equalizer.optJSONArray("gainsDb") ?: throw bad("The equalizer's gains are missing")
+    if (gains.length() != EqualizerBands.HZ.size) throw bad("The equalizer needs ${EqualizerBands.HZ.size} gains")
+    val gainsDb =
+      (0 until gains.length()).map {
+        val gain = (gains.opt(it) as? Number)?.toDouble() ?: throw bad("Gains must be numbers")
+        if (!gain.isFinite()) throw bad("Gains must be finite")
+        EqualizerMath.clampGain(gain)
+      }
+    val loudness = json.optJSONObject("loudness") ?: throw bad("Loudness is missing")
+    val target = (loudness.opt("targetLufs") as? Number)?.toDouble()
+    if (target == null || !target.isFinite() || target < -40 || target > 0) throw bad("Invalid loudness target")
+    val album =
+      when (loudness.opt("mode")) {
+        "track" -> false
+        "album" -> true
+        else -> throw bad("Unknown loudness mode")
+      }
+    val speed = (json.opt("speed") as? Number)?.toDouble()
+    if (speed == null || !speed.isFinite() || speed < 0.5 || speed > 2) throw bad("The speed must be from 0.5 to 2")
+    return EffectsSettings(
+      EqualizerSettings(flag(equalizer, "enabled"), gainsDb),
+      LoudnessSettings(flag(loudness, "enabled"), target, album),
+      speed.toFloat(),
+    )
+  }
+
+  /** The sleep timer of `setSleepTimer` (stage 8.1), or `null` to cancel it. */
+  fun sleepTimer(json: JSONObject): SleepTimer? {
+    val endOfTrack = flag(json, "endOfTrack")
+    val endsAt = optionalNumber(json, "endsAt")
+    val fadeMs = optionalNumber(json, "fadeMs") ?: 0L
+    if (!endOfTrack && endsAt == null) return null
+    return SleepTimer(if (endOfTrack) null else endsAt, if (endOfTrack) 0L else fadeMs, endOfTrack)
   }
 
   fun metadata(json: JSONObject?): Metadata {
@@ -163,6 +211,7 @@ object PlayerMessages {
       is Event.Request -> "request" to JSONObject().put("id", event.id).put("reason", event.reason.wire)
       is Event.Command -> "command" to JSONObject().put("command", event.command.wire)
       is Event.Network -> "network" to network(event.id, event.cellular)
+      is Event.Sleep -> "sleep" to JSONObject().put("reason", event.reason.wire)
     }
 
   fun session(session: Session): JSONObject {
@@ -187,6 +236,11 @@ object PlayerMessages {
     entry.source.expiresAt?.let { source.put("expiresAt", it) }
     entry.source.network?.let { source.put("network", it) }
     entry.source.fileKey?.let { source.put("fileKey", it) }
+    entry.source.loudness?.let {
+      val loudness = JSONObject().put("trackLufs", it.trackLufs)
+      it.albumLufs?.let { album -> loudness.put("albumLufs", album) }
+      source.put("loudness", loudness)
+    }
     val artists = JSONArray()
     for (artist in entry.metadata.artists) artists.put(artist)
     val metadata = JSONObject().put("title", entry.metadata.title).put("artists", artists)
@@ -209,6 +263,20 @@ object PlayerMessages {
   // --- Helpers -----------------------------------------------------------------------------------
 
   private fun bad(message: String) = PlayerMessageException(message)
+
+  /** A boolean field: `true` only where it says `true`; throws for a value that isn't one. */
+  private fun flag(json: JSONObject, name: String): Boolean =
+    when (val value = json.opt(name)) {
+      null, JSONObject.NULL -> false
+      is Boolean -> value
+      else -> throw bad("$name must be a boolean")
+    }
+
+  /** A loudness in LUFS, from -70 to 6, or `null`. */
+  private fun lufs(value: Any?): Double? {
+    val number = (value as? Number)?.toDouble() ?: return null
+    return number.takeIf { it.isFinite() && it >= -70 && it <= 6 }
+  }
 
   private fun text(value: Any?): String? =
     (value as? String)?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_TEXT)

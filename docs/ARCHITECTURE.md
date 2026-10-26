@@ -441,7 +441,7 @@ The UI adapts to what each platform can do:
 | Last.fm stations | — | — | ✅ | ✅ | ✅ |
 | Downloads | Free sources only | Free sources only | ✅ every track | ✅ every track, to disk | ✅ every track |
 | Background playback | ✅ tab or PWA window | ✅ | ✅ | ✅ tray, hidden window | ✅ foreground service |
-| Equalizer | Free sources | Free sources | ✅ (bytes through Connect + MediaSource, unless the stream was redirected) | Later (MediaSource or a local stream) | ✅ ExoPlayer effects |
+| Equalizer | Free sources | Free sources | ✅ (bytes readable through Connect, unless the stream was redirected) | Free sources and local files; YouTube later (7.6: MediaSource or a local stream) | ✅ ExoPlayer effects (a Media3 audio processor) |
 | Local music files | ✅ (folder access in Chromium, file picker elsewhere) | ✅ | ✅ | ✅ | ✅ MediaStore |
 
 ### Services, CORS and keys (measured 2026-10-25)
