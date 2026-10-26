@@ -7,6 +7,7 @@
  */
 
 import { createPlatform } from '@fxm/platform'
+import { type InvokeArgs, invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { htmlAudioPlayer } from './player'
 import { runSmoke, type SmokeReport } from './steps'
@@ -41,6 +42,8 @@ async function smoke(): Promise<SmokeReport> {
       player: htmlAudioPlayer(),
       query: 'Radiohead Creep',
       freeTrack: FREE_TRACK,
+      // Untyped on purpose: the hook step sends a Map, which InvokeArgs doesn't list.
+      invoke: (command, payload) => invoke(command, payload as InvokeArgs),
       onStep: (step) => log(`${step.status} ${step.name}: ${step.detail}`),
     })
   } finally {

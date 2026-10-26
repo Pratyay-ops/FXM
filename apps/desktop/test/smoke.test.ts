@@ -1,6 +1,7 @@
 import type { NetworkCapabilities, ProviderContext, StreamOption } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  DEAD_PROXY,
   type MediaPlayer,
   Pending,
   PROBE_BYTES,
@@ -91,6 +92,17 @@ const player = (overrides: Partial<MediaPlayer> = {}): MediaPlayer => ({
   ...overrides,
 })
 
+/** Tauri's `invoke`, answering the HTTP plugin's commands as Rust does for a direct request. */
+function pluginInvoke(send: () => Promise<unknown> = async () => ({ status: 302, rid: 2 })) {
+  return vi.fn(async (command: string, _payload: unknown): Promise<unknown> => {
+    if (command === 'plugin:http|fetch') return 1
+    if (command === 'plugin:http|fetch_send') return send()
+    return null
+  })
+}
+
+const HOOK_STEP = 'page script can’t give the HTTP plugin a proxy'
+
 /** The result of the step called `name`. */
 const stepNamed = (report: SmokeReport, name: string) =>
   report.steps.find((step) => step.name === name)
@@ -104,6 +116,7 @@ function options(overrides: Partial<SmokeOptions> = {}): SmokeOptions {
     player: player(),
     query: 'Radiohead Creep',
     freeTrack: FREE,
+    invoke: pluginInvoke(),
     now: () => 0,
     ...overrides,
   }
@@ -132,6 +145,7 @@ describe('runSmoke', () => {
       ['the track plays to the end', 'passed'],
       ['Free track: end-of-file probe', 'passed'],
       ['Free track: plays to the end', 'passed'],
+      [HOOK_STEP, 'passed'],
     ])
     expect(played).toEqual([stream('verified').url, FREE.url])
     expect(stepNamed(report, 'Free track: end-of-file probe')?.detail).toContain(
@@ -162,6 +176,7 @@ describe('runSmoke', () => {
       ['pending', 'waits for a verified stream'],
       ['passed', expect.any(String)],
       ['passed', '238.6 s'],
+      ['passed', expect.any(String)],
     ])
   })
 
@@ -190,6 +205,7 @@ describe('runSmoke', () => {
       'pending',
       'failed',
       'pending',
+      'passed',
     ])
     expect(stepNamed(report, 'VISIONOS URL passes the end-of-file probe')?.detail).toBe(
       'no stream passed the probe: opus capped, opus unverified',
@@ -253,6 +269,46 @@ describe('runSmoke', () => {
     expect(step?.status).toBe('failed')
     expect(step?.detail).toMatch(/^sw\.js_data answered \d+ characters without a visitorData$/)
     expect(JSON.stringify(report)).not.toContain(CALLER_IP)
+  })
+
+  it('calls the HTTP plugin directly, as page script can, with a dead proxy in Maps', async () => {
+    const invoke = pluginInvoke()
+    const report = await runSmoke(options({ invoke }))
+    expect(stepNamed(report, HOOK_STEP)).toMatchObject({
+      status: 'passed',
+      detail: `archive.org answered 302 directly, not through ${DEAD_PROXY}`,
+    })
+    const [first, ...rest] = invoke.mock.calls
+    expect(first?.[0]).toBe('plugin:http|fetch')
+    // Maps, which Tauri's serializer turns into objects only after the isolation hook.
+    const payload = first?.[1]
+    expect(payload).toBeInstanceOf(Map)
+    const request = (payload as Map<string, unknown>).get('clientConfig')
+    expect(request).toBeInstanceOf(Map)
+    expect(Object.fromEntries(request as Map<string, unknown>)).toEqual({
+      method: 'HEAD',
+      url: FREE.url,
+      headers: [['user-agent', expect.stringMatching(/^FXM /)]],
+      data: null,
+      maxRedirections: 0,
+      proxy: { all: DEAD_PROXY },
+    })
+    expect(rest).toEqual([
+      ['plugin:http|fetch_send', { rid: 1 }],
+      ['plugin:http|fetch_cancel_body', { rid: 2 }],
+    ])
+  })
+
+  it('fails when the plugin can’t send that request, as through the proxy it couldn’t', async () => {
+    const invoke = pluginInvoke(async () => {
+      throw 'error sending request for url (https://archive.org/download/x/x.mp3)'
+    })
+    const report = await runSmoke(options({ invoke }))
+    expect(report.ok).toBe(false)
+    expect(stepNamed(report, HOOK_STEP)).toMatchObject({
+      status: 'failed',
+      detail: `the request failed, as it would through ${DEAD_PROXY}: error sending request for url (https://archive.org/download/x/x.mp3)`,
+    })
   })
 
   it('finds the visitorData only where sw.js_data puts it', () => {

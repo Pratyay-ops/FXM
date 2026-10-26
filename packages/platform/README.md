@@ -170,7 +170,7 @@ It enforces the header policy once more at the last step, whatever the caller se
 
 - headers go only in `init.headers`, as a plain object; `Cookie` and `Host` are never sent, and `Set-Cookie` never reaches the caller.
 
-These rules bind whatever calls `ctx.fetch`. Page script that calls Tauri's IPC itself bypasses this module; the desktop app's isolation hook applies the `Origin`, `Cookie` and `Host` rules to every request to the plugin and drops its per-request `proxy` option (see [apps/desktop/README.md](../../apps/desktop/README.md#what-page-script-can-reach)).
+These rules bind whatever calls `ctx.fetch`. Page script that calls Tauri's IPC itself bypasses this module. The desktop app's isolation hook applies the `Origin`, `Cookie` and `Host` rules to what reaches the plugin and drops its per-request `proxy` option, whatever the message's shape or command, except in a start-up gap (see [apps/desktop/README.md](../../apps/desktop/README.md#what-page-script-can-reach)).
 
 `createDesktopUserHosts()` is the client for the approved hosts: `refresh()` and `current()` read the list, which Rust keeps, `revoke(host)` shrinks it, and `approve(host)` asks the user in a native dialog. Only that dialog can grow the list, so no page script can make `user_host_fetch` reach a host the user didn't approve. That binds this command only: the app's README lists what else page script can reach. Rust asks only while FXM's window is in front, at most once every 10 seconds after the last answer, and never again about a host the user refused this session; on macOS and Windows "Don't Allow" is the default button. Pass `userHosts: () => hosts.current()` to `createPlatform()`, so the transport routes those hosts.
 

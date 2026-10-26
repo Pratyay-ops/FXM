@@ -5,9 +5,10 @@
 //! needs no browser extension. Hosts the user adds in Settings go through the commands in
 //! [`user_hosts`] instead.
 //!
-//! Every IPC message from a page passes through the isolation hook in `../isolation` (Tauri's
-//! isolation pattern, set in tauri.conf.json) before it reaches Rust: it keeps page script from
-//! giving the HTTP plugin a proxy of its own or a forbidden header.
+//! IPC payloads from a page pass the isolation hook in `../isolation` (Tauri's isolation pattern,
+//! set in tauri.conf.json) before Rust reads them. Whatever the command, the hook keeps page
+//! script from giving the HTTP plugin a proxy of its own or a forbidden header, except in a
+//! start-up gap that the app's README describes.
 
 use tauri::{AppHandle, Manager};
 use tauri_plugin_window_state::StateFlags;
@@ -99,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn every_ipc_message_passes_the_isolation_hook() {
+    fn ipc_messages_pass_the_isolation_hook() {
         // Without the crate's `isolation` feature, Tauri would quietly fall back to the brownfield
         // pattern, and no message would pass the hook.
         let context = context();

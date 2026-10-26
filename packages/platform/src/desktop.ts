@@ -31,7 +31,8 @@
  *
  * These rules bind callers of this module. Page script that calls Tauri's IPC itself never passes
  * through here: the desktop app's isolation hook (`apps/desktop/isolation`) applies the `Origin`,
- * `Cookie` and `Host` rules to every request to the plugin, and drops its per-request proxy.
+ * `Cookie` and `Host` rules to what reaches the plugin, and drops its per-request proxy, whatever
+ * the message's shape or command, except in a start-up gap (see `apps/desktop/README.md`).
  *
  * Errors follow `fetch`, for the response and for reading its body: the signal's reason once the
  * request was aborted, else a `TypeError` when the network failed. Their messages name a URL only

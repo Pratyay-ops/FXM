@@ -2,7 +2,8 @@
  * The desktop app's live smoke test: stage 7.2's "done when", run in a hidden window of a debug
  * build (`scripts/run.sh pnpm --filter @fxm/desktop smoke`, see the app's README). Every request
  * goes through the app's real native networking: `createPlatform()` and `createDesktopFetch()`
- * over Tauri's HTTP plugin.
+ * over Tauri's HTTP plugin. The last step calls the plugin through Tauri's IPC directly instead,
+ * as any page script can, to check the isolation hook.
  *
  * A step that needs a stage which hasn't merged yet throws {@link Pending}, and the report says
  * so instead of failing.
@@ -11,6 +12,7 @@
  */
 
 import type { NetworkCapabilities, ProviderContext, StreamOption } from '@fxm/core'
+import { fxmUserAgent } from '@fxm/platform'
 
 /** How a step ended. */
 export type StepStatus = 'passed' | 'failed' | 'pending'
@@ -63,6 +65,9 @@ export interface MediaPlayer {
   playToEnd(url: string, options: { readonly timeoutMs: number }): Promise<{ durationS: number }>
 }
 
+/** Tauri's `invoke`: calls a command through the app's IPC, as any page script can. */
+export type Invoke = (command: string, payload: unknown) => Promise<unknown>
+
 /** A short free track, played to its end to show `<audio>` works in a hidden window. */
 export interface FreeTrack {
   /** Its URL on a host in the CSP's `media-src` and the http plugin's scope. */
@@ -85,6 +90,11 @@ export interface SmokeOptions {
   readonly query: string
   /** The free track to probe and play. */
   readonly freeTrack: FreeTrack
+  /**
+   * Tauri's `invoke`, for the step that calls the HTTP plugin directly, as any page script can,
+   * without `createDesktopFetch()`.
+   */
+  readonly invoke: Invoke
   /** How long one track may take to play to its end. Default: 10 minutes. */
   readonly playTimeoutMs?: number
   /** The clock, in milliseconds. Default: `performance.now`. */
@@ -104,6 +114,12 @@ export const SPOTIFY_TIME_URL = 'https://open.spotify.com/api/server-time'
 
 /** The size of the end-of-file probe: the last 64 KB, as stage 1.4's probe asks for. */
 export const PROBE_BYTES = 65_536
+
+/**
+ * A proxy nothing answers at: the discard port of the machine itself. A request through it fails,
+ * so a request that a page gave it and that the host answered went out without it.
+ */
+export const DEAD_PROXY = 'http://127.0.0.1:9'
 
 /** `sw.js_data` starts with this guard before its JSON. */
 const JSON_GUARD = ")]}'"
@@ -253,6 +269,30 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
           return [true, `${durationS.toFixed(1)} s`]
         },
   )
+
+  await step('page script can’t give the HTTP plugin a proxy', async () => {
+    // Straight through Tauri's IPC, as any page script can call the plugin, with a proxy nothing
+    // answers at, and in Maps, which Tauri's serializer turns into objects only after the
+    // isolation hook. The host answers only if the hook dropped the proxy.
+    const request = new Map<string, unknown>([
+      ['method', 'HEAD'],
+      ['url', options.freeTrack.url],
+      ['headers', [['user-agent', fxmUserAgent()]]],
+      ['data', null],
+      ['maxRedirections', 0],
+      ['proxy', { all: DEAD_PROXY }],
+    ])
+    let head: { status?: unknown; rid?: unknown }
+    try {
+      const rid = await options.invoke('plugin:http|fetch', new Map([['clientConfig', request]]))
+      head = (await options.invoke('plugin:http|fetch_send', { rid })) as typeof head
+    } catch (error) {
+      throw new Error(`the request failed, as it would through ${DEAD_PROXY}: ${message(error)}`)
+    }
+    await options.invoke('plugin:http|fetch_cancel_body', { rid: head.rid }).catch(() => {})
+    const host = new URL(options.freeTrack.url).host
+    return [true, `${host} answered ${String(head.status)} directly, not through ${DEAD_PROXY}`]
+  })
 
   return { ok: steps.every((result) => result.status !== 'failed'), steps }
 }

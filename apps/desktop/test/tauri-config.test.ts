@@ -156,7 +156,7 @@ describe('tauri.conf.json', () => {
     })
   })
 
-  it('passes every IPC message through the isolation hook in ../isolation', () => {
+  it('passes IPC messages through the isolation hook in ../isolation', () => {
     expect(config.app.security.pattern).toEqual({
       use: 'isolation',
       options: { dir: '../isolation' },
