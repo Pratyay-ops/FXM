@@ -15,12 +15,17 @@
  * created with it, and passes what it returns to `startAppServices`. In a browser it does
  * nothing, and the bridge's code is never downloaded.
  *
+ * It also connects the third-party notices that every desktop release carries (stage 7.5) to
+ * Settings → About ({@link connectDesktopNotices}), which reads them through the bridge when the
+ * user opens them.
+ *
  * @module
  */
 
 import { isTauriRuntime } from '@fxm/platform'
 import type { NetworkMonitor } from '@fxm/player'
 import { configurePlayback, getPlayer } from '../../features/now-playing/playback'
+import { connectBundledNotices } from '../../features/settings/bundled-notices'
 
 /** The bridge module, `@fxm/desktop/bridge`. */
 export type DesktopBridge = typeof import('@fxm/desktop/bridge')
@@ -61,4 +66,26 @@ export async function setUpDesktopPlayback(
   })
   desktop.connect(getPlayer())
   return desktop.lifecycleOptions
+}
+
+/** Options for {@link connectDesktopNotices}. Everything has a default; tests pass fakes. */
+export interface DesktopNoticesOptions {
+  /** Whether the app runs inside Tauri. Default: `isTauriRuntime()`. */
+  readonly tauri?: boolean
+  /** Loads the bridge. Default: `import('@fxm/desktop/bridge')`. */
+  readonly loadBridge?: () => Promise<Pick<DesktopBridge, 'readThirdPartyNotices'>>
+}
+
+/**
+ * Inside Tauri: Settings → About shows the third-party notices that the desktop app carries (stage
+ * 7.5), read through the bridge when the user opens them, instead of linking the site's. Elsewhere
+ * it does nothing. Call it before the first render, so About never switches under the user.
+ */
+export function connectDesktopNotices(options: DesktopNoticesOptions = {}): void {
+  if (!(options.tauri ?? isTauriRuntime())) return
+  const load = options.loadBridge ?? (() => import('@fxm/desktop/bridge'))
+  connectBundledNotices(async () => {
+    const { readThirdPartyNotices } = await load()
+    return readThirdPartyNotices()
+  })
 }

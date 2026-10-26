@@ -175,7 +175,50 @@ describe('desktop-release.yml', () => {
     expect(job(workflow, 'check')).toContain(
       `MODE: ${expression("inputs.release && 'release' || 'dry-run'")}`,
     )
-    expect(job(workflow, 'build')).toMatch(/^ {4}needs: check$/m)
+    expect(job(workflow, 'notices')).toMatch(/^ {4}needs: check$/m)
+    expect(job(workflow, 'build')).toMatch(/^ {4}needs: \[check, notices\]$/m)
+  })
+
+  it('writes the third-party notices once, from the crates and make dist’s notices', () => {
+    const notices = job(workflow, 'notices')
+    const make = steps(notices).find((step) => step.includes('run: make dist'))
+    // make dist with the deploy's Jamendo switch.
+    expect(make).toContain(
+      `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
+    )
+    expect(notices).toContain('make rust-setup')
+    expect(notices).toContain(
+      'apps/desktop/release/release.ts notices --version "$VERSION"\n          --web dist/pages/third-party-notices.txt --out apps/desktop/dist/third-party-notices.txt',
+    )
+    expect(notices).toMatch(
+      /name: desktop-notices\n\s+path: apps\/desktop\/dist\/third-party-notices\.txt\n/,
+    )
+    // No key reaches it.
+    expect(notices).not.toContain('secrets.')
+  })
+
+  it('bundles the notices into every installer, and checks that each carries them', () => {
+    const build = steps(job(workflow, 'build'))
+    const index = (predicate: (step: string) => boolean) => {
+      const found = build.findIndex(predicate)
+      expect(found).toBeGreaterThanOrEqual(0)
+      return found
+    }
+    const download = index((step) => step.includes('name: desktop-notices'))
+    const tauri = index((step) => step.includes('tauri-apps/tauri-action@'))
+    const check = index((step) => step.includes('carry the third-party notices'))
+    const collect = index((step) => step.includes('release.ts collect'))
+    expect(download).toBeLessThan(tauri)
+    expect(tauri).toBeLessThan(check)
+    expect(check).toBeLessThan(collect)
+    // Where tauri.release.conf.json takes the file from, relative to src-tauri.
+    expect(build[download]).toMatch(/\n\s+path: apps\/desktop\/dist\n/)
+    const resources = (releaseConfig.bundle as { resources: Record<string, string> }).resources
+    expect(Object.keys(resources)).toEqual(['../dist/third-party-notices.txt'])
+    // Byte for byte, where each platform's app reads it.
+    expect(build[check]).toContain('FXM.app/Contents/Resources/third-party-notices.txt')
+    expect(build[check]).toContain("'*usr/lib/FXM/third-party-notices.txt'")
+    expect(build[check]).toContain('"$release/third-party-notices.txt"')
   })
 
   it('uploads release-desktop, the artifact release.yml publishes', () => {
@@ -196,10 +239,13 @@ describe('desktop-release.yml', () => {
 })
 
 describe('tauri.release.conf.json', () => {
-  it('turns on the updater’s files, and changes nothing else', () => {
+  it('turns on the updater’s files and bundles the notices, and changes nothing else', () => {
     expect(releaseConfig).toEqual({
       $schema: 'https://schema.tauri.app/config/2',
-      bundle: { createUpdaterArtifacts: true },
+      bundle: {
+        createUpdaterArtifacts: true,
+        resources: { '../dist/third-party-notices.txt': 'third-party-notices.txt' },
+      },
     })
   })
 })
@@ -230,6 +276,15 @@ describe('release.yml', () => {
 })
 
 describe('desktop.yml', () => {
+  it('checks the crates’ licences for the notices on Linux, before a release would', () => {
+    const check = steps(job(desktop, 'build')).find((step) =>
+      step.includes('apps/desktop/release/release.ts notices'),
+    )
+    expect(check).toMatch(/\n\s+if: runner\.os == 'Linux'\n/)
+    // Only the check: no make dist, no file.
+    expect(check).not.toMatch(/--web|--out/)
+  })
+
   it('runs a dry run of the release when started by hand with release-dry-run', () => {
     expect(desktop).toMatch(/workflow_dispatch:\n {4}inputs:\n {6}release-dry-run:\n/)
     const dryRun = job(desktop, 'release-dry-run')

@@ -84,6 +84,10 @@ gh attestation verify <file> --repo Pratyay-ops/FXM \
   --deny-self-hosted-runners
 ```
 
+## Licences
+
+FXM is free and open source, under the Apache License 2.0. Every installer carries the third-party notices of the open-source code the app includes, from others, each under its own licence: Settings → About → Third-party notices shows them.
+
 ## Uninstalling
 
 - **macOS:** drag FXM from Applications to the Trash. Its data stays in `~/Library/Application Support/io.github.pratyayops.fxm`, `~/Library/Caches/io.github.pratyayops.fxm` and `~/Library/WebKit/io.github.pratyayops.fxm`: delete those folders too to remove it.

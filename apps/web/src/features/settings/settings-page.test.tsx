@@ -1,7 +1,8 @@
 import { APP_VERSION } from '@fxm/core'
 import { act, screen, within } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/render'
+import { connectBundledNotices } from './bundled-notices'
 import { SETTINGS_STORAGE_KEY, useSettingsStore } from './settings-store'
 
 const storedSettings = () => JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? 'null')
@@ -76,6 +77,62 @@ describe('Settings → About', () => {
     expect(
       within(legal).getByRole('link', { name: 'Privacy (opens in a new tab)' }),
     ).toHaveAttribute('target', '_blank')
+  })
+
+  describe('in the desktop app, which carries its own third-party notices', () => {
+    afterEach(() => connectBundledNotices(undefined))
+
+    const NOTICES =
+      'FXM desktop app: third-party notices\nVersion 1.2.3\n\nserde 1.0.0: MIT OR Apache-2.0'
+
+    it('shows them in the app, read once, instead of linking the site’s', async () => {
+      const read = vi.fn(async () => NOTICES)
+      connectBundledNotices(read)
+      const { user } = renderApp('/settings')
+      const about = await screen.findByRole('region', { name: 'About' })
+      const legal = within(about).getByRole('list', { name: 'Legal' })
+      // Privacy and the disclaimer stay on the site.
+      expect(
+        within(legal)
+          .getAllByRole('link')
+          .map((link) => link.getAttribute('href')),
+      ).toEqual(['https://fxmusic.pages.dev/privacy', 'https://fxmusic.pages.dev/disclaimer'])
+      expect(read).not.toHaveBeenCalled()
+
+      await user.click(within(legal).getByRole('button', { name: 'Third-party notices' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Third-party notices' })
+      const text = await within(dialog).findByLabelText('Third-party notices')
+      expect(text).toHaveTextContent(/^FXM desktop app: third-party notices/)
+      expect(text.textContent).toBe(NOTICES)
+
+      // Closed and opened again: the notices are kept, not read again.
+      await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+      await user.click(within(legal).getByRole('button', { name: 'Third-party notices' }))
+      expect(await within(dialog).findByLabelText('Third-party notices')).toBeInTheDocument()
+      expect(read).toHaveBeenCalledOnce()
+    })
+
+    it('says why a build has none, offers the site’s, and tries again next time', async () => {
+      const reason = 'This build of FXM carries no third-party notices file: release builds do.'
+      const read = vi.fn<() => Promise<string>>(() => Promise.reject(reason))
+      connectBundledNotices(read)
+      const { user } = renderApp('/settings')
+      const about = await screen.findByRole('region', { name: 'About' })
+      await user.click(within(about).getByRole('button', { name: 'Third-party notices' }))
+      const dialog = await screen.findByRole('dialog', { name: 'Third-party notices' })
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(reason)
+      expect(
+        within(dialog).getByRole('link', { name: 'third-party notices (opens in a new tab)' }),
+      ).toHaveAttribute('href', 'https://fxmusic.pages.dev/third-party-notices.txt')
+
+      read.mockResolvedValueOnce(NOTICES)
+      await user.click(within(dialog).getByRole('button', { name: 'Close' }))
+      await user.click(within(about).getByRole('button', { name: 'Third-party notices' }))
+      expect(await within(dialog).findByLabelText('Third-party notices')).toHaveTextContent(
+        /^FXM desktop app/,
+      )
+      expect(read).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('offers no Auto setting while the matching config keeps the band off', async () => {

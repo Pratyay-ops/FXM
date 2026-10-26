@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Reporter } from './actions.ts'
 import { downloadUrl, type Manifest } from './manifest.ts'
 import { decodePublicKey, generateKeyPair, keyIdHex, verify } from './minisign.ts'
+import type { Metadata } from './notices.ts'
 import {
   checkRelease,
   collectTarget,
@@ -13,6 +14,7 @@ import {
   parseArtifactPaths,
   parseMode,
   readAppVersion,
+  readRustVersion,
   readUpdaterPubkey,
   signRelease,
   writeBuildKey,
@@ -401,5 +403,114 @@ describe('gathering the build jobs’ files', () => {
     mkdirSync(join(folder, 'full'))
     writeFileSync(join(folder, 'full', 'old'), '')
     expect(() => gatherArtifacts(artifacts, join(folder, 'full'), '0.7.0')).toThrow(/is not empty/)
+  })
+})
+
+describe('notices', () => {
+  const CRATES_IO = 'registry+https://github.com/rust-lang/crates.io-index'
+
+  /** `cargo metadata` of an app whose one dependency is `name`, with `files` in its folder. */
+  function metadataWith(name: string, license: string, files: Record<string, string>): Metadata {
+    const dir = join(folder, 'registry', `${name}-1.0.0`)
+    mkdirSync(dir, { recursive: true })
+    for (const [file, text] of Object.entries(files)) writeFileSync(join(dir, file), text)
+    const app = `path+file:///repo#fxm@0.0.0`
+    const dep = `${CRATES_IO}#${name}@1.0.0`
+    return {
+      packages: [
+        {
+          id: app,
+          name: 'fxm',
+          version: '0.0.0',
+          license: 'Apache-2.0',
+          license_file: null,
+          repository: null,
+          source: null,
+          manifest_path: '/repo/Cargo.toml',
+          targets: [{ kind: ['lib'] }],
+        },
+        {
+          id: dep,
+          name,
+          version: '1.0.0',
+          license,
+          license_file: null,
+          repository: `https://github.com/example/${name}`,
+          source: CRATES_IO,
+          manifest_path: join(dir, 'Cargo.toml'),
+          targets: [{ kind: ['lib'] }],
+        },
+      ],
+      resolve: {
+        root: app,
+        nodes: [
+          { id: app, deps: [{ pkg: dep, dep_kinds: [{ kind: null }] }], features: [] },
+          { id: dep, deps: [], features: [] },
+        ],
+      },
+    }
+  }
+
+  it('writes the crates of every target and make dist’s notices into one file', async () => {
+    const { lines, reporter } = recorder()
+    const data = metadataWith('serde', 'MIT OR Apache-2.0', { 'LICENSE-MIT': 'MIT: serde' })
+    const triples: string[] = []
+    const web = join(folder, 'web.txt')
+    writeFileSync(web, 'FXM third-party notices\n\nThe web app’s packages.\n')
+    const out = join(folder, 'dist', 'third-party-notices.txt')
+    await main(['notices', '--version', '0.7.0', '--web', web, '--out', out], {}, reporter, {
+      metadata: (triple) => {
+        triples.push(triple)
+        return data
+      },
+    })
+    expect(triples).toEqual(TARGETS.map((target) => target.triple))
+    const text = readFileSync(out, 'utf8')
+    expect(text).toMatch(/^FXM desktop app: third-party notices\nVersion 0\.7\.0\n/)
+    expect(text).toContain(`library of Rust ${readRustVersion()} (MIT OR Apache-2.0`)
+    expect(text).toContain('  serde 1.0.0: MIT OR Apache-2.0, all\n')
+    expect(text).toContain('For serde 1.0.0 (LICENSE-MIT):\n\nMIT: serde\n')
+    expect(
+      text.endsWith('Part 2: The web app\n\nFXM third-party notices\n\nThe web app’s packages.\n'),
+    ).toBe(true)
+    expect(lines).toContain(
+      'info 1 crates, 1 licence texts. Under the MPL-2.0, with their source code named: none.',
+    )
+  })
+
+  it('only checks the crates without --web and --out, and wants both or neither', async () => {
+    const { lines, reporter } = recorder()
+    const data = metadataWith('cssparser', 'MPL-2.0', { LICENSE: 'Mozilla Public License 2.0' })
+    await main(['notices'], {}, reporter, { metadata: () => data })
+    expect(lines).toEqual([
+      'info 1 crates, 1 licence texts. Under the MPL-2.0, with their source code named: cssparser 1.0.0.',
+    ])
+    await expect(
+      main(['notices', '--web', join(folder, 'web.txt')], {}, reporter, { metadata: () => data }),
+    ).rejects.toThrow(/give --web and --out together/)
+  })
+
+  it('refuses a web file that isn’t make dist’s notices', async () => {
+    const { reporter } = recorder()
+    const data = metadataWith('serde', 'MIT', { LICENSE: 'MIT' })
+    const web = join(folder, 'web.txt')
+    writeFileSync(web, '<!doctype html>')
+    await expect(
+      main(['notices', '--web', web, '--out', join(folder, 'out.txt')], {}, reporter, {
+        metadata: () => data,
+      }),
+    ).rejects.toThrow(/isn't make dist's third-party notices file/)
+  })
+
+  it('stops on a crate the notices can’t cover, and says which and why', async () => {
+    const { reporter } = recorder()
+    const data = metadataWith('nameless', 'MIT', { 'README.md': 'no licence here' })
+    await expect(main(['notices'], {}, reporter, { metadata: () => data })).rejects.toThrow(
+      /nameless 1\.0\.0 ships no licence text \(its licence is MIT\)/,
+    )
+  })
+
+  it('names the Rust release that rust-toolchain.toml pins', () => {
+    expect(readRustVersion()).toMatch(/^\d+\.\d+\.\d+$/)
   })
 })

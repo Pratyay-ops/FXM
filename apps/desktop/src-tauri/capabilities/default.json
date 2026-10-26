@@ -19,6 +19,7 @@
     "allow-user-host-fetch",
     "allow-set-now-playing",
     "allow-desktop-environment",
+    "allow-third-party-notices",
     {
       "identifier": "http:default",
       "allow": [

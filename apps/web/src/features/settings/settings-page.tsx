@@ -15,8 +15,10 @@ import { useSourcesSnapshot } from '../search/sources-context'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { SyncSettings } from '../sync/sync-settings'
+import { bundledNotices } from './bundled-notices'
 import { CatalogModeControl } from './catalog-mode-control'
 import { AutoMatchSetting } from './matching-setting'
+import { BundledNoticesButton } from './notices-dialog'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { QualitySection } from './quality-section'
 import { SettingRow, SettingsSection } from './settings-layout'
@@ -27,11 +29,17 @@ export const REPOSITORY_URL = 'https://github.com/Pratyay-ops/FXM'
 /** FXM's site, where its privacy page, disclaimer and the bundled code's notices are. */
 export const SITE_URL = 'https://fxmusic.pages.dev'
 
-/** The legal pages Settings → About links to. */
+/** The licences of the code that FXM's site and web app bundle, which make dist writes there. */
+export const NOTICES_URL = `${SITE_URL}/third-party-notices.txt`
+
+/**
+ * The legal pages Settings → About links to. An app that carries its own third-party notices (the
+ * desktop app, `bundledNotices()`) shows those instead of the site's.
+ */
 export const LEGAL_LINKS = [
   { href: `${SITE_URL}/privacy`, label: 'Privacy' },
   { href: `${SITE_URL}/disclaimer`, label: 'Disclaimer' },
-  { href: `${SITE_URL}/third-party-notices.txt`, label: 'Third-party notices' },
+  { href: NOTICES_URL, label: 'Third-party notices' },
 ] as const
 
 /** The non-affiliation notice (R.4), in one line. */
@@ -51,6 +59,8 @@ export function SettingsPage() {
   const spotifyHelpId = useId()
   const installLabelId = useId()
   const installHelpId = useId()
+  // Connected before the first render, in the desktop app only (stage 7.5).
+  const ownNotices = bundledNotices()
 
   return (
     <div className="max-w-3xl space-y-8 pt-2 md:pt-4">
@@ -166,9 +176,13 @@ export function SettingsPage() {
           <ul aria-label="Legal" className="flex flex-wrap gap-x-6">
             {LEGAL_LINKS.map((link) => (
               <li key={link.href}>
-                <ExternalTextLink href={link.href} className={standaloneLinkClasses}>
-                  {link.label}
-                </ExternalTextLink>
+                {link.href === NOTICES_URL && ownNotices !== undefined ? (
+                  <BundledNoticesButton read={ownNotices} siteHref={NOTICES_URL} />
+                ) : (
+                  <ExternalTextLink href={link.href} className={standaloneLinkClasses}>
+                    {link.label}
+                  </ExternalTextLink>
+                )}
               </li>
             ))}
           </ul>

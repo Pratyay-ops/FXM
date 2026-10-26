@@ -16,7 +16,8 @@
 //! [`environment`] tells it which macOS it runs on.
 //!
 //! Updates (stage 7.5): release builds look for a newer version on GitHub Releases and offer it
-//! ([`updater`]), through tauri-plugin-updater, which only Rust uses.
+//! ([`updater`]), through tauri-plugin-updater, which only Rust uses. They also carry the
+//! third-party notices among their resources, which Settings → About shows ([`notices`]).
 
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
@@ -26,6 +27,7 @@ mod evaluator;
 #[cfg(target_os = "macos")]
 mod fullscreen;
 pub mod network;
+pub mod notices;
 pub mod playback;
 // The live smoke test's report listener: always compiled, so lints and tests cover it, but only
 // started in the smoke build (`--features smoke`, apps/desktop/smoke).
@@ -104,6 +106,7 @@ pub fn run() {
             user_hosts::user_host_fetch,
             playback::set_now_playing,
             environment::desktop_environment,
+            notices::third_party_notices,
         ])
         .build(context())
         .expect("error while building the FXM desktop app");

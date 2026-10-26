@@ -8,9 +8,10 @@ name: Desktop
 #
 # The path filters list everything the jobs build or run: the desktop app, the web app it
 # embeds and the packages that web app bundles, the Makefile targets and scripts behind
-# make ci-setup, rust-setup and desktop-* (not make dist's and the deploy job's, stage 2.8),
-# the dependency manifests, the Node version, the TypeScript base config the web build reads,
-# and this file. Keep both lists the same (a test in apps/desktop/test checks that).
+# make ci-setup, rust-setup and desktop-* (not make dist's and the deploy job's, stage 2.8, but
+# the licence policy that the crates' check below shares with make dist), the dependency
+# manifests, the Node version, the TypeScript base config the web build reads, and this file.
+# Keep both lists the same (a test in apps/desktop/test checks that).
 on:
   push:
     paths:
@@ -20,6 +21,8 @@ on:
       - scripts/**
       - '!scripts/build-dist/**'
       - '!scripts/build-dist-wrangler/**'
+      - scripts/build-dist/src/licenses.ts
+      - scripts/build-dist/src/notices.ts
       - Makefile
       - package.json
       - pnpm-lock.yaml
@@ -35,6 +38,8 @@ on:
       - scripts/**
       - '!scripts/build-dist/**'
       - '!scripts/build-dist-wrangler/**'
+      - scripts/build-dist/src/licenses.ts
+      - scripts/build-dist/src/notices.ts
       - Makefile
       - package.json
       - pnpm-lock.yaml
@@ -139,6 +144,15 @@ jobs:
       - name: Doctor
         if: runner.os != 'Windows'
         run: make doctor
+
+      # The crates of every release target, against the licence policy and the reviews of the
+      # release's third-party notices (apps/desktop/release/notices.ts), so a dependency update
+      # that would stop the next release fails here first.
+      - name: Check the Rust crates' licences for the third-party notices
+        if: runner.os == 'Linux'
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts notices
 
       - name: Set up pnpm (Windows)
         if: runner.os == 'Windows'

@@ -47,7 +47,10 @@ const PLUGINS = ['single-instance', 'window-state', 'http', 'opener', 'updater']
 /** Where installed apps look for a newer version: latest.json of the latest release. */
 const UPDATE_ENDPOINT = 'https://github.com/Pratyay-ops/FXM/releases/latest/download/latest.json'
 
-/** The app's own Rust commands: src/user_hosts.rs, then src/playback.rs and src/environment.rs. */
+/**
+ * The app's own Rust commands: src/user_hosts.rs, then src/playback.rs, src/environment.rs and
+ * src/notices.rs.
+ */
 const COMMANDS = [
   'user_hosts',
   'approve_user_host',
@@ -55,6 +58,7 @@ const COMMANDS = [
   'user_host_fetch',
   'set_now_playing',
   'desktop_environment',
+  'third_party_notices',
 ]
 
 /**

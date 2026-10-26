@@ -23,6 +23,12 @@
  *       each build job: copies the target's files (targets.ts) into <out> under their release
  *       names. With ARTIFACT_PATHS (tauri-action's artifactPaths output) it also checks that
  *       tauri-action reported each of them.
+ *   release.ts notices [--version x.y.z --web <file> --out <file>]
+ *       job "notices": the third-party notices that every installer carries (notices.ts): the
+ *       licences of the Rust crates of the five targets, from `cargo metadata` through
+ *       scripts/run.sh, then make dist's notices for the web app (--web), written to <out>. It
+ *       stops on a crate whose licence FXM doesn't accept, or that ships no licence text and has
+ *       no review. Without --web and --out it checks the crates only (desktop.yml's Linux build).
  *   release.ts sign --version x.y.z --artifacts <dir> --out <dir> --repo owner/name
  *                   [--throwaway-key]
  *       job "sign": gathers the build jobs' files (one folder per artifact, desktop-<target>),
@@ -38,6 +44,7 @@
  *
  * @module
  */
+import { spawnSync } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import {
   copyFileSync,
@@ -48,7 +55,7 @@ import {
   readFileSync,
   writeFileSync,
 } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   createReporter,
@@ -78,12 +85,28 @@ import {
   sign,
   trustedComment,
 } from './minisign.ts'
-import { MANIFEST_NAME, type ReleaseTarget, TARGETS, targetById } from './targets.ts'
+import {
+  crateNotices,
+  type Metadata,
+  parseMetadata,
+  renderDesktopNotices,
+  shippedCrates,
+} from './notices.ts'
+import { MANIFEST_NAME, type ReleaseTarget, TARGETS, type TargetId, targetById } from './targets.ts'
 
 /** apps/desktop. */
 export const APP_DIR = fileURLToPath(new URL('..', import.meta.url))
 const TAURI_CONFIG = join(APP_DIR, 'src-tauri', 'tauri.conf.json')
 const PACKAGE_JSON = join(APP_DIR, 'package.json')
+const CARGO_TOML = join(APP_DIR, 'src-tauri', 'Cargo.toml')
+const RUST_TOOLCHAIN = join(APP_DIR, 'src-tauri', 'rust-toolchain.toml')
+/** The repository's root: its LICENSE, the Apache License 2.0, and scripts/run.sh. */
+const ROOT = join(APP_DIR, '..', '..')
+/** The licence texts that REVIEWED_CRATE_TEXTS takes from crates' repositories. */
+const LICENCES_DIR = join(APP_DIR, 'release', 'licences')
+
+/** FXM's repository, which the notices name. */
+const REPOSITORY_URL = 'https://github.com/Pratyay-ops/FXM'
 
 /** Where apps/desktop/README.md explains the updater key. */
 const KEY_HELP = 'apps/desktop/README.md, "Updates"'
@@ -323,6 +346,92 @@ export function signRelease(options: SignOptions): { manifest: Manifest; keyId: 
   return { manifest, keyId: keyIdHex(secret.keyId) }
 }
 
+/** The Rust release that rust-toolchain.toml pins, whose standard library the app includes. */
+export function readRustVersion(path = RUST_TOOLCHAIN): string {
+  const channel = /^channel = "([^"]+)"$/m.exec(readFileSync(path, 'utf8'))?.[1]
+  if (channel === undefined) throw new Error(`${path} names no channel`)
+  return channel
+}
+
+/** Reads `cargo metadata` for a target triple. */
+export type MetadataSource = (triple: string) => Metadata
+
+/** `cargo metadata` of the app's crate for one target, with the repository's pinned toolchain. */
+function cargoMetadata(triple: string): Metadata {
+  const result = spawnSync(
+    join(ROOT, 'scripts', 'run.sh'),
+    [
+      'cargo',
+      'metadata',
+      '--format-version',
+      '1',
+      '--locked',
+      '--filter-platform',
+      triple,
+      '--manifest-path',
+      CARGO_TOML,
+    ],
+    { encoding: 'utf8', maxBuffer: 512 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] },
+  )
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`cargo metadata for ${triple} failed`)
+  return parseMetadata(result.stdout)
+}
+
+/** The first line of the notices file that make dist writes (scripts/build-dist/src/licenses.ts). */
+const WEB_NOTICES_TITLE = 'FXM third-party notices'
+
+/** Checks the crates' licences and writes the desktop notices file (`notices`). */
+function noticesCommand(
+  options: Map<string, string>,
+  reporter: Reporter,
+  metadataOf: MetadataSource,
+) {
+  const web = options.get('web')
+  const out = options.get('out')
+  if ((web === undefined) !== (out === undefined)) throw new Error('give --web and --out together')
+  const perTarget = new Map<TargetId, Metadata>(
+    TARGETS.map((target) => [target.id, metadataOf(target.triple)]),
+  )
+  const crates = shippedCrates(perTarget)
+  const notices = crateNotices(crates, {
+    apacheLicense: () => readFileSync(join(ROOT, 'LICENSE'), 'utf8'),
+    reviewedFile: (name) => readFileSync(join(LICENCES_DIR, name), 'utf8'),
+  })
+  if (notices.problems.length > 0) {
+    throw new Error(
+      `The crates' licences stop the third-party notices (apps/desktop/release/notices.ts):\n${notices.problems.join('\n')}`,
+    )
+  }
+  const mpl = notices.sourceCrates.map((crate) => `${crate.name} ${crate.version}`)
+  reporter.info(
+    `${crates.length} crates, ${notices.groups.length} licence texts. Under the MPL-2.0, with their source code named: ${mpl.join(', ') || 'none'}.`,
+  )
+  if (web === undefined || out === undefined) return
+  const webNotices = readFileSync(web, 'utf8')
+  if (!webNotices.startsWith(WEB_NOTICES_TITLE)) {
+    throw new Error(`${web} isn't make dist's third-party notices file`)
+  }
+  const text = renderDesktopNotices({
+    version: options.get('version') || readAppVersion(),
+    repositoryUrl: REPOSITORY_URL,
+    rustVersion: readRustVersion(),
+    crates: notices,
+    web: webNotices,
+  })
+  mkdirSync(dirname(resolve(out)), { recursive: true })
+  writeFileSync(out, text)
+  const size = Buffer.byteLength(text)
+  reporter.info(`${out}: ${size} bytes`)
+  reporter.summary(
+    [
+      '### Third-party notices',
+      '',
+      `${crates.length} crates (${notices.groups.length} licence texts) and make dist's notices for the web app: ${size} bytes, in every installer.`,
+    ].join('\n'),
+  )
+}
+
 /** Prepares the AppImage tools before `tauri build`, or checks them after it (`appimage-tools`). */
 async function appImageToolsCommand(
   options: Map<string, string>,
@@ -349,12 +458,15 @@ async function appImageToolsCommand(
   reporter.output('runtime-file', runtimeFile)
 }
 
-/** Runs a subcommand. `download` replaces the network for `appimage-tools`, in tests. */
+/**
+ * Runs a subcommand. In tests, `download` replaces the network for `appimage-tools`, and
+ * `metadata` replaces `cargo metadata` for `notices`.
+ */
 export async function main(
   argv: readonly string[],
   env: NodeJS.ProcessEnv,
   reporter: Reporter,
-  { download }: { download?: Download } = {},
+  { download, metadata = cargoMetadata }: { download?: Download; metadata?: MetadataSource } = {},
 ) {
   const [command, ...rest] = argv
   const options = parseOptions(rest)
@@ -383,6 +495,8 @@ export async function main(
     }
     case 'appimage-tools':
       return appImageToolsCommand(options, reporter, download)
+    case 'notices':
+      return noticesCommand(options, reporter, metadata)
     case 'collect': {
       const target = targetById(requireOption(options, 'target'))
       const paths = env.ARTIFACT_PATHS ? parseArtifactPaths(env.ARTIFACT_PATHS) : undefined
@@ -437,7 +551,9 @@ export async function main(
       return
     }
     default:
-      throw new Error('usage: release.ts <check|build-key|appimage-tools|collect|sign> [options]')
+      throw new Error(
+        'usage: release.ts <check|build-key|appimage-tools|notices|collect|sign> [options]',
+      )
   }
 }
 

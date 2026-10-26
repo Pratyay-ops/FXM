@@ -43,6 +43,9 @@ describe('desktop.yml', () => {
         'apps/web/**',
         'packages/**',
         'scripts/**',
+        // The licence policy that the crates' check shares with make dist.
+        'scripts/build-dist/src/licenses.ts',
+        'scripts/build-dist/src/notices.ts',
         'Makefile',
         'package.json',
         'pnpm-lock.yaml',

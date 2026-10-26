@@ -30,8 +30,10 @@ test/                     Vitest checks of the Tauri config, the isolation hook,
                           a test key's signature that the Rust tests check too
 isolation/                the isolation hook that IPC messages pass through (see Network)
 release/                  the release workflow's steps (release.ts), the release targets (targets.ts),
-                          latest.json (manifest.ts), the updater's signatures (minisign.ts) and the
-                          AppImage's pinned tools (appimage-tools.ts), with their tests; see Releases
+                          latest.json (manifest.ts), the updater's signatures (minisign.ts), the
+                          AppImage's pinned tools (appimage-tools.ts) and the third-party notices
+                          (notices.ts, with the licence texts it takes from crates' repositories in
+                          licences/), with their tests; see Releases
 smoke/                    the live smoke test: its page, its steps and run.mjs, which runs the app
 src-tauri/
   Cargo.toml, Cargo.lock  the Rust crate `fxm` (also the executable's name)
@@ -49,6 +51,8 @@ src-tauri/
   src/playback.rs         what the web app's player is doing (`set_now_playing`)
   src/environment.rs      the OS and webview versions (`desktop_environment`)
   src/updater.rs          looking for updates, offering them and installing them
+  src/notices.rs          the third-party notices among a release's resources, for Settings → About
+                          (`third_party_notices`)
   src/network.rs          native network change notifications
   src/smoke.rs            prints the smoke test's report and exits (with `--features smoke` only)
   tauri.conf.json         app identity, window, CSP, the isolation pattern, the http plugin's
@@ -353,7 +357,7 @@ Build the app (`make desktop-build`) and open `FXM.app`:
 
 ## Releases
 
-Every release builds the desktop app: `release.yml` calls `.github/workflows/desktop-release.yml` with the commit and version it releases, then publishes what that uploads with the rest of the release ([docs/WORKFLOW.md, "Releases"](../../docs/WORKFLOW.md#8-releases)). tauri-action builds each target on a runner of its own, with `src-tauri/tauri.release.conf.json` merged over the config, which turns on the updater's files:
+Every release builds the desktop app: `release.yml` calls `.github/workflows/desktop-release.yml` with the commit and version it releases, then publishes what that uploads with the rest of the release ([docs/WORKFLOW.md, "Releases"](../../docs/WORKFLOW.md#8-releases)). tauri-action builds each target on a runner of its own, with `src-tauri/tauri.release.conf.json` merged over the config, which turns on the updater's files and bundles the [third-party notices](#third-party-notices):
 
 | Target | Runner | Files in the release |
 |---|---|---|
@@ -380,11 +384,29 @@ And `latest.json`, the updater's manifest. `release/targets.ts` lists the target
 
 **The updater's files.** `tauri build` makes them only with a signing key (`TAURI_SIGNING_PRIVATE_KEY`), which it signs them with. The build jobs run the code of hundreds of crates and npm packages, so they never get the updater key: each one makes a throwaway key (`release.ts build-key`), and Tauri warns that it doesn't match the apps' public key. The sign job then gathers every build's files, signs the ones the updater installs with the updater key (`release.ts sign`, with Node's own crypto in `release/minisign.ts`: the job installs nothing), writes `latest.json` and checks every signature against the public key the apps carry, as each platform's updater will.
 
-**Dry run.** Start `desktop.yml` by hand with `release-dry-run` (`scripts/run.sh gh workflow run desktop.yml --ref <branch> -f release-dry-run=true`, or Actions → Desktop → Run workflow). It runs `desktop-release.yml` on the branch's commit with the version in `apps/desktop/package.json`: every target builds, its apps carrying its build's throwaway public key in place of the placeholder (which can't build updater files), and the sign job signs with a throwaway key of its own, so no installed app would accept a dry run's update. The files stay with the run, as artifacts: `release-desktop`, the release's files and `latest.json`, for 30 days, and each target's own for 7. Nothing is published or tagged, and no secret is read. Locally, `make desktop-build` builds this machine's target without the updater's files, so it needs no key.
+**Dry run.** Start `desktop.yml` by hand with `release-dry-run` (`scripts/run.sh gh workflow run desktop.yml --ref <branch> -f release-dry-run=true`, or Actions → Desktop → Run workflow). It runs `desktop-release.yml` on the branch's commit with the version in `apps/desktop/package.json`: the notices job writes the third-party notices, every target builds, its apps carrying its build's throwaway public key in place of the placeholder (which can't build updater files), and the sign job signs with a throwaway key of its own, so no installed app would accept a dry run's update. The files stay with the run, as artifacts: `release-desktop`, the release's files and `latest.json`, for 30 days, and each target's own for 7. Nothing is published or tagged, and no secret is read. Locally, `make desktop-build` builds this machine's target without the updater's files, so it needs no key, and without the third-party notices.
 
 The first dry run, on 2026-10-26 ([run 40264753607](https://github.com/Pratyay-ops/FXM/actions/runs/40264753607), version 0.0.0), passed on every target. Its `release-desktop` held the ten installers and updater files (from 4.1 MB for the Windows installer to 95 MB for the x64 AppImage) and `latest.json`, with the 13 platforms each signed for version 0.0.0, and `scripts/release-collect.sh` took all eleven. Both `.app.tar.gz` held `FXM.app` alone, without AppleDouble files, its ad-hoc signature valid once extracted (arm64 and x86_64). The arm64 `.deb` asked for `gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav, gstreamer1.0-pulseaudio | gstreamer1.0-alsa, libayatana-appindicator3-1, libwebkit2gtk-4.1-0, libgtk-3-0`, and both AppImages bundled the GStreamer plugins of base (28), good (72), alsa, gl, x and GStreamer's core only. `gstreamer1.0-pulseaudio` brought no plugin of its own: since Debian 11 and Ubuntu 22.04 it is a transitional package, and the PulseAudio plugin is part of good. Where a distribution drops it, the `.deb`'s dependency falls back to `gstreamer1.0-alsa`.
 
 The second, also on 2026-10-26 ([run 40274843619](https://github.com/Pratyay-ops/FXM/actions/runs/40274843619)), built the AppImages with the pinned tools and passed on every target. Each Linux job fetched the four files with their pinned SHA-256, the bundler downloaded none of them (the first run's log shows its three downloads), and the tools folder held nothing else after the build. The x86_64 AppImage's first 944,632 bytes were those of type2-runtime 20251108, but for one run of 16 bytes, the digest; the runtime check, added after this run, accepts that AppImage. The third ([run 40277684121](https://github.com/Pratyay-ops/FXM/actions/runs/40277684121)), with that check, passed on every target too: both AppImages, x86_64 and aarch64, started with the pinned runtime, and the bundler again downloaded nothing.
+
+
+### Third-party notices
+
+Every installer carries `third-party-notices.txt` among the app's resources (`bundle > resources` in `tauri.release.conf.json`): in `FXM.app/Contents/Resources` on macOS, next to `fxm.exe` on Windows, and in `/usr/lib/FXM` in the `.deb` and the AppImage. Settings → About → Third-party notices shows it in the app: the web app's composition root connects it inside Tauri (`connectDesktopNotices` in `apps/web/src/app/services/desktop.ts`), and opening it reads the file through the bridge (`readThirdPartyNotices`) and `src/notices.rs`. Local and development builds carry none: About then says so, and links the notices on FXM's site. The command takes no arguments and reads that one file only, behind its `allow-third-party-notices` permission, which `default.json` grants to the main window's own webview, like the app's other commands. The release workflow's notices job writes the file once for all five targets (`release.ts notices`, `release/notices.ts`):
+
+- **Part 1, the Rust crates**, from `cargo metadata --filter-platform` for each target, followed from the app's crate along normal dependencies: build and dev dependencies, and proc macros with what only they use, run while the app compiles and none of their code ends up in it. Each crate is listed with its licence, its repository and the targets that include it, then come the licence, copying, copyright and notice files from each crate's source code as crates.io publishes it, deeper ones included (ring's once_cell polyfill, regex-syntax's Unicode tables), every text once with the crates it comes with. The crates that FXM may ship only under the MPL-2.0 are listed with crates.io's download of their source code, as the MPL asks of an executable (section 3.2). Every crate must come from crates.io. On 2026-10-26: 373 crates, 237 distinct licence texts, about 760 KB, with cssparser, dtoa-short, option-ext and selectors under the MPL-2.0.
+- **Part 2, the web app**: make dist's `third-party-notices.txt`, as the notices job's `make dist` writes it ([scripts/build-dist/README.md](../../scripts/build-dist/README.md)), which holds the web app's packages with the rest of FXM's site.
+
+The licence policy is make dist's (`ACCEPTED_LICENCES` in `scripts/build-dist/src/licenses.ts`: GPL and AGPL never), and the notices job stops the release on anything it can't cover:
+
+- a licence outside that policy, until a review in `CRATE_LICENCE_OVERRIDES`: webpki-roots' CDLA-Permissive-2.0, Mozilla's root certificates as data;
+- a crate that ships no licence text, until a review in `REVIEWED_CRATE_TEXTS` says which licence its expression offers FXM and where that licence's text comes from: FXM's own Apache License 2.0, another crate of the same project (selectors takes cssparser's MPL-2.0, alloc-stdlib alloc-no-stdlib's BSD-3-Clause), or the repository's licence file at a pinned commit, copied into `release/licences/` with its SHA-256 (objc2, block2, objc2-encode and objc2-foundation; webview2-com and webview2-com-sys; dlopen2). Twenty crates on 2026-10-26;
+- licence files deeper in a crate, which count unless `NESTED_EXCLUSIONS` says why they don't apply: libdbus-sys' copy of D-Bus's source, which it compiles only with its `vendored` feature.
+
+A review holds while the crate's licence expression stays the same: when one changes, check the crate again and update its entry. desktop.yml's Linux build checks the crates the same way on every push (`release.ts notices` without `--web` and `--out`), so a dependency update that would stop a release fails there first. After `tauri build`, each build job checks that its installers carry the notices job's file, byte for byte: in `FXM.app` and in the `.deb`, and on Windows, whose NSIS installer and MSI the runner can't read, in the copy that `tauri build` puts next to `fxm.exe` from the same resources.
+
+Still to do: the AppImage bundles shared libraries from Ubuntu 22.04 (WebKitGTK, GTK, GStreamer and what they need, mostly under the LGPL), whose licences and source code are Ubuntu's packages'. The notices don't list them yet.
 
 ## Updates
 
