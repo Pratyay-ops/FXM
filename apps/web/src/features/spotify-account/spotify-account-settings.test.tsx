@@ -233,10 +233,10 @@ describe('Settings → Spotify account', () => {
     ).toHaveTextContent(
       'FXM Connect 0.1.0 says there that this setting changes nothing. That note dates from before FXM could connect an account: the setting works now, and newer versions of FXM Connect say so.',
     )
-    // FXM Connect 0.4.0 says what the setting does: nothing to add.
+    // FXM Connect 0.2.0 says what the setting does: nothing to add.
     act(() =>
       useConnection.setState({
-        connect: { state: 'present', version: '0.4.0', features: ['youtube', 'spotify'] },
+        connect: { state: 'present', version: '0.2.0', features: ['youtube', 'spotify'] },
       }),
     )
     expect(account.queryByText(/says there that this setting changes nothing/)).toBeNull()

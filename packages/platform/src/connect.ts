@@ -37,7 +37,7 @@ export const MIN_CONNECT_VERSION = '0.1.0'
  * The first FXM Connect whose options page describes its Spotify login setting as the app uses
  * it, for a connected Spotify account (apps/extension, "Use my Spotify login from this browser").
  */
-export const SPOTIFY_LOGIN_TEXT_VERSION = '0.4.0'
+export const SPOTIFY_LOGIN_TEXT_VERSION = '0.2.0'
 
 /**
  * Whether FXM Connect `version` still says, on its options page, that its Spotify login setting
