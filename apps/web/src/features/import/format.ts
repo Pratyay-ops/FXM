@@ -6,11 +6,17 @@
  */
 
 import { formatTime } from '@fxm/player'
-import type { ImportRunStatus, ImportSkips } from '@fxm/sources/import'
+import {
+  type ImportBlockReason,
+  type ImportRunStatus,
+  type ImportSkips,
+  MAX_IMPORT_ROWS,
+} from '@fxm/sources/import'
 import type { ImportProgressRecord } from '../../db/types'
 import { countLabel } from '../library/format'
 import type { ImportActivity } from './runner'
 import { HISTORY_IMPORT_KIND } from './runner'
+import type { MatchingAvailability } from './services'
 
 const KIND_LABELS: Readonly<Record<string, string>> = {
   'spotify-export': 'Spotify data',
@@ -27,21 +33,48 @@ export function kindLabel(kind: string): string {
 }
 
 /**
- * Where an import stands, as the page shows it: the record's status, except that an import the
- * record calls `running` or `pending` that this tab neither runs nor has queued is
- * `interrupted` (its tab closed or reloaded).
+ * Where an import stands, as the page shows it: the record's status, except for an import the
+ * record calls `running` or `pending`. That one is `running` when this tab runs or records it,
+ * `elsewhere` when another tab does, `pending` while it waits in this tab's queue, and
+ * `interrupted` otherwise (its tab closed or reloaded).
  */
-export type ShownStatus = ImportProgressRecord['status'] | 'interrupted'
+export type ShownStatus = ImportProgressRecord['status'] | 'interrupted' | 'elsewhere'
 
-/** Where an import stands, given which import this tab runs and which it has queued. */
-export function shownStatus(
-  record: ImportProgressRecord,
-  activeId: string | null,
-  queued: readonly string[] = [],
-): ShownStatus {
-  if (record.status === 'running' && record.id !== activeId) return 'interrupted'
-  if (record.status === 'pending' && !queued.includes(record.id)) return 'interrupted'
-  return record.status
+/** What this tab knows about the imports beyond their records. */
+export interface RunnerView {
+  /** The import this tab runs. */
+  activeId: string | null
+  /** The imports waiting in this tab's queue. */
+  queued: readonly string[]
+  /** The listening histories this tab records. */
+  recording?: readonly string[]
+  /** The imports another tab runs or records. */
+  elsewhere?: ReadonlySet<string>
+}
+
+/** Where an import stands (see {@link ShownStatus}). */
+export function shownStatus(record: ImportProgressRecord, runner: RunnerView): ShownStatus {
+  const { id, status } = record
+  if (status !== 'running' && status !== 'pending') return status
+  if (id === runner.activeId || runner.recording?.includes(id)) return 'running'
+  if (runner.elsewhere?.has(id)) return 'elsewhere'
+  if (status === 'pending' && runner.queued.includes(id)) return 'pending'
+  return 'interrupted'
+}
+
+/** Whether an import's state lets the user resume it. */
+export function canResume(record: ImportProgressRecord, status: ShownStatus): boolean {
+  return record.kind !== HISTORY_IMPORT_KIND && (status === 'paused' || status === 'interrupted')
+}
+
+/** Whether an import's state lets the user pause or cancel it. */
+export function canPause(record: ImportProgressRecord, status: ShownStatus): boolean {
+  return record.kind !== HISTORY_IMPORT_KIND && (status === 'running' || status === 'pending')
+}
+
+/** Whether an import is being worked on, here or in another tab. */
+export function isBusy(status: ShownStatus): boolean {
+  return status === 'running' || status === 'pending' || status === 'elsewhere'
 }
 
 const time = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' })
@@ -63,27 +96,52 @@ function activityText(activity: ImportActivity, record: ImportProgressRecord, no
   return `Matching song ${of}`
 }
 
+/** Why an import paused by itself, in a few neutral words. */
+function blockedText(reason: ImportBlockReason, matching: MatchingAvailability | undefined) {
+  if (reason === 'offline') return 'Paused: no connection. It goes on once you’re back online.'
+  if (matching === 'needs-connect') return 'Paused: needs FXM Connect'
+  if (matching === 'unavailable') return 'Paused: finding songs isn’t available yet'
+  if (matching === 'ready') return 'Paused. Resume it to find the songs.'
+  return 'Paused: YouTube Music was out of reach'
+}
+
+/** What {@link statusText} needs besides the record and its status. */
+export interface StatusContext {
+  /** What this tab's job does, when it runs the import. */
+  activity?: ImportActivity | null
+  /** Why the import paused by itself, from its progress (`importBlockOf`). */
+  blocked?: ImportBlockReason | undefined
+  /** Whether imports can find songs here now. */
+  matching?: MatchingAvailability | undefined
+  /** The clock. */
+  now?: number
+}
+
 /** One line on where an import stands. */
 export function statusText(
   record: ImportProgressRecord,
   status: ShownStatus,
-  activity: ImportActivity,
-  now = Date.now(),
+  context: StatusContext = {},
 ): string {
+  const of = `${record.done.toLocaleString('en')} of ${record.total.toLocaleString('en')}`
   if (record.kind === HISTORY_IMPORT_KIND) {
     if (status === 'done') return `${countLabel(record.done, 'play')} recorded`
-    if (status === 'interrupted' || status === 'failed') {
-      return 'Interrupted. Import the data download again to record the rest: no play is recorded twice.'
-    }
-    return `Recording plays: ${record.done.toLocaleString('en')} of ${record.total.toLocaleString('en')}`
+    if (status === 'running') return `Recording plays: ${of}`
+    if (status === 'elsewhere') return `Recording plays in another tab or window: ${of}`
+    return 'Interrupted. Import the data download again to record the rest: no play is recorded twice.'
   }
   switch (status) {
     case 'running':
-      return activityText(activity, record, now)
+      return activityText(context.activity ?? {}, record, context.now ?? Date.now())
     case 'pending':
       return 'Waiting to start'
+    case 'elsewhere':
+      return 'Importing in another tab or window'
     case 'paused':
-      return record.error ? `Paused. ${record.error}` : 'Paused'
+      if (record.error) return `Paused. ${record.error}`
+      return context.blocked === undefined
+        ? 'Paused'
+        : blockedText(context.blocked, context.matching)
     case 'interrupted':
       return 'Stopped when the page closed. Resume it to go on where it left off.'
     case 'done':
@@ -95,7 +153,13 @@ export function statusText(
   }
 }
 
-/** The counts of an import, e.g. "80 matched · 10 to review · 1 failed". */
+/** Whether an import's status line reports a failure that needs the user (in the danger color). */
+export function isAlarming(record: ImportProgressRecord, status: ShownStatus): boolean {
+  if (record.kind === HISTORY_IMPORT_KIND) return false
+  return status === 'failed' || (status === 'paused' && Boolean(record.error))
+}
+
+/** The counts of an import, e.g. "100 songs: 80 matched · 10 to review · 1 failed". */
 export function countsText(record: ImportProgressRecord): string {
   if (record.kind === HISTORY_IMPORT_KIND) return countLabel(record.total, 'play')
   const parts = [`${record.matched.toLocaleString('en')} matched`]
@@ -111,6 +175,11 @@ export function skippedText(skipped: ImportSkips): string {
   if (skipped.localFiles > 0) parts.push(countLabel(skipped.localFiles, 'local file'))
   if (skipped.duplicates > 0) parts.push(countLabel(skipped.duplicates, 'duplicate'))
   if (skipped.unreadable > 0) parts.push(countLabel(skipped.unreadable, 'unreadable line'))
+  if (skipped.overLimit > 0) {
+    parts.push(
+      `${countLabel(skipped.overLimit, 'song')} over the ${MAX_IMPORT_ROWS.toLocaleString('en')}-song limit`,
+    )
+  }
   if (skipped.shortPlays > 0) {
     parts.push(`${countLabel(skipped.shortPlays, 'play')} shorter than 5 seconds`)
   }

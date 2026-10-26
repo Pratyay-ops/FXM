@@ -1,0 +1,391 @@
+{
+  "format": "fxm-library-backup",
+  "version": 1,
+  "exportedAt": "2025-10-24T12:00:00.000Z",
+  "app": {
+    "name": "FXM",
+    "version": "0.0.0"
+  },
+  "schemaVersion": 2,
+  "tables": {
+    "tracks": [
+      {
+        "id": "spotify:track:fxm0000000000000000001",
+        "track": {
+          "id": "spotify:track:fxm0000000000000000001",
+          "source": "spotify",
+          "title": "Northern Lights Over The Quiet Harbour (Extended Night Mix)",
+          "artists": [
+            {
+              "name": "Neon Harbor"
+            },
+            {
+              "name": "Vela Rose"
+            }
+          ],
+          "album": {
+            "name": "Coastline (Deluxe Anniversary Edition)"
+          },
+          "durationMs": 241000,
+          "artwork": [],
+          "kind": "song",
+          "externalIds": {
+            "spotify": "fxm0000000000000000001"
+          }
+        },
+        "updatedAt": 1761300000001
+      },
+      {
+        "id": "spotify:track:fxm0000000000000000002",
+        "track": {
+          "id": "spotify:track:fxm0000000000000000002",
+          "source": "spotify",
+          "title": "Paper Satellites",
+          "artists": [
+            {
+              "name": "Vela Rose"
+            }
+          ],
+          "album": {
+            "name": "Low Orbit"
+          },
+          "durationMs": 198000,
+          "artwork": [],
+          "kind": "song",
+          "externalIds": {
+            "spotify": "fxm0000000000000000002"
+          }
+        },
+        "updatedAt": 1761300000002
+      },
+      {
+        "id": "spotify:track:fxm0000000000000000003",
+        "track": {
+          "id": "spotify:track:fxm0000000000000000003",
+          "source": "spotify",
+          "title": "Copper Sun and the Long Drive Home",
+          "artists": [
+            {
+              "name": "Kofi Ansah Collective"
+            }
+          ],
+          "album": {
+            "name": "Afterglow Sessions, Vol. 2"
+          },
+          "durationMs": 263000,
+          "artwork": [],
+          "kind": "song",
+          "externalIds": {
+            "spotify": "fxm0000000000000000003"
+          }
+        },
+        "updatedAt": 1761300000003
+      },
+      {
+        "id": "spotify:track:fxm0000000000000000004",
+        "track": {
+          "id": "spotify:track:fxm0000000000000000004",
+          "source": "spotify",
+          "title": "Static Bloom",
+          "artists": [
+            {
+              "name": "Neon Harbor"
+            }
+          ],
+          "album": {
+            "name": "Coastline"
+          },
+          "durationMs": 189000,
+          "artwork": [],
+          "kind": "song",
+          "externalIds": {
+            "spotify": "fxm0000000000000000004"
+          }
+        },
+        "updatedAt": 1761300000004
+      }
+    ],
+    "likes": [],
+    "playlists": [
+      {
+        "id": "local:playlist:liked",
+        "system": "liked",
+        "name": "Liked songs",
+        "createdAt": 1761300000000,
+        "updatedAt": 1761300000000,
+        "trackIds": [],
+        "addedAt": {}
+      },
+      {
+        "id": "local:playlist:downloads",
+        "system": "downloads",
+        "name": "Downloads",
+        "createdAt": 1761300000000,
+        "updatedAt": 1761300000000,
+        "trackIds": [],
+        "addedAt": {}
+      },
+      {
+        "id": "local:playlist:6f1c2d3e-0000-4000-8000-0000000000a1",
+        "name": "Kitchen radio road trip mix",
+        "createdAt": 1761300001000,
+        "updatedAt": 1761300001000,
+        "trackIds": [
+          "spotify:track:fxm0000000000000000001",
+          "spotify:track:fxm0000000000000000002",
+          "spotify:track:fxm0000000000000000003",
+          "spotify:track:fxm0000000000000000004"
+        ],
+        "addedAt": {
+          "spotify:track:fxm0000000000000000001": 1761300001000,
+          "spotify:track:fxm0000000000000000002": 1761300001000,
+          "spotify:track:fxm0000000000000000003": 1761300001000,
+          "spotify:track:fxm0000000000000000004": 1761300001000
+        }
+      },
+      {
+        "id": "local:playlist:6f1c2d3e-0000-4000-8000-0000000000a2",
+        "name": "Evening walk",
+        "createdAt": 1761300002000,
+        "updatedAt": 1761300002000,
+        "trackIds": [],
+        "addedAt": {}
+      }
+    ],
+    "orders": [
+      {
+        "id": "playlists",
+        "order": [
+          "local:playlist:6f1c2d3e-0000-4000-8000-0000000000a2",
+          "local:playlist:6f1c2d3e-0000-4000-8000-0000000000a1",
+          "local:playlist:liked",
+          "local:playlist:downloads"
+        ],
+        "updatedAt": 1761300003000
+      }
+    ],
+    "follows": [],
+    "history": [],
+    "settings": [],
+    "matchCache": [],
+    "importProgress": [
+      {
+        "id": "6f1c2d3e-0000-4000-8000-0000000000b1",
+        "kind": "spotify",
+        "label": "Kitchen radio road trip mix",
+        "status": "done",
+        "playlistId": "local:playlist:6f1c2d3e-0000-4000-8000-0000000000a1",
+        "total": 4,
+        "done": 4,
+        "matched": 1,
+        "needsReview": 3,
+        "failed": 0,
+        "state": {
+          "version": 1,
+          "kind": "spotify",
+          "mode": "music",
+          "rows": [
+            {
+              "title": "Northern Lights Over The Quiet Harbour (Extended Night Mix)",
+              "artists": ["Neon Harbor", "Vela Rose"],
+              "album": "Coastline (Deluxe Anniversary Edition)",
+              "durationMs": 241000,
+              "trackId": "spotify:track:fxm0000000000000000001",
+              "kind": "song"
+            },
+            {
+              "title": "Paper Satellites",
+              "artists": ["Vela Rose"],
+              "album": "Low Orbit",
+              "durationMs": 198000,
+              "trackId": "spotify:track:fxm0000000000000000002",
+              "kind": "song"
+            },
+            {
+              "title": "Copper Sun and the Long Drive Home",
+              "artists": ["Kofi Ansah Collective"],
+              "album": "Afterglow Sessions, Vol. 2",
+              "durationMs": 263000,
+              "trackId": "spotify:track:fxm0000000000000000003",
+              "kind": "song"
+            },
+            {
+              "title": "Static Bloom",
+              "artists": ["Neon Harbor"],
+              "album": "Coastline",
+              "durationMs": 189000,
+              "trackId": "spotify:track:fxm0000000000000000004",
+              "kind": "song"
+            }
+          ],
+          "results": [
+            {
+              "outcome": "review",
+              "verdict": "suggest",
+              "best": {
+                "source": "ytm",
+                "ref": "fxim01xxxxx",
+                "kind": "song",
+                "title": "Northern Lights Over The Quiet Harbour (Extended Night Mix) [Remastered 2024]",
+                "artists": ["Neon Harbor", "Vela Rose"],
+                "durationMs": 245000,
+                "confidence": 0.81,
+                "evidence": ["title 0.81", "artists 1.00"],
+                "signals": {
+                  "isrcVerified": false,
+                  "sourceAlbumMatch": false
+                },
+                "verdict": {
+                  "band": "suggest",
+                  "blockers": ["duration-window"],
+                  "matcherVersion": 1
+                }
+              },
+              "alternatives": [
+                {
+                  "source": "ytm",
+                  "ref": "fxim02xxxxx",
+                  "kind": "song",
+                  "title": "Northern Lights Over The Quiet Harbour (Live at the Lighthouse)",
+                  "artists": ["Neon Harbor"],
+                  "durationMs": 302000,
+                  "confidence": 0.64,
+                  "evidence": ["title 0.64", "artists 1.00"],
+                  "signals": {
+                    "isrcVerified": false,
+                    "sourceAlbumMatch": false
+                  }
+                },
+                {
+                  "source": "ytm",
+                  "ref": "fxim03xxxxx",
+                  "kind": "song",
+                  "title": "Northern Lights (Radio Edit)",
+                  "artists": ["Neon Harbor", "Vela Rose"],
+                  "durationMs": 198000,
+                  "confidence": 0.58,
+                  "evidence": ["title 0.58", "artists 1.00"],
+                  "signals": {
+                    "isrcVerified": false,
+                    "sourceAlbumMatch": false
+                  }
+                }
+              ],
+              "extras": {
+                "fxim01xxxxx": {
+                  "album": {
+                    "name": "Coastline (Deluxe Anniversary Edition)"
+                  }
+                },
+                "fxim02xxxxx": {
+                  "album": {
+                    "name": "Live at the Lighthouse, Night One"
+                  }
+                }
+              },
+              "evidence": ["title 0.81", "duration +4s"],
+              "blockers": ["duration-window"],
+              "playlistTrackId": "spotify:track:fxm0000000000000000001"
+            },
+            {
+              "outcome": "review",
+              "verdict": "auto",
+              "best": {
+                "source": "ytm",
+                "ref": "fxim04xxxxx",
+                "kind": "song",
+                "title": "Paper Satellites",
+                "artists": ["Vela Rose"],
+                "durationMs": 198000,
+                "confidence": 0.97,
+                "evidence": ["title 0.97", "artists 1.00"],
+                "signals": {
+                  "isrcVerified": true,
+                  "sourceAlbumMatch": false
+                },
+                "verdict": {
+                  "band": "auto",
+                  "blockers": [],
+                  "matcherVersion": 1
+                }
+              },
+              "evidence": ["isrc", "title 0.97"],
+              "blockers": ["setting-off"],
+              "isrc": "QZFXM2600002",
+              "isrcOrigin": "catalog",
+              "lookup": "spotify",
+              "playlistTrackId": "spotify:track:fxm0000000000000000002"
+            },
+            {
+              "outcome": "not-found",
+              "verdict": "none",
+              "evidence": ["nothing close"],
+              "playlistTrackId": "spotify:track:fxm0000000000000000003"
+            },
+            {
+              "outcome": "matched",
+              "verdict": "auto",
+              "best": {
+                "source": "ytm",
+                "ref": "fxim05xxxxx",
+                "kind": "song",
+                "title": "Static Bloom",
+                "artists": ["Neon Harbor"],
+                "durationMs": 189000,
+                "confidence": 0.98,
+                "evidence": ["title 0.98", "artists 1.00"],
+                "signals": {
+                  "isrcVerified": true,
+                  "sourceAlbumMatch": false
+                },
+                "verdict": {
+                  "band": "auto",
+                  "blockers": [],
+                  "matcherVersion": 1
+                }
+              },
+              "playlistTrackId": "spotify:track:fxm0000000000000000004"
+            }
+          ],
+          "lookups": {}
+        },
+        "createdAt": 1761300001000,
+        "updatedAt": 1761300005000
+      },
+      {
+        "id": "6f1c2d3e-0000-4000-8000-0000000000b2",
+        "kind": "csv",
+        "label": "Evening walk",
+        "status": "paused",
+        "playlistId": "local:playlist:6f1c2d3e-0000-4000-8000-0000000000a2",
+        "total": 2,
+        "done": 0,
+        "matched": 0,
+        "needsReview": 0,
+        "failed": 0,
+        "state": {
+          "version": 1,
+          "kind": "csv",
+          "mode": "music",
+          "rows": [
+            {
+              "title": "Northern Lights Over The Quiet Harbour (Extended Night Mix)",
+              "artists": ["Neon Harbor", "Vela Rose"],
+              "album": "Coastline (Deluxe Anniversary Edition)"
+            },
+            {
+              "title": "Paper Satellites",
+              "artists": ["Vela Rose"],
+              "album": "Low Orbit"
+            }
+          ],
+          "results": [null, null],
+          "lookups": {},
+          "blocked": "unsupported"
+        },
+        "createdAt": 1761300002000,
+        "updatedAt": 1761300006000
+      }
+    ]
+  }
+}

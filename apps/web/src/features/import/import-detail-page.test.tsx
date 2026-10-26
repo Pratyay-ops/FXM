@@ -4,11 +4,15 @@ import { catalogScenario, fakeYouTube } from '@fxm/sources/import/testing'
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
+import { setImportLockManager } from './locks'
 import { importPath } from './paths'
 import { resetImportRunner, startImports } from './runner'
-import { type FakeServices, fakeServices, renderWithServices } from './testing'
+import { type FakeServices, fakeLocks, fakeServices, renderWithServices } from './testing'
 
-afterEach(() => resetImportRunner())
+afterEach(() => {
+  resetImportRunner()
+  setImportLockManager(undefined)
+})
 
 /** Imports the scenario and waits until the import is done. */
 async function importScenario(services: FakeServices, mix: Parameters<typeof catalogScenario>[0]) {
@@ -39,15 +43,15 @@ describe('ImportDetailPage', () => {
     ])
     const { user } = renderWithServices(importPath(id), services)
     expect(await screen.findByRole('heading', { level: 1, name: 'Road trip' })).toBeInTheDocument()
-    const totals = (await screen.findByText('To review', { selector: 'dt' })).closest(
+    const totals = (await screen.findByText('Best guesses', { selector: 'dt' })).closest(
       'dl',
     ) as HTMLElement
     expect(within(totals).getByText('Matched', { selector: 'dt' }).nextSibling).toHaveTextContent(
       '0',
     )
-    expect(within(totals).getByText('To review', { selector: 'dt' }).nextSibling).toHaveTextContent(
-      '3',
-    )
+    expect(
+      within(totals).getByText('Best guesses', { selector: 'dt' }).nextSibling,
+    ).toHaveTextContent('3')
     expect(within(totals).getByText('Not found', { selector: 'dt' }).nextSibling).toHaveTextContent(
       '1',
     )
@@ -119,5 +123,75 @@ describe('ImportDetailPage', () => {
       await screen.findByRole('heading', { level: 1, name: 'Import not found' }),
     ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'All imports' })).toHaveAttribute('href', '/import')
+  })
+
+  it('names each song to review, and keeps a decision in place with Undo', async () => {
+    const services = fakeServices({ autoMatch: () => false })
+    const { id, scenario } = await importScenario(services, [
+      ['isrc', 2],
+      ['no-length', 1],
+    ])
+    const { user } = renderWithServices(importPath(id), services)
+    expect(await screen.findByRole('heading', { level: 2, name: 'Match report' })).toBeVisible()
+    const [first, second] = scenario.tracks
+    const firstTitle = first?.title ?? ''
+    expect(screen.getByRole('heading', { level: 3, name: `1. ${firstTitle}` })).toBeInTheDocument()
+    expect(
+      screen.getByRole('group', { name: `Likely the right song for “${firstTitle}”` }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: `Use the chosen song for ${firstTitle}` }))
+    const undo = await screen.findByRole('button', { name: `Undo: ${firstTitle}` })
+    expect(screen.getByText(`· Using “${firstTitle}”`)).toBeInTheDocument()
+    expect(await screen.findByText(`Using “${firstTitle}” for “${firstTitle}”`)).toBeInTheDocument()
+    // On to the next song.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('heading', { level: 3, name: `2. ${second?.title ?? ''}` }),
+      ).toHaveFocus(),
+    )
+    expect(
+      await getLibrary().getConfirmedMatch(first?.id as EntityId<'track'>, 'music'),
+    ).toBeDefined()
+
+    await user.click(undo)
+    const back = await screen.findByRole('heading', { level: 3, name: `1. ${firstTitle}` })
+    await waitFor(() => expect(back).toHaveFocus())
+    expect(
+      await getLibrary().getConfirmedMatch(first?.id as EntityId<'track'>, 'music'),
+    ).toBeUndefined()
+  })
+
+  it('changes a decision from All songs', async () => {
+    const services = fakeServices({ autoMatch: () => false })
+    const { id, scenario } = await importScenario(services, [['isrc', 2]])
+    const { user } = renderWithServices(importPath(id), services)
+    const title = scenario.tracks[0]?.title ?? ''
+    await user.click(await screen.findByRole('button', { name: `Skip ${title}` }))
+    await screen.findByRole('button', { name: `Undo: ${title}` })
+    await user.click(screen.getByRole('tab', { name: 'All songs (2)' }))
+    await user.click(await screen.findByRole('button', { name: `Change the song for ${title}` }))
+    expect(await screen.findByRole('tab', { name: 'To review (2)' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(
+      await screen.findByRole('button', { name: `Use the chosen song for ${title}` }),
+    ).toBeEnabled()
+  })
+
+  it('only shows an import another tab is running', async () => {
+    const services = fakeServices({ autoMatch: () => false })
+    const { id, scenario } = await importScenario(services, [['isrc', 1]])
+    await getLibrary().updateImport(id, { status: 'running' })
+    setImportLockManager(fakeLocks([id]), 20)
+    renderWithServices(importPath(id), services)
+    expect(
+      await screen.findByText(/Another tab or window is running this import/u),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Importing in another tab or window')).toBeInTheDocument()
+    const title = scenario.tracks[0]?.title ?? ''
+    expect(screen.getByRole('button', { name: `Use the chosen song for ${title}` })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /^Resume|^Pause/u })).toBeNull()
   })
 })

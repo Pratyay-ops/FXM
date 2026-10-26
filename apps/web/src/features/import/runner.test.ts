@@ -1,28 +1,95 @@
 import { type EntityId, formatId } from '@fxm/core'
 import {
+  createImportState,
+  importBlockOf,
+  initialPlaylistTracks,
   noSkips,
   type ParsedImport,
   rowFromTrack,
   YOUTUBE_IMPORT_UNAVAILABLE,
 } from '@fxm/sources/import'
-import { catalogScenario, fakeYouTube, song, spotifyTrack } from '@fxm/sources/import/testing'
+import {
+  candidate,
+  catalogScenario,
+  fakeYouTube,
+  song,
+  spotifyTrack,
+} from '@fxm/sources/import/testing'
 import { waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
+import { ImportBusyError, setImportLockManager } from './locks'
 import {
   confirmLikelyMatches,
   HISTORY_IMPORT_KIND,
   loadImportState,
   pauseImport,
+  reopenRows,
   resetImportRunner,
   resumeImport,
   retryFailedSongs,
   reviewRow,
+  StartImportsError,
   startImports,
+  useImportRunner,
 } from './runner'
-import { fakeServices } from './testing'
+import { fakeLocks, fakeServices } from './testing'
 
-afterEach(() => resetImportRunner())
+afterEach(() => {
+  resetImportRunner()
+  setImportLockManager(undefined)
+})
+
+/** A promise that waits until `open()` is called. */
+function gate() {
+  let open: () => void = () => {}
+  const opened = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return { opened, open }
+}
+
+/**
+ * A paused import of two Spotify songs: the first waits for review (a likely match), the second
+ * has not been matched yet.
+ */
+async function pausedWithReview() {
+  const tracks = [
+    spotifyTrack(1, 'Known Song', 'Known Band', { seconds: 200 }),
+    spotifyTrack(2, 'Second Song', 'Second Band', { seconds: 210 }),
+  ]
+  const parsed = parsedPlaylist('Half way', tracks)
+  const collection = parsed.collections[0] as NonNullable<(typeof parsed.collections)[0]>
+  const state = createImportState('spotify', 'music', collection)
+  state.results[0] = {
+    outcome: 'review',
+    verdict: 'auto',
+    best: candidate('knownsong01', 'Known Song', 'Known Band', 0.95),
+    playlistTrackId: tracks[0]?.id as EntityId<'track'>,
+  }
+  const repo = getLibrary()
+  const playlistId = await repo.createPlaylist({
+    name: 'Half way',
+    tracks: initialPlaylistTracks(collection),
+  })
+  const record = await repo.startImport({
+    kind: 'spotify',
+    label: 'Half way',
+    total: 2,
+    playlistId,
+  })
+  await repo.updateImport(record.id, {
+    status: 'paused',
+    state: state as never,
+    done: 1,
+    needsReview: 1,
+  })
+  const catalog = [
+    song('knownsong01', 'Known Song', 'Known Band', { seconds: 200 }),
+    song('secondsong1', 'Second Song', 'Second Band', { seconds: 210 }),
+  ]
+  return { id: record.id, tracks, catalog, playlistId }
+}
 
 function parsedPlaylist(name: string, tracks: Parameters<typeof rowFromTrack>[0][]): ParsedImport {
   return {
@@ -244,7 +311,9 @@ describe('pausing and resuming', () => {
       .importIds
     const record = await finished(id as string)
     expect(record.status).toBe('paused')
-    expect(record.error).toMatch(/FXM Connect/u)
+    // Why is in the progress, for the page to say in its own words; it is no failure.
+    expect(importBlockOf(record.state)).toBe('unsupported')
+    expect(record.error).toBe('')
     expect(record.done).toBe(0)
   })
 
@@ -358,7 +427,247 @@ describe('reviewing', () => {
       await startImports(parsedPlaylist('Likely', scenario.tracks), {}, 'music', services)
     ).importIds
     await finished(id as string)
-    expect(await confirmLikelyMatches(id as string)).toBe(3)
+    expect(await confirmLikelyMatches(id as string)).toEqual([0, 2, 4])
     expect(await getLibrary().getImport(id as string)).toMatchObject({ matched: 3, needsReview: 2 })
+  })
+})
+
+describe('the history and the start', () => {
+  it('records a listening history as this tab’s while it runs', async () => {
+    const creep = spotifyTrack(1, 'Creep', 'Radiohead', { album: 'Pablo Honey' })
+    const parsed: ParsedImport = {
+      kind: 'spotify-export',
+      label: 'Spotify data export',
+      collections: [],
+      plays: [
+        {
+          track: creep,
+          playedAt: Date.UTC(2024, 0, 1),
+          playedMs: 200_000,
+          completed: true,
+          skipped: false,
+        },
+      ],
+      follows: [],
+      skipped: noSkips(),
+    }
+    const repo = getLibrary()
+    const record = repo.recordPlays.bind(repo)
+    const hold = gate()
+    vi.spyOn(repo, 'recordPlays').mockImplementation(async (plays) => {
+      await hold.opened
+      return record(plays)
+    })
+    const starting = startImports(parsed, {}, 'music', fakeServices())
+    await waitFor(() => expect(useImportRunner.getState().recording).toHaveLength(1))
+    const [historyId] = useImportRunner.getState().recording
+    expect((await repo.getImport(historyId as string))?.status).toBe('running')
+    hold.open()
+    const started = await starting
+    expect(started.historyId).toBe(historyId)
+    expect(useImportRunner.getState().recording).toEqual([])
+    expect((await repo.getImport(historyId as string))?.status).toBe('done')
+  })
+
+  it('reports follows it could not save, and still starts the playlists', async () => {
+    const repo = getLibrary()
+    vi.spyOn(repo, 'follow').mockRejectedValue(new Error('QuotaExceededError'))
+    const parsed: ParsedImport = {
+      ...parsedPlaylist('Mix', [spotifyTrack(1, 'Song', 'Band', { seconds: 200 })]),
+      follows: [
+        {
+          id: formatId('spotify', 'artist', '0000000000000000000006'),
+          source: 'spotify',
+          name: 'Björk',
+          artwork: [],
+        },
+      ],
+    }
+    const started = await startImports(parsed, {}, 'music', fakeServices())
+    expect(started.importIds).toHaveLength(1)
+    expect(started.failed).toEqual(['follows'])
+  })
+
+  it('says which playlists started when one could not be created', async () => {
+    const repo = getLibrary()
+    const create = repo.createPlaylist.bind(repo)
+    let calls = 0
+    vi.spyOn(repo, 'createPlaylist').mockImplementation(async (input) => {
+      if (++calls === 2) throw new Error('QuotaExceededError')
+      return create(input)
+    })
+    const parsed: ParsedImport = {
+      kind: 'csv',
+      label: 'x.csv',
+      collections: [
+        { name: 'A', rows: [{ title: 'One', artists: ['X'] }] },
+        { name: 'B', rows: [{ title: 'Two', artists: ['Y'] }] },
+      ],
+      plays: [],
+      follows: [],
+      skipped: noSkips(),
+    }
+    const failure = await startImports(parsed, {}, 'music', fakeServices()).catch((error) => error)
+    expect(failure).toBeInstanceOf(StartImportsError)
+    expect((failure as StartImportsError).created).toEqual([0])
+    const [first] = (failure as StartImportsError).started.importIds
+    expect(await finished(first as string)).toMatchObject({ label: 'A' })
+  })
+})
+
+describe('starting, stopping and failing safely', () => {
+  it('stops an import paused just as its run reads it, before it ever runs', async () => {
+    const repo = getLibrary()
+    const read = repo.getImport.bind(repo)
+    const hold = gate()
+    let reading = false
+    vi.spyOn(repo, 'getImport').mockImplementation(async (id) => {
+      const record = await read(id)
+      if (record?.status === 'pending' && !reading) {
+        reading = true
+        await hold.opened
+      }
+      return record
+    })
+    const services = fakeServices()
+    const [id] = (
+      await startImports(
+        parsedPlaylist('Soon', [spotifyTrack(1, 'Song', 'Band', { seconds: 200 })]),
+        {},
+        'music',
+        services,
+      )
+    ).importIds
+    await waitFor(() => expect(reading).toBe(true))
+    const pausing = pauseImport(id as string)
+    hold.open()
+    await pausing
+    expect(await statusOf(id as string)).toBe('paused')
+    expect(services.slots).toBe(0)
+  })
+
+  it('reads a review decision made just as the run starts, and keeps it', async () => {
+    const { id, catalog, tracks } = await pausedWithReview()
+    const repo = getLibrary()
+    const pin = repo.pinMatch.bind(repo)
+    const hold = gate()
+    vi.spyOn(repo, 'pinMatch').mockImplementation(async (...args) => {
+      await hold.opened
+      return pin(...args)
+    })
+    const reviewing = reviewRow(id, 0, { action: 'confirm', ref: 'knownsong01' })
+    await resumeImport(id, fakeServices({ youtube: fakeYouTube({ catalog }) }))
+    hold.open()
+    await reviewing
+    const done = await finished(id)
+    expect(done).toMatchObject({ status: 'done', matched: 2, needsReview: 0 })
+    expect(await repo.getConfirmedMatch(tracks[0]?.id as EntityId<'track'>, 'music')).toMatchObject(
+      { ref: 'knownsong01' },
+    )
+  })
+
+  it('keeps a decision off the progress when its library change fails', async () => {
+    const { id } = await pausedWithReview()
+    const repo = getLibrary()
+    vi.spyOn(repo, 'pinMatch').mockRejectedValue(new Error('QuotaExceededError'))
+    await expect(reviewRow(id, 0, { action: 'confirm', ref: 'knownsong01' })).rejects.toThrow()
+    const state = await loadImportState(id)
+    expect(state?.results[0]?.review).toBeUndefined()
+    expect(await repo.getImport(id)).toMatchObject({ needsReview: 1 })
+  })
+
+  it('pauses when the library can’t save, and resumes once it can', async () => {
+    const { id, catalog } = await pausedWithReview()
+    const repo = getLibrary()
+    const spy = vi.spyOn(repo, 'recordMatch').mockRejectedValue(new Error('QuotaExceededError'))
+    const services = fakeServices({ youtube: fakeYouTube({ catalog }) })
+    await resumeImport(id, services)
+    const paused = await finished(id)
+    expect(paused.status).toBe('paused')
+    expect(paused.error).toMatch(/out of space/u)
+    spy.mockRestore()
+    await resumeImport(id, services)
+    expect(await finished(id)).toMatchObject({ status: 'done', error: '' })
+  })
+
+  it('pauses while offline, and goes on once the connection is back', async () => {
+    const { id, catalog } = await pausedWithReview()
+    let online = false
+    const services = fakeServices({
+      youtube: fakeYouTube({ catalog }),
+      isOnline: () => online,
+    })
+    await resumeImport(id, services)
+    const paused = await finished(id)
+    expect(paused.status).toBe('paused')
+    expect(importBlockOf(paused.state)).toBe('offline')
+    online = true
+    window.dispatchEvent(new Event('online'))
+    await waitFor(async () => expect(await statusOf(id)).toBe('done'))
+  })
+})
+
+describe('other tabs', () => {
+  it('leaves an import another tab runs alone', async () => {
+    const { id } = await pausedWithReview()
+    setImportLockManager(fakeLocks([id]), 20)
+    const services = fakeServices()
+    await expect(resumeImport(id, services)).rejects.toBeInstanceOf(ImportBusyError)
+    await expect(reviewRow(id, 0, { action: 'skip' })).rejects.toBeInstanceOf(ImportBusyError)
+    await expect(retryFailedSongs(id, services)).rejects.toBeInstanceOf(ImportBusyError)
+    expect(await statusOf(id)).toBe('paused')
+  })
+
+  it('does not run an import another tab took meanwhile', async () => {
+    const { id, catalog } = await pausedWithReview()
+    const locks = fakeLocks([id])
+    // The other tab took it after this one looked.
+    locks.reportElsewhere = false
+    setImportLockManager(locks, 20)
+    const services = fakeServices({ youtube: fakeYouTube({ catalog }) })
+    await resumeImport(id, services)
+    await waitFor(() => expect(useImportRunner.getState().activeId).toBeNull())
+    expect(services.slots).toBe(0)
+    expect((await loadImportState(id))?.results[1]).toBeNull()
+  })
+})
+
+describe('taking decisions back', () => {
+  it('unpins a confirmed match and caches the engine’s own decision again', async () => {
+    const { id, tracks } = await pausedWithReview()
+    const source = tracks[0]?.id as EntityId<'track'>
+    await reviewRow(id, 0, { action: 'confirm', ref: 'knownsong01' })
+    expect(await getLibrary().getConfirmedMatch(source, 'music')).toBeDefined()
+    expect(await reopenRows(id, [0])).toBe(1)
+    expect(await getLibrary().getConfirmedMatch(source, 'music')).toBeUndefined()
+    expect(await getLibrary().getMatch(source, 'music')).toMatchObject({
+      band: 'suggest',
+      userPinned: false,
+      candidate: { ref: 'knownsong01' },
+    })
+    expect(await getLibrary().getImport(id)).toMatchObject({ needsReview: 1 })
+  })
+
+  it('takes a song placed for a file’s row out of the playlist again', async () => {
+    const known = song('knownsong01', 'Known Song', 'Known Band', { seconds: 200 })
+    const csv: ParsedImport = {
+      kind: 'csv',
+      label: 'csv',
+      collections: [{ name: 'From CSV', rows: [{ title: 'Known Song', artists: ['Known Band'] }] }],
+      plays: [],
+      follows: [],
+      skipped: noSkips(),
+    }
+    const services = fakeServices({ youtube: fakeYouTube({ catalog: [known] }) })
+    const [id] = (await startImports(csv, {}, 'music', services)).importIds
+    const record = await finished(id as string)
+    await reviewRow(id as string, 0, { action: 'confirm', ref: 'knownsong01' })
+    const playlist = record.playlistId as EntityId<'playlist'>
+    expect((await getLibrary().getPlaylistView(playlist))?.rows.map((row) => row.id)).toEqual([
+      known.id,
+    ])
+    await reopenRows(id as string, [0])
+    expect((await getLibrary().getPlaylistView(playlist))?.rows).toEqual([])
+    expect(await getLibrary().getImport(id as string)).toMatchObject({ needsReview: 1 })
   })
 })

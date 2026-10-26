@@ -13,7 +13,7 @@
  */
 
 import type { CatalogMode, NetworkCapabilities, ProviderContext } from '@fxm/core'
-import type { FxmPlatform } from '@fxm/platform'
+import type { FxmPlatform, RequestPriority } from '@fxm/platform'
 import {
   type ImportMusicBrainz,
   type ImportSpotify,
@@ -24,10 +24,24 @@ import { createMusicBrainzClient } from '@fxm/sources/musicbrainz'
 import { createSpotifyProvider } from '@fxm/sources/spotify'
 import { createContext, type ReactNode, useContext, useMemo } from 'react'
 
+/**
+ * Whether imports can find songs here:
+ *
+ * - `ready`: YouTube Music can be reached
+ * - `needs-connect`: this browser cannot reach YouTube Music; FXM Connect (or the desktop or
+ *   Android app) would
+ * - `unavailable`: this version of FXM cannot search YouTube Music for imports yet (the YouTube
+ *   providers of stage 1.3 are not wired in)
+ */
+export type MatchingAvailability = 'ready' | 'needs-connect' | 'unavailable'
+
 /** What imports need from the app. */
 export interface ImportServices {
-  /** A provider context for an import's calls: the budget's `bulk` priority, in `mode`. */
-  context(mode: CatalogMode, signal?: AbortSignal): ProviderContext
+  /**
+   * A provider context for an import's calls, in `mode`: the budget's `bulk` priority, or
+   * `interactive` for a load the user waits for (a playlist link).
+   */
+  context(mode: CatalogMode, signal?: AbortSignal, priority?: RequestPriority): ProviderContext
   /** Waits until the request budget allows the next bulk call. */
   waitForBulkSlot(signal: AbortSignal): Promise<void>
   /** When the budget's next bulk call can start, as epoch milliseconds. */
@@ -36,6 +50,12 @@ export interface ImportServices {
   report(error: unknown): void
   /** What the platform reaches now. */
   capabilities(): NetworkCapabilities
+  /** Calls `listener` when the capabilities change. Returns a function that stops it. */
+  subscribeCapabilities(listener: () => void): () => void
+  /** Whether imports can find songs here now. */
+  matching(): MatchingAvailability
+  /** Whether the device is online (`navigator.onLine`). */
+  isOnline(): boolean
   /** YouTube Music and YouTube. */
   youtube: ImportYouTube
   /** Spotify, when it is built in and switched on. */
@@ -44,6 +64,11 @@ export interface ImportServices {
   musicBrainz: ImportMusicBrainz | undefined
   /** The Auto setting: whether matches may play without asking. Off until stage 1.12 turns it on. */
   autoMatch(): boolean
+}
+
+/** Whether the device is online, as the browser says; `true` where it cannot say. */
+export function browserOnline(): boolean {
+  return (globalThis.navigator as { onLine?: boolean } | undefined)?.onLine !== false
 }
 
 /** The parts {@link createImportServices} builds on. */
@@ -64,14 +89,20 @@ export interface ImportServiceParts {
 export function createImportServices(parts: ImportServiceParts): ImportServices {
   const { platform } = parts
   return {
-    context: (mode, signal) =>
-      platform.context({ mode, priority: 'bulk', ...(signal === undefined ? {} : { signal }) }),
+    context: (mode, signal, priority = 'bulk') =>
+      platform.context({ mode, priority, ...(signal === undefined ? {} : { signal }) }),
     waitForBulkSlot: (signal) => platform.budget.whenAvailable('bulk', { signal }),
     nextBulkSlotAt: () => platform.budget.nextSlotAt('bulk'),
     report: (error) => {
       platform.report(error)
     },
     capabilities: () => platform.capabilities.current,
+    subscribeCapabilities: (listener) => platform.capabilities.subscribe(() => listener()),
+    matching() {
+      if (parts.youtube === YOUTUBE_IMPORT_UNAVAILABLE) return 'unavailable'
+      return platform.capabilities.current.youtube === 'none' ? 'needs-connect' : 'ready'
+    },
+    isOnline: browserOnline,
     youtube: parts.youtube,
     spotify: parts.spotify,
     musicBrainz: parts.musicBrainz,

@@ -11,15 +11,25 @@ interface FieldProps {
   className?: string
 }
 
-/** A labelled text input. The text is 16px, so phones don't zoom in on focus. */
+/**
+ * A labelled text input. The text is 16px, so phones don't zoom in on focus. An `error` shows
+ * under it, marks it invalid and joins its description, so screen readers read it with the
+ * field.
+ */
 export function TextField({
   label,
   hint,
+  error,
   className,
   ...input
-}: FieldProps & Omit<InputHTMLAttributes<HTMLInputElement>, 'className'>) {
+}: FieldProps & {
+  /** Why the value was refused, for people; announced when it appears. */
+  error?: string | undefined
+} & Omit<InputHTMLAttributes<HTMLInputElement>, 'className'>) {
   const id = useId()
   const hintId = useId()
+  const errorId = useId()
+  const describedBy = [hint ? hintId : '', error ? errorId : ''].filter(Boolean).join(' ')
   return (
     <div className={cn('space-y-1.5', className)}>
       <label htmlFor={id} className="block text-sm font-semibold">
@@ -28,12 +38,18 @@ export function TextField({
       <input
         {...input}
         id={id}
-        aria-describedby={hint ? hintId : undefined}
-        className={cn(control, 'h-touch')}
+        aria-describedby={describedBy || undefined}
+        aria-invalid={error ? true : undefined}
+        className={cn(control, 'h-touch', error && 'border-danger')}
       />
       {hint && (
         <p id={hintId} className="text-xs text-text-muted">
           {hint}
+        </p>
+      )}
+      {error && (
+        <p id={errorId} role="alert" className="text-sm font-semibold text-danger">
+          {error}
         </p>
       )}
     </div>

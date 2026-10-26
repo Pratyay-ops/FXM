@@ -23,12 +23,41 @@ const PAGES = [
 const LIBRARY_BACKUP = fileURLToPath(new URL('./fixtures/library-backup.json', import.meta.url))
 const ROAD_TRIP = 'playlist/local:playlist:6f1c2d3e-0000-4000-8000-000000000001'
 
+/** A library backup with two imports: one with songs to review, one paused (fictional songs). */
+const IMPORT_BACKUP = fileURLToPath(new URL('./fixtures/import-backup.json', import.meta.url))
+const IMPORT_TO_REVIEW = 'import/6f1c2d3e-0000-4000-8000-0000000000b1'
+
+/** A data download's playlists file with long playlist names (made up for the test). */
+const EXPORT_PLAYLISTS = {
+  name: 'Playlist1.json',
+  mimeType: 'application/json',
+  buffer: Buffer.from(
+    JSON.stringify({
+      playlists: ['Songs for the very long train ride through the mountains', 'Kitchen radio'].map(
+        (name, index) => ({
+          name,
+          items: [
+            {
+              track: {
+                trackName: `A rather long song title number ${index + 1} (Extended Version)`,
+                artistName: 'Neon Harbor',
+                albumName: 'Coastline',
+                trackUri: `spotify:track:fxm${String(index + 1).padStart(19, '0')}`,
+              },
+            },
+          ],
+        }),
+      ),
+    }),
+  ),
+}
+
 /** Restores the fixture library through the Backup dialog, replacing what is there. */
-async function restoreLibrary(page: Page) {
+async function restoreLibrary(page: Page, file = LIBRARY_BACKUP) {
   await page.goto('library')
   await page.getByRole('main').getByRole('button', { name: 'Backup' }).click()
   const dialog = page.getByRole('dialog', { name: 'Back up your library' })
-  await dialog.getByLabel('Choose a backup file').setInputFiles(LIBRARY_BACKUP)
+  await dialog.getByLabel('Choose a backup file').setInputFiles(file)
   await dialog.getByRole('radio', { name: /Replace/ }).check()
   await dialog.getByRole('button', { name: 'Replace my library' }).click()
   await expect(page.getByText('Library replaced from the backup')).toBeVisible()
@@ -244,6 +273,21 @@ test.describe('on a 320 px phone', () => {
       await expect(page.getByRole('heading', { level: 1 })).toBeAttached()
       expect(await horizontalOverflow(page), path).toBeLessThanOrEqual(0)
     }
+  })
+
+  test('fits the import preview and the review list on the screen', async ({ page }) => {
+    await page.goto('import')
+    await page.getByLabel('Choose ZIP or JSON files').setInputFiles(EXPORT_PLAYLISTS)
+    await expect(page.getByRole('heading', { name: 'Ready to import' })).toBeVisible()
+    expect(await horizontalOverflow(page), 'export preview').toBeLessThanOrEqual(0)
+
+    await restoreLibrary(page, IMPORT_BACKUP)
+    await page.goto(IMPORT_TO_REVIEW)
+    await expect(page.getByRole('heading', { level: 3 }).first()).toBeVisible()
+    expect(await horizontalOverflow(page), 'review list').toBeLessThanOrEqual(0)
+    await page.goto('import')
+    await expect(page.getByRole('region', { name: 'Your imports' })).toBeVisible()
+    expect(await horizontalOverflow(page), 'imports').toBeLessThanOrEqual(0)
   })
 
   test('keeps keyboard focus clear of the mini player and tab bar', async ({ page }) => {

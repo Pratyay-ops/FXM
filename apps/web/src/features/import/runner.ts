@@ -6,23 +6,28 @@
  * only reads the library; this module adds what only the running tab knows (what the job is
  * doing right now) in a small store.
  *
- * One import runs at a time per tab: the request budget spaces bulk searches anyway. An import
- * left `running` by a closed or reloaded tab shows as interrupted, and resumes where it stopped.
+ * One import runs at a time per tab: the request budget spaces bulk searches anyway. A tab holds
+ * an import's Web Lock while it runs it (`./locks`), so no other tab runs it too; those tabs show
+ * it as running elsewhere. An import left `running` by a closed or reloaded tab shows as
+ * interrupted, and resumes where it stopped.
  *
  * @module
  */
 
 import type { CatalogMode, Track } from '@fxm/core'
 import {
-  applyReview,
   createImportState,
   type ImportCollection,
   type ImportEnvironment,
   type ImportRunStatus,
   type ImportState,
+  importBlockOf,
   initialPlaylistTracks,
   isLikelyMatch,
   type ParsedImport,
+  planReopen,
+  planReview,
+  type ReopenEffect,
   type ReviewDecision,
   type ReviewEffect,
   retryFailedRows,
@@ -32,14 +37,21 @@ import {
 import { create } from 'zustand'
 import { getLibrary, LibraryError, type LibraryRepo } from '../../db/repo'
 import type { ImportProgressRecord } from '../../db/types'
+import { ImportBusyError, importsHeldElsewhere, resetImportLocks, withImportLock } from './locks'
 import type { ImportServices } from './services'
-import { createLibrarySink, progressOf } from './sink'
+import { createLibrarySink, placeTrack, progressOf, recordDecision } from './sink'
 
 /** The kind of the progress record a listening-history import keeps. */
 export const HISTORY_IMPORT_KIND = 'spotify-history'
 
 /** How many plays one library transaction records. */
 const PLAYS_PER_BATCH = 500
+
+/** Why an import cannot go on, for people. */
+const UNREADABLE = 'This import’s progress can’t be read, so it can’t go on.'
+const PLAYLIST_GONE = 'The import’s playlist was deleted, so it stopped.'
+const LIBRARY_FULL =
+  'The library couldn’t save the import. The browser may be out of space: free some up, then resume.'
 
 /** What an import does right now, as only the tab that runs it knows. */
 export interface ImportActivity {
@@ -56,6 +68,8 @@ interface RunnerState {
   activity: ImportActivity
   /** The imports waiting in this tab's queue, in order. */
   queued: readonly string[]
+  /** The listening-history imports this tab is recording now. */
+  recording: readonly string[]
 }
 
 /** The runner's live state, for the import pages. */
@@ -63,12 +77,16 @@ export const useImportRunner = create<RunnerState>()(() => ({
   activeId: null,
   activity: {},
   queued: [],
+  recording: [],
 }))
 
 interface ActiveImport {
   id: string
-  state: ImportState
+  /** Its progress, once the run has read it. */
+  state: ImportState | null
   controller: AbortController
+  /** Settles once the run has stopped and saved where it stands. */
+  finished: Promise<void>
 }
 
 /** Why a run was stopped: the abort reasons of a pause and a cancel. */
@@ -82,9 +100,18 @@ let active: ActiveImport | null = null
 function publishQueue(): void {
   useImportRunner.setState({ queued: [...queue] })
 }
+
+function publishRecording(id: string, recording: boolean): void {
+  useImportRunner.setState((current) => ({
+    recording: recording
+      ? [...current.recording, id]
+      : current.recording.filter((other) => other !== id),
+  }))
+}
+
 const locks = new Map<string, Promise<unknown>>()
 
-/** Runs `body` after every earlier locked call for the same import has finished. */
+/** Runs `body` after every earlier locked call for the same import in this tab has finished. */
 function withLock<T>(id: string, body: () => Promise<T>): Promise<T> {
   const previous = locks.get(id) ?? Promise.resolve()
   const next = previous.then(body, body)
@@ -97,6 +124,13 @@ function withLock<T>(id: string, body: () => Promise<T>): Promise<T> {
     if (locks.get(id) === settled) locks.delete(id)
   })
   return next
+}
+
+/** Takes an import out of this tab's queue. */
+function dequeue(id: string): void {
+  const queued = queue.indexOf(id)
+  if (queued >= 0) queue.splice(queued, 1)
+  publishQueue()
 }
 
 /** What the user chose to import from a parsed input. */
@@ -119,14 +153,34 @@ export interface StartedImports {
   historyId?: string
   /** How many albums and artists were followed. */
   followed: number
+  /** What could not be saved while the playlists started: the follows, the history. */
+  failed: ('follows' | 'history')[]
+}
+
+/**
+ * Thrown by {@link startImports} when a playlist could not be created. The playlists created
+ * before it are importing (`started`, and their indices in `created`): start the rest again.
+ */
+export class StartImportsError extends Error {
+  override readonly name = 'StartImportsError'
+
+  constructor(
+    readonly started: StartedImports,
+    readonly created: readonly number[],
+    readonly reason: unknown,
+  ) {
+    super('Some playlists could not be created')
+  }
 }
 
 /**
  * Starts importing `parsed` in the catalog `mode`: creates each chosen playlist (with the rows'
  * own catalog tracks) and its progress record, follows the saved albums and artists, and records
  * the listening history. The playlists' matching runs in the background, one import at a time.
+ * Once the playlists exist, a failure to follow or to record the history is reported in
+ * `failed` instead of thrown, so nothing is started twice.
  *
- * @throws LibraryError when the library refuses (storage blocked or full).
+ * @throws StartImportsError when a playlist could not be created (storage blocked or full).
  */
 export async function startImports(
   parsed: ParsedImport,
@@ -135,28 +189,45 @@ export async function startImports(
   services: ImportServices,
 ): Promise<StartedImports> {
   const repo = getLibrary()
-  const started: StartedImports = { importIds: [], followed: 0 }
-  // The playlists first, so their matching starts while the rest is saved.
-  const chosen = choices.collections ?? parsed.collections.map((_, index) => index)
-  for (const index of chosen) {
-    const collection = parsed.collections[index]
-    if (collection === undefined) continue
-    const name = choices.names?.[index]?.trim() || collection.name
-    started.importIds.push(await createImport(repo, parsed, { ...collection, name }, mode))
+  const started: StartedImports = { importIds: [], followed: 0, failed: [] }
+  const created: number[] = []
+  const enqueue = () => {
+    queue.push(...started.importIds)
+    publishQueue()
+    void drain(services)
   }
-  queue.push(...started.importIds)
-  publishQueue()
-  void drain(services)
-  if (choices.follows !== false) {
-    for (const entity of parsed.follows) {
-      if (!(await repo.isFollowing(entity.id))) {
-        await repo.follow(entity)
-        started.followed++
+  // The playlists first, so their matching starts while the rest is saved.
+  try {
+    for (const index of choices.collections ?? parsed.collections.map((_, at) => at)) {
+      const collection = parsed.collections[index]
+      if (collection === undefined) continue
+      const name = choices.names?.[index]?.trim() || collection.name
+      started.importIds.push(await createImport(repo, parsed, { ...collection, name }, mode))
+      created.push(index)
+    }
+  } catch (error) {
+    enqueue()
+    throw new StartImportsError(started, created, error)
+  }
+  enqueue()
+  if (choices.follows !== false && parsed.follows.length > 0) {
+    try {
+      for (const entity of parsed.follows) {
+        if (!(await repo.isFollowing(entity.id))) {
+          await repo.follow(entity)
+          started.followed++
+        }
       }
+    } catch {
+      started.failed.push('follows')
     }
   }
   if (choices.history !== false && parsed.plays.length > 0) {
-    started.historyId = await recordHistory(repo, parsed)
+    try {
+      started.historyId = await recordHistory(repo, parsed)
+    } catch {
+      started.failed.push('history')
+    }
   }
   return started
 }
@@ -199,10 +270,11 @@ async function createImport(
 }
 
 /**
- * Records a data export's listening history as plays (listening signals), in batches. A play the
- * library already has (the same track at the same start) is not recorded twice, so importing
- * the same export again only fills in what is missing. A track the library already describes
- * keeps that description (with its artwork, say), since recording a play saves its track.
+ * Records a data export's listening history as plays (listening signals), in batches, holding
+ * the history's lock so other tabs show it as recording. A play the library already has (the
+ * same track at the same start) is not recorded twice, so importing the same export again only
+ * fills in what is missing. A track the library already describes keeps that description (with
+ * its artwork, say), since recording a play saves its track.
  */
 async function recordHistory(repo: LibraryRepo, parsed: ParsedImport): Promise<string> {
   const record = await repo.startImport({
@@ -210,39 +282,43 @@ async function recordHistory(repo: LibraryRepo, parsed: ParsedImport): Promise<s
     label: 'Listening history from Spotify',
     total: parsed.plays.length,
   })
-  const tracks = new Map<string, Track>()
-  let done = 0
-  for (let start = 0; start < parsed.plays.length; start += PLAYS_PER_BATCH) {
-    const batch = parsed.plays.slice(start, start + PLAYS_PER_BATCH)
-    const unknown = [...new Set(batch.map((play) => play.track.id))].filter((id) => !tracks.has(id))
-    const cached = await Promise.all(unknown.map((id) => repo.getTrack(id)))
-    unknown.forEach((id, index) => {
-      const track = cached[index]
-      if (track !== undefined) tracks.set(id, track)
+  publishRecording(record.id, true)
+  try {
+    await withImportLock(record.id, async () => {
+      const tracks = new Map<string, Track>()
+      let done = 0
+      for (let start = 0; start < parsed.plays.length; start += PLAYS_PER_BATCH) {
+        const batch = parsed.plays.slice(start, start + PLAYS_PER_BATCH)
+        const unknown = [...new Set(batch.map((play) => play.track.id))].filter(
+          (id) => !tracks.has(id),
+        )
+        const cached = await Promise.all(unknown.map((id) => repo.getTrack(id)))
+        unknown.forEach((id, index) => {
+          const track = cached[index]
+          if (track !== undefined) tracks.set(id, track)
+        })
+        await repo.recordPlays(
+          batch.map((play) => ({
+            track: tracks.get(play.track.id) ?? play.track,
+            playedAt: play.playedAt,
+            playedMs: play.playedMs,
+            completed: play.completed,
+            skipped: play.skipped,
+            importId: record.id,
+          })),
+        )
+        done += batch.length
+        await repo.updateImport(record.id, { done, matched: done })
+      }
+      await repo.updateImport(record.id, { status: 'done' })
     })
-    await repo.recordPlays(
-      batch.map((play) => ({
-        track: tracks.get(play.track.id) ?? play.track,
-        playedAt: play.playedAt,
-        playedMs: play.playedMs,
-        completed: play.completed,
-        skipped: play.skipped,
-        importId: record.id,
-      })),
-    )
-    done += batch.length
-    await repo.updateImport(record.id, { done, matched: done })
+  } catch (error) {
+    await repo.updateImport(record.id, { status: 'failed' }).catch(() => {})
+    throw error
+  } finally {
+    publishRecording(record.id, false)
   }
-  await repo.updateImport(record.id, { status: 'done' })
   return record.id
-}
-
-/** What to tell the user when an import stopped for a reason of its own. */
-function stopNote(message: string, services: ImportServices): string {
-  if (services.capabilities().youtube === 'none') {
-    return 'YouTube Music can’t be reached from this browser yet. Add FXM Connect, or use the desktop or Android app, then resume.'
-  }
-  return message
 }
 
 /** The environment of a job over the app's services. */
@@ -263,6 +339,7 @@ function environmentOf(services: ImportServices, mode: CatalogMode): ImportEnvir
     spotify: services.spotify,
     musicBrainz: services.musicBrainz,
     autoMatch: services.autoMatch(),
+    isOnline: () => services.isOnline(),
   }
 }
 
@@ -286,63 +363,85 @@ async function drain(services: ImportServices): Promise<void> {
 }
 
 async function runOne(id: string, services: ImportServices): Promise<void> {
-  // Marked as this tab's from the start, so the page never shows it as interrupted meanwhile.
+  // This tab's from the start, before anything waits: a Pause or Cancel meanwhile reaches the
+  // controller, and the page never shows the import as interrupted.
+  let finish: () => void = () => {}
+  const job: ActiveImport = {
+    id,
+    state: null,
+    controller: new AbortController(),
+    finished: new Promise<void>((resolve) => {
+      finish = resolve
+    }),
+  }
+  active = job
   useImportRunner.setState({ activeId: id, activity: {} })
   try {
-    await runRecord(id, services)
+    await withImportLock(id, () => runRecord(job, services))
+  } catch {
+    // Another tab runs it (ImportBusyError): that tab goes on with it.
   } finally {
-    active = null
+    if (active === job) active = null
     useImportRunner.setState({ activeId: null, activity: {} })
+    finish()
   }
 }
 
-async function runRecord(id: string, services: ImportServices): Promise<void> {
+async function runRecord(job: ActiveImport, services: ImportServices): Promise<void> {
   const repo = getLibrary()
-  const record = await repo.getImport(id).catch(() => undefined)
-  // Only a pending import runs: one paused, cancelled or removed while queued stays as it is.
-  if (record === undefined || record.status !== 'pending') return
-  const state = sanitizeImportState(record.state)
-  if (state === null || record.playlistId === undefined) {
-    await repo
-      .updateImport(id, {
-        status: 'failed',
-        error: 'This import’s progress can’t be read, so it can’t go on.',
-      })
-      .catch(() => {})
-    return
-  }
-  const controller = new AbortController()
-  active = { id, state, controller }
+  const { id, controller } = job
   try {
-    await repo.updateImport(id, { status: 'running', error: '' })
-    const sink = createLibrarySink(repo, id, record.playlistId)
-    // Review decisions saved just before the run starts land first.
-    await withLock(id, async () => {})
-    const end = await runImport(state, environmentOf(services, state.mode), sink, {
+    // Read the progress after every review decision already on its way in this tab.
+    const start = await withLock(id, async () => {
+      const record = await repo.getImport(id).catch(() => undefined)
+      // Only a pending import runs: one paused, cancelled or removed while queued stays as it is.
+      if (record === undefined || record.status !== 'pending') return null
+      if (controller.signal.aborted) {
+        const status = controller.signal.reason === CANCEL ? 'cancelled' : 'paused'
+        await repo.updateImport(id, { status })
+        return null
+      }
+      const state = sanitizeImportState(record.state)
+      if (state === null || record.playlistId === undefined) {
+        await repo.updateImport(id, { status: 'failed', error: UNREADABLE })
+        return null
+      }
+      job.state = state
+      await repo.updateImport(id, { status: 'running', error: '' })
+      return { state, playlistId: record.playlistId }
+    })
+    if (start === null) return
+    const sink = createLibrarySink(repo, id, start.playlistId)
+    const end = await runImport(start.state, environmentOf(services, start.state.mode), sink, {
       signal: controller.signal,
       onStatus: (status) =>
         useImportRunner.setState((current) => ({
           activity: status.phase === 'waiting' ? { ...current.activity, status } : { status },
         })),
     })
-    if (end.status === 'done') await repo.updateImport(id, { status: 'done', error: '' })
-    else if (end.status === 'blocked') {
-      await repo.updateImport(id, { status: 'paused', error: stopNote(end.message, services) })
+    if (end.status === 'done') {
+      await repo.updateImport(id, { status: 'done', error: '' })
+    } else if (end.status === 'blocked') {
+      // Why is saved in the progress (`blocked`), for the page to say in its own words.
+      await repo.updateImport(id, { status: 'paused', error: '' })
+      if (end.reason === 'offline') listenForConnection(services)
     } else {
       const cancelled = controller.signal.reason === CANCEL
       await repo.updateImport(id, { status: cancelled ? 'cancelled' : 'paused', error: '' })
     }
   } catch (error) {
-    const message =
-      error instanceof LibraryError && error.code === 'not-found'
-        ? 'The import’s playlist was deleted, so it stopped.'
-        : 'The import stopped: the library could not save it. The browser may be out of space.'
-    await repo.updateImport(id, { status: 'failed', error: message }).catch(() => {})
+    // A deleted playlist ends the import; anything else the library refused (storage full or
+    // blocked) only pauses it, with nothing lost.
+    const gone = error instanceof LibraryError && error.code === 'not-found'
+    const patch = gone
+      ? ({ status: 'failed', error: PLAYLIST_GONE } as const)
+      : ({ status: 'paused', error: LIBRARY_FULL } as const)
+    await repo.updateImport(id, patch).catch(() => {})
   }
 }
 
-/** Resumes a paused or interrupted import: it continues from its first waiting row. */
-export async function resumeImport(id: string, services: ImportServices): Promise<void> {
+/** Puts an import in this tab's queue, unless it runs or waits here already. */
+async function enqueueSaved(id: string, services: ImportServices): Promise<void> {
   if (active?.id === id || queue.includes(id)) return
   await getLibrary().updateImport(id, { status: 'pending', error: '' })
   queue.push(id)
@@ -351,67 +450,149 @@ export async function resumeImport(id: string, services: ImportServices): Promis
 }
 
 /**
- * Tries an import's failed songs again: they go back in its queue, and the import resumes.
- * Returns how many. Nothing happens while the import runs in this tab.
+ * Resumes a paused or interrupted import: it continues from its first waiting row.
+ *
+ * @throws ImportBusyError while another tab runs it.
+ */
+export async function resumeImport(id: string, services: ImportServices): Promise<void> {
+  if (active?.id === id || queue.includes(id)) return
+  if ((await importsHeldElsewhere()).has(id)) throw new ImportBusyError()
+  await enqueueSaved(id, services)
+}
+
+let watching: ImportServices | null = null
+let listening = false
+
+/** Resumes the imports that paused because the network was out on every `online` event. */
+function listenForConnection(services: ImportServices): void {
+  watching = services
+  if (listening || typeof window === 'undefined') return
+  listening = true
+  window.addEventListener('online', () => {
+    if (watching !== null) void resumeOffline(watching)
+  })
+}
+
+/**
+ * Resumes the imports that paused because the network was out: now, when the device is online,
+ * and on every `online` event from then on. The import pages call it once they have services.
+ */
+export function watchConnection(services: ImportServices): void {
+  listenForConnection(services)
+  if (services.isOnline()) void resumeOffline(services)
+}
+
+async function resumeOffline(services: ImportServices): Promise<void> {
+  const records = await getLibrary()
+    .listImports()
+    .catch(() => [])
+  for (const record of records) {
+    if (record.status !== 'paused' || importBlockOf(record.state) !== 'offline') continue
+    await resumeImport(record.id, services).catch(() => {})
+  }
+}
+
+/**
+ * Tries an import's failed songs again (and those whose search was cut short): they go back in
+ * its queue, and the import resumes. Returns how many. Nothing happens while the import runs in
+ * this tab.
+ *
+ * @throws ImportBusyError while another tab runs it.
  */
 export function retryFailedSongs(id: string, services: ImportServices): Promise<number> {
   return withLock(id, async () => {
     if (active?.id === id) return 0
-    const repo = getLibrary()
-    const { state } = await stateOf(repo, id)
-    const count = retryFailedRows(state)
-    if (count === 0) return 0
-    await repo.updateImport(id, { ...progressOf(state), status: 'pending', error: '' })
-    if (!queue.includes(id)) queue.push(id)
-    publishQueue()
-    void drain(services)
+    const count = await withImportLock(id, async () => {
+      const repo = getLibrary()
+      const state = savedState(await requireRecord(repo, id))
+      const retried = retryFailedRows(state)
+      if (retried > 0) {
+        await repo.updateImport(id, { ...progressOf(state), status: 'pending', error: '' })
+      }
+      return retried
+    })
+    if (count > 0 && !queue.includes(id)) {
+      queue.push(id)
+      publishQueue()
+      void drain(services)
+    }
     return count
   })
 }
 
-/** Pauses an import; its progress is kept. */
+/** Pauses an import; its progress is kept. Resolves once it has stopped. */
 export async function pauseImport(id: string): Promise<void> {
   if (active?.id === id) {
-    active.controller.abort(PAUSE)
+    const job = active
+    job.controller.abort(PAUSE)
+    await job.finished
     return
   }
-  const queued = queue.indexOf(id)
-  if (queued >= 0) queue.splice(queued, 1)
-  publishQueue()
+  dequeue(id)
   await getLibrary().updateImport(id, { status: 'paused' })
 }
 
-/** Cancels an import: it stops for good. Its playlist and what it matched stay. */
+/**
+ * Cancels an import: it stops for good. Its playlist and what it matched stay. Resolves once it
+ * has stopped, so the playlist can be deleted after it.
+ */
 export async function cancelImport(id: string): Promise<void> {
   if (active?.id === id) {
-    active.controller.abort(CANCEL)
+    const job = active
+    job.controller.abort(CANCEL)
+    await job.finished
     return
   }
-  const queued = queue.indexOf(id)
-  if (queued >= 0) queue.splice(queued, 1)
-  publishQueue()
+  dequeue(id)
   await getLibrary().updateImport(id, { status: 'cancelled' })
 }
 
 /** Forgets an import (its progress record). Its playlist and matches stay in the library. */
 export async function removeImport(id: string): Promise<void> {
-  if (active?.id === id) active.controller.abort(CANCEL)
-  const queued = queue.indexOf(id)
-  if (queued >= 0) queue.splice(queued, 1)
-  publishQueue()
+  if (active?.id === id) {
+    const job = active
+    job.controller.abort(CANCEL)
+    await job.finished
+  }
+  dequeue(id)
   await getLibrary().deleteImport(id)
 }
 
-/** The import's progress: the running job's own when it runs here, else the saved one. */
-async function stateOf(
-  repo: LibraryRepo,
-  id: string,
-): Promise<{ state: ImportState; record: ImportProgressRecord }> {
+async function requireRecord(repo: LibraryRepo, id: string): Promise<ImportProgressRecord> {
   const record = await repo.getImport(id)
-  if (record === undefined) throw new LibraryError('not-found', `No import ${id}`)
-  const state = active?.id === id ? active.state : sanitizeImportState(record.state)
-  if (state === null) throw new LibraryError('invalid', 'This import’s progress can’t be read')
-  return { state, record }
+  if (record === undefined) throw new LibraryError('not-found', 'This import no longer exists.')
+  return record
+}
+
+function savedState(record: ImportProgressRecord): ImportState {
+  const state = sanitizeImportState(record.state)
+  if (state === null) throw new LibraryError('invalid', UNREADABLE)
+  return state
+}
+
+/**
+ * Runs a change to import `id`'s progress, one after another per import: on the running job's
+ * own state when this tab runs it (its next save keeps the change), else on the saved progress,
+ * under the import's Web Lock so no other tab writes it meanwhile.
+ *
+ * @throws ImportBusyError while another tab runs the import.
+ */
+function changeProgress<T>(
+  id: string,
+  change: (repo: LibraryRepo, state: ImportState, record: ImportProgressRecord) => Promise<T>,
+): Promise<T> {
+  return withLock(id, async () => {
+    const repo = getLibrary()
+    if (active?.id === id) {
+      // Before the run has read its progress, it reads it after this change (the same lock).
+      const record = await requireRecord(repo, id)
+      return change(repo, active?.state ?? savedState(record), record)
+    }
+    return withImportLock(id, async () => {
+      const record = await requireRecord(repo, id)
+      return change(repo, savedState(record), record)
+    })
+  })
 }
 
 /** Does what a review decision asks of the library. */
@@ -424,56 +605,95 @@ async function applyEffect(
   if (effect.type === 'pin') {
     await repo.pinMatch(effect.sourceTrackId, state.mode, effect.candidate)
   } else if (effect.type === 'place' && record.playlistId !== undefined) {
-    await createLibrarySink(repo, record.id, record.playlistId).placeTrack(
-      effect.track,
-      effect.before,
-    )
+    await placeTrack(repo, record.playlistId, effect.track, effect.before)
+  }
+}
+
+/** Does what taking a decision back asks of the library. */
+async function applyReopen(
+  repo: LibraryRepo,
+  record: ImportProgressRecord,
+  state: ImportState,
+  effect: ReopenEffect,
+): Promise<void> {
+  if (effect.type === 'unpin') {
+    await repo.unpinMatch(effect.sourceTrackId, state.mode)
+    if (effect.decision !== undefined) await recordDecision(repo, effect.decision)
+  } else if (effect.type === 'unplace' && record.playlistId !== undefined) {
+    await repo.removeTracks(record.playlistId, [effect.trackId])
   }
 }
 
 /**
  * Applies the user's review decision to row `index` of an import: confirming a candidate pins
  * it as the audio of the row's catalog track, or puts the song into the playlist; skipping
- * leaves the row out.
+ * leaves the row out. The row changes only once the library has done its part.
+ *
+ * @throws ImportBusyError while another tab runs the import.
  */
 export function reviewRow(id: string, index: number, decision: ReviewDecision): Promise<void> {
-  return withLock(id, async () => {
-    const repo = getLibrary()
-    const { state, record } = await stateOf(repo, id)
-    const effect = applyReview(state, index, decision, Date.now())
-    await applyEffect(repo, record, state, effect)
+  return changeProgress(id, async (repo, state, record) => {
+    const planned = planReview(state, index, decision, Date.now())
+    await applyEffect(repo, record, state, planned.effect)
+    state.results[index] = planned.result
     await repo.updateImport(id, progressOf(state))
   })
 }
 
 /**
  * Confirms every likely match of an import (the engine would play it without asking once Auto
- * matching is on). Returns how many it confirmed.
+ * matching is on). Returns the rows it confirmed, for an Undo.
+ *
+ * @throws ImportBusyError while another tab runs the import.
  */
-export function confirmLikelyMatches(id: string): Promise<number> {
-  return withLock(id, async () => {
-    const repo = getLibrary()
-    const { state, record } = await stateOf(repo, id)
-    let confirmed = 0
-    for (const [index, result] of state.results.entries()) {
-      if (!isLikelyMatch(result) || result?.best === undefined) continue
-      const effect = applyReview(
-        state,
-        index,
-        { action: 'confirm', ref: result.best.ref },
-        Date.now(),
-      )
-      await applyEffect(repo, record, state, effect)
-      confirmed++
+export function confirmLikelyMatches(id: string): Promise<number[]> {
+  return changeProgress(id, async (repo, state, record) => {
+    const confirmed: number[] = []
+    try {
+      for (const [index, result] of state.results.entries()) {
+        if (!isLikelyMatch(result) || result?.best === undefined) continue
+        const decision = { action: 'confirm', ref: result.best.ref } as const
+        const planned = planReview(state, index, decision, Date.now())
+        await applyEffect(repo, record, state, planned.effect)
+        state.results[index] = planned.result
+        confirmed.push(index)
+      }
+    } finally {
+      if (confirmed.length > 0) await repo.updateImport(id, progressOf(state))
     }
-    if (confirmed > 0) await repo.updateImport(id, progressOf(state))
     return confirmed
   })
 }
 
-/** The saved progress of an import, for its page. */
+/**
+ * Takes the user's decisions about these rows back: each waits for review again, with its pin
+ * removed (the engine's own decision cached again) or its placed song taken out of the
+ * playlist. Returns how many it reopened.
+ *
+ * @throws ImportBusyError while another tab runs the import.
+ */
+export function reopenRows(id: string, indices: readonly number[]): Promise<number> {
+  return changeProgress(id, async (repo, state, record) => {
+    let reopened = 0
+    try {
+      for (const index of indices) {
+        if (state.results[index]?.review === undefined) continue
+        const planned = planReopen(state, index)
+        await applyReopen(repo, record, state, planned.effect)
+        state.results[index] = planned.result
+        reopened++
+      }
+    } finally {
+      if (reopened > 0) await repo.updateImport(id, progressOf(state))
+    }
+    return reopened
+  })
+}
+
+/** The saved progress of an import, for its page: the running job's own when it runs here. */
 export async function loadImportState(id: string): Promise<ImportState | null> {
-  if (active?.id === id) return active.state
+  const running = active?.id === id ? active.state : null
+  if (running !== null) return running
   const record = await getLibrary().getImport(id)
   return record === undefined ? null : sanitizeImportState(record.state)
 }
@@ -484,7 +704,9 @@ export function resetImportRunner(): void {
   active = null
   queue.length = 0
   locks.clear()
+  resetImportLocks()
   generation++
   draining = false
-  useImportRunner.setState({ activeId: null, activity: {}, queued: [] })
+  watching = null
+  useImportRunner.setState({ activeId: null, activity: {}, queued: [], recording: [] })
 }
