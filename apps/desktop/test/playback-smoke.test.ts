@@ -267,7 +267,7 @@ describe('the playlists', () => {
       ctx: testContext('full'),
       prefs: {} as never,
       rung: 'top',
-      priority: 'playback',
+      priority: 'current-track',
       signal: new AbortController().signal,
     })
     expect(stream).toMatchObject({
@@ -401,12 +401,20 @@ describe('runSmoke with stage 7.3’s steps', () => {
       player: mediaPlayer,
       query: 'q',
       freeTrack: { url: 'https://archive.org/download/x/x.mp3', label: 'Free track' },
+      // Answers the HTTP plugin as Rust does, for stage 7.2's isolation hook step.
+      invoke: async (command) =>
+        command === 'plugin:http|fetch_send' ? { status: 302, rid: 2 } : 1,
       now: () => 0,
       extraSteps: async (step) => {
         await step('a 7.3 step', async () => {
           throw new Error('no tray')
         })
       },
+    })
+    // The extra steps follow stage 7.2's last step, the isolation hook's.
+    expect(report.steps.at(-2)).toMatchObject({
+      name: 'page script can’t give the HTTP plugin a proxy',
+      status: 'passed',
     })
     expect(report.steps.at(-1)).toMatchObject({ name: 'a 7.3 step', status: 'failed' })
     expect(report.ok).toBe(false)

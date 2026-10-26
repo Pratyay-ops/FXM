@@ -410,8 +410,8 @@ describe('Cargo.toml', () => {
   })
 
   it('builds tauri with its tray icon, which the playback menu needs (src/tray.rs)', () => {
-    const tauri = /^tauri = \{([^}]*)\}/m.exec(cargoToml)?.[1] ?? ''
-    expect(tomlStrings(/features = \[([^\]]*)\]/.exec(tauri)?.[1])).toEqual(['tray-icon'])
+    // And with nothing else but the isolation pattern (stage 7.2).
+    expect(featuresOf('tauri').sort()).toEqual(['isolation', 'tray-icon'])
   })
 
   it('starts the smoke test’s report listener only on request, never by default', () => {
