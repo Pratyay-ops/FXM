@@ -121,9 +121,15 @@ jobs:
           make rust-setup
 
       # make dist's third-party notices: the packages of the web app the desktop app shows, with
-      # the Jamendo switch of the deploy's make dist (deploy.yml) and of the builds below.
+      # the Jamendo switch of the deploy's make dist (deploy.yml) and of the builds below. Without
+      # stage 4.2's ffmpeg core, which the desktop app's web build doesn't include (only make dist
+      # puts it into the deployed app): make dist looks for none (an empty folder) and, with
+      # CI=false, composes without it, as it does outside CI, so the notices name only what the
+      # installers carry.
       - name: Compose dist/pages, for its third-party notices
         env:
+          CI: false
+          FXM_FFMPEG_CORE_DIR: ${{ runner.temp }}/no-ffmpeg-core
           VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: make dist
 

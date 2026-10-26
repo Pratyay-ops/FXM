@@ -186,6 +186,14 @@ describe('desktop-release.yml', () => {
     expect(make).toContain(
       `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
     )
+    // And without the ffmpeg core, which the installers don't carry: in CI make dist would
+    // require it (scripts/build-dist/src/ffmpeg-core.ts).
+    expect(make).toMatch(/\n\s+CI: false\n/)
+    expect(make).toContain(`FXM_FFMPEG_CORE_DIR: ${expression('runner.temp')}/no-ffmpeg-core`)
+    expect(make).not.toContain('FXM_REQUIRE_FFMPEG_CORE')
+    expect(read('../../web/package.json')).toContain(
+      '"build:desktop": "vite build --base=/ --outDir dist-desktop"',
+    )
     expect(notices).toContain('make rust-setup')
     expect(notices).toContain(
       'apps/desktop/release/release.ts notices --version "$VERSION"\n          --web dist/pages/third-party-notices.txt --out apps/desktop/dist/third-party-notices.txt',
