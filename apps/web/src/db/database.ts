@@ -9,6 +9,10 @@
  * - **2**: what the research memo of 2026-10-25 (section 11.3) added: the match cache is keyed
  *   by the source track and the catalog mode, with signals, evidence and user pins; and an
  *   import-progress table, so imports can resume. The upgrade rewrites version 1 decisions.
+ * - **3**: the listening affinity of stage 3.1: one record per track, artist and tag, indexed by
+ *   kind and rank, and by time. The history is indexed by track and start together, and by
+ *   import. The upgrade fills in the length of plays that lack one from the track cache, and
+ *   computes the affinity from the history, the likes and the playlists.
  *
  * To change the schema, add a version below with only the tables that change and, when stored
  * records need rewriting, an `upgrade` function. Never edit an existing version: browsers that
@@ -22,8 +26,10 @@
 
 import { type AudioCandidate, type EntityId, entityKey, isEntityId } from '@fxm/core'
 import { Dexie, type DexieOptions, type EntityTable, type Transaction } from 'dexie'
+import { type AffinityTables, readEffectiveTracks, rebuildAffinity } from './affinity'
 import { matchKey } from './match-cache'
 import {
+  type AffinityRecord,
   DB_NAME,
   DOWNLOADS_PLAYLIST_ID,
   type FollowRecord,
@@ -45,7 +51,7 @@ import {
 import { sanitizeCandidate, sanitizeCandidates } from './validate'
 
 /** The newest schema version. Backups record it, and imports accept it or anything older. */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 /** The library database with its typed tables. Create one with {@link openDatabase}. */
 export type FxmDatabase = Dexie & {
@@ -58,9 +64,13 @@ export type FxmDatabase = Dexie & {
   settings: EntityTable<SettingRecord, 'key'>
   matchCache: EntityTable<MatchCacheRecord, 'key'>
   importProgress: EntityTable<ImportProgressRecord, 'id'>
+  affinity: EntityTable<AffinityRecord, 'id'>
 }
 
-/** Every table of the newest schema, in the order backups list them. */
+/**
+ * Every table of the newest schema, in the order backups list them. Backups leave out
+ * `affinity`, which is derived from the others and rebuilt after an import.
+ */
 export const TABLE_NAMES = [
   'tracks',
   'likes',
@@ -71,6 +81,7 @@ export const TABLE_NAMES = [
   'settings',
   'matchCache',
   'importProgress',
+  'affinity',
 ] as const
 
 /** The name of a table of the newest schema. */
@@ -95,6 +106,18 @@ export const SCHEMA_V1 = {
 export const SCHEMA_V2 = {
   matchCache: 'key, sourceKey, decidedAt, isrc',
   importProgress: 'id, status, updatedAt',
+} as const
+
+/**
+ * Version 3: the listening affinity (stage 3.1), keyed by `<kind>|<key>`. `[kind+rank]` orders
+ * each kind by `affinityRank`, which orders entries by their affinity at any time, so the top
+ * entries of a kind read straight off it; `at` finds entries dated after the clock. The history
+ * gains `[trackId+playedAt]`, so recording a play finds an earlier record of it in one lookup,
+ * and `importId`, so an import's plays can be found and removed.
+ */
+export const SCHEMA_V3 = {
+  history: '++id, trackId, playedAt, [trackId+playedAt], importId',
+  affinity: 'id, [kind+rank], at',
 } as const
 
 /**
@@ -169,6 +192,40 @@ async function upgradeToV2(tx: Transaction): Promise<void> {
   await table.bulkPut(rows.flatMap(upgradeMatchRow))
 }
 
+/**
+ * Gives plays recorded without the track's length (version 2 did not record it) the length of
+ * the cached track, so each play keeps the share it played whatever the cache learns later.
+ */
+async function fillPlayLengths(tables: AffinityTables): Promise<void> {
+  const missing = await tables.history.filter((entry) => entry.durationMs === undefined).toArray()
+  if (missing.length === 0) return
+  const tracks = await readEffectiveTracks(
+    tables.tracks,
+    missing.map((entry) => entry.trackId),
+  )
+  const filled = missing.flatMap((entry) => {
+    const durationMs = tracks.get(entityKey(entry.trackId))?.durationMs
+    return durationMs !== undefined && Number.isFinite(durationMs) && durationMs > 0
+      ? [{ ...entry, durationMs }]
+      : []
+  })
+  await tables.history.bulkPut(filled)
+}
+
+/** Computes the affinity of a library that predates it from its history, likes and playlists. */
+async function upgradeToV3(tx: Transaction): Promise<void> {
+  const tables = {
+    affinity: tx.table('affinity'),
+    history: tx.table('history'),
+    likes: tx.table('likes'),
+    playlists: tx.table('playlists'),
+    settings: tx.table('settings'),
+    tracks: tx.table('tracks'),
+  } as AffinityTables
+  await fillPlayLengths(tables)
+  await rebuildAffinity(tables, Date.now())
+}
+
 /** The order a new library lists its playlists in. */
 export const DEFAULT_PLAYLIST_ORDER: readonly EntityId<'playlist'>[] = [
   LIKED_PLAYLIST_ID,
@@ -220,6 +277,7 @@ export function openDatabase(name: string = DB_NAME, options?: DexieOptions): Fx
   const db = new Dexie(name, options) as FxmDatabase
   db.version(1).stores(SCHEMA_V1)
   db.version(2).stores(SCHEMA_V2).upgrade(upgradeToV2)
+  db.version(3).stores(SCHEMA_V3).upgrade(upgradeToV3)
   // Sticky: runs on every open, also after a close, before any other query sees the database.
   db.on('ready', (vip) => ensureSystemRecords(vip as FxmDatabase), true)
   return db
