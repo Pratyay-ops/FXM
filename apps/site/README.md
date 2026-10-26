@@ -54,10 +54,10 @@ Content rules:
 
 ## Deploying with the web app
 
-The site and the web app (`apps/web`) are deployed together to the Cloudflare Pages project `fxmusic`. `make dist` (stage 2.8) builds both into `dist/pages/`, the site at `/` and the app at `/app/`, and writes the `_headers` file; [scripts/build-dist/README.md](../../scripts/build-dist/README.md) has the details.
+The site and the web app (`apps/web`) are deployed together to the Cloudflare Pages project `fxmusic`. `make dist` (stage 2.8) builds both into `dist/pages/`, the site at `/` and the app at `/app/`, with the embeddable player at `/embed/`, and writes the `_headers` and `_redirects` files; [scripts/build-dist/README.md](../../scripts/build-dist/README.md) has the details.
 
 - Links to `/app/` are not checked by the build check (`EXTERNAL_PATHS` in `src/config.ts`), because the web app is not part of this build.
-- `404.html` at the root belongs to the site: Cloudflare Pages serves it with status 404 for unknown paths. The web app answers its client-side routes with `app/404.html`, a copy of its `index.html` that `make dist` writes. A `_redirects` rule can't do this: on Pages, redirects win over files, so it would catch the app's scripts too.
+- `404.html` at the root belongs to the site: Cloudflare Pages serves it with status 404 for unknown paths. The web app answers its client-side routes with `app/404.html`, a copy of its `index.html` that `make dist` writes. A `_redirects` rule can't do this for the app: on Pages, redirects win over files, so it would catch the app's scripts too. `make dist` writes `_redirects` only for the embeddable player: 200 rewrites of its player addresses (`/embed/track/*`, `/embed/album/*` and `/embed/playlist/*`) to its page, prefixes no file uses, so a player framed on another site answers 200. The app keeps its `404.html` fallback.
 - `robots.txt` and the sitemap belong to the site. Add `/app/` to the sitemap there if the web app should be indexed.
 - `.well-known/security.txt` (RFC 9116, see [docs/LEGAL.md](../../docs/LEGAL.md#security)) is copied from `public/` into the build. `make dist` keeps dot-folders and gives `/.well-known/*` its own header rule. After deploying, check that `/.well-known/security.txt` returns 200 with `text/plain`.
 - Each page gets its own Content-Security-Policy, which allows its inline `<style>` blocks and module scripts by hash. `make dist` fails when a page gains something a hash can't allow: a `style` attribute, an inline event handler, a `javascript:` link, or a script or stylesheet from another site.
