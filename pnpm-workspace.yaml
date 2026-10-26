@@ -8,4 +8,7 @@ packages:
 # least 14 days (in minutes). Applies to transitive dependencies too.
 minimumReleaseAge: 20160
 
-engineStrict: true
+# No engineStrict here: scripts/env.sh turns it on for every make target, scripts/run.sh command
+# and CI job, so they refuse any Node outside "engines" in package.json. Set here, it would also
+# fail every Dependabot update, since Dependabot runs pnpm on its own, newer Node
+# (docs/DEVELOPMENT.md, "Node version").
