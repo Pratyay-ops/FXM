@@ -6,6 +6,7 @@ import {
   Lock,
   type LucideIcon,
   RefreshCw,
+  Smartphone,
   Square,
   Trash,
   TriangleAlert,
@@ -42,6 +43,7 @@ export function rootAction(
   pickers: Pickers,
 ): RootAction | undefined {
   const name = `“${root.name}”`
+  if (root.kind === 'device') return deviceAction(root, status, files)
   switch (status.state) {
     case 'needs-access':
       return {
@@ -84,6 +86,51 @@ export function rootAction(
   }
 }
 
+/** What fixes the device's music in `status`: ask again, or Android's settings once refused. */
+function deviceAction(
+  root: LocalRootRecord,
+  status: RootStatus,
+  files: LocalFiles,
+): RootAction | undefined {
+  switch (status.state) {
+    case 'needs-access':
+      return {
+        label: 'Allow access',
+        standalone: 'Allow access to your music',
+        run: () => {
+          files
+            .requestAccess(root.id)
+            .catch((error: unknown) => showStatus(localFailureText(error)))
+        },
+      }
+    case 'denied':
+      // Android asks no more: only its settings can allow it now.
+      return {
+        label: 'Open settings',
+        standalone: 'Allow your music in Android’s settings',
+        run: () => {
+          files.openDeviceSettings().catch((error: unknown) => showStatus(localFailureText(error)))
+        },
+      }
+    case 'failed':
+      return {
+        label: 'Try again',
+        standalone: 'Scan your music again',
+        run: () => {
+          files.rescan(root.id).catch((error: unknown) => showStatus(localFailureText(error)))
+        },
+      }
+    default:
+      return undefined
+  }
+}
+
+/** The icon a root shows when it needs nothing: a folder, chosen files, or the phone. */
+function kindIcon(root: LocalRootRecord): LucideIcon {
+  if (root.kind === 'device') return Smartphone
+  return root.kind === 'picked-files' ? FileAudio : Folder
+}
+
 /** The icon of a root: what it is, or a lock or a warning when it needs the user. */
 function rootIcon(root: LocalRootRecord, status: RootStatus): { icon: LucideIcon; tone: string } {
   switch (status.state) {
@@ -95,7 +142,7 @@ function rootIcon(root: LocalRootRecord, status: RootStatus): { icon: LucideIcon
     case 'failed':
       return { icon: TriangleAlert, tone: 'text-danger' }
     default:
-      return { icon: root.kind === 'picked-files' ? FileAudio : Folder, tone: 'text-text-muted' }
+      return { icon: kindIcon(root), tone: 'text-text-muted' }
   }
 }
 
@@ -296,7 +343,7 @@ export function FolderList({
   const headingId = useId()
   const listId = useId()
   const statusOf = (root: LocalRootRecord) => statuses[root.id] ?? CHECKING
-  const Icon = roots.length === 1 && roots[0]?.kind === 'picked-files' ? FileAudio : Folder
+  const Icon = roots.length === 1 && roots[0] !== undefined ? kindIcon(roots[0]) : Folder
   // When every folder needs the user, every row shows anyway: no line to fold them into.
   const foldable = roots.some((root) => !needsAttention(statusOf(root)))
   return (
@@ -332,7 +379,10 @@ export function FolderList({
             />
           </button>
         )}
-        <AddMusicMenu pickers={pickers} />
+        <AddMusicMenu
+          pickers={pickers}
+          deviceListed={roots.some((root) => root.kind === 'device')}
+        />
       </div>
       <ul id={listId} className="divide-y divide-border">
         {roots.map((root) => {

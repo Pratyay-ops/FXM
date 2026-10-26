@@ -1,11 +1,11 @@
-import { FilePlus2, FolderPlus, Plus } from 'lucide-react'
+import { FilePlus2, FolderPlus, Plus, Smartphone } from 'lucide-react'
 import { type ReactNode, useCallback, useRef } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { showStatus } from '../library/status'
 import { Menu, type MenuItem } from '../library/ui/menu'
 import { AUDIO_EXTENSIONS } from './format'
 import { useLocalFiles } from './hooks'
-import type { AddFolderResult, AddPickedResult, LocalFiles } from './local-files'
+import type { AddDeviceResult, AddFolderResult, AddPickedResult, LocalFiles } from './local-files'
 import { localFailureText } from './messages'
 import { needsAttention, scanSummary, statusText } from './root-status'
 import type { LocalRootRecord } from './types'
@@ -61,6 +61,30 @@ export function announcePicked(files: LocalFiles, result: AddPickedResult): void
     return
   }
   announceScan(files, result.root, result.status === 'added' ? 'Added' : 'Found').catch(() => {})
+}
+
+/** Says what opening the device's music did, now or once its scan is over. */
+export function announceDevice(files: LocalFiles, result: AddDeviceResult): void {
+  if (result.status === 'denied') {
+    showStatus(
+      result.forGood
+        ? 'FXM may not see your music. Allow it in Android’s settings'
+        : 'FXM needs your permission to show the music on this device',
+    )
+    return
+  }
+  announceScan(files, result.root, result.status === 'added' ? 'Added' : 'Found').catch(() => {})
+}
+
+/**
+ * Lists the device's own music, in the Android app: asks the user's permission first, where
+ * Android still asks. Call it from the click that opens it: FXM never asks on its own.
+ */
+export function addDeviceMusic(files: LocalFiles): void {
+  files.addDeviceMusic().then(
+    (result) => announceDevice(files, result),
+    (error: unknown) => showStatus(localFailureText(error)),
+  )
 }
 
 /**
@@ -146,10 +170,15 @@ export function usePickers(): Pickers {
 }
 
 /** The ways this browser adds music, for the buttons and the menu. */
-function addOptions(files: LocalFiles, pickers: Pickers) {
+function addOptions(files: LocalFiles, pickers: Pickers, deviceListed = false) {
   const keep = files.canKeepFolders()
   const folders = keep || files.canChooseFolders()
   return {
+    // The Android app: the device's own music, once.
+    device:
+      files.canListDeviceMusic() && !deviceListed
+        ? { label: 'Music on this device', onClick: () => addDeviceMusic(files) }
+        : undefined,
     folder: folders
       ? {
           label: keep ? 'Add a folder' : 'Choose a folder',
@@ -163,22 +192,34 @@ function addOptions(files: LocalFiles, pickers: Pickers) {
 /**
  * The buttons that add the first music: "Add a folder" where the browser can keep access to it
  * (Chromium), else "Choose a folder"; and "Choose files". Where a browser can't pick folders at
- * all, only "Choose music files".
+ * all, only "Choose music files". In the Android app, "Music on this device" comes first.
  */
 export function AddMusicActions({ pickers }: { pickers: Pickers }) {
   const files = useLocalFiles()
   const options = addOptions(files, pickers)
   return (
     <div className="flex flex-wrap items-center justify-center gap-3">
+      {options.device && (
+        <button type="button" className={buttonClasses()} onClick={options.device.onClick}>
+          <Smartphone aria-hidden="true" />
+          {options.device.label}
+        </button>
+      )}
       {options.folder && (
-        <button type="button" className={buttonClasses()} onClick={options.folder.onClick}>
+        <button
+          type="button"
+          className={buttonClasses({ variant: options.device ? 'secondary' : 'primary' })}
+          onClick={options.folder.onClick}
+        >
           <FolderPlus aria-hidden="true" />
           {options.folder.label}
         </button>
       )}
       <button
         type="button"
-        className={buttonClasses({ variant: options.folder ? 'secondary' : 'primary' })}
+        className={buttonClasses({
+          variant: options.folder || options.device ? 'secondary' : 'primary',
+        })}
         onClick={options.files.onClick}
       >
         <FilePlus2 aria-hidden="true" />
@@ -188,11 +229,30 @@ export function AddMusicActions({ pickers }: { pickers: Pickers }) {
   )
 }
 
-/** "Add music": the same choices as {@link AddMusicActions}, as one menu button (icon only on phones). */
-export function AddMusicMenu({ pickers }: { pickers: Pickers }) {
+/**
+ * "Add music": the same choices as {@link AddMusicActions}, as one menu button (icon only on
+ * phones). `deviceListed`: the device's music is listed already, so it isn't offered again.
+ */
+export function AddMusicMenu({
+  pickers,
+  deviceListed = false,
+}: {
+  pickers: Pickers
+  deviceListed?: boolean
+}) {
   const files = useLocalFiles()
-  const options = addOptions(files, pickers)
+  const options = addOptions(files, pickers, deviceListed)
   const items: MenuItem[] = [
+    ...(options.device
+      ? [
+          {
+            id: 'device',
+            label: options.device.label,
+            icon: Smartphone,
+            onSelect: options.device.onClick,
+          },
+        ]
+      : []),
     ...(options.folder
       ? [
           {

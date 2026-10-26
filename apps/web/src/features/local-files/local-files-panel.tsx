@@ -84,7 +84,10 @@ function LocalFilesEmpty({
 }) {
   const files = useLocalFiles()
   let description: string
-  if (files.canKeepFolders()) {
+  if (files.canListDeviceMusic()) {
+    description =
+      'Show the music on this device. FXM lists the songs your phone knows and plays them where they are, never uploading them, and lossless files keep their full quality.'
+  } else if (files.canKeepFolders()) {
     description =
       'Add a folder of music. FXM reads the files where they are and never uploads them, and lossless files keep their full quality.'
   } else if (files.canChooseFolders()) {

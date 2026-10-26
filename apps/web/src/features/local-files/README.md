@@ -1,6 +1,6 @@
 # Local files
 
-Music files on the user's device, in the web app (stage 4.4): a folder the browser keeps access to, or files chosen through a file input; tags and covers read with [music-metadata](https://github.com/Borewit/music-metadata); songs listed in the Library's **Local files** tab and in search ("On this device"), and played through the player core from object URLs. Nothing is uploaded: FXM reads the files where they are.
+Music files on the user's device, in the web app (stage 4.4): a folder the browser keeps access to, or files chosen through a file input; tags and covers read with [music-metadata](https://github.com/Borewit/music-metadata); songs listed in the Library's **Local files** tab and in search ("On this device"), and played through the player core from object URLs. In the Android app, also the device's own music as MediaStore lists it (stage 6.4, [below](#the-devices-music-android)). Nothing is uploaded: FXM reads the files where they are.
 
 ## How the files get in
 
@@ -18,6 +18,16 @@ A folder already added, picked again, is scanned for changes instead of being ad
 **Scans run one at a time** (`lane.ts`); another waits as `queued` ("Waiting to scan…"). A scan hands out new IDs from those in use when it starts, so two scans at once could give two folders of the same name the same ID; one at a time also keeps the page responsive when several folders are scanned at the start of a visit. A file that can't be read (changed or locked while the scan reads it) or a subfolder that can't be listed is left out, and the scan goes on; the songs of that subfolder stay listed. Until the walk has found every file, the progress bar moves without a total ("Read 12 files…"), then it fills up ("Reading files: 12 of 340").
 
 **On phones** (below 640 px) the folders fold into one line ("Music · 8 songs · updated just now") that opens them, **Add music** is one menu button, Shuffle and Sort are icons and the filter opens from a button, so the first songs show on the first screen; a folder that needs the user always shows in full, its buttons on a line under its text.
+
+## The device's music (Android)
+
+Stage 6.4. In the Android app, where the `FxmDeviceMusic` plugin is on the Capacitor bridge ([its native side](../../../../../apps/mobile/android/fxm-downloads/README.md#the-devices-music), `device-music.ts`), Local files offers **Music on this device** first, in the empty tab and in "Add music":
+
+- **Asked once, from the click.** The button asks Android to let FXM read the device's music (`READ_MEDIA_AUDIO` on Android 13 and later, `READ_EXTERNAL_STORAGE` before), and nothing else ever asks on its own: checking the roots when the tab opens only checks. After a refusal Android may still ask about, the button asks again; after one for good, FXM says to allow it in Android's settings, and the folder's **Open settings** opens the app's page there. Taken back later, the folder shows **Allow access**, and Play asks once too.
+- **One root, `This device`** (`kind: 'device'`), scanned once per visit while FXM may read it, and with **Scan for changes**. `device-scanner.ts` reads what MediaStore lists in pages (tags, format, size, modification time; no file is opened), keeps what didn't change, gives moved songs back their IDs, forgets songs that are gone, and stores one cover per album from MediaStore's thumbnails. A stopped scan removes nothing.
+- **Formats** come from MediaStore's MIME types, else the extension: MP3, FLAC, WAV, AAC in MP4, Opus and Vorbis in Ogg, Opus in WebM. MediaStore can't tell ALAC from AAC, so an M4A is AAC, never called lossless when it might not be; FLAC and WAV are lossless. Other formats (AMR, MIDI, WMA, raw AAC) are counted as "can't be played here". Bit depth and sample rate are there from Android 16, bitrates from Android 11 (else estimated from the size and length); ISRCs are not in MediaStore.
+- **IDs** follow the folder rule: a hash of the place, here the path on the phone's storage (`Music/Artist/Album/01 Song.flac`), so a song in the phone's Music folder has the ID a `Music` folder added in the web app gives it, and a library backup finds it on either. Songs on a memory card are filed under the card's volume name.
+- **Playing.** A device song plays through the app's player from the WebView URL of its MediaStore URI (`webViewFileUrl` in `@fxm/player`): Media3 reads the file from the device itself, and the direct audio engine's `<audio>` element, where Media3 isn't there, loads it through Capacitor's local server. Without the permission, Play asks; refused, it says to allow it.
 
 ## Formats
 
@@ -54,7 +64,8 @@ FXM lists files by extension (`AUDIO_EXTENSIONS` in `format.ts`) and then by wha
 | `file-system.ts` | The folder picker, permissions, walking a folder, grouping files from an input |
 | `scanner.ts` | `scanRoot`: one scan of one root (the walk ahead of the reading, unchanged files skipped, moved files keep their IDs, batched writes, files that fail left out, cancel) |
 | `lane.ts` | `SerialLane`: runs the scans, and the pruning of unused covers, one at a time |
-| `local-files.ts` | The facade (`getLocalFiles()`): adding, scanning, access, statuses, opening a file to play |
+| `local-files.ts` | The facade (`getLocalFiles()`): adding, scanning, access, statuses, opening a file to play; in the Android app, the device's music (`addDeviceMusic`, `openDeviceSettings`) |
+| `device-music.ts`, `device-scanner.ts` | The Android app's `FxmDeviceMusic` plugin, and the scan of the device's music from MediaStore (stage 6.4) |
 | `root-status.ts` | What the UI says about roots: status lines, which need the user, whose songs can't play now, what a scan found |
 | `object-urls.ts` | The object URLs files play from, the 16 most recent kept |
 | `audio-source.ts` | Local files as a core `AudioSource`, for the playback policy (2.3) |
@@ -64,7 +75,7 @@ FXM lists files by extension (`AUDIO_EXTENSIONS` in `format.ts`) and then by wha
 | `hooks.ts` | Live queries of roots and tracks; root statuses |
 | `local-files-panel.tsx`, `folder-list.tsx`, `add-music.tsx`, `track-list.tsx`, `track-row.tsx` | The Library tab |
 | `search-section.tsx` | "On this device" on the search page |
-| `testing/` | Generated audio files (WAV, FLAC, MP3, M4A, Ogg Opus, PNG covers), fake folder handles, a test facade |
+| `testing/` | Generated audio files (WAV, FLAC, MP3, M4A, Ogg Opus, PNG covers), fake folder handles, a fake `FxmDeviceMusic` plugin, a test facade |
 
 ## IDs
 
@@ -103,7 +114,7 @@ Built while the stages below were in progress, behind one seam each. All three h
 
 ## Tests
 
-Everything runs offline in happy-dom with tiny files generated in code (`testing/audio-files.ts`): silence or no audio at all, so no recording is involved. The tag tests parse real WAV (also extensible, 24-bit and float), FLAC, MP3, M4A (ALAC and AAC) and Ogg Opus files through music-metadata. The scanner and facade tests use fake folder handles that grant, refuse and ask, files that move, change, disappear or fail while read, and scans held back to show what waits for what; `reloadTestLocalFiles` starts the next visit over the same database, as after a reload.
+Everything runs offline in happy-dom with tiny files generated in code (`testing/audio-files.ts`): silence or no audio at all, so no recording is involved. The tag tests parse real WAV (also extensible, 24-bit and float), FLAC, MP3, M4A (ALAC and AAC) and Ogg Opus files through music-metadata. The scanner and facade tests use fake folder handles that grant, refuse and ask, files that move, change, disappear or fail while read, and scans held back to show what waits for what; `reloadTestLocalFiles` starts the next visit over the same database, as after a reload. The device's music is tested against `createFakeDeviceMusic` (`testing/fake-device-music.ts`), MediaStore's songs in pages behind a permission the test grants, refuses or leaves for Android to ask: `device-music.test.ts` covers asking only from the click, scanning once per visit, changed, moved, gone and memory-card songs, a stopped scan, playing from the MediaStore URI and the formats, tags and IDs; `device-music-panel.test.tsx` the tab's button, the songs, the folder's line and its "Open settings".
 
 `e2e/local-files.spec.ts` (Playwright, not part of `make check`; the fixture is in `e2e/local-files-fixture.ts`) runs the real thing in Chromium: the folder picker returns a folder of the origin-private file system, a real `FileSystemDirectoryHandle`, filled with generated FLAC, MP3 and WAV files; it checks the tags, the lossless labels and the cover thumbnails, plays all three formats (Media Session reports each as playing), reloads and plays again from the kept handle, plays files chosen through the input and finds them in search. On phones it checks that the first song shows above the mini player at 320 × 720 and 375 × 667 with the selected tab in view, and, with `FileSystemHandle.prototype.queryPermission` stubbed to answer `prompt`, that a folder that needs access keeps at least 200 px for its text at 320 px.
 

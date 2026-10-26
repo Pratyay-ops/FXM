@@ -21,8 +21,10 @@ import type { Codec, Container, QualityTier } from '@fxm/core'
  * - `picked-folder`: a folder chosen through a file input (every other browser). The browser
  *   forgets the files when the page reloads, so the user chooses the folder again
  * - `picked-files`: single files chosen through a file input, also forgotten on reload
+ * - `device`: in the Android app, the device's own music, as MediaStore lists it (stage 6.4).
+ *   There is one; FXM may read it once the user allowed it
  */
-export type LocalRootKind = 'folder' | 'picked-folder' | 'picked-files'
+export type LocalRootKind = 'folder' | 'picked-folder' | 'picked-files' | 'device'
 
 /** A folder, or a set of picked files, whose music FXM lists. */
 export interface LocalRootRecord {
@@ -114,6 +116,11 @@ export interface LocalFileRecord {
   pictureKey?: string
   /** Which version of the tag reader wrote this record; older ones are read again. */
   readerVersion: number
+  /**
+   * For a song of the device's own music (a `device` root): its MediaStore `content:` URI, which
+   * it plays from.
+   */
+  uri?: string
   /** When the file was first listed, as epoch milliseconds. */
   addedAt: number
   /** When its tags were last read. */
@@ -143,3 +150,6 @@ export function fileKey(rootId: string, path: string): string {
 
 /** The name single chosen files are listed under. It is part of their IDs: don't change it. */
 export const PICKED_FILES_NAME = 'Chosen files'
+
+/** The name the device's own music is listed under (a `device` root). */
+export const DEVICE_ROOT_NAME = 'This device'
