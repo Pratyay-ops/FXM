@@ -124,6 +124,11 @@ export interface PlayRecorderOptions {
   storage?: PlayStorage | null
   /** This page's ID among the pages that keep checkpoints. Default: a random one. */
   pageId?: string
+  /**
+   * Where a play of `item` started, from its queue's `context`. Default: the queue's context.
+   * The app's autoplay (stage 3.4) names its own radio for the songs it added.
+   */
+  contextOf?: (item: QueueItem, context: QueueContext | undefined) => QueueContext | undefined
 }
 
 /** The play in progress. */
@@ -273,6 +278,7 @@ export function connectPlayRecorder(
 ): () => void {
   const now = options.now ?? Date.now
   const record = options.record ?? recordInLibrary
+  const contextOf = options.contextOf ?? ((_item: QueueItem, context?: QueueContext) => context)
   if (options.record === undefined) preloadLibrary()
   const pageEvents =
     options.pageEvents === undefined
@@ -345,7 +351,7 @@ export function connectPlayRecorder(
       session = {
         item,
         startedAt: at,
-        context: state.queue.context,
+        context: contextOf(item, state.queue.context),
         heardMs: 0,
         checkpointMs: 0,
         markAt: at,

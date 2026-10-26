@@ -5,15 +5,20 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { AudioEffectsSection, SOUND_SETTINGS_ID } from '../audio-effects/effects-section'
+import { AutoplaySetting } from '../autoplay/autoplay-setting'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { ExternalLink as ExternalTextLink, standaloneLinkClasses } from '../connect/ui'
+import { ConverterAbout } from '../downloads/save/credit'
+import { PluginsSettings } from '../plugins/plugins-settings'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
 import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
 import { useSourcesSnapshot } from '../search/sources-context'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
+import { SpotifyAccountSettings } from '../spotify-account/spotify-account-settings'
 import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
 import { AutoMatchSetting } from './matching-setting'
@@ -73,8 +78,14 @@ export function SettingsPage() {
           />
         </SettingRow>
         <AutoMatchSetting />
+        <AutoplaySetting />
         <SponsorBlockSetting />
       </SettingsSection>
+
+      {/* Stage 8.1; the Sound dialog's "More in Settings" links here. */}
+      <div id={SOUND_SETTINGS_ID} className="scroll-mt-[calc(var(--shell-top)+1rem)]">
+        <AudioEffectsSection />
+      </div>
 
       <SettingsSection title="Sources">
         <SettingRow
@@ -89,6 +100,10 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      <SpotifyAccountSettings />
+
+      <PluginsSettings />
 
       <QualitySection capabilities={capabilities} />
 
@@ -174,6 +189,7 @@ export function SettingsPage() {
           </ul>
         </div>
         <SponsorBlockCredit />
+        <ConverterAbout />
       </SettingsSection>
     </div>
   )

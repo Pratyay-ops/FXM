@@ -12,7 +12,7 @@
  * | `sources` | 2.4's `appSources` (1.2's platform inside) | `sources: appSources` |
  * | `recommendations` | 3.2's `createRecommendationCollector`, with 1.3's and 1.5's providers | `recommendations: collector` |
  * | `catalog` | 1.3's artist search and pages, 1.7's matching | `catalog: { findArtist, artistTracks, findSong }` |
- * | `spotifyAccount` | 1.5's Spotify provider (`status`), connected by 3.5 | `spotifyAccount: spotify` |
+ * | `spotifyAccount` | 3.5's account (`status`, and `sections` from its sync) | `spotifyAccount: spotifyAccountForHome` |
  * | `playback` | 2.2's player (2.4's `PlaybackActions`) | `playback: appActions.get().playback` |
  *
  * @module
@@ -50,6 +50,12 @@ export interface HomeSourcesSnapshot {
 }
 
 /**
+ * What a provider call is for, highest first: its YouTube requests draw on the shared request
+ * budget at this priority (stage 1.2). 2.4's `SourcePriority`.
+ */
+export type HomeCallPriority = 'current-track' | 'prefetch' | 'interactive' | 'bulk'
+
+/**
  * What the platform reaches and the user's Spotify switch, kept current, and a context for
  * each provider call. Stage 2.4's `Sources` (`appSources`) has this shape.
  */
@@ -58,8 +64,15 @@ export interface HomeSources {
   getSnapshot(): HomeSourcesSnapshot
   /** Calls `listener` after every change; returns the unsubscribe function. */
   subscribe(listener: () => void): () => void
-  /** A context for one provider call. */
-  context(options: { mode: CatalogMode; signal?: AbortSignal }): ProviderContext
+  /**
+   * A context for one provider call. Home's calls leave `priority` out (`interactive`); the
+   * autoplay radio (stage 3.4) asks at `prefetch`, as the player does for what plays next.
+   */
+  context(options: {
+    mode: CatalogMode
+    signal?: AbortSignal
+    priority?: HomeCallPriority
+  }): ProviderContext
 }
 
 /** A service's home-feed section, with the service it came from. */
@@ -88,12 +101,14 @@ export interface HomeRecommendations {
   /**
    * Candidates for one seed, from every source that can run, and what each source did (a
    * collection with a `failed` source isn't cached, and a build with one, or with a seed that
-   * YouTube Music's radio skipped, doesn't keep its lists). Fails only when cancelled.
+   * YouTube Music's radio skipped, doesn't keep its lists). Fails only when cancelled. With
+   * `deadlineMs`, it answers by then with what the sources found, the ones still running
+   * `timed-out`.
    */
   collect(
     seed: RadioSeed,
     ctx: ProviderContext,
-    options?: { parts?: readonly string[]; limit?: number },
+    options?: { parts?: readonly string[]; limit?: number; deadlineMs?: number },
   ): Promise<{
     readonly candidates: readonly RecCandidate[]
     readonly outcomes?: readonly HomeSourceOutcome[]
@@ -125,8 +140,16 @@ export interface HomeCatalog {
   findSong?(song: SongQuery, ctx: ProviderContext): Promise<Track | null>
 }
 
-/** The user's Spotify account: the Spotify provider's `status` (stages 1.5 and 3.5). */
-export type HomeSpotifyAccount = Pick<AccountProvider, 'status'>
+/**
+ * The user's Spotify account (stages 1.5 and 3.5): whether it is connected (the Spotify
+ * provider's `status`) and, from stage 3.5's sync, the account's personal home sections
+ * (`sections`). Without `sections`, Home takes Spotify's sections from the recommendation
+ * sources' home feeds.
+ */
+export interface HomeSpotifyAccount extends Pick<AccountProvider, 'status'> {
+  /** The account's personal home sections, filtered to the context's catalog mode. */
+  sections?(ctx: ProviderContext): Promise<readonly Shelf[]>
+}
 
 /** Playback: 2.4's `PlaybackActions`. Call it straight from the click that asked for it. */
 export interface HomePlayback {

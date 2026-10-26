@@ -37,6 +37,7 @@ Run `make` with no arguments to list all commands.
 | git-cliff 2.14.2 (release notes) | `.tools/bin/git-cliff` | the release commands, on first use |
 | actionlint 1.7.12 (workflow linter) | `.tools/bin/actionlint` | `make release-check` |
 | JDK, Android SDK, Gradle caches | `.tools/jdk/`, `.tools/android-sdk/`, `.tools/gradle/` | `make android-setup` (stage 6.1) |
+| emsdk 6.0.12, the ffmpeg core's sources, libraries and builds | `.tools/emsdk/`, `.tools/ffmpeg-wasm/` | `make ffmpeg-wasm` (stage 4.2) |
 | Stage worktrees | `../FXM-worktrees/<branch>/` | `make wt-new` |
 
 `scripts/env.sh` redirects into `.tools/` everything a tool would normally write under `$HOME`: npm and pnpm caches, uv, pip, Gradle, Android, gh, Playwright and wrangler logs. It also turns telemetry off. `.tools/` always belongs to the **main checkout**, so every worktree shares one copy.
@@ -68,9 +69,10 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
 | `make live-smoke` | The live smoke tests against the real services (`FXM_LIVE=1`), from a residential connection: see [Live smoke tests](#live-smoke-tests) |
 | `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
-| `make dist` | Compose what Cloudflare Pages serves (the site, the web app, `_headers`, the third-party notices) into `dist/pages/`, with its licence, header and privacy checks |
+| `make dist` | Compose what Cloudflare Pages serves (the site, the web app with the ffmpeg core, `_headers`, the third-party notices) into `dist/pages/`, with its licence, header and privacy checks |
 | `make e2e` | `make dist`, then the web app's critical flows end to end against it, in Playwright's Chromium (installed into `.tools/playwright` on first use), headless, muted and offline: see [apps/web/e2e/README.md](../apps/web/e2e/README.md) |
 | `make budgets` | `make dist`, then its performance budgets: the chunks' sizes, a first visit's transfer, and LCP, CLS and INP on a mid-range phone over Slow 4G |
+| `make ffmpeg-wasm` / `ffmpeg-wasm-check` / `ffmpeg-wasm-test` | Build FXM's LGPL ffmpeg core for WebAssembly, which the web app converts downloads with (10 to 15 minutes the first time, two parallel jobs by default), check it (under 25 MiB, LGPL), and test it end to end: see [tools/ffmpeg-wasm/README.md](../tools/ffmpeg-wasm/README.md). `make check` never needs it |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make release-pr VERSION=x.y.z` | Open the release pull request from `develop` into `main` (`DRY_RUN=1`: only show the checks, the plan and the notes), see [Releases](#releases) |
@@ -81,7 +83,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 ## Monorepo layout and conventions
 
 - **Workspace:** pnpm workspaces over `apps/*` and `packages/*`. Internal packages export their TypeScript source directly (`"exports": "./src/index.ts"`), so there is no build step between packages. Vite, Vitest and wrangler compile them on the fly.
-- **TypeScript:** `tsconfig.base.json` is strict (including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`). Each package picks its runtime libraries: `core` has none (pure ES), `sources` gets `webworker` (fetch, no DOM), `player` and `web` get the DOM.
+- **TypeScript:** `tsconfig.base.json` is strict (including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`). Each package picks its runtime libraries: `core` has none (pure ES), `sources` gets `webworker` (fetch, no DOM), `player` and `web` get the DOM, and `convert` gets the DOM (its worker and the save picker) plus Node's types (its tests load the real ffmpeg core from disk).
 - **Style:** Biome formats and lints: 2 spaces, single quotes, no semicolons, 100 columns. Run `make format` before committing. The VS Code settings in `.vscode/` format on save with the Biome extension.
 - **Tests:** `*.test.ts(x)` next to the code, run by Vitest across all packages.
 - **New dependencies:** `minimumReleaseAge` in `pnpm-workspace.yaml` makes pnpm install only versions that have been public for at least 14 days, transitive dependencies included. Dependabot uses the same 14-day cooldown, and GitHub Actions are pinned to commit SHAs.
@@ -99,7 +101,7 @@ A release goes from `develop` to `main` through a pull request, and a workflow p
 | `make release-pr VERSION=x.y.z DRY_RUN=1` | Run every check and print the plan and the release notes. Changes, commits and pushes nothing. One check makes the release commit's changes in a temporary worktree and runs `make lint` and the release script tests there, which takes a minute or two |
 | `make release-pr VERSION=x.y.z` | On a clean `develop` equal to `origin/develop`, with the release's summary in `docs/releases/vX.Y.Z.md`: set the version, regenerate `CHANGELOG.md`, commit `chore(release): vX.Y.Z`, push `develop` and open the pull request "Release vX.Y.Z" into `main`. It prints the URL and never merges. Run again with the version `develop` already has, it updates that release: `CHANGELOG.md`, the pull request's notes, or the pull request itself if it was closed |
 | `make release-notes` | Print the notes of the changes since the last release (`VERSION=x.y.z`: the notes of that release, its summary first) |
-| `make release-build` | Build what a release ships into `dist/release/`, with `SHA256SUMS`: the web zip, which is `make dist`'s `dist/pages/` (what Cloudflare Pages serves), and the FXM Connect zips. Every package must have the release version, as on `main` and on `develop` after `make release-pr`. To try it before then, run `scripts/release-version.sh x.y.z` and the build in a throwaway worktree (`make wt-new`), and never commit that change. Needs `zip` (preinstalled on macOS; `sudo apt install zip` on Debian and Ubuntu) |
+| `make release-build` | Build what a release ships into `dist/release/`, with `SHA256SUMS`: the web zip, which is `make dist`'s `dist/pages/` (what Cloudflare Pages serves), and the FXM Connect zips. Locally the web zip has the ffmpeg core only after `make ffmpeg-wasm`, which the release workflow runs first. Every package must have the release version, as on `main` and on `develop` after `make release-pr`. To try it before then, run `scripts/release-version.sh x.y.z` and the build in a throwaway worktree (`make wt-new`), and never commit that change. Needs `zip` (preinstalled on macOS; `sudo apt install zip` on Debian and Ubuntu) |
 | `make release-check` | Lint the GitHub workflows with actionlint and run the release scripts' offline tests (the tests of `release-build.sh` need `zip` and `unzip`, and are skipped without them). CI runs it after `make check`; run it yourself after changing `.github/workflows/`, `cliff.toml`, `cliff.notes.toml` or `scripts/release-*.sh` |
 
 The scripts behind them work on their own too:
@@ -116,7 +118,7 @@ git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`,
 
 `.github/workflows/e2e.yml` runs alongside it, so `make check` stays fast: `make dist`, then the web app's critical flows and its performance budgets in Chromium, with a time limit for each step and one retry at most for a failed test. Run the same locally with `make e2e` and `make budgets` ([apps/web/e2e/README.md](../apps/web/e2e/README.md)).
 
-`.github/workflows/deploy.yml` runs `make dist` on every push, then deploys `develop` to the preview (`https://develop.fxmusic.pages.dev`) and `main` to production (`https://fxmusic.pages.dev`, once a candidate of it passed the checks, and for a release once its GitHub Release is out), the Cloudflare Pages project `fxmusic`, and checks each deployment's headers. How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md). Its Cloudflare secrets live only in the GitHub environments `preview` and `production`, which only `develop` and `main` can use; [Deploying](../scripts/build-dist/README.md#deploying) has the setup.
+`.github/workflows/ffmpeg-wasm.yml` builds the web app's ffmpeg core (stage 4.2), cached by its recipe's hash, and fails when the WebAssembly file is 25 MiB or larger, FFmpeg's configure reports a licence other than LGPL, or the licence texts of its parts are missing. GitHub scopes caches to their branch (a run reads its own branch's and `main`'s), so each branch builds a recipe's core once, about 4 minutes, until `main` holds its cache; the 800 MB of emsdk and built libraries behind it are saved from `main` only. `.github/workflows/deploy.yml` calls it, then runs `make dist` with the core on every push, then deploys `develop` to the preview (`https://develop.fxmusic.pages.dev`) and `main` to production (`https://fxmusic.pages.dev`, once a candidate of it passed the checks, and for a release once its GitHub Release is out), the Cloudflare Pages project `fxmusic`, and checks each deployment's headers. A release builds the core itself, without caches, for its web zip (`release.yml`). How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md). Its Cloudflare secrets live only in the GitHub environments `preview` and `production`, which only `develop` and `main` can use; [Deploying](../scripts/build-dist/README.md#deploying) has the setup.
 
 ## Live smoke tests
 
@@ -290,6 +292,7 @@ Prefer releases that are at least two weeks old, and update the version and its 
 | gh | `scripts/install-gh.sh` | `gh_<version>_checksums.txt` on the GitHub release |
 | git-cliff | `scripts/install-git-cliff.sh` | The SHA-256 digest GitHub shows for each `git-cliff-<version>-<target>.tar.gz`, checked against the `.sha512` files on the release |
 | actionlint | `scripts/install-actionlint.sh` | `actionlint_<version>_checksums.txt` on the GitHub release |
+| emsdk, FFmpeg, LAME, Opus (the ffmpeg core) | `tools/ffmpeg-wasm/recipe/versions.sh` | Each project's release; check each hash against an independent source, as [tools/ffmpeg-wasm/README.md](../tools/ffmpeg-wasm/README.md#upgrading) describes |
 
 ## Troubleshooting
 

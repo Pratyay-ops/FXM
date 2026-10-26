@@ -21,7 +21,13 @@
  * @module
  */
 
-import { FxmError, type StreamOption, type Track } from '@fxm/core'
+import {
+  FxmError,
+  type StreamLoudness,
+  type StreamOption,
+  sanitizeStreamLoudness,
+  type Track,
+} from '@fxm/core'
 import { Dexie } from 'dexie'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { getLibrary, randomUuid } from '../../db/repo'
@@ -132,7 +138,11 @@ export interface OpenedFile {
 }
 
 /** The stream to play a local file from its object URL. */
-export function streamOptionOf(format: LocalAudioFormat, url: string): StreamOption {
+export function streamOptionOf(
+  format: LocalAudioFormat,
+  url: string,
+  loudness?: StreamLoudness,
+): StreamOption {
   const stream: StreamOption = {
     url,
     codec: format.codec,
@@ -147,6 +157,7 @@ export function streamOptionOf(format: LocalAudioFormat, url: string): StreamOpt
   if (format.bitrateKbps !== undefined) stream.bitrateKbps = format.bitrateKbps
   if (format.sampleRateHz !== undefined) stream.sampleRateHz = format.sampleRateHz
   if (format.bitDepth !== undefined) stream.bitDepth = format.bitDepth
+  if (loudness !== undefined) stream.loudness = loudness
   return stream
 }
 
@@ -677,7 +688,7 @@ export function createLocalFiles(deps: LocalFilesDeps) {
     async streamFor(nativeId: string): Promise<StreamOption> {
       const { file, record } = await facade.openFile(nativeId)
       const url = objectUrls.urlFor(`${record.key}|${file.size}|${file.lastModified}`, file)
-      return streamOptionOf(record.format, url)
+      return streamOptionOf(record.format, url, sanitizeStreamLoudness(record.tags.loudness))
     },
 
     /** Stops every scan and revokes every object URL. */

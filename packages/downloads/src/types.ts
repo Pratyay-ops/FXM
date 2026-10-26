@@ -15,6 +15,7 @@ import {
   isQualityTier,
   isSourceId,
   type QualityTier,
+  type StreamLoudness,
   type StreamMedia,
   type StreamOption,
   type Track,
@@ -114,6 +115,12 @@ export interface DownloadFileFormat {
   readonly sampleRateHz?: number
   /** Bits per sample, for lossless audio, when known. */
   readonly bitDepth?: number
+  /**
+   * How loud the audio is, as the stream said when it was downloaded (stage 8.1), e.g. YouTube's
+   * `loudnessDb`: the offline copy plays at the same normalized level as the stream. Read it
+   * through `sanitizeStreamLoudness`; a malformed value doesn't make the record invalid.
+   */
+  readonly loudness?: StreamLoudness
 }
 
 /**
@@ -213,7 +220,14 @@ export function withoutProgress(record: DownloadRecord): DownloadRecord {
 export function fileFormatOf(
   stream: Pick<
     StreamOption,
-    'codec' | 'container' | 'media' | 'tier' | 'bitrateKbps' | 'sampleRateHz' | 'bitDepth'
+    | 'codec'
+    | 'container'
+    | 'media'
+    | 'tier'
+    | 'bitrateKbps'
+    | 'sampleRateHz'
+    | 'bitDepth'
+    | 'loudness'
   >,
 ): DownloadFileFormat {
   return {
@@ -224,6 +238,7 @@ export function fileFormatOf(
     ...(stream.bitrateKbps === undefined ? {} : { bitrateKbps: stream.bitrateKbps }),
     ...(stream.sampleRateHz === undefined ? {} : { sampleRateHz: stream.sampleRateHz }),
     ...(stream.bitDepth === undefined ? {} : { bitDepth: stream.bitDepth }),
+    ...(stream.loudness === undefined ? {} : { loudness: stream.loudness }),
   }
 }
 

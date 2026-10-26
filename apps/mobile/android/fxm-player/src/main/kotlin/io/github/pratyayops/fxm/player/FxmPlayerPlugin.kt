@@ -173,6 +173,28 @@ class FxmPlayerPlugin : Plugin() {
     }
   }
 
+  /** The audio effects (stage 8.1): the equalizer, loudness normalization and the speed. */
+  @PluginMethod
+  fun setEffects(call: PluginCall) {
+    val data = call.data
+    val parsed = parse(call) { PlayerMessages.effects(data) } ?: return
+    onService(call) {
+      it.coordinator.setEffects(parsed)
+      call.resolve()
+    }
+  }
+
+  /** Starts, replaces or cancels the native sleep timer (stage 8.1). */
+  @PluginMethod
+  fun setSleepTimer(call: PluginCall) {
+    val data = call.data
+    val parsed = parse(call) { Optional(PlayerMessages.sleepTimer(data)) } ?: return
+    onService(call) {
+      it.coordinator.setSleepTimer(parsed.value)
+      call.resolve()
+    }
+  }
+
   /** The web app took over a system control's next or previous. */
   @PluginMethod
   fun ack(call: PluginCall) {
@@ -227,6 +249,9 @@ class FxmPlayerPlugin : Plugin() {
   )
 
   private data class Snapshot(val data: String?)
+
+  /** A parsed value that may be `null` (a cancelled timer), told apart from a refused call. */
+  private data class Optional<T>(val value: T?)
 
   private fun setVisible(visible: Boolean) {
     this.visible = visible

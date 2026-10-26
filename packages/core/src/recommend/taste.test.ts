@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { formatId } from '../ids'
 import type { AffinityEntry } from '../signals/affinity'
-import { indexTaste, MIN_TASTE_ARTISTS, PICK_WEIGHT, pickContributions } from './taste'
+import {
+  indexTaste,
+  MIN_TASTE_ARTISTS,
+  mostlySkipped,
+  PICK_WEIGHT,
+  pickContributions,
+} from './taste'
 import { DAY, HOUR, like, NOW, play, profileOf, ytm } from './test-fixtures'
 
 const copper = ytm('v1', 'Copper Sun', 'Aurora Lane')
@@ -181,5 +187,18 @@ describe('pickContributions', () => {
   it('gives nothing without picks or with a bad time', () => {
     expect(pickContributions(undefined)).toEqual([])
     expect(pickContributions({ artists: [{ name: 'Basalt' }], genres: [], at: -1 })).toEqual([])
+  })
+})
+
+describe('mostlySkipped', () => {
+  it('takes a whole skip, and twice as much skipping as listening', () => {
+    expect(mostlySkipped(undefined)).toBe(false)
+    // One early skip is not yet a whole one.
+    expect(mostlySkipped({ score: 0.05, skips: 0.95 })).toBe(false)
+    expect(mostlySkipped({ score: 0.1, skips: 1.9 })).toBe(true)
+    expect(mostlySkipped({ score: 1, skips: 2 })).toBe(false)
+    expect(mostlySkipped({ score: 1, skips: 2.1 })).toBe(true)
+    // More taken back than given counts as no listening.
+    expect(mostlySkipped({ score: -1, skips: 1 })).toBe(true)
   })
 })

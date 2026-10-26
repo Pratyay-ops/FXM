@@ -119,6 +119,7 @@ export {
   HOST_RULES,
   INNERTUBE_API_PREFIX,
   isInnerTubeApiUrl,
+  serviceHostRule,
 } from './hosts'
 export type { SimpleInnerTubeInit, SimpleInnerTubeRequest } from './innertube'
 export { SIMPLE_CONTENT_TYPE, toSimpleInnerTubeRequest } from './innertube'

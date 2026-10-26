@@ -55,12 +55,13 @@ describe('the tiers', () => {
     expect(featuresAddedBy('free').find((feature) => feature.id === 'local-files')?.released).toBe(
       true,
     )
-    // Internet Archive and Jamendo download in every browser, as their files come (stage 4.1).
+    // Internet Archive and Jamendo download in every browser, as their files come (stage 4.1),
+    // and Save to device converts a copy (stage 4.2).
     expect(
       featuresAddedBy('free').find((feature) => feature.id === 'free-downloads'),
     ).toMatchObject({
       released: true,
-      label: 'Downloads of free music for offline listening, in their original format',
+      label: 'Downloads of free music for offline listening, to save in the format you want',
     })
   })
 
@@ -93,14 +94,16 @@ describe('the tiers', () => {
     )
   })
 
-  it('keeps downloads and the Spotify account to Full, the account sync unreleased for now', () => {
+  it('keeps downloads and the Spotify account to Full, both released', () => {
     const feature = (id: string) => TIER_FEATURES.find((candidate) => candidate.id === id)
-    expect(feature('spotify-account')).toMatchObject({ from: 'full', released: false })
-    // Downloads are out, in the original format; conversions come with stage 4.2.
+    // Stage 3.5: the web app with FXM Connect connects a Spotify account.
+    expect(feature('spotify-account')).toMatchObject({ from: 'full', released: true })
+    // Downloads are out, and so are conversions (stage 4.2): a download stays the original file,
+    // and Save to device converts a copy.
     expect(feature('downloads')).toMatchObject({
       from: 'full',
       released: true,
-      label: 'Downloads of YouTube Music songs, in their original format (conversions coming soon)',
+      label: 'Downloads of YouTube Music songs, to save in the format you want',
     })
   })
 })
@@ -120,13 +123,12 @@ describe('missingFeatures', () => {
 })
 
 describe('missingSummary', () => {
-  it('sums up what Lite and Full would add to Free only, with what comes later', () => {
+  it('sums up what Lite and Full would add to Free only, everything released', () => {
     expect(missingSummary('free')).toEqual([
       { tier: 'lite', adds: 'YouTube Music and its ad-free audio' },
       {
         tier: 'full',
-        adds: "YouTube Music without Lite's experimental route, YouTube Music downloads and Spotify search and related artists",
-        later: 'A read-only sync of your Spotify account is coming soon.',
+        adds: "YouTube Music without Lite's experimental route, YouTube Music downloads, Spotify search and related artists and a read-only sync of your Spotify account",
       },
     ])
   })
@@ -134,5 +136,30 @@ describe('missingSummary', () => {
   it('sums up only what Full adds to Lite, and nothing for Full', () => {
     expect(missingSummary('lite').map((line) => line.tier)).toEqual(['full'])
     expect(missingSummary('full')).toEqual([])
+  })
+
+  it('says what comes later in one sentence, whatever the features are called', async () => {
+    vi.resetModules()
+    vi.doMock('./config', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./config')>()
+      return {
+        ...actual,
+        RELEASED: { ...actual.RELEASED, downloads: false, spotifyAccount: false },
+      }
+    })
+    try {
+      const { missingSummary: summary } = await import('./tiers')
+      expect(summary('lite')).toEqual([
+        {
+          tier: 'full',
+          adds: "YouTube Music without Lite's experimental route and Spotify search and related artists",
+          later:
+            'Coming soon: YouTube Music downloads and a read-only sync of your Spotify account.',
+        },
+      ])
+    } finally {
+      vi.doUnmock('./config')
+      vi.resetModules()
+    }
   })
 })

@@ -68,6 +68,10 @@ export const HOST_RULES: readonly HostRule[] = [
   { host: 'sponsor.ajay.app', hostClass: 'open', service: 'SponsorBlock' },
   { host: 'i.ytimg.com', hostClass: 'open', service: 'YouTube thumbnails' },
   { host: '*.ggpht.com', hostClass: 'open', service: 'YouTube images' },
+  // YouTube Music's covers and YouTube's channel images, whose bytes go into saved files (stage
+  // 4.2). Both send `Access-Control-Allow-Origin: *` (packages/sources/src/youtube/CLEAN-ROOM.md).
+  { host: 'lh3.googleusercontent.com', hostClass: 'open', service: 'YouTube Music images' },
+  { host: 'yt3.googleusercontent.com', hostClass: 'open', service: 'YouTube images' },
   { host: 'i.scdn.co', hostClass: 'open', service: 'Spotify images' },
   // BotGuard's interpreter, for the experimental YouTube rungs of stage 1.11. It sends no CORS
   // headers, so only the desktop and Android apps can read it.
@@ -113,6 +117,17 @@ export function findHostRule(url: URL): HostRule | undefined {
   const rule = HOST_RULES.find((candidate) => matchesHost(url.hostname, candidate.host))
   if (rule?.pathPrefix !== undefined && !url.pathname.startsWith(rule.pathPrefix)) return undefined
   return rule
+}
+
+/**
+ * The rule of a service FXM itself contacts on `hostname`, whatever the path and the port, or
+ * `undefined` when FXM contacts no service there: for code that must keep hosts of its own apart
+ * from FXM's services, such as the hosts a runtime plugin declares (stage 8.3). Unlike
+ * {@link findHostRule}, a rule with a `pathPrefix` counts for every path of its host.
+ */
+export function serviceHostRule(hostname: string): HostRule | undefined {
+  const name = hostname.trim().toLowerCase()
+  return HOST_RULES.find((candidate) => matchesHost(name, candidate.host))
 }
 
 /**

@@ -6,12 +6,14 @@ import { App } from './app/app'
 import { createAppRouter } from './app/router'
 import { markConnecting } from './app/services/connecting'
 import { setUpDesktopPlayback } from './app/services/desktop'
+import { wireEqualizerActions } from './features/audio-effects/equalizer-actions'
 import { startConnect } from './features/connect/start'
 import { connectAppPolicy, createPendingPolicy } from './features/now-playing/playback-policy'
 import { listenForInstallPrompt } from './features/pwa/install'
 import { registerServiceWorker } from './features/pwa/service-worker'
 import { startScrobbling } from './features/scrobble/start-scrobbling'
 import { appSources } from './features/search/sources-context'
+import { startSpotifyAccount } from './features/spotify-account/start'
 import { canonicalAppPath } from './lib/canonical-path'
 
 const root = document.getElementById('root')
@@ -27,6 +29,10 @@ async function start(): Promise<void> {
   startConnect()
   // Opt-in: it loads, opens and sends nothing until the user connects an account.
   startScrobbling()
+  // Opt-in too: nothing loads or contacts Spotify until the user connects their account.
+  startSpotifyAccount()
+  // "Equalizer" in the track menus opens the Sound dialog (stage 8.1).
+  wireEqualizerActions()
 
   // FXM Connect's marker is on the page but it hasn't answered yet: until it does, the pages say
   // they are connecting rather than offering to install it (see app/services/connecting.ts).
@@ -63,6 +69,12 @@ async function start(): Promise<void> {
         connectAppImportServices(() => Promise.reject(error)),
       )
     })
+
+  // The plugins the user added and switched on (stage 8.3), each in a sandboxed document of its
+  // own: their catalogs join the sources registry, and their resolvers the stream lifecycle that
+  // the composition root hands them. Nothing runs until a plugin is installed; F-Droid builds
+  // wait for the user's opt-in.
+  void import('./features/plugins/runtime').then(({ startPlugins }) => startPlugins())
 }
 
 // An address with an encoded base, such as /%61pp/, gets none of the /app/* header rule's

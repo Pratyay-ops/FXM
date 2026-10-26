@@ -2,9 +2,16 @@ import '@testing-library/jest-dom/vitest'
 // An in-memory IndexedDB for the library database (Dexie), one per test file.
 import 'fake-indexeddb/auto'
 import { cleanup, configure } from '@testing-library/react'
+import { Dexie } from 'dexie'
 import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
+import { useAudioEffectsStore } from '../features/audio-effects/effects-store'
+import { useSoundDialogStore } from '../features/audio-effects/sound-dialog-store'
+import { useAutoplayActivity } from '../features/autoplay/autoplay-activity'
+import { useAutoplayMarks } from '../features/autoplay/autoplay-marks'
+import { useAutoplayStore } from '../features/autoplay/autoplay-store'
 import { resetDownloads } from '../features/downloads/runtime'
+import { setConverter, setDeviceSaver } from '../features/downloads/save/save'
 import { useLibraryViewStore } from '../features/library/view-store'
 import { setLyricsProvider } from '../features/lyrics/lyrics-source'
 import { resetPlayback } from '../features/now-playing/playback'
@@ -30,6 +37,26 @@ vi.stubEnv('BASE_URL', WEB_BUILD_BASE)
 const playerStore =
   typeof document === 'undefined' ? undefined : await import('../features/player/player-store')
 
+/**
+ * Forgets the live-query results that nothing watches any more. Dexie keeps one for a few
+ * seconds after its last subscriber leaves, in a cache that every Dexie instance shares and that
+ * is keyed by database name, and the tests delete their databases after each test and create
+ * them again under the same names. A result left over would answer the next test's first live
+ * query instead of its new database, and Dexie can deliver it after the fresh result, so the next
+ * test kept it: Import listed the previous test's import. Results something still watches stay,
+ * since Dexie tells their subscribers about changes through them.
+ */
+function forgetUnwatchedQueries(): void {
+  for (const table of Object.values(Dexie.cache)) {
+    const lists = [...Object.values(table.queries.query), ...Object.values(table.queries.count)]
+    for (const entries of lists) {
+      // In place, not a new array: Dexie keeps each array to delete an entry from it later.
+      const watched = entries.filter((entry) => entry.subscribers.size > 0)
+      entries.splice(0, entries.length, ...watched)
+    }
+  }
+}
+
 afterEach(async () => {
   cleanup()
   vi.restoreAllMocks()
@@ -43,6 +70,11 @@ afterEach(async () => {
   // The shell's toast: no confirmation carries over into the next test.
   useFeedbackStore.setState(useFeedbackStore.getInitialState(), true)
   usePwaStore.setState(usePwaStore.getInitialState(), true)
+  useAudioEffectsStore.setState(useAudioEffectsStore.getInitialState(), true)
+  useSoundDialogStore.setState(useSoundDialogStore.getInitialState(), true)
+  useAutoplayStore.setState(useAutoplayStore.getInitialState(), true)
+  useAutoplayMarks.setState(useAutoplayMarks.getInitialState(), true)
+  useAutoplayActivity.setState(useAutoplayActivity.getInitialState(), true)
   if (playerStore === undefined) return
   localStorage.clear()
   sessionStorage.clear()
@@ -50,6 +82,8 @@ afterEach(async () => {
   resetPlayback()
   setLyricsProvider(undefined)
   setSponsorBlockClient(undefined)
+  setConverter(undefined)
+  setDeviceSaver(undefined)
   playerStore.usePlayerStore.setState(playerStore.usePlayerStore.getInitialState(), true)
   delete document.documentElement.dataset.theme
   delete document.documentElement.dataset.titlebar
@@ -58,4 +92,6 @@ afterEach(async () => {
   // first: their manager writes to the library.
   await resetDownloads()
   await resetLibrary()
+  // Last: cleanup() and the resets above stopped every live query of this test.
+  forgetUnwatchedQueries()
 })

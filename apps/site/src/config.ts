@@ -83,17 +83,29 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
    * `radio` (3.4).
    */
   homeFeed: true,
-  /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */
-  radio: false,
+  /**
+   * Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4, wired into the app
+   * by 2.9b. Endless radio is autoplay, which keeps the queue going with songs like the last
+   * plays. On since autoplay kept a queue going in the Lite tier of the composed app, in Chromium,
+   * on 2026-10-26 (scripts/build-dist/README.md, "Autoplay in the Lite tier", which says how to
+   * check again).
+   */
+  radio: true,
   /** A read-only sync of a Spotify account's recommendations, likes and playlists: 3.5 (M2) */
-  spotifyAccount: false,
+  spotifyAccount: true,
   /**
    * Downloads for offline listening, in the format the source has (the original file): 4.1,
-   * wired into the app by 2.9b. Converting to other formats is `conversions`.
+   * wired into the app by 2.9b. Saving a copy in another format is `conversions`.
    */
   downloads: true,
-  /** Converting downloads to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art: 4.2 */
-  conversions: false,
+  /**
+   * Saving a downloaded song as FLAC, ALAC, WAV, MP3, AAC or Opus, with tags, cover art and
+   * lyrics: 4.2. The download stays the original file; the app's "Save to device…" converts a
+   * copy on the device with FXM's ffmpeg core, which make dist ships at /app/ffmpeg/. On since a
+   * download saved as FLAC that way in Chromium, from make dist served with its real headers, on
+   * 2026-10-26 (apps/web/e2e/save.spec.ts says how to check again).
+   */
+  conversions: true,
   /** Installing the web app as a PWA: 5.1 (M4) */
   pwa: true,
   /** The embeddable mini-player: 5.2 (M4) */

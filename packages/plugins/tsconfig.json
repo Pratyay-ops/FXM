@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom", "dom.iterable"],
+    // @fxm/platform's signed updates import `./*.ts` (Node runs them directly in the signing
+    // scripts), and this program type-checks the package's source.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src"]
+}

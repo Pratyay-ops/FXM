@@ -56,9 +56,10 @@ export interface BundledPackage {
 export const LICENCE_OVERRIDES: Readonly<Record<string, { license: string; reason: string }>> = {}
 
 /**
- * WebAssembly that no npm package supplies (copied from `public/`, or built by FXM), keyed by
- * its SHA-256 in hex, after a human reviewed its licence: 4.2's own LGPL build of the ffmpeg
- * core, for example. A changed binary needs a new review. Empty today.
+ * WebAssembly that no npm package supplies (copied from `public/`, say), keyed by its SHA-256 in
+ * hex, after a human reviewed its licence. A changed binary needs a new review. Empty today:
+ * 4.2's LGPL ffmpeg core is checked by its own recipe's checks instead (`Part.prebuilt`,
+ * src/ffmpeg-core.ts).
  */
 export const REVIEWED_BINARIES: Readonly<
   Record<string, { name: string; license: string; reason: string }>
@@ -1003,15 +1004,23 @@ export interface NoticesOptions {
   readonly apacheLicense: () => string
   /** The reviews of packages without a licence text. Default: REVIEWED_LICENCE_TEXTS. */
   readonly reviewed?: Readonly<Record<string, LicenceTextReview>>
+  /**
+   * The entries of the files FXM builds from pinned recipes of its own rather than takes from
+   * npm (`Part.prebuilt`), such as 4.2's ffmpeg core, each as its part wrote it. They follow the
+   * packages.
+   */
+  readonly prebuilt?: readonly string[]
 }
 
 /**
  * The third-party notices file for everything FXM deploys: each bundled package with its
  * licence, the parts that contain it, its licence files and the notices of its bundled files
- * that add to them (`notices.ts`).
+ * that add to them (`notices.ts`), then the entries of the files FXM builds from its own recipes
+ * (`prebuilt`, such as the ffmpeg core), and last the Apache License 2.0 where a package needs it.
  */
 export function renderNotices(packages: Iterable<BundledPackage>, options: NoticesOptions): string {
   const reviewed = options.reviewed ?? REVIEWED_LICENCE_TEXTS
+  const prebuilt = options.prebuilt ?? []
   const sorted = [...packages].sort(
     (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version),
   )
@@ -1031,6 +1040,12 @@ export function renderNotices(packages: Iterable<BundledPackage>, options: Notic
       `Its ${listOf(names)} include code from the open-source packages below, each under its own licence.`,
       '',
       'make dist writes this file from what the build it deploys contains.',
+    )
+  }
+  if (prebuilt.length > 0) {
+    lines.push(
+      '',
+      'After the packages come the files FXM builds itself from other projects’ sources, each with its licences and where its sources are.',
     )
   }
   let apache = false
@@ -1059,6 +1074,7 @@ export function renderNotices(packages: Iterable<BundledPackage>, options: Notic
       for (const notice of notices.fileNotices) lines.push('', notice)
     }
   }
+  for (const notice of prebuilt) lines.push('', RULE, notice)
   if (apache) lines.push('', RULE, 'The Apache License 2.0', '', options.apacheLicense().trim())
   return `${lines.join('\n')}\n`
 }

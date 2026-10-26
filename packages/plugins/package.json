@@ -1,0 +1,26 @@
+{
+  "name": "@fxm/plugins",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FXM plugins: runtime-loadable sources and resolvers, checksummed, run in the isolated evaluator",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@fxm/core": "workspace:*",
+    "@fxm/platform": "workspace:*",
+    "@fxm/sources": "workspace:*",
+    "@noble/hashes": "^2.4.0"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.64.0",
+    "rolldown": "^1.2.13"
+  }
+}

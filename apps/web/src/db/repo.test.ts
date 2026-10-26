@@ -65,6 +65,46 @@ describe('playlists', () => {
     })
   })
 
+  it('creates a playlist with a fixed ID, cover art and a place in the list, when asked', async () => {
+    const repo = testRepo()
+    const id = formatId('local', 'playlist', 'spotify-37i9dQZF1E8OvD4G5pVGhr')
+    const art = [{ url: 'https://i.scdn.co/image/cover', width: 300, height: 300 }]
+    expect(
+      await repo.createPlaylist({ id, name: 'Copied', artwork: art, position: 'bottom' }),
+    ).toBe(id)
+    expect(await playlistIds(repo)).toEqual([LIKED_PLAYLIST_ID, DOWNLOADS_PLAYLIST_ID, id])
+    expect((await repo.getPlaylistView(id))?.playlist.artwork).toEqual(art)
+    expect((await repo.getPlaylistList()).items.at(-1)?.artwork).toEqual(art)
+    // The ID is taken now; built-in, foreign and malformed IDs are refused too.
+    for (const taken of [
+      id,
+      LIKED_PLAYLIST_ID,
+      formatId('spotify', 'playlist', '37i9dQZF1E8OvD4G5pVGhr'),
+      'local:track:x' as EntityId<'playlist'>,
+    ]) {
+      await expect(repo.createPlaylist({ id: taken, name: 'Again' })).rejects.toMatchObject({
+        code: 'invalid',
+      })
+    }
+    expect(await playlistIds(repo)).toHaveLength(3)
+  })
+
+  it('changes and removes cover art, and keeps it through other changes', async () => {
+    const repo = testRepo()
+    const art = [{ url: 'https://i.scdn.co/image/cover' }]
+    const id = await repo.createPlaylist({ name: 'Mix', artwork: art })
+    await repo.updatePlaylist(id, { name: 'Mix 2' })
+    expect((await repo.getPlaylistView(id))?.playlist).toMatchObject({
+      name: 'Mix 2',
+      artwork: art,
+    })
+    const other = [{ url: 'https://i.scdn.co/image/other', width: 64 }]
+    await repo.updatePlaylist(id, { artwork: other })
+    expect((await repo.getPlaylistView(id))?.playlist.artwork).toEqual(other)
+    await repo.updatePlaylist(id, { artwork: [{ url: 'javascript:alert(1)' }] })
+    expect((await repo.getPlaylistView(id))?.playlist).not.toHaveProperty('artwork')
+  })
+
   it('refuses an empty name', async () => {
     const repo = testRepo()
     await expect(repo.createPlaylist({ name: '   ' })).rejects.toMatchObject({ code: 'invalid' })
@@ -560,6 +600,36 @@ describe('history', () => {
     expect(await repo.recentlyPlayed()).toEqual([])
   })
 
+  it('says whether the user skipped each track’s last play before hearing half of it', async () => {
+    const repo = testRepo()
+    const play = (
+      n: number,
+      playedAt: number,
+      playedMs: number,
+      outcome: 'end' | 'skip' | 'stop',
+    ) =>
+      repo.recordPlay({
+        track: track(n),
+        playedAt,
+        playedMs,
+        durationMs: 200_000,
+        completed: outcome === 'end',
+        skipped: outcome === 'skip',
+      })
+    await play(1, 1000, 200_000, 'end')
+    // Skipped at once: the last play is what counts.
+    await play(1, 2000, 4_000, 'skip')
+    // Skipped near the end: a listen.
+    await play(2, 3000, 190_000, 'skip')
+    await play(3, 4000, 4_000, 'stop')
+    const recent = await repo.recentlyPlayed()
+    expect(recent.map((row) => [row.id, row.skipped])).toEqual([
+      [track(3).id, false],
+      [track(2).id, false],
+      [track(1).id, true],
+    ])
+  })
+
   it('tells when the history starts, which only forgetting or older plays change', async () => {
     const repo = testRepo()
     const play = (n: number, playedAt: number) =>
@@ -723,6 +793,43 @@ describe('import progress', () => {
     })
     await repo.deleteImport('import-1')
     expect(await repo.getImport('import-1')).toBeUndefined()
+  })
+})
+
+describe('settings', () => {
+  it("keeps features' settings by key, reads them by prefix, and removes them", async () => {
+    const repo = testRepo()
+    expect(await repo.getSetting('feature.state')).toBeUndefined()
+    await repo.putSettings({
+      'feature.state': { version: 1, at: 5 },
+      'feature.item.a': ['x', 'y'],
+      'feature.item.b': 'z',
+      'other.flag': true,
+    })
+    expect(await repo.getSetting('feature.state')).toEqual({ version: 1, at: 5 })
+    expect([...(await repo.getSettings('feature.item.'))]).toEqual([
+      ['feature.item.a', ['x', 'y']],
+      ['feature.item.b', 'z'],
+    ])
+    await repo.putSettings({ 'feature.item.a': undefined, 'feature.item.b': 'w' })
+    expect([...(await repo.getSettings('feature.'))]).toEqual([
+      ['feature.item.b', 'w'],
+      ['feature.state', { version: 1, at: 5 }],
+    ])
+    // Backups carry them.
+    expect((await repo.snapshot()).settings.map((row) => row.key)).toContain('feature.state')
+  })
+
+  it("keeps the library's own settings out of reach", async () => {
+    const repo = testRepo()
+    await repo.rebuildAffinity()
+    await expect(repo.getSetting('affinity.model')).rejects.toMatchObject({ code: 'protected' })
+    await expect(repo.putSettings({ 'affinity.model': 0 })).rejects.toMatchObject({
+      code: 'protected',
+    })
+    expect([...(await repo.getSettings('affinity'))]).toEqual([])
+    await expect(repo.putSettings({ '': 1 })).rejects.toMatchObject({ code: 'invalid' })
+    await expect(repo.getSettings('')).rejects.toBeInstanceOf(LibraryError)
   })
 })
 

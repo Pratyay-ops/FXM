@@ -129,8 +129,9 @@ export const TIER_FEATURES: readonly TierFeature[] = [
   },
   {
     id: 'free-downloads',
+    // A download stays the original file; Save to device converts a copy (stage 4.2).
     label: RELEASED.conversions
-      ? 'Downloads of free music for offline listening, in the format you want'
+      ? 'Downloads of free music for offline listening, to save in the format you want'
       : 'Downloads of free music for offline listening, in their original format',
     short: 'downloads of free music',
     from: 'free',
@@ -153,7 +154,7 @@ export const TIER_FEATURES: readonly TierFeature[] = [
   {
     id: 'downloads',
     label: RELEASED.conversions
-      ? 'Downloads of YouTube Music songs, in the format you want'
+      ? 'Downloads of YouTube Music songs, to save in the format you want'
       : 'Downloads of YouTube Music songs, in their original format (conversions coming soon)',
     short: 'YouTube Music downloads',
     from: 'full',
@@ -206,7 +207,7 @@ export interface MissingLine {
   readonly tier: Tier
   /** What it adds today, as a phrase. */
   readonly adds: string
-  /** What it adds later, as a sentence ("… are coming soon."), if anything. */
+  /** What it adds later, as a sentence ("Coming soon: …."), if anything. */
   readonly later?: string
 }
 
@@ -224,11 +225,7 @@ export function missingSummary(tier: Tier): MissingLine[] {
         ? joinList(["YouTube Music without Lite's experimental route", ...out])
         : joinList(out)
     if (later.length === 0) return { tier: other, adds }
-    const sentence = joinList(later)
-    return {
-      tier: other,
-      adds,
-      later: `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} ${later.length === 1 ? 'is' : 'are'} coming soon.`,
-    }
+    // "Coming soon: …" reads right for one feature and for several, whatever their names.
+    return { tier: other, adds, later: `Coming soon: ${joinList(later)}.` }
   })
 }

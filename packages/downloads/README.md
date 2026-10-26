@@ -2,7 +2,7 @@
 
 The download manager (stage 4.1): a queue that downloads tracks for offline playback, with concurrency, progress, pause, resume, retry, cancel and delete, and transfers that continue from the bytes already stored. It is runtime-agnostic: it fetches with the platform's injected `fetch`, keeps bytes in a `DownloadStorage` and records in a `DownloadStore` that each platform implements, and plays downloads offline through the stream lifecycle's `OfflineStore` (stage 2.3). The web app's storage (the Origin Private File System) and records (IndexedDB) are in [`apps/web/src/features/downloads`](../../apps/web/src/features/downloads/README.md).
 
-Downloads keep the **original bytes** of the stream (WebM/Opus, M4A/AAC, FLAC, MP3, or YouTube's itag 18 as the MP4 it is). Converting, tagging and "Save to device" are stage 4.2.
+Downloads keep the **original bytes** of the stream (WebM/Opus, M4A/AAC, FLAC, MP3, or YouTube's itag 18 as the MP4 it is). Converting, tagging and "Save to device" are stage 4.2: [`@fxm/convert`](../convert/README.md) saves a copy of a completed download (`storage.read`) in the format the user picks, and the stored original keeps playing offline.
 
 | Piece | What it is |
 |---|---|
@@ -124,7 +124,7 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 
 ## Offline playback
 
-`createOfflineStore({ store, storage })` is the stream lifecycle's `OfflineStore`. For a track with a completed download whose audio may play in the catalog mode, it returns a `verified`, not IP-bound stream of the stored file at the storage's playback URL (a `blob:` URL in a browser). The same file keeps its URL, so a copy that failed to play is skipped. The mode rule is the playback policy's: a download of an official video's own audio (made in Music + Video mode) never plays in Music mode, while a downloaded song stands in for its music video there.
+`createOfflineStore({ store, storage })` is the stream lifecycle's `OfflineStore`. For a track with a completed download whose audio may play in the catalog mode, it returns a `verified`, not IP-bound stream of the stored file at the storage's playback URL (a `blob:` URL in a browser), with the loudness the stream had when it was downloaded (`format.loudness`, e.g. YouTube's `loudnessDb`; stage 8.1), so loudness normalization plays the copy at the stream's level; a malformed value is dropped (`sanitizeStreamLoudness`) without making the record invalid. The same file keeps its URL, so a copy that failed to play is skipped. The mode rule is the playback policy's: a download of an official video's own audio (made in Music + Video mode) never plays in Music mode, while a downloaded song stands in for its music video there.
 
 ## Storage contract
 

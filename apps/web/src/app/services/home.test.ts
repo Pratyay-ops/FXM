@@ -1,14 +1,21 @@
 import {
+  createQueue,
   formatId,
   MATCHER_VERSION,
   type MatchBand,
+  type ProviderContext,
   parseId,
   type RadioSeed,
+  setQueue,
   type Track,
 } from '@fxm/core'
 import type { LiteState } from '@fxm/platform'
 import type { MatchOutcome } from '@fxm/player'
+import type { CollectOptions, RecommendationSeed } from '@fxm/sources/recommend'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getLibrary } from '../../db/repo'
+import { planExtension } from '../../features/autoplay/extend'
+import { createCollectionCache } from '../../features/home/feed'
 import type { HomeServices } from '../../features/home/services'
 import {
   createSources,
@@ -150,6 +157,73 @@ describe("Home on the app's services", () => {
         new URL(request.url).hostname.endsWith('youtube.com'),
       ),
     ).toBe(false)
+  })
+
+  it('pass the parts, the limit and a deadline on to the collector, as autoplay asks', async () => {
+    const calls: (CollectOptions | undefined)[] = []
+    const collector = {
+      async collect(_seed: RecommendationSeed, _ctx: ProviderContext, options?: CollectOptions) {
+        calls.push(options)
+        return { candidates: [], outcomes: [] }
+      },
+      async home() {
+        return { shelves: [], outcomes: [] }
+      },
+      fillArtwork: async (track: Track) => track,
+    }
+    const recommendations = appHomeRecommendations({
+      load: async () => collector,
+      current: collector,
+    })
+    const seed: Track = {
+      id: formatId('ytm', 'track', 'creep'),
+      source: 'ytm',
+      title: 'Creep',
+      artists: [{ name: 'Radiohead' }],
+      artwork: [],
+      kind: 'song',
+    }
+    const ctx = createSources().context({ mode: 'music' })
+
+    await recommendations.collect(seed, ctx, { parts: ['radio'], limit: 20, deadlineMs: 8_000 })
+    await recommendations.collect(seed, ctx)
+
+    // The collector answers by the deadline with what its sources found (autoplay's radio).
+    expect(calls).toEqual([{ parts: ['radio'], limit: 20, deadlineMs: 8_000 }, {}])
+  })
+})
+
+describe("autoplay on Home's app services", () => {
+  it('grows a Lite queue from YouTube Music radio: one radio, at the prefetch priority', async () => {
+    const { setup, home } = await homeOn('lite')
+    const playing = await creep(setup)
+    const context = vi.spyOn(setup.sources, 'context')
+    const before = setup.network.requests.length
+
+    const { picks, fetched } = await planExtension({
+      queue: setQueue(createQueue(), [playing], { startIndex: 0 }),
+      count: 4,
+      services: home,
+      repo: getLibrary(),
+      now: Date.now(),
+      cache: createCollectionCache(),
+    })
+
+    // The song playing now seeded the one radio fetched, YouTube Music's, at prefetch.
+    expect(fetched?.seed).toMatchObject({ id: playing.id })
+    expect(context).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'music', priority: 'prefetch' }),
+    )
+    const radios = setup.network.requests
+      .slice(before)
+      .filter((request) => new URL(request.url).pathname.endsWith('/next'))
+    expect(radios).toHaveLength(1)
+    // Four of its songs, none of them the one playing.
+    expect(picks).toHaveLength(4)
+    for (const { track } of picks) {
+      expect(track).toMatchObject({ source: 'ytm', kind: 'song' })
+      expect(track.id).not.toBe(playing.id)
+    }
   })
 })
 

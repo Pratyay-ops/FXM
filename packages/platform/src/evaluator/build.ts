@@ -79,13 +79,16 @@ export async function scriptHashOf(script: string): Promise<string> {
 /**
  * The document's `<meta>` policy: nothing may load or connect, and only the inline script with
  * `hash` runs, with `'unsafe-eval'` for the scripts it compiles and `'wasm-unsafe-eval'` for any
- * WebAssembly they need.
+ * WebAssembly they need. It may start workers from `blob:` URLs, which is how stage 8.3 runs each
+ * plugin apart from the document: such a worker inherits this policy, so it can't connect or load
+ * anything either, and it has no DOM, no WebRTC and no way to navigate.
  */
 export function evaluatorMetaPolicy(hash: string): string {
   return [
     "default-src 'none'",
     `script-src ${hash} 'unsafe-eval' 'wasm-unsafe-eval'`,
     "connect-src 'none'",
+    'worker-src blob:',
     "base-uri 'none'",
     "form-action 'none'",
   ].join('; ')

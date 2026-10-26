@@ -7,6 +7,7 @@ export const APP_VERSION = '0.1.0'
 /** What the letters stand for. */
 export const APP_TAGLINE = 'Free Cross-platform Media'
 
+export * from './effects'
 export * from './errors'
 export * from './ids'
 export * from './lyrics'

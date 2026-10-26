@@ -25,8 +25,8 @@ import { fitsMode } from './pool'
 import { likedEnough, type TasteIndex, type TrackTaste } from './taste'
 import type { RecSeed } from './types'
 
-/** What a seed is collected for. */
-export type SeedPurpose = 'because' | 'mix' | 'discover' | 'quick-picks'
+/** What a seed is collected for: one of Home's shelves, or endless radio (`radio.ts`). */
+export type SeedPurpose = 'because' | 'mix' | 'discover' | 'quick-picks' | 'radio'
 
 /** A part of a collection: the recommendation sources' calls (stage 3.2's `RecommendationPart`). */
 export type SeedPart = 'radio' | 'station' | 'similar-artists'
@@ -43,7 +43,10 @@ export interface PlannedSeed {
   readonly parts: readonly SeedPart[]
   /** What the shelves use it for. */
   readonly purposes: readonly SeedPurpose[]
-  /** How much the user likes it, from 0.5 to 1: scales what its candidates count. */
+  /**
+   * How much the user likes it, from 0.5 to 1: scales what its candidates count. A radio seed's
+   * weight also falls with the play's age, down to 0.2 (`planRadioSeeds`).
+   */
   readonly weight: number
 }
 

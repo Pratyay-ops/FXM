@@ -33,6 +33,7 @@ web app (WebView)                       this module (same process)
 | `WebViewRecovery.kt`, `RendererRecovery.kt`, `RestartPolicy.kt` | Bringing the web app back after its renderer died: the Android glue, the decisions (testable on the JVM) and the back-off |
 | `NetworkWatcher.kt`, `NetworkChanges.kt` | Which network callbacks change the network |
 | `Failures.kt` | Media3's errors as the web app's `EngineError` types, with the HTTP status |
+| `Effects.kt`, `EqualizerProcessor.kt` | The audio effects (stage 8.1): the equalizer's filters and headroom and the loudness gain, as plain Kotlin computing what the web app's `@fxm/core` computes, and the Media3 `AudioProcessor` that runs the equalizer in the audio sink |
 
 ## Who decides what
 
@@ -72,12 +73,14 @@ Each queued entry is a **slot** with a key; the playlist item's URI is `fxm-entr
 | `load` | `entry`, `startAtMs`, `upcoming`, `hasMore`, `repeat` | Plays `entry` from `startAtMs`, paused until `play`, with `upcoming` queued after it. An entry already queued after the current one, with the same id and bytes, is skipped to, keeping its buffer |
 | `setUpcoming` | `upcoming`, `hasMore`, `repeat` | Replaces the entries after the current one; the unchanged leading entries (same ids and bytes, in order) keep their slot and buffer, everything after the first change gets new slots |
 | `play`, `pause`, `seek` (`positionMs`), `setVolume` (`volume`, 0 to 1) | | As named |
+| `setEffects` | `equalizer` (`enabled`, ten `gainsDb`), `loudness` (`enabled`, `targetLufs`, `mode` `track` or `album`), `speed` (0.5 to 2) | The audio effects (stage 8.1): see [Audio effects](#audio-effects) |
+| `setSleepTimer` | `endsAt` (epoch ms or `null`), `fadeMs`, `endOfTrack` | Pauses at `endsAt` after fading out over `fadeMs`, or at the end of the current entry; neither cancels the timer |
 | `ack` | — | Takes over a system control's next or previous |
 | `saveSnapshot` | `data` (a string up to 4 Mi characters, or `null`) | Keeps the web app's queue for when it attaches again |
 | `release` | — | Stops and forgets the queue |
 | `crashRendererForTesting` | — | Debug builds only: crashes the WebView's renderer (`chrome://crash`) for [check 2](#checks-on-a-device) |
 
-An entry is `{ id, uid, source: { kind?, url, headers?, expiresAt?, ipBound?, network?, fileKey? }, metadata: { title, artists, album?, artworkUrl?, durationMs? }, data? }`: an id the web app chooses (`[A-Za-z0-9._:-]{1,100}`), the queue item's uid, an HTTPS URL, and what the notification shows. `kind` is `http` (the default) and reserved for file sources (stage 6.4); other kinds are refused. `fileKey` (at most 200 characters) names the bytes the URL serves. `data` (at most 16 Ki characters) is the web app's own, opaque here and returned in the session: the web app keeps the entry's stream there, so a recreated page takes the entry over without resolving it again. At most 50 upcoming entries. Malformed messages are rejected with `BAD_REQUEST`; `UNAVAILABLE` means the service could not be bound, `INTERNAL` that the player failed.
+An entry is `{ id, uid, source: { kind?, url, headers?, expiresAt?, ipBound?, network?, fileKey?, loudness? }, metadata: { title, artists, album?, artworkUrl?, durationMs? }, data? }`: an id the web app chooses (`[A-Za-z0-9._:-]{1,100}`), the queue item's uid, an HTTPS URL, and what the notification shows. `kind` is `http` (the default) and reserved for file sources (stage 6.4); other kinds are refused. `fileKey` (at most 200 characters) names the bytes the URL serves. `loudness` (`trackLufs`, optional `albumLufs`, each from −70 to 6 LUFS) says how loud the audio is; a malformed one is left out, not refused. `data` (at most 16 Ki characters) is the web app's own, opaque here and returned in the session: the web app keeps the entry's stream there, so a recreated page takes the entry over without resolving it again. At most 50 upcoming entries. Malformed messages are rejected with `BAD_REQUEST`; `UNAVAILABLE` means the service could not be bound, `INTERNAL` that the player failed.
 
 | Event | Payload |
 |---|---|
@@ -87,6 +90,17 @@ An entry is `{ id, uid, source: { kind?, url, headers?, expiresAt?, ipBound?, ne
 | `request` | `id`, `reason` (`expiring`, `network`) |
 | `command` | `command` (`next`, `previous`) |
 | `network` | `id` (counts the changes), `cellular` |
+| `sleep` | `reason` (`timer`, `end-of-track`): the sleep timer ended, pausing playback if it played (the web app says so only then) |
+
+## Audio effects
+
+Stage 8.1; the web app's player sends them with `setEffects` (`NativeEngine.setEffects` and `setPlaybackRate`).
+
+- **The equalizer** runs in Media3's audio sink: `EqualizerProcessor`, a custom `AudioProcessor` that `PlaybackService`'s renderers factory puts before the speed change (`DefaultAudioSink.Builder.setAudioProcessors`, otherwise the default sink). It processes the decoded PCM, 16-bit or float, of every stream (unlike a web page, the native player reads YouTube's bytes too): the headroom gain, then ten peaking filters per channel (`EqualizerDsp`), with the same bands, Q, coefficients and headroom as the web (`Effects.kt`; the JVM tests compare them with `@fxm/core`'s numbers). Off or flat, it copies the buffers. A new setting applies from the next buffer.
+- **Loudness normalization** turns each entry down to the target through the player's volume (the web app's volume × the entry's gain × the sleep timer's fade), from the entry's `source.loudness`. The coordinator sets it when an entry is loaded and at every boundary Media3 crosses by itself (`onMediaItemTransition` comes when the audible position crosses it), so a track never plays at the one before's level. It never turns a quiet track up: none of the streams the native player takes today (YouTube, Internet Archive, Jamendo) say their peak. Turning up through the processor would also land a little late at a gapless boundary, because the sink processes ahead of what is heard; that waits for local files (6.4).
+- **Speed:** `ExoPlayer.setPlaybackSpeed`, pitch unchanged (Media3's Sonic).
+- **The sleep timer** keeps time here, with the screen off: at its time minus the fade it fades the volume out in steps (every 250 ms), pauses at its time, puts the volume back and sends `sleep`. "End of track" sets `pauseAtEndOfMediaItems`; when Media3 pauses at the end of the entry (`PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM`) the coordinator clears it and sends `sleep`. It works without the web app attached too.
+- **No crossfade** yet: one ExoPlayer plays one entry at a time. The web app's player then crosses tracks gapless.
 
 ## The service and the session
 
@@ -102,7 +116,7 @@ An entry is `{ id, uid, source: { kind?, url, headers?, expiresAt?, ipBound?, ne
 make android-test   # the JVM tests of fxm-http and fxm-player, offline, no device
 ```
 
-The coordinator is plain Kotlin behind a `PlayerPort`, so its tests (`CoordinatorTest`) drive it with a fake player, a fake clock and a fake scheduler: loading and queueing, skipping to a queued entry, fresh URLs for the same file (by file key) and for another, track boundaries and repeat one, failures the web app acts on or does not, the native fallbacks and the stop after 4 failures, the system's next and previous, network changes, expiring URLs, sessions (with the entries' data) and snapshots. `RecoveryTest` covers when the page comes back after a renderer death (at once on screen, and when the app is opened while a restart waits). `PlayerMessagesTest`, `SourcesTest` and `PoliciesTest` cover the messages, slot URIs, the header rules, `StreamIdentity`, the restart back-off, `NetworkChanges` and the failure types. The Media3 and Android glue (`PlaybackService`, `ExoPort`, `SessionPlayer`, `NetworkWatcher`, `WebViewRecovery`, the plugin) is compiled by `make apk` and checked on a device. `apps/mobile/android-project.test.ts` checks the service declaration, the shared client, the renderer handling and that both sides use the same names and limits.
+The coordinator is plain Kotlin behind a `PlayerPort`, so its tests (`CoordinatorTest`) drive it with a fake player, a fake clock and a fake scheduler: loading and queueing, skipping to a queued entry, fresh URLs for the same file (by file key) and for another, track boundaries and repeat one, failures the web app acts on or does not, the native fallbacks and the stop after 4 failures, the system's next and previous, network changes, expiring URLs, sessions (with the entries' data) and snapshots. `EffectsTest` covers the filters, the curve and the headroom against `@fxm/core`'s numbers, the equalizer on 16-bit and float buffers (a sine measured through it), clipping and the loudness gain; `EffectsCoordinatorTest` the effects reaching Media3, each entry's level across boundaries, and the sleep timer (fade, pause, end of track, cancel, without the web app). `RecoveryTest` covers when the page comes back after a renderer death (at once on screen, and when the app is opened while a restart waits). `PlayerMessagesTest`, `SourcesTest` and `PoliciesTest` cover the messages, slot URIs, the header rules, `StreamIdentity`, the restart back-off, `NetworkChanges` and the failure types. The Media3 and Android glue (`PlaybackService`, `ExoPort`, `SessionPlayer`, `NetworkWatcher`, `WebViewRecovery`, the plugin) is compiled by `make apk` and checked on a device. `apps/mobile/android-project.test.ts` checks the service declaration, the shared client, the renderer handling and that both sides use the same names and limits.
 
 ## Versions
 

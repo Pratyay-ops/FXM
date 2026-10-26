@@ -67,6 +67,7 @@ async function load(replace: Replacements = {}) {
   const { loadAppImportServices } = await import('../../features/import/services')
   const { createAppDownloadEnvironment } = await import('../../features/downloads/environment')
   const { appContext } = await import('../../lib/app-context')
+  const { spotifyAccountForHome } = await import('../../features/spotify-account/start')
   return {
     ...services,
     appSources,
@@ -80,6 +81,7 @@ async function load(replace: Replacements = {}) {
     appContext,
     keepYouTubeCurrent,
     userHosts,
+    spotifyAccountForHome,
   }
 }
 
@@ -174,6 +176,17 @@ describe('startAppServices', () => {
     expect([...(userHosts[0]?.() ?? [])]).toEqual([])
   })
 
+  it("hands the lifecycle to the plugins' resolvers, and takes it back", async () => {
+    const { startAppServices, stopAppServices, getAppServices } = await load()
+    const { pluginAudioTarget } = await import('../../features/plugins/audio-target')
+    await startAppServices()
+
+    // Stage 8.3: the plugins that are on add their resolvers to the app's stream lifecycle.
+    expect(pluginAudioTarget()).toBe(getAppServices().lifecycle)
+    stopAppServices()
+    expect(pluginAudioTarget()).toBeUndefined()
+  })
+
   it("connects imports to the app's platform and providers", async () => {
     const { startAppServices, getAppServices, loadAppImportServices } = await load()
     const imports = loadAppImportServices()
@@ -191,7 +204,8 @@ describe('startAppServices', () => {
   })
 
   it("gives Home the app's sources, recommendations, catalog and playback", async () => {
-    const { startAppServices, appHomeServices, appSources, appActions } = await load()
+    const { startAppServices, appHomeServices, appSources, appActions, spotifyAccountForHome } =
+      await load()
     await startAppServices()
 
     const home = appHomeServices.get()
@@ -205,7 +219,8 @@ describe('startAppServices', () => {
     expect(home.catalog?.artistTracks).toBeDefined()
     expect(home.catalog?.findSong).toBeDefined()
     expect(home.playback).toBe(appActions.get().playback)
-    expect(home.spotifyAccount).toBeDefined()
+    // Stage 3.5's view of the account, with the sections its sync keeps, not the bare status.
+    expect(home.spotifyAccount).toBe(spotifyAccountForHome)
   })
 
   it('gives Home the sources and the player at once, the tier unknown until it is', async () => {

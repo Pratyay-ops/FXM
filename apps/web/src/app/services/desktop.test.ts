@@ -6,13 +6,41 @@ import {
   type MediaAction,
   type NowPlaying,
 } from '@fxm/desktop/bridge'
+import type { DirectAudioEngineOptions } from '@fxm/player'
+import { testStream } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { INITIAL_CONNECTION, useConnection } from '../../features/connect/connection'
 import { getPlayer, resetPlayback } from '../../features/now-playing/playback'
 import { setUpDesktopPlayback } from './desktop'
 
 afterEach(() => {
   resetPlayback()
+  useConnection.setState(INITIAL_CONNECTION, true)
 })
+
+/**
+ * The real bridge, recording the engines it creates and the options it creates them with, as
+ * `setUpDesktopPlayback` loads it.
+ */
+function recordingBridge() {
+  const engines: DesktopAudioEngine[] = []
+  const options: (DirectAudioEngineOptions | undefined)[] = []
+  const loadBridge = async () => ({
+    createDesktopPlayback: (playback?: Parameters<typeof bridge.createDesktopPlayback>[0]) => {
+      const desktop = bridge.createDesktopPlayback(playback)
+      return {
+        ...desktop,
+        createEngine: (engineOptions?: DirectAudioEngineOptions) => {
+          const engine = desktop.createEngine(engineOptions)
+          engines.push(engine)
+          options.push(engineOptions)
+          return engine
+        },
+      }
+    },
+  })
+  return { engines, options, loadBridge }
+}
 
 /** A desktop shell that records the tray and sends native events on request. */
 function fakeShell() {
@@ -41,21 +69,7 @@ function fakeShell() {
 describe('setUpDesktopPlayback', () => {
   it("builds the app's player with the desktop's engine, options, tray and lifecycle rules", async () => {
     const fake = fakeShell()
-    const engines: unknown[] = []
-    // The real bridge, recording the engines it creates.
-    const loadBridge = async () => ({
-      createDesktopPlayback: (options?: Parameters<typeof bridge.createDesktopPlayback>[0]) => {
-        const desktop = bridge.createDesktopPlayback(options)
-        return {
-          ...desktop,
-          createEngine: () => {
-            const engine = desktop.createEngine()
-            engines.push(engine)
-            return engine
-          },
-        }
-      },
-    })
+    const { engines, loadBridge } = recordingBridge()
 
     const lifecycle = await setUpDesktopPlayback({
       tauri: true,
@@ -74,6 +88,32 @@ describe('setUpDesktopPlayback', () => {
     const toggle = vi.spyOn(player, 'toggle')
     fake.click('toggle')
     expect(toggle).toHaveBeenCalledOnce()
+  })
+
+  it("gives the desktop's engine the equalizer's readability rule (stage 8.1)", async () => {
+    const fake = fakeShell()
+    const { options, loadBridge } = recordingBridge()
+
+    await setUpDesktopPlayback({
+      tauri: true,
+      loadBridge,
+      playback: { shell: fake.shell, locks: undefined, onError: () => {} },
+    })
+    // The desktop app reaches YouTube natively, with every byte readable through Rust.
+    useConnection.setState({
+      platform: 'desktop',
+      capabilities: { youtube: 'full', mediaBytes: true, spotify: 'anonymous', fileSystem: true },
+    })
+
+    const isReadable = options[0]?.isReadable
+    expect(isReadable).toBeDefined()
+    // Web Audio reads the user's files and the free sources, whose hosts send CORS headers…
+    expect(isReadable?.(testStream('file', { url: 'blob:http://tauri.localhost/0f1e' }))).toBe(true)
+    const archive = testStream('archive', { url: 'https://archive.org/download/item/01.flac' })
+    expect(isReadable?.(archive)).toBe(true)
+    // …but not googlevideo, which the webview loads without CORS until stage 7.6.
+    const youtube = testStream('ytm', { url: 'https://rr1---sn-x.googlevideo.com/videoplayback' })
+    expect(isReadable?.(youtube)).toBe(false)
   })
 
   it('does nothing in a browser, without downloading the bridge', async () => {

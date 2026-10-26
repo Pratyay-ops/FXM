@@ -1,9 +1,9 @@
 /**
  * The web app's one platform: `createPlatform` from `@fxm/platform` with the Lite tier's sandbox
  * documents in a browser, the remote kill switches, and the hosts outside the platform's table
- * the app may fetch from (the Spotify secret's, through the sandbox's user-host document in a
- * browser). Everything that needs a provider context (the sources, the player, the self-test)
- * shares it.
+ * the app may fetch from (the Spotify secret's, and those of the plugins that are on, through
+ * the sandbox's user-host document in a browser). Everything that needs a provider context (the
+ * sources, the player, the self-test) shares it.
  *
  * In the desktop and Android apps `createPlatform` picks their native transport by itself; there
  * is no Lite tier there, so no sandbox. `start.ts` loads this module on demand, so the shell's
@@ -18,6 +18,7 @@ import {
   detectEnvironment,
   type FxmPlatform,
 } from '@fxm/platform'
+import { pluginUserHosts } from '../plugins/user-hosts'
 import { appKillSwitches } from './kill-switches'
 
 let pending: Promise<FxmPlatform> | undefined
@@ -51,7 +52,9 @@ export function getAppPlatform(): Promise<FxmPlatform> {
   pending ??= createPlatform({
     ...(detectEnvironment() === 'browser' ? { sandbox: createSandboxTransport() } : {}),
     killSwitches: appKillSwitches,
-    userHosts: () => userHostSource(),
+    // The Spotify secret's hosts, then those the plugins that are on declare and a plugin
+    // download's (stage 8.3).
+    userHosts: () => [...userHostSource(), ...pluginUserHosts()],
     // The YouTube stream ladder (stage 1.4) reports the bot checks it tells apart from age
     // gates itself, for the app's player and the self-test alike: counting LOGIN_REQUIRED here
     // too would count each twice, and an age gate as a bot check.

@@ -90,6 +90,8 @@ const connectInstall = privacyInstall(AVAILABLE.firefox)
 const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
 const webAppUpdates =
   "The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself, and when it first uses YouTube Music, it fetches FXM's signed YouTube settings file from this website too."
+const plugins =
+  'FXM comes with no plugins and suggests none. If you add one, from an address or a file you choose, FXM downloads it from that address and checks it against the checksum its author published. A plugin runs apart from FXM’s pages and your data, and contacts only the addresses it lists, which FXM shows you before you add it. Those services then receive your IP address and what you ask of the plugin, such as what you search for in its catalog, and their own privacy policies apply. FXM checks for an update of a plugin only when you ask, and installs it only when you approve it.'
 ---
 
 <Document
@@ -169,13 +171,27 @@ const webAppUpdates =
       request. FXM Connect never reads or stores them.
     </li>
     <li>
-      In the desktop and Android apps, you sign in on Spotify's own login page, in a window of the
-      app. Your login stays on your device, in protected storage.
+      In the desktop and Android apps, once they can connect an account, you sign in on Spotify's
+      own login page, in a window of the app. Your login stays on your device, in protected storage.
     </li>
   </ul>
   <p>
-    Spotify then knows that these requests come from your account. Disconnecting in Settings removes
-    the token from FXM.
+    The token stays in FXM's memory and is never saved. FXM uses it only to read your liked songs,
+    your playlists and your Spotify home, and never changes anything in your Spotify account. Copies
+    of your liked songs and playlists go into your library on your device, like your own playlists,
+    and FXM keeps your Spotify home there for its Home page. Spotify then knows that these requests
+    come from your account.
+  </p>
+  <p>
+    If you sync your library with GitHub, the copies go to your sync gist too, like your other
+    playlists, your private Spotify playlists included: anyone with the gist's link can read them,
+    in every earlier version GitHub keeps. Your Spotify home stays on your device.
+  </p>
+  <p>
+    Disconnecting in Settings removes the token from FXM at once and stops the sync. The copies stay
+    in your library unless you choose to remove them; removing them doesn't remove them from a sync
+    gist's earlier versions. To stop FXM Connect from using your login at all, also turn its option
+    off.
   </p>
 
   <h2 id="fxm-connect">FXM Connect</h2>
@@ -221,6 +237,9 @@ const webAppUpdates =
 
   <h2 id="players-on-other-websites">FXM players on other websites</h2>
   <p>{embeds}</p>
+
+  <h2 id="plugins">Plugins</h2>
+  <p>{plugins}</p>
 
   <h2>Changes</h2>
   <p>

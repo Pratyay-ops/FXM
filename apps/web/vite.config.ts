@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
+import { ffmpegCoreDevPlugin } from '../../tools/ffmpeg-wasm/dev-server.ts'
 import { APP_BASE } from './pwa/base.ts'
 import { APP_HEADERS, headersRevision } from './pwa/host.ts'
 import { pwaOptions } from './pwa/options.ts'
@@ -19,5 +20,8 @@ export default defineConfig({
     tailwindcss(),
     VitePWA(pwaOptions(APP_BASE, { headersRevision: headersRevision(APP_HEADERS) })),
     serviceWorkerSourceMap(),
+    // The locally built ffmpeg core at ffmpeg/ on the dev and preview servers (stage 4.2);
+    // make dist puts the deployed one there.
+    ffmpegCoreDevPlugin(),
   ],
 })

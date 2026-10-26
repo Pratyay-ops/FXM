@@ -1,6 +1,6 @@
 # Downloads in the web app
 
-The web app's side of stage 4.1: where downloads are stored, which tab runs the queue, the UI, and offline playback. The queue itself is [`@fxm/downloads`](../../../../../packages/downloads/README.md).
+The web app's side of stages 4.1 and 4.2: where downloads are stored, which tab runs the queue, the UI, offline playback, and "Save to device" in the format the user picks. The queue itself is [`@fxm/downloads`](../../../../../packages/downloads/README.md), the conversion [`@fxm/convert`](../../../../../packages/convert/README.md).
 
 | File | What it holds |
 |---|---|
@@ -16,6 +16,10 @@ The web app's side of stage 4.1: where downloads are stored, which tab runs the 
 | `menu.ts` | The download entry of track-list menus |
 | `format.ts`, `progress.tsx` | Sizes, states, errors; the progress ring and bar |
 | `testing.ts`, `opfs/fake-opfs.ts` | Test setup: fakes for the network, the resolver and the file system |
+| `save/save.ts` | Save to device (4.2): the converter (a worker running FXM's ffmpeg core) and the device saver, both replaceable (`setConverter`, `setDeviceSaver`), and `saveDownload` |
+| `save/save-dialog.tsx` | The Save to device dialog: the formats with their honest labels, progress, cancel, errors |
+| `save/worker.ts` | The conversion worker (`serveConversions` from `@fxm/convert/worker`) |
+| `save/credit.tsx` | The credit for FFmpeg, LAME and Opus, with links to their sites and the notices: in the dialog when a format needs the core, and in Settings → About |
 
 ## Storage
 
@@ -38,6 +42,8 @@ The running tab also keeps the **Downloads playlist** in step: a completed downl
 
 `getOfflineStore()` is the `offline` option of the player's `StreamLifecycle` (stage 2.3): the app's composition root asks it first (`src/app/services/offline.ts`, before the user's own files tagged with the track's ISRC), so the playback policy plays a downloaded track from the device before resolving anything, also without a network (once the app itself is loaded; the offline app shell is stage 5.1).
 
+A downloaded track plays at the loudness its stream had (stage 8.1): the record keeps the stream's `loudness` (YouTube's `loudnessDb`), and when the stream said none, the runtime reads the finished file's own ReplayGain or R128 tags into the record (`attachFileLoudness` in `features/audio-effects/download-loudness.ts`).
+
 ## UI
 
 - **The Downloads tab** of the library shows, above the playlist in its custom order: a notice when the browser can't store downloads, or when YouTube songs can't be downloaded here (no FXM Connect, the Lite tier included); the storage card with the usage meter, persistence and "Remove all downloads"; the downloads on their way with a progress bar, a pause/resume/retry button and a cancel button each, and "Pause all"/"Resume all"; and songs in the playlist that aren't downloaded on this device (after restoring a backup from another device), to download or remove.
@@ -45,8 +51,18 @@ The running tab also keeps the **Downloads playlist** in step: a completed downl
 - **The catalog pages** (search, album, artist and playlist pages, stage 2.4) have "Download" in their menus: the composition root sets 2.4's `DownloadActions` to the downloads' own action, which says what became of the click.
 - **`DownloadButton`** sits beside the like button on Now playing (stage 2.5).
 
-Downloads keep the source's own file; converting it to another format is stage 4.2, so Settings offers only Original until then. Nothing is offered where the bytes are unreadable (YouTube audio needs FXM Connect, and later the desktop app or the Android app, and never the Lite tier), nor what the app can't resolve (before the composition root connected its environment, nothing). A download the manager paused on its own says why in its row ("Paused · There is no room left for downloads", or after a YouTube bot check).
+Downloads keep the source's own file, which plays offline as it is; a copy in another format is what Save to device saves (below, stage 4.2, on with `RELEASED.conversions`, which Settings follows). Nothing is offered where the bytes are unreadable (YouTube audio needs FXM Connect, and later the desktop app or the Android app, and never the Lite tier), nor what the app can't resolve (before the composition root connected its environment, nothing). A download the manager paused on its own says why in its row ("Paused · There is no room left for downloads", or after a YouTube bot check).
+
+## Save to device
+
+A downloaded song's menu (in playlists, Liked songs and Downloads) has **Save to device…**. Its dialog lists every format with its honest label from `@fxm/convert` (`exportChoices`): "Original (Opus)", "FLAC (converted from Opus, same quality as the source)", "MP3 (converted from Opus, some quality loss)", and so on; YouTube audio is never called lossless, and choosing a lossless format for it says that converting gives a bigger file, not a better one. The choice starts at the download format of Settings → Audio quality, and MP3 takes its bitrate from there. With `RELEASED.conversions` off, the dialog offers the original alone, as Settings does.
+
+Save works in two steps. Straight from the click, the device saver asks where to save (the browser's save picker in Chromium on desktop; elsewhere the file goes to the browser's downloads), because browsers open their picker only from a click. Then FXM reads the stored file, fetches the cover (the track's largest artwork, through the download environment's platform `fetch`; WebP becomes JPEG through a canvas) and the lyrics (LRCLIB), each left out after 8 s or on any failure, converts and tags the file in the conversion worker, and writes it. The dialog shows the progress and a Cancel button, which stops the worker; closing the dialog cancels too, and nothing changes on it afterwards. A save that fails or is cancelled gives up the place it picked, so no empty file stays in the user's folder. Failures say what to do, in words that fit the chosen format: the core can't load here (save the original instead, said only when another format was chosen), the file is damaged or gone (download it again), the downloads' storage can't be read right now (reload), the browser ran out of memory, the folder refused the file, or the device couldn't ask where to save. A stored file FXM can't read at all (a video whose audio isn't AAC in MP4) gets a notice instead of the formats. The stored download stays the original either way, for offline playback.
+
+The conversion worker loads FXM's ffmpeg core from the app's `ffmpeg/` folder on the first save that needs it (the deploy puts it there; `make dev` serves a local build from `make ffmpeg-wasm`, tools/ffmpeg-wasm/README.md), and the service worker keeps it for offline saves (`pwa/options.ts`). Saving an original MP3, FLAC, Ogg or WAV, or an M4A as M4A, needs no core: FXM's own writers tag those. An original WebM (YouTube's usual audio) gets its tags from the core, and where the core can't load is saved as it is, untagged, which the confirmation says ("without its tags").
+
+The desktop app (7.4) and the Android app (6.4) save natively: they pass their own `DeviceSaver` to `setDeviceSaver` (a save dialog, the device's music library) and nothing else changes.
 
 ## Testing
 
-`setupDownloads()` from `testing.ts` gives the app's downloads an in-memory storage, a `FakeMediaServer` as the network and a `FakeDownloadResolver`, for a tier the test picks, and runs the queue; the test setup resets everything after each test. OPFS is tested against `opfs/fake-opfs.ts`, with the worker's handler run in-process and through a fake worker.
+`setupDownloads()` from `testing.ts` gives the app's downloads an in-memory storage, a `FakeMediaServer` as the network and a `FakeDownloadResolver`, for a tier the test picks, and runs the queue; the test setup resets everything after each test. OPFS is tested against `opfs/fake-opfs.ts`, with the worker's handler run in-process and through a fake worker. Save to device is tested with `createInProcessConverter` from `@fxm/convert/testing` (the whole pipeline on a fake core, or on a core that never loads, without the worker), a converter that runs until it is cancelled, a fake device saver and a fake lyrics provider, so nothing reaches the network. A cover is fetched once through a real platform transport over a fake `fetch`, which checks that the host table lets YouTube Music's and Spotify's cover hosts through. In a real browser, `e2e/save.spec.ts` downloads a song from Internet Archive through the app's composition and saves it as FLAC with the real ffmpeg core (skipped where none is built), also against `make dist` under its real headers ([the app's README](../../../README.md)).
