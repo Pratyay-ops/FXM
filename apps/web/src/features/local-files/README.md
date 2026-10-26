@@ -95,11 +95,11 @@ Failures are `FxmError`s the player knows what to do with: a file gone from disk
 
 ## Until other stages merge
 
-Built while the stages below were in progress, behind one seam each. All three have merged into `develop` since; wiring the seams is still to do:
+Built while the stages below were in progress, behind one seam each. All three have merged into `develop` since:
 
-- **The app's player (2.5).** The player bar shows the app's player now, but local files still play through a player of their own (`getLocalPlayer()`: direct audio engine, `withLocalFiles(NO_STREAMS)`, Media Session), which the bars don't show. To wire it: `getLocalPlayer()` returns `getPlayer()` from `features/now-playing/playback.ts`, `subscribeLocalPlayer` its `subscribePlayer`, and `createAppPolicy()` in `features/now-playing/playback-policy.ts` wraps its resolver with `withLocalFiles(…)`.
-- **The playback policy (2.3).** Register `createLocalAudioSource()` as the offline copy (ARCHITECTURE §7.4) once the app's policy is 2.3's (`createAppPolicy()` still returns the pending stand-in). Its `match` also finds a local file with a catalog track's ISRC, so a song the user owns, perhaps in FLAC, can play from their own copy.
-- **Search (2.4).** Register `createLocalMetadataProvider()` with the app's sources (`appSources.register(…)` in `features/search/sources-context.tsx`; source `local`, labelled "This device"); its album and artist pages then work for local albums and artists. Until then the search page shows `LocalSearchSection` above the catalog's results.
+- **The app's player (2.5): wired.** Local files play through the app's one player (`getLocalPlayer()` is `getPlayer()` from `features/now-playing/playback.ts`, `subscribeLocalPlayer` its `subscribePlayer`), which the player bars, Now playing and the system media controls show. The composition root (`src/app/services`, stage 2.9) connects the app's policy with `withLocalFilesFirst(…)` in front of it, so local files resolve to their object URLs and never reach the stream lifecycle or the network; where the music services don't run, the stand-in it connects plays local files too. Tests put the app's player on a fake engine with `configureLocalPlayer`.
+- **The playback policy (2.3): still to wire.** Register `createLocalAudioSource()` as an offline copy (ARCHITECTURE §7.4) in the composition root: its `match` finds a local file with a catalog track's ISRC, so a song the user owns, perhaps in FLAC, can play from their own copy.
+- **Search (2.4): still to wire.** Register `createLocalMetadataProvider()` with the app's sources (`appSources.register(…)`; source `local`, labelled "This device"); its album and artist pages then work for local albums and artists. Until then the search page shows `LocalSearchSection` above the catalog's results.
 
 ## Tests
 

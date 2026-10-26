@@ -13,13 +13,19 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../../components/ui/button'
 import { ErrorState } from '../../../components/ui/error-state'
+import { APP_UPDATED_MESSAGE, isAppUpdatedError, reloadApp } from '../../../lib/app-update'
 import { cn } from '../../../lib/cn'
 import { OnboardingLink } from '../onboarding'
 import { type SourceAvailability, sourceLabel } from '../sources'
+import { useSourcesSnapshot } from '../sources-context'
 
-/** What went wrong, for people, from a provider's `FxmError` code. */
+/**
+ * What went wrong, for people, from a provider's `FxmError` code. Code that failed to download
+ * while online (`AppUpdatedError`) says that FXM was updated.
+ */
 export function errorMessage(error: unknown, source: SourceId): string {
   const name = sourceLabel(source)
+  if (isAppUpdatedError(error)) return APP_UPDATED_MESSAGE
   if (!isFxmError(error)) return 'Something went wrong. Try again.'
   switch (error.code) {
     case 'RateLimited': {
@@ -52,9 +58,31 @@ export function errorMessage(error: unknown, source: SourceId): string {
   }
 }
 
-/** Whether trying again can help (it can't for a missing entity or an unreachable source). */
+/**
+ * Whether trying again can help. It can't for a missing entity or an unreachable source, nor
+ * for code that failed to download while online, which only a reload fetches (see
+ * {@link ReloadButton}).
+ */
 export function canRetry(error: unknown): boolean {
-  return !isFxmError(error, 'NotFound') && !isFxmError(error, 'Unsupported')
+  return (
+    !isFxmError(error, 'NotFound') && !isFxmError(error, 'Unsupported') && !isAppUpdatedError(error)
+  )
+}
+
+/** Reloads FXM, for an `AppUpdatedError`: the user's choice, since a reload stops the music. */
+function ReloadButton({
+  variant = 'primary',
+  className,
+}: {
+  variant?: 'primary' | 'secondary'
+  className?: string
+}) {
+  return (
+    <button type="button" onClick={reloadApp} className={buttonClasses({ variant, className })}>
+      <RotateCcw aria-hidden="true" />
+      Reload
+    </button>
+  )
 }
 
 /**
@@ -83,6 +111,7 @@ export function InlineError({
     >
       <CircleAlert aria-hidden="true" className="size-5 shrink-0 text-danger" />
       <p className="flex-1 text-sm">{errorMessage(error, source)}</p>
+      {isAppUpdatedError(error) && <ReloadButton variant="secondary" className="h-10" />}
       {onRetry && canRetry(error) && (
         <button
           type="button"
@@ -164,22 +193,33 @@ export type PageKindName = 'album' | 'artist' | 'playlist'
 
 /**
  * Why a source can't be used, and the way forward: the onboarding entry point when YouTube or
- * Spotify can't be reached, Settings when Spotify is switched off.
+ * Spotify can't be reached, Settings when Spotify is switched off. While FXM Connect is on the
+ * page but has not answered yet (`detecting`), it says FXM is connecting instead of offering
+ * the install: the source is most likely a moment away.
  *
  * - On a page (`kind` given, heading level 1): "This album is on YouTube Music" …
  * - On the search page (no `kind`, heading level 2): in place of the results and their tabs,
  *   which would all say the same, kept short so that its button shows without scrolling on a
- *   phone: "Search needs YouTube Music access" …
+ *   phone: "Search needs YouTube Music access" … With `alternatives`, the sources that work
+ *   here, it also offers to search one of them instead: on a phone their chips may be out of
+ *   view in the sideways scrolling row, and FXM Connect can't help on every device.
  */
 export function SourceUnavailable({
   availability,
   source,
   kind,
+  alternatives = [],
+  onPickSource,
 }: {
   availability: Exclude<SourceAvailability, { status: 'available' }>
   source: SourceId
   kind?: PageKindName
+  /** The search page's other sources that can be used, offered in its place. */
+  alternatives?: readonly SourceId[]
+  /** Picks one of `alternatives`. */
+  onPickSource?: (source: SourceId) => void
 }) {
+  const { detecting = false } = useSourcesSnapshot()
   const name = sourceLabel(source)
   const headingLevel = kind ? 1 : 2
   const onIt = kind ? `This ${kind} is on ${name}` : undefined
@@ -190,6 +230,35 @@ export function SourceUnavailable({
       Android apps.
     </p>
   )
+  if (
+    detecting &&
+    (availability.status === 'needs-youtube' || availability.status === 'spotify-unreachable')
+  ) {
+    return (
+      <Notice
+        icon={Plug}
+        headingLevel={headingLevel}
+        title="Connecting to FXM Connect…"
+        spacing={spacing}
+      >
+        <p>FXM Connect is in this browser. It usually answers within a second or two.</p>
+      </Notice>
+    )
+  }
+  const instead =
+    kind === undefined && onPickSource !== undefined
+      ? alternatives.map((other) => (
+          <button
+            key={other}
+            type="button"
+            onClick={() => onPickSource(other)}
+            className={buttonClasses({ variant: 'secondary' })}
+          >
+            <Search aria-hidden="true" />
+            Search {sourceLabel(other)} instead
+          </button>
+        ))
+      : []
   switch (availability.status) {
     case 'needs-youtube':
       return (
@@ -197,7 +266,12 @@ export function SourceUnavailable({
           icon={Plug}
           headingLevel={headingLevel}
           title={onIt ?? `Search needs ${name} access`}
-          actions={<OnboardingLink />}
+          actions={
+            <>
+              <OnboardingLink />
+              {instead}
+            </>
+          }
           spacing={spacing}
         >
           {reach}
@@ -287,6 +361,7 @@ export function EntityLoadError({
       message={errorMessage(error, source)}
       actions={
         <>
+          {isAppUpdatedError(error) && <ReloadButton />}
           {canRetry(error) && (
             <button type="button" className={buttonClasses()} onClick={onRetry}>
               <RotateCcw aria-hidden="true" />
