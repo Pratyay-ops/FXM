@@ -22,15 +22,24 @@ export default defineConfig({
     ignoreHTTPSErrors: true,
     trace: 'retain-on-failure',
   },
+  // Muted: the tests prove playback by the API's state and the position, never by ear. The
+  // player's own volume and mute (which the tests drive) are the media element's, untouched.
   projects: [
     {
       name: 'chromium',
       // The full Chromium build in the new headless mode, as the other browser tests use.
-      use: { ...devices['Desktop Chrome'], channel: 'chromium', launchOptions: { proxy } },
+      use: {
+        ...devices['Desktop Chrome'],
+        channel: 'chromium',
+        launchOptions: { proxy, args: ['--mute-audio'] },
+      },
     },
     {
       name: 'firefox',
-      use: { ...devices['Desktop Firefox'], launchOptions: { proxy } },
+      use: {
+        ...devices['Desktop Firefox'],
+        launchOptions: { proxy, firefoxUserPrefs: { 'media.volume_scale': '0.0' } },
+      },
     },
   ],
 })
