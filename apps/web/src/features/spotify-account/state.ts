@@ -13,24 +13,31 @@
 
 import type { EntityId, JsonValue } from '@fxm/core'
 import {
+  HOME_KEY,
   isAccountKey,
   isSpotifyCopyId,
   isSpotifyNativeId,
   LIST_PREFIX,
   listKey,
   META_KEY,
+  STATE_PREFIX,
 } from './ids'
 
 /** The most tracks one copied list remembers: Spotify caps playlists at 10,000. */
 export const MAX_REMEMBERED_TRACKS = 20_000
 
-/** What the last sync did, for Settings. */
+/**
+ * What the last sync did, and what it left, for Settings: it reads this one row, never the state
+ * of every copy, which a sync rewrites as it goes.
+ */
 export interface SyncSummary {
   /** When it ended, as epoch milliseconds. */
   readonly at: number
-  /** How many songs the account's liked songs hold. */
+  /** Whether the copy of the account's liked songs is there, and the sync follows it. */
+  readonly likedCopy: boolean
+  /** How many songs that copy follows, when it is there. */
   readonly likedCount: number
-  /** How many of the account's playlists have a copy that follows them. */
+  /** How many of the account's playlists have a copy that the sync follows. */
   readonly playlistCount: number
   /** Copies made by this sync. */
   readonly created: number
@@ -46,9 +53,17 @@ export interface SyncSummary {
   readonly departed: number
   /** Lists left out: over the limits, or unreadable. */
   readonly skipped: number
+  /**
+   * Playlists left for the next sync, which goes on from there: this one had made as many
+   * requests as one sync may (`SYNC_LIMITS.requests`, `sync.ts`).
+   */
+  readonly pending: number
   /** Whether the personal home was read. */
   readonly home: boolean
-  /** Whether the sync read everything (no limit reached, nothing skipped). */
+  /**
+   * Whether nothing was left out for good: no limit reached, nothing unreadable. Playlists left
+   * for the next sync (`pending`) don't count.
+   */
   readonly complete: boolean
 }
 
@@ -90,8 +105,6 @@ export interface ListState {
   readonly userTouched?: true
   /** The user deleted the copy: the sync doesn't make it again while Spotify keeps the list. */
   readonly dismissed?: true
-  /** When the sync last read the list. */
-  readonly syncedAt: number
 }
 
 /** What the library holds of the sync's state. */
@@ -131,6 +144,7 @@ export function sanitizeSummary(value: unknown): SyncSummary | undefined {
   if (at === undefined) return undefined
   return {
     at,
+    likedCopy: value.likedCopy === true,
     likedCount: counter(value.likedCount),
     playlistCount: counter(value.playlistCount),
     created: counter(value.created),
@@ -140,6 +154,7 @@ export function sanitizeSummary(value: unknown): SyncSummary | undefined {
     dismissed: counter(value.dismissed),
     departed: counter(value.departed),
     skipped: counter(value.skipped),
+    pending: counter(value.pending),
     home: value.home === true,
     complete: value.complete === true,
   }
@@ -163,13 +178,11 @@ export function sanitizeList(value: unknown): ListState | undefined {
   const { local } = value
   const name = shortText(value.name, 300)
   const written = time(value.written)
-  const syncedAt = time(value.syncedAt)
   if (
     typeof local !== 'string' ||
     !isSpotifyCopyId(local) ||
     name === undefined ||
     written === undefined ||
-    syncedAt === undefined ||
     !Array.isArray(value.base) ||
     value.base.length > MAX_REMEMBERED_TRACKS ||
     !value.base.every(isSpotifyNativeId)
@@ -185,7 +198,6 @@ export function sanitizeList(value: unknown): ListState | undefined {
     base: [...new Set(value.base as string[])],
     name,
     written,
-    syncedAt,
     ...(description === undefined ? {} : { description }),
     ...(artwork?.startsWith('https://') ? { artwork } : {}),
     ...(revision === undefined ? {} : { revision }),
@@ -195,7 +207,11 @@ export function sanitizeList(value: unknown): ListState | undefined {
   }
 }
 
-/** Reads the sync's state from the library. Rows that can't be read count as missing. */
+/**
+ * Reads the sync's state from the library, every copied list checked whole. Rows that can't be
+ * read count as missing. A sync reads it once; what needs only the sync's own row (when the last
+ * sync was, what it did, the account) reads {@link readMeta}.
+ */
 export async function readState(store: StateStore): Promise<SyncState> {
   const [meta, rows] = await Promise.all([
     store.getSetting(META_KEY),
@@ -208,6 +224,32 @@ export async function readState(store: StateStore): Promise<SyncState> {
   }
   const sanitized = sanitizeMeta(meta)
   return sanitized === undefined ? { lists } : { meta: sanitized, lists }
+}
+
+/** The sync's own state, without the copied lists, or `undefined`. */
+export async function readMeta(
+  store: Pick<StateStore, 'getSetting'>,
+): Promise<SyncMeta | undefined> {
+  return sanitizeMeta(await store.getSetting(META_KEY))
+}
+
+/**
+ * How many copies the sync follows, those the user deleted left out. Each row is checked only as
+ * far as that needs, not whole: Disconnect asks this, and a sync may be writing meanwhile.
+ */
+export async function countCopies(store: Pick<StateStore, 'getSettings'>): Promise<number> {
+  let copies = 0
+  for (const value of (await store.getSettings(LIST_PREFIX)).values()) {
+    if (
+      isRecord(value) &&
+      typeof value.local === 'string' &&
+      isSpotifyCopyId(value.local) &&
+      value.dismissed !== true
+    ) {
+      copies += 1
+    }
+  }
+  return copies
 }
 
 /** Saves one copied list's state. */
@@ -233,4 +275,14 @@ export async function forgetLists(store: StateStore, lists?: Iterable<string>): 
 
 function stripListPrefix(key: string): string {
   return key.slice(LIST_PREFIX.length)
+}
+
+/**
+ * Forgets everything the sync keeps in the library's settings, in one write: its own state, the
+ * personal home and every copied list. The copies themselves stay, as ordinary playlists.
+ */
+export async function forgetState(store: StateStore): Promise<void> {
+  const removals: Record<string, undefined> = { [META_KEY]: undefined, [HOME_KEY]: undefined }
+  for (const key of (await store.getSettings(STATE_PREFIX)).keys()) removals[key] = undefined
+  await store.putSettings(removals)
 }

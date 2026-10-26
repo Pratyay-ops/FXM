@@ -13,7 +13,7 @@ import { createAccountChoice, SPOTIFY_ACCOUNT_STORAGE_KEY } from './account-stor
 import { type AccountAccess, SpotifyAccountProvider } from './context'
 import { LIKED_NAME } from './ids'
 import { type AccountRuntime, createAccountRuntime } from './runtime'
-import { failureText, progressText, whenText } from './spotify-account-settings'
+import { failureText, progressText, syncedText, whenText } from './spotify-account-settings'
 import { type FakeServices, fakeLocks, fakeServices } from './testing'
 
 const FULL: NetworkCapabilities = {
@@ -264,5 +264,39 @@ describe('words', () => {
     expect(failureText({ kind: 'network' }, 'Try again')).toMatch(/then select Try again\.$/)
     expect(failureText({ kind: 'other' }, 'Sync now')).toBe('The sync failed. Try again later.')
     expect(failureText({ kind: 'other' }, 'Try again')).toBeUndefined()
+  })
+
+  it('say what the last sync left, and what follows', () => {
+    const now = Date.UTC(2026, 9, 26, 12)
+    const last = {
+      at: now,
+      likedCopy: true,
+      likedCount: 1234,
+      playlistCount: 90,
+      created: 0,
+      updated: 0,
+      added: 0,
+      removed: 0,
+      dismissed: 0,
+      departed: 0,
+      skipped: 0,
+      pending: 0,
+      home: true,
+      complete: true,
+    }
+    const meta = { account: 'abcdefghijklmnopqrstuv', lastSyncAt: now }
+    expect(syncedText({ ...meta, last }, now)).toBe(
+      `Last synced just now: ${LIKED_NAME} (1,234 songs) and 90 playlists.`,
+    )
+    expect(syncedText({ ...meta, last: { ...last, pending: 410, complete: false } }, now)).toBe(
+      `Last synced just now: ${LIKED_NAME} (1,234 songs) and 90 playlists. 410 playlists wait for the next sync. Some of it was too large to copy, or could not be read.`,
+    )
+    expect(
+      syncedText(
+        { ...meta, last: { ...last, likedCopy: false, playlistCount: 0, pending: 1 } },
+        now,
+      ),
+    ).toBe('Last synced just now: nothing to copy. 1 playlist waits for the next sync.')
+    expect(syncedText({ account: meta.account }, now)).toBeUndefined()
   })
 })

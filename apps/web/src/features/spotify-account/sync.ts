@@ -13,15 +13,23 @@
  *   took out, a new name.
  * - **Never deletes a copy.** A copy the user deleted stays deleted; a playlist that left the
  *   account's library keeps its copy, which the sync stops following.
+ * - **Never takes what it can't read for empty.** A list that Spotify counts songs in but that
+ *   gives the sync none it can read, or a playlist that Spotify won't give (gone, refused, an
+ *   answer this version doesn't understand), is left out of this sync: its copy, and what the
+ *   sync knows of it, stay as they were. Only a problem with the account or the session (the
+ *   login, a rate limit, the network) stops the sync.
  * - **Little traffic.** A playlist whose revision didn't change isn't read again, and liked
- *   songs whose first page and count didn't change neither; pages are paced (`pace`). Limits
- *   bound one run ({@link SYNC_LIMITS}).
+ *   songs whose first page and count didn't change neither. Requests are paced (`pace`): one
+ *   is made only to read something, and waits before it. Limits bound one run
+ *   ({@link SYNC_LIMITS}), its number of requests too: the playlists it doesn't reach wait for
+ *   the next run.
  * - **Another account.** When the browser's Spotify login is another account than the one the
  *   copies follow, the sync stops following the old copies (they stay, as ordinary playlists)
  *   and follows the new account's.
  *
  * Each copied list's state is saved as soon as the list is done (`state.ts`), so a sync that is
- * cut short (a closed tab, an error) keeps what it did, and the next one goes on from there.
+ * cut short (a closed tab, an error, its budget of requests) keeps what it did, and the next one
+ * goes on from there.
  *
  * @module
  */
@@ -30,6 +38,7 @@ import {
   type Artwork,
   type EntityId,
   FxmError,
+  isFxmError,
   type JsonValue,
   type Page,
   type PageOptions,
@@ -37,11 +46,12 @@ import {
   type Shelf,
   type Track,
 } from '@fxm/core'
-import type {
-  SpotifyAccountProfile,
-  SpotifyLibraryPlaylist,
-  SpotifyLikedTrack,
-  SpotifyPlaylistPage,
+import {
+  isSpotifyError,
+  type SpotifyAccountProfile,
+  type SpotifyLibraryPlaylist,
+  type SpotifyLikedTrack,
+  type SpotifyPlaylistPage,
 } from '@fxm/sources/spotify'
 import type { LibraryRepo } from '../../db/repo'
 import { MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH } from '../../db/types'
@@ -51,7 +61,6 @@ import {
   LIKED_LIST,
   LIKED_NAME,
   likedCopyId,
-  META_KEY,
   playlistCopyId,
   spotifyTrackId,
   spotifyTrackIdOf,
@@ -59,9 +68,10 @@ import {
 import { adoptedBase, listChanges, mergedField, placeNewTracks } from './merge'
 import {
   forgetLists,
+  forgetState,
   type ListState,
   readState,
-  type SyncState,
+  type StateStore,
   type SyncSummary,
   writeList,
   writeMeta,
@@ -107,13 +117,23 @@ export interface SyncLimits {
   readonly playlists: number
   /** Tracks of one playlist (Spotify's own cap is 10,000). */
   readonly playlistTracks: number
+  /**
+   * Requests to Spotify. Checked before each playlist the sync reads: the playlists it hasn't
+   * reached by then wait for the next run, which goes on from there. Liked songs, read first,
+   * are read whole, and a playlist once begun too.
+   */
+  readonly requests: number
 }
 
-/** The limits the app uses. */
+/**
+ * The limits the app uses. Liked songs take at most 201 requests and the list of playlists 52,
+ * so one run always gets to some playlists.
+ */
 export const SYNC_LIMITS: SyncLimits = Object.freeze({
   likedSongs: 10_000,
   playlists: 500,
   playlistTracks: 10_000,
+  requests: 300,
 })
 
 /** Where a sync stands, for Settings. */
@@ -132,7 +152,13 @@ export interface SyncOptions {
   readonly context: () => ProviderContext
   /** Stops the sync between two requests; what is done stays. */
   readonly signal?: AbortSignal
-  /** Waits before each further page and list, so a sync never hurries Spotify. Default: none. */
+  /**
+   * Whether the sync may still write its state. Asked right before each write of it: once it
+   * says no (the account was disconnected), the sync stops there, with an `AbortError`, and
+   * writes no more of it. Default: always.
+   */
+  readonly guard?: () => boolean
+  /** Waits before each request that reads something, so a sync never hurries Spotify. */
   readonly pace?: (signal?: AbortSignal) => Promise<void>
   /** Called as the sync moves on. */
   readonly onProgress?: (progress: SyncProgress) => void
@@ -163,8 +189,6 @@ export interface HomeCopy {
 }
 
 interface Counters {
-  likedCount: number
-  playlistCount: number
   created: number
   updated: number
   added: number
@@ -172,6 +196,7 @@ interface Counters {
   dismissed: number
   departed: number
   skipped: number
+  pending: number
   complete: boolean
 }
 
@@ -219,15 +244,87 @@ function startsWith(base: readonly string[], items: readonly string[]): boolean 
 }
 
 /**
+ * Whether a list the sync read no song from is one it couldn't read, rather than an empty one:
+ * Spotify counts items in it, or, when it doesn't count them, the copy followed songs before.
+ * The sync then leaves the copy as it is, instead of taking every song out of it.
+ */
+function unreadable(readable: number, total: number | undefined, before: number): boolean {
+  return readable === 0 && (total === undefined ? before > 0 : total > 0)
+}
+
+/**
+ * Whether an error is about one playlist only, so the sync goes on without it: it went away,
+ * Spotify refused it, or answered for it in a way this version can't read. Errors about the
+ * account or the session (the login, a rate limit, the network, a changed operation, an
+ * unexpected HTTP status) stop the sync instead.
+ */
+function isAboutOnePlaylist(error: unknown): boolean {
+  return (
+    isFxmError(error, 'NotFound') ||
+    isSpotifyError(error, 'graphql') ||
+    isSpotifyError(error, 'bad-response') ||
+    isSpotifyError(error, 'forbidden')
+  )
+}
+
+/** The error the sync stops with once its guard says it may no longer write. */
+function disconnected(): DOMException {
+  return new DOMException('The Spotify account was disconnected', 'AbortError')
+}
+
+/** The library's settings, with the guard asked right before each write. */
+function guardedStore(library: SyncLibrary, guard: (() => boolean) | undefined): StateStore {
+  return {
+    getSetting: (key) => library.getSetting(key),
+    getSettings: (prefix) => library.getSettings(prefix),
+    putSettings(values) {
+      if (guard !== undefined && !guard()) return Promise.reject(disconnected())
+      return library.putSettings(values)
+    },
+  }
+}
+
+/** `spotify`, counting its calls: each is one request (or none, when the provider has it). */
+function counting(spotify: SyncSpotify): { spotify: SyncSpotify; used: () => number } {
+  let used = 0
+  return {
+    used: () => used,
+    spotify: {
+      getAccountProfile(ctx) {
+        used += 1
+        return spotify.getAccountProfile(ctx)
+      },
+      getLibraryTracks(options, ctx) {
+        used += 1
+        return spotify.getLibraryTracks(options, ctx)
+      },
+      getLibraryPlaylists(options, ctx) {
+        used += 1
+        return spotify.getLibraryPlaylists(options, ctx)
+      },
+      getLibraryPlaylistTracks(id, options, ctx) {
+        used += 1
+        return spotify.getLibraryPlaylistTracks(id, options, ctx)
+      },
+      getAccountHome(ctx) {
+        used += 1
+        return spotify.getAccountHome(ctx)
+      },
+    },
+  }
+}
+
+/**
  * Syncs the connected account into the library (see the module documentation).
  *
- * @throws The Spotify provider's errors (`SpotifyError`: not logged in, the account not usable,
- * paused, a changed operation, the network), the library's (`LibraryError`, a full disk), an
- * `FxmError` `Parse` when Spotify doesn't say which account is logged in, and the signal's
- * reason when it was aborted. What was done until then stays.
+ * @throws The Spotify provider's errors about the account or the session (`SpotifyError`: not
+ * logged in, the account not usable, paused, a changed operation, the network), the library's
+ * (`LibraryError`, a full disk), an `FxmError` `Parse` when Spotify doesn't say which account is
+ * logged in, the signal's reason when it was aborted, and an `AbortError` once the guard says no.
+ * What was done until then stays.
  */
 export async function runSpotifySync(
-  spotify: SyncSpotify,
+  provider: SyncSpotify,
   library: SyncLibrary,
   options: SyncOptions,
 ): Promise<SyncResult> {
@@ -245,6 +342,9 @@ export async function runSpotifySync(
     check()
   }
   const progress = (step: SyncProgress) => options.onProgress?.(step)
+  const { spotify, used } = counting(provider)
+  const store = guardedStore(library, options.guard)
+  const reader: Reader = { ctx, pace, limits, used, aborted: () => signal?.aborted === true }
 
   progress({ step: 'account' })
   const profile = await spotify.getAccountProfile(ctx())
@@ -257,15 +357,12 @@ export async function runSpotifySync(
   if (state.meta?.account !== account) {
     // Another account (or the first): the copies of the one before stay, as ordinary
     // playlists, and the sync follows this account's from now on.
-    await forgetLists(library)
-    await library.putSettings({ [HOME_KEY]: undefined })
-    await writeMeta(library, { account })
+    await forgetState(store)
+    await writeMeta(store, { account })
     state = { meta: { account }, lists: new Map() }
   }
 
   const counters: Counters = {
-    likedCount: 0,
-    playlistCount: 0,
     created: 0,
     updated: 0,
     added: 0,
@@ -273,41 +370,35 @@ export async function runSpotifySync(
     dismissed: 0,
     departed: 0,
     skipped: 0,
+    pending: 0,
     complete: true,
   }
   const copies = await copySummaries(library)
-  const sync: ListSync = { library, state, copies, counters, now }
+  const sync: ListSync = { library, store, lists: new Map(state.lists), copies, counters }
 
   // Liked songs.
   progress({ step: 'liked' })
-  await syncLiked(spotify, sync, likedCopyId(account), { ctx, pace, limits })
+  await syncLiked(spotify, sync, likedCopyId(account), reader)
 
   // Playlists.
   progress({ step: 'playlists' })
-  const listed = await listPlaylists(spotify, ctx, pace, limits, counters)
+  const listing = await listPlaylists(spotify, reader, counters)
+  const { listed } = listing
   const seen = new Set<string>()
   for (const [index, item] of listed.entries()) {
+    check()
     progress({ step: 'playlists', done: index, total: listed.length })
     const spotifyId = item.playlist.id.slice('spotify:playlist:'.length)
     seen.add(spotifyId)
-    await pace()
-    try {
-      await syncPlaylist(spotify, sync, item, spotifyId, { ctx, pace, limits })
-    } catch (error) {
-      // A playlist that went away since it was listed is skipped; anything else stops the sync.
-      if (signal?.aborted || !isMissing(error)) throw error
-      counters.skipped += 1
-      counters.complete = false
-    }
+    await syncPlaylist(spotify, sync, item, spotifyId, reader)
   }
   progress({ step: 'playlists', done: listed.length, total: listed.length })
-  if (counters.complete) {
+  if (listing.complete) {
     // Playlists that left the account's library: the sync stops following them, and their
-    // copies stay. Only a complete listing can tell.
-    const departed = [...state.lists.keys()].filter(
-      (list) => list !== LIKED_LIST && !seen.has(list),
-    )
-    await forgetLists(library, departed)
+    // copies stay. Only a listing read to its end can tell, whatever else this run left out.
+    const departed = [...sync.lists.keys()].filter((list) => list !== LIKED_LIST && !seen.has(list))
+    await forgetLists(store, departed)
+    for (const list of departed) sync.lists.delete(list)
     counters.departed = departed.length
   }
 
@@ -317,25 +408,29 @@ export async function runSpotifySync(
   let home = true
   try {
     const shelves = await spotify.getAccountHome(ctx())
-    await writeHome(library, { account, at: now(), shelves })
+    await writeHome(store, { account, at: now(), shelves })
   } catch (error) {
     // The copies are done: a home that can't be read now leaves Home's sections as they were.
-    if (signal?.aborted) throw error
+    if (signal?.aborted || (error as { name?: unknown })?.name === 'AbortError') throw error
     home = false
   }
 
-  const summary: SyncSummary = { at: now(), ...counters, home }
-  await writeMeta(library, { account, lastSyncAt: summary.at, last: summary })
+  const liked = sync.lists.get(LIKED_LIST)
+  const likedCopy = liked !== undefined && liked.dismissed !== true
+  const summary: SyncSummary = {
+    at: now(),
+    likedCopy,
+    likedCount: likedCopy ? liked.base.length : 0,
+    playlistCount: [...sync.lists].filter(
+      ([list, entry]) => list !== LIKED_LIST && entry.dismissed !== true,
+    ).length,
+    ...counters,
+    home,
+  }
+  await writeMeta(store, { account, lastSyncAt: summary.at, last: summary })
   return profile.displayName === undefined
     ? { account, summary }
     : { account, displayName: profile.displayName, summary }
-}
-
-/** Whether an error says a playlist doesn't exist (any more). */
-function isMissing(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'NotFound'
-  )
 }
 
 /** The library's playlists that could be copies, by ID. */
@@ -350,17 +445,35 @@ async function copySummaries(library: SyncLibrary): Promise<Map<string, CopySumm
 
 /** What syncing one list needs. */
 interface ListSync {
+  /** The library, for the copies. */
   readonly library: SyncLibrary
-  readonly state: SyncState
+  /** The library's settings, for the sync's state: guarded. */
+  readonly store: StateStore
+  /** The copied lists, as this run leaves them so far. */
+  readonly lists: Map<string, ListState>
   readonly copies: ReadonlyMap<string, CopySummary>
   readonly counters: Counters
-  readonly now: () => number
 }
 
 interface Reader {
   readonly ctx: () => ProviderContext
   readonly pace: () => Promise<void>
   readonly limits: SyncLimits
+  /** Requests made so far in this run. */
+  readonly used: () => number
+  readonly aborted: () => boolean
+}
+
+/** Saves a copied list's state, and keeps it for the rest of the run. */
+async function remember(sync: ListSync, list: string, state: ListState): Promise<void> {
+  await writeList(sync.store, list, state)
+  sync.lists.set(list, state)
+}
+
+/** Leaves a list out of this run: its copy and its state stay as they were. */
+function skip(sync: ListSync): void {
+  sync.counters.skipped += 1
+  sync.counters.complete = false
 }
 
 async function syncLiked(
@@ -369,7 +482,7 @@ async function syncLiked(
   local: EntityId<'playlist'>,
   { ctx, pace, limits }: Reader,
 ): Promise<void> {
-  const known = sync.state.lists.get(LIKED_LIST)
+  const known = sync.lists.get(LIKED_LIST)
   const following = known !== undefined && known.local === local
   if (following && known.dismissed === true && !sync.copies.has(local)) {
     // The user deleted the copy: it stays deleted, and the liked songs needn't be read.
@@ -387,22 +500,29 @@ async function syncLiked(
   ) {
     // Unchanged on Spotify: the newest likes and the count are the same. Only a check that the
     // copy is still there, and whether the user changed it.
-    sync.counters.likedCount = known.base.length
+    if (first.total > limits.likedSongs) sync.counters.complete = false
     await checkUnchanged(sync, LIKED_LIST, known)
     return
   }
   const liked: Track[] = first.items.map(({ track }) => track)
   let cursor = first.nextCursor
+  // Not one of the newest likes readable: Spotify answered in a way this version can't read,
+  // and the rest would be the same.
+  if (liked.length === 0 && (first.total ?? 0) > 0) cursor = undefined
   for (let pages = 1; cursor !== undefined && liked.length < limits.likedSongs; pages++) {
-    if (pages > limits.likedSongs / 10) break
+    if (pages > Math.ceil(limits.likedSongs / 50)) break
     await pace()
     const page = await spotify.getLibraryTracks({ limit: 50, cursor }, ctx())
     liked.push(...page.items.map(({ track }) => track))
     cursor = page.nextCursor
   }
-  if (cursor !== undefined || liked.length > limits.likedSongs) sync.counters.complete = false
   const tracks = uniqueSpotifyTracks(liked).slice(0, limits.likedSongs)
-  sync.counters.likedCount = tracks.length
+  const before = following && known.dismissed !== true ? known.base.length : 0
+  if (unreadable(tracks.length, first.total, before)) {
+    skip(sync)
+    return
+  }
+  if (cursor !== undefined || liked.length > limits.likedSongs) sync.counters.complete = false
   await applyList(sync, LIKED_LIST, local, {
     tracks,
     name: LIKED_NAME,
@@ -411,24 +531,28 @@ async function syncLiked(
   })
 }
 
-/** The playlists of the account's library, once each, up to the limit. */
+/**
+ * The playlists of the account's library, once each, up to the limit, and whether the listing
+ * was read to its end, so that it tells which playlists left the library.
+ */
 async function listPlaylists(
   spotify: SyncSpotify,
-  ctx: () => ProviderContext,
-  pace: () => Promise<void>,
-  limits: SyncLimits,
+  { ctx, pace, limits }: Reader,
   counters: Counters,
-): Promise<SpotifyLibraryPlaylist[]> {
+): Promise<{ listed: SpotifyLibraryPlaylist[]; complete: boolean }> {
   const listed: SpotifyLibraryPlaylist[] = []
   const ids = new Set<string>()
+  let complete = true
+  let total: number | undefined
   let cursor: string | undefined
   for (let pages = 0; pages === 0 || cursor !== undefined; pages++) {
     if (pages > limits.playlists / 10 + 1 || listed.length >= limits.playlists) {
-      counters.complete = false
+      complete = false
       break
     }
     if (pages > 0) await pace()
     const page = await spotify.getLibraryPlaylists(cursor === undefined ? {} : { cursor }, ctx())
+    total ??= page.total
     for (const item of page.items) {
       if (ids.has(item.playlist.id)) continue
       ids.add(item.playlist.id)
@@ -437,10 +561,14 @@ async function listPlaylists(
     cursor = page.nextCursor
   }
   if (listed.length > limits.playlists) {
-    counters.complete = false
+    complete = false
     counters.skipped += listed.length - limits.playlists
   }
-  return listed.slice(0, limits.playlists)
+  // Items Spotify counts, but not one playlist the sync can read: they may all be playlists in
+  // a shape this version doesn't understand, so the listing can't tell which ones left.
+  if (listed.length === 0 && (total ?? 0) > 0) complete = false
+  if (!complete) counters.complete = false
+  return { listed: listed.slice(0, limits.playlists), complete }
 }
 
 async function syncPlaylist(
@@ -448,10 +576,10 @@ async function syncPlaylist(
   sync: ListSync,
   item: SpotifyLibraryPlaylist,
   spotifyId: string,
-  { ctx, pace, limits }: Reader,
+  reader: Reader,
 ): Promise<void> {
   const local = playlistCopyId(spotifyId)
-  const known = sync.state.lists.get(spotifyId)
+  const known = sync.lists.get(spotifyId)
   const following = known !== undefined && known.local === local
   if (following && known.dismissed === true && !sync.copies.has(local)) {
     // The user deleted the copy: it stays deleted, and the playlist needn't be read.
@@ -465,56 +593,106 @@ async function syncPlaylist(
     known.revision === item.revisionId
   ) {
     // Unchanged on Spotify since the last sync.
-    sync.counters.playlistCount += 1
     await checkUnchanged(sync, spotifyId, known)
     return
   }
-  const { id, name, description, artwork } = item.playlist
+  if (reader.used() >= reader.limits.requests) {
+    // This run made as many requests as one may: the next one reads this playlist.
+    sync.counters.pending += 1
+    return
+  }
+  let read: PlaylistRead
+  try {
+    read = await readPlaylist(spotify, item, reader)
+  } catch (error) {
+    if (reader.aborted() || !isAboutOnePlaylist(error)) throw error
+    // Gone since it was listed, refused, or unreadable: the other playlists go on.
+    skip(sync)
+    return
+  }
+  const { limits } = reader
+  const tracks = uniqueSpotifyTracks(read.tracks).slice(0, limits.playlistTracks)
+  const before = following && known.dismissed !== true ? known.base.length : 0
+  if (unreadable(tracks.length, read.total, before)) {
+    skip(sync)
+    return
+  }
+  if (!read.complete) sync.counters.complete = false
+  const { name, description, artwork } = item.playlist
+  await applyList(sync, spotifyId, local, {
+    tracks,
+    name,
+    ...(description === undefined ? {} : { description }),
+    artwork,
+    ...(read.revision === undefined ? {} : { revision: read.revision }),
+  })
+}
+
+/** What reading a playlist's pages got. */
+interface PlaylistRead {
+  /** Its tracks, in Spotify's order, up to the limit. */
+  readonly tracks: readonly Track[]
+  /** Its revision, from the listing or its first page. */
+  readonly revision?: string
+  /** How many items Spotify counts in it, from its first page. */
+  readonly total?: number
+  /** Whether every page was read. */
+  readonly complete: boolean
+}
+
+/** Reads a playlist's pages, each after a pause. */
+async function readPlaylist(
+  spotify: SyncSpotify,
+  item: SpotifyLibraryPlaylist,
+  { ctx, pace, limits }: Reader,
+): Promise<PlaylistRead> {
   const tracks: Track[] = []
   let revision = item.revisionId
+  let total: number | undefined
+  let complete = true
   let cursor: string | undefined
   for (let pages = 0; pages === 0 || cursor !== undefined; pages++) {
-    if (tracks.length >= limits.playlistTracks || pages > limits.playlistTracks / 50) {
-      sync.counters.complete = false
+    if (tracks.length >= limits.playlistTracks || pages >= Math.ceil(limits.playlistTracks / 100)) {
+      complete = false
       break
     }
-    if (pages > 0) await pace()
+    await pace()
     const page = await spotify.getLibraryPlaylistTracks(
-      id,
+      item.playlist.id,
       cursor === undefined ? {} : { cursor },
       ctx(),
     )
     tracks.push(...page.tracks.items)
     revision ??= page.revisionId
+    if (pages === 0) total = page.tracks.total
     cursor = page.tracks.nextCursor
+    // Not one of its first songs readable: Spotify answered in a way this version can't read,
+    // and the rest would be the same.
+    if (pages === 0 && tracks.length === 0 && (total ?? 0) > 0) cursor = undefined
   }
-  sync.counters.playlistCount += 1
-  await applyList(sync, spotifyId, local, {
-    tracks: uniqueSpotifyTracks(tracks).slice(0, limits.playlistTracks),
-    name,
-    ...(description === undefined ? {} : { description }),
-    artwork,
+  return {
+    tracks,
     ...(revision === undefined ? {} : { revision }),
-  })
+    ...(total === undefined ? {} : { total }),
+    complete,
+  }
 }
 
 /**
  * A list Spotify didn't change: the copy is left alone, but a copy the user deleted is marked so,
- * and one the user changed since the sync last wrote it is remembered as theirs too.
+ * and one the user changed since the sync last wrote it is remembered as theirs too. Nothing is
+ * written when nothing changed.
  */
 async function checkUnchanged(sync: ListSync, list: string, known: ListState): Promise<void> {
   const copy = sync.copies.get(known.local)
   if (copy === undefined) {
     sync.counters.dismissed += 1
-    await writeList(sync.library, list, { ...known, dismissed: true, syncedAt: sync.now() })
+    await remember(sync, list, { ...known, dismissed: true })
     return
   }
-  const touched = known.userTouched === true || copy.updatedAt > known.written
-  await writeList(sync.library, list, {
-    ...known,
-    syncedAt: sync.now(),
-    ...(touched ? { userTouched: true as const } : {}),
-  })
+  if (known.userTouched !== true && copy.updatedAt > known.written) {
+    await remember(sync, list, { ...known, userTouched: true })
+  }
 }
 
 /** Brings a list's changes on Spotify into its copy, making the copy when there is none. */
@@ -524,18 +702,17 @@ async function applyList(
   local: EntityId<'playlist'>,
   remote: RemoteList,
 ): Promise<void> {
-  const { library, counters, now } = sync
-  const known = sync.state.lists.get(list)
+  const { library, counters } = sync
+  const known = sync.lists.get(list)
   const name = cleanName(remote.name) || LIKED_NAME
   const description = cleanDescription(remote.description)
   const cover = remote.artwork[0]?.url
   const remoteIds = remote.tracks.flatMap((track) => spotifyTrackIdOf(track.id) ?? [])
-  const remember = (fields: Omit<ListState, 'local' | 'name' | 'base' | 'syncedAt'>) =>
-    writeList(library, list, {
+  const keep = (fields: Omit<ListState, 'local' | 'name' | 'base'>) =>
+    remember(sync, list, {
       local,
       base: remoteIds,
       name,
-      syncedAt: now(),
       ...(description === undefined ? {} : { description }),
       ...(cover === undefined ? {} : { artwork: cover }),
       ...(remote.revision === undefined ? {} : { revision: remote.revision }),
@@ -548,7 +725,7 @@ async function applyList(
     if (following && known.dismissed !== true) {
       // The user deleted the copy since the last sync: it stays deleted.
       counters.dismissed += 1
-      await writeList(library, list, { ...known, dismissed: true, syncedAt: now() })
+      await remember(sync, list, { ...known, dismissed: true })
       return
     }
     if (following) {
@@ -565,20 +742,21 @@ async function applyList(
     })
     counters.created += 1
     counters.added += remote.tracks.length
-    await remember({ written: await updatedAt(library, local) })
+    await keep({ written: await updatedAt(library, local) })
     return
   }
 
   const view = await library.getPlaylistView(local)
   if (view === undefined) {
     // Deleted in the moment since the list of playlists was read: next time.
-    counters.skipped += 1
-    counters.complete = false
+    skip(sync)
     return
   }
   const { playlist } = view
   // A copy the sync finds without a record (a backup, another device or account) is adopted.
   const adopted = !following || known.dismissed === true
+  // Read now, not when the run began: the user may have changed the copy since.
+  const touched = adopted || known.userTouched === true || playlist.updatedAt > known.written
   const localIds = playlist.trackIds.flatMap((id) => spotifyTrackIdOf(id) ?? [])
   const base = adopted ? adoptedBase(remoteIds, localIds) : known.base
   const { added, removed } = listChanges(base, remoteIds, localIds)
@@ -620,11 +798,7 @@ async function applyList(
     wrote = true
   }
   if (wrote) counters.updated += 1
-  const touched =
-    adopted ||
-    known.userTouched === true ||
-    (sync.copies.get(local)?.updatedAt ?? 0) > known.written
-  await remember({
+  await keep({
     written: wrote ? await updatedAt(library, local) : (known?.written ?? 0),
     ...(touched ? { userTouched: true as const } : {}),
   })
@@ -636,8 +810,11 @@ async function updatedAt(library: SyncLibrary, id: EntityId<'playlist'>): Promis
 }
 
 /** Keeps the account's personal home for Home. */
-export async function writeHome(library: SyncLibrary, home: HomeCopy): Promise<void> {
-  await library.putSettings({ [HOME_KEY]: home as unknown as JsonValue })
+export async function writeHome(
+  store: Pick<StateStore, 'putSettings'>,
+  home: HomeCopy,
+): Promise<void> {
+  await store.putSettings({ [HOME_KEY]: home as unknown as JsonValue })
 }
 
 /** What {@link forgetSync} did to the copies. */
@@ -672,7 +849,6 @@ export async function forgetSync(
       kept += 1
     }
   }
-  await forgetLists(library)
-  await library.putSettings({ [META_KEY]: undefined, [HOME_KEY]: undefined })
+  await forgetState(library)
   return { removed, kept }
 }

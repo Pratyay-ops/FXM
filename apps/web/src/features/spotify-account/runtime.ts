@@ -9,10 +9,14 @@
  * - **Tokens** never pass through here: the provider keeps them in memory and asks FXM Connect's
  *   bridge for them (or the desktop and Android logins later). Disconnect makes it forget them.
  * - **When it syncs:** right after Connect, when the app opens and the last sync is older than
- *   {@link SYNC_EVERY_MS}, every so often while it stays open, and on "Sync now". One tab syncs
- *   at a time (a Web Lock); the others see the result in the library. A login check that failed
- *   (the network, FXM Connect answering too late) is tried again on the same schedule, so a
- *   passing failure when the app opens doesn't stop the sync until the user notices.
+ *   {@link SYNC_EVERY_MS}, every so often while it stays open, and on "Sync now". A sync that
+ *   stopped at its budget of requests goes on after {@link CONTINUE_AFTER_MS}. One tab syncs at a
+ *   time (a Web Lock); the others see the result in the library. A login check that failed (the
+ *   network, FXM Connect answering too late) is tried again on the same schedule, so a passing
+ *   failure when the app opens doesn't stop the sync until the user notices.
+ * - **Disconnect wins.** A sync, or a read of the home for Home, that started before a Disconnect
+ *   (in this tab or another) never writes the sync's state after it, even once the account is
+ *   connected again.
  *
  * @module
  */
@@ -30,12 +34,26 @@ import { LibraryError } from '../../db/repo'
 import type { AccountChoiceStore } from './account-store'
 import { HOME_FRESH_MS, HOME_KEEP_MS, readHome } from './home'
 import { accountKeyOf } from './ids'
+import { browserLocks, type LockManagerLike, SYNC_LOCK } from './locks'
 import type { SpotifyAccountServices } from './services'
-import { readState } from './state'
-import { type ForgetResult, forgetSync, runSpotifySync, type SyncProgress, writeHome } from './sync'
+import { forgetState, readMeta, type SyncMeta } from './state'
+import {
+  type ForgetResult,
+  forgetSync,
+  runSpotifySync,
+  type SyncLimits,
+  type SyncProgress,
+  writeHome,
+} from './sync'
 
 /** How old the last sync may get before the app syncs again by itself. */
 export const SYNC_EVERY_MS = 6 * 60 * 60_000
+
+/**
+ * How soon a sync that stopped at its budget of requests goes on: at the first check after
+ * that long, so about an hour later.
+ */
+export const CONTINUE_AFTER_MS = 30 * 60_000
 
 /**
  * How often an open app checks whether a sync is due, and checks the login again after a check
@@ -45,9 +63,6 @@ export const CHECK_EVERY_MS = 30 * 60_000
 
 /** The pause between two of a sync's requests to Spotify: about one a second, as imports do. */
 export const SYNC_PACE_MS = 1000
-
-/** The Web Lock one sync holds, so that two tabs never sync at once. */
-export const SYNC_LOCK = 'fxm-spotify-account-sync'
 
 /**
  * Where the account stands here:
@@ -100,19 +115,10 @@ export interface AccountRuntimeState {
   readonly syncing: boolean
   /** Where it stands. */
   readonly progress?: SyncProgress
-  /** Whether another tab was syncing when this one wanted to. */
+  /** Whether another tab was syncing when this one wanted to, until that sync ends. */
   readonly syncingElsewhere: boolean
   /** Why this tab's last sync failed, until the next one. */
   readonly failure?: SyncFailure
-}
-
-/** Web Locks, as far as the runtime uses them. */
-export interface LockManagerLike {
-  request<T>(
-    name: string,
-    options: { ifAvailable?: boolean; signal?: AbortSignal },
-    callback: (lock: unknown) => Promise<T>,
-  ): Promise<T>
 }
 
 /** How long Disconnect waits for another tab's sync to stop before it goes on regardless. */
@@ -132,6 +138,10 @@ export interface AccountRuntimeOptions {
   readonly pace?: (signal?: AbortSignal) => Promise<void>
   /** Runs `check` every `ms`; returns a function that stops it. Default: `setInterval`. */
   readonly every?: (check: () => void, ms: number) => () => void
+  /** How long Disconnect waits for another tab's sync to stop. Default {@link DISCONNECT_WAIT_MS}. */
+  readonly disconnectWaitMs?: number
+  /** Lower limits for each sync, for tests. */
+  readonly limits?: Partial<SyncLimits>
 }
 
 /** Home's view of the account: stage 3.3's `HomeSpotifyAccount`. */
@@ -163,18 +173,13 @@ export interface AccountRuntime {
   recheck(): Promise<void>
   /** Syncs now, unless another tab does. Resolves when the sync ends (a running one's too). */
   syncNow(): Promise<void>
-  /** Resolves once no login check and no sync is in flight. */
+  /** Resolves once no login check, no check whether a sync is due and no sync is in flight. */
   whenIdle(): Promise<void>
   /** Starts following the opt-in, the capabilities and the clock. Returns a function to stop. */
   start(): () => void
 }
 
 const INITIAL: AccountRuntimeState = { phase: 'off', syncing: false, syncingElsewhere: false }
-
-function browserLocks(): LockManagerLike | undefined {
-  const locks = (globalThis.navigator as { locks?: LockManagerLike } | undefined)?.locks
-  return typeof locks?.request === 'function' ? locks : undefined
-}
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -272,6 +277,7 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
       const timer = setInterval(check, ms)
       return () => clearInterval(timer)
     })
+  const disconnectWaitMs = options.disconnectWaitMs ?? DISCONNECT_WAIT_MS
   const store = createStore<AccountRuntimeState>()(() => INITIAL)
   const set = (patch: Partial<AccountRuntimeState>) => store.setState(patch)
   /** Sets `patch` and removes `drop` (zustand merges, so removing takes a replace). */
@@ -285,10 +291,22 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
   }
   let running: { controller: AbortController; done: Promise<void> } | undefined
   let checking: Promise<AccountPhase> | undefined
+  /** A check whether a sync is due, from its read of the last sync to the sync it starts. */
+  let due: Promise<void> | undefined
+  /** The wait for another tab's sync to end, after this tab found the lock taken. */
+  let waiting: AbortController | undefined
   /** Whether this runtime changes the choice itself, so it doesn't follow its own change. */
   let ownChange = false
+  /**
+   * How many Disconnects this runtime saw, here or from another tab. A sync or a read of the
+   * home writes the sync's state only while the count is the one it started with: a Disconnect
+   * meanwhile forgot that state, and the account may even be connected again since.
+   */
+  let disconnects = 0
 
   const optedIn = () => choice.getState().optedIn
+  /** Whether work started at `count` Disconnects may still write the sync's state. */
+  const stillConnected = (count: number) => optedIn() && disconnects === count
 
   /** Where the account stands from what the app knows without a request, if it can tell. */
   function phaseWithoutRequest(): AccountPhase | undefined {
@@ -351,20 +369,34 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
     return checking
   }
 
-  async function lastSyncAt(): Promise<number | undefined> {
+  async function lastSync(): Promise<SyncMeta | undefined> {
     try {
-      return (await readState(library)).meta?.lastSyncAt
+      return await readMeta(library)
     } catch {
       return undefined
     }
   }
 
-  async function syncIfDue(): Promise<void> {
-    if (store.getState().phase !== 'connected' || running) return
-    const last = await lastSyncAt()
-    const { failure } = store.getState()
-    if (failure?.retryAt !== undefined && failure.retryAt > now()) return
-    if (last === undefined || now() - last >= SYNC_EVERY_MS) await syncNow()
+  /**
+   * Syncs when one is due, once at a time. The check is in flight from its first step, so
+   * {@link AccountRuntime.whenIdle} waits for it even before the sync starts.
+   */
+  function syncIfDue(): Promise<void> {
+    due ??= (async () => {
+      if (store.getState().phase !== 'connected' || running) return
+      const meta = await lastSync()
+      const { failure } = store.getState()
+      if (failure?.retryAt !== undefined && failure.retryAt > now()) return
+      const last = meta?.lastSyncAt
+      // A sync that stopped at its budget goes on sooner than the next regular one.
+      const wait = (meta?.last?.pending ?? 0) > 0 ? CONTINUE_AFTER_MS : SYNC_EVERY_MS
+      if (last === undefined || now() - last >= wait) await syncNow()
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        due = undefined
+      })
+    return due
   }
 
   /** The schedule's tick: checks the login again after a failed check, then syncs when due. */
@@ -379,6 +411,7 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
   }
 
   async function runSync(signal: AbortSignal): Promise<void> {
+    const count = disconnects
     set({ syncing: true, syncingElsewhere: false, progress: { step: 'account' } })
     try {
       const result = await runSpotifySync(spotify, library, {
@@ -386,7 +419,9 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         signal,
         pace,
         now,
+        guard: () => stillConnected(count),
         onProgress: (progress) => set({ progress }),
+        ...(options.limits === undefined ? {} : { limits: options.limits }),
       })
       // The login worked; unless something said otherwise meanwhile (a capability that changed).
       const { phase } = store.getState()
@@ -398,13 +433,39 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         ['failure'],
       )
     } catch (error) {
-      if (signal.aborted) return
+      if (signal.aborted || !stillConnected(count)) return
       const phase = phaseOfError(error)
       if (phase !== undefined) set({ phase })
       else set({ failure: failureOfError(error, now()) })
     } finally {
       update({ syncing: false }, ['progress'])
     }
+  }
+
+  /**
+   * Waits, in the background, for the sync another tab runs, so that Settings stops saying so
+   * once it ends. Never holds the lock longer than it takes to learn that.
+   */
+  function waitForOtherTab(): void {
+    if (locks === undefined || waiting !== undefined) return
+    const controller = new AbortController()
+    waiting = controller
+    locks
+      .request(SYNC_LOCK, { signal: controller.signal }, async () => {})
+      .then(
+        () => {
+          if (!controller.signal.aborted) set({ syncingElsewhere: false })
+        },
+        () => undefined,
+      )
+      .finally(() => {
+        if (waiting === controller) waiting = undefined
+      })
+  }
+
+  function stopWaiting(): void {
+    waiting?.abort(new DOMException('No longer waiting', 'AbortError'))
+    waiting = undefined
   }
 
   async function syncNow(): Promise<void> {
@@ -420,7 +481,10 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         await runSync(controller.signal)
         return true
       })
-      if (!ran) set({ syncingElsewhere: true })
+      if (!ran) {
+        set({ syncingElsewhere: true })
+        waitForOtherTab()
+      }
     }
     const done = work().finally(() => {
       if (running?.controller === controller) running = undefined
@@ -451,7 +515,9 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
       spotify.connect()
       void check()
     } else {
+      disconnects += 1
       spotify.disconnect()
+      stopWaiting()
       void stopSync()
       update({ phase: 'off', syncing: false, syncingElsewhere: false }, ['failure', 'progress'])
     }
@@ -464,8 +530,11 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
     },
     async sections(ctx) {
       if (!optedIn()) return []
-      const [state, kept] = await Promise.all([readState(library), readHome(library)])
-      const account = state.meta?.account
+      const count = disconnects
+      const [meta, kept] = await Promise.all([readMeta(library), readHome(library)])
+      // Disconnected meanwhile: Home shows nothing of the account.
+      if (!stillConnected(count)) return []
+      const account = meta?.account
       const own = kept !== undefined && kept.account === account
       const filtered = (shelves: readonly Shelf[]) =>
         shelves
@@ -482,13 +551,14 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         const shelves = await spotify.getAccountHome(live)
         const profile = await spotify.getAccountProfile(live)
         // Kept only for the account the copies follow: another login's home isn't theirs.
-        if (
+        const ours =
           account !== undefined &&
           profile.username !== undefined &&
           (await accountKeyOf(profile.username)) === account
-        ) {
-          await writeHome(library, { account, at: now(), shelves })
-        }
+        // Checked right before the write: a Disconnect meanwhile forgot the home, and it stays
+        // forgotten.
+        if (!stillConnected(count)) return []
+        if (ours) await writeHome(library, { account, at: now(), shelves })
         return filtered(shelves)
       } catch (error) {
         if (ctx.signal?.aborted) throw error
@@ -513,6 +583,8 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
       if ((await check()) === 'connected') void syncNow()
     },
     async disconnect({ removeCopies = false } = {}) {
+      disconnects += 1
+      const count = disconnects
       ownChange = true
       try {
         choice.getState().setOptedIn(false)
@@ -520,6 +592,7 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         ownChange = false
       }
       spotify.disconnect()
+      stopWaiting()
       await stopSync()
       update({ phase: 'off', syncing: false, syncingElsewhere: false }, ['failure', 'progress'])
       const forget = () => forgetSync(library, { removeCopies })
@@ -529,12 +602,21 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
       try {
         return await locks.request(
           SYNC_LOCK,
-          { signal: AbortSignal.timeout(DISCONNECT_WAIT_MS) },
+          { signal: AbortSignal.timeout(disconnectWaitMs) },
           forget,
         )
       } catch (error) {
         if ((error as { name?: unknown })?.name !== 'TimeoutError') throw error
-        return forget()
+        const result = await forget()
+        // That tab may still write what it was syncing before it learns of the Disconnect: once
+        // it lets go, forget that too, unless the account was connected again meanwhile. The
+        // app's next start tidies up as well (`tidy.ts`), should this tab close first.
+        locks
+          .request(SYNC_LOCK, {}, async () => {
+            if (!optedIn() && disconnects === count) await forgetState(library)
+          })
+          .catch(() => undefined)
+        return result
       }
     },
     recheck,
@@ -542,11 +624,12 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
     async whenIdle() {
       for (
         let rounds = 0;
-        rounds < 100 && (checking !== undefined || running !== undefined);
+        rounds < 100 && (checking !== undefined || due !== undefined || running !== undefined);
         rounds++
       ) {
         await checking
-        await running?.done
+        await due
+        await running?.done.catch(() => undefined)
         // A check may start a sync once it resolves, a microtask later.
         await new Promise((resolve) => setTimeout(resolve, 0))
       }
@@ -572,6 +655,7 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         stopChoice()
         stopServices()
         stopTimer()
+        stopWaiting()
         void stopSync()
       }
     },

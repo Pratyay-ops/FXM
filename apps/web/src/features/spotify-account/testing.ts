@@ -16,7 +16,7 @@ import {
   type Track,
 } from '@fxm/core'
 import type { SpotifyLibraryPlaylist, SpotifyLikedTrack } from '@fxm/sources/spotify'
-import type { LockManagerLike } from './runtime'
+import type { LockManagerLike } from './locks'
 import type { SpotifyAccountServices } from './services'
 import type { SyncLibrary, SyncSpotify } from './sync'
 
@@ -102,6 +102,11 @@ export interface FakeAccount {
   readonly calls: string[]
   /** A call that fails, by its name (`profile`, `liked`, `playlists`, `tracks <id>`, `home`). */
   readonly failures: Map<string, unknown>
+  /**
+   * Calls whose pages hold nothing the provider could read, though Spotify still counts the
+   * items (`liked`, `playlists`, `tracks <id>`): as when Spotify changed the shape of its items.
+   */
+  readonly blank: Set<string>
 }
 
 /** A fake account with two playlists and three liked songs, unless told otherwise. */
@@ -130,9 +135,12 @@ export function fakeAccount(overrides: Partial<FakeAccountData> = {}): FakeAccou
   }
   const calls: string[] = []
   const failures = new Map<string, unknown>()
+  const blank = new Set<string>()
   const fail = (name: string) => {
     if (failures.has(name)) throw failures.get(name)
   }
+  /** The page's items, or none when the call answers blank. */
+  const readable = <T>(name: string, items: T[]): T[] => (blank.has(name) ? [] : items)
   const offsetOf = (cursor: string | undefined) => (cursor === undefined ? 0 : Number(cursor))
   const spotify: SyncSpotify = {
     async getAccountProfile() {
@@ -149,7 +157,7 @@ export function fakeAccount(overrides: Partial<FakeAccountData> = {}): FakeAccou
       fail('liked')
       ctx.signal?.throwIfAborted()
       const total = data.liked.length + (data.likedOthers ?? 0)
-      const items: SpotifyLikedTrack[] = data.liked.slice(offset, offset + limit)
+      const items: SpotifyLikedTrack[] = readable('liked', data.liked.slice(offset, offset + limit))
       const next = offset + limit
       return { items, total, ...(next < total ? { nextCursor: String(next) } : {}) }
     },
@@ -159,7 +167,8 @@ export function fakeAccount(overrides: Partial<FakeAccountData> = {}): FakeAccou
       fail('playlists')
       ctx.signal?.throwIfAborted()
       const visible = data.playlists.filter((p) => p.canView !== false && p.revision !== null)
-      const items: SpotifyLibraryPlaylist[] = visible.slice(offset, offset + 50).map((p) => {
+      const page = readable('playlists', visible.slice(offset, offset + 50))
+      const items: SpotifyLibraryPlaylist[] = page.map((p) => {
         const revisionId = revisionOf(p)
         return {
           playlist: {
@@ -192,7 +201,7 @@ export function fakeAccount(overrides: Partial<FakeAccountData> = {}): FakeAccou
       const revisionId = revisionOf(playlist)
       return {
         tracks: {
-          items: playlist.tracks.slice(offset, offset + limit),
+          items: readable(`tracks ${native}`, playlist.tracks.slice(offset, offset + limit)),
           total: playlist.tracks.length,
           ...(next < playlist.tracks.length ? { nextCursor: String(next) } : {}),
         },
@@ -205,7 +214,7 @@ export function fakeAccount(overrides: Partial<FakeAccountData> = {}): FakeAccou
       return structuredClone(data.home)
     },
   }
-  return { spotify, data, calls, failures }
+  return { spotify, data, calls, failures, blank }
 }
 
 /** What {@link fakeServices} gives a test: the services and the handles to change them. */

@@ -70,8 +70,26 @@ export const spotifyAccountForHome: AccountForHome = {
 }
 
 /**
+ * Forgets what a sync left in the library while the account isn't connected (`tidy.ts`): in the
+ * background, from a chunk of its own, so the app's first load carries none of it.
+ */
+export async function tidyAppAfterDisconnect(): Promise<boolean> {
+  const [{ tidyAfterDisconnect }, { getLibrary }, { browserLocks }] = await Promise.all([
+    import('./tidy'),
+    import('../../db/repo'),
+    import('./locks'),
+  ])
+  return tidyAfterDisconnect({
+    library: getLibrary(),
+    choice: appAccountChoice,
+    locks: browserLocks(),
+  })
+}
+
+/**
  * Starts the feature, once, from `main.tsx`: Home gets its view of the account, and the runtime
- * starts when the account is connected (in this tab or, later, another).
+ * starts when the account is connected (in this tab or, later, another). Without the account
+ * connected, what a sync may have left in the library after a Disconnect goes.
  */
 export function startSpotifyAccount(): void {
   appHomeServices.set({ ...appHomeServices.get(), spotifyAccount: spotifyAccountForHome })
@@ -80,7 +98,12 @@ export function startSpotifyAccount(): void {
       console.error('FXM: the Spotify account could not start', error)
     })
   }
-  if (spotifyAccountOptedIn()) run()
+  if (spotifyAccountOptedIn()) {
+    run()
+  } else {
+    // Never in the way: the next start tries again.
+    tidyAppAfterDisconnect().catch(() => {})
+  }
   appAccountChoice.subscribe((state, previous) => {
     if (state.optedIn && !previous.optedIn) run()
   })

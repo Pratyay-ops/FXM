@@ -5,17 +5,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { testRepo } from '../../test/library-fixtures'
 import { createAccountChoice } from './account-store'
 import { HOME_FRESH_MS } from './home'
-import { HOME_KEY, LIKED_NAME, playlistCopyId } from './ids'
+import { HOME_KEY, LIKED_NAME, META_KEY, playlistCopyId } from './ids'
+import { SYNC_LOCK } from './locks'
 import {
   type AccountRuntime,
+  type AccountRuntimeOptions,
+  CONTINUE_AFTER_MS,
   createAccountRuntime,
   failureOfError,
   phaseOfError,
   SYNC_EVERY_MS,
-  SYNC_LOCK,
 } from './runtime'
-import { readState } from './state'
-import { fakeLocks, fakeServices, nativeId, spotifyTrack } from './testing'
+import { readMeta, readState } from './state'
+import { fakeLocks, fakeServices, nativeId, spotifyTrack, spotifyTracks } from './testing'
 
 type Repo = ReturnType<typeof testRepo>
 
@@ -24,11 +26,17 @@ afterEach(() => {
   for (const stop of stops.splice(0)) stop()
 })
 
-function setup(options: { optedIn?: boolean; now?: () => number } = {}) {
+function setup(
+  options: { optedIn?: boolean } & Pick<
+    AccountRuntimeOptions,
+    'now' | 'limits' | 'disconnectWaitMs'
+  > = {},
+) {
+  const { optedIn, ...rest } = options
   const repo = testRepo()
   const fake = fakeServices(repo)
   const choice = createAccountChoice({ storage: () => undefined })
-  if (options.optedIn) choice.getState().setOptedIn(true)
+  if (optedIn) choice.getState().setOptedIn(true)
   const locks = fakeLocks()
   const ticks: (() => void)[] = []
   const runtime = createAccountRuntime({
@@ -40,7 +48,7 @@ function setup(options: { optedIn?: boolean; now?: () => number } = {}) {
       ticks.push(check)
       return () => {}
     },
-    ...(options.now === undefined ? {} : { now: options.now }),
+    ...rest,
   })
   return { repo, fake, choice, locks, runtime, ticks }
 }
@@ -275,6 +283,59 @@ describe('when it syncs', () => {
     expect(fake.account.calls).toHaveLength(asked)
   })
 
+  it('goes on soon after a sync that stopped at its budget, then waits as usual', async () => {
+    let now = Date.UTC(2026, 9, 26, 12)
+    const { repo, fake, runtime, ticks } = setup({
+      optedIn: true,
+      now: () => now,
+      // The profile, liked songs, the list and two playlists a sync.
+      limits: { requests: 5 },
+    })
+    fake.account.data.playlists.push(
+      { id: nativeId('p', 3), name: 'Third', tracks: [spotifyTrack(31)] },
+      { id: nativeId('p', 4), name: 'Fourth', tracks: spotifyTracks(41, 42) },
+    )
+    start(runtime)
+    await settled(runtime)
+    expect((await readMeta(repo))?.last).toMatchObject({ pending: 2, playlistCount: 2 })
+    now += CONTINUE_AFTER_MS
+    for (const tick of ticks) tick()
+    await settled(runtime)
+    expect((await readMeta(repo))?.last).toMatchObject({ pending: 0, playlistCount: 4 })
+    // Done: the next one comes at the usual time.
+    fake.account.calls.length = 0
+    now += CONTINUE_AFTER_MS
+    for (const tick of ticks) tick()
+    await settled(runtime)
+    expect(fake.account.calls).toEqual([])
+  })
+
+  it('counts a check whether a sync is due as work in flight, before the sync starts', async () => {
+    const { repo, fake, runtime } = setup()
+    fake.loggedIn = false
+    start(runtime)
+    await runtime.connect()
+    // Reading when the last sync was takes a while.
+    const read = repo.getSetting.bind(repo)
+    vi.spyOn(repo, 'getSetting').mockImplementation(async (key) => {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      return read(key)
+    })
+    fake.loggedIn = true
+    await runtime.recheck()
+    await runtime.whenIdle()
+    expect(await playlistNames(repo)).toContain('Road trip')
+  })
+
+  it('says another tab syncs only until its sync ends', async () => {
+    const { locks, runtime } = setup({ optedIn: true })
+    locks.held.add(SYNC_LOCK)
+    await runtime.syncNow()
+    expect(runtime.store.getState().syncingElsewhere).toBe(true)
+    locks.held.delete(SYNC_LOCK)
+    await vi.waitFor(() => expect(runtime.store.getState().syncingElsewhere).toBe(false))
+  })
+
   it('leaves the sync to the tab that holds the lock', async () => {
     const { repo, locks, runtime } = setup({ optedIn: true })
     locks.held.add(SYNC_LOCK)
@@ -366,6 +427,26 @@ describe('disconnect', () => {
     expect((await readState(repo)).lists.size).toBe(0)
   })
 
+  it("forgets what another tab's sync wrote after a Disconnect, once that tab lets go", async () => {
+    const { repo, runtime, locks } = setup({ disconnectWaitMs: 20 })
+    start(runtime)
+    await runtime.connect()
+    await settled(runtime)
+    // Another tab, frozen by the browser in the middle of a sync, holds the lock.
+    locks.held.add(SYNC_LOCK)
+    expect(await runtime.disconnect()).toEqual({ removed: 0, kept: 3 })
+    expect(await repo.getSetting(META_KEY)).toBeUndefined()
+    // It wakes, and writes on before it learns of the Disconnect; then it lets go.
+    await repo.putSettings({
+      [HOME_KEY]: { account: 'abcdefghijklmnopqrstuv', at: 1, shelves: [] },
+    })
+    locks.held.delete(SYNC_LOCK)
+    await vi.waitFor(async () =>
+      expect(await repo.getSettings('spotify-account.')).toEqual(new Map()),
+    )
+    expect(await playlistNames(repo)).toContain('Road trip')
+  })
+
   it('follows a Disconnect in another tab', async () => {
     const { fake, choice, runtime } = setup({ optedIn: true })
     start(runtime)
@@ -410,6 +491,33 @@ describe("Home's view", () => {
     expect(await titles()).toEqual(['Jump back in'])
     now += 8 * 24 * 60 * 60_000
     expect(await titles()).toEqual([])
+  })
+
+  it('never keeps a home it read while the account was disconnected', async () => {
+    let now = Date.UTC(2026, 9, 26, 12)
+    const { repo, fake, runtime } = setup({ now: () => now })
+    start(runtime)
+    await runtime.connect()
+    await settled(runtime)
+    now += HOME_FRESH_MS
+    // Spotify's home takes a while to come; the user disconnects meanwhile.
+    let release: () => void = () => {}
+    const slow = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let asked = false
+    const read = fake.account.spotify.getAccountHome
+    vi.spyOn(fake.services.spotify, 'getAccountHome').mockImplementation(async (ctx) => {
+      asked = true
+      await slow
+      return read(ctx)
+    })
+    const sections = runtime.forHome.sections(homeCtx)
+    await vi.waitFor(() => expect(asked).toBe(true))
+    await runtime.disconnect()
+    release()
+    expect(await sections).toEqual([])
+    expect(await repo.getSetting(HOME_KEY)).toBeUndefined()
   })
 
   it("doesn't keep the home of another login", async () => {

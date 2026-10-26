@@ -9,9 +9,9 @@ import { Dialog, DialogActions } from '../library/ui/dialog'
 import { useSourcesSnapshot } from '../search/sources-context'
 import { SettingsSection } from '../settings/settings-layout'
 import { useAccountAccess, useAccountRuntime } from './context'
-import { LIKED_LIST, LIKED_NAME } from './ids'
+import { LIKED_NAME } from './ids'
 import type { AccountRuntimeState, SyncFailure } from './runtime'
-import { readState, type SyncState } from './state'
+import { countCopies, readMeta, type SyncMeta } from './state'
 import type { SyncProgress } from './sync'
 
 /** Where the user signs in to Spotify in this browser. */
@@ -76,23 +76,20 @@ export function failureText(failure: SyncFailure, retry: RetryAction): string | 
   }
 }
 
-/** What the last sync left in the library, in a sentence. */
-export function syncedText(state: SyncState, now: number): string | undefined {
-  const last = state.meta?.last
-  const at = state.meta?.lastSyncAt
+/** What the last sync left in the library, in a sentence or two. */
+export function syncedText(meta: SyncMeta, now: number): string | undefined {
+  const { last, lastSyncAt: at } = meta
   if (last === undefined || at === undefined) return undefined
-  const liked = state.lists.get(LIKED_LIST)
   const parts: string[] = []
-  if (liked !== undefined && liked.dismissed !== true) {
-    parts.push(`${LIKED_NAME} (${count(last.likedCount, 'song')})`)
-  }
-  const playlists = [...state.lists.entries()].filter(
-    ([list, entry]) => list !== LIKED_LIST && entry.dismissed !== true,
-  ).length
-  if (playlists > 0) parts.push(count(playlists, 'playlist'))
+  if (last.likedCopy) parts.push(`${LIKED_NAME} (${count(last.likedCount, 'song')})`)
+  if (last.playlistCount > 0) parts.push(count(last.playlistCount, 'playlist'))
   const what = parts.length === 0 ? 'nothing to copy' : parts.join(' and ')
+  const more =
+    last.pending > 0
+      ? ` ${count(last.pending, 'playlist')} ${last.pending === 1 ? 'waits' : 'wait'} for the next sync.`
+      : ''
   const partial = last.complete ? '' : ' Some of it was too large to copy, or could not be read.'
-  return `Last synced ${whenText(at, now)}: ${what}.${partial}`
+  return `Last synced ${whenText(at, now)}: ${what}.${more}${partial}`
 }
 
 /** A link that opens in a new tab. */
@@ -327,11 +324,14 @@ export function SpotifyAccountSettings() {
   const capabilities = useConnection((state) => state.capabilities)
   const platform = useConnection((state) => state.platform)
   const { runtime, state, error: loadError } = useAccountRuntime(optedIn)
+  // Only the sync's own row: a sync rewrites the rows of its copies as it goes.
   const synced = useLiveQuery(
-    () => (optedIn ? readState(access.library()).catch(() => undefined) : undefined),
+    () => (optedIn ? readMeta(access.library()).catch(() => undefined) : undefined),
     [optedIn, access],
   )
   const [dialog, setDialog] = useState<'connect' | 'disconnect' | null>(null)
+  /** The copies the sync follows, counted when Disconnect's dialog opens. */
+  const [copies, setCopies] = useState(0)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const headingId = useId()
@@ -371,10 +371,14 @@ export function SpotifyAccountSettings() {
     }
   }
 
-  const copies =
-    synced === undefined
-      ? 0
-      : [...synced.lists.values()].filter((entry) => entry.dismissed !== true).length
+  const openDisconnect = async () => {
+    // Counted now: a sync may have made copies since the last one ended.
+    setCopies(await countCopies(access.library()).catch(() => 0))
+    setDialog('disconnect')
+  }
+
+  const last = synced?.last
+  const hasCopies = last !== undefined && (last.likedCopy || last.playlistCount > 0)
   const reachable = spotifyEnabled && capabilities.spotify !== 'unreachable'
 
   let status: ReactNode
@@ -457,7 +461,7 @@ export function SpotifyAccountSettings() {
         {failureLine !== undefined && !state.syncing && (
           <p className="font-semibold text-danger">{failureLine}</p>
         )}
-        {copies > 0 && (
+        {hasCopies && (
           <p>
             <Link
               to="/library?tab=playlists"
@@ -497,7 +501,7 @@ export function SpotifyAccountSettings() {
         <button
           type="button"
           disabled={busy}
-          onClick={() => setDialog('disconnect')}
+          onClick={() => void openDisconnect()}
           className={buttonClasses({ variant: 'secondary' })}
         >
           Disconnect

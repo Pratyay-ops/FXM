@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { testRepo } from '../../test/library-fixtures'
 import { sanitizeHomeCopy } from './home'
-import { listKey, META_KEY, playlistCopyId } from './ids'
-import { forgetLists, readState, sanitizeList, sanitizeMeta, writeList, writeMeta } from './state'
+import { HOME_KEY, listKey, META_KEY, playlistCopyId } from './ids'
+import {
+  countCopies,
+  forgetLists,
+  forgetState,
+  readMeta,
+  readState,
+  sanitizeList,
+  sanitizeMeta,
+  sanitizeSummary,
+  writeList,
+  writeMeta,
+} from './state'
 import { nativeId, spotifyTrack } from './testing'
 
 const ACCOUNT = 'abcdefghijklmnopqrstuv'
@@ -16,7 +27,6 @@ const list = {
   artwork: 'https://i.scdn.co/image/x',
   revision: 'rev-1',
   written: 5,
-  syncedAt: 6,
 }
 
 describe('the state', () => {
@@ -34,8 +44,50 @@ describe('the state', () => {
     expect((await readState(repo)).lists.size).toBe(0)
   })
 
+  it("reads the sync's own row alone, and counts the copies without reading each whole", async () => {
+    const repo = testRepo()
+    expect(await readMeta(repo)).toBeUndefined()
+    await writeMeta(repo, { account: ACCOUNT, lastSyncAt: 7 })
+    expect(await readMeta(repo)).toEqual({ account: ACCOUNT, lastSyncAt: 7 })
+    await writeList(repo, P1, list)
+    await writeList(repo, 'liked', { ...list, local: playlistCopyId(nativeId('p', 9)) })
+    await writeList(repo, nativeId('p', 2), {
+      ...list,
+      local: playlistCopyId(nativeId('p', 2)),
+      dismissed: true,
+    })
+    await repo.putSettings({ [listKey(nativeId('p', 3))]: { local: 'local:playlist:mine' } })
+    expect(await countCopies(repo)).toBe(2)
+  })
+
+  it('forgets all of it at once, the personal home included', async () => {
+    const repo = testRepo()
+    await writeMeta(repo, { account: ACCOUNT })
+    await writeList(repo, P1, list)
+    await repo.putSettings({ [HOME_KEY]: { account: ACCOUNT, at: 1, shelves: [] }, other: 1 })
+    await forgetState(repo)
+    expect(await repo.getSettings('spotify-account.')).toEqual(new Map())
+    expect(await repo.getSetting('other')).toBe(1)
+  })
+
   it('reads rows from a damaged backup as missing, field by field', async () => {
     expect(sanitizeMeta({ account: 'fixture-user' })).toBeUndefined()
+    expect(sanitizeSummary({ at: 3, likedCopy: 'yes', pending: -2, complete: true })).toEqual({
+      at: 3,
+      likedCopy: false,
+      likedCount: 0,
+      playlistCount: 0,
+      created: 0,
+      updated: 0,
+      added: 0,
+      removed: 0,
+      dismissed: 0,
+      departed: 0,
+      skipped: 0,
+      pending: 0,
+      home: false,
+      complete: true,
+    })
     expect(sanitizeMeta({ account: ACCOUNT, lastSyncAt: -1, last: { at: 'x' } })).toEqual({
       account: ACCOUNT,
     })

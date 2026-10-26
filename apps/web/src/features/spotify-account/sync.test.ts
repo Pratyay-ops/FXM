@@ -1,4 +1,5 @@
 import { type EntityId, FxmError, isFxmError, type ProviderContext } from '@fxm/core'
+import { SpotifyError } from '@fxm/sources/spotify'
 import { describe, expect, it, vi } from 'vitest'
 import { LIKED_PLAYLIST_ID } from '../../db/types'
 import { testRepo, track } from '../../test/library-fixtures'
@@ -168,6 +169,7 @@ describe('the next syncs', () => {
     const result = await sync(account, repo)
     expect(account.calls).toEqual(['profile', 'liked 0', 'playlists 0', 'home'])
     expect(result.summary).toMatchObject({
+      likedCopy: true,
       likedCount: 3,
       playlistCount: 2,
       created: 0,
@@ -176,6 +178,31 @@ describe('the next syncs', () => {
       removed: 0,
     })
     expect(await repo.getPlaylistList()).toEqual(before)
+  })
+
+  it("neither wait nor write for lists that didn't change", async () => {
+    const repo = testRepo()
+    // Sixty playlists: listing them takes two pages.
+    const account = fakeAccount({
+      playlists: Array.from({ length: 60 }, (_, index) => ({
+        id: nativeId('p', index + 1),
+        name: `Playlist ${index + 1}`,
+        tracks: [spotifyTrack(100 + index)],
+      })),
+    })
+    await sync(account, repo)
+    account.calls.length = 0
+    const writes = vi.spyOn(repo, 'putSettings')
+    const pace = vi.fn(async () => {})
+    const result = await sync(account, repo, { pace })
+    expect(account.calls).toEqual(['profile', 'liked 0', 'playlists 0', 'playlists 50', 'home'])
+    // Only before the second page of the list.
+    expect(pace).toHaveBeenCalledTimes(1)
+    // What the sync did and the home: no list's state is written again.
+    expect(writes.mock.calls.flatMap(([values]) => Object.keys(values)).sort()).toEqual(
+      [HOME_KEY, META_KEY].sort(),
+    )
+    expect(result.summary).toMatchObject({ playlistCount: 60, complete: true })
   })
 
   it("bring in Spotify's changes, keeping the user's", async () => {
@@ -370,6 +397,43 @@ describe('limits and failures', () => {
     expect(await playlistNames(repo)).not.toContain('Third')
   })
 
+  it('stops following a playlist that left, whatever limit liked songs reached', async () => {
+    const repo = testRepo()
+    const account = fakeAccount({ liked: spotifyTracks(1, 120).map((t) => ({ track: t })) })
+    const limits = { likedSongs: 60 }
+    expect((await sync(account, repo, { limits })).summary.complete).toBe(false)
+    account.data.playlists.splice(1, 1)
+    account.calls.length = 0
+    const result = await sync(account, repo, { limits })
+    // Liked songs didn't change, and the copy still holds only the first 60.
+    expect(account.calls.filter((call) => call.startsWith('liked'))).toEqual(['liked 0'])
+    expect(result.summary).toMatchObject({ departed: 1, complete: false, playlistCount: 1 })
+    expect([...(await readState(repo)).lists.keys()].sort()).toEqual(['liked', P1].sort())
+  })
+
+  it('reads playlists until its budget of requests is spent, and the next sync goes on', async () => {
+    const repo = testRepo()
+    const account = fakeAccount()
+    const P3 = nativeId('p', 3)
+    account.data.playlists.push({ id: P3, name: 'Third', tracks: [spotifyTrack(31)] })
+    // The profile, liked songs, the list of playlists and one playlist.
+    const limits = { requests: 4 }
+    let result = await sync(account, repo, { limits })
+    expect(result.summary).toMatchObject({ pending: 2, playlistCount: 1, complete: true })
+    expect(result.summary.home).toBe(true)
+    expect(await playlistNames(repo)).toContain('Road trip')
+    expect(await playlistNames(repo)).not.toContain('Quiet')
+    // Meanwhile Road trip left the Spotify library: the listing still tells.
+    account.data.playlists.splice(0, 1)
+    account.calls.length = 0
+    result = await sync(account, repo, { limits })
+    expect(account.calls).toEqual(['profile', 'liked 0', 'playlists 0', `tracks ${P2} 0`, 'home'])
+    expect(result.summary).toMatchObject({ pending: 1, departed: 1, playlistCount: 1 })
+    result = await sync(account, repo, { limits })
+    expect(result.summary).toMatchObject({ pending: 0, playlistCount: 2 })
+    expect(await playlistNames(repo)).toContain('Third')
+  })
+
   it("refuses an account Spotify doesn't name, and writes nothing", async () => {
     const repo = testRepo()
     const account = fakeAccount({ username: undefined })
@@ -389,6 +453,34 @@ describe('limits and failures', () => {
     expect(await playlistNames(repo)).not.toContain('Road trip')
     // Not complete: a playlist it couldn't read isn't taken for one that left.
     expect(result.summary.departed).toBe(0)
+  })
+
+  it('skips a playlist Spotify refuses or answers unreadably for, and goes on', async () => {
+    const repo = testRepo()
+    const account = fakeAccount()
+    const P3 = nativeId('p', 3)
+    account.data.playlists.push({ id: P3, name: 'Third', tracks: [spotifyTrack(31)] })
+    account.failures.set(
+      `tracks ${P1}`,
+      new SpotifyError('graphql', 'Spotify answered GenericError'),
+    )
+    account.failures.set(`tracks ${P2}`, new SpotifyError('forbidden', 'HTTP 403'))
+    let result = await sync(account, repo)
+    expect(result.summary).toMatchObject({ skipped: 2, playlistCount: 1, complete: false })
+    expect(result.summary.home).toBe(true)
+    expect(await playlistNames(repo)).toContain('Third')
+    expect(await playlistNames(repo)).not.toContain('Road trip')
+    expect((await readState(repo)).meta?.lastSyncAt).toBe(result.summary.at)
+    // Later, one that changed on Spotify can't be read: its copy and its state stay as they were.
+    account.failures.clear()
+    await sync(account, repo)
+    const before = await repo.getSetting(listKey(P1))
+    account.data.playlists[0]?.tracks.push(spotifyTrack(15))
+    account.failures.set(`tracks ${P1}`, new SpotifyError('bad-response', 'unreadable'))
+    result = await sync(account, repo)
+    expect(result.summary).toMatchObject({ skipped: 1, playlistCount: 3, complete: false })
+    expect(await repo.getSetting(listKey(P1))).toEqual(before)
+    expect(await titles(repo, playlistCopyId(P1))).toHaveLength(4)
   })
 
   it('stops on any other failure, keeping what it did, and goes on next time', async () => {
@@ -417,6 +509,24 @@ describe('limits and failures', () => {
     expect((await readState(repo)).meta?.lastSyncAt).toBe(result.summary.at)
   })
 
+  it('stops writing its state once its guard says the account was disconnected', async () => {
+    const repo = testRepo()
+    const account = fakeAccount()
+    let connected = true
+    // Disconnected while it reads the first playlist.
+    const pace = async () => {
+      connected = false
+    }
+    const error = await sync(account, repo, { pace, guard: () => connected }).catch(
+      (e: unknown) => e,
+    )
+    expect((error as Error).name).toBe('AbortError')
+    const state = await readState(repo)
+    expect([...state.lists.keys()]).toEqual(['liked'])
+    expect(state.meta?.lastSyncAt).toBeUndefined()
+    expect(await repo.getSetting(HOME_KEY)).toBeUndefined()
+  })
+
   it('stops between two requests when cancelled', async () => {
     const repo = testRepo()
     const account = fakeAccount()
@@ -426,6 +536,69 @@ describe('limits and failures', () => {
     await expect(sync(account, repo, { signal: controller.signal, pace })).rejects.toBe(reason)
     expect(account.calls).toEqual(['profile', 'liked 0', 'playlists 0'])
     expect(await playlistNames(repo)).toContain(LIKED_NAME)
+  })
+})
+
+describe("answers it can't read", () => {
+  it('never makes empty copies of lists Spotify counts songs in, nor remembers them', async () => {
+    const repo = testRepo()
+    const account = fakeAccount()
+    account.blank.add('liked')
+    account.blank.add(`tracks ${P1}`)
+    const result = await sync(account, repo)
+    expect(result.summary).toMatchObject({
+      skipped: 2,
+      complete: false,
+      likedCopy: false,
+      playlistCount: 1,
+    })
+    expect(await playlistNames(repo)).not.toContain(LIKED_NAME)
+    expect(await playlistNames(repo)).not.toContain('Road trip')
+    expect([...(await readState(repo)).lists.keys()]).toEqual([P2])
+    // Once Spotify answers readably, they are copied.
+    account.blank.clear()
+    const next = await sync(account, repo)
+    expect(next.summary).toMatchObject({ created: 2, complete: true, likedCopy: true })
+  })
+
+  it('leaves a copy as it was, taking nothing out, and reads no further page', async () => {
+    const repo = testRepo()
+    const account = fakeAccount({ liked: spotifyTracks(1, 120).map((t) => ({ track: t })) })
+    await sync(account, repo)
+    const before = await readState(repo)
+    // Both lists changed on Spotify, but answer with nothing the provider can read.
+    account.data.liked.unshift({ track: spotifyTrack(200) })
+    account.data.playlists[0]?.tracks.push(spotifyTrack(15))
+    account.blank.add('liked')
+    account.blank.add(`tracks ${P1}`)
+    account.calls.length = 0
+    const result = await sync(account, repo)
+    expect(result.summary).toMatchObject({
+      skipped: 2,
+      removed: 0,
+      complete: false,
+      likedCopy: true,
+      likedCount: 120,
+    })
+    expect(await titles(repo, await likedId())).toHaveLength(120)
+    expect(await titles(repo, playlistCopyId(P1))).toHaveLength(4)
+    const after = await readState(repo)
+    expect(after.lists.get('liked')).toEqual(before.lists.get('liked'))
+    expect(after.lists.get(P1)).toEqual(before.lists.get(P1))
+    expect(account.calls.filter((call) => call.startsWith('liked'))).toEqual(['liked 0'])
+    expect(account.calls.filter((call) => call.startsWith(`tracks ${P1}`))).toEqual([
+      `tracks ${P1} 0`,
+    ])
+  })
+
+  it('keeps following its playlists when their list reads empty, though Spotify counts some', async () => {
+    const repo = testRepo()
+    const account = fakeAccount()
+    await sync(account, repo)
+    account.blank.add('playlists')
+    const result = await sync(account, repo)
+    expect(result.summary).toMatchObject({ departed: 0, complete: false, playlistCount: 2 })
+    expect([...(await readState(repo)).lists.keys()].sort()).toEqual(['liked', P1, P2].sort())
   })
 })
 
@@ -459,6 +632,24 @@ describe('forgetSync', () => {
     expect((await readState(repo)).lists.get(P2)?.userTouched).toBe(true)
     expect(await forgetSync(repo, { removeCopies: true })).toEqual({ removed: 2, kept: 1 })
     expect(await playlistNames(repo)).toContain('Quiet')
+  })
+
+  it('keeps a copy the user changed while a sync ran, even before it got there', async () => {
+    const repo = testRepo()
+    const account = fakeAccount()
+    await sync(account, repo)
+    account.data.playlists[0]?.tracks.push(spotifyTrack(15))
+    // The user adds a song to Road trip's copy after the sync began, before it gets there.
+    let edited = false
+    const pace = async () => {
+      if (edited) return
+      edited = true
+      await repo.addTracks(playlistCopyId(P1), [track(1)])
+    }
+    await sync(account, repo, { pace })
+    expect((await readState(repo)).lists.get(P1)?.userTouched).toBe(true)
+    expect(await forgetSync(repo, { removeCopies: true })).toEqual({ removed: 2, kept: 1 })
+    expect(await playlistNames(repo)).toContain('Road trip')
   })
 
   it('lets a later sync adopt the copies it kept, so none is made twice', async () => {

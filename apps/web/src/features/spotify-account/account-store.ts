@@ -72,6 +72,20 @@ export function createAccountChoice({ storage }: AccountChoiceOptions = {}) {
 export type AccountChoiceStore = ReturnType<typeof createAccountChoice>
 
 /**
+ * Whether the choice as stored says connected: another tab may have changed it since this one
+ * last read it. Reads the storage only, and never changes the store.
+ */
+export async function storedOptIn(store: AccountChoiceStore): Promise<boolean> {
+  try {
+    const { storage, name = SPOTIFY_ACCOUNT_STORAGE_KEY } = store.persist.getOptions()
+    const stored: unknown = await storage?.getItem(name)
+    return sanitize((stored as { state?: unknown } | null | undefined)?.state).optedIn
+  } catch {
+    return false
+  }
+}
+
+/**
  * Re-reads the choice when another tab changes it, so a Disconnect in one tab stops the account
  * in every tab. Returns the unsubscribe function.
  */
