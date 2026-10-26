@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Builds the files a GitHub Release ships, into one folder:
 #
-#   fxm-web-<version>.zip               the web app (apps/web), inside app/ because it is served
-#                                       from /app/
-#   fxm-site-<version>.zip              the landing page (apps/site), served from /
+#   fxm-web-<version>.zip               what Cloudflare Pages serves, for self-hosting: make dist's
+#                                       dist/pages as it is, with the landing page at the root,
+#                                       the web app in app/, the sandbox documents, _headers,
+#                                       third-party-notices.txt and .well-known/
 #   fxm-connect-chromium-<version>.zip  FXM Connect for Chromium browsers (apps/extension)
 #   fxm-connect-firefox-<version>.zip   FXM Connect for Firefox
 #
-#   release-build.sh [dir]             builds them into dir (default dist/release), skipping apps
-#                                      that don't exist yet
+#   release-build.sh [dir]             builds them into dir (default dist/release)
 #   release-build.sh --checksums dir   writes dir/SHA256SUMS for every other file in dir, which
 #                                      must all be plain files (no folders or links)
 #
@@ -53,28 +53,36 @@ if ! "$here/release-version.sh" --check; then
 fi
 out=${1:-dist/release}
 mkdir -p "$out"
-out=$(cd "$out" && pwd)
+out=$(cd "$out" && pwd -P)
+root=$(pwd -P)
+# make dist replaces dist/pages and deletes dist/.staging, which would take the release along.
+case "$out/" in
+  "$root/dist/pages/"* | "$root/dist/.staging/"*)
+    fxm_die "$out is inside a folder that make dist replaces: build the release elsewhere," \
+      "such as dist/release"
+    ;;
+esac
 # Only this script's own files go, so pointing it at the wrong folder deletes nothing else.
 rm -f "$out"/fxm-*.zip "$out/SHA256SUMS"
 # touch -t format in UTC, the same on macOS and Linux.
 stamp=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y%m%d%H%M.%S)
 
-# zip_folder <folder> <path inside the zip, or ""> <zip>
+# zip_folder <folder> <zip>: everything in the folder, dot files included, at the zip's root.
 zip_folder() {
   local stage
-  rm -f "$3"
+  rm -f "$2"
   stage=$(mktemp -d)
-  mkdir -p "$stage/root/$2"
-  cp -R "$1"/. "$stage/root/$2"
+  mkdir "$stage/root"
+  cp -R "$1"/. "$stage/root"
   (
     cd "$stage/root"
     find . -type d -exec chmod 0755 {} +
     find . -type f -exec chmod 0644 {} +
     TZ=UTC find . -exec touch -h -t "$stamp" {} +
-    find . -type f | sed 's|^\./||' | LC_ALL=C sort | TZ=UTC zip -X -D -q -9 "$3" -@
+    find . -type f | sed 's|^\./||' | LC_ALL=C sort | TZ=UTC zip -X -D -q -9 "$2" -@
   )
   rm -rf "$stage"
-  fxm_info "Packed $(basename "$3")"
+  fxm_info "Packed $(basename "$2")"
 }
 
 exists() {
@@ -83,15 +91,19 @@ exists() {
   return 1
 }
 
-if exists web; then
-  pnpm --filter @fxm/web build
-  zip_folder apps/web/dist app "$out/fxm-web-$version.zip"
-fi
-
-if exists site; then
-  pnpm --filter @fxm/site build
-  zip_folder apps/site/dist "" "$out/fxm-site-$version.zip"
-fi
+# The web zip is the folder Cloudflare Pages serves, built as the deploy workflow builds it, with
+# make dist's command: it composes the site, the app and the sandbox documents with _headers and
+# the third-party notices, and runs its licence, header and privacy checks
+# (scripts/build-dist/README.md). pnpm succeeds when its filter matches nothing, so the folder an
+# earlier make dist left goes first: only this build's can be zipped.
+rm -rf dist/pages
+pnpm --silent --filter @fxm/deploy dist
+# What every copy must carry: the site, the app, their headers, and the notices that the bundled
+# packages' licences (MIT, ISC and others) require.
+for file in index.html app/index.html _headers third-party-notices.txt; do
+  [ -f "dist/pages/$file" ] || fxm_die "make dist built no dist/pages/$file for the web zip"
+done
+zip_folder dist/pages "$out/fxm-web-$version.zip"
 
 if exists extension; then
   # The release variant: the dev build also trusts localhost and must never ship.
@@ -106,5 +118,4 @@ if exists extension; then
   done
 fi
 
-[ -n "$(ls -A "$out")" ] || fxm_die "no app was built"
-fxm_info "Release files for $version are in ${out#"$FXM_ROOT"/}"
+fxm_info "Release files for $version are in ${out#"$root"/}"
