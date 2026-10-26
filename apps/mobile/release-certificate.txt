@@ -3,5 +3,7 @@
 # check a downloaded APK against it (INSTALL.md). scripts/make-android-keystore.sh prints it when
 # the owner creates the key, which never enters the repository (RELEASING.md).
 #
-# Until then, the line below is a placeholder and release builds refuse to sign.
-none yet: run scripts/make-android-keystore.sh
+# The line below pins the certificate of the owner's key. Change it only on purpose, for a new
+# key: Android installs an update only when it is signed with the same key as the installed app
+# (RELEASING.md, "If the key is lost or leaks").
+EC:7A:73:80:78:E3:CE:DF:C6:BA:22:99:66:A6:71:ED:89:03:3A:31:75:B7:91:53:5D:51:88:DF:6D:30:8C:FA
