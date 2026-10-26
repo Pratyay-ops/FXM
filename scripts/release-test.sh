@@ -627,6 +627,33 @@ expect "refuses the version once it is tagged" \
   test "$status" -ne 0 -a -n "$(grep 'not higher than the current version 0.1.0' <<<"$out")"
 git -C "$work" tag -d v0.1.0 >/dev/null
 
+echo "release-pr.sh without a temporary folder"
+# When mktemp -d fails, as on a full disk, the run must stop before its cleanup could delete
+# anything, the checkout above all. The stand-in fails for folders only and hands every other
+# call to the real mktemp.
+work=$(new_repo full-disk)
+real_mktemp=$(command -v mktemp)
+cat >"$work/.tools/bin/mktemp" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = -d ]; then
+  echo "mktemp: mkdtemp failed on /tmp/tmp.XXXXXXXX: No space left on device" >&2
+  exit 1
+fi
+exec "$real_mktemp" "\$@"
+EOF
+chmod +x "$work/.tools/bin/mktemp"
+git -C "$work" switch -q -c develop
+git -C "$work" push -q -u origin develop
+stops_and_keeps_the_checkout() {
+  [ "$status" -ne 0 ] && says "could not create a temporary folder" &&
+    [ -d "$work/.git" ] && [ -f "$work/scripts/release-pr.sh" ] &&
+    [ "$(git -C "$work" rev-parse develop)" = "$(git -C "$tmp/full-disk/origin.git" rev-parse develop)" ]
+}
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "a dry run stops, and the checkout stays" stops_and_keeps_the_checkout
+run "$work" scripts/release-pr.sh 0.1.0
+expect "so does a real run" stops_and_keeps_the_checkout
+
 echo "release-plan.sh"
 work=$(new_repo plan)
 export GH_STUB_DIR=$tmp/plan/gh GITHUB_OUTPUT=$tmp/plan/output

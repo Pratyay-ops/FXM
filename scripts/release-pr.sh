@@ -35,8 +35,13 @@ dry_run=false
 if fxm_release_flag DRY_RUN "${DRY_RUN:-}"; then dry_run=true; fi
 tag=v$version
 cd "$FXM_ROOT"
+root=$(pwd -P)
 
-work=$(cd "$(mktemp -d)" && pwd -P)
+# The run's temporary folder, by its real path, which is how git worktree list names the
+# worktree in it. Two steps, each of which stops the script when it fails: `cd ""` succeeds, so
+# a failed mktemp inside the cd would leave work naming the checkout, for finish to delete.
+work=$(mktemp -d) || fxm_die "could not create a temporary folder (mktemp -d)"
+work=$(cd "$work" && pwd -P)
 # The temporary worktree the release commit's checks run in (check_release_commit below).
 release_commit=$work/release-commit
 step=checks
@@ -47,7 +52,11 @@ finish() {
     ! git worktree remove --force "$release_commit" 2>/dev/null; then
     fxm_warn "Could not remove the temporary worktree $release_commit: git worktree prune drops it"
   fi
-  rm -rf "$work"
+  # Only a folder that is neither the checkout nor one that holds it, whatever went wrong.
+  case "$root/" in
+    "$work"/*) fxm_warn "Left $work alone: it holds the checkout" ;;
+    *) rm -rf "$work" ;;
+  esac
   if [ "$status" -ne 0 ] && [ "$step" = changes ]; then
     fxm_warn "Stopped before the release commit. Undo its changes with: git restore --staged --worktree ."
   fi
