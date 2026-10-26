@@ -80,9 +80,16 @@ describe('Playlist page', () => {
     ])
   })
 
-  it('keeps the placeholder for the library playlists in the sidebar', async () => {
-    renderCatalog('/playlist/liked')
-    expect(await findTitle('Playlist liked')).toBeInTheDocument()
+  it('leads the shell’s old addresses of the built-in playlists to their pages', async () => {
+    const { router } = renderCatalog('/playlist/downloads')
+    expect(await findTitle('Downloads')).toBeInTheDocument()
+    expect(router.state.location.pathname).toBe('/playlist/local:playlist:downloads')
+  })
+
+  it('says a bare ID that names no playlist leads nowhere, with nothing to save', async () => {
+    renderCatalog('/playlist/no-such-playlist')
+    expect(await findTitle('Playlist not found')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save to library' })).toBeNull()
   })
 
   it.each(['/playlist/ytm:', '/playlist/foo:bar', '/playlist/plugin.:x', '/playlist/ytm:pl-nope'])(

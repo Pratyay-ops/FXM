@@ -11,7 +11,7 @@
  * @module
  */
 
-import type { Codec, Container, QualityTier, StreamLoudness } from '@fxm/core'
+import type { Codec, Container, LossySource, QualityTier, StreamLoudness } from '@fxm/core'
 
 /**
  * Where a root's files come from:
@@ -58,7 +58,8 @@ export interface LocalAudioFormat {
   container: Container
   /**
    * From `tierOf`: `lossless` for FLAC, ALAC and WAV (PCM) only, never for a lossy codec,
-   * whatever its bitrate.
+   * whatever its bitrate, nor for a file converted from lossy audio (`convertedFrom`), which is
+   * no better than its source (`convertedTier`).
    */
   tier: QualityTier
   /** Average bitrate in kbps, when known. */
@@ -67,6 +68,12 @@ export interface LocalAudioFormat {
   sampleRateHz?: number
   /** Bits per sample, for lossless files. */
   bitDepth?: number
+  /**
+   * The lossy audio the file was converted from, when its tags say so: FXM's Save to device
+   * writes `FXM_SOURCE_CODEC` (and `FXM_SOURCE_BITRATE`) into every file it makes by re-encoding
+   * lossy audio, a FLAC from YouTube's Opus, say (`@fxm/convert`).
+   */
+  convertedFrom?: LossySource
 }
 
 /** The tags FXM keeps from a file, cleaned up (see `tags.ts`). */

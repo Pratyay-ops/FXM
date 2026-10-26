@@ -11,6 +11,8 @@
  * - The sandbox documents (1.10) are opaque at their own paths, reach only their hosts, and
  *   ignore a page on another origin that frames them without the sandbox attribute. At a
  *   percent-encoded path, which their sandbox policy can't reach, they stay inert.
+ * - A player's address, such as `/embed/track/<id>`, answers 200 with the embed under the
+ *   `/embed/*` policy (a `_redirects` rewrite, src/redirects.ts), also framed by another site.
  *
  * Requests to googlevideo, YouTube and the stand-in third-party sites are answered by the test
  * itself, so nothing here contacts YouTube.
@@ -205,6 +207,40 @@ async function repliesTo(page: Page, messages: readonly unknown[]): Promise<unkn
     return received
   }, messages)
 }
+
+test("a player's address answers 200 with the embed and its policy, framed by another site", async ({
+  page,
+  baseURL,
+}) => {
+  test.skip(!(await deployed(page, '/embed/')), 'no embed deployed yet (5.2)')
+  // A source the embed doesn't play loads no service: the player says so without a request.
+  const path = '/embed/track/jamendo:fxm-route-check'
+  const direct = await page.request.get(path, { maxRedirects: 0 })
+  expect(direct.status()).toBe(200)
+  const policy = direct.headers()['content-security-policy']
+  const embed = await page.request.get('/embed/', { maxRedirects: 0 })
+  // The /embed/* rule's policy: any site may frame it, and its own frames are its own.
+  expect(policy).toBe(embed.headers()['content-security-policy'])
+  expect(policy).toContain("frame-src 'self'")
+  expect(policy).not.toContain('frame-ancestors')
+  expect(await direct.text()).toBe(await embed.text())
+  // Framed by a page on another site, as a blog embeds a player.
+  const statuses: number[] = []
+  page.on('response', (response) => {
+    if (new URL(response.url()).pathname === path) statuses.push(response.status())
+  })
+  await watchViolations(page)
+  const { frame, close } = await frameFromElsewhere(page, baseURL as string, path)
+  try {
+    await expect(frame.getByText(/can't play this/)).toBeVisible()
+    expect(statuses).toEqual([200])
+    expect(
+      await frame.evaluate(() => (window as unknown as { fxmViolations?: string[] }).fxmViolations),
+    ).toEqual([])
+  } finally {
+    await close()
+  }
+})
 
 test('a page opened by another site keeps no tie to it', async ({ page, baseURL }) => {
   const opener = '<!doctype html><title>elsewhere</title><button id="open">Open FXM</button>'

@@ -2,6 +2,9 @@ import { createHash } from 'node:crypto'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { EMBED_HEADERS } from '../../../apps/web/embed/headers.ts'
 import { pwaCspProblems } from '../../../apps/web/pwa/host.ts'
+import { EMBED_SOURCES } from '../../../apps/web/src/embed/target.ts'
+import { WIRED_SOURCES } from '../../../apps/web/src/embed/wired.ts'
+import { HOST_RULES } from '../../../packages/platform/src/hosts.ts'
 import { parsePolicy, serializePolicy, sha256Source, UNSAFE_EVAL, WASM_UNSAFE_EVAL } from './csp.ts'
 import {
   APP_SCRIPT_EXTRAS,
@@ -63,8 +66,11 @@ const SHARED_POLICY = PLAN_APP_POLICY.replace(
   )
   .replace("worker-src 'self' blob:;", "worker-src 'self';")
 
-/** The `/embed/*` policy today: the shared one, without frame-ancestors. */
-const EMBED_POLICY = SHARED_POLICY.replace(" frame-ancestors 'none';", '')
+/**
+ * The `/embed/*` policy today: no frame-ancestors, no worker, and the hosts of the two services
+ * the embed plays from, YouTube's and Internet Archive's, only.
+ */
+const EMBED_POLICY = `default-src 'self'; script-src 'self' ${HASH}; worker-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://archive.org https://*.archive.org; media-src 'self' blob: https:; connect-src 'self' https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com https://*.googlevideo.com https://archive.org https://*.archive.org; frame-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'`
 
 /**
  * What 4.2 adds for the app alone, after each service's hosts: the exact image hosts it fetches
@@ -354,7 +360,82 @@ describe('the site policies', () => {
 describe('the app policy and the installable web app', () => {
   it('allows what the PWA needs: its service worker, manifest, icons and shell download', () => {
     expect(pwaCspProblems(serializePolicy(appPolicy([HASH])))).toEqual([])
-    expect(pwaCspProblems(serializePolicy(appPolicy([HASH], { embeddable: true })))).toEqual([])
+    // The embed installs nothing and starts no worker.
+    expect(pwaCspProblems(serializePolicy(appPolicy([HASH], { embeddable: true })))).toEqual([
+      'worker-src',
+    ])
+  })
+})
+
+/** The service each source the embed can name loads from (EMBED_SOURCES). */
+const SOURCE_SERVICES: Readonly<Record<string, string>> = {
+  ytm: 'YouTube',
+  yt: 'YouTube',
+  archive: 'Internet Archive',
+  jamendo: 'Jamendo',
+}
+
+describe('the embed policy', () => {
+  it('allows the services of the sources the embed plays, and nothing else', () => {
+    expect(Object.keys(SOURCE_SERVICES).sort()).toEqual([...EMBED_SOURCES].sort())
+    const played = new Set([...WIRED_SOURCES].map((source) => SOURCE_SERVICES[source]))
+    expect(
+      APP_SERVICES.filter((service) => service.embed).map((service) => service.privacyName),
+    ).toEqual(APP_SERVICES.map((service) => service.privacyName).filter((name) => played.has(name)))
+    // Even in a build that offers every service, Jamendo's client_id included.
+    const embed = parsePolicy(serializePolicy(appPolicy([HASH], { ...ALL, embeddable: true })))
+    const allowed = [...(embed.get('connect-src') ?? []), ...(embed.get('img-src') ?? [])]
+    for (const service of APP_SERVICES.filter((candidate) => !candidate.embed)) {
+      for (const host of [...(service.connect ?? []), ...(service.img ?? [])]) {
+        expect(allowed, `${service.privacyName}: ${host}`).not.toContain(host)
+      }
+    }
+  })
+
+  it('lets the embed start no worker, which it never does', () => {
+    const embed = parsePolicy(serializePolicy(appPolicy([HASH], { embeddable: true })))
+    expect(embed.get('worker-src')).toEqual(["'none'"])
+    expect(parsePolicy(serializePolicy(appPolicy([HASH]))).get('worker-src')).toEqual(["'self'"])
+  })
+})
+
+/**
+ * Hosts the platform's host table lists that the web app's page never contacts, with why. The
+ * browser transport refuses them before the policy would.
+ */
+const NOT_FROM_THE_PAGE: Readonly<Record<string, string>> = {
+  'www.google.com':
+    "BotGuard's interpreter (1.11) sends no CORS headers: only the desktop and Android apps read it",
+  'itunes.apple.com': 'iTunes Search, which no web client calls',
+}
+
+/** Whether a policy source such as `https://*.example.com` allows a host-table row's hosts. */
+function allowsRow(sources: readonly string[], host: string): boolean {
+  return sources.some((source) => {
+    const allowed = source.replace(/^https:\/\//, '')
+    if (allowed === host) return true
+    return allowed.startsWith('*.') && !host.startsWith('*.') && host.endsWith(allowed.slice(1))
+  })
+}
+
+describe('the app policy and the platform’s host table', () => {
+  it('lets the page reach every host the browser transport sends to from the page', () => {
+    // A build with every service, as the table lists every host the app may contact.
+    const connect = parsePolicy(serializePolicy(appPolicy([HASH], ALL))).get('connect-src') ?? []
+    for (const rule of HOST_RULES) {
+      if (Object.hasOwn(NOT_FROM_THE_PAGE, rule.host)) {
+        expect(allowsRow(connect, rule.host), rule.host).toBe(false)
+        continue
+      }
+      expect(allowsRow(connect, rule.host), `${rule.host} (${rule.hostClass})`).toBe(true)
+    }
+  })
+
+  it('reads the table by host and wildcard, as CSP does', () => {
+    expect(allowsRow(['https://*.archive.org'], '*.archive.org')).toBe(true)
+    expect(allowsRow(['https://*.archive.org'], 'ia800.us.archive.org')).toBe(true)
+    expect(allowsRow(['https://*.archive.org'], 'archive.org')).toBe(false)
+    expect(allowsRow(['https://yt3.ggpht.com'], '*.ggpht.com')).toBe(false)
   })
 })
 
@@ -386,6 +467,10 @@ describe('the headers of every response', () => {
     for (const [name, value] of COMMON_HEADERS) {
       expect(EMBED_HEADERS[name.toLowerCase()], name).toBe(value)
     }
+    // Its policy too, without the app's theme-script hash, which the player doesn't need.
+    expect(EMBED_HEADERS['content-security-policy']).toBe(
+      serializePolicy(appPolicy([], { ...ALL, embeddable: true })),
+    )
   })
 
   it('find a Permissions-Policy that turns off more, or allows something', () => {

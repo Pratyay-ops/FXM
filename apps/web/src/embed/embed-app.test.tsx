@@ -2,6 +2,7 @@ import { FxmError } from '@fxm/core'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { asBrowser, USER_AGENTS } from '../features/connect/testing'
 import { EmbedPlayerView } from './components/layouts'
 import { EmbedApp, InvalidEmbed } from './embed-app'
 import type { EmbedLayout } from './target'
@@ -86,7 +87,17 @@ describe('EmbedApp', () => {
     await act(() => settle())
 
     expect(controller.getState().player?.queue.index).toBe(1)
-    expect(within(list).getAllByRole('button')[1]).toHaveAttribute('aria-current', 'true')
+    const current = within(list).getAllByRole('button')[1]
+    expect(current).toHaveAttribute('aria-current', 'true')
+    // The app's "now playing" marker takes the number's place, and the name says it.
+    expect(current).toHaveAccessibleName(`Play ${SONG_B.title} by The Testers. Now playing`)
+    expect(current?.querySelector('svg[data-now-playing]')).toHaveAttribute(
+      'data-now-playing',
+      'playing',
+    )
+    expect(rows.filter((row) => row.querySelector('svg[data-now-playing]') !== null)).toEqual([
+      current,
+    ])
     // The card says what plays now, above the seek bar.
     expect(
       screen.getByText(
@@ -103,6 +114,25 @@ describe('EmbedApp', () => {
     expect(controller.getState().player?.queue.index).toBe(1)
   })
 
+  it('says in the track list when a song couldn’t play', async () => {
+    const { user, controller, ladder } = await renderEmbed({ target: targetOf(ALBUM) })
+    ladder.errors.set('songB', new FxmError('BotCheck', 'Sign in to confirm'))
+    const list = screen.getByRole('list', { name: 'Tracks' })
+
+    await user.click(
+      within(list).getByRole('button', { name: `Play ${SONG_B.title} by The Testers` }),
+    )
+    await act(() => settle())
+
+    expect(controller.getState().player?.status).toBe('error')
+    const current = within(list).getAllByRole('button')[1]
+    expect(current).toHaveAttribute('aria-current', 'true')
+    expect(current).toHaveAccessibleName(`Play ${SONG_B.title} by The Testers. Couldn’t play`)
+    const bars = current?.querySelector('svg[data-now-playing]')
+    expect(bars).toHaveAttribute('data-now-playing', 'error')
+    expect(bars).not.toHaveAttribute('data-moving')
+  })
+
   it('fits an album in one row in the compact layout', async () => {
     const { user } = await renderEmbed({ target: targetOf(ALBUM), layout: 'compact' })
     expect(screen.getByRole('heading', { level: 1, name: ALBUM.name })).toHaveClass('sr-only')
@@ -115,9 +145,29 @@ describe('EmbedApp', () => {
     expect(screen.getByText(`The Testers · ${ALBUM.name}`)).toBeVisible()
   })
 
-  it('shows the install hint for YouTube content without Lite', async () => {
+  it('offers FXM for YouTube content without Lite in a frame, where FXM Connect never reaches', async () => {
     await renderEmbed({ target: targetOf(SONG_A), capabilities: CAPABILITIES.free })
     expect(screen.getByText('A song from YouTube Music')).toBeVisible()
+    expect(screen.getByRole('status')).toHaveTextContent(
+      "YouTube Music can't play in this player in this browser. Open it in FXM instead.",
+    )
+    expect(screen.queryByText(/FXM Connect/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^Get FXM/ })).not.toBeInTheDocument()
+    // The mark, and the message's action in its two shapes, all to the app (the song's title
+    // isn't known, so its home).
+    const links = screen.getAllByRole('link', { name: 'Open in FXM (opens a new tab)' })
+    expect(links).toHaveLength(3)
+    for (const link of links) expect(link).toHaveAttribute('href', `${ORIGIN}/app/`)
+    expect(screen.queryByRole('button', { name: /^Play/ })).not.toBeInTheDocument()
+  })
+
+  it('shows the install hint, worded for the device, on a page of its own', async () => {
+    asBrowser(USER_AGENTS.chromeWindows)
+    const chrome = await renderEmbed({
+      target: targetOf(SONG_A),
+      capabilities: CAPABILITIES.free,
+      standalone: true,
+    })
     const status = screen.getByRole('status')
     expect(within(status).getByText(/Add the free FXM Connect extension/)).toBeVisible()
     // An icon button on narrow players, words from 25rem: one shows at a time, by CSS.
@@ -128,7 +178,20 @@ describe('EmbedApp', () => {
       expect(link).toHaveAttribute('target', '_blank')
       expect(link).toHaveAttribute('rel', 'noopener noreferrer')
     }
-    expect(screen.queryByRole('button', { name: /^Play/ })).not.toBeInTheDocument()
+    chrome.controller.destroy()
+    cleanup()
+
+    // No browser on an iPhone can add FXM Connect, and the hint says so.
+    asBrowser(USER_AGENTS.iphone)
+    await renderEmbed({
+      target: targetOf(SONG_A),
+      capabilities: CAPABILITIES.free,
+      standalone: true,
+    })
+    expect(screen.getByRole('status')).toHaveTextContent(
+      "YouTube Music needs FXM Connect, which isn't available on iPhone and iPad.",
+    )
+    expect(screen.getAllByRole('link', { name: 'Get FXM (opens a new tab)' })).toHaveLength(2)
   })
 
   it("tells why a track didn't play in few words, next to the play button", async () => {
@@ -146,10 +209,23 @@ describe('EmbedApp', () => {
   })
 
   it('fits a message in the compact layout without the FXM mark', async () => {
+    const framed = await renderEmbed({
+      target: targetOf(SONG_A),
+      capabilities: CAPABILITIES.free,
+      layout: 'compact',
+    })
+    expect(screen.getByRole('status')).toHaveTextContent("YouTube Music can't play here.")
+    // The message's action in its two shapes, and no mark.
+    expect(screen.getAllByRole('link', { name: 'Open in FXM (opens a new tab)' })).toHaveLength(2)
+    framed.controller.destroy()
+    cleanup()
+
+    asBrowser(USER_AGENTS.chromeWindows)
     await renderEmbed({
       target: targetOf(SONG_A),
       capabilities: CAPABILITIES.free,
       layout: 'compact',
+      standalone: true,
     })
     // Only FXM Connect until the desktop or Android app is out (RELEASED).
     expect(screen.getByRole('status')).toHaveTextContent('Needs FXM Connect to play here.')

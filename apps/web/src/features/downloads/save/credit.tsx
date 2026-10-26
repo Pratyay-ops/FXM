@@ -1,17 +1,5 @@
-import { APP_BASE } from '../../../../pwa/base'
+import { noticesUrl } from '../../../lib/notices'
 import { ExternalLink, textLinkClasses } from '../../connect/ui'
-
-/** The site's third-party notices, as FXM's own site serves them. */
-const PUBLIC_NOTICES_URL = 'https://fxmusic.pages.dev/third-party-notices.txt'
-
-/**
- * Where the third-party notices are: at the root of the deploy that serves the web app (its
- * `/app/` build), else on FXM's own site. They name every part of the ffmpeg core with its
- * licence, its source and how to replace it (tools/ffmpeg-wasm).
- */
-export function noticesUrl(base: string = import.meta.env.BASE_URL): string {
-  return base === APP_BASE ? '/third-party-notices.txt' : PUBLIC_NOTICES_URL
-}
 
 /**
  * The credit for the ffmpeg core, in a sentence: the LGPL asks for prominent notice that the

@@ -5,14 +5,15 @@ import {
   type PluginOffer,
   type PluginRegistry,
 } from '@fxm/plugins'
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { buttonClasses } from '../../components/ui/button'
+import { currentDevice, type DeviceInfo } from '../connect/device'
 import { showStatus } from '../library/status'
 import { SettingSwitch } from '../settings/setting-switch'
 import { SettingRow, SettingsSection } from '../settings/settings-layout'
 import { AddressDialog, OfferDialog, RemoveDialog } from './plugin-dialogs'
 import {
-  operationsText,
+  operationsSentences,
   originText,
   pluginFailureText,
   pluginTitle,
@@ -25,11 +26,38 @@ import {
   getPluginRegistry,
   pluginDownloadFetch,
   pluginsNeedOptIn,
+  pluginWorkersRun,
   startPlugins,
   stopPlugins,
 } from './runtime'
 
 const NO_ENTRIES: readonly PluginEntry[] = []
+
+/**
+ * Why this browser offers no plugins, where its evaluator document can't start their workers
+ * (`pluginWorkersRun`): every browser on iPhone and iPad, and Safari elsewhere.
+ */
+export function cantRunPluginsText(device: DeviceInfo): string {
+  if (device.os === 'ios') {
+    return 'Plugins can’t run on iPhone and iPad yet: no browser there can start the separate worker FXM runs each plugin in.'
+  }
+  return 'Plugins can’t run in this browser yet: it can’t start the separate worker FXM runs each plugin in, as Safari can’t. They run in Chrome, Edge, Brave and Firefox.'
+}
+
+/** Whether plugins can run in this browser (`pluginWorkersRun`), `undefined` while FXM checks. */
+function usePluginWorkers(): boolean | undefined {
+  const [runs, setRuns] = useState<boolean>()
+  useEffect(() => {
+    let live = true
+    void pluginWorkersRun().then((answer) => {
+      if (live) setRuns(answer)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  return runs
+}
 
 /** The registry's plugins, live. */
 function useEntries(registry: PluginRegistry): readonly PluginEntry[] {
@@ -64,9 +92,9 @@ function PluginRow({
             {manifest?.description !== undefined && <p>{manifest.description}</p>}
             {entry.problem === undefined ? (
               <>
-                {entry.manifest.provides.length > 0 && (
-                  <p>Adds {operationsText(entry.manifest.provides)}.</p>
-                )}
+                {operationsSentences(entry.manifest.provides, '').map((sentence) => (
+                  <p key={sentence}>{sentence}</p>
+                ))}
                 <p className="wrap-anywhere">
                   {entry.manifest.hosts.length === 0
                     ? 'Contacts no addresses.'
@@ -147,6 +175,8 @@ function PluginManager() {
   const fileInput = useRef<HTMLInputElement>(null)
   const helpId = useId()
   const listLabelId = useId()
+  const runs = usePluginWorkers()
+  const device = useMemo(currentDevice, [])
 
   useEffect(() => {
     void startPlugins()
@@ -186,40 +216,57 @@ function PluginManager() {
             shows you which addresses it can contact.
           </p>
           <p>
-            Each plugin runs apart from the app, reaches only the addresses it lists, and is updated
-            only when you approve the update.
+            Each plugin runs apart from the app, sends its requests only to the addresses it lists
+            (though the servers its songs play from may pass the audio on to other hosts), and is
+            updated only when you approve the update.
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            aria-describedby={helpId}
-            className={buttonClasses({ variant: 'secondary' })}
-            onClick={() => setAskingAddress(true)}
-          >
-            Add from an address
-          </button>
-          <button
-            type="button"
-            aria-describedby={helpId}
-            className={buttonClasses({ variant: 'secondary' })}
-            onClick={() => fileInput.current?.click()}
-          >
-            Add from a file
-          </button>
-          <input
-            ref={fileInput}
-            type="file"
-            accept=".json,application/json"
-            hidden
-            data-testid="plugin-file"
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0]
-              event.currentTarget.value = ''
-              if (file !== undefined) void readFile(file)
-            }}
-          />
-        </div>
+        {runs === false ? (
+          // WebKit: every plugin would fail with "Plugins can't run in this browser".
+          <p className="text-sm font-semibold text-text">{cantRunPluginsText(device)}</p>
+        ) : (
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              aria-describedby={helpId}
+              aria-disabled={runs === undefined}
+              className={buttonClasses({ variant: 'secondary' })}
+              onClick={() => {
+                if (runs === true) setAskingAddress(true)
+              }}
+            >
+              Add from an address
+            </button>
+            <button
+              type="button"
+              aria-describedby={helpId}
+              aria-disabled={runs === undefined}
+              className={buttonClasses({ variant: 'secondary' })}
+              onClick={() => {
+                if (runs === true) fileInput.current?.click()
+              }}
+            >
+              Add from a file
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".json,application/json"
+              hidden
+              data-testid="plugin-file"
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0]
+                event.currentTarget.value = ''
+                if (file !== undefined) void readFile(file)
+              }}
+            />
+            {runs === undefined && (
+              <p role="status" className="basis-full text-sm text-text-muted">
+                Checking whether plugins can run in this browser…
+              </p>
+            )}
+          </div>
+        )}
       </div>
       {entries.length > 0 && (
         <div>

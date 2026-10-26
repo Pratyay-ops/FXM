@@ -64,13 +64,29 @@ export function id3TextFrame(frame: Id3Frame): string {
   return id3Text(frame.body[0] ?? 0, frame.body.subarray(1))
 }
 
-/** The text and picture details of the frames FXM writes, by frame ID. */
+/**
+ * The text and picture details of the frames FXM writes, by frame ID: a user-defined text frame
+ * as `TXXX:<description>`, a comment as `COMM` (its language, then its text).
+ */
 export function id3Summary(bytes: Uint8Array): Record<string, string> {
   const tag = readId3v2(bytes)
   const summary: Record<string, string> = {}
   for (const frame of tag?.frames ?? []) {
-    if (frame.id.startsWith('T')) summary[frame.id] = id3TextFrame(frame)
-    else if (frame.id === 'USLT') {
+    if (frame.id === 'TXXX') {
+      // encoding, description (UTF-16: BOM + 00 00 terminator), value
+      const body = frame.body.subarray(1)
+      const terminator = findUtf16Terminator(body)
+      const encoding = frame.body[0] ?? 0
+      const description = id3Text(encoding, body.subarray(0, terminator))
+      summary[`TXXX:${description}`] = id3Text(encoding, body.subarray(terminator + 2))
+    } else if (frame.id.startsWith('T')) summary[frame.id] = id3TextFrame(frame)
+    else if (frame.id === 'COMM') {
+      // encoding, language, short description, text: as USLT
+      const body = frame.body.subarray(4)
+      const terminator = findUtf16Terminator(body)
+      const language = ascii(frame.body, 1, 3)
+      summary.COMM = `${language} ${id3Text(frame.body[0] ?? 0, body.subarray(terminator + 2))}`
+    } else if (frame.id === 'USLT') {
       // encoding, language, descriptor (UTF-16: BOM + 00 00 terminator), text
       const body = frame.body.subarray(4)
       const terminator = findUtf16Terminator(body)

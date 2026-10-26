@@ -48,15 +48,17 @@ What changed:
 | | Milestone | Stages | Tag | Result |
 |---|---|---|---|---|
 | **M0** ✅ | Foundation | Phase 0 | — | Repo, isolated toolchain, monorepo, CI |
-| **M1** | Play anything on the web | Phases 1–2 except 1.11 and 1.13, plus 5.3, R.1, R.4 | `v0.1.0` | The web app plays YouTube Music songs in Music or Music + Video mode with FXM Connect, and without it in the experimental Lite tier (at least in Chromium, unless its kill switch is on). Free sources, Spotify metadata, lyrics and a library work too. Matches auto-play only if the 1.12 report passes; otherwise M1 is Suggest-only. The landing page is live |
-| **M2** | Made for you | Phase 3 | `v0.2.0` | Home feed, daily mixes, endless radio, Spotify account sync, imports (including Spotify's data export) |
-| **M3** | Offline and lossless | Phase 4 | `v0.3.0` | Downloads in any format, local files |
-| **M4** | Web applet and embed | 5.1, 5.2 | `v0.4.0` | Installable PWA window, embeddable mini-player (Lite inside other sites) |
-| **M5** | Android | Phase 6 | `v0.5.0` | Signed APK on GitHub Releases |
-| **M6** | Desktop | Phase 7, 1.11, 1.13 | `v0.6.0` | Tauri app for macOS, Windows and Linux with auto-update, the signed resolver module and the experimental YouTube rungs |
+| **M1** ✅ | Play anything on the web | Phases 1–2 except 1.11 and 1.13, plus 5.3, R.1, R.4 | `v0.1.0` | The web app plays YouTube Music songs in Music or Music + Video mode with FXM Connect, and without it in the experimental Lite tier (at least in Chromium, unless its kill switch is on). Free sources, Spotify metadata, lyrics and a library work too. Matches auto-play only if the 1.12 report passes; otherwise M1 is Suggest-only, as `v0.1.0` shipped. The landing page is live |
+| **M2** ✅ | Made for you | Phase 3 | `v0.2.0` | Home feed, daily mixes, autoplay (endless radio), Spotify account sync (experimental: see 3.5), imports (including Spotify's data export) |
+| **M3** ✅ | Offline and lossless | Phase 4 | `v0.2.0` | Downloads in any format, local files |
+| **M4** ✅ | Web applet and embed | 5.1, 5.2 | `v0.2.0` | Installable PWA window, embeddable mini-player (Lite inside other sites) |
+| **M5** | Android | Phase 6 | `v0.3.0` | Signed APK on GitHub Releases |
+| **M6** | Desktop | Phase 7, 1.11, 1.13 | `v0.3.0` | Tauri app for macOS, Windows and Linux with auto-update, the signed resolver module and the experimental YouTube rungs |
 | **M7** | 1.0 | Phase 8, R.2, R.3 | `v1.0.0` | Effects, scrobbling, plugins, sync, SponsorBlock, quality pass, more channels |
 
 Milestones are release points, not a strict order. A stage can finish before its milestone and ship in the next release: 1.11, 1.13 and R.2 run in the waves to M1, which doesn't wait for them. The Android (6.x) and desktop (7.x) lanes run alongside.
+
+M1 shipped as `v0.1.0`. M2, M3 and M4 shipped together as `v0.2.0`, and Phase 8 stages ship early too: 8.2, 8.4 and 8.7 in `v0.1.0`, 8.1 and 8.3 in `v0.2.0`. The owner chose to release the web app first; M5 and M6 ship together as `v0.3.0` (2026-10-26), because once the Android and desktop release stages are on `develop`, every release builds and signs their files.
 
 ### Parallel waves to M1
 
@@ -126,7 +128,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | ✅ |
 | **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | ✅ |
 | **3.4** | Endless autoplay radio | `feat/3.4-autoplay` | 3.3 | ✅ |
-| **3.5** | Spotify account connect and sync (web) | `feat/3.5-spotify-sync` | 1.5, 2.6, 2.7 | ✅ |
+| **3.5** | Spotify account connect and sync (web), experimental in `v0.2.0` | `feat/3.5-spotify-sync` | 1.5, 2.6, 2.7 | ✅ |
 | **3.6** | Imports: Spotify, YouTube playlists, CSV/M3U, data export | `feat/3.6-imports` | 1.5, 1.7, 2.6, 3.1 | ✅ |
 | **4.1** | Download manager + offline playback | `feat/4.1-downloads` | 2.3, 2.6 | ✅ |
 | **4.2** | Conversion and tagging (custom LGPL ffmpeg.wasm build, mp4box.js) | `feat/4.2-convert` | 4.1 | ✅ |
@@ -138,24 +140,24 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | ✅ |
 | **6.2** | Android native fetch (OkHttp plugin; YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | ✅ |
 | **6.3** | Native player (Media3) | `feat/6.3-native-player` | 6.1, 2.3 | ✅ |
-| **6.4** | Native downloads + device music | `feat/6.4-native-downloads` | 6.3, 4.1 | ⬜ |
-| **6.5** | Spotify login on Android | `feat/6.5-android-spotify-login` | 6.2, 3.5 | ⬜ |
-| **6.6** | Signed APK release | `ci/6.6-apk-release` | 6.3, R.1 | ⬜ |
+| **6.4** | Native downloads + device music | `feat/6.4-native-downloads` | 6.3, 4.1 | 🟡 |
+| **6.5** | Spotify login on Android | `feat/6.5-android-spotify-login` | 6.2, 3.5 | 🟡 |
+| **6.6** | Signed APK release | `ci/6.6-apk-release` | 6.3, R.1 | 🟡 |
 | **7.1** | Desktop shell (Tauri 2, Rust toolchain in `.tools/`) | `feat/7.1-desktop-shell` | 2.1 | ✅ |
 | **7.2** | Desktop native fetch | `feat/7.2-desktop-fetch` | 7.1, 1.2, 1.4 | ✅ |
 | **7.3** | Desktop playback and OS integration | `feat/7.3-desktop-playback` | 7.2, 2.3 | ✅ |
-| **7.4** | Desktop downloads + Spotify login window | `feat/7.4-desktop-downloads` | 7.2, 4.1, 3.5 | ⬜ |
-| **7.5** | Desktop release: installers and auto-update | `ci/7.5-desktop-release` | 7.3, R.1 | ⬜ |
-| **7.6** | Desktop trust: signing and EQ path | `chore/7.6-desktop-trust` | 7.5, 1.11 | ⬜ |
+| **7.4** | Desktop downloads + Spotify login window | `feat/7.4-desktop-downloads` | 7.2, 4.1, 3.5 | 🟡 |
+| **7.5** | Desktop release: installers and auto-update | `ci/7.5-desktop-release` | 7.3, R.1 | 🟡 |
+| **7.6** | Desktop trust: signing and EQ path | `chore/7.6-desktop-trust` | 7.5, 1.11 | 🟡 |
 | **R.1** | Release pipeline (release PR, tags, notes, checksums, attestations) | `ci/r1-release-pipeline` | 0.4, 1.9 | ✅ |
 | **R.2** | Extension store channels: Firefox Add-ons and Edge Add-ons | `ci/r2-extension-stores` | R.1 | ✅ |
-| **R.3** | More channels: F-Droid/IzzyOnDroid/Obtainium, Flathub, winget (Homebrew only if notarized) | `chore/r3-channels` | 6.6, 7.5 | ⬜ |
+| **R.3** | More channels: F-Droid/IzzyOnDroid/Obtainium, Flathub, winget (Homebrew only if notarized) | `chore/r3-channels` | 6.6, 7.5 | 🟡 |
 | **R.4** | Legal notices and clean-room log | `docs/r4-legal-notices` | 0.4, 5.3 | ✅ |
 | **8.1** | Audio effects: EQ, crossfade, sleep timer, speed, loudness | `feat/8.1-audio-fx` | 2.3, 6.3, 7.3 | ✅ |
 | **8.2** | Scrobbling (Last.fm, ListenBrainz) | `feat/8.2-scrobbling` | 3.1 | ✅ |
 | **8.3** | Plugin system for sources and resolvers | `feat/8.3-plugins` | 1.4, 1.5, 1.11 | ✅ |
 | **8.4** | Backup sync (GitHub Gist) | `feat/8.4-sync` | 2.6 | ✅ |
-| **8.5** | i18n, accessibility, e2e tests, performance | `chore/8.5-quality-pass` | 5.1 | ⬜ |
+| **8.5** | i18n, accessibility, e2e tests, performance | `chore/8.5-quality-pass` | 5.1 | 🟡 |
 | **8.7** | SponsorBlock in Music + Video (opt-in) | `feat/8.7-sponsorblock` | 2.3, 2.5 | ✅ |
 
 Removed in revision 3:
@@ -195,7 +197,7 @@ Removed in revision 2:
 
 ---
 
-## Phase 1: Core, platform and sources
+## Phase 1: Core, platform and sources ✅
 
 ### 1.1 Core domain model, interfaces, mode and quality policy ✅
 
@@ -460,7 +462,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - **Manual test.** A full-length Lite playback of one song in Chromium and Firefox (and Safari if available), with the date and browser versions in the package README.
 - The kill switch disables the tier.
 
-### 1.11 YouTube resolver: deciphered, attested and SABR rungs (experimental)
+### 1.11 YouTube resolver: deciphered, attested and SABR rungs (experimental) ✅
 
 **Branch** `feat/1.11-youtube-advanced-rungs` · **Depends on** 1.2, 1.4, 1.9, 2.2, 6.1, 7.1 · **Scope** `packages/sources/src/youtube/stream/advanced/**`, `packages/player/src/engines/mse/**`, `packages/platform/src/evaluator/**`, `apps/web/sandbox/eval.html`, the evaluator hosts in `apps/desktop/src-tauri/` and `apps/mobile/android/`, the BotGuard sentence in `apps/site/src/pages/privacy.astro`
 
@@ -486,7 +488,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - Rungs that fail stay off, with the failure recorded in the package README.
 - Fixture tests cover rung selection.
 
-### 1.12 Matching evaluation: labelled set, report and Auto switch
+### 1.12 Matching evaluation: labelled set, report and Auto switch ✅
 
 **Branch** `test/1.12-matching-eval` · **Depends on** 1.2, 1.3, 1.5, 1.6, 1.7 · **Scope** `packages/core/src/matching/eval/**` (the labelled set, offline replay and report), `packages/sources/src/eval/**` (the live recorder, so core stays free of network code)
 
@@ -534,7 +536,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 
 ---
 
-## Phase 2: Web player (→ M1)
+## Phase 2: Web player (→ M1) ✅
 
 ### 2.1 Web app shell and settings ✅
 
@@ -652,7 +654,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 
 **Done when** migrations and tests cover the match-cache fields, import progress and the ordering features.
 
-### 2.7 Tiers, onboarding and install guides
+### 2.7 Tiers, onboarding and install guides ✅
 
 **Branch** `feat/2.7-connect-onboarding` · **Depends on** 2.1, 1.2, 1.6, 1.9, 1.10 · **Scope** `apps/web/src/features/connect/**`, and for the landing-page copy `apps/site/src/**` (components, pages, `config.ts`, and the `lib` helpers and tests the copy needs)
 
@@ -685,7 +687,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 
 **Done when** Playwright tests with fakes cover each tier, the prompt for an outdated extension, the disabled-Connect path and the Diagnostics self-test, and the site's copy tests cover both values of `AVAILABLE.lite`.
 
-### 2.9 App composition: real providers, resolver and player
+### 2.9 App composition: real providers, resolver and player ✅
 
 **Branch** `feat/2.9-app-wiring` · **Depends on** 1.4, 2.3, 2.4, 2.6 (and the merged 1.2, 1.3, 1.5, 1.6, 1.7, 1.8, 2.2) · **Scope** `apps/web/src/app/services/**` (the composition root), `apps/web/src/main.tsx`, and the seams earlier stages left in `apps/web/src/features/**`
 
@@ -715,28 +717,30 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
   - the app at `/app/`;
   - the embed at `/embed/`;
   - the sandbox documents at `/sandbox/`;
-  - a generated `_headers` file.
+  - the ffmpeg core's source at `/source/ffmpeg-core/` (4.2): the tarballs it was built from and FXM's recipe, on the same site as the core at `/app/ffmpeg/`, as the LGPL asks;
+  - a generated `_headers` file, and a `_redirects` file whose 200 rewrites answer the embed's player addresses (`/embed/track/*`, `/embed/album/*`, `/embed/playlist/*`) with its page; the app's routes keep its `404.html` copy.
 - One host, the Cloudflare Pages project `fxmusic`: `develop` deploys to the preview, the `main` release deploys to production.
 - Owner actions: a free Cloudflare account, and the GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
-- **Header rules.** No two rules match the same path. Every rule also sets `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
+- **Header rules.** No two rules match the same path. Every rule also sets `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Cross-Origin-Opener-Policy: same-origin` and a `Permissions-Policy` that turns off only features FXM never uses.
+
+  `scripts/build-dist/src/policies.ts` builds every policy, and `make dist` writes them into `dist/pages/_headers`, which is the reference for their exact sources. This table says what each rule allows and why; it doesn't copy the policies, so it can't drift from them.
 
 | Rule (path) | Content-Security-Policy | Why |
 |---|---|---|
-| Each site page, listed one by one (today `/`, `/privacy`, `/disclaimer`, `/404.html`), and `/_astro/*` | The site's own policy, with its inline scripts and styles allowed by hash ([apps/site/README.md](../apps/site/README.md)) | One rule per page, so no rule overlaps `/app/`, `/embed/` or `/sandbox/`, and none needs `/*` |
-| `/app/*` | `default-src 'self'; script-src 'self' 'sha256-…'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://*.scdn.co https://*.spotifycdn.com https://archive.org https://*.archive.org https://*.jamendo.com; media-src 'self' blob: https:; connect-src 'self' https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com https://*.googlevideo.com https://open.spotify.com https://api-partner.spotify.com https://spclient.wg.spotify.com https://musicbrainz.org https://archive.org https://*.archive.org https://*.jamendo.com https://lrclib.net https://sponsor.ajay.app; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'` | See the notes below |
-| `/embed/*` | As `/app/*`, without `frame-ancestors` | Any site may embed the player. Lite still works inside third-party pages, because the sandbox documents set no `frame-ancestors` |
-| `/sandbox/innertube.html` | `sandbox allow-scripts; default-src 'none'; script-src 'sha256-…'; connect-src https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com; base-uri 'none'; form-action 'none'` | `sandbox` makes it opaque however it is loaded |
-| `/sandbox/userhost.html` | `sandbox allow-scripts; default-src 'none'; script-src 'sha256-…'; connect-src https:; base-uri 'none'; form-action 'none'` | GET only, to user-configurable hosts |
-| `/sandbox/eval.html` (1.11) | `sandbox allow-scripts; default-src 'none'; script-src 'sha256-…' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'` | The only document with `'unsafe-eval'` |
+| Each site page, listed one by one (today `/`, `/privacy`, `/disclaimer`, `/404.html`) | The site's own policy, with its inline scripts and styles allowed by hash ([apps/site/README.md](../apps/site/README.md)) | One rule per page, so no rule overlaps `/app/`, `/embed/` or `/sandbox/`, and none needs `/*` |
+| `/_astro/*`, `/.well-known/*`, `/source/*` (the ffmpeg core's source) and every other file | Nothing allowed (`STATIC_FILE_POLICY`) | Files, not pages: the policy matters only when a browser opens one as a document, such as an SVG |
+| `/app/*` | `appPolicy()`: its own scripts and the inline theme script by hash, plus `'wasm-unsafe-eval'` for the ffmpeg core (4.2); workers from its own origin only; images, media and connections from the hosts of the services it uses (`APP_SERVICES`), plus the exact hosts whose covers go into saved files (4.2); `frame-ancestors 'none'` | See the notes below |
+| `/embed/*` | `appPolicy({ embeddable: true })`: built from the same lists, without `frame-ancestors`, without what only the app needs, such as `'wasm-unsafe-eval'` and the saved files' cover hosts, with `worker-src 'none'`, and with only the hosts of the services the embed plays from, YouTube's and Internet Archive's | Any site may embed the player, which contacts nothing else. Lite still works inside third-party pages, because the sandbox documents set no `frame-ancestors` |
+| `/sandbox/innertube.html` | `sandbox allow-scripts`, its script by hash, and `connect-src` to the three InnerTube hosts only | `sandbox` makes it opaque however it is loaded |
+| `/sandbox/userhost.html` | `sandbox allow-scripts`, its script by hash, and `connect-src https:` | GET only, to user-configurable hosts |
+| `/sandbox/eval.html` (1.11) | `sandbox allow-scripts`, its script by hash with `'unsafe-eval'` and `'wasm-unsafe-eval'`, `connect-src 'none'`, and `worker-src blob:` for the plugin workers of 8.3 | The only document with `'unsafe-eval'`. The workers it starts inherit its `connect-src 'none'` |
 
   Notes on the `/app/*` rule:
 
-  - It allows only what the shipped stages use: M1's, plus SponsorBlock (`sponsor.ajay.app`, 8.7), which merged before M1's release. Later stages add what they need when they ship (Definition of done), so the `_headers` generator builds this rule from lists that a stage can extend without editing the rule:
-    - 1.11: the BotGuard hosts, once one of its rungs is on;
-    - 3.2: Last.fm (`www.last.fm`, `ws.audioscrobbler.com`, `lastfm.freetls.fastly.net`), ListenBrainz (`api.listenbrainz.org`, `labs.api.listenbrainz.org`), Cover Art Archive (`coverartarchive.org`) and iTunes Search (`itunes.apple.com`, `*.mzstatic.com`);
-    - 4.2: `'wasm-unsafe-eval'`, for ffmpeg.wasm in its worker.
-  - 8.2 (shipped) added ListenBrainz (`api.listenbrainz.org`) and Last.fm (`ws.audioscrobbler.com`), and 8.4 (shipped) GitHub's API (`api.github.com`) for gist sync, after the row's hosts; the deploy tests list them as later hosts.
-  - The line is about 850 characters at M1, and about 1,200 with all of the above, under the 2,000-character limit.
+  - It allows only what the shipped stages use. A stage that makes the app contact a new service adds the service to `APP_SERVICES`, with the hosts it needs, and names it on the site's privacy page (Definition of done); `make dist` fails when a host in a policy belongs to no service in that list, or the privacy page doesn't name the service.
+  - Added since M1: 3.2's Last.fm, ListenBrainz and Cover Art Archive hosts (not iTunes Search, which the app doesn't call), 8.2's scrobbling APIs, 8.4's GitHub API, and 4.2's `'wasm-unsafe-eval'` and cover hosts. Still to come: 1.11's BotGuard hosts, once one of its rungs is on.
+  - `worker-src 'self'`: every worker the app starts is a file of its own build (the service worker, the downloads' storage worker and the conversion worker). Plugins' workers start in `eval.html`, under its policy.
+  - The line is about 1,150 characters in v0.2.0, under the 2,000-character limit.
   - The `sha256-…` hashes, here and in the sandbox rules, are computed at build: for the app, the inline theme script in `apps/web/index.html`.
   - `media-src https:` covers googlevideo, Internet Archive's redirect hosts (`ia*.us.archive.org`), Jamendo's storage hosts and a user's Invidious proxy. Page script can't read media responses.
   - The Spotify hosts are there because Spotify is built in (Decision 1, option A). The secret source goes through `userhost.html`, and `clienttoken` is not needed today.
@@ -818,32 +822,32 @@ A light stage. There are no mirrors in this revision.
 
 ---
 
-## Phase 3: Made for you (→ M2)
+## Phase 3: Made for you (→ M2) ✅
 
 | ID | Stage | Notes |
 |---|---|---|
-| 3.1 | Listening signals and affinity | Play events (played ms, completion, skip, context, stream), likes, playlist adds. Incremental time-decayed affinity for tracks, artists and tags (half-life about 14 days). An event API that 3.6 also feeds with imported history |
-| 3.2 | Recommendation providers | YouTube Music radio, seeded with the song in Music mode and still filtered to songs. Spotify radio, related artists and home when Spotify is on. Last.fm keyless station JSON (Full tier only; in Music mode each YouTube ID is classified before it is queued, within the budget, or stations serve only as artist-and-title seeds) and similar artists. ListenBrainz similar artists, which need no key (LB Radio needs a user token). All mode-aware. Cover Art Archive (by MusicBrainz release) and iTunes Search fill missing artwork for any track |
-| 3.3 | Recommendation engine + Home | Candidates, scoring, MMR diversity, per-artist cap, history dedup. Shelves: Quick picks, Daily Mixes, Discover, Because you listened, Rediscover, On repeat, plus Spotify sections when connected. Onboarding for a cold start. Deterministic tests |
-| 3.4 | Endless autoplay radio | Extend the queue from the last 5 plays when fewer than 3 tracks remain; likes and skips retune it; no repeats within N tracks; can be switched off |
-| 3.5 | Spotify account connect and sync (web) | "Connect your account" using the browser's Spotify session through the FXM Connect bridge, opt-in, with a notice that Spotify's User Guidelines forbid automated access (no public case of an account actioned for metadata use). Sync the personalized home, liked songs and playlists into the library, read-only. Disconnect clears tokens. Done when a manual live test in Chrome and Firefox, with third-party cookies allowed and blocked, is documented. Desktop is 7.4 and Android 6.5 |
-| 3.6 | Imports | Spotify's "Download your data" JSON is first-class and needs no Spotify provider: rows go through the MusicBrainz exact path, then no-duration mode (capped at Suggest), and its streaming history becomes 3.1 listening signals. Spotify playlist, album and track URLs through 1.5; YouTube and YouTube Music playlists; CSV (Exportify columns); M3U. Mode-aware matching with a review list; resumable; paced by the request budget. Done when a 100-track playlist imports with a match report |
+| 3.1 | Listening signals and affinity ✅ | Play events (played ms, completion, skip, context, stream), likes, playlist adds. Incremental time-decayed affinity for tracks, artists and tags (half-life about 14 days). An event API that 3.6 also feeds with imported history |
+| 3.2 | Recommendation providers ✅ | YouTube Music radio, seeded with the song in Music mode and still filtered to songs. Spotify radio, related artists and home when Spotify is on. Last.fm keyless station JSON (Full tier only; in Music mode each YouTube ID is classified before it is queued, within the budget, or stations serve only as artist-and-title seeds) and similar artists. ListenBrainz similar artists, which need no key (LB Radio needs a user token). All mode-aware. Cover Art Archive (by MusicBrainz release) and iTunes Search fill missing artwork for any track |
+| 3.3 | Recommendation engine + Home ✅ | Candidates, scoring, MMR diversity, per-artist cap, history dedup. Shelves: Quick picks, Daily Mixes, Discover, Because you listened, Rediscover, On repeat, plus Spotify sections when connected. Onboarding for a cold start. Deterministic tests |
+| 3.4 | Endless autoplay radio ✅ | Extend the queue from the last 5 plays when fewer than 3 tracks remain; likes and skips retune it; no repeats within N tracks; can be switched off |
+| 3.5 | Spotify account connect and sync (web) ✅ | "Connect your account" using the browser's Spotify session through the FXM Connect bridge, opt-in, with a notice that Spotify's User Guidelines forbid automated access (no public case of an account actioned for metadata use). Sync the personalized home, liked songs and playlists into the library, read-only. Disconnect clears tokens. Done when a manual live test in Chrome and Firefox, with third-party cookies allowed and blocked, is documented. Desktop is 7.4 and Android 6.5. **Merged, and shipped in `v0.2.0` labelled experimental** (the owner's decision): the manual test with a real account is still to come (`apps/web/src/features/spotify-account/README.md`), so until it passes every public text calls the sync experimental and says it was tested only with a stand-in for Spotify |
+| 3.6 | Imports ✅ | Spotify's "Download your data" JSON is first-class and needs no Spotify provider: rows go through the MusicBrainz exact path, then no-duration mode (capped at Suggest), and its streaming history becomes 3.1 listening signals. Spotify playlist, album and track URLs through 1.5; YouTube and YouTube Music playlists; CSV (Exportify columns); M3U. Mode-aware matching with a review list; resumable; paced by the request budget. Done when a 100-track playlist imports with a match report |
 
-## Phase 4: Offline and lossless (→ M3)
-
-| ID | Stage | Notes |
-|---|---|---|
-| 4.1 | Download manager + offline playback | On by default for every track wherever the bytes are readable (Decision 2, option A): web with FXM Connect, desktop, Android. Never offered in Lite. Only URLs that passed the end-of-file probe; single-range GETs, so no preflight; on the web, a googlevideo redirect means retrying with a fresh resolution. A queue with concurrency, progress, pause/retry and resumable ranges. OPFS plus `navigator.storage.persist()` and a usage meter. Offline copies come first in the playback policy. Completed downloads are added to the reorderable **Downloads** system playlist from 2.6, and deleting a download removes it there |
-| 4.2 | Conversion and tagging | A custom **LGPL**, audio-only ffmpeg.wasm build under 25 MiB, hosted with the site and run in a worker (the stock `@ffmpeg/core` 0.12.10 is GPL-2.0-or-later and 30.7 MiB, over Cloudflare Pages' 25 MiB file limit). itag 18's audio is extracted with mp4box.js (BSD-3-Clause), not ffmpeg. Original / FLAC / ALAC / WAV / MP3 / AAC / Opus; tags, cover art and lyrics; honest labels from `describeConversion`, and YouTube audio is never called lossless; "Save to device". Adds `'wasm-unsafe-eval'` to the app's CSP (2.8). Done when CI checks that the wasm file is under 25 MiB and LGPL |
-| 4.3 | Quality settings | Streaming quality on Wi-Fi vs cellular, download format and bitrate defaults, data saver |
-| 4.4 | Local music files (web) | Folder access (Chromium) or a file picker; tags and artwork via `music-metadata`; local tracks in search and library |
-
-## Phase 5: Web applet, embed, web page (→ M4)
+## Phase 4: Offline and lossless (→ M3) ✅
 
 | ID | Stage | Notes |
 |---|---|---|
-| 5.1 | PWA "web applet" | `vite-plugin-pwa`: manifest, maskable icons, standalone plus window-controls-overlay, scope `/app/`, offline shell, update toast, install button, media keys |
-| 5.2 | Embeddable mini-player | `/embed/track\|album\|playlist/:id` in compact and card layouts, a share dialog that copies the iframe code, a postMessage API. Plays YouTube through FXM Connect when the visitor has it, otherwise through the Lite tier, otherwise free sources plus an install hint. Its CSP lets any site frame it. Done when it plays in Lite inside a test page on another origin |
+| 4.1 | Download manager + offline playback ✅ | On by default for every track wherever the bytes are readable (Decision 2, option A): web with FXM Connect, desktop, Android. Never offered in Lite. Only URLs that passed the end-of-file probe; single-range GETs, so no preflight; on the web, a googlevideo redirect means retrying with a fresh resolution. A queue with concurrency, progress, pause/retry and resumable ranges. OPFS plus `navigator.storage.persist()` and a usage meter. Offline copies come first in the playback policy. Completed downloads are added to the reorderable **Downloads** system playlist from 2.6, and deleting a download removes it there |
+| 4.2 | Conversion and tagging ✅ | A custom **LGPL**, audio-only ffmpeg.wasm build under 25 MiB, hosted with the site and run in a worker (the stock `@ffmpeg/core` 0.12.10 is GPL-2.0-or-later and 30.7 MiB, over Cloudflare Pages' 25 MiB file limit). itag 18's audio is extracted with mp4box.js (BSD-3-Clause), not ffmpeg. Original / FLAC / ALAC / WAV / MP3 / AAC / Opus; tags, cover art and lyrics; honest labels from `describeConversion`, and YouTube audio is never called lossless; "Save to device". Adds `'wasm-unsafe-eval'` to the app's CSP (2.8). The core's source, the tarballs it was built from and FXM's recipe, is served from the same site at `/source/ffmpeg-core/` and attached to every release. Done when CI checks that the wasm file is under 25 MiB and LGPL |
+| 4.3 | Quality settings ✅ | Streaming quality on Wi-Fi vs cellular, download format and bitrate defaults, data saver |
+| 4.4 | Local music files (web) ✅ | Folder access (Chromium) or a file picker; tags and artwork via `music-metadata`; local tracks in search and library |
+
+## Phase 5: Web applet, embed, web page (→ M4) ✅
+
+| ID | Stage | Notes |
+|---|---|---|
+| 5.1 | PWA "web applet" ✅ | `vite-plugin-pwa`: manifest, maskable icons, standalone plus window-controls-overlay, scope `/app/`, offline shell, update toast, install button, media keys |
+| 5.2 | Embeddable mini-player ✅ | `/embed/track\|album\|playlist/:id` in compact and card layouts, a share dialog that copies the iframe code, a postMessage API. Plays YouTube through FXM Connect when the visitor has it, otherwise through the Lite tier, otherwise free sources plus an install hint. Its CSP lets any site frame it. Done when it plays in Lite inside a test page on another origin. On in `v0.2.0`, after a live check showed the production embed playing in Lite inside a page on another site (`scripts/build-dist/README.md`, "The embed on the deployed site") |
 | 5.3 | Landing page ✅ | An Astro static site: features, how it works, Get FXM (web + Connect, desktop, Android), FAQ, privacy, disclaimer, SEO. Revision 3's copy changes ship with 2.7 |
 
 ## Phase 6: Android (→ M5)
@@ -851,8 +855,8 @@ A light stage. There are no mirrors in this revision.
 | ID | Stage | Notes |
 |---|---|---|
 | 6.1 | Android shell ✅ | `make android-setup` puts Temurin JDK 21, the command-line tools and the SDK into `.tools/`; Capacitor wraps the web build; `make apk` builds a debug APK |
-| 6.2 | Android native fetch | An OkHttp plugin only, with streaming bodies, abort and binary safety, its own cookie jar and the per-host Origin policy. No `CapacitorHttp.request` stopgap: Capacitor's process-wide cookie handler sends WebView cookies on those requests. A browser User-Agent for Spotify; user-entered hosts only from the user-approved list. The client is shared with Media3. Done when, on an emulator or a device, a YouTube Music search, a VISIONOS resolve that passes the end-of-file probe and a Spotify search succeed, and unit tests show that a WebView cookie for `youtube.com` never appears on a native request |
-| 6.3 | Native player | A Media3 `MediaSessionService` plugin running as a `mediaPlayback` foreground service, with a notification and lock-screen controls. It takes a deeper queue of resolved items (URLs last about 6 h), budget permitting, sets per-URL headers through a `ResolvingDataSource`, uses plain GETs for VISIONOS URLs, calls back to JS to re-resolve on 403 or expiry, and flushes on a network change. Whether the service keeps the process out of Android 14+'s cached-app freezer, and the JS callbacks working, is an inference this stage tests. Done when 30 minutes of screen-off playback across track boundaries work on a real device, and playback continues after the WebView renderer is killed (adb) and after the queue runs out |
+| 6.2 | Android native fetch ✅ | An OkHttp plugin only, with streaming bodies, abort and binary safety, its own cookie jar and the per-host Origin policy. No `CapacitorHttp.request` stopgap: Capacitor's process-wide cookie handler sends WebView cookies on those requests. A browser User-Agent for Spotify; user-entered hosts only from the user-approved list. The client is shared with Media3. Done when, on an emulator or a device, a YouTube Music search, a VISIONOS resolve that passes the end-of-file probe and a Spotify search succeed, and unit tests show that a WebView cookie for `youtube.com` never appears on a native request |
+| 6.3 | Native player ✅ | A Media3 `MediaSessionService` plugin running as a `mediaPlayback` foreground service, with a notification and lock-screen controls. It takes a deeper queue of resolved items (URLs last about 6 h), budget permitting, sets per-URL headers through a `ResolvingDataSource`, uses plain GETs for VISIONOS URLs, calls back to JS to re-resolve on 403 or expiry, and flushes on a network change. Whether the service keeps the process out of Android 14+'s cached-app freezer, and the JS callbacks working, is an inference this stage tests. Done when 30 minutes of screen-off playback across track boundaries work on a real device, and playback continues after the WebView renderer is killed (adb) and after the queue runs out |
 | 6.4 | Native downloads + device music | Background downloads (YouTube included) to app storage, MediaStore export, MediaStore scan |
 | 6.5 | Spotify login on Android | An in-app login WebView. The `sp_dc` cookie is read from its CookieManager, kept in app-private storage and sent only on the token call, through the OkHttp plugin, whose cookie jar is separate from the WebView's. The password is never handled. Google sign-in doesn't work in embedded WebViews |
 | 6.6 | Signed APK release | A keystore in secrets, with an offline backup; tag → signed APKs (arm64 + universal) attached by R.1; in-app update check. Unregistered for now (Decision 3, option B): document Android's 2027 flow ("Install anyway" on every install, updates fail when the flow is off, ADB exempt) and revisit developer verification before the rollout: USD 25 plus ID and proof of address, or Limited Distribution, which is free for up to 20 devices. Record how to register F-Droid's re-signing key. The 1.13 module reduces how often the APK must be updated |
@@ -862,8 +866,8 @@ A light stage. There are no mirrors in this revision.
 | ID | Stage | Notes |
 |---|---|---|
 | 7.1 | Desktop shell ✅ | `make rust-setup` installs a pinned, checksum-verified rustup and the Rust release from `rust-toolchain.toml` into `.tools/` (`RUSTUP_HOME`, `CARGO_HOME`); build output stays in each checkout. `apps/desktop/src-tauri` on Tauri 2 with the http (`unsafe-headers`, no cookie jar), single-instance, window-state and opener plugins; the updater comes with 7.5. `make desktop-dev`, `desktop-build`, `desktop-dmg` and `desktop-check`; `make doctor` checks for the Xcode Command Line Tools and webkit2gtk |
-| 7.2 | Desktop native fetch | `createDesktopFetch()` with the per-host header policy: InnerTube gets `Origin: ''` or `https://www.youtube.com`, never a webview origin; headers only in `init.headers`; `scopeRedirects` on; a browser User-Agent for YouTube web endpoints and Spotify. Capability scope allow-list; user-entered hosts through a Rust command that checks the user-approved list (plugin-http scopes can't change at runtime); CSP with `media-src` googlevideo and no `'unsafe-eval'` (the evaluator is 1.11's hidden webview), and the `'unsafe-eval'` note in `apps/desktop/README.md` rewritten to say so; server-issued visitorData. Follow plugins-workspace PR #3703 (per-URL header config), so `unsafe-headers` can be dropped later. Done when, in a hidden window on macOS, Windows and Linux, a YouTube Music search succeeds, a VISIONOS URL resolved through plugin-http passes the end-of-file probe, and that track plays to the end in the Tauri app |
-| 7.3 | Desktop playback | `<audio src>` only for URLs that passed the probe; codec per `canPlayType` (AAC on macOS before 15.4); re-resolve on 403 or after about 5 h; Media Session, a tray menu, close to tray, background throttling disabled; a WebLock workaround for hidden playback on Windows and Linux; document "Unknown app" in Windows media controls (WebView2 bug #2236). Done when three consecutive full tracks play with the window hidden on each OS, including WebView2 and WebKitGTK |
+| 7.2 | Desktop native fetch ✅ | `createDesktopFetch()` with the per-host header policy: InnerTube gets `Origin: ''` or `https://www.youtube.com`, never a webview origin; headers only in `init.headers`; `scopeRedirects` on; a browser User-Agent for YouTube web endpoints and Spotify. Capability scope allow-list; user-entered hosts through a Rust command that checks the user-approved list (plugin-http scopes can't change at runtime); CSP with `media-src` googlevideo and no `'unsafe-eval'` (the evaluator is 1.11's hidden webview), and the `'unsafe-eval'` note in `apps/desktop/README.md` rewritten to say so; server-issued visitorData. Follow plugins-workspace PR #3703 (per-URL header config), so `unsafe-headers` can be dropped later. Done when, in a hidden window on macOS, Windows and Linux, a YouTube Music search succeeds, a VISIONOS URL resolved through plugin-http passes the end-of-file probe, and that track plays to the end in the Tauri app |
+| 7.3 | Desktop playback ✅ | `<audio src>` only for URLs that passed the probe; codec per `canPlayType` (AAC on macOS before 15.4); re-resolve on 403 or after about 5 h; Media Session, a tray menu, close to tray, background throttling disabled; a WebLock workaround for hidden playback on Windows and Linux; document "Unknown app" in Windows media controls (WebView2 bug #2236). Done when three consecutive full tracks play with the window hidden on each OS, including WebView2 and WebKitGTK |
 | 7.4 | Desktop downloads + Spotify login | Downloads to disk in any format; a Spotify login window. A Rust command reads `sp_dc` from the OS keychain and returns only the token, so the cookie never reaches page JavaScript and Spotify needs no `unsafe-headers` |
 | 7.5 | Desktop release | A `tauri-action` matrix (macOS arm64 and x64, Windows, Linux x64 and arm64); ad-hoc macOS signing (no notarization under Decision 3, option B); the updater plugin, with its key in secrets, plus `latest.json`; GStreamer dependencies for `.deb`; install docs for "Open Anyway", SmartScreen and Smart App Control. No Homebrew cask unless notarized. Windows signing through SignPath Foundation or OSSign once accepted, otherwise unsigned |
 | 7.6 | Desktop trust | Apply to SignPath Foundation and OSSign after the first public release, with Certum's open-source certificate as the paid fallback. The Microsoft Store is not a free signing route: it re-signs only MSIX, and Tauri emits MSI/NSIS. No Apple notarization: FXM joins no Apple program (ARCHITECTURE §1). A MediaSource path or a local stream from Rust, so the EQ can read googlevideo audio. The PO-token work moved to 1.11 |
@@ -872,9 +876,9 @@ A light stage. There are no mirrors in this revision.
 
 | ID | Stage | Notes |
 |---|---|---|
-| 8.1 | Audio effects | EQ (Web Audio on readable bytes; ExoPlayer effects on Android), crossfade, sleep timer, speed, loudness normalization |
-| 8.2 | Scrobbling | Last.fm and ListenBrainz, opt-in, with an offline queue. The user supplies the Last.fm shared secret; FXM never ships it |
-| 8.3 | Plugin system | Runtime-loadable sources and resolvers, versioned and checksummed. Installed only from a URL or file the user picks, with the declared hosts shown. The code runs only in 1.11's isolated evaluator, never in the main document; each update needs the user's approval; F-Droid builds use the opt-in wording its policy requires |
-| 8.4 | Backup sync | Optional GitHub Gist sync of the library and settings |
+| 8.1 | Audio effects ✅ | EQ (Web Audio on readable bytes; ExoPlayer effects on Android), crossfade, sleep timer, speed, loudness normalization |
+| 8.2 | Scrobbling ✅ | Last.fm and ListenBrainz, opt-in, with an offline queue. The user supplies the Last.fm shared secret; FXM never ships it |
+| 8.3 | Plugin system ✅ | Runtime-loadable sources and resolvers, versioned and checksummed. Installed only from a URL or file the user picks, with the declared hosts shown. The code runs only in 1.11's isolated evaluator, never in the main document; each update needs the user's approval; F-Droid builds use the opt-in wording its policy requires |
+| 8.4 | Backup sync ✅ | Optional GitHub Gist sync of the library and settings |
 | 8.5 | Quality pass | i18n, accessibility audit, Playwright e2e on critical flows, performance budgets |
-| 8.7 | SponsorBlock in Music + Video | Opt-in and off by default; the first Music + Video session offers it. It skips `music_offtopic` segments on video items only, through the hash-prefix endpoint (`/api/skipSegments/<first 4 hex characters of sha256(videoID)>`), so SponsorBlock can't tell which video plays. Its data is CC BY-NC-SA 4.0, attributed in Settings and About ([ARCHITECTURE.md §4](ARCHITECTURE.md#4-catalog-modes-music-vs-music--video)) |
+| 8.7 | SponsorBlock in Music + Video ✅ | Opt-in and off by default; the first Music + Video session offers it. It skips `music_offtopic` segments on video items only, through the hash-prefix endpoint (`/api/skipSegments/<first 4 hex characters of sha256(videoID)>`), so SponsorBlock can't tell which video plays. Its data is CC BY-NC-SA 4.0, attributed in Settings and About ([ARCHITECTURE.md §4](ARCHITECTURE.md#4-catalog-modes-music-vs-music--video)) |

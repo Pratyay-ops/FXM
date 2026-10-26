@@ -7,12 +7,14 @@ name: ffmpeg core
 #
 # The checks fail the job when the WebAssembly file is 25 MiB or larger (Cloudflare Pages'
 # limit per file), when FFmpeg's configure reported a licence other than LGPL, when the licence
-# texts of its parts are missing, or when the files aren't the ones the build's manifest names
-# (make ffmpeg-wasm-check). The core is then tested end to end on generated audio (make
+# texts of its parts or its source (the pinned tarballs and the recipe) are missing, or when the
+# files aren't the ones the build's manifest names (make ffmpeg-wasm-check). The build itself
+# fails when a file linked into the core states the GPL or a licence the notice can't carry
+# (recipe/linked-licences.ts). The core is then tested end to end on generated audio (make
 # ffmpeg-wasm-test).
 #
-# Building takes minutes, so make check never does it. Here the finished core (about 1 MB) is
-# cached by the recipe's hash (core-build.ts hashes tools/ffmpeg-wasm/recipe). GitHub scopes a
+# Building takes minutes, so make check never does it. Here the finished core (about 27 MB, 24 of
+# them its source) is cached by the recipe's hash (core-build.ts hashes tools/ffmpeg-wasm/recipe). GitHub scopes a
 # cache to its branch: a run reads its own branch's caches and main's, not develop's. So each
 # branch builds a recipe's core once (about 4 minutes), until main holds its cache. emsdk, the
 # source tarballs and the built libraries (keyed by versions.sh, libs.sh and pkg-config.sh) are

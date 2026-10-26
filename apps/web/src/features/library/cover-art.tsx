@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Artwork } from '../../components/ui/artwork'
 import { cn } from '../../lib/cn'
+import { useShownImage } from '../search/sources-context'
 
 const RADII = { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg', xl: 'rounded-xl' } as const
 
@@ -21,17 +22,19 @@ export interface CoverArtProps {
 
 /**
  * Cover art or a photo from the source, decorative (the title is next to it). Without one,
- * or when it fails to load, the seeded placeholder shows. Images load lazily and send no
- * referrer.
+ * when it fails to load, or when the app may not load it (a host its policy doesn't allow, or
+ * Spotify's while Spotify is switched off: `useShownImage`), the seeded placeholder shows.
+ * Images load lazily and send no referrer.
  */
 export function CoverArt({
-  src: url,
+  src,
   seed,
   icon,
   shape = 'square',
   rounded = 'md',
   className,
 }: CoverArtProps) {
+  const url = useShownImage(src)
   const [failed, setFailed] = useState<string | null>(null)
   if (url === undefined || failed === url) {
     return <Artwork seed={seed} icon={icon} shape={shape} rounded={rounded} className={className} />

@@ -13,20 +13,12 @@
  * @module
  */
 
-import {
-  currentQueueItem,
-  FxmError,
-  isFxmError,
-  type QueueItem,
-  type StreamOption,
-  tierOf,
-} from '@fxm/core'
+import { FxmError, isFxmError, type QueueItem, type StreamOption, tierOf } from '@fxm/core'
 import {
   type Engine,
   mimeTypeOf,
   type Player,
   type PlayerEventMap,
-  type PlayerState,
   type PlaySupport,
   type StreamResolver,
 } from '@fxm/player'
@@ -36,7 +28,6 @@ import {
   type PlaybackOptions,
   resetPlayback,
   subscribePlayer,
-  usePlayerState,
 } from '../now-playing/playback'
 import { createPendingPolicy, type PlaybackPolicy } from '../now-playing/playback-policy'
 import { localNativeIdOf } from './audio-source'
@@ -206,23 +197,6 @@ export function formatSupport(format: Pick<StreamOption, 'codec' | 'container'>)
     support.set(key, answer)
   }
   return answer
-}
-
-/**
- * Selects a value from the app's player's state and re-renders when it changes. The selector
- * must return a value from the state or a primitive, not a new object on every call.
- */
-export function useLocalPlayerState<T>(selector: (state: PlayerState) => T): T {
-  return usePlayerState(selector)
-}
-
-/** The local track playing or selected, as a track ID, and whether it plays. */
-export function usePlayingTrack(): { id: string | undefined; playing: boolean } {
-  const id = useLocalPlayerState((state) => currentQueueItem(state.queue)?.track.id)
-  const playing = useLocalPlayerState(
-    (state) => state.status === 'playing' || state.status === 'loading',
-  )
-  return { id, playing }
 }
 
 /** A failure's message for people, when it is one of FXM's own (they say what to do). */

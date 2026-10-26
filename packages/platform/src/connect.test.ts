@@ -14,6 +14,8 @@ import {
   createConnectClient,
   hasConnectFeature,
   MIN_CONNECT_VERSION,
+  SPOTIFY_LOGIN_TEXT_VERSION,
+  saysSpotifyLoginUnused,
 } from './connect'
 import { type KeyValueStorage, memoryStorage } from './storage'
 import { createFakeClock } from './testing/fake-clock'
@@ -517,6 +519,17 @@ describe('compareVersions', () => {
 
   it('knows the minimum version FXM Connect has today', () => {
     expect(compareVersions(MIN_CONNECT_VERSION, '0.1.0')).toBe(0)
+  })
+
+  it('knows which versions still say the Spotify login setting changes nothing', () => {
+    // 0.1.0, the first release, says so; 0.2.0 describes the setting as the app uses it.
+    expect(SPOTIFY_LOGIN_TEXT_VERSION).toBe('0.2.0')
+    expect(saysSpotifyLoginUnused('0.1.0')).toBe(true)
+    expect(saysSpotifyLoginUnused('0.1.9')).toBe(true)
+    expect(saysSpotifyLoginUnused('0.2.0')).toBe(false)
+    expect(saysSpotifyLoginUnused('1.0.0')).toBe(false)
+    expect(saysSpotifyLoginUnused('dev')).toBe(false)
+    expect(saysSpotifyLoginUnused(undefined)).toBe(false)
   })
 })
 

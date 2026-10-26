@@ -21,6 +21,8 @@ function site(files: Record<string, string | Uint8Array | Response>) {
   const fetch: DownloadFetch = async (url, init) => {
     asked.push(url)
     expect(init.method).toBe('GET')
+    // No download follows a redirect: the platform stops at it.
+    expect(init.redirect).toBe('manual')
     const file = files[url]
     if (file === undefined) return new Response('not found', { status: 404 })
     if (file instanceof Response) return file
@@ -234,6 +236,27 @@ describe('downloads', () => {
     await expectFailure(() => downloadPlugin(MANIFEST_URL, streamed.fetch), 'too-large')
     const notJson = site({ [MANIFEST_URL]: '<html>' })
     await expectFailure(() => downloadPlugin(MANIFEST_URL, notJson.fetch), 'invalid-file')
+  })
+
+  it('follows no redirect: a manifest or code on another host is refused, unrequested', async () => {
+    const moved = site({
+      [MANIFEST_URL]: new Response(null, {
+        status: 302,
+        headers: { location: 'https://ia800100.us.archive.org/1/items/x/fxm-plugin.json' },
+      }),
+    })
+    await expectFailure(
+      () => downloadPlugin(MANIFEST_URL, moved.fetch),
+      'download-failed',
+      /plugins\.example\.org sent the plugin on to another address, which FXM doesn't follow/u,
+    )
+    expect(moved.asked).toEqual([MANIFEST_URL])
+    // In a browser the platform's fetch stops at an opaque redirect.
+    const opaque = new Response(null, { status: 200 })
+    Object.defineProperty(opaque, 'type', { value: 'opaqueredirect' })
+    const browser = site({ [MANIFEST_URL]: opaque })
+    await expectFailure(() => downloadPlugin(MANIFEST_URL, browser.fetch), 'download-failed')
+    expect(browser.asked).toEqual([MANIFEST_URL])
   })
 
   it('stops when the caller cancels', async () => {

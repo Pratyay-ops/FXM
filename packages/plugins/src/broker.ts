@@ -18,8 +18,12 @@
  * 4. **The platform's `fetch`.** The request goes out through the `ctx.fetch` of the provider
  *    call, so the platform's own rules apply on top: its host table (a plugin's own hosts are the
  *    user hosts the app passes to `createPlatform`) and `credentials: 'omit'`.
- * 5. **The answer.** A response that ended on an undeclared host (a redirect) is refused; the
- *    body is read as UTF-8 text, at most 2 MiB, within 20 s.
+ * 5. **No redirects.** The request goes out with `redirect: 'manual'`, so no platform follows a
+ *    server's redirect to a host the plugin never declared: the browser stops at it (an opaque
+ *    redirect), the desktop and Android transports hand it back. A redirect, or a response that
+ *    ended on an undeclared host all the same, is refused with `redirect`, before anything was
+ *    sent to the host it named.
+ * 6. **The answer.** The body is read as UTF-8 text, at most 2 MiB, within 20 s.
  *
  * Refusals and failures resolve as failed {@link WireResponse}s, which reject the plugin's
  * `ctx.fetch` with an error naming the reason; only a cancelled caller rejects. A broken rule is
@@ -47,6 +51,18 @@ import type { WireFailure, WireRequest, WireResponse } from './runtime/protocol'
 
 /** The methods a plugin may use (plugin API 1). */
 export const PLUGIN_METHODS = ['GET', 'HEAD'] as const
+
+/** The statuses that redirect a request, which plugins never follow. */
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308])
+
+/**
+ * Whether `response` is a redirect a fetch with `redirect: 'manual'` stopped at: an opaque
+ * redirect in a browser, the redirect itself on platforms whose transports follow redirects hop
+ * by hop.
+ */
+export function isRedirectResponse(response: Pick<Response, 'type' | 'status'>): boolean {
+  return response.type === 'opaqueredirect' || REDIRECT_STATUSES.has(response.status)
+}
 
 /** The broker's limits. */
 export interface BrokerLimits {
@@ -230,6 +246,9 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
       response = await fetchWithTimeout(ctx.fetch, url.href, {
         method: request.method,
         credentials: 'omit',
+        // Never followed: the next hop could be any host the platform reaches, which the plugin
+        // didn't declare, and it would get the plugin's URL.
+        redirect: 'manual',
         timeoutMs: limits.timeoutMs,
         ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
       })
@@ -238,6 +257,14 @@ export function createFetchBroker(options: FetchBrokerOptions): FetchBroker {
       return describeFailure(id, error, limits.timeoutMs)
     }
 
+    if (isRedirectResponse(response)) {
+      await response.body?.cancel().catch(() => undefined)
+      return refused(
+        id,
+        'redirect',
+        `${cleanText(url.host, 100)} answered with a redirect, which ${plugin.name}'s requests don't follow`,
+      )
+    }
     if (response.url !== '') {
       let final: URL | undefined
       try {
@@ -332,7 +359,12 @@ function describeFailure(id: number, error: unknown, timeoutMs: number): BrokerO
       response: {
         id,
         ok: false,
-        error: { code: 'refused', fxmCode: 'Unavailable', message: cleanText(error.message, 300) },
+        error: {
+          // A redirect the platform refused to follow, as the broker refuses one itself.
+          code: error.reason === 'redirect' ? 'redirect' : 'refused',
+          fxmCode: 'Unavailable',
+          message: cleanText(error.message, 300),
+        },
       },
     }
   }

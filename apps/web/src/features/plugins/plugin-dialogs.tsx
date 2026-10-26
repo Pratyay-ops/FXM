@@ -3,11 +3,17 @@ import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { Dialog, DialogActions } from '../library/ui/dialog'
 import { TextField } from '../library/ui/field'
-import { operationsText, originText, pluginFailureText, shortChecksum } from './plugin-text'
+import {
+  operationsText,
+  originText,
+  pluginFailureText,
+  shortChecksum,
+  splitOperations,
+} from './plugin-text'
 
 /** What the user is told before they add or update any plugin. */
 export const PLUGIN_WARNING =
-  'Plugins are code from their authors, not from FXM. FXM runs a plugin apart from the app, where it can reach only the addresses above, and it learns what you ask of it, such as what you search for in its catalog. Add only plugins from people you trust.'
+  'Plugins are code from their authors, not from FXM. FXM runs a plugin apart from the app, where it can reach only the addresses above (though the servers its songs play from may pass the audio on to other hosts), and it learns what you ask of it, such as what you search for in its catalog. Add only plugins from people you trust.'
 
 /** A host, in a list of hosts. */
 function HostList({ hosts, added = [] }: { hosts: readonly string[]; added?: readonly string[] }) {
@@ -89,6 +95,8 @@ export function OfferDialog({
         : `Add ${manifest.name}?`
   const author = manifest?.author === undefined ? '' : ` · by ${manifest.author}`
   const notices = offer === undefined ? [] : provenanceNotices(offer)
+  // Only what this version of FXM uses counts as what the plugin adds.
+  const operations = splitOperations(manifest?.provides ?? [])
   return (
     <Dialog
       open={offer !== undefined}
@@ -124,12 +132,22 @@ export function OfferDialog({
           </div>
           {manifest.provides.length > 0 && (
             <p>
-              <span className="font-semibold">It adds </span>
-              {operationsText(manifest.provides)}.
+              {operations.used.length > 0 && (
+                <>
+                  <span className="font-semibold">It adds </span>
+                  {operationsText(operations.used)}.
+                </>
+              )}
+              {operations.unused.length > 0 && (
+                <span className="text-text-muted">
+                  {operations.used.length > 0 ? ' It also offers ' : 'It offers '}
+                  {operationsText(operations.unused)}, which this version of FXM doesn’t use.
+                </span>
+              )}
               {update && offer.removedOperations.length > 0 && (
                 <span className="text-text-muted">
                   {' '}
-                  It no longer adds {operationsText(offer.removedOperations)}.
+                  It no longer offers {operationsText(offer.removedOperations)}.
                 </span>
               )}
             </p>

@@ -15,6 +15,11 @@ import { Artwork } from '../../components/ui/artwork'
 import { buttonClasses } from '../../components/ui/button'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
 import { LogoMark } from '../../components/ui/logo'
+import {
+  NowPlayingBars,
+  type NowPlayingStatus,
+  nowPlayingLabel,
+} from '../../components/ui/now-playing-marker'
 import { RangeSlider } from '../../components/ui/range-slider'
 import { cn } from '../../lib/cn'
 import { type EmbedView, pickArtwork } from '../view'
@@ -409,7 +414,17 @@ export function CompactCredits({ view }: { view: EmbedView }) {
   )
 }
 
-/** An album's or playlist's tracks; picking one plays it. */
+/** The status of the app's "now playing" marker for the embed's current track. */
+function markerStatus(view: EmbedView): NowPlayingStatus {
+  if (view.status === 'error') return 'error'
+  return isActive(view) ? 'playing' : 'paused'
+}
+
+/**
+ * An album's or playlist's tracks; picking one plays it. The current track's row has the app's
+ * "now playing" marker in place of its number, and says "Now playing", "Paused" or "Couldn’t
+ * play".
+ */
 export function TrackList({
   view,
   actions,
@@ -417,6 +432,7 @@ export function TrackList({
   view: EmbedView
   actions: EmbedActions | undefined
 }) {
+  const status = markerStatus(view)
   return (
     <ol aria-label="Tracks" className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
       {view.rows.map((row, index) => {
@@ -426,7 +442,10 @@ export function TrackList({
             <button
               type="button"
               aria-current={current ? 'true' : undefined}
-              aria-label={`Play ${row.title}${row.artists ? ` by ${row.artists}` : ''}`}
+              aria-label={nowPlayingLabel(
+                `Play ${row.title}${row.artists ? ` by ${row.artists}` : ''}`,
+                current ? status : undefined,
+              )}
               disabled={!view.canPlay}
               onClick={() => actions?.play(index)}
               className={cn(
@@ -438,16 +457,16 @@ export function TrackList({
                 aria-hidden="true"
                 className={cn(
                   'w-5 shrink-0 text-right text-xs tabular-nums',
-                  current ? 'font-bold text-accent' : 'text-text-muted',
+                  current ? 'flex justify-end text-accent' : 'text-text-muted',
                 )}
               >
-                {index + 1}
+                {current ? <NowPlayingBars status={status} /> : index + 1}
               </span>
               <span className="min-w-0 flex-1">
                 <span
                   className={cn(
                     'block truncate text-sm',
-                    current ? 'font-semibold text-accent' : '',
+                    current ? 'font-semibold text-accent forced-colors:text-[Highlight]' : '',
                   )}
                 >
                   {row.title}

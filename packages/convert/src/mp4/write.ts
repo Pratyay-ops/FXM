@@ -10,7 +10,7 @@
  */
 
 import { ByteWriter, latin1, utf8 } from '../bytes'
-import { joinedArtists, plainLyrics, positive } from '../tags/fields'
+import { conversionNote, joinedArtists, plainLyrics, positive, sourceFields } from '../tags/fields'
 import type { ExportTags } from '../types'
 import { box, fullBox } from './boxes'
 import type { Mp4AudioTrack } from './demux'
@@ -130,6 +130,16 @@ function textItem(name: string, text: string | undefined): Uint8Array | undefine
   return box(name, data(1, utf8(text)))
 }
 
+/** An iTunes free-form item (`----`), named `name` under `com.apple.iTunes`, holding text. */
+function freeformItem(name: string, text: string): Uint8Array {
+  return box(
+    '----',
+    fullBox('mean', 0, 0, latin1('com.apple.iTunes')),
+    fullBox('name', 0, 0, latin1(name)),
+    data(1, utf8(text)),
+  )
+}
+
 /** `moov/udta/meta` with the iTunes item list for `tags`. */
 function metadata(tags: ExportTags): Uint8Array {
   const track = positive(tags.trackNumber)
@@ -149,14 +159,9 @@ function metadata(tags: ExportTags): Uint8Array {
     tags.cover === undefined
       ? undefined
       : box('covr', data(tags.cover.mimeType === 'image/png' ? 14 : 13, tags.cover.data)),
-    tags.isrc === undefined
-      ? undefined
-      : box(
-          '----',
-          fullBox('mean', 0, 0, latin1('com.apple.iTunes')),
-          fullBox('name', 0, 0, latin1('ISRC')),
-          data(1, utf8(tags.isrc)),
-        ),
+    tags.isrc === undefined ? undefined : freeformItem('ISRC', tags.isrc),
+    textItem('©cmt', conversionNote(tags)),
+    ...sourceFields(tags).map(([name, value]) => freeformItem(name, value)),
   ].filter((item): item is Uint8Array => item !== undefined)
   return box('udta', fullBox('meta', 0, 0, hdlr('mdir', '', 'appl'), box('ilst', ...items)))
 }

@@ -58,6 +58,8 @@ export function setupPluginTestRuntime(
     distribution?: Distribution
     sources?: Sources
     appVersion?: string
+    /** Whether the browser's evaluator starts plugin workers (WebKit's doesn't). Default yes. */
+    workersRun?: boolean
   } = {},
 ): PluginTestRuntime {
   const store = memoryPluginStore(options.initial ?? [])
@@ -72,6 +74,8 @@ export function setupPluginTestRuntime(
     environment: options.environment ?? 'browser',
     distribution: options.distribution ?? 'standard',
     ...(options.appVersion === undefined ? {} : { appVersion: options.appVersion }),
+    // The in-process evaluators run workers: plugins run here unless a test says otherwise.
+    probeWorkers: async () => options.workersRun ?? true,
   })
   return { store, site, sources }
 }

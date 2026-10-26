@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react'
 import { useState } from 'react'
 import { Artwork } from '../../../components/ui/artwork'
 import { cn } from '../../../lib/cn'
+import { useShownImage } from '../sources-context'
 
 const RADII = { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg', xl: 'rounded-xl' } as const
 
@@ -38,8 +39,9 @@ export interface CoverArtProps {
 
 /**
  * Cover art or an artist photo from the source, decorative (the name is always next to it),
- * with the seeded placeholder when there is no image or it fails to load. Images load lazily
- * and send no Referer.
+ * with the seeded placeholder when there is no image, it fails to load, or the app may not load
+ * it (a host its policy doesn't allow, or Spotify's while Spotify is off: `useShownImage`).
+ * Images load lazily and send no Referer.
  */
 export function CoverArt({
   artwork,
@@ -50,19 +52,19 @@ export function CoverArt({
   icon,
   className,
 }: CoverArtProps) {
-  const image = pickArtwork(artwork, displayPx)
+  const url = useShownImage(pickArtwork(artwork, displayPx)?.url)
   const [failedUrl, setFailedUrl] = useState<string>()
-  if (image === undefined || image.url === failedUrl) {
+  if (url === undefined || url === failedUrl) {
     return <Artwork seed={seed} shape={shape} rounded={rounded} icon={icon} className={className} />
   }
   return (
     <img
-      src={image.url}
+      src={url}
       alt=""
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
-      onError={() => setFailedUrl(image.url)}
+      onError={() => setFailedUrl(url)}
       className={cn(
         'shrink-0 bg-skeleton object-cover',
         shape === 'circle' ? 'rounded-full' : RADII[rounded],

@@ -9,11 +9,19 @@ import {
   Play,
   SlidersVertical,
 } from 'lucide-react'
-import { Fragment } from 'react'
+import { Fragment, useMemo } from 'react'
 import { Link } from 'react-router'
+import {
+  NowPlayingBars,
+  NowPlayingOverlay,
+  type NowPlayingStatus,
+  nowPlayingLabel,
+  nowPlayingText,
+} from '../../../components/ui/now-playing-marker'
 import { cn } from '../../../lib/cn'
 import { useConnection } from '../../connect/connection'
 import { type DownloadMenuItem, useDownloadMenuItem } from '../../downloads/menu'
+import { type RowCopy, rowCopies, useNowPlayingStatus } from '../../now-playing/current-track'
 import { useMediaActions } from '../actions'
 import { showFeedback } from '../feedback'
 import { itemFeatures } from '../sources'
@@ -207,6 +215,8 @@ export interface TrackRowProps {
    * list: the menu's entry then follows where the track's download stands.
    */
   downloadEntry?: DownloadMenuItem | undefined
+  /** Whether the track is the player's current one, and how it stands: the row is marked. */
+  nowPlaying?: NowPlayingStatus | undefined
 }
 
 /**
@@ -214,6 +224,10 @@ export interface TrackRowProps {
  * menu. The title is a button that plays the track and stretches over the whole row, while the
  * links (on wide screens with a mouse) and the menu stay clickable on top of it. Phones put the
  * badges on a third line; wider screens put them after the names, so the names line up.
+ *
+ * The current track's row (`nowPlaying`) has the "now playing" marker in place of its number,
+ * or over its artwork, and its title in the accent colour; its name says "Now playing",
+ * "Paused" or "Couldn’t play".
  */
 export function TrackRow({
   track,
@@ -221,11 +235,13 @@ export function TrackRow({
   showAlbum = false,
   onPlay,
   downloadEntry,
+  nowPlaying,
 }: TrackRowProps) {
   const menu = useTrackMenu(track, downloadEntry)
   const artists = artistNames(track.artists)
   const duration = formatDuration(track.durationMs)
   const video = isVideoKind(track.kind)
+  const titleColor = nowPlaying && 'text-accent forced-colors:text-[Highlight]'
   return (
     <div className="group relative flex min-h-16 items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-text/6 has-[:focus-visible]:bg-text/6 sm:gap-4">
       {number === undefined ? (
@@ -237,14 +253,24 @@ export function TrackRow({
             rounded="sm"
             className={video ? 'aspect-video w-24 sm:w-28' : 'size-12'}
           />
-          {onPlay && (
-            <span
-              aria-hidden="true"
-              className="absolute inset-0 hidden place-items-center rounded-sm bg-black/45 text-white group-hover:grid"
-            >
-              <Play className="size-5" fill="currentColor" strokeWidth={0} />
-            </span>
+          {nowPlaying ? (
+            <NowPlayingOverlay status={nowPlaying} />
+          ) : (
+            onPlay && (
+              <span
+                aria-hidden="true"
+                className="absolute inset-0 hidden place-items-center rounded-sm bg-black/45 text-white group-hover:grid"
+              >
+                <Play className="size-5" fill="currentColor" strokeWidth={0} />
+              </span>
+            )
           )}
+        </span>
+      ) : nowPlaying ? (
+        <span className="flex w-7 shrink-0 justify-end text-accent">
+          {/* The bars take the number's place on screen, not for screen readers. */}
+          <span className="sr-only">{number}</span>
+          <NowPlayingBars status={nowPlaying} />
         </span>
       ) : (
         <span className="w-7 shrink-0 text-right text-sm tabular-nums text-text-muted">
@@ -257,13 +283,22 @@ export function TrackRow({
           <button
             type="button"
             onClick={onPlay}
-            aria-label={artists ? `Play ${track.title} by ${artists}` : `Play ${track.title}`}
-            className="block max-w-full truncate text-left font-semibold outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus focus-visible:after:outline-solid"
+            aria-label={nowPlayingLabel(
+              artists ? `Play ${track.title} by ${artists}` : `Play ${track.title}`,
+              nowPlaying,
+            )}
+            className={cn(
+              'block max-w-full truncate text-left font-semibold outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus focus-visible:after:outline-solid',
+              titleColor,
+            )}
           >
             {track.title}
           </button>
         ) : (
-          <p className="truncate font-semibold">{track.title}</p>
+          <p className={cn('truncate font-semibold', titleColor)}>
+            {track.title}
+            {nowPlaying && <span className="sr-only">. {nowPlayingText(nowPlaying)}</span>}
+          </p>
         )}
         {/* Phones: artists, then the badges on their own line; wider: names, then badges. */}
         <div className="mt-0.5 flex min-w-0 flex-col gap-1 text-sm text-text-muted sm:flex-row sm:items-center sm:gap-2">
@@ -315,7 +350,24 @@ export interface TrackListProps {
   className?: string
 }
 
-/** A list of tracks; see {@link TrackRow}. */
+/**
+ * One entry of a {@link TrackList}: the row, marked with `aria-current` while its track is the
+ * player's current one. Each entry follows only whether that is so, so playback re-renders the
+ * entries that gain or lose the marker, not the whole list.
+ */
+function TrackListItem({ rowCopy, ...row }: TrackRowProps & { rowCopy: RowCopy | undefined }) {
+  const nowPlaying = useNowPlayingStatus(row.track.id, rowCopy)
+  return (
+    <li aria-current={nowPlaying === undefined ? undefined : 'true'}>
+      <TrackRow {...row} nowPlaying={nowPlaying} />
+    </li>
+  )
+}
+
+/**
+ * A list of tracks; see {@link TrackRow}. The row of the track the player is on is marked; of
+ * a track the list shows more than once, the copy the queue plays.
+ */
 export function TrackList({
   tracks,
   label,
@@ -325,20 +377,21 @@ export function TrackList({
   className,
 }: TrackListProps) {
   const keys = listKeys(tracks)
+  const copies = useMemo(() => rowCopies(tracks.map((track) => track.id)), [tracks])
   // One read of the downloads for the whole list, not one per row.
   const downloadEntry = useDownloadMenuItem()
   return (
     <ul aria-label={label} className={cn('space-y-0.5', className)}>
       {tracks.map((track, index) => (
-        <li key={keys[index]}>
-          <TrackRow
-            track={track}
-            number={numbered ? index + 1 : undefined}
-            showAlbum={showAlbum}
-            onPlay={onPlay ? () => onPlay(index) : undefined}
-            downloadEntry={downloadEntry}
-          />
-        </li>
+        <TrackListItem
+          key={keys[index]}
+          track={track}
+          rowCopy={copies[index]}
+          number={numbered ? index + 1 : undefined}
+          showAlbum={showAlbum}
+          onPlay={onPlay ? () => onPlay(index) : undefined}
+          downloadEntry={downloadEntry}
+        />
       ))}
     </ul>
   )

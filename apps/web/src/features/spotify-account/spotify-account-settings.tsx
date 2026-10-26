@@ -1,10 +1,15 @@
+import { saysSpotifyLoginUnused } from '@fxm/platform'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { ExternalLink } from 'lucide-react'
-import { type ReactNode, useId, useState } from 'react'
+import { type ReactNode, useId, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { useStore } from 'zustand'
 import { buttonClasses } from '../../components/ui/button'
+import { REPOSITORY_URL } from '../connect/config'
 import { useConnection } from '../connect/connection'
+import { currentDevice } from '../connect/device'
+import { getMoreLabel, reachSentence } from '../connect/explain'
+import { ExperimentalChip } from '../connect/ui'
 import { Dialog, DialogActions } from '../library/ui/dialog'
 import { useSourcesSnapshot } from '../search/sources-context'
 import { SettingsSection } from '../settings/settings-layout'
@@ -17,6 +22,17 @@ import type { SyncProgress } from './sync'
 
 /** Where the user signs in to Spotify in this browser. */
 export const SPOTIFY_WEB_PLAYER_URL = 'https://open.spotify.com/'
+
+/** Where problems with FXM, the Spotify account sync among them, can be reported. */
+export const ISSUES_URL = `${REPOSITORY_URL}/issues`
+
+/**
+ * Why the sync is experimental, in plain words: its logged-in calls have run only against the
+ * browser test's made-up Spotify, never a real account (the README's "Manual test with a real
+ * account" is the owner's to run).
+ */
+export const EXPERIMENTAL_NOTE =
+  'It has been tested with a stand-in for Spotify, not yet with real accounts.'
 
 /** "1 song", "3 playlists", with grouping. */
 function count(n: number, noun: string): string {
@@ -116,9 +132,12 @@ const OPTIONS_HINT =
 function PhaseText({
   state,
   platform,
+  connectVersion,
 }: {
   state: AccountRuntimeState
   platform: 'web' | 'desktop' | 'android'
+  /** The FXM Connect version that answered, if any. */
+  connectVersion: string | undefined
 }): ReactNode {
   switch (state.phase) {
     case 'checking':
@@ -142,11 +161,21 @@ function PhaseText({
       )
     case 'needs-login':
       return (
-        <p>
-          FXM Connect doesn’t use your Spotify login yet. {OPTIONS_HINT}, turn on “Use my Spotify
-          login from this browser” (in Firefox, also allow it to share authentication information),
-          then select Try again.
-        </p>
+        <>
+          <p>
+            FXM Connect doesn’t use your Spotify login yet. {OPTIONS_HINT}, turn on “Use my Spotify
+            login from this browser” (in Firefox, also allow it to share authentication
+            information), then select Try again.
+          </p>
+          {saysSpotifyLoginUnused(connectVersion) && (
+            // FXM Connect 0.1.0's options page says the setting changes nothing: true before 3.5.
+            <p>
+              FXM Connect {connectVersion} says there that this setting changes nothing. That note
+              dates from before FXM could connect an account: the setting works now, and newer
+              versions of FXM Connect say so.
+            </p>
+          )}
+        </>
       )
     case 'private':
       return (
@@ -197,6 +226,11 @@ function ConnectDialog({
           FXM reads your liked songs, your playlists and Spotify’s home for you, and keeps a copy of
           them in your library on this device. It never changes anything in your Spotify account. It
           syncs again about every six hours while FXM is open, and whenever you select Sync now.
+        </p>
+        <p>
+          This is experimental. {EXPERIMENTAL_NOTE} If Spotify answers in a way FXM doesn’t
+          understand, Settings says so, and FXM never takes an answer it can’t read for an empty
+          list.
         </p>
         {librarySync ? (
           <p className="font-semibold">
@@ -355,6 +389,7 @@ export function SpotifyAccountSettings() {
   const { spotifyEnabled } = useSourcesSnapshot()
   const capabilities = useConnection((state) => state.capabilities)
   const platform = useConnection((state) => state.platform)
+  const connectVersion = useConnection((state) => state.connect?.version)
   const librarySync = useStore(access.librarySync, isLibrarySyncOn)
   const { runtime, state, error: loadError } = useAccountRuntime(optedIn)
   // Only the sync's own row: a sync rewrites the rows of its copies as it goes.
@@ -369,6 +404,7 @@ export function SpotifyAccountSettings() {
   const [message, setMessage] = useState('')
   const headingId = useId()
   const now = Date.now()
+  const device = useMemo(currentDevice, [])
 
   const connect = async () => {
     setDialog(null)
@@ -420,14 +456,16 @@ export function SpotifyAccountSettings() {
     if (!spotifyEnabled) {
       status = <p>Switch Spotify on, above, to connect your account.</p>
     } else if (capabilities.spotify === 'unreachable') {
+      // What this device can do about it: FXM Connect where its browser can add it, else what
+      // works here (nothing to install on iPhone and iPad, the Android app once it is out).
       status = (
         <p>
-          Connecting your account needs Spotify, which FXM reaches in a browser with FXM Connect.{' '}
+          Connecting your account needs Spotify. {reachSentence('Spotify', device)}{' '}
           <Link
             to="/connect"
             className="font-semibold text-accent underline-offset-2 hover:underline"
           >
-            Get FXM Connect
+            {getMoreLabel(device)}
           </Link>
         </p>
       )
@@ -483,7 +521,7 @@ export function SpotifyAccountSettings() {
               : 'Spotify is switched off, so FXM doesn’t sync.'}
           </p>
         ) : (
-          <PhaseText state={state} platform={platform} />
+          <PhaseText state={state} platform={platform} connectVersion={connectVersion} />
         )}
         {state.syncing ? (
           <p>{progressText(state.progress)}</p>
@@ -548,8 +586,12 @@ export function SpotifyAccountSettings() {
       <section aria-labelledby={headingId} className="space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
           <div className="min-w-0 flex-1 basis-64 space-y-1">
-            <h3 id={headingId} className="font-semibold">
-              Your Spotify account
+            <h3
+              id={headingId}
+              className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 font-semibold"
+            >
+              <span>Your Spotify account</span>
+              <ExperimentalChip />
             </h3>
             <div aria-live="polite" className="space-y-1 text-sm text-text-muted">
               {status}
@@ -558,6 +600,10 @@ export function SpotifyAccountSettings() {
           </div>
           {actions}
         </div>
+        <p className="text-sm text-text-muted">
+          Connecting your account is experimental. {EXPERIMENTAL_NOTE} If something goes wrong,{' '}
+          <NewTabLink href={ISSUES_URL}>report it on GitHub</NewTabLink>.
+        </p>
       </section>
       <ConnectDialog
         open={dialog === 'connect'}

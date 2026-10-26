@@ -88,18 +88,33 @@ describe('store description', () => {
     )
   })
 
-  it("ties radio to the web app's home feed and endless radio, which are both out", () => {
+  it("ties radio to the web app's home feed and autoplay, which are both out", () => {
     // The home feed (stages 3.2 and 3.3) uses YouTube Music's and Spotify's radio and Last.fm's
-    // stations; endless radio (3.4) YouTube Music's and Spotify's radio.
+    // stations; autoplay, the endless radio of 3.4, YouTube Music's and Spotify's radio. The web
+    // app calls it Autoplay, and has no other radio to start.
     const texts = [...description.split('\n'), ...Object.values(PERMISSION_JUSTIFICATIONS)]
     const mentions = texts.filter((line) => /radio/i.test(line))
     expect(mentions.length).toBeGreaterThan(0)
     for (const line of mentions) {
       expect(line).toContain('home feed')
       expect(line).not.toMatch(/radio in a later FXM version|recommendations in a later/)
+      expect(line).not.toMatch(/endless radio|song radio/i)
     }
+    expect(description).toContain("the radio the web app's home feed and autoplay are made from")
+  })
+
+  it('calls the account sync that uses the login experimental, as the web app does', () => {
+    // Tested only against a stand-in for Spotify, never a real account (the owner shipped it
+    // labelled so in v0.2.0: apps/web/src/features/spotify-account/README.md).
+    const untested = 'it has been tested with a stand-in for Spotify, not yet with real accounts'
     expect(description).toContain(
-      "the radio the web app's home feed and endless radio are made from",
+      "The web app's Spotify account sync, which uses the bridge, is experimental and off until " +
+        `you connect your account: ${untested}.`,
+    )
+    expect(loginHelp()).toContain(`That account sync is experimental: ${untested}.`)
+    expect(notes).toContain('uses this bridge for an experimental, opt-in account sync')
+    expect(notes).toContain(
+      'The account sync is experimental: it has been tested against a stand-in',
     )
   })
 
@@ -234,10 +249,13 @@ describe('notes for reviewers', () => {
     )
   })
 
-  it("test the extension with a check that the no-install mode can't pass", () => {
+  it("test the extension with a check that the Lite tier can't pass", () => {
     expect(notes).toContain('Access-Control-Allow-Origin: https://fxmusic.pages.dev')
     expect(notes).toContain('Spotify is unreachable')
     expect(notes).not.toMatch(/succeed only with the extension/)
+    // Lite is a tier, as the web app and the site call it: Music and Music + Video are the modes.
+    expect(notes).toContain("the web app's experimental Lite tier")
+    expect(notes).not.toMatch(/no-install mode|Lite mode/)
   })
 })
 

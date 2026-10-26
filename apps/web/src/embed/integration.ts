@@ -17,8 +17,9 @@
  * Jamendo stays out: it needs a `client_id`, which the build has none of today. `WIRED_SOURCES`
  * (`wired.ts`) names exactly the sources wired here; `integration.test.ts` keeps them in step.
  *
- * The `/embed/*` header rule is stage 2.8's (`appPolicy({ embeddable: true })` there): the
- * app's policy without `frame-ancestors`, so any site may frame the player, plus
+ * The `/embed/*` header rule is stage 2.8's (`appPolicy({ embeddable: true })` there): no
+ * `frame-ancestors`, so any site may frame the player, no worker, and only the hosts of the
+ * services wired here, YouTube's and Internet Archive's, plus
  * `Cross-Origin-Opener-Policy: same-origin` (README, "Headers").
  *
  * @module

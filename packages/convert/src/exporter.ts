@@ -7,18 +7,18 @@
  * @module
  */
 
-import type { DownloadFormat } from '@fxm/core'
+import { type DownloadFormat, isLossyCodec } from '@fxm/core'
 import { concat } from './bytes'
 import type { FfmpegCore } from './core'
 import { demuxMp4Audio } from './mp4/demux'
 import { writeM4a } from './mp4/write'
 import { type CoreJob, type ExportOptions, type ExportPlan, planExport } from './plan'
-import { joinedArtists, plainLyrics, positive } from './tags/fields'
+import { conversionNote, joinedArtists, plainLyrics, positive, sourceFields } from './tags/fields'
 import { writeFlacTags } from './tags/flac'
 import { writeMp3Tags } from './tags/id3v2'
 import { writeOggTags } from './tags/ogg'
 import { writeWavTags } from './tags/riff'
-import { type ExportTags, isConvertError, type SourceAudio } from './types'
+import { type ConvertedFrom, type ExportTags, isConvertError, type SourceAudio } from './types'
 
 /** One file to save. */
 export interface ExportRequest {
@@ -75,7 +75,34 @@ export function containerTags(tags: ExportTags): Record<string, string> {
   set('date', tags.releaseDate)
   set('ISRC', tags.isrc)
   set('lyrics', plainLyrics(tags))
+  set('comment', conversionNote(tags))
+  for (const [name, value] of sourceFields(tags)) set(name, value)
   return metadata
+}
+
+/**
+ * `tags` with where the audio came from, from the plan: `convertedFrom` when it re-encodes a
+ * lossy source (Opus or AAC from YouTube, say, saved as FLAC or MP3), so the file says so in its
+ * own tags; without one otherwise, whatever the caller passed. A lossless source re-encoded, the
+ * original and a remux need no such tag: they are what they say they are.
+ */
+export function withSourceTags(
+  tags: ExportTags,
+  source: SourceAudio,
+  plan: Pick<ExportPlan, 'transcoded'>,
+): ExportTags {
+  const { convertedFrom: _, ...rest } = tags
+  if (!plan.transcoded || !isLossyCodec(source.codec)) return rest
+  const convertedFrom: ConvertedFrom = {
+    codec: source.codec,
+    ...(source.bitrateKbps !== undefined &&
+    Number.isFinite(source.bitrateKbps) &&
+    source.bitrateKbps > 0
+      ? { bitrateKbps: source.bitrateKbps }
+      : {}),
+    ...(source.media === 'muxed-video' ? { media: 'muxed-video' as const } : {}),
+  }
+  return { ...rest, convertedFrom }
 }
 
 async function bytesOf(input: Blob | Uint8Array): Promise<Uint8Array> {
@@ -138,6 +165,8 @@ export async function exportAudio(
   onProgress?: (done: number) => void,
 ): Promise<ExportResult> {
   const plan = planExport(request.source, request.format, request.options)
+  // The file records the lossy audio it was converted from, if it was.
+  const tags = withSourceTags(request.tags, request.source, plan)
   const type = plan.output.mimeType
   let input: Blob | Uint8Array = request.input
   let extension = inputExtension(request.source)
@@ -148,7 +177,7 @@ export async function exportAudio(
     if (plan.core === undefined) {
       onProgress?.(1)
       return {
-        blob: new Blob(writeM4a(track, request.tags) as BlobPart[], { type }),
+        blob: new Blob(writeM4a(track, tags) as BlobPart[], { type }),
         plan,
         tagged: true,
       }
@@ -162,7 +191,7 @@ export async function exportAudio(
     output = await bytesOf(input)
   } else {
     const job: CoreJob =
-      plan.tags === 'core' ? { ...plan.core, metadata: containerTags(request.tags) } : plan.core
+      plan.tags === 'core' ? { ...plan.core, metadata: containerTags(tags) } : plan.core
     try {
       const core = await dependencies.loadCore()
       output = await core.convert(input, job, {
@@ -183,7 +212,7 @@ export async function exportAudio(
       }
     }
   }
-  const result = tagged(plan, output, request.tags)
+  const result = tagged(plan, output, tags)
   onProgress?.(1)
   return { blob: new Blob(result.parts as BlobPart[], { type }), plan, tagged: result.tagged }
 }

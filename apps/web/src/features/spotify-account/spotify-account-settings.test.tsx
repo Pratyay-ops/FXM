@@ -1,20 +1,28 @@
 import { FxmError, type NetworkCapabilities } from '@fxm/core'
 import { SpotifyError } from '@fxm/sources/spotify'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../../app/app'
 import { routes } from '../../app/routes'
 import { getLibrary } from '../../db/repo'
 import { INITIAL_CONNECTION, useConnection } from '../connect/connection'
+import { asBrowser, USER_AGENTS } from '../connect/testing'
 import { appSources } from '../search/sources-context'
 import { createSyncStore } from '../sync/sync-store'
 import { createAccountChoice, SPOTIFY_ACCOUNT_STORAGE_KEY } from './account-store'
 import { type AccountAccess, SpotifyAccountProvider } from './context'
 import { LIKED_NAME } from './ids'
 import { type AccountRuntime, createAccountRuntime } from './runtime'
-import { failureText, progressText, syncedText, whenText } from './spotify-account-settings'
+import {
+  EXPERIMENTAL_NOTE,
+  failureText,
+  ISSUES_URL,
+  progressText,
+  syncedText,
+  whenText,
+} from './spotify-account-settings'
 import { type FakeServices, fakeLocks, fakeServices } from './testing'
 
 const FULL: NetworkCapabilities = {
@@ -27,6 +35,7 @@ const FULL: NetworkCapabilities = {
 afterEach(() => {
   useConnection.setState(INITIAL_CONNECTION, true)
   appSources.setSpotifyEnabled(true)
+  vi.restoreAllMocks()
 })
 
 /** The tier the page sees, as FXM Connect's detection would set it. */
@@ -98,6 +107,10 @@ describe('Settings → Spotify account', () => {
     )
     expect(dialog).toHaveTextContent('No case is known of an account suspended')
     expect(dialog).toHaveTextContent('never changes anything in your Spotify account')
+    // Experimental: tested with a stand-in for Spotify only, which the notice says first.
+    expect(dialog).toHaveTextContent(
+      'This is experimental. It has been tested with a stand-in for Spotify, not yet with real accounts.',
+    )
     expect(dialog).toHaveTextContent('The token stays in FXM’s memory and is never saved')
     // Library sync is off: the copies stay on the device, until it goes on.
     expect(dialog).toHaveTextContent(
@@ -153,14 +166,107 @@ describe('Settings → Spotify account', () => {
   })
 
   it('points to FXM Connect where Spotify is out of reach, and offers nothing to connect', async () => {
+    asBrowser(USER_AGENTS.chromeWindows)
     tier({ youtube: 'simple', spotify: 'unreachable', mediaBytes: false, fileSystem: false })
     setup()
     const account = await section()
+    expect(
+      account.getByText(/^Connecting your account needs Spotify\. FXM reaches Spotify through/),
+    ).toBeVisible()
     expect(account.getByRole('link', { name: 'Get FXM Connect' })).toHaveAttribute(
       'href',
       '/connect',
     )
     expect(account.queryByRole('button', { name: 'Connect your account' })).toBeNull()
+  })
+
+  it('offers no FXM Connect on iPhone and iPad, where it can’t be added', async () => {
+    tier({ youtube: 'simple', spotify: 'unreachable', mediaBytes: false, fileSystem: false })
+    asBrowser(USER_AGENTS.iphone)
+    setup()
+    const account = await section()
+    expect(
+      account.getByText(
+        "Connecting your account needs Spotify. Spotify needs FXM Connect, which isn't available on iPhone and iPad.",
+        { exact: false },
+      ),
+    ).toBeVisible()
+    expect(account.queryByRole('link', { name: 'Get FXM Connect' })).toBeNull()
+    expect(account.getByRole('link', { name: 'See your options' })).toHaveAttribute(
+      'href',
+      '/connect',
+    )
+  })
+
+  it('offers no FXM Connect on Android either, where browsers can’t add it', async () => {
+    tier({ youtube: 'simple', spotify: 'unreachable', mediaBytes: false, fileSystem: false })
+    asBrowser(USER_AGENTS.androidChrome)
+    setup()
+    const account = await section()
+    expect(
+      account.getByText(
+        "Connecting your account needs Spotify. Spotify needs FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
+        { exact: false },
+      ),
+    ).toBeVisible()
+    expect(account.queryByRole('link', { name: 'Get FXM Connect' })).toBeNull()
+    expect(account.getByRole('link', { name: 'See your options' })).toBeVisible()
+  })
+
+  it('tells a user of FXM Connect 0.1.0 that its note on the login setting is out of date', async () => {
+    // FXM Connect 0.1.0's options page says "this setting changes nothing": true before 3.5.
+    const anonymous = { ...FULL, spotify: 'anonymous' } as const
+    useConnection.setState({
+      phase: 'ready',
+      capabilities: anonymous,
+      platform: 'web',
+      connect: { state: 'present', version: '0.1.0', features: ['youtube', 'spotify'] },
+    })
+    const { fake } = setup({ optedIn: true })
+    fake.setCapabilities('anonymous')
+    const account = await section()
+    expect(
+      await account.findByText(/^FXM Connect doesn’t use your Spotify login yet/),
+    ).toBeVisible()
+    expect(
+      account.getByText(/^FXM Connect 0\.1\.0 says there that this setting changes nothing/),
+    ).toHaveTextContent(
+      'FXM Connect 0.1.0 says there that this setting changes nothing. That note dates from before FXM could connect an account: the setting works now, and newer versions of FXM Connect say so.',
+    )
+    // FXM Connect 0.2.0 says what the setting does: nothing to add.
+    act(() =>
+      useConnection.setState({
+        connect: { state: 'present', version: '0.2.0', features: ['youtube', 'spotify'] },
+      }),
+    )
+    expect(account.queryByText(/says there that this setting changes nothing/)).toBeNull()
+  })
+
+  it('says the sync is experimental, how it was tested, and where to report problems', async () => {
+    tier(FULL)
+    const { user } = setup()
+    const account = await section()
+    const heading = account.getByRole('heading', { level: 3 })
+    expect(heading).toHaveTextContent('Your Spotify account')
+    expect(within(heading).getByText('Experimental')).toBeVisible()
+    const note = account.getByText(/^Connecting your account is experimental\./)
+    expect(note).toHaveTextContent(
+      `Connecting your account is experimental. ${EXPERIMENTAL_NOTE} If something goes wrong, report it on GitHub`,
+    )
+    expect(EXPERIMENTAL_NOTE).toBe(
+      'It has been tested with a stand-in for Spotify, not yet with real accounts.',
+    )
+    const report = within(note).getByRole('link', { name: /report it on GitHub/ })
+    expect(report).toHaveAttribute('href', 'https://github.com/Pratyay-ops/FXM/issues')
+    expect(ISSUES_URL).toBe('https://github.com/Pratyay-ops/FXM/issues')
+    expect(report).toHaveAttribute('target', '_blank')
+
+    // It stays once connected.
+    await user.click(account.getByRole('button', { name: 'Connect your account' }))
+    const dialog = await screen.findByRole('alertdialog', { name: 'Connect your Spotify account?' })
+    await user.click(within(dialog).getByRole('button', { name: 'Connect' }))
+    await account.findByText(/^Last synced just now/)
+    expect(account.getByText(/^Connecting your account is experimental\./)).toBeVisible()
   })
 
   it('asks to switch Spotify on first', async () => {

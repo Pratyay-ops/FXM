@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { Codec, Container, StreamMedia } from '@fxm/core'
+import type { Codec, Container, LossySource, StreamMedia } from '@fxm/core'
 
 /**
  * What a stored download holds: the original bytes of the stream it came from. The download
@@ -68,6 +68,20 @@ export interface ExportTags {
    */
   readonly syncedLyrics?: readonly TimedLyric[]
   readonly cover?: CoverArt
+  /**
+   * The lossy audio the file was converted from, when the conversion re-encoded a lossy source
+   * (YouTube's Opus or AAC, say): `exportAudio` sets it from the plan, whatever the caller passed.
+   * Every format records it in its own fields, as a note for people ("Converted by FXM from Opus
+   * (lossy, 160 kbps)") and as `FXM_SOURCE_CODEC` and `FXM_SOURCE_BITRATE` for programs, which
+   * FXM's Local files reads, so a FLAC made from Opus never passes for a lossless file.
+   */
+  readonly convertedFrom?: ConvertedFrom
+}
+
+/** The lossy source of a converted file (see {@link ExportTags.convertedFrom}). */
+export interface ConvertedFrom extends LossySource {
+  /** `muxed-video` when the audio came from a video (YouTube's itag 18); absent for audio. */
+  readonly media?: StreamMedia
 }
 
 /** Why a conversion failed, for the UI. */

@@ -19,7 +19,7 @@ val HOST_RULES: List<HostRule> =
     HostRule("itunes.apple.com", HostClass.OPEN, "iTunes Search"),
     HostRule("sponsor.ajay.app", HostClass.OPEN, "SponsorBlock"),
     HostRule("i.ytimg.com", HostClass.OPEN, "YouTube thumbnails"),
-    HostRule("*.ggpht.com", HostClass.OPEN, "YouTube images"),
+    HostRule("yt3.ggpht.com", HostClass.OPEN, "YouTube images"),
     HostRule("lh3.googleusercontent.com", HostClass.OPEN, "YouTube Music images"),
     HostRule("yt3.googleusercontent.com", HostClass.OPEN, "YouTube images"),
     HostRule("i.scdn.co", HostClass.OPEN, "Spotify images"),

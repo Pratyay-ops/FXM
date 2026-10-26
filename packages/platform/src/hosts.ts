@@ -67,7 +67,10 @@ export const HOST_RULES: readonly HostRule[] = [
   { host: 'itunes.apple.com', hostClass: 'open', service: 'iTunes Search' },
   { host: 'sponsor.ajay.app', hostClass: 'open', service: 'SponsorBlock' },
   { host: 'i.ytimg.com', hostClass: 'open', service: 'YouTube thumbnails' },
-  { host: '*.ggpht.com', hostClass: 'open', service: 'YouTube images' },
+  // The one ggpht host YouTube's answers name (channel images), and the one the web app's policy
+  // lets it fetch from (`connect-src` in scripts/build-dist/src/policies.ts): another ggpht host
+  // would pass here and then be blocked by the policy, so it isn't one.
+  { host: 'yt3.ggpht.com', hostClass: 'open', service: 'YouTube images' },
   // YouTube Music's covers and YouTube's channel images, whose bytes go into saved files (stage
   // 4.2). Both send `Access-Control-Allow-Origin: *` (packages/sources/src/youtube/CLEAN-ROOM.md).
   { host: 'lh3.googleusercontent.com', hostClass: 'open', service: 'YouTube Music images' },

@@ -28,7 +28,9 @@ describe('routes', () => {
     // No YouTube until the platform is wired in: the pages show the onboarding entry point.
     ['/album/ytm:MPREb_123', 'This album is on YouTube Music'],
     ['/artist/ytm:UC-abc', 'This artist is on YouTube Music'],
-    ['/playlist/liked', 'Playlist liked'],
+    // The shell's old address of Liked songs leads to its page in the library.
+    ['/playlist/liked', 'Liked songs'],
+    ['/playlist/no-such-playlist', 'Playlist not found'],
     ['/now-playing', 'Now playing'],
     ['/import', 'Import music'],
     ['/settings', 'Settings'],

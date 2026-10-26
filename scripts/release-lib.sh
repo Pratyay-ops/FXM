@@ -134,6 +134,7 @@ fxm_release_catalog() {
 release-bundles|fxm-connect-chromium-<version>.zip|FXM Connect for Chrome, Edge, Brave and other Chromium browsers
 release-bundles|fxm-connect-firefox-<version>.zip|FXM Connect for Firefox, unsigned: for review, or a temporary install that Firefox removes when it restarts. Use the signed `.xpi` when the release has one
 release-bundles|fxm-web-<version>.zip|The website and web app for self-hosting: the files `fxmusic.pages.dev` serves, with the web app in `app/`, `_headers` and the third-party notices
+release-bundles|fxm-ffmpeg-core-source-<version>.zip|The source of the web app's ffmpeg core (LGPL), as the web zip serves it in `source/ffmpeg-core/`: FFmpeg's, LAME's and Opus's release tarballs exactly as their projects publish them, and FXM's recipe that builds the core from them
 release-firefox|fxm-connect-firefox-<version>.xpi|FXM Connect for Firefox, signed by Mozilla: install it from Firefox's Add-ons Manager
 EOF
 }

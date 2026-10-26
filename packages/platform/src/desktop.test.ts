@@ -188,7 +188,7 @@ describe('sendsBrowserAgent', () => {
     'youtubei.googleapis.com',
     '*.googlevideo.com',
     'i.ytimg.com',
-    '*.ggpht.com',
+    'yt3.ggpht.com',
     'lh3.googleusercontent.com',
     'yt3.googleusercontent.com',
     'open.spotify.com',
@@ -286,7 +286,7 @@ describe('desktopHeaders', () => {
   it('gives YouTube’s and Spotify’s images a browser agent, and other hosts FXM’s', () => {
     for (const host of [
       'i.ytimg.com',
-      '*.ggpht.com',
+      'yt3.ggpht.com',
       'lh3.googleusercontent.com',
       'yt3.googleusercontent.com',
       'i.scdn.co',

@@ -7,12 +7,9 @@ import {
 } from '@fxm/core'
 import { ListMusic } from 'lucide-react'
 import { useRef } from 'react'
-import { useParams } from 'react-router'
-import { PLACEHOLDER_PLAYLISTS } from '../../components/layout/nav-items'
-import { CollectionActions } from '../../components/media/collection-actions'
-import { CollectionHeader, PageWash, seedWash } from '../../components/media/collection-header'
-import { TrackListSkeleton } from '../../components/media/placeholders'
-import { PlayPauseButton } from '../player/controls'
+import { Navigate, useParams } from 'react-router'
+import { SYSTEM_PLAYLIST_IDS, type SystemPlaylist } from '../../db/types'
+import { playlistPath } from '../library/paths'
 import { useMediaActions } from '../search/actions'
 import { Byline, useEntityTitle } from '../search/catalog/byline'
 import { CollectionToolbar } from '../search/catalog/collection-toolbar'
@@ -188,41 +185,23 @@ function PlaylistView({ id }: { id: EntityId<'playlist'> }) {
   )
 }
 
-/**
- * The shell's placeholder for the library's own playlists, which the sidebar links to by a bare
- * ID such as `liked`, until the library (stage 2.6) gives them pages of their own.
- */
-function LibraryPlaylistPlaceholder({ id }: { id: string }) {
-  // Same seed and icon as the sidebar entry, so the artwork matches.
-  const seed = `playlist:${id}`
-  const icon = PLACEHOLDER_PLAYLISTS.find((playlist) => playlist.id === id)?.icon
-  return (
-    <div className="space-y-8">
-      <PageWash color={seedWash(seed)} />
-      <CollectionHeader kind="Playlist" id={id} seed={seed} icon={icon} />
-      <CollectionActions toggle="save">
-        <PlayPauseButton appearance="cta" />
-      </CollectionActions>
-      <section aria-label="Tracks">
-        <p className="sr-only">Your library's playlists appear here once the library is ready.</p>
-        <TrackListSkeleton count={10} />
-      </section>
-    </div>
-  )
+/** Whether a bare playlist ID is one of the library's built-in playlists: `liked`, `downloads`. */
+function isSystemPlaylist(id: string): id is SystemPlaylist {
+  return Object.hasOwn(SYSTEM_PLAYLIST_IDS, id)
 }
 
 /**
  * A playlist from a catalog (`/playlist/<source>:<id>`): its tracks a page at a time, with play,
- * shuffle, queue and add-to-playlist actions. A bare ID (no `<source>:`) names one of the
- * library's own playlists; anything else that isn't a catalog ID is not found.
+ * shuffle, queue and add-to-playlist actions. The shell's old addresses of the library's
+ * built-in playlists, a bare `liked` or `downloads`, lead to their pages in the library; any
+ * other address that isn't a catalog ID is not found.
  */
 export function PlaylistPage() {
   const { id: param = '' } = useParams()
   const id = parseRouteId(param, 'playlist')
   if (id !== null) return <PlaylistView key={id} id={id} />
-  return param.includes(':') ? (
-    <EntityNotFound kind="playlist" />
-  ) : (
-    <LibraryPlaylistPlaceholder id={param} />
-  )
+  if (isSystemPlaylist(param)) {
+    return <Navigate replace to={playlistPath(SYSTEM_PLAYLIST_IDS[param])} />
+  }
+  return <EntityNotFound kind="playlist" />
 }

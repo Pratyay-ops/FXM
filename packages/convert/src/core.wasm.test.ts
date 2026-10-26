@@ -103,6 +103,39 @@ function expectTags(writer: string, bytes: Uint8Array, format: DownloadFormat): 
   }
 }
 
+/**
+ * The lossy codec a saved file says it was converted from (`FXM_SOURCE_CODEC`), read by a reader
+ * of its format's own, or `undefined` when it says none.
+ */
+function sourceCodecOf(writer: string, bytes: Uint8Array): string | undefined {
+  switch (writer) {
+    case 'flac':
+      return readVorbisComments(
+        readFlacBlocks(bytes).blocks.find((block) => block.type === 4)?.body ?? new Uint8Array(),
+      ).fields.find(([name]) => name === 'FXM_SOURCE_CODEC')?.[1]
+    case 'mp4':
+      return readMp4Tags(bytes)['----:FXM_SOURCE_CODEC']
+    case 'id3v2':
+      return id3Summary(bytes)['TXXX:FXM_SOURCE_CODEC']
+    case 'riff':
+      return id3Summary(
+        readRiffChunks(bytes).find((chunk) => chunk.id === 'id3 ')?.data ?? new Uint8Array(),
+      )['TXXX:FXM_SOURCE_CODEC']
+    case 'ogg': {
+      const packets = readOggPackets(readOggPages(bytes))
+      return readVorbisComments((packets[1] ?? new Uint8Array()).subarray(8)).fields.find(
+        ([name]) => name === 'FXM_SOURCE_CODEC',
+      )?.[1]
+    }
+    case 'core':
+      return new TextDecoder('latin1').decode(bytes).includes('FXM_SOURCE_CODEC')
+        ? 'unread'
+        : undefined
+    default:
+      throw new Error(`unexpected tag writer ${writer}`)
+  }
+}
+
 describe.skipIf(dir === undefined)('the built ffmpeg core', () => {
   let core: FfmpegCore
   let glueDir: string | undefined
@@ -207,6 +240,11 @@ describe.skipIf(dir === undefined)('the built ffmpeg core', () => {
         }[format],
       )
       expectTags(result.plan.tags, bytes, format)
+      // Every file made from the Opus by re-encoding it says so, FLAC, ALAC and WAV above all,
+      // so FXM never reads one back as lossless; the original and the Ogg copy are the Opus.
+      expect(sourceCodecOf(result.plan.tags, bytes), format).toBe(
+        result.plan.transcoded ? 'opus' : undefined,
+      )
     }
   })
 

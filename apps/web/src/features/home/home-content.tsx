@@ -179,6 +179,12 @@ function contextOf(shelf: HomeShelf): QueueContext {
   return { type: 'library', id: `home:${shelf.id}`, title: shelf.title }
 }
 
+/**
+ * What a section of the user's Spotify account says when Spotify gives it no subtitle: where it
+ * comes from, and that the account sync is experimental (tested with a stand-in for Spotify only).
+ */
+export const SPOTIFY_SECTION_DESCRIPTION = 'From your Spotify account (experimental sync).'
+
 /** One shelf of Home. */
 function HomeShelfView({
   shelf,
@@ -204,7 +210,7 @@ function HomeShelfView({
       return (
         <ShelfSection
           title={shelf.title}
-          description={shelf.subtitle ?? 'From your Spotify account.'}
+          description={shelf.subtitle ?? SPOTIFY_SECTION_DESCRIPTION}
         >
           <SourceRow
             label={shelf.title}

@@ -18,7 +18,7 @@ import {
   type TierFeature,
   tierLabel,
 } from './tiers'
-import { ComingSoonChip, TierName } from './ui'
+import { ComingSoonChip, ExperimentalChip, TierName } from './ui'
 
 function FeatureItem({ feature }: { feature: TierFeature }) {
   return (
@@ -30,11 +30,18 @@ function FeatureItem({ feature }: { feature: TierFeature }) {
       )}
       <span>
         {feature.label}
-        {!feature.released && (
+        {!feature.released ? (
           <>
             {' '}
             <ComingSoonChip />
           </>
+        ) : (
+          feature.experimental === true && (
+            <>
+              {' '}
+              <ExperimentalChip />
+            </>
+          )
         )}
       </span>
     </li>

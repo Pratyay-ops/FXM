@@ -6,8 +6,9 @@
  * - **FXM's site** (`fxmusic.pages.dev`, port 6330): the embed's test build under `/embed/`, the
  *   sandbox documents under `/sandbox/`, and a stand-in for the app under `/app/`, each with the
  *   header rules of stage 2.8 (docs/PLAN.md): the app's policy with `frame-ancestors 'none'`,
- *   the `/embed/*` rule (`embed/headers.ts`: that policy without it, and
- *   `Cross-Origin-Opener-Policy: same-origin`), and the sandbox documents' own policies.
+ *   the `/embed/*` rule (`embed/headers.ts`: no `frame-ancestors`, no worker, only YouTube's
+ *   and Internet Archive's hosts, and `Cross-Origin-Opener-Policy: same-origin`), and the
+ *   sandbox documents' own policies.
  * - **Another site** (`music-blog.example`, port 6331): a page that embeds the player in an
  *   iframe and drives its postMessage API, plus a frame from a third site next to it, and a
  *   document that pretends to be FXM's InnerTube sandbox.
@@ -436,7 +437,8 @@ export async function startTestNetwork(): Promise<TestNetwork> {
         const type = CONTENT_TYPES[extname(url.pathname)] ?? 'application/octet-stream'
         return { status: 200, headers: { 'content-type': type, ...headers }, body: file }
       }
-      // Every other embed path gets the page, as Pages serves embed/404.html (a copy of it).
+      // Every other embed path gets the page: Pages answers a player's address with it through
+      // the `_redirects` rewrites (200), and any other path with embed/404.html, a copy (404).
       return html(embedIndex.toString('utf8'), headers)
     }
     if (url.pathname === '/app/' || url.pathname.startsWith('/app/')) {

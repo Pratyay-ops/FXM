@@ -4,6 +4,7 @@ import {
   audioFormatOf,
   codecOf,
   containerOf,
+  convertedFromName,
   extensionOf,
   formatName,
   isAudioFileName,
@@ -160,6 +161,45 @@ describe('audioFormatOf', () => {
     expect(formatOf(lossy[0]?.[0] ?? {}, 'mp3').tier).toBe('high')
   })
 
+  it('never labels a file converted from lossy audio lossless: it gets its source’s tier', () => {
+    const fromOpus = { codec: 'opus', bitrateKbps: 160 } as const
+    const converted = (parsed: ParsedFormat, extension: string) => {
+      const result = audioFormatOf(parsed, extension, fromOpus)
+      if (!('format' in result)) throw new Error(result.unsupported)
+      return result.format
+    }
+    const flac = converted(
+      { container: 'FLAC', codec: 'FLAC', bitrate: 900_000, sampleRate: 48_000, bitsPerSample: 16 },
+      'flac',
+    )
+    expect(flac).toEqual({
+      codec: 'flac',
+      container: 'flac',
+      tier: 'high',
+      convertedFrom: fromOpus,
+      bitrateKbps: 900,
+      sampleRateHz: 48_000,
+      bitDepth: 16,
+    })
+    expect(isLossless(flac)).toBe(false)
+    for (const [parsed, extension] of [
+      [{ container: 'M4A/isom', codec: 'ALAC', bitsPerSample: 16 }, 'm4a'],
+      [{ container: 'WAVE', codec: 'PCM', bitsPerSample: 16 }, 'wav'],
+    ] as const) {
+      expect(converted(parsed, extension).tier).toBe('high')
+      expect(isLossless(converted(parsed, extension))).toBe(false)
+    }
+    // A low-bitrate source drags the file down with it; a lossy file keeps its own lower tier.
+    const low = audioFormatOf({ container: 'FLAC', codec: 'FLAC' }, 'flac', {
+      codec: 'aac',
+      bitrateKbps: 48,
+    })
+    expect('format' in low && low.format.tier).toBe('low')
+    expect(
+      converted({ container: 'MPEG', codec: 'MPEG 1 Layer 3', bitrate: 128_000 }, 'mp3').tier,
+    ).toBe('normal')
+  })
+
   it('agrees with core: lossless exactly for FLAC, ALAC and PCM', () => {
     const pairs: [Codec, Container, string, string][] = [
       ['mp3', 'mp3', 'MPEG 1 Layer 3', 'MPEG'],
@@ -283,5 +323,27 @@ describe('labels', () => {
       'MP3 · 320 kbps',
     )
     expect(qualityLabel({ codec: 'aac', container: 'm4a', tier: 'normal' })).toBe('AAC')
+  })
+
+  it('says where a converted file came from instead of its resolution or bitrate', () => {
+    const flac = {
+      codec: 'flac',
+      container: 'flac',
+      tier: 'high',
+      sampleRateHz: 48_000,
+      bitDepth: 16,
+      convertedFrom: { codec: 'opus', bitrateKbps: 160 },
+    } as const
+    expect(qualityLabel(flac)).toBe('FLAC · converted from Opus')
+    expect(convertedFromName(flac)).toBe('Opus')
+    expect(
+      qualityLabel({
+        codec: 'pcm',
+        container: 'wav',
+        tier: 'normal',
+        convertedFrom: { codec: 'aac' },
+      }),
+    ).toBe('WAV · converted from AAC')
+    expect(convertedFromName({})).toBeUndefined()
   })
 })

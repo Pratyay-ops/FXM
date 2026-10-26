@@ -1,6 +1,13 @@
 ---
-import { AVAILABLE } from '../config'
-import { losslessSources, musicMode, noExtensionHighlight, SPOTIFY_ACCOUNT } from '../lib/tiers'
+import { AVAILABLE, ISSUES_URL } from '../config'
+import {
+  embedCardText,
+  losslessSources,
+  musicMode,
+  noExtensionHighlight,
+  SPOTIFY_ACCOUNT,
+  SPOTIFY_ACCOUNT_NOTE,
+} from '../lib/tiers'
 import ComingSoon from './ComingSoon.astro'
 import DownloadsDemo from './demos/DownloadsDemo.astro'
 import FeedDemo from './demos/FeedDemo.astro'
@@ -9,19 +16,30 @@ import SpotifyDemo from './demos/SpotifyDemo.astro'
 import Experimental from './Experimental.astro'
 import Icon from './Icon.astro'
 
+// Spotify's radio feeds Home's recommendations and autoplay (AVAILABLE.radio); the app has no radio
+// to start from a song. The account sync is experimental: tested only with a stand-in for Spotify
+// (SPOTIFY_ACCOUNT_NOTE).
 const spotify = [
-  { text: "Search Spotify's catalog", available: true },
-  { text: 'Related artists', available: true },
-  { text: 'Song radio', available: AVAILABLE.radio },
-  { text: SPOTIFY_ACCOUNT, available: AVAILABLE.spotifyAccount },
+  { text: "Search Spotify's catalog", available: true, experimental: false },
+  { text: 'Related artists', available: true, experimental: false },
+  {
+    text: AVAILABLE.radio
+      ? "Spotify's radio, for your home feed and autoplay"
+      : "Spotify's radio, for your home feed",
+    available: AVAILABLE.homeFeed,
+    experimental: false,
+  },
+  { text: SPOTIFY_ACCOUNT, available: AVAILABLE.spotifyAccount, experimental: true },
 ]
 
 const noExtension = noExtensionHighlight(AVAILABLE.lite, AVAILABLE.jamendo)
 
-// What the home feed holds today, and endless radio once it is out (stage 3.4).
-const feed = AVAILABLE.radio
-  ? 'Quick picks, daily mixes and endless radio, put together on your device from YouTube Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz.'
-  : 'Quick picks and daily mixes, put together on your device from YouTube Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz. Endless radio is coming soon.'
+// What Home holds, then autoplay (stage 3.4), which keeps the queue going: neither is a station.
+const feed =
+  'Quick picks, daily mixes, Discover and more, put together on your device from YouTube Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz.'
+const autoplay = AVAILABLE.radio
+  ? 'When your queue runs low, autoplay adds songs like the ones you just played, so the music keeps going.'
+  : 'Autoplay, which keeps your queue going with songs like the ones you just played, is coming soon.'
 
 // Downloads keep the source's file, which plays offline; since stage 4.2 a downloaded song can
 // be saved to the device in another format, converted there.
@@ -53,7 +71,10 @@ const extras = [
   {
     icon: 'embed',
     title: 'Embeddable mini-player',
-    text: 'Put a small FXM player for a song or a playlist on your own website.',
+    // Where its code comes from once it is out (AVAILABLE.embed): the app's Share entry.
+    text: AVAILABLE.embed
+      ? embedCardText(AVAILABLE.lite)
+      : 'Put a small FXM player for an album or a playlist on your own website.',
     available: AVAILABLE.embed,
   },
   {
@@ -105,7 +126,7 @@ const extras = [
         <div class="text">
           <span class="icon-tile"><Icon name="sparkles" /></span>
           <h3>A home feed made for you, on your device {!AVAILABLE.homeFeed && <ComingSoon />}</h3>
-          <p>{feed}</p>
+          <p>{feed} {autoplay}</p>
           <p>
             Your listening history is kept on your device, not on an FXM server. There isn't one.
           </p>
@@ -128,11 +149,21 @@ const extras = [
                 <span>
                   {item.text}
                   {!item.available && <ComingSoon />}
+                  {item.available && item.experimental && <Experimental />}
                 </span>
               </li>
             ))}
           </ul>
-          <p>Prefer not to? Switch it off in Settings and FXM doesn't talk to Spotify at all.</p>
+          {AVAILABLE.spotifyAccount && (
+            <p>
+              {SPOTIFY_ACCOUNT_NOTE} If it doesn't work for you, please tell us on the
+              <a href={ISSUES_URL}>FXM issue tracker</a>.
+            </p>
+          )}
+          <p>
+            Prefer not to? Switch it off in Settings and FXM doesn't talk to Spotify at all, not
+            even for covers: Spotify songs already in your library show a placeholder instead.
+          </p>
         </div>
         <SpotifyDemo />
       </div>

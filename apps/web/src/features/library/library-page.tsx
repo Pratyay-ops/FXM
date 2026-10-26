@@ -18,6 +18,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
+import { NowPlayingOverlay, nowPlayingText } from '../../components/ui/now-playing-marker'
 import { PageTitle } from '../../components/ui/page'
 import { placeholderKeys, Skeleton } from '../../components/ui/skeleton'
 import { type TabItem, TabPanel, Tabs } from '../../components/ui/tabs'
@@ -36,7 +37,9 @@ import {
   type FollowRecord,
   LIKED_PLAYLIST_ID,
 } from '../../db/types'
+import { cn } from '../../lib/cn'
 import { DownloadsPanel } from '../downloads/downloads-panel'
+import { useNowPlayingStatus } from '../now-playing/current-track'
 import { isConnected, useSyncStore } from '../sync/sync-store'
 import { BackupDialog } from './backup-dialog'
 import { CoverArt } from './cover-art'
@@ -176,17 +179,24 @@ function BuiltInPanel({ id }: { id: EntityId<'playlist'> }) {
   )
 }
 
+/**
+ * What the Artists and Albums tabs say while they are empty: where follows come from today. The
+ * web app has no Follow or Save button yet; only an import of Spotify's data download brings the
+ * artists the user follows and the albums they saved there (`features/import`).
+ */
 const FOLLOW_EMPTY: Record<
   Exclude<FollowKind, 'playlist'>,
   { title: string; description: string }
 > = {
   artist: {
-    title: 'Follow artists you love',
-    description: 'Artists you follow show up here, and their new songs reach your home feed.',
+    title: 'No artists yet',
+    description:
+      'The artists you follow on Spotify show up here when you import your Spotify data. FXM can’t follow artists itself yet.',
   },
   album: {
-    title: 'Save albums to find them fast',
-    description: 'Albums you save show up here.',
+    title: 'No albums yet',
+    description:
+      'The albums you saved on Spotify show up here when you import your Spotify data. FXM can’t save albums itself yet.',
   },
 }
 
@@ -276,6 +286,11 @@ function FollowsPanel({ kind }: { kind: Exclude<FollowKind, 'playlist'> }) {
         icon={kind === 'artist' ? UserRound : Disc3}
         title={FOLLOW_EMPTY[kind].title}
         description={FOLLOW_EMPTY[kind].description}
+        action={
+          <Link to="/import" className={buttonClasses({ variant: 'secondary' })}>
+            Import music
+          </Link>
+        }
         headingLevel={3}
         className="rounded-2xl border border-dashed border-border"
       />
@@ -294,20 +309,40 @@ function FollowsPanel({ kind }: { kind: Exclude<FollowKind, 'playlist'> }) {
   )
 }
 
+/**
+ * A song of the listening history. The song the player is on has the "now playing" marker over
+ * its cover and its title in the accent colour, and says "Now playing", "Paused" or "Couldn’t
+ * play".
+ */
 function RecentRowItem({ row, onAdd }: { row: RecentRow; onAdd: (track: Track) => void }) {
   const repo = useLibrary()
+  const nowPlaying = useNowPlayingStatus(row.id)
   const title = row.track?.title ?? 'Unavailable song'
   return (
-    <li className="flex items-center gap-3 rounded-lg py-1.5 pr-1 pl-2 hover:bg-text/5">
-      <CoverArt
-        src={artworkUrl(row.track?.artwork, 80)}
-        seed={row.id}
-        icon={Music}
-        rounded="sm"
-        className="size-10"
-      />
+    <li
+      aria-current={nowPlaying === undefined ? undefined : 'true'}
+      className="flex items-center gap-3 rounded-lg py-1.5 pr-1 pl-2 hover:bg-text/5"
+    >
+      <span className="relative shrink-0">
+        <CoverArt
+          src={artworkUrl(row.track?.artwork, 80)}
+          seed={row.id}
+          icon={Music}
+          rounded="sm"
+          className="size-10"
+        />
+        {nowPlaying && <NowPlayingOverlay status={nowPlaying} />}
+      </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold">{title}</p>
+        <p
+          className={cn(
+            'truncate font-semibold',
+            nowPlaying && 'text-accent forced-colors:text-[Highlight]',
+          )}
+        >
+          {title}
+          {nowPlaying && <span className="sr-only">. {nowPlayingText(nowPlaying)}</span>}
+        </p>
         <p className="truncate text-sm text-text-muted">{artistNames(row.track)}</p>
       </div>
       <p className="hidden shrink-0 text-sm text-text-muted sm:block">

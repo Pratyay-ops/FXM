@@ -16,7 +16,8 @@ function useDocumentTitle(title: string | undefined): void {
  * The embed: the player for the controller's content, in the address's layout. In another
  * site's iframe it fills the frame, with a hairline edge so a light player stands out on a
  * white page. Opened as a page of its own (a shared player link), it sits centred at the size
- * its layout is designed for, on the page's background.
+ * its layout is designed for, on the page's background, and is the only place it suggests FXM
+ * Connect for YouTube content it can't reach.
  */
 export function EmbedApp({
   controller,
@@ -39,8 +40,11 @@ export function EmbedApp({
         target: controller.target,
         origin,
         attribution: controller.attributionOf,
+        // FXM Connect reaches the player only on a page of its own, so only there may it say to
+        // add FXM Connect (view.ts, `needsYouTubeMessage`).
+        framed: !standalone,
       }),
-    [state, layout, controller, origin],
+    [state, layout, controller, origin, standalone],
   )
   const actions = useMemo<EmbedActions>(
     () => ({

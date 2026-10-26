@@ -287,6 +287,20 @@ same_cliff_parts() {
       "$(cliff_part cliff.notes.toml 'commit_preprocessors' ']')" ]
 }
 expect "the notes and the changelog share their template and preprocessors" same_cliff_parts
+# The commits the notes leave out by hash: git-cliff compares whole hashes, and in a full clone
+# (CI's checkout is shallow) each must be a commit of this history.
+skipped_hashes_ok() {
+  local sha hashes
+  hashes=$(sed -n 's/^ *{ sha = "\([^"]*\)", skip = true }.*/\1/p' "$FXM_ROOT/cliff.notes.toml")
+  [ -n "$hashes" ] || return 1
+  while IFS= read -r sha; do
+    [[ $sha =~ ^[0-9a-f]{40}$ ]] || return 1
+    if [ "$(git -C "$FXM_ROOT" rev-parse --is-shallow-repository)" = false ]; then
+      git -C "$FXM_ROOT" cat-file -e "$sha^{commit}" 2>/dev/null || return 1
+    fi
+  done <<<"$hashes"
+}
+expect "the notes leave out commits by their whole hash, each one of this history" skipped_hashes_ok
 big=$tmp/big.md
 for i in $(seq 1 2000); do echo "- entry $i, long enough to need many lines of notes"; done >"$big"
 fxm_release_fit "$big" 20000 "See CHANGELOG.md."
@@ -314,6 +328,8 @@ expect "a cut after it closes nothing" \
 catalog_ok() {
   fxm_release_lookup release-bundles fxm-web-0.1.0.zip 0.1.0 >/dev/null &&
     fxm_release_lookup release-bundles fxm-connect-firefox-0.1.0.zip 0.1.0 >/dev/null &&
+    fxm_release_lookup release-bundles fxm-ffmpeg-core-source-0.1.0.zip 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-firefox fxm-ffmpeg-core-source-0.1.0.zip 0.1.0 >/dev/null &&
     ! fxm_release_lookup release-bundles fxm-web-0x1x0.zip 0.1.0 >/dev/null &&
     ! fxm_release_lookup release-other fxm-web-0.1.0.zip 0.1.0 >/dev/null &&
     ! fxm_release_lookup "" SHA256SUMS 0.1.0 >/dev/null
@@ -389,6 +405,7 @@ commit "$work" "fix(core): accept the platform fetch, with type tests"
 commit "$work" "fix(player): give test streams the fields core requires"
 commit "$work" "fix(web): keep the local files tests' plays out of the history"
 commit "$work" "feat(web): run the services on stage 2.7's app platform"
+commit "$work" "fix(web): fit the account to 2.9b's composition root"
 # The same change twice, as when a stacked branch carries a copy of a commit.
 commit "$work" "fix(web): repair a thing"
 notes=$tmp/notes.md
@@ -417,7 +434,8 @@ expect "and the internal scopes, whatever their type" leaves_out_internal_scopes
 leaves_out_integration_work() {
   local entry
   for entry in "merged library's toast" "develop's native HTTP shape" "start time from fixtures" \
-    "with type tests" "test streams the fields" "tests' plays" "2.7's app platform"; do
+    "with type tests" "test streams the fields" "tests' plays" "2.7's app platform" \
+    "2.9b's composition root"; do
     lacks "$notes" "$entry" || return 1
   done
 }
@@ -433,6 +451,8 @@ expect "but leaves e-mail addresses alone" has "$notes" "**core:** Answer user@e
 expect "has no version heading" test -z "$(grep -E '^## (\[|v?[0-9])' "$notes" || true)"
 expect "carries the legal notice" has "$notes" \
   "not affiliated with or endorsed by YouTube, Google, Spotify or any other service"
+expect "and where the source of the LGPL ffmpeg core is, in one paragraph" has "$notes" \
+  "the source it was built from comes with every copy: in \`source/ffmpeg-core/\` of the web zip and on the site, and as \`fxm-ffmpeg-core-source-0.1.0.zip\` in the release."
 notice_then_folded_list() {
   [ "$(grep -n -x -e '## Legal' -e '## Changes' -e '<details>' -e '### Features' "$notes" |
     cut -d: -f2- | tr '\n' '|')" = "## Legal|## Changes|<details>|### Features|" ] &&
@@ -939,11 +959,15 @@ else
   mkdir -p "$PNPM_STUB_DIR"
   : >"$PNPM_STUB_DIR/calls.log"
   write_pnpm_stub "$work/.tools/bin/pnpm"
-  # What make dist composes, in small, with modes and dates that must not reach the zip.
+  # What make dist composes, in small, with modes and dates that must not reach the zip: the
+  # ffmpeg core in the app, and its source at the site's root (scripts/build-dist).
   pages=$PNPM_STUB_DIR/pages
-  mkdir -p "$pages/.well-known" "$pages/app/assets" "$pages/sandbox"
+  mkdir -p "$pages/.well-known" "$pages/app/assets" "$pages/app/ffmpeg" "$pages/sandbox" \
+    "$pages/source/ffmpeg-core"
   for file in index.html Z.html _headers third-party-notices.txt .well-known/security.txt \
-    app/index.html app/assets/b.js app/assets/a.js sandbox/innertube.html; do
+    app/index.html app/assets/b.js app/assets/a.js app/ffmpeg/ffmpeg-core.wasm \
+    sandbox/innertube.html source/ffmpeg-core/opus-1.6.1.tar.gz \
+    source/ffmpeg-core/fxm-ffmpeg-core-recipe.tar; do
     echo "$file" >"$pages/$file"
   done
   chmod 0600 "$pages/_headers"
@@ -966,18 +990,27 @@ else
     lacks "$PNPM_STUB_DIR/calls.log" @fxm/site && lacks "$PNPM_STUB_DIR/calls.log" @fxm/web
   }
   expect "instead of building the site and the app on their own" no_own_builds
-  expect "into the web zip and FXM Connect's two" \
+  expect "into the web zip, the ffmpeg core's source and FXM Connect's two" \
     test "$(ls "$work/dist/release" 2>/dev/null | tr '\n' ' ')" = \
-    "fxm-connect-chromium-0.1.0.zip fxm-connect-firefox-0.1.0.zip fxm-web-0.1.0.zip "
-  sorted=(.well-known/security.txt Z.html _headers app/assets/a.js app/assets/b.js app/index.html
-    index.html sandbox/innertube.html third-party-notices.txt)
+    "fxm-connect-chromium-0.1.0.zip fxm-connect-firefox-0.1.0.zip fxm-ffmpeg-core-source-0.1.0.zip fxm-web-0.1.0.zip "
+  sorted=(.well-known/security.txt Z.html _headers app/assets/a.js app/assets/b.js
+    app/ffmpeg/ffmpeg-core.wasm app/index.html index.html sandbox/innertube.html
+    source/ffmpeg-core/fxm-ffmpeg-core-recipe.tar source/ffmpeg-core/opus-1.6.1.tar.gz
+    third-party-notices.txt)
   expect "the web zip holds exactly dist/pages, dot folders included, sorted by name" \
     test "$(unzip -Z1 "$zip" 2>/dev/null | tr '\n' ' ')" = "${sorted[*]} "
   # zipinfo's lines: mode, version, system, size, text or binary plus a hyphen when the entry has
   # no extra field (uid, gid, more dates), method, date.time and name.
   entry='^-rw-r--r-- .* [tb]- [a-zA-Z0-9]+ 20261025\.123042 '
   expect "every file 0644, without extra fields and dated with the release commit's time" \
-    test "$(unzip -Z -T "$zip" 2>/dev/null | grep -cE "$entry")" = 9
+    test "$(unzip -Z -T "$zip" 2>/dev/null | grep -cE "$entry")" = 12
+  source_zip=$work/dist/release/fxm-ffmpeg-core-source-0.1.0.zip
+  expect "the source zip holds exactly the core's source, as the web zip has it" \
+    test "$(unzip -Z1 "$source_zip" 2>/dev/null | tr '\n' ' ')" = \
+    "fxm-ffmpeg-core-recipe.tar opus-1.6.1.tar.gz "
+  expect "made the same way" test "$(unzip -Z -T "$source_zip" 2>/dev/null | grep -cE "$entry")" = 2
+  expect "with the very files" \
+    test "$(unzip -p "$source_zip" opus-1.6.1.tar.gz 2>/dev/null)" = source/ffmpeg-core/opus-1.6.1.tar.gz
   cp "$zip" "$tmp/build/first.zip" 2>/dev/null || true
   chmod 0640 "$pages/index.html"
   TZ=UTC find "$pages" -exec touch -t 200001020304.05 {} +
@@ -988,6 +1021,16 @@ else
   build
   expect "never zips the dist/pages of an earlier make dist" test "$status" -ne 0 -a ! -e "$zip"
   rm "$PNPM_STUB_DIR/no-match"
+  mv "$pages/source" "$tmp/build/source"
+  build
+  expect "refuses an ffmpeg core without its source" \
+    test "$status" -ne 0 -a ! -e "$source_zip" -a -n "$(grep 'without its source' <<<"$out")"
+  mv "$pages/app/ffmpeg" "$tmp/build/ffmpeg"
+  build
+  expect "and builds a release without the core and its source, with a warning" \
+    test "$status" -eq 0 -a -e "$zip" -a ! -e "$source_zip" -a -n "$(grep 'no ffmpeg core' <<<"$out")"
+  mv "$tmp/build/source" "$pages/source"
+  mv "$tmp/build/ffmpeg" "$pages/app/ffmpeg"
   mv "$pages/third-party-notices.txt" "$tmp/build/notices.txt"
   build
   expect "refuses a dist/pages without the third-party notices" \

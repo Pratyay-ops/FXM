@@ -2,14 +2,16 @@
  * Vorbis comments, the tags of FLAC, Ogg Opus and Ogg Vorbis files, and the FLAC picture block
  * that holds their cover (in Ogg as a METADATA_BLOCK_PICTURE comment).
  *
- * Fields: TITLE, ARTIST (one per artist), ALBUM, TRACKNUMBER, DISCNUMBER, DATE, ISRC, LYRICS.
+ * Fields: TITLE, ARTIST (one per artist), ALBUM, TRACKNUMBER, DISCNUMBER, DATE, ISRC, LYRICS,
+ * and for a file converted from lossy audio COMMENT (a note for people), FXM_SOURCE_CODEC and
+ * FXM_SOURCE_BITRATE.
  *
  * @module
  */
 
 import { ByteWriter, base64, readU32LE, utf8 } from '../bytes'
 import type { CoverArt, ExportTags } from '../types'
-import { plainLyrics, positive } from './fields'
+import { conversionNote, plainLyrics, positive, sourceFields } from './fields'
 
 /** The comment fields of `tags`, as name and value. */
 export function commentFields(tags: ExportTags): [string, string][] {
@@ -27,6 +29,8 @@ export function commentFields(tags: ExportTags): [string, string][] {
   add('DATE', tags.releaseDate)
   add('ISRC', tags.isrc)
   add('LYRICS', plainLyrics(tags))
+  add('COMMENT', conversionNote(tags))
+  for (const [name, value] of sourceFields(tags)) add(name, value)
   return fields
 }
 

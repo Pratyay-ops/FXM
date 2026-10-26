@@ -4,7 +4,7 @@ import { FIREFOX_TEMPORARY, phonesAnswer } from '../lib/connect'
 import { connectNeededFor, extensionFaq, iPhoneAnswer, losslessAnswer } from '../lib/tiers'
 
 // Answers that change as features ship (AVAILABLE in src/config.ts)
-const extension = extensionFaq(AVAILABLE.lite, AVAILABLE.jamendo)
+const extension = extensionFaq(AVAILABLE.lite, AVAILABLE.jamendo, AVAILABLE)
 const needs = connectNeededFor(AVAILABLE.lite)
 const phones = phonesAnswer({
   firefox: AVAILABLE.firefox,
@@ -20,6 +20,11 @@ const downloads = AVAILABLE.conversions
   : AVAILABLE.downloads
     ? 'Downloads keep the file as its source has it, so lossless audio stays lossless. Converting to other formats is coming soon, and a FLAC, ALAC or WAV made from a lossy source will be labelled as converted.'
     : 'When downloads arrive (coming soon), FXM will save lossless audio without any loss and label a FLAC, ALAC or WAV made from a lossy source as converted, so you always know what you have.'
+// The Spotify account sync is experimental (SPOTIFY_ACCOUNT_NOTE in src/lib/tiers.ts), and it
+// makes Spotify's answers personal: Spotify knows who asks.
+const spotifyAccount = AVAILABLE.spotifyAccount
+  ? "If you connect your Spotify account for the experimental account sync, Spotify knows that FXM's requests to it come from your account."
+  : ''
 ---
 
 <section id="faq" class="section" aria-labelledby="faq-title">
@@ -98,7 +103,9 @@ const downloads = AVAILABLE.conversions
           </p>
           <p>
             When you open the app, search or play, your device talks directly to the services you
-            use, and they see those requests as if you visited them yourself. The
+            use, and they see those requests as if you visited them yourself.
+            {spotifyAccount}
+            The
             <a href="/privacy">privacy page</a>
             lists the services FXM uses, what each one is for and what FXM Connect can access.
           </p>

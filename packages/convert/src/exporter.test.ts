@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { exportAudio, inputExtension } from './exporter'
+import { containerTags, exportAudio, inputExtension, withSourceTags } from './exporter'
 import { demuxMp4Audio } from './mp4/demux'
 import {
   FAKE_WEBM_MAGIC,
@@ -159,6 +159,86 @@ describe('exportAudio', () => {
     expect(demuxMp4Audio(alacBytes).mediaTime).toBe(1024)
   })
 
+  it('records the lossy source of every conversion of it, in each format’s own fields', async () => {
+    const { deps } = setup()
+    // YouTube's Opus 251 at about 150 kbps, saved as each lossless format and as MP3.
+    const source: SourceAudio = { ...OPUS_WEBM, bitrateKbps: 150 }
+    const note = 'Converted by FXM from Opus (lossy, 150 kbps)'
+    const save = async (format: 'flac' | 'alac' | 'wav' | 'mp3' | 'opus' | 'aac') =>
+      bytes(
+        (await exportAudio({ input: new Uint8Array(4), source, format, tags: TAGS }, deps)).blob,
+      )
+
+    const flac = await save('flac')
+    expect(
+      readVorbisComments(readFlacBlocks(flac).blocks[1]?.body ?? new Uint8Array()).fields,
+    ).toEqual(
+      expect.arrayContaining([
+        ['COMMENT', note],
+        ['FXM_SOURCE_CODEC', 'opus'],
+        ['FXM_SOURCE_BITRATE', '150'],
+      ]),
+    )
+    expect(readMp4Tags(await save('alac'))).toMatchObject({
+      '©cmt': note,
+      '----:FXM_SOURCE_CODEC': 'opus',
+      '----:FXM_SOURCE_BITRATE': '150',
+    })
+    const wav = readRiffChunks(await save('wav'))
+    expect(new TextDecoder().decode(wav.find((chunk) => chunk.id === 'LIST')?.data)).toContain(note)
+    expect(
+      id3Summary(wav.find((chunk) => chunk.id === 'id3 ')?.data ?? new Uint8Array()),
+    ).toMatchObject({
+      COMM: `eng ${note}`,
+      'TXXX:FXM_SOURCE_CODEC': 'opus',
+    })
+    expect(id3Summary(await save('mp3'))).toMatchObject({
+      COMM: `eng ${note}`,
+      'TXXX:FXM_SOURCE_CODEC': 'opus',
+      'TXXX:FXM_SOURCE_BITRATE': '150',
+    })
+    // AAC to Opus is a conversion of lossy audio too.
+    const fromAac = await exportAudio(
+      { input: new Uint8Array(4), source: AAC, format: 'opus', tags: TAGS },
+      deps,
+    )
+    const packets = readOggPackets(readOggPages(await bytes(fromAac.blob)))
+    expect(readVorbisComments((packets[1] ?? new Uint8Array()).subarray(8)).fields).toContainEqual([
+      'FXM_SOURCE_CODEC',
+      'aac',
+    ])
+  })
+
+  it('records nothing for an original, a remux or a lossless source, whatever it is given', async () => {
+    const { deps } = setup()
+    const claimed: ExportTags = { ...TAGS, convertedFrom: { codec: 'mp3' } }
+    // The original Opus, as it is.
+    const original = await exportAudio(
+      {
+        input: oggOpusFile(),
+        source: { codec: 'opus', container: 'ogg', media: 'audio' },
+        format: 'original',
+        tags: claimed,
+      },
+      deps,
+    )
+    const packets = readOggPackets(readOggPages(await bytes(original.blob)))
+    const fields = readVorbisComments((packets[1] ?? new Uint8Array()).subarray(8)).fields
+    expect(fields.map(([name]) => name)).not.toContain('FXM_SOURCE_CODEC')
+    expect(fields.map(([name]) => name)).not.toContain('COMMENT')
+    // Internet Archive's FLAC saved as ALAC: lossless all the way.
+    const alac = await exportAudio(
+      {
+        input: new Uint8Array(4),
+        source: { codec: 'flac', container: 'flac', media: 'audio' },
+        format: 'alac',
+        tags: claimed,
+      },
+      deps,
+    )
+    expect(Object.keys(readMp4Tags(await bytes(alac.blob)))).not.toContain('----:FXM_SOURCE_CODEC')
+  })
+
   it('tags free sources’ originals without the core', async () => {
     const { deps, loads } = setup()
     const mp3 = await exportAudio(
@@ -315,6 +395,46 @@ describe('exportAudio with a core that never loads', () => {
         },
       ),
     ).rejects.toMatchObject({ code: 'cancelled' })
+  })
+})
+
+describe('withSourceTags', () => {
+  it('names the lossy source of a conversion, with its bitrate and whether it was a video', () => {
+    const plan = { transcoded: true }
+    expect(withSourceTags(TAGS, { ...OPUS_WEBM, bitrateKbps: 139 }, plan).convertedFrom).toEqual({
+      codec: 'opus',
+      bitrateKbps: 139,
+    })
+    expect(withSourceTags(TAGS, ITAG_18, plan).convertedFrom).toEqual({
+      codec: 'aac',
+      media: 'muxed-video',
+    })
+    // A bitrate that isn't one is left out.
+    expect(withSourceTags(TAGS, { ...AAC, bitrateKbps: Number.NaN }, plan).convertedFrom).toEqual({
+      codec: 'aac',
+    })
+  })
+
+  it('names none for audio kept as it is, or a lossless source', () => {
+    const claimed: ExportTags = { ...TAGS, convertedFrom: { codec: 'opus' } }
+    expect(withSourceTags(claimed, OPUS_WEBM, { transcoded: false })).toEqual(TAGS)
+    expect(
+      withSourceTags(
+        claimed,
+        { codec: 'pcm', container: 'wav', media: 'audio' },
+        { transcoded: true },
+      ),
+    ).toEqual(TAGS)
+  })
+
+  it('reaches the WebM muxer’s tags too', () => {
+    expect(
+      containerTags({ ...TAGS, convertedFrom: { codec: 'vorbis', bitrateKbps: 128 } }),
+    ).toMatchObject({
+      comment: 'Converted by FXM from Vorbis (lossy, 128 kbps)',
+      FXM_SOURCE_CODEC: 'vorbis',
+      FXM_SOURCE_BITRATE: '128',
+    })
   })
 })
 

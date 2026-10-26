@@ -80,7 +80,7 @@ Candidates come grouped by source, in each source's order, and are not de-duplic
 
 ## Home feeds
 
-`home(ctx)` collects the home feeds of YouTube Music and of Spotify (when it is on and reachable), with each shelf's tracks filtered to the mode like radio, and shelves left empty dropped. A home feed has no seed, so every `Unsupported` refusal of one is a failure.
+`home(ctx)` collects the home feeds of Spotify (when it is on and reachable) and of YouTube Music, with each shelf's tracks filtered to the mode like radio, and shelves left empty dropped. YouTube Music's provider has no home feed yet (no `home()`), so its part is always skipped as `not-configured`: in the Lite tier, where Spotify can't be reached, `home(ctx)` returns no shelves, and the web app's onboarding suggests artists from the user's own listening instead, or says to type them in. A home feed has no seed, so every `Unsupported` refusal of one is a failure.
 
 ## Artwork
 

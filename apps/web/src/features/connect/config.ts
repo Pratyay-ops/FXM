@@ -49,11 +49,13 @@ export const RELEASED = {
   localFiles: true,
   /**
    * The embeddable mini-player (stage 5.2), and with it the app's Share entry, which hands out
-   * its code. Turn it on with the landing page's `AVAILABLE.embed`, once a browser test shows the
-   * production embed playing in the Lite tier inside a page on another origin: until then nobody
-   * is invited to publish a player that may not play.
+   * its code. On, with the landing page's `AVAILABLE.embed`, since a browser test showed the
+   * production embed playing in the Lite tier inside a page on another site, in Chromium on
+   * 2026-10-26 (scripts/build-dist/README.md, "The embed on the deployed site", which says how to
+   * check again with `scripts/build-dist/e2e/embed.e2e.ts`). Turn it off, with the site's flag,
+   * if that check stops passing: nobody should be invited to publish a player that doesn't play.
    */
-  embed: false,
+  embed: true,
 } as const
 
 /** A flag of {@link RELEASED}. */

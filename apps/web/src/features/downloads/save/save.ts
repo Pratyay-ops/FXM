@@ -34,6 +34,7 @@ import {
 } from '@fxm/core'
 import type { DownloadRecord } from '@fxm/downloads'
 import { mimeTypeOf } from '@fxm/player'
+import { appShowsImage } from '../../../lib/images'
 
 let converter: Converter | undefined
 let saver: DeviceSaver | undefined
@@ -206,6 +207,11 @@ export interface SaveOptions {
   readonly fetch: ProviderContext['fetch']
   /** The track's lyrics, when it has any. */
   readonly lyrics?: () => Promise<Lyrics | null | undefined>
+  /**
+   * Which of the track's covers may be fetched for the file, by URL. Default: what the app may
+   * load (`appShowsImage`), so no cover comes from Spotify while Spotify is switched off.
+   */
+  readonly showImage?: (url: string) => boolean
   readonly onProgress?: (done: number) => void
   readonly signal?: AbortSignal
 }
@@ -230,6 +236,7 @@ export async function saveDownload(
   options: SaveOptions,
 ): Promise<SaveResult> {
   const fail = (code: SaveErrorCode) => new SaveError(code, saveErrorText(code, options.format))
+  const showImage = options.showImage ?? appShowsImage
   try {
     const { plan } = savePlan(record, options.format, options.mp3Kbps)
     const type = mimeTypeOf(record.format) ?? 'application/octet-stream'
@@ -239,11 +246,14 @@ export async function saveDownload(
         throw fail('read-failed')
       }),
       withTimeout(
-        fetchCover(record.track.artwork, {
-          fetch: options.fetch,
-          toJpeg: canvasToJpeg,
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
-        }),
+        fetchCover(
+          record.track.artwork.filter((image) => showImage(image.url)),
+          {
+            fetch: options.fetch,
+            toJpeg: canvasToJpeg,
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+          },
+        ),
         EXTRAS_TIMEOUT_MS,
         undefined,
       ),
