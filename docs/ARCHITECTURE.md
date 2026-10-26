@@ -597,7 +597,7 @@ Settings → Spotify offers:
 | Web, no extension (Free only, Lite) | Impossible: `/api/token` and `/api/server-time` send no CORS headers for any origin | Impossible | — |
 | Web + FXM Connect | Connect's Spotify rules: the token endpoints get Spotify's Origin, and pathfinder and spclient echo any Origin | Connect's opt-in session bridge, using the browser's existing `open.spotify.com` login | Page memory |
 | Desktop | `plugin-http` with a browser User-Agent (Spotify accepts the Tauri origin) | A login window. A Rust command reads `sp_dc` from the OS keychain and returns only the token, so Spotify needs no `unsafe-headers` | Rust memory and the OS keychain |
-| Android | The OkHttp plugin with a browser User-Agent | A login WebView. The cookie is sent only on the token call, through the OkHttp plugin, whose cookie jar is separate from the WebView's | App-private storage |
+| Android | The OkHttp plugin with a browser User-Agent | A login WebView with a WebView profile of its own (6.5). The `sp_dc` cookie is read from that profile, kept sealed with an Android Keystore key, and sent only on the token call, through the OkHttp plugin, whose cookie jar is separate from the WebView's | Page memory; the cookie in app-private storage, never backed up |
 
 FXM never handles the password, and cookies never reach page JavaScript.
 

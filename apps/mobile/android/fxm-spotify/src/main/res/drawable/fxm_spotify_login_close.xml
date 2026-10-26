@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The login window's close button: two crossing strokes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M6,6 L18,18 M18,6 L6,18"
+        android:strokeWidth="2"
+        android:strokeColor="@color/fxm_spotify_login_text"
+        android:strokeLineCap="round" />
+</vector>

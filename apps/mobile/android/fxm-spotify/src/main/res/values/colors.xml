@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The web app's dark theme (apps/web/src/styles/tokens.css), as in the app's colors.xml. -->
+    <color name="fxm_spotify_login_background">#0b0b0f</color>
+    <color name="fxm_spotify_login_surface">#141419</color>
+    <color name="fxm_spotify_login_text">#f5f5f7</color>
+    <color name="fxm_spotify_login_text_muted">#a5a5b2</color>
+    <color name="fxm_spotify_login_accent">#a78bfa</color>
+</resources>

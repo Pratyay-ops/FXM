@@ -9,3 +9,4 @@ Before code relies on a new fact, add it there with its source and date, as the 
 | Date | Stage | What | Where it is recorded |
 |---|---|---|---|
 | 2026-10-26 | 3.5 | The logged-in calls (`fetchLibraryTracks`, `libraryV3`, `fetchPlaylist` with the account, `profileAttributes`) rechecked in Spotify's own `web-player.f954508a.js`: their variables, the `features` enum of `libraryV3`, the library and profile response readers, and the playlists' `revisionId`. No logged-in session yet | [The logged-in calls, rechecked for stage 3.5](README.md#variables-and-field-paths) |
+| 2026-10-26 | 6.5 | The Android login: Spotify's login page and where it redirects, what its content security policy lets it load, the `sp_dc` login cookie it sets for the token endpoint, and the password reset that lets an account made with Google sign in with its email address | [`apps/mobile/android/fxm-spotify/CLEAN-ROOM.md`](../../../../apps/mobile/android/fxm-spotify/CLEAN-ROOM.md) |

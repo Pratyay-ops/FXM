@@ -43,6 +43,7 @@ dependencies {
     implementation project(':capacitor-android')
     implementation project(':fxm-http')
     implementation project(':fxm-player')
+    implementation project(':fxm-spotify')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

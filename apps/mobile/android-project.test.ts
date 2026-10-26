@@ -115,9 +115,10 @@ describe('the Android project', () => {
     const files = [
       ...sources('android/fxm-http/src/main', ['.kt', '.java']),
       ...sources('android/fxm-player/src/main', ['.kt', '.java']),
+      ...sources('android/fxm-spotify/src/main', ['.kt', '.java']),
       ...sources('android/app/src/main/java', ['.kt', '.java']),
     ]
-    expect(files.length).toBeGreaterThan(15)
+    expect(files.length).toBeGreaterThan(25)
     for (const file of files) {
       expect(withoutComments(read(file)), file).not.toMatch(
         /HttpURLConnection|openConnection\(|com\.getcapacitor\.plugin\.|HttpRequestHandler|DefaultHttpDataSource|JavaNetCookieJar/,
@@ -199,6 +200,94 @@ describe('the Android project', () => {
       for (const event of ['state', 'transition', 'error', 'request', 'command', 'network']) {
         expect(messages).toContain(`"${event}" to`)
       }
+    })
+  })
+
+  describe('the Spotify login (fxm-spotify)', () => {
+    const login = (path: string) => read(`android/fxm-spotify/${path}`)
+    const kotlin = (name: string) =>
+      withoutComments(login(`src/main/kotlin/io/github/pratyayops/fxm/spotify/${name}`))
+
+    it('is built into the app, and its plugin registered before the bridge starts', () => {
+      expect(read('android/settings.gradle')).toMatch(/^include ':fxm-spotify'$/m)
+      expect(read('android/app/build.gradle')).toContain("implementation project(':fxm-spotify')")
+      const activity = withoutComments(
+        read('android/app/src/main/java/io/github/pratyayops/fxm/MainActivity.java'),
+      )
+      const register = activity.indexOf('registerPlugin(SpotifyLoginPlugin.class)')
+      expect(register).toBeGreaterThan(-1)
+      expect(register).toBeLessThan(activity.indexOf('super.onCreate'))
+      expect(kotlin('SpotifyLoginPlugin.kt')).toContain(
+        '@CapacitorPlugin(name = LoginProtocol.PLUGIN_NAME)',
+      )
+      expect(read('scripts/test-native.sh')).toContain(':fxm-spotify:testDebugUnitTest')
+    })
+
+    it('opens a login window only FXM can start', () => {
+      const manifest = login('src/main/AndroidManifest.xml')
+      const activity = /<activity[\s\S]*?\/>/.exec(manifest)?.[0] ?? ''
+      expect(activity).toContain('android:name=".SpotifyLoginActivity"')
+      expect(activity).toContain('android:exported="false"')
+      expect(activity).not.toContain('<intent-filter')
+    })
+
+    it('keeps the login window’s cookies in a WebView profile of its own', () => {
+      const window = kotlin('SpotifyLoginActivity.kt')
+      // Set before anything else touches the WebView: a used WebView can't change profiles.
+      const created = window.indexOf('val view = WebView(this)')
+      const profile = window.indexOf('WebViewCompat.setProfile(view, SpotifyLogin.PROFILE)')
+      expect(created).toBeGreaterThan(-1)
+      expect(profile).toBeGreaterThan(created)
+      expect(window.indexOf('view.settings', created)).toBeGreaterThan(profile)
+      // The cookie is read from that profile, never from the app's (default) cookie store.
+      expect(window).toContain('cookies = profile.cookieManager')
+      for (const file of sources('android/fxm-spotify/src/main', ['.kt'])) {
+        expect(withoutComments(read(file)), file).not.toMatch(/CookieManager\.getInstance\(\)/)
+      }
+      expect(kotlin('SpotifyLogin.kt')).toContain(
+        'WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)',
+      )
+    })
+
+    it('never handles the password: no script bridge, no injected script, no request bodies', () => {
+      for (const file of sources('android/fxm-spotify/src/main', ['.kt', '.java'])) {
+        expect(withoutComments(read(file)), file).not.toMatch(
+          /addJavascriptInterface|evaluateJavascript|addDocumentStartJavaScript|addWebMessageListener|shouldInterceptRequest|setWebContentsDebuggingEnabled/,
+        )
+      }
+    })
+
+    it('sends the cookie only on the token call, to the provider’s token endpoint', () => {
+      const call = kotlin('SpotifyTokenCall.kt')
+      const config = JSON.parse(read('../../packages/sources/src/spotify/spotify-config.json')) as {
+        endpoints: { token: string }
+      }
+      expect(call).toContain(`const val TOKEN_URL = "${config.endpoints.token}"`)
+      expect(call).toContain('FxmHttp.withCookies(client, jar)')
+      expect(call).toContain('.tag(RedirectMode::class.java, RedirectMode.ERROR)')
+      // A client with a cookie jar exists nowhere else, the plugin's client least of all. (FxmHttp.kt
+      // and FxmCookieJar.kt define them.)
+      const defined = ['FxmHttp.kt', 'FxmCookieJar.kt', 'SpotifyTokenCall.kt']
+      for (const file of [
+        ...sources('android/fxm-spotify/src/main', ['.kt']),
+        ...sources('android/fxm-http/src/main', ['.kt']),
+        ...sources('android/fxm-player/src/main', ['.kt']),
+      ]) {
+        if (defined.some((name) => file.endsWith(`/${name}`))) continue
+        expect(withoutComments(read(file)), file).not.toMatch(
+          /withCookies\(|FxmCookieJar\(|\.cookieJar\(/,
+        )
+      }
+    })
+
+    it('says on the login screen that Google sign-in doesn’t work there', () => {
+      const strings = login('src/main/res/values/strings.xml')
+      expect(strings).toMatch(
+        /name="fxm_spotify_login_notice">[^<]*Google and Facebook don\\'t allow signing in here/,
+      )
+      expect(kotlin('LoginPage.kt')).toContain(
+        'host == "accounts.google.com" -> Navigation.NotHere("Google")',
+      )
     })
   })
 

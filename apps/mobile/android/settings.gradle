@@ -3,6 +3,8 @@ include ':app'
 include ':fxm-http'
 // FXM's native player: Media3 in a foreground service and the FxmPlayer plugin (stage 6.3).
 include ':fxm-player'
+// FXM's Spotify login: its login window and the FxmSpotifyLogin plugin (stage 6.5).
+include ':fxm-spotify'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 

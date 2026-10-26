@@ -1,0 +1,53 @@
+// FXM's Spotify login on Android (stage 6.5): a login window of its own, where the user signs in
+// on Spotify's page in a WebView with a profile of its own; the `sp_dc` login cookie read from that
+// profile's CookieManager and kept encrypted, with a key in the Android Keystore, in the app's
+// private storage; and the FxmSpotifyLogin Capacitor plugin, which sends that cookie only on the
+// token call, through fxm-http's OkHttp client with a cookie jar of its own. JavaScript gets the
+// token endpoint's answer, never the cookie or the password. See README.md next to this file.
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace = "io.github.pratyayops.fxm.spotify"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    testOptions {
+        unitTests.all {
+            // The token call's tests run offline against MockWebServer on the loopback interface.
+            systemProperty 'java.net.preferIPv4Stack', 'true'
+            testLogging {
+                events 'failed'
+                exceptionFormat 'full'
+            }
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+    // The shared OkHttp client and its rules (FxmHttp.withCookies, FxmCookieJar); OkHttp itself
+    // comes with it.
+    implementation project(':fxm-http')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    // The login window's WebView profile (MULTI_PROFILE), at Capacitor's version like the app's.
+    implementation "androidx.webkit:webkit:$androidxWebkitVersion"
+
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation "com.squareup.okhttp3:mockwebserver3:$okhttpVersion"
+    testImplementation "com.squareup.okhttp3:okhttp-tls:$okhttpVersion"
+    // The real org.json for the message tests (android.jar only has stubs of it).
+    testImplementation "org.json:json:$orgJsonVersion"
+}

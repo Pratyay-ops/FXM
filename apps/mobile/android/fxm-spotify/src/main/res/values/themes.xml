@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The login window: the web app's dark colours with light system bar icons. It draws edge to
+         edge (always from Android 15) and SpotifyLoginActivity pads it for the system bars, the
+         display cutout and the keyboard. -->
+    <style name="FxmSpotifyLoginTheme" parent="Theme.AppCompat.NoActionBar">
+        <item name="colorPrimary">@color/fxm_spotify_login_surface</item>
+        <item name="colorPrimaryDark">@color/fxm_spotify_login_background</item>
+        <item name="colorAccent">@color/fxm_spotify_login_accent</item>
+        <item name="android:windowBackground">@color/fxm_spotify_login_background</item>
+        <item name="android:statusBarColor">@color/fxm_spotify_login_background</item>
+        <item name="android:navigationBarColor">@color/fxm_spotify_login_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

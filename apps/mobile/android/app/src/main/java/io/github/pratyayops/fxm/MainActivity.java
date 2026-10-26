@@ -6,6 +6,7 @@ import io.github.pratyayops.fxm.evaluator.EvaluatorPlugin;
 import io.github.pratyayops.fxm.http.DisabledCapacitorHttp;
 import io.github.pratyayops.fxm.http.FxmHttpPlugin;
 import io.github.pratyayops.fxm.player.FxmPlayerPlugin;
+import io.github.pratyayops.fxm.spotify.SpotifyLoginPlugin;
 
 public class MainActivity extends BridgeActivity {
 
@@ -23,6 +24,9 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(FxmPlayerPlugin.class);
         // The isolated evaluator's WebView (stage 1.11).
         registerPlugin(EvaluatorPlugin.class);
+        // FXM's Spotify login (fxm-spotify): its own login window, and the token call with the
+        // login it keeps, which never reaches the page.
+        registerPlugin(SpotifyLoginPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

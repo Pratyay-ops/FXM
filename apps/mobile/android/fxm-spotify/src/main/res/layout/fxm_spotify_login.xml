@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The login window: a toolbar to close it, what FXM does with the login, a link to Spotify's
+     password reset for accounts made with Google or Facebook, and Spotify's own page below, in a
+     WebView SpotifyLoginActivity adds once it has its own profile. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/fxm_spotify_login_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <androidx.appcompat.widget.Toolbar
+        android:id="@+id/fxm_spotify_login_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/fxm_spotify_login_surface"
+        app:navigationContentDescription="@string/fxm_spotify_login_close"
+        app:navigationIcon="@drawable/fxm_spotify_login_close"
+        app:title="@string/fxm_spotify_login_title"
+        app:titleTextColor="@color/fxm_spotify_login_text" />
+
+    <TextView
+        android:id="@+id/fxm_spotify_login_notice"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:accessibilityLiveRegion="polite"
+        android:paddingStart="16dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="4dp"
+        android:text="@string/fxm_spotify_login_notice"
+        android:textColor="@color/fxm_spotify_login_text_muted"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/fxm_spotify_login_password"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:gravity="center_vertical"
+        android:minHeight="48dp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:text="@string/fxm_spotify_login_password"
+        android:textColor="@color/fxm_spotify_login_accent"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <ProgressBar
+        android:id="@+id/fxm_spotify_login_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:indeterminate="true"
+        android:visibility="invisible" />
+
+    <FrameLayout
+        android:id="@+id/fxm_spotify_login_page"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+</LinearLayout>
