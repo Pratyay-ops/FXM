@@ -1,6 +1,7 @@
 import type { QueueItem, Track } from '@fxm/core'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { homeSourcesUntil } from '../../app/services/home'
 import { getLibrary } from '../../db/repo'
 import { renderApp } from '../../test/render'
 import { appHomeServices } from '../home/services'
@@ -10,7 +11,7 @@ import { playbackFromPlayer } from '../search/actions'
 import { renderCatalog } from '../search/testing'
 import { AUTOPLAY_SETTLE_MS } from './autoplay'
 import { AUTOPLAY_TITLE } from './autoplay-marks'
-import { AUTOPLAY_FINDING, AUTOPLAY_NEEDS_YOUTUBE, AUTOPLAY_NOT_YET } from './autoplay-setting'
+import { AUTOPLAY_FINDING, AUTOPLAY_HELP, AUTOPLAY_NEEDS_YOUTUBE } from './autoplay-setting'
 import { AUTOPLAY_STORAGE_KEY, useAutoplayStore } from './autoplay-store'
 
 const MINUTE = 60_000
@@ -240,14 +241,13 @@ describe('autoplay in the app', () => {
 
 describe('autoplay in Settings', () => {
   it.each(['free', 'lite', 'full'] as const)(
-    'says this version can’t add songs yet while the recommendation sources aren’t wired in, in the %s tier',
+    'says only what it does until the recommendation sources are wired in, in the %s tier',
     async (tier) => {
       const { user } = renderCatalog('/settings', { tier })
       const toggle = await screen.findByRole('switch', { name: 'Autoplay' })
       expect(toggle).toHaveAttribute('aria-checked', 'true')
-      expect(toggle).toHaveAccessibleDescription(
-        /songs like the ones you just played.*can’t find songs to add yet/,
-      )
+      // The app wires them in once the platform is ready: until then the tier isn't known.
+      expect(toggle).toHaveAccessibleDescription(AUTOPLAY_HELP)
       expect(screen.queryByText(AUTOPLAY_NEEDS_YOUTUBE)).not.toBeInTheDocument()
       await user.click(toggle)
       expect(useAutoplayStore.getState().enabled).toBe(false)
@@ -263,7 +263,6 @@ describe('autoplay in Settings', () => {
     const { sources } = renderCatalog('/settings', { tier })
     act(() => appHomeServices.set({ sources, recommendations: fakeRecommendations() }))
     const toggle = await screen.findByRole('switch', { name: 'Autoplay' })
-    expect(screen.queryByText(AUTOPLAY_NOT_YET)).not.toBeInTheDocument()
     expect(screen.queryByText(AUTOPLAY_NEEDS_YOUTUBE) !== null).toBe(needs)
     const guides = screen.queryByRole('link', { name: 'Tiers and install guides' })
     expect(guides !== null).toBe(needs)
@@ -282,6 +281,25 @@ describe('autoplay in Settings', () => {
     await screen.findByRole('switch', { name: 'Autoplay' })
     expect(screen.queryByText(AUTOPLAY_NEEDS_YOUTUBE)).not.toBeInTheDocument()
     act(() => sources.setDetecting(false))
+    await waitFor(() => expect(screen.getByText(AUTOPLAY_NEEDS_YOUTUBE)).toBeInTheDocument())
+  })
+
+  it('waits for the app to know the tier, as Home’s sources say, before it says what autoplay needs', async () => {
+    const { sources } = renderCatalog('/settings', { tier: 'free' })
+    let known: () => void = () => {}
+    // The composition root's view of the registry: the tier unknown until the platform's first
+    // detection ended, the first Lite self-test included, which the registry doesn't wait for.
+    const home = homeSourcesUntil(
+      sources,
+      new Promise<void>((resolve) => {
+        known = resolve
+      }),
+    )
+    act(() => appHomeServices.set({ sources: home, recommendations: fakeRecommendations() }))
+    await screen.findByRole('switch', { name: 'Autoplay' })
+    expect(sources.getSnapshot().detecting).not.toBe(true)
+    expect(screen.queryByText(AUTOPLAY_NEEDS_YOUTUBE)).not.toBeInTheDocument()
+    act(() => known())
     await waitFor(() => expect(screen.getByText(AUTOPLAY_NEEDS_YOUTUBE)).toBeInTheDocument())
   })
 })

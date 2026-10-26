@@ -27,10 +27,6 @@ export const AUTOPLAY_HELP =
 export const AUTOPLAY_NEEDS_YOUTUBE =
   'Autoplay needs YouTube Music. FXM reaches it with the free FXM Connect extension, the desktop and Android apps, or the experimental Lite tier.'
 
-/** Why autoplay adds nothing, for Settings in a build without the recommendation sources. */
-export const AUTOPLAY_NOT_YET =
-  'This version of FXM can’t find songs to add yet. That comes in a later update.'
-
 /** What autoplay does, beside its switch in the queue. */
 export const AUTOPLAY_QUEUE_HELP =
   'When your queue runs low, keep going with songs like the ones you just played.'
@@ -39,19 +35,19 @@ export const AUTOPLAY_QUEUE_HELP =
 export const AUTOPLAY_FINDING = 'Finding songs like the ones you just played…'
 
 /**
- * Why autoplay can't add songs here, if it can't: this build has no recommendation sources
- * (`not-yet`), or the platform can't reach YouTube Music (`needs-youtube`). Nothing while FXM
- * Connect is still answering (`detecting`), so the note doesn't come and go as the tier is
- * worked out.
+ * Why autoplay can't add songs here, if it can't: the platform can't reach YouTube Music
+ * (`needs-youtube`). Nothing while the tier is still being worked out, so the note doesn't come
+ * and go: while FXM Connect answers (the registry's `detecting`) and, in the app, until the
+ * first Lite self-test ended (Home's sources say `detecting` until then). Nothing either before
+ * the recommendation sources are wired in, which the app does once the platform is ready.
  */
 export function autoplayNote(
   services: HomeServices,
   reach: HomeSourcesSnapshot,
   detecting: boolean,
-): 'not-yet' | 'needs-youtube' | undefined {
-  if (canRecommend(services, reach)) return undefined
-  if (services.recommendations === undefined) return 'not-yet'
-  return detecting ? undefined : 'needs-youtube'
+): 'needs-youtube' | undefined {
+  if (canRecommend(services, reach) || services.recommendations === undefined) return undefined
+  return detecting || reach.detecting === true ? undefined : 'needs-youtube'
 }
 
 /**
@@ -75,7 +71,6 @@ export function AutoplaySetting() {
         <div className="space-y-2 text-sm text-text-muted">
           <div id={helpId} className="space-y-2">
             <p>{AUTOPLAY_HELP}</p>
-            {note === 'not-yet' && <p>{AUTOPLAY_NOT_YET}</p>}
             {note === 'needs-youtube' && <p>{AUTOPLAY_NEEDS_YOUTUBE}</p>}
           </div>
           {note === 'needs-youtube' && (
