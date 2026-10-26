@@ -1,0 +1,4 @@
+# Playwright output (pnpm --filter @fxm/deploy e2e)
+/test-results/
+/playwright-report/
+/blob-report/

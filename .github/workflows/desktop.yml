@@ -5,9 +5,9 @@ name: Desktop
 #
 # The path filters list everything the jobs build or run: the desktop app, the web app it
 # embeds and the packages that web app bundles, the Makefile targets and scripts behind
-# make ci-setup, rust-setup and desktop-*, the dependency manifests, the Node version, the
-# TypeScript base config the web build reads, and this file. Keep both lists the same (a test
-# in apps/desktop/test checks that).
+# make ci-setup, rust-setup and desktop-* (not make dist's and the deploy job's, stage 2.8),
+# the dependency manifests, the Node version, the TypeScript base config the web build reads,
+# and this file. Keep both lists the same (a test in apps/desktop/test checks that).
 on:
   push:
     paths:
@@ -15,6 +15,8 @@ on:
       - apps/web/**
       - packages/**
       - scripts/**
+      - '!scripts/build-dist/**'
+      - '!scripts/build-dist-wrangler/**'
       - Makefile
       - package.json
       - pnpm-lock.yaml
@@ -28,6 +30,8 @@ on:
       - apps/web/**
       - packages/**
       - scripts/**
+      - '!scripts/build-dist/**'
+      - '!scripts/build-dist-wrangler/**'
       - Makefile
       - package.json
       - pnpm-lock.yaml

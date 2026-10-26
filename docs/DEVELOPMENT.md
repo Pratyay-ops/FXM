@@ -68,6 +68,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
 | `make live-smoke` | The live smoke tests against the real services (`FXM_LIVE=1`), from a residential connection: see [Live smoke tests](#live-smoke-tests) |
 | `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
+| `make dist` | Compose what Cloudflare Pages serves (the site, the web app, `_headers`, the third-party notices) into `dist/pages/`, with its licence, header and privacy checks |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make release-pr VERSION=x.y.z` | Open the release pull request from `develop` into `main` (`DRY_RUN=1`: only show the checks, the plan and the notes), see [Releases](#releases) |
@@ -110,6 +111,8 @@ git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`,
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`, then `make release-check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
+
+`.github/workflows/deploy.yml` runs `make dist` on every push, then deploys `develop` to the preview (`https://develop.fxmusic.pages.dev`) and `main` to production (`https://fxmusic.pages.dev`, once a candidate of it passed the checks), the Cloudflare Pages project `fxmusic`, and checks each deployment's headers. How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md).
 
 ## Live smoke tests
 
