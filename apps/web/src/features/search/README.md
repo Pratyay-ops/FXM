@@ -21,7 +21,7 @@ The search page and the album, artist and playlist pages (`features/{album,artis
 | Download and equalizer on YouTube items | — | Hidden (the bytes can't be read), with a note that says why on search and on album, artist and playlist pages | ✅ |
 | Spotify in the source switch | — | — | ✅ when switched on |
 
-`itemFeatures(capabilities, source)` in `sources.ts` is the one rule for download and the equalizer: YouTube and Spotify items need `mediaBytes` (only `full` has it); Internet Archive, Jamendo and local files always allow them.
+`itemFeatures(capabilities, source)` in `sources.ts` is the one rule for download and the equalizer: YouTube and Spotify items need `mediaBytes` (only `full` has it); Internet Archive and Jamendo always allow them, and local files the equalizer only (they are on the device already).
 
 ### Page URLs
 
@@ -49,7 +49,7 @@ Every touch-point with a stage built in parallel goes through one interface here
 | 1.3 YouTube Music, 1.5 Spotify (and 1.6) | `MetadataProvider` from `@fxm/core` | No providers | `appSources.register(provider)` for each |
 | 2.2 player facade (merged), playing once 2.3 resolves streams | `PlaybackActions` (`play`, `playNext`, `addToQueue`); `playbackFromPlayer(player)` maps the facade onto it | No play or queue buttons | `appActions.set({ ...appActions.get(), playback: playbackFromPlayer(player) })` with the app's `Player` |
 | 2.6 library | `LibraryActions` (`playlists`, `addToPlaylist`, `createPlaylist`) | No "Add to playlist" | `appActions.set({ ...appActions.get(), library })` |
-| 4.1 downloads | `DownloadActions` | No "Download" | Wired (2.9b): the downloads' own action, which says what became of the click |
+| 4.1 downloads | `DownloadActions` | No "Download" | Wired (2.9b): the downloads' own action, which says what became of the click; a track whose download exists has "Cancel download" or "Remove download" in its menu instead (`useDownloadMenuItem`, read once per list) |
 | 8.1 audio effects | `EqualizerActions` | No "Equalizer" | `appActions.set({ …, equalizer })` |
 | 2.7 onboarding | `ONBOARDING_URL` in `onboarding.tsx` | — | Wired (2.9b): `/connect`, the in-app onboarding, opened in the app |
 

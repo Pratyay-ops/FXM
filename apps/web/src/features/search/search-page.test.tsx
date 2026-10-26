@@ -8,6 +8,7 @@ import {
 } from '@fxm/core'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setupDownloads } from '../downloads/testing'
 import { useSettingsStore } from '../settings/settings-store'
 import { createFakeCatalog } from './fake-catalog'
 import { FEEDBACK_MS } from './feedback'
@@ -146,6 +147,47 @@ describe('Search: tiers', () => {
     expect(
       screen.queryByRole('heading', { name: 'Search needs YouTube Music access' }),
     ).not.toBeInTheDocument()
+  })
+
+  it("offers to cancel a song's download on its way, and to remove one that is done", async () => {
+    const { downloads } = await setupDownloads({ run: false })
+    const ctx = createStaticPlatform(TIER_CAPABILITIES.full).context({
+      mode: 'music',
+      priority: 'interactive',
+    })
+    const found = await createFakeCatalog('ytm').search(
+      'harbor lights nova',
+      { types: ['track'] },
+      ctx,
+    )
+    const harbor = found.tracks?.items.find((track) => track.title === 'Harbor Lights')
+    if (harbor === undefined) throw new Error('No Harbor Lights in the fake catalog')
+    await downloads.manager.enqueueAll([harbor])
+    const { user } = renderCatalog('/search?q=harbor lights nova', { tier: 'full' })
+    await findList('Songs')
+
+    // Queued: the menu follows the download, as the library's menus do.
+    await user.click(
+      screen.getAllByRole('button', { name: 'More options for Harbor Lights' })[0] as HTMLElement,
+    )
+    let menu = await screen.findByRole('menu')
+    expect(await within(menu).findByRole('menuitem', { name: 'Cancel download' })).toBeVisible()
+    expect(within(menu).queryByRole('menuitem', { name: 'Download' })).toBeNull()
+    await user.keyboard('{Escape}')
+
+    // Done: "Remove download".
+    await downloads.manager.start()
+    await waitFor(async () =>
+      expect((await downloads.manager.list()).map((record) => record.status)).toEqual([
+        'completed',
+      ]),
+    )
+    await user.click(
+      screen.getAllByRole('button', { name: 'More options for Harbor Lights' })[0] as HTMLElement,
+    )
+    menu = await screen.findByRole('menu')
+    expect(await within(menu).findByRole('menuitem', { name: 'Remove download' })).toBeVisible()
+    expect(within(menu).queryByRole('menuitem', { name: 'Download' })).toBeNull()
   })
 
   it('offers the free sources in every tier, with download even without FXM Connect', async () => {
