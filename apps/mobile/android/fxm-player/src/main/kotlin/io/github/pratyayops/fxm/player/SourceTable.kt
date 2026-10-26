@@ -50,7 +50,7 @@ class SourceTable {
   companion object {
     /**
      * Headers an entry may not set: the data source sets the byte range and asks for unencoded
-     * bytes itself, OkHttp manages the framing, and only FXM's cookie jar adds cookies.
+     * bytes itself, OkHttp manages the framing, and fxm-http's shared client sends no cookies.
      * fxm-http's request policy drops most of them again; `Range` and `If-Range` would clash with
      * the data source's own.
      */

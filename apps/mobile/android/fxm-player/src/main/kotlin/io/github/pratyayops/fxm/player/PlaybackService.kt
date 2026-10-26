@@ -29,7 +29,7 @@ import io.github.pratyayops.fxm.http.FxmHttp
  * WebView whose JavaScript resolves the streams.
  *
  * Every request, audio and artwork alike, goes through fxm-http's shared OkHttp client
- * ([FxmHttp.client]): FXM's host and header rules, its own cookie jar, a browser `User-Agent`.
+ * ([FxmHttp.client]): FXM's host and header rules, no cookies, a browser `User-Agent`.
  * The [Coordinator] decides what plays; the FxmPlayer plugin binds this service to reach it.
  */
 class PlaybackService : MediaSessionService() {
