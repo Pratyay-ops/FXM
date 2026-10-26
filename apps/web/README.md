@@ -2,7 +2,7 @@
 
 The FXM web player: a React app served from `/app/`, which later also becomes the installable web applet (stage 5.1) and the shell of the Android app (stage 6.1). Everything runs in the browser: there is no FXM backend.
 
-Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB. Stage 4.4 added **local files**: music on the device, read where it is, listed in the Library and in search and played through the player core.
+Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB. Stage 4.4 added **local files**: music on the device, read where it is, listed in the Library and in search and played through the player core. Stage 8.7 added opt-in [SponsorBlock skipping](#sponsorblock-skipping-the-non-music-parts-of-videos) in Music + Video mode.
 
 Search and the album, artist and playlist pages (stage 2.4), with the app's single place for music sources (providers, tier and the Spotify switch) and the fake catalog for development and tests, are described in [src/features/search/README.md](src/features/search/README.md).
 
@@ -45,11 +45,12 @@ src/
   features/<name>/      one folder per feature: home, search, library, album, artist,
                         playlist, now-playing (page, the app's player, stream badge),
                         queue (panel, review list, saving), lyrics, player (bar, mini
-                        player, controls), settings, signals (records the player's plays)
+                        player, controls), settings, signals (records the player's plays),
+                        sponsorblock (skipping, its setting and offer)
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
-e2e/                    Playwright smoke test, Now playing test (with now-playing-seed.ts), local files test (with local-files-fixture.ts) and screenshot capture; fixtures/ holds a library backup to restore
+e2e/                    Playwright smoke test, Now playing and SponsorBlock tests (with now-playing-seed.ts), local files test (with local-files-fixture.ts) and screenshot capture; fixtures/ holds a library backup to restore
 ```
 
 Later stages own their feature folders (`features/search`, `features/now-playing`, `features/library`, …, see [PLAN.md](../../docs/PLAN.md)), so the shell rarely needs to change.
@@ -151,6 +152,24 @@ Each touch-point with a stage that wasn't merged when 2.5 was built sits behind 
 | 2.6 Library | `PlayPauseButton appearance="cta"` in `features/player/controls.tsx` | A placeholder that toggles itself, apart from the queue, on the library's playlist pages (2.4's pages have their own play buttons) | The library's playlist pages play the playlist, with Pause only while the queue's `context` is that page's |
 | 2.6 Library | `LikeButton` in `features/player/controls.tsx` | Merged: 2.6's like button (`LibraryLikeButton`), given `useCurrentItem()?.track`, off while nothing plays | Done |
 | 1.2 Platform | `lyricsContext()` in `features/lyrics/lyrics-source.ts` | The page's `fetch` (LRCLIB is CORS-friendly) | The platform's context, so desktop and Android use their native HTTP |
+| 1.2 Platform | `sponsorBlockContext()` in `features/sponsorblock/sponsorblock-source.ts` (8.7) | The page's `fetch` (SponsorBlock is CORS-friendly) | The platform's context, as for lyrics |
+| 2.8 Deploy | The `/app/*` CSP (8.7) | No CSP outside the deploy | `connect-src` must allow `https://sponsor.ajay.app` (PLAN.md lists it under 2.8's notes) |
+
+### SponsorBlock: skipping the non-music parts of videos
+
+Stage 8.7, in `features/sponsorblock/`. Opt-in and off by default.
+
+- **What it skips:** SponsorBlock's `music_offtopic` segments ("Non-Music Section": intros, skits, outros) of **videos playing as themselves in Music + Video mode**. Never songs, never in Music mode (`skippableVideoId` from `@fxm/sources/sponsorblock`). While skipping is off, SponsorBlock is asked nothing.
+- **Privacy:** only the first four hex characters of the videoId's SHA-256 hash leave the device, so SponsorBlock can't tell which video plays ([the client's README](../../packages/sources/src/sponsorblock/README.md)). The requests use the page's `fetch` without cookies (`sponsorblock-source.ts`).
+- **Skipping** (`skipping.ts`): the player's segment skipper (`connectSegmentSkipper` in `@fxm/player`), connected by the app's playback, asks `segmentsFor` for each track and again whenever the setting or the catalog mode changes.
+- **The skip notice** (`sponsorblock-notices.tsx`): each skip shows what it passed, "Skipped the intro", "Skipped the outro" or "Skipped a non-music part", with the track, Undo (it goes back, and that part plays this time) and Dismiss. It stays for as long as Undo works, which is until the track changes or starts over or the user moves playback (the skipper's `undoexpire`), so nobody has to race a timer to undo. An outro's notice has no Undo, since the track ended, and closes by itself after 8 s, counted only while neither the pointer nor focus is on it. It sits above the player bar (phones: above the mini player), except on Now playing on phones, where `InlineSkipNotice` puts it under the player controls and the Lyrics and Queue buttons, so it covers none of them and moves none of them when it appears. Undo and Dismiss hand keyboard focus back to where it came from (else to the main content), also when a newer skip replaces the card.
+- **The setting** (`sponsorblock-store.ts`, `fxm.sponsorblock.v1`): `enabled`, `offered` (the user chose, by the offer or the switch) and `offerShown`, all `false` at first, synced across tabs. Settings → Playback has the switch, what it does, how it keeps what plays private and the data's licence (`sponsorblock-setting.tsx`).
+- **The offer** (`sponsorblock-notices.tsx`): "Skip non-music parts of videos?", with Turn on and No thanks, above the player bar (phones: above the mini player, as just the title, one sentence and the buttons). Only the first Music + Video session that shows it does, until answered: a sessionStorage mark (`fxm.sponsorblock.offer-session`) keeps it across reloads in that session, while `offerShown` keeps later sessions from showing it. Not on Settings, which has the switch, nor on Now playing, whose controls stay clear, nor in a window too short for it (under 24rem, e.g. a phone held sideways): it waits for a page or window with room. It scrolls rather than grows past the bars. Answering hands focus back and shows "Skipping is on" or "Skipping stays off" with where to change it, for 8 s.
+- **The app's toast** (`FeedbackToast` in `features/search/feedback.tsx`) rises above the cards while any shows: they set the height they cover as `--shell-cards` on the root, so a confirmation never hides the offer's buttons or Undo.
+- **Screen readers** hear each skip and each answer through one polite live region (`role="status"`, named SponsorBlock), wherever the card itself shows.
+- **Credit:** SponsorBlock's data is CC BY-NC-SA 4.0. "Uses SponsorBlock data licensed under CC BY-NC-SA 4.0 from sponsor.ajay.app", with both links, shows under the switch and in Settings → About.
+
+`features/sponsorblock/testing.ts` has `setupTestSponsorBlock(handler)`, a fake client the test setup removes after each test, and `testVideo` and `testSegment`. `e2e/sponsorblock.spec.ts` checks the offer, the first-session rule and the switch in a real browser, and plays the seeded music video with SponsorBlock answered by a route: the lookup goes by hash prefix only, and on 320 and 390 px phones the notice sits under Now playing's controls, which stay tappable, with focus handed back after Undo, and the app's toast stays clear of the offer.
 
 ### Tests
 

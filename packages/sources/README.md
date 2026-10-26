@@ -41,6 +41,8 @@ The factories take either the device's `session` (to share one visitorData) or t
 
 Every protocol fact this code relies on is recorded, with its source and date, in the [YouTube clean-room log](src/youtube/CLEAN-ROOM.md).
 
+All of it is also packaged as one versioned module, `@fxm/sources/youtube/module` ([`youtube/module/`](src/youtube/module/README.md)): the apps use its live providers, and the desktop and Android apps replace the module with newer signed copies from FXM's site, without an app update.
+
 ### Request shape
 
 Every InnerTube request is CORS-simple on every platform and tier, because the Lite tier's sandboxed document can make no other kind:
@@ -67,7 +69,7 @@ It is cached in memory and persisted through an optional `VisitorDataStore` (`lo
 
 ### Config
 
-`youtube-config.json` holds the client names, versions and hosts (`WEB_REMIX` on `music.youtube.com`, `WEB` on `www.youtube.com`), the search filter `params` (as YouTube's own filter chips and filter dialog send them), the radio `params`, the kill switches (`killSwitches.lite` turns the experimental Lite tier off; `@fxm/platform` reads it) and, by language, the labels that help read unlinked byline words (`labels.en`; a language without labels of its own reads with the English ones). It has a `schema` and an increasing `revision`. `parseYouTubeConfig()` validates every field and refuses any host outside `INNERTUBE_HOSTS`, which lives in code so no config can extend it; it ignores fields it does not know, such as the stream ladder's `streams` section, which stage 1.4 reads. `pickYouTubeConfig(candidate, current)` takes a newer valid config (one fetched from the static site, say) and otherwise keeps the current one and says why. Signature checks come in stage 1.13.
+`youtube-config.json` holds the client names, versions and hosts (`WEB_REMIX` on `music.youtube.com`, `WEB` on `www.youtube.com`), the search filter `params` (as YouTube's own filter chips and filter dialog send them), the radio `params`, the kill switches (`killSwitches.lite` turns the experimental Lite tier off; `@fxm/platform` reads it) and, by language, the labels that help read unlinked byline words (`labels.en`; a language without labels of its own reads with the English ones). It has a `schema` and an increasing `revision`. `parseYouTubeConfig()` validates every field and refuses any host outside `INNERTUBE_HOSTS`, which lives in code so no config can extend it; it ignores fields it does not know, such as the stream ladder's `streams` section, which stage 1.4 reads. `pickYouTubeConfig(candidate, current)` takes a newer valid config and otherwise keeps the current one and says why. It checks no signature, so give it only trusted configs: one from the network comes through [`youtube/module`](src/youtube/module/README.md)'s host and `@fxm/platform`'s updater, which verify it first.
 
 ### Classification and modes
 

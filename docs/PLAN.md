@@ -112,7 +112,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **1.10** | Opaque-origin transport (Lite tier) | `feat/1.10-sandbox-transport` | 1.2 | ✅ |
 | **1.11** | YouTube resolver: deciphered, attested and SABR rungs (experimental) | `feat/1.11-youtube-advanced-rungs` | 1.2, 1.4, 1.9, 2.2, 6.1, 7.1 | 🟡 |
 | **1.12** | Matching evaluation: labelled set, report and Auto switch | `test/1.12-matching-eval` | 1.2, 1.3, 1.5, 1.6, 1.7 | 🟡 |
-| **1.13** | Signed config and resolver module | `feat/1.13-signed-updates` | 1.2, 1.3, 1.4, 7.1 | 🟡 |
+| **1.13** | Signed config and resolver module | `feat/1.13-signed-updates` | 1.2, 1.3, 1.4, 7.1 | ✅ |
 | **2.1** | Web app shell and settings | `feat/2.1-web-shell` | 0.4 | ✅ |
 | **2.2** | Player core: queue, direct audio, Media Session | `feat/2.2-player-core` | 1.1b | ✅ |
 | **2.3** | Playback policy and stream lifecycle | `feat/2.3-playback-policy` | 2.2, 1.4, 1.7 | ✅ |
@@ -156,7 +156,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **8.3** | Plugin system for sources and resolvers | `feat/8.3-plugins` | 1.4, 1.5, 1.11 | ⬜ |
 | **8.4** | Backup sync (GitHub Gist) | `feat/8.4-sync` | 2.6 | 🟡 |
 | **8.5** | i18n, accessibility, e2e tests, performance | `chore/8.5-quality-pass` | 5.1 | ⬜ |
-| **8.7** | SponsorBlock in Music + Video (opt-in) | `feat/8.7-sponsorblock` | 2.3, 2.5 | 🟡 |
+| **8.7** | SponsorBlock in Music + Video (opt-in) | `feat/8.7-sponsorblock` | 2.3, 2.5 | ✅ |
 
 Removed in revision 3:
 
@@ -508,7 +508,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - The labelled set and the report are committed, and CI replays them offline from fixtures.
 - The Auto band is a setting that the matching config turns on only if the held-out report shows zero wrong Auto plays and at least 85 % Auto on mainstream tracks, with thresholds tuned on the calibration split only. Otherwise the setting ships off and M1 is Suggest-only. (Zero wrong out of about 150 Auto plays bounds the wrong-Auto rate below about 2 % at 95 % confidence.)
 
-### 1.13 Signed config and resolver module
+### 1.13 Signed config and resolver module ✅
 
 **Branch** `feat/1.13-signed-updates` · **Depends on** 1.2, 1.3, 1.4, 7.1 · **Scope** `packages/platform/src/updates/**`, `packages/sources/src/youtube/module/**`, `scripts/sign-*`, a `live-smoke` Makefile target, the update sentence in `apps/site/src/pages/privacy.astro`
 

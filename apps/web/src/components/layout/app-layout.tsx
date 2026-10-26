@@ -4,6 +4,7 @@ import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-rou
 import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { FeedbackToast } from '../../features/search/feedback'
+import { SponsorBlockNotices } from '../../features/sponsorblock/sponsorblock-notices'
 import { BottomNav } from './bottom-nav'
 import { RouteAnnouncer } from './route-announcer'
 import { useDocumentTitle, useRouteHandle } from './route-meta'
@@ -70,6 +71,7 @@ export function AppLayout() {
           </div>
         </main>
       </div>
+      <SponsorBlockNotices />
       <PlayerBar />
       {/* Now Playing has its own big controls on phones. */}
       {!fullScreen && <MiniPlayer />}

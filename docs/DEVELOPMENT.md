@@ -66,6 +66,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make test` / `make coverage` | Run all tests (Vitest), optionally with a coverage report |
 | `make build` | Build every app |
 | `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
+| `make live-smoke` | The live smoke tests against the real services (`FXM_LIVE=1`), from a residential connection: see [Live smoke tests](#live-smoke-tests) |
 | `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
@@ -109,6 +110,48 @@ git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`,
 ## Continuous integration
 
 `.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`, then `make release-check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
+
+## Live smoke tests
+
+Offline tests replay recorded answers, so they can't notice when YouTube or another service changes. `make live-smoke` runs every `live.test.ts` against the real services, one file at a time, with a few requests each (about 20 to YouTube in all, fewer than 30 per service). Run it from a residential connection: GitHub's runners use datacenter addresses that meet YouTube's bot checks, so CI's live runs are only advisory. Run it before every release.
+
+It never runs code it downloads. The signed-updates check verifies the signature, size and SHA-256 of what FXM's site publishes and reads the config as data, but never imports the module: code imported there would run with your rights, unattended, with access to your files, keys and GitHub credentials. The YouTube module it runs is the one built from your checkout.
+
+To run it every day on the owner's Mac, save this as `~/Library/LaunchAgents/io.github.pratyayops.fxm.live-smoke.plist` (it assumes the checkout in `~/Documents/Code/FXM` and Node from nvm; adjust both if needed):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.pratyayops.fxm.live-smoke</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd "$HOME/Documents/Code/FXM" &amp;&amp; source "$HOME/.nvm/nvm.sh" &amp;&amp; nvm use --silent &amp;&amp; { date; make live-smoke; } &gt;&gt; .tools/live-smoke.log 2&gt;&amp;1 || osascript -e 'display notification "See .tools/live-smoke.log" with title "FXM live smoke tests failed"'</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>10</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+</dict>
+</plist>
+```
+
+Then load it, and run it once to check:
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.pratyayops.fxm.live-smoke.plist
+launchctl kickstart gui/$(id -u)/io.github.pratyayops.fxm.live-smoke
+tail .tools/live-smoke.log
+```
+
+It runs at 10:30 every day, or when the Mac wakes if it was asleep then, tests whatever branch the checkout is on, appends to `.tools/live-smoke.log` (removed by `make nuke`) and shows a notification when something fails. To stop it: `launchctl bootout gui/$(id -u)/io.github.pratyayops.fxm.live-smoke`, then delete the file. On Linux, a cron line does the same: `30 10 * * * cd ~/FXM && make live-smoke >> .tools/live-smoke.log 2>&1`.
 
 ## Android app
 
