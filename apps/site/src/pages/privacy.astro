@@ -18,16 +18,16 @@ const services: Service[] = [
   {
     name: 'YouTube',
     url: 'https://www.youtube.com',
-    use: `YouTube Music and YouTube: search, song and video details, audio, and radio${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)} Only while one of FXM's experimental ways of playing YouTube songs is switched on (they ship switched off), also Google's BotGuard service, to get the token YouTube asks for before it plays a song.`,
+    use: `YouTube Music and YouTube: search, song and video details, audio, the playlists you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)} (YouTube Music radio, started from the artists you pick and the songs you play), and song radio${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)} Only while one of FXM's experimental ways of playing YouTube songs is switched on (they ship switched off), also Google's BotGuard service, to get the token YouTube asks for before it plays a song.`,
   },
   {
     name: 'Spotify',
     url: 'https://www.spotify.com',
-    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, recommendations for your home feed${soon(AVAILABLE.homeFeed)}, and song radio${soon(AVAILABLE.radio)}. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account.`,
+    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, the playlists, albums and songs whose links you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)}, and song radio${soon(AVAILABLE.radio)}. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account.`,
   },
   {
     name: 'Spotify key source',
-    use: "When the Spotify integration is on: a community-maintained file with the current key of Spotify's web player, which FXM needs to get an anonymous Spotify token. The file is in a third-party repository on GitHub, which FXM doesn't run, and GitHub serves it from raw.githubusercontent.com, so GitHub's privacy policy applies to that request.",
+    use: "When the Spotify integration is on: a community-maintained file with the current key of Spotify's web player, which FXM needs to get an anonymous Spotify token, and a second such file if the first can't be read. Both are in third-party repositories on GitHub, which FXM doesn't run, and GitHub serves them from raw.githubusercontent.com, so GitHub's privacy policy applies to those requests.",
   },
   { name: 'LRCLIB', url: 'https://lrclib.net', use: 'Synced lyrics.' },
   {
@@ -75,7 +75,7 @@ const services: Service[] = [
   {
     name: 'GitHub',
     url: 'https://github.com',
-    use: "If you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions. Whenever the Spotify integration is on, also the Spotify key file above, which GitHub hosts (raw.githubusercontent.com).",
+    use: "If you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions. Whenever the Spotify integration is on, also the Spotify key files above, which GitHub hosts (raw.githubusercontent.com).",
   },
 ]
 

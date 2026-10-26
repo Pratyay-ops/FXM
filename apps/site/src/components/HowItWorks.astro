@@ -7,6 +7,9 @@ import Logo from './Logo.astro'
 const saved = AVAILABLE.downloads
   ? 'Your library, history, settings and downloads are saved in your browser or in the app.'
   : 'Your library, history and settings are saved in your browser or in the app.'
+// Sync and scrobbling are off until you turn them on; the privacy page says what each sends.
+const shared =
+  'Only if you turn on sync or scrobbling does a copy of your library or plays go to GitHub, Last.fm or ListenBrainz.'
 
 const services = [
   'YouTube Music',
@@ -56,7 +59,7 @@ const services = [
           <span class="num">3</span>
           <div>
             <h3>Your music stays with you</h3>
-            <p>{saved} There's nothing to sign up for and nothing for FXM to collect.</p>
+            <p>{saved} {shared}</p>
           </div>
         </li>
       </ol>

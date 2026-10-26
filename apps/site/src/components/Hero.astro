@@ -1,6 +1,6 @@
 ---
 import { APP_PATH, AVAILABLE } from '../config'
-import { comingSoon, joinList, unreleased } from '../lib/copy'
+import { comingSoon, joinList, platforms, unreleased } from '../lib/copy'
 import { heroNote } from '../lib/tiers'
 import Icon from './Icon.astro'
 import PlayerMockup from './PlayerMockup.astro'
@@ -20,6 +20,8 @@ const appsNote =
   apps.length === 0
     ? ''
     : `The ${joinList(apps)} ${apps.length === 1 ? 'app is' : 'apps are'} coming soon.`
+// The lead says the apps are on the way; the note under the buttons says they are coming soon.
+const where = platforms(AVAILABLE.desktop, AVAILABLE.android, 'on the way')
 
 const highlights = [
   { icon: 'code', text: 'Free and open source' },
@@ -38,8 +40,8 @@ const highlights = [
       </p>
       <h1 id="hero-title">Practically any song. <span class="accent">Free and private.</span></h1>
       <p class="lead">
-        FXM is a free, open-source music player for the web, desktop and Android. Search and play
-        practically any song from YouTube Music, with synced lyrics and your own library.
+        FXM is a free, open-source music player {where}. Search and play practically any song from
+        YouTube Music, with synced lyrics and your own library.
         {upcoming}
       </p>
       <div class="button-row">
