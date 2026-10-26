@@ -18,7 +18,8 @@ remove_build_output() {
 }
 
 remove_dependencies() {
-  (cd "$1" && rm -rf node_modules apps/*/node_modules packages/*/node_modules .venv apps/*/.venv)
+  (cd "$1" && rm -rf node_modules apps/*/node_modules packages/*/node_modules .venv apps/*/.venv \
+    scripts/build-dist/node_modules scripts/build-dist-wrangler/node_modules)
 }
 
 # --- Android app (stage 6.1) -------------------------------------------------------------

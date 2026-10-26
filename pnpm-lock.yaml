@@ -271,6 +271,9 @@ importers:
       '@fxm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@fxm/downloads':
+        specifier: workspace:*
+        version: link:../../packages/downloads
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player
@@ -353,6 +356,15 @@ importers:
 
   packages/core: {}
 
+  packages/downloads:
+    dependencies:
+      '@fxm/core':
+        specifier: workspace:*
+        version: link:../core
+      '@fxm/player':
+        specifier: workspace:*
+        version: link:../player
+
   packages/platform:
     dependencies:
       '@fxm/core':
@@ -409,6 +421,15 @@ importers:
       vite:
         specifier: ^8.3.4
         version: 8.3.4(@types/node@22.20.5)(jiti@2.7.0)(yaml@2.9.1)
+
+  scripts/build-dist:
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.64.0
+        version: 1.64.0
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
 
 packages:
 

@@ -52,6 +52,8 @@ Three things make each document's origin opaque, so its requests carry `Origin: 
 2. **The frame.** The page frames it with `sandbox="allow-scripts"`.
 3. **The `<meta>` policy** inside each document repeats the header's policy without `sandbox` (a `<meta>` policy may not carry it), so a server that sends no header, such as a dev server, still can't let the document fetch other hosts.
 
+Where neither the header nor the frame applies, the script does nothing: it starts only when `self.origin` is `'null'`. Cloudflare Pages also serves each document at percent-encoded paths, such as `/sandbox/innertub%65`, that no `_headers` rule can match ([scripts/build-dist/README.md](../../../../scripts/build-dist/README.md#header-rules)), so another site that frames such a path without the attribute gets a document with FXM's origin, which stays inert.
+
 The policies have no `frame-ancestors`: it checks every ancestor, so it would break Lite inside the embeddable player on other sites (5.2).
 
 ## The protocol

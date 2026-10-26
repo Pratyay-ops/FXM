@@ -4,6 +4,7 @@ import 'fake-indexeddb/auto'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
+import { resetDownloads } from '../features/downloads/runtime'
 import { useLibraryViewStore } from '../features/library/view-store'
 import { setLyricsProvider } from '../features/lyrics/lyrics-source'
 import { resetPlayback } from '../features/now-playing/playback'
@@ -38,6 +39,8 @@ afterEach(async () => {
   setSponsorBlockClient(undefined)
   usePlayerStore.setState(usePlayerStore.getInitialState(), true)
   delete document.documentElement.dataset.theme
-  // After cleanup(), so no live query still watches the database being deleted.
+  // After cleanup(), so no live query still watches the database being deleted. Downloads
+  // first: their manager writes to the library.
+  await resetDownloads()
   await resetLibrary()
 })
