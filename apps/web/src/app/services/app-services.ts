@@ -68,6 +68,8 @@ import {
 } from '@fxm/player'
 import type { MusicBrainzLookups } from '@fxm/sources/musicbrainz'
 import type { SpotifyProvider } from '@fxm/sources/spotify'
+import { liveQuery } from 'dexie'
+import { getLocalFiles } from '../../features/local-files/local-files'
 import { createLocalMetadataProvider } from '../../features/local-files/provider'
 import {
   appActions,
@@ -90,9 +92,9 @@ import {
 } from './library'
 import { appOfflineStore } from './offline'
 import { type AppPlaybackPolicy, createAppPlaybackPolicy } from './policy'
-import { keepYouTubeCurrent } from './updates'
 import {
   createYouTubeLoader,
+  keepYouTubeCurrentLater,
   platformStreamBudget,
   type YouTube,
   type YouTubeHostModule,
@@ -152,14 +154,23 @@ export interface AppServicesOptions {
   readonly reachesUserHosts?: boolean
   /**
    * The user's own music files as a catalog (stage 4.4, source `local`, "This device"): search
-   * and its album and artist pages read it like any other source. Default: the app's
+   * and its album and artist pages read it like any other source, while the user has added any
+   * ({@link AppServicesOptions.watchLocalFiles}). Default: the app's
    * (`createLocalMetadataProvider()`); `undefined` for none.
    */
   readonly localProvider?: MetadataProvider | undefined
   /**
+   * Calls `listener` with whether the user has added music files (a folder, or files chosen),
+   * now and whenever that changes; returns a function that stops it. The local catalog is
+   * registered only meanwhile, so search offers "This device" only to users with music on it.
+   * Default: a live query of the local files' folders (`watchLocalFiles`).
+   */
+  readonly watchLocalFiles?: (listener: (present: boolean) => void) => () => void
+  /**
    * Keeps the YouTube config current from FXM's site, and in the desktop and Android apps the
    * resolver module too (stage 1.13), once YouTube's code has loaded: the config's kill switches
-   * follow. Default: `keepYouTubeCurrent` (`updates.ts`); `false` for none (tests).
+   * follow. Default: `keepYouTubeCurrent` (`updates.ts`), loaded only then
+   * ({@link keepYouTubeCurrentLater}); `false` for none (tests).
    */
   readonly updates?: ((youtube: YouTube) => void) | false
   /** The catalog mode. Default: the settings'. */
@@ -263,6 +274,17 @@ export interface AppServices {
   dispose(): void
 }
 
+/**
+ * Whether the user has added music files (stage 4.4: a folder, or files chosen), as a live query
+ * of the local files' folders, kept current across tabs. A database the browser blocks has none.
+ */
+export function watchLocalFiles(listener: (present: boolean) => void): () => void {
+  const subscription = liveQuery(
+    async () => (await getLocalFiles().repo.listRoots()).length > 0,
+  ).subscribe({ next: listener, error: () => listener(false) })
+  return () => subscription.unsubscribe()
+}
+
 /** A stream source for a plain audio source that loads on first use (2.3's `fromAudioSource`). */
 function lazyStreamSource(id: SourceId, source: Loader<AudioSource>): StreamSource {
   return {
@@ -309,7 +331,7 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
   const offline = 'offline' in options ? options.offline : appOfflineStore()
   const localProvider =
     'localProvider' in options ? options.localProvider : createLocalMetadataProvider()
-  const updates = options.updates === undefined ? keepYouTubeCurrent : options.updates
+  const updates = options.updates === undefined ? keepYouTubeCurrentLater : options.updates
   const reachesUserHosts = options.reachesUserHosts ?? options.sandbox?.userHost !== undefined
   // With a Lite tier, its self-test is a request to YouTube that the YouTube config's kill
   // switch may forbid: the tier waits, switched off, until that config has loaded.
@@ -535,7 +557,22 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
       ),
       sources.register(lazyProvider({ id: 'archive', load: () => archive.load() })),
     )
-    if (localProvider !== undefined) unregister.push(sources.register(localProvider))
+    if (localProvider !== undefined) {
+      // Only while there is music on the device: "This device" with nothing on it finds nothing.
+      let unregisterLocal: (() => void) | undefined
+      const watch = options.watchLocalFiles ?? watchLocalFiles
+      unregister.push(
+        watch((present) => {
+          if (present && unregisterLocal === undefined) {
+            unregisterLocal = sources.register(localProvider)
+          } else if (!present && unregisterLocal !== undefined) {
+            unregisterLocal()
+            unregisterLocal = undefined
+          }
+        }),
+        () => unregisterLocal?.(),
+      )
+    }
     if (canReadSpotify(platform)) {
       spotifyRegistered = true
       unregister.push(

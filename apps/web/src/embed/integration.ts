@@ -39,9 +39,9 @@ import type { ArchiveSource } from '@fxm/sources/archive'
 import bundledConfig from '../../../../packages/sources/src/youtube/youtube-config.json'
 import { createIndexedDbStore } from '../app/services/device-store'
 import { createLoader, lazyProvider } from '../app/services/lazy-provider'
-import { keepYouTubeCurrent } from '../app/services/updates'
 import {
   createYouTubeLoader,
+  keepYouTubeCurrentLater,
   platformStreamBudget,
   type YouTube,
   youtubeStreamSource,
@@ -124,7 +124,7 @@ export interface EmbedServicesOptions {
   /**
    * Keeps the YouTube config current from FXM's site once YouTube's code has loaded (stage
    * 1.13), so a kill switch the owner sets reaches players on other sites too. Default:
-   * `keepYouTubeCurrent`; `false` for none (tests).
+   * `keepYouTubeCurrent`, loaded only then (`keepYouTubeCurrentLater`); `false` for none (tests).
    */
   readonly updates?: ((youtube: YouTube) => void) | false
 }
@@ -137,7 +137,7 @@ export function createEmbedServices(
   platform: EmbedPlatform,
   options: EmbedServicesOptions = {},
 ): EmbedServices {
-  const updates = options.updates ?? keepYouTubeCurrent
+  const updates = options.updates ?? keepYouTubeCurrentLater
   const youtube = createYouTubeLoader({
     store: createIndexedDbStore(),
     budget: platformStreamBudget(() => platform.budget),

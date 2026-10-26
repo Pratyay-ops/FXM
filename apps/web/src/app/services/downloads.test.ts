@@ -2,7 +2,8 @@ import { DEFAULT_QUALITY_PREFS, type Track } from '@fxm/core'
 import { downloadAvailability } from '@fxm/downloads'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { DownloadEnvironment } from '../../features/downloads/environment'
-import { createAppDownloadEnvironment } from './downloads'
+import { createSources } from '../../features/search/sources'
+import { createAppDownloadEnvironment, startAppDownloads } from './downloads'
 import { servicesOnTier, type TierServices } from './testing/tiers'
 
 let setups: TierServices[] = []
@@ -108,5 +109,77 @@ describe("downloads on the app's services", () => {
     expect(listener).toHaveBeenCalled()
     expect(environment.context().capabilities.mediaBytes).toBe(false)
     stop()
+  })
+})
+
+describe('the download queue', () => {
+  /** The runtime of stage 4.1, as far as starting the queue goes. */
+  function fakeRuntime() {
+    const stop = vi.fn()
+    const startDownloads = vi.fn(() => stop)
+    const load = vi.fn(async () => ({ startDownloads }))
+    return { load, startDownloads, stop }
+  }
+
+  it('starts at once when the tier is known, loading its code right away', async () => {
+    const sources = createSources()
+    const runtime = fakeRuntime()
+
+    const stop = startAppDownloads(sources, runtime.load)
+
+    expect(runtime.load).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(runtime.startDownloads).toHaveBeenCalledOnce())
+    stop()
+    expect(runtime.stop).toHaveBeenCalledOnce()
+  })
+
+  it('waits while FXM Connect is still answering, so no download meets the Free tier', async () => {
+    const sources = createSources()
+    sources.setDetecting(true)
+    const runtime = fakeRuntime()
+
+    startAppDownloads(sources, runtime.load)
+    // Its code loads meanwhile, so a Download click finds it there.
+    expect(runtime.load).toHaveBeenCalledOnce()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(runtime.startDownloads).not.toHaveBeenCalled()
+
+    sources.setDetecting(false)
+    await vi.waitFor(() => expect(runtime.startDownloads).toHaveBeenCalledOnce())
+    // Later changes of the registry start nothing more.
+    sources.setDetecting(true)
+    sources.setDetecting(false)
+    await Promise.resolve()
+    expect(runtime.startDownloads).toHaveBeenCalledOnce()
+  })
+
+  it('never starts once stopped, also while its code is still loading', async () => {
+    const sources = createSources()
+    sources.setDetecting(true)
+    const waiting = fakeRuntime()
+    startAppDownloads(sources, waiting.load)()
+    sources.setDetecting(false)
+
+    let release: () => void = () => {}
+    const loading = fakeRuntime()
+    const slow = () =>
+      new Promise<{ startDownloads: () => () => void }>((resolve) => {
+        release = () => resolve({ startDownloads: loading.startDownloads })
+      })
+    startAppDownloads(createSources(), slow)()
+    release()
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(waiting.startDownloads).not.toHaveBeenCalled()
+    expect(loading.startDownloads).not.toHaveBeenCalled()
+  })
+
+  it('says when its code could not be loaded, without throwing', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    startAppDownloads(createSources(), () => Promise.reject(new Error('Chunk gone')))
+    await vi.waitFor(() =>
+      expect(logged).toHaveBeenCalledWith('FXM: could not start the downloads', expect.any(Error)),
+    )
   })
 })

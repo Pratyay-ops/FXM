@@ -223,3 +223,17 @@ export function youtubeStreamSource(youtube: Loader<YouTube>): StreamSource {
     },
   }
 }
+
+/**
+ * Keeps `youtube`'s config (and, where the platform loads code, its module) current from FXM's
+ * site (stage 1.13): `keepYouTubeCurrent` of `updates.ts`, loaded only now that YouTube's code
+ * has. The updater and its signature checks (`@noble/curves`) stay out of the chunks every page
+ * loads, the Free tier's and the embed's first one included.
+ */
+export function keepYouTubeCurrentLater(youtube: Pick<YouTube, 'host'>): void {
+  import('./updates')
+    .then(({ keepYouTubeCurrent }) => keepYouTubeCurrent(youtube))
+    .catch((error: unknown) => {
+      console.warn('FXM: could not check for signed YouTube updates', error)
+    })
+}

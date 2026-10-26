@@ -67,6 +67,11 @@ export interface TierSetup {
    * Spotify secret's. The Lite tier always has the sandbox; this adds its user-host document.
    */
   readonly userHost?: (url: string) => Response
+  /**
+   * The user's music files as a catalog (stage 4.4), and whether there are any
+   * (`AppServicesOptions.localProvider`, `watchLocalFiles`). Default: none.
+   */
+  readonly local?: Pick<AppServicesOptions, 'localProvider' | 'watchLocalFiles'>
 }
 
 /** The services on one tier, with what a test looks at. */
@@ -166,6 +171,7 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
     // Nothing of the device's own: no downloads or music files, and no update checks.
     offline: undefined,
     localProvider: undefined,
+    ...setup.local,
     updates: false,
     catalogMode: () => mode,
     ...(sandbox === undefined ? {} : { sandbox }),

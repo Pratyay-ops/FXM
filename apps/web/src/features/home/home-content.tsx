@@ -1,10 +1,16 @@
 import type { DailyMix, HomeShelf, PickedArtist, QueueContext } from '@fxm/core'
 import { isEntityId } from '@fxm/core'
 import { Plug, RotateCw, Search, SlidersHorizontal } from 'lucide-react'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
-import { connectExtensionOrApps } from '../connect/explain'
+import { canAddConnect, currentDevice, type DeviceInfo } from '../connect/device'
+import {
+  canGetMoreHere,
+  connectExtensionOrApps,
+  getMoreLabel,
+  howToGetMore,
+} from '../connect/explain'
 import { showStatus } from '../library/status'
 import { Dialog } from '../library/ui/dialog'
 import { ONBOARDING_URL } from '../search/onboarding'
@@ -42,14 +48,36 @@ const DESCRIPTIONS: Partial<Record<HomeShelf['type'], string>> = {
   rediscover: 'Songs you loved a while ago.',
 }
 
-/** "Get FXM Connect", which opens the in-app onboarding. */
-function GetConnectLink({ variant }: { variant: 'primary' | 'secondary' }) {
+/**
+ * The in-app onboarding: "Get FXM Connect" where this device can get it, else "See your options"
+ * (iPhone and iPad, Android until its app is out), where the page says what works there.
+ */
+function GetConnectLink({
+  variant,
+  device,
+}: {
+  variant: 'primary' | 'secondary'
+  device: DeviceInfo
+}) {
   return (
     <Link to={GET_FXM_URL} className={buttonClasses({ variant })}>
       <Plug aria-hidden="true" />
-      Get FXM Connect
+      {getMoreLabel(device)}
     </Link>
   )
+}
+
+/**
+ * What Home says about getting YouTube Music, which its recommendations need, after what it
+ * `brings`: FXM Connect where this browser can add it, else what this device can do instead
+ * (another browser on a Mac, nothing on iPhone and iPad).
+ */
+function getYouTubeText(device: DeviceInfo, brings: string): string {
+  if (canAddConnect(device)) {
+    return `${brings}, with ${connectExtensionOrApps()}. Until then, Home shows what you play.`
+  }
+  const meanwhile = canGetMoreHere(device) ? 'Until then' : 'Here'
+  return `${brings}. ${howToGetMore(device, 'youtube')} ${meanwhile}, Home shows what you play.`
 }
 
 /**
@@ -59,6 +87,9 @@ function GetConnectLink({ variant }: { variant: 'primary' | 'secondary' }) {
 function WelcomeCard({ freeOnly }: { freeOnly: boolean }) {
   const catalogMode = useSettingsStore((state) => state.catalogMode)
   const titleId = useId()
+  const device = useMemo(currentDevice, [])
+  // Where nothing can be installed, searching is the way forward.
+  const install = freeOnly && canGetMoreHere(device)
   return (
     <section
       aria-labelledby={titleId}
@@ -82,20 +113,24 @@ function WelcomeCard({ freeOnly }: { freeOnly: boolean }) {
         </h2>
         <p className="mt-2 text-text-muted">
           {freeOnly
-            ? `FXM plays the YouTube Music catalog, and finds new music there for you, with ${connectExtensionOrApps()}. Until then, Home shows what you play.`
+            ? getYouTubeText(
+                device,
+                'FXM plays the YouTube Music catalog, and finds new music there for you',
+              )
             : catalogMode === 'music'
               ? 'Clean album audio from the YouTube Music catalog. Switch to Music + Video for covers, live sets and remixes.'
               : 'Songs plus any YouTube video – covers, live sets, remixes – all played as music.'}
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
-          {freeOnly && <GetConnectLink variant="primary" />}
+          {install && <GetConnectLink variant="primary" device={device} />}
           <Link
             to="/search"
-            className={buttonClasses({ variant: freeOnly ? 'secondary' : 'primary' })}
+            className={buttonClasses({ variant: install ? 'secondary' : 'primary' })}
           >
             <Search aria-hidden="true" />
             Search music
           </Link>
+          {freeOnly && !install && <GetConnectLink variant="secondary" device={device} />}
           {!freeOnly && (
             <Link to="/settings" className={buttonClasses({ variant: 'secondary' })}>
               <SlidersHorizontal aria-hidden="true" />
@@ -111,6 +146,7 @@ function WelcomeCard({ freeOnly }: { freeOnly: boolean }) {
 /** In the Free-only tier, below the user's own shelves: how to get recommendations too. */
 function RecommendationsNote() {
   const headingId = useId()
+  const device = useMemo(currentDevice, [])
   return (
     <section
       aria-labelledby={headingId}
@@ -123,13 +159,12 @@ function RecommendationsNote() {
             Recommendations need YouTube Music
           </h2>
           <p className="text-sm text-text-muted">
-            FXM finds new music for you on YouTube Music, through {connectExtensionOrApps()}. Until
-            then, Home shows what you play.
+            {getYouTubeText(device, 'FXM finds new music for you on YouTube Music')}
           </p>
         </div>
       </div>
       <div className="pl-8 sm:pl-0">
-        <GetConnectLink variant="secondary" />
+        <GetConnectLink variant="secondary" device={device} />
       </div>
     </section>
   )
@@ -294,6 +329,8 @@ export function HomeContent() {
 
   const recommending = canRecommend(services, reach)
   const freeOnly = reach.capabilities.youtube === 'none'
+  /** The tier is still being worked out: FXM Connect waking up, or the first Lite check. */
+  const detecting = reach.detecting === true
   const data = feed.data
   const shelves = data?.shelves ?? []
   /** Home as built, not a first pass nor the Home shown before. */
@@ -304,6 +341,9 @@ export function HomeContent() {
   const loading = feed.status === 'pending'
   // While the sources are asked, a placeholder holds the place of the recommendations.
   const finding = recommending && data?.phase === 'local' && !data.coldStart
+  // While the tier is unknown, Home doesn't say what this browser lacks, which would most likely
+  // be wrong: a placeholder holds the place of the welcome until the tier is known.
+  const waiting = detecting && !loading && shelves.length === 0 && !showOnboarding
 
   /** The picks and their editor follow Home's shelves, once there is a Home to show. */
   const picksShown = recommending && !showOnboarding && !showReminder && data !== undefined
@@ -368,10 +408,10 @@ export function HomeContent() {
         />
       )}
 
-      {(loading || finding) && (
+      {(loading || finding || waiting) && (
         <HomeSkeleton
-          shelves={loading ? 3 : 2}
-          label={loading ? 'Loading your Home…' : 'Finding music for you…'}
+          shelves={loading || waiting ? 3 : 2}
+          label={loading || waiting ? 'Loading your Home…' : 'Finding music for you…'}
         />
       )}
       {feed.status === 'error' && (
@@ -398,8 +438,10 @@ export function HomeContent() {
           onOpenMix={setOpenMix}
         />
       ))}
-      {built && shelves.length === 0 && !showOnboarding && <WelcomeCard freeOnly={freeOnly} />}
-      {freeOnly && shelves.length > 0 && <RecommendationsNote />}
+      {built && shelves.length === 0 && !showOnboarding && !detecting && (
+        <WelcomeCard freeOnly={freeOnly} />
+      )}
+      {freeOnly && !detecting && shelves.length > 0 && <RecommendationsNote />}
 
       {picksShown &&
         (editing ? (

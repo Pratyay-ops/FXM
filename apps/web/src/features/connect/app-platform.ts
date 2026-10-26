@@ -43,8 +43,9 @@ export function setAppUserHosts(source: (() => Iterable<string>) | undefined): v
 export const APP_PLATFORM_REACHES_USER_HOSTS = true
 
 /**
- * The app's platform, created on the first call: it resolves once the first detection is done
- * (FXM Connect, then the Lite self-test when FXM Connect gives no full access).
+ * The app's platform, created on the first call: it resolves once FXM Connect's first detection
+ * is done (800 ms at most). Where FXM Connect gives no full access, the Lite self-test then runs
+ * on its own, and the capabilities follow its result.
  */
 export function getAppPlatform(): Promise<FxmPlatform> {
   pending ??= createPlatform({

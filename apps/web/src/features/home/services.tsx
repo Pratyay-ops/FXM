@@ -41,6 +41,12 @@ export interface HomeSourcesSnapshot {
   readonly capabilities: NetworkCapabilities
   /** Whether the user switched Spotify on (it is used only when it is also reachable). */
   readonly spotifyEnabled: boolean
+  /**
+   * Whether the tier is still being worked out (FXM Connect waking up, the first Lite check).
+   * Meanwhile Home shows a placeholder instead of saying what this browser lacks, which would
+   * most likely be wrong. Absent means `false`.
+   */
+  readonly detecting?: boolean
 }
 
 /**

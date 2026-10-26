@@ -31,6 +31,8 @@ Every song plays its shelf from that song, with the shelf as the queue's context
 
 New music comes only where YouTube Music is reachable, because its songs are what plays (`canRecommend`). The collector applies the other rules of each source (stage 3.2).
 
+**While the tier is unknown** (FXM Connect waking up, the first Lite check: the sources' `detecting`), Home shows the user's own shelves and a placeholder, never the welcome card or the note that say what the browser lacks: that pitch would most likely be wrong. Both say how this device gets YouTube Music: FXM Connect where its browser can add it, else what it can do instead (another browser on a Mac, nothing on iPhone and iPad), with "See your options" in place of "Get FXM Connect" where nothing can be installed.
+
 ### Keyboard, screen readers and small screens
 
 - Focus never drops to the page: after "Not now" it moves to the reminder's *Pick artists*, after *Pick artists* to the onboarding's heading, and once Home is built from the picks to its first shelf (the button says *Building your Home…* meanwhile). *Change*, *Save*, *Cancel* and *Clear picks* work the same way.
@@ -59,11 +61,11 @@ The network steps get eight seconds in all (`FEED_LIMITS.deadlineMs`); Home is t
 
 ## Wiring in the other stages
 
-Home reaches everything through one seam, `services.tsx` (`appHomeServices`, a store like 2.4's `appActions`). The app's composition root (`src/app/services/home.ts`, stage 2.9b) sets it once the platform is ready; until then, and where the services don't run, Home is the Free-only tier with no recommendation sources: the user's own shelves and the note.
+Home reaches everything through one seam, `services.tsx` (`appHomeServices`, a store like 2.4's `appActions`). The app's composition root (`src/app/services/home.ts`, stage 2.9b) sets the sources and playback at once, the tier unknown until the platform's first detection ends (`homeSourcesUntil`), and the recommendations and the catalog once the platform is ready; where the services don't run, Home is the Free-only tier with no recommendation sources: the user's own shelves and the note. Home's development fakes (below) keep Home to themselves: the composition root leaves it alone while they are on.
 
 | Part | From | In the app |
 |---|---|---|
-| `sources` | 2.4's `appSources`, which holds 1.2's platform and the Spotify switch | `appSources` |
+| `sources` | 2.4's `appSources`, which holds 1.2's platform and the Spotify switch | `appSources`, saying `detecting` until the platform's first detection ends |
 | `recommendations` | 3.2's `createRecommendationCollector` | Over the app's providers: YouTube Music radio, Spotify (while switched on and reachable), Last.fm's stations (where the platform reaches them), ListenBrainz's similar artists, with covers from the Cover Art Archive for the few candidate tracks without one; loaded with Home's first build |
 | `catalog` | 1.3: artist search (`findArtist`), artist pages' top songs (`artistTracks`); 1.7: song search (`findSong`) | YouTube Music's artist search (the same name only), its artist pages, and the matching engine over its song searches |
 | `spotifyAccount` | 1.5's Spotify provider (`status`), connected by 3.5 | The app's Spotify provider, where Spotify is registered |

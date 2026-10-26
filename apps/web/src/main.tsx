@@ -48,7 +48,9 @@ async function start(): Promise<void> {
   // The real platform, providers and player (src/app/services) load beside the first render,
   // in chunks of their own, so the shell paints at once: the pages follow the sources registry
   // as the platform detects the tier and the providers register, and the play buttons come with
-  // the player. startAppServices never rejects.
+  // the player. They also run the download queue (stage 4.1), once the tier is known, so that
+  // downloads queued in an earlier visit continue where FXM can download them. startAppServices
+  // never rejects.
   import('./app/services')
     .then(({ startAppServices }) => startAppServices({ desktop }))
     .catch((error: unknown) => {
@@ -61,10 +63,6 @@ async function start(): Promise<void> {
         connectAppImportServices(() => Promise.reject(error)),
       )
     })
-
-  // Queued downloads continue in whichever tab gets to run the queue (stage 4.1). Loaded after
-  // the first render, so the database and the download manager stay out of the entry chunk.
-  void import('./features/downloads/runtime').then(({ startDownloads }) => startDownloads())
 }
 
 // An address with an encoded base, such as /%61pp/, gets none of the /app/* header rule's

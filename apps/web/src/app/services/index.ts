@@ -22,7 +22,12 @@ import {
   unavailableResolver,
 } from '../../features/connect/resolver'
 import { connectDownloadEnvironment } from '../../features/downloads/environment'
-import { appHomeServices, staticSources } from '../../features/home/services'
+import {
+  appHomeServices,
+  type HomeServices,
+  type HomeSources,
+  staticSources,
+} from '../../features/home/services'
 import { connectAppImportServices } from '../../features/import/services'
 import { withLocalFilesFirst } from '../../features/local-files/player'
 import { getPlayer } from '../../features/now-playing/playback'
@@ -36,8 +41,8 @@ import { appSources } from '../../features/search/sources-context'
 import { connectAppContext } from '../../lib/app-context'
 import { type AppServices, createAppServices } from './app-services'
 import type { DesktopLifecycleOptions } from './desktop'
-import { appDownloadActions, createAppDownloadEnvironment } from './downloads'
-import { createAppHomeServices } from './home'
+import { appDownloadActions, createAppDownloadEnvironment, startAppDownloads } from './downloads'
+import { createAppHomeServices, homeSourcesUntil, tierKnown } from './home'
 import { createAppImportServices } from './imports'
 import { lazyLibrary } from './library'
 import type { YouTube } from './youtube'
@@ -115,8 +120,30 @@ async function devFakesOn(): Promise<boolean> {
   return readFakeTier() !== undefined
 }
 
+/**
+ * Whether Home's development fakes are on for this tab (`?fake-home=lite` or `full`, see
+ * `features/home/dev-fakes.ts`): they set Home's services themselves, so the real ones stay out.
+ * Production builds drop this check with the fakes.
+ */
+async function homeDevFakesOn(): Promise<boolean> {
+  if (!(import.meta.env.DEV || import.meta.env.VITE_FXM_FAKE_CATALOG === 'on')) return false
+  const { readHomeFakeTier } = await import('../../features/home/dev-fakes')
+  return readHomeFakeTier() !== undefined
+}
+
 let starting: Promise<void> | undefined
 const disconnects: (() => void)[] = []
+/** Whether Home's development fakes have Home (see {@link homeDevFakesOn}). */
+let homeFakes = false
+
+/** Sets Home's services, unless its development fakes have Home; `stopAppServices` undoes it. */
+function setHome(home: HomeServices): void {
+  if (homeFakes) return
+  appHomeServices.set(home)
+  disconnects.push(() => {
+    if (appHomeServices.get() === home) appHomeServices.set({ sources: staticSources() })
+  })
+}
 
 /** `actions` without its downloads group. */
 function withoutDownloads({ downloads: _downloads, ...rest }: ReturnType<typeof appActions.get>) {
@@ -125,15 +152,18 @@ function withoutDownloads({ downloads: _downloads, ...rest }: ReturnType<typeof 
 
 /**
  * Plugs the features that need the platform itself into it, once it is ready: lyrics,
- * SponsorBlock and scrobbling (their context), downloads (their environment and the catalog's
- * Download entries) and Home (its sources, recommendations, catalog and playback).
+ * SponsorBlock and scrobbling (their context), downloads (their environment, the catalog's
+ * Download entries, and the queue once the tier is known) and the rest of Home (its
+ * recommendations and catalog).
  */
-function connectFeatures(app: AppServices): void {
+function connectFeatures(app: AppServices, homeSources: HomeSources): void {
   disconnects.push(
     connectAppContext(({ mode, signal }) =>
       app.context({ priority: 'interactive', mode, ...(signal === undefined ? {} : { signal }) }),
     ),
     connectDownloadEnvironment(createAppDownloadEnvironment(app)),
+    // After the environment: the queue never runs on the stand-in.
+    startAppDownloads(app.sources),
   )
   appActions.set({ ...appActions.get(), downloads: appDownloadActions })
   disconnects.push(() => {
@@ -141,14 +171,13 @@ function connectFeatures(app: AppServices): void {
       appActions.set(withoutDownloads(appActions.get()))
     }
   })
-  const home = createAppHomeServices(app, {
-    playback: appActions.get().playback,
-    spotify: app.sources.getSnapshot().providers.has('spotify'),
-  })
-  appHomeServices.set(home)
-  disconnects.push(() => {
-    if (appHomeServices.get() === home) appHomeServices.set({ sources: staticSources() })
-  })
+  setHome(
+    createAppHomeServices(app, {
+      sources: homeSources,
+      playback: appActions.get().playback,
+      spotify: app.sources.getSnapshot().providers.has('spotify'),
+    }),
+  )
 }
 
 async function start(): Promise<void> {
@@ -180,8 +209,16 @@ async function start(): Promise<void> {
       app.connectPlayer(getPlayer()),
       connectAppImportServices(() => createAppImportServices(app)),
     )
-    const platform = await app.start()
-    if (platform !== undefined) connectFeatures(app)
+    const ready = app.start()
+    // Home follows the registry and plays through the player at once, with the tier unknown
+    // until the platform's first detection ends, its first Lite self-test included, so it never
+    // shows the Free tier's install pitch to a browser that turns out to have Lite or FXM Connect.
+    const homeSources = homeSourcesUntil(app.sources, tierKnown(ready, app.sources))
+    homeFakes = await homeDevFakesOn().catch(() => false)
+    const playback = appActions.get().playback
+    setHome({ sources: homeSources, ...(playback === undefined ? {} : { playback }) })
+    const platform = await ready
+    if (platform !== undefined) connectFeatures(app, homeSources)
   } catch (error) {
     console.error('FXM: could not start the music services', error)
     appSources.setDetecting(false)
@@ -216,4 +253,5 @@ export function stopAppServices(): void {
   services = undefined
   starting = undefined
   setup = {}
+  homeFakes = false
 }

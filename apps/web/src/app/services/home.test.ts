@@ -1,7 +1,13 @@
 import { formatId, type Track } from '@fxm/core'
-import { afterEach, describe, expect, it } from 'vitest'
+import type { LiteState } from '@fxm/platform'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HomeServices } from '../../features/home/services'
-import { createAppHomeServices } from './home'
+import {
+  createSources,
+  createStaticPlatform,
+  TIER_CAPABILITIES,
+} from '../../features/search/sources'
+import { createAppHomeServices, homeSourcesUntil, tierKnown } from './home'
 import { RADIOHEAD_CHANNEL } from './testing/fixtures'
 import { servicesOnTier, type TierServices } from './testing/tiers'
 
@@ -129,5 +135,124 @@ describe("Home on the app's services", () => {
         new URL(request.url).hostname.endsWith('youtube.com'),
       ),
     ).toBe(false)
+  })
+})
+
+describe("Home's view of the sources", () => {
+  it('says the tier is unknown until the platform is ready, then follows the registry', async () => {
+    const sources = createSources()
+    let ready: () => void = () => {}
+    const home = homeSourcesUntil(
+      sources,
+      new Promise<void>((resolve) => {
+        ready = resolve
+      }),
+    )
+    const listener = vi.fn()
+    home.subscribe(listener)
+
+    // Free-only capabilities, but not yet known to be the tier: Home waits.
+    const unknown = home.getSnapshot()
+    expect(unknown).toMatchObject({ capabilities: sources.getSnapshot().capabilities })
+    expect(unknown.detecting).toBe(true)
+    // The same object until something changes, as useSyncExternalStore needs.
+    expect(home.getSnapshot()).toBe(unknown)
+    sources.setSpotifyEnabled(false)
+    expect(listener).toHaveBeenCalledOnce()
+    expect(home.getSnapshot()).toMatchObject({ spotifyEnabled: false, detecting: true })
+
+    ready()
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(2))
+    expect(home.getSnapshot()).toBe(sources.getSnapshot())
+    // FXM Connect waking up later: the registry's own `detecting`.
+    sources.setDetecting(true)
+    expect(home.getSnapshot().detecting).toBe(true)
+    expect(home.context({ mode: 'music' }).capabilities).toEqual(sources.getSnapshot().capabilities)
+  })
+
+  it('knows the tier also when the platform could not start', async () => {
+    const home = homeSourcesUntil(createSources(), Promise.reject(new Error('No platform')))
+    await vi.waitFor(() => expect(home.getSnapshot().detecting).not.toBe(true))
+  })
+})
+
+describe('when Home knows the tier', () => {
+  /** A Lite tier whose self-test the test ends. */
+  function fakeLite(initial: LiteState = 'checking') {
+    let state = initial
+    const listeners = new Set<(state: LiteState) => void>()
+    const lite = {
+      get state() {
+        return state
+      },
+      subscribe(listener: (next: LiteState) => void) {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    return {
+      platform: { lite } as never,
+      set(next: LiteState) {
+        state = next
+        for (const listener of [...listeners]) listener(next)
+      },
+    }
+  }
+
+  /** Whether `promise` has settled, after the microtasks queued so far. */
+  async function settled(promise: Promise<void>): Promise<boolean> {
+    let done = false
+    void promise.then(() => {
+      done = true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    return done
+  }
+
+  it('waits for the first Lite self-test, and for the registry to follow a pass', async () => {
+    const platform = createStaticPlatform()
+    const sources = createSources({ platform })
+    const lite = fakeLite()
+    const known = tierKnown(Promise.resolve(lite.platform), sources)
+
+    expect(await settled(known)).toBe(false)
+    // It passed: Home waits for the capabilities, a moment later.
+    lite.set('passed')
+    expect(await settled(known)).toBe(false)
+    platform.setCapabilities(TIER_CAPABILITIES.lite)
+    expect(await settled(known)).toBe(true)
+  })
+
+  it('knows at once where Lite was refused, or YouTube is reachable without it', async () => {
+    const refused = fakeLite()
+    const known = tierKnown(Promise.resolve(refused.platform), createSources())
+    refused.set('refused')
+    expect(await settled(known)).toBe(true)
+
+    // FXM Connect answered while the self-test still ran.
+    const platform = createStaticPlatform()
+    const sources = createSources({ platform })
+    const withConnect = tierKnown(Promise.resolve(fakeLite().platform), sources)
+    platform.setCapabilities(TIER_CAPABILITIES.full)
+    expect(await settled(withConnect)).toBe(true)
+  })
+
+  it('knows at once without a Lite tier, or a platform', async () => {
+    expect(await settled(tierKnown(Promise.resolve({ lite: undefined }), createSources()))).toBe(
+      true,
+    )
+    expect(await settled(tierKnown(Promise.resolve(undefined), createSources()))).toBe(true)
+    expect(
+      await settled(tierKnown(Promise.reject(new Error('No platform')), createSources())),
+    ).toBe(true)
+  })
+
+  it('waits for a slow self-test only so long', async () => {
+    const known = tierKnown(Promise.resolve(fakeLite().platform), createSources(), 20)
+    expect(await settled(known)).toBe(false)
+    await new Promise((resolve) => setTimeout(resolve, 40))
+    expect(await settled(known)).toBe(true)
   })
 })

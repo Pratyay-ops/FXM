@@ -4,7 +4,7 @@
  *
  * | Part | Built from |
  * |---|---|
- * | `sources` | The sources registry (stage 2.4): the tier, the Spotify switch, a context per call |
+ * | `sources` | The sources registry (stage 2.4): the tier, the Spotify switch, a context per call; `detecting` until the platform's first detection ends (`homeSourcesUntil`) |
  * | `recommendations` | Stage 3.2's `createRecommendationCollector` over the app's providers: YouTube Music radio, Spotify when it is switched on and reachable, Last.fm's stations (where the platform reaches them: FXM Connect, the desktop and Android apps), ListenBrainz's similar artists, and the Cover Art Archive for tracks without a cover. Loaded with Home's first build |
  * | `catalog` | `findArtist` (a YouTube Music artist search, the same name only), `artistTracks` (an artist page's top songs) and `findSong` (the matching engine over YouTube Music's song searches, stage 1.7) |
  * | `spotifyAccount` | The app's Spotify provider's `status`, where Spotify is registered |
@@ -29,7 +29,7 @@ import {
   type SearchOptions,
   type Track,
 } from '@fxm/core'
-import { BUDGET_DEFAULTS } from '@fxm/platform'
+import { BUDGET_DEFAULTS, type FxmPlatform, type LiteState } from '@fxm/platform'
 import type {
   CandidatePart,
   CollectOptions,
@@ -42,8 +42,11 @@ import type {
   HomePlayback,
   HomeRecommendations,
   HomeServices,
+  HomeSources,
+  HomeSourcesSnapshot,
   HomeSpotifyAccount,
 } from '../../features/home/services'
+import type { Sources, SourcesSnapshot } from '../../features/search/sources'
 import type { AppServices } from './app-services'
 import { createLoader, type Loader } from './lazy-provider'
 import type { YouTube } from './youtube'
@@ -247,13 +250,104 @@ export function appSpotifyAccount(app: Pick<AppServices, 'spotify'>): HomeSpotif
   return { status: async (ctx) => (await app.spotify.load()).status(ctx) }
 }
 
+/** How long Home waits for the first Lite self-test at most, before it shows what is known. */
+export const LITE_WAIT_MS = 4000
+
+/** The Lite self-test's states that say it has ended, one way or the other. */
+const LITE_SETTLED: ReadonlySet<LiteState> = new Set([
+  'unchecked',
+  'passed',
+  'refused',
+  'unreachable',
+  'killed',
+])
+
+/**
+ * Resolves once the tier is known as far as Home tells the tiers apart: `platform` is ready
+ * (FXM Connect has answered, or the platform stopped waiting for it) and, where it has a Lite
+ * tier and YouTube isn't reachable otherwise, the first Lite self-test has ended and the
+ * registry follows it. The platform doesn't wait for that self-test itself, which a slow sandbox
+ * stretches to seconds, so Home waits for it here, `maxWaitMs` at most. Never rejects.
+ */
+export async function tierKnown(
+  platform: Promise<Pick<FxmPlatform, 'lite'> | undefined>,
+  sources: Pick<Sources, 'getSnapshot' | 'subscribe'>,
+  maxWaitMs = LITE_WAIT_MS,
+): Promise<void> {
+  const lite = (await platform.catch(() => undefined))?.lite
+  if (lite === undefined) return
+  const known = () =>
+    sources.getSnapshot().capabilities.youtube !== 'none' ||
+    (LITE_SETTLED.has(lite.state) && lite.state !== 'passed')
+  if (known()) return
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      stopLite()
+      stopSources()
+      resolve()
+    }
+    const check = () => {
+      if (known()) done()
+    }
+    const timer = setTimeout(done, maxWaitMs)
+    const stopLite = lite.subscribe(check)
+    const stopSources = sources.subscribe(check)
+  })
+}
+
+/**
+ * Home's view of the sources registry: the registry itself, except that its snapshot says
+ * `detecting` until `ready` settles, the platform's first detection (FXM Connect's answer, then
+ * the Lite self-test where FXM Connect gives no full access, `tierKnown`); after that, whenever
+ * the registry says so (FXM Connect waking up). While the tier is unknown, Home shows a
+ * placeholder rather than the Free tier's install pitch, which would most likely be wrong.
+ */
+export function homeSourcesUntil(sources: Sources, ready: Promise<unknown>): HomeSources {
+  let settled = false
+  let seen: SourcesSnapshot | undefined
+  let unknown: HomeSourcesSnapshot | undefined
+  const listeners = new Set<() => void>()
+  const settle = () => {
+    settled = true
+    for (const listener of [...listeners]) listener()
+  }
+  ready.then(settle, settle)
+  return {
+    getSnapshot() {
+      const current = sources.getSnapshot()
+      if (settled) return current
+      // The same object until the registry changes, for `useSyncExternalStore`.
+      if (current !== seen || unknown === undefined) {
+        seen = current
+        unknown = { ...current, detecting: true }
+      }
+      return unknown
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      const stop = sources.subscribe(listener)
+      return () => {
+        listeners.delete(listener)
+        stop()
+      }
+    },
+    context: (options) => sources.context(options),
+  }
+}
+
 /** Home's services on the app's services (see the module documentation). */
 export function createAppHomeServices(
   app: AppServices,
-  options: { readonly playback?: HomePlayback | undefined; readonly spotify: boolean },
+  options: {
+    /** What Home reads the tier from. Default: the registry (`app.sources`). */
+    readonly sources?: HomeSources | undefined
+    readonly playback?: HomePlayback | undefined
+    readonly spotify: boolean
+  },
 ): HomeServices {
   return {
-    sources: app.sources,
+    sources: options.sources ?? app.sources,
     recommendations: appHomeRecommendations(recommendationLoader(app)),
     catalog: appHomeCatalog(app),
     ...(options.spotify ? { spotifyAccount: appSpotifyAccount(app) } : {}),

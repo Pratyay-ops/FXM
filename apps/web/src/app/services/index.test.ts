@@ -10,9 +10,11 @@ let stop: (() => void) | undefined
 afterEach(() => {
   stop?.()
   stop = undefined
+  // Only the mocks a single test sets. Every test mocks the updates and the app platform again
+  // (`load`): Vitest resolves queued mocks and unmocks of one path in no set order, so an unmock
+  // here could land after the next test's mock and hand it the real platform.
   vi.doUnmock('./app-services')
-  vi.doUnmock('./updates')
-  vi.doUnmock('../../features/connect/app-platform')
+  vi.doUnmock('../../features/downloads/runtime')
   vi.resetModules()
   window.history.replaceState(null, '', '/')
   sessionStorage.clear()
@@ -82,13 +84,12 @@ describe('startAppServices', () => {
 
     // This page has no FXM Connect and no Lite tier: the Free tier. Spotify is registered, since
     // the app's platform reaches its secret through the sandbox's user-host document (stage
-    // 1.10), but it can't be reached here, so the pages don't offer it. Local files are a
-    // catalog of their own (stage 4.4).
+    // 1.10), but it can't be reached here, so the pages don't offer it. No music files were
+    // added, so there is no catalog of them (stage 4.4).
     expect(getAppServices().platform?.environment).toBe('browser')
     expect(appSources.getSnapshot().capabilities.youtube).toBe('none')
     expect([...appSources.getSnapshot().providers.keys()].sort()).toEqual([
       'archive',
-      'local',
       'spotify',
       'yt',
       'ytm',
@@ -131,7 +132,8 @@ describe('startAppServices', () => {
 
     const youtube = await getAppServices().youtube.load()
 
-    expect(keepYouTubeCurrent).toHaveBeenCalledWith(youtube)
+    // The updater loads only now, in a chunk of its own.
+    await vi.waitFor(() => expect(keepYouTubeCurrent).toHaveBeenCalledWith(youtube))
     expect(appKillSwitches()).toEqual({ lite: false })
     // A newer signed config that switches the Lite tier off (what the updater activates).
     const { youtubeModule } = await import('@fxm/sources/youtube/module')
@@ -175,13 +177,96 @@ describe('startAppServices', () => {
     await startAppServices()
 
     const home = appHomeServices.get()
-    expect(home.sources).toBe(appSources)
+    // The registry's state, with the tier known now that the platform's first detection ended.
+    expect(home.sources.getSnapshot()).toBe(appSources.getSnapshot())
+    expect(home.sources.context({ mode: 'music' }).capabilities).toEqual(
+      appSources.getSnapshot().capabilities,
+    )
     expect(home.recommendations).toBeDefined()
     expect(home.catalog?.findArtist).toBeDefined()
     expect(home.catalog?.artistTracks).toBeDefined()
     expect(home.catalog?.findSong).toBeDefined()
     expect(home.playback).toBe(appActions.get().playback)
     expect(home.spotifyAccount).toBeDefined()
+  })
+
+  it('gives Home the sources and the player at once, the tier unknown until it is', async () => {
+    const { startAppServices, getAppServices, appHomeServices, appActions } = await load()
+    let release: () => void = () => {}
+    vi.spyOn(getAppServices(), 'start').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve(undefined)
+        }),
+    )
+
+    // The platform's first detection runs (FXM Connect's answer, the Lite self-test).
+    const started = startAppServices()
+
+    await vi.waitFor(() => expect(appHomeServices.get().playback).toBeDefined())
+    const home = appHomeServices.get()
+    expect(home.playback).toBe(appActions.get().playback)
+    // Home shows a placeholder rather than the Free tier's install pitch meanwhile.
+    expect(home.sources.getSnapshot().detecting).toBe(true)
+    expect(home.recommendations).toBeUndefined()
+    release()
+    await started
+    await vi.waitFor(() => expect(home.sources.getSnapshot().detecting).not.toBe(true))
+  })
+
+  it('leaves Home to its development fakes when a tab asks for them', async () => {
+    window.history.replaceState(null, '', '/app/?fake-home=full')
+    const { startAppServices, appHomeServices } = await load()
+    const fakeTier = () => appHomeServices.get().sources.getSnapshot().capabilities.youtube
+    // The fakes plug themselves in once their module has loaded.
+    await vi.waitFor(() => expect(fakeTier()).toBe('full'))
+    const fakes = appHomeServices.get()
+
+    await startAppServices()
+
+    expect(appHomeServices.get()).toBe(fakes)
+  })
+
+  it('runs the download queue once the tier is known', async () => {
+    const startDownloads = vi.fn(() => () => {})
+    vi.doMock('../../features/downloads/runtime', async (importOriginal) => ({
+      ...(await importOriginal<object>()),
+      startDownloads,
+    }))
+    const { startAppServices, appSources } = await load()
+    // FXM Connect's marker is on the page, and its service worker is still waking up.
+    appSources.setDetecting(true)
+
+    await startAppServices()
+    await vi.dynamicImportSettled()
+
+    // A queue that ran now would meet the Free tier, and fail the YouTube downloads it resumed.
+    expect(startDownloads).not.toHaveBeenCalled()
+    appSources.setDetecting(false)
+    await vi.waitFor(() => expect(startDownloads).toHaveBeenCalledOnce())
+  })
+
+  it('offers the music files on this device as a catalog once there are any', async () => {
+    const { startAppServices, stopAppServices, appSources } = await load()
+    const { getLocalFiles, resetLocalFiles } = await import(
+      '../../features/local-files/local-files'
+    )
+    await startAppServices()
+    expect(appSources.getSnapshot().providers.has('local')).toBe(false)
+
+    try {
+      await getLocalFiles().repo.putRoot({
+        id: 'root-1',
+        kind: 'picked-files',
+        name: 'Chosen files',
+        addedAt: Date.now(),
+      })
+
+      await vi.waitFor(() => expect(appSources.getSnapshot().providers.has('local')).toBe(true))
+    } finally {
+      stopAppServices()
+      await resetLocalFiles()
+    }
   })
 
   it("runs downloads, lyrics, SponsorBlock and scrobbles on the app's platform", async () => {
