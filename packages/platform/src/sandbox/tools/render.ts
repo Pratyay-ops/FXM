@@ -140,7 +140,12 @@ export async function renderSandboxDocument(
     '',
     toDocumentScript(source),
     '',
-    `startSandboxDocument(globalThis, SANDBOX_DOCUMENT_POLICIES.${kind})`,
+    // Stage 2.8's contract for the documents it publishes (scripts/build-dist/src/later-stages.ts).
+    '// Only where the sandbox policy made the origin opaque: Cloudflare Pages also serves this',
+    "// document at percent-encoded paths that no header rule matches, with FXM's origin.",
+    "if (self.origin === 'null') {",
+    `  startSandboxDocument(globalThis, SANDBOX_DOCUMENT_POLICIES.${kind})`,
+    '}',
     '})()',
     '    ',
   ].join('\n')

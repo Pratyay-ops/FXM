@@ -6,7 +6,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-kzfMXcgyFY8+WOZZ4QmAJd5kMUuHJ5D/MIHi6NDNqmg='; connect-src https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com; base-uri 'none'; form-action 'none'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-owm3iErLZVwiHx834O9uJv3O/pZo1l9TSqu9/VFwrrI='; connect-src https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com; base-uri 'none'; form-action 'none'" />
     <title>FXM sandbox: InnerTube</title>
   </head>
   <body>
@@ -575,7 +575,11 @@ function startSandboxDocument(
   }
 }
 
-startSandboxDocument(globalThis, SANDBOX_DOCUMENT_POLICIES.innertube)
+// Only where the sandbox policy made the origin opaque: Cloudflare Pages also serves this
+// document at percent-encoded paths that no header rule matches, with FXM's origin.
+if (self.origin === 'null') {
+  startSandboxDocument(globalThis, SANDBOX_DOCUMENT_POLICIES.innertube)
+}
 })()
     </script>
   </body>
