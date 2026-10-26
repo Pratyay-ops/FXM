@@ -109,9 +109,17 @@ export function compose(options: ComposeOptions): ComposeResult {
   const packages = new Map<string, BundledPackage>()
   const inventories = new Map<string, InventoryEntry[]>()
   const problems: string[] = []
+  const notices: string[] = []
   for (const part of built) {
     const dir = join(stagingDir, 'parts', part.name)
-    const files = listFiles(dir)
+    // Files built from a recipe of FXM's own (the ffmpeg core) pass their own checks instead.
+    const prebuilt = part.prebuilt?.(dir, options.repositoryUrl)
+    if (prebuilt) {
+      problems.push(...prebuilt.problems.map((problem) => `${part.name}: ${problem}`))
+      if (prebuilt.notice) notices.push(prebuilt.notice)
+    }
+    const own = new Set(prebuilt?.files ?? [])
+    const files = listFiles(dir).filter((file) => !own.has(file))
     const maps = files.filter((file) => file.endsWith('.map')).map((file) => join(dir, file))
     const inventory = readInventory(inventoryOf(part))
     inventories.set(part.name, inventory)
@@ -207,6 +215,8 @@ export function compose(options: ComposeOptions): ComposeResult {
       repositoryUrl: options.repositoryUrl,
       // FXM's licence, the Apache License 2.0, which also covers some packages (licenses.ts).
       apacheLicense: () => readFileSync(join(root, 'LICENSE'), 'utf8'),
+      // The entries of the files FXM builds from its own recipes (Part.prebuilt): the ffmpeg core.
+      prebuilt: notices,
     }),
   )
 

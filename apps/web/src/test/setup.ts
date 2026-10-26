@@ -5,6 +5,7 @@ import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
 import { resetDownloads } from '../features/downloads/runtime'
+import { setConverter, setDeviceSaver } from '../features/downloads/save/save'
 import { useLibraryViewStore } from '../features/library/view-store'
 import { setLyricsProvider } from '../features/lyrics/lyrics-source'
 import { resetPlayback } from '../features/now-playing/playback'
@@ -50,6 +51,8 @@ afterEach(async () => {
   resetPlayback()
   setLyricsProvider(undefined)
   setSponsorBlockClient(undefined)
+  setConverter(undefined)
+  setDeviceSaver(undefined)
   playerStore.usePlayerStore.setState(playerStore.usePlayerStore.getInitialState(), true)
   delete document.documentElement.dataset.theme
   delete document.documentElement.dataset.titlebar

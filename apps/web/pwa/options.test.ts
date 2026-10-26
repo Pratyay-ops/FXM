@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { APP_BASE } from './manifest.ts'
 import {
   CACHE_ID,
+  CORE_CACHE,
+  coreCachePattern,
   PRECACHE_IGNORES,
   PRECACHE_PATTERNS,
   pwaOptions,
@@ -71,11 +73,49 @@ describe('PWA plugin options', () => {
     }
   })
 
-  it('caches nothing at runtime: media, googlevideo and API responses go to the network', () => {
-    expect(workbox.runtimeCaching).toBeUndefined()
+  it('caches nothing at runtime but the ffmpeg core: media and API responses go past it', () => {
+    expect(workbox.runtimeCaching).toHaveLength(1)
     expect(workbox.navigationPreload).toBeUndefined()
     expect(workbox.cacheId).toBe(CACHE_ID)
     expect(workbox.cleanupOutdatedCaches).toBe(true)
+  })
+
+  it('keeps the ffmpeg core for offline saves: network first, a few versions at most', () => {
+    const [rule] = workbox.runtimeCaching ?? []
+    expect(rule).toMatchObject({
+      handler: 'NetworkFirst',
+      options: {
+        cacheName: CORE_CACHE,
+        expiration: { maxEntries: 6 },
+        cacheableResponse: { statuses: [200] },
+      },
+    })
+    expect(CORE_CACHE).toBe('fxm-app-ffmpeg-core')
+    const pattern = coreCachePattern()
+    expect(rule?.urlPattern).toEqual(pattern)
+    const origin = 'https://fxmusic.pages.dev'
+    for (const path of [
+      '/app/ffmpeg/ffmpeg-core.json',
+      '/app/ffmpeg/ffmpeg-core.js?v=0123456789abcdef',
+      '/app/ffmpeg/ffmpeg-core.wasm?v=0123456789abcdef',
+    ]) {
+      expect(pattern.test(`${origin}${path}`), path).toBe(true)
+    }
+    for (const url of [
+      `${origin}/app/ffmpeg/licenses/Opus-COPYING.txt`,
+      `${origin}/app/ffmpeg/ffmpeg-core.wasm`,
+      `${origin}/app/ffmpeg/ffmpeg-core.js`,
+      `${origin}/app/ffmpeg/ffmpeg-core.json?v=0123456789abcdef`,
+      `${origin}/app/ffmpeg/ffmpeg-core.wasm?v=other`,
+      `${origin}/app/assets/index-abc123.js`,
+      `${origin}/ffmpeg/ffmpeg-core.json`,
+      'https://rr1---sn-fxm.googlevideo.com/videoplayback?id=fxm',
+    ]) {
+      expect(pattern.test(url), url).toBe(false)
+    }
+    // Workbox takes a match of another origin only from the URL's start, which this never is.
+    const elsewhere = pattern.exec('https://evil.example/app/ffmpeg/ffmpeg-core.json')
+    expect(elsewhere?.index).toBeGreaterThan(0)
   })
 
   it('answers navigations inside the app, and only those, with the cached page', () => {

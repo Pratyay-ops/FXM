@@ -253,16 +253,17 @@ function Mp3BitrateRow() {
 /**
  * The audio quality settings: the data saver first, since it overrides the rows after it; the
  * highest quality to stream at on Wi-Fi and on mobile data, and which of the two applies; then
- * the format and MP3 bitrate downloads are saved in. The help follows `capabilities` (what the
- * platform reaches) and the YouTube codecs this browser plays. The stream lifecycle and the
- * download manager read the settings from `useQualityStore`.
+ * the format and MP3 bitrate a downloaded song's "Save to device…" starts at (a download itself
+ * stays the original file). The help follows `capabilities` (what the platform reaches) and the
+ * YouTube codecs this browser plays. The stream lifecycle and Save to device read the settings
+ * from `useQualityStore`.
  */
 export function QualitySection({
   capabilities,
   conversions = RELEASED.conversions,
 }: {
   capabilities: NetworkCapabilities
-  /** Whether downloads convert (stage 4.2). Default: `RELEASED.conversions`. */
+  /** Whether Save to device converts (stage 4.2). Default: `RELEASED.conversions`. */
   conversions?: boolean
 }) {
   const stored = useQualityStore((state) => state.prefs.download.format)

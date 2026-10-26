@@ -3,9 +3,13 @@ import { defineConfig, devices } from '@playwright/test'
 // End-to-end and screenshot runs against a production build served by `vite preview`.
 // They are not part of `make test`. Every run builds and serves this checkout: when the
 // port is busy (another worktree's preview, say), the run fails instead of silently
-// testing that server. Set FXM_E2E_PORT to pick a free port.
+// testing that server. Set FXM_E2E_PORT to pick a free port. FXM_E2E_BASE_URL runs them
+// against a server that is up already instead, such as make dist's folder served like
+// Cloudflare Pages, with its real headers (scripts/build-dist, `preview`):
+// FXM_E2E_BASE_URL=http://127.0.0.1:5800/app/.
 const port = Number(process.env.FXM_E2E_PORT ?? 4173)
-const baseURL = `http://localhost:${port}/app/`
+const external = process.env.FXM_E2E_BASE_URL
+const baseURL = external ?? `http://localhost:${port}/app/`
 
 export default defineConfig({
   testDir: './e2e',
@@ -40,12 +44,14 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: `vite build && vite preview --port ${port} --strictPort`,
-    url: baseURL,
-    reuseExistingServer: false,
-    // Includes the development fake mode, which stays off unless a test asks for it, e.g. the
-    // fake stream resolver of e2e/connect.spec.ts. Production builds leave it out.
-    env: { VITE_FXM_FAKES: 'on' },
-  },
+  ...(external === undefined && {
+    webServer: {
+      command: `vite build && vite preview --port ${port} --strictPort`,
+      url: baseURL,
+      reuseExistingServer: false,
+      // Includes the development fake mode, which stays off unless a test asks for it, e.g. the
+      // fake stream resolver of e2e/connect.spec.ts. Production builds leave it out.
+      env: { VITE_FXM_FAKES: 'on' },
+    },
+  }),
 })
