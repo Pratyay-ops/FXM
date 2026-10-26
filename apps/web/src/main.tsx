@@ -4,8 +4,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/app'
 import { createAppRouter } from './app/router'
+import { startConnect } from './features/connect/start'
 import { listenForInstallPrompt } from './features/pwa/install'
 import { registerServiceWorker } from './features/pwa/service-worker'
+import { startScrobbling } from './features/scrobble/start-scrobbling'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('index.html is missing the #root element')
@@ -13,6 +15,11 @@ if (!root) throw new Error('index.html is missing the #root element')
 // Before the first render: the browser may offer to install FXM as soon as the page loads.
 listenForInstallPrompt()
 registerServiceWorker(registerSW)
+
+// Detect FXM Connect and the Lite tier while the first page renders.
+startConnect()
+// Opt-in: it loads, opens and sends nothing until the user connects an account.
+startScrobbling()
 
 createRoot(root).render(
   <StrictMode>

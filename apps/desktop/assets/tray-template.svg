@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <title>FXM</title>
+  <!--
+    The macOS menu bar icon: the five bars of the FXM mark (assets/icon.svg) without the tile,
+    black on transparent. macOS treats it as a template image and draws it in the menu bar's own
+    colour, light or dark. 36 px is the menu bar's 18 pt height at 2x. The package's "tray-icon"
+    script turns it into src-tauri/tray/36x36.png (see apps/desktop/README.md).
+  -->
+  <g transform="translate(-4.857 -4.857) scale(1.4286)" fill="#000">
+    <rect x="4.8" y="15" width="3.2" height="9" rx="1.6"/>
+    <rect x="9.6" y="8" width="3.2" height="16" rx="1.6"/>
+    <rect x="14.4" y="13" width="3.2" height="11" rx="1.6"/>
+    <rect x="19.2" y="8" width="3.2" height="16" rx="1.6"/>
+    <rect x="24" y="15" width="3.2" height="9" rx="1.6"/>
+  </g>
+</svg>

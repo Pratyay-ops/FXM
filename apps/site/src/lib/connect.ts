@@ -4,11 +4,18 @@
  * browsers on a computer, afterwards Firefox, on a computer or Android, installs it too.
  */
 
+import { noExtensionPlays, otherBrowsersPlays } from './tiers'
+
 export interface ConnectFlags {
   /** The signed Firefox add-on is out (AVAILABLE.firefox). */
   firefox: boolean
   /** The Android app is out (AVAILABLE.android). */
   android: boolean
+  /**
+   * The experimental Lite tier is out (AVAILABLE.lite), so the web app also plays YouTube Music
+   * without FXM Connect: what it plays comes from src/lib/tiers.ts. Off when left out.
+   */
+  lite?: boolean
 }
 
 /** The fine print under the install steps of the "Get FXM" web card. */
@@ -42,22 +49,27 @@ export function plainText(parts: readonly (string | UiLabel)[]): string {
 }
 
 /** The note under the web card's buttons, for visitors who can't add FXM Connect. */
-export function noExtensionNote(firefox: boolean): string {
-  return firefox
-    ? 'No extension, or on an iPhone, an iPad or a phone browser other than Firefox? The web app still plays free music from Internet Archive and Jamendo.'
-    : 'No extension, or on a phone or tablet? The web app still plays free music from Internet Archive and Jamendo.'
+export function noExtensionNote(
+  firefox: boolean,
+  { lite = false }: Pick<ConnectFlags, 'lite'> = {},
+): string {
+  const who = firefox
+    ? 'No extension, or on an iPhone, an iPad or a phone browser other than Firefox?'
+    : 'No extension, or on a phone or tablet?'
+  return `${who} ${noExtensionPlays(lite)}`
 }
 
 /** The FAQ's answer for phones, tablets and other browsers. */
-export function phonesAnswer({ firefox, android }: ConnectFlags): string {
+export function phonesAnswer({ firefox, android, lite = false }: ConnectFlags): string {
+  const plays = otherBrowsersPlays(lite)
   if (!firefox) {
-    return `On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive and Jamendo. ${
+    return `On phones and tablets, and in other browsers such as Safari, ${plays} ${
       android
         ? 'FXM Connect needs a desktop browser; the Android app has everything built in.'
         : 'FXM Connect needs a desktop browser, and the Android app is coming soon.'
     }`
   }
-  return `On Android, Firefox 142 or later can add FXM Connect too. In other phone browsers, on iPhone and iPad, and in browsers such as Safari, the web app plays free music from Internet Archive and Jamendo. ${
+  return `On Android, Firefox 142 or later can add FXM Connect too. In other phone browsers, on iPhone and iPad, and in browsers such as Safari, ${plays} ${
     android ? 'The Android app has everything built in.' : 'The Android app is coming soon.'
   }`
 }

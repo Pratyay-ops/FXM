@@ -2,6 +2,7 @@
 import { AVAILABLE, ISSUES_URL, REPO_URL } from '../config'
 import Document from '../layouts/Document.astro'
 import { privacyInstall, privacyUpdateCheck } from '../lib/connect'
+import { privacyLiteCheck } from '../lib/tiers'
 
 /** " (coming soon)" after anything AVAILABLE in src/config.ts doesn't mark as released. */
 const soon = (released: boolean) => (released ? '' : ' (coming soon)')
@@ -17,7 +18,7 @@ const services: Service[] = [
   {
     name: 'YouTube',
     url: 'https://www.youtube.com',
-    use: `YouTube Music and YouTube: search, song and video details, audio, and radio${soon(AVAILABLE.radio)}. For some songs, also Google's BotGuard service, to get the token YouTube asks for before it plays them.`,
+    use: `YouTube Music and YouTube: search, song and video details, audio, and radio${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)}`,
   },
   {
     name: 'Spotify',
@@ -37,12 +38,12 @@ const services: Service[] = [
   {
     name: 'ListenBrainz',
     url: 'https://listenbrainz.org',
-    use: `Recommendations for your home feed, and finding a song's album for its cover${soon(AVAILABLE.homeFeed)}.`,
+    use: `Recommendations for your home feed, and finding a song's album for its cover${soon(AVAILABLE.homeFeed)}. If you connect your ListenBrainz account in Settings (scrobbling, off until you do): each song you play (its title, artists and album, its track number and length, and its ISRC and Spotify link when known), with when you started it and how long you listened, and the song playing now. Each is marked as played with FXM and its version, and sent with the user token you entered. Your ListenBrainz profile and listens are public.`,
   },
   {
     name: 'Last.fm',
     url: 'https://www.last.fm',
-    use: `Recommendations for your home feed and radio: similar artists, and in the apps and the web app with FXM Connect, Last.fm's stations${soon(AVAILABLE.homeFeed)}.`,
+    use: `Recommendations for your home feed and radio: similar artists, and in the apps and the web app with FXM Connect, Last.fm's stations${soon(AVAILABLE.homeFeed)}. If you connect your Last.fm account in Settings (scrobbling, off until you do): each song you play (its title, main artist and album, its track number and length) with when you started it, and the song playing now. Songs that FXM's radio picked are marked as not chosen by you. They are sent with your API key and session key, and signed with your shared secret, which FXM never sends. Your Last.fm profile and the songs you scrobble are public by default.`,
   },
   {
     name: 'Cover Art Archive',
@@ -113,6 +114,10 @@ const webAppUpdates =
     your browser's storage for the web app, or in the app's own storage on desktop and Android.
     {downloads}
     FXM can't see any of it.
+  </p>
+  <p>
+    The token and keys of a scrobbling account you connect are stored there too, and library backups
+    leave them out.
   </p>
   <p>Clearing this site's data in your browser, or uninstalling the app, deletes it for good.</p>
 

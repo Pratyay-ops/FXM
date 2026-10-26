@@ -31,6 +31,7 @@ describe('routes', () => {
     ['/playlist/liked', 'Playlist liked'],
     ['/now-playing', 'Now playing'],
     ['/settings', 'Settings'],
+    ['/connect', 'FXM Connect'],
     ['/no/such/page', 'Page not found'],
   ])('renders %s', async (path, name) => {
     renderApp(path)
