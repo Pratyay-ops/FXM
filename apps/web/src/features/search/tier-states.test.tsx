@@ -43,6 +43,21 @@ describe('while FXM Connect is answering', () => {
     ).not.toBeInTheDocument()
   })
 
+  it("doesn't pitch FXM Connect as the Lite tier where Lite's check passed first", async () => {
+    // FXM Connect's service worker is still waking up, and Lite's check passed meanwhile: the
+    // results are Lite's for a moment, but the note's "Get FXM Connect" would most likely be wrong.
+    const { sources } = renderCatalog('/search?q=harbor', { tier: 'lite' })
+    act(() => sources.setDetecting(true))
+    expect(await screen.findByRole('list', { name: 'Songs' }, SLOW)).toBeInTheDocument()
+    expect(screen.queryByText(/Lite tier, experimental/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Get FXM Connect/ })).not.toBeInTheDocument()
+
+    // It never answered within the grace period: Lite it is.
+    act(() => sources.setDetecting(false))
+
+    expect(screen.getByText(/Lite tier, experimental/)).toBeInTheDocument()
+  })
+
   it('says so on the page of an album on YouTube Music too', async () => {
     const { sources } = renderCatalog('/album/ytm:alb-neon-harbor', { tier: 'free' })
     act(() => sources.setDetecting(true))
