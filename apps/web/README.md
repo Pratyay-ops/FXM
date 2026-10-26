@@ -37,7 +37,8 @@ index.html              viewport, theme-color, inline SVG favicon, theme script 
 src/
   main.tsx              creates the browser router and renders <App>
   app/                  App (providers), routes, router, query client, error screens, 404;
-                        services/: the composition root (platform, providers, lifecycle, player)
+                        services/: the composition root (platform, providers, lifecycle,
+                        and the policy and play buttons of the app's player)
   components/
     layout/             AppLayout, Sidebar, TopBar, BottomNav, SearchField, RouteAnnouncer, route metadata
     media/              collection header, card/track/video placeholders
@@ -149,7 +150,7 @@ Each touch-point with a stage that wasn't merged when 2.5 was built sits behind 
 
 | Stage | Module | Today | Integration |
 |---|---|---|---|
-| 2.3 Playback policy | `features/now-playing/playback-policy.ts` | `createPendingPolicy()`: every resolution fails with `Unsupported` (nothing plays), no alternatives, no reports | `createAppPolicy()` returns 2.3's policy: its stream lifecycle as the `resolver`, its Suggest-band reports (`onNeedsReview`), the matching engine's `alternatives`, the match cache's `pin` (2.6) and "Play best guesses" |
+| 2.3 Playback policy | `features/now-playing/playback-policy.ts` | Wired by stage 2.9: `createAppPolicy()` follows the policy the composition root connects (`connectAppPolicy`): its stream lifecycle as the `resolver`, its Suggest-band reports (`onNeedsReview`), the matching engine's `alternatives`, the match cache's `pin` (2.6) and "Play best guesses" | Done |
 | 2.4 Search and browse | `features/now-playing/browse-links.ts` | Searches link to `/search?q=`; artist, album and playlist names are plain text | `entityPath(id)` returns 2.4's page for an entity |
 | 2.6 Library | `PlayPauseButton appearance="cta"` in `features/player/controls.tsx` | A placeholder that toggles itself, apart from the queue, on the library's playlist pages (2.4's pages have their own play buttons) | The library's playlist pages play the playlist, with Pause only while the queue's `context` is that page's |
 | 2.6 Library | `LikeButton` in `features/player/controls.tsx` | Merged: 2.6's like button (`LibraryLikeButton`), given `useCurrentItem()?.track`, off while nothing plays | Done |
@@ -179,9 +180,9 @@ Stage 8.7, in `features/sponsorblock/`. Opt-in and off by default.
 
 ## Playing music
 
-`main.tsx` renders the shell at once and starts the app's services (`src/app/services`, stage 2.9) beside it, from a chunk of their own: the player behind the catalog pages' play buttons, the platform of stage 1.2 (FXM Connect's answer takes a few milliseconds), then the providers in the sources registry. While FXM Connect's marker is on the page but it hasn't answered yet, the pages say "Connecting to FXM Connect…" rather than offering to install it. Provider code loads on first use; YouTube's starts loading as soon as the platform can reach it. What each tier gets and where the stages still to merge plug in are in [the services README](src/app/services/README.md). The development-only fake catalog (`?fake=full` and the like) still replaces all of it for its tab.
+`main.tsx` renders the shell at once and starts the app's services (`src/app/services`, stage 2.9) beside it, from a chunk of their own: first the app's player (stage 2.5) gets their playback policy and becomes the player behind the catalog pages' play buttons, then the platform of stage 1.2 starts (FXM Connect's answer takes a few milliseconds), then the providers join the sources registry, and "Add to playlist" lists the library's playlists. While FXM Connect's marker is on the page but it hasn't answered yet, the pages say "Connecting to FXM Connect…" rather than offering to install it. Provider code loads on first use; YouTube's starts loading as soon as the platform can reach it. What each tier gets and where the stages still to merge plug in are in [the services README](src/app/services/README.md). The development-only fake catalog (`?fake=full` and the like) still replaces all of it for its tab, where the app's player plays local files only.
 
-Until stage 2.5 lands, the player bar keeps its placeholder title, but its controls (play, pause, previous, next, seek, volume, shuffle, repeat) act on the real player, and the system media controls show what plays.
+The player bar, the mini player, Now playing, the queue panel and the system media controls all show that one player, local files included, and the stream lifecycle follows the audio quality chosen in Settings.
 
 ### Check it locally with FXM Connect
 
@@ -195,6 +196,8 @@ Without the extension the same page is the Free tier: YouTube Music shows how to
 
 Run by the stage 2.9 agent on 2026-10-26 (IST), from a residential connection in India, against the real services. The FXM Connect development build (`make extension FXM_EXTENSION_DEV=1`) was loaded into Playwright's Chromium 156.0.8078.4 in new headless mode with a temporary profile. The dev server ran on port 6400 (`vite --port 6400 --strictPort`) rather than 5173, because other worktrees share that machine, so the build's `http://localhost:5173` origin was rewritten to `:6400` in a throwaway copy of `apps/extension/dist/dev/chromium`. Headless Chromium has no sound device, so nothing was heard: what played is shown by the media element's events, its position moving in real time (sampled every 15 s), and the bytes received (DevTools protocol).
 
+That run used this stage's interim player, now removed; [the second run](#second-run-after-taking-in-develop-2026-10-26) checks the same services with stage 2.5's player.
+
 | | YouTube Music | Internet Archive |
 |---|---|---|
 | Search | "ramones blitzkrieg bop" (YouTube Music) | "nine inch nails ghosts" (Internet Archive in "Search in") |
@@ -207,3 +210,16 @@ Seen along the way, for later stages:
 - The first YouTube attempt stopped about a minute in, when the page searched again by itself: most likely the dev server reloading it after a file edit in `apps/web`. The run above had no edits.
 - After a page load, this development build answered FXM Connect's ping later than the platform's 800 ms wait (it switches to the localhost origin's ruleset first, and its service worker may be asleep), so the page showed the Free tier's "Search needs YouTube Music access" for about 3 s before it switched to the Full tier by itself. The release build has one origin and switches nothing. Since the review of this stage, the page says "Connecting to FXM Connect…" while it waits (up to 5 s), and `e2e/playback.spec.ts` checks that with an answer 1.5 s late.
 - The ladder chose AAC 140 over Opus 251 for this song: it ranks by average bitrate, the decision stage 1.4's README leaves open, and this Chromium plays AAC.
+
+### Second run, after taking in `develop` (2026-10-26)
+
+Run on 2026-10-26 (IST) by the integration of this stage with `develop`, from the same connection, against the real services, to check the app with stage 2.5's player: the production build (`vite preview --port 6400 --strictPort`) and FXM Connect's development build rebuilt from the merged tree, in a throwaway copy whose `http://localhost:5173` origin and ruleset were renamed to `:6400`, in Playwright's Chromium 156.0.8078.4 in new headless mode with a temporary profile and `--mute-audio`. The position was sampled every 5 s.
+
+| | YouTube Music | Internet Archive |
+|---|---|---|
+| Search | "ramones blitzkrieg bop" (YouTube Music) | "nine inch nails ghosts" (Internet Archive in "Search in") |
+| Played | "Blitzkrieg Bop", Ramones: AAC (itag 140), at 5.1, 10.1, 15.1 and 20.1 s; the player bar showed "Blitzkrieg Bop", "Ramones", 0:20 of 2:14 | "1 Ghosts I", Nine Inch Nails: the 320 kbps MP3, at 5, 10 and 15 s; the player bar showed its title, artist and 0:14 of 2:48 |
+| Next track, from Next in the player bar | "The KKK Took My Baby Away (1999 Remaster)", AAC (itag 140), at 5.1 and 10.2 s | "2 Ghosts I", the 320 kbps MP3, at 5.2 and 10.2 s |
+| Requests | YouTube: 5 (`sw.js_data`, one suggestions call, one search, two `/player` calls). googlevideo: 6, 4.88 MB | archive.org: 1 search, 4 item metadata, the files and their covers (9.2 MB). YouTube: none |
+
+The system media controls (`navigator.mediaSession`) and the player bar named the playing track each time, which the interim player's bar never did.

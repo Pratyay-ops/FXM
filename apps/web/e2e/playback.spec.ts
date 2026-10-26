@@ -13,10 +13,11 @@ import {
 // (src/app/services/testing/fake-network.ts), and the streams are short WAV tones that the page
 // really plays. Nothing reaches the internet.
 //
-// The Lite tier needs the sandbox documents of stage 1.10, which are not in this build yet; the
-// Vitest tests in src/app/services cover it with a fake sandbox meanwhile. The shell never waits
-// for the services: with an FXM Connect that answers late, it paints at once and says it is
-// connecting, rather than offering the install.
+// The Lite tier needs the app to create the sandbox transport of stage 1.10, which stage 2.7's
+// platform brings (see src/app/services/README.md), and a preview that serves /sandbox/ as the
+// deploy does; the Vitest tests in src/app/services cover it with a fake sandbox meanwhile. The
+// shell never waits for the services: with an FXM Connect that answers late, it paints at once
+// and says it is connecting, rather than offering the install.
 
 /** A provider fixture, read from its package (`packages/sources/src/…`). */
 function fixture(path: string): unknown {
