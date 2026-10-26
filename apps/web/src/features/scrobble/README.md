@@ -45,7 +45,7 @@ A listening history imported from another service (stage 3.6) goes straight to t
 
 The section shows, per service, whether it is on and as whom, and what waits to be sent, with the time of the next try after a failure.
 
-Requests go straight from the browser to `api.listenbrainz.org` and `ws.audioscrobbler.com`, which answer any origin, so every tier scrobbles. They use the browser's `fetch` with `credentials: 'omit'` and `redirect: 'error'`. Where the app has the platform layer (`@fxm/platform`), `scrobbleContext()` should come from the platform's context, so scrobbles pass its host table, which lists both hosts, and use the desktop and Android transports like every other request. The deployed app's CSP allows both in `connect-src` (the ListenBrainz and Last.fm entries of `APP_SERVICES` in `scripts/build-dist/src/policies.ts`); the site's privacy page names both services, what each listen carries, and that both profiles are public.
+Requests go to `api.listenbrainz.org` and `ws.audioscrobbler.com`, which answer any origin, so every tier scrobbles, with `credentials: 'omit'` and `redirect: 'error'`. `scrobbleContext()` takes its `fetch` from the app platform's context (`appContext` in `lib/app-context.ts`, which the composition root connects once the platform is ready), so scrobbles pass its host table, which lists both hosts, and the desktop and Android apps send them through their native HTTP like every other request; before that, the page's own `fetch`. The deployed app's CSP allows both in `connect-src` (the ListenBrainz and Last.fm entries of `APP_SERVICES` in `scripts/build-dist/src/policies.ts`); the site's privacy page names both services, what each listen carries, and that both profiles are public.
 
 ## Tests
 

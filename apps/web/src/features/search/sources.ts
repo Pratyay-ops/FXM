@@ -417,7 +417,8 @@ export interface ItemFeatures {
  * - YouTube items need `mediaBytes`, which only `full` YouTube access has. So in the Lite tier
  *   (`simple`), download and equalizer are hidden on YouTube items.
  * - Spotify items play from a matched song, usually on YouTube, so they follow the same rule.
- * - Internet Archive, Jamendo and local files are always readable.
+ * - Internet Archive, Jamendo and local files are always readable. A local file is on the
+ *   device already: it gets the equalizer, but nothing to download.
  * - Plugin sources are unknown, so they get neither.
  */
 export function itemFeatures(capabilities: NetworkCapabilities, source: SourceId): ItemFeatures {
@@ -425,5 +426,5 @@ export function itemFeatures(capabilities: NetworkCapabilities, source: SourceId
     isYouTubeSource(source) || source === 'spotify'
       ? capabilities.mediaBytes
       : source === 'archive' || source === 'jamendo' || source === 'local'
-  return { download: readable, equalizer: readable }
+  return { download: readable && source !== 'local', equalizer: readable }
 }

@@ -5,7 +5,8 @@
  *   playlists ({@link libraryActionsFrom});
  * - **the match cache** under the playback policy: 2.3's `MatchStore`, from the repository's
  *   match cache, with the lossless decisions, which it has no key for, in memory
- *   ({@link matchStoreFrom}).
+ *   ({@link matchStoreFrom}); what it reads follows the user's Auto setting as it is now
+ *   ({@link withEffectiveBands}, stage 1.12).
  *
  * {@link LibraryRepository} is the part of 2.6's `LibraryRepo` (`getLibrary()` in `src/db/`)
  * these use, declared by shape; the app passes `lazyLibrary(getLibrary)` ({@link lazyLibrary}).
@@ -19,6 +20,7 @@ import {
   type AudioCandidate,
   type CatalogMode,
   type EntityId,
+  effectiveMatchBand,
   isEntityId,
   type MatchSignals,
   type Track,
@@ -170,5 +172,25 @@ export function matchStoreFrom(
       if (stored?.userPinned) await library.unpinMatch(sourceTrackId, mode)
       else await library.forgetMatch(sourceTrackId, mode)
     },
+  }
+}
+
+/**
+ * `store` with the user's Auto setting applied to every song decision it reads, as core's
+ * `MatchVerdict` asks of a cache: the band an engine decision plays with is its candidate's
+ * verdict under the setting as it is now (`effectiveMatchBand`), so a decision kept while the
+ * setting was on never plays unasked once it is off, nor one from an older matcher. Pins, `none`
+ * decisions and lossless decisions are read as they are.
+ */
+export function withEffectiveBands(store: MatchStore, autoOn: () => boolean): MatchStore {
+  return {
+    async get(key) {
+      const stored = await store.get(key)
+      if (stored === undefined || key.target !== 'song' || stored.userPinned) return stored
+      if (stored.band === 'none' || stored.candidate === undefined) return stored
+      return { ...stored, band: effectiveMatchBand(stored.candidate.verdict, autoOn()) }
+    },
+    put: (key, match) => store.put(key, match),
+    delete: (key) => store.delete(key),
   }
 }
