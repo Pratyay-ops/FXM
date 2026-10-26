@@ -2,14 +2,30 @@
   "name": "@fxm/i18n",
   "version": "0.1.0",
   "private": true,
-  "description": "FXM translations: keyed messages with ICU plurals and selects, locale negotiation and Intl formatting",
+  "description": "FXM translations: keyed messages with ICU plurals and selects, locale negotiation, Intl formatting and a React provider",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./react": "./src/react.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p ."
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "happy-dom": "20.14.6",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   }
 }

@@ -4,7 +4,9 @@
  * the platform's `Intl`; English bundled with the code that uses it and other locales loaded on
  * demand. See the package README and docs/I18N.md.
  *
- * Everything else lives in entries of its own, so an app's bundle takes only what it imports.
+ * The React bindings are in `@fxm/i18n/react`, the pseudo-locales in `@fxm/i18n/pseudo`, the
+ * catalog checks for CI in `@fxm/i18n/check` and test helpers in `@fxm/i18n/testing`, so an app's
+ * bundle takes only what it imports.
  *
  * @module
  */
