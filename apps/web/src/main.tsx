@@ -12,3 +12,7 @@ createRoot(root).render(
     <App router={createAppRouter()} />
   </StrictMode>,
 )
+
+// Queued downloads continue in whichever tab gets to run the queue (stage 4.1). Loaded after
+// the first render, so the database and the download manager stay out of the entry chunk.
+void import('./features/downloads/runtime').then(({ startDownloads }) => startDownloads())

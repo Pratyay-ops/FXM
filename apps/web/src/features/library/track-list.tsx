@@ -1,5 +1,15 @@
 import type { EntityId, Track } from '@fxm/core'
-import { Clock3, Ellipsis, GripVertical, Heart, ListMinus, ListPlus, Music } from 'lucide-react'
+import {
+  ArrowDownToLine,
+  CircleMinus,
+  Clock3,
+  Ellipsis,
+  GripVertical,
+  Heart,
+  ListMinus,
+  ListPlus,
+  Music,
+} from 'lucide-react'
 import { memo, type ReactNode, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
 import { useLibrary } from '../../db/hooks'
@@ -8,6 +18,9 @@ import { moveKeys } from '../../db/ordering'
 import type { TrackRow } from '../../db/repo'
 import type { OrderUndo } from '../../db/types'
 import { cn } from '../../lib/cn'
+import { downloadTracks, removeDownloads } from '../downloads/actions'
+import { useCanDownload } from '../downloads/hooks'
+import { useDownloadMenuItem } from '../downloads/menu'
 import { CoverArt } from './cover-art'
 import { failureText } from './failure'
 import { addedLabel, artistNames, artworkUrl, countLabel, trackDuration } from './format'
@@ -234,6 +247,8 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   const focusAfter = useFocusAfterRemoval(ids)
   const sortId = useId()
   const plural = 'songs'
+  const downloadMenuItem = useDownloadMenuItem()
+  const canDownload = useCanDownload()
 
   const titleOf = useCallback(
     (id: string) => byIdRef.current.get(id)?.track?.title ?? UNKNOWN_TITLE,
@@ -363,6 +378,8 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
         onSelect: () => toggleLike(id),
       })
     }
+    const download = row && downloadMenuItem(row, { inDownloads: kind === 'downloads' })
+    if (download) items.push(download)
     if (kind !== 'downloads') {
       items.push({
         id: 'remove',
@@ -430,9 +447,28 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
               Add<span className="max-sm:sr-only"> to playlist</span>
             </span>
           </SelectionAction>
+          {kind !== 'downloads' && selectedTracks.some(canDownload) && (
+            <SelectionAction onClick={() => void downloadTracks(selectedTracks)}>
+              <ArrowDownToLine aria-hidden="true" />
+              Download
+            </SelectionAction>
+          )}
           {kind !== 'downloads' && (
             <SelectionAction danger onClick={() => remove(selected, 'selection')}>
               <ListMinus aria-hidden="true" />
+              Remove
+            </SelectionAction>
+          )}
+          {kind === 'downloads' && (
+            <SelectionAction
+              danger
+              onClick={() =>
+                void removeDownloads(
+                  selected.map((id) => ({ id: id as EntityId<'track'>, title: titleOf(id) })),
+                )
+              }
+            >
+              <CircleMinus aria-hidden="true" />
               Remove
             </SelectionAction>
           )}
