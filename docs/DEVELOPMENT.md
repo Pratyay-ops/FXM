@@ -37,6 +37,7 @@ Run `make` with no arguments to list all commands.
 | git-cliff 2.14.2 (release notes) | `.tools/bin/git-cliff` | the release commands, on first use |
 | actionlint 1.7.12 (workflow linter) | `.tools/bin/actionlint` | `make release-check` |
 | JDK, Android SDK, Gradle caches | `.tools/jdk/`, `.tools/android-sdk/`, `.tools/gradle/` | `make android-setup` (stage 6.1) |
+| emsdk 6.0.12, the ffmpeg core's sources, libraries and builds | `.tools/emsdk/`, `.tools/ffmpeg-wasm/` | `make ffmpeg-wasm` (stage 4.2) |
 | Stage worktrees | `../FXM-worktrees/<branch>/` | `make wt-new` |
 
 `scripts/env.sh` redirects into `.tools/` everything a tool would normally write under `$HOME`: npm and pnpm caches, uv, pip, Gradle, Android, gh, Playwright and wrangler logs. It also turns telemetry off. `.tools/` always belongs to the **main checkout**, so every worktree shares one copy.
@@ -68,7 +69,8 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
 | `make live-smoke` | The live smoke tests against the real services (`FXM_LIVE=1`), from a residential connection: see [Live smoke tests](#live-smoke-tests) |
 | `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
-| `make dist` | Compose what Cloudflare Pages serves (the site, the web app, `_headers`, the third-party notices) into `dist/pages/`, with its licence, header and privacy checks |
+| `make dist` | Compose what Cloudflare Pages serves (the site, the web app with the ffmpeg core, `_headers`, the third-party notices) into `dist/pages/`, with its licence, header and privacy checks |
+| `make ffmpeg-wasm` / `ffmpeg-wasm-check` / `ffmpeg-wasm-test` | Build FXM's LGPL ffmpeg core for WebAssembly, which the web app converts downloads with (10 to 15 minutes the first time, two parallel jobs by default), check it (under 25 MiB, LGPL), and test it end to end: see [tools/ffmpeg-wasm/README.md](../tools/ffmpeg-wasm/README.md). `make check` never needs it |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
 | `make release-pr VERSION=x.y.z` | Open the release pull request from `develop` into `main` (`DRY_RUN=1`: only show the checks, the plan and the notes), see [Releases](#releases) |
@@ -112,7 +114,7 @@ git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`,
 
 `.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`, then `make release-check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
 
-`.github/workflows/deploy.yml` runs `make dist` on every push, then deploys `develop` to the preview (`https://develop.fxmusic.pages.dev`) and `main` to production (`https://fxmusic.pages.dev`, once a candidate of it passed the checks), the Cloudflare Pages project `fxmusic`, and checks each deployment's headers. How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md).
+`.github/workflows/ffmpeg-wasm.yml` builds the web app's ffmpeg core (stage 4.2), cached by its recipe's hash so it only builds when the recipe changes, and fails when the WebAssembly file is 25 MiB or larger or FFmpeg's configure reports a licence other than LGPL. `.github/workflows/deploy.yml` calls it, then runs `make dist` with the core on every push, then deploys `develop` to the preview (`https://develop.fxmusic.pages.dev`) and `main` to production (`https://fxmusic.pages.dev`, once a candidate of it passed the checks), the Cloudflare Pages project `fxmusic`, and checks each deployment's headers. How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md).
 
 ## Live smoke tests
 
@@ -286,6 +288,7 @@ Prefer releases that are at least two weeks old, and update the version and its 
 | gh | `scripts/install-gh.sh` | `gh_<version>_checksums.txt` on the GitHub release |
 | git-cliff | `scripts/install-git-cliff.sh` | The SHA-256 digest GitHub shows for each `git-cliff-<version>-<target>.tar.gz`, checked against the `.sha512` files on the release |
 | actionlint | `scripts/install-actionlint.sh` | `actionlint_<version>_checksums.txt` on the GitHub release |
+| emsdk, FFmpeg, LAME, Opus (the ffmpeg core) | `tools/ffmpeg-wasm/recipe/versions.sh` | Each project's release; check each hash against an independent source, as [tools/ffmpeg-wasm/README.md](../tools/ffmpeg-wasm/README.md#upgrading) describes |
 
 ## Troubleshooting
 
