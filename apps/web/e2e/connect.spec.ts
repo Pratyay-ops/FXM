@@ -94,23 +94,35 @@ const tierCards = (page: Page) => page.getByRole('region', { name: 'What works w
 const missingPanel = (page: Page) => page.getByRole('region', { name: "What you're missing" })
 const LITE_INTRO = 'Try YouTube Music here without an install (experimental)'
 
-/** The page's layout shift score so far (CLS, without shifts right after input). */
-async function layoutShift(page: Page): Promise<number> {
+/**
+ * The layout shift score so far (CLS, without shifts right after input) of the shifts that moved
+ * `selector`'s element. Home's own content fills in below its greeting as its shelves load,
+ * which moves what follows it and has nothing to do with a notice; a notice that pushed the page
+ * would move the greeting too.
+ */
+async function layoutShiftOf(page: Page, selector: string): Promise<number> {
   return page.evaluate(
-    () =>
+    (target) =>
       new Promise<number>((resolve) => {
+        const element = document.querySelector(target)
         let total = 0
         new PerformanceObserver((list) => {
           for (const entry of list.getEntries() as unknown as {
             value: number
             hadRecentInput: boolean
+            sources?: { node?: Node | null }[]
           }[]) {
-            if (!entry.hadRecentInput) total += entry.value
+            if (entry.hadRecentInput) continue
+            const moved = (entry.sources ?? []).some(
+              (source) => source.node != null && element != null && source.node.contains(element),
+            )
+            if (moved) total += entry.value
           }
         }).observe({ type: 'layout-shift', buffered: true })
         // The buffered entries come in the observer's first call, right after observe().
         setTimeout(() => resolve(total), 200)
       }),
+    selector,
   )
 }
 
@@ -179,7 +191,7 @@ test.describe('the tiers', () => {
       'Lite (experimental) adds YouTube Music and its ad-free audio.',
     )
     await expect(missingPanel(page)).toContainText(
-      "Full adds YouTube Music without Lite's experimental route, and Spotify search",
+      "Full adds YouTube Music without Lite's experimental route, YouTube Music downloads and Spotify search",
     )
     // Desktop Chrome: the Chromium guide comes first, open, with Developer mode's warning, and
     // the main button leads to it.
@@ -295,17 +307,21 @@ test.describe('the notices never move the page', () => {
       await fakeYouTube(page, false, 1500)
       if (notice === 'Update FXM Connect') await addFakeConnect(page, '0.0.1')
       await page.goto('./')
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Good /)
-      // The page itself: the first child of the content column, before the notice's layer.
+      const heading = page.getByRole('heading', { level: 1 })
+      await expect(heading).toHaveText(/^Good /)
+      // The page's own content, before the notice's layer. Its height follows Home's shelves as
+      // they load (the welcome card, here), which a notice has nothing to do with: what must not
+      // move is where the page starts, the greeting.
       const content = page.locator('main > div > :first-child')
-      const before = await content.boundingBox()
+      await expect(page.getByRole('region', { name: 'Play practically any song' })).toBeVisible()
+      const before = await heading.boundingBox()
 
       const shown = page.getByRole('region', { name: notice })
       await expect(shown).toBeVisible()
 
       // It floats above the mini player and the tab bar: nothing on the page moved.
-      expect(await content.boundingBox()).toEqual(before)
-      expect(await layoutShift(page)).toBeLessThan(0.01)
+      expect(await heading.boundingBox()).toEqual(before)
+      expect(await layoutShiftOf(page, 'main h1')).toBe(0)
       // The end of the page still scrolls clear of it.
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
       await expect(async () => {
