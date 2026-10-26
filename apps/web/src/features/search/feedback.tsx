@@ -34,10 +34,11 @@ export function showFeedback(message: string): void {
 }
 
 /**
- * The confirmation toast, above the player bar (or the phone's mini player and tab bar) and the
- * cards SponsorBlock stacks there (`--shell-cards`, stage 8.7). The shell renders it once, for
- * every page: the catalog pages and the library (stage 2.6) both confirm here. The live region
- * is always in the page, so screen readers announce each new message.
+ * The confirmation toast, above the player bar (or the phone's mini player and tab bar), the
+ * cards SponsorBlock stacks there (`--shell-cards`, stage 8.7) and the FXM Connect notice
+ * (`--connect-notice-space`, stage 2.7). The shell renders it once, for every page: the catalog
+ * pages and the library (stage 2.6) both confirm here. The live region is always in the page, so
+ * screen readers announce each new message.
  */
 export function FeedbackToast() {
   const message = useFeedbackStore((state) => state.message)
@@ -47,7 +48,7 @@ export function FeedbackToast() {
   return (
     <div
       role="status"
-      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--shell-bottom)+var(--shell-cards,0px)+0.75rem)] z-50 flex justify-center px-4"
+      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--shell-bottom)+var(--shell-cards,0px)+var(--connect-notice-space,0px)+0.75rem)] z-50 flex justify-center px-4"
     >
       {/* A new key per message restarts the timer, also for the same text twice. */}
       {message && <Toast key={serial} message={message} until={until} onTimeout={dismiss} />}

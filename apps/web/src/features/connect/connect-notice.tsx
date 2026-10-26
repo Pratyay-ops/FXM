@@ -96,8 +96,9 @@ function focusPage(): void {
 
 /**
  * The CSS variable with the room the notice takes above the bottom bars (`0px` without one), so
- * other floating layers, such as a toast, can sit above it:
- * `bottom: calc(var(--shell-bottom) + var(--connect-notice-space, 0px) + 0.75rem)`.
+ * other floating layers, such as the app's toast (`FeedbackToast`), can sit above it:
+ * `bottom: calc(var(--shell-bottom) + var(--connect-notice-space, 0px) + 0.75rem)`. The notice
+ * itself sits above the cards SponsorBlock stacks over the bars (`--shell-cards`).
  */
 export const NOTICE_SPACE_VARIABLE = '--connect-notice-space'
 
@@ -168,7 +169,7 @@ export function ConnectNotice() {
       {/* Always in the page, so screen readers announce a notice when it appears. */}
       <div
         aria-live="polite"
-        className="pointer-events-none fixed inset-x-safe bottom-[calc(var(--shell-bottom)+0.25rem)] z-30 px-2 md:right-[calc(var(--safe-right)+var(--spacing-gutter))] md:bottom-[calc(var(--shell-bottom)+1rem)] md:left-auto md:w-96 md:px-0"
+        className="pointer-events-none fixed inset-x-safe bottom-[calc(var(--shell-bottom)+var(--shell-cards,0px)+0.25rem)] z-30 px-2 md:right-[calc(var(--safe-right)+var(--spacing-gutter))] md:bottom-[calc(var(--shell-bottom)+var(--shell-cards,0px)+1rem)] md:left-auto md:w-96 md:px-0"
       >
         {copy !== undefined && notice !== undefined && (
           <section

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { type BrowserContext, expect, type Page, test } from '@playwright/test'
+import { type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test'
 
 // The tiers, the onboarding prompts and the Diagnostics self-test, end to end in a real browser
 // against the production build, with fakes for everything outside it:
@@ -315,6 +315,54 @@ test.describe('the notices never move the page', () => {
       }).toPass()
     })
   }
+})
+
+test.describe('with the other floating layers, on a 390 px phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test("keeps SponsorBlock's offer and the app's toast clear of a notice", async ({
+    context,
+    page,
+  }) => {
+    // FXM Connect worked here once, so the next visit says it isn't answering, on every page.
+    await fakeYouTube(page, false)
+    await addFakeConnect(page)
+    await page.goto('connect')
+    await expect(status(page)).toContainText('Full')
+    await page.close()
+
+    const next = await context.newPage()
+    await fakeYouTube(next, false)
+    // Music + Video mode, where SponsorBlock offers itself (stage 8.7).
+    await next.addInitScript(() => {
+      localStorage.setItem(
+        'fxm.settings.v1',
+        JSON.stringify({ state: { catalogMode: 'all', theme: 'dark' }, version: 1 }),
+      )
+    })
+    await next.goto('library')
+    const notice = next.getByRole('region', { name: "FXM Connect isn't answering" })
+    const offer = next.getByRole('region', { name: 'Skip non-music parts of videos?' })
+    await expect(notice).toBeVisible()
+    await expect(offer).toBeVisible()
+    const below = async (upper: Locator, lower: Locator) => {
+      const [top, bottom] = await Promise.all([upper.boundingBox(), lower.boundingBox()])
+      expect((top?.y ?? 0) + (top?.height ?? 0)).toBeLessThanOrEqual(bottom?.y ?? 0)
+    }
+    // The notice stacks above SponsorBlock's card instead of hiding behind it.
+    await expect(() => below(notice, offer)).toPass()
+
+    // The page's own button; the empty list offers another.
+    await next.getByRole('main').getByRole('button', { name: 'New playlist' }).first().click()
+    const dialog = next.getByRole('dialog', { name: 'New playlist' })
+    await dialog.getByRole('textbox', { name: 'Name' }).fill('Late night')
+    await dialog.getByRole('button', { name: 'Create' }).click()
+    const toast = next.getByRole('status').getByText('Created Late night')
+    await expect(toast).toBeVisible()
+    // The toast rises above the notice, whose buttons stay in reach.
+    await expect(notice).toBeVisible()
+    await expect(() => below(toast, notice)).toPass({ timeout: 3_000 })
+  })
 })
 
 test.describe('on an Android phone', () => {
