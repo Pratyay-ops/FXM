@@ -8,6 +8,7 @@ import { SegmentedControl } from '../../components/ui/segmented-control'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
+import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { ASSUMED_CAPABILITIES } from './quality-options'
@@ -49,6 +50,7 @@ export function SettingsPage() {
             className="w-full md:w-auto"
           />
         </SettingRow>
+        <SponsorBlockSetting />
       </SettingsSection>
 
       <SettingsSection title="Sources">
@@ -126,6 +128,7 @@ export function SettingsPage() {
             <span className="sr-only">(opens in a new tab)</span>
           </a>
         </div>
+        <SponsorBlockCredit />
       </SettingsSection>
     </div>
   )
