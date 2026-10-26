@@ -301,8 +301,3 @@ export function loudnessGainDb(
 export function dbToGain(db: number): number {
   return 10 ** (db / 20)
 }
-
-/** A linear factor in dB; minus infinity for 0. */
-export function gainToDb(gain: number): number {
-  return 20 * Math.log10(gain)
-}

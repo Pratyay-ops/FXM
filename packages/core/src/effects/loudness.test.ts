@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_LOUDNESS,
   dbToGain,
-  gainToDb,
   LOUDNESS_TARGETS,
   type LoudnessSettings,
   loudnessFromR128,
@@ -191,12 +190,10 @@ describe('loudnessGainDb', () => {
   })
 })
 
-describe('dbToGain and gainToDb', () => {
-  it('convert between decibels and factors', () => {
+describe('dbToGain', () => {
+  it('turns decibels into factors', () => {
     expect(dbToGain(0)).toBe(1)
     expect(dbToGain(-6)).toBeCloseTo(0.501, 3)
     expect(dbToGain(20)).toBeCloseTo(10, 9)
-    expect(gainToDb(0.5)).toBeCloseTo(-6.02, 2)
-    expect(gainToDb(0)).toBe(Number.NEGATIVE_INFINITY)
   })
 })
