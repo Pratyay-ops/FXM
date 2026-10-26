@@ -69,13 +69,13 @@ A test in a spec is a critical flow when it is tagged `@flow` (`test('…', { ta
 
 **The timings' profile** is Lighthouse's mobile default, a mid-range phone (Moto G Power) on Slow 4G, applied as Chrome DevTools throttles: 412×823 px at 1.75×, a CPU four times slower than the machine's, 562.5 ms of latency per request, 1.47 Mbit/s down and 675 kbit/s up. The page comes over HTTP/2 and TLS (a self-signed certificate) with brotli, as from Cloudflare, from a front in `budgets/server.ts` before the Pages stand-in: over the stand-in's plain HTTP/1.1 the 39 files of the first load would queue for six connections. The test checks that every timed visit really used HTTP/2. The visit starts in the Free tier, since Lite's check can't reach YouTube offline, with no service worker. The run starts the stand-in on port 6710 and the fronts on 6711 (HTTP/2) and 6712 (HTTP/1.1, for the service worker's visit, which Chromium refuses on an untrusted certificate); `FXM_BUDGETS_PORT` moves all three. One worker, so nothing else competes for the CPU while it measures.
 
-These are lab numbers on a stand-in, for catching regressions: real phones and networks vary, and Cloudflare's edge is closer than 150 ms to most visitors. About 4 of the first visit's 5.8 s are the network's: with the CPU at full speed the median LCP was 5.3 s, with the network at full speed 1.4 s.
+These are lab numbers on a stand-in, for catching regressions: real phones and networks vary, and Cloudflare's edge is closer than 150 ms to most visitors. Most of the first visit's LCP is the network's: on the Mac below, the median was 5.8 s, 5.3 s with the CPU at full speed and 1.4 s with the network at full speed.
 
 ### Baseline (2026-10-26)
 
-Measured on `develop` at 33c1f23 with this stage's changes, Playwright 1.64.0's Chromium 156.0.8078.4, headless. Sizes are the same everywhere; timings depend on the machine, so the timing budgets come from CI's runner, where they gate.
+Measured on `develop` at 33c1f23 with this stage's changes, in Playwright 1.64.0's Chromium 156.0.8078.4, headless. Sizes are the same everywhere: CI's build had the same files, byte for byte. Timings depend on the machine, so the timing budgets come from CI's runner, where they gate: E2E run 40316662161, on GitHub's `ubuntu-latest`.
 
-| Budget | macOS 15.5, Apple silicon (busy with other work) | CI (ubuntu-latest) | Budget |
+| Budget | CI (`ubuntu-latest`) | macOS 15.5, Apple silicon, busy with other work | Budget |
 |---|---|---|---|
 | `entry` | 137.5 kB (442.4 kB on disk) | the same | 150 kB |
 | `initial` | 307.2 kB, 39 files (959.4 kB on disk) | the same | 335 kB |
@@ -84,11 +84,11 @@ Measured on `develop` at 33c1f23 with this stage's changes, Playwright 1.64.0's 
 | `downloads` | 13.0 kB, 3 files (35.1 kB on disk), 2 of them in the first load | the same | 14.5 kB |
 | `firstLoad` | 411.6 kB, 67 requests | the same | 455 kB |
 | `firstVisit` | 1,502.1 kB, 222 requests | the same | 1,650 kB |
-| `lcp` | 5,804 ms (5,784 to 5,876 ms) | | 12,000 ms |
-| `cls` | 0.000 | | 0.1 |
-| `inp` | 144 ms (136 to 152 ms) | | 500 ms |
+| `lcp` | 5,424 ms (5,412 to 5,500 ms) | 5,804 ms (5,784 to 5,876 ms) | 6,500 ms |
+| `cls` | 0.000 | 0.000 | 0.02 |
+| `inp` | 80 ms (72 to 80 ms) | 144 ms (136 to 152 ms) | 150 ms |
 
-The largest paint is a paragraph of Home's first-visit content (`p.mt-2.text-text-muted`). The size budgets leave about 10 % of headroom.
+The largest paint is the intro of Home's first-visit content in the Free tier (`p.mt-2.text-text-muted`, "FXM plays the YouTube Music catalog, and…"), which loads with the lazy Home chunk. The size budgets leave about 10 % of headroom, LCP about 20 %. INP's budget stays under 200 ms, the line web-vitals calls good, and above what a busy Mac measures, so a local run doesn't fail on the machine's load; CLS's allows a small shift where there is none today.
 
 ### When a budget fails
 

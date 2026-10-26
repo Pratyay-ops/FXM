@@ -1,8 +1,8 @@
 import type { ChunkGroup } from './chunks'
 
 // The web app's performance budgets: what make dist's build may weigh, and how fast its first
-// load must be on a mid-range phone over a slow network. The README next to this file has the
-// baseline they were set from, and how to change them.
+// load must be on a mid-range phone over a slow network. apps/web/e2e/README.md has the baseline
+// they were set from, and how to change them: sizes from any build, timings from CI's runner.
 
 /** The lazy features whose chunks have a budget (see `chunkGraph` in chunks.ts). */
 export const GROUPS: readonly ChunkGroup[] = [
@@ -74,11 +74,11 @@ export const BUDGETS = {
   /** The same visit with the service worker, which stores the app shell for offline use. */
   firstVisit: 1_650_000,
   /** Largest Contentful Paint of that first visit, in milliseconds. */
-  lcp: 12_000,
+  lcp: 6_500,
   /** Cumulative Layout Shift of the visit and the interactions after it. */
-  cls: 0.1,
+  cls: 0.02,
   /** Interaction to Next Paint of a few taps and some typing after it, in milliseconds. */
-  inp: 500,
+  inp: 150,
 } as const
 
 /** A budget's name. */
