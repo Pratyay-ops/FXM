@@ -37,7 +37,7 @@ After that, Android checks the signature of every update itself: it refuses an u
 
 ## Updates
 
-The Android app from GitHub Releases asks GitHub once a day whether a new version is out. When one is, it says so ("FXM 0.6.0 is out") with a **Download** button, and **Settings → About → Updates** shows it too, with **Check now**. FXM never downloads or installs anything by itself:
+The Android app from GitHub Releases asks GitHub once a day whether a new version is out. When one is, it says so ("FXM 0.6.0 is out") with a **Download** button, and **Settings → About → Updates** shows it too, with **Check now**. To stop the daily check, turn off **Check for new versions** there; FXM then asks GitHub only when you tap **Check now**. FXM never downloads or installs anything by itself:
 
 1. Tap **Download**. Your browser downloads the APK.
 2. Open the file. Android asks **Do you want to update this app?** Tap **Update**.
@@ -65,6 +65,8 @@ The exact screens may differ between phones. If FXM registers before the rollout
 
 FXM isn't on F-Droid yet. When it is, F-Droid's builds will be signed with F-Droid's own key, so Android treats them as a different app source: to switch between F-Droid's build and the one from GitHub, export your library, uninstall FXM and install the other. F-Droid updates its builds itself, and they don't check GitHub for new versions.
 
+Uninstall only to switch on purpose, with an APK you got from F-Droid or from FXM's GitHub Releases yourself. If an APK that claims to be an FXM update won't install over your FXM (see the table below), don't uninstall FXM to make room for it: it isn't signed with the key of the FXM you have.
+
 ## Uninstalling
 
 **Settings → Apps → FXM → Uninstall** removes FXM with its library and settings. Export a backup in FXM's library first if you want to keep them.
@@ -73,6 +75,6 @@ FXM isn't on F-Droid yet. When it is, F-Droid's builds will be signed with F-Dro
 
 | What Android says | Why, and what to do |
 |---|---|
-| "App not installed as package conflicts with an existing package" | An FXM signed with another key is installed: a development build, or later an F-Droid build. Export your library, uninstall that FXM and install again |
+| "App not installed as package conflicts with an existing package" | The APK and the FXM on your phone are signed with different keys. **Don't uninstall FXM to get past this.** If your FXM came from GitHub Releases, the APK isn't signed with FXM's key: it may be a changed copy, from an APK site or a link someone sent. Check its certificate ([Check the APK first](#check-the-apk-first-optional)) against the release notes and [`release-certificate.txt`](release-certificate.txt), and download it again from the [release page](https://github.com/Pratyay-ops/FXM/releases/latest). Only when you know the FXM on your phone is a development build or an F-Droid build, export your library, uninstall it and install the APK |
 | "There was a problem parsing the package" | The download is incomplete, or the phone runs Android 6 or older. Download it again |
 | The update fails although it installed before | From 2027: the advanced flow is off (see above) |
