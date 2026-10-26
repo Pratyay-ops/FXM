@@ -59,7 +59,8 @@ object PlayerMessages {
 
   /**
    * A source: an HTTPS stream (`kind` `http`, the default), or a file on the device (`file`)
-   * that [local] allows. A file has nothing but its URI: no headers, expiry, network or key.
+   * that [local] allows. A file has its URI and, like a stream, its loudness, and nothing else:
+   * no headers, expiry, network or key.
    */
   fun source(json: JSONObject?, local: DeviceFiles = DeviceFiles.NONE): Source {
     if (json == null) throw bad("A source is missing")
@@ -73,7 +74,7 @@ object PlayerMessages {
           } catch (e: DeviceFileRefusedException) {
             throw bad(e.message ?: "The player can't read that file")
           }
-        return Source(checked, kind = SourceKind.FILE)
+        return Source(checked, loudness = loudness(json.optJSONObject("loudness")), kind = SourceKind.FILE)
       }
       else -> throw bad("Unknown source kind")
     }

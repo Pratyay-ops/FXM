@@ -59,7 +59,7 @@ class FileSourcesTest {
   }
 
   @Test
-  fun `a file source keeps nothing but its URI and comes back as a file`() {
+  fun `a file source keeps its URI and loudness only and comes back as a file`() {
     val (local, song) = app()
     val source =
       PlayerMessages.source(
@@ -69,10 +69,13 @@ class FileSourcesTest {
           .put("headers", JSONObject().put("Referer", "https://www.youtube.com/"))
           .put("expiresAt", 5)
           .put("ipBound", true)
-          .put("fileKey", "k"),
+          .put("fileKey", "k")
+          .put("loudness", JSONObject().put("trackLufs", -9.5).put("albumLufs", -10)),
         local,
       )
-    assertEquals(Source("file://${song.canonicalPath}", kind = SourceKind.FILE), source)
+    // An offline copy plays at the level its stream had, as loudness normalization wants (stage 8.1).
+    val loud = Loudness(-9.5, -10.0)
+    assertEquals(Source("file://${song.canonicalPath}", loudness = loud, kind = SourceKind.FILE), source)
     val entry = Entry("e1", 3, source, Metadata("Song"))
     val json = PlayerMessages.entryJson(entry)
     assertEquals("file", json.getJSONObject("source").getString("kind"))

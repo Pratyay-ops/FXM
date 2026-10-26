@@ -50,7 +50,7 @@ export interface FxmPlayerSource {
    * - `file` (stage 6.4): a file on the device, read from there: an offline copy in the app's
    *   downloads folder (a `file:` URI) or a song of the device's own (a MediaStore
    *   `content://media/<volume>/audio/media/<id>` URI). The plugin refuses any other file, and a
-   *   file source has nothing but its URL.
+   *   file source has nothing but its URL and its `loudness`.
    *
    * The plugin refuses kinds it does not know.
    */

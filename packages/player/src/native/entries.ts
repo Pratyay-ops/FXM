@@ -154,18 +154,27 @@ export function streamFileKey(url: string): string | undefined {
 /**
  * `stream` as a native source; `network` is the native network it was resolved on. A file on the
  * device is a `file` source of its `file:` or `content:` URI, which never expires and is bound to
- * no network.
+ * no network; it keeps the stream's loudness, so an offline copy plays at its stream's level.
  */
 export function nativeSource(
   stream: StreamOption,
   network?: number,
   origin: string | null = pageOrigin() ?? null,
 ): FxmPlayerSource {
+  const loudness = stream.loudness
+  const level =
+    loudness === undefined
+      ? {}
+      : {
+          loudness: {
+            trackLufs: loudness.trackLufs,
+            ...(loudness.albumLufs === undefined ? {} : { albumLufs: loudness.albumLufs }),
+          },
+        }
   const file = deviceFileUri(stream.url, origin)
-  if (file !== undefined) return { kind: 'file', url: file }
+  if (file !== undefined) return { kind: 'file', url: file, ...level }
   const headers = stream.requestHeaders
   const fileKey = streamFileKey(stream.url)
-  const loudness = stream.loudness
   return {
     url: stream.url,
     ipBound: stream.ipBound,
@@ -177,14 +186,7 @@ export function nativeSource(
       : {}),
     ...(network === undefined ? {} : { network }),
     ...(fileKey === undefined ? {} : { fileKey }),
-    ...(loudness === undefined
-      ? {}
-      : {
-          loudness: {
-            trackLufs: loudness.trackLufs,
-            ...(loudness.albumLufs === undefined ? {} : { albumLufs: loudness.albumLufs }),
-          },
-        }),
+    ...level,
   }
 }
 

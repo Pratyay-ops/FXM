@@ -74,4 +74,19 @@ describe('device files in the WebView', () => {
     // Without the page's origin, the file's own URI, which plays on Media3 all the same.
     expect(restoreStream(entry, null)).toEqual({ ...stream, url: DOWNLOAD })
   })
+
+  it('keep their stream’s loudness, so an offline copy plays at its level (stage 8.1)', () => {
+    const stream = testStream('a', {
+      url: webViewFileUrl(DOWNLOAD, ORIGIN) ?? '',
+      fullLength: 'verified',
+      loudness: { trackLufs: -9, albumLufs: -10, source: 'replaygain' },
+    })
+    const entry = nativeEntry('n1-2', { uid: 5, track: testTrack('a') }, stream, 2, ORIGIN)
+    expect(entry.source).toEqual({
+      kind: 'file',
+      url: DOWNLOAD,
+      loudness: { trackLufs: -9, albumLufs: -10 },
+    })
+    expect(restoreStream(entry, ORIGIN)?.loudness).toEqual(stream.loudness)
+  })
 })
