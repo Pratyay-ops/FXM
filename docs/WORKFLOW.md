@@ -138,23 +138,25 @@ FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.j
 
 ```mermaid
 flowchart LR
-  A["make release-pr<br/>VERSION=x.y.z DRY_RUN=1"] --> B["make release-pr<br/>VERSION=x.y.z"]
+  S["docs/releases/vX.Y.Z.md<br/>the summary"] --> A["make release-pr<br/>VERSION=x.y.z DRY_RUN=1"]
+  A --> B["make release-pr<br/>VERSION=x.y.z"]
   B --> C["PR develop → main<br/>make check ✅ · merge commit"]
   C --> D["release.yml<br/>build · SHA256SUMS · attest<br/>tag vX.Y.Z · GitHub Release"]
   D --> E["merge main back<br/>into develop"]
 ```
 
-1. **Preview.** `make release-pr VERSION=0.2.0 DRY_RUN=1` runs every check and prints the plan and the release notes, without changing anything. `make release-notes` prints only the notes.
-2. **Open the pull request.** `make release-pr VERSION=0.2.0` checks that `develop` is checked out, clean, equal to `origin/develop` and contains `origin/main`; that `0.2.0` is higher than the current version and has no tag; and that no release pull request is open. Then it:
+1. **Write the summary.** `docs/releases/v0.2.0.md` says what the release brings, for the people who use FXM: it heads the release notes (see "Notes and changelog" below). Commit it on `develop` and push it. A summary drafted before the release is ready starts with a line `<!-- draft: … -->`, and `make release-pr` refuses it until someone has checked it against what the release ships and deleted that line.
+2. **Preview.** `make release-pr VERSION=0.2.0 DRY_RUN=1` runs every check and prints the plan and the release notes, without changing anything. `make release-notes VERSION=0.2.0` prints only the notes.
+3. **Open the pull request.** `make release-pr VERSION=0.2.0` checks that `develop` is checked out, clean, equal to `origin/develop` and contains `origin/main`; that `0.2.0` is higher than the current version, has no tag and has its summary, no longer marked as a draft; that no release pull request is open; and that the release commit will pass `make lint` and the release script tests. For that last check it makes the release's changes (the versions and `CHANGELOG.md`) in a temporary worktree of `HEAD`, installs the dependencies there from the lockfile and runs both, so a change that would fail CI on the release commit, such as a generated changelog that trips a lint rule, stops the release before anything is pushed. Then it:
    - sets the version with `scripts/release-version.sh`: in the root and every workspace `package.json` (FXM Connect's manifest and the Android app's `versionName` are built from theirs) and in `APP_VERSION` of `packages/core` (Settings → About);
    - regenerates `CHANGELOG.md` with git-cliff;
    - commits `chore(release): v0.2.0` on `develop` and pushes it;
    - opens the pull request "Release v0.2.0" from `develop` into `main` with the notes, and prints its URL. It never merges.
 
    While the pull request is open, merge nothing else into `develop`: whatever `develop` holds when the pull request is merged is what gets released. If `develop` must change first (a fix for a failed check, say), push the change to `develop` and run `make release-pr VERSION=0.2.0` again. With the version `develop` already has, it updates the release: it regenerates `CHANGELOG.md`, commits and pushes it if it changed, and updates the pull request's notes. To drop the release, close the pull request. `develop` keeps the version until a later `make release-pr` picks it up again, which opens a new pull request, or a higher version replaces it.
-3. **Merge** once `make check` is green, with a merge commit (the only method `main` allows): `gh pr checks <url> --watch`, then `gh pr merge <url> --merge`.
-4. **Publish.** The push to `main` runs `release.yml`. When the version has no published release yet, it builds the release files from the merge commit and gathers them; each build job may publish only the files listed for it in `fxm_release_catalog` (`scripts/release-lib.sh`). Then it writes `SHA256SUMS`, creates build-provenance attestations, tags the commit `v0.2.0` and publishes the GitHub Release with the version's notes and the files. On any other push to `main` it stops after its first job.
-5. **Merge `main` back into `develop`**, so that the next release starts from the tagged commit. `make release-pr` refuses to run until this is done:
+4. **Merge** once `make check` is green, with a merge commit (the only method `main` allows): `gh pr checks <url> --watch`, then `gh pr merge <url> --merge`.
+5. **Publish.** The push to `main` runs `release.yml`. When the version has no published release yet, it builds the release files from the merge commit and gathers them; each build job may publish only the files listed for it in `fxm_release_catalog` (`scripts/release-lib.sh`). Then it writes `SHA256SUMS`, creates build-provenance attestations, tags the commit `v0.2.0` and publishes the GitHub Release with the version's notes and the files. On any other push to `main` it stops after its first job. Meanwhile the deploy workflow deploys the merge commit to a candidate address, and promotes it to `https://fxmusic.pages.dev` once its checks have passed and the GitHub Release is out, which it waits for up to 30 minutes ([scripts/build-dist/README.md](../scripts/build-dist/README.md#deploying)).
+6. **Merge `main` back into `develop`**, so that the next release starts from the tagged commit. `make release-pr` refuses to run until this is done:
    ```sh
    git switch develop && git pull --ff-only
    git merge origin/main -m "Merge main back into develop after the v0.2.0 release"
@@ -182,20 +184,22 @@ gh attestation verify <file> --repo Pratyay-ops/FXM \
   --deny-self-hosted-runners
 ```
 
-`--repo` alone would accept an attestation from any workflow in the repository, on any branch. The zips are built reproducibly: sorted entries, fixed permissions and the commit's date on every file.
+`--repo` alone would accept an attestation from any workflow in the repository, on any branch. The zips are built reproducibly, with sorted entries and fixed permissions: the web zip dates every file with the release commit's time, and FXM Connect's zips with 1980-01-01, the earliest date a zip can hold.
 
-**Notes and changelog.** git-cliff (`cliff.toml`) turns the Conventional Commits since the previous release into the notes, grouped as Features, Bug fixes, Performance, Refactoring, Documentation, Tests, CI, Build and Chores, plus Other for any other type. It leaves out merge commits, `docs(plan)` status updates, `chore(release)` commits and anything that isn't a Conventional Commit. Commit subjects become the release notes, so write them for the people who will read them. `CHANGELOG.md` lists every released version, newest first, and changes only in release commits.
+**Notes and changelog.** The release notes, in the pull request and the GitHub Release, start with the release's summary, `docs/releases/vX.Y.Z.md`, written by hand for the people who use FXM: what the release is, what works, what changed for them and what is coming. Start it with a paragraph and use `##` headings for its sections; leave out the version heading, which the pull request and the GitHub Release show as their title. `make release-pr` refuses a version without one. After the summary, `scripts/release-notes.sh` adds FXM's non-affiliation notice under "Legal", because the notes name the services FXM works with ([LEGAL.md](LEGAL.md#notice)), so a summary doesn't repeat it. Under "Changes" the notes then list the features, bug fixes and performance changes since the previous release, which git-cliff (`cliff.notes.toml`) takes from the Conventional Commits, each message once. They leave out documentation, tests, CI, build, chores and refactoring, and work in the internal scopes `tooling`, `release`, `deploy`, `ci` and `plan` whatever its type. Those subjects become the release notes, so write `feat`, `fix` and `perf` subjects for the people who will read them. The list is folded in a `<details>` block that says how many entries it has, so the summary and the release's files stay in view, and when the notes are too long for GitHub, the list is what gets cut, never the summary or the notice. `CHANGELOG.md` (`cliff.toml`) keeps the whole history: every released version, newest first, with every change, each message once, grouped as Features, Bug fixes, Performance, Refactoring, Documentation, Tests, CI, Build and Chores, plus Other for any other type. Both leave out merge commits, `docs(plan)` status updates, `chore(release)` commits and anything that isn't a Conventional Commit. `CHANGELOG.md` changes only in release commits.
 
 **When something fails.** Re-run the failed run from the Actions tab (failed jobs or all jobs). Repeating it is safe, and a re-run builds the commit it started with. A version that is already published ends at the first job, and a draft release left by a failed upload is replaced. A tag without a release, left by a run that failed after tagging, is finished by re-running that run. Every other run refuses the tag, because it points at another commit than the one the run builds. Tags are not protected, so this keeps a tag pushed by hand from getting an unreviewed commit built and published. To release from the newer commit instead, delete the tag (`git push origin :refs/tags/v0.2.0`) and run the workflow again. The workflow also stops when a GitHub API request fails, when the packages' versions disagree, when the version is not higher than every earlier release, or when a build job delivers a file that isn't listed for it. If `make release-pr` fails after its commit, it says what to do; usually that is to push `develop` and run it again.
 
 **Hotfix releases.** A `hotfix/<slug>` branch from `main` releases a patch version by hand, the same way:
 
 ```sh
+# First write the release's summary, docs/releases/v0.2.1.md.
 scripts/release-version.sh 0.2.1
 scripts/release-notes.sh --changelog 0.2.1
+git add docs/releases/v0.2.1.md
 git commit -am "chore(release): v0.2.1"
 git push -u origin hotfix/<slug>
 gh pr create --base main --title "Release v0.2.1" --body-file <(scripts/release-notes.sh 0.2.1)
 ```
 
-Merging it publishes `v0.2.1`; then merge `main` back into `develop` as in step 5. A hotfix merged without a new version reaches `main` but is not released.
+Merging it publishes `v0.2.1`; then merge `main` back into `develop` as in step 6. A hotfix merged without a new version reaches `main` but is not released.

@@ -1,9 +1,18 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { APP_URL } from '../src/config.ts'
+import { dropDevBlocks, optionsPage } from './options-page.ts'
 
 const html = readFileSync(new URL('../src/options/options.html', import.meta.url), 'utf8')
 const script = readFileSync(new URL('../src/options/options.ts', import.meta.url), 'utf8')
+const release = optionsPage(html, false)
+
+/** The ids an options.ts excerpt looks up with byId(). */
+const lookups = (code: string) => [...code.matchAll(/byId\('([\w-]+)'/g)].map((match) => match[1])
+/** The development build's own lookups, in developmentParts(), and every other one. */
+const devCode = /\nfunction developmentParts\(\)[\s\S]*?\n}\n/.exec(script)?.[0] ?? ''
+const devLookups = lookups(devCode)
+const releaseLookups = lookups(script.replace(devCode, ''))
 
 describe('options page', () => {
   it('links to the FXM web app', () => {
@@ -11,9 +20,8 @@ describe('options page', () => {
   })
 
   it('has every element the script looks up', () => {
-    const ids = [...script.matchAll(/byId\('([\w-]+)'/g)].map((match) => match[1])
-    expect(ids.length).toBeGreaterThan(0)
-    for (const id of ids) expect(html).toContain(`id="${id}"`)
+    expect(releaseLookups.length).toBeGreaterThan(0)
+    for (const id of [...releaseLookups, ...devLookups]) expect(html).toContain(`id="${id}"`)
   })
 
   it('loads only its bundled script, as the extension CSP requires', () => {
@@ -50,11 +58,49 @@ describe('options page', () => {
     expect(script.indexOf('consent.request()')).toBeLessThan(script.indexOf('settings.write('))
     expect(script).toContain('consent.release()')
   })
+})
 
-  it("hides the development build's warning and localhost toggle until the script shows them", () => {
-    expect(html).toMatch(/<p id="dev-warning" class="warning" hidden>/)
-    expect(html).toMatch(/<div id="localhost-login" hidden>/)
-    expect(script).toContain("byId('dev-warning', HTMLElement).hidden = !DEV_BUILD")
-    expect(script).toContain("byId('localhost-login', HTMLElement).hidden = !DEV_BUILD")
+describe("the development build's parts", () => {
+  it('are marked data-dev and hidden until the script shows them', () => {
+    expect(html).toMatch(/<span id="dev-badge" class="badge" data-dev hidden>/)
+    expect(html).toMatch(/<p id="dev-warning" class="warning" data-dev hidden>/)
+    expect(html).toMatch(/<div id="localhost-login" data-dev hidden>/)
+    expect(script).toContain('...(DEV_BUILD ? developmentParts() : []),')
+  })
+
+  it('are all the release page lacks, and the script looks them up only in that build', () => {
+    expect(devLookups.sort()).toEqual([
+      'dev-badge',
+      'dev-warning',
+      'localhost-login',
+      'spotify-login-localhost',
+    ])
+    for (const id of devLookups) expect(release).not.toContain(`id="${id}"`)
+    for (const id of releaseLookups) expect(release).toContain(`id="${id}"`)
+    expect(release).not.toContain('localhost')
+    expect(optionsPage(html, true)).toBe(html)
+  })
+
+  it('go with their contents and the lines they had to themselves', () => {
+    const page = [
+      '<main>',
+      '  <p>Kept</p>',
+      '',
+      '  <div id="a" data-dev hidden>',
+      '    <div class="setting"><input /></div>',
+      '    <p>Inner</p>',
+      '  </div>',
+      '',
+      '  <p>Version <span id="b" data-dev>dev</span> 1</p>',
+      '</main>',
+      '',
+    ].join('\n')
+    expect(dropDevBlocks(page)).toBe(
+      ['<main>', '  <p>Kept</p>', '', '  <p>Version  1</p>', '</main>', ''].join('\n'),
+    )
+  })
+
+  it('must have a closing tag', () => {
+    expect(() => dropDevBlocks('<p data-dev>open')).toThrow(/<p data-dev> has no closing tag/)
   })
 })

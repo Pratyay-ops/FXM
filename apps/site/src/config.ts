@@ -42,7 +42,8 @@ export type Feature =
  * M1 (docs/PLAN.md); everything still false here is marked "Coming soon": the badges, the
  * download cards and their buttons, the device suggestion and a few sentences read these
  * flags. When a stage ships a feature, flip its flag, then search the site for
- * `AVAILABLE.<name>` to review the copy around it.
+ * `AVAILABLE.<name>` to review the copy around it, and update the feature list in the
+ * repository's README.md, which marks the same features "(coming soon)".
  */
 export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   /**

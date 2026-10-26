@@ -46,16 +46,37 @@ fxm_release_flag() {
   esac
 }
 
-# Runs git-cliff from the repository root (elsewhere it would only list commits that touch the
-# current folder), offline, with cliff.toml. Its log (the configuration it read, how many merge
-# commits it skipped) only shows when it fails.
+# fxm_release_cliff <config> <git-cliff arguments...>: runs git-cliff from the repository root
+# (elsewhere it would only list commits that touch the current folder), offline, with the given
+# configuration: cliff.toml for CHANGELOG.md, cliff.notes.toml for the release notes. Its log
+# (the configuration it read, how many merge commits it skipped) only shows when it fails.
 fxm_release_cliff() {
-  local log status=0
+  local config=$1 log status=0
+  shift
   log=$(mktemp)
-  (cd "$FXM_ROOT" && git-cliff --offline --config cliff.toml "$@" 2>"$log") || status=$?
+  (cd "$FXM_ROOT" && git-cliff --offline --config "$config" "$@" 2>"$log") || status=$?
   [ "$status" -eq 0 ] || cat "$log" >&2
   rm -f "$log"
   return "$status"
+}
+
+# fxm_release_summary_file <x.y.z>: the version's hand-written summary, relative to the
+# repository root. The release notes start with it (release-notes.sh), and make release-pr
+# refuses a version without one.
+fxm_release_summary_file() {
+  printf 'docs/releases/v%s.md\n' "$1"
+}
+
+# fxm_release_has_summary <x.y.z>: whether the version's summary exists and has any text.
+fxm_release_has_summary() {
+  grep -q '[^[:space:]]' "$FXM_ROOT/$(fxm_release_summary_file "$1")" 2>/dev/null
+}
+
+# fxm_release_summary_is_draft <x.y.z>: whether the summary still has a line that starts with
+# "<!-- draft", the mark of a summary written ahead of the release that someone must check
+# against what the release ships. make release-pr refuses it until the line is gone.
+fxm_release_summary_is_draft() {
+  grep -q '^<!-- draft' "$FXM_ROOT/$(fxm_release_summary_file "$1")" 2>/dev/null
 }
 
 # fxm_release_github <api path> <jq filter>: a GET request to the GitHub API through gh. Prints
@@ -189,15 +210,25 @@ fxm_release_sums() {
 
 # fxm_release_fit <file> <max bytes> <note>: cuts the file at a line boundary so that it, plus
 # the note on a line of its own, stays under the limit (GitHub caps pull request bodies at
-# 65536 characters and release notes at 125000). Leaves a short enough file alone.
+# 65536 characters and release notes at 125000). A cut inside a <details> block, which folds
+# the notes' list of changes, puts the note inside it and closes the block, so the rest of the
+# page doesn't fold into it. Leaves a short enough file alone.
 fxm_release_fit() {
   local file=$1 max=$2 note=$3 budget cut
   [ "$(wc -c <"$file")" -gt "$max" ] || return 0
-  budget=$((max - ${#note} - 8))
+  # Room for the note, the blank lines around it and a closing </details>.
+  budget=$((max - $(printf '%s' "$note" | wc -c) - 16))
   cut=$(mktemp)
-  # LC_ALL=C: awk then counts bytes, which is what the limit is checked against.
-  LC_ALL=C awk -v budget="$budget" '{ size += length($0) + 1; if (size > budget) exit; print }' \
-    "$file" >"$cut"
-  printf '\n%s\n' "$note" >>"$cut"
+  # LC_ALL=C: awk then counts bytes, which is what the limit is checked against. The note goes
+  # through the environment, where awk reads it as it is (-v would expand backslashes).
+  FXM_FIT_NOTE=$note LC_ALL=C awk -v budget="$budget" '
+    { size += length($0) + 1; if (size > budget) exit }
+    /^<details>/ { open = 1 }
+    /^<\/details>/ { open = 0 }
+    { print }
+    END {
+      printf "\n%s\n", ENVIRON["FXM_FIT_NOTE"]
+      if (open) printf "\n</details>\n"
+    }' "$file" >"$cut"
   mv "$cut" "$file"
 }

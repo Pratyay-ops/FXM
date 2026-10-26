@@ -59,7 +59,8 @@ write_gh_stub() {
 #!/usr/bin/env bash
 # Stand-in for gh (scripts/release-test.sh): logs every call to $GH_STUB_DIR/calls.log and
 # answers from files there, where an empty file counts as none: logged-out, open-pr ("<url>
-# <title>" lines), released/<tag>, tags/<tag> (a commit, or "tag <object>" for an annotated
+# <title>" lines), released/<tag>, released-after/<tag> (how many times to answer 404 before
+# the release counts as published), tags/<tag> (a commit, or "tag <object>" for an annotated
 # tag), tag-objects/<object> ("commit <sha>"), drafts/<tag>, and broken (API paths that fail
 # with HTTP 502).
 set -euo pipefail
@@ -115,7 +116,15 @@ case "$1 ${2:-}" in
     fi
     case "$method $path" in
       "GET repos/test/fxm/releases/tags/"*)
-        if [ -s "$state/released/${path##*/}" ]; then cat "$state/released/${path##*/}"; else not_found; fi
+        after=$state/released-after/${path##*/}
+        if [ -s "$after" ]; then
+          [ "$(cat "$after")" -eq 0 ] || { echo $(($(cat "$after") - 1)) >"$after" && not_found; }
+          echo 4001
+        elif [ -s "$state/released/${path##*/}" ]; then
+          cat "$state/released/${path##*/}"
+        else
+          not_found
+        fi
         ;;
       "GET repos/test/fxm/git/ref/tags/"*)
         [ -s "$state/tags/${path##*/}" ] || not_found
@@ -162,12 +171,22 @@ write_pnpm_stub() {
 # make started, and so on). make dist's command replaces dist/pages with a copy of
 # $PNPM_STUB_DIR/pages, modes and dates included; FXM Connect's build writes its two zips, named
 # with its package.json's version. While $PNPM_STUB_DIR/no-match exists, it does what pnpm does
-# when a filter matches no package: nothing, successfully.
+# when a filter matches no package: nothing, successfully. The install and the lint that
+# release-pr.sh runs on the release commit log where they run, and fail while install-fails or
+# lint-fails exists there.
 set -euo pipefail
 state=${PNPM_STUB_DIR:?}
 printf '%s (make level %s)\n' "$*" "${MAKELEVEL:-0}" >>"$state/calls.log"
 [ ! -e "$state/no-match" ] || exit 0
 case " $* " in
+  *" install --frozen-lockfile "*)
+    printf 'install in %s\n' "$PWD" >>"$state/calls.log"
+    [ ! -e "$state/install-fails" ] || { echo "ERR_PNPM_OUTDATED_LOCKFILE" >&2 && exit 1; }
+    ;;
+  *" run lint "*)
+    printf 'lint in %s\n' "$PWD" >>"$state/calls.log"
+    [ ! -e "$state/lint-fails" ] || { echo "Found 1 error." >&2 && exit 1; }
+    ;;
   *" --filter @fxm/deploy dist "*)
     rm -rf dist/pages
     mkdir -p dist
@@ -186,14 +205,31 @@ STUB
   chmod +x "$1"
 }
 
+write_release_test_stub() {
+  cat >"$1" <<'STUB'
+#!/usr/bin/env bash
+# Stand-in for scripts/release-test.sh in the throwaway repositories, where release-pr.sh runs it
+# on the release commit: logs to $PNPM_STUB_DIR/calls.log where it runs, the version there and
+# the changelog's newest release, and fails while $PNPM_STUB_DIR/release-test-fails exists.
+set -euo pipefail
+state=${PNPM_STUB_DIR:?}
+version=$(node -p 'require("./package.json").version')
+newest=$(grep -m1 '^## \[' CHANGELOG.md | cut -d']' -f1 || true)
+printf 'release-test in %s: version %s, changelog %s]\n' "$PWD" "$version" "$newest" \
+  >>"$state/calls.log"
+[ ! -e "$state/release-test-fails" ] || { echo "1 of 9 release script tests failed" >&2 && exit 1; }
+STUB
+  chmod +x "$1"
+}
+
 package_json() { # <file> <name> <version>
   mkdir -p "$(dirname "$1")"
   printf '{\n  "name": "%s",\n  "version": "%s",\n  "private": true\n}\n' "$2" "$3" >"$1"
 }
 
 # new_repo <name>: a repository like FXM's, as far as the release scripts look, with this
-# checkout's Makefile and scripts and an origin. Prints its path. The stub's state is in
-# <name>/gh.
+# checkout's Makefile and scripts and an origin, and a stand-in for the release script tests.
+# Prints its path. The gh stub's state is in <name>/gh.
 new_repo() {
   local root=$tmp/$1 work=$tmp/$1/work
   mkdir -p "$root/gh" "$work/scripts" "$work/.tools/bin" "$work/packages/core/src"
@@ -201,9 +237,11 @@ new_repo() {
   git init -q -b main "$work"
   cp "$FXM_ROOT"/scripts/{env.sh,lib.sh,run.sh,install-git-cliff.sh} \
     "$FXM_ROOT"/scripts/release-*.sh "$work/scripts/"
-  cp "$FXM_ROOT/Makefile" "$FXM_ROOT/cliff.toml" "$work/"
+  cp "$FXM_ROOT/Makefile" "$FXM_ROOT/cliff.toml" "$FXM_ROOT/cliff.notes.toml" "$work/"
   # The repository's changelog without its release sections, which every release adds to.
   awk '/^## \[/ { exit } { print }' "$FXM_ROOT/CHANGELOG.md" >"$work/CHANGELOG.md"
+  # release-pr.sh runs the release script tests on the release commit; these would start again.
+  write_release_test_stub "$work/scripts/release-test.sh"
   ln -s "$cliff" "$work/.tools/bin/git-cliff"
   write_gh_stub "$work/.tools/bin/gh"
   printf '/.tools/\n' >"$work/.gitignore"
@@ -240,11 +278,39 @@ newer_ok() {
     ! fxm_release_newer 0.9.9 0.10.0
 }
 expect "compares versions numerically" newer_ok
+# cliff_part <file> <first line> <last line>: a multi-line value of a git-cliff configuration.
+cliff_part() { sed -n "/^$2/,/^$3/p" "$FXM_ROOT/$1"; }
+same_cliff_parts() {
+  [ -n "$(cliff_part cliff.toml 'body = """' '"""')" ] &&
+    [ "$(cliff_part cliff.toml 'body = """' '"""')" = "$(cliff_part cliff.notes.toml 'body = """' '"""')" ] &&
+    [ "$(cliff_part cliff.toml 'commit_preprocessors' ']')" = \
+      "$(cliff_part cliff.notes.toml 'commit_preprocessors' ']')" ]
+}
+expect "the notes and the changelog share their template and preprocessors" same_cliff_parts
 big=$tmp/big.md
 for i in $(seq 1 2000); do echo "- entry $i, long enough to need many lines of notes"; done >"$big"
 fxm_release_fit "$big" 20000 "See CHANGELOG.md."
 expect "cuts notes to GitHub's size limit" \
   test "$(wc -c <"$big")" -le 20000 -a "$(tail -1 "$big")" = "See CHANGELOG.md."
+folded=$tmp/folded.md
+{
+  printf 'FXM 9.9.9 brings things.\n\n## Changes\n\n<details>\n<summary>2000 changes</summary>\n\n'
+  for i in $(seq 1 2000); do echo "- entry $i, long enough to need many lines of notes"; done
+  printf '\n</details>\n'
+} >"$folded"
+fxm_release_fit "$folded" 20000 "See CHANGELOG.md."
+closes_the_fold() {
+  [ "$(wc -c <"$folded")" -le 20000 ] && [ "$(head -1 "$folded")" = "FXM 9.9.9 brings things." ] &&
+    [ "$(tail -3 "$folded" | tr '\n' '|')" = "See CHANGELOG.md.||</details>|" ]
+}
+expect "a cut in the folded list puts the note in it and closes it" closes_the_fold
+{
+  printf '<details>\n<summary>1 change</summary>\n\n- one\n\n</details>\n\n'
+  for i in $(seq 1 2000); do echo "- line $i of what follows the list"; done
+} >"$folded"
+fxm_release_fit "$folded" 5000 "See CHANGELOG.md."
+expect "a cut after it closes nothing" \
+  test "$(grep -c '^</details>$' "$folded")" = 1 -a "$(tail -1 "$folded")" = "See CHANGELOG.md."
 catalog_ok() {
   fxm_release_lookup release-bundles fxm-web-0.1.0.zip 0.1.0 >/dev/null &&
     fxm_release_lookup release-bundles fxm-connect-firefox-0.1.0.zip 0.1.0 >/dev/null &&
@@ -317,33 +383,99 @@ commit "$work" "feat(core): add a thing"
 commit "$work" "fix(web): repair a thing"
 commit "$work" "docs(plan): mark 1.1 done"
 git -C "$work" switch -q -c feat/side
-commit "$work" "test(core): cover the thing"
+commit "$work" "feat(core): cover the thing"
+commit "$work" "test(core): test the thing"
 git -C "$work" switch -q develop
 git -C "$work" merge -q --no-ff feat/side -m "feat: a merge commit that looks conventional"
 commit "$work" "style: tidy whitespace"
 commit "$work" "chore(release): v0.0.9"
 commit "$work" "build(deps): bump @playwright/test from 1.0.0 to 2.0.0"
 commit "$work" "fix(core): answer user@example.com"
+commit "$work" "perf(player): load @fxm/core lazily"
+commit "$work" "docs(web): explain the thing"
+commit "$work" "ci: run the checks on every push"
+commit "$work" "refactor(core): tidy the thing"
+commit "$work" "chore: pin a tool"
+commit "$work" "feat(tooling): add a make target"
+commit "$work" "fix(release): repair the release script"
+commit "$work" "fix(deploy): repair the deploy"
+# The same change twice, as when a stacked branch carries a copy of a commit.
+commit "$work" "fix(web): repair a thing"
 notes=$tmp/notes.md
 (cd "$work" && scripts/release-notes.sh 0.1.0) >"$notes"
-expect "groups commits by type" has "$notes" "### Features"
+expect "groups features, fixes and performance" \
+  test -n "$(grep -x '### Features' "$notes")" -a -n "$(grep -x '### Bug fixes' "$notes")" \
+  -a -n "$(grep -x '### Performance' "$notes")"
 expect "shows scopes" has "$notes" "- **core:** Add a thing"
-expect "lists fixes and tests" has "$notes" "**web:** Repair a thing"
+expect "lists fixes" has "$notes" "**web:** Repair a thing"
+expect "lists each message once" test "$(grep -c 'Repair a thing' "$notes")" = 1
 expect "includes the commits of merged branches" has "$notes" "**core:** Cover the thing"
-expect "keeps other types under Other" has "$notes" "### Other"
+leaves_out_internal_work() {
+  local entry
+  for entry in "Test the thing" "Tidy whitespace" "Bump" "Explain the thing" "Run the checks" \
+    "Tidy the thing" "Pin a tool" "### Other" "### Documentation" "### Tests"; do
+    lacks "$notes" "$entry" || return 1
+  done
+}
+expect "leaves out docs, tests, CI, build, chores, refactoring and other types" \
+  leaves_out_internal_work
+leaves_out_internal_scopes() {
+  lacks "$notes" "Add a make target" && lacks "$notes" "Repair the release script" &&
+    lacks "$notes" "Repair the deploy"
+}
+expect "and the internal scopes, whatever their type" leaves_out_internal_scopes
 expect "skips docs(plan) bookkeeping" lacks "$notes" "Mark 1.1 done"
 expect "skips merge commits" lacks "$notes" "looks conventional"
 expect "skips the release commit" lacks "$notes" "0.0.9"
 expect "skips unconventional commits" lacks "$notes" "Initial commit"
 expect "puts @names in code spans, so the notes notify nobody" \
-  has "$notes" '**deps:** Bump `@playwright/test` from 1.0.0 to 2.0.0'
+  has "$notes" '**player:** Load `@fxm/core` lazily'
 expect "but leaves e-mail addresses alone" has "$notes" "**core:** Answer user@example.com ("
-expect "has no version heading" test -z "$(grep '^## ' "$notes" || true)"
+expect "has no version heading" test -z "$(grep -E '^## (\[|v?[0-9])' "$notes" || true)"
+expect "carries the legal notice" has "$notes" \
+  "not affiliated with or endorsed by YouTube, Google, Spotify or any other service"
+notice_then_folded_list() {
+  [ "$(grep -n -x -e '## Legal' -e '## Changes' -e '<details>' -e '### Features' "$notes" |
+    cut -d: -f2- | tr '\n' '|')" = "## Legal|## Changes|<details>|### Features|" ] &&
+    [ "$(tail -1 "$notes")" = "</details>" ]
+}
+expect "before the list, which is folded under its own heading" notice_then_folded_list
+expect "and says how many entries the fold holds" \
+  has "$notes" "<summary>$(grep -c '^- ' "$notes") changes</summary>"
+expect "and since when" has "$notes" "changes since the project started, as their commit messages"
 run "$work" scripts/release-notes.sh --changelog 0.1.0
 expect "regenerates CHANGELOG.md" has "$work/CHANGELOG.md" \
   "## [0.1.0](https://github.com/Pratyay-ops/FXM/releases/tag/v0.1.0)"
 expect "keeps its header" has "$work/CHANGELOG.md" "# Changelog"
 expect "lists released versions only" lacks "$work/CHANGELOG.md" "## Unreleased"
+section "$work/CHANGELOG.md" "## [0.1.0]" >"$notes"
+keeps_every_change() {
+  has "$notes" "**core:** Test the thing" && has "$notes" "### Other" &&
+    has "$notes" '**deps:** Bump `@playwright/test` from 1.0.0 to 2.0.0' &&
+    has "$notes" "**tooling:** Add a make target" && has "$notes" "**release:** Repair the release script"
+}
+expect "the changelog keeps every change" keeps_every_change
+expect "each message once" test "$(grep -c 'Repair a thing' "$notes")" = 1
+mkdir -p "$work/docs/releases"
+printf '\nFXM 0.1.0 brings a thing.\n\n## Highlights\n\n- A thing\n\n\n' \
+  >"$work/docs/releases/v0.1.0.md"
+git -C "$work" add docs
+git -C "$work" commit -q -m "docs(release): summarize v0.1.0"
+(cd "$work" && scripts/release-notes.sh 0.1.0) >"$notes"
+expect "starts with the version's summary" \
+  test "$(head -1 "$notes")" = "FXM 0.1.0 brings a thing."
+summary_then_changes() {
+  [ "$(sed -n '/^- A thing$/,/^## Legal$/p' "$notes" | tr '\n' '|')" = "- A thing||## Legal|" ] &&
+    [ "$(grep -n -x -e '- A thing' -e '## Legal' -e '## Changes' -e '### Features' "$notes" |
+      cut -d: -f2- | tr '\n' '|')" = "- A thing|## Legal|## Changes|### Features|" ]
+}
+expect "then the legal notice and the changes under their own headings" summary_then_changes
+(cd "$work" && scripts/release-notes.sh) >"$notes"
+expect "without a version, there is no summary" lacks "$notes" "brings a thing"
+expect "nor notice or fold: only the list" \
+  test -z "$(grep -e '^## ' -e '<details>' "$notes" || true)" -a "$(head -1 "$notes")" = "### Features"
+run "$work" scripts/release-notes.sh --changelog 0.1.0
+expect "and the changelog has none" lacks "$work/CHANGELOG.md" "brings a thing"
 git -C "$work" switch -q -c feat/late
 commit "$work" "feat(web): add a late thing"
 git -C "$work" switch -q develop
@@ -353,6 +485,7 @@ git -C "$work" merge -q --no-ff feat/late -m "Merge stage late"
 (cd "$work" && scripts/release-notes.sh 0.2.0) >"$notes"
 expect "the next release starts after the last tag" lacks "$notes" "Add a thing"
 expect "and includes branches started before it" has "$notes" "Add a late thing"
+expect "and says so" has "$notes" "changes since v0.1.0, as their commit messages"
 (cd "$work" && scripts/release-notes.sh 0.1.0) >"$notes"
 expect "a tagged release keeps its own notes" \
   test "$(grep -c 'Add a thing' "$notes")" = 1 -a "$(grep -c 'Speed something up' "$notes")" = 0
@@ -369,12 +502,19 @@ git -C "$work" tag v0.2.0
 commit "$work" "docs(plan): mark 1.2 done"
 (cd "$work" && scripts/release-notes.sh 0.3.0) >"$notes"
 expect "says so when nothing notable changed" has "$notes" "No notable changes."
+expect "without an empty fold" lacks "$notes" "<details>"
 
 echo "release-pr.sh"
 work=$(new_repo pr)
-export GH_STUB_DIR=$tmp/pr/gh
+export GH_STUB_DIR=$tmp/pr/gh PNPM_STUB_DIR=$tmp/pr/pnpm
+mkdir -p "$PNPM_STUB_DIR"
+write_pnpm_stub "$work/.tools/bin/pnpm"
 git -C "$work" switch -q -c develop
 commit "$work" "feat(core): add a thing"
+mkdir -p "$work/docs/releases"
+echo "FXM 0.1.0 is the first release." >"$work/docs/releases/v0.1.0.md"
+git -C "$work" add docs
+git -C "$work" commit -q -m "docs(release): summarize v0.1.0"
 git -C "$work" push -q -u origin develop
 start=$(git -C "$work" rev-parse HEAD)
 unchanged() {
@@ -410,6 +550,27 @@ if [ "$status" -ne 0 ] && says "is not higher than the current version 0.0.0" &&
 else
   bad "refuses a version that is not higher"
 fi
+run "$work" scripts/release-pr.sh 0.2.0
+if [ "$status" -ne 0 ] && says "docs/releases/v0.2.0.md is missing or empty" && unchanged; then
+  ok "refuses a version without a summary"
+else
+  bad "refuses a version without a summary"
+fi
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.2.0
+expect "and DRY_RUN=1 reports it" test "$status" -eq 0 \
+  -a -n "$(grep 'v0.2.0.md is missing or empty' <<<"$out")" \
+  -a -n "$(grep 'would stop a real run' <<<"$out")"
+# A summary written ahead of the release carries the draft mark until someone has checked it.
+# Here it is only in the working tree, which fails the clean-tree check too.
+cp "$work/docs/releases/v0.1.0.md" "$tmp/pr/summary.md"
+{ echo "<!-- draft: check it against what v0.1.0 ships -->" && cat "$tmp/pr/summary.md"; } \
+  >"$work/docs/releases/v0.1.0.md"
+refuses "a summary that is still a draft" "docs/releases/v0.1.0.md is still a draft"
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "and DRY_RUN=1 reports it" test "$status" -eq 0 \
+  -a -n "$(grep 'v0.1.0.md is still a draft' <<<"$out")" \
+  -a -n "$(grep 'would stop a real run' <<<"$out")"
+cp "$tmp/pr/summary.md" "$work/docs/releases/v0.1.0.md"
 echo https://github.com/test/fxm/pull/3 >"$GH_STUB_DIR/open-pr"
 refuses "while a release pull request is open" "already open: https://github.com/test/fxm/pull/3"
 : >"$GH_STUB_DIR/open-pr"
@@ -431,12 +592,43 @@ if [ "$status" -eq 0 ] && says "every check passed" && says "Add a thing" && unc
 else
   bad "DRY_RUN=1 prints the plan and the notes and changes nothing"
 fi
+checks=$PNPM_STUB_DIR/calls.log
+# The folder the release script tests ran in, as their stand-in logged it last.
+checked_in() { sed -n 's/^release-test in \(.*\): version .*/\1/p' "$checks" | tail -1; }
+checked_release_commit() {
+  grep -q "^install in $(checked_in)\$" "$checks" && grep -q "^lint in $(checked_in)\$" "$checks" &&
+    grep -q ': version 0.1.0, changelog ## \[0.1.0\]$' "$checks"
+}
+expect "DRY_RUN=1 checks the release commit: its install, make lint and the release tests" \
+  checked_release_commit
+expect "with the lockfile frozen" grep -q '^install --frozen-lockfile' "$checks"
+in_temporary_worktree() {
+  [ -n "$(checked_in)" ] && [ "$(checked_in)" != "$work" ] && [ ! -e "$(checked_in)" ] &&
+    [ "$(git -C "$work" worktree list | wc -l | tr -d ' ')" = 1 ]
+}
+expect "in a temporary worktree, which it removes" in_temporary_worktree
+expect "and says how many entries the changelog gets" says "v0.1.0 gets 3 entries"
 echo stray >"$work/stray.txt"
 run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
 dry_status=$status
 expect "DRY_RUN=1 reports failed checks instead of stopping" \
   test "$dry_status" -eq 0 -a -n "$(grep 'would stop a real run' <<<"$out")"
 rm "${work:?}/stray.txt"
+touch "$PNPM_STUB_DIR/lint-fails"
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "DRY_RUN=1 reports a release commit that fails make lint" test "$status" -eq 0 \
+  -a -n "$(grep 'fails make lint' <<<"$out")" -a -n "$(grep 'would stop a real run' <<<"$out")" \
+  -a -n "$(grep 'Found 1 error.' <<<"$out")"
+rm "$PNPM_STUB_DIR/lint-fails"
+touch "$PNPM_STUB_DIR/install-fails"
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "or whose dependencies don't install from the lockfile" test "$status" -eq 0 \
+  -a -n "$(grep "don't install from the lockfile" <<<"$out")"
+rm "$PNPM_STUB_DIR/install-fails"
+touch "$PNPM_STUB_DIR/release-test-fails"
+refuses "a release commit that fails the release script tests" "fails the release script tests"
+expect "and removes its worktree then too" in_temporary_worktree
+rm "$PNPM_STUB_DIR/release-test-fails"
 run "$work" scripts/release-pr.sh 0.1.0
 expect "a real run succeeds" test "$status" -eq 0
 expect "commits chore(release) on develop" \
@@ -450,6 +642,13 @@ expect "regenerates CHANGELOG.md" has "$work/CHANGELOG.md" "## [0.1.0]"
 expect "opens the pull request develop → main" \
   has "$GH_STUB_DIR/calls.log" "pr create --base main --head develop --title Release v0.1.0"
 expect "with the notes" has "$GH_STUB_DIR/pr-body.md" "- **core:** Add a thing"
+summary_first() {
+  [ "$(grep -n -e 'FXM 0.1.0 is the first release.' -e '^## Changes$' -e 'Add a thing' \
+    "$GH_STUB_DIR/pr-body.md" | cut -d: -f2- | cut -c1-12 | tr '\n' '|')" = \
+    "FXM 0.1.0 is|## Changes|- **core:** |" ]
+}
+expect "after the release's summary" summary_first
+expect "and the legal notice" has "$GH_STUB_DIR/pr-body.md" "not affiliated with or endorsed by"
 expect "prints the pull request URL" says "Release pull request: https://github.com/test/fxm/pull/7"
 expect "leaves a clean tree" test -z "$(git -C "$work" status --porcelain)"
 expect "never merges" lacks "$GH_STUB_DIR/calls.log" "pr merge"
@@ -492,6 +691,33 @@ run "$work" scripts/release-pr.sh 0.1.0
 expect "refuses the version once it is tagged" \
   test "$status" -ne 0 -a -n "$(grep 'not higher than the current version 0.1.0' <<<"$out")"
 git -C "$work" tag -d v0.1.0 >/dev/null
+
+echo "release-pr.sh without a temporary folder"
+# When mktemp -d fails, as on a full disk, the run must stop before its cleanup could delete
+# anything, the checkout above all. The stand-in fails for folders only and hands every other
+# call to the real mktemp.
+work=$(new_repo full-disk)
+real_mktemp=$(command -v mktemp)
+cat >"$work/.tools/bin/mktemp" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = -d ]; then
+  echo "mktemp: mkdtemp failed on /tmp/tmp.XXXXXXXX: No space left on device" >&2
+  exit 1
+fi
+exec "$real_mktemp" "\$@"
+EOF
+chmod +x "$work/.tools/bin/mktemp"
+git -C "$work" switch -q -c develop
+git -C "$work" push -q -u origin develop
+stops_and_keeps_the_checkout() {
+  [ "$status" -ne 0 ] && says "could not create a temporary folder" &&
+    [ -d "$work/.git" ] && [ -f "$work/scripts/release-pr.sh" ] &&
+    [ "$(git -C "$work" rev-parse develop)" = "$(git -C "$tmp/full-disk/origin.git" rev-parse develop)" ]
+}
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.1.0
+expect "a dry run stops, and the checkout stays" stops_and_keeps_the_checkout
+run "$work" scripts/release-pr.sh 0.1.0
+expect "so does a real run" stops_and_keeps_the_checkout
 
 echo "release-plan.sh"
 work=$(new_repo plan)
@@ -582,6 +808,53 @@ plan
 expect "versions that disagree stop the release" test "$status" -ne 0
 git -C "$work" checkout -q -- apps/web/package.json
 unset GITHUB_OUTPUT
+
+echo "release-wait.sh"
+work=$(new_repo wait)
+export GH_STUB_DIR=$tmp/wait/gh
+mkdir -p "$GH_STUB_DIR/released" "$GH_STUB_DIR/released-after"
+: >"$GH_STUB_DIR/calls.log"
+# wait_for_release [minutes]: runs release-wait.sh without pauses between its requests.
+wait_for_release() {
+  : >"$GH_STUB_DIR/calls.log"
+  run "$work" env FXM_RELEASE_WAIT_INTERVAL=0 FXM_RELEASE_WAIT_MINUTES="${1:-0}" \
+    scripts/release-wait.sh
+}
+asked() { grep -c '^api repos/test/fxm/releases/tags/v0.1.0 ' "$GH_STUB_DIR/calls.log" || true; }
+wait_for_release
+expect "0.0.0 waits for nothing" test "$status" -eq 0 -a "$(asked)" = 0
+(cd "$work" && scripts/release-version.sh 0.1.0 >/dev/null)
+git -C "$work" commit -q -am "chore(release): v0.1.0"
+wait_for_release
+expect "a version without a published release fails while it isn't out" \
+  test "$status" -ne 0 -a -n "$(grep 'v0.1.0 is not out after 0 minutes' <<<"$out")"
+echo 2001 >"$GH_STUB_DIR/released/v0.1.0"
+wait_for_release
+expect "and passes once it is published" \
+  test "$status" -eq 0 -a "$(asked)" = 1 -a -n "$(grep 'v0.1.0 is published' <<<"$out")"
+: >"$GH_STUB_DIR/released/v0.1.0"
+echo 2 >"$GH_STUB_DIR/released-after/v0.1.0"
+wait_for_release 1
+expect "asking again until it is out" test "$status" -eq 0 -a "$(asked)" = 3
+rm "$GH_STUB_DIR/released-after/v0.1.0"
+echo repos/test/fxm/releases/tags/v0.1.0 >"$GH_STUB_DIR/broken"
+wait_for_release
+expect "a failed request is no answer" test "$status" -ne 0 \
+  -a -n "$(grep "didn't say whether v0.1.0 is published: gh: Server Error (HTTP 502)" <<<"$out")"
+: >"$GH_STUB_DIR/broken"
+# A later push to main that keeps the version, while its release is still missing (its run
+# failed): the release workflow publishes the version from this push, so production waits too.
+git -C "$work" switch -q -c fix/late
+commit "$work" "fix(core): a later fix on main"
+git -C "$work" switch -q main
+git -C "$work" merge -q --no-ff fix/late -m "Merge a later fix"
+wait_for_release
+expect "a later merge that keeps the version waits while the release is missing" \
+  test "$status" -ne 0 -a -n "$(grep 'v0.1.0 is not out after 0 minutes' <<<"$out")"
+echo 2001 >"$GH_STUB_DIR/released/v0.1.0"
+wait_for_release
+expect "and passes after one request once it is out" \
+  test "$status" -eq 0 -a "$(asked)" = 1 -a -n "$(grep 'v0.1.0 is published' <<<"$out")"
 
 echo "release-collect.sh"
 work=$(new_repo collect)
@@ -784,6 +1057,8 @@ expect "with every file, SHA256SUMS included" test "$(sort "$GH_STUB_DIR/release
 expect "with the notes" has "$GH_STUB_DIR/release-notes.md" "- **core:** Add a thing"
 expect "and a table of the files from the catalog" has "$GH_STUB_DIR/release-notes.md" \
   "| \`fxm-web-0.1.0.zip\` | The website and web app for self-hosting"
+expect "under a heading of the notes' level" \
+  test -n "$(grep -x '## Files' "$GH_STUB_DIR/release-notes.md")"
 expect "and where the self-hosting steps are" has "$GH_STUB_DIR/release-notes.md" \
   "(https://github.com/test/fxm/blob/v0.1.0/scripts/build-dist/README.md#self-hosting)"
 expect "with the install guides of FXM Connect and the desktop app" \

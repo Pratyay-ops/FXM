@@ -36,16 +36,20 @@ Run them from the repository root.
    - a part without source maps (the sandbox documents) inlines code with a licence banner, or more than 64 KiB of it.
 3. **Composes** the parts under their paths, refusing two parts that write the same file, and copies each single-page app's `index.html` to its `404.html`. Source maps and inventories are never deployed: they would publish the build machine's paths.
 4. **Writes `third-party-notices.txt`** with every bundled package, its licence and its licence files.
-5. **Writes `_headers`** and checks it: at most 100 rules, no line over 2,000 characters, no two rules matching one path, every path a file is served at matched by exactly one rule, and every policy keeping its promises (sandbox documents opaque, `'unsafe-eval'` only in the evaluator, no `'unsafe-inline'` scripts, `frame-ancestors 'none'` except for the embed and the sandbox documents). Every service host in `APP_SERVICES` must be a plain HTTPS host. It reads the file back with a parser that follows Cloudflare's, so the file means exactly the rules it generated.
+5. **Writes `_headers`** and checks it: at most 100 rules, no line over 2,000 characters, no two rules matching one path, every path a file is served at matched by exactly one rule, and every policy keeping its promises (sandbox documents opaque, `'unsafe-eval'` only in the evaluator, no `'unsafe-inline'` scripts, `frame-ancestors 'none'` except for the embed and the sandbox documents), and every rule sending the opener policy and a `Permissions-Policy` that turns off only features FXM never uses. Every service host in `APP_SERVICES` must be a plain HTTPS host. It reads the file back with a parser that follows Cloudflare's, so the file means exactly the rules it generated.
 6. **Adds each page's policy in a meta element**, with `<meta name="referrer" content="no-referrer">`, to every page of the site and every document of the apps: for the paths Pages serves them at that no rule reaches (below). The sandbox documents must bring their own.
-7. **Checks the privacy page**: every host a policy names must belong to a service in `APP_SERVICES`, and `privacy.html` must list that service.
-8. **Refuses** `_worker.js`, `_routes.json`, `_redirects` and `functions/`, file names with `%`, more than 20,000 files and files over 25 MiB (Cloudflare Pages' limits).
+7. **Gives the app's page a new precache revision** in its service worker, `app/sw.js` (`src/service-worker.ts`): a fingerprint of the final `app/index.html` and of the `/app/*` rule, in place of the build's, which can know neither. The worker serves its stored copy of the page with the headers it came with, so a deploy that changes only the rule still reaches installed apps.
+8. **Checks the privacy page**: every host a policy names must belong to a service in `APP_SERVICES`, and `privacy.html` must list that service.
+9. **Refuses** `_worker.js`, `_routes.json`, `_redirects` and `functions/`, file names with `%`, more than 20,000 files and files over 25 MiB (Cloudflare Pages' limits).
 
 Only then does `dist/pages/` replace the previous build.
 
 ## Header rules
 
-Cloudflare gives a request the headers of every `_headers` rule that matches it and joins a header two rules set with a comma, which would enforce two policies at once. So no two rules match the same path, and none uses `/*`. Every rule sets `Content-Security-Policy`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`.
+Cloudflare gives a request the headers of every `_headers` rule that matches it and joins a header two rules set with a comma, which would enforce two policies at once. So no two rules match the same path, and none uses `/*`. Every rule sets `Content-Security-Policy`, `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`, as docs/PLAN.md's table asks, and two more headers (`COMMON_HEADERS` in `src/policies.ts`):
+
+- **`Cross-Origin-Opener-Policy: same-origin`**: a page opened at top level keeps no tie to a page of another site that opened it, or that it opens; neither can reach the other's window. Browsers ignore it in frames, so the embed and the sandbox documents work inside other pages as before. The embed counts on it when a page opens a player in a new window: that page could otherwise count the player's frames and tell whether the visitor has FXM Connect ([apps/web/src/embed/README.md](../../apps/web/src/embed/README.md)).
+- **`Permissions-Policy`** turns off only features FXM never uses: `camera`, `microphone`, `geolocation`, `payment`, `usb`, `serial`, `bluetooth`, `hid` and `midi`. It never turns off `autoplay`, `fullscreen`, `picture-in-picture` or `screen-wake-lock`, which a player may use, and the media keys go through the Media Session API, which no policy controls. `make dist` and the header check refuse a policy that turns off anything else.
 
 | Files | Rule | Policy (`src/policies.ts`) |
 |---|---|---|
@@ -81,12 +85,33 @@ A stage that makes the web app contact a new service adds it to `APP_SERVICES` i
 
 - **develop** deploys to the preview at `https://develop.fxmusic.pages.dev`, and the verify job checks it.
 - **main**, which only release pull requests reach (they must pass `make check`), deploys first to a candidate at `https://main-candidate.fxmusic.pages.dev`. The verify job checks the candidate, and only then does the promote job deploy the same folder to production, `https://fxmusic.pages.dev` (Pages uploads no file twice). A last job checks production's headers.
+- **A push to main whose version has no GitHub Release yet** also waits for that release before the promotion: the release job polls GitHub for it for up to 30 minutes (`scripts/release-wait.sh`), with no more than read access, while the release workflow builds and publishes it from the same push. That is the merge of a release pull request, and any later push to main while the release is still missing, for example after its run failed: the release workflow then publishes the version from the newer commit. So the site, which links to the latest release, never points at an older one, or at an empty Releases page before v0.1.0. A release that takes longer, for example while Firefox Add-ons signs FXM Connect, leaves production at the previous version: re-run the deploy workflow's failed jobs once the release is published. A push whose version is out already promotes after one request to GitHub.
 - `workflow_dispatch` redeploys `develop` or `main` by hand; on any other branch it only runs `make dist`.
 
-The deploy jobs run in GitHub environments, `preview` for develop and `production` for main, and `deploy.sh` refuses any other branch, and any branch but the one its run was started for. Owner setup:
+The deploy jobs run in GitHub environments, `preview` for develop and `production` for main, and `deploy.sh` refuses any other branch, and any branch but the one its run was started for.
 
-- a free Cloudflare account, and an API token with Account > Cloudflare Pages > Edit;
-- the GitHub environments `preview` (deployment branches: `develop` only) and `production` (`main` only; a required reviewer is optional and then approves both the candidate and the promotion), each with the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and no repository-level copies of them. Repository secrets reach a workflow on any branch, so one pushed branch could otherwise publish over the one origin FXM Connect trusts;
+**The secrets today.** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are repository secrets, and only the `preview` environment exists, with no branch rule (checked 2026-10-26; the first deploy created it). Repository secrets reach a workflow run on any branch, so the environments protect nothing yet: a pushed branch whose workflow asked for them could publish over the one origin FXM Connect trusts.
+
+**Recommended owner setup:**
+
+- a free Cloudflare account, and an API token with Account > Cloudflare Pages > Edit (both done);
+- the GitHub environments `preview`, limited to the branch `develop`, and `production`, limited to `main` (a required reviewer is optional, and then approves both the candidate and the promotion), each holding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with no repository copies of them. With the GitHub CLI (`scripts/run.sh gh …` in this repository):
+
+  ```sh
+  policy='{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
+  gh api -X PUT repos/Pratyay-ops/FXM/environments/preview --input - <<<"$policy"
+  gh api -X POST repos/Pratyay-ops/FXM/environments/preview/deployment-branch-policies -f name=develop -f type=branch
+  gh api -X PUT repos/Pratyay-ops/FXM/environments/production --input - <<<"$policy"
+  gh api -X POST repos/Pratyay-ops/FXM/environments/production/deployment-branch-policies -f name=main -f type=branch
+  gh secret set CLOUDFLARE_API_TOKEN --env preview      # each one asks for the value
+  gh secret set CLOUDFLARE_ACCOUNT_ID --env preview
+  gh secret set CLOUDFLARE_API_TOKEN --env production
+  gh secret set CLOUDFLARE_ACCOUNT_ID --env production
+  gh secret delete CLOUDFLARE_API_TOKEN                 # last, the repository copies
+  gh secret delete CLOUDFLARE_ACCOUNT_ID
+  ```
+
+  An environment's secret wins over a repository secret of the same name, so the deploys keep working at every step;
 - `develop` protected, by required pull requests or restricted pushers: Cloudflare can't limit a token to one branch, so a develop run could still deploy production.
 
 More about the deploy:
@@ -98,8 +123,8 @@ More about the deploy:
 
 ### Checking a deployment
 
-- **Header check** (`src/check-headers.ts`): fetches every path `dist/pages/` serves, every `.html` path that redirects and a client-side route of each app, without following redirects. Each response must carry exactly one `Content-Security-Policy` line, the one `_headers` gives that path (with the expected directives), plus `Referrer-Policy: no-referrer` and `X-Content-Type-Options: nosniff`, each once, and the expected status. The policies must keep the promises `make dist` checks (above). Each document must also carry its policy in a meta element, at its own paths and at paths with one character percent-encoded, where no rule applies.
-- **Browser checks** (`e2e/deployed.e2e.ts`): the site's pages and the app render with no policy violation; googlevideo requests from the app (and the embed) carry no Referer, both from a media element and from `fetch` (answered by the test, so nothing reaches YouTube), also from the app at `/%61pp/`. For the sandbox documents: `innertube.html` is opaque, reaches its three hosts, and only its policy stops a request to a fourth that would answer; framed by a page on another origin without the `sandbox` attribute, each document loads (not an error page), runs, stays opaque and ignores that page's messages; at a percent-encoded path, where its `sandbox` doesn't apply, it stays inert. Each framing page gives the document a token in its URL's fragment, as the app's transport does: without one, 1.10's script serves nobody anyway, and the checks would prove nothing. The checks of a document skip themselves while it isn't deployed, such as 1.11's `eval.html`.
+- **Header check** (`src/check-headers.ts`): fetches every path `dist/pages/` serves, every `.html` path that redirects and a client-side route of each app, without following redirects. Each response must carry exactly one `Content-Security-Policy` line, the one `_headers` gives that path (with the expected directives), plus `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `Cross-Origin-Opener-Policy: same-origin` and the `Permissions-Policy`, each once as `_headers` gives it, and the expected status. The policies must keep the promises `make dist` checks (above). Each document must also carry its policy in a meta element, at its own paths and at paths with one character percent-encoded, where no rule applies.
+- **Browser checks** (`e2e/deployed.e2e.ts`): the site's pages and the app render with no policy violation; the app, opened in a new window by a page of another site, keeps no tie to it, and Chromium reports the features the `Permissions-Policy` turns off as off and the player's as on; googlevideo requests from the app (and the embed) carry no Referer, both from a media element and from `fetch` (answered by the test, so nothing reaches YouTube), also from the app at `/%61pp/`. For the sandbox documents: `innertube.html` is opaque, reaches its three hosts, and only its policy stops a request to a fourth that would answer; framed by a page on another origin without the `sandbox` attribute, each document loads (not an error page), runs, stays opaque and ignores that page's messages; at a percent-encoded path, where its `sandbox` doesn't apply, it stays inert. Each framing page gives the document a token in its URL's fragment, as the app's transport does: without one, 1.10's script serves nobody anyway, and the checks would prove nothing. The checks of a document skip themselves while it isn't deployed, such as 1.11's `eval.html`.
 
 ### Previews and FXM Connect
 
@@ -133,6 +158,7 @@ A copy on another origin runs without FXM Connect, which trusts only `https://fx
 | `src/csp.ts` | Policy values and hashes |
 | `src/licenses.ts` | Bundled packages, licence checks, the notices file |
 | `src/privacy.ts` | The privacy page check |
+| `src/service-worker.ts` | The page's precache revision in the app's service worker |
 | `src/pages-server.ts` | The local stand-in for Cloudflare Pages |
 | `src/check-headers.ts` | The header check of a deployment |
 | `src/testing.ts` | Fakes for the tests, including the later stages' parts |
