@@ -8,4 +8,31 @@ packages:
 # least 14 days (in minutes). Applies to transitive dependencies too.
 minimumReleaseAge: 20160
 
-engineStrict: true
+# Security fixes that a dependency's own range or pin keeps out (docs/DEVELOPMENT.md,
+# "Overrides"). Each key names only the vulnerable releases, so it matches nothing once the
+# dependency moves past them: remove it then.
+overrides:
+  # GHSA-pqg4-j6r4-53mv (critical, in quote()): web-ext's fx-runner pins shell-quote 1.10.0.
+  # FXM never runs fx-runner (web-ext run), which only calls parse(), but no copy should be left.
+  'shell-quote@>=1.8.4 <1.11.0': 1.11.0
+
+# Advisories that make audit ignores (docs/DEVELOPMENT.md, "Security fixes"): FXM's use doesn't
+# reach the vulnerable code, and the fix waits for the 14 days or doesn't exist yet. Remove each
+# entry with its fix.
+auditConfig:
+  ignoreGhsas:
+    # happy-dom <= 21.0.3, the test DOM: runs code on the host only on a page that evaluates
+    # JavaScript, which FXM's tests never turn on. 21.0.4 turns 14 days old on 2026-11-03.
+    - GHSA-834v-8h66-3h79
+    # undici 7.30.0 (cheerio in web-ext lint, which uses only cheerio.load) and 8.11.2 (unifont,
+    # for Astro's fonts, which the site doesn't use): a server's response can crash the process,
+    # but neither sends a request in FXM's use. 7.30.1 and 8.12.2 turn 14 days old on 2026-10-29.
+    - GHSA-xjj6-f33q-929c
+    # node-forge <= 1.4.0, in web-ext's Android runner: forged RSA signatures. FXM runs only
+    # web-ext lint, never the runner, and no fixed release exists yet.
+    - GHSA-86w9-cpqp-85rv
+
+# No engineStrict here: scripts/env.sh turns it on for every make target, scripts/run.sh command
+# and CI job, so they refuse any Node outside "engines" in package.json. Set here, it would also
+# fail every Dependabot update, since Dependabot runs pnpm on its own, newer Node
+# (docs/DEVELOPMENT.md, "Node version").

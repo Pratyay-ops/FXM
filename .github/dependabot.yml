@@ -1,6 +1,9 @@
 version: 2
 updates:
   # JavaScript dependencies. youtubei.js in particular must track YouTube changes.
+  # Dependabot runs pnpm without scripts/env.sh, on its own Node (24.22.1 on 2026-10-26), which
+  # "engines" in package.json leaves out. That is why engine-strict lives in env.sh: these updates
+  # run, and CI checks each one on the .nvmrc Node (docs/DEVELOPMENT.md, "Node version").
   - package-ecosystem: npm
     directory: /
     target-branch: develop

@@ -47,7 +47,7 @@ hyper-util = { version = "0.1.21", features = ["client-proxy", "client-proxy-sys
 # directly rather than through tauri-plugin-dialog, whose script would replace window.alert and
 # window.confirm in every page with IPC calls the app doesn't allow. The features are the ones
 # tauri-plugin-dialog used: GTK 3 on Linux, modern task dialogs on Windows.
-rfd = { version = "0.16.0", default-features = false, features = [
+rfd = { version = "0.17.2", default-features = false, features = [
   "gtk3",
   "common-controls-v6",
 ] }
@@ -77,10 +77,13 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 ] }
 
 # Whether the library behind the Linux tray icon is installed, and whether a panel shows such
-# icons (src/tray.rs). Already in the dependency tree through tray-icon's libappindicator and GTK.
+# icons (src/tray.rs). gio is already in the dependency tree through GTK: keep it on the glib
+# release GTK uses, since a newer gio would add a second glib next to GTK's instead of replacing
+# it ("glib stays at 0.18" in ../README.md). libloading is newer than the 0.7 that tray-icon's
+# libappindicator uses, which costs a second copy of one small crate.
 [target.'cfg(target_os = "linux")'.dependencies]
 gio = "0.18.4"
-libloading = "0.7.4"
+libloading = "0.9.0"
 
 [features]
 # The live smoke test's build (apps/desktop/smoke): prints the hidden page's report and exits.
