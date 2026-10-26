@@ -16,6 +16,7 @@ import {
   detectEnvironment,
   type FxmPlatform,
 } from '@fxm/platform'
+import { pluginUserHosts } from '../plugins/user-hosts'
 import { appKillSwitches } from './kill-switches'
 
 let pending: Promise<FxmPlatform> | undefined
@@ -32,6 +33,9 @@ export function getAppPlatform(): Promise<FxmPlatform> {
     // gates itself, for the app's player and the self-test alike: counting LOGIN_REQUIRED here
     // too would count each twice, and an age gate as a bot check.
     reportLoginRequired: false,
+    // The hosts the plugins that are on declare, and a plugin download's (stage 8.3). Other
+    // user hosts, such as the Spotify secret source of 1.5, join this list.
+    userHosts: pluginUserHosts,
   })
   return pending
 }

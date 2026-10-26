@@ -295,6 +295,9 @@ importers:
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player
+      '@fxm/plugins':
+        specifier: workspace:*
+        version: link:../../packages/plugins
       '@fxm/sources':
         specifier: workspace:*
         version: link:../../packages/sources

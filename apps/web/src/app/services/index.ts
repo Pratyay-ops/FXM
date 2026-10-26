@@ -102,6 +102,11 @@ async function start(): Promise<void> {
     // Connect answers.
     play(app.policy)
     disconnects.push(app.connectPlayer(getPlayer()))
+    // The resolvers of the plugins that are on (stage 8.3) join the lifecycle's stream sources,
+    // so their songs play, and leave it when a plugin is switched off or removed.
+    void import('../../features/plugins/runtime').then(({ connectPluginAudio }) => {
+      if (services === app) disconnects.push(connectPluginAudio(app.lifecycle))
+    })
     await app.start()
   } catch (error) {
     console.error('FXM: could not start the music services', error)

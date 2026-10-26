@@ -7,6 +7,7 @@ import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
+import { PluginsSettings } from '../plugins/plugins-settings'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
 import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
@@ -72,6 +73,8 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      <PluginsSettings />
 
       <QualitySection capabilities={capabilities} />
 
