@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { JsonRecord } from '../../json'
-import { BUNDLED_STREAM_CONFIG, type StreamRungConfig } from '../config'
+import type { StreamRungConfig } from '../config'
 import { FAKE_USTREAMER_CONFIG, FIXTURE_HOST } from './fixtures/sanitize'
-import { ADVANCED_FIXTURES } from './fixtures/testing'
+import { ADVANCED_FIXTURES, ADVANCED_STREAM_CONFIG } from './fixtures/testing'
 import { SABR_PLAYBACK_FORMAT, sabrFormatOf, sabrStreamOptions } from './sabr'
 
-const RUNG = BUNDLED_STREAM_CONFIG.rungs.find((rung) => rung.id === 'web-sabr') as StreamRungConfig
+const RUNG = ADVANCED_STREAM_CONFIG.rungs.find((rung) => rung.id === 'web-sabr') as StreamRungConfig
 const ANSWER = ADVANCED_FIXTURES['web-sabr-song'] as JsonRecord
 const URL_ = `https://${FIXTURE_HOST}/videoplayback?expire=1792985798&ip=192.0.2.1&sparams=expire%2Cip&sabr=1&n=transformed`
 const NOW = Date.UTC(2026, 9, 26, 12)

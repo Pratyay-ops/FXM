@@ -15,15 +15,18 @@
  * @module
  */
 
+import { json, type Route } from '../../../fixtures/testing'
+import bundledConfig from '../../../youtube-config.json'
+import { parseStreamConfig, type StreamConfig } from '../../config'
+import { GENERATE_IT_URL, YOUTUBE_HOME_URL } from '../botguard'
+import { ADVANCED_RUNG_READERS } from '../kinds'
+import { IFRAME_API_URL, PLAYER_SCRIPT_PREFIX, type PlayerScriptExtractor } from '../player-script'
+import mwebSong from './mweb-song.json'
 import {
   FAKE_BOTGUARD_GLOBAL,
   fakeBotGuardInterpreter,
   fakeIntegrityToken,
-} from '@fxm/platform/testing/evaluator'
-import { json, type Route } from '../../../fixtures/testing'
-import { GENERATE_IT_URL, YOUTUBE_HOME_URL } from '../botguard'
-import { IFRAME_API_URL, PLAYER_SCRIPT_PREFIX, type PlayerScriptExtractor } from '../player-script'
-import mwebSong from './mweb-song.json'
+} from './platform-evaluator'
 import tvSamsungReload from './tv-samsung-reload.json'
 import tvSamsungSong from './tv-samsung-song.json'
 import webRemixSong from './web-remix-song.json'
@@ -37,6 +40,14 @@ export const ADVANCED_FIXTURES = {
   'web-remix-song': webRemixSong,
   'web-sabr-song': webSabrSong,
 } as const
+
+/**
+ * The bundled stream config read with the experimental kinds, so that it has their rungs (off),
+ * which `BUNDLED_STREAM_CONFIG`, read without them, leaves out.
+ */
+export const ADVANCED_STREAM_CONFIG: StreamConfig = parseStreamConfig(bundledConfig, {
+  kinds: ADVANCED_RUNG_READERS,
+})
 
 /** The player the fake `/iframe_api` names. */
 export const FAKE_PLAYER_ID = 'f0f0f0f0'

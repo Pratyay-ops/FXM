@@ -10,13 +10,18 @@ Stage 1.11 adds three kinds of rungs to the stream ladder of [`../README.md`](..
 | `web-sabr` | `sabr` | WEB | No URLs: one SABR session per audio format, for `@fxm/player`'s MediaSource engine, with a web PO token |
 
 ```ts
-import { createAdvancedRungs, createYouTubeAudioSource } from '@fxm/sources/youtube'
+import {
+  createAdvancedRungs,
+  createYouTubeAudioSource,
+  parseStreamConfig,
+} from '@fxm/sources/youtube'
 
 const advanced = createAdvancedRungs({ evaluator }) // the platform's isolated evaluator
-const audio = createYouTubeAudioSource({ session, advanced, streamConfig })
+const streamConfig = parseStreamConfig(document, { kinds: advanced.kinds })
+const audio = createYouTubeAudioSource({ session, streamConfig, rungKinds: advanced.kinds })
 ```
 
-The resolver keeps everything the rungs share: the ladder and its health, bot checks, playability, wrong-video checks, and the end-of-file probe, which deciphered URLs pass like any other. The hook (`hook.ts`, `createAdvancedRungs()` in `rungs.ts`) adds a rung's extra `/player` fields and turns its answer into stream options.
+The rungs are of kinds the ladder runs only when it is given them (`StreamRungKind` in `../kinds.ts`): a config read without them leaves these rungs out, as `BUNDLED_STREAM_CONFIG` and the YouTube module do, and so does a source created without them. The ladder keeps everything the rungs share: their order and health, bot checks, playability, wrong-video checks, and the end-of-file probe, which deciphered URLs pass like any other. The hook (`hook.ts`, `createAdvancedRungs()` in `rungs.ts`) adds a rung's extra `/player` fields and turns its answer into stream options, and `kinds.ts` maps it onto the three kinds.
 
 ## What each rung needs
 
@@ -28,7 +33,7 @@ The resolver keeps everything the rungs share: the ladder and its health, bot ch
 | Its TV's `User-Agent` on the `/player` request (`sendsUserAgent`) | Yes | No | No |
 | Media bytes, and not Android (no MediaSource engine there) | No | No | Yes |
 
-`canRun()` decides which rungs a context can try at once, without a request and without starting the evaluator, whose `origin` is known before it starts; the resolver leaves the others out of the ladder. So a switched-on rung costs nothing where it can't work, and VISIONOS never waits for the evaluator. An evaluator whose document could not start, or is gone, is left alone for 10 minutes (`EVALUATOR_RETRY_MS`): meanwhile no rung that needs it is tried, so no resolution waits for it again.
+The config states what the ladder checks itself (`requires`: the full tier for every rung, and for SABR, media bytes on the web or desktop). `canRun()` decides the rest at once (the evaluator, its origin, the user agent), without a request and without starting the evaluator, whose `origin` is known before it starts. The ladder leaves out the rungs a context can't run. So a switched-on rung costs nothing where it can't work, and VISIONOS never waits for the evaluator. An evaluator whose document could not start, or is gone, is left alone for 10 minutes (`EVALUATOR_RETRY_MS`): meanwhile no rung that needs it is tried, so no resolution waits for it again.
 
 ### Where they can run today
 
@@ -46,7 +51,7 @@ The resolver keeps everything the rungs share: the ladder and its health, bot ch
 4. **Web PO tokens** (`botguard.ts`), for `mweb`, `web-remix` and `web-sabr`: the challenge from YouTube's home page (`window.ytAtN`, plus its `EVENT_ID`), BotGuard's interpreter from `www.google.com/js/th/…`, the snapshot in the evaluator, an integrity token from `www.youtube.com/api/jnn/v1/GenerateIT` (12 hours), then one token per video, minted in the evaluator. The parent makes every request; BotGuard can make none (`connect-src 'none'`). The session is shared by every caller, each waiting with its own signal, so a skipped track never fails another's resolution. A refused attestation is remembered for 30 minutes, and so is a home page that YouTube answers with its cookie consent page (`consent.youtube.com`), as it does for requests without cookies from some regions, the European Union among them: that page carries no challenge, so the PO-token rungs can't run there (not measured: this stage's live runs came from India).
 5. **Stream options**: deciphered URLs (with `pot`) go through the same option builder and end-of-file probe as direct URLs. The SABR rung returns one `protocol: 'sabr'` option per audio format, with `playback` = `{ format: 'youtube-sabr/1', videoId, ustreamerConfig, poToken, client, durationMs, audio, video }` (`sabr.ts`), `unverified` because a session has no file to probe.
 
-A failure in the rung's own steps (the player script, deciphering, BotGuard, the evaluator) counts against the rung (`lastFailure: 'error'`, with its cool-down), and the ladder moves on. The resolver's touch-point is `canRun`, `prepare` and `streamOptions` of `hook.ts`; `canRun` is synchronous, like the `canRun` of the rung kinds the merged stage 1.4 has on `develop`, so the integration maps the hook onto those kinds in a few lines.
+A failure in the rung's own steps (the player script, deciphering, BotGuard, the evaluator) counts against the rung (`lastFailure: 'error'`, with its cool-down), and the ladder moves on: each kind turns it into a `Parse` failure, which is how a kind tells the ladder so. The caller's cancellation and a rate limit still stop the ladder.
 
 **Requests**, on top of a direct rung's: `iframe_api` and the player script once per player (6 hours); the home page (about 1 MB), the interpreter (cached by URL) and `GenerateIT` once per 12 hours for the PO-token rungs. They draw on the request budget like any other YouTube page.
 

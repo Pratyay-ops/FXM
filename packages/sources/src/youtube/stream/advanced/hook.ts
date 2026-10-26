@@ -1,9 +1,10 @@
 /**
- * The hook through which the resolver of `../resolver.ts` tries the experimental rungs: rungs
- * of the kinds `deciphered`, `attested` and `sabr`. The resolver keeps everything the rungs have
- * in common (the ladder, health, bot checks, playability, the end-of-file probe); the hook adds
- * what differs: a rung's extra `/player` fields, and how its stream options come out of a
- * playable answer. `createAdvancedRungs()` (`rungs.ts`) implements it.
+ * The hook through which the ladder of `../resolver.ts` tries the experimental rungs: rungs of
+ * the kinds `deciphered`, `attested` and `sabr`. The ladder keeps everything the rungs have in
+ * common (the order, health, bot checks, playability, the end-of-file probe); the hook adds what
+ * differs: a rung's extra `/player` fields, and how its stream options come out of a playable
+ * answer. `createAdvancedRungs()` (`rungs.ts`) implements it, and `kinds.ts` maps it onto the
+ * ladder's rung kinds (`../kinds.ts`).
  *
  * @module
  */
@@ -21,12 +22,12 @@ export interface AdvancedPlayerCall {
   readonly headers?: Readonly<Record<string, string>>
 }
 
-/** The resolver's hook for rungs whose kind is not `direct`. */
+/** The hook for the rungs of the experimental kinds. */
 export interface AdvancedRungs {
   /**
    * Whether `rung` can be tried in `ctx` (its tier, platform and the evaluator it has), decided
-   * at once, without a request and without starting the evaluator: the resolver leaves the
-   * others out of the ladder, as if they were off, and never waits for this.
+   * at once, without a request and without starting the evaluator: the ladder leaves the others
+   * out, as if they were off, and never waits for this.
    */
   canRun(rung: StreamRungConfig, ctx: ProviderContext): boolean
   /** Prepares the `/player` call of `rung` for `videoId`. */
@@ -37,7 +38,7 @@ export interface AdvancedRungs {
   ): Promise<AdvancedPlayerCall>
   /**
    * The stream options in a playable `/player` answer of `rung`, unprobed: deciphered direct URLs
-   * (`progressive`), which the resolver then probes like any other, or one SABR option.
+   * (`progressive`), which the ladder then probes like any other, or one SABR option per format.
    */
   streamOptions(
     ctx: ProviderContext,

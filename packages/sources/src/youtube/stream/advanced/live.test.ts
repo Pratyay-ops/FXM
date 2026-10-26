@@ -23,11 +23,12 @@ import { EnabledTrackTypes } from 'googlevideo/utils'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { FULL } from '../../fixtures/testing'
 import { createYouTubeSession } from '../../session'
-import { BUNDLED_STREAM_CONFIG, type StreamConfig } from '../config'
+import type { StreamConfig } from '../config'
 import { candidate, VIDEOS } from '../fixtures/testing'
 import { createYouTubeAudioSource } from '../resolver'
 import { type BrowserEvaluator, launchBrowserEvaluator } from './fixtures/browser-evaluator'
 import { sanitizeAdvancedResponse } from './fixtures/sanitize'
+import { ADVANCED_STREAM_CONFIG } from './fixtures/testing'
 import { type AdvancedRungsHook, createAdvancedRungs } from './rungs'
 import type { YouTubeSabrPlayback } from './sabr'
 
@@ -57,11 +58,14 @@ const FIXTURE_OF: Readonly<Record<string, string>> = {
 
 const PREFS = DEFAULT_QUALITY_PREFS as QualityPrefs
 
-/** The bundled config with only `id` on, offering `itags` (fewer probes). */
+/**
+ * The bundled config, with the experimental rungs, with only `id` on, offering `itags` (fewer
+ * probes).
+ */
 function only(id: string, itags: number[]): StreamConfig {
   return {
-    ...BUNDLED_STREAM_CONFIG,
-    rungs: BUNDLED_STREAM_CONFIG.rungs.map((rung) =>
+    ...ADVANCED_STREAM_CONFIG,
+    rungs: ADVANCED_STREAM_CONFIG.rungs.map((rung) =>
       rung.id === id ? { ...rung, enabled: true, itags } : { ...rung, enabled: false },
     ),
   }
@@ -98,11 +102,11 @@ describe.skipIf(!live)('the experimental YouTube rungs, live', { timeout: 180_00
   })
 
   const resolveWith = (id: string, itags: number[]) =>
-    createYouTubeAudioSource({ session, advanced, streamConfig: only(id, itags) }).resolve(
-      candidate(VIDEOS.song),
-      ctx(),
-      PREFS,
-    )
+    createYouTubeAudioSource({
+      session,
+      streamConfig: only(id, itags),
+      rungKinds: advanced.kinds,
+    }).resolve(candidate(VIDEOS.song), ctx(), PREFS)
 
   beforeAll(async () => {
     browser = await launchBrowserEvaluator()

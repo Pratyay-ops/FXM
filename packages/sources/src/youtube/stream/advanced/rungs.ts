@@ -8,8 +8,9 @@
  * | `attested` | `mweb`, `web-remix` | The same, plus a web PO token from BotGuard in the evaluator as each URL's `pot` |
  * | `sabr` | `web-sabr` | The web client over SABR: one session per audio format, for `@fxm/player`'s MediaSource engine, with a web PO token |
  *
- * `createAdvancedRungs()` is the resolver's hook for them (`hook.ts`); pass it to
- * `createYouTubeAudioSource({ advanced })`. What each rung needs, and the live results, are in
+ * `createAdvancedRungs()` implements the hook of `hook.ts` for them, and maps it onto the ladder's
+ * rung kinds (`kinds.ts`): pass its `kinds` to `parseStreamConfig` (`kinds`) and to
+ * `createYouTubeAudioSource` (`rungKinds`). What each rung needs, and the live results, are in
  * this folder's `README.md`.
  *
  * @module
@@ -19,6 +20,7 @@ import { FxmError, isFxmError, type ProviderContext } from '@fxm/core'
 import { arrayAt, asNumber, asRecord, asString, at, type JsonRecord } from '../../json'
 import type { StreamRungConfig } from '../config'
 import { streamOptionsOf } from '../formats'
+import type { StreamRungKind } from '../kinds'
 import { WebPoTokens } from './botguard'
 import { type CipheredUrl, cipheredUrlOf, decipherUrls } from './decipher'
 import {
@@ -28,6 +30,7 @@ import {
   type StreamEvaluator,
 } from './evaluator'
 import type { AdvancedPlayerCall, AdvancedRungs } from './hook'
+import { advancedRungKinds } from './kinds'
 import {
   type PlayerScript,
   type PlayerScriptExtractor,
@@ -72,6 +75,11 @@ export interface AdvancedRungsOptions {
 
 /** The experimental rungs, with their caches for diagnostics and tests. */
 export interface AdvancedRungsHook extends AdvancedRungs {
+  /**
+   * The rungs' kinds for the ladder (`kinds.ts`): pass them to `parseStreamConfig` (`kinds`) and
+   * to `createYouTubeAudioSource` (`rungKinds`).
+   */
+  readonly kinds: readonly StreamRungKind[]
   /** The player script cache. */
   readonly playerScripts: PlayerScripts
   /** The web PO tokens, when there is an evaluator. */
@@ -241,10 +249,7 @@ export function createAdvancedRungs(options: AdvancedRungsOptions = {}): Advance
     }
   }
 
-  return {
-    playerScripts,
-    poTokens,
-
+  const hook: AdvancedRungs = {
     canRun(rung, ctx) {
       // The player script and BotGuard's challenge are YouTube pages: only the full tier reads them.
       if (evaluator === undefined || ctx.capabilities.youtube !== 'full') return false
@@ -307,4 +312,5 @@ export function createAdvancedRungs(options: AdvancedRungsOptions = {}): Advance
       })
     },
   }
+  return { ...hook, playerScripts, poTokens, kinds: advancedRungKinds(hook) }
 }

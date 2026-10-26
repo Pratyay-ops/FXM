@@ -1,7 +1,7 @@
-import { createInProcessEvaluator } from '@fxm/platform/testing/evaluator'
 import { describe, expect, it } from 'vitest'
 import type { JsonRecord } from '../../json'
 import { cipheredUrlOf, decipherUrls } from './decipher'
+import { createInProcessEvaluator } from './fixtures/platform-evaluator'
 import { FAKE_SIGNATURE } from './fixtures/sanitize'
 import {
   ADVANCED_FIXTURES,

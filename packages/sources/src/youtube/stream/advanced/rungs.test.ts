@@ -10,12 +10,6 @@ import {
   type Platform,
   type QualityPrefs,
 } from '@fxm/core'
-import {
-  createEvaluator,
-  createInProcessEvaluator,
-  FAKE_BOTGUARD_GLOBAL,
-  fakeWebPoToken,
-} from '@fxm/platform/testing/evaluator'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   context,
@@ -40,9 +34,16 @@ import {
 import { createYouTubeAudioSource } from '../resolver'
 import { GENERATE_IT_URL } from './botguard'
 import type { StreamEvaluator } from './evaluator'
+import {
+  createEvaluator,
+  createInProcessEvaluator,
+  FAKE_BOTGUARD_GLOBAL,
+  fakeWebPoToken,
+} from './fixtures/platform-evaluator'
 import { FAKE_SIGNATURE } from './fixtures/sanitize'
 import {
   ADVANCED_FIXTURES,
+  ADVANCED_STREAM_CONFIG,
   botGuardRoutes,
   decipheredSignature,
   FAKE_INTEGRITY_KEY,
@@ -64,14 +65,14 @@ const PREFS = DEFAULT_QUALITY_PREFS as QualityPrefs
 const SONG = candidate(VIDEOS.song)
 const YOUTUBE = 'https://www.youtube.com'
 const TOKEN = fakeWebPoToken(FAKE_INTEGRITY_KEY, VIDEOS.song)
-const TV_AGENT = BUNDLED_STREAM_CONFIG.rungs.find((rung) => rung.id === 'tv-samsung')?.client.fields
-  .userAgent
+const TV_AGENT = ADVANCED_STREAM_CONFIG.rungs.find((rung) => rung.id === 'tv-samsung')?.client
+  .fields.userAgent
 
-/** The bundled config with the given rungs switched on and VISIONOS off. */
+/** The bundled config, with the experimental rungs, with only the given rungs switched on. */
 function only(...on: string[]): StreamConfig {
   return {
-    ...BUNDLED_STREAM_CONFIG,
-    rungs: BUNDLED_STREAM_CONFIG.rungs.map((rung) => ({
+    ...ADVANCED_STREAM_CONFIG,
+    rungs: ADVANCED_STREAM_CONFIG.rungs.map((rung) => ({
       ...rung,
       enabled: on.includes(rung.id),
     })),
@@ -160,7 +161,7 @@ function setup(setupOptions: Setup) {
   const audio = createYouTubeAudioSource({
     session: createYouTubeSession(),
     streamConfig: setupOptions.config,
-    advanced,
+    rungKinds: advanced.kinds,
   })
   const ctx = {
     ...context(fetch, { capabilities: setupOptions.capabilities ?? FULL, mode: 'music' }),
@@ -180,9 +181,39 @@ function setup(setupOptions: Setup) {
 }
 
 describe('the experimental rungs', () => {
+  it('ship off in the bundled config, between VISIONOS and IOS, and need their kinds', () => {
+    expect(ADVANCED_STREAM_CONFIG.rungs.map((rung) => [rung.id, rung.kind, rung.enabled])).toEqual([
+      ['visionos', 'direct', true],
+      ['tv-samsung', 'deciphered', false],
+      ['mweb', 'attested', false],
+      ['web-remix', 'attested', false],
+      ['web-sabr', 'sabr', false],
+      ['ios', 'direct', false],
+      ['android-vr', 'direct', false],
+      ['android-muxed', 'direct', true],
+    ])
+    // The ladder itself keeps them to the full tier, and SABR to media bytes on web and desktop.
+    const requires = (id: string) => ADVANCED_STREAM_CONFIG.rungs.find((r) => r.id === id)?.requires
+    for (const id of ['tv-samsung', 'mweb', 'web-remix']) {
+      expect(requires(id)).toEqual({ fullAccess: true, mediaBytes: false })
+    }
+    expect(requires('web-sabr')).toEqual({
+      platforms: ['web', 'desktop'],
+      fullAccess: true,
+      mediaBytes: true,
+    })
+    // Read without their kinds, as a build without this folder reads it, the config has none.
+    expect(BUNDLED_STREAM_CONFIG.rungs.map((rung) => rung.kind)).toEqual([
+      'direct',
+      'direct',
+      'direct',
+      'direct',
+    ])
+  })
+
   it('ship off: the bundled ladder never fetches a player script or asks BotGuard', async () => {
     const { audio, ctx, players, paths } = setup({
-      config: BUNDLED_STREAM_CONFIG,
+      config: ADVANCED_STREAM_CONFIG,
       routes: [ON.visionos],
     })
     const options = await audio.resolve(SONG, ctx, PREFS)
@@ -247,7 +278,7 @@ describe('the experimental rungs', () => {
         evaluator: never.evaluator,
         advanced: { now: () => time },
       })
-      const mweb = BUNDLED_STREAM_CONFIG.rungs.find((rung) => rung.id === 'mweb')
+      const mweb = ADVANCED_STREAM_CONFIG.rungs.find((rung) => rung.id === 'mweb')
       if (mweb === undefined) throw new Error('no mweb rung')
       expect(advanced.canRun(mweb, ctx)).toBe(true)
       const [muxed] = await audio.resolve(SONG, ctx, PREFS)
@@ -283,11 +314,12 @@ describe('the experimental rungs', () => {
         advanced: { sendsUserAgent: true },
       })
       const options = await audio.resolve(SONG, ctx, PREFS)
+      // The ladder probes the best deciphered URL of each codec (`probe: 'best'`).
       expect(options.map((option) => [option.rung, option.itag, option.fullLength])).toEqual([
         ['tv-samsung', 251, 'verified'],
         ['tv-samsung', 140, 'verified'],
-        ['tv-samsung', 250, 'verified'],
-        ['tv-samsung', 249, 'verified'],
+        ['tv-samsung', 250, 'unverified'],
+        ['tv-samsung', 249, 'unverified'],
       ])
       const player = requests.find((request) => request.url.pathname === '/youtubei/v1/player')
       expect(player?.body.playbackContext).toEqual({
@@ -303,7 +335,7 @@ describe('the experimental rungs', () => {
       const opus = new URL(options[0]?.url ?? '')
       expect(opus.searchParams.get('sig')).toBe(decipheredSignature(FAKE_SIGNATURE))
       expect(opus.searchParams.get('n')).toBe(transformedN('fxm-n-251'))
-      expect(probes()).toHaveLength(4)
+      expect(probes()).toHaveLength(2)
     })
 
     it('moves on when YouTube answers its call "The page needs to be reloaded"', async () => {

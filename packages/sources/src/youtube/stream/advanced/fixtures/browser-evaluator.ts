@@ -8,8 +8,8 @@
  * @module
  */
 
-import { createEvaluator, createMailboxPort } from '@fxm/platform/testing/evaluator'
 import type { StreamEvaluator } from '../evaluator'
+import { createEvaluator, createMailboxPort } from './platform-evaluator'
 
 /** Node's `fs`, without Node's types (this package type-checks as a web worker). */
 const fs = (

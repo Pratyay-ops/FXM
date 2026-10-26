@@ -418,9 +418,6 @@ importers:
         specifier: ^18.1.0
         version: 18.1.0
     devDependencies:
-      '@fxm/platform':
-        specifier: workspace:*
-        version: link:../platform
       googlevideo:
         specifier: ^4.1.1
         version: 4.1.1

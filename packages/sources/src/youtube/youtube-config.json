@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "revision": 2,
+  "revision": 1,
   "updated": "2026-10-26",
   "visitorData": {
     "swJsDataUrl": "https://www.youtube.com/sw.js_data"
@@ -73,14 +73,16 @@
             "userAgent": "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/2.4.0 TV Safari/538.1"
           }
         },
-        "itags": [251, 140, 250, 249, 139]
+        "itags": [251, 140, 250, 249, 139],
+        "requires": { "fullAccess": true }
       },
       {
         "id": "mweb",
         "kind": "attested",
         "enabled": false,
         "client": { "name": "MWEB", "version": "2.20260708.05.00", "host": "www.youtube.com" },
-        "itags": [251, 140, 250, 249, 139]
+        "itags": [251, 140, 250, 249, 139],
+        "requires": { "fullAccess": true }
       },
       {
         "id": "web-remix",
@@ -91,14 +93,16 @@
           "version": "1.20261020.10.00",
           "host": "music.youtube.com"
         },
-        "itags": [251, 140, 250, 249, 139]
+        "itags": [251, 140, 250, 249, 139],
+        "requires": { "fullAccess": true }
       },
       {
         "id": "web-sabr",
         "kind": "sabr",
         "enabled": false,
         "client": { "name": "WEB", "version": "2.20261023.01.00", "host": "www.youtube.com" },
-        "itags": [251, 140]
+        "itags": [251, 140],
+        "requires": { "platforms": ["web", "desktop"], "fullAccess": true, "mediaBytes": true }
       },
       {
         "id": "ios",

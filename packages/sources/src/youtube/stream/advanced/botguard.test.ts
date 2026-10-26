@@ -1,8 +1,3 @@
-import {
-  createInProcessEvaluator,
-  FAKE_BOTGUARD_GLOBAL,
-  fakeWebPoToken,
-} from '@fxm/platform/testing/evaluator'
 import { afterEach, describe, expect, it } from 'vitest'
 import { context, fakeInnerTube, type Route } from '../../fixtures/testing'
 import {
@@ -13,6 +8,11 @@ import {
   WebPoTokens,
   YOUTUBE_HOME_URL,
 } from './botguard'
+import {
+  createInProcessEvaluator,
+  FAKE_BOTGUARD_GLOBAL,
+  fakeWebPoToken,
+} from './fixtures/platform-evaluator'
 import {
   botGuardRoutes,
   FAKE_EVENT_ID,
