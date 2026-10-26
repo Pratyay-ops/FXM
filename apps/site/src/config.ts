@@ -79,16 +79,16 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   jamendo: Boolean(BUILD_ENV.VITE_FXM_JAMENDO_CLIENT_ID?.trim()),
   /**
    * The home feed with quick picks and daily mixes, made on the device from YouTube Music radio,
-   * Spotify, Last.fm and ListenBrainz: stage 3.3, wired into the app by 2.9b. Endless radio is
-   * `radio` (3.4).
+   * Spotify, Last.fm and ListenBrainz: stage 3.3, wired into the app by 2.9b. Autoplay is `radio`
+   * (3.4).
    */
   homeFeed: true,
   /**
-   * Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4, wired into the app
-   * by 2.9b. Endless radio is autoplay, which keeps the queue going with songs like the last
-   * plays. On since autoplay kept a queue going in the Lite tier of the composed app, in Chromium,
-   * on 2026-10-26 (scripts/build-dist/README.md, "Autoplay in the Lite tier", which says how to
-   * check again).
+   * Autoplay, the endless radio of stage 3.4: when the queue runs low, the app adds songs like the
+   * last plays, from YouTube Music's radio (and Spotify's, while Spotify is on). It isn't a station
+   * on Home, and the app has no radio to start from a song, so the copy names neither. On since
+   * autoplay kept a queue going in the Lite tier of the composed app, in Chromium, on 2026-10-26
+   * (scripts/build-dist/README.md, "Autoplay in the Lite tier", which says how to check again).
    */
   radio: true,
   /** A read-only sync of a Spotify account's recommendations, likes and playlists: 3.5 (M2) */

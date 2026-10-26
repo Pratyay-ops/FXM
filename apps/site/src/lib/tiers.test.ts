@@ -468,6 +468,22 @@ describe('the pages', () => {
     expect(getFxm).toMatch(/When the web app says FXM Connect is out of date/)
   })
 
+  it("describe autoplay as it is, never a song radio or a radio station the app doesn't have", () => {
+    const pages = [
+      '../components/Features.astro',
+      '../components/demos/FeedDemo.astro',
+      '../components/Faq.astro',
+      '../components/HowItWorks.astro',
+      '../pages/privacy.astro',
+    ].map(source)
+    for (const page of pages) expect(page).not.toMatch(/song radio|endless radio/i)
+    const features = source('../components/Features.astro')
+    expect(features).toContain(
+      'When your queue runs low, autoplay adds songs like the ones you just played',
+    )
+    expect(features).toContain("Spotify's radio, for your home feed and autoplay")
+  })
+
   it('label the Spotify account sync experimental wherever they offer or describe it', () => {
     const features = source('../components/Features.astro')
     // The checklist's account item has the Experimental badge, and the note follows the list.

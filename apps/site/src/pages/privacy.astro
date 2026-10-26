@@ -24,12 +24,12 @@ const services: Service[] = [
   {
     name: 'YouTube',
     url: 'https://www.youtube.com',
-    use: `YouTube Music and YouTube: search, song and video details, audio, the playlists you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)} (YouTube Music radio, started from the artists you pick and the songs you play), and song radio${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)} Only while one of FXM's experimental ways of playing YouTube songs is switched on (they ship switched off), also Google's BotGuard service, to get the token YouTube asks for before it plays a song.`,
+    use: `YouTube Music and YouTube: search, song and video details, audio, the playlists you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)} (YouTube Music radio, started from the artists you pick and the songs you play), and the songs autoplay adds when your queue runs low${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)} Only while one of FXM's experimental ways of playing YouTube songs is switched on (they ship switched off), also Google's BotGuard service, to get the token YouTube asks for before it plays a song.`,
   },
   {
     name: 'Spotify',
     url: 'https://www.spotify.com',
-    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, the playlists, albums and songs whose links you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)}, and song radio${soon(AVAILABLE.radio)}. If you connect your Spotify account${accountSync}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account.`,
+    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, the playlists, albums and songs whose links you import, recommendations for your home feed${soon(AVAILABLE.homeFeed)} and for autoplay${soon(AVAILABLE.radio)}. If you connect your Spotify account${accountSync}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account.`,
   },
   {
     name: 'Spotify key source',
