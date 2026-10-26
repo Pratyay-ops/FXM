@@ -275,6 +275,39 @@ describe('Home', () => {
     expect(within(cleared).getByRole('button', { name: 'Pick artists' })).toHaveFocus()
   })
 
+  it('gives focus back to the picks saved while Home is still being built', async () => {
+    await listen()
+    const artists = [{ name: 'Halcyon' }, { name: 'Kestrel' }, { name: 'Fable Kin' }]
+    useTasteStore.getState().savePicks({ artists, genres: [] }, Date.now())
+    // The sources answer only when the test says so: until then Home shows its first pass.
+    let answer = () => {}
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve
+    })
+    const fake = fakeRecommendations({ radio: { '*': variedSongs('r', 60) } })
+    const recommendations: HomeRecommendations = {
+      async collect(seed, ctx, options) {
+        await answered
+        return fake.collect(seed, ctx, options)
+      },
+      home: (ctx) => fake.home(ctx),
+    }
+    const { user } = renderHome(homeServices('lite', { recommendations }))
+    const section = await shelfNamed('Your artists')
+    await user.click(within(section).getByRole('button', { name: 'Change' }))
+    const editor = await shelfNamed('Your artists and genres')
+    await user.click(within(editor).getByRole('button', { name: 'Save' }))
+    // Home is built again from the picks: their section comes back, and takes focus.
+    const saved = await shelfNamed('Your artists')
+    expect(within(saved).getByRole('button', { name: 'Change' })).toHaveFocus()
+
+    answer()
+    await shelfNamed('Discover')
+    expect(
+      within(await shelfNamed('Your artists')).getByRole('button', { name: 'Change' }),
+    ).toHaveFocus()
+  })
+
   it('plays a shelf from the song clicked, with where it plays from', async () => {
     await listen()
     const playback = fakePlayback()

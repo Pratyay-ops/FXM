@@ -305,10 +305,20 @@ export function HomeContent() {
   // While the sources are asked, a placeholder holds the place of the recommendations.
   const finding = recommending && data?.phase === 'local' && !data.coldStart
 
-  // Each target takes focus as it mounts; then the request is done.
+  /** The picks and their editor follow Home's shelves, once there is a Home to show. */
+  const picksShown = recommending && !showOnboarding && !showReminder && data !== undefined
+  const targetShown =
+    (focusNext === 'reminder' && showReminder) ||
+    (focusNext === 'onboarding' && showOnboarding) ||
+    (focusNext === 'picks' && picksShown && !editing) ||
+    (focusNext === 'editor' && picksShown && editing)
+
+  // Each target takes focus as it mounts; then the request is done. A target that isn't on the
+  // page yet keeps the request until it is (the picks, saved while Home was still being built,
+  // show once Home has been built from them), or until Home is built without it.
   useEffect(() => {
-    if (focusNext !== null) setFocusNext(null)
-  }, [focusNext])
+    if (focusNext !== null && (targetShown || built)) setFocusNext(null)
+  }, [focusNext, targetShown, built])
 
   // Home built from the picks: the onboarding goes, and focus moves to the first shelf (or to
   // the welcome, when nothing came of them).
@@ -391,10 +401,7 @@ export function HomeContent() {
       {built && shelves.length === 0 && !showOnboarding && <WelcomeCard freeOnly={freeOnly} />}
       {freeOnly && shelves.length > 0 && <RecommendationsNote />}
 
-      {recommending &&
-        !showOnboarding &&
-        !showReminder &&
-        data !== undefined &&
+      {picksShown &&
         (editing ? (
           <TasteOnboarding
             mode="edit"
