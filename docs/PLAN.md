@@ -137,7 +137,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **5.3** | Landing page | `feat/5.3-site` | 0.4 | ✅ |
 | **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | ✅ |
 | **6.2** | Android native fetch (OkHttp plugin; YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | ✅ |
-| **6.3** | Native player (Media3) | `feat/6.3-native-player` | 6.1, 2.3 | 🟡 |
+| **6.3** | Native player (Media3) | `feat/6.3-native-player` | 6.1, 2.3 | ✅ |
 | **6.4** | Native downloads + device music | `feat/6.4-native-downloads` | 6.3, 4.1 | ⬜ |
 | **6.5** | Spotify login on Android | `feat/6.5-android-spotify-login` | 6.2, 3.5 | ⬜ |
 | **6.6** | Signed APK release | `ci/6.6-apk-release` | 6.3, R.1 | ⬜ |
