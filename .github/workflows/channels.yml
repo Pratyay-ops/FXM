@@ -1,0 +1,125 @@
+name: Channels
+
+# Writes the per-release files of FXM's other channels (packaging/README.md) once a release is
+# published: the winget manifests for microsoft/winget-pkgs and the local Flatpak manifest,
+# with the installers' checksums from the release's SHA256SUMS. It submits nothing anywhere and
+# opens no pull request: it uploads the files as the artifact channels-vX.Y.Z, and the owner
+# submits them (packaging/winget/README.md).
+#
+# It runs after each Release run on main, and finds out whether that run published a release:
+# a release whose tag is the run's commit. By hand (workflow_dispatch), it writes the files of a
+# version that is out. Both triggers take this file from the default branch, main.
+#
+# Releases before the desktop app's installers (stage 7.5) have none: the job then says so and
+# writes nothing. It runs Node on packaging/cli.ts, which imports only Node's own modules, so it
+# installs nothing and runs no third-party code, with read access only.
+
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The release's version, x.y.z
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: channels-${{ inputs.version || github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  manifests:
+    name: Channel manifests
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # The release's own commit: by hand, the version's tag.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('refs/tags/v{0}', inputs.version) || github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Find the release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            version=$INPUT_VERSION
+          else
+            version=$(node -p 'require("./package.json").version')
+          fi
+          if ! [[ $version =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::$version is not a version x.y.z"
+            exit 1
+          fi
+          tag="v$version"
+          published=$(gh release view "$tag" --repo "$REPO" --json isDraft,publishedAt \
+            --jq 'select(.isDraft | not) | .publishedAt' 2>/dev/null || true)
+          tagged=$(gh api "repos/$REPO/commits/$tag" --jq .sha 2>/dev/null || true)
+          if [ -z "$published" ] || [ "$tagged" != "$(git rev-parse HEAD)" ]; then
+            # A push to main without a new version: the Release run published nothing.
+            echo "No published release $tag of this commit: nothing to write." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "found=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f packaging/cli.ts ]; then
+            # Run by hand for a release from before stage R.3.
+            echo "$tag predates packaging/ (stage R.3): nothing to write." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "found=false" >>"$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mkdir -p dist/channels-input
+          gh release download "$tag" --repo "$REPO" --pattern SHA256SUMS --dir dist/channels-input
+          {
+            echo "found=true"
+            echo "version=$version"
+            echo "date=${published:0:10}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Write the winget and Flatpak manifests
+        if: steps.release.outputs.found == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          DATE: ${{ steps.release.outputs.date }}
+        run: |
+          set -euo pipefail
+          channels() {
+            node --experimental-strip-types --disable-warning=ExperimentalWarning packaging/cli.ts "$@"
+          }
+          sums=dist/channels-input/SHA256SUMS
+          channels winget "$VERSION" --sums "$sums" --date "$DATE" --out dist/channels/winget --if-present |
+            tee -a "$GITHUB_STEP_SUMMARY"
+          channels flatpak "$VERSION" --sums "$sums" --date "$DATE" --out dist/channels/flatpak --if-present |
+            tee -a "$GITHUB_STEP_SUMMARY"
+          if [ -d dist/channels ]; then
+            {
+              echo
+              echo "The files are in the artifact channels-v$VERSION. To submit them, see"
+              echo "packaging/winget/README.md and packaging/flatpak/README.md."
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.release.outputs.found == 'true'
+        with:
+          name: channels-v${{ steps.release.outputs.version }}
+          path: dist/channels/
+          if-no-files-found: ignore
+          retention-days: 90
