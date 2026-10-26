@@ -8,6 +8,14 @@ packages:
 # least 14 days (in minutes). Applies to transitive dependencies too.
 minimumReleaseAge: 20160
 
+# Security fixes that a dependency's own range or pin keeps out (docs/DEVELOPMENT.md,
+# "Overrides"). Each key names only the vulnerable releases, so it matches nothing once the
+# dependency moves past them: remove it then.
+overrides:
+  # GHSA-pqg4-j6r4-53mv (critical, in quote()): web-ext's fx-runner pins shell-quote 1.10.0.
+  # FXM never runs fx-runner (web-ext run), which only calls parse(), but no copy should be left.
+  'shell-quote@>=1.8.4 <1.11.0': 1.11.0
+
 # No engineStrict here: scripts/env.sh turns it on for every make target, scripts/run.sh command
 # and CI job, so they refuse any Node outside "engines" in package.json. Set here, it would also
 # fail every Dependabot update, since Dependabot runs pnpm on its own, newer Node
