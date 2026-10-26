@@ -1,7 +1,10 @@
 name: Desktop
 
 # Builds the Tauri desktop app (apps/desktop) on macOS, Windows and Linux, checks its Rust
-# code and uploads the bundles as workflow artifacts. GitHub Releases come in stage 7.5.
+# code and uploads the bundles as workflow artifacts. The release builds are desktop-release.yml's,
+# which release.yml calls. Started by hand with release-dry-run, this runs that instead, as a dry
+# run: the installers of all five targets, signed with a throwaway key, as workflow artifacts,
+# with no release and no tag (apps/desktop/README.md, "Releases").
 #
 # The path filters list everything the jobs build or run: the desktop app, the web app it
 # embeds and the packages that web app bundles, the Makefile targets and scripts behind
@@ -40,12 +43,18 @@ on:
       - tsconfig.base.json
       - .github/workflows/desktop.yml
   workflow_dispatch:
+    inputs:
+      release-dry-run:
+        description: Build the release installers (desktop-release.yml) as a dry run, without publishing
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
+# A dry run started by hand neither cancels nor waits for the builds of pushes.
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: desktop-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -58,6 +67,7 @@ env:
 jobs:
   build:
     name: ${{ matrix.name }}
+    if: ${{ !inputs.release-dry-run }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -84,13 +94,17 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # The packages listed under "Desktop app" in docs/DEVELOPMENT.md.
+      # The packages listed under "Desktop app" in docs/DEVELOPMENT.md, and the audio outputs
+      # that the AppImage bundles with GStreamer's plugins (bundleMediaFramework), as in
+      # desktop-release.yml.
       - name: Install the Linux packages Tauri needs
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+          sudo apt-get install -y --no-install-recommends gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good gstreamer1.0-pulseaudio gstreamer1.0-alsa
 
       - name: Cache pnpm and its store
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -193,3 +207,12 @@ jobs:
       - name: Remove the bundles before the target is cached
         shell: bash
         run: rm -rf apps/desktop/src-tauri/target/release/bundle
+
+  release-dry-run:
+    name: Release dry run
+    if: ${{ inputs.release-dry-run }}
+    uses: ./.github/workflows/desktop-release.yml
+    permissions:
+      contents: read
+    with:
+      sha: ${{ github.sha }}
