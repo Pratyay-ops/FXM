@@ -168,7 +168,9 @@ new_repo() {
   git init -q -b main "$work"
   cp "$FXM_ROOT"/scripts/{env.sh,lib.sh,install-git-cliff.sh} "$FXM_ROOT"/scripts/release-*.sh \
     "$work/scripts/"
-  cp "$FXM_ROOT/cliff.toml" "$FXM_ROOT/CHANGELOG.md" "$work/"
+  cp "$FXM_ROOT/cliff.toml" "$work/"
+  # The repository's changelog without its release sections, which every release adds to.
+  awk '/^## \[/ { exit } { print }' "$FXM_ROOT/CHANGELOG.md" >"$work/CHANGELOG.md"
   ln -s "$cliff" "$work/.tools/bin/git-cliff"
   write_gh_stub "$work/.tools/bin/gh"
   printf '/.tools/\n' >"$work/.gitignore"
