@@ -83,7 +83,7 @@ A request a transport refuses rejects before anything is sent, with an `FxmError
 
 | Class | Hosts | On the web |
 |---|---|---|
-| `open` | `musicbrainz.org`, `coverartarchive.org`, `api.listenbrainz.org`, `labs.api.listenbrainz.org`, `ws.audioscrobbler.com`, `lrclib.net`, `archive.org` and `*.archive.org`, `api.jamendo.com` and `*.jamendo.com`, `itunes.apple.com`, `sponsor.ajay.app`, `i.ytimg.com`, `*.ggpht.com`, `i.scdn.co`; `www.google.com` for BotGuard's interpreter (stage 1.11), paths under `/js/th/` only | Direct (BotGuard's interpreter sends no CORS headers: only the native apps read it, and of those only Android so far: the desktop app's scope leaves it out, see [Desktop](#desktop)) |
+| `open` | `musicbrainz.org`, `coverartarchive.org`, `api.listenbrainz.org`, `labs.api.listenbrainz.org`, `ws.audioscrobbler.com`, `lrclib.net`, `archive.org` and `*.archive.org`, `api.jamendo.com` and `*.jamendo.com`, `itunes.apple.com`, `sponsor.ajay.app`, `i.ytimg.com`, `*.ggpht.com`, `lh3.googleusercontent.com` and `yt3.googleusercontent.com` (YouTube Music's covers, which stage 4.2 embeds in saved files), `i.scdn.co`; `www.google.com` for BotGuard's interpreter (stage 1.11), paths under `/js/th/` only | Direct (BotGuard's interpreter sends no CORS headers: only the native apps read it, and of those only Android so far: the desktop app's scope leaves it out, see [Desktop](#desktop)) |
 | `innertube` | `www.youtube.com`, `music.youtube.com`, `youtubei.googleapis.com` | FXM Connect, or the Lite sandbox for `/youtubei/v1/…` |
 | `googlevideo` | `*.googlevideo.com` | FXM Connect |
 | `spotify` | `open.spotify.com`, `clienttoken.spotify.com`, `api-partner.spotify.com`, `spclient.wg.spotify.com` | FXM Connect |
@@ -250,7 +250,7 @@ It enforces the header policy once more at the last step, whatever the caller se
 
   | Hosts | User-Agent |
   |---|---|
-  | Every host YouTube (Google) or Spotify runs: InnerTube, googlevideo, Spotify's API hosts and their image servers `i.ytimg.com`, `*.ggpht.com` and `i.scdn.co`, and BotGuard's `www.google.com`; Last.fm's web player | A browser's (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS), as on the web, so FXM's traffic doesn't stand out from the same address's other requests |
+  | Every host YouTube (Google) or Spotify runs: InnerTube, googlevideo, Spotify's API hosts and their image servers `i.ytimg.com`, `*.ggpht.com`, `lh3.googleusercontent.com`, `yt3.googleusercontent.com` and `i.scdn.co`, and BotGuard's `www.google.com`; Last.fm's web player | A browser's (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS), as on the web, so FXM's traffic doesn't stand out from the same address's other requests |
   | Services that ask apps to name themselves: MusicBrainz, Cover Art Archive, ListenBrainz, the Last.fm API, LRCLIB, Internet Archive, Jamendo, iTunes Search, SponsorBlock | FXM's own (`fxmUserAgent`) |
 
 - headers go only in `init.headers`, as a plain object; `Cookie` and `Host` are never sent, and `Set-Cookie` never reaches the caller.
