@@ -7,7 +7,9 @@ import { fileURLToPath } from 'node:url'
 
 const LOG_PREFIX = 'FXM_SMOKE_LOG '
 const PREFIX = 'FXM_SMOKE_REPORT '
-const TIMEOUT_MS = Number(process.env.FXM_SMOKE_TIMEOUT_MS ?? 15 * 60_000)
+// Long enough for every step: the free playlist alone plays for 9 minutes, and once stage 1.4
+// has merged, the YouTube Music songs and the VISIONOS track play for about 15 more.
+const TIMEOUT_MS = Number(process.env.FXM_SMOKE_TIMEOUT_MS ?? 45 * 60_000)
 const LABELS = { passed: 'PASS', failed: 'FAIL', pending: 'WAIT' }
 
 const executable = process.platform === 'win32' ? 'fxm.exe' : 'fxm'

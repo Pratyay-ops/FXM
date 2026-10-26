@@ -2,8 +2,9 @@
  * The desktop app's live smoke test: stage 7.2's "done when", run in a hidden window of a debug
  * build (`scripts/run.sh pnpm --filter @fxm/desktop smoke`, see the app's README). Every request
  * goes through the app's real native networking: `createPlatform()` and `createDesktopFetch()`
- * over Tauri's HTTP plugin. The last step calls the plugin through Tauri's IPC directly instead,
- * as any page script can, to check the isolation hook.
+ * over Tauri's HTTP plugin. The last of its own steps calls the plugin through Tauri's IPC directly
+ * instead, as any page script can, to check the isolation hook; `extraSteps`, such as stage 7.3's
+ * playback steps, run after it.
  *
  * A step that needs a stage which hasn't merged yet throws {@link Pending}, and the report says
  * so instead of failing.
@@ -41,6 +42,12 @@ export interface SmokeReport {
 export class Pending extends Error {
   override readonly name = 'Pending'
 }
+
+/**
+ * Runs one step and records its result: `run` returns the step's value and a detail for the
+ * report. Resolves with the value, or `undefined` when the step failed or waits.
+ */
+export type RunStep = <T>(name: string, run: () => Promise<[T, string]>) => Promise<T | undefined>
 
 /** A YouTube Music song found by a search. */
 export interface FoundSong {
@@ -101,6 +108,8 @@ export interface SmokeOptions {
   readonly now?: () => number
   /** Called with each step's result as soon as it is known, for progress. */
   readonly onStep?: (result: StepResult) => void
+  /** Steps to run after these, such as stage 7.3's playback steps (`playback-steps.ts`). */
+  readonly extraSteps?: (step: RunStep) => Promise<void>
 }
 
 /** The service worker data of www.youtube.com, which carries a server-issued visitorData. */
@@ -293,6 +302,8 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
     const host = new URL(options.freeTrack.url).host
     return [true, `${host} answered ${String(head.status)} directly, not through ${DEAD_PROXY}`]
   })
+
+  await options.extraSteps?.(step)
 
   return { ok: steps.every((result) => result.status !== 'failed'), steps }
 }
