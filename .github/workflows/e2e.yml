@@ -53,11 +53,13 @@ jobs:
         timeout-minutes: 10
         run: make dist
 
-      # Into .tools/playwright (scripts/env.sh), with the libraries Chromium needs on Ubuntu.
+      # Playwright's Chromium, into .tools/playwright (scripts/env.sh). Without --with-deps: the
+      # runner has the libraries Chromium needs already (it has Chrome), and apt would only add
+      # fonts and upgrades, from a mirror that once took over 5 minutes for 26 MB.
       - name: Install Chromium
         id: chromium
         timeout-minutes: 5
-        run: scripts/run.sh pnpm --filter @fxm/web exec playwright install --with-deps --no-shell chromium
+        run: scripts/run.sh pnpm --filter @fxm/web exec playwright install --no-shell chromium
 
       - name: Critical flows
         timeout-minutes: 15
