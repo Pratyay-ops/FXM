@@ -9,7 +9,8 @@ name: Desktop release
 #   this uploads.
 #   desktop.yml, as a dry run when someone starts it by hand with release-dry-run: the same builds,
 #   signed with throwaway keys and certificates, and kept as workflow artifacts. No release, no
-#   tag.
+#   tag. With windows-unsigned as well, the Windows files stay unsigned, as in a release without
+#   a certificate.
 #
 #   check   the version (apps/desktop/package.json, which must equal the version input) and, for a
 #           release, the updater's public key in tauri.conf.json: while it is the placeholder,
@@ -32,8 +33,9 @@ name: Desktop release
 #           WINDOWS_CERTIFICATE_PASSWORD hold a release's certificate, and they install and build
 #           nothing: GitHub's own actions, PowerShell, the Windows SDK's signtool and this
 #           repository's scripts. A release without a certificate ships the first job's unsigned
-#           installers (apps/desktop/INSTALL.md says what that means for users); a dry run signs
-#           with throwaway certificates made on the runners
+#           installers (apps/desktop/INSTALL.md says what that means for users), as does a dry
+#           run with windows-unsigned; any other dry run signs with throwaway certificates made
+#           on the runners
 #   sign    signs the files the updater installs with the updater key, writes latest.json and
 #           checks every signature against the public key the apps carry
 #           (apps/desktop/release/release.ts). It installs nothing, so no third-party code ever
@@ -57,6 +59,12 @@ on:
         default: ''
       release:
         description: Sign with the updater key, for a release; otherwise this is a dry run
+        required: false
+        type: boolean
+        default: false
+      # release.ts refuses it for a release, which signs whenever it has a certificate.
+      windows-unsigned:
+        description: Sign no Windows file in a dry run, to try a release without a certificate
         required: false
         type: boolean
         default: false
@@ -398,10 +406,11 @@ jobs:
         env:
           MODE: ${{ inputs.release && 'release' || 'dry-run' }}
           HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' && 'yes' || '' }}
+          UNSIGNED: ${{ inputs.windows-unsigned && 'yes' || '' }}
         run: >-
           node --experimental-strip-types --disable-warning=ExperimentalWarning
           apps/desktop/release/release.ts windows-signing --mode "$MODE"
-          --certificate "$HAS_CERTIFICATE"
+          --certificate "$HAS_CERTIFICATE" --unsigned "$UNSIGNED"
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.choose.outputs.signing != 'none'

@@ -147,6 +147,14 @@ describe('how the Windows files are signed', () => {
     expect(chooseWindowsSigning('release', false)).toBe('none')
   })
 
+  it('not at all in a dry run that tries a release without a certificate', () => {
+    expect(chooseWindowsSigning('dry-run', false, true)).toBe('none')
+    expect(chooseWindowsSigning('dry-run', true, true)).toBe('none')
+    // A release with a certificate signs, whatever it is asked.
+    expect(() => chooseWindowsSigning('release', true, true)).toThrow('for dry runs')
+    expect(() => chooseWindowsSigning('release', false, true)).toThrow('for dry runs')
+  })
+
   it('reads --signing', () => {
     expect(parseWindowsSigning('certificate')).toBe('certificate')
     expect(() => parseWindowsSigning('signpath')).toThrow('--signing must be')
@@ -587,6 +595,35 @@ describe('release.ts’s Windows steps', () => {
       signedRelease.reporter,
     )
     expect(signedRelease.lines).toContain('output signing=certificate')
+  })
+
+  it('leave a dry run unsigned when the workflow asks, and refuse anything but yes or empty', () => {
+    const unsigned = recorder()
+    main(
+      ['windows-signing', '--mode', 'dry-run', '--certificate', '', '--unsigned', 'yes'],
+      {},
+      unsigned.reporter,
+    )
+    expect(unsigned.lines).toContain('output signing=none')
+    expect(unsigned.lines).toContainEqual(
+      expect.stringMatching(/^notice Windows signing: This dry run leaves the Windows files/),
+    )
+    const signed = recorder()
+    main(
+      ['windows-signing', '--mode', 'dry-run', '--certificate', '', '--unsigned', ''],
+      {},
+      signed.reporter,
+    )
+    expect(signed.lines).toContain('output signing=throwaway')
+    expect(() =>
+      main(['windows-signing', '--mode', 'release', '--unsigned', 'yes'], {}, recorder().reporter),
+    ).toThrow('for dry runs')
+    // A bare flag, or a value the workflow never passes, is a mistake rather than a no.
+    for (const args of [['--certificate'], ['--certificate', 'no'], ['--unsigned', 'true']]) {
+      expect(() =>
+        main(['windows-signing', '--mode', 'release', ...args], {}, recorder().reporter),
+      ).toThrow('must be yes or empty')
+    }
   })
 
   it('write the hook’s config, and run the hook for Tauri', () => {

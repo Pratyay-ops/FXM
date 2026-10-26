@@ -313,6 +313,9 @@ describe('desktop-release.yml', () => {
     expect(choose).toContain(
       `HAS_CERTIFICATE: ${expression("secrets.WINDOWS_CERTIFICATE != '' && 'yes' || ''")}`,
     )
+    // A dry run may ask to sign nothing, which release.ts refuses for a release.
+    expect(choose).toContain(`UNSIGNED: ${expression("inputs.windows-unsigned && 'yes' || ''")}`)
+    expect(choose).toContain('--certificate "$HAS_CERTIFICATE" --unsigned "$UNSIGNED"')
     expect(job(workflow, 'windows-sign-installers')).toContain(
       `SIGNING: ${expression('needs.windows-sign-app.outputs.signing')}`,
     )
@@ -433,6 +436,17 @@ describe('desktop.yml', () => {
     // No key, no release.
     expect(dryRun).not.toMatch(/secrets|release: true/)
     expect(job(desktop, 'build')).toContain(`if: ${expression('!inputs.release-dry-run')}`)
+  })
+
+  it('lets a dry run sign no Windows file, as a release without a certificate, which no release asks', () => {
+    expect(desktop).toMatch(/^ {6}windows-unsigned:\n {8}description: .+\n {8}type: boolean\n/m)
+    expect(job(desktop, 'release-dry-run')).toContain(
+      `windows-unsigned: ${expression('inputs.windows-unsigned')}`,
+    )
+    expect(workflow).toMatch(
+      /^ {6}windows-unsigned:\n {8}description: .+\n {8}required: false\n {8}type: boolean\n {8}default: false\n/m,
+    )
+    expect(job(release, 'desktop')).not.toContain('windows-unsigned')
   })
 })
 

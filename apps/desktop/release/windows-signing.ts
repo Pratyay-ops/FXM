@@ -28,9 +28,10 @@
  * so only a job that ran NSIS, which is build code, could sign it.
  *
  * Which certificate: for a dry run, a throwaway self-signed one that each signing job makes and
- * imports as it would a release's, so every dry run tries that path; for a release, the one in
+ * imports as it would a release's, so the dry run tries that path; for a release, the one in
  * the environment's secrets (`WINDOWS_CERTIFICATE`, a base64 PKCS #12 file, and
- * `WINDOWS_CERTIFICATE_PASSWORD`), or none, and the release goes on unsigned and says so.
+ * `WINDOWS_CERTIFICATE_PASSWORD`), or none, and the release goes on unsigned and says so. A dry
+ * run started with `windows-unsigned` signs nothing, to try that path instead.
  *
  * @module
  */
@@ -106,9 +107,20 @@ export function parseWindowsSigning(value: string): WindowsSigning {
   throw new Error(`--signing must be throwaway, certificate or none, got "${value}"`)
 }
 
-/** How to sign: a dry run always signs, a release when the environment holds a certificate. */
-export function chooseWindowsSigning(mode: Mode, hasCertificate: boolean): WindowsSigning {
-  if (mode === 'dry-run') return 'throwaway'
+/**
+ * How to sign: a release when the environment holds a certificate, a dry run with a throwaway
+ * one unless it is asked to sign nothing (`unsigned`, desktop.yml's `windows-unsigned`), to try a
+ * release without a certificate. A release can't be asked that: with a certificate, it signs.
+ */
+export function chooseWindowsSigning(
+  mode: Mode,
+  hasCertificate: boolean,
+  unsigned = false,
+): WindowsSigning {
+  if (mode === 'dry-run') return unsigned ? 'none' : 'throwaway'
+  if (unsigned) {
+    throw new Error('--unsigned is for dry runs: a release signs whenever it has a certificate')
+  }
   return hasCertificate ? 'certificate' : 'none'
 }
 

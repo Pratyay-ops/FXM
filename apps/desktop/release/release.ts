@@ -35,10 +35,10 @@
  *       plugins, or puts their signed copies in their place. Signs nothing.
  *   release.ts windows-collected --dir <dir>
  *       job windows-build: checks what the hook collected, as windows-sign-app will.
- *   release.ts windows-signing --mode <release|dry-run> [--certificate yes]
+ *   release.ts windows-signing --mode <release|dry-run> [--certificate yes] [--unsigned yes]
  *       job windows-sign-app: how to sign, given whether the windows-signing environment holds a
- *       certificate: `throwaway` for a dry run, `certificate` or `none` for a release. Outputs
- *       signing.
+ *       certificate: `throwaway` for a dry run (`none` with --unsigned, from desktop.yml's
+ *       windows-unsigned), `certificate` or `none` for a release. Outputs signing.
  *   release.ts windows-sign --phase app --dir <dir> --out <dir> --thumbprint <sha1>
  *                           [--timestamp-url <url>]
  *       job windows-sign-app: checks the collected files and signs copies of them in <out>.
@@ -153,6 +153,18 @@ export type Mode = 'release' | 'dry-run'
 export function parseMode(value: string): Mode {
   if (value === 'release' || value === 'dry-run') return value
   throw new Error(`--mode must be release or dry-run, got "${value}"`)
+}
+
+/**
+ * An option that a workflow sets from a condition, `yes` or empty (`--certificate yes`,
+ * `--certificate ''`), or leaves out. Anything else is a mistake, never a no.
+ */
+export function yesOption(options: ReadonlyMap<string, string>, name: string): boolean {
+  const value = options.get(name) ?? ''
+  if (value !== '' && value !== 'yes') {
+    throw new Error(`--${name} must be yes or empty, got "${value}"`)
+  }
+  return value === 'yes'
 }
 
 export interface CheckOptions {
@@ -411,16 +423,21 @@ export function main(
       return
     }
     case 'windows-signing': {
+      const mode = parseMode(requireOption(options, 'mode'))
       const signing = chooseWindowsSigning(
-        parseMode(requireOption(options, 'mode')),
-        options.get('certificate') === 'yes',
+        mode,
+        yesOption(options, 'certificate'),
+        yesOption(options, 'unsigned'),
       )
       reporter.output('signing', signing)
       if (signing === 'none') {
         reporter.notice(
           'Windows signing',
-          'The windows-signing environment holds no certificate (WINDOWS_CERTIFICATE), so this ' +
-            "release's Windows files are unsigned (docs/CODE-SIGNING.md).",
+          mode === 'release'
+            ? 'The windows-signing environment holds no certificate (WINDOWS_CERTIFICATE), so ' +
+                "this release's Windows files are unsigned (docs/CODE-SIGNING.md)."
+            : 'This dry run leaves the Windows files unsigned (windows-unsigned), as a release ' +
+                'without a certificate does (docs/CODE-SIGNING.md).',
         )
       } else {
         reporter.info(
