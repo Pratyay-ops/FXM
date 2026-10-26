@@ -540,6 +540,16 @@ describe('the library (stage 2.6)', () => {
       | undefined
     expect(stored?.candidate?.ref).toBe(played)
   })
+
+  it('takes "Add to playlist" away again when the services stop', async () => {
+    const setup = servicesOnTier('free', { library: fakeLibrary() })
+    await setup.ready()
+    expect(setup.actions.get().library).toBeDefined()
+
+    setup.dispose()
+
+    expect(setup.actions.get().library).toBeUndefined()
+  })
 })
 
 describe('the platform', () => {

@@ -6,9 +6,17 @@
  * @module
  */
 
+import { getLibrary } from '../../db/repo'
+import { withLocalFilesFirst } from '../../features/local-files/player'
+import { getPlayer } from '../../features/now-playing/playback'
+import {
+  connectAppPolicy,
+  createPendingPolicy,
+  type PlaybackPolicy,
+} from '../../features/now-playing/playback-policy'
 import { appSources } from '../../features/search/sources-context'
 import { type AppServices, createAppServices } from './app-services'
-import { createInterimPlayer, type InterimPlayer } from './player'
+import { lazyLibrary } from './library'
 
 export {
   type AppContextOptions,
@@ -20,9 +28,12 @@ export type { AppPlaybackPolicy } from './policy'
 
 let services: AppServices | undefined
 
-/** The app's services, created on first use. */
+/**
+ * The app's services, created on first use, with the library of stage 2.6 ("Add to playlist" and
+ * the match cache), whose database opens on first use.
+ */
 export function getAppServices(): AppServices {
-  services ??= createAppServices()
+  services ??= createAppServices({ library: lazyLibrary(getLibrary) })
   return services
 }
 
@@ -38,25 +49,35 @@ async function devFakesOn(): Promise<boolean> {
 }
 
 let starting: Promise<void> | undefined
-let interim: InterimPlayer | undefined
-let disconnect: (() => void) | undefined
+const disconnects: (() => void)[] = []
 
 async function start(): Promise<void> {
+  let connected = false
+  /** Makes the app's player play through `policy`, with local files in front (stage 4.4). */
+  const play = (policy: PlaybackPolicy) => {
+    disconnects.push(connectAppPolicy(withLocalFilesFirst(policy)))
+    connected = true
+  }
   try {
     if (await devFakesOn()) {
-      // The fake catalog sets a tier of its own: nothing is detected.
+      // The fake catalog sets a tier of its own: nothing is detected. Its play buttons play
+      // nothing, so the app's player plays local files only.
       appSources.setDetecting(false)
+      play(createPendingPolicy())
       return
     }
     const app = getAppServices()
-    // The player first: its resolver waits for the platform itself, so the play buttons work
-    // while FXM Connect answers. It is the app's player until stage 2.5's lands (player.ts).
-    interim = createInterimPlayer({ resolver: app.resolver })
-    disconnect = app.connectPlayer(interim.player)
+    // The app's player (stage 2.5, created with the first render) plays through the services'
+    // policy, whose resolver waits for the platform itself: the play buttons work while FXM
+    // Connect answers.
+    play(app.policy)
+    disconnects.push(app.connectPlayer(getPlayer()))
     await app.start()
   } catch (error) {
     console.error('FXM: could not start the music services', error)
     appSources.setDetecting(false)
+    // Nothing else will connect a policy: plays stop with a reason rather than wait.
+    if (!connected) play(createPendingPolicy())
   }
 }
 
@@ -71,16 +92,13 @@ export function startAppServices(): Promise<void> {
 }
 
 /**
- * Takes the app's services down again (the player, the platform's watchers, the registrations),
- * so that the next {@link startAppServices} starts afresh. For tests: the app keeps its services
- * for the page's life.
+ * Takes the app's services down again (the player's policy and connection, the platform's
+ * watchers, the registrations), so that the next {@link startAppServices} starts afresh. For
+ * tests: the app keeps its services for the page's life.
  */
 export function stopAppServices(): void {
-  disconnect?.()
-  interim?.dispose()
+  for (const disconnect of disconnects.splice(0)) disconnect()
   services?.dispose()
-  disconnect = undefined
-  interim = undefined
   services = undefined
   starting = undefined
 }

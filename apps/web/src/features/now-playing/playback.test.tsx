@@ -126,7 +126,7 @@ describe('the review list', () => {
 })
 
 describe('the pending policy', () => {
-  it('stops playback with a clear error until stage 2.3 connects a resolver', async () => {
+  it('stops playback with a clear error where the music services don’t run', async () => {
     const policy = createPendingPolicy()
     await expect(
       policy.resolver.resolve(

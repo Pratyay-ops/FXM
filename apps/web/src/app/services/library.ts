@@ -8,9 +8,9 @@
  *   ({@link matchStoreFrom}).
  *
  * {@link LibraryRepository} is the part of 2.6's `LibraryRepo` (`getLibrary()` in `src/db/`)
- * these use, declared by shape so this module builds before 2.6 is on `develop`; its repository
- * then fits as it is. Likes (2.5's like button), the listening history (3.1's play recorder) and
- * the Downloads playlist (4.1) connect to the repository directly, not through here.
+ * these use, declared by shape; the app passes `lazyLibrary(getLibrary)` ({@link lazyLibrary}).
+ * Likes (2.5's like button), the listening history (3.1's play recorder) and the Downloads
+ * playlist (4.1) connect to the repository directly, not through here.
  *
  * @module
  */
@@ -75,6 +75,24 @@ export interface LibraryRepository {
   unpinMatch(sourceTrackId: EntityId<'track'>, mode: CatalogMode): Promise<void>
   /** Forgets an engine decision, never a pin. */
   forgetMatch(sourceTrackId: EntityId<'track'>, mode: CatalogMode): Promise<boolean>
+}
+
+/**
+ * The library that `get` returns at each call: the app passes `getLibrary`, so the database
+ * opens on first use, not when the services are built, and tests that start the library over
+ * (`resetLibrary`) are followed.
+ */
+export function lazyLibrary(get: () => LibraryRepository): LibraryRepository {
+  return {
+    getPlaylistList: () => get().getPlaylistList(),
+    addTracks: (playlistId, tracks) => get().addTracks(playlistId, tracks),
+    createPlaylist: (input) => get().createPlaylist(input),
+    getMatch: (sourceTrackId, mode) => get().getMatch(sourceTrackId, mode),
+    recordMatch: (decision) => get().recordMatch(decision),
+    pinMatch: (sourceTrackId, mode, candidate) => get().pinMatch(sourceTrackId, mode, candidate),
+    unpinMatch: (sourceTrackId, mode) => get().unpinMatch(sourceTrackId, mode),
+    forgetMatch: (sourceTrackId, mode) => get().forgetMatch(sourceTrackId, mode),
+  }
 }
 
 /**

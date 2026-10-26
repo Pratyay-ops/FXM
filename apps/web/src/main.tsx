@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './app/app'
 import { createAppRouter } from './app/router'
 import { markConnecting } from './app/services/connecting'
+import { connectAppPolicy, createPendingPolicy } from './features/now-playing/playback-policy'
 import { appSources } from './features/search/sources-context'
 
 const root = document.getElementById('root')
@@ -28,6 +29,8 @@ import('./app/services')
   .catch((error: unknown) => {
     console.error('FXM: could not load the music services', error)
     stopConnecting()
+    // Nothing will connect the player's policy: plays stop with a reason rather than wait.
+    connectAppPolicy(createPendingPolicy())
   })
 
 // Queued downloads continue in whichever tab gets to run the queue (stage 4.1). Loaded after

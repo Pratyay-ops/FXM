@@ -15,7 +15,7 @@
  * | Player | 2.2 | `connectPlayer(player)` |
  * | Playback policy and stream lifecycle | 2.3 | `lifecycle`, `policy` (2.5's interface) |
  * | Search and browse seams | 2.4 | the sources registry and the actions store |
- * | Library seams | 2.6 | `library.ts`, once the repository is passed in |
+ * | Library seams | 2.6 | `library.ts`, over the repository passed in (`getLibrary()`) |
  *
  * **Tiers.** The platform decides: Full with FXM Connect (or the desktop and Android apps once
  * their native HTTP exists), Lite with the sandbox documents of stage 1.10 (`sandbox`), Free
@@ -181,6 +181,11 @@ function lazyStreamSource(id: SourceId, source: Loader<AudioSource>): StreamSour
 
 /** `actions` without its playback group. */
 function withoutPlayback({ playback: _playback, ...rest }: MediaActions): MediaActions {
+  return rest
+}
+
+/** `actions` without its library group. */
+function withoutLibrary({ library: _library, ...rest }: MediaActions): MediaActions {
   return rest
 }
 
@@ -506,7 +511,11 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
     if (platform !== undefined) sources.setPlatform(platform)
     registerProviders()
     if (options.library !== undefined) {
-      actions.set({ ...actions.get(), library: libraryActionsFrom(options.library) })
+      const library = libraryActionsFrom(options.library)
+      actions.set({ ...actions.get(), library })
+      unregister.push(() => {
+        if (actions.get().library === library) actions.set(withoutLibrary(actions.get()))
+      })
     }
     if (platform === undefined) {
       sources.setDetecting(false)

@@ -7,10 +7,12 @@ import {
 } from '@fxm/core'
 import type { MatchKey, StoredMatch } from '@fxm/player'
 import { describe, expect, it, vi } from 'vitest'
+import { getLibrary } from '../../db/repo'
 import {
   type LibraryMatchDecision,
   type LibraryPlaylistSummary,
   type LibraryRepository,
+  lazyLibrary,
   libraryActionsFrom,
   matchStoreFrom,
 } from './library'
@@ -191,5 +193,67 @@ describe('matchStoreFrom', () => {
     library.records.set(`${SOURCE}|music`, { band: 'auto', userPinned: 'yes' })
 
     await expect(matchStoreFrom(library).get(song)).resolves.toBeUndefined()
+  })
+})
+
+describe('lazyLibrary', () => {
+  it('asks for the repository at every call', async () => {
+    const libraries = [fakeLibrary(), fakeLibrary()]
+    let next = 0
+    const library = lazyLibrary(() => libraries[next] as LibraryRepository)
+
+    await library.addTracks(formatId('local', 'playlist', 'a'), [TRACK])
+    next = 1
+    await library.getMatch(SOURCE, 'music')
+
+    expect(libraries[0]?.addTracks).toHaveBeenCalledOnce()
+    expect(libraries[0]?.getMatch).not.toHaveBeenCalled()
+    expect(libraries[1]?.getMatch).toHaveBeenCalledWith(SOURCE, 'music')
+  })
+})
+
+describe("stage 2.6's repository", () => {
+  const song: MatchKey = { sourceTrackId: SOURCE, mode: 'music', target: 'song' }
+
+  it('offers its playlists for adding, and adds there, Liked songs liking', async () => {
+    const actions = libraryActionsFrom(lazyLibrary(getLibrary))
+    const road = await actions.createPlaylist('Road trip', [])
+
+    await actions.addToPlaylist(road.id, [TRACK])
+    await actions.addToPlaylist('local:playlist:liked', [TRACK])
+
+    const names = (await actions.playlists()).map((playlist) => playlist.name)
+    expect(names).toEqual(['Road trip', 'Liked songs'])
+    const view = await getLibrary().getPlaylistView(road.id as EntityId<'playlist'>)
+    expect(view?.rows.map((row) => row.id)).toEqual([TRACK.id])
+    await expect(getLibrary().isLiked(TRACK.id)).resolves.toBe(true)
+  })
+
+  it("keeps the lifecycle's decisions and pins in its match cache, and reads them back", async () => {
+    const store = matchStoreFrom(lazyLibrary(getLibrary))
+
+    await store.put(song, {
+      band: 'auto',
+      candidate: CANDIDATE,
+      alternatives: [],
+      evidence: ['title 1.00'],
+      userPinned: false,
+      decidedAt: 0,
+    })
+    await expect(store.get(song)).resolves.toMatchObject({
+      band: 'auto',
+      candidate: CANDIDATE,
+      userPinned: false,
+    })
+
+    const pinned: AudioCandidate = { ...CANDIDATE, ref: 'pinnedVideo' }
+    const decided = await store.get(song)
+    if (decided === undefined) throw new Error('The decision was not kept')
+    await store.put(song, { ...decided, candidate: pinned, userPinned: true })
+    await expect(store.get(song)).resolves.toMatchObject({ candidate: pinned, userPinned: true })
+    await expect(getLibrary().getConfirmedMatch(SOURCE, 'music')).resolves.toEqual(pinned)
+
+    await store.delete(song)
+    await expect(store.get(song)).resolves.toBeUndefined()
   })
 })
