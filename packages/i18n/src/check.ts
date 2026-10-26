@@ -20,7 +20,8 @@ import { type MessageNode, parseMessage } from './parse'
 export interface CatalogProblem {
   /**
    * `error`: the app would show something wrong (a broken message, a value it never gets, a tag
-   * nobody renders). `warning`: worth a look (a plural form the language doesn't use, a stale key).
+   * nobody renders, a select's option it lacks). `warning`: worth a look (a plural form the
+   * language doesn't use, a value left out, a stale key).
    */
   readonly severity: 'error' | 'warning'
   /** `<namespace>.<key>`. */
@@ -165,10 +166,12 @@ export function checkTranslation(options: {
     if (!translated.tags.has(tag)) error(`Leaves out the tag <${tag}>`)
   }
   problems.push(...pluralProblems(id, locale, translated))
+  // A value whose option a translation lacks gets its `other` text, which says something else,
+  // or nothing at all where a release flag's select ends in `other {}`.
   for (const [name, keys] of english.selects) {
     const translatedKeys = translated.selects.get(name)
-    const missing = [...keys].filter((key) => key !== 'other' && translatedKeys?.has(key) === false)
-    if (missing.length > 0) warning(`{${name}} lacks the options ${missing.join(', ')}`)
+    const missing = [...keys].filter((key) => key !== 'other' && translatedKeys?.has(key) !== true)
+    if (missing.length > 0) error(`{${name}} lacks the options ${missing.join(', ')}`)
   }
   return problems
 }

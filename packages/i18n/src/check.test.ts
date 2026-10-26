@@ -89,9 +89,28 @@ describe('checkTranslation', () => {
     expect(check('songs', '{count, plural, other {# 曲}}', 'ja')).toEqual([])
   })
 
-  it('warns about select options the translation lacks', () => {
+  it('refuses a translation that lacks one of a select’s options', () => {
+    // Lite would read "Voll" (full).
     expect(check('tier', '{tier, select, free {Nur kostenlos} other {Voll}}')).toEqual([
-      { severity: 'warning', id: 'library.tier', problem: '{tier} lacks the options lite' },
+      { severity: 'error', id: 'library.tier', problem: '{tier} lacks the options lite' },
+    ])
+    // A release flag's select shows nothing for a value it lacks: the hero would lose a sentence.
+    const appsSoon =
+      '{apps, select, both {The desktop and Android apps are coming soon.} desktop {The desktop app is coming soon.} android {The Android app is coming soon.} other {}}'
+    const site = (translation: string) =>
+      checkTranslation({ id: 'site.appsSoon', locale: 'de', source: appsSoon, translation })
+    expect(
+      site(
+        '{apps, select, desktop {Die Desktop-App erscheint bald.} android {Die Android-App erscheint bald.} other {}}',
+      ),
+    ).toEqual([
+      { severity: 'error', id: 'site.appsSoon', problem: '{apps} lacks the options both' },
+    ])
+    expect(
+      site('Bald verfügbar.').map(({ severity, problem }) => `${severity}: ${problem}`),
+    ).toEqual([
+      'warning: Leaves out {apps}',
+      'error: {apps} lacks the options both, desktop, android',
     ])
   })
 })

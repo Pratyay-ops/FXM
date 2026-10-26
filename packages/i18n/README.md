@@ -103,7 +103,7 @@ Tests keep asserting English, which is the default locale and bundled. To prove 
 expect(findUntranslated(document.body, { ignore: [track.title, track.artist] })).toEqual([])
 ```
 
-`strictReporters` make a test fail on a missing translation or a value the code forgot. In CI, `checkSource` checks the English messages (syntax, plural forms, key names) and `checkCatalog` each translation (it isn't empty, parses, takes the same values, keeps the tags, has every plural form its language needs).
+`strictReporters` make a test fail on a missing translation or a value the code forgot. In CI, `checkSource` checks the English messages (syntax, plural forms, key names) and `checkCatalog` each translation (it isn't empty, parses, takes the same values, keeps the tags, has every plural form its language needs and every option of each select).
 
 ## Tools
 
