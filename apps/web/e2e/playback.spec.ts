@@ -13,9 +13,8 @@ import {
 // (src/app/services/testing/fake-network.ts), and the streams are short WAV tones that the page
 // really plays. Nothing reaches the internet.
 //
-// The Lite tier needs the app to create the sandbox transport of stage 1.10, which stage 2.7's
-// platform brings (see src/app/services/README.md), and a preview that serves /sandbox/ as the
-// deploy does; the Vitest tests in src/app/services cover it with a fake sandbox meanwhile. The
+// The Lite tier runs the real sandbox document of stage 1.10 (apps/web/sandbox/innertube.html),
+// which the deploy serves at /sandbox/ and `vite preview` doesn't, so its test serves it. The
 // shell never waits for the services: with an FXM Connect that answers late, it paints at once
 // and says it is connecting, rather than offering the install.
 
@@ -31,6 +30,25 @@ const FIXTURES: FakeNetworkFixtures = {
   player: fixture('youtube/stream/fixtures/visionos-song.json'),
   archiveSearch: fixture('archive/fixtures/search-nin-ghosts.json'),
   archiveItems: { nineinchnails_ghosts_I_IV: fixture('archive/fixtures/item-nin-ghosts.json') },
+}
+
+/** The Lite tier's sandbox document, as the deploy serves it at `/sandbox/innertube.html`. */
+const SANDBOX_DOCUMENT = readFileSync(new URL('../sandbox/innertube.html', import.meta.url), 'utf8')
+
+/**
+ * Serves the sandbox document as the deploy does, with its header: a page without FXM Connect
+ * then runs the Lite self-test and, with InnerTube answering its opaque origin (the fake network
+ * allows every origin), gets the Lite tier.
+ */
+async function serveSandbox(page: Page): Promise<void> {
+  await page.route('**/sandbox/innertube.html', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html; charset=utf-8',
+      headers: { 'content-security-policy': 'sandbox allow-scripts' },
+      body: SANDBOX_DOCUMENT,
+    }),
+  )
 }
 
 /** Each stream plays this long, so a track ends by itself within the test. */
@@ -298,5 +316,46 @@ test.describe('the Free tier (no FXM Connect)', () => {
     expect(network.requests.filter((request) => /youtube|googlevideo/u.test(request.url))).toEqual(
       [],
     )
+  })
+})
+
+test.describe('the Lite tier (no FXM Connect, the sandbox documents)', () => {
+  test('searches YouTube Music through the sandbox, plays a song, then the next one', async ({
+    page,
+  }) => {
+    const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(TRACK_SECONDS) })
+    await stubNetwork(page, network)
+    await serveSandbox(page)
+    await trackMediaElements(page)
+
+    await page.goto('search?q=radiohead%20creep')
+    const songs = page.getByRole('list', { name: 'Songs' })
+    await expect(songs.getByRole('button', { name: /^Play / }).first()).toBeVisible({
+      timeout: 15_000,
+    })
+    const [first, second] = await titles(page, 'Songs')
+
+    await songs
+      .getByRole('button', { name: /^Play / })
+      .first()
+      .click()
+
+    const googlevideo = 'rr1---sn-fxmfixture.googlevideo.com'
+    const firstUrl = await waitUntilPlaying(page, first, googlevideo)
+    // Every InnerTube call went through the sandbox document, from its opaque origin.
+    const innerTube = network.requests.filter((request) => request.url.includes('/youtubei/v1/'))
+    expect(innerTube).not.toHaveLength(0)
+    expect(innerTube.map((request) => request.headers.origin)).toEqual(innerTube.map(() => 'null'))
+    // googlevideo's bytes can't be read here, so nothing probed them: the media element's first
+    // request is the probe.
+    const probes = network.requests.filter((request) =>
+      /^bytes=\d+-\d+$/u.test(request.headers.range ?? ''),
+    )
+    expect(probes).toEqual([])
+
+    // Next, from the player bar.
+    await page.getByRole('region', { name: 'Player' }).getByRole('button', { name: 'Next' }).click()
+    const secondUrl = await waitUntilPlaying(page, second, googlevideo)
+    expect(secondUrl.searchParams.get('id')).not.toBe(firstUrl.searchParams.get('id'))
   })
 })
