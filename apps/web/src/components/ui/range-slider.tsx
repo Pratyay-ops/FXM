@@ -21,6 +21,17 @@ export interface RangeSliderProps
    * native `change` event). For changes that cost something, such as seeking a stream.
    */
   onValueCommit?: ((value: number) => void) | undefined
+  /**
+   * Where the fill starts: `start`, the minimum (a seek bar, a volume); `center`, for a value that
+   * goes both ways from the middle of the range (an equalizer band's boost or cut), with a mark
+   * at the middle. Default: `start`.
+   */
+  origin?: 'start' | 'center' | undefined
+  /**
+   * `player`: the thumb shows on hover and focus (always on touch screens), like a music player's.
+   * `setting`: it always shows, so a setting reads as adjustable at rest. Default: `player`.
+   */
+  appearance?: 'player' | 'setting' | undefined
 }
 
 /** A native range input styled as a player slider (see `.range` in styles/index.css). */
@@ -33,6 +44,8 @@ export function RangeSlider({
   valueText,
   onValueChange,
   onValueCommit,
+  origin = 'start',
+  appearance = 'player',
   className,
   style,
   ...rest
@@ -50,6 +63,10 @@ export function RangeSlider({
 
   const span = max - min
   const fill = span > 0 ? ((value - min) / span) * 100 : 0
+  const filled =
+    origin === 'center'
+      ? { '--range-from': `${Math.min(50, fill)}%`, '--range-to': `${Math.max(50, fill)}%` }
+      : { '--range-fill': `${fill}%` }
   return (
     <input
       {...rest}
@@ -62,8 +79,13 @@ export function RangeSlider({
       step={step}
       value={value}
       onChange={(event) => onValueChange(event.currentTarget.valueAsNumber)}
-      className={cn('range', className)}
-      style={{ ...style, '--range-fill': `${fill}%` }}
+      className={cn(
+        'range',
+        origin === 'center' && 'range-center',
+        appearance === 'setting' && 'range-setting',
+        className,
+      )}
+      style={{ ...style, ...filled }}
     />
   )
 }

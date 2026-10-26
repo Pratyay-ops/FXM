@@ -5,6 +5,7 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { AudioEffectsSection, SOUND_SETTINGS_ID } from '../audio-effects/effects-section'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { ExternalLink as ExternalTextLink, standaloneLinkClasses } from '../connect/ui'
@@ -76,6 +77,11 @@ export function SettingsPage() {
         <AutoMatchSetting />
         <SponsorBlockSetting />
       </SettingsSection>
+
+      {/* Stage 8.1; the Sound dialog's "More in Settings" links here. */}
+      <div id={SOUND_SETTINGS_ID} className="scroll-mt-[calc(var(--shell-top)+1rem)]">
+        <AudioEffectsSection />
+      </div>
 
       <SettingsSection title="Sources">
         <SettingRow

@@ -42,6 +42,8 @@ The running tab also keeps the **Downloads playlist** in step: a completed downl
 
 `getOfflineStore()` is the `offline` option of the player's `StreamLifecycle` (stage 2.3): the app's composition root asks it first (`src/app/services/offline.ts`, before the user's own files tagged with the track's ISRC), so the playback policy plays a downloaded track from the device before resolving anything, also without a network (once the app itself is loaded; the offline app shell is stage 5.1).
 
+A downloaded track plays at the loudness its stream had (stage 8.1): the record keeps the stream's `loudness` (YouTube's `loudnessDb`), and when the stream said none, the runtime reads the finished file's own ReplayGain or R128 tags into the record (`attachFileLoudness` in `features/audio-effects/download-loudness.ts`).
+
 ## UI
 
 - **The Downloads tab** of the library shows, above the playlist in its custom order: a notice when the browser can't store downloads, or when YouTube songs can't be downloaded here (no FXM Connect, the Lite tier included); the storage card with the usage meter, persistence and "Remove all downloads"; the downloads on their way with a progress bar, a pause/resume/retry button and a cancel button each, and "Pause all"/"Resume all"; and songs in the playlist that aren't downloaded on this device (after restoring a backup from another device), to download or remove.

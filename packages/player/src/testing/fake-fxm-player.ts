@@ -8,6 +8,7 @@
  */
 
 import type {
+  FxmPlayerEffects,
   FxmPlayerEntry,
   FxmPlayerEventMap,
   FxmPlayerFailure,
@@ -16,6 +17,7 @@ import type {
   FxmPlayerPlugin,
   FxmPlayerRepeat,
   FxmPlayerSession,
+  FxmPlayerSleepTimer,
   FxmPlayerState,
   FxmPlayerUpcomingOptions,
 } from '../native/plugin'
@@ -50,6 +52,10 @@ export interface FakeFxmPlayer extends FxmPlayerPlugin {
   readonly volume: number
   /** What `saveSnapshot` stored last, or `null`. */
   readonly snapshot: string | null
+  /** The effects `setEffects` set last, if any. */
+  readonly effects: FxmPlayerEffects | undefined
+  /** The sleep timer `setSleepTimer` set last, if any. */
+  readonly sleepTimer: FxmPlayerSleepTimer | undefined
   /** Whether a page attached. */
   readonly attached: boolean
   /** How many listeners are registered. */
@@ -81,6 +87,8 @@ export interface FakeFxmPlayer extends FxmPlayerPlugin {
   request(id: string, reason: 'expiring' | 'network'): void
   /** The page's listeners are gone, as when its renderer dies. */
   detach(): void
+  /** The native sleep timer paused playback. */
+  sleep(reason?: 'timer' | 'end-of-track'): void
 }
 
 /** Creates a {@link FakeFxmPlayer}. */
@@ -104,6 +112,8 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
   let repeat: FxmPlayerRepeat = 'off'
   let volume = 1
   let attached = false
+  let effects: FxmPlayerEffects | undefined
+  let sleepTimer: FxmPlayerSleepTimer | undefined
 
   function emit<K extends keyof FxmPlayerEventMap>(name: K, payload: FxmPlayerEventMap[K]): void {
     if (!attached) return
@@ -143,6 +153,12 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
     },
     get snapshot() {
       return snapshot
+    },
+    get effects() {
+      return effects
+    },
+    get sleepTimer() {
+      return sleepTimer
     },
     get attached() {
       return attached
@@ -204,6 +220,22 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
 
     async ack() {
       calls.push('ack')
+    },
+
+    async setEffects(options) {
+      calls.push(
+        `setEffects:eq=${options.equalizer.enabled ? options.equalizer.gainsDb.join(',') : 'off'}` +
+          ` loudness=${options.loudness.enabled ? options.loudness.targetLufs : 'off'}` +
+          ` speed=${options.speed}`,
+      )
+      effects = options
+    },
+
+    async setSleepTimer(options) {
+      calls.push(
+        `setSleepTimer:${options.endOfTrack ? 'end' : options.endsAt === null ? 'off' : `${options.endsAt}-${options.fadeMs}`}`,
+      )
+      sleepTimer = options
     },
 
     async saveSnapshot(options) {
@@ -294,6 +326,12 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
 
     request(id, reason) {
       emit('request', { id, reason })
+    },
+
+    sleep(reason = 'timer') {
+      sleepTimer = undefined
+      emit('sleep', { reason })
+      update({ playWhenReady: false })
     },
 
     detach() {

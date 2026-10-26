@@ -54,3 +54,14 @@ The protocol facts the stream resolver in this folder relies on, each with where
 |---|---|---|
 | `music/get_search_suggestions` with an empty `input` and no visitorData answers 200 (about 600 bytes) and issues a visitorData in `responseContext` | Captured | 2026-10-26 |
 | A visitorData issued that way lets VISIONOS answer `/player` with streams | Captured (`live.test.ts`) | 2026-10-26 |
+
+## Loudness (stage 8.1)
+
+Loudness normalization reads one more field of the formats above. **Public** is a source anyone can read; no code was taken from it.
+
+| Fact | Source | Date |
+|---|---|---|
+| VISIONOS and IOS give each adaptive audio format a `loudnessDb`: 3.88 for the Opus formats (249, 250, 251) and 3.8900003 for the AAC ones (139, 140) of "Creep". ANDROID's muxed itag 18, in `formats`, has none | Captured: "Creep" (`zFYEYRcjK2g`), the fixtures `visionos-song.json`, `ios-song.json` and `android-song.json` (recorded by stage 1.4) | 2026-10-26 |
+| YouTube's player shows a video's "content loudness" in Stats for nerds: how far, in dB, YouTube's estimate of its loudness is above YouTube's reference playback level. A positive value turns the video down by that much (the "Normalized" percentage falls below 100 %); YouTube never turns a quieter video up | Public: Ian Shepherd, "Are you confused about exactly what YouTube's playback volume normalization is doing to your music?", productionadvice.co.uk/stats-for-nerds (2017-09-29) | 2026-10-26 |
+| That reference playback level has been -14 LUFS since 2019 | Public: Ian Shepherd, "YouTube changes loudness reference to -14 LUFS", meterplugs.com/blog (2019-09-18) | 2026-10-26 |
+| `loudnessDb` is that content loudness, so a format is at about `loudnessDb` − 14 LUFS, and YouTube plays it `loudnessDb` dB quieter when the value is positive | Inference from the three facts above (the same quantity, unit and sign); FXM's default target of -14 LUFS then turns YouTube songs down exactly as YouTube does | 2026-10-26 |

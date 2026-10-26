@@ -4,6 +4,8 @@ import 'fake-indexeddb/auto'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
+import { useAudioEffectsStore } from '../features/audio-effects/effects-store'
+import { useSoundDialogStore } from '../features/audio-effects/sound-dialog-store'
 import { resetDownloads } from '../features/downloads/runtime'
 import { setConverter, setDeviceSaver } from '../features/downloads/save/save'
 import { useLibraryViewStore } from '../features/library/view-store'
@@ -44,6 +46,8 @@ afterEach(async () => {
   // The shell's toast: no confirmation carries over into the next test.
   useFeedbackStore.setState(useFeedbackStore.getInitialState(), true)
   usePwaStore.setState(usePwaStore.getInitialState(), true)
+  useAudioEffectsStore.setState(useAudioEffectsStore.getInitialState(), true)
+  useSoundDialogStore.setState(useSoundDialogStore.getInitialState(), true)
   if (playerStore === undefined) return
   localStorage.clear()
   sessionStorage.clear()

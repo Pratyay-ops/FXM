@@ -145,6 +145,23 @@ class FakePort : PlayerPort {
     level = volume
   }
 
+  var appliedEqualizer = EqualizerSettings()
+  var appliedSpeed = 1f
+  var pauseAtEnd = false
+
+  override fun setEqualizer(settings: EqualizerSettings) {
+    appliedEqualizer = settings
+  }
+
+  override fun setSpeed(speed: Float) {
+    appliedSpeed = speed
+  }
+
+  override fun setPauseAtEndOfMediaItems(pause: Boolean) {
+    pauseAtEnd = pause
+    ops += "pauseAtEnd $pause"
+  }
+
   override fun clear() {
     items.clear()
     index = -1
@@ -191,10 +208,11 @@ fun testEntry(
   network: Int? = null,
   title: String = id,
   fileKey: String? = fileKeyOf(url),
+  loudness: Loudness? = null,
 ): Entry =
   Entry(
     id = id,
     uid = id.fold(0L) { acc, char -> acc * 31 + char.code } and 0xffffL,
-    source = Source(url, emptyMap(), expiresAt, ipBound, network, fileKey),
+    source = Source(url, emptyMap(), expiresAt, ipBound, network, fileKey, loudness),
     metadata = Metadata(title, listOf("$id artist")),
   )

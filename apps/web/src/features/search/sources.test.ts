@@ -168,6 +168,20 @@ describe('itemFeatures', () => {
     }
     expect(itemFeatures(fullWithoutBytes, 'ytm').download).toBe(false)
   })
+
+  it('offers the equalizer on YouTube and Spotify items only in a browser', () => {
+    for (const platform of ['desktop', 'android'] as const) {
+      for (const source of ['ytm', 'yt', 'spotify'] as const) {
+        expect(itemFeatures(TIER_CAPABILITIES.full, source, platform)).toEqual({
+          download: true,
+          equalizer: false,
+        })
+      }
+      expect(itemFeatures(TIER_CAPABILITIES.full, 'local', platform).equalizer).toBe(true)
+      expect(itemFeatures(TIER_CAPABILITIES.full, 'archive', platform).equalizer).toBe(true)
+    }
+    expect(itemFeatures(TIER_CAPABILITIES.full, 'ytm', 'web').equalizer).toBe(true)
+  })
 })
 
 describe('sourceLabel', () => {

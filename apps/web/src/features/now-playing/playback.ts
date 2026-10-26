@@ -9,7 +9,8 @@
  * - keeps its queue, position and volume across reloads (`features/queue/queue-storage.ts`);
  * - keeps the queue's review list (`features/queue/review-store.ts`) in step with the policy;
  * - records each play as a listening signal (stage 3.1, `features/signals/play-recorder.ts`);
- * - skips the non-music parts of videos when SponsorBlock is on (`features/sponsorblock/`).
+ * - skips the non-music parts of videos when SponsorBlock is on (`features/sponsorblock/`);
+ * - applies the audio effects and the sleep timer (stage 8.1, `features/audio-effects/`).
  *
  * Components read it with {@link usePlayerState} and call the player's methods straight from
  * event handlers, so playback starts inside the user's gesture (see the player's README).
@@ -20,7 +21,6 @@
 import { currentQueueItem, type QueueItem } from '@fxm/core'
 import {
   connectMediaSession,
-  DirectAudioEngine,
   type Engine,
   Player,
   type PlayerEventMap,
@@ -28,6 +28,7 @@ import {
   type PlayerState,
 } from '@fxm/player'
 import { useEffect, useEffectEvent, useSyncExternalStore } from 'react'
+import { connectAudioEffects, createAppEngine } from '../audio-effects/connect'
 import {
   loadSavedPlayback,
   type PersistOptions,
@@ -42,7 +43,10 @@ import { createAppPolicy, type PlaybackPolicy } from './playback-policy'
 
 /** How the app's playback is put together. Every field has a default; tests pass fakes. */
 export interface PlaybackOptions {
-  /** Creates the engine. Default: a `DirectAudioEngine`. */
+  /**
+   * Creates the engine. Default: a `DirectAudioEngine` that knows which streams the equalizer
+   * can read (`createAppEngine`).
+   */
   createEngine?: () => Engine
   /** The playback policy. Default: {@link createAppPolicy}. */
   policy?: PlaybackPolicy
@@ -105,7 +109,7 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
   const saved = loadSavedPlayback(storage)
   const player = new Player({
     ...options.player,
-    engine: options.createEngine?.() ?? new DirectAudioEngine(),
+    engine: options.createEngine?.() ?? createAppEngine(),
     resolver: policy.resolver,
     queue: { mode: useSettingsStore.getState().catalogMode },
     ...(saved.volume === undefined ? {} : { volume: saved.volume }),
@@ -117,6 +121,9 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
     if (positionMs > 0) player.seek(positionMs)
   }
   const disconnects = [
+    // First: applying the effects updates the state, which must not notify before the
+    // playback exists (a listener that reads the player would create a second one).
+    connectAudioEffects(player),
     player.subscribe(notify),
     options.mediaSession === false ? () => {} : connectMediaSession(player),
     options.recordPlays === false ? () => {} : connectPlayRecorder(player),
