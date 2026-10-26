@@ -2,7 +2,8 @@
  * Home's shelves: the rows of songs and mixes, and a connected Spotify account's sections.
  * Every song is a button that plays its shelf from that song, when playback is wired in (see
  * `services.tsx`); otherwise the shelves only show, and a row that scrolls takes focus itself,
- * so the keyboard can scroll it too.
+ * so the keyboard can scroll it too. The song the player is on is marked wherever it shows,
+ * with the "now playing" marker over its cover.
  *
  * @module
  */
@@ -20,10 +21,17 @@ import { Disc3, ListMusic, MicVocal, Play } from 'lucide-react'
 import { type FocusEvent, type ReactNode, useId } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
+import {
+  NowPlayingOverlay,
+  type NowPlayingStatus,
+  nowPlayingLabel,
+  nowPlayingText,
+} from '../../components/ui/now-playing-marker'
 import { cn } from '../../lib/cn'
 import { CoverArt } from '../library/cover-art'
 import { artistNames, artworkUrl } from '../library/format'
 import { playlistPath } from '../library/paths'
+import { useNowPlayingStatus } from '../now-playing/current-track'
 import { albumPath, artistPath } from '../search/catalog/links'
 import type { HomePlayback } from './services'
 
@@ -152,14 +160,24 @@ function CardText({
   title,
   subtitle,
   lines = 1,
+  nowPlaying,
 }: {
   title: string
   subtitle: string
   lines?: 1 | 2
+  /** The card's song is the player's current one: its title in the accent colour. */
+  nowPlaying?: NowPlayingStatus | undefined
 }) {
   return (
     <>
-      <span className="mt-2.5 block truncate text-sm font-semibold">{title}</span>
+      <span
+        className={cn(
+          'mt-2.5 block truncate text-sm font-semibold',
+          nowPlaying && 'text-accent forced-colors:text-[Highlight]',
+        )}
+      >
+        {title}
+      </span>
       {subtitle && (
         <span
           className={cn(
@@ -186,21 +204,74 @@ function PlayBadge() {
   )
 }
 
-/** One song as a card: its cover, title and artists. Plays when clicked, if it can. */
-function TrackCard({ track, play }: { track: Track; play?: (() => void) | undefined }) {
-  const cover = (
-    <CoverArt
-      src={artworkUrl(track.artwork, 360)}
-      seed={track.id}
-      className="aspect-square w-full shadow-md"
-    />
+/**
+ * A song's item in a shelf, marked with `aria-current` while the song is the player's current
+ * one; `children` renders its card or line with that status. Each item follows only whether its
+ * song is current, so playback re-renders the items that gain or lose the marker.
+ */
+function TrackItem({
+  track,
+  className,
+  children,
+}: {
+  track: Track
+  className?: string
+  children: (nowPlaying: NowPlayingStatus | undefined) => ReactNode
+}) {
+  const nowPlaying = useNowPlayingStatus(track.id)
+  return (
+    <li className={className} aria-current={nowPlaying === undefined ? undefined : 'true'}>
+      {children(nowPlaying)}
+    </li>
   )
-  const text = <CardText title={track.title} subtitle={artistNames(track)} />
+}
+
+/** The name of a song's play button: "Play Copper Sun by Aurora Lane", and its status. */
+function playLabel(track: Track, nowPlaying: NowPlayingStatus | undefined): string {
+  return nowPlayingLabel(`Play ${trackLabel(track)}`, nowPlaying)
+}
+
+/** Says a song's status where it has no play button to name it. */
+function NowPlayingNote({ status }: { status: NowPlayingStatus | undefined }) {
+  return status === undefined ? null : <span className="sr-only">{nowPlayingText(status)}</span>
+}
+
+/**
+ * One song as a card: its cover, title and artists. Plays when clicked, if it can. The current
+ * song (`nowPlaying`) has the marker over its cover.
+ */
+function TrackCard({
+  track,
+  play,
+  nowPlaying,
+}: {
+  track: Track
+  play?: (() => void) | undefined
+  nowPlaying?: NowPlayingStatus | undefined
+}) {
+  const cover = (
+    <span className="relative block">
+      <CoverArt
+        src={artworkUrl(track.artwork, 360)}
+        seed={track.id}
+        className="aspect-square w-full shadow-md"
+      />
+      {nowPlaying ? (
+        <NowPlayingOverlay status={nowPlaying} size="lg" rounded="md" />
+      ) : (
+        play !== undefined && <PlayBadge />
+      )}
+    </span>
+  )
+  const text = (
+    <CardText title={track.title} subtitle={artistNames(track)} nowPlaying={nowPlaying} />
+  )
   if (play === undefined) {
     return (
       <div>
         {cover}
         {text}
+        <NowPlayingNote status={nowPlaying} />
       </div>
     )
   }
@@ -208,13 +279,10 @@ function TrackCard({ track, play }: { track: Track; play?: (() => void) | undefi
     <button
       type="button"
       onClick={play}
-      aria-label={`Play ${trackLabel(track)}`}
+      aria-label={playLabel(track, nowPlaying)}
       className="group block w-full rounded-md text-left"
     >
-      <span className="relative block">
-        {cover}
-        <PlayBadge />
-      </span>
+      {cover}
       {text}
     </button>
   )
@@ -233,37 +301,71 @@ export function TrackRow({
   return (
     <CardRow label={label} focusable={play === undefined}>
       {items.map((item, index) => (
-        <li key={item.track.id} className="snap-start">
-          <TrackCard track={item.track} play={play === undefined ? undefined : () => play(index)} />
-        </li>
+        <TrackItem key={item.track.id} track={item.track} className="snap-start">
+          {(nowPlaying) => (
+            <TrackCard
+              track={item.track}
+              play={play === undefined ? undefined : () => play(index)}
+              nowPlaying={nowPlaying}
+            />
+          )}
+        </TrackItem>
       ))}
     </CardRow>
   )
 }
 
-/** One song as a compact line: a small cover, the title and the artists. */
-function TrackLine({ track, play }: { track: Track; play?: (() => void) | undefined }) {
+/**
+ * One song as a compact line: a small cover, the title and the artists. The current song
+ * (`nowPlaying`) has the marker over its cover and its title in the accent colour.
+ */
+function TrackLine({
+  track,
+  play,
+  nowPlaying,
+}: {
+  track: Track
+  play?: (() => void) | undefined
+  nowPlaying?: NowPlayingStatus | undefined
+}) {
   const body = (
     <>
-      <CoverArt
-        src={artworkUrl(track.artwork, 96)}
-        seed={track.id}
-        rounded="sm"
-        className="size-12"
-      />
+      <span className="relative shrink-0">
+        <CoverArt
+          src={artworkUrl(track.artwork, 96)}
+          seed={track.id}
+          rounded="sm"
+          className="size-12"
+        />
+        {nowPlaying && <NowPlayingOverlay status={nowPlaying} />}
+      </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate font-semibold">{track.title}</span>
+        <span
+          className={cn(
+            'block truncate font-semibold',
+            nowPlaying && 'text-accent forced-colors:text-[Highlight]',
+          )}
+        >
+          {track.title}
+        </span>
         <span className="block truncate text-sm text-text-muted">{artistNames(track)}</span>
       </span>
     </>
   )
   const line = 'flex min-h-14 w-full items-center gap-3 rounded-md px-2 py-1.5 text-left'
-  if (play === undefined) return <div className={line}>{body}</div>
+  if (play === undefined) {
+    return (
+      <div className={line}>
+        {body}
+        <NowPlayingNote status={nowPlaying} />
+      </div>
+    )
+  }
   return (
     <button
       type="button"
       onClick={play}
-      aria-label={`Play ${trackLabel(track)}`}
+      aria-label={playLabel(track, nowPlaying)}
       className={cn(line, 'transition-colors hover:bg-text/6')}
     >
       {body}
@@ -285,9 +387,15 @@ export function QuickPicksGrid({ items, play }: { items: readonly HomeTrack[]; p
       )}
     >
       {items.map((item, index) => (
-        <li key={item.track.id} className="min-w-0 snap-start">
-          <TrackLine track={item.track} play={play === undefined ? undefined : () => play(index)} />
-        </li>
+        <TrackItem key={item.track.id} track={item.track} className="min-w-0 snap-start">
+          {(nowPlaying) => (
+            <TrackLine
+              track={item.track}
+              play={play === undefined ? undefined : () => play(index)}
+              nowPlaying={nowPlaying}
+            />
+          )}
+        </TrackItem>
       ))}
     </ul>
   )
@@ -366,9 +474,15 @@ export function MixTrackList({ mix, play }: { mix: DailyMix; play: PlayFrom }) {
   return (
     <ol aria-label={`Songs in ${mix.title}`} className="-mx-2 space-y-0.5">
       {mix.tracks.map((item, index) => (
-        <li key={item.track.id}>
-          <TrackLine track={item.track} play={play === undefined ? undefined : () => play(index)} />
-        </li>
+        <TrackItem key={item.track.id} track={item.track}>
+          {(nowPlaying) => (
+            <TrackLine
+              track={item.track}
+              play={play === undefined ? undefined : () => play(index)}
+              nowPlaying={nowPlaying}
+            />
+          )}
+        </TrackItem>
       ))}
     </ol>
   )
@@ -385,9 +499,8 @@ export function entityPath(id: EntityId<'album' | 'artist' | 'playlist'>): strin
   return playlistPath(id as EntityId<'playlist'>)
 }
 
-/** One item of a service's section as a card. */
-function SourceItemCard({ item, play }: { item: ShelfItem; play?: (() => void) | undefined }) {
-  if (item.type === 'track') return <TrackCard track={item.track} play={play} />
+/** An album, artist or playlist of a service's section as a card, linked to its page. */
+function SourceItemCard({ item }: { item: Exclude<ShelfItem, { type: 'track' }> }) {
   const entity =
     item.type === 'album'
       ? { id: item.album.id, name: item.album.name, artwork: item.album.artwork, icon: Disc3 }
@@ -450,13 +563,23 @@ export function SourceRow({
               : item.type === 'artist'
                 ? item.artist.id
                 : item.playlist.id
+        if (item.type !== 'track') {
+          return (
+            <li key={id} className="snap-start">
+              <SourceItemCard item={item} />
+            </li>
+          )
+        }
         return (
-          <li key={id} className="snap-start">
-            <SourceItemCard
-              item={item}
-              play={play === undefined || index < 0 ? undefined : () => play(index)}
-            />
-          </li>
+          <TrackItem key={id} track={item.track} className="snap-start">
+            {(nowPlaying) => (
+              <TrackCard
+                track={item.track}
+                play={play === undefined ? undefined : () => play(index)}
+                nowPlaying={nowPlaying}
+              />
+            )}
+          </TrackItem>
         )
       })}
     </CardRow>

@@ -3,7 +3,6 @@ import { formatTime } from '@fxm/player'
 import {
   ArrowDown,
   ArrowUp,
-  AudioLines,
   ChevronsUp,
   CircleAlert,
   CircleHelp,
@@ -25,6 +24,7 @@ import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
 import { iconButtonClasses } from '../../components/ui/icon-button'
+import { NowPlayingBars, nowPlayingText } from '../../components/ui/now-playing-marker'
 import { cn } from '../../lib/cn'
 import { autoplayChangeMessage, useAutoplayActivity } from '../autoplay/autoplay-activity'
 import { autoplayContextOf, useAutoplayMarks } from '../autoplay/autoplay-marks'
@@ -37,6 +37,7 @@ import {
   useIsAutoplayItem,
 } from '../autoplay/autoplay-setting'
 import { entityPath, searchPath } from '../now-playing/browse-links'
+import { nowPlayingStatusFor } from '../now-playing/current-track'
 import { getPlayer, usePlayerState } from '../now-playing/playback'
 import { KIND_LABELS } from '../now-playing/stream-label'
 import { TrackArtwork } from '../now-playing/track-artwork'
@@ -186,7 +187,7 @@ function CurrentRow({
   bestGuess: AudioCandidate | undefined
   playBestGuesses: boolean
 }) {
-  const playing = usePlayerState((state) => state.status === 'playing')
+  const status = usePlayerState((state) => nowPlayingStatusFor(state.status))
   const failed = usePlayerState((state) => state.error !== undefined)
   const autoplay = useIsAutoplayItem(item)
   const { track } = item
@@ -201,14 +202,18 @@ function CurrentRow({
         className="size-12"
       />
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold text-accent">{track.title}</p>
+        <p className="truncate font-semibold text-accent forced-colors:text-[Highlight]">
+          {track.title}
+        </p>
         <p className="truncate text-sm text-text-muted">{byline(track)}</p>
         {failed ? <FailedMark /> : label !== undefined && <ReviewMark label={label} />}
         {autoplay && <AutoplayMark />}
       </div>
-      {playing && (
-        <AudioLines role="img" aria-label="Playing" className="mr-1 size-5 shrink-0 text-accent" />
-      )}
+      {/* The marker of the track lists, moving while it plays, still while it is paused. */}
+      <span className="mr-1 flex shrink-0 text-accent">
+        <NowPlayingBars status={status} size="md" />
+        <span className="sr-only">{nowPlayingText(status)}</span>
+      </span>
     </div>
   )
 }

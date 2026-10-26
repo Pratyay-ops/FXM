@@ -216,11 +216,15 @@ describe('the Local files tab', () => {
       id: 'local-files',
       title: 'Local files',
     })
-    await user.click(await screen.findByRole('button', { name: 'Pause Slow Tide' }))
+    await user.click(await screen.findByRole('button', { name: 'Pause Slow Tide. Now playing' }))
     expect(getLocalPlayer().getState().status).toBe('paused')
-    // Paused, the song is still the current one, and not by color alone.
-    const resume = await screen.findByRole('button', { name: 'Resume Slow Tide' })
+    // Paused, the song is still the current one, and not by color alone: the marker stays, still.
+    const resume = await screen.findByRole('button', { name: 'Resume Slow Tide. Paused' })
     expect(resume.closest('li')).toHaveAttribute('aria-current', 'true')
+    expect(resume.closest('li')?.querySelector('svg[data-now-playing]')).toHaveAttribute(
+      'data-now-playing',
+      'paused',
+    )
     expect(
       within(await songList())
         .getAllByRole('listitem')
