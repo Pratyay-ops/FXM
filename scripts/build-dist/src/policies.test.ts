@@ -191,7 +191,8 @@ describe('the sandbox document policies', () => {
     expect(policies).toEqual({
       'innertube.html': `sandbox allow-scripts; default-src 'none'; script-src ${HASH}; connect-src https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com; base-uri 'none'; form-action 'none'`,
       'userhost.html': `sandbox allow-scripts; default-src 'none'; script-src ${HASH}; connect-src https:; base-uri 'none'; form-action 'none'`,
-      'eval.html': `sandbox allow-scripts; default-src 'none'; script-src ${HASH} 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'`,
+      // 8.3 adds worker-src blob: for the plugin workers, which inherit connect-src 'none'.
+      'eval.html': `sandbox allow-scripts; default-src 'none'; script-src ${HASH} 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; worker-src blob:; base-uri 'none'; form-action 'none'`,
     })
   })
 

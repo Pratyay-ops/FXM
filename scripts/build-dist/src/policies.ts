@@ -172,12 +172,16 @@ export const SANDBOX_DOCUMENTS = {
     ['connect-src', ['https:']],
     ...COMMON_DOCUMENT_DIRECTIVES,
   ],
-  /** 1.11: the isolated evaluator, the only document with 'unsafe-eval'. */
+  /**
+   * 1.11: the isolated evaluator, the only document with 'unsafe-eval'. 8.3 runs each plugin in a
+   * worker it starts from a blob: URL, which inherits this policy and so connects nowhere either.
+   */
   'eval.html': (scriptHashes: readonly string[]): Policy => [
     ['sandbox', ['allow-scripts']],
     ['default-src', [NONE]],
     ['script-src', [...scriptHashes, UNSAFE_EVAL, WASM_UNSAFE_EVAL]],
     ['connect-src', [NONE]],
+    ['worker-src', ['blob:']],
     ...COMMON_DOCUMENT_DIRECTIVES,
   ],
 } as const satisfies Record<string, (scriptHashes: readonly string[]) => Policy>

@@ -54,8 +54,9 @@ describe('the evaluator document', () => {
     const { meta, scripts } = partsOf(committed)
     expect(scripts).toHaveLength(1)
     const hash = await scriptHashOf(scripts[0] ?? '')
+    // Workers only from blob: URLs (stage 8.3's plugins), which inherit connect-src 'none'.
     expect(meta).toBe(
-      `default-src 'none'; script-src ${hash} 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'`,
+      `default-src 'none'; script-src ${hash} 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; worker-src blob:; base-uri 'none'; form-action 'none'`,
     )
     expect(committed).not.toMatch(/<script[^>]*\bsrc=/u)
     expect(committed).not.toContain("'unsafe-inline'")
