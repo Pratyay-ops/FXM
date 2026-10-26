@@ -1,0 +1,55 @@
+import { describe, expect, it } from 'vitest'
+import * as plugins from './index'
+
+describe('@fxm/plugins', () => {
+  it('exports the public API, and not the runtime or the result mappers', () => {
+    expect(Object.keys(plugins).sort()).toEqual(
+      [
+        'BROKER_LIMITS',
+        'DOWNLOAD_TIMEOUT_MS',
+        'MANIFEST_LIMITS',
+        'METADATA_OPERATIONS',
+        'PACKAGE_LIMITS',
+        'PLUGINS_CONSENT',
+        'PLUGIN_API_VERSION',
+        'PLUGIN_ERROR_CODES',
+        'PLUGIN_FILE_FORMAT',
+        'PLUGIN_METHODS',
+        'PLUGIN_OPERATIONS',
+        'PLUGIN_REQUEST_HEADERS',
+        'PluginError',
+        'RESULT_LIMITS',
+        'RUNNER_LIMITS',
+        'budgetKey',
+        'checkCompatible',
+        'cleanText',
+        'codeText',
+        'compareVersions',
+        'createFetchBroker',
+        'createPluginFile',
+        'createPluginProviders',
+        'createPluginRegistry',
+        'createPluginRunner',
+        'downloadHosts',
+        'downloadPlugin',
+        'exclusiveSandbox',
+        'hostOfUrl',
+        'isDeclaredUrl',
+        'isPluginError',
+        'isPluginId',
+        'isolatedSandboxes',
+        'memoryPluginStore',
+        'normalizeHost',
+        'parseManifest',
+        'parseVersion',
+        'pluginAddress',
+        'pluginKey',
+        'pluginPolicy',
+        'pluginSourceId',
+        'readPluginFile',
+        'sha256Hex',
+        'verifyChecksum',
+      ].sort(),
+    )
+  })
+})

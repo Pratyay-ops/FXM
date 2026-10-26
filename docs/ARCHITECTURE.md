@@ -244,6 +244,8 @@ packages/
               conversion worker
   downloads/  Download manager (4.1): a resumable queue, the storage and record interfaces each
               platform implements, and the offline store the playback policy plays downloads from
+  plugins/    Plugin system (8.3): manifests, checksums, installs and approved updates, the host
+              that runs plugin code in the isolated evaluator and its declared-hosts fetch broker
 docs/         Architecture, plan, workflow, development guide; research/ holds the decision memos
 scripts/      Toolchain bootstrap (everything installs into .tools/)
 ```
