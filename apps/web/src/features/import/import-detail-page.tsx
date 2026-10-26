@@ -20,7 +20,7 @@ import { useLive } from '../../db/hooks'
 import type { ImportProgressRecord } from '../../db/types'
 import { countLabel } from '../library/format'
 import { playlistPath } from '../library/paths'
-import { StatusToast, showStatus } from '../library/status'
+import { showStatus } from '../library/status'
 import { focusWhenReady, importTitleId } from './focus'
 import { countsText, kindLabel, lengthText, shownStatus } from './format'
 import { useMatchingAvailability, useRunnerView } from './hooks'
@@ -571,7 +571,6 @@ export function ImportDetailPage() {
       ) : (
         <Detail record={record} state={state} services={services} disabled={elsewhere} />
       )}
-      <StatusToast />
     </div>
   )
 }

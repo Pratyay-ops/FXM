@@ -21,7 +21,6 @@ import { buttonClasses } from '../../components/ui/button'
 import { PageTitle } from '../../components/ui/page'
 import { type TabItem, TabPanel, Tabs } from '../../components/ui/tabs'
 import { cn } from '../../lib/cn'
-import { StatusToast } from '../library/status'
 import { TextField } from '../library/ui/field'
 import { type ImportSource, importErrorText, readExportFiles, readPlaylistFile } from './files'
 import { focusWhenReady } from './focus'
@@ -415,7 +414,6 @@ export function ImportPage() {
         focusId={focusId}
         onFocused={clearFocus}
       />
-      <StatusToast />
     </div>
   )
 }
