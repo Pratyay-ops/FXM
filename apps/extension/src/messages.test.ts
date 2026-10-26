@@ -11,7 +11,7 @@ import {
   readPageMessage,
 } from './messages.ts'
 
-const ORIGIN = 'https://fxm-music.pages.dev'
+const ORIGIN = 'https://fxmusic.pages.dev'
 const pageWindow = { name: 'page' }
 const expected = { source: pageWindow, origin: ORIGIN }
 
@@ -34,7 +34,7 @@ describe('readPageMessage: who may talk to FXM Connect', () => {
   })
 
   it('ignores messages whose origin is not the FXM page', () => {
-    for (const origin of ['https://evil.example', 'https://fxm-music.pages.dev.evil.example']) {
+    for (const origin of ['https://evil.example', 'https://fxmusic.pages.dev.evil.example']) {
       expect(readPageMessage(event({ type: MESSAGE.ping }, { origin }), expected)).toBeNull()
     }
   })

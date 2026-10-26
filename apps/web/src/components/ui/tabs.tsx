@@ -1,4 +1,4 @@
-import { type KeyboardEvent, type ReactNode, useRef } from 'react'
+import { type KeyboardEvent, type ReactNode, useLayoutEffect, useRef } from 'react'
 import { cn } from '../../lib/cn'
 
 export interface TabItem<V extends string> {
@@ -22,7 +22,8 @@ const panelId = (id: string) => `${id}-panel`
 
 /**
  * Chip-style tabs following the WAI-ARIA tabs pattern: one tab stop, arrow keys,
- * Home and End move between tabs, and selection follows focus.
+ * Home and End move between tabs, and selection follows focus. When the tabs don't fit
+ * (phones), the strip scrolls sideways and keeps the selected tab in view.
  */
 export function Tabs<V extends string>({
   label,
@@ -33,6 +34,22 @@ export function Tabs<V extends string>({
   className,
 }: TabsProps<V>) {
   const tabs = useRef(new Map<V, HTMLButtonElement>())
+  const strip = useRef<HTMLDivElement>(null)
+
+  // A page opened on a later tab (a link, a reload) would otherwise show no selected tab on a
+  // phone. Only the strip scrolls, never the page, so a restored scroll position stays.
+  useLayoutEffect(() => {
+    const list = strip.current
+    const tab = tabs.current.get(value)
+    if (!list || !tab) return
+    const bounds = list.getBoundingClientRect()
+    const box = tab.getBoundingClientRect()
+    const style = getComputedStyle(list)
+    const start = bounds.left + (Number.parseFloat(style.paddingLeft) || 0)
+    const end = bounds.right - (Number.parseFloat(style.paddingRight) || 0)
+    if (box.left < start) list.scrollLeft -= start - box.left
+    else if (box.right > end) list.scrollLeft += box.right - end
+  }, [value])
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const targets: Record<string, number> = {
@@ -52,6 +69,7 @@ export function Tabs<V extends string>({
 
   return (
     <div
+      ref={strip}
       role="tablist"
       aria-label={label}
       className={cn(

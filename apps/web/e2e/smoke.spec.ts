@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
 
 // Paths are relative to the /app/ base URL (see playwright.config.ts).
@@ -6,13 +7,50 @@ const PAGES = [
   'search',
   'search?q=lofi%20beats',
   'library',
-  'album/MPREb_42',
-  'artist/UC-daft',
+  'library?tab=liked',
+  'library?tab=recent',
+  'album/ytm:MPREb_42',
+  'artist/ytm:UC-daft',
   'playlist/liked',
+  'playlist/local:playlist:liked',
   'now-playing',
   'settings',
   'no-such-page',
 ]
+
+/** A library backup with three playlists, likes, follows and plays (fictional songs). */
+const LIBRARY_BACKUP = fileURLToPath(new URL('./fixtures/library-backup.json', import.meta.url))
+const ROAD_TRIP = 'playlist/local:playlist:6f1c2d3e-0000-4000-8000-000000000001'
+
+/** Restores the fixture library through the Backup dialog, replacing what is there. */
+async function restoreLibrary(page: Page) {
+  await page.goto('library')
+  await page.getByRole('main').getByRole('button', { name: 'Backup' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Back up your library' })
+  await dialog.getByLabel('Choose a backup file').setInputFiles(LIBRARY_BACKUP)
+  await dialog.getByRole('radio', { name: /Replace/ }).check()
+  await dialog.getByRole('button', { name: 'Replace my library' }).click()
+  await expect(page.getByText('Library replaced from the backup')).toBeVisible()
+}
+
+/** Scrolls a playlist's first song to the middle of the window. */
+async function centerList(page: Page, name: string) {
+  await page
+    .getByRole('list', { name: `Songs in ${name}` })
+    .getByRole('listitem')
+    .first()
+    .evaluate((row) => row.scrollIntoView({ block: 'center' }))
+}
+
+/** The song titles of a playlist, in the order shown. */
+function songOrder(page: Page, name: string) {
+  return page
+    .getByRole('list', { name: `Songs in ${name}` })
+    .getByRole('button', { name: /^More options for / })
+    .evaluateAll((buttons) =>
+      buttons.map((button) => button.getAttribute('aria-label')?.replace('More options for ', '')),
+    )
+}
 
 const GREETING = /^Good (morning|afternoon|evening)$/
 
@@ -80,7 +118,8 @@ test('searches from the top bar, one Back away from where it started', async ({ 
     .getByRole('searchbox', { name: 'Search' })
     .pressSequentially('daft punk')
   await expect(page).toHaveURL(/\/app\/search\?q=daft%20punk$/)
-  await expect(page.getByRole('heading', { name: 'Results for “daft punk”' })).toBeVisible()
+  // What follows depends on the tier (results, or how to reach YouTube Music): not checked here.
+  await expect(page.getByRole('heading', { level: 1, name: 'Search' })).toBeVisible()
 
   await page.goBack()
 
@@ -115,6 +154,184 @@ test('keeps the catalog mode and theme across a reload', async ({ page }) => {
   await expect(page.getByRole('radio', { name: 'Light' })).toBeChecked()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
   await expect(page.getByRole('link', { name: /Catalog mode: Music \+ Video/ })).toBeVisible()
+})
+
+test('keeps a custom order made by keyboard and by the menu across a reload', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto(ROAD_TRIP)
+  await expect(page.getByRole('heading', { level: 1, name: 'Road trip' })).toBeVisible()
+  expect((await songOrder(page, 'Road trip')).slice(0, 3)).toEqual([
+    'Midnight Drive',
+    'Copper Sun',
+    'Gravity Letters',
+  ])
+
+  // Pick the first song up with Space, move it two places down, drop it. Like a screen reader
+  // user, wait for each announcement before the next key.
+  await centerList(page, 'Road trip')
+  const handle = page.getByRole('button', { name: 'Reorder Midnight Drive' })
+  await handle.focus()
+  await page.keyboard.press('Space')
+  await expect(page.getByText('Picked up Midnight Drive, at position 1 of 8.')).toBeAttached()
+  await expect(handle).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByText('Midnight Drive moved to position 2 of 8.')).toBeAttached()
+  await page.keyboard.press('ArrowDown')
+  await expect(page.getByText('Midnight Drive moved to position 3 of 8.')).toBeAttached()
+  await page.keyboard.press('Space')
+  await expect(page.getByText('Midnight Drive dropped at position 3 of 8.')).toBeAttached()
+  await expect
+    .poll(async () => (await songOrder(page, 'Road trip')).slice(0, 3))
+    .toEqual(['Copper Sun', 'Gravity Letters', 'Midnight Drive'])
+
+  await page.getByRole('button', { name: 'More options for Quiet Machines' }).click()
+  await page.getByRole('menuitem', { name: 'Move to top' }).click()
+  await expect.poll(async () => (await songOrder(page, 'Road trip'))[0]).toBe('Quiet Machines')
+
+  await page.reload()
+  await expect
+    .poll(async () => (await songOrder(page, 'Road trip')).slice(0, 4))
+    .toEqual(['Quiet Machines', 'Copper Sun', 'Gravity Letters', 'Midnight Drive'])
+})
+
+test('drags a song with the mouse into a new place', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto(ROAD_TRIP)
+  const list = page.getByRole('list', { name: 'Songs in Road trip' })
+  // Drag in the middle of the window: near its edges the page scrolls along.
+  await centerList(page, 'Road trip')
+  const handle = list.getByRole('button', { name: 'Reorder Midnight Drive' })
+  const target = list.getByRole('listitem').nth(3)
+  const from = await handle.boundingBox()
+  const to = await target.boundingBox()
+  if (!from || !to) throw new Error('The list is not laid out')
+
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(from.x + from.width / 2, to.y + to.height / 2, { steps: 12 })
+  await page.mouse.up()
+
+  await expect
+    .poll(async () => (await songOrder(page, 'Road trip')).slice(0, 4))
+    .toEqual(['Copper Sun', 'Gravity Letters', 'Northern Lights (Live)', 'Midnight Drive'])
+  await page.reload()
+  await expect.poll(async () => (await songOrder(page, 'Road trip'))[3]).toBe('Midnight Drive')
+})
+
+test('works the menus with the keyboard alone', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto(ROAD_TRIP)
+  await expect(page.getByRole('heading', { level: 1, name: 'Road trip' })).toBeVisible()
+  await centerList(page, 'Road trip')
+
+  // A song's menu: Enter opens it on its first entry, the arrow keys move, Escape closes it.
+  const trigger = page.getByRole('button', { name: 'More options for Copper Sun' })
+  const menu = page.getByRole('menu', { name: 'More options for Copper Sun' })
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  await expect(menu.getByRole('menuitem', { name: 'Move to top' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: 'Move up' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(trigger).toBeFocused()
+
+  // Its entries work from the keyboard, and say where the song went.
+  await page.keyboard.press('Enter')
+  await expect(menu.getByRole('menuitem', { name: 'Move to top' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Moved Copper Sun to position 1 of 8')).toBeVisible()
+  await expect.poll(async () => (await songOrder(page, 'Road trip'))[0]).toBe('Copper Sun')
+  await expect(trigger).toBeFocused()
+
+  // Tab closes a menu and moves on from its button.
+  await page.keyboard.press('Enter')
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(menu).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Reorder Midnight Drive' })).toBeFocused()
+
+  // The sort menu: ArrowDown opens it, Enter picks a sort; then Save as custom order.
+  const sort = page.getByRole('button', { name: 'Sort: Custom order' })
+  const sortMenu = page.getByRole('menu', { name: 'Sort and view' })
+  await sort.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(sortMenu.getByRole('menuitemradio', { name: 'Custom order' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(sortMenu.getByRole('menuitemradio', { name: 'Title' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(sortMenu).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Sort: Title' })).toBeFocused()
+  await page.getByRole('button', { name: 'Save as custom order' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('The sorted order was saved.')).toBeVisible()
+  // The notice's button went with the sort view: the sort button has focus.
+  await expect(page.getByRole('button', { name: 'Sort: Custom order' })).toBeFocused()
+  await expect
+    .poll(async () => (await songOrder(page, 'Road trip')).slice(0, 3))
+    .toEqual(['Copper Sun', 'Gravity Letters', 'Midnight Drive'])
+})
+
+test.describe('with reduced motion', () => {
+  // The app turns every transition into 0.01 ms then: a menu must still take focus at once.
+  test.use({ reducedMotion: 'reduce' })
+
+  test('opens a menu with focus in it, and closes it back onto its button', async ({ page }) => {
+    await page.goto('playlist/local:playlist:liked')
+    const trigger = page
+      .getByRole('main')
+      .getByRole('button', { name: 'More options for Liked songs' })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('menuitem', { name: 'Duplicate' })).toBeFocused()
+    await expect(page.getByRole('menuitem', { name: 'Duplicate' }).locator('svg')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+})
+
+test('keeps keyboard focus in a list when rows leave it', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto(ROAD_TRIP)
+  await expect(page.getByRole('heading', { level: 1, name: 'Road trip' })).toBeVisible()
+  await centerList(page, 'Road trip')
+
+  // Remove a song from its menu: the next song's menu button takes over.
+  await page.getByRole('button', { name: 'More options for Copper Sun' }).focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('End')
+  await expect(page.getByRole('menuitem', { name: 'Remove from this playlist' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => songOrder(page, 'Road trip')).not.toContain('Copper Sun')
+  await expect(page.getByRole('button', { name: 'More options for Gravity Letters' })).toBeFocused()
+
+  // Delete a playlist from the sidebar: the next playlist's menu button takes over.
+  const sidebar = page.getByRole('region', { name: 'Your playlists' })
+  await sidebar.getByRole('button', { name: 'More options for Focus flow' }).focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('End')
+  await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  const confirm = page.getByRole('alertdialog', { name: 'Delete playlist?' })
+  await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(confirm.getByRole('button', { name: 'Delete' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(confirm).toBeHidden()
+  await expect(sidebar.getByRole('link', { name: /Focus flow/ })).toHaveCount(0)
+  await expect(sidebar.getByRole('button', { name: 'More options for Late night' })).toBeFocused()
+})
+
+test('confirms a sidebar action on any page', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto('settings')
+  const sidebar = page.getByRole('region', { name: 'Your playlists' })
+  await sidebar.getByRole('link', { name: /Late night/ }).hover()
+  await sidebar.getByRole('button', { name: 'More options for Late night' }).click()
+  await page.getByRole('menuitem', { name: 'Duplicate' }).click()
+  await expect(page.getByRole('status').getByText('Created Late night (copy)')).toBeVisible()
+  await expect(sidebar.getByRole('link', { name: /Late night \(copy\)/ })).toBeVisible()
 })
 
 test.describe('on a short desktop window', () => {

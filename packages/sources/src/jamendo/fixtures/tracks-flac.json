@@ -1,0 +1,57 @@
+{
+  "headers": {
+    "status": "success",
+    "code": 0,
+    "error_message": "",
+    "warnings": "",
+    "results_count": 2
+  },
+  "results": [
+    {
+      "id": "1848357",
+      "name": "mañana será tarde",
+      "duration": 272,
+      "artist_id": "421168",
+      "artist_name": "fankel",
+      "artist_idstr": "fankel",
+      "album_name": "mañana será tarde",
+      "album_id": "368084",
+      "license_ccurl": "http://creativecommons.org/licenses/by-nc-nd/3.0/",
+      "position": 1,
+      "releasedate": "2021-04-11",
+      "album_image": "https://usercontent.jamendo.com?type=album&id=368084&width=300&trackid=1848357",
+      "audio": "https://prod-1.storage.jamendo.com/?trackid=1848357&format=flac&from=app-devsite",
+      "audiodownload": "https://prod-1.storage.jamendo.com/download/track/1848357/flac/",
+      "prourl": "",
+      "shorturl": "https://jamen.do/t/1848357",
+      "shareurl": "https://www.jamendo.com/track/1848357",
+      "waveform": "{\"peaks\":[0,0,0,0,30,39,33,90,47,69,55,35]}",
+      "image": "https://usercontent.jamendo.com?type=album&id=368084&width=300&trackid=1848357",
+      "audiodownload_allowed": true,
+      "content_id_free": false
+    },
+    {
+      "id": "1880336",
+      "name": "Queensland [High Energy Funk Instrumental]",
+      "duration": 147,
+      "artist_id": "540929",
+      "artist_name": "Lofi Lopez",
+      "artist_idstr": "Lofi_Lopez",
+      "album_name": "Queensland [High Energy Funk Instrumental]",
+      "album_id": "452525",
+      "license_ccurl": "http://creativecommons.org/licenses/by-nc-nd/3.0/",
+      "position": 1,
+      "releasedate": "2021-08-24",
+      "album_image": "https://usercontent.jamendo.com?type=album&id=452525&width=300&trackid=1880336",
+      "audio": "https://prod-1.storage.jamendo.com/?trackid=1880336&format=flac&from=app-devsite",
+      "audiodownload": "",
+      "prourl": "",
+      "shorturl": "https://jamen.do/t/1880336",
+      "shareurl": "https://www.jamendo.com/track/1880336",
+      "waveform": "{\"peaks\":[0,0,0,0,0,0,0,0,47,41,16,38]}",
+      "image": "https://usercontent.jamendo.com?type=album&id=452525&width=300&trackid=1880336",
+      "audiodownload_allowed": false,
+      "content_id_free": true
+    }
+  ]
+}

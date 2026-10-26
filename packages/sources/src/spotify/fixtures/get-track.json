@@ -1,0 +1,92 @@
+{
+  "data": {
+    "trackUnion": {
+      "__typename": "Track",
+      "contentRating": {
+        "label": "EXPLICIT"
+      },
+      "duration": {
+        "totalMilliseconds": 238640
+      },
+      "id": "70LcF31zb1H0PyJoS1Sx1r",
+      "mediaType": "AUDIO",
+      "name": "Creep",
+      "playability": {
+        "playable": true,
+        "reason": "PLAYABLE"
+      },
+      "playcount": "3209476167",
+      "trackNumber": 2,
+      "uri": "spotify:track:70LcF31zb1H0PyJoS1Sx1r",
+      "albumOfTrack": {
+        "id": "3gBVdu4a1MMJVMy6vwPEb8",
+        "date": {
+          "isoString": "1993-02-22T00:00:00Z",
+          "precision": "DAY",
+          "year": 1993
+        },
+        "name": "Pablo Honey",
+        "playability": {
+          "playable": true
+        },
+        "type": "ALBUM",
+        "uri": "spotify:album:3gBVdu4a1MMJVMy6vwPEb8",
+        "coverArt": {
+          "sources": [
+            {
+              "height": 300,
+              "url": "https://i.scdn.co/image/ab67616d00001e02ec548c00d3ac2f10be73366d",
+              "width": 300
+            },
+            {
+              "height": 64,
+              "url": "https://i.scdn.co/image/ab67616d00004851ec548c00d3ac2f10be73366d",
+              "width": 64
+            },
+            {
+              "height": 640,
+              "url": "https://i.scdn.co/image/ab67616d0000b273ec548c00d3ac2f10be73366d",
+              "width": 640
+            }
+          ]
+        }
+      },
+      "firstArtist": {
+        "items": [
+          {
+            "id": "4Z8W4fKeB5YxbusRsdQVPb",
+            "profile": {
+              "name": "Radiohead"
+            },
+            "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb",
+            "visuals": {
+              "avatarImage": {
+                "sources": [
+                  {
+                    "height": 640,
+                    "url": "https://i.scdn.co/image/ab6761610000e5eb959527d2fabc9c64287e57b9",
+                    "width": 640
+                  },
+                  {
+                    "height": 160,
+                    "url": "https://i.scdn.co/image/ab6761610000f178959527d2fabc9c64287e57b9",
+                    "width": 160
+                  },
+                  {
+                    "height": 320,
+                    "url": "https://i.scdn.co/image/ab67616100005174959527d2fabc9c64287e57b9",
+                    "width": 320
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "totalCount": 1
+      },
+      "otherArtists": {
+        "items": []
+      }
+    }
+  }
+}

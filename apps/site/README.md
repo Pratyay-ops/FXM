@@ -1,6 +1,6 @@
 # @fxm/site
 
-The FXM landing page, served at `https://fxm-music.pages.dev/`. It explains what FXM is and sends people to the web app at `/app/` and to the downloads on GitHub Releases. It is a static [Astro](https://astro.build) site with no client-side framework.
+The FXM landing page, served at `https://fxmusic.pages.dev/`. It explains what FXM is and sends people to the web app at `/app/` and to the downloads on GitHub Releases. It is a static [Astro](https://astro.build) site with no client-side framework.
 
 ## Commands
 
@@ -50,13 +50,14 @@ Content rules:
 
 ## Deploying with the web app
 
-The site and the web app (`apps/web`) are deployed together to the Cloudflare Pages project `fxm-music`. Stage 2.8 (static deploy) composes one `dist/` folder:
+The site and the web app (`apps/web`) are deployed together to the Cloudflare Pages project `fxmusic`. Stage 2.8 (static deploy) composes one `dist/` folder:
 
 ```
 dist/
 ├── index.html, privacy.html, disclaimer.html, 404.html   ← apps/site/dist
 ├── robots.txt, sitemap-index.xml, sitemap-0.xml
 ├── favicon.svg, favicon-32.png, apple-touch-icon.png, og.png, _astro/
+├── .well-known/security.txt                              ← apps/site/dist, from public/ (see the notes)
 ├── app/                                                  ← the web app (apps/web, base /app/)
 └── embed/                                                ← the embeddable mini-player (stage 5.2)
 ```
@@ -66,4 +67,5 @@ Notes for that stage:
 - Links to `/app/` are not checked by the build check (`EXTERNAL_PATHS` in `src/config.ts`), because the web app is not part of this build.
 - `404.html` at the root belongs to the site: Cloudflare Pages serves it with status 404 for unknown paths. The web app needs its own fallback for its client-side routes, such as a `_redirects` rule `/app/* /app/index.html 200`.
 - `robots.txt` and the sitemap belong to the site. Add `/app/` to the sitemap there if the web app should be indexed.
+- `.well-known/security.txt` (RFC 9116, see [docs/LEGAL.md](../../docs/LEGAL.md#security)) is copied from `public/` into the build. Copy the build with its dot-folders, for example `cp -R apps/site/dist/. <target>`: a shell glob such as `dist/*` skips them. After deploying, check that `/.well-known/security.txt` returns 200 with `text/plain`.
 - The site uses a few small inline `<style>` blocks and two inline module scripts. The Content Security Policy in `_headers` must allow them by hash, or allow `'unsafe-inline'` for styles.

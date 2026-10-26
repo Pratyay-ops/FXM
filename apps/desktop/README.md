@@ -87,7 +87,7 @@ Only the payload is encrypted. The command and the payload's content type travel
 FXM's own messages reach Rust byte for byte as they would without the hook. The two exceptions:
 
 - **No payload.** A request without a payload skips decryption, but it gives a command no arguments, so it can't carry a request for the plugin.
-- **The start-up gap.** Tauri's own script comes first in the frame's page and handles messages as soon as it has imported its key, and `hook.js` is the next script. A message that reaches the frame while the browser pauses between those two scripts, as a browser may when parsing runs long, skips the hook, and page script can reload the frame to try for that pause again. An initialization script for every frame (Tauri's `js_init_script_on_all_frames`) runs before any script of a page, so it could set the hook first and close the gap. That is still to do, before stage 1.13 adds `blob:` to `script-src` (see [What page script can reach](#what-page-script-can-reach)).
+- **The start-up gap.** Tauri's own script comes first in the frame's page and handles messages as soon as it has imported its key, and `hook.js` is the next script. A message that reaches the frame while the browser pauses between those two scripts, as a browser may when parsing runs long, skips the hook, and page script can reload the frame to try for that pause again. An initialization script for every frame (Tauri's `js_init_script_on_all_frames`) runs before any script of a page, so it could set the hook first and close the gap. That is still to do, and it is now due: stage 1.13 has added `blob:` to `script-src`, so signed modules run in this webview while the gap is open (see [What page script can reach](#what-page-script-can-reach)).
 
 `test/isolation.test.ts` runs the hook as the frame does, with a copy of Tauri's serializer, on FXM's own messages and on every way found to get a proxy or a forbidden header through: a `Map` payload or request, another command's payload, bytes labelled JSON, a request read by position, `String` objects. It runs the hook on the same origins as `createDesktopFetch()`'s rule too. The live smoke test calls the plugin through the IPC with a proxy nothing answers at, and checks that the host answers. A Rust test checks that the built app uses the pattern: without the crate feature, Tauri would quietly ignore it. Each IPC call costs one more `postMessage`, a JSON round trip and an AES-GCM encryption.
 
@@ -132,13 +132,13 @@ Page script is anything that runs in the main webview: the web app, a module sta
 
 So the approved list and the public-address filter bind `user_host_fetch` only, and the header rules bind `ctx.fetch` and, through the hook, the HTTP plugin, but for the hook's start-up gap. None of them keeps page script from contacting a host of its own choosing: the CSP's `img-src` and `media-src` let it. Narrowing those would break artwork and playback from hosts known only at run time, such as a user's Invidious instance.
 
-**For stage 1.13.** The signed resolver module runs in this webview from a `blob:` URL, so everything in this table applies to it. "The platform host allowlists still apply, so a module can't reach new hosts" holds for what the module sends through `ctx.fetch` only. The isolation hook keeps the module from giving the plugin a proxy, TLS exceptions or a forbidden header, apart from its start-up gap. Close that gap (see [The isolation hook](#network)) before `blob:` joins `script-src`. Keeping code that isn't FXM's out of this webview is the job of the module's signature check.
+**For stage 1.13.** The signed resolver module runs in this webview from a `blob:` URL, so everything in this table applies to it. "The platform host allowlists still apply, so a module can't reach new hosts" holds for what the module sends through `ctx.fetch` only. The isolation hook keeps the module from giving the plugin a proxy, TLS exceptions or a forbidden header, apart from its start-up gap. `blob:` joined `script-src` with stage 1.13 before that gap was closed, so closing it (see [The isolation hook](#network)) comes next. Keeping code that isn't FXM's out of this webview is the job of the module's signature check.
 
 ## Content security policy
 
 ```
 default-src 'self'; img-src 'self' https: data: blob:; media-src 'self' https: blob:;
-connect-src ipc: http://ipc.localhost 'self'; script-src 'self' 'wasm-unsafe-eval';
+connect-src ipc: http://ipc.localhost 'self'; script-src 'self' 'wasm-unsafe-eval' blob:;
 style-src 'self' 'unsafe-inline'
 ```
 
@@ -146,6 +146,7 @@ style-src 'self' 'unsafe-inline'
 - `media-src https:` lets `<audio>` play googlevideo URLs directly, as well as Internet Archive's and Jamendo's media hosts and a user's Invidious instance, whose hosts can't be listed at build time. The page can't read those responses. `img-src https:` does the same for artwork.
 - At build time Tauri adds the isolation hook's own origin to `default-src`, for its iframe.
 - At build time Tauri adds the SHA-256 hash of every inline script to `script-src`, so the theme script in `apps/web/index.html` keeps running.
+- `blob:` in `script-src` lets the app run the signed YouTube resolver module it downloads from FXM's site (stage 1.13): the module's bytes are checked against their Ed25519 signature first, then loaded from a `blob:` URL made from exactly those bytes, which is revoked once loaded. It also lets the page run its other `blob:` URLs (artwork, audio) as scripts, which would matter only together with an injected `<script>` element naming one. The web app's own policy has no `blob:` there: it gets new code by redeploy. See [packages/platform/src/updates](../../packages/platform/src/updates/README.md).
 - **No `'unsafe-eval'`.** The app's policy has none, and stage 7.2 added none: YouTube deciphering runs in a separate, hidden evaluator webview with a policy of its own (stage 1.11). Only if that webview can't work may 1.11 add `'unsafe-eval'` here, with the reason recorded in this README.
 
 ## Live smoke test

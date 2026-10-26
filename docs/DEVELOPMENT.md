@@ -34,6 +34,8 @@ Run `make` with no arguments to list all commands.
 | Python 3.13 | `.tools/uv/python/` | `make py-setup` |
 | Python virtualenv | `.venv/` in each checkout | `make py-setup` |
 | GitHub CLI 2.102.0 and its login | `.tools/bin/gh`, `.tools/gh/` | `make gh-setup` (optional) |
+| git-cliff 2.14.2 (release notes) | `.tools/bin/git-cliff` | the release commands, on first use |
+| actionlint 1.7.12 (workflow linter) | `.tools/bin/actionlint` | `make release-check` |
 | JDK, Android SDK, Gradle caches | `.tools/jdk/`, `.tools/android-sdk/`, `.tools/gradle/` | `make android-setup` (stage 6.1) |
 | Stage worktrees | `../FXM-worktrees/<branch>/` | `make wt-new` |
 
@@ -64,9 +66,12 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 | `make test` / `make coverage` | Run all tests (Vitest), optionally with a coverage report |
 | `make build` | Build every app |
 | `make check` | `lint` + `typecheck` + `test` + `build`: what every stage must pass |
+| `make live-smoke` | The live smoke tests against the real services (`FXM_LIVE=1`), from a residential connection: see [Live smoke tests](#live-smoke-tests) |
 | `make extension` | Build the FXM Connect browser extension: unpacked folders and zips in `apps/extension/dist/` (`FXM_EXTENSION_DEV=1`: the localhost dev build, in `dist/dev/`) |
 | `make ci` | Reproduce CI locally: setup with a frozen lockfile, then `check` |
 | `make wt-new BRANCH=…` / `wt-list` / `wt-remove BRANCH=…` | Stage worktrees, see [WORKFLOW.md](WORKFLOW.md) |
+| `make release-pr VERSION=x.y.z` | Open the release pull request from `develop` into `main` (`DRY_RUN=1`: only show the checks, the plan and the notes), see [Releases](#releases) |
+| `make release-notes` / `release-build` / `release-check` | Print the next release's notes, build its files into `dist/release/` (once every package has the release version), or lint the workflows and test the release scripts |
 | `make clean` | Remove build output |
 | `make nuke` | Remove **all** installed tools, dependencies and caches |
 
@@ -82,9 +87,71 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 
 `apps/extension` is FXM Connect, the optional companion extension that lets the web app reach YouTube, Spotify and Last.fm from the user's browser (Manifest V3, Chromium and Firefox). `make build` includes it; `make extension` builds only it. Its end-to-end test loads the built extension into Playwright's Chromium against a local HTTPS mock on port 5240. It is not part of `make test`; run it with `scripts/run.sh pnpm --filter @fxm/extension test:e2e`. The first run installs Chromium into `.tools/playwright`. Permissions, privacy, installation and the page protocol are in [apps/extension/README.md](../apps/extension/README.md).
 
+## Releases
+
+A release goes from `develop` to `main` through a pull request, and a workflow publishes it. [WORKFLOW.md](WORKFLOW.md#8-releases) describes the whole flow; these are the commands:
+
+| Command | What it does |
+|---|---|
+| `make release-pr VERSION=x.y.z DRY_RUN=1` | Run every check and print the plan and the release notes. Changes, commits and pushes nothing |
+| `make release-pr VERSION=x.y.z` | On a clean `develop` equal to `origin/develop`: set the version, regenerate `CHANGELOG.md`, commit `chore(release): vX.Y.Z`, push `develop` and open the pull request "Release vX.Y.Z" into `main`. It prints the URL and never merges. Run again with the version `develop` already has, it updates that release: `CHANGELOG.md`, the pull request's notes, or the pull request itself if it was closed |
+| `make release-notes` | Print the notes of the changes since the last release (`VERSION=x.y.z`: the notes of that release) |
+| `make release-build` | Build what a release ships into `dist/release/`, with `SHA256SUMS`: the web app, landing page and FXM Connect zips. Every package must have the release version, as on `main` and on `develop` after `make release-pr`. To try it before then, run `scripts/release-version.sh x.y.z` and the build in a throwaway worktree (`make wt-new`), and never commit that change. Needs `zip` (preinstalled on macOS; `sudo apt install zip` on Debian and Ubuntu) |
+| `make release-check` | Lint the GitHub workflows with actionlint and run the release scripts' offline tests. CI runs it after `make check`; run it yourself after changing `.github/workflows/`, `cliff.toml` or `scripts/release-*.sh` |
+
+The scripts behind them work on their own too:
+
+- `scripts/release-version.sh x.y.z` sets the version: the root and every workspace `package.json` (FXM Connect's manifest and the Android `versionName` come from theirs) and `APP_VERSION` in `packages/core/src/index.ts`. `--dry-run` shows the changes, `--check` fails unless every package agrees.
+- `scripts/release-notes.sh [x.y.z]` prints release notes, and `--changelog x.y.z` regenerates `CHANGELOG.md`. git-cliff reads `cliff.toml` and runs offline.
+- `release.yml` runs the rest: `release-plan.sh` decides whether to release, `release-collect.sh` gathers the artifact jobs' files and refuses any that `fxm_release_catalog` in `scripts/release-lib.sh` doesn't list for that job, and `release-publish.sh` tags and publishes.
+
+git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`, installed on first use. `.github/workflows/release.yml` runs on every push to `main` and publishes a release when the version has none yet. Like `ci.yml`, it pins its actions to commit SHAs, and it builds without caches.
+
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
+`.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`, then `make release-check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
+
+## Live smoke tests
+
+Offline tests replay recorded answers, so they can't notice when YouTube or another service changes. `make live-smoke` runs every `live.test.ts` against the real services, one file at a time, with a few requests each (about 20 to YouTube in all, fewer than 30 per service). Run it from a residential connection: GitHub's runners use datacenter addresses that meet YouTube's bot checks, so CI's live runs are only advisory. Run it before every release.
+
+It never runs code it downloads. The signed-updates check verifies the signature, size and SHA-256 of what FXM's site publishes and reads the config as data, but never imports the module: code imported there would run with your rights, unattended, with access to your files, keys and GitHub credentials. The YouTube module it runs is the one built from your checkout.
+
+To run it every day on the owner's Mac, save this as `~/Library/LaunchAgents/io.github.pratyayops.fxm.live-smoke.plist` (it assumes the checkout in `~/Documents/Code/FXM` and Node from nvm; adjust both if needed):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.pratyayops.fxm.live-smoke</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd "$HOME/Documents/Code/FXM" &amp;&amp; source "$HOME/.nvm/nvm.sh" &amp;&amp; nvm use --silent &amp;&amp; { date; make live-smoke; } &gt;&gt; .tools/live-smoke.log 2&gt;&amp;1 || osascript -e 'display notification "See .tools/live-smoke.log" with title "FXM live smoke tests failed"'</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>10</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+</dict>
+</plist>
+```
+
+Then load it, and run it once to check:
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/io.github.pratyayops.fxm.live-smoke.plist
+launchctl kickstart gui/$(id -u)/io.github.pratyayops.fxm.live-smoke
+tail .tools/live-smoke.log
+```
+
+It runs at 10:30 every day, or when the Mac wakes if it was asleep then, tests whatever branch the checkout is on, appends to `.tools/live-smoke.log` (removed by `make nuke`) and shows a notification when something fails. To stop it: `launchctl bootout gui/$(id -u)/io.github.pratyayops.fxm.live-smoke`, then delete the file. On Linux, a cron line does the same: `30 10 * * * cd ~/FXM && make live-smoke >> .tools/live-smoke.log 2>&1`.
 
 ## Android app
 
@@ -93,6 +160,7 @@ source .venv/bin/activate   # optional: activate the Python venv (or use `uv run
 ```sh
 make android-setup   # once: JDK, Android SDK and its licenses (about 500 MB of downloads)
 make apk             # builds the debug APK
+make android-test    # runs the native unit tests (JVM, offline, no device needed)
 ```
 
 `make apk` builds the web app with base `/` (`build:mobile`), copies it into the native project (`cap sync android`) and runs Gradle's `assembleDebug`, without a Gradle daemon left running. The APK lands in **`apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk`**. The first build downloads Gradle and the Android libraries; later builds take about half a minute.
@@ -130,7 +198,7 @@ From 2027, Google plans to require developer verification for apps installed out
 
 **Cleaning up.** `make android-clean` removes this checkout's Android build output, and `make clean` does the same in every checkout. `make nuke` first stops the Gradle daemons running from `.tools/` and the adb server, which adb restarts whenever it next needs it. Then it deletes the JDK, the SDK, the Gradle caches and the keys with the rest of `.tools/`.
 
-**CI.** `.github/workflows/android.yml` runs `make android-setup` and `make apk` on ubuntu-latest, on demand and for pushes and pull requests that touch the app or anything its build uses: `apps/mobile/`, `apps/web/`, `packages/`, `scripts/`, the `Makefile`, `.nvmrc`, the root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.base.json` or the workflow itself. It fails when the build changes the committed project in `apps/mobile/android`. After a Capacitor upgrade, for example, `cap sync` rewrites `capacitor.settings.gradle`, so commit what `make apk` regenerated. The workflow caches the JDK, the SDK and the Gradle home, and uploads `app-debug.apk` as a workflow artifact for 14 days.
+**CI.** `.github/workflows/android.yml` runs `make android-setup`, `make apk` and `make android-test` on ubuntu-latest, on demand and for pushes and pull requests that touch the app or anything its build uses: `apps/mobile/`, `apps/web/`, `packages/`, `scripts/`, the `Makefile`, `.nvmrc`, the root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.base.json` or the workflow itself. It fails when the build changes the committed project in `apps/mobile/android`. After a Capacitor upgrade, for example, `cap sync` rewrites `capacitor.settings.gradle`, so commit what `make apk` regenerated. The workflow caches the JDK, the SDK and the Gradle home, and uploads `app-debug.apk` as a workflow artifact for 14 days.
 
 **Upgrading**
 
@@ -213,6 +281,8 @@ Prefer releases that are at least two weeks old, and update the version and its 
 | pnpm | `scripts/install-pnpm.sh` **and** `"packageManager"` in `package.json` | `dist.integrity` of `https://registry.npmjs.org/@pnpm/exe.<platform>/<version>` |
 | uv | `scripts/install-uv.sh` | `uv-<target>.tar.gz.sha256` files on the GitHub release |
 | gh | `scripts/install-gh.sh` | `gh_<version>_checksums.txt` on the GitHub release |
+| git-cliff | `scripts/install-git-cliff.sh` | The SHA-256 digest GitHub shows for each `git-cliff-<version>-<target>.tar.gz`, checked against the `.sha512` files on the release |
+| actionlint | `scripts/install-actionlint.sh` | `actionlint_<version>_checksums.txt` on the GitHub release |
 
 ## Troubleshooting
 
@@ -222,4 +292,4 @@ Prefer releases that are at least two weeks old, and update the version and its 
 | `pnpm: command not found` in your shell | `source scripts/env.sh`, or run it through `make` |
 | Merge conflict in `pnpm-lock.yaml` | pnpm 12 doesn't repair conflict markers. Restore the target branch's lockfile (`git show origin/develop:pnpm-lock.yaml > pnpm-lock.yaml`), run `make install`, check with `scripts/run.sh pnpm install --frozen-lockfile`, then `git add pnpm-lock.yaml` and continue |
 | `make doctor` says the store is outside `.tools/` | You ran pnpm without the environment: `source scripts/env.sh` |
-| Tests time out when several worktrees run `make check` at once | Each Vitest run starts a worker per CPU core. Put `export VITEST_MAX_WORKERS=3` in `.tools/env.local.sh`; `scripts/env.sh` loads that file in every checkout, and it is never committed |
+| Tests time out when several worktrees run `make check` at once | Each check spreads across every CPU core: Vitest workers, TypeScript 7 and Rust tool threads, and several packages at once. Cap them in `.tools/env.local.sh`, which `scripts/env.sh` loads in every checkout and which is never committed: `export VITEST_MAX_WORKERS=2 GOMAXPROCS=2 RAYON_NUM_THREADS=2 pnpm_config_workspace_concurrency=2` |
