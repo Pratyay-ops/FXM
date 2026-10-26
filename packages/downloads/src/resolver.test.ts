@@ -172,6 +172,50 @@ describe('the policy download resolver', () => {
     expect(stream.codec).toBe('aac')
   })
 
+  it("keeps Internet Archive's original where the browser is only maybe sure of it", async () => {
+    // Firefox and Safari: `maybe` for a type without codecs (audio/flac, audio/mpeg), and
+    // `probably` for audio/ogg; codecs="vorbis".
+    const canPlay = (stream: StreamOption) => (stream.container === 'ogg' ? 'probably' : 'maybe')
+    const files = (ref: string): StreamOption[] => {
+      const { bitrateKbps: _unknown, ...vorbis } = flacStream(`${ref}.ogg`)
+      return [
+        flacStream(ref),
+        {
+          ...flacStream(`${ref}_320kb.mp3`),
+          codec: 'mp3',
+          container: 'mp3',
+          tier: 'high',
+          bitrateKbps: 320,
+        },
+        // The Archive's derivative, of a bitrate nobody states.
+        { ...vorbis, codec: 'vorbis', container: 'ogg', tier: 'normal' },
+      ]
+    }
+    const archive = new FakeStreamSource({ id: 'archive', expires: false })
+    archive.handler = async (candidate) => files(candidate.ref)
+    const { resolver } = setup({ sources: [archive], canPlay })
+    const track = testTrack('hit.flac', {
+      id: formatId('archive', 'track', 'item/hit.flac'),
+      source: 'archive',
+    })
+    expect((await resolver.resolve(track, request())).stream).toMatchObject({ codec: 'flac' })
+    // Without a lossless file, the 320 kbps MP3, not the Vorbis derivative.
+    archive.handler = async (candidate) => files(candidate.ref).slice(1)
+    expect((await resolver.resolve(track, request())).stream).toMatchObject({
+      codec: 'mp3',
+      bitrateKbps: 320,
+    })
+  })
+
+  it('downloads the stream the browser is surest of among those of the best quality', async () => {
+    // Opus 251 and AAC 140 are both high quality: a browser unsure of Opus gets AAC.
+    const { resolver } = setup({
+      canPlay: (stream) => (stream.codec === 'opus' ? 'maybe' : 'probably'),
+    })
+    const { stream } = await resolver.resolve(testTrack('a'), request())
+    expect(stream.codec).toBe('aac')
+  })
+
   it('resolves the audio a resumed download came from first', async () => {
     const { resolver, matcher, youtube } = setup()
     const track = testSpotifyTrack('hit')

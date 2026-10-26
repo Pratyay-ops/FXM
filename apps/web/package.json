@@ -16,7 +16,7 @@
     "preview:embed": "vite preview -c vite.embed.config.ts",
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e && tsc --noEmit -p pwa",
     "test": "vitest run",
-    "e2e": "playwright test",
+    "e2e": "playwright install --no-shell chromium webkit && playwright test",
     "screenshots": "FXM_SCREENSHOTS=1 VITE_FXM_FAKE_CATALOG=on playwright test screenshots pwa.spec",
     "icons": "node scripts/render-icons.ts",
     "e2e:embed": "playwright install --no-shell chromium firefox && vite build -c vite.embed.config.ts --mode e2e --outDir ../dist-embed-e2e && playwright test -c e2e/embed/playwright.config.ts",
