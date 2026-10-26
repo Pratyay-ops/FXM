@@ -5,8 +5,10 @@ name: Release
 # "Releases"). Every other push to main ends after the plan job.
 #
 #   plan            reads the version and decides whether to release (scripts/release-plan.sh)
-#   bundles         builds the web app, landing page and FXM Connect zips (scripts/release-build.sh)
-#                   and runs AMO's linter on the Firefox zip (apps/extension/store/firefox.ts)
+#   bundles         builds the web zip, which is make dist's dist/pages (the landing page, the web
+#                   app, _headers and the third-party notices, as Cloudflare Pages serves them), and
+#                   the FXM Connect zips (scripts/release-build.sh), and runs AMO's linter on the
+#                   Firefox zip (apps/extension/store/firefox.ts)
 #   firefox         with AMO_CHANNEL unlisted (the default): has Firefox Add-ons (AMO) sign that
 #                   Firefox zip and passes on the signed XPI (apps/extension/store/firefox.ts)
 #   android         builds the Android app's release APKs, unsigned: arm64-v8a and universal

@@ -191,7 +191,10 @@ describe('ImportDetailPage', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Importing in another tab or window')).toBeInTheDocument()
     const title = scenario.tracks[0]?.title ?? ''
-    expect(screen.getByRole('button', { name: `Use the chosen song for ${title}` })).toBeDisabled()
+    // The review list loads after the notice, so wait for its button.
+    expect(
+      await screen.findByRole('button', { name: `Use the chosen song for ${title}` }),
+    ).toBeDisabled()
     expect(screen.queryByRole('button', { name: /^Resume|^Pause/u })).toBeNull()
   })
 })

@@ -132,6 +132,8 @@ fxm_release_fit "$body" 115000 \
     echo "how to check the fingerprint before the first install."
     echo
   fi
+  echo "To host the website and web app yourself, serve \`fxm-web-$version.zip\` as the [self-hosting steps](https://github.com/$repo/blob/$tag/scripts/build-dist/README.md#self-hosting) describe."
+  echo
   echo "To verify a download, run these in its folder:"
   echo
   echo '```sh'

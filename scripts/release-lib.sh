@@ -112,8 +112,7 @@ fxm_release_catalog() {
   cat <<'EOF'
 release-bundles|fxm-connect-chromium-<version>.zip|FXM Connect for Chrome, Edge, Brave and other Chromium browsers
 release-bundles|fxm-connect-firefox-<version>.zip|FXM Connect for Firefox, unsigned: for review, or a temporary install that Firefox removes when it restarts. Use the signed `.xpi` when the release has one
-release-bundles|fxm-web-<version>.zip|The web app for self-hosting: its files are in `app/`, served from `/app/`
-release-bundles|fxm-site-<version>.zip|The landing page for self-hosting, served from `/`
+release-bundles|fxm-web-<version>.zip|The website and web app for self-hosting: the files `fxmusic.pages.dev` serves, with the web app in `app/`, `_headers` and the third-party notices
 release-firefox|fxm-connect-firefox-<version>.xpi|FXM Connect for Firefox, signed by Mozilla: install it from Firefox's Add-ons Manager
 release-android|fxm-android-universal-<version>.apk|The Android app, for any phone or tablet with Android 7 or later: pick this one if unsure
 release-android|fxm-android-arm64-v8a-<version>.apk|The Android app for 64-bit ARM processors (arm64-v8a), which most phones of the last few years have. While FXM has no native code it is the same app as the universal APK

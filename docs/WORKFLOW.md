@@ -167,8 +167,7 @@ flowchart LR
 |---|---|
 | `fxm-connect-chromium-x.y.z.zip`, `fxm-connect-firefox-x.y.z.zip` | FXM Connect, as `make extension` builds it |
 | `fxm-connect-firefox-x.y.z.xpi` | FXM Connect for Firefox, signed by Mozilla. Releases have it once the owner has added the AMO keys, while `AMO_CHANNEL` is `unlisted` (the default). With `listed`, Firefox users get FXM Connect from addons.mozilla.org instead |
-| `fxm-web-x.y.z.zip` | The web app for self-hosting, in `app/` because it is served from `/app/` |
-| `fxm-site-x.y.z.zip` | The landing page, served from `/`. Unzipped into one folder with the web app, it gives the site's layout |
+| `fxm-web-x.y.z.zip` | Exactly what Cloudflare Pages serves at `https://fxmusic.pages.dev`, for self-hosting: `make dist`'s `dist/pages/`, with the landing page at the root, the web app in `app/`, the sandbox documents, `_headers`, `third-party-notices.txt` and `.well-known/`. [scripts/build-dist/README.md](../scripts/build-dist/README.md#self-hosting) says how to serve it |
 | `fxm-android-universal-x.y.z.apk`, `fxm-android-arm64-v8a-x.y.z.apk` | The Android app for every phone, and for 64-bit ARM phones, signed with FXM's key. The release notes give its certificate's SHA-256, and [apps/mobile/INSTALL.md](../apps/mobile/INSTALL.md) how to install and check it |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |
 
