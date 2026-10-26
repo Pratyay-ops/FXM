@@ -1,6 +1,6 @@
 import { FxmError, type NetworkCapabilities } from '@fxm/core'
 import { SpotifyError } from '@fxm/sources/spotify'
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -211,6 +211,35 @@ describe('Settings → Spotify account', () => {
     ).toBeVisible()
     expect(account.queryByRole('link', { name: 'Get FXM Connect' })).toBeNull()
     expect(account.getByRole('link', { name: 'See your options' })).toBeVisible()
+  })
+
+  it('tells a user of FXM Connect 0.1.0 that its note on the login setting is out of date', async () => {
+    // FXM Connect 0.1.0's options page says "this setting changes nothing": true before 3.5.
+    const anonymous = { ...FULL, spotify: 'anonymous' } as const
+    useConnection.setState({
+      phase: 'ready',
+      capabilities: anonymous,
+      platform: 'web',
+      connect: { state: 'present', version: '0.1.0', features: ['youtube', 'spotify'] },
+    })
+    const { fake } = setup({ optedIn: true })
+    fake.setCapabilities('anonymous')
+    const account = await section()
+    expect(
+      await account.findByText(/^FXM Connect doesn’t use your Spotify login yet/),
+    ).toBeVisible()
+    expect(
+      account.getByText(/^FXM Connect 0\.1\.0 says there that this setting changes nothing/),
+    ).toHaveTextContent(
+      'FXM Connect 0.1.0 says there that this setting changes nothing. That note dates from before FXM could connect an account: the setting works now, and newer versions of FXM Connect say so.',
+    )
+    // FXM Connect 0.4.0 says what the setting does: nothing to add.
+    act(() =>
+      useConnection.setState({
+        connect: { state: 'present', version: '0.4.0', features: ['youtube', 'spotify'] },
+      }),
+    )
+    expect(account.queryByText(/says there that this setting changes nothing/)).toBeNull()
   })
 
   it('says the sync is experimental, how it was tested, and where to report problems', async () => {

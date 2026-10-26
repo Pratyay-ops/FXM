@@ -1,3 +1,4 @@
+import { saysSpotifyLoginUnused } from '@fxm/platform'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { ExternalLink } from 'lucide-react'
 import { type ReactNode, useId, useMemo, useState } from 'react'
@@ -131,9 +132,12 @@ const OPTIONS_HINT =
 function PhaseText({
   state,
   platform,
+  connectVersion,
 }: {
   state: AccountRuntimeState
   platform: 'web' | 'desktop' | 'android'
+  /** The FXM Connect version that answered, if any. */
+  connectVersion: string | undefined
 }): ReactNode {
   switch (state.phase) {
     case 'checking':
@@ -157,11 +161,21 @@ function PhaseText({
       )
     case 'needs-login':
       return (
-        <p>
-          FXM Connect doesn’t use your Spotify login yet. {OPTIONS_HINT}, turn on “Use my Spotify
-          login from this browser” (in Firefox, also allow it to share authentication information),
-          then select Try again.
-        </p>
+        <>
+          <p>
+            FXM Connect doesn’t use your Spotify login yet. {OPTIONS_HINT}, turn on “Use my Spotify
+            login from this browser” (in Firefox, also allow it to share authentication
+            information), then select Try again.
+          </p>
+          {saysSpotifyLoginUnused(connectVersion) && (
+            // FXM Connect 0.1.0's options page says the setting changes nothing: true before 3.5.
+            <p>
+              FXM Connect {connectVersion} says there that this setting changes nothing. That note
+              dates from before FXM could connect an account: the setting works now, and newer
+              versions of FXM Connect say so.
+            </p>
+          )}
+        </>
       )
     case 'private':
       return (
@@ -375,6 +389,7 @@ export function SpotifyAccountSettings() {
   const { spotifyEnabled } = useSourcesSnapshot()
   const capabilities = useConnection((state) => state.capabilities)
   const platform = useConnection((state) => state.platform)
+  const connectVersion = useConnection((state) => state.connect?.version)
   const librarySync = useStore(access.librarySync, isLibrarySyncOn)
   const { runtime, state, error: loadError } = useAccountRuntime(optedIn)
   // Only the sync's own row: a sync rewrites the rows of its copies as it goes.
@@ -506,7 +521,7 @@ export function SpotifyAccountSettings() {
               : 'Spotify is switched off, so FXM doesn’t sync.'}
           </p>
         ) : (
-          <PhaseText state={state} platform={platform} />
+          <PhaseText state={state} platform={platform} connectVersion={connectVersion} />
         )}
         {state.syncing ? (
           <p>{progressText(state.progress)}</p>

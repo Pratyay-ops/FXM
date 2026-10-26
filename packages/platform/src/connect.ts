@@ -20,8 +20,35 @@ import {
   writeJson,
 } from './storage'
 
-/** The oldest FXM Connect version this app works with. Older ones count as `outdated`. */
+/**
+ * The oldest FXM Connect version this app works with. Older ones count as `outdated`.
+ *
+ * FXM Connect 0.1.0 works with this app, the Spotify account sync (stage 3.5) included. Its
+ * options page still says that "Use my Spotify login from this browser" changes nothing until a
+ * later version of FXM can connect an account, which stopped being true with 3.5; FXM Connect
+ * doesn't update itself, so the text stays until the user updates it. Versions from
+ * {@link SPOTIFY_LOGIN_TEXT_VERSION} on describe the setting as the app uses it, and the app's
+ * Spotify account section tells users of an older one that its note is out of date
+ * ({@link saysSpotifyLoginUnused}).
+ */
 export const MIN_CONNECT_VERSION = '0.1.0'
+
+/**
+ * The first FXM Connect whose options page describes its Spotify login setting as the app uses
+ * it, for a connected Spotify account (apps/extension, "Use my Spotify login from this browser").
+ */
+export const SPOTIFY_LOGIN_TEXT_VERSION = '0.4.0'
+
+/**
+ * Whether FXM Connect `version` still says, on its options page, that its Spotify login setting
+ * changes nothing: a version older than {@link SPOTIFY_LOGIN_TEXT_VERSION}. `false` for a version
+ * that can't be read, which says nothing either way.
+ */
+export function saysSpotifyLoginUnused(version: string | undefined): boolean {
+  if (version === undefined) return false
+  const comparison = compareVersions(version, SPOTIFY_LOGIN_TEXT_VERSION)
+  return comparison !== undefined && comparison < 0
+}
 
 /** The attribute FXM Connect's content script sets on `<html>`, holding its version. */
 export const CONNECT_MARKER_ATTRIBUTE = 'data-fxm-connect'
