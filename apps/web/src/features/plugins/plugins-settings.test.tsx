@@ -9,6 +9,7 @@ import {
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderApp } from '../../test/render'
+import { cantRunPluginsText } from './plugins-settings'
 import { usePluginsSettingsStore } from './plugins-store'
 import { resetPluginTestRuntime, setupPluginTestRuntime } from './testing'
 
@@ -48,6 +49,31 @@ describe('Settings → Plugins', () => {
     expect(within(section).getByRole('button', { name: 'Add from an address' })).toBeVisible()
     expect(within(section).getByRole('button', { name: 'Add from a file' })).toBeVisible()
     expect(within(section).queryByRole('list')).not.toBeInTheDocument()
+  })
+
+  it('offers no plugin where the browser can’t start their workers, and says why', async () => {
+    // WebKit: Safari, and every browser on iPhone and iPad. A plugin added before stays listed.
+    setupPluginTestRuntime({ workersRun: false, initial: [stored()] })
+    renderApp('/settings')
+    const section = await pluginsSection()
+    expect(
+      await within(section).findByText(/^Plugins can’t run in this browser yet/),
+    ).toHaveTextContent(
+      'Plugins can’t run in this browser yet: it can’t start the separate worker FXM runs each plugin in, as Safari can’t. They run in Chrome, Edge, Brave and Firefox.',
+    )
+    expect(within(section).queryByRole('button', { name: 'Add from an address' })).toBeNull()
+    expect(within(section).queryByRole('button', { name: 'Add from a file' })).toBeNull()
+    expect(within(section).queryByTestId('plugin-file')).toBeNull()
+    expect(
+      await within(section).findByRole('button', { name: 'Remove Test Catalog' }),
+    ).toBeVisible()
+  })
+
+  it('says plugins wait for iPhone and iPad in words that fit them', () => {
+    expect(cantRunPluginsText({ browser: 'safari', os: 'ios' })).toBe(
+      'Plugins can’t run on iPhone and iPad yet: no browser there can start the separate worker FXM runs each plugin in.',
+    )
+    expect(cantRunPluginsText({ browser: 'safari', os: 'macos' })).toMatch(/as Safari can’t/)
   })
 
   it('adds a plugin from a file only after showing what it may contact', async () => {

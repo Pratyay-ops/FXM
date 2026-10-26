@@ -26,6 +26,7 @@ describe('@fxm/plugins', () => {
         'parseVersion',
         'pluginPolicy',
         'pluginSourceId',
+        'probePluginWorkers',
         'readPluginFile',
       ].sort(),
     )

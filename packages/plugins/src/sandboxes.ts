@@ -144,3 +144,70 @@ export function isolatedSandboxes(
     },
   }
 }
+
+/**
+ * What {@link probePluginWorkers} runs in an evaluator document, as the body of a function: it
+ * starts a worker from a `blob:` URL, as the plugin relay does (`runtime/document.ts`), and
+ * resolves `true` once the worker answers, `false` when it fails to start or stays silent.
+ * Self-contained, in the syntax the evaluator's webviews run unchanged.
+ */
+export const WORKER_PROBE_SOURCE = `return new Promise(function (resolve) {
+  var url
+  var worker
+  var timer
+  function done(ok) {
+    clearTimeout(timer)
+    try { if (worker) worker.terminate() } catch (error) {}
+    try { if (url) URL.revokeObjectURL(url) } catch (error) {}
+    resolve(ok)
+  }
+  timer = setTimeout(function () { done(false) }, 3000)
+  try {
+    url = URL.createObjectURL(new Blob(['postMessage(1)'], { type: 'text/javascript' }))
+    worker = new Worker(url)
+    worker.onmessage = function () { done(true) }
+    worker.onerror = function () { done(false) }
+  } catch (error) {
+    done(false)
+  }
+})`
+
+/** Options for {@link probePluginWorkers}. */
+export interface WorkerProbeOptions {
+  /** How long the whole check may take, in milliseconds. Default 8 s. */
+  readonly timeoutMs?: number
+  /** Cancels the check; it then resolves `false`. */
+  readonly signal?: AbortSignal
+}
+
+/**
+ * Whether plugins can run here at all: whether an isolated evaluator document (`create`, the
+ * web's `() => createSandboxEvaluator()`) can start the worker every plugin runs in. WebKit, and
+ * so Safari and every browser on iPhone and iPad, starts no worker from the `blob:` URL of an
+ * opaque origin, so plugins fail there with `unavailable` (see the README): ask this before
+ * offering to add one. It starts one document, asks it once and disposes it; it never rejects.
+ * An in-process evaluator isolates nothing, so it counts as no.
+ */
+export async function probePluginWorkers(
+  create: () => PluginEvaluator,
+  options: WorkerProbeOptions = {},
+): Promise<boolean> {
+  let evaluator: PluginEvaluator
+  try {
+    evaluator = create()
+  } catch {
+    return false
+  }
+  try {
+    if (evaluator.kind === 'in-process') return false
+    const answer = await evaluator.evaluate(WORKER_PROBE_SOURCE, null, {
+      timeoutMs: options.timeoutMs ?? 8_000,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+    })
+    return answer === true
+  } catch {
+    return false
+  } finally {
+    evaluator.dispose()
+  }
+}

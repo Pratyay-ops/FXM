@@ -63,6 +63,8 @@ export {
   isolatedSandboxes,
   type PluginEvaluator,
   type PluginSandboxes,
+  probePluginWorkers,
   type SandboxLease,
   type SandboxOptions,
+  type WorkerProbeOptions,
 } from './sandboxes'

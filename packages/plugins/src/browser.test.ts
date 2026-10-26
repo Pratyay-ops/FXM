@@ -189,6 +189,18 @@ describe.skipIf(!enabled)(`plugins in ${ENGINE}`, { timeout: 60_000 }, () => {
     await browser?.close()
   })
 
+  it('tells, before any plugin is added, whether plugins can run in this engine', async () => {
+    const runs = await page.evaluate(async () => {
+      const fxm = (globalThis as never as { fxmPlugins: typeof import('./testing/browser-entry') })
+        .fxmPlugins
+      const runs = await fxm.probePluginWorkers(() => fxm.createSandboxEvaluator())
+      // The probe's document is gone once it has answered.
+      return { runs, frames: document.querySelectorAll('iframe').length }
+    })
+    // Yes in Chromium and Firefox; no in WebKit, which starts no worker in the document.
+    expect(runs).toEqual({ runs: WORKERS, frames: 0 })
+  })
+
   it.runIf(!WORKERS)('runs no plugin in an engine that starts no worker there', async () => {
     const result = await page.evaluate(async () => {
       const fxm = (globalThis as never as { fxmPlugins: typeof import('./testing/browser-entry') })

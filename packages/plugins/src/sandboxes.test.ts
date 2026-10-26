@@ -1,7 +1,13 @@
 import type { EvaluatorKind } from '@fxm/platform'
 import { describe, expect, it } from 'vitest'
 import { isPluginError } from './errors'
-import { IN_PROCESS_FOR_TESTS, isolatedSandboxes, type PluginEvaluator } from './sandboxes'
+import {
+  IN_PROCESS_FOR_TESTS,
+  isolatedSandboxes,
+  type PluginEvaluator,
+  probePluginWorkers,
+  WORKER_PROBE_SOURCE,
+} from './sandboxes'
 
 /** A stand-in evaluator that only records whether it was disposed. */
 function fakeEvaluator(name: string, kind: EvaluatorKind = 'web') {
@@ -92,5 +98,81 @@ describe('isolated sandboxes', () => {
     await expect(
       isolatedSandboxes(create).acquire('d', { signal: controller.signal }),
     ).rejects.toThrow('no')
+  })
+})
+
+describe('the worker probe', () => {
+  /** An evaluator that answers the probe with `answer` and records what it was asked. */
+  function probing(answer: () => Promise<unknown>, kind: EvaluatorKind = 'web') {
+    const asked: { source: string; timeoutMs?: number }[] = []
+    let disposed = 0
+    const evaluator: PluginEvaluator = {
+      kind,
+      evaluate: async (source, _args, options) => {
+        asked.push({
+          source,
+          ...(options?.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+        })
+        return (await answer()) as never
+      },
+      dispose: () => {
+        disposed += 1
+      },
+    }
+    return { evaluator, asked, disposed: () => disposed }
+  }
+
+  it('says yes when the evaluator document starts a worker, asking it once', async () => {
+    const yes = probing(async () => true)
+    expect(await probePluginWorkers(() => yes.evaluator)).toBe(true)
+    expect(yes.asked).toEqual([{ source: WORKER_PROBE_SOURCE, timeoutMs: 8_000 }])
+    expect(yes.disposed()).toBe(1)
+  })
+
+  it('says no, and never rejects, wherever the worker or the document fails', async () => {
+    for (const answer of [
+      async () => false,
+      async () => 'true',
+      async () => {
+        throw new Error('the document never answered')
+      },
+    ]) {
+      const no = probing(answer)
+      expect(await probePluginWorkers(() => no.evaluator)).toBe(false)
+      expect(no.disposed()).toBe(1)
+    }
+    expect(
+      await probePluginWorkers(() => {
+        throw new Error('no evaluator here')
+      }),
+    ).toBe(false)
+    // An in-process evaluator would run plugins in the page: not asked at all.
+    const inProcess = probing(async () => true, 'in-process')
+    expect(await probePluginWorkers(() => inProcess.evaluator)).toBe(false)
+    expect(inProcess.asked).toEqual([])
+  })
+
+  it('starts a worker from a blob: URL in its document, and answers once it hears from it', async () => {
+    // Run as a document would, with a stand-in Worker: it answers, or fails to start.
+    const run = async (FakeWorker: unknown) => {
+      const body = new Function('Worker', 'URL', 'Blob', WORKER_PROBE_SOURCE)
+      const url = { createObjectURL: () => 'blob:null/1', revokeObjectURL: () => undefined }
+      return body(FakeWorker, url, Blob) as Promise<unknown>
+    }
+    class Answers {
+      onmessage: (() => void) | null = null
+      onerror: (() => void) | null = null
+      constructor() {
+        setTimeout(() => this.onmessage?.(), 0)
+      }
+      terminate() {}
+    }
+    class Refused {
+      constructor() {
+        throw new DOMException('blocked', 'SecurityError')
+      }
+    }
+    expect(await run(Answers)).toBe(true)
+    expect(await run(Refused)).toBe(false)
   })
 })

@@ -7,7 +7,7 @@
  */
 
 export { createRequestBudget, createSandboxEvaluator, createWebTransport } from '@fxm/platform'
-export { createPluginRegistry, isolatedSandboxes } from '../index'
+export { createPluginRegistry, isolatedSandboxes, probePluginWorkers } from '../index'
 export { memoryPluginStore } from '../registry'
 export { testContext } from './context'
 export { fakeCatalogFetch, testPluginFile } from './test-plugin'
