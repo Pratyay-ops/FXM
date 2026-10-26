@@ -4,12 +4,14 @@ Endless autoplay radio: when the queue runs low, FXM adds songs like the ones th
 
 ## What the user gets
 
-- **On by default.** A switch in Settings → Playback, and one under Next up in the queue (Now playing → Queue), where the songs it adds show. The queue's shows only where autoplay can run; Settings says what it needs elsewhere.
-- **When.** Once fewer than 3 songs remain after the one playing, with repeat off, FXM adds 4 songs like the last 5 plays of the listening session. It waits a moment (1.5 s) for the queue to settle, so skipping through or editing the queue plans once, and it goes on each time the queue runs low.
-- **Marked and removable.** The songs it adds say "Autoplay" in the queue, and so does the song playing when autoplay added it. Each can be removed like any song, and a song the user removed doesn't come back this session. Clearing Next up removes them all; autoplay then adds others.
-- **Likes and skips steer it.** A song the user skips stops seeding the radio and pulls its artist down; a song or artist they mostly skip never comes; a liked song weighs more and lifts its artist. The affinity (stage 3.1) is read afresh for every batch.
+- **On by default.** A switch in Settings → Playback, and one under Next up in the queue (Now playing → Queue), where the songs it adds show. The queue's shows only where autoplay can run; elsewhere Settings says why it adds nothing (see Tiers).
+- **When.** Once fewer than 3 songs remain after the one playing, with repeat off, FXM adds 4 songs like the last 5 plays of the listening session. It waits a moment (1.5 s) for the queue to settle, so skipping through or editing the queue plans once, and it goes on each time the queue runs low. Meanwhile the queue says "Finding songs like the ones you just played…" below Next up, or in place of "Nothing up next" when nothing is left.
+- **The user's songs first.** "Add to queue" puts a song before the songs autoplay added that wait at the end of the queue, so it plays before them, as in other players; autoplay's next batch goes after it. "Play next" works as ever.
+- **Marked and removable.** The songs it adds say "Autoplay" in the queue, and so does the song playing when autoplay added it, whose Next up then says "Playing from Autoplay". Each can be removed like any song, and a song the user removed doesn't come back this session. Clearing Next up removes them all, and they don't come back either: autoplay finds others, and says so. A song the user moves is theirs: it loses its mark.
+- **Likes and skips steer it.** A song the user skips (before half of it played) stops seeding the radio, however much they like it, and pulls its artist down; a song or artist they mostly skip never comes; a liked song weighs more and lifts its artist. The history and the affinity (stage 3.1) are read afresh for every batch.
 - **No repeats** of the last 50 plays, nor of anything in the queue.
-- **Switching it off** stops adding, and takes the songs autoplay added that haven't played out of the queue. Switching it on fills a queue that is low.
+- **Switching it off** stops adding, and takes the songs autoplay added that haven't played out of the queue, except the ones the user moved; Settings says so. Switching it on fills a queue that is low.
+- **Screen readers** hear, while the queue shows, what autoplay added ("Autoplay added 4 songs, starting with …") and what switching it off took out.
 - **History and scrobbling.** A play of a song autoplay added is recorded as a play of its radio (`{ type: 'radio', seed, title: 'Autoplay' }`), seeded with the play it grew from, so scrobbles of it say the user didn't choose it (stage 8.2).
 - **A queue that ends while songs are on their way** (a slow connection, say) plays on with them once they arrive. A queue that ended before autoplay was switched on just gets them: the user presses play.
 
@@ -17,19 +19,20 @@ Endless autoplay radio: when the queue runs low, FXM adds songs like the ones th
 
 | | Free only | Lite | Full |
 |---|---|---|---|
-| Autoplay | — (Settings says it needs YouTube Music, and how to get it; the queue shows no switch) | ✅ YouTube Music radio | ✅ also Spotify's radio, when Spotify is on |
+| Autoplay | — (Settings says it needs YouTube Music, with a link to the tiers and install guides; the queue shows no switch) | ✅ YouTube Music radio | ✅ also Spotify's radio, when Spotify is on |
 
-Like Home's recommendations, autoplay runs only where YouTube Music is reachable (`canRecommend`), whose songs are what plays. Songs only Spotify suggests are left out: they play only through a match, which the queue skips until the user reviews it. Spotify's radio still raises the songs YouTube Music suggests too.
+Like Home's recommendations, autoplay runs only where YouTube Music is reachable (`canRecommend`), whose songs are what plays. Songs only Spotify suggests are left out: they play only through a match, which the queue skips until the user reviews it. Spotify's radio still raises the songs YouTube Music suggests too. Settings starts from the check the queue's switch makes (`canRecommend`, in `autoplayNote`), so the two never disagree: until Home's recommendation sources are wired in (see Wiring), Settings says, in every tier, that this version of FXM can't find songs to add yet; once they are, it says what autoplay needs in the Free tier, after FXM Connect had its chance to answer (`detecting`), so the note doesn't come and go.
 
 ## How it works
 
 | File | What |
 |---|---|
-| `autoplay.ts` | `connectAutoplay(player)`: watches the queue, decides when to extend it, adds and marks the songs, drops a plan whose queue changed meanwhile, remembers what the user removed, and withdraws its songs when switched off. In the app's first chunk, so it loads nothing heavy itself |
+| `autoplay.ts` | `connectAutoplay(player)`: watches the queue, decides when to extend it, adds and marks the songs, keeps them behind the songs the user adds, drops a plan whose queue changed meanwhile, remembers what the user removed, withdraws its songs when switched off, and says what it is doing. In the app's first chunk, so it loads nothing heavy itself |
 | `extend.ts` | One extension, loaded on first use: the taste from the library, the seeds, one radio fetch, the batch |
-| `autoplay-marks.ts` | Which queue items autoplay added (by uid, with the track each held), saved next to the queue, and the radio context of their plays |
+| `autoplay-marks.ts` | Which queue items autoplay added (by uid, with the track each held), saved next to the queue, and the radio context of their plays. `adopt` unmarks a song the user moved |
+| `autoplay-activity.ts` | What autoplay is doing (`idle`, `waiting`, `planning`) and what it last changed, for the queue panel; not saved |
 | `autoplay-store.ts` | The setting |
-| `autoplay-setting.tsx` | The Settings row, the queue's switch and the "Autoplay" mark |
+| `autoplay-setting.tsx` | The Settings row and its note, the queue's switch, the "Autoplay" mark and the "Finding songs…" line |
 
 **One extension** (`planExtension`):
 
@@ -40,7 +43,11 @@ Like Home's recommendations, autoplay runs only where YouTube Music is reachable
 
 **Situations.** Autoplay plans a state of the queue (what plays, what follows, the mode). One whose plan found nothing (or failed) is tried again only when the queue moves on, the setting or the services (or what they reach) change, or the queue ends. A plan that added songs leaves nothing blocked, so a queue the user empties again refills.
 
-**Marks.** A queue item keeps its uid through edits, shuffles, mode switches and reloads, so a mark follows its item; a mark whose uid holds another track marks nothing, and marks of items that left the queue are dropped.
+**Marks.** A queue item keeps its uid through edits, shuffles, mode switches and reloads, so a mark follows its item; a mark whose uid holds another track marks nothing, and marks of items that left the queue are dropped. The queue panel unmarks a song the user moves (`adopt`): it is a song they chose now, so switching autoplay off leaves it, and a play of it counts as one of the queue's.
+
+**The user's songs first.** When an append by anyone but autoplay (the app's "Add to queue", the local files' rows) lands behind a run of autoplay's songs at the end of the queue, `connectAutoplay` moves the appended items before that run with `player.move`, once every listener has seen the append (a microtask later); whichever side is shorter moves. Moves keep every uid, so the marks stay. Songs the user placed after autoplay's themselves stay there: only the items just appended move.
+
+**Activity.** `autoplay-activity.ts` holds `waiting` while the queue settles, `planning` while songs are on their way, and `idle` otherwise, and a new `change` for every batch it adds and every withdrawal. The queue panel shows the "Finding songs…" line while it isn't idle, and tells screen readers each change through its live region, only while it shows.
 
 ## Wiring
 
@@ -57,9 +64,9 @@ Both are read back through sanitizers: anything malformed is dropped, and the se
 
 ## Tests
 
-All offline. `autoplay.test.ts` drives a real player on the fake engine with fake timers: when it extends and when not (enough left, repeat, off, Free tier, nothing wired), settling, one plan per situation, plans dropped when the queue or the mode changes or autoplay goes off, playing on after the queue ended, switching off and on, removed songs, a new queue, refilling, restored marks, the services and what they reach, failures and disconnecting. `extend.test.ts` plans against the real library (fake IndexedDB) and Home's fake collector: one fetch per extension at `prefetch`, blending kept radios, Home's cache, the queue and removed songs, skips the library recorded, failed and late sources, cancellation, the tiers, and the app's library and picks. `autoplay-store.test.ts` covers both stores and the play context. `autoplay-app.test.tsx` runs it in the app: the queue panel's marks and switch, the song playing, a play recorded as a radio play, and the queue and Settings in the Free and Full tiers.
+All offline. `autoplay.test.ts` drives a real player on the fake engine with fake timers: when it extends and when not (enough left, repeat, off, Free tier, nothing wired), settling, one plan per situation, plans dropped when the queue or the mode changes or autoplay goes off, playing on after the queue ended, switching off and on, songs the user moved, the user's songs before autoplay's, what it reports doing, removed songs, a new queue, refilling, restored marks, the services and what they reach, failures and disconnecting. `extend.test.ts` plans against the real library (fake IndexedDB) and Home's fake collector: one fetch per extension at `prefetch`, blending kept radios, Home's cache, the queue and removed songs, skips the library recorded, a favourite skipped just now, music videos in Music mode, failed and late sources, cancellation, the tiers, and the app's library and picks. `autoplay-store.test.ts` covers the stores, adoption, the activity's messages and the play context. `autoplay-app.test.tsx` runs it in the app: the queue panel's marks, switch, "Finding songs…" line and announcements, "Add to queue" after a batch, Clear, a moved song kept when switched off, the song playing and "Playing from Autoplay", a play recorded as a radio play, the queue in the Free tier, and Settings in every tier, wired in or not, while FXM Connect answers.
 
 ## Pending
 
-- **Wiring:** Home's services, which autoplay shares (see Wiring): the 3.3 row of the composition root's open seams (`app/services/README.md`).
+- **Wiring:** Home's services, which autoplay shares (see Wiring): the 3.3 row of the composition root's open seams (`app/services/README.md`). Until it is wired, the deployed app adds no songs in any tier, and Settings says so.
 - **The site:** `AVAILABLE.homeFeed` and `AVAILABLE.radio` (`apps/site/src/config.ts`) name stages 3.3 and 3.4. Turn them on, and review the copy that reads them, once Home's recommendation sources are wired into the deployed app.

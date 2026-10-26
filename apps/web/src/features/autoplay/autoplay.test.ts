@@ -21,6 +21,7 @@ import {
 } from '../home/services'
 import { fakeRecommendations, homeServices, TIERS } from '../home/testing'
 import { AUTOPLAY_SETTLE_MS, connectAutoplay, type PlanExtension } from './autoplay'
+import { createAutoplayActivityStore } from './autoplay-activity'
 import { createAutoplayMarksStore, isAutoplayItem } from './autoplay-marks'
 import { createAutoplayStore } from './autoplay-store'
 import type { AppExtensionRequest, Extension } from './extend'
@@ -94,6 +95,7 @@ function setup({
   const store = createHomeServicesStore(services)
   const settings = createAutoplayStore({ storage: () => undefined })
   const marks = createAutoplayMarksStore({ storage: () => undefined })
+  const activity = createAutoplayActivityStore()
   const requests: AppExtensionRequest[] = []
   const errors: unknown[] = []
   let made = 0
@@ -115,6 +117,7 @@ function setup({
     services: store,
     settings,
     marks,
+    activity,
     plan,
     now: () => NOW,
     syncTabs: false,
@@ -126,6 +129,7 @@ function setup({
     store,
     settings,
     marks,
+    activity,
     requests,
     errors,
     disconnect,
@@ -360,7 +364,7 @@ describe('connectAutoplay', () => {
   })
 
   it('stops adding when switched off, and takes out the songs it added that haven’t played', async () => {
-    const { player, settings, requests, marked } = setup()
+    const { player, settings, activity, requests, marked } = setup()
     await player.setQueue(testTracks('a', 'b', 'c'), { startIndex: 1 })
     await settle()
     await player.next()
@@ -372,6 +376,11 @@ describe('connectAutoplay', () => {
 
     expect(queueTitles(player)).toEqual(['a', 'b', 'c', 'radio 1', 'mine'])
     expect(marked()).toEqual(['radio 1'])
+    // The queue panel tells screen readers.
+    expect(activity.getState().change).toEqual({
+      type: 'withdrawn',
+      titles: ['radio 2', 'radio 3', 'radio 4'],
+    })
     await player.next()
     await settle()
     expect(requests).toHaveLength(1)
@@ -383,6 +392,124 @@ describe('connectAutoplay', () => {
     expect(requests).toHaveLength(2)
     expect([...(requests[1]?.exclude ?? [])]).toEqual([])
     expect(upcoming(player.getState().queue)).toEqual(['radio 5', 'radio 6', 'radio 7', 'radio 8'])
+  })
+
+  it('leaves the songs the user moved in the queue when switched off', async () => {
+    const { player, settings, marks, marked } = setup()
+    await player.setQueue(testTracks('a'), { startIndex: 0 })
+    await settle()
+    // The user moves radio 3 up to play next: it is theirs now.
+    const chosen = player.getState().queue.items[3] as QueueItem
+    player.move(3, 1)
+    marks.getState().adopt(chosen.uid)
+    expect(marked()).toEqual(['radio 1', 'radio 2', 'radio 4'])
+
+    settings.getState().setEnabled(false)
+
+    expect(queueTitles(player)).toEqual(['a', 'radio 3'])
+  })
+
+  it('plays the songs the user adds before the ones it added', async () => {
+    const { player, requests, marked } = setup()
+    await player.setQueue(testTracks('a', 'b'), { startIndex: 0 })
+    await settle()
+    expect(upcoming(player.getState().queue)).toEqual([
+      'b',
+      'radio 1',
+      'radio 2',
+      'radio 3',
+      'radio 4',
+    ])
+
+    player.addToQueue([testTrack('mine')])
+    await settle(0)
+    expect(upcoming(player.getState().queue)).toEqual([
+      'b',
+      'mine',
+      'radio 1',
+      'radio 2',
+      'radio 3',
+      'radio 4',
+    ])
+    // More songs than autoplay's: its songs move behind them instead, still marked.
+    player.addToQueue(testTracks('x1', 'x2', 'x3', 'x4', 'x5'))
+    await settle(0)
+    expect(upcoming(player.getState().queue)).toEqual([
+      'b',
+      'mine',
+      'x1',
+      'x2',
+      'x3',
+      'x4',
+      'x5',
+      'radio 1',
+      'radio 2',
+      'radio 3',
+      'radio 4',
+    ])
+    expect(marked()).toEqual(['radio 1', 'radio 2', 'radio 3', 'radio 4'])
+    await player.next()
+    await player.next()
+    expect(currentQueueItem(player.getState().queue)?.track.title).toBe('mine')
+
+    // Its next batch goes at the end, after everything the user queued.
+    for (let skip = 0; skip < 7; skip++) await player.next()
+    await settle()
+    expect(requests).toHaveLength(2)
+    expect(upcoming(player.getState().queue)).toEqual([
+      'radio 3',
+      'radio 4',
+      'radio 5',
+      'radio 6',
+      'radio 7',
+      'radio 8',
+    ])
+  })
+
+  it('leaves alone what the user adds when its songs aren’t waiting at the end', async () => {
+    const { player, answer } = setup()
+    answer(async () => ({ picks: [] }))
+    await player.setQueue(testTracks('a', 'b'), { startIndex: 0 })
+    await settle()
+    player.playNext([testTrack('next')])
+    player.addToQueue([testTrack('last')])
+    await settle(0)
+    expect(queueTitles(player)).toEqual(['a', 'next', 'b', 'last'])
+  })
+
+  it('says when it is finding songs, and what it added', async () => {
+    const { player, activity, answer } = setup()
+    const late = deferred<Extension>()
+    answer(
+      async () => ({ picks: [] }),
+      () => late.promise,
+    )
+    expect(activity.getState().status).toBe('idle')
+
+    await player.setQueue(testTracks('a', 'b'), { startIndex: 0 })
+    expect(activity.getState().status).toBe('waiting')
+    await settle()
+    // It found nothing: nothing to say until the queue moves on.
+    expect(activity.getState()).toEqual({ status: 'idle' })
+
+    await player.next()
+    expect(activity.getState().status).toBe('waiting')
+    await settle()
+    expect(activity.getState().status).toBe('planning')
+    late.resolve({
+      picks: ['r1', 'r2', 'r3'].map((name) => pickOf(testTrack(name), testTrack('b'))),
+    })
+    await settle(0)
+    expect(activity.getState()).toEqual({
+      status: 'idle',
+      change: { type: 'added', titles: ['r1', 'r2', 'r3'] },
+    })
+
+    // A queue that ran low again: waiting, then nothing once the user fills it up.
+    await player.next()
+    expect(activity.getState().status).toBe('waiting')
+    player.addToQueue(testTracks('x', 'y'))
+    expect(activity.getState().status).toBe('idle')
   })
 
   it('drops a plan on its way when switched off', async () => {
@@ -505,13 +632,15 @@ describe('connectAutoplay', () => {
   })
 
   it('stops when disconnected, dropping a plan on its way', async () => {
-    const { player, requests, answer, disconnect } = setup()
+    const { player, activity, requests, answer, disconnect } = setup()
     const late = deferred<Extension>()
     answer(() => late.promise)
     await player.setQueue(testTracks('a'), { startIndex: 0 })
     await settle()
+    expect(activity.getState().status).toBe('planning')
     disconnect()
     expect(requests[0]?.signal?.aborted).toBe(true)
+    expect(activity.getState().status).toBe('idle')
     late.resolve({ picks: [pickOf(testTrack('stale'), testTrack('a'))] })
     await settle()
     await player.next()

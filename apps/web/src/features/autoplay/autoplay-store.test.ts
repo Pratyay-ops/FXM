@@ -2,6 +2,11 @@ import { formatId, type QueueItem } from '@fxm/core'
 import { testTrack } from '@fxm/player/testing'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  autoplayChangeMessage,
+  createAutoplayActivityStore,
+  isFindingSongs,
+} from './autoplay-activity'
+import {
   AUTOPLAY_MARKS_STORAGE_KEY,
   AUTOPLAY_TITLE,
   autoplayContextOf,
@@ -134,6 +139,22 @@ describe('the marks of the songs autoplay added', () => {
     expect(store.getState().marks).toEqual({})
   })
 
+  it('unmarks a song the user adopted by moving it', () => {
+    const store = createAutoplayMarksStore({ storage: () => memoryStorage() })
+    const [a, b] = [item(1, 'a'), item(2, 'b')]
+    store.getState().add([
+      { uid: 1, trackId: a.track.id, seed },
+      { uid: 2, trackId: b.track.id, seed },
+    ])
+    store.getState().adopt(1)
+    expect(isAutoplayItem(store.getState().marks, a)).toBe(false)
+    expect(isAutoplayItem(store.getState().marks, b)).toBe(true)
+    // A song autoplay didn't add changes nothing.
+    const before = store.getState().marks
+    store.getState().adopt(3)
+    expect(store.getState().marks).toBe(before)
+  })
+
   it('keeps the newest marks only, up to a queue’s worth', () => {
     const store = createAutoplayMarksStore({ storage: () => memoryStorage() })
     const many = Array.from({ length: MAX_AUTOPLAY_MARKS + 5 }, (_, uid) => ({
@@ -194,5 +215,30 @@ describe('the marks of the songs autoplay added', () => {
     expect(autoplayContextOf(item(10, 'two'), undefined, marks)).toBeUndefined()
     // The app's marks by default.
     expect(autoplayContextOf(one, album)).toBe(album)
+  })
+})
+
+describe('what autoplay is doing', () => {
+  it('starts idle, and tells what it changed', () => {
+    const store = createAutoplayActivityStore()
+    expect(store.getState()).toEqual({ status: 'idle' })
+    expect(isFindingSongs({ status: 'waiting' })).toBe(true)
+    expect(isFindingSongs({ status: 'planning' })).toBe(true)
+    expect(isFindingSongs({ status: 'idle' })).toBe(false)
+  })
+
+  it('says what it added or took out, for screen readers', () => {
+    expect(autoplayChangeMessage({ type: 'added', titles: ['Iris Song', 'Lark Song'] })).toBe(
+      'Autoplay added 2 songs, starting with Iris Song.',
+    )
+    expect(autoplayChangeMessage({ type: 'added', titles: ['Iris Song'] })).toBe(
+      'Autoplay added Iris Song.',
+    )
+    expect(autoplayChangeMessage({ type: 'withdrawn', titles: ['Iris Song', 'Lark Song'] })).toBe(
+      'Autoplay is off. It took out the 2 songs it added.',
+    )
+    expect(autoplayChangeMessage({ type: 'withdrawn', titles: ['Iris Song'] })).toBe(
+      'Autoplay is off. It took out Iris Song, the song it added.',
+    )
   })
 })

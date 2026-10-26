@@ -12,13 +12,19 @@
  *   extension, cached. They are added at the end of the queue and marked
  *   (`autoplay-marks.ts`), for the queue panel and for the listening history, which records a
  *   play of one as a play of the radio.
+ * - **The user's songs first.** Songs anyone else appends to the queue ("Add to queue") while
+ *   autoplay's songs wait at its end move before those, so what the user queues plays before
+ *   what autoplay suggests ({@link connectAutoplay}'s `keepLast`).
+ * - **What it is doing** goes to `autoplay-activity.ts`: whether songs are on their way, and
+ *   each change it makes, which the queue panel tells screen readers.
  * - **The queue changing meanwhile.** A plan is dropped when the queue it was planned for
  *   changes before it is ready (another track, an edit, another mode): the new situation is
  *   planned instead. A queue that ended while a plan was on its way plays on with it.
  * - **Removed songs.** A song autoplay added that the user removes from the queue before it
- *   played never comes again in this session.
+ *   played, one by one or with Clear, never comes again in this session.
  * - **Switching it off** stops adding, and takes the songs autoplay added that haven't played
- *   out of the queue. Switching it on extends a queue that is low.
+ *   out of the queue, except the ones the user moved (they adopted those). Switching it on
+ *   extends a queue that is low.
  *
  * @module
  */
@@ -27,6 +33,7 @@ import {
   currentQueueItem,
   type EntityId,
   isTrackSeed,
+  type QueueItem,
   type QueueState,
   type RadioPick,
   type RandomSource,
@@ -36,6 +43,7 @@ import {
 } from '@fxm/core'
 import type { Player, PlayerState } from '@fxm/player'
 import { appHomeServices, canRecommend, type HomeServicesStore } from '../home/services'
+import { type AutoplayActivityStore, useAutoplayActivity } from './autoplay-activity'
 import { type AutoplayMarksStore, isAutoplayItem, useAutoplayMarks } from './autoplay-marks'
 import { type AutoplayStore, syncAutoplayAcrossTabs, useAutoplayStore } from './autoplay-store'
 import type { AppExtensionRequest, Extension } from './extend'
@@ -60,6 +68,8 @@ export interface AutoplayOptions {
   readonly settings?: AutoplayStore
   /** The marks of the songs autoplay added. Default: the app's. */
   readonly marks?: AutoplayMarksStore
+  /** Where autoplay says what it is doing. Default: the app's. */
+  readonly activity?: AutoplayActivityStore
   /** Plans an extension. Default: the app's (`extend.ts`). */
   readonly plan?: PlanExtension
   /** The clock, as epoch milliseconds. Default: `Date.now`. */
@@ -105,6 +115,7 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
   const services = options.services ?? appHomeServices
   const settings = options.settings ?? useAutoplayStore
   const marks = options.marks ?? useAutoplayMarks
+  const activity = options.activity ?? useAutoplayActivity
   const plan = options.plan ?? planInApp
   const now = options.now ?? Date.now
   const settleMs = options.settleMs ?? AUTOPLAY_SETTLE_MS
@@ -123,6 +134,10 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
   let tried: string | undefined
   /** Whether autoplay itself is taking songs out, which is no choice of the user's. */
   let withdrawing = false
+  /** Whether autoplay itself is adding songs, which `noteAppend` leaves where they land. */
+  let adding = false
+  /** The uids of the items someone else just appended, for `keepLast`. */
+  let appended: number[] = []
   let disconnected = false
 
   function want(state: PlayerState): Want | undefined {
@@ -148,9 +163,20 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
     run = undefined
   }
 
+  /** Tells the queue panel what autoplay is doing now. */
+  function report(): void {
+    const status = run !== undefined ? 'planning' : pending !== undefined ? 'waiting' : 'idle'
+    if (activity.getState().status !== status) activity.setState({ status })
+  }
+
   /** Decides what to do about the queue as it is now. `resume`: the queue just ended. */
   function evaluate(resume = false): void {
     if (disconnected) return
+    decide(resume)
+    report()
+  }
+
+  function decide(resume: boolean): void {
     const wanted = want(player.getState())
     if (wanted === undefined) {
       stop()
@@ -192,6 +218,7 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
     }
     const mine: Run = { key, abort: new AbortController(), resume }
     run = mine
+    report()
     try {
       const { picks } = await plan({
         queue: player.getState().queue,
@@ -207,11 +234,13 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
       if (run !== mine || mine.abort.signal.aborted) return
       run = undefined
       tried = picks.length > 0 ? undefined : key
+      report()
       add(picks, mine.resume)
     } catch (error) {
-      if (run === mine) run = undefined
-      if (mine.abort.signal.aborted) return
+      if (run !== mine) return
+      run = undefined
       tried = key
+      report()
       onError(error)
     }
   }
@@ -219,7 +248,12 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
   function add(picks: readonly RadioPick[], resume: boolean): void {
     if (picks.length === 0) return
     const before = player.getState().queue.nextUid
-    player.addToQueue(picks.map((pick) => pick.track))
+    adding = true
+    try {
+      player.addToQueue(picks.map((pick) => pick.track))
+    } finally {
+      adding = false
+    }
     const added = player.getState().queue.items.filter((item) => item.uid >= before)
     marks.getState().add(
       added.flatMap((item) => {
@@ -229,7 +263,58 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
           : [{ uid: item.uid, trackId: item.track.id, seed: seedIdOf(pick) }]
       }),
     )
+    if (added.length > 0) {
+      activity.setState({
+        change: { type: 'added', titles: added.map((item) => item.track.title) },
+      })
+    }
     if (resume && player.getState().status === 'ended') void player.play()
+  }
+
+  /**
+   * Notes the items someone else, such as the user's "Add to queue", just appended: once every
+   * listener has seen the append, `keepLast` moves them before the songs autoplay added.
+   */
+  function noteAppend(previous: QueueState, next: QueueState): void {
+    if (adding || next.items.length <= previous.items.length) return
+    // An append leaves every item where it was.
+    if (previous.items.some((item, index) => next.items[index] !== item)) return
+    if (appended.length === 0) queueMicrotask(keepLast)
+    for (const item of next.items.slice(previous.items.length)) appended.push(item.uid)
+  }
+
+  /**
+   * Keeps the songs autoplay added behind the songs the user queues: the items just appended
+   * that wait behind a run of autoplay's songs at the end of the queue move before that run, so
+   * they play first. A move keeps every uid, and so every mark; whichever side is shorter moves.
+   */
+  function keepLast(): void {
+    const uids = new Set(appended)
+    appended = []
+    if (disconnected) return
+    const { queue } = player.getState()
+    const { marks: marked } = marks.getState()
+    const { items } = queue
+    const first = queue.index + 1
+    // The items just appended, still at the end, and the run of autoplay's songs before them.
+    let appendedFrom = items.length
+    while (appendedFrom > first && uids.has((items[appendedFrom - 1] as QueueItem).uid)) {
+      appendedFrom--
+    }
+    let autoplayFrom = appendedFrom
+    while (autoplayFrom > first && isAutoplayItem(marked, items[autoplayFrom - 1] as QueueItem)) {
+      autoplayFrom--
+    }
+    const late = items.length - appendedFrom
+    const waiting = appendedFrom - autoplayFrom
+    if (late === 0 || waiting === 0) return
+    if (late <= waiting) {
+      for (let moved = 0; moved < late; moved++) {
+        player.move(appendedFrom + moved, autoplayFrom + moved)
+      }
+    } else {
+      for (let moved = 0; moved < waiting; moved++) player.move(autoplayFrom, items.length - 1)
+    }
   }
 
   /**
@@ -254,20 +339,24 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
     }
   }
 
-  /** Takes the songs autoplay added that haven't played yet out of the queue. */
+  /** Takes the songs autoplay added that haven't played yet out of the queue, and says so. */
   function withdraw(): void {
     const { marks: marked } = marks.getState()
+    const titles: string[] = []
     withdrawing = true
     try {
       const { queue } = player.getState()
       // From the end, so the indexes still to visit stay where they are.
       for (let index = queue.items.length - 1; index > queue.index; index--) {
         const item = player.getState().queue.items[index]
-        if (item !== undefined && isAutoplayItem(marked, item)) player.remove(index)
+        if (item === undefined || !isAutoplayItem(marked, item)) continue
+        player.remove(index)
+        titles.unshift(item.track.title)
       }
     } finally {
       withdrawing = false
     }
+    if (titles.length > 0) activity.setState({ change: { type: 'withdrawn', titles } })
   }
 
   /** Something autoplay depends on changed: a situation tried before may go better now. */
@@ -280,6 +369,7 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
     if (state.queue.items !== previous.queue.items) {
       noteRemovals(previous.queue, state.queue)
       marks.getState().keepOnly(state.queue.items)
+      noteAppend(previous.queue, state.queue)
     }
     if (state.queue !== previous.queue) evaluate()
   })
@@ -307,6 +397,7 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
   return () => {
     disconnected = true
     stop()
+    report()
     for (const disconnect of [stopPlayer, stopEnd, stopSettings, stopServices, stopSync]) {
       disconnect()
     }

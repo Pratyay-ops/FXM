@@ -4,6 +4,7 @@ import 'fake-indexeddb/auto'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
 import { resetLibrary } from '../db/repo'
+import { useAutoplayActivity } from '../features/autoplay/autoplay-activity'
 import { useAutoplayMarks } from '../features/autoplay/autoplay-marks'
 import { useAutoplayStore } from '../features/autoplay/autoplay-store'
 import { resetDownloads } from '../features/downloads/runtime'
@@ -47,6 +48,7 @@ afterEach(async () => {
   usePwaStore.setState(usePwaStore.getInitialState(), true)
   useAutoplayStore.setState(useAutoplayStore.getInitialState(), true)
   useAutoplayMarks.setState(useAutoplayMarks.getInitialState(), true)
+  useAutoplayActivity.setState(useAutoplayActivity.getInitialState(), true)
   if (playerStore === undefined) return
   localStorage.clear()
   sessionStorage.clear()

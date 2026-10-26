@@ -8,6 +8,7 @@ import { createSafeStorage } from '../../lib/safe-storage'
  * counts as a radio play. A queue item keeps its uid through every edit, shuffle, mode switch
  * and reload (see the queue's README in `@fxm/core`), so a mark follows its item; a mark whose
  * uid holds another track now (a queue that couldn't be saved, then a new one) marks nothing.
+ * A song the user moves in the queue is theirs from then on: moving it unmarks it (`adopt`).
  * Saved next to the queue, so a reload keeps them.
  */
 export interface AutoplayMark {
@@ -25,6 +26,11 @@ export interface AutoplayMarksState {
   add: (items: readonly ({ uid: number } & AutoplayMark)[]) => void
   /** Keeps only the marks of `items` that still hold their track, e.g. the queue's items. */
   keepOnly: (items: readonly QueueItem[]) => void
+  /**
+   * Unmarks the item with `uid`: the user moved it, so it is a song they chose now. Switching
+   * autoplay off leaves it in the queue, and a play of it counts as one of the queue's.
+   */
+  adopt: (uid: number) => void
   /** Removes every mark. */
   clear: () => void
 }
@@ -118,6 +124,12 @@ export function createAutoplayMarksStore({ storage }: AutoplayMarksStoreOptions 
             else dropped = true
           }
           if (dropped) set({ marks: kept })
+        },
+        adopt(uid) {
+          const { marks } = get()
+          if (!Object.hasOwn(marks, String(uid))) return
+          const { [String(uid)]: _adopted, ...kept } = marks
+          set({ marks: kept })
         },
         clear: () => set({ marks: {} }),
       }),

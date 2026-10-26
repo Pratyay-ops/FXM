@@ -57,6 +57,19 @@ export function rowShift(index: number, drag: DragState): number {
   return 0
 }
 
+/**
+ * Whether the rows `after` are the rows `before` with more added at the end, which leaves every
+ * row at its index: then a drag in progress goes on. Rows are compared by identity.
+ */
+export function onlyAppended(before: unknown, after: unknown): boolean {
+  return (
+    Array.isArray(before) &&
+    Array.isArray(after) &&
+    after.length >= before.length &&
+    before.every((row, index) => Object.is(row, after[index]))
+  )
+}
+
 /** Where a key moves the row at `index` in a list of `count`, or `undefined` for other keys. */
 export function keyTarget(key: string, index: number, count: number): number | undefined {
   const targets: Readonly<Record<string, number>> = {
@@ -98,7 +111,9 @@ export interface DragReorderOptions {
   count: number
   /**
    * Changes whenever the rows change, e.g. the list's items. A drag in progress is cancelled
-   * then, because its row indices no longer hold.
+   * then, because its row indices no longer hold, unless the rows are an array that only grew
+   * at its end ({@link onlyAppended}): rows coming in below, as autoplay adds songs, leave the
+   * drag alone.
    */
   rowsKey: unknown
   /** Moves the row at `from` to `to` (its index once moved). */
@@ -136,6 +151,8 @@ export function useDragReorder({ listRef, count, rowsKey, onMove, onTap }: DragR
   const session = useRef<Session | null>(null)
   // A drag ends in a click on the handle, which is not a tap.
   const dropped = useRef(false)
+  // The rows as the last change left them.
+  const rows = useRef(rowsKey)
 
   const end = () => {
     const current = session.current
@@ -145,11 +162,13 @@ export function useDragReorder({ listRef, count, rowsKey, onMove, onTap }: DragR
     setDrag(null)
   }
 
-  // New rows invalidate the drag's indices; an unmounted list can't be dragged.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: rowsKey is the trigger, not an input
+  // New rows invalidate the drag's indices, unless they only came in below the others; an
+  // unmounted list can't be dragged.
   useEffect(() => {
+    const before = rows.current
+    rows.current = rowsKey
     const current = session.current
-    if (current === null) return
+    if (current === null || onlyAppended(before, rowsKey)) return
     stopScrolling(current)
     session.current = null
     setDrag(null)

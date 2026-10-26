@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type DragState, dropIndex, keyTarget, rowShift } from './use-drag-reorder'
+import { type DragState, dropIndex, keyTarget, onlyAppended, rowShift } from './use-drag-reorder'
 
 // Four rows, 60 px apart: centres at 30, 90, 150 and 210.
 const centres = [30, 90, 150, 210]
@@ -57,5 +57,23 @@ describe('keyTarget', () => {
     expect(keyTarget('End', 4, 5)).toBeUndefined()
     expect(keyTarget('Enter', 2, 5)).toBeUndefined()
     expect(keyTarget('toString', 2, 5)).toBeUndefined()
+  })
+})
+
+describe('onlyAppended', () => {
+  const [a, b, c] = [{ id: 'a' }, { id: 'b' }, { id: 'c' }]
+
+  it('tells rows added at the end, which leave every row where it was', () => {
+    expect(onlyAppended([a, b], [a, b, c])).toBe(true)
+    expect(onlyAppended([a, b], [a, b])).toBe(true)
+    expect(onlyAppended([], [a])).toBe(true)
+  })
+
+  it('tells them from rows that moved, went or changed', () => {
+    expect(onlyAppended([a, b], [b, a, c])).toBe(false)
+    expect(onlyAppended([a, b], [a])).toBe(false)
+    expect(onlyAppended([a, b], [c, a, b])).toBe(false)
+    expect(onlyAppended([a, b], [a, { ...b }])).toBe(false)
+    expect(onlyAppended('rows', 'rows!')).toBe(false)
   })
 })
