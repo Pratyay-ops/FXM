@@ -7,6 +7,7 @@
 
 import { Check, Clock, Copy, ExternalLink as ExternalLinkIcon, FlaskConical } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { buttonClasses } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
 import { TIER_INFO, type Tier } from './tiers'
 
@@ -82,6 +83,31 @@ export function ExternalLink({
 /** Classes for links in running text. */
 export const textLinkClasses =
   'font-semibold text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent'
+
+/** Classes for a link that stands alone on its line: a full touch target on phones and tablets. */
+export const standaloneLinkClasses = `${textLinkClasses} inline-flex min-h-touch items-center lg:min-h-0 lg:pointer-coarse:min-h-touch`
+
+/**
+ * A secondary button for tinted panels, where the secondary fill alone barely stands out from the
+ * tint: outlined, so it still reads as a button.
+ */
+export const panelButtonClasses = buttonClasses({
+  variant: 'secondary',
+  className: 'border border-border-strong',
+})
+
+/** The look of a tinted panel: `info` for what FXM offers, `warning` for what needs the user. */
+export type PanelTone = 'info' | 'warning'
+
+/** Border and tint of a panel of `tone`. */
+export function panelToneClasses(tone: PanelTone): string {
+  return tone === 'warning' ? 'border-danger/60 bg-danger/8' : 'border-accent/40 bg-accent/8'
+}
+
+/** The colour of a panel's icon. */
+export function panelIconClasses(tone: PanelTone): string {
+  return tone === 'warning' ? 'text-danger' : 'text-accent'
+}
 
 /**
  * A browser address such as `chrome://extensions`, which pages can't link to, with a button that

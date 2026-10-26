@@ -5,7 +5,9 @@ import {
   hasFeature,
   includesTier,
   missingFeatures,
+  missingSummary,
   TIER_FEATURES,
+  TIER_INFO,
   tierLabel,
   tierOf,
 } from './tiers'
@@ -59,6 +61,12 @@ describe('the tiers', () => {
     if (spotify !== undefined) expect(hasFeature('lite', spotify)).toBe(false)
   })
 
+  it('marks the apps of Full as coming soon until they are out', () => {
+    expect(TIER_INFO.full.how).toBe(
+      'FXM Connect, the desktop app (coming soon) or the Android app (coming soon).',
+    )
+  })
+
   it('keeps downloads and the Spotify account to Full, marked unreleased for now', () => {
     for (const id of ['downloads', 'spotify-account']) {
       const feature = TIER_FEATURES.find((candidate) => candidate.id === id)
@@ -78,5 +86,23 @@ describe('missingFeatures', () => {
   it('lists only what Full adds to Lite, and nothing for Full', () => {
     expect(missingFeatures('lite').map((group) => group.tier)).toEqual(['full'])
     expect(missingFeatures('full')).toEqual([])
+  })
+})
+
+describe('missingSummary', () => {
+  it('sums up what Lite and Full would add to Free only, with what comes later', () => {
+    expect(missingSummary('free')).toEqual([
+      { tier: 'lite', adds: 'YouTube Music and its ad-free audio' },
+      {
+        tier: 'full',
+        adds: "YouTube Music without Lite's experimental route, and Spotify search and related artists",
+        later: 'A read-only sync of your Spotify account and downloads are coming soon.',
+      },
+    ])
+  })
+
+  it('sums up only what Full adds to Lite, and nothing for Full', () => {
+    expect(missingSummary('lite').map((line) => line.tier)).toEqual(['full'])
+    expect(missingSummary('full')).toEqual([])
   })
 })

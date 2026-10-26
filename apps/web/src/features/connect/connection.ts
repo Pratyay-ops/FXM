@@ -4,7 +4,9 @@
  * the onboarding page, the shell's notices and Settings → Diagnostics read.
  *
  * `startConnectDetection()` (from `main.tsx`) creates the app's platform and binds it; tests bind
- * their own with `bindPlatform()` and call `resetConnection()` afterwards.
+ * their own with `bindPlatform()` and call `resetConnection()` afterwards. The platform resolves
+ * only after its first detection, Lite's self-test included (up to 10 s when the sandbox is slow),
+ * so FXM Connect's answer, which comes at once, is shown before it (`preview`).
  *
  * @module
  */
@@ -13,10 +15,13 @@ import type { CatalogMode, NetworkCapabilities, Platform, ProviderContext } from
 import {
   type BudgetSnapshot,
   type ConnectStatus,
+  detectEnvironment,
+  ENVIRONMENT_PLATFORMS,
   type Environment,
   type FxmPlatform,
   hasConnectFeature,
   type KillSwitches,
+  resolveCapabilities,
 } from '@fxm/platform'
 import { create } from 'zustand'
 
@@ -45,7 +50,9 @@ export type LiteStatus =
 
 /**
  * - `idle`: nothing started detection (tests that bind nothing);
- * - `detecting`: the platform is being created and its first detection runs;
+ * - `detecting`: the platform is being created and its first detection runs. FXM Connect's
+ *   answer may be known already (`connect`, with Lite `checking`): see `preview` in
+ *   {@link StartOptions};
  * - `ready`: a platform is bound;
  * - `failed`: the platform couldn't be created.
  */
@@ -72,10 +79,22 @@ export interface ConnectionState {
   readonly error?: string
 }
 
-/** Before detection: a web page that has found nothing yet. */
+/**
+ * The app FXM runs as, known before detection from the globals the desktop and Android apps put in
+ * place, so their pages never start as a browser's.
+ */
+function initialPlatform(): Platform {
+  try {
+    return ENVIRONMENT_PLATFORMS[detectEnvironment()]
+  } catch {
+    return 'web'
+  }
+}
+
+/** Before detection: a page that has found nothing yet. */
 export const INITIAL_CONNECTION: ConnectionState = {
   phase: 'idle',
-  platform: 'web',
+  platform: initialPlatform(),
   capabilities: { youtube: 'none', mediaBytes: false, spotify: 'unreachable', fileSystem: false },
   lite: 'unavailable',
   rechecking: false,
@@ -190,6 +209,7 @@ export function resetConnection(): void {
   binding?.stop()
   binding = undefined
   started = undefined
+  startRun += 1
   useConnection.setState(INITIAL_CONNECTION, true)
 }
 
@@ -236,6 +256,32 @@ export function connectionContext(mode: CatalogMode): ProviderContext | undefine
 }
 
 let started: Promise<void> | undefined
+/** Counts detection runs, so a preview from a run that was reset never lands. */
+let startRun = 0
+
+/** Options for {@link startConnectDetection}. */
+export interface StartOptions extends BindOptions {
+  /**
+   * FXM Connect's status on its own, which comes long before the platform when Lite's self-test
+   * is slow. Until the platform is bound, the store shows it, with Lite `checking`.
+   */
+  readonly preview?: () => Promise<ConnectStatus | undefined>
+}
+
+/** What the store shows from FXM Connect's answer alone, before the platform is bound. */
+function previewState(
+  connect: ConnectStatus,
+  killSwitches: () => KillSwitches,
+): Pick<ConnectionState, 'connect' | 'capabilities' | 'lite'> {
+  const capabilities = resolveCapabilities({ platform: 'web', connect })
+  const lite: LiteStatus =
+    capabilities.youtube === 'full'
+      ? 'not-needed'
+      : killSwitches().lite === true
+        ? 'switched-off'
+        : 'checking'
+  return { connect, capabilities, lite }
+}
 
 /**
  * Creates the platform with `create` (the app's, from `main.tsx`) and binds it. Runs once:
@@ -243,10 +289,23 @@ let started: Promise<void> | undefined
  */
 export function startConnectDetection(
   create: () => Promise<ConnectPlatform>,
-  options: BindOptions = {},
+  options: StartOptions = {},
 ): Promise<void> {
   started ??= (async () => {
+    const run = ++startRun
     useConnection.setState({ phase: 'detecting' })
+    const killSwitches = options.killSwitches ?? (() => ({}))
+    options
+      .preview?.()
+      .then((connect) => {
+        const current = useConnection.getState()
+        if (connect === undefined || run !== startRun || binding !== undefined) return
+        if (current.phase !== 'detecting' || current.platform !== 'web') return
+        useConnection.setState(previewState(connect, killSwitches))
+      })
+      .catch(() => {
+        // The platform's own detection still runs.
+      })
     try {
       bindPlatform(await create(), options)
     } catch (error) {

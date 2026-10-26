@@ -6,6 +6,7 @@ import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { DiagnosticsSection } from '../connect/diagnostics'
+import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { useSettingsStore } from './settings-store'
@@ -104,6 +105,8 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      <ConnectSettingsEntry />
 
       <DiagnosticsSection />
 

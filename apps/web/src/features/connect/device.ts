@@ -8,6 +8,8 @@
  * @module
  */
 
+import { RELEASED } from './config'
+
 /** A browser family, as far as installing FXM Connect goes. */
 export type BrowserFamily =
   | 'chrome'
@@ -107,6 +109,21 @@ export function isChromium(browser: BrowserFamily): boolean {
 }
 
 /**
+ * Whether FXM Connect can be added in this browser: a Chromium browser or Firefox on a computer.
+ * Phones and tablets can't (Chrome on Android takes no extensions, and the guides don't cover
+ * Firefox for Android), nor can Safari.
+ */
+export function canAddConnect(device: DeviceInfo): boolean {
+  if (isMobile(device)) return false
+  return isChromium(device.browser) || device.browser === 'firefox'
+}
+
+/** Safari on a Mac, where another browser on the same computer can add FXM Connect. */
+export function isMacSafari(device: DeviceInfo): boolean {
+  return device.os === 'macos' && device.browser === 'safari'
+}
+
+/**
  * The install guides:
  *
  * - `chromium`: FXM Connect's zip, loaded unpacked (Chrome, Brave, Opera, Vivaldi and Edge
@@ -118,13 +135,16 @@ export function isChromium(browser: BrowserFamily): boolean {
  */
 export type GuideId = 'chromium' | 'firefox' | 'desktop' | 'android' | 'apple'
 
-/** The guide that fits the device best. */
+/**
+ * The guide that fits the device best. A computer whose browser isn't recognized gets the
+ * desktop app once it is out, and until then the Chromium guide, the browsers most people have.
+ */
 export function recommendedGuide(device: DeviceInfo): GuideId {
   if (device.os === 'ios' || device.browser === 'safari') return 'apple'
   if (device.os === 'android') return 'android'
   if (device.browser === 'firefox') return 'firefox'
   if (isChromium(device.browser)) return 'chromium'
-  return 'desktop'
+  return RELEASED.desktop ? 'desktop' : 'chromium'
 }
 
 /** The address of the browser's extensions page, which pages can't link to. */

@@ -1,13 +1,20 @@
 /**
  * Plain sentences for the connection's state: the tier and why, as the onboarding page and
- * Settings → Diagnostics show them.
+ * Settings → Diagnostics show them, and how this device gets more, as the notices say it.
+ *
+ * Everything that says how to get more depends on the device and on what is released
+ * (`RELEASED`): the extension where a browser can add it, another browser on a Mac, the Android
+ * app on Android once it is out, and nothing to install on iPhone and iPad. Nothing here offers an
+ * app that isn't out.
  *
  * @module
  */
 
 import type { NetworkCapabilities } from '@fxm/core'
 import { type ConnectStatus, MIN_CONNECT_VERSION } from '@fxm/platform'
+import { RELEASED } from './config'
 import type { ConnectionState, LiteStatus } from './connection'
+import { canAddConnect, currentDevice, type DeviceInfo, isMacSafari } from './device'
 import { type Tier, tierOf } from './tiers'
 
 /** The tier of a connection state. */
@@ -15,9 +22,12 @@ export function connectionTier(state: Pick<ConnectionState, 'capabilities'>): Ti
   return tierOf(state.capabilities)
 }
 
-/** Whether FXM still works out what this device can reach. */
-export function isDetecting(state: Pick<ConnectionState, 'phase'>): boolean {
-  return state.phase === 'idle' || state.phase === 'detecting'
+/**
+ * Whether FXM still works out what this device can reach. Once FXM Connect has answered, the
+ * page can say so, even while the Lite self-test still runs (`lite: 'checking'`).
+ */
+export function isDetecting(state: Pick<ConnectionState, 'phase' | 'connect'>): boolean {
+  return state.phase === 'idle' || (state.phase === 'detecting' && state.connect === undefined)
 }
 
 /** "FXM Connect 0.1.0", or just the name when the version is unknown. */
@@ -45,15 +55,29 @@ export function describeConnect(status: ConnectStatus | undefined): string | und
   }
 }
 
+/** What YouTube Music needs on this device when Lite doesn't work. */
+function youTubeWithoutLite(device: DeviceInfo): string {
+  if (canAddConnect(device)) return 'YouTube Music needs FXM Connect here'
+  if (isMacSafari(device)) return "YouTube Music needs FXM Connect, which Safari can't add"
+  if (device.os === 'android' && RELEASED.android) return 'YouTube Music needs the Android app here'
+  if (device.os === 'android' || device.os === 'ios') {
+    return "YouTube Music isn't available in this browser"
+  }
+  return 'YouTube Music needs FXM Connect, in Chrome, Edge, Brave or Firefox'
+}
+
 /** One sentence on the Lite tier, or nothing when it doesn't matter. */
-export function describeLite(lite: LiteStatus): string | undefined {
+export function describeLite(
+  lite: LiteStatus,
+  device: DeviceInfo = currentDevice(),
+): string | undefined {
   switch (lite) {
     case 'not-needed':
       return undefined
     case 'passed':
       return "Lite's check passed: YouTube Music answers this browser without an install."
     case 'failed':
-      return "Lite's check didn't pass in this browser, so YouTube Music needs FXM Connect here."
+      return `Lite's check didn't pass in this browser, so ${youTubeWithoutLite(device)}.`
     case 'switched-off':
       return 'Lite is switched off for everyone at the moment.'
     case 'checking':
@@ -63,11 +87,67 @@ export function describeLite(lite: LiteStatus): string | undefined {
   }
 }
 
+/** What FXM Connect would add to this browser, as a sentence's subject. */
+export type Wanted = 'youtube-and-spotify' | 'spotify'
+
+const WANTED: Readonly<Record<Wanted, { what: string; need: string }>> = {
+  'youtube-and-spotify': { what: 'YouTube Music and Spotify', need: 'need' },
+  spotify: { what: 'Spotify', need: 'needs' },
+}
+
+/**
+ * How this device gets what FXM Connect adds, in a sentence or two: add the extension (or the
+ * desktop app, once it is out) on a computer, use another browser on a Mac, the Android app on
+ * Android (coming soon until it is out), and on iPhone and iPad there is nothing to install.
+ */
+export function howToGetMore(device: DeviceInfo, wanted: Wanted): string {
+  const { what, need } = WANTED[wanted]
+  const Need = `${what} ${need} FXM Connect`
+  const desktop = RELEASED.desktop ? ', or use the desktop app' : ''
+  if (canAddConnect(device)) return `For ${what}, add the free FXM Connect extension${desktop}.`
+  if (isMacSafari(device)) {
+    return `${Need}, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there${desktop}.`
+  }
+  if (device.os === 'ios') return `${Need}, which isn't available on iPhone and iPad.`
+  if (device.os === 'android') {
+    return RELEASED.android
+      ? `For ${what}, use the Android app, which has everything built in.`
+      : `${Need}, which browsers on Android can't add. The Android app is coming soon.`
+  }
+  return `For ${what}, add the free FXM Connect extension to Chrome, Edge, Brave or Firefox${desktop}.`
+}
+
+/** Whether this device can install something that adds YouTube Music and Spotify right now. */
+export function canGetMoreHere(device: DeviceInfo): boolean {
+  if (device.os === 'android') return RELEASED.android
+  return device.os !== 'ios'
+}
+
+/**
+ * The desktop and Android apps, which need no extension, in one sentence that marks the ones not
+ * out yet as coming soon.
+ */
+export function appsSentence(): string {
+  if (RELEASED.desktop && RELEASED.android) {
+    return 'The desktop and Android apps need no extension: they have everything built in.'
+  }
+  if (RELEASED.desktop) {
+    return 'The desktop app needs no extension: it has everything built in. The Android app is coming soon.'
+  }
+  if (RELEASED.android) {
+    return 'The Android app needs no extension: it has everything built in. The desktop app is coming soon.'
+  }
+  return 'The desktop and Android apps, which need no extension, are coming soon.'
+}
+
 /** The app's name on each platform. */
 const APP_NAMES = { desktop: 'desktop app', android: 'Android app' } as const
 
 /** Why the device is in its tier, as a few sentences. */
-export function explainConnection(state: ConnectionState): string[] {
+export function explainConnection(
+  state: ConnectionState,
+  device: DeviceInfo = currentDevice(),
+): string[] {
   if (isDetecting(state)) return ['Checking how FXM can reach music on this device…']
   if (state.phase === 'failed') {
     return ["FXM couldn't check what this device can reach. Reloading the page may help."]
@@ -78,7 +158,7 @@ export function explainConnection(state: ConnectionState): string[] {
       ? [`The ${app} reaches every service directly, with nothing else to install.`]
       : [`This version of the ${app} can't reach YouTube Music or Spotify yet.`]
   }
-  const lines = [describeConnect(state.connect), describeLite(state.lite)]
+  const lines = [describeConnect(state.connect), describeLite(state.lite, device)]
   if (state.capabilities.spotify === 'account') {
     lines.push('FXM Connect lets FXM use your Spotify login from this browser.')
   }

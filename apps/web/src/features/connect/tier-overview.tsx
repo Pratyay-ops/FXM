@@ -1,6 +1,6 @@
 /**
  * The three tiers side by side, with the current one marked, and the "what you're missing" panel
- * for the current tier.
+ * for the current tier: a short summary of what the tier cards list in full.
  *
  * @module
  */
@@ -8,15 +8,15 @@
 import { Check, CircleDashed, Plus } from 'lucide-react'
 import { useId } from 'react'
 import { cn } from '../../lib/cn'
-import type { LiteStatus } from './connection'
 import {
   featuresAddedBy,
   LITE_CAVEAT,
-  missingFeatures,
+  missingSummary,
   TIER_INFO,
   TIERS,
   type Tier,
   type TierFeature,
+  tierLabel,
 } from './tiers'
 import { ComingSoonChip, TierName } from './ui'
 
@@ -55,7 +55,10 @@ export function TierCards({ current, here }: { current: Tier | undefined; here: 
             aria-current={isCurrent ? 'true' : undefined}
             className={cn(
               'flex flex-col gap-3 rounded-xl border bg-surface p-4 sm:p-5',
-              isCurrent ? 'border-accent ring-4 ring-accent/15' : 'border-border',
+              // Forced colors drop the ring and the accent: a thick system-colour border instead.
+              isCurrent
+                ? 'border-accent ring-4 ring-accent/15 forced-colors:border-2 forced-colors:border-[color:Highlight]'
+                : 'border-border',
             )}
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -63,7 +66,7 @@ export function TierCards({ current, here }: { current: Tier | undefined; here: 
                 <TierName tier={tier} />
               </h3>
               {isCurrent && (
-                <span className="rounded-full bg-accent px-2.5 py-0.5 text-xs font-bold text-on-accent">
+                <span className="rounded-full border border-transparent bg-accent px-2.5 py-0.5 text-xs font-bold text-on-accent">
                   {here}
                 </span>
               )}
@@ -88,69 +91,32 @@ export function TierCards({ current, here }: { current: Tier | undefined; here: 
   )
 }
 
-/** Why Lite isn't on, for the panel of a device in Free only. */
-function liteHint(lite: LiteStatus): string | undefined {
-  switch (lite) {
-    case 'failed':
-      return "Its check didn't pass in this browser."
-    case 'switched-off':
-      return 'It is switched off for everyone at the moment.'
-    case 'unavailable':
-      return "It isn't available here."
-    default:
-      return undefined
-  }
-}
-
-/** What the current tier is missing, grouped by the tier that adds it. */
-export function MissingPanel({ tier, lite }: { tier: Tier; lite: LiteStatus }) {
+/**
+ * What the current tier is missing, a line per tier above it. It sits under the status card's
+ * reasons, which already say why Lite isn't on.
+ */
+export function MissingPanel({ tier }: { tier: Tier }) {
   const headingId = useId()
-  const groups = missingFeatures(tier)
+  const lines = missingSummary(tier)
   return (
-    <section
-      aria-labelledby={headingId}
-      className="rounded-xl border border-dashed border-border-strong p-4 sm:p-5"
-    >
+    <section aria-labelledby={headingId} className="space-y-2 border-t border-border pt-4">
       <h3 id={headingId} className="font-bold">
         What you're missing
       </h3>
-      {groups.length === 0 ? (
-        <p className="mt-2 text-sm text-text-muted">
-          Nothing: this device has everything FXM offers.
-        </p>
+      {lines.length === 0 ? (
+        <p className="text-sm text-text-muted">Nothing: this device has everything FXM offers.</p>
       ) : (
-        <div className="mt-3 space-y-4">
-          {groups.map((group) => {
-            const hint = group.tier === 'lite' ? liteHint(lite) : undefined
-            return (
-              <div key={group.tier} className="space-y-2">
-                <p className="text-sm font-semibold">
-                  {group.tier === 'lite'
-                    ? 'With Lite (experimental), YouTube Music without an install:'
-                    : 'With FXM Connect, the desktop app or the Android app:'}
-                  {hint !== undefined && (
-                    <span className="font-normal text-text-muted"> {hint}</span>
-                  )}
-                </p>
-                <ul className="space-y-2 text-sm">
-                  {group.tier === 'full' && (
-                    <li className="flex gap-2.5">
-                      <Plus aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
-                      <span>
-                        {tier === 'free'
-                          ? 'Everything Lite adds, without depending on its experimental route'
-                          : "YouTube Music that doesn't depend on Lite's experimental route"}
-                      </span>
-                    </li>
-                  )}
-                  {group.features.map((feature) => (
-                    <FeatureItem key={feature.id} feature={feature} />
-                  ))}
-                </ul>
-              </div>
-            )
-          })}
-        </div>
+        <ul className="space-y-2 text-sm">
+          {lines.map((line) => (
+            <li key={line.tier} className="flex gap-2.5">
+              <Plus aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-accent" />
+              <span>
+                <strong>{tierLabel(line.tier)}</strong> adds {line.adds}.
+                {line.later !== undefined && <> {line.later}</>}
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </section>
   )

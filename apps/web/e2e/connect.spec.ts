@@ -22,6 +22,11 @@ const SANDBOX_DOCUMENT = readFileSync(
 
 const CONNECT_FEATURES = ['youtube', 'googlevideo', 'spotify', 'lastfm', 'spotify-server-time']
 
+const ANDROID_CHROME =
+  'Mozilla/5.0 (Linux; Android 15; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Mobile Safari/537.36'
+const IPHONE_SAFARI =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/19.0 Mobile/15E148 Safari/604.1'
+
 /** Puts a fake FXM Connect on every FXM page this page or context opens. */
 async function addFakeConnect(target: Page | BrowserContext, version = '0.1.0') {
   await target.addInitScript(
@@ -50,8 +55,11 @@ async function addFakeConnect(target: Page | BrowserContext, version = '0.1.0') 
   )
 }
 
-/** Serves the Lite sandbox document and answers InnerTube, as YouTube does or doesn't. */
-async function fakeYouTube(page: Page, lite: boolean) {
+/**
+ * Serves the Lite sandbox document and answers InnerTube, as YouTube does or doesn't, after
+ * `delayMs` (a slow Lite check).
+ */
+async function fakeYouTube(page: Page, lite: boolean, delayMs = 0) {
   const innerTube: string[] = []
   // Routes run newest first: the catch-all goes in first.
   await page.route(/^https?:\/\/(?!localhost[:/])/, (route) => route.abort())
@@ -63,11 +71,12 @@ async function fakeYouTube(page: Page, lite: boolean) {
       body: SANDBOX_DOCUMENT,
     }),
   )
-  await page.route(/^https:\/\/(?:www|music)\.youtube\.com\/youtubei\/v1\//, (route) => {
+  await page.route(/^https:\/\/(?:www|music)\.youtube\.com\/youtubei\/v1\//, async (route) => {
     const request = route.request()
     innerTube.push(
       `${request.method()} ${new URL(request.url()).pathname} ${request.headers().origin}`,
     )
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs))
     return lite
       ? route.fulfill({
           status: 200,
@@ -80,8 +89,30 @@ async function fakeYouTube(page: Page, lite: boolean) {
   return innerTube
 }
 
-const status = (page: Page) => page.getByRole('status').filter({ hasText: /This (browser|app)/ })
+const status = (page: Page) => page.getByRole('region', { name: /^This (browser|app)$/ })
 const tierCards = (page: Page) => page.getByRole('region', { name: 'What works where' })
+const missingPanel = (page: Page) => page.getByRole('region', { name: "What you're missing" })
+const LITE_INTRO = 'Try YouTube Music here without an install (experimental)'
+
+/** The page's layout shift score so far (CLS, without shifts right after input). */
+async function layoutShift(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        let total = 0
+        new PerformanceObserver((list) => {
+          for (const entry of list.getEntries() as unknown as {
+            value: number
+            hadRecentInput: boolean
+          }[]) {
+            if (!entry.hadRecentInput) total += entry.value
+          }
+        }).observe({ type: 'layout-shift', buffered: true })
+        // The buffered entries come in the observer's first call, right after observe().
+        setTimeout(() => resolve(total), 200)
+      }),
+  )
+}
 
 test.describe('the tiers', () => {
   test('Full with FXM Connect: no Lite self-test, no notice', async ({ page }) => {
@@ -114,14 +145,13 @@ test.describe('the tiers', () => {
     await expect(status(page)).toContainText("Lite's check passed")
     const current = tierCards(page).locator('li[aria-current="true"]')
     await expect(current.getByRole('heading', { level: 3 })).toContainText('Lite')
-    const missing = page.getByRole('region', { name: "What you're missing" })
-    await expect(missing).toContainText('Spotify search and related artists')
-    await expect(missing).not.toContainText('With Lite')
+    await expect(missingPanel(page)).toContainText('Spotify search and related artists')
+    await expect(missingPanel(page)).not.toContainText('Lite (experimental) adds')
     // One self-test call, CORS-simple, from the sandbox's opaque origin.
     expect(innerTube).toEqual(['POST /youtubei/v1/music/get_search_suggestions null'])
 
     await page.goto('./')
-    const intro = page.getByRole('region', { name: 'YouTube Music works here without an install' })
+    const intro = page.getByRole('region', { name: LITE_INTRO })
     await expect(intro).toBeVisible()
     await intro.getByRole('button', { name: 'Dismiss' }).click()
     await expect(intro).toHaveCount(0)
@@ -142,20 +172,40 @@ test.describe('the tiers', () => {
     await page.goto('connect')
 
     await expect(status(page)).toContainText('Free only')
-    await expect(status(page)).toContainText("Lite's check didn't pass in this browser")
-    const missing = page.getByRole('region', { name: "What you're missing" })
-    await expect(missing).toContainText(
-      'With Lite (experimental), YouTube Music without an install',
+    await expect(status(page)).toContainText(
+      "Lite's check didn't pass in this browser, so YouTube Music needs FXM Connect here.",
     )
-    await expect(missing).toContainText('With FXM Connect, the desktop app or the Android app')
-    // Desktop Chrome: the Chromium guide comes first, open, with Developer mode's warning.
+    await expect(missingPanel(page)).toContainText(
+      'Lite (experimental) adds YouTube Music and its ad-free audio.',
+    )
+    await expect(missingPanel(page)).toContainText(
+      "Full adds YouTube Music without Lite's experimental route, and Spotify search",
+    )
+    // Desktop Chrome: the Chromium guide comes first, open, with Developer mode's warning, and
+    // the main button leads to it.
     const guide = page.locator('details').first()
     await expect(guide).toHaveAttribute('open', '')
     await expect(guide).toContainText('Leave Developer mode on')
     await expect(guide).toContainText('chrome://extensions')
+    await status(page)
+      .getByRole('button', { name: /^Add FXM Connect to / })
+      .click()
+    await expect(guide.locator('summary')).toBeFocused()
+    // The apps aren't out: named as coming soon, with no steps.
+    await expect(tierCards(page)).toContainText(
+      'FXM Connect, the desktop app (coming soon) or the Android app (coming soon).',
+    )
+    const android = page.locator('details', {
+      has: page.getByRole('heading', { name: /^Android app/ }),
+    })
+    await expect(android).toContainText('Not released yet')
 
     await page.goto('./')
-    await expect(page.getByRole('region', { name: 'This browser plays free music' })).toBeVisible()
+    const intro = page.getByRole('region', { name: 'This browser plays free music' })
+    await expect(intro).toContainText(
+      'For YouTube Music and Spotify, add the free FXM Connect extension.',
+    )
+    await expect(intro).not.toContainText(/desktop app|Android app|one of the apps/)
   })
 })
 
@@ -175,7 +225,18 @@ test('prompts an upgrade for an outdated FXM Connect', async ({ page }) => {
   await expect(status(page)).toContainText('Free only')
 })
 
-test('notices a disabled FXM Connect and points to the apps', async ({ context, page }) => {
+test('keeps keyboard focus on the page when a notice goes away', async ({ page }) => {
+  await fakeYouTube(page, false)
+  await addFakeConnect(page, '0.0.1')
+  await page.goto('./')
+  const prompt = page.getByRole('region', { name: 'Update FXM Connect' })
+  await prompt.getByRole('button', { name: 'Dismiss' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(prompt).toHaveCount(0)
+  await expect(page.locator('main#main')).toBeFocused()
+})
+
+test('notices a disabled FXM Connect and says what to do', async ({ context, page }) => {
   // A first visit with FXM Connect: FXM remembers that it was seen in this browser.
   await fakeYouTube(page, false)
   await addFakeConnect(page)
@@ -188,22 +249,118 @@ test('notices a disabled FXM Connect and points to the apps', async ({ context, 
   await fakeYouTube(next, false)
   await next.goto('./')
   const prompt = next.getByRole('region', { name: "FXM Connect isn't answering" })
-  await expect(prompt).toContainText('desktop app or the Android app')
+  await expect(prompt).toContainText('It worked in this browser before')
+  // The apps aren't out, so the prompt doesn't offer them.
+  await expect(prompt).not.toContainText(/desktop app|Android app/)
   await prompt.getByRole('link', { name: 'What to do' }).click()
 
   const section = next.getByRole('region', { name: "FXM Connect isn't answering" })
   await expect(section).toContainText('worked in this browser before (version 0.1.0)')
   await expect(section).toContainText('turns it off whenever Developer mode is off')
-  await section.getByRole('button', { name: 'Android app' }).click()
-  const android = next.locator('details', {
-    has: next.getByRole('heading', { name: 'Android app' }),
-  })
-  await expect(android).toHaveAttribute('open', '')
-  await expect(android).toContainText("Chrome on Android can't add extensions")
+  await expect(section).toContainText(
+    'The desktop and Android apps, which need no extension, are coming soon.',
+  )
+  await expect(section.getByRole('button', { name: /Desktop app|Android app/ })).toHaveCount(0)
+  // Said once: the status card leaves the details to the section.
+  await expect(status(next)).not.toContainText('worked in this browser before')
 
-  await section.getByRole('button', { name: 'I removed it on purpose' }).click()
+  await section.getByRole('button', { name: 'I removed it on purpose' }).focus()
+  await next.keyboard.press('Enter')
   await expect(section).toHaveCount(0)
+  // Focus moves to the status card, which now says what changed.
+  await expect(status(next)).toBeFocused()
   await expect(status(next)).toContainText("FXM Connect isn't installed in this browser.")
+
+  // No invitation to add what the user just removed.
+  await next
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Home', exact: true })
+    .click()
+  await expect(next.getByRole('heading', { level: 1 })).toHaveText(/^Good /)
+  await expect(next.getByRole('region', { name: /plays free music|isn't answering/ })).toHaveCount(
+    0,
+  )
+})
+
+test.describe('the notices never move the page', () => {
+  test.use({ viewport: { width: 360, height: 720 } })
+
+  const cases = [
+    ['the first-visit introduction, after a slow Lite check', 'This browser plays free music'],
+    ['the upgrade prompt', 'Update FXM Connect'],
+  ] as const
+
+  for (const [name, notice] of cases) {
+    test(name, async ({ page }) => {
+      await fakeYouTube(page, false, 1500)
+      if (notice === 'Update FXM Connect') await addFakeConnect(page, '0.0.1')
+      await page.goto('./')
+      await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Good /)
+      // The page itself: the first child of the content column, before the notice's layer.
+      const content = page.locator('main > div > :first-child')
+      const before = await content.boundingBox()
+
+      const shown = page.getByRole('region', { name: notice })
+      await expect(shown).toBeVisible()
+
+      // It floats above the mini player and the tab bar: nothing on the page moved.
+      expect(await content.boundingBox()).toEqual(before)
+      expect(await layoutShift(page)).toBeLessThan(0.01)
+      // The end of the page still scrolls clear of it.
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      await expect(async () => {
+        const end = await content.boundingBox()
+        const box = await shown.boundingBox()
+        expect((end?.y ?? 0) + (end?.height ?? 0)).toBeLessThanOrEqual(box?.y ?? 0)
+      }).toPass()
+    })
+  }
+})
+
+test.describe('on an Android phone', () => {
+  test.use({ userAgent: ANDROID_CHROME, viewport: { width: 360, height: 760 }, isMobile: true })
+
+  test('says what plays here, and that the Android app is coming soon', async ({ page }) => {
+    await fakeYouTube(page, false)
+    await page.goto('./')
+    const intro = page.getByRole('region', { name: 'This browser plays free music' })
+    await expect(intro).toContainText(
+      "YouTube Music and Spotify need FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
+    )
+    await intro.getByRole('link', { name: 'See your options' }).click()
+
+    await expect(status(page)).toContainText("YouTube Music isn't available in this browser")
+    // Nothing to install here yet: no main button, and the guides are for other devices.
+    await expect(status(page).getByRole('button')).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Other devices and apps' })).toBeVisible()
+    const guide = page.locator('details').first()
+    await expect(guide).toHaveAttribute('open', '')
+    await expect(guide.getByRole('heading', { level: 3 })).toContainText('Android app')
+    await expect(guide).toContainText('Coming soon')
+    await expect(guide).toContainText("Until it's out, this browser plays free music")
+    await expect(guide).toContainText('Not released yet')
+    await expect(guide).not.toContainText('download the APK')
+  })
+})
+
+test.describe('on an iPhone', () => {
+  test.use({ userAgent: IPHONE_SAFARI, viewport: { width: 390, height: 844 }, isMobile: true })
+
+  test('offers nothing to install, and says what works', async ({ page }) => {
+    await fakeYouTube(page, false)
+    await page.goto('./')
+    const intro = page.getByRole('region', { name: 'This browser plays free music' })
+    await expect(intro).toContainText(
+      "YouTube Music and Spotify need FXM Connect, which isn't available on iPhone and iPad.",
+    )
+    await expect(intro).not.toContainText(/add the free|one of the apps/)
+    await page.goto('connect')
+    await expect(status(page).getByRole('button')).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Other devices and apps' })).toBeVisible()
+    await expect(page.locator('details').first()).toContainText(
+      "Lite hasn't been tested in Safari yet",
+    )
+  })
 })
 
 test.describe('the Diagnostics self-test', () => {
@@ -256,7 +413,9 @@ test.describe('the Diagnostics self-test', () => {
     await free.goto('settings')
     const freeDiagnostics = free.locator('section#diagnostics')
     await expect(freeDiagnostics).toContainText('Free only')
-    await expect(freeDiagnostics).toContainText('It needs YouTube Music')
+    await expect(freeDiagnostics).toContainText(
+      "This browser can't reach YouTube Music, so there is nothing to test.",
+    )
     await expect(
       freeDiagnostics.getByRole('button', { name: 'Resolve and play one song' }),
     ).toBeDisabled()
@@ -264,30 +423,46 @@ test.describe('the Diagnostics self-test', () => {
 })
 
 test.describe('screenshots', () => {
-  // Visual check, not a test: FXM_SCREENSHOTS=1 saves the onboarding page and Diagnostics in
-  // each tier to apps/web/screenshots/ (gitignored).
+  // Visual check, not a test: FXM_SCREENSHOTS=1 saves the onboarding page, Home with its notice
+  // and Diagnostics in each tier, on a computer and on phones, to apps/web/screenshots/
+  // (gitignored), and the onboarding page in forced colors.
   test.skip(!process.env.FXM_SCREENSHOTS, 'Set FXM_SCREENSHOTS=1 to capture')
+  // Each run captures every case, three pages each.
+  test.describe.configure({ timeout: 180_000 })
 
+  // [name, Lite passes, FXM Connect's version, seen here before, a phone's User-Agent]
   const cases = [
-    ['free', false, undefined],
-    ['lite', true, undefined],
-    ['full', false, '0.1.0'],
-    ['outdated', false, '0.0.1'],
+    ['free', false, undefined, false, undefined],
+    ['lite', true, undefined, false, undefined],
+    ['full', false, '0.1.0', false, undefined],
+    ['outdated', false, '0.0.1', false, undefined],
+    ['missing', false, undefined, true, undefined],
+    ['android', false, undefined, false, ANDROID_CHROME],
+    ['iphone', true, undefined, false, IPHONE_SAFARI],
   ] as const
 
   for (const width of [320, 768, 1280] as const) {
     for (const theme of ['dark', 'light'] as const) {
       test(`the tiers at ${width}px, ${theme}`, async ({ browser }) => {
-        for (const [name, lite, version] of cases) {
+        for (const [name, lite, version, seen, phone] of cases) {
+          if (phone !== undefined && width > 768) continue
           // A fresh context per case: nothing remembered from the case before.
           const context = await browser.newContext({
             viewport: { width, height: width < 768 ? 720 : 900 },
             reducedMotion: 'reduce',
+            ...(phone === undefined ? {} : { userAgent: phone, isMobile: true }),
           })
           await context.addInitScript(
-            (state) =>
-              localStorage.setItem('fxm.settings.v1', JSON.stringify({ state, version: 1 })),
-            { catalogMode: 'music', theme },
+            ({ state, seen }) => {
+              localStorage.setItem('fxm.settings.v1', JSON.stringify({ state, version: 1 }))
+              if (seen) {
+                localStorage.setItem(
+                  'fxm.connect.lastSeen',
+                  JSON.stringify({ version: '0.1.0', at: 1 }),
+                )
+              }
+            },
+            { state: { catalogMode: 'music', theme }, seen },
           )
           const tab = await context.newPage()
           await fakeYouTube(tab, lite)
@@ -312,9 +487,30 @@ test.describe('screenshots', () => {
           await diagnostics.screenshot({
             path: `screenshots/connect-${theme}-${width}-${name}-diagnostics.png`,
           })
+          if (name === 'free') {
+            // Settings → FXM Connect, the way back to the onboarding page.
+            await tab.screenshot({
+              path: `screenshots/connect-${theme}-${width}-settings.png`,
+              fullPage: true,
+            })
+          }
           await context.close()
         }
       })
     }
   }
+
+  test('the onboarding page in forced colors', async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width: 1280, height: 900 },
+      forcedColors: 'active',
+      reducedMotion: 'reduce',
+    })
+    const tab = await context.newPage()
+    await fakeYouTube(tab, true)
+    await tab.goto('connect')
+    await expect(status(tab)).not.toContainText('Checking')
+    await tab.screenshot({ path: 'screenshots/connect-forced-colors.png', fullPage: true })
+    await context.close()
+  })
 })

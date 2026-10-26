@@ -35,7 +35,7 @@ import {
   type SelfTestStep,
 } from './self-test'
 import { TIER_INFO } from './tiers'
-import { TierName, textLinkClasses } from './ui'
+import { standaloneLinkClasses, TierName } from './ui'
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -238,9 +238,10 @@ function SongSelfTest({ state }: { state: ConnectionState }) {
   const resolver = getSongResolver()
   const tier = connectionTier(state)
   const ready = state.phase === 'ready'
+  // How to get YouTube Music is the Tier row's to say, for this device.
   const blocker =
     ready && tier === 'free'
-      ? 'It needs YouTube Music: FXM Connect, the Lite tier or one of the apps.'
+      ? `${state.platform === 'web' ? 'This browser' : 'This app'} can't reach YouTube Music, so there is nothing to test.`
       : resolver === unavailableResolver
         ? "This version of FXM can't resolve YouTube songs yet, so the self-test can't run."
         : undefined
@@ -341,8 +342,8 @@ export function DiagnosticsSection() {
             </ul>
           </div>
           <p className="text-sm">
-            <Link to="/connect" className={textLinkClasses}>
-              What each tier plays, and how to get everything
+            <Link to="/connect" className={standaloneLinkClasses}>
+              What each tier plays, and the install guides
             </Link>
           </p>
         </Row>

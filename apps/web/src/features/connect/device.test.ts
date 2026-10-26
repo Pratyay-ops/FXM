@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canAddConnect,
   detectDevice,
   extensionsPage,
   isChromium,
+  isMacSafari,
   isMobile,
   type NavigatorHints,
   recommendedGuide,
@@ -86,8 +88,25 @@ describe('recommendedGuide', () => {
     expect(recommendedGuide(at(UA.safariMac))).toBe('apple')
   })
 
-  it('suggests the desktop app to browsers that take no extension', () => {
-    expect(recommendedGuide({ browser: 'other', os: 'linux' })).toBe('desktop')
+  it("suggests the Chromium guide to a browser it doesn't know, until the desktop app is out", () => {
+    expect(recommendedGuide({ browser: 'other', os: 'linux' })).toBe('chromium')
+  })
+})
+
+describe('canAddConnect', () => {
+  it('is true for Chromium browsers and Firefox on a computer', () => {
+    for (const userAgent of [UA.chromeWindows, UA.edgeWindows, UA.chromeOs, UA.firefoxLinux]) {
+      expect(canAddConnect(at(userAgent))).toBe(true)
+    }
+  })
+
+  it('is false in Safari, on phones and tablets, and in browsers it does not know', () => {
+    for (const userAgent of [UA.safariMac, UA.iphoneChrome, UA.androidChrome, UA.androidFirefox]) {
+      expect(canAddConnect(at(userAgent))).toBe(false)
+    }
+    expect(canAddConnect({ browser: 'other', os: 'linux' })).toBe(false)
+    expect(isMacSafari(at(UA.safariMac))).toBe(true)
+    expect(isMacSafari(at(UA.iphoneSafari))).toBe(false)
   })
 })
 

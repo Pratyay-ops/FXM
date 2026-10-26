@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/render'
 import { resetConnection } from './connection'
@@ -6,7 +6,13 @@ import { budgetSummary, connectSummary, liteSummary, resolveErrorText } from './
 import { createFakeResolver, type FakeSongScenario } from './fake-resolver'
 import type { PlaybackProbe } from './playback-probe'
 import { setSongResolver, unavailableResolver } from './resolver'
-import { CONNECT_STATUS, closeTestPages, openTestPlatform, type TestPlatformSetup } from './testing'
+import {
+  CONNECT_STATUS,
+  closeTestPages,
+  openTestPlatform,
+  setConnection,
+  type TestPlatformSetup,
+} from './testing'
 
 // happy-dom plays no media: the probe plays `fake://good…` and fails the rest, like a browser
 // would the fake resolver's streams.
@@ -74,8 +80,22 @@ describe('Settings → Diagnostics', { timeout: 30_000 }, () => {
     expect(section.getByText(/Search and playback through Lite/)).toBeInTheDocument()
     expect(section.getByText('1 of 600 in the last hour')).toBeInTheDocument()
     expect(
-      section.getByRole('link', { name: 'What each tier plays, and how to get everything' }),
+      section.getByRole('link', { name: 'What each tier plays, and the install guides' }),
     ).toHaveAttribute('href', '/connect')
+  })
+
+  it('keeps a way to the onboarding page in Settings, in a browser', async () => {
+    setConnection()
+    const { section } = await openDiagnostics()
+    expect(section.getByRole('heading', { level: 2, name: 'Diagnostics' })).toBeInTheDocument()
+    const entry = screen.getByRole('region', { name: 'FXM Connect' })
+    expect(within(entry).getByRole('link', { name: /Tiers and install guides/ })).toHaveAttribute(
+      'href',
+      '/connect',
+    )
+
+    act(() => setConnection({ platform: 'desktop', environment: 'tauri' }))
+    expect(screen.queryByRole('region', { name: 'FXM Connect' })).toBeNull()
   })
 
   it('checks again: re-runs the Lite self-test', async () => {
@@ -98,12 +118,15 @@ describe('Settings → Diagnostics', { timeout: 30_000 }, () => {
     expect(section.getByRole('button', runButton)).toBeDisabled()
   })
 
-  it("can't run it without YouTube access, and says what it needs", async () => {
+  it("can't run it without YouTube access, and offers nothing this device can't get", async () => {
     setSongResolver(createFakeResolver('plays'))
     await openTestPlatform({ lite: false })
     const { section } = await openDiagnostics()
     await waitFor(() => expect(section.getByText('Free only')).toBeInTheDocument())
-    expect(section.getByText(/It needs YouTube Music/)).toBeInTheDocument()
+    expect(
+      section.getByText("This browser can't reach YouTube Music, so there is nothing to test."),
+    ).toBeInTheDocument()
+    expect(section.queryByText(/one of the apps/)).toBeNull()
     expect(section.getByRole('button', runButton)).toBeDisabled()
   })
 

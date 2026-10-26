@@ -9,8 +9,8 @@ import {
   startConnectDetection,
   useConnection,
 } from './connection'
-import { connectionTier } from './explain'
-import { closeTestPages, openTestPage, openTestPlatform } from './testing'
+import { connectionTier, isDetecting } from './explain'
+import { CONNECT_STATUS, closeTestPages, openTestPage, openTestPlatform } from './testing'
 
 // The real platform from @fxm/platform, with a fake FXM Connect and a fake Lite sandbox.
 
@@ -151,6 +151,66 @@ describe('startConnectDetection', () => {
     expect(create).toHaveBeenCalledTimes(1)
     expect(state()).toMatchObject({ phase: 'ready', lite: 'unavailable' })
     expect(connectionTier(state())).toBe('free')
+  })
+
+  it("shows FXM Connect's answer while the platform is still being created", async () => {
+    let finish: (platform: ConnectPlatform) => void = () => {}
+    const started = startConnectDetection(
+      () => new Promise<ConnectPlatform>((resolve) => (finish = resolve)),
+      { preview: async () => CONNECT_STATUS.missing },
+    )
+    await vi.waitFor(() => expect(state().connect?.state).toBe('missing'))
+    expect(state()).toMatchObject({
+      phase: 'detecting',
+      lite: 'checking',
+      capabilities: { youtube: 'none' },
+    })
+    expect(isDetecting(state())).toBe(false)
+
+    finish(
+      await createPlatform({
+        environment: 'browser',
+        window: openTestPage(),
+        storage: memoryStorage(),
+      }),
+    )
+    await started
+    // The platform's own detection decides from then on.
+    expect(state()).toMatchObject({ phase: 'ready', connect: { state: 'absent' } })
+  })
+
+  it('previews Full at once with an FXM Connect that gives full access', async () => {
+    void startConnectDetection(() => new Promise<ConnectPlatform>(() => {}), {
+      preview: async () => CONNECT_STATUS.present,
+    })
+    await vi.waitFor(() => expect(state().connect?.state).toBe('present'))
+    expect(state().lite).toBe('not-needed')
+    expect(connectionTier(state())).toBe('full')
+  })
+
+  it('ignores a preview that comes after the platform, or after a reset', async () => {
+    let answer: (status: typeof CONNECT_STATUS.outdated) => void = () => {}
+    const preview = () => new Promise<typeof CONNECT_STATUS.outdated>((r) => (answer = r))
+    await startConnectDetection(
+      () =>
+        createPlatform({
+          environment: 'browser',
+          window: openTestPage(),
+          storage: memoryStorage(),
+        }),
+      { preview },
+    )
+    answer(CONNECT_STATUS.outdated)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(state().connect?.state).toBe('absent')
+
+    resetConnection()
+    void startConnectDetection(() => new Promise<ConnectPlatform>(() => {}), { preview })
+    const late = answer
+    resetConnection()
+    late(CONNECT_STATUS.outdated)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(state().connect).toBeUndefined()
   })
 
   it("ends in `failed` when the platform can't be created", async () => {

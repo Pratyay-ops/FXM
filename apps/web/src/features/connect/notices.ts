@@ -15,7 +15,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { createSafeStorage } from '../../lib/safe-storage'
-import type { ConnectionState } from './connection'
+import { type ConnectionState, forgetConnect } from './connection'
 import { isDetecting } from './explain'
 import { tierOf } from './tiers'
 
@@ -88,3 +88,12 @@ export const useNotices = create<NoticeState>()(
     },
   ),
 )
+
+/**
+ * The user removed FXM Connect on purpose: FXM forgets it was here ("missing" becomes "absent"),
+ * and doesn't follow up with the first-visit invitation to add it.
+ */
+export function removedOnPurpose(): void {
+  useNotices.getState().dismiss('intro')
+  forgetConnect()
+}

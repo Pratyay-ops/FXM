@@ -61,8 +61,9 @@ export function AppLayout() {
           className="relative isolate px-gutter pt-2 pb-shell outline-none"
         >
           <div className="mx-auto w-full max-w-page">
-            <ConnectNotice />
             <Outlet />
+            {/* Floats above the bottom bars: after the page, where it shows. */}
+            <ConnectNotice />
           </div>
         </main>
       </div>

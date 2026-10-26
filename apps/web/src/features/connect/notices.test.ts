@@ -1,9 +1,20 @@
-import { afterEach, describe, expect, it } from 'vitest'
-import { NOTICES_STORAGE_KEY, noticeFor, useNotices } from './notices'
-import { CONNECT_STATUS, readyConnection, TIER_CAPABILITIES } from './testing'
+import { CONNECT_SEEN_KEY, memoryStorage } from '@fxm/platform'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { resetConnection, useConnection } from './connection'
+import { NOTICES_STORAGE_KEY, noticeFor, removedOnPurpose, useNotices } from './notices'
+import {
+  CONNECT_STATUS,
+  closeTestPages,
+  DETECTING,
+  openTestPlatform,
+  readyConnection,
+  TIER_CAPABILITIES,
+} from './testing'
 
-afterEach(() => {
+afterEach(async () => {
   useNotices.setState({ dismissed: [] })
+  resetConnection()
+  await closeTestPages()
 })
 
 describe('noticeFor', () => {
@@ -35,8 +46,33 @@ describe('noticeFor', () => {
         readyConnection({ connect: CONNECT_STATUS.present, capabilities: TIER_CAPABILITIES.full }),
       ),
     ).toBeUndefined()
-    expect(noticeFor(readyConnection({ phase: 'detecting' }))).toBeUndefined()
+    expect(noticeFor(DETECTING)).toBeUndefined()
     expect(noticeFor(readyConnection({ platform: 'desktop' }))).toBeUndefined()
+  })
+
+  it('speaks up as soon as FXM Connect answered, while the platform is still starting', () => {
+    expect(noticeFor({ ...DETECTING, connect: CONNECT_STATUS.outdated, lite: 'checking' })).toEqual(
+      { kind: 'outdated', id: 'outdated:0.0.9' },
+    )
+    // The introduction waits for Lite's verdict, to say the right thing.
+    expect(noticeFor({ ...DETECTING, connect: CONNECT_STATUS.absent, lite: 'checking' })).toBe(
+      undefined,
+    )
+  })
+})
+
+describe('removedOnPurpose', () => {
+  it('forgets FXM Connect and keeps the first-visit invitation away', async () => {
+    const storage = memoryStorage()
+    storage.setItem(CONNECT_SEEN_KEY, JSON.stringify({ version: '0.1.0', at: 1 }))
+    await openTestPlatform({ storage })
+    await vi.waitFor(() => expect(useConnection.getState().connect?.state).toBe('missing'))
+
+    removedOnPurpose()
+
+    await vi.waitFor(() => expect(useConnection.getState().connect?.state).toBe('absent'))
+    expect(storage.getItem(CONNECT_SEEN_KEY)).toBeNull()
+    expect(useNotices.getState().dismissed).toContain('intro')
   })
 })
 

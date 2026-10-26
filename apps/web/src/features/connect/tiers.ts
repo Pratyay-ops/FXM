@@ -14,7 +14,7 @@
  */
 
 import type { NetworkCapabilities } from '@fxm/core'
-import { RELEASED } from './config'
+import { RELEASED, soon } from './config'
 
 /** The tier FXM runs in. */
 export type Tier = 'free' | 'lite' | 'full'
@@ -63,7 +63,7 @@ export const TIER_INFO: Readonly<Record<Tier, TierInfo>> = {
     name: 'Full',
     experimental: false,
     summary: 'Everything FXM offers, Spotify included.',
-    how: 'FXM Connect, the desktop app or the Android app.',
+    how: `FXM Connect, the desktop app${soon(RELEASED.desktop)} or the Android app${soon(RELEASED.android)}.`,
   },
 }
 
@@ -86,6 +86,8 @@ export interface TierFeature {
   readonly id: string
   /** What the user gets. */
   readonly label: string
+  /** The same in a few words, for lists in a sentence. */
+  readonly short: string
   /** The lowest tier that has it. */
   readonly from: Tier
   /** Whether it is released; the panels mark the others "Coming soon". */
@@ -97,39 +99,57 @@ export const TIER_FEATURES: readonly TierFeature[] = [
   {
     id: 'free-sources',
     label: 'Free music from Internet Archive and Jamendo, in lossless FLAC where they have it',
+    short: 'free music from Internet Archive and Jamendo',
     from: 'free',
     released: true,
   },
   {
     id: 'library',
     label: 'Your library, playlists and history, kept on this device',
+    short: 'your library',
     from: 'free',
     released: true,
   },
-  { id: 'lyrics', label: 'Synced lyrics', from: 'free', released: true },
-  { id: 'local-files', label: 'Your own music files', from: 'free', released: RELEASED.localFiles },
+  { id: 'lyrics', label: 'Synced lyrics', short: 'synced lyrics', from: 'free', released: true },
+  {
+    id: 'local-files',
+    label: 'Your own music files',
+    short: 'your own music files',
+    from: 'free',
+    released: RELEASED.localFiles,
+  },
   {
     id: 'youtube-music',
     label: 'YouTube Music: search, albums, artists and playlists',
+    short: 'YouTube Music',
     from: 'lite',
     released: true,
   },
-  { id: 'youtube-audio', label: 'Ad-free YouTube Music audio', from: 'lite', released: true },
+  {
+    id: 'youtube-audio',
+    label: 'Ad-free YouTube Music audio',
+    short: 'its ad-free audio',
+    from: 'lite',
+    released: true,
+  },
   {
     id: 'spotify',
     label: 'Spotify search and related artists, built in (you can switch it off)',
+    short: 'Spotify search and related artists',
     from: 'full',
     released: true,
   },
   {
     id: 'spotify-account',
     label: 'Your Spotify recommendations, liked songs and playlists, read-only',
+    short: 'a read-only sync of your Spotify account',
     from: 'full',
     released: RELEASED.spotifyAccount,
   },
   {
     id: 'downloads',
     label: 'Downloads of YouTube Music songs, in the format you want',
+    short: 'downloads',
     from: 'full',
     released: RELEASED.downloads,
   },
@@ -151,4 +171,44 @@ export function missingFeatures(tier: Tier): { tier: Tier; features: TierFeature
     tier: other,
     features: featuresAddedBy(other),
   }))
+}
+
+const list = new Intl.ListFormat('en-GB', { style: 'long', type: 'conjunction' })
+
+/** "a", "a and b", "a, b and c". */
+function joinList(items: readonly string[]): string {
+  return list.format(items)
+}
+
+/** One line of the "what you're missing" panel: what a tier above the current one adds. */
+export interface MissingLine {
+  /** The tier that adds it. */
+  readonly tier: Tier
+  /** What it adds today, as a phrase. */
+  readonly adds: string
+  /** What it adds later, as a sentence ("… are coming soon."), if anything. */
+  readonly later?: string
+}
+
+/**
+ * What `tier` is missing, one short line per tier above it, lowest first: the panel sums up what
+ * the tier cards list in full.
+ */
+export function missingSummary(tier: Tier): MissingLine[] {
+  return missingFeatures(tier).map(({ tier: other, features }) => {
+    const out = features.filter((feature) => feature.released).map((feature) => feature.short)
+    const later = features.filter((feature) => !feature.released).map((feature) => feature.short)
+    // Full also gives what Lite gives, without Lite's experimental route.
+    const adds =
+      other === 'full'
+        ? `YouTube Music without Lite's experimental route, and ${joinList(out)}`
+        : joinList(out)
+    if (later.length === 0) return { tier: other, adds }
+    const sentence = joinList(later)
+    return {
+      tier: other,
+      adds,
+      later: `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} ${later.length === 1 ? 'is' : 'are'} coming soon.`,
+    }
+  })
 }

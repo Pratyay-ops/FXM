@@ -1,7 +1,8 @@
 /**
  * The install guides: FXM Connect for Chromium browsers (the unpacked zip), Edge and Firefox,
  * the desktop app, the Android app, and what Safari, iPhone and iPad get. Each guide is a
- * disclosure; the one that fits the device comes first and starts open.
+ * disclosure; the one that fits the device comes first and starts open. An app that isn't
+ * released yet (`RELEASED`) gets no steps, only where to follow its release.
  *
  * The steps follow `apps/extension/README.md` ("Install") and docs/ARCHITECTURE.md §3 and §16.
  *
@@ -12,11 +13,13 @@ import { CircleAlert, Info, RefreshCw, Wrench } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { RELEASED, RELEASES_URL } from './config'
 import {
+  BROWSER_NAMES,
   type BrowserFamily,
   type DeviceInfo,
   extensionsPage,
   type GuideId,
   isChromium,
+  isMacSafari,
   recommendedGuide,
 } from './device'
 import { Chip, ComingSoonChip, CopyableAddress, ExternalLink, textLinkClasses } from './ui'
@@ -50,6 +53,32 @@ export function openGuide(guide: GuideId): void {
   element.querySelector('summary')?.focus()
 }
 
+/**
+ * The install this device can do now, as the onboarding page's main button: FXM Connect in its
+ * browser, or an app once it is out. Nothing for Safari, iPhone and iPad, and nothing for an app
+ * that isn't released.
+ */
+export function guideAction(device: DeviceInfo): { guide: GuideId; label: string } | undefined {
+  const guide = recommendedGuide(device)
+  switch (guide) {
+    case 'chromium':
+      return {
+        guide,
+        label: isChromium(device.browser)
+          ? `Add FXM Connect to ${BROWSER_NAMES[device.browser]}`
+          : 'Get FXM Connect',
+      }
+    case 'firefox':
+      return { guide, label: 'Add FXM Connect to Firefox' }
+    case 'desktop':
+      return RELEASED.desktop ? { guide, label: 'Get the desktop app' } : undefined
+    case 'android':
+      return RELEASED.android ? { guide, label: 'Get the Android app' } : undefined
+    case 'apple':
+      return undefined
+  }
+}
+
 function Steps({ children }: { children: ReactNode }) {
   return (
     <ol className="list-decimal space-y-2 pl-5 text-sm marker:font-bold marker:text-accent">
@@ -76,6 +105,15 @@ function ReleaseLink({ children }: { children: ReactNode }) {
     <ExternalLink href={RELEASES_URL} className={textLinkClasses}>
       {children}
     </ExternalLink>
+  )
+}
+
+/** In place of the steps of an app that isn't out yet. */
+function NotReleased() {
+  return (
+    <p className="text-sm">
+      Not released yet: <ReleaseLink>follow the releases on GitHub</ReleaseLink>.
+    </p>
   )
 }
 
@@ -191,12 +229,15 @@ function Guide({ id, title, chips, open, children }: GuideProps) {
       open={open}
       className="group scroll-mt-[calc(var(--shell-top)+1rem)] rounded-xl border border-border bg-surface open:border-border-strong"
     >
-      <summary className="flex min-h-touch cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 rounded-xl px-4 py-3 marker:content-none sm:px-5 [&::-webkit-details-marker]:hidden">
-        <h3 className="font-bold">{title}</h3>
-        {chips}
+      {/* Two columns, so the chevron keeps its place however the title and its chips wrap. */}
+      <summary className="grid min-h-touch cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 rounded-xl px-4 py-3 marker:content-none sm:px-5 [&::-webkit-details-marker]:hidden">
+        <h3 className="flex flex-wrap items-center gap-x-3 gap-y-1 font-bold">
+          <span>{title}</span>
+          {chips}
+        </h3>
         <span
           aria-hidden="true"
-          className="ml-auto size-2.5 rotate-45 border-r-2 border-b-2 border-text-muted transition-transform group-open:-rotate-135"
+          className="mr-1 size-2.5 rotate-45 border-r-2 border-b-2 border-text-muted transition-transform group-open:-rotate-135"
         />
       </summary>
       <div className="space-y-4 border-t border-border px-4 pt-4 pb-5 sm:px-5">{children}</div>
@@ -208,7 +249,10 @@ function Guide({ id, title, chips, open, children }: GuideProps) {
 export interface InstallGuidesProps {
   /** The visitor's device, which picks the first guide. */
   readonly device: DeviceInfo
-  /** Whether the first guide starts open. Off when FXM already has full access. */
+  /**
+   * Whether the first guide starts open: off when FXM already has full access. Read when the
+   * guides first render only, so a guide never opens or closes under the reader later.
+   */
   readonly openFirst: boolean
 }
 
@@ -271,22 +315,27 @@ export function InstallGuides({ device, openFirst }: InstallGuidesProps) {
             <p className="text-sm text-text-muted">
               For macOS, Windows and Linux, with everything built in: no extension needed.
             </p>
-            <Steps>
-              <li>
-                Download the installer for your computer from the{' '}
-                <ReleaseLink>latest release on GitHub</ReleaseLink>: the <code>.dmg</code> for
-                macOS, the <code>.msi</code> or <code>.exe</code> for Windows, the AppImage or{' '}
-                <code>.deb</code> for Linux.
-              </li>
-              <li>
-                On macOS, the first time you open it, go to System Settings → Privacy &amp; Security
-                and choose <strong>Open Anyway</strong>: the app isn't notarized by Apple.
-              </li>
-              <li>
-                On Windows, if SmartScreen warns about an unrecognized app, choose{' '}
-                <strong>More info</strong>, then <strong>Run anyway</strong>.
-              </li>
-            </Steps>
+            {RELEASED.desktop ? (
+              <Steps>
+                <li>
+                  Download the installer for your computer from the{' '}
+                  <ReleaseLink>latest release on GitHub</ReleaseLink>: the <code>.dmg</code> for
+                  macOS, the <code>.msi</code> or <code>.exe</code> for Windows, the AppImage or{' '}
+                  <code>.deb</code> for Linux.
+                </li>
+                <li>
+                  On macOS, the first time you open it, go to System Settings → Privacy &amp;
+                  Security and choose <strong>Open Anyway</strong>: the app isn't notarized by
+                  Apple.
+                </li>
+                <li>
+                  On Windows, if SmartScreen warns about an unrecognized app, choose{' '}
+                  <strong>More info</strong>, then <strong>Run anyway</strong>.
+                </li>
+              </Steps>
+            ) : (
+              <NotReleased />
+            )}
           </Guide>
         )
       case 'android':
@@ -304,17 +353,29 @@ export function InstallGuides({ device, openFirst }: InstallGuidesProps) {
             open={open}
           >
             <p className="text-sm text-text-muted">
-              Chrome on Android can't add extensions. The Android app has everything built in
-              instead.
+              Chrome on Android can't add extensions.{' '}
+              {RELEASED.android
+                ? 'The Android app has everything built in instead.'
+                : 'The Android app will have everything built in instead.'}
             </p>
-            <Steps>
-              <li>
-                On your phone, download the APK from the{' '}
-                <ReleaseLink>latest release on GitHub</ReleaseLink>.
-              </li>
-              <li>Open it. If Android asks, allow your browser to install apps.</li>
-              <li>Open FXM from your apps.</li>
-            </Steps>
+            {!RELEASED.android && device.os === 'android' && (
+              <p className="text-sm">
+                Until it's out, this browser plays free music from Internet Archive and Jamendo and,
+                where its check passes, YouTube Music in the experimental Lite tier.
+              </p>
+            )}
+            {RELEASED.android ? (
+              <Steps>
+                <li>
+                  On your phone, download the APK from the{' '}
+                  <ReleaseLink>latest release on GitHub</ReleaseLink>.
+                </li>
+                <li>Open it. If Android asks, allow your browser to install apps.</li>
+                <li>Open FXM from your apps.</li>
+              </Steps>
+            ) : (
+              <NotReleased />
+            )}
           </Guide>
         )
       case 'apple':
@@ -326,10 +387,17 @@ export function InstallGuides({ device, openFirst }: InstallGuidesProps) {
               passes, YouTube Music in the experimental Lite tier. Lite hasn't been tested in Safari
               yet.
             </p>
+            {isMacSafari(device) && (
+              <p className="text-sm">
+                On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add FXM Connect there:
+                the guides for those browsers are below.
+                {RELEASED.desktop ? ' Or get the desktop app.' : ''}
+              </p>
+            )}
           </Guide>
         )
     }
   }
 
-  return <div className="space-y-3">{guides.map(render)}</div>
+  return <div className="max-w-3xl space-y-3">{guides.map(render)}</div>
 }

@@ -35,3 +35,8 @@ export const RELEASED = {
 
 /** A flag of {@link RELEASED}. */
 export type ReleaseFlag = keyof typeof RELEASED
+
+/** " (coming soon)" after something that isn't released yet, nothing after the rest. */
+export function soon(released: boolean): string {
+  return released ? '' : ' (coming soon)'
+}
