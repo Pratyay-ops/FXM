@@ -1,6 +1,12 @@
 ---
-import { AVAILABLE } from '../config'
-import { losslessSources, musicMode, noExtensionHighlight, SPOTIFY_ACCOUNT } from '../lib/tiers'
+import { AVAILABLE, ISSUES_URL } from '../config'
+import {
+  losslessSources,
+  musicMode,
+  noExtensionHighlight,
+  SPOTIFY_ACCOUNT,
+  SPOTIFY_ACCOUNT_NOTE,
+} from '../lib/tiers'
 import ComingSoon from './ComingSoon.astro'
 import DownloadsDemo from './demos/DownloadsDemo.astro'
 import FeedDemo from './demos/FeedDemo.astro'
@@ -9,11 +15,12 @@ import SpotifyDemo from './demos/SpotifyDemo.astro'
 import Experimental from './Experimental.astro'
 import Icon from './Icon.astro'
 
+// The account sync is experimental: tested only with a stand-in for Spotify (SPOTIFY_ACCOUNT_NOTE).
 const spotify = [
-  { text: "Search Spotify's catalog", available: true },
-  { text: 'Related artists', available: true },
-  { text: 'Song radio', available: AVAILABLE.radio },
-  { text: SPOTIFY_ACCOUNT, available: AVAILABLE.spotifyAccount },
+  { text: "Search Spotify's catalog", available: true, experimental: false },
+  { text: 'Related artists', available: true, experimental: false },
+  { text: 'Song radio', available: AVAILABLE.radio, experimental: false },
+  { text: SPOTIFY_ACCOUNT, available: AVAILABLE.spotifyAccount, experimental: true },
 ]
 
 const noExtension = noExtensionHighlight(AVAILABLE.lite, AVAILABLE.jamendo)
@@ -128,10 +135,17 @@ const extras = [
                 <span>
                   {item.text}
                   {!item.available && <ComingSoon />}
+                  {item.available && item.experimental && <Experimental />}
                 </span>
               </li>
             ))}
           </ul>
+          {AVAILABLE.spotifyAccount && (
+            <p>
+              {SPOTIFY_ACCOUNT_NOTE} If it doesn't work for you, please tell us on the
+              <a href={ISSUES_URL}>FXM issue tracker</a>.
+            </p>
+          )}
           <p>Prefer not to? Switch it off in Settings and FXM doesn't talk to Spotify at all.</p>
         </div>
         <SpotifyDemo />

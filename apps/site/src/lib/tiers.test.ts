@@ -22,6 +22,7 @@ import {
   otherBrowsersPlays,
   privacyLiteCheck,
   SPOTIFY_ACCOUNT,
+  SPOTIFY_ACCOUNT_NOTE,
   webCardIntro,
 } from './tiers'
 
@@ -308,7 +309,9 @@ describe('in both versions', () => {
     // "only" other part, and it never holds no music-service code.
     expect(CONNECT_DOES).toContain("adjusts a few headers on FXM's own requests")
     expect(CONNECT_DOES).toContain("fetches Spotify's public server time when the web app asks")
-    expect(CONNECT_DOES).toContain('option to use your Spotify login is off unless you turn it on')
+    expect(CONNECT_DOES).toContain(
+      'option to use your Spotify login, for the experimental Spotify account sync, is off unless you turn it on',
+    )
     for (const lite of [false, true]) {
       for (const sentence of allCopy(lite)) {
         expect(sentence).not.toMatch(/no music-service|only other part|one other part/)
@@ -331,6 +334,15 @@ describe('in both versions', () => {
     expect(musicMode(false)).toMatch(/^Songs only, from any source/)
     expect(musicMode(true)).toContain('Internet Archive and Jamendo')
     expect(SPOTIFY_ACCOUNT).toContain('read-only')
+  })
+
+  it('says the Spotify account sync is experimental, opt-in and untested with real accounts', () => {
+    // The owner shipped it labelled experimental: only a stand-in for Spotify has answered it.
+    expect(SPOTIFY_ACCOUNT_NOTE).toMatch(/^Account sync is experimental, and off until you connect/)
+    expect(SPOTIFY_ACCOUNT_NOTE).toContain(
+      'It has been tested with a stand-in for Spotify, not yet with real accounts',
+    )
+    expect(SPOTIFY_ACCOUNT_NOTE).toContain('Settings says why')
   })
 })
 
@@ -454,5 +466,28 @@ describe('the pages', () => {
     const getFxm = source('../components/GetFxm.astro')
     expect(getFxm).not.toContain('says a new version is out')
     expect(getFxm).toMatch(/When the web app says FXM Connect is out of date/)
+  })
+
+  it('label the Spotify account sync experimental wherever they offer or describe it', () => {
+    const features = source('../components/Features.astro')
+    // The checklist's account item has the Experimental badge, and the note follows the list.
+    expect(features).toMatch(
+      /text: SPOTIFY_ACCOUNT, available: AVAILABLE\.spotifyAccount, experimental: true/,
+    )
+    expect(features).toContain('{item.available && item.experimental && <Experimental />}')
+    expect(features).toMatch(/\{SPOTIFY_ACCOUNT_NOTE\} If it doesn't work for you/)
+    const demo = source('../components/demos/SpotifyDemo.astro')
+    expect(demo).toContain('for an experimental, read-only sync')
+    expect(demo).toContain("'Experimental: a read-only sync")
+    const privacy = source('../pages/privacy.astro')
+    expect(privacy).toContain("AVAILABLE.spotifyAccount ? ' (an experimental feature)'")
+    expect(privacy.match(/your Spotify account\$\{accountSync\}/g)).toHaveLength(2)
+    expect(privacy).toContain(
+      'and experimental: the sync has been tested with a stand-in for Spotify, not yet with real accounts',
+    )
+    expect(source('../components/Faq.astro')).toContain('for the experimental account sync')
+    for (const page of [features, demo, privacy]) {
+      expect(page).not.toMatch(/tested with (a )?real (Spotify )?accounts?\b(?!:)/)
+    }
   })
 })

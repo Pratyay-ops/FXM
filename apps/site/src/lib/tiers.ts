@@ -69,10 +69,11 @@ const disjunction = new Intl.ListFormat('en-GB', { style: 'long', type: 'disjunc
 /**
  * What FXM Connect does, in a sentence that is true of every version of it. Besides the headers,
  * it always relays Spotify's public server time (`spotify-server-time`, without credentials), and
- * its Spotify login bridge is opt-in, so no one feature is its "only other part".
+ * its Spotify login bridge is opt-in, so no one feature is its "only other part". What uses the
+ * login is the web app's experimental Spotify account sync (`SPOTIFY_ACCOUNT_NOTE`).
  */
 export const CONNECT_DOES =
-  "it adjusts a few headers on FXM's own requests and fetches Spotify's public server time when the web app asks; its option to use your Spotify login is off unless you turn it on"
+  "it adjusts a few headers on FXM's own requests and fetches Spotify's public server time when the web app asks; its option to use your Spotify login, for the experimental Spotify account sync, is off unless you turn it on"
 
 /**
  * The free sources the web app plays everywhere: Internet Archive, and Jamendo in a build that
@@ -99,9 +100,24 @@ export function losslessAnswer(jamendo: boolean): string {
     : 'Yes, where the source has it. Internet Archive offers real lossless FLAC, which FXM can play, and so will Jamendo (coming soon).'
 }
 
-/** The Spotify account item: the sync only reads. */
+/**
+ * The Spotify account item: the sync only reads. The checklist shows it with the Experimental
+ * badge and, under the list, `SPOTIFY_ACCOUNT_NOTE`.
+ */
 export const SPOTIFY_ACCOUNT =
   'Connect your Spotify account for a read-only sync of your recommendations, liked songs and playlists'
+
+/**
+ * Why the Spotify account sync is experimental, wherever the site offers it, and that it is
+ * opt-in. It has been tested only against a stand-in for Spotify, never a real account, and the
+ * owner decided to ship it labelled so (apps/web/src/features/spotify-account/README.md, "Manual
+ * test with a real account"). When the sync can't read an answer, Settings says why, and no copy
+ * is emptied (the same README, "Never takes what it can't read for empty"). Once the manual test
+ * has passed, drop this note, the Experimental badge next to `SPOTIFY_ACCOUNT` and the word
+ * "experimental" in the other sentences about the sync (tiers.test.ts lists where they are).
+ */
+export const SPOTIFY_ACCOUNT_NOTE =
+  "Account sync is experimental, and off until you connect your account. It has been tested with a stand-in for Spotify, not yet with real accounts: if it fails, Settings says why, and FXM never empties a copy because of an answer it couldn't read."
 
 /**
  * Lite, as the copy names it, marked experimental: a tier, as the web app calls it, not a mode,
