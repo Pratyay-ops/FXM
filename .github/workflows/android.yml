@@ -5,6 +5,13 @@ name: Android
 # its build uses changes: the web app and the packages it bundles, the toolchain scripts (not
 # make dist's and the deploy job's, stage 2.8) and the Makefile, Node and the dependencies. Keep
 # both lists the same.
+#
+# Run by hand (workflow_dispatch) with `release`, it is also a dry run of the release jobs
+# (stage 6.6): it builds the release APKs, signs them with a throwaway key made for the step
+# (`release-apk.sh dry-run`; never FXM's key, which only release runs on main can use) and
+# uploads them as the artifact fxm-android-dry-run. It tags and publishes nothing:
+#
+#   gh workflow run android.yml --ref <branch> -f release=true
 on:
   push:
     paths:
@@ -37,6 +44,11 @@ on:
       - tsconfig.base.json
       - .github/workflows/android.yml
   workflow_dispatch:
+    inputs:
+      release:
+        description: Also build the release APKs, signed with a throwaway key (a dry run)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -100,6 +112,11 @@ jobs:
       - name: Run the native unit tests
         run: make android-test
 
+      # scripts/make-android-keystore.sh and the release signing, with a throwaway key and APKs
+      # that aapt2 links from a bare manifest, offline.
+      - name: Test the release signing
+        run: make apk-sign-test
+
       # cap sync rewrites capacitor.settings.gradle with a path into pnpm's store that names the
       # Capacitor version, so after an upgrade the committed file is stale until it is regenerated.
       - name: Check that the build left the committed Android project unchanged
@@ -110,6 +127,27 @@ jobs:
             echo "::error::make apk changed apps/mobile/android. Run make apk and commit what it regenerated."
             exit 1
           fi
+
+      # The dry run: the release job's build, with its Jamendo switch (release.yml), then its
+      # signing with a key made for this run only.
+      - name: Build the unsigned release APKs (dry run)
+        if: inputs.release
+        env:
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
+        run: apps/mobile/scripts/release-apk.sh build dist/android-unsigned
+
+      # A key made for this step in a private temporary folder, and deleted after it.
+      - name: Sign them with a throwaway key (dry run)
+        if: inputs.release
+        run: apps/mobile/scripts/release-apk.sh dry-run dist/android-unsigned dist/android-dry-run
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: inputs.release
+        with:
+          name: fxm-android-dry-run
+          path: dist/android-dry-run/
+          if-no-files-found: error
+          retention-days: 7
 
       # Gradle's lock and garbage-collection state must not go into the cache.
       - name: Prepare the Gradle home for caching

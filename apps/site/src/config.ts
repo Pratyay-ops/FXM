@@ -110,7 +110,10 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   pwa: true,
   /** The embeddable mini-player: 5.2 (M4) */
   embed: false,
-  /** The Android APK on GitHub Releases: 6.6 (M5) */
+  /**
+   * The Android APK on GitHub Releases: 6.6 (M5). Turn it on once a release carries the signed
+   * APKs (apps/mobile/RELEASING.md), with `RELEASED.android` in apps/web/src/features/connect.
+   */
   android: false,
   /** The desktop app for macOS, Windows and Linux: 7.5 (M6) */
   desktop: false,

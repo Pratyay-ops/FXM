@@ -99,13 +99,23 @@ ffmpeg-wasm-test: ## Test the built ffmpeg core end to end, in every format, on 
 
 # --- Android app (docs/DEVELOPMENT.md, "Android app") ---------------------------
 
-.PHONY: android-setup apk android-test android-clean
+.PHONY: android-setup apk apk-release apk-sign-test android-test android-clean
 
 android-setup: ## Install the JDK and Android SDK into .tools (accepts the SDK licenses)
 	@scripts/android-setup.sh
 
 apk: ## Build the Android debug APK (run make android-setup once first)
 	@apps/mobile/scripts/build-apk.sh
+
+# A dry run: signed with a key made for the run. FXM's key never leaves the release workflow, and
+# the build refuses to run while a signing variable is set (apps/mobile/RELEASING.md).
+apk-release: ## Build the release APKs, signed with a throwaway key, into dist/android/release
+	@rm -rf dist/android
+	@apps/mobile/scripts/release-apk.sh build dist/android/unsigned
+	@apps/mobile/scripts/release-apk.sh dry-run dist/android/unsigned dist/android/release
+
+apk-sign-test: ## Test the release signing and the keystore script offline, with a throwaway key
+	@apps/mobile/scripts/test-release.sh
 
 android-test: ## Run the Android app's native unit tests (offline, no device needed)
 	@apps/mobile/scripts/test-native.sh

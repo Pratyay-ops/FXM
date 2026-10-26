@@ -4,9 +4,10 @@
 #   1. Checks that develop is checked out, clean, equal to origin/develop and contains
 #      origin/main and every release tag; that the version is higher than the current one, has
 #      no tag and has a finished summary (docs/releases/vX.Y.Z.md, not marked as a draft); that
-#      no release pull request is open; and that the release commit passes make lint and the
-#      release script tests, by making its changes in a temporary worktree and running them
-#      there.
+#      apps/mobile/release-certificate.txt pins the certificate the Android APKs are signed
+#      with; that no release pull request is open; and that the release commit passes make lint
+#      and the release script tests, by making its changes in a temporary worktree and running
+#      them there.
 #   2. Sets the version everywhere (release-version.sh) and regenerates CHANGELOG.md (git-cliff).
 #   3. Commits "chore(release): vX.Y.Z" on develop and pushes develop.
 #   4. Opens the pull request "Release vX.Y.Z" with the version's notes (release-notes.sh: the
@@ -150,6 +151,16 @@ elif fxm_release_summary_is_draft "$version"; then
     "'<!-- draft' line, then commit and push it on develop"
 else
   pass "$summary has the release's summary"
+fi
+
+# The release workflow signs the Android APKs only with the key whose certificate this file pins,
+# and stops before tagging while it pins none (apps/mobile/RELEASING.md, The signing key).
+certificate=apps/mobile/release-certificate.txt
+if (fxm_release_android_certificate "$certificate" >/dev/null 2>&1); then
+  pass "$certificate pins the Android signing certificate"
+else
+  problem "$certificate pins no Android signing certificate, so the release would stop before" \
+    "tagging: create the key, set its secrets and pin it first (apps/mobile/RELEASING.md)"
 fi
 
 gh_ready=false

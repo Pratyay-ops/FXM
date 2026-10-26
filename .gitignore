@@ -18,6 +18,10 @@ coverage/
 .dev.vars
 .dev.vars.*
 !.dev.vars.example
+# Signing keys live outside the repository (scripts/make-android-keystore.sh, apps/mobile/RELEASING.md)
+*.p12
+*.jks
+*.keystore
 
 # Logs, OS and editor files
 *.log

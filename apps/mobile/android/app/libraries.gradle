@@ -1,0 +1,149 @@
+// The Android libraries that the release APK bundles, for its third-party notices (stage 6.6).
+// `./gradlew fxmLibraryReport` writes them to app/build/fxm/android-libraries.json: each library
+// of the release build's runtime classpath with the licences its Maven POM (or the nearest parent
+// POM that has any) declares, the licence and NOTICE files inside its AAR or JAR, and the projects
+// the APK builds from source, such as Capacitor's runtime from its npm package.
+// apps/mobile/scripts/notices.ts checks them against the licences FXM accepts and writes the
+// notices, which release-apk.sh build puts into the APK. Gradle's own dependency resolution only,
+// and no plugin: nothing new runs in the build.
+import groovy.json.JsonOutput
+import groovy.xml.XmlSlurper
+import java.util.zip.ZipInputStream
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier
+import org.gradle.api.artifacts.result.ResolvedArtifactResult
+import org.gradle.api.artifacts.result.UnresolvedComponentResult
+import org.gradle.maven.MavenModule
+import org.gradle.maven.MavenPomArtifact
+
+tasks.register('fxmLibraryReport') {
+    group = 'reporting'
+    description = "Writes the release APK's Android libraries and their licences to build/fxm/android-libraries.json"
+    def report = layout.buildDirectory.file('fxm/android-libraries.json')
+    outputs.file(report)
+    // The dependencies it reads aren't declared as inputs, so it always runs.
+    outputs.upToDateWhen { false }
+
+    // What the action needs, taken now: a task action shouldn't reach for the project.
+    def classpath = configurations.named('releaseRuntimeClasspath')
+    def dependencyHandler = dependencies
+    def configurationContainer = configurations
+    def projectDirs = rootProject.allprojects.collectEntries { [(it.path): it.projectDir] }
+    def appDir = projectDir.absolutePath
+
+    doLast {
+        def clean = { String value -> value == null || value.contains('${') ? '' : value.trim() }
+        def pomFile = { String group, String name, String version ->
+            def detached = configurationContainer.detachedConfiguration(
+                dependencyHandler.create("$group:$name:$version@pom"))
+            detached.transitive = false
+            detached.singleFile
+        }
+        // A POM's name, URL and licences, each from the nearest parent POM where it has none.
+        def readPom = { File file ->
+            def found = [name: '', url: '', licences: []]
+            def current = file
+            for (int depth = 0; current != null && depth < 6; depth++) {
+                def slurper = new XmlSlurper(false, false)
+                slurper.setFeature('http://apache.org/xml/features/disallow-doctype-decl', true)
+                def pom = slurper.parse(current)
+                if (!found.name) found.name = clean(pom.name.text())
+                if (!found.url) found.url = clean(pom.url.text())
+                if (found.licences.isEmpty()) {
+                    found.licences = pom.licenses.license.collect {
+                        [name: clean(it.name.text()), url: clean(it.url.text())]
+                    }
+                }
+                def parent = pom.children().find { it.name() == 'parent' }
+                if ((found.url && !found.licences.isEmpty()) || parent == null || parent.isEmpty()) break
+                def group = clean(parent.groupId.text())
+                def name = clean(parent.artifactId.text())
+                def version = clean(parent.version.text())
+                current = group && name && version ? pomFile(group, name, version) : null
+            }
+            found
+        }
+        // The licence and NOTICE files in an AAR or a JAR, and in the JARs inside it (an AAR's
+        // classes.jar and libs/), which a POM's licence name doesn't give.
+        def noticeName = ~/(?i)(notice|licen[cs]e|copying)([._-][^\/]*)?/
+        def noticesIn = { File file ->
+            def found = []
+            def visit
+            visit = { ZipInputStream zip, String prefix, int depth ->
+                def entry
+                while ((entry = zip.nextEntry) != null) {
+                    if (entry.directory) continue
+                    def path = entry.name
+                    def base = path.substring(path.lastIndexOf('/') + 1)
+                    if (base ==~ noticeName) {
+                        def bytes = zip.readAllBytes()
+                        if (bytes.length > 512 * 1024) {
+                            throw new GradleException("${file.name} has a ${bytes.length}-byte $prefix$path")
+                        }
+                        found << [path: prefix + path, text: new String(bytes, 'UTF-8')]
+                    } else if (depth < 2 && path.endsWith('.jar')) {
+                        // Reads the inner JAR from the outer entry, which it must not close.
+                        visit(new ZipInputStream(zip), "$prefix$path!/", depth + 1)
+                    }
+                }
+            }
+            file.withInputStream { visit(new ZipInputStream(it), '', 0) }
+            found.sort { it.path }
+        }
+
+        def graph = classpath.get().incoming.resolutionResult
+        def modules = []
+        def projects = []
+        graph.allComponents.each { component ->
+            def id = component.id
+            if (id instanceof ModuleComponentIdentifier) {
+                modules << id
+            } else if (id instanceof ProjectComponentIdentifier && id != graph.root.id) {
+                projects << [path: id.projectPath, dir: projectDirs[id.projectPath].absolutePath]
+            }
+        }
+
+        // The files each library puts into the APK. A platform (a BOM) and the root of a Kotlin
+        // multiplatform library, whose code comes from its -android or -jvm library, have none.
+        def files = [:].withDefault { [] }
+        classpath.get().incoming.artifactView {
+            componentFilter { it instanceof ModuleComponentIdentifier }
+        }.artifacts.each { files[it.id.componentIdentifier.displayName] << it.file }
+
+        def result = dependencyHandler.createArtifactResolutionQuery()
+            .forComponents(modules)
+            .withArtifacts(MavenModule, MavenPomArtifact)
+            .execute()
+        def unresolved = result.components.findAll { it instanceof UnresolvedComponentResult }
+        if (!unresolved.isEmpty()) {
+            throw new GradleException('No POM for ' + unresolved.collect { it.id.displayName }.join(', '))
+        }
+        def poms = [:]
+        result.resolvedComponents.each { component ->
+            def artifact = component.getArtifacts(MavenPomArtifact).find {
+                it instanceof ResolvedArtifactResult
+            }
+            if (artifact == null) throw new GradleException("No POM for ${component.id.displayName}")
+            poms[component.id.displayName] = artifact.file
+        }
+
+        def libraries = modules.collect { id ->
+            def pom = readPom(poms[id.displayName])
+            // One file can reach the classpath through two variants of a library.
+            def artifacts = files[id.displayName].unique { it.absolutePath }.sort { it.name }
+            [group: id.group, name: id.module, version: id.version, title: pom.name, url: pom.url,
+             licences: pom.licences, files: artifacts.collect { it.name },
+             notices: artifacts.collectMany { noticesIn(it) }]
+        }.sort { a, b -> a.group <=> b.group ?: a.name <=> b.name }
+
+        def file = report.get().asFile
+        file.parentFile.mkdirs()
+        file.text = JsonOutput.prettyPrint(JsonOutput.toJson([
+            configuration: 'releaseRuntimeClasspath',
+            app: appDir,
+            libraries: libraries,
+            projects: projects.sort { it.path },
+        ])) + '\n'
+        logger.lifecycle("${libraries.size()} Android libraries and ${projects.size()} projects: ${file}")
+    }
+}

@@ -534,6 +534,67 @@ describe('the Android project', () => {
     }
   })
 
+  describe('release builds (stage 6.6)', () => {
+    const gradle = withoutComments(read('android/app/build.gradle'))
+
+    it('gives each version a growing version code', () => {
+      expect(gradle).toMatch(/^ {8}versionCode fxmVersionCode\(fxmVersion\)$/m)
+      expect(gradle).toContain('major * 1_000_000L + minor * 1_000L + patch')
+      expect(gradle).toContain('if (major >= 2100 || minor >= 1000 || patch >= 1000)')
+      // The release script checks every APK's code with the same rule.
+      const script = read('scripts/release-apk.sh')
+      expect(script).toContain('code=$((major * 1000000 + minor * 1000 + patch))')
+      expect(script).toContain(
+        'if [ "$major" -ge 2100 ] || [ "$minor" -ge 1000 ] || [ "$patch" -ge 1000 ]; then',
+      )
+    })
+
+    it('makes an arm64-v8a and a universal APK only for the release script', () => {
+      const splits = /splits \{[\s\S]*?\n {4}\}/.exec(gradle)?.[0] ?? ''
+      expect(splits).toContain("enable project.hasProperty('fxmReleaseApks')")
+      expect(splits).toContain("include 'arm64-v8a'")
+      expect(splits).toContain('universalApk true')
+      expect(read('scripts/release-apk.sh')).toContain(
+        './gradlew --no-daemon -PfxmReleaseApks assembleRelease',
+      )
+    })
+
+    it('never gives Gradle a signing key: apksigner signs the release APKs', () => {
+      expect(gradle).not.toMatch(/signingConfig|storePassword|keyPassword|ANDROID_KEY/)
+    })
+
+    it('leaves Google Play’s encrypted dependency report out of the APK', () => {
+      expect(gradle).toMatch(/dependenciesInfo \{\s+includeInApk = false\s+includeInBundle = false/)
+    })
+
+    it('never asks Android to let it install apps: updates go through the browser', () => {
+      const manifests = [
+        'android/app/src/main/AndroidManifest.xml',
+        'android/fxm-http/src/main/AndroidManifest.xml',
+        'android/fxm-player/src/main/AndroidManifest.xml',
+      ]
+      for (const manifest of manifests) {
+        expect(read(manifest), manifest).not.toMatch(
+          /INSTALL_PACKAGES|DOWNLOAD_WITHOUT_NOTIFICATION/,
+        )
+      }
+    })
+
+    it('pins the release certificate in a file the scripts read', () => {
+      // fxm_release_android_certificate's rule (scripts/release-lib.sh): the first line that is
+      // neither blank nor a # comment, a SHA-256 with or without colons, in either case.
+      const pinned = read('release-certificate.txt')
+        .split('\n')
+        .find((line) => !/^\s*(#|$)/.test(line))
+      const hex = (pinned ?? '').replace(/[\s:]/g, '')
+      expect(
+        pinned?.trim() === 'none yet: run scripts/make-android-keystore.sh' ||
+          /^[0-9a-f]{64}$/i.test(hex),
+        `release-certificate.txt pins ${pinned}`,
+      ).toBe(true)
+    })
+  })
+
   it('builds OkHttp and its MockWebServer from one release', () => {
     const gradle = read('android/fxm-http/build.gradle')
     expect(gradle).toContain('"com.squareup.okhttp3:okhttp:$okhttpVersion"')

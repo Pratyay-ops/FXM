@@ -1,6 +1,6 @@
 # @fxm/mobile
 
-The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitorjs.com) 8 WebView. Stage 6.1 built the shell and its repo-local toolchain, stage 6.2 its native networking ([`android/fxm-http`](android/fxm-http/README.md)), stage 6.3 its native player ([`android/fxm-player`](android/fxm-player/README.md)): Media3 in a foreground service, with the media notification and lock-screen controls, and stage 6.4 its downloads and the device's music ([`android/fxm-downloads`](android/fxm-downloads/README.md)): downloads in the app's own storage that keep going in the background, a copy in Music/FXM, and the songs MediaStore knows in local files. Stage 6.5 added its Spotify login ([`android/fxm-spotify`](android/fxm-spotify/README.md)).
+The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitorjs.com) 8 WebView. Stage 6.1 built the shell and its repo-local toolchain, stage 6.2 its native networking ([`android/fxm-http`](android/fxm-http/README.md)), stage 6.3 its native player ([`android/fxm-player`](android/fxm-player/README.md)): Media3 in a foreground service, with the media notification and lock-screen controls, and stage 6.4 its downloads and the device's music ([`android/fxm-downloads`](android/fxm-downloads/README.md)): downloads in the app's own storage that keep going in the background, a copy in Music/FXM, and the songs MediaStore knows in local files. Stage 6.5 added its Spotify login ([`android/fxm-spotify`](android/fxm-spotify/README.md)). Stage 6.6 releases it: signed APKs on GitHub Releases ([RELEASING.md](RELEASING.md)), with an in-app update check and an [install guide](INSTALL.md) for users.
 
 ## Build it
 
@@ -8,6 +8,8 @@ The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitor
 make android-setup   # once: JDK and Android SDK in .tools/
 make apk             # apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
 make android-test    # the native unit tests (JVM, offline, no device)
+make apk-release     # the release APKs, signed with a throwaway key: a dry run (RELEASING.md)
+make apk-sign-test   # the release signing's tests, offline, with a throwaway key
 ```
 
 Installing it on a phone, disk usage, licenses and cleanup are covered in [DEVELOPMENT.md](../../docs/DEVELOPMENT.md#android-app). `make test` runs this package's TypeScript tests, which only read files and need no Android tools.
@@ -19,6 +21,7 @@ capacitor.config.ts   app id, the web build to wrap, plugin settings (`cap sync`
 android/              the native project from `cap add android`, committed; build output is gitignored
   app/src/main/       AndroidManifest.xml, MainActivity, res/ (theme, icons, backup rules),
                       java/.../evaluator/ (the isolated evaluator's WebView, stage 1.11)
+  app/libraries.gradle  fxmLibraryReport: the release APK's Android libraries and their licences
   fxm-http/           FXM's native HTTP: the shared OkHttp client and the FxmHttp plugin (6.2)
   fxm-player/         FXM's native player: Media3 in a foreground service and the FxmPlayer plugin (6.3)
   fxm-downloads/      downloads in app storage, their dataSync service and Music/FXM copies (FxmDownloads),
@@ -27,13 +30,20 @@ android/              the native project from `cap add android`, committed; buil
   variables.gradle    SDK levels and AndroidX versions from Capacitor's template, plus OkHttp's and Media3's
 scripts/
   build-apk.sh        make apk
+  release-apk.sh      the release workflow and make apk-release: build, then sign and check, the release APKs
+  notices.ts          the release APKs' third-party notices: the Android libraries and make dist's notices
+  write-notices.ts    writes them for release-apk.sh build, or fails on a library FXM may not ship
   test-native.sh      make android-test: the JVM tests of fxm-http, fxm-player, fxm-downloads and fxm-spotify
+  test-release.sh     make apk-sign-test: the keystore script and the release signing, offline
   native-tables.ts    writes fxm-http's PlatformTables.kt and fxm-spotify's LoginTables.kt from
                       @fxm/platform (host table, bridge codes, the token parameters' allow-list)
   icons.ts            the launcher, splash and notification icons, drawn from the FXM mark
   generate-icons.ts   writes them into the app's and fxm-player's res folders (`pnpm icons`)
   png.ts              a minimal PNG encoder and decoder
 *.test.ts             checks of the config and the native project
+release-certificate.txt  the SHA-256 of the certificate that signs the release APKs, pinned
+INSTALL.md            installing FXM on a phone, for users
+RELEASING.md          the release APKs, the signing key, developer verification and F-Droid
 ```
 
 Run Capacitor commands through the package script. It sets `CI=1`, so the CLI stays non-interactive and sends no telemetry. It also turns on Node's type stripping, which the CLI needs to load `capacitor.config.ts` with TypeScript 7 and which Node 22 enables by default only from 22.18:
@@ -58,7 +68,8 @@ scripts/run.sh pnpm --filter @fxm/mobile cap sync android
   - **One renderer for every WebView.** If the renderer dies (a script that runs out of memory, or the system), the plugin destroys the evaluator's WebView and tells Android it handled that, and the app's own WebView is left to the FxmPlayer plugin (stage 6.3), which keeps the app alive and recreates the activity, spacing out restarts in the background; and a mailbox read that hangs for 15 s, which only a script holding the renderer causes, ends the renderer where the WebView allows it.
   - **Still to check on a device**: the profile, the blocked navigations, the app coming back after the evaluator's renderer dies, and the renderer's end.
 - **Backups.** `android:allowBackup="false"` plus `res/xml/data_extraction_rules.xml` keep app data out of cloud backups and device-to-device transfers, because the app holds sign-in sessions: the Spotify login (stage 6.5), which also lives in the no-backup folder.
-- **Versions.** Capacitor's defaults: minSdk 24 (Android 7), compileSdk and targetSdk 36, Android Gradle plugin 8.13 and Gradle 8.14.3. `versionName` comes from this package's `version`, and `versionCode` stays 1 until release builds (stage 6.6).
+- **Versions.** Capacitor's defaults: minSdk 24 (Android 7), compileSdk and targetSdk 36, Android Gradle plugin 8.13 and Gradle 8.14.3. `versionName` comes from this package's `version`, and `versionCode` from it too: major × 1,000,000 + minor × 1,000 + patch, so every release can update the one before ([RELEASING.md](RELEASING.md#version-codes)).
+- **Release builds.** The release workflow builds an APK for arm64-v8a phones and a universal one (`-PfxmReleaseApks`), unsigned, in one job, and signs them with apksigner in another, which runs no npm package or Gradle plugin: FXM's key reaches only that job, never Gradle, its plugins or the npm packages. The build refuses to run while a signing variable is set, and FXM's key is never put into a shell on a computer that builds, so `make apk-release` signs with a throwaway key it makes for the run. The release certificate must be the one pinned in `release-certificate.txt`. Every release APK carries its third-party notices, the Android libraries' and the web app's, which Settings → About shows, and the build fails on a library whose licence FXM hasn't accepted (`scripts/notices.ts`). The APKs check GitHub for new versions once a day, unless the user turns that off, and only offer the download (`apps/web/src/features/app-update`); F-Droid builds and other builds don't check. [RELEASING.md](RELEASING.md) has the details.
 
 What differs from Capacitor's template:
 
@@ -68,7 +79,9 @@ What differs from Capacitor's template:
 - the icons, the splash screen and the theme colours;
 - the backup rules;
 - no Google services plugin, because FXM uses no Firebase;
-- `versionName` from `package.json`;
+- `versionName` and `versionCode` from `package.json`;
+- ABI splits for the release APKs, which Gradle leaves unsigned, and no dependency report for Google Play in the APK;
+- `fxmLibraryReport` (`app/libraries.gradle`), for the release APKs' third-party notices;
 - Gradle's smaller `-bin` distribution, checked against its SHA-256;
 - Gradle may use only the repo-local JDK;
 - the example tests live in the app's package;

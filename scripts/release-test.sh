@@ -252,6 +252,10 @@ new_repo() {
   package_json "$work/packages/core/package.json" @fxm/core 0.0.0
   printf "export const APP_NAME = 'FXM'\n\nexport const APP_VERSION = '0.0.0'\n" \
     >"$work/packages/core/src/index.ts"
+  # The Android signing certificate, pinned (apps/mobile/RELEASING.md).
+  mkdir -p "$work/apps/mobile"
+  printf '# The test key\n%s\n' "$(printf 'cd%.0s' $(seq 32))" \
+    >"$work/apps/mobile/release-certificate.txt"
   git -C "$work" add -A
   git -C "$work" commit -q -m "Initial commit"
   git -C "$work" remote add origin "$root/origin.git"
@@ -326,8 +330,26 @@ xpi_ok() {
     ! fxm_release_lookup release-firefox fxm-connect-firefox-0.1.0.zip 0.1.0 >/dev/null
 }
 expect "only the firefox job may publish the signed XPI" xpi_ok
+# The signed APKs come only from the android-sign job (apps/mobile/scripts/release-apk.sh).
+apk_ok() {
+  fxm_release_lookup release-android fxm-android-universal-0.1.0.apk 0.1.0 >/dev/null &&
+    fxm_release_lookup release-android fxm-android-arm64-v8a-0.1.0.apk 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-bundles fxm-android-universal-0.1.0.apk 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-android fxm-android-universal-0.1.0-unsigned.apk 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-android fxm-android-x86_64-0.1.0.apk 0.1.0 >/dev/null
+}
+expect "only the android-sign job may publish the APKs, signed" apk_ok
 expect "every file in the catalog carries the version" \
   test -z "$(fxm_release_catalog | cut -d'|' -f2 | grep -v '<version>' || true)"
+fingerprint_ok() {
+  local file=$tmp/certificate.txt hex=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  printf '# a comment\n\n%s\n' "$(fxm_release_colons "$hex")" >"$file"
+  [ "$(fxm_release_android_certificate "$file")" = "$hex" ] &&
+    [ "$(fxm_release_colons "$hex")" = "01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF" ] &&
+    printf 'none yet: run scripts/make-android-keystore.sh\n' >"$file" &&
+    ! (fxm_release_android_certificate "$file" >/dev/null 2>&1)
+}
+expect "reads the pinned Android certificate, and fails on the placeholder" fingerprint_ok
 
 echo "release-version.sh"
 work=$(new_repo version)
@@ -529,6 +551,10 @@ refuses() {
 echo stray >"$work/stray.txt"
 refuses "a dirty working tree" "uncommitted or untracked files"
 rm "${work:?}/stray.txt"
+printf 'none yet: run scripts/make-android-keystore.sh\n' >"$work/apps/mobile/release-certificate.txt"
+refuses "while no Android signing certificate is pinned" \
+  "pins no Android signing certificate, so the release would stop before tagging"
+git -C "$work" checkout -q -- apps/mobile/release-certificate.txt
 git -C "$work" switch -q main
 refuses "another branch than develop" "not develop"
 git -C "$work" switch -q develop
@@ -891,6 +917,22 @@ refuses_file "refuses a file of another version" fxm-web-0.0.9.zip "does not car
 refuses_file "refuses a file that the catalog doesn't list" fxm-extra-0.1.0.zip \
   "is not a file that release-bundles may publish"
 refuses_file "looks at dot files too" .fxm-0.1.0.zip "is not a file that release-bundles may publish"
+refuses_file "refuses an APK from a job other than android-sign" fxm-android-universal-0.1.0.apk \
+  "is not a file that release-bundles may publish"
+new_case
+mkdir "$case_dir/artifacts/release-android"
+for abi in arm64-v8a universal; do
+  echo "$abi" >"$case_dir/artifacts/release-android/fxm-android-$abi-0.1.0.apk"
+done
+collect
+expect "gathers the signed APKs from release-android" test "$status" -eq 0 \
+  -a -f "$case_dir/out/fxm-android-arm64-v8a-0.1.0.apk" -a -f "$case_dir/out/fxm-android-universal-0.1.0.apk"
+new_case
+mkdir "$case_dir/artifacts/release-android"
+echo unsigned >"$case_dir/artifacts/release-android/fxm-android-universal-0.1.0-unsigned.apk"
+collect
+expect "but never an unsigned one" \
+  test "$status" -ne 0 -a -n "$(grep 'is not a file that release-android may publish' <<<"$out")"
 new_case
 mkdir "$case_dir/artifacts/release-bundles/bundle"
 echo dmg >"$case_dir/artifacts/release-bundles/bundle/fxm-desktop-0.1.0.dmg"
@@ -1101,6 +1143,35 @@ mkdir "$tmp/publish/no-sums"
 cp "$files"/*.zip "$tmp/publish/no-sums/"
 publish 0.6.0 "$sha" "$tmp/publish/no-sums"
 stopped "needs SHA256SUMS" 0.6.0
+expect "leaves Android out of notes without APKs" \
+  lacks "$GH_STUB_DIR/release-notes.md" "Install the Android app"
+# The Android APKs: the notes quote the certificate pinned at the release commit.
+android=$tmp/publish/android
+mkdir "$android"
+cp "$files"/*.zip "$android/"
+for abi in arm64-v8a universal; do echo "$abi" >"$android/fxm-android-$abi-0.7.0.apk"; done
+run "$work" scripts/release-build.sh --checksums "$android"
+mkdir -p "$work/apps/mobile"
+printf '# Not pinned yet\nnone yet: run scripts/make-android-keystore.sh\n' \
+  >"$work/apps/mobile/release-certificate.txt"
+publish 0.7.0 "$sha" "$android"
+stopped "stops before tagging while no Android certificate is pinned" 0.7.0
+expect "and says so" says "pins no signing certificate yet"
+printf '# The test key\n%s\n' "$(printf 'ab%.0s' $(seq 32))" >"$work/apps/mobile/release-certificate.txt"
+publish 0.7.0 "$sha" "$android"
+expect "publishes the APKs once a certificate is pinned" \
+  test "$status" -eq 0 -a -s "$GH_STUB_DIR/released/v0.7.0"
+expect "with the install guide" has "$GH_STUB_DIR/release-notes.md" \
+  "[steps in its guide](https://github.com/test/fxm/blob/v0.7.0/apps/mobile/INSTALL.md)"
+expect "and the certificate's SHA-256, with colons" has "$GH_STUB_DIR/release-notes.md" \
+  "$(printf 'AB:%.0s' $(seq 31))AB"
+expect "and both APKs in the file table" \
+  test "$(grep -c '^| `fxm-android-' "$GH_STUB_DIR/release-notes.md")" = 2
+android_paragraphs_ok() {
+  has "$GH_STUB_DIR/release-notes.md" "Install the Android app with the [steps in its guide](https://github.com/test/fxm/blob/v0.7.0/apps/mobile/INSTALL.md). The APKs are signed with FXM's key. Its certificate's SHA-256 fingerprint is:" &&
+    has "$GH_STUB_DIR/release-notes.md" "Android installs an update only when it is signed with the same key, and the guide shows how to check the fingerprint before the first install."
+}
+expect "with each Android paragraph on one line, as GitHub keeps line breaks" android_paragraphs_ok
 
 echo
 if [ "$failed" -eq 0 ]; then

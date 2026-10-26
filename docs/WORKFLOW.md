@@ -134,7 +134,7 @@ So progress happens without anyone polling.
 
 ## 8. Releases
 
-FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs no secrets; only its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, which only runs on `main` can use, and they skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)).
+FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs one set of secrets: the key that signs the Android APKs, in the `android-release` environment, without which a release fails before it tags anything ([apps/mobile/RELEASING.md](../apps/mobile/RELEASING.md)). Its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, and skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)). Only runs on `main` can use either environment.
 
 ```mermaid
 flowchart LR
@@ -147,7 +147,7 @@ flowchart LR
 
 1. **Write the summary.** `docs/releases/v0.2.0.md` says what the release brings, for the people who use FXM: it heads the release notes (see "Notes and changelog" below). Commit it on `develop` and push it. A summary drafted before the release is ready starts with a line `<!-- draft: … -->`, and `make release-pr` refuses it until someone has checked it against what the release ships and deleted that line.
 2. **Preview.** `make release-pr VERSION=0.2.0 DRY_RUN=1` runs every check and prints the plan and the release notes, without changing anything. `make release-notes VERSION=0.2.0` prints only the notes.
-3. **Open the pull request.** `make release-pr VERSION=0.2.0` checks that `develop` is checked out, clean, equal to `origin/develop` and contains `origin/main`; that `0.2.0` is higher than the current version, has no tag and has its summary, no longer marked as a draft; that no release pull request is open; and that the release commit will pass `make lint` and the release script tests. For that last check it makes the release's changes (the versions and `CHANGELOG.md`) in a temporary worktree of `HEAD`, installs the dependencies there from the lockfile and runs both, so a change that would fail CI on the release commit, such as a generated changelog that trips a lint rule, stops the release before anything is pushed. Then it:
+3. **Open the pull request.** `make release-pr VERSION=0.2.0` checks that `develop` is checked out, clean, equal to `origin/develop` and contains `origin/main`; that `0.2.0` is higher than the current version, has no tag and has its summary, no longer marked as a draft; that `apps/mobile/release-certificate.txt` pins the Android signing certificate, without which the release would stop before tagging; that no release pull request is open; and that the release commit will pass `make lint` and the release script tests. For that last check it makes the release's changes (the versions and `CHANGELOG.md`) in a temporary worktree of `HEAD`, installs the dependencies there from the lockfile and runs both, so a change that would fail CI on the release commit, such as a generated changelog that trips a lint rule, stops the release before anything is pushed. Then it:
    - sets the version with `scripts/release-version.sh`: in the root and every workspace `package.json` (FXM Connect's manifest and the Android app's `versionName` are built from theirs) and in `APP_VERSION` of `packages/core` (Settings → About);
    - regenerates `CHANGELOG.md` with git-cliff;
    - commits `chore(release): v0.2.0` on `develop` and pushes it;
@@ -163,13 +163,14 @@ flowchart LR
    git push origin develop
    ```
 
-**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6) and the desktop installers (7.5). The header of `release.yml` says how to add a job.
+**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the desktop installers (7.5). The header of `release.yml` says how to add a job.
 
 | File | Contents |
 |---|---|
 | `fxm-connect-chromium-x.y.z.zip`, `fxm-connect-firefox-x.y.z.zip` | FXM Connect, as `make extension` builds it |
 | `fxm-connect-firefox-x.y.z.xpi` | FXM Connect for Firefox, signed by Mozilla. Releases have it once the owner has added the AMO keys, while `AMO_CHANNEL` is `unlisted` (the default). With `listed`, Firefox users get FXM Connect from addons.mozilla.org instead |
 | `fxm-web-x.y.z.zip` | Exactly what Cloudflare Pages serves at `https://fxmusic.pages.dev`, for self-hosting: `make dist`'s `dist/pages/`, with the landing page at the root, the web app in `app/`, the sandbox documents, `_headers`, `third-party-notices.txt` and `.well-known/`. [scripts/build-dist/README.md](../scripts/build-dist/README.md#self-hosting) says how to serve it |
+| `fxm-android-universal-x.y.z.apk`, `fxm-android-arm64-v8a-x.y.z.apk` | The Android app for every phone, and for 64-bit ARM phones, signed with FXM's key. The release notes give its certificate's SHA-256, and [apps/mobile/INSTALL.md](../apps/mobile/INSTALL.md) how to install and check it |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |
 
 Anyone can check a download. `sha256sum --check --ignore-missing SHA256SUMS` compares it with the checksums, and this checks that FXM's release workflow, run for `main` on GitHub's own runners, built it:

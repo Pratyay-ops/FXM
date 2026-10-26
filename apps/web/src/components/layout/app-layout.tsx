@@ -1,6 +1,7 @@
 import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
+import { AppUpdateToast } from '../../features/app-update/app-update-toast'
 import { SoundDialogHost } from '../../features/audio-effects/sound-dialog-host'
 import { ConnectNotice } from '../../features/connect/connect-notice'
 import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
@@ -94,6 +95,8 @@ export function AppLayout() {
       <SyncAgent />
       {/* Phones: Now Playing's own controls fill the screen, so the update toast goes on top. */}
       <PwaShell fullScreen={fullScreen} />
+      {/* The Android app's offer of a new version, in the same place (stage 6.6). */}
+      <AppUpdateToast fullScreen={fullScreen} />
       <ShareDialogHost />
       <ScrollRestoration />
     </>

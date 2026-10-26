@@ -27,7 +27,10 @@ export const RELEASED = {
   edgeAddon: false,
   /** The desktop app for macOS, Windows and Linux on GitHub Releases: stage 7.5. */
   desktop: false,
-  /** The Android app (APK) on GitHub Releases: stage 6.6. */
+  /**
+   * The Android app (APK) on GitHub Releases: stage 6.6. Turn it on with the landing page's
+   * `AVAILABLE.android`, once a release carries the signed APKs (apps/mobile/RELEASING.md).
+   */
   android: false,
   /**
    * Downloads, in the format the source has (the original file): stage 4.1, on with the app's

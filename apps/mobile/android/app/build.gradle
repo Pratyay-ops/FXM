@@ -3,6 +3,26 @@ apply plugin: 'com.android.application'
 // FXM's version (apps/mobile/package.json), shown in Android's app info.
 def fxmVersion = new groovy.json.JsonSlurper().parse(file('../../package.json')).version
 
+// The version code that Android compares when it installs an update: an APK whose code is lower
+// than the installed app's is refused, so it grows with every release. It is made from the
+// version as major × 1,000,000 + minor × 1,000 + patch (0.5.0 is 5000, 1.2.3 is 1002003), which
+// needs minor and patch below 1,000 and major below 2,100 (Android's highest code is
+// 2,100,000,000). 0.0.0, the version before the first release, gets 1. The release script
+// (apps/mobile/scripts/release-apk.sh) checks the code of every release APK.
+def fxmVersionCode(String version) {
+    def match = version =~ /^(0|[1-9]\d{0,9})\.(0|[1-9]\d{0,9})\.(0|[1-9]\d{0,9})$/
+    if (!match.matches()) {
+        throw new GradleException("apps/mobile/package.json has the version '$version', not x.y.z")
+    }
+    def (major, minor, patch) = (1..3).collect { match.group(it) as long }
+    if (major >= 2100 || minor >= 1000 || patch >= 1000) {
+        throw new GradleException(
+            "FXM $version has no Android version code: minor and patch must stay below 1000, " +
+                "major below 2100 (apps/mobile/RELEASING.md, Version codes)")
+    }
+    return Math.max(1L, major * 1_000_000L + minor * 1_000L + patch) as int
+}
+
 android {
     namespace = "io.github.pratyayops.fxm"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -10,7 +30,7 @@ android {
         applicationId "io.github.pratyayops.fxm"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode fxmVersionCode(fxmVersion)
         versionName fxmVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -20,10 +40,30 @@ android {
         }
     }
     buildTypes {
+        // Release APKs stay unsigned here: the release script signs them with apksigner, so the
+        // signing key never reaches Gradle or its plugins (apps/mobile/RELEASING.md).
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+    // The release script asks for these with -PfxmReleaseApks: an APK for arm64-v8a phones and a
+    // universal one. FXM has no native code yet, so today both hold the same files; once native
+    // libraries arrive, the arm64-v8a APK leaves out the other processors' ones. Without the
+    // property, as in `make apk`, the build makes one APK for every phone.
+    splits {
+        abi {
+            enable project.hasProperty('fxmReleaseApks')
+            reset()
+            include 'arm64-v8a'
+            universalApk true
+        }
+    }
+    // No dependency report in the APK: the Android Gradle plugin would add one encrypted for
+    // Google Play, which FXM doesn't use, and F-Droid and IzzyOnDroid flag that block.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
     }
 }
 
@@ -52,3 +92,5 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+// fxmLibraryReport: the Android libraries in the release APK, for its third-party notices.
+apply from: 'libraries.gradle'

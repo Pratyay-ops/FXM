@@ -1,5 +1,5 @@
-import { RefreshCw } from 'lucide-react'
-import { type RefObject, useLayoutEffect, useRef } from 'react'
+import { type LucideIcon, RefreshCw } from 'lucide-react'
+import { type ReactNode, type RefObject, useLayoutEffect, useRef } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
 import { useMediaQuery } from '../../lib/use-media-query'
@@ -37,20 +37,44 @@ function useSpaceAbovePlayer(toast: RefObject<HTMLElement | null>, active: boole
   }, [toast, active])
 }
 
+/** What an update toast says and offers: see {@link UpdateToastFrame}. */
+export interface UpdateToastFrameProps {
+  /** Whether the toast shows. The live region around it stays in the page either way. */
+  show: boolean
+  /** A phone's full-screen page (Now Playing): the toast shows at the top. */
+  fullScreen?: boolean
+  /** The icon before the message. */
+  icon: LucideIcon
+  /** What is new, in a sentence. */
+  message: ReactNode
+  /** "Not now", Escape or `dismiss`: puts the toast away. */
+  onDismiss: () => void
+  /**
+   * The main action, after "Not now": a button or a link. `dismiss` puts the toast away like
+   * "Not now" does, handing focus back.
+   */
+  action: (dismiss: () => void) => ReactNode
+}
+
 /**
- * Offers a waiting new version of FXM, above the player, the cards SponsorBlock stacks there
- * (`--shell-cards`, stage 8.7) and the FXM Connect notice (`--connect-notice-space`, stage 2.7).
- * The app never reloads by itself, because that would stop the
- * music: "Reload" switches to the new version now, "Not now" (or Escape) keeps this one, and the
- * new version starts the next time FXM opens.
+ * The frame of the app's update toasts: the installable web app's ({@link UpdateToast}) and the
+ * Android app's (features/app-update), which never show in the same build. It sits above the
+ * player, the cards SponsorBlock stacks there (`--shell-cards`, stage 8.7) and the FXM Connect
+ * notice (`--connect-notice-space`, stage 2.7), or on a phone's full-screen Now Playing below
+ * the top bar, clear of the big player controls.
  *
- * It is a landmark ("App update"), so screen reader users can jump to it. When "Not now" or
- * Escape removes it, focus goes back to where it came from (or to the page). Confirmations
- * shown meanwhile appear above it ({@link TOAST_SPACE_PROPERTY}).
+ * It is a landmark ("App update"), so screen reader users can jump to it. When "Not now", Escape
+ * or the action's `dismiss` removes it, focus goes back to where it came from (or to the page).
+ * Confirmations shown meanwhile appear above it ({@link TOAST_SPACE_PROPERTY}).
  */
-export function UpdateToast({ fullScreen = false }: { fullScreen?: boolean }) {
-  const show = usePwaStore((state) => state.updateReady && !state.updateDismissed)
-  const applyUpdate = usePwaStore((state) => state.applyUpdate)
+export function UpdateToastFrame({
+  show,
+  fullScreen = false,
+  icon: Icon,
+  message,
+  onDismiss,
+  action,
+}: UpdateToastFrameProps) {
   const phone = useMediaQuery(PHONE_QUERY)
   const toast = useRef<HTMLElement>(null)
   /** The element focus came from when it entered the toast. */
@@ -60,7 +84,7 @@ export function UpdateToast({ fullScreen = false }: { fullScreen?: boolean }) {
 
   const dismiss = () => {
     const hadFocus = toast.current?.contains(document.activeElement) ?? false
-    usePwaStore.setState({ updateDismissed: true })
+    onDismiss()
     if (hadFocus) moveFocus(cameFrom.current)
   }
 
@@ -94,20 +118,43 @@ export function UpdateToast({ fullScreen = false }: { fullScreen?: boolean }) {
           }}
         >
           <p className="flex min-w-0 flex-1 basis-52 items-center gap-3 py-1 text-sm font-semibold">
-            <RefreshCw aria-hidden="true" className="size-5 shrink-0 text-accent" />A new version of
-            FXM is ready.
+            <Icon aria-hidden="true" className="size-5 shrink-0 text-accent" />
+            {message}
           </p>
           {/* Wraps with large text; the gap keeps one button's focus ring off the other. */}
           <div className="flex flex-wrap justify-end gap-2">
             <button type="button" className={buttonClasses({ variant: 'ghost' })} onClick={dismiss}>
               Not now
             </button>
-            <button type="button" className={buttonClasses()} onClick={() => void applyUpdate()}>
-              Reload
-            </button>
+            {action(dismiss)}
           </div>
         </section>
       )}
     </div>
+  )
+}
+
+/**
+ * Offers a waiting new version of the installable web app ({@link UpdateToastFrame}). The app
+ * never reloads by itself, because that would stop the music: "Reload" switches to the new
+ * version now, "Not now" (or Escape) keeps this one, and the new version starts the next time
+ * FXM opens.
+ */
+export function UpdateToast({ fullScreen = false }: { fullScreen?: boolean }) {
+  const show = usePwaStore((state) => state.updateReady && !state.updateDismissed)
+  const applyUpdate = usePwaStore((state) => state.applyUpdate)
+  return (
+    <UpdateToastFrame
+      show={show}
+      fullScreen={fullScreen}
+      icon={RefreshCw}
+      message="A new version of FXM is ready."
+      onDismiss={() => usePwaStore.setState({ updateDismissed: true })}
+      action={() => (
+        <button type="button" className={buttonClasses()} onClick={() => void applyUpdate()}>
+          Reload
+        </button>
+      )}
+    />
   )
 }
