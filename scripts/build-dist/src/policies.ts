@@ -169,6 +169,8 @@ const COMMON_DOCUMENT_DIRECTIVES: readonly Directive[] = [
  * built without threads (`--disable-pthreads`), so it starts no worker of its own, from a `blob:`
  * URL or otherwise (checked on its branch, feat/4.2-convert, on 2026-10-26). docs/PLAN.md's policy
  * row also allows `blob:`; a stage that needs a worker from a `blob:` URL adds it here, with why.
+ * Stage 8.3's plugin workers don't: the isolated evaluator's document starts them from `blob:`
+ * URLs under its own policy (`eval.html` in {@link SANDBOX_DOCUMENTS}), never the app's page.
  */
 export const WORKER_SOURCES: readonly string[] = [SELF]
 
