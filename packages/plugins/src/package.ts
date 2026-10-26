@@ -20,6 +20,7 @@
  */
 
 import { APP_VERSION } from '@fxm/core'
+import { isRedirectResponse } from './broker'
 import { codeText, verifyChecksum } from './checksum'
 import { cleanText, isPluginError, PluginError } from './errors'
 import { hostOfUrl, MANIFEST_LIMITS, type PluginManifest, parseManifest } from './manifest'
@@ -57,10 +58,17 @@ export interface PluginPackage {
   readonly origin: PluginOrigin
 }
 
-/** A `fetch` for downloads: a plain `GET` of an `https://` URL. */
+/**
+ * A `fetch` for downloads: a plain `GET` of an `https://` URL, which follows no redirect
+ * (`redirect: 'manual'`): the platform's, whose transports honour it.
+ */
 export type DownloadFetch = (
   url: string,
-  init: { readonly method: 'GET'; readonly signal?: AbortSignal },
+  init: {
+    readonly method: 'GET'
+    readonly redirect: 'manual'
+    readonly signal?: AbortSignal
+  },
 ) => Promise<Response>
 
 /** Options for {@link downloadPlugin} and {@link readPluginFile}. */
@@ -246,12 +254,24 @@ async function download(
   try {
     let response: Response
     try {
-      response = await fetch(url.href, { method: 'GET', signal: controller.signal })
+      // A redirect is never followed: the next hop could be any host the platform reaches.
+      response = await fetch(url.href, {
+        method: 'GET',
+        redirect: 'manual',
+        signal: controller.signal,
+      })
     } catch (error) {
       if (signal?.aborted) throw signal.reason
       throw new PluginError('download-failed', `FXM couldn't download ${what} from ${url.host}`, {
         cause: error,
       })
+    }
+    if (isRedirectResponse(response)) {
+      await response.body?.cancel().catch(() => undefined)
+      throw new PluginError(
+        'download-failed',
+        `${url.host} sent ${what} on to another address, which FXM doesn't follow: give the address it ends at`,
+      )
     }
     if (response.status !== 200) {
       await response.body?.cancel().catch(() => undefined)

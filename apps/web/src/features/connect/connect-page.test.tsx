@@ -82,7 +82,7 @@ describe('the onboarding page', { timeout: 30_000 }, () => {
     expect(missing.getByText(/adds YouTube Music and its ad-free audio\./)).toBeInTheDocument()
     expect(
       missing.getByText(
-        /adds YouTube Music without Lite's experimental route, YouTube Music downloads, Spotify search and related artists and a read-only sync of your Spotify account\./,
+        /adds YouTube Music without Lite's experimental route, YouTube Music downloads, Spotify search and related artists and a read-only sync of your Spotify account \(experimental\)\./,
       ),
     ).toBeInTheDocument()
 
@@ -126,6 +126,19 @@ describe('the onboarding page', { timeout: 30_000 }, () => {
     expect(within(status()).queryByRole('button')).toBeNull()
     expect(sectionTitles()).toEqual(['This browser', 'What works where', 'Other browsers and apps'])
     for (const details of guides().querySelectorAll('details')) expect(details.open).toBe(false)
+  })
+
+  it("marks the Spotify account sync experimental in Full's card", async () => {
+    setConnection()
+    await openPage()
+    const full = tierCards().getByRole('heading', { level: 3, name: 'Full' }).closest('li')
+    const item = within(full as HTMLElement)
+      .getByText('Your Spotify recommendations, liked songs and playlists, read-only')
+      .closest('li') as HTMLElement
+    expect(within(item).getByText('Experimental')).toBeInTheDocument()
+    expect(within(item).queryByText('Coming soon')).toBeNull()
+    // Nothing else in the card is marked so.
+    expect(within(full as HTMLElement).getAllByText('Experimental')).toHaveLength(1)
   })
 
   it('marks the unreleased apps as coming soon wherever it names them', async () => {

@@ -77,6 +77,22 @@ fxm.register({
   },
 })`
 
+/**
+ * A plugin that declares one of FXM's own open services, which the page reaches directly, and
+ * reports what became of its request there as a track's title.
+ */
+const REDIRECTED_CODE = `fxm.register({
+  async search() { return {} },
+  async track({ id }, ctx) {
+    try {
+      await ctx.fetch('https://musicbrainz.org/ws/2/go?q=' + id)
+      return { id, title: 'reached' }
+    } catch (error) {
+      return { id, title: String(error.code) }
+    }
+  },
+})`
+
 /** A plugin that never gives its thread back. */
 const LOOP_CODE = `fxm.register({
   async search() { return {} },
@@ -88,6 +104,13 @@ describe.skipIf(!enabled)(`plugins in ${ENGINE}`, { timeout: 60_000 }, () => {
   let page: Page
   /** Every request that reached the browser's network layer for the test catalog. */
   const catalogRequests: string[] = []
+  /**
+   * Every request the browser sent for the open service the redirect test's plugin declares, and
+   * for the host its redirect names, from the context's `request` events: a redirect's next hop
+   * never reaches a route (Playwright sends it on itself), so only the events see it. The host
+   * it names is under `.invalid`, which never resolves, so not even a hop can reach the network.
+   */
+  const serviceRequests: string[] = []
 
   beforeAll(async () => {
     const engines = await import('playwright-core')
@@ -142,7 +165,21 @@ describe.skipIf(!enabled)(`plugins in ${ENGINE}`, { timeout: 60_000 }, () => {
         })
       }
       if (url.host === 'catalog.fxm-plugin.test') catalogRequests.push(url.href)
+      // MusicBrainz, as a server that sends a plugin's request on to another host.
+      if (url.host === 'musicbrainz.org') {
+        return route.fulfill({
+          status: 302,
+          headers: {
+            location: `https://elsewhere.fxm-plugin.invalid/landing${url.search}`,
+            'access-control-allow-origin': '*',
+          },
+        })
+      }
       return route.abort()
+    })
+    context.on('request', (sent) => {
+      const { host, href } = new URL(sent.url())
+      if (host === 'musicbrainz.org' || host.endsWith('.invalid')) serviceRequests.push(href)
     })
     page = await context.newPage()
     await page.goto(`${APP}/app/`)
@@ -150,6 +187,18 @@ describe.skipIf(!enabled)(`plugins in ${ENGINE}`, { timeout: 60_000 }, () => {
 
   afterAll(async () => {
     await browser?.close()
+  })
+
+  it('tells, before any plugin is added, whether plugins can run in this engine', async () => {
+    const runs = await page.evaluate(async () => {
+      const fxm = (globalThis as never as { fxmPlugins: typeof import('./testing/browser-entry') })
+        .fxmPlugins
+      const runs = await fxm.probePluginWorkers(() => fxm.createSandboxEvaluator())
+      // The probe's document is gone once it has answered.
+      return { runs, frames: document.querySelectorAll('iframe').length }
+    })
+    // Yes in Chromium and Firefox; no in WebKit, which starts no worker in the document.
+    expect(runs).toEqual({ runs: WORKERS, frames: 0 })
   })
 
   it.runIf(!WORKERS)('runs no plugin in an engine that starts no worker there', async () => {
@@ -330,6 +379,48 @@ describe.skipIf(!enabled)(`plugins in ${ENGINE}`, { timeout: 60_000 }, () => {
         return { pluginCode: error?.pluginCode, code: error?.code }
       })
       expect(result).toEqual({ pluginCode: 'load-failed', code: 'Unavailable' })
+    },
+  )
+
+  it.runIf(WORKERS)(
+    'follows no redirect from a declared service of FXM’s own to a host the plugin didn’t declare',
+    async () => {
+      const result = await page.evaluate(async (code) => {
+        const fxm = (
+          globalThis as never as { fxmPlugins: typeof import('./testing/browser-entry') }
+        ).fxmPlugins
+        // The web app's own transport: an open service goes straight from the page.
+        const transport = fxm.createWebTransport({ budget: fxm.createRequestBudget() })
+        const registry = fxm.createPluginRegistry({
+          store: fxm.memoryPluginStore(),
+          sandboxes: fxm.isolatedSandboxes(() => fxm.createSandboxEvaluator()),
+        })
+        await registry.load()
+        await registry.install(
+          await registry.offerFromFile(
+            fxm.testPluginFile(
+              {
+                id: 'redirected',
+                name: 'Redirected',
+                provides: ['search', 'track'],
+                hosts: ['musicbrainz.org'],
+              },
+              code,
+            ),
+            'redirected.json',
+          ),
+        )
+        const track = await registry
+          .providers()[0]
+          ?.metadata?.getTrack(
+            'plugin.redirected:track:what-the-user-searched' as never,
+            fxm.testContext(transport.withPriority('interactive')),
+          )
+        return track?.title
+      }, REDIRECTED_CODE)
+      expect(result).toBe('redirect')
+      // The browser stopped at the redirect: the host it named never got the plugin's URL.
+      expect(serviceRequests).toEqual(['https://musicbrainz.org/ws/2/go?q=what-the-user-searched'])
     },
   )
 

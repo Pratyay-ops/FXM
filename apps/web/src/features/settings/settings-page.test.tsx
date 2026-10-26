@@ -70,7 +70,8 @@ describe('Settings → About', () => {
     ).toEqual([
       'https://fxmusic.pages.dev/privacy',
       'https://fxmusic.pages.dev/disclaimer',
-      'https://fxmusic.pages.dev/third-party-notices.txt',
+      // This build's own notices, at the root of the deploy that serves its /app/.
+      '/third-party-notices.txt',
     ])
     // Each says it opens a new tab, as the app's other links to other sites do.
     expect(

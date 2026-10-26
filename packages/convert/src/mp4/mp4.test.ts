@@ -119,6 +119,25 @@ describe('writeM4a', () => {
     expect(demuxMp4Audio(bytes).samples.length).toBe(track.samples.length)
   })
 
+  it('says when the audio was converted from lossy audio: a comment and free-form items', () => {
+    const track = demuxMp4Audio(itag18File())
+    const bytes = concat(
+      writeM4a(track, {
+        title: 'Title',
+        artists: ['A'],
+        convertedFrom: { codec: 'opus', bitrateKbps: 141 },
+      }),
+    )
+    expect(readMp4Tags(bytes)).toEqual({
+      '©nam': 'Title',
+      '©ART': 'A',
+      '©cmt': 'Converted by FXM from Opus (lossy, 141 kbps)',
+      '----:FXM_SOURCE_CODEC': 'opus',
+      '----:FXM_SOURCE_BITRATE': '141',
+    })
+    expect(demuxMp4Audio(bytes).samples.length).toBe(track.samples.length)
+  })
+
   it('uses 64-bit durations when 32 bits are too few', () => {
     const bytes = concat(
       writeM4a({

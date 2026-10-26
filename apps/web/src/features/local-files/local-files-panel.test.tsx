@@ -1,3 +1,4 @@
+import { writeFlacTags } from '@fxm/convert'
 import { FakeEngine } from '@fxm/player/testing'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -169,6 +170,33 @@ describe('the Local files tab', () => {
     expect(lossless).toEqual([true, false, true])
     expect(within(rows[0] as HTMLElement).getByText('FLAC · 16-bit · 44.1 kHz')).toBeInTheDocument()
     expect(within(rows[1] as HTMLElement).getByText('MP3 · 128 kbps')).toBeInTheDocument()
+  })
+
+  it('marks a FLAC that FXM converted from Opus as such, never lossless', async () => {
+    // Tagged by Save to device's own writer, as it tags a song saved from YouTube's Opus.
+    const converted = writeFlacTags(flacFile(), {
+      title: 'Saved Song',
+      artists: ['Aria Vale'],
+      convertedFrom: { codec: 'opus', bitrateKbps: 160 },
+    })
+    await withFolder(
+      fakeFolder('Music', {
+        'Aria Vale - Saved Song.flac': audioFile(converted, 'Aria Vale - Saved Song.flac'),
+        'Real.flac': audioFile(
+          flacFile({ tags: { title: 'Real', artists: ['Low Orbit'] } }),
+          'Real.flac',
+        ),
+      }),
+    )
+    renderApp('/library?tab=local')
+    const list = await songList()
+    const saved = within(list).getByText('Saved Song').closest('li') as HTMLElement
+    expect(within(saved).queryByText('Lossless')).toBeNull()
+    expect(within(saved).getByText('From Opus')).toBeInTheDocument()
+    expect(within(saved).getByText('FLAC · converted from Opus')).toBeInTheDocument()
+    const real = within(list).getByText('Real').closest('li') as HTMLElement
+    expect(within(real).getByText('Lossless')).toBeInTheDocument()
+    expect(within(real).queryByText(/^From /)).toBeNull()
   })
 
   it('plays a song through the player, from its object URL, and pauses it', async () => {

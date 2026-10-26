@@ -287,3 +287,77 @@ describe('WAV', () => {
     expect(() => writeWavTags(mp3File(), TAGS)).toThrow(RangeError)
   })
 })
+
+describe('a file converted from lossy audio', () => {
+  // YouTube's Opus (itag 251), as Save to device converts it.
+  const CONVERTED: ExportTags = {
+    title: 'Song',
+    artists: ['Band'],
+    convertedFrom: { codec: 'opus', bitrateKbps: 160.4 },
+  }
+  const NOTE = 'Converted by FXM from Opus (lossy, 160 kbps)'
+
+  it('says so for people and for programs, in ID3v2 (MP3, and inside WAV)', () => {
+    expect(id3Summary(buildId3v2(CONVERTED))).toEqual({
+      TIT2: 'Song',
+      TPE1: 'Band',
+      COMM: `eng ${NOTE}`,
+      'TXXX:FXM_SOURCE_CODEC': 'opus',
+      'TXXX:FXM_SOURCE_BITRATE': '160',
+    })
+    // The audio of a video (YouTube's itag 18), whose bitrate isn't known.
+    expect(
+      id3Summary(
+        buildId3v2({ ...CONVERTED, convertedFrom: { codec: 'aac', media: 'muxed-video' } }),
+      ),
+    ).toEqual({
+      TIT2: 'Song',
+      TPE1: 'Band',
+      COMM: 'eng Converted by FXM from the AAC audio of a video (lossy)',
+      'TXXX:FXM_SOURCE_CODEC': 'aac',
+    })
+  })
+
+  it('says so in Vorbis comments (FLAC and Ogg)', () => {
+    const { blocks } = readFlacBlocks(writeFlacTags(flacFile(), CONVERTED))
+    expect(
+      readVorbisComments(blocks.find((block) => block.type === 4)?.body ?? new Uint8Array()).fields,
+    ).toEqual([
+      ['TITLE', 'Song'],
+      ['ARTIST', 'Band'],
+      ['COMMENT', NOTE],
+      ['FXM_SOURCE_CODEC', 'opus'],
+      ['FXM_SOURCE_BITRATE', '160'],
+    ])
+    const ogg = writeOggTags(oggOpusFile(), { ...CONVERTED, convertedFrom: { codec: 'aac' } })
+    const packets = readOggPackets(readOggPages(ogg.bytes))
+    expect(readVorbisComments((packets[1] ?? new Uint8Array()).subarray(8)).fields).toEqual([
+      ['TITLE', 'Song'],
+      ['ARTIST', 'Band'],
+      ['COMMENT', 'Converted by FXM from AAC (lossy)'],
+      ['FXM_SOURCE_CODEC', 'aac'],
+    ])
+  })
+
+  it('says so in WAV: the note in LIST/INFO, and everything in the ID3 chunk', () => {
+    const chunks = readRiffChunks(writeWavTags(sineWav({ seconds: 0.05 }), CONVERTED))
+    const info = new TextDecoder().decode(chunks.find((chunk) => chunk.id === 'LIST')?.data)
+    expect(info).toContain(`ICMT`)
+    expect(info).toContain(`${NOTE}\0`)
+    expect(
+      id3Summary(chunks.find((chunk) => chunk.id === 'id3 ')?.data ?? new Uint8Array()),
+    ).toMatchObject({ 'TXXX:FXM_SOURCE_CODEC': 'opus', 'TXXX:FXM_SOURCE_BITRATE': '160' })
+  })
+
+  it('writes nothing of the kind for a file that wasn’t converted', () => {
+    const plain: ExportTags = { title: 'Song', artists: ['Band'] }
+    expect(Object.keys(id3Summary(buildId3v2(plain)))).toEqual(['TIT2', 'TPE1'])
+    const { blocks } = readFlacBlocks(writeFlacTags(flacFile(), plain))
+    expect(
+      readVorbisComments(blocks.find((block) => block.type === 4)?.body ?? new Uint8Array()).fields,
+    ).toEqual([
+      ['TITLE', 'Song'],
+      ['ARTIST', 'Band'],
+    ])
+  })
+})

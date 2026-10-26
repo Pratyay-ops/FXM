@@ -224,6 +224,14 @@ export function reachSentence(what: string, device: DeviceInfo = currentDevice()
   return canAddConnect(device) ? appsReachSentence(what) : howToReach(device, what, 'needs')
 }
 
+/**
+ * " (experimental)" after the Spotify account sync, which has been tested only with a stand-in
+ * for Spotify (`TIER_FEATURES`), or " (coming soon)" while it isn't released.
+ */
+function accountMark(): string {
+  return RELEASED.spotifyAccount ? ' (experimental)' : soon(false)
+}
+
 /** The app's name on each platform. */
 const APP_NAMES = { desktop: 'desktop app', android: 'Android app' } as const
 
@@ -244,10 +252,10 @@ export function explainConnection(
   }
   const lines = [describeConnect(state.connect), describeLite(state.lite, device)]
   // FXM Connect's login option is on. The app uses the login only for a connected Spotify account
-  // (RELEASED.spotifyAccount), so until then it says what the option is for.
+  // (RELEASED.spotifyAccount, experimental), so it says what the option is for.
   if (state.capabilities.spotify === 'account') {
     lines.push(
-      `FXM Connect allows your Spotify login from this browser, for when you connect your Spotify account${soon(RELEASED.spotifyAccount)}.`,
+      `FXM Connect allows your Spotify login from this browser, for when you connect your Spotify account${accountMark()}.`,
     )
   }
   return lines.filter((line): line is string => line !== undefined)
@@ -269,7 +277,7 @@ export function describeYouTube(capabilities: NetworkCapabilities): string {
 export function describeSpotify(capabilities: NetworkCapabilities): string {
   switch (capabilities.spotify) {
     case 'account':
-      return `Reachable. Your Spotify login is allowed, for when you connect your Spotify account${soon(RELEASED.spotifyAccount)}`
+      return `Reachable. Your Spotify login is allowed, for when you connect your Spotify account${accountMark()}`
     case 'anonymous':
       return 'Reachable'
     case 'unreachable':

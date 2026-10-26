@@ -1,5 +1,10 @@
 import type { ProviderContext } from '@fxm/core'
-import { createRequestBudget, RouteUnavailableError, TransportError } from '@fxm/platform'
+import {
+  createRequestBudget,
+  createWebTransport,
+  RouteUnavailableError,
+  TransportError,
+} from '@fxm/platform'
 import { createFakeClock } from '@fxm/platform/testing'
 import { describe, expect, it } from 'vitest'
 import { createFetchBroker } from './broker'
@@ -193,6 +198,60 @@ describe('the fetch broker', () => {
       ok: false,
       error: { code: 'redirect', fxmCode: 'Unavailable' },
     })
+  })
+
+  it('asks for redirects not to be followed, and refuses one before its next hop', async () => {
+    const { broker, sent, ctx } = setup(
+      () =>
+        new Response(null, { status: 302, headers: { location: 'https://other.example.net/' } }),
+    )
+    const { response } = await broker.fetch(request('https://api.example.org/x?q=moths'), ctx)
+    expect(response).toMatchObject({
+      ok: false,
+      error: { code: 'redirect', fxmCode: 'Unavailable' },
+    })
+    expect(sent.map((one) => one.url)).toEqual(['https://api.example.org/x?q=moths'])
+    expect(sent[0]?.init).toMatchObject({ redirect: 'manual' })
+    // In a browser, a manual redirect is an opaque one, with status 0.
+    const opaque = setup(() => {
+      const answer = new Response(null, { status: 200 })
+      Object.defineProperty(answer, 'type', { value: 'opaqueredirect' })
+      return answer
+    })
+    expect(
+      (await opaque.broker.fetch(request('https://api.example.org/x'), opaque.ctx)).response,
+    ).toMatchObject({ ok: false, error: { code: 'redirect' } })
+    // A transport that follows redirects hop by hop refuses with the same code.
+    const refusing = setup(() => {
+      throw new TransportError('redirect', 'Example answered with a redirect')
+    })
+    expect(
+      (await refusing.broker.fetch(request('https://api.example.org/x'), refusing.ctx)).response,
+    ).toMatchObject({ ok: false, error: { code: 'redirect', fxmCode: 'Unavailable' } })
+  })
+
+  it('never reaches the host a service of FXM’s own redirects to, through the web transport', async () => {
+    // A plugin may declare one of the open services FXM itself uses, whose requests go straight
+    // from the page. Its server's redirect must not take the plugin's URL to another such host.
+    const page: string[] = []
+    const pageFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      page.push(url)
+      if (init?.redirect === 'manual' && url.startsWith('https://musicbrainz.org/')) {
+        const answer = new Response(null, { status: 200 })
+        Object.defineProperty(answer, 'type', { value: 'opaqueredirect' })
+        return answer
+      }
+      return new Response('{}')
+    }) as typeof globalThis.fetch
+    const transport = createWebTransport({ fetch: pageFetch, budget: createRequestBudget() })
+    const { broker } = setup(undefined, { hosts: ['musicbrainz.org'] })
+    const { response } = await broker.fetch(
+      request('https://musicbrainz.org/ws/2/go?q=what-the-user-searched'),
+      testContext(transport.fetch),
+    )
+    expect(response).toMatchObject({ ok: false, error: { code: 'redirect' } })
+    expect(page).toEqual(['https://musicbrainz.org/ws/2/go?q=what-the-user-searched'])
   })
 
   it('refuses answers over the size limit and reads HEAD answers as empty', async () => {

@@ -43,6 +43,7 @@ import {
   type PluginSandboxes,
   type PluginStore,
   pluginPolicy,
+  probePluginWorkers,
 } from '@fxm/plugins'
 import type { Sources } from '../search/sources'
 import { appSources } from '../search/sources-context'
@@ -86,12 +87,19 @@ export interface PluginRuntimeOptions {
   readonly distribution?: Distribution
   /** This FXM's version, which plugins' `minFxmVersion` is compared with. Default: the build's. */
   readonly appVersion?: string
+  /**
+   * Whether this browser can run plugins at all: whether an evaluator document starts the worker
+   * each plugin runs in. Default: `probePluginWorkers` with a sandboxed evaluator document.
+   */
+  readonly probeWorkers?: () => Promise<boolean>
 }
 
 export { connectPluginAudio, type PluginAudioTarget } from './audio-target'
 
 let options: PluginRuntimeOptions = {}
 let registry: PluginRegistry | undefined
+/** The answer of the worker probe, asked once per page. */
+let workersRun: Promise<boolean> | undefined
 let stopSync: (() => void) | undefined
 /** The plugin catalogs registered with the sources, by plugin ID. */
 const registered = new Map<string, { metadata: object; unregister: () => void }>()
@@ -115,6 +123,25 @@ function environment(): Environment {
 /** Where plugins can run here. */
 export function currentPluginSupport(): PluginSupport {
   return pluginSupport(environment())
+}
+
+/**
+ * Whether plugins can run in this browser: its evaluator document starts the worker each plugin
+ * runs in. WebKit doesn't, so Safari and every browser on iPhone and iPad can't run plugins:
+ * Settings says so there instead of offering to add one. Checked once, when first asked.
+ */
+export function pluginWorkersRun(): Promise<boolean> {
+  workersRun ??= (options.probeWorkers ?? defaultWorkerProbe)().catch(() => false)
+  return workersRun
+}
+
+/**
+ * Asks a sandboxed evaluator document whether it starts a plugin's worker. A page without
+ * workers at all (a DOM for tests, say) has its answer already, and frames no document.
+ */
+function defaultWorkerProbe(): Promise<boolean> {
+  if (typeof Worker !== 'function') return Promise.resolve(false)
+  return probePluginWorkers(() => createSandboxEvaluator())
 }
 
 /** Whether this build asks before plugins can be used (an F-Droid build). */
@@ -280,6 +307,7 @@ export function pluginRecommendations(): RecommendationProvider[] {
 export function configurePluginRuntime(next: PluginRuntimeOptions): void {
   stopPlugins()
   options = next
+  workersRun = undefined
 }
 
 /** Stops everything and goes back to the defaults, for tests. */
@@ -288,4 +316,5 @@ export function resetPluginRuntime(): void {
   resetPluginAudioTarget()
   audioTarget = undefined
   options = {}
+  workersRun = undefined
 }

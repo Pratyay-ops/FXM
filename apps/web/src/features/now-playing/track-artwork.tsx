@@ -3,6 +3,7 @@ import { type LucideIcon, Music } from 'lucide-react'
 import { useState } from 'react'
 import { Artwork } from '../../components/ui/artwork'
 import { cn } from '../../lib/cn'
+import { useShownImage } from '../search/sources-context'
 
 const RADII = { sm: 'rounded-sm', md: 'rounded-md', lg: 'rounded-lg', xl: 'rounded-xl' } as const
 
@@ -37,9 +38,10 @@ export interface TrackArtworkProps {
 }
 
 /**
- * A track's cover art over a placeholder gradient, which stays when there is no image or it
- * fails to load. Decorative: the title next to it names the track. The image is requested
- * without a referrer.
+ * A track's cover art over a placeholder gradient, which stays when there is no image, it fails
+ * to load, or the app may not load it (a host its policy doesn't allow, or Spotify's while
+ * Spotify is switched off: `useShownImage`). Decorative: the title next to it names the track.
+ * The image is requested without a referrer.
  */
 export function TrackArtwork({
   images,
@@ -52,8 +54,7 @@ export function TrackArtwork({
 }: TrackArtworkProps) {
   const [failedUrl, setFailedUrl] = useState<string>()
   // Twice the size covers high-density screens without picking the largest image everywhere.
-  const image = pickArtwork(images, size * 2)
-  const url = image?.url
+  const url = useShownImage(pickArtwork(images, size * 2)?.url)
   return (
     <span
       aria-hidden="true"

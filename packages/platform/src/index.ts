@@ -81,6 +81,8 @@ export {
   createConnectClient,
   hasConnectFeature,
   MIN_CONNECT_VERSION,
+  SPOTIFY_LOGIN_TEXT_VERSION,
+  saysSpotifyLoginUnused,
 } from './connect'
 export { corsUnsafeRequestHeaderNames, isCorsSimpleRequest } from './cors'
 export type {

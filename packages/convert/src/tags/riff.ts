@@ -1,6 +1,7 @@
 /**
- * WAV tags: a LIST/INFO chunk (title, artists, album, track, date), which Windows and most
- * players read, and an `id3 ` chunk with the full ID3v2.3 tag (cover and lyrics too), which
+ * WAV tags: a LIST/INFO chunk (title, artists, album, track, date, and FXM's note on a file
+ * converted from lossy audio as its comment), which Windows and most players read, and an `id3 `
+ * chunk with the full ID3v2.3 tag (cover, lyrics and the converted file's source too), which
  * foobar2000, MusicBee, iTunes and FFmpeg read. Earlier LIST/INFO and ID3 chunks are replaced;
  * the format and data chunks stay as they are.
  *
@@ -9,7 +10,7 @@
 
 import { ByteWriter, concat, hasAscii, readU32LE, utf8 } from '../bytes'
 import type { ExportTags } from '../types'
-import { joinedArtists, positive } from './fields'
+import { conversionNote, joinedArtists, positive } from './fields'
 import { buildId3v2 } from './id3v2'
 
 interface Chunk {
@@ -38,6 +39,7 @@ function infoChunk(tags: ExportTags): Uint8Array | undefined {
   add('IPRD', tags.album)
   add('ITRK', positive(tags.trackNumber))
   add('ICRD', tags.releaseDate)
+  add('ICMT', conversionNote(tags))
   if (entries.length === 0) return undefined
   return chunk('LIST', concat([utf8('INFO'), ...entries]))
 }

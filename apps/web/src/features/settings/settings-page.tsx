@@ -5,6 +5,7 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { noticesUrl } from '../../lib/notices'
 import { AudioEffectsSection, SOUND_SETTINGS_ID } from '../audio-effects/effects-section'
 import { AutoplaySetting } from '../autoplay/autoplay-setting'
 import { DiagnosticsSection } from '../connect/diagnostics'
@@ -29,15 +30,21 @@ import { useSettingsStore } from './settings-store'
 
 export const REPOSITORY_URL = 'https://github.com/Pratyay-ops/FXM'
 
-/** FXM's site, where its privacy page, disclaimer and the bundled code's notices are. */
+/** FXM's site, where its privacy page and disclaimer are. */
 export const SITE_URL = 'https://fxmusic.pages.dev'
 
-/** The legal pages Settings → About links to. */
-export const LEGAL_LINKS = [
-  { href: `${SITE_URL}/privacy`, label: 'Privacy' },
-  { href: `${SITE_URL}/disclaimer`, label: 'Disclaimer' },
-  { href: `${SITE_URL}/third-party-notices.txt`, label: 'Third-party notices' },
-] as const
+/**
+ * The legal pages Settings → About links to. The third-party notices are this build's own
+ * (`noticesUrl`): the deploy that serves the web app has the notices of what it ships, which
+ * production's may not be (a preview, a newer build, a self-hosted copy).
+ */
+export function legalLinks(): readonly { href: string; label: string }[] {
+  return [
+    { href: `${SITE_URL}/privacy`, label: 'Privacy' },
+    { href: `${SITE_URL}/disclaimer`, label: 'Disclaimer' },
+    { href: noticesUrl(), label: 'Third-party notices' },
+  ]
+}
 
 /** The non-affiliation notice (R.4), in one line. */
 export const NON_AFFILIATION =
@@ -179,7 +186,7 @@ export function SettingsPage() {
           <p>{NON_AFFILIATION}</p>
           {/* Links on their own: a full touch target each on phones and tablets. */}
           <ul aria-label="Legal" className="flex flex-wrap gap-x-6">
-            {LEGAL_LINKS.map((link) => (
+            {legalLinks().map((link) => (
               <li key={link.href}>
                 <ExternalTextLink href={link.href} className={standaloneLinkClasses}>
                   {link.label}

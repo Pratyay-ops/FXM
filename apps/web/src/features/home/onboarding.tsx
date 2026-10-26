@@ -5,9 +5,11 @@
  * fade as real listening takes over. The same form changes the picks later, from the end of
  * Home (`TastePicksSection`).
  *
- * Artists to pick from: the artists the user follows, and the artists of the services' own
- * home feeds (regional charts and popular artists, e.g. Spotify's home for the user's market),
- * when they can be reached. Any other artist can be typed in.
+ * Artists to pick from: the artists the user follows, the artists of the songs they liked or
+ * played, and the artists of the services' own home feeds (regional charts and popular artists,
+ * e.g. Spotify's home for the user's market), when they can be reached. In the Lite tier no
+ * service has a home feed (YouTube Music's provider has none yet, and Spotify needs FXM Connect),
+ * so a new user may get no suggestion at all: the form then says to type the artists in.
  *
  * @module
  */
@@ -17,7 +19,8 @@ import { useQuery } from '@tanstack/react-query'
 import { Check, LoaderCircle, Plus, Sparkles, X } from 'lucide-react'
 import { type FormEvent, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { buttonClasses } from '../../components/ui/button'
-import { useFollows } from '../../db/hooks'
+import { useFollows, usePlaylistView, useRecentlyPlayed } from '../../db/hooks'
+import { LIKED_PLAYLIST_ID } from '../../db/types'
 import { cn } from '../../lib/cn'
 import { useSettingsStore } from '../settings/settings-store'
 import { canRecommend, type HomeServices, useHomeReach, useHomeServices } from './services'
@@ -103,11 +106,19 @@ export function artistsOfShelves(items: readonly ShelfItem[]): PickedArtist[] {
   return artists
 }
 
-/** Artists to suggest: the ones the user follows, then the services' popular ones. */
+/** How many recent plays the suggestions look at for artists. */
+const RECENT_PLAYS = 50
+
+/**
+ * Artists to suggest: the ones the user follows, the artists of the songs they liked and played
+ * (also before Home has enough to go on), then the services' popular ones.
+ */
 function useSuggestedArtists(services: HomeServices) {
   const reach = useHomeReach(services)
   const mode = useSettingsStore((state) => state.catalogMode)
   const follows = useFollows('artist')
+  const liked = usePlaylistView(LIKED_PLAYLIST_ID)
+  const recent = useRecentlyPlayed(RECENT_PLAYS)
   const enabled = canRecommend(services, reach)
   const charts = useQuery({
     queryKey: [
@@ -138,8 +149,16 @@ function useSuggestedArtists(services: HomeServices) {
               : { name: record.name },
           )
         : []
-    return mergeArtists([...followed, ...(charts.data ?? [])]).slice(0, MAX_SUGGESTIONS)
-  }, [follows, charts.data])
+    // The main artists of the songs the user liked, then of those they played.
+    const rows = [
+      ...(liked.status === 'ready' ? (liked.data?.rows ?? []) : []),
+      ...(recent.status === 'ready' ? recent.data : []),
+    ]
+    const own = artistsOfShelves(
+      rows.flatMap((row) => (row.track === undefined ? [] : [{ type: 'track', track: row.track }])),
+    )
+    return mergeArtists([...followed, ...own, ...(charts.data ?? [])]).slice(0, MAX_SUGGESTIONS)
+  }, [follows, liked, recent, charts.data])
   return { artists, loading: enabled && charts.isPending }
 }
 
@@ -234,6 +253,7 @@ export function TasteOnboarding({
   const [name, setName] = useState('')
   const headingId = useId()
   const inputId = useId()
+  const hintId = useId()
   const heading = useRef<HTMLHeadingElement>(null)
   useFocusOnMount(heading, focusOnMount)
   const copy = COPY[mode]
@@ -338,6 +358,14 @@ export function TasteOnboarding({
             Finding popular artists…
           </p>
         )}
+        {!loading && choices.length === 0 && (
+          // Nothing to suggest: no follows or plays yet, and no service with a home feed here
+          // (the Lite tier has none).
+          <p id={hintId} className="mt-3 text-sm text-text-muted">
+            FXM has no artists to suggest here yet. Type the name of an artist you like below, then
+            select Add.
+          </p>
+        )}
       </fieldset>
       <form onSubmit={addTyped} className="mt-3 flex max-w-md gap-2">
         <label htmlFor={inputId} className="sr-only">
@@ -348,6 +376,7 @@ export function TasteOnboarding({
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="Add an artist"
+          aria-describedby={!loading && choices.length === 0 ? hintId : undefined}
           maxLength={100}
           autoComplete="off"
           disabled={busy}
