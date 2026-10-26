@@ -248,7 +248,7 @@ test.describe('the tiers', () => {
       'Lite (experimental) adds YouTube Music and its ad-free audio.',
     )
     await expect(missingPanel(page)).toContainText(
-      "Full adds YouTube Music without Lite's experimental route, YouTube Music downloads and Spotify search",
+      "Full adds YouTube Music without Lite's experimental route, YouTube Music downloads, Spotify search and related artists and a read-only sync of your Spotify account.",
     )
     // Desktop Chrome: the Chromium guide comes first, open, with Developer mode's warning, and
     // the main button leads to it.
