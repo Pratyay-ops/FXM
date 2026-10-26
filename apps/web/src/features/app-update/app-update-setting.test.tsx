@@ -28,16 +28,33 @@ describe('AppUpdateSetting', () => {
   it('says what the daily check does, and that nothing installs by itself', () => {
     setting({})
     expect(screen.getByText('Updates')).toBeInTheDocument()
-    expect(
-      screen.getByText(/Once a day, FXM asks GitHub whether a new version is out/),
-    ).toHaveTextContent(
-      'It never downloads or installs anything by itself: Android asks you before it updates FXM.',
+    const auto = screen.getByRole('switch', { name: 'Check for new versions' })
+    expect(auto).toBeChecked()
+    expect(auto).toHaveAccessibleDescription(
+      /^Once a day, FXM asks GitHub whether a new version is out, and tells you\. It never downloads or installs anything by itself: Android asks you before it updates FXM\./,
     )
     expect(screen.getByRole('link', { name: /How updates install/ })).toHaveAttribute(
       'href',
       INSTALL_GUIDE_URL,
     )
     expect(screen.getByText('Not checked yet.')).toBeInTheDocument()
+  })
+
+  it('lets the user turn the daily check off, keeping Check now', async () => {
+    const user = userEvent.setup()
+    const { store, check } = setting({ problem: 'unreachable' })
+    expect(screen.getByText("Couldn't reach GitHub. FXM tries again later.")).toBeInTheDocument()
+    const auto = screen.getByRole('switch', { name: 'Check for new versions' })
+    await user.click(auto)
+    expect(store.getState().autoCheck).toBe(false)
+    expect(auto).not.toBeChecked()
+    expect(auto).toHaveAccessibleDescription(/^Off: FXM asks GitHub only when you tap Check now\./)
+    // It no longer promises to try again by itself.
+    expect(screen.getByText("Couldn't reach GitHub. Try again later.")).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Check now' }))
+    expect(check).toHaveBeenCalledOnce()
+    await user.click(auto)
+    expect(store.getState().autoCheck).toBe(true)
   })
 
   it('offers a newer version’s APK and notes', () => {
@@ -73,13 +90,20 @@ describe('AppUpdateSetting', () => {
   })
 
   it.each([
-    ['offline', /this device is offline/],
-    ['rate-limited', /too many requests from this connection/],
-    ['unreachable', /Couldn't reach GitHub/],
-    ['unexpected', /didn't make sense/],
+    ['offline', /this device is offline\. FXM checks again once it is online\./],
+    ['rate-limited', /too many requests from this connection\. FXM tries again later\./],
+    ['unreachable', /Couldn't reach GitHub\. FXM tries again later\./],
+    ['unexpected', /didn't make sense to FXM\. It tries again later\./],
   ] as const)('explains a failed check (%s)', (problem, text) => {
     setting({ problem, lastCheckedAt: NOW - 3600_000 })
     expect(screen.getByText(text)).toBeInTheDocument()
+  })
+
+  it('promises no retry for a failed check while the daily check is off', () => {
+    setting({ problem: 'offline', autoCheck: false })
+    expect(
+      screen.getByText("Couldn't check: this device is offline. Check again once it is online."),
+    ).toBeInTheDocument()
   })
 
   it('checks on request, announcing the result', async () => {
@@ -107,11 +131,12 @@ describe('AppUpdateSetting', () => {
     setting({ latest: { version: '0.6.0', hasApk: true } }, { checks: false, reason: 'fdroid' })
     expect(screen.getByText(/F-Droid updates this app/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Check now' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('switch')).not.toBeInTheDocument()
     expect(screen.queryByText(/FXM 0.6.0 is out/)).not.toBeInTheDocument()
   })
 
-  it('shows nothing in the web and desktop apps, and in development builds', () => {
-    for (const reason of ['not-android', 'unreleased'] as const) {
+  it('shows nothing in the web and desktop apps, and in development and other builds', () => {
+    for (const reason of ['not-android', 'unofficial-build', 'unreleased'] as const) {
       const { container, unmount } = setting({}, { checks: false, reason })
       expect(container).toBeEmptyDOMElement()
       unmount()

@@ -15,10 +15,16 @@ export type AppUpdateProblem =
   | 'unexpected'
 
 /**
- * The Android app's update check (stage 6.6): what the last check found and when the next one
- * is due. Only the found release, the times and the version the user put off are stored.
+ * The Android app's update check (stage 6.6): whether it checks by itself, what the last check
+ * found and when the next one is due. Only the switch, the found release, the times and the
+ * version the user put off are stored.
  */
 export interface AppUpdateState {
+  /**
+   * Whether FXM checks by itself, once a day (Settings → About → "Check for new versions"; on by
+   * default). Off, it asks GitHub only when the user taps "Check now".
+   */
+  autoCheck: boolean
   /** The newest published release the last successful check found; `null` before one. */
   latest: AppRelease | null
   /** When a check last succeeded (ms since the epoch); 0 before one. */
@@ -38,7 +44,7 @@ export const APP_UPDATE_STORAGE_KEY = 'fxm.app-update.v1'
 
 type Persisted = Pick<
   AppUpdateState,
-  'latest' | 'lastCheckedAt' | 'nextCheckAt' | 'dismissedVersion'
+  'autoCheck' | 'latest' | 'lastCheckedAt' | 'nextCheckAt' | 'dismissedVersion'
 >
 
 const time = (value: unknown): number =>
@@ -54,6 +60,8 @@ export function sanitizeAppUpdate(value: unknown): Persisted {
   const latest = stored.latest as Partial<Record<keyof AppRelease, unknown>> | null | undefined
   const latestVersion = version(latest?.version)
   return {
+    // Only an explicit "off" turns the checks off.
+    autoCheck: stored.autoCheck !== false,
     latest:
       latestVersion === null
         ? null
@@ -69,6 +77,7 @@ export function sanitizeAppUpdate(value: unknown): Persisted {
 }
 
 const initialState: AppUpdateState = {
+  autoCheck: true,
   latest: null,
   lastCheckedAt: 0,
   nextCheckAt: 0,
@@ -84,7 +93,8 @@ export function createAppUpdateStore(storage?: () => Storage | undefined) {
       name: APP_UPDATE_STORAGE_KEY,
       version: 1,
       storage: createSafeStorage<Persisted>(storage),
-      partialize: ({ latest, lastCheckedAt, nextCheckAt, dismissedVersion }) => ({
+      partialize: ({ autoCheck, latest, lastCheckedAt, nextCheckAt, dismissedVersion }) => ({
+        autoCheck,
         latest,
         lastCheckedAt,
         nextCheckAt,

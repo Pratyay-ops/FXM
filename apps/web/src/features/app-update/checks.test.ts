@@ -8,6 +8,7 @@ import {
   FIRST_CHECK_DELAY_MS,
   isCheckDue,
   RETRY_INTERVAL_MS,
+  setAutoCheck,
   startAppUpdateChecks,
 } from './checks'
 import { LATEST_RELEASE_URL } from './releases'
@@ -245,6 +246,32 @@ describe('startAppUpdateChecks', () => {
     stop()
   })
 
+  it('asks nothing by itself while the user has turned the checks off', async () => {
+    vi.useFakeTimers({ now: NOW })
+    const { page, network } = events()
+    const { fetch, calls } = fakeUpdateFetch(
+      jsonResponse(releaseAnswer('0.6.0')),
+      jsonResponse(releaseAnswer('0.6.1')),
+    )
+    setAutoCheck(false, store)
+    const stop = startAppUpdateChecks({ support: ANDROID, store, fetch, page, network })
+    page.dispatchEvent(new Event('visibilitychange'))
+    network.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS * 2)
+    expect(calls).toHaveLength(0)
+    // "Check now" still asks.
+    const manual = checkForAppUpdate({ store, fetch })
+    await vi.advanceTimersByTimeAsync(0)
+    await manual
+    expect(calls).toHaveLength(1)
+    expect(store.getState().latest?.version).toBe('0.6.0')
+    // Turned on again, the next look makes the check that is due.
+    setAutoCheck(true, store)
+    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS + DUE_CHECK_INTERVAL_MS)
+    expect(calls).toHaveLength(2)
+    stop()
+  })
+
   it('checks when the app comes back to the foreground or the device goes online, if due', async () => {
     vi.useFakeTimers({ now: NOW })
     const { page, network } = events()
@@ -276,8 +303,10 @@ describe('the stored state', () => {
     const { fetch } = fakeUpdateFetch(jsonResponse(releaseAnswer('0.6.0')))
     await checkForAppUpdate({ store, fetch, now: () => NOW })
     dismissAppUpdate('0.6.0', store)
+    setAutoCheck(false, store)
     await store.persist.rehydrate()
     expect(store.getState()).toMatchObject({
+      autoCheck: false,
       latest: { version: '0.6.0', hasApk: true },
       lastCheckedAt: NOW,
       nextCheckAt: NOW + CHECK_INTERVAL_MS,
@@ -287,8 +316,9 @@ describe('the stored state', () => {
     expect(APP_UPDATE_STORAGE_KEY).toBe('fxm.app-update.v1')
   })
 
-  it('drops whatever isn’t valid', () => {
+  it('drops whatever isn’t valid, with the checks on unless they were turned off', () => {
     expect(sanitizeAppUpdate('garbage')).toEqual({
+      autoCheck: true,
       latest: null,
       lastCheckedAt: 0,
       nextCheckAt: 0,
@@ -296,12 +326,20 @@ describe('the stored state', () => {
     })
     expect(
       sanitizeAppUpdate({
+        autoCheck: 'no',
         latest: { version: 'v1', hasApk: true },
         lastCheckedAt: -5,
         nextCheckAt: Number.NaN,
         dismissedVersion: 'x',
       }),
-    ).toEqual({ latest: null, lastCheckedAt: 0, nextCheckAt: 0, dismissedVersion: null })
+    ).toEqual({
+      autoCheck: true,
+      latest: null,
+      lastCheckedAt: 0,
+      nextCheckAt: 0,
+      dismissedVersion: null,
+    })
+    expect(sanitizeAppUpdate({ autoCheck: false }).autoCheck).toBe(false)
     expect(
       sanitizeAppUpdate({ latest: { version: '0.6.0', hasApk: 'yes', publishedAt: 3 } }).latest,
     ).toEqual({ version: '0.6.0', hasApk: false })

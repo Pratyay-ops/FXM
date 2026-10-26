@@ -1,9 +1,10 @@
 /**
  * When the Android app checks for a new version of itself (stage 6.6): a while after it starts,
- * then once a day while it is used, and whenever the user asks in Settings. A check is one GET
- * request to GitHub's API ({@link fetchLatestRelease}). It only finds out: the app never
- * downloads or installs anything by itself, it offers the APK's link (the toast and Settings),
- * and the browser downloads it and Android's installer asks before it updates FXM.
+ * then once a day while it is used, unless the user turned that off in Settings, and whenever the
+ * user asks there. A check is one GET request to GitHub's API ({@link fetchLatestRelease}). It
+ * only finds out: the app never downloads or installs anything by itself, it offers the APK's
+ * link (the toast and Settings), and the browser downloads it and Android's installer asks
+ * before it updates FXM.
  *
  * @module
  */
@@ -124,7 +125,8 @@ export interface AppUpdateScheduleOptions extends AppUpdateCheckOptions {
  * Starts the scheduled checks of a build that checks (see {@link buildAppUpdateSupport}): the first
  * {@link FIRST_CHECK_DELAY_MS} after start-up if one is due, then whenever one is due, looked at
  * every {@link DUE_CHECK_INTERVAL_MS} while the app is in the foreground, when it comes back to
- * it and when the device goes online. Returns a function that stops them.
+ * it and when the device goes online. While the user has them off (`autoCheck`), each look asks
+ * nothing. Returns a function that stops them.
  */
 export function startAppUpdateChecks(options: AppUpdateScheduleOptions = {}): () => void {
   const {
@@ -137,7 +139,8 @@ export function startAppUpdateChecks(options: AppUpdateScheduleOptions = {}): ()
   if (!support.checks) return () => {}
   const checkIfDue = () => {
     if (page !== undefined && page.visibilityState !== 'visible') return
-    if (isCheckDue(store.getState().nextCheckAt, now())) void checkForAppUpdate(options)
+    const { autoCheck, nextCheckAt } = store.getState()
+    if (autoCheck && isCheckDue(nextCheckAt, now())) void checkForAppUpdate(options)
   }
   const first = setTimeout(checkIfDue, FIRST_CHECK_DELAY_MS)
   const timer = setInterval(checkIfDue, DUE_CHECK_INTERVAL_MS)
@@ -154,4 +157,12 @@ export function startAppUpdateChecks(options: AppUpdateScheduleOptions = {}): ()
 /** Marks the offer of a version as answered: the toast doesn't show it again. */
 export function dismissAppUpdate(version: string, store: AppUpdateStore = useAppUpdateStore): void {
   store.setState({ dismissedVersion: version })
+}
+
+/**
+ * Turns the daily checks on or off (Settings → About → "Check for new versions"). Off, the app
+ * asks GitHub only when the user taps "Check now".
+ */
+export function setAutoCheck(on: boolean, store: AppUpdateStore = useAppUpdateStore): void {
+  store.setState({ autoCheck: on })
 }
