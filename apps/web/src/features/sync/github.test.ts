@@ -165,6 +165,42 @@ describe('createGitHubClient', () => {
     expect((await failure(slow.getUser())).code).toBe('timeout')
   })
 
+  it('waits for a large answer as long as it keeps coming, and gives up when it stalls', async () => {
+    const body = JSON.stringify({ login: 'octo', padding: 'x'.repeat(5000) })
+    /**
+     * A `fetch` whose answer arrives in 10 pieces, `gap` ms apart, and stops after `stall`. Its
+     * body fails when the request is aborted, as a browser's does.
+     */
+    const streaming = (gap: number, stall = Number.POSITIVE_INFINITY): Fetch =>
+      (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        let sent = 0
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            init?.signal?.addEventListener('abort', () =>
+              controller.error(new DOMException('Aborted', 'AbortError')),
+            )
+          },
+          async pull(controller) {
+            if (sent >= 10) {
+              controller.close()
+              return
+            }
+            if (sent >= stall) return new Promise<void>(() => {})
+            await new Promise((resolve) => setTimeout(resolve, gap))
+            const size = Math.ceil(body.length / 10)
+            controller.enqueue(new TextEncoder().encode(body.slice(sent * size, (sent + 1) * size)))
+            sent++
+          },
+        })
+        return new Response(stream, { status: 200 })
+      }) as Fetch
+    // 10 pieces 20 ms apart take twice the 100 ms timeout, and arrive whole.
+    const slow = createGitHubClient({ token: TOKEN, fetch: streaming(20), timeoutMs: 100 })
+    expect(await slow.getUser()).toEqual({ login: 'octo' })
+    const stalled = createGitHubClient({ token: TOKEN, fetch: streaming(5, 3), timeoutMs: 50 })
+    expect((await failure(stalled.getUser())).code).toBe('timeout')
+  })
+
   it('passes a cancellation through as it is', async () => {
     const { client } = setup()
     const controller = new AbortController()

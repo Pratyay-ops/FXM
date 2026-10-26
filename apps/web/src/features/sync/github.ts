@@ -132,7 +132,11 @@ export interface GitHubClientOptions {
   token: string
   /** The platform's `fetch`. */
   fetch: Fetch
-  /** How long a request may take, in milliseconds. */
+  /**
+   * How long GitHub may stay silent, in milliseconds: before it answers, and then between two
+   * pieces of the answer. A large gist on a slow link takes as long as it takes, as long as it
+   * keeps coming.
+   */
   timeoutMs?: number
   /** The clock, for rate-limit resets. */
   now?: () => number
@@ -146,6 +150,36 @@ interface Answer {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * A response's body as text, calling `progress` whenever a piece of it arrives. Aborting
+ * `signal` stops the read, also where the platform's `fetch` doesn't tie the body to it.
+ */
+async function readBody(
+  response: Response,
+  signal: AbortSignal,
+  progress: () => void,
+): Promise<string> {
+  const reader = response.body?.getReader()
+  if (reader === undefined) return response.text()
+  const stop = () => {
+    reader.cancel().catch(() => {})
+  }
+  signal.addEventListener('abort', stop, { once: true })
+  try {
+    const decoder = new TextDecoder()
+    let text = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (signal.aborted) throw signal.reason
+      if (done) return text + decoder.decode()
+      progress()
+      text += decoder.decode(value, { stream: true })
+    }
+  } finally {
+    signal.removeEventListener('abort', stop)
+  }
 }
 
 function readGist(value: unknown): Gist {
@@ -182,12 +216,12 @@ function readGist(value: unknown): Gist {
 export function createGitHubClient(options: GitHubClientOptions): GistApi {
   const { token, fetch, timeoutMs = 30_000, now = () => Date.now() } = options
 
-  async function errorFrom(response: Response): Promise<GitHubError> {
+  function errorFrom(response: Response, body: string): GitHubError {
     const status = response.status
     let message = ''
     try {
-      const body: unknown = await response.json()
-      if (isRecord(body) && typeof body.message === 'string') message = body.message.slice(0, 300)
+      const data: unknown = JSON.parse(body)
+      if (isRecord(data) && typeof data.message === 'string') message = data.message.slice(0, 300)
     } catch {
       // Not JSON: the status says enough.
     }
@@ -221,10 +255,16 @@ export function createGitHubClient(options: GitHubClientOptions): GistApi {
   ): Promise<Answer> {
     const controller = new AbortController()
     let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      controller.abort()
-    }, timeoutMs)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    // GitHub must answer, then keep sending, without falling silent for `timeoutMs`.
+    const arm = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, timeoutMs)
+    }
+    arm()
     const outer = init.signal
     const onAbort = () => controller.abort(outer?.reason)
     if (outer?.aborted) controller.abort(outer.reason)
@@ -236,6 +276,12 @@ export function createGitHubClient(options: GitHubClientOptions): GistApi {
     }
     if (init.body !== undefined) headers['Content-Type'] = 'application/json'
     if (init.etag !== undefined) headers['If-None-Match'] = init.etag
+    /** What a request that got no usable answer throws: the caller's cancellation as it is. */
+    const failure = (cause: unknown, otherwise: GitHubError): unknown => {
+      if (outer?.aborted) return outer.reason ?? cause
+      if (timedOut) return new GitHubError('timeout', 'GitHub did not answer in time', { cause })
+      return otherwise
+    }
     try {
       let response: Response
       try {
@@ -249,21 +295,35 @@ export function createGitHubClient(options: GitHubClientOptions): GistApi {
           referrerPolicy: 'no-referrer',
         })
       } catch (cause) {
-        if (outer?.aborted) throw outer.reason ?? cause
-        if (timedOut) throw new GitHubError('timeout', 'GitHub did not answer in time', { cause })
-        throw new GitHubError('network', 'GitHub could not be reached', { cause })
+        throw failure(cause, new GitHubError('network', 'GitHub could not be reached', { cause }))
       }
-      if (response.status === 304)
+      arm()
+      if (response.status === 304) {
         return { status: 304, headers: response.headers, data: undefined }
-      if (!response.ok) throw await errorFrom(response)
-      if (response.status === 204)
+      }
+      if (!response.ok) {
+        let text = ''
+        try {
+          text = await readBody(response, controller.signal, arm)
+        } catch (cause) {
+          // The status says enough, unless the caller cancelled.
+          if (outer?.aborted) throw outer.reason ?? cause
+        }
+        throw errorFrom(response, text)
+      }
+      if (response.status === 204) {
         return { status: 204, headers: response.headers, data: undefined }
+      }
+      let text: string
+      try {
+        text = await readBody(response, controller.signal, arm)
+      } catch (cause) {
+        throw failure(cause, new GitHubError('network', 'GitHub’s answer broke off', { cause }))
+      }
       let data: unknown
       try {
-        data = await response.json()
+        data = JSON.parse(text)
       } catch (cause) {
-        if (outer?.aborted) throw outer.reason ?? cause
-        if (timedOut) throw new GitHubError('timeout', 'GitHub did not answer in time', { cause })
         throw new GitHubError('parse', 'GitHub sent something FXM cannot read', { cause })
       }
       return { status: response.status, headers: response.headers, data }
