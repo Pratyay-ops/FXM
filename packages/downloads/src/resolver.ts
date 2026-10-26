@@ -26,6 +26,7 @@ import {
   isPlayable,
   isYouTubeCandidate,
   type LadderRung,
+  type MatchBand,
   type MatchTarget,
   mayPlayMatch,
   type PlaybackProblem,
@@ -41,12 +42,13 @@ import {
   type UnavailableReason,
 } from '@fxm/core'
 import {
-  isStoredMatch,
+  LIFECYCLE_DEFAULTS,
   type MatchKey,
   type MatchStore,
   type ResolvePriority,
   type StoredMatch,
   type StreamSource,
+  sanitizeStoredMatch,
   type TrackMatcher,
 } from '@fxm/player'
 import { isDownloadableStream } from './availability'
@@ -157,6 +159,11 @@ export interface PolicyDownloadResolverOptions {
   /** How long an unpinned stored match counts. Default: 30 days, as in the stream lifecycle. */
   maxMatchAgeMs?: number
   /**
+   * How long a stored decision that nothing came close counts. Default: 1 day, as in the stream
+   * lifecycle.
+   */
+  maxMissAgeMs?: number
+  /**
    * The request budget's priority the sources and the matcher are asked to resolve at.
    * Default: `bulk`, background work nobody waits for, which the budget (1.2) spaces out, stops
    * before the calls search and playback need, and pauses after a bot check. The provider
@@ -185,7 +192,17 @@ const UNAVAILABLE_ORDER: readonly UnavailableReason[] = [
   'no-source',
 ]
 
-const DEFAULT_MAX_MATCH_AGE_MS = 30 * 24 * 60 * 60_000
+/** A match that may be downloaded: a stored decision or the engine's, with its audio. */
+interface FoundMatch {
+  /** The engine's band; for a pin, the band the engine gave that candidate, else `none`. */
+  readonly band: MatchBand
+  /** The matched audio. */
+  readonly candidate: AudioCandidate
+  /** The other candidates, best first. */
+  readonly alternatives: readonly AudioCandidate[]
+  /** Whether the user pinned it. */
+  readonly pinned: boolean
+}
 
 /** What one resolution collected while it went through the steps. */
 interface RunState {
@@ -230,7 +247,8 @@ export function createPolicyDownloadResolver(
   const settingsOf = options.settings ?? (() => DEFAULT_PLAYBACK_SETTINGS)
   const canPlay = options.canPlay ?? (() => 'maybe')
   const now = options.now ?? Date.now
-  const maxMatchAgeMs = options.maxMatchAgeMs ?? DEFAULT_MAX_MATCH_AGE_MS
+  const maxMatchAgeMs = options.maxMatchAgeMs ?? LIFECYCLE_DEFAULTS.maxMatchAgeMs
+  const maxMissAgeMs = options.maxMissAgeMs ?? LIFECYCLE_DEFAULTS.maxMissAgeMs
   const matches = options.matches
   const priority = options.priority ?? 'bulk'
 
@@ -345,8 +363,7 @@ export function createPolicyDownloadResolver(
   const stored = async (key: MatchKey): Promise<StoredMatch | undefined> => {
     if (matches === undefined) return undefined
     try {
-      const match = await matches.get(key)
-      return isStoredMatch(match) ? match : undefined
+      return sanitizeStoredMatch(await matches.get(key))
     } catch {
       return undefined
     }
@@ -357,14 +374,31 @@ export function createPolicyDownloadResolver(
     target: MatchTarget,
     request: DownloadResolveRequest,
     state: RunState,
-  ): Promise<StoredMatch | undefined> => {
+  ): Promise<FoundMatch | undefined> => {
     const { ctx, signal } = request
-    const key: MatchKey = { trackId: track.id, mode: ctx.mode, target }
+    const key: MatchKey = { sourceTrackId: track.id, mode: ctx.mode, target }
+    const usable = (candidate: AudioCandidate) => isPlayable(candidate, ctx.mode)
     const known = await stored(key)
-    if (known !== undefined && (known.pinned || now() - known.matchedAt <= maxMatchAgeMs)) {
-      if (isPlayable(known.candidate, ctx.mode)) return known
-      state.problems.push(unavailable(track, 'no-match'))
-      return undefined
+    if (known !== undefined) {
+      const { band, candidate } = known
+      const alternatives = known.alternatives.filter(usable)
+      const alive = candidate !== undefined && usable(candidate)
+      // As in the stream lifecycle: a pin is never matched over, also when its audio cannot
+      // play here; a fresh decision stands; a recent "nothing came close" is not asked again.
+      if (known.userPinned) {
+        if (alive) return { band, candidate, alternatives, pinned: true }
+        state.problems.push(unavailable(track, 'no-match'))
+        return undefined
+      }
+      const age = now() - known.decidedAt
+      if (band === 'none') {
+        if (age <= maxMissAgeMs) {
+          state.problems.push(unavailable(track, 'no-match'))
+          return undefined
+        }
+      } else if (alive && age <= maxMatchAgeMs) {
+        return { band, candidate, alternatives, pinned: false }
+      }
     }
     const matcher = options.matcher
     if (matcher === undefined) {
@@ -392,21 +426,26 @@ export function createPolicyDownloadResolver(
       }
       throw error
     }
-    const usable = (candidate: AudioCandidate) => isPlayable(candidate, ctx.mode)
+    const alternatives = outcome.alternatives.filter(usable)
     const best = outcome.best !== undefined && usable(outcome.best) ? outcome.best : undefined
-    if (outcome.band === 'none' || best === undefined) {
+    const band: MatchBand = best === undefined ? 'none' : outcome.band
+    const decision: StoredMatch = {
+      band,
+      ...(best === undefined ? {} : { candidate: best }),
+      alternatives,
+      ...(best?.signals === undefined ? {} : { signals: best.signals }),
+      evidence: [...(outcome.evidence ?? best?.evidence ?? [])],
+      userPinned: false,
+      decidedAt: now(),
+    }
+    // Stored as the stream lifecycle stores it, also when nothing came close; an outcome some
+    // pages were missing from is not kept.
+    if (outcome.incomplete !== true) await matches?.put(key, decision).catch(() => {})
+    if (band === 'none' || best === undefined) {
       state.problems.push(unavailable(track, 'no-match'))
       return undefined
     }
-    const match: StoredMatch = {
-      band: outcome.band,
-      candidate: best,
-      alternatives: outcome.alternatives.filter(usable),
-      pinned: false,
-      matchedAt: now(),
-    }
-    await matches?.put(key, match).catch(() => {})
-    return match
+    return { band, candidate: best, alternatives, pinned: false }
   }
 
   const tryMatch = async (
@@ -481,11 +520,12 @@ export function createPolicyDownloadResolver(
         if (resumed !== undefined) return resumed
       }
       const settings = settingsOf()
-      const pin = await stored({ trackId: track.id, mode: ctx.mode, target: 'song' })
+      const pin = await stored({ sourceTrackId: track.id, mode: ctx.mode, target: 'song' })
+      const pinned = pin?.userPinned === true ? pin.candidate : undefined
       const steps = planPlayback({
         track,
         mode: ctx.mode,
-        ...(pin?.pinned === true ? { pinned: pin.candidate } : {}),
+        ...(pinned === undefined ? {} : { pinned }),
         settings: { ...settings, useInvidious: false },
         skipOffline: true,
       })

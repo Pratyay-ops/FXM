@@ -66,6 +66,8 @@ With a resolver, `downloadAvailability` also asks `canResolve`: a track whose au
 - **Fresh every time:** nothing is cached, so every call is a fresh resolution.
 - **Background work:** sources and the matcher are asked at the request budget's `bulk` priority (`priority` changes it), and the provider context's `fetch` must draw at the same one. The budget (1.2) then spaces the calls out, stops them while it keeps the last 100 calls of the hour for search and playback, and pauses them after a bot check, so "Download all" on a long playlist never blocks searching.
 
+Matching decisions come from the match cache and go back to it as the stream lifecycle keeps them (`sanitizeStoredMatch` from `@fxm/player`): a pin always stands, an engine's decision for 30 days (`maxMatchAgeMs`), and one that nothing came close for a day (`maxMissAgeMs`), so the engine isn't asked again; an outcome some pages were missing from is not stored.
+
 The manager checks `isDownloadableStream` again whatever the resolver, so no unverified YouTube URL is ever fetched.
 
 ## The queue
@@ -144,7 +146,7 @@ A `DownloadStore` (see `store.ts`) gets, lists (all records, or those of some st
 | `StreamSource`s for `archive`, `jamendo` | 1.6 through `fromAudioSource` | Merged on `develop`, not in this stage's base |
 | `TrackMatcher`, `MatchStore` | 1.7 and the match cache (2.6) | As for the stream lifecycle |
 | `ProviderContext`, its `fetch` at the `bulk` priority | 1.2 (transports, capability detection, request budget): `platform.context({ mode, priority: 'bulk' })` | Merged on `develop`, not in this stage's base |
-| `ResolvePriority` `'bulk'` | 2.3's `StreamSourceRequest` and `MatchRequest`: 4.1 added `bulk` (on `develop` the type is `'current-track' \| 'prefetch'`, so it becomes `'current-track' \| 'prefetch' \| 'bulk'`) | Added in this stage |
+| `ResolvePriority` `'bulk'` | 2.3's `StreamSourceRequest` and `TrackMatchRequest`: 4.1 added `bulk`, so the type is `'current-track' \| 'prefetch' \| 'bulk'`, in the request budget's words | Added in this stage |
 
 ## Testing
 

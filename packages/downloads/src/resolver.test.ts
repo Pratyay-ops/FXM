@@ -124,8 +124,16 @@ describe('the policy download resolver', () => {
   })
 
   it("falls back to itag 18 when the top rung's URLs are capped", async () => {
+    // The YouTube ladder (1.4) falls through to itag 18 by itself...
+    const ladder = setup()
+    ladder.youtube.capped.add('a')
+    const fell = await ladder.resolver.resolve(testTrack('a'), request())
+    expect(fell.stream).toMatchObject({ url: 'https://media.test/a/18?n=1', media: 'muxed-video' })
+    expect(ladder.youtube.log).toEqual(['a:top'])
+    // ...and a source that doesn't is asked for its fallback rung.
     const { resolver, youtube } = setup()
     youtube.capped.add('a')
+    youtube.fallThrough = false
     const { stream } = await resolver.resolve(testTrack('a'), request())
     expect(stream).toMatchObject({ url: 'https://media.test/a/18?n=2', media: 'muxed-video' })
     expect(youtube.log).toEqual(['a:top', 'a:fallback'])
@@ -182,10 +190,8 @@ describe('the policy download resolver', () => {
     matcher.rank(track, 'song', [{ candidate: testCandidate('m'), band: 'auto' }])
     const { candidate } = await resolver.resolve(track, request())
     expect(candidate.ref).toBe('m')
-    expect(await matches.get({ trackId: track.id, mode: 'music', target: 'song' })).toMatchObject({
-      band: 'auto',
-      pinned: false,
-    })
+    const key = { sourceTrackId: track.id, mode: 'music', target: 'song' } as const
+    expect(await matches.get(key)).toMatchObject({ band: 'auto', userPinned: false })
     // The stored match serves the next download.
     await resolver.resolve(track, request())
     expect(matcher.calls).toHaveLength(1)
@@ -210,13 +216,14 @@ describe('the policy download resolver', () => {
     const { resolver, matcher, matches } = setup()
     const track = testSpotifyTrack('hit')
     await matches.put(
-      { trackId: track.id, mode: 'music', target: 'song' },
+      { sourceTrackId: track.id, mode: 'music', target: 'song' },
       {
         band: 'suggest',
         candidate: testCandidate('pin'),
         alternatives: [],
-        pinned: true,
-        matchedAt: 0,
+        evidence: [],
+        userPinned: true,
+        decidedAt: 0,
       },
     )
     expect((await resolver.resolve(track, request())).candidate.ref).toBe('pin')
@@ -227,17 +234,46 @@ describe('the policy download resolver', () => {
     const { resolver, matcher, matches } = setup()
     const track = testSpotifyTrack('hit')
     await matches.put(
-      { trackId: track.id, mode: 'music', target: 'song' },
+      { sourceTrackId: track.id, mode: 'music', target: 'song' },
       {
         band: 'auto',
         candidate: testCandidate('old'),
         alternatives: [],
-        pinned: false,
-        matchedAt: 0,
+        evidence: [],
+        userPinned: false,
+        decidedAt: 0,
       },
     )
     matcher.rank(track, 'song', [{ candidate: testCandidate('new'), band: 'auto' }])
     expect((await resolver.resolve(track, request())).candidate.ref).toBe('new')
+  })
+
+  it('keeps a decision that nothing came close for a day, as playback does', async () => {
+    let now = Date.UTC(2026, 9, 26)
+    const { resolver, matcher, matches } = setup({ now: () => now })
+    const track = testSpotifyTrack('hit')
+    const key = { sourceTrackId: track.id, mode: 'music', target: 'song' } as const
+    const error = await resolver.resolve(track, request()).catch((caught) => caught)
+    expect(playbackProblemOf(error)).toMatchObject({ type: 'unavailable', reason: 'no-match' })
+    expect(await matches.get(key)).toMatchObject({ band: 'none', userPinned: false })
+    // Within the day the engine isn't asked again.
+    await resolver.resolve(track, request()).catch(() => {})
+    expect(matcher.calls).toHaveLength(1)
+    // After it, the track is matched again.
+    now += 24 * 60 * 60_000 + 1
+    matcher.rank(track, 'song', [{ candidate: testCandidate('m'), band: 'auto' }])
+    expect((await resolver.resolve(track, request())).candidate.ref).toBe('m')
+    expect(matcher.calls).toHaveLength(2)
+  })
+
+  it('never stores an outcome some pages were missing from', async () => {
+    const { resolver, matcher, matches } = setup()
+    const track = testSpotifyTrack('hit')
+    matcher.rank(track, 'song', [{ candidate: testCandidate('m'), band: 'auto' }])
+    const match = matcher.match.bind(matcher)
+    matcher.match = async (...args) => ({ ...(await match(...args)), incomplete: true })
+    expect((await resolver.resolve(track, request())).candidate.ref).toBe('m')
+    expect(matches.size).toBe(0)
   })
 
   it('downloads a lossless copy first with "prefer lossless" on', async () => {
