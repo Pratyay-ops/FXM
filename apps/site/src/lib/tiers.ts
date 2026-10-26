@@ -167,8 +167,8 @@ export function otherBrowsersPlays(lite: boolean, jamendo: boolean): string {
 /** The end of the FAQ's iPhone answer: what plays there. */
 export function iPhoneAnswer(lite: boolean, jamendo: boolean): string {
   return lite
-    ? `FXM Connect isn't available there. The web app plays free sources such as ${freeSources(jamendo)}, and YouTube Music in ${LITE} if Safari allows it: Lite isn't tested on iPhone and iPad yet.`
-    : `FXM Connect isn't available there, so the web app plays from free sources such as ${freeSources(jamendo)}.`
+    ? `FXM Connect isn't available there. The web app plays free music from ${freeSources(jamendo)}, and YouTube Music in ${LITE} if Safari allows it: Lite isn't tested on iPhone and iPad yet.`
+    : `FXM Connect isn't available there, so the web app plays free music from ${freeSources(jamendo)}.`
 }
 
 /**

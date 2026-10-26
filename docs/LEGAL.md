@@ -85,7 +85,7 @@ When FXM starts using another service's undocumented API, start a log for that s
 
 1. **Read it and keep it.** Work out exactly what it targets (files, a module, release files or a store listing) and on what grounds: copyright, circumvention (DMCA section 1201), trademark or a service's terms. Note any deadline. When a GitHub DMCA notice names only part of a repository, GitHub gives the owner about one business day to change it before disabling the repository ([GitHub's DMCA Takedown Policy](https://docs.github.com/en/site-policy/content-removal-policies/dmca-takedown-policy)).
 2. **Get advice** before answering a notice that threatens legal action or names the owner personally. Don't argue about it in public.
-3. **Remove only the targeted module, and keep FXM online.** Providers are separate modules, so one can be removed while the rest keeps working. FXM works without Spotify; without YouTube, it plays only free sources (Internet Archive and Jamendo) and local files. To remove the Spotify provider, for example:
+3. **Remove only the targeted module, and keep FXM online.** Providers are separate modules, so one can be removed while the rest keeps working. FXM works without Spotify; without YouTube, it plays only free sources (Internet Archive, and Jamendo once it is turned on) and local files. To remove the Spotify provider, for example:
    - delete `packages/sources/src/spotify/` and the code that uses it;
    - remove the Spotify parts of FXM Connect (its Spotify rules, its session bridge and the Spotify hosts in its manifest) and of the desktop and Android apps (their Spotify hosts and their Spotify login);
    - take Spotify's hosts out of the web app's CSP, and update what the site says about Spotify, on the privacy page too;

@@ -12,7 +12,7 @@
 
 import type { NetworkCapabilities } from '@fxm/core'
 import { type ConnectStatus, MIN_CONNECT_VERSION } from '@fxm/platform'
-import { RELEASED } from './config'
+import { RELEASED, soon } from './config'
 import type { ConnectionState, LiteStatus } from './connection'
 import { canAddConnect, currentDevice, type DeviceInfo, isMacSafari } from './device'
 import { type Tier, tierOf } from './tiers'
@@ -243,8 +243,12 @@ export function explainConnection(
       : [`This version of the ${app} can't reach YouTube Music or Spotify yet.`]
   }
   const lines = [describeConnect(state.connect), describeLite(state.lite, device)]
+  // FXM Connect's login option is on. The app uses the login only for a connected Spotify account
+  // (RELEASED.spotifyAccount), so until then it says what the option is for.
   if (state.capabilities.spotify === 'account') {
-    lines.push('FXM Connect lets FXM use your Spotify login from this browser.')
+    lines.push(
+      `FXM Connect allows your Spotify login from this browser, for when you connect your Spotify account${soon(RELEASED.spotifyAccount)}.`,
+    )
   }
   return lines.filter((line): line is string => line !== undefined)
 }
@@ -265,7 +269,7 @@ export function describeYouTube(capabilities: NetworkCapabilities): string {
 export function describeSpotify(capabilities: NetworkCapabilities): string {
   switch (capabilities.spotify) {
     case 'account':
-      return 'Reachable, with your Spotify login from this browser'
+      return `Reachable. Your Spotify login is allowed, for when you connect your Spotify account${soon(RELEASED.spotifyAccount)}`
     case 'anonymous':
       return 'Reachable'
     case 'unreachable':

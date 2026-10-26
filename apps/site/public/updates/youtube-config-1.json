@@ -1,0 +1,154 @@
+{
+  "schema": 1,
+  "revision": 1,
+  "updated": "2026-10-26",
+  "visitorData": {
+    "swJsDataUrl": "https://www.youtube.com/sw.js_data"
+  },
+  "clients": {
+    "music": { "name": "WEB_REMIX", "version": "1.20261020.10.00", "host": "music.youtube.com" },
+    "web": { "name": "WEB", "version": "2.20261023.01.00", "host": "www.youtube.com" }
+  },
+  "defaultHost": "www.youtube.com",
+  "search": {
+    "music": {
+      "songs": "EgWKAQIIAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "videos": "EgWKAQIQAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "albums": "EgWKAQIYAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "artists": "EgWKAQIgAWoSEAQQBRADEBAQChAJEBUQDhAR",
+      "playlists": "EgeKAQQoAEABahIQBBAFEAMQEBAKEAkQFRAOEBE%3D"
+    },
+    "web": {
+      "videos": "EgIQAQ%3D%3D",
+      "channels": "EgIQAg%3D%3D",
+      "playlists": "EgIQAw%3D%3D"
+    }
+  },
+  "radio": {
+    "params": "wAEB"
+  },
+  "killSwitches": {
+    "lite": false
+  },
+  "labels": {
+    "en": {
+      "albumTypes": { "album": "album", "single": "single", "ep": "ep" },
+      "itemTypes": [
+        "song",
+        "video",
+        "album",
+        "single",
+        "ep",
+        "artist",
+        "playlist",
+        "episode",
+        "podcast",
+        "profile"
+      ],
+      "trackCounts": ["song", "songs", "track", "tracks", "video", "videos", "episode", "episodes"]
+    }
+  },
+  "streams": {
+    "rungs": [
+      {
+        "id": "visionos",
+        "kind": "direct",
+        "enabled": true,
+        "client": { "name": "VISIONOS", "version": "1.02", "host": "www.youtube.com" },
+        "itags": [251, 140, 250, 249, 139]
+      },
+      {
+        "id": "tv-samsung",
+        "kind": "deciphered",
+        "enabled": false,
+        "client": {
+          "name": "TVHTML5",
+          "version": "5.20260707",
+          "host": "www.youtube.com",
+          "fields": {
+            "deviceMake": "Samsung",
+            "deviceModel": "UKS9800",
+            "osName": "Tizen",
+            "osVersion": "2.4.0",
+            "userAgent": "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 (KHTML, like Gecko) Version/2.4.0 TV Safari/538.1"
+          }
+        },
+        "itags": [251, 140, 250, 249, 139],
+        "requires": { "fullAccess": true }
+      },
+      {
+        "id": "mweb",
+        "kind": "attested",
+        "enabled": false,
+        "client": { "name": "MWEB", "version": "2.20260708.05.00", "host": "www.youtube.com" },
+        "itags": [251, 140, 250, 249, 139],
+        "requires": { "fullAccess": true }
+      },
+      {
+        "id": "web-remix",
+        "kind": "attested",
+        "enabled": false,
+        "client": {
+          "name": "WEB_REMIX",
+          "version": "1.20261020.10.00",
+          "host": "music.youtube.com"
+        },
+        "itags": [251, 140, 250, 249, 139],
+        "requires": { "fullAccess": true }
+      },
+      {
+        "id": "web-sabr",
+        "kind": "sabr",
+        "enabled": false,
+        "client": { "name": "WEB", "version": "2.20261023.01.00", "host": "www.youtube.com" },
+        "itags": [251, 140],
+        "requires": { "platforms": ["web", "desktop"], "fullAccess": true, "mediaBytes": true }
+      },
+      {
+        "id": "ios",
+        "kind": "direct",
+        "enabled": false,
+        "client": {
+          "name": "IOS",
+          "version": "20.11.6",
+          "host": "www.youtube.com",
+          "fields": {
+            "deviceMake": "Apple",
+            "deviceModel": "iPhone10,4",
+            "osName": "iOS",
+            "osVersion": "16.7.7.20H330"
+          }
+        },
+        "itags": [140, 139]
+      },
+      {
+        "id": "android-vr",
+        "kind": "direct",
+        "enabled": false,
+        "client": {
+          "name": "ANDROID_VR",
+          "version": "1.65.10",
+          "host": "www.youtube.com",
+          "fields": {
+            "deviceMake": "Oculus",
+            "deviceModel": "Quest 3",
+            "osName": "Android",
+            "osVersion": "12L",
+            "androidSdkVersion": 32
+          }
+        },
+        "itags": [251, 140, 250, 249, 139]
+      },
+      {
+        "id": "android-muxed",
+        "kind": "direct",
+        "enabled": true,
+        "fallback": true,
+        "client": { "name": "ANDROID", "version": "21.26.364", "host": "www.youtube.com" },
+        "itags": [18],
+        "tries": ["made-for-kids"]
+      }
+    ],
+    "muxedAudioKbps": { "18": 128 }
+  }
+}

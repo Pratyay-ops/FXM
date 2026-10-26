@@ -783,7 +783,7 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
 - **Edge Add-ons:** a submission. Its written rules match the Chrome Web Store's, but enforcement is laxer in practice; acceptance is unproven.
 - **No Chrome Web Store submission by default.** It bans facilitating unauthorized streaming or downloading, and lists YouTube downloads as a common rejection reason. Chromium users get the unpacked zip.
 - **Site,** once the signed add-on is out: turn on `AVAILABLE.firefox` and update the sentences that assume a zip-only extension:
-  - the Firefox install steps in `GetFxm.astro`, which today say only "A Firefox add-on is coming";
+  - the Firefox install steps in `GetFxm.astro`, which today offer Firefox only the release's Firefox zip as a temporary add-on (`FIREFOX_TEMPORARY` in `src/lib/connect.ts`, which the FAQ's browser answer also uses);
   - the FAQ's browser and phone answers in `Faq.astro`, which say FXM Connect needs a desktop browser (Firefox for Android can install it);
   - the privacy page's FXM Connect section, which says that a zip install means the browser doesn't ask to approve its permissions (true only for the Chromium zip).
 
