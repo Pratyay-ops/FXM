@@ -16,7 +16,7 @@
 - **Put a player on your website.** On an album's or a playlist's page in the web app, Share gives you the code of a small FXM player for your own site. It plays in your visitors' browsers: Internet Archive's music, and YouTube Music in the experimental Lite tier where the browser allows it.
 - **No servers, no accounts, no tracking.** Everything runs on your device. In the browser, the small **FXM Connect** extension lets the web app reach YouTube Music and Spotify from your own browser; without it, the web app plays free music from Internet Archive, your own files, and YouTube Music in the experimental Lite tier where the browser allows it. The desktop app (macOS, Windows and Linux) and the Android app (both coming soon) won't need the extension.
 
-Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube](https://github.com/KRTirtho/spotube). FXM is not affiliated with YouTube, Google or Spotify.
+Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube](https://github.com/team-spotube/spotube). FXM is not affiliated with YouTube, Google or Spotify.
 
 ## Where it runs
 
