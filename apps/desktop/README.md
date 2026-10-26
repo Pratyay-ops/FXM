@@ -326,8 +326,8 @@ await spotifyLogin.logout()
 
 Known limits:
 
-- Google's sign-in refuses embedded webviews, so "Continue with Google" fails, and sign-ins that open a popup fail too (the window opens no other window). Spotify's own email and password, and its emailed codes, work.
-- macOS: the app is signed ad hoc (Decision 3), so each build has another code signature, and after an update macOS asks once whether FXM may use its keychain entry; "Always Allow" keeps the login.
+- Google's sign-in refuses embedded webviews, so "Continue with Google" is expected to fail, and sign-ins that open a popup fail (the window opens no other window). The window is meant for Spotify's own email and password, or its emailed codes. No real login was tried while the stage was built (the tests use a credential store in memory and local servers): the owner's [manual check](#downloads-and-the-spotify-login-stage-74) is the first.
+- macOS: the app is signed ad hoc (Decision 3), so each build has another code signature, and macOS ties a keychain entry to the signature of the app that made it: expect it to ask once after an update whether FXM may use its entry, where "Always Allow" keeps the login.
 - Linux without a running Secret Service (GNOME Keyring or KWallet) can't keep the login: `status` and `token` fail with `keychain`.
 
 | Command (`plugin:fxm-spotify\|…`) | What it does | Errors |
