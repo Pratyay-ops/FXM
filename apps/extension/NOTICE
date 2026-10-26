@@ -1,0 +1,11 @@
+FXM Connect
+https://github.com/Pratyay-ops/FXM
+
+FXM Connect is part of FXM, a free and open-source music player. It is licensed under the
+Apache License, Version 2.0, whose text is in the LICENSE file next to this one.
+
+FXM Connect bundles no third-party code: its scripts are built from FXM's own source code, in
+apps/extension of the repository, and FXM's own build script draws its icons.
+
+FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google,
+Spotify or Last.fm.

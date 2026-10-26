@@ -22,7 +22,7 @@ This document explains how FXM is built and why. The build order is in [PLAN.md]
 |---|---|---|
 | **Web page** | Landing site: features, how it works, downloads | `https://fxmusic.pages.dev/` |
 | **Web app (PWA)** | The full player, installable from the browser as its own window. With FXM Connect it reaches YouTube, Spotify and Last.fm (the Full tier). Without the extension it uses the experimental Lite tier for YouTube Music where the browser allows it, plus free sources (§8) | `https://fxmusic.pages.dev/app/` |
-| **FXM Connect** | A tiny companion browser extension for Chrome, Edge, Brave and Firefox. It lets the web app reach music services from the user's own browser. It contains no music-service logic | GitHub Releases (Chromium zip), Firefox Add-ons; Edge Add-ons if accepted |
+| **FXM Connect** | A tiny companion browser extension for Chrome, Edge, Brave and Firefox. It lets the web app reach music services from the user's own browser. All YouTube and Spotify protocol logic lives in the web app: FXM Connect has only fixed header rules and the Spotify server-time and login bridge | GitHub Releases (Chromium zip), Firefox Add-ons; Edge Add-ons if accepted |
 | **Desktop app** | The web app packaged with Tauri for macOS, Windows and Linux. Full features, no extension needed. This is FXM's installable "applet", like Spotify's desktop app, at about 10 MB | GitHub Releases |
 | **Android app** | The web app packaged with Capacitor, plus native networking and a native Media3 player for background playback | GitHub Releases (APK) |
 | **Embeddable mini-player** | An `<iframe>` player for a track, album or playlist | `https://fxmusic.pages.dev/embed/…` |
@@ -475,21 +475,21 @@ The site's privacy page names every service the apps contact, and the web app's 
 
 ## 9. FXM Connect (companion extension)
 
-- **Manifest V3, Chromium (120+) and Firefox (140+).** Permissions are `declarativeNetRequest` and `storage`. Host permissions cover only the FXM origin (exactly, so preview sub-domains are excluded), YouTube's API hosts, `*.googlevideo.com`, the Spotify hosts (`open.spotify.com`, `clienttoken`, `api-partner`, `spclient.wg`) and `www.last.fm`. There is no `<all_urls>`, `cookies`, `tabs`, `scripting` or `webRequest` permission.
+- **Manifest V3, Chromium (120+) and Firefox (140+).** Permissions are `declarativeNetRequest` and `storage`. Host permissions cover only the FXM origin (exactly, so preview sub-domains are excluded), YouTube's API hosts, `*.googlevideo.com`, the Spotify hosts (`open.spotify.com`, `api-partner`, `spclient.wg`) and `www.last.fm`. clienttoken, which FXM doesn't use, has neither a permission nor a rule. There is no `<all_urls>`, `cookies`, `tabs`, `scripting` or `webRequest` permission.
 - **Static declarativeNetRequest rules.** Every rule is scoped to the FXM origin (`initiatorDomains`) and sets `Access-Control-Allow-Origin` to that exact origin. None sets `*` or `Allow-Credentials`, and every rule strips `Cookie`, `Set-Cookie` and `Access-Control-Allow-Credentials`.
 
   | Rule | Hosts | Request change | Response change |
   |---|---|---|---|
   | YouTube API | www/music.youtube.com, youtubei.googleapis.com | Origin and Referer set to the host's own YouTube origin on every request. Preflights get the *other* YouTube origin, because InnerTube answers same-host preflights with 400 | ACAO, allowed methods and InnerTube headers, `Max-Age: 600` |
   | Stream bytes | googlevideo | A YouTube Origin on preflights only | ACAO, with the range headers exposed, for probes, downloads and MediaSource |
-  | Spotify token | open.spotify.com (`/api/token`, `/api/server-time`), clienttoken | Origin and Referer set to `https://open.spotify.com` | ACAO, allowed methods and Spotify headers |
+  | Spotify token | open.spotify.com (`/api/token`, `/api/server-time`) | Origin and Referer set to `https://open.spotify.com` | ACAO, allowed methods and Spotify headers |
   | Spotify API | pathfinder, spclient | None | ACAO, allowed methods and Spotify headers |
   | Last.fm | Station JSON | None | ACAO |
 
 - **googlevideo redirects stay unreadable.** After a 302 to another googlevideo host, the browser sends `Origin: null` and accepts only `Access-Control-Allow-Origin: null`, which no static rule can send without breaking the requests that weren't redirected. `fetch`, MediaSource, download and `crossorigin` reads of such a URL fail. FXM then re-resolves, or falls back to a plain `<audio src>`, which follows redirects without CORS.
 - **Presence handshake.** A content script marks the page (`data-fxm-connect`) and answers a ping with its version and features.
 - **Spotify session bridge (opt-in in the extension's options, off by default).** The background script fetches `/api/token` with the user's own `open.spotify.com` cookies, using a strict parameter allow-list. It returns only the status and the token JSON, and never reads or stores cookies. It also relays `/api/server-time` without credentials, serves about ten requests a minute, and refuses private windows and Firefox container tabs. The toggle lives in the extension's own IndexedDB, out of content scripts' reach.
-- **No music-service logic and no remote code.** All logic lives in the web app, so a YouTube breakage is fixed by redeploying the static site. A strict extension CSP lets the extension's own pages connect only to `open.spotify.com`.
+- **No protocol logic and no remote code.** All YouTube and Spotify protocol logic lives in the web app; FXM Connect has only its fixed header rules and the Spotify server-time and login bridge, so a YouTube breakage is fixed by redeploying the static site. A strict extension CSP lets the extension's own pages connect only to `open.spotify.com`.
 - **Lite and Connect don't interfere.** The sandbox documents are opaque, so Connect's rules, which are scoped to the FXM origin, never match their requests.
 - **One origin.** Connect serves only `https://fxmusic.pages.dev` (plus localhost in dev builds). Serving another origin would take a new extension release, and unpacked Chromium installs update by hand.
 - **Store risk.** Mozilla can block an add-on for every user. Onboarding detects a Connect that was seen before and is now missing (§8).

@@ -13,8 +13,12 @@ type CatalogMode = 'music' | 'all'
 
 const THEMES: readonly Theme[] = ['dark', 'light']
 const WIDTHS = [320, 768, 1280, 1920] as const
+// Home with its development fakes (Full tier, recommendations from an invented catalog): the
+// real services would ask the network, which these captures don't stub.
+const HOME = './?fake-home=full'
+
 const PAGES = [
-  ['home', './'],
+  ['home', HOME],
   ['search', 'search'],
   ['results', 'search?q=daft%20punk'],
   ['library', 'library'],
@@ -114,7 +118,7 @@ async function captureLibraryStates(page: Page, prefix: string) {
 // results: the fake catalog (see below) gives them. The third entry is text to wait for.
 const MODE_WIDTHS = [768, 1024, 1280] as const
 const MODE_PAGES = [
-  ['home', './'],
+  ['home', HOME],
   ['results', 'search?q=paper%20moons&fake=full', 'Paper Moons (Radio Edit)'],
 ] as const
 
@@ -169,7 +173,7 @@ for (const theme of THEMES) {
       test('captures every page', async ({ page }) => {
         await seedSettings(page, 'music', theme)
         await capture(page, PAGES, `${theme}-${width}`)
-        await page.goto('./')
+        await page.goto(HOME)
         await page.screenshot({
           path: `screenshots/${theme}-${width}-home-full.png`,
           fullPage: true,
@@ -227,7 +231,7 @@ const CATALOG_PAGES = [
   ['results-free', 'search?q=owl&fake=free', 'Search needs YouTube Music access'],
   ['search-free', 'search?fake=free', 'Search needs YouTube Music access'],
   ['album', 'album/ytm:alb-neon-harbor?fake=full', 'Last Ferry Home'],
-  ['album-lite', 'album/ytm:alb-neon-harbor?fake=lite', 'Lite mode, experimental'],
+  ['album-lite', 'album/ytm:alb-neon-harbor?fake=lite', 'Lite tier, experimental'],
   ['artist', 'artist/ytm:art-nova-lane?fake=full', 'Fans also like'],
   ['playlist', 'playlist/ytm:pl-late-night-drive?fake=full', 'Neon Prayer'],
   ['album-free', 'album/ytm:alb-neon-harbor?fake=free', 'This album is on YouTube Music'],

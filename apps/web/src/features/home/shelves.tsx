@@ -23,6 +23,8 @@ import { buttonClasses } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
 import { CoverArt } from '../library/cover-art'
 import { artistNames, artworkUrl } from '../library/format'
+import { playlistPath } from '../library/paths'
+import { albumPath, artistPath } from '../search/catalog/links'
 import type { HomePlayback } from './services'
 
 /** Plays `tracks` from `index`, or nothing when playback isn't wired in. */
@@ -373,12 +375,14 @@ export function MixTrackList({ mix, play }: { mix: DailyMix; play: PlayFrom }) {
 }
 
 /**
- * The page of an album, artist or playlist: `/<kind>/<source>:<native ID>`, the form of stage
- * 2.4's pages.
+ * The page of an album, artist or playlist, with stage 2.4's link helpers (`albumPath`,
+ * `artistPath`) and the library's `playlistPath`, which also opens the library's own playlists.
  */
 export function entityPath(id: EntityId<'album' | 'artist' | 'playlist'>): string {
-  const { source, kind, nativeId } = parseId(id)
-  return `/${kind}/${source}:${encodeURIComponent(nativeId)}`
+  const { kind } = parseId(id)
+  if (kind === 'album') return albumPath(id as EntityId<'album'>)
+  if (kind === 'artist') return artistPath(id as EntityId<'artist'>)
+  return playlistPath(id as EntityId<'playlist'>)
 }
 
 /** One item of a service's section as a card. */

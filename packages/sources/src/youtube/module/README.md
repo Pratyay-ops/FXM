@@ -58,7 +58,7 @@ A config from the network must come through the host's `updates.config` and `@fx
 
 ## Building and publishing
 
-`build.mjs` bundles `entry.ts` with Vite (Rolldown) into one minified file, about 745 KB (190 KB compressed), with no imports, chunks or assets, so it runs from a `blob:` URL. It opens with the licence notices of everything bundled into it (youtubei.js, `@bufbuild/protobuf`, fflate and meriyah, then FXM's Apache License 2.0), generated from the packages the bundle holds, so the signed file carries them wherever it goes. The same sources and lockfile give the same bytes, so a published module can be rebuilt and compared (`scripts/sign-update.mjs verify module`). The owner builds and signs it in one step:
+`build.mjs` bundles `entry.ts` with Vite (Rolldown) into one minified file, about 745 KB (190 KB compressed), with no imports, chunks or assets, so it runs from a `blob:` URL. It opens with the licence notices of everything bundled into it (youtubei.js, `@bufbuild/protobuf`, fflate and meriyah, then FXM's Apache License 2.0), generated from the packages the bundle holds, so the signed file carries them wherever it goes. Each package gets its licence files plus the copyright and licence comments of its bundled files that add to them, such as Google's BSD-3-Clause notice on `@bufbuild/protobuf`'s varint code; `make dist`'s third-party notices use the same helper (`scripts/build-dist/src/notices.ts`). The same sources and lockfile give the same bytes, so a published module can be rebuilt and compared (`scripts/sign-update.mjs verify module`). The owner builds and signs it in one step:
 
 ```sh
 # raise YOUTUBE_MODULE_VERSION in version.ts, and commit

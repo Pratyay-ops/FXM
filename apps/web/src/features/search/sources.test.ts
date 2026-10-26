@@ -145,12 +145,17 @@ describe('itemFeatures', () => {
   it('treats Spotify items like YouTube ones, and free sources as always readable', () => {
     expect(itemFeatures(TIER_CAPABILITIES.lite, 'spotify').download).toBe(false)
     expect(itemFeatures(TIER_CAPABILITIES.full, 'spotify').download).toBe(true)
-    for (const source of ['archive', 'jamendo', 'local'] as const) {
+    for (const source of ['archive', 'jamendo'] as const) {
       expect(itemFeatures(TIER_CAPABILITIES.free, source)).toEqual({
         download: true,
         equalizer: true,
       })
     }
+    // A local file is on the device already: the equalizer, but nothing to download.
+    expect(itemFeatures(TIER_CAPABILITIES.full, 'local')).toEqual({
+      download: false,
+      equalizer: true,
+    })
     expect(itemFeatures(TIER_CAPABILITIES.full, 'plugin.radio').download).toBe(false)
   })
 

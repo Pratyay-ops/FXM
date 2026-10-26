@@ -22,6 +22,8 @@ async function openPlatform({ youtube }: { youtube: boolean }): Promise<EmbedPla
     const platform = await createPlatform({
       ...embedPlatformOptions(),
       ...(sandbox === undefined ? {} : { sandbox }),
+      // The YouTube ladder reports the bot checks it tells apart from age gates itself.
+      reportLoginRequired: false,
     })
     // The platform runs the Lite self-test in the background. The player decides from the tier
     // what it can play, so it waits for the test (at most its timeout): otherwise it would show
@@ -30,6 +32,10 @@ async function openPlatform({ youtube }: { youtube: boolean }): Promise<EmbedPla
     return {
       capabilities: platform.capabilities,
       context: (options) => platform.context(options),
+      budget: platform.budget,
+      report: (error) => {
+        platform.report(error)
+      },
       dispose: () => {
         platform.dispose()
         sandbox?.dispose()

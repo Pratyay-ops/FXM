@@ -3,17 +3,11 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { isRouteErrorResponse, Link, useLocation, useNavigate, useRouteError } from 'react-router'
 import { buttonClasses } from '../components/ui/button'
 import { ErrorState } from '../components/ui/error-state'
+import { isChunkLoadError } from '../lib/app-update'
 import { NotFoundPage } from './not-found-page'
 
 /** A lazily loaded page failed to download (offline, or a new deploy replaced it). */
-export function isChunkLoadError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    /dynamically imported module|module script failed|importing a module script|loading chunk/i.test(
-      error.message,
-    )
-  )
-}
+export { isChunkLoadError }
 
 function errorDetails(error: unknown): string | undefined {
   if (!import.meta.env.DEV) return undefined

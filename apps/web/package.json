@@ -28,6 +28,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@fxm/core": "workspace:*",
+    "@fxm/desktop": "workspace:*",
     "@fxm/downloads": "workspace:*",
     "@fxm/platform": "workspace:*",
     "@fxm/player": "workspace:*",

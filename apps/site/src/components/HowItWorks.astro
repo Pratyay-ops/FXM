@@ -10,13 +10,13 @@ const saved = AVAILABLE.downloads
 
 const services = [
   'YouTube Music',
-  'Spotify (optional)',
+  'Spotify (switchable)',
   'Last.fm',
   'ListenBrainz',
   'LRCLIB',
   'MusicBrainz',
   'Internet Archive',
-  'Jamendo',
+  AVAILABLE.jamendo ? 'Jamendo' : 'Jamendo (coming soon)',
 ]
 ---
 
@@ -49,7 +49,7 @@ const services = [
           <span class="num">2</span>
           <div>
             <h3>Your device asks the music services</h3>
-            <p>{howItWorksStep(AVAILABLE.lite)}</p>
+            <p>{howItWorksStep(AVAILABLE.lite, AVAILABLE.jamendo)}</p>
           </div>
         </li>
         <li>
@@ -64,7 +64,7 @@ const services = [
       <div
         class="diagram"
         role="img"
-        aria-label="Diagram: FXM runs on your device and talks directly to music services: YouTube Music, Spotify unless you switch it off, Last.fm, ListenBrainz, LRCLIB, MusicBrainz, Internet Archive and Jamendo. Your library and history stay on your device. There are no FXM servers in between."
+        aria-label={`Diagram: FXM runs on your device and talks directly to music services: YouTube Music, Spotify unless you switch it off, Last.fm, ListenBrainz, LRCLIB, MusicBrainz, Internet Archive and ${AVAILABLE.jamendo ? 'Jamendo' : 'Jamendo (coming soon)'}. Your library and history stay on your device. There are no FXM servers in between.`}
       >
         <div class="box device">
           <div class="box-label">

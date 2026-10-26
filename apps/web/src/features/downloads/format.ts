@@ -6,6 +6,7 @@
 
 import { CODEC_LABELS } from '@fxm/core'
 import type { DownloadErrorCode, DownloadFileFormat, DownloadRecord } from '@fxm/downloads'
+import { connectOrApps } from '../connect/explain'
 
 const UNITS = ['bytes', 'KB', 'MB', 'GB', 'TB'] as const
 
@@ -40,7 +41,7 @@ export function bytesLabel(record: Pick<DownloadRecord, 'bytesDone' | 'bytesTota
 
 /** What each error says to the user. */
 export const ERROR_TEXT: Readonly<Record<DownloadErrorCode, string>> = {
-  unsupported: 'Downloading it needs FXM Connect, the desktop app or the Android app',
+  unsupported: `Downloading it needs ${connectOrApps()}`,
   unavailable: "This song can't be played right now",
   'needs-review': "FXM isn't sure it found the right version. Check the match, then try again",
   unverified: "Couldn't get the whole file. Try again later",

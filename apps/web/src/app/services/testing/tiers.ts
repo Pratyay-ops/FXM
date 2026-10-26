@@ -74,6 +74,11 @@ export interface TierSetup {
   readonly sandboxOnPlatformOnly?: boolean
   /** Whether the user connected their Spotify account (`AppServicesOptions.spotifyAccount`). */
   readonly spotifyAccount?: AppServicesOptions['spotifyAccount']
+  /**
+   * The user's music files as a catalog (stage 4.4), and whether there are any
+   * (`AppServicesOptions.localProvider`, `watchLocalFiles`). Default: none.
+   */
+  readonly local?: Pick<AppServicesOptions, 'localProvider' | 'watchLocalFiles'>
 }
 
 /** The services on one tier, with what a test looks at. */
@@ -171,6 +176,11 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
     deviceStore: store,
     network: createStaticNetworkMonitor(),
     jamendoClientId: undefined,
+    // Nothing of the device's own: no downloads or music files, and no update checks.
+    offline: undefined,
+    localProvider: undefined,
+    ...setup.local,
+    updates: false,
     catalogMode: () => mode,
     ...(sandbox === undefined || setup.sandboxOnPlatformOnly ? {} : { sandbox }),
     ...(setup.spotifyAccount === undefined ? {} : { spotifyAccount: setup.spotifyAccount }),

@@ -82,7 +82,7 @@ describe('the onboarding page', { timeout: 30_000 }, () => {
     expect(missing.getByText(/adds YouTube Music and its ad-free audio\./)).toBeInTheDocument()
     expect(
       missing.getByText(
-        /adds YouTube Music without Lite's experimental route, and Spotify search and related artists and a read-only sync of your Spotify account\. Coming soon: downloads\./,
+        /adds YouTube Music without Lite's experimental route, YouTube Music downloads, Spotify search and related artists and a read-only sync of your Spotify account\./,
       ),
     ).toBeInTheDocument()
 

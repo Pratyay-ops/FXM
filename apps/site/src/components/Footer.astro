@@ -1,5 +1,5 @@
 ---
-import { APP_PATH, ISSUES_URL, LICENSE_URL, RELEASES_URL, REPO_URL } from '../config'
+import { APP_PATH, ISSUES_URL, LICENSE_URL, NOTICES_PATH, RELEASES_URL, REPO_URL } from '../config'
 import Logo from './Logo.astro'
 
 const year = new Date().getFullYear()
@@ -27,6 +27,7 @@ const columns = [
       { href: '/privacy', label: 'Privacy' },
       { href: '/disclaimer', label: 'Disclaimer' },
       { href: LICENSE_URL, label: 'Apache-2.0 license' },
+      { href: NOTICES_PATH, label: 'Open-source licences' },
     ],
   },
 ]

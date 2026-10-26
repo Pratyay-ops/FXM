@@ -118,6 +118,8 @@ async function launch(withExtension: boolean): Promise<BrowserContext> {
       `--host-resolver-rules=${resolverRules}`,
       '--ignore-certificate-errors',
       '--disable-quic',
+      // The audio checks load media without playing it; nothing may make a sound anyway.
+      '--mute-audio',
       ...(withExtension
         ? [`--disable-extensions-except=${EXTENSION_DIR}`, `--load-extension=${EXTENSION_DIR}`]
         : []),
@@ -464,26 +466,18 @@ test.describe('with FXM Connect loaded', () => {
     ).toMatchObject({ ok: true, status: 200, json: { playlist: [{ name: 'Mock song' }] } })
   })
 
-  test('makes Spotify clienttoken, pathfinder and spclient responses readable', async () => {
+  test('makes Spotify pathfinder and spclient responses readable, and leaves clienttoken alone', async () => {
     await page.goto(`${FXM}/`)
+    // FXM doesn't use clienttoken, which answers CORS only for open.spotify.com: no rule (and no
+    // host permission) touches it, so the page's request keeps its own Origin and fails.
     const clientToken = await pageFetch(page, `https://${CLIENTTOKEN_HOST}/v1/clienttoken`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: '{"client_data":{}}',
     })
-    expect(clientToken).toMatchObject({
-      ok: true,
-      status: 200,
-      json: { granted_token: { token: 'mock-client-token' } },
-    })
-    // clienttoken only answers CORS for open.spotify.com, so the rule makes requests look so.
-    expect(
-      mock
-        .requests(CLIENTTOKEN_HOST)
-        .map(({ method, origin, referer, status }) => [method, origin, referer, status]),
-    ).toEqual([
-      ['OPTIONS', 'https://open.spotify.com', 'https://open.spotify.com/', 200],
-      ['POST', 'https://open.spotify.com', 'https://open.spotify.com/', 200],
+    expect(clientToken).toMatchObject({ ok: false })
+    expect(mock.requests(CLIENTTOKEN_HOST).map(({ method, origin }) => [method, origin])).toEqual([
+      ['OPTIONS', FXM],
     ])
 
     // The web player's headers; each of them needs a preflight.
@@ -642,9 +636,9 @@ test.describe('with FXM Connect loaded', () => {
     await expect(options.locator('#version')).toHaveText(VERSION)
     // The page's own stylesheet loads under the extension's CSP.
     await expect(options.locator('main')).toHaveCSS('max-width', '672px')
-    // The release build shows no development warning and no localhost toggle.
-    await expect(options.locator('#dev-warning')).toBeHidden()
-    await expect(options.locator('#localhost-login')).toBeHidden()
+    // The release build's page has no development warning and no localhost toggle at all.
+    await expect(options.locator('#dev-warning')).toHaveCount(0)
+    await expect(options.locator('#localhost-login')).toHaveCount(0)
     await expect(options.locator('#origins')).toHaveText(FXM)
     const toggle = options.getByLabel('Use my Spotify login from this browser')
     await expect(toggle).toBeEnabled()

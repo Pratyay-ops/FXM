@@ -27,7 +27,6 @@ val HOST_RULES: List<HostRule> =
     HostRule("youtubei.googleapis.com", HostClass.INNERTUBE, "YouTube"),
     HostRule("*.googlevideo.com", HostClass.GOOGLEVIDEO, "YouTube media"),
     HostRule("open.spotify.com", HostClass.SPOTIFY, "Spotify"),
-    HostRule("clienttoken.spotify.com", HostClass.SPOTIFY, "Spotify"),
     HostRule("api-partner.spotify.com", HostClass.SPOTIFY, "Spotify"),
     HostRule("spclient.wg.spotify.com", HostClass.SPOTIFY, "Spotify"),
     HostRule(

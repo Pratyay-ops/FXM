@@ -481,6 +481,27 @@ test.describe('on a 320 px phone', () => {
     expect(unreachable).toEqual([])
   })
 
+  test('keeps the selected source in view in the sideways row of chips', async ({ page }) => {
+    // Nothing leaves this machine. This build has no sandbox documents (make dist adds them),
+    // so no Lite tier: Search offers YouTube Music and Internet Archive, the Free tier's.
+    await page.route(/^https?:\/\/(?!localhost[:/])/, (route) => route.abort())
+    await page.goto('search')
+    const sources = page.getByRole('radiogroup', { name: 'Search in' })
+    const last = sources.locator('label').last()
+    await expect(sources.locator('label')).not.toHaveCount(0)
+    await last.tap()
+    await expect(sources.getByRole('radio').last()).toBeChecked()
+
+    // Away and back: Search opens again with that source, its chip in view, not off the edge.
+    const nav = page.getByRole('navigation', { name: 'Main' })
+    await nav.getByRole('link', { name: 'Library' }).tap()
+    await nav.getByRole('link', { name: 'Search' }).tap()
+    await expect(sources.getByRole('radio').last()).toBeChecked()
+    const box = await last.boundingBox()
+    expect(box?.x ?? -1).toBeGreaterThanOrEqual(0)
+    expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(320)
+  })
+
   test('uses the tab bar and opens Now Playing from the mini player', async ({ page }) => {
     await page.goto('./')
     await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Search' }).tap()
