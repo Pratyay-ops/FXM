@@ -59,7 +59,8 @@ write_gh_stub() {
 #!/usr/bin/env bash
 # Stand-in for gh (scripts/release-test.sh): logs every call to $GH_STUB_DIR/calls.log and
 # answers from files there, where an empty file counts as none: logged-out, open-pr ("<url>
-# <title>" lines), released/<tag>, tags/<tag> (a commit, or "tag <object>" for an annotated
+# <title>" lines), released/<tag>, released-after/<tag> (how many times to answer 404 before
+# the release counts as published), tags/<tag> (a commit, or "tag <object>" for an annotated
 # tag), tag-objects/<object> ("commit <sha>"), drafts/<tag>, and broken (API paths that fail
 # with HTTP 502).
 set -euo pipefail
@@ -115,7 +116,15 @@ case "$1 ${2:-}" in
     fi
     case "$method $path" in
       "GET repos/test/fxm/releases/tags/"*)
-        if [ -s "$state/released/${path##*/}" ]; then cat "$state/released/${path##*/}"; else not_found; fi
+        after=$state/released-after/${path##*/}
+        if [ -s "$after" ]; then
+          [ "$(cat "$after")" -eq 0 ] || { echo $(($(cat "$after") - 1)) >"$after" && not_found; }
+          echo 4001
+        elif [ -s "$state/released/${path##*/}" ]; then
+          cat "$state/released/${path##*/}"
+        else
+          not_found
+        fi
         ;;
       "GET repos/test/fxm/git/ref/tags/"*)
         [ -s "$state/tags/${path##*/}" ] || not_found
@@ -707,6 +716,45 @@ plan
 expect "versions that disagree stop the release" test "$status" -ne 0
 git -C "$work" checkout -q -- apps/web/package.json
 unset GITHUB_OUTPUT
+
+echo "release-wait.sh"
+work=$(new_repo wait)
+export GH_STUB_DIR=$tmp/wait/gh
+mkdir -p "$GH_STUB_DIR/released" "$GH_STUB_DIR/released-after"
+: >"$GH_STUB_DIR/calls.log"
+# wait_for_release [minutes]: runs release-wait.sh without pauses between its requests.
+wait_for_release() {
+  run "$work" env FXM_RELEASE_WAIT_INTERVAL=0 FXM_RELEASE_WAIT_MINUTES="${1:-0}" \
+    scripts/release-wait.sh
+}
+asked() { grep -c '^api repos/test/fxm/releases/tags/v0.1.0 ' "$GH_STUB_DIR/calls.log" || true; }
+wait_for_release
+expect "0.0.0 waits for nothing" test "$status" -eq 0 -a "$(asked)" = 0
+(cd "$work" && scripts/release-version.sh 0.1.0 >/dev/null)
+git -C "$work" commit -q -am "chore(release): v0.1.0"
+wait_for_release
+expect "a commit that brings a version fails while its release isn't out" \
+  test "$status" -ne 0 -a -n "$(grep 'v0.1.0 is not out after 0 minutes' <<<"$out")"
+echo 2001 >"$GH_STUB_DIR/released/v0.1.0"
+wait_for_release
+expect "and passes once it is published" \
+  test "$status" -eq 0 -a -n "$(grep 'v0.1.0 is published' <<<"$out")"
+: >"$GH_STUB_DIR/released/v0.1.0"
+echo 2 >"$GH_STUB_DIR/released-after/v0.1.0"
+: >"$GH_STUB_DIR/calls.log"
+wait_for_release 1
+expect "asking again until it is out" test "$status" -eq 0 -a "$(asked)" = 3
+rm "$GH_STUB_DIR/released-after/v0.1.0"
+echo repos/test/fxm/releases/tags/v0.1.0 >"$GH_STUB_DIR/broken"
+wait_for_release
+expect "a failed request is no answer" test "$status" -ne 0 \
+  -a -n "$(grep "didn't say whether v0.1.0 is published: gh: Server Error (HTTP 502)" <<<"$out")"
+: >"$GH_STUB_DIR/broken"
+commit "$work" "fix(core): a later fix on main"
+: >"$GH_STUB_DIR/calls.log"
+wait_for_release
+expect "a commit that keeps the version waits for nothing" \
+  test "$status" -eq 0 -a "$(asked)" = 0 -a -n "$(grep 'keeps version 0.1.0' <<<"$out")"
 
 echo "release-collect.sh"
 work=$(new_repo collect)

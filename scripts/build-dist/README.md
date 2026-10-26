@@ -81,12 +81,33 @@ A stage that makes the web app contact a new service adds it to `APP_SERVICES` i
 
 - **develop** deploys to the preview at `https://develop.fxmusic.pages.dev`, and the verify job checks it.
 - **main**, which only release pull requests reach (they must pass `make check`), deploys first to a candidate at `https://main-candidate.fxmusic.pages.dev`. The verify job checks the candidate, and only then does the promote job deploy the same folder to production, `https://fxmusic.pages.dev` (Pages uploads no file twice). A last job checks production's headers.
+- **A push to main that brings a new version**, the merge of a release pull request, also waits for that version's GitHub Release before the promotion: the release job polls GitHub for it for up to 30 minutes (`scripts/release-wait.sh`), with no more than read access, while the release workflow builds and publishes it. So the site, which links to the latest release, never points at an older one, or at an empty Releases page before v0.1.0. A release that takes longer, for example while Firefox Add-ons signs FXM Connect, leaves production at the previous version: re-run the deploy workflow's failed jobs once the release is published. Any other push to main promotes without waiting.
 - `workflow_dispatch` redeploys `develop` or `main` by hand; on any other branch it only runs `make dist`.
 
-The deploy jobs run in GitHub environments, `preview` for develop and `production` for main, and `deploy.sh` refuses any other branch, and any branch but the one its run was started for. Owner setup:
+The deploy jobs run in GitHub environments, `preview` for develop and `production` for main, and `deploy.sh` refuses any other branch, and any branch but the one its run was started for.
 
-- a free Cloudflare account, and an API token with Account > Cloudflare Pages > Edit;
-- the GitHub environments `preview` (deployment branches: `develop` only) and `production` (`main` only; a required reviewer is optional and then approves both the candidate and the promotion), each with the secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and no repository-level copies of them. Repository secrets reach a workflow on any branch, so one pushed branch could otherwise publish over the one origin FXM Connect trusts;
+**The secrets today.** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are repository secrets, and only the `preview` environment exists, with no branch rule (checked 2026-10-26; the first deploy created it). Repository secrets reach a workflow run on any branch, so the environments protect nothing yet: a pushed branch whose workflow asked for them could publish over the one origin FXM Connect trusts.
+
+**Recommended owner setup:**
+
+- a free Cloudflare account, and an API token with Account > Cloudflare Pages > Edit (both done);
+- the GitHub environments `preview`, limited to the branch `develop`, and `production`, limited to `main` (a required reviewer is optional, and then approves both the candidate and the promotion), each holding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with no repository copies of them. With the GitHub CLI (`scripts/run.sh gh …` in this repository):
+
+  ```sh
+  policy='{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
+  gh api -X PUT repos/Pratyay-ops/FXM/environments/preview --input - <<<"$policy"
+  gh api -X POST repos/Pratyay-ops/FXM/environments/preview/deployment-branch-policies -f name=develop -f type=branch
+  gh api -X PUT repos/Pratyay-ops/FXM/environments/production --input - <<<"$policy"
+  gh api -X POST repos/Pratyay-ops/FXM/environments/production/deployment-branch-policies -f name=main -f type=branch
+  gh secret set CLOUDFLARE_API_TOKEN --env preview      # each one asks for the value
+  gh secret set CLOUDFLARE_ACCOUNT_ID --env preview
+  gh secret set CLOUDFLARE_API_TOKEN --env production
+  gh secret set CLOUDFLARE_ACCOUNT_ID --env production
+  gh secret delete CLOUDFLARE_API_TOKEN                 # last, the repository copies
+  gh secret delete CLOUDFLARE_ACCOUNT_ID
+  ```
+
+  An environment's secret wins over a repository secret of the same name, so the deploys keep working at every step;
 - `develop` protected, by required pull requests or restricted pushers: Cloudflare can't limit a token to one branch, so a develop run could still deploy production.
 
 More about the deploy:

@@ -10,14 +10,21 @@ name: Deploy
 #                      branch finds out before it merges. No secrets.
 #   deploy             develop: the preview. main: a release candidate at
 #                      main-candidate.fxmusic.pages.dev. Only these two branches deploy, each in
-#                      its GitHub environment (preview, production), which holds the Cloudflare
-#                      secrets. The job runs nothing but wrangler, pinned by its own lockfile in
+#                      its GitHub environment (preview, production). The Cloudflare secrets are
+#                      repository secrets for now, which a run on any branch could read; the
+#                      recommended setup limits each environment to its branch and moves the
+#                      secrets into the environments (scripts/build-dist/README.md, "Deploying").
+#                      The job runs nothing but wrangler, pinned by its own lockfile in
 #                      scripts/build-dist-wrangler, and restores no cache another run could
 #                      have written.
 #   verify             checks that deployment: every path's headers (check-headers.ts), and in
 #                      Chrome that the pages run under their policies and googlevideo requests
 #                      carry no Referer.
-#   promote            main only, once verify passed: the same folder to production.
+#   release            main only: when the push brings a new version (a release pull request's
+#                      merge), waits up to 30 minutes for that version's GitHub Release, which
+#                      the release workflow publishes, so the site never links to a release
+#                      that isn't out yet (scripts/release-wait.sh). Any other push passes at once.
+#   promote            main only, once verify and release passed: the same folder to production.
 #   verify-production  main only: the header check of production.
 on:
   push:
@@ -205,9 +212,30 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  release:
+    name: Wait for the release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # It only reads the releases.
+    permissions:
+      contents: read
+    steps:
+      # The commit and its first parent, the commit main had before: their versions tell
+      # whether this push brings a release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Wait for the version's GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release-wait.sh
+
   promote:
     name: Deploy the release to production
-    needs: verify
+    needs: [verify, release]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10

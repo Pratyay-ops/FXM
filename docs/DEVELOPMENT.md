@@ -104,7 +104,7 @@ The scripts behind them work on their own too:
 
 - `scripts/release-version.sh x.y.z` sets the version: the root and every workspace `package.json` (FXM Connect's manifest and the Android `versionName` come from theirs) and `APP_VERSION` in `packages/core/src/index.ts`. `--dry-run` shows the changes, `--check` fails unless every package agrees.
 - `scripts/release-notes.sh [x.y.z]` prints release notes: the version's summary (`docs/releases/vX.Y.Z.md`), then its features, fixes and performance changes (`cliff.notes.toml`). `--changelog x.y.z` regenerates `CHANGELOG.md`, which has every change (`cliff.toml`). git-cliff runs offline.
-- `release.yml` runs the rest: `release-plan.sh` decides whether to release, `release-collect.sh` gathers the artifact jobs' files and refuses any that `fxm_release_catalog` in `scripts/release-lib.sh` doesn't list for that job, and `release-publish.sh` tags and publishes.
+- `release.yml` runs the rest: `release-plan.sh` decides whether to release, `release-collect.sh` gathers the artifact jobs' files and refuses any that `fxm_release_catalog` in `scripts/release-lib.sh` doesn't list for that job, and `release-publish.sh` tags and publishes. `deploy.yml` runs `release-wait.sh`, which holds the production deploy of a release until its GitHub Release is out.
 
 git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`, installed on first use. `.github/workflows/release.yml` runs on every push to `main` and publishes a release when the version has none yet. Like `ci.yml`, it pins its actions to commit SHAs, and it builds without caches.
 
@@ -112,7 +112,7 @@ git-cliff and actionlint are pinned, checksum-verified binaries in `.tools/bin`,
 
 `.github/workflows/ci.yml` runs on every push and pull request. It uses the same isolated layout as your machine (`make ci-setup`, `make doctor`, `make check`, then `make release-check`) and caches `.tools/` between runs. A stage is merged into `develop` only when `make check` passes locally and CI is green on its branch.
 
-`.github/workflows/deploy.yml` runs `make dist` on every push, then deploys `develop` to the preview (`https://develop.fxmusic.pages.dev`) and `main` to production (`https://fxmusic.pages.dev`, once a candidate of it passed the checks), the Cloudflare Pages project `fxmusic`, and checks each deployment's headers. How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md).
+`.github/workflows/deploy.yml` runs `make dist` on every push, then deploys `develop` to the preview (`https://develop.fxmusic.pages.dev`) and `main` to production (`https://fxmusic.pages.dev`, once a candidate of it passed the checks, and for a release once its GitHub Release is out), the Cloudflare Pages project `fxmusic`, and checks each deployment's headers. How it works, and what a stage that contacts a new service changes, is in [scripts/build-dist/README.md](../scripts/build-dist/README.md). Its Cloudflare secrets are repository secrets for now; the recommended setup that moves them into environments limited to `develop` and `main` is in [Deploying](../scripts/build-dist/README.md#deploying).
 
 ## Live smoke tests
 
