@@ -25,6 +25,22 @@ describe('checkTranslation', () => {
     expect(check('removed', '{title} aus <link>{playlist}</link> entfernt')).toEqual([])
   })
 
+  it('refuses an empty translation, which translation platforms write for untranslated keys', () => {
+    expect(check('title', '')).toEqual([
+      {
+        severity: 'error',
+        id: 'library.title',
+        problem: 'Is empty: leave the key out until it is translated',
+      },
+    ])
+    expect(check('songs', ' ').map((p) => p.problem)).toEqual([
+      'Is empty: leave the key out until it is translated',
+    ])
+    expect(checkTranslation({ id: 'x.blank', locale: 'de', source: '', translation: '' })).toEqual(
+      [],
+    )
+  })
+
   it('refuses a translation that doesn’t parse', () => {
     expect(check('title', 'Bibliothek {')).toEqual([
       { severity: 'error', id: 'library.title', problem: expect.stringContaining("Doesn't parse") },
@@ -150,5 +166,13 @@ describe('sourceCatalog and completion', () => {
     expect(completion([library], {})).toBe(0)
     expect(completion([library], { library: { title: 'Bibliothek', tier: 'x' } })).toBe(0.5)
     expect(completion([], {})).toBe(1)
+  })
+
+  it('doesn’t count empty messages as translated, unless the English is empty', () => {
+    expect(completion([library], { library: { title: 'Bibliothek', songs: '', tier: '' } })).toBe(
+      0.25,
+    )
+    const blank = defineMessages('blank', { nothing: '' })
+    expect(completion([blank], { blank: { nothing: '' } })).toBe(1)
   })
 })

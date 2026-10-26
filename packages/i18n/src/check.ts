@@ -1,7 +1,8 @@
 /**
- * Checks for translations, for tests and CI, never for the app's bundle: a translation must parse,
- * take the same values as its English message, keep its tags, and give each plural the forms its
- * language needs. Also the English catalog for translation tools, and how complete a locale is.
+ * Checks for translations, for tests and CI, never for the app's bundle: a translation must not be
+ * empty, must parse, take the same values as its English message, keep its tags, and give each
+ * plural the forms its language needs. Also the English catalog for translation tools, and how
+ * complete a locale is.
  *
  * ```ts
  * expect(checkCatalog({ locale: 'de', namespaces: ALL_NAMESPACES, catalog: de })).toEqual([])
@@ -136,6 +137,12 @@ export function checkTranslation(options: {
     )
     return problems
   }
+  // Translation platforms write the messages nobody has translated yet as "". The app shows
+  // English for them, but the file should leave them out, so it says what is translated.
+  if (translation.trim() === '' && source.trim() !== '') {
+    error('Is empty: leave the key out until it is translated')
+    return problems
+  }
   try {
     translated = signature(parseMessage(translation))
   } catch (cause) {
@@ -239,15 +246,19 @@ export function sourceCatalog(namespaces: readonly Namespace[]): Catalog {
   return Object.fromEntries(namespaces.map(({ name, messages }) => [name, { ...messages }]))
 }
 
-/** The share of the English messages `catalog` translates, from 0 to 1. */
+/**
+ * The share of the English messages `catalog` translates, from 0 to 1. An empty message isn't a
+ * translation (unless the English is empty too): the app shows English for it.
+ */
 export function completion(namespaces: readonly Namespace[], catalog: Catalog): number {
   let total = 0
   let translated = 0
   for (const { name, messages } of namespaces) {
-    for (const key of Object.keys(messages)) {
+    for (const [key, english] of Object.entries(messages)) {
       total += 1
       const own = catalog[name]
-      if (own !== undefined && Object.hasOwn(own, key)) translated += 1
+      const text = own !== undefined && Object.hasOwn(own, key) ? own[key] : undefined
+      if (text !== undefined && (text !== '' || english === '')) translated += 1
     }
   }
   return total === 0 ? 1 : translated / total

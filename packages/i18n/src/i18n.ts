@@ -5,8 +5,9 @@
  * English, the source locale, needs no catalog: it is the namespaces' own messages, bundled with
  * the code that uses them. Other locales load their catalog when the app switches to them
  * (`setLocale`), through the app's `load`, typically a lazy `import()` of one chunk per locale.
- * A message a catalog lacks falls back along the locale's chain (`pt-BR`, then `pt`), then to
- * English, and is reported once through `onMissing`. A translation that can't be read (bad
+ * A message a catalog lacks, or leaves empty (as translation platforms write the ones nobody has
+ * translated yet), falls back along the locale's chain (`pt-BR`, then `pt`), then to English,
+ * and is reported once through `onMissing`. A translation that can't be read (bad
  * syntax) is reported through `onError` and English is shown instead; a value a message needs but
  * doesn't get shows as `{name}`, also reported.
  *
@@ -216,7 +217,8 @@ export function createI18n(options: I18nOptions = {}): I18n {
       const messages = catalogs.get(tag)?.[name]
       const message =
         messages !== undefined && Object.hasOwn(messages, key) ? messages[key] : undefined
-      if (message === undefined) continue
+      // An empty message is one nobody has translated yet, unless the English is empty too.
+      if (message === undefined || (message === '' && source !== '')) continue
       const nodes = parseCached(message)
       if (!(nodes instanceof Error)) return nodes
       problem(tag, nodes.message)

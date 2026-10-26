@@ -68,7 +68,7 @@ await appI18n.setLocale(choice.locale, choice.formatLocale)
 applyDocumentLocale(choice) // <html lang dir>
 ```
 
-- **Fallback.** A message a catalog lacks falls back along the locale's chain (`pt-BR`, then `pt`; never across scripts, so `zh-Hant` doesn't fall back to Simplified `zh`), then to English, and `onMissing` hears about it once. A translation that doesn't parse shows English and goes to `onError`; so does a value the code didn't pass, which shows as `{name}`.
+- **Fallback.** A message a catalog lacks, or leaves empty as translation platforms write untranslated ones, falls back along the locale's chain (`pt-BR`, then `pt`; never across scripts, so `zh-Hant` doesn't fall back to Simplified `zh`), then to English, and `onMissing` hears about it once. A translation that doesn't parse shows English and goes to `onError`; so does a value the code didn't pass, which shows as `{name}`.
 - **Negotiation.** The Settings choice wins when there is a catalog for it; otherwise the first of the browser's languages that matches, by language and script with likely subtags (`zh-TW` gets `zh-Hant`), then by region; otherwise English. Numbers and dates use the user's own tag when it is the same language (`en-IN` keeps Indian digit grouping with the English messages).
 - **Formatting.** `formatDuration(locale, 125)` is `2:05`; `formatDuration(locale, 3900, 'short')` is `1 hr 5 min`; also numbers, percentages, sizes (`4.2 MB`), dates, times, relative times (`yesterday`, `5 minutes ago`), lists (`a, b and c`), language names and sorting. `createFormatters(locale)` binds them all, at the cost of bundling them all.
 
@@ -103,7 +103,7 @@ Tests keep asserting English, which is the default locale and bundled. To prove 
 expect(findUntranslated(document.body, { ignore: [track.title, track.artist] })).toEqual([])
 ```
 
-`strictReporters` make a test fail on a missing translation or a value the code forgot. In CI, `checkSource` checks the English messages (syntax, plural forms, key names) and `checkCatalog` each translation (it parses, takes the same values, keeps the tags, has every plural form its language needs).
+`strictReporters` make a test fail on a missing translation or a value the code forgot. In CI, `checkSource` checks the English messages (syntax, plural forms, key names) and `checkCatalog` each translation (it isn't empty, parses, takes the same values, keeps the tags, has every plural form its language needs).
 
 ## Tools
 

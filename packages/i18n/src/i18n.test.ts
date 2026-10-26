@@ -80,6 +80,29 @@ describe('createI18n', () => {
     })
   })
 
+  it('passes over empty messages, as translation platforms write untranslated ones', async () => {
+    const onMissing = vi.fn()
+    const i18n = createI18n({
+      locales: ['pt', 'pt-BR'],
+      load: async (locale) =>
+        locale === 'pt'
+          ? { library: { title: 'Biblioteca', songs: '' } }
+          : { library: { title: '', songs: '', liked: '' } },
+      onMissing,
+    })
+    await i18n.setLocale('pt-BR')
+    const t = i18n.translator(library)
+    expect(t('title')).toBe('Biblioteca')
+    expect(t('songs', { count: 3 })).toBe('3 songs')
+    expect(t('liked')).toBe('Liked songs')
+    expect(onMissing.mock.calls.map(([missing]) => missing.key)).toEqual(['songs', 'liked'])
+    // An empty English message may have an empty translation.
+    const blank = defineMessages('blank', { nothing: '' })
+    i18n.addCatalog('pt-BR', { blank: { nothing: '' } })
+    expect(i18n.translator(blank)('nothing')).toBe('')
+    expect(onMissing).toHaveBeenCalledTimes(2)
+  })
+
   it('shows English for a translation that doesn’t parse, and reports it', async () => {
     const { i18n, t, onError } = setup()
     await i18n.setLocale('fr')
