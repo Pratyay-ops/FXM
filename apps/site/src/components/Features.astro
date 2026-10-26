@@ -18,6 +18,22 @@ const spotify = [
 
 const noExtension = noExtensionHighlight(AVAILABLE.lite)
 
+// What the home feed holds today, and endless radio once it is out (stage 3.4).
+const feed = AVAILABLE.radio
+  ? 'Quick picks, daily mixes and endless radio, put together on your device from YouTube Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz.'
+  : 'Quick picks and daily mixes, put together on your device from YouTube Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz. Endless radio is coming soon.'
+
+// Downloads keep the source's file today; converting it to another format is stage 4.2.
+const downloadTitle = AVAILABLE.conversions
+  ? 'Download in the format you want'
+  : 'Download for offline listening'
+const downloadText = AVAILABLE.conversions
+  ? 'Save any track for offline listening as Original, FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser.'
+  : "Save any track for offline listening, as the file its source has: FLAC where it's lossless, Opus or AAC from YouTube Music. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser."
+const formatsText = AVAILABLE.conversions
+  ? 'You get real lossless FLAC where the source has it (Internet Archive, Jamendo). Conversions from lossy sources are labelled honestly, so you always know what you have.'
+  : 'You get real lossless FLAC where the source has it (Internet Archive, Jamendo). Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon, and conversions from lossy sources will be labelled honestly.'
+
 const extras = [
   {
     icon: 'lyrics',
@@ -86,10 +102,7 @@ const extras = [
         <div class="text">
           <span class="icon-tile"><Icon name="sparkles" /></span>
           <h3>A home feed made for you, on your device {!AVAILABLE.homeFeed && <ComingSoon />}</h3>
-          <p>
-            Quick picks, daily mixes and endless radio, put together on your device from YouTube
-            Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz.
-          </p>
+          <p>{feed}</p>
           <p>
             Your listening history is kept on your device, not on an FXM server. There isn't one.
           </p>
@@ -125,18 +138,11 @@ const extras = [
         <div class="text">
           <span class="icon-tile"><Icon name="download" /></span>
           <h3>
-            Download in the format you want
+            {downloadTitle}
             {!AVAILABLE.downloads && <ComingSoon />}
           </h3>
-          <p>
-            Save any track for offline listening as Original, FLAC, ALAC, WAV, MP3, AAC or Opus,
-            with tags and cover art. In the web app, downloading from YouTube Music takes FXM
-            Connect; free sources download in any browser.
-          </p>
-          <p>
-            You get real lossless FLAC where the source has it (Internet Archive, Jamendo).
-            Conversions from lossy sources are labelled honestly, so you always know what you have.
-          </p>
+          <p>{downloadText}</p>
+          <p>{formatsText}</p>
         </div>
         <DownloadsDemo />
       </div>

@@ -53,7 +53,7 @@ const services: Service[] = [
   {
     name: "Apple's iTunes Search",
     url: 'https://performance-partners.apple.com/search-api',
-    use: `Album covers for songs that neither their source nor the Cover Art Archive has one for${soon(AVAILABLE.homeFeed)}.`,
+    use: 'Album covers for songs that neither their source nor the Cover Art Archive has one for (coming soon).',
   },
   {
     name: 'Internet Archive',
@@ -83,7 +83,7 @@ const embeds = `Other websites can show an FXM player for a song, an album or a 
 const connectInstall = privacyInstall(AVAILABLE.firefox)
 const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
 const webAppUpdates =
-  'The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself.'
+  "The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself, and when it first uses YouTube Music, it fetches FXM's signed YouTube settings file from this website too."
 ---
 
 <Document
