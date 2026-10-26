@@ -13,10 +13,12 @@ import { fakeSpotifyAccount, homeServices, song, variedSongs } from './testing'
 const NOW = Date.UTC(2026, 9, 25, 12)
 const DAY = 24 * 60 * 60 * 1000
 
+// Real-looking YouTube video IDs (11 characters): the collector seeds YouTube Music radio only
+// from those.
 const favourites = [
-  song('a1', 'Copper Sun', 'Aurora Lane'),
-  song('b1', 'Static Bloom', 'Basalt'),
-  song('c1', 'Harbor Lights', 'Cinder'),
+  song('copperSun01', 'Copper Sun', 'Aurora Lane'),
+  song('staticBloom', 'Static Bloom', 'Basalt'),
+  song('harborLight', 'Harbor Lights', 'Cinder'),
 ]
 
 async function library() {
