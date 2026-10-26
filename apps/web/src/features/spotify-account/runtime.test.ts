@@ -151,6 +151,28 @@ describe('connect', () => {
     expect(runtime.store.getState().failure).toBeUndefined()
   })
 
+  it("drops a failed check's reason once a check gets any answer", async () => {
+    const { fake, runtime } = setup()
+    start(runtime)
+    fake.loggedIn = new SpotifyError('network', 'FXM Connect did not answer in time')
+    await runtime.connect()
+    expect(runtime.store.getState().failure).toEqual({ kind: 'network' })
+    // Meanwhile the user turned FXM Connect's Spotify login off: Settings says only that.
+    fake.setCapabilities('anonymous')
+    await runtime.recheck()
+    expect(runtime.store.getState().phase).toBe('needs-login')
+    expect(runtime.store.getState().failure).toBeUndefined()
+    // And a check that finds no login drops it too.
+    fake.loggedIn = new SpotifyError('network', 'again')
+    fake.setCapabilities('account')
+    await runtime.recheck()
+    expect(runtime.store.getState().phase).toBe('unverified')
+    fake.loggedIn = false
+    await runtime.recheck()
+    expect(runtime.store.getState()).toMatchObject({ phase: 'logged-out' })
+    expect(runtime.store.getState().failure).toBeUndefined()
+  })
+
   it("tells FXM Connect's refusals apart", async () => {
     const { fake, runtime } = setup()
     start(runtime)

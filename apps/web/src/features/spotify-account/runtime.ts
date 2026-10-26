@@ -298,30 +298,32 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
   }
 
   async function askLogin(): Promise<AccountPhase> {
+    // A failure that came from a failed check goes once a check gets an answer.
+    const checkFailed = store.getState().phase === 'unverified'
+    const drop: readonly 'failure'[] = checkFailed ? ['failure'] : []
     const known = phaseWithoutRequest()
     if (known !== undefined) {
-      set(known === 'off' ? { phase: 'off' } : { phase: known })
+      update({ phase: known }, drop)
       return known
     }
-    // A failure that came from a failed check goes once a check works.
-    const checkFailed = store.getState().phase === 'unverified'
     set({ phase: 'checking' })
     try {
       const status = await spotify.status(services.context('interactive'))
       if (!optedIn()) {
-        set({ phase: 'off' })
+        update({ phase: 'off' }, drop)
         return 'off'
       }
       if (!status.connected) {
-        set({ phase: phaseWithoutRequest() ?? 'logged-out' })
-        return store.getState().phase
+        const phase = phaseWithoutRequest() ?? 'logged-out'
+        update({ phase }, drop)
+        return phase
       }
       update(
         {
           phase: 'connected',
           ...(status.displayName === undefined ? {} : { displayName: status.displayName }),
         },
-        checkFailed ? ['failure'] : [],
+        drop,
       )
       return 'connected'
     } catch (error) {
@@ -331,7 +333,7 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         set({ phase: 'unverified', failure: failureOfError(error, now()) })
         return 'unverified'
       }
-      set({ phase })
+      update({ phase }, drop)
       return phase
     }
   }
