@@ -41,7 +41,11 @@ function Byline({ track }: { track: Track }) {
             {to === undefined ? (
               artist.name
             ) : (
-              <Link to={to} className="hover:text-text hover:underline">
+              // The focus ring inside the link: the truncating line would cut off one outside.
+              <Link
+                to={to}
+                className="rounded-xs hover:text-text hover:underline focus-visible:-outline-offset-2"
+              >
                 {artist.name}
               </Link>
             )}

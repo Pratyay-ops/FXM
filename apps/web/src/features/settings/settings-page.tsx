@@ -7,6 +7,7 @@ import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
+import { ExternalLink as ExternalTextLink, standaloneLinkClasses } from '../connect/ui'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
 import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
@@ -161,18 +162,13 @@ export function SettingsPage() {
         </div>
         <div className="space-y-2 p-4 text-sm text-text-muted sm:p-5">
           <p>{NON_AFFILIATION}</p>
-          <ul aria-label="Legal" className="flex flex-wrap gap-x-4 gap-y-1">
+          {/* Links on their own: a full touch target each on phones and tablets. */}
+          <ul aria-label="Legal" className="flex flex-wrap gap-x-6">
             {LEGAL_LINKS.map((link) => (
               <li key={link.href}>
-                <a
-                  href={link.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-semibold text-text underline underline-offset-2 hover:text-accent"
-                >
+                <ExternalTextLink href={link.href} className={standaloneLinkClasses}>
                   {link.label}
-                  <span className="sr-only"> (opens in a new tab)</span>
-                </a>
+                </ExternalTextLink>
               </li>
             ))}
           </ul>

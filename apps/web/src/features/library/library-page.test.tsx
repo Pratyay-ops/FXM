@@ -10,6 +10,7 @@ import { setupTestPlayback } from '../now-playing/testing'
 import { playlistPath as sourcePlaylistPath } from '../search/catalog/links'
 import { renderCatalog, resetCatalogState } from '../search/testing'
 import { playlistPath } from './paths'
+import { useLibraryViewStore } from './view-store'
 
 afterEach(() => resetCatalogState())
 
@@ -541,7 +542,8 @@ describe('Library page', { timeout: 30_000 }, () => {
     await songs('Mix')
     const page = main()
 
-    await user.click(page.getByRole('button', { name: 'Play' }))
+    // Named after the list: the player bar has a Play button of its own.
+    await user.click(page.getByRole('button', { name: 'Play Mix' }))
 
     expect(player.getState().queue.items.map((item) => item.track.title)).toEqual([
       'Song 1',
@@ -549,14 +551,30 @@ describe('Library page', { timeout: 30_000 }, () => {
       'Song 3',
     ])
     expect(player.getState().queue.context).toEqual({ type: 'playlist', id, title: 'Mix' })
-    await waitFor(() => expect(page.getByRole('button', { name: 'Pause' })).toBeInTheDocument())
-    await user.click(page.getByRole('button', { name: 'Pause' }))
+    await waitFor(() => expect(page.getByRole('button', { name: 'Pause Mix' })).toBeInTheDocument())
+    await user.click(page.getByRole('button', { name: 'Pause Mix' }))
     expect(player.getState().status).toBe('paused')
 
     // A song plays the list from there.
     await user.click(page.getByRole('button', { name: 'Play Song 2 by Artist 2' }))
     const queue = player.getState().queue
     expect(queue.items[queue.index]?.track.title).toBe('Song 2')
+  })
+
+  it('plays a playlist in the order it shows, sorted or not', async () => {
+    const { player } = setupTestPlayback()
+    const id = await playlistWith('Mix', 3)
+    useLibraryViewStore.getState().setTrackView(id, { key: 'title', direction: 'desc' })
+    const { user } = renderApp(playlistPath(id))
+    await songs('Mix')
+
+    await user.click(main().getByRole('button', { name: 'Play Mix' }))
+
+    expect(player.getState().queue.items.map((item) => item.track.title)).toEqual([
+      'Song 3',
+      'Song 2',
+      'Song 1',
+    ])
   })
 
   it('moves a link to its playlist built as for other sources to its own address', async () => {

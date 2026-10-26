@@ -9,6 +9,7 @@ import {
   ListMinus,
   ListPlus,
   Music,
+  Play,
 } from 'lucide-react'
 import { memo, type ReactNode, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
@@ -95,6 +96,10 @@ interface RowBodyProps {
  * Everything in a row but its drag handle. Memoized on plain values and callbacks that keep
  * their identity, so a reorder or a like re-renders only the rows it changes, also in a list
  * of thousands.
+ *
+ * Like the catalog's track rows, the title is a button that plays the list from this song and
+ * stretches over the whole row (a tap anywhere on it plays), while the row's own controls stay
+ * on top of it (`relative z-10`). While selecting, the title is text: a tap selects.
  */
 const RowBody = memo(function RowBody({
   id,
@@ -115,10 +120,11 @@ const RowBody = memo(function RowBody({
   onOpenMenu,
   onPlay,
 }: RowBodyProps) {
+  const playable = canPlay && !selecting
   return (
     <>
       {selecting ? (
-        <label className="grid size-touch shrink-0 cursor-pointer place-items-center lg:size-8 lg:pointer-coarse:size-touch">
+        <label className="relative z-10 grid size-touch shrink-0 cursor-pointer place-items-center lg:size-8 lg:pointer-coarse:size-touch">
           <input
             type="checkbox"
             checked={selected}
@@ -135,14 +141,24 @@ const RowBody = memo(function RowBody({
           className="hidden w-7 shrink-0 text-right text-sm tabular-nums text-text-muted before:content-[counter(row)] md:block"
         />
       )}
-      <CoverArt src={cover} seed={id} icon={Music} rounded="sm" className="size-10" />
+      <span className="relative shrink-0">
+        <CoverArt src={cover} seed={id} icon={Music} rounded="sm" className="size-10" />
+        {playable && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 hidden place-items-center rounded-sm bg-black/45 text-white group-hover:grid"
+          >
+            <Play className="size-4" fill="currentColor" strokeWidth={0} />
+          </span>
+        )}
+      </span>
       <div className="min-w-0 flex-1">
-        {canPlay && !selecting ? (
+        {playable ? (
           <button
             type="button"
             onClick={() => onPlay(id)}
             aria-label={artists ? `Play ${title} by ${artists}` : `Play ${title}`}
-            className="block max-w-full truncate rounded-xs text-left font-semibold hover:underline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus"
+            className="block max-w-full truncate text-left font-semibold outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus focus-visible:after:outline-solid"
           >
             {title}
           </button>
@@ -153,7 +169,7 @@ const RowBody = memo(function RowBody({
       </div>
       <p className="hidden w-1/4 min-w-0 truncate text-sm text-text-muted lg:block">{album}</p>
       <p className="hidden w-28 shrink-0 truncate text-sm text-text-muted xl:block">{added}</p>
-      <span className="hidden md:block">
+      <span className="relative z-10 hidden md:block">
         <IconButton
           label={`Like ${title}`}
           icon={<Heart fill={liked ? 'currentColor' : 'none'} />}
@@ -168,7 +184,7 @@ const RowBody = memo(function RowBody({
         {duration}
       </span>
       {/* While selecting on a phone, the selection bar has the actions: room for the title. */}
-      <span className={selecting ? 'max-sm:hidden' : undefined}>
+      <span className={cn('relative z-10', selecting && 'max-sm:hidden')}>
         <button
           type="button"
           aria-label={`More options for ${title}`}
@@ -200,7 +216,7 @@ function SortableRow({ reorder, ...body }: SortableRowProps) {
       style={style}
       data-row={body.id}
       className={cn(
-        'flex items-center gap-2 rounded-lg py-1.5 pr-1 [contain-intrinsic-size:auto_3.5rem] [content-visibility:auto] [counter-increment:row] sm:gap-3',
+        'group relative flex items-center gap-2 rounded-lg py-1.5 pr-1 [contain-intrinsic-size:auto_3.5rem] [content-visibility:auto] [counter-increment:row] sm:gap-3',
         !reorder && 'pl-2',
         body.selected
           ? 'bg-accent/12 hover:bg-accent/16 forced-colors:outline forced-colors:outline-[Highlight]'
@@ -216,7 +232,7 @@ function SortableRow({ reorder, ...body }: SortableRowProps) {
           {...listeners}
           aria-label={`Reorder ${body.title}`}
           className={cn(
-            'grid size-touch shrink-0 cursor-grab touch-none place-items-center rounded-full text-text-muted hover:text-text active:cursor-grabbing lg:size-8 lg:pointer-coarse:size-touch',
+            'relative z-10 grid size-touch shrink-0 cursor-grab touch-none place-items-center rounded-full text-text-muted hover:text-text active:cursor-grabbing lg:size-8 lg:pointer-coarse:size-touch',
             // Selecting on a phone: the Move menu moves the selection, the title gets the room.
             body.selecting && 'max-sm:hidden',
           )}

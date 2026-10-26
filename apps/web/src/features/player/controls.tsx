@@ -99,7 +99,8 @@ function CollectionPlayButton({ collection }: { collection: PlayableCollection }
   const empty = collection.tracks.length === 0
   return (
     <IconButton
-      label={pause ? 'Pause' : 'Play'}
+      // Named after the list, so it never sounds like the player bar's own Play.
+      label={`${pause ? 'Pause' : 'Play'} ${collection.context.title}`}
       icon={<Icon fill="currentColor" strokeWidth={0} className={cn(!pause && 'ml-0.5')} />}
       size="custom"
       variant={style.variant}

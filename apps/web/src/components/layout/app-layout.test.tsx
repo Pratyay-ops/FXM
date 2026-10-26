@@ -140,8 +140,8 @@ describe('app layout', () => {
 
     // Another queue plays: the playlist's button offers to play the playlist, which is empty,
     // never to pause what plays.
-    expect(main.getByRole('button', { name: 'Play' })).toBeDisabled()
-    expect(main.queryByRole('button', { name: 'Pause' })).toBeNull()
+    expect(main.getByRole('button', { name: 'Play Liked songs' })).toBeDisabled()
+    expect(main.queryByRole('button', { name: /^Pause/ })).toBeNull()
     expect(player.getState().status).toBe('playing')
   })
 

@@ -72,6 +72,10 @@ describe('Settings → About', () => {
       'https://fxmusic.pages.dev/disclaimer',
       'https://fxmusic.pages.dev/third-party-notices.txt',
     ])
+    // Each says it opens a new tab, as the app's other links to other sites do.
+    expect(
+      within(legal).getByRole('link', { name: 'Privacy (opens in a new tab)' }),
+    ).toHaveAttribute('target', '_blank')
   })
 
   it('offers no Auto setting while the matching config keeps the band off', async () => {

@@ -28,8 +28,10 @@ import { CoverArt } from './cover-art'
 import { artworkUrl, countLabel, totalDuration } from './format'
 import { playlistIcon } from './paths'
 import { duplicatePlaylist, usePlaylistDialogs } from './playlist-dialogs'
+import { sortTrackRows } from './sort'
 import { TrackList, type TrackListKind } from './track-list'
 import { Menu, type MenuItem } from './ui/menu'
+import { useTrackView } from './view-store'
 
 /** The kind of track list a playlist record is. */
 export function trackListKind(playlist: Pick<PlaylistRecord, 'system'>): TrackListKind {
@@ -115,6 +117,8 @@ export function LocalPlaylistPage({ id }: { id: EntityId<'playlist'> }) {
   const navigate = useNavigate()
   const dialogs = usePlaylistDialogs({ onDeleted: () => navigate('/library') })
   const canDownload = useCanDownload()
+  // The order the list shows (a sort view, or the custom order), which Play follows too.
+  const view = useTrackView(id)
 
   if (live.status === 'loading') {
     return (
@@ -198,7 +202,9 @@ export function LocalPlaylistPage({ id }: { id: EntityId<'playlist'> }) {
         <PlayPauseButton
           appearance="cta"
           collection={{
-            tracks: rows.flatMap((row) => (row.track === undefined ? [] : [row.track])),
+            tracks: sortTrackRows(rows, view).flatMap((row) =>
+              row.track === undefined ? [] : [row.track],
+            ),
             context: { type: 'playlist', id: playlist.id, title: playlist.name },
           }}
         />
