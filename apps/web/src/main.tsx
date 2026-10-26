@@ -1,14 +1,21 @@
 import './styles/index.css'
+import { registerSW } from 'virtual:pwa-register'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './app/app'
 import { createAppRouter } from './app/router'
 import { markConnecting } from './app/services/connecting'
 import { connectAppPolicy, createPendingPolicy } from './features/now-playing/playback-policy'
+import { listenForInstallPrompt } from './features/pwa/install'
+import { registerServiceWorker } from './features/pwa/service-worker'
 import { appSources } from './features/search/sources-context'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('index.html is missing the #root element')
+
+// Before the first render: the browser may offer to install FXM as soon as the page loads.
+listenForInstallPrompt()
+registerServiceWorker(registerSW)
 
 // FXM Connect's marker is on the page but it hasn't answered yet: until it does, the pages say
 // they are connecting rather than offering to install it (see app/services/connecting.ts).

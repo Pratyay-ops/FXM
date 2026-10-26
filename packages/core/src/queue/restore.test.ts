@@ -6,6 +6,7 @@ import {
   createQueue,
   jumpInQueue,
   type QueueState,
+  removeFromQueue,
   setQueue,
   setQueueCandidate,
   setQueueRepeat,
@@ -69,6 +70,7 @@ const fullTrack: Track = {
   releaseDate: '2013-05-17',
   popularity: 72,
   externalIds: { spotify: '4uLU6hMCjMI75M1A2tKUQC' },
+  tags: ['Hip-Hop', 'lo-fi'],
 }
 
 describe('restoreQueue', () => {
@@ -155,6 +157,8 @@ describe('restoreQueue', () => {
     ['popularity', -1],
     ['externalIds', 'spotify:x'],
     ['externalIds', { napster: 'x', spotify: '' }],
+    ['tags', 'rock'],
+    ['tags', ['rock', 7]],
     ['album', { id: 'ytm:album:x' }],
     ['album', 'X'],
   ])('drops only a malformed optional %s (%j) and keeps the item', (key, value) => {
@@ -309,6 +313,19 @@ describe('restoreQueue', () => {
     expect(restoreQueue({ ...savedQueue(), unshuffled: [0, 1, 2, 3] })).not.toHaveProperty(
       'unshuffled',
     )
+  })
+
+  it('keeps every valid stored uid, also when items around it are dropped', () => {
+    let state = setQueue(createQueue(), songs('a', 'b', 'c', 'd', 'e'))
+    state = addToQueue(removeFromQueue(state, 1), songs('f'))
+    const value = saved(skipToNext(state))
+    ;(value.items as unknown[])[2] = { uid: 'broken' }
+    const restored = restoreQueue(value) as QueueState
+    const uids = new Map(state.items.map((item) => [item.track.title, item.uid]))
+    expect(restored.items.map((item) => [item.track.title, item.uid])).toEqual(
+      ['a', 'c', 'e', 'f'].map((title) => [title, uids.get(title)]),
+    )
+    expect(restored.items.map((item) => item.uid)).toEqual([0, 2, 4, 5])
   })
 
   it('keeps the uid counter above every uid', () => {
