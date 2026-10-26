@@ -70,28 +70,30 @@ A test in a spec is a critical flow when it is tagged `@flow` (`test('…', { ta
 
 **Sizes are bytes on the wire.** Cloudflare Pages compresses on the fly: on 2026-10-26 the app's 442,397-byte entry chunk came from `develop.fxmusic.pages.dev` as 137,475 bytes of brotli, which brotli at quality 4 matches (137,452 bytes; quality 5 gives 129,199, gzip -9 138,391). So the budgets count brotli at quality 4.
 
-**The timings' profile** is Lighthouse's mobile default, a mid-range phone (Moto G Power) on Slow 4G, applied as Chrome DevTools throttles: 412×823 px at 1.75×, a CPU four times slower than the machine's, 562.5 ms of latency per request, 1.47 Mbit/s down and 675 kbit/s up. The page comes over HTTP/2 and TLS (a self-signed certificate) with brotli, as from Cloudflare, from a front in `budgets/server.ts` before the Pages stand-in: over the stand-in's plain HTTP/1.1 the 39 files of the first load would queue for six connections. The test checks that every timed visit really used HTTP/2. The visit starts in the Free tier, since Lite's check can't reach YouTube offline, with no service worker. The run starts the stand-in on port 6710 and the fronts on 6711 (HTTP/2) and 6712 (HTTP/1.1, for the service worker's visit, which Chromium refuses on an untrusted certificate); `FXM_BUDGETS_PORT` moves all three. One worker, so nothing else competes for the CPU while it measures.
+**The timings' profile** is Lighthouse's mobile default, a mid-range phone (Moto G Power) on Slow 4G, applied as Chrome DevTools throttles: 412×823 px at 1.75×, a CPU four times slower than the machine's, 562.5 ms of latency per request, 1.47 Mbit/s down and 675 kbit/s up. The page comes over HTTP/2 and TLS (a self-signed certificate) with brotli, as from Cloudflare, from a front in `budgets/server.ts` before the Pages stand-in: over the stand-in's plain HTTP/1.1 the 47 files of the first load would queue for six connections. The test checks that every timed visit really used HTTP/2. The visit starts in the Free tier, since Lite's check can't reach YouTube offline, with no service worker. The run starts the stand-in on port 6710 and the fronts on 6711 (HTTP/2) and 6712 (HTTP/1.1, for the service worker's visit, which Chromium refuses on an untrusted certificate); `FXM_BUDGETS_PORT` moves all three. One worker, so nothing else competes for the CPU while it measures.
 
-These are lab numbers on a stand-in, for catching regressions: real phones and networks vary, and Cloudflare's edge is closer than 150 ms to most visitors. Most of the first visit's LCP is the network's: on the Mac below, the median was 5.8 s, 5.3 s with the CPU at full speed and 1.4 s with the network at full speed.
+These are lab numbers on a stand-in, for catching regressions: real phones and networks vary, and Cloudflare's edge is closer than 150 ms to most visitors. Most of the first visit's LCP is the network's: on the Mac below, the median was 6.0 s, 5.6 s with the CPU at full speed and 1.9 s with the network at full speed. INP is the CPU's, and also depends on what arrives while the user taps: with the network at full speed, the lazy chunks land during the taps, and INP rose from 144 to 224 ms.
 
 ### Baseline (2026-10-26)
 
-Measured on `develop` at 33c1f23 with this stage's changes, in Playwright 1.64.0's Chromium 156.0.8078.4, headless. Sizes are the same everywhere: CI's builds had the same files, byte for byte. Timings depend on the machine, so the timing budgets come from CI's runners, where they gate: E2E runs 40316662161 and 40318166801 on GitHub's `ubuntu-latest`, which landed on different machines.
+Measured at 0e98192, which is `develop` at ecaa869 with this stage's changes, in Playwright 1.64.0's Chromium 156.0.8078.4, headless. Sizes are the same everywhere: CI's builds had the same files, byte for byte, as this Mac's. Timings depend on the machine, so the timing budgets come from CI's runners, where they gate: E2E run 40327877828, attempts 1, 2 and 3, on GitHub's `ubuntu-latest`, which landed on different machines (the second on a slower one).
 
-| Budget | CI (`ubuntu-latest`), two runs | macOS 15.5, Apple silicon, busy with other work | Budget |
+| Budget | CI (`ubuntu-latest`), three attempts | macOS 15.5, Apple silicon, busy with other work | Budget |
 |---|---|---|---|
-| `entry` | 137.5 kB (442.4 kB on disk) | the same | 150 kB |
-| `initial` | 307.2 kB, 39 files (959.4 kB on disk) | the same | 335 kB |
-| `youtube` | 198.4 kB, 4 files (760.0 kB on disk) | the same | 220 kB |
-| `home` | 24.7 kB, 7 files (69.0 kB on disk) | the same | 27.5 kB |
-| `downloads` | 13.0 kB, 3 files (35.1 kB on disk), 2 of them in the first load | the same | 14.5 kB |
-| `firstLoad` | 411.6 kB, 67 requests | the same | 455 kB |
-| `firstVisit` | 1,502.1 kB, 222 requests | the same | 1,650 kB |
-| `lcp` | 5,424 ms (5,412 to 5,500 ms); 5,628 ms (5,576 to 5,652 ms) | 5,804 ms (5,784 to 5,876 ms) | 6,500 ms |
-| `cls` | 0.000; 0.000 | 0.000 | 0.02 |
-| `inp` | 80 ms (72 to 80 ms); 120 ms (112 to 128 ms) | 144 ms (136 to 152 ms) | 200 ms |
+| `entry` | 138.4 kB (444.7 kB on disk) | the same | 152.5 kB |
+| `initial` | 333.4 kB, 47 files (1,031.6 kB on disk) | the same | 367.5 kB |
+| `youtube` | 198.4 kB, 3 files (760.1 kB on disk) | the same | 220 kB |
+| `home` | 19.2 kB, 6 files (51.0 kB on disk) | the same | 21.3 kB |
+| `downloads` | 13.4 kB, 3 files (36.3 kB on disk), 2 of them in the first load | the same | 14.8 kB |
+| `firstLoad` | 477.1 kB, 85 requests | the same | 525 kB |
+| `firstVisit` | 1,696.4 kB, 264 requests | the same | 1,870 kB |
+| `lcp` | 5,768 ms (5,644 to 5,792 ms); 5,980 ms (5,900 to 6,044 ms); 5,776 ms (5,756 to 5,788 ms) | 5,976 ms (5,884 to 6,140 ms) | 6,600 ms |
+| `cls` | 0.000; 0.000; 0.000 | 0.000 | 0.02 |
+| `inp` | 104 ms (104 to 112 ms); 144 ms (136 to 152 ms); 104 ms (96 to 112 ms) | 144 ms (136 to 168 ms) | 180 ms |
 
-The largest paint is the intro of Home's first-visit content in the Free tier (`p.mt-2.text-text-muted`, "FXM plays the YouTube Music catalog, and…"), which loads with the lazy Home chunk. The size budgets leave about 10 % of headroom, and LCP's about 15 % over the slower run: it is mostly the network's, so it varied by 4 % between the two runners. INP is all the CPU's, and the runners differed by half, so its budget is 200 ms, the line web-vitals calls good. CLS's allows a small shift where there is none today.
+The largest paint is the intro of Home's first-visit content in the Free tier (`p.mt-2.text-text-muted`, "FXM plays the YouTube Music catalog, and…"), which loads with the lazy Home chunk. The size budgets leave about 10 % of headroom, and LCP's about 10 % over the slowest runner: it is mostly the network's, so it varied by 4 % between runners. INP is the CPU's, and the runners differed by 40 % on the same build, so its budget is 25 % over the slowest, 180 ms: a tighter one would fail on a slow runner with no change to the app. CLS's allows a small shift where there is none today.
+
+The first baseline, at 33c1f23, came before `develop` merged stages 4.2, 3.4, 3.5, 8.1 and 8.3, which grew the app before these budgets could gate it: what `index.html` loads went from 307.2 kB in 39 files to 333.4 kB in 47 (among them 8.1's audio effects, and 3.4's radio, which took the recommendation code it shares with Home into the first load, so Home's chunks shrank from 24.7 to 19.2 kB), a first visit from 411.6 kB and 67 requests to 477.1 kB and 85, and the service worker's install from 1,502.1 kB and 222 requests to 1,696.4 kB and 264. The budgets were reset to these numbers plus the headroom above, so that growth doesn't fail the first stage merged after this one.
 
 ### When a budget fails
 

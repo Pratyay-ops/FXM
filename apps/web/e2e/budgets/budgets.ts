@@ -73,26 +73,26 @@ export const RUNS = 7
  */
 export const BUDGETS = {
   /** The entry chunk, the script `index.html` starts. */
-  entry: 150_000,
+  entry: 152_500,
   /** What `index.html` loads before the app runs: the entry chunk, its imports, its styles. */
-  initial: 335_000,
+  initial: 367_500,
   /** What each lazy feature adds to the first load (see {@link GROUPS}). */
   youtube: 220_000,
-  home: 27_500,
-  downloads: 14_500,
+  home: 21_300,
+  downloads: 14_800,
   /** A first visit of `/app/` until the network is idle, without the service worker. */
-  firstLoad: 455_000,
+  firstLoad: 525_000,
   /** The same visit with the service worker, which stores the app shell for offline use. */
-  firstVisit: 1_650_000,
+  firstVisit: 1_870_000,
   /** Largest Contentful Paint of that first visit, in milliseconds. */
-  lcp: 6_500,
+  lcp: 6_600,
   /** Cumulative Layout Shift of the visit and the interactions after it. */
   cls: 0.02,
   /**
-   * Interaction to Next Paint of a few taps and some typing after it, in milliseconds: the line
-   * web-vitals calls good, as CI's runners differ by half (80 and 120 ms on two of them).
+   * Interaction to Next Paint of a few taps and some typing after it, in milliseconds: 25 % over
+   * the slowest of CI's runners so far, as they differ by 40 % (104 and 144 ms on the same build).
    */
-  inp: 200,
+  inp: 180,
 } as const
 
 /** A budget's name. */
