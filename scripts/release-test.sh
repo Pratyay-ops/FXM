@@ -201,7 +201,7 @@ new_repo() {
   git init -q -b main "$work"
   cp "$FXM_ROOT"/scripts/{env.sh,lib.sh,run.sh,install-git-cliff.sh} \
     "$FXM_ROOT"/scripts/release-*.sh "$work/scripts/"
-  cp "$FXM_ROOT/Makefile" "$FXM_ROOT/cliff.toml" "$work/"
+  cp "$FXM_ROOT/Makefile" "$FXM_ROOT/cliff.toml" "$FXM_ROOT/cliff.notes.toml" "$work/"
   # The repository's changelog without its release sections, which every release adds to.
   awk '/^## \[/ { exit } { print }' "$FXM_ROOT/CHANGELOG.md" >"$work/CHANGELOG.md"
   ln -s "$cliff" "$work/.tools/bin/git-cliff"
@@ -240,6 +240,15 @@ newer_ok() {
     ! fxm_release_newer 0.9.9 0.10.0
 }
 expect "compares versions numerically" newer_ok
+# cliff_part <file> <first line> <last line>: a multi-line value of a git-cliff configuration.
+cliff_part() { sed -n "/^$2/,/^$3/p" "$FXM_ROOT/$1"; }
+same_cliff_parts() {
+  [ -n "$(cliff_part cliff.toml 'body = """' '"""')" ] &&
+    [ "$(cliff_part cliff.toml 'body = """' '"""')" = "$(cliff_part cliff.notes.toml 'body = """' '"""')" ] &&
+    [ "$(cliff_part cliff.toml 'commit_preprocessors' ']')" = \
+      "$(cliff_part cliff.notes.toml 'commit_preprocessors' ']')" ]
+}
+expect "the notes and the changelog share their template and preprocessors" same_cliff_parts
 big=$tmp/big.md
 for i in $(seq 1 2000); do echo "- entry $i, long enough to need many lines of notes"; done >"$big"
 fxm_release_fit "$big" 20000 "See CHANGELOG.md."
@@ -299,26 +308,53 @@ commit "$work" "feat(core): add a thing"
 commit "$work" "fix(web): repair a thing"
 commit "$work" "docs(plan): mark 1.1 done"
 git -C "$work" switch -q -c feat/side
-commit "$work" "test(core): cover the thing"
+commit "$work" "feat(core): cover the thing"
+commit "$work" "test(core): test the thing"
 git -C "$work" switch -q develop
 git -C "$work" merge -q --no-ff feat/side -m "feat: a merge commit that looks conventional"
 commit "$work" "style: tidy whitespace"
 commit "$work" "chore(release): v0.0.9"
 commit "$work" "build(deps): bump @playwright/test from 1.0.0 to 2.0.0"
 commit "$work" "fix(core): answer user@example.com"
+commit "$work" "perf(player): load @fxm/core lazily"
+commit "$work" "docs(web): explain the thing"
+commit "$work" "ci: run the checks on every push"
+commit "$work" "refactor(core): tidy the thing"
+commit "$work" "chore: pin a tool"
+commit "$work" "feat(tooling): add a make target"
+commit "$work" "fix(release): repair the release script"
+commit "$work" "fix(deploy): repair the deploy"
+# The same change twice, as when a stacked branch carries a copy of a commit.
+commit "$work" "fix(web): repair a thing"
 notes=$tmp/notes.md
 (cd "$work" && scripts/release-notes.sh 0.1.0) >"$notes"
-expect "groups commits by type" has "$notes" "### Features"
+expect "groups features, fixes and performance" \
+  test -n "$(grep -x '### Features' "$notes")" -a -n "$(grep -x '### Bug fixes' "$notes")" \
+  -a -n "$(grep -x '### Performance' "$notes")"
 expect "shows scopes" has "$notes" "- **core:** Add a thing"
-expect "lists fixes and tests" has "$notes" "**web:** Repair a thing"
+expect "lists fixes" has "$notes" "**web:** Repair a thing"
+expect "lists each message once" test "$(grep -c 'Repair a thing' "$notes")" = 1
 expect "includes the commits of merged branches" has "$notes" "**core:** Cover the thing"
-expect "keeps other types under Other" has "$notes" "### Other"
+leaves_out_internal_work() {
+  local entry
+  for entry in "Test the thing" "Tidy whitespace" "Bump" "Explain the thing" "Run the checks" \
+    "Tidy the thing" "Pin a tool" "### Other" "### Documentation" "### Tests"; do
+    lacks "$notes" "$entry" || return 1
+  done
+}
+expect "leaves out docs, tests, CI, build, chores, refactoring and other types" \
+  leaves_out_internal_work
+leaves_out_internal_scopes() {
+  lacks "$notes" "Add a make target" && lacks "$notes" "Repair the release script" &&
+    lacks "$notes" "Repair the deploy"
+}
+expect "and the internal scopes, whatever their type" leaves_out_internal_scopes
 expect "skips docs(plan) bookkeeping" lacks "$notes" "Mark 1.1 done"
 expect "skips merge commits" lacks "$notes" "looks conventional"
 expect "skips the release commit" lacks "$notes" "0.0.9"
 expect "skips unconventional commits" lacks "$notes" "Initial commit"
 expect "puts @names in code spans, so the notes notify nobody" \
-  has "$notes" '**deps:** Bump `@playwright/test` from 1.0.0 to 2.0.0'
+  has "$notes" '**player:** Load `@fxm/core` lazily'
 expect "but leaves e-mail addresses alone" has "$notes" "**core:** Answer user@example.com ("
 expect "has no version heading" test -z "$(grep '^## ' "$notes" || true)"
 run "$work" scripts/release-notes.sh --changelog 0.1.0
@@ -326,6 +362,31 @@ expect "regenerates CHANGELOG.md" has "$work/CHANGELOG.md" \
   "## [0.1.0](https://github.com/Pratyay-ops/FXM/releases/tag/v0.1.0)"
 expect "keeps its header" has "$work/CHANGELOG.md" "# Changelog"
 expect "lists released versions only" lacks "$work/CHANGELOG.md" "## Unreleased"
+section "$work/CHANGELOG.md" "## [0.1.0]" >"$notes"
+keeps_every_change() {
+  has "$notes" "**core:** Test the thing" && has "$notes" "### Other" &&
+    has "$notes" '**deps:** Bump `@playwright/test` from 1.0.0 to 2.0.0' &&
+    has "$notes" "**tooling:** Add a make target" && has "$notes" "**release:** Repair the release script"
+}
+expect "the changelog keeps every change" keeps_every_change
+expect "each message once" test "$(grep -c 'Repair a thing' "$notes")" = 1
+mkdir -p "$work/docs/releases"
+printf '\nFXM 0.1.0 brings a thing.\n\n## Highlights\n\n- A thing\n\n\n' \
+  >"$work/docs/releases/v0.1.0.md"
+git -C "$work" add docs
+git -C "$work" commit -q -m "docs(release): summarize v0.1.0"
+(cd "$work" && scripts/release-notes.sh 0.1.0) >"$notes"
+expect "starts with the version's summary" \
+  test "$(head -1 "$notes")" = "FXM 0.1.0 brings a thing."
+summary_then_changes() {
+  [ "$(sed -n '/^- A thing$/,/^### /p' "$notes" | tr '\n' '|')" = \
+    "- A thing||## Changes||### Features|" ]
+}
+expect "then lists the changes under their own heading" summary_then_changes
+(cd "$work" && scripts/release-notes.sh) >"$notes"
+expect "without a version, there is no summary" lacks "$notes" "brings a thing"
+run "$work" scripts/release-notes.sh --changelog 0.1.0
+expect "and the changelog has none" lacks "$work/CHANGELOG.md" "brings a thing"
 git -C "$work" switch -q -c feat/late
 commit "$work" "feat(web): add a late thing"
 git -C "$work" switch -q develop
@@ -357,6 +418,10 @@ work=$(new_repo pr)
 export GH_STUB_DIR=$tmp/pr/gh
 git -C "$work" switch -q -c develop
 commit "$work" "feat(core): add a thing"
+mkdir -p "$work/docs/releases"
+echo "FXM 0.1.0 is the first release." >"$work/docs/releases/v0.1.0.md"
+git -C "$work" add docs
+git -C "$work" commit -q -m "docs(release): summarize v0.1.0"
 git -C "$work" push -q -u origin develop
 start=$(git -C "$work" rev-parse HEAD)
 unchanged() {
@@ -392,6 +457,16 @@ if [ "$status" -ne 0 ] && says "is not higher than the current version 0.0.0" &&
 else
   bad "refuses a version that is not higher"
 fi
+run "$work" scripts/release-pr.sh 0.2.0
+if [ "$status" -ne 0 ] && says "docs/releases/v0.2.0.md is missing or empty" && unchanged; then
+  ok "refuses a version without a summary"
+else
+  bad "refuses a version without a summary"
+fi
+run "$work" env DRY_RUN=1 scripts/release-pr.sh 0.2.0
+expect "and DRY_RUN=1 reports it" test "$status" -eq 0 \
+  -a -n "$(grep 'v0.2.0.md is missing or empty' <<<"$out")" \
+  -a -n "$(grep 'would stop a real run' <<<"$out")"
 echo https://github.com/test/fxm/pull/3 >"$GH_STUB_DIR/open-pr"
 refuses "while a release pull request is open" "already open: https://github.com/test/fxm/pull/3"
 : >"$GH_STUB_DIR/open-pr"
@@ -432,6 +507,12 @@ expect "regenerates CHANGELOG.md" has "$work/CHANGELOG.md" "## [0.1.0]"
 expect "opens the pull request develop → main" \
   has "$GH_STUB_DIR/calls.log" "pr create --base main --head develop --title Release v0.1.0"
 expect "with the notes" has "$GH_STUB_DIR/pr-body.md" "- **core:** Add a thing"
+summary_first() {
+  [ "$(grep -n -e 'FXM 0.1.0 is the first release.' -e '^## Changes$' -e 'Add a thing' \
+    "$GH_STUB_DIR/pr-body.md" | cut -d: -f2- | cut -c1-12 | tr '\n' '|')" = \
+    "FXM 0.1.0 is|## Changes|- **core:** |" ]
+}
+expect "after the release's summary" summary_first
 expect "prints the pull request URL" says "Release pull request: https://github.com/test/fxm/pull/7"
 expect "leaves a clean tree" test -z "$(git -C "$work" status --porcelain)"
 expect "never merges" lacks "$GH_STUB_DIR/calls.log" "pr merge"
@@ -751,6 +832,8 @@ expect "with every file, SHA256SUMS included" test "$(sort "$GH_STUB_DIR/release
 expect "with the notes" has "$GH_STUB_DIR/release-notes.md" "- **core:** Add a thing"
 expect "and a table of the files from the catalog" has "$GH_STUB_DIR/release-notes.md" \
   "| \`fxm-web-0.1.0.zip\` | The website and web app for self-hosting"
+expect "under a heading of the notes' level" \
+  test -n "$(grep -x '## Files' "$GH_STUB_DIR/release-notes.md")"
 expect "and where the self-hosting steps are" has "$GH_STUB_DIR/release-notes.md" \
   "(https://github.com/test/fxm/blob/v0.1.0/scripts/build-dist/README.md#self-hosting)"
 expect "that ends with SHA256SUMS" \

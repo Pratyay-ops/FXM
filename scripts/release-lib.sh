@@ -46,16 +46,30 @@ fxm_release_flag() {
   esac
 }
 
-# Runs git-cliff from the repository root (elsewhere it would only list commits that touch the
-# current folder), offline, with cliff.toml. Its log (the configuration it read, how many merge
-# commits it skipped) only shows when it fails.
+# fxm_release_cliff <config> <git-cliff arguments...>: runs git-cliff from the repository root
+# (elsewhere it would only list commits that touch the current folder), offline, with the given
+# configuration: cliff.toml for CHANGELOG.md, cliff.notes.toml for the release notes. Its log
+# (the configuration it read, how many merge commits it skipped) only shows when it fails.
 fxm_release_cliff() {
-  local log status=0
+  local config=$1 log status=0
+  shift
   log=$(mktemp)
-  (cd "$FXM_ROOT" && git-cliff --offline --config cliff.toml "$@" 2>"$log") || status=$?
+  (cd "$FXM_ROOT" && git-cliff --offline --config "$config" "$@" 2>"$log") || status=$?
   [ "$status" -eq 0 ] || cat "$log" >&2
   rm -f "$log"
   return "$status"
+}
+
+# fxm_release_summary_file <x.y.z>: the version's hand-written summary, relative to the
+# repository root. The release notes start with it (release-notes.sh), and make release-pr
+# refuses a version without one.
+fxm_release_summary_file() {
+  printf 'docs/releases/v%s.md\n' "$1"
+}
+
+# fxm_release_has_summary <x.y.z>: whether the version's summary exists and has any text.
+fxm_release_has_summary() {
+  grep -q '[^[:space:]]' "$FXM_ROOT/$(fxm_release_summary_file "$1")" 2>/dev/null
 }
 
 # fxm_release_github <api path> <jq filter>: a GET request to the GitHub API through gh. Prints

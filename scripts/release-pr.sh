@@ -2,11 +2,13 @@
 # Opens the release pull request from develop into main: make release-pr VERSION=x.y.z
 #
 #   1. Checks that develop is checked out, clean, equal to origin/develop and contains
-#      origin/main and every release tag; that the version is higher than the current one and
-#      has no tag; and that no release pull request is open.
+#      origin/main and every release tag; that the version is higher than the current one, has
+#      no tag and has a summary (docs/releases/vX.Y.Z.md); and that no release pull request is
+#      open.
 #   2. Sets the version everywhere (release-version.sh) and regenerates CHANGELOG.md (git-cliff).
 #   3. Commits "chore(release): vX.Y.Z" on develop and pushes develop.
-#   4. Opens the pull request "Release vX.Y.Z" with the version's notes and prints its URL.
+#   4. Opens the pull request "Release vX.Y.Z" with the version's notes (release-notes.sh: the
+#      summary, then the changes) and prints its URL.
 #
 # Run with the version of a release that is under way (develop already has it, and it has no
 # tag yet), it updates that release instead: after a fix reached develop while the pull request
@@ -117,6 +119,15 @@ else
   pass "tag $tag does not exist yet"
 fi
 
+# The notes start with the release's own summary, written for the people who use FXM.
+summary=$(fxm_release_summary_file "$version")
+if fxm_release_has_summary "$version"; then
+  pass "$summary has the release's summary"
+else
+  problem "$summary is missing or empty: write the release's summary for the people who use" \
+    "FXM (docs/WORKFLOW.md, \"Releases\"), then commit and push it on develop"
+fi
+
 gh_ready=false
 if ! command -v gh >/dev/null 2>&1; then
   problem "the GitHub CLI is not installed: make gh-setup"
@@ -156,20 +167,19 @@ fi
 
 notes=$work/notes.md
 "$here/release-notes.sh" "$version" >"$notes"
-entries=$(grep -c '^- ' "$notes" || true)
 
 body=$work/pull-request.md
 {
   echo "Merging this pull request with a merge commit releases FXM $tag: the release workflow"
   echo "tags the merge commit, builds the release files and publishes the GitHub Release with"
-  echo "these notes. Afterwards, merge main back into develop."
+  echo "the notes below. Afterwards, merge main back into develop."
   echo
-  echo "## Notes"
+  echo "---"
   echo
   cat "$notes"
 } >"$body"
 fxm_release_fit "$body" 65000 \
-  "The full list is in CHANGELOG.md on develop, and in the GitHub Release once it is published."
+  "The list goes on in the GitHub Release once it is published, and CHANGELOG.md on develop has every change."
 
 if $dry_run; then
   echo
@@ -181,7 +191,7 @@ if $dry_run; then
     echo "  1. Set the version (scripts/release-version.sh $version):"
   fi
   "$here/release-version.sh" --dry-run "$version" | sed 's/^/   /'
-  echo "  2. Regenerate CHANGELOG.md with git-cliff: $tag gets $entries entries"
+  echo "  2. Regenerate CHANGELOG.md with git-cliff"
   if $update; then
     echo "  3. If either changed, commit \"chore(release): $tag\" on develop and push develop"
   else
