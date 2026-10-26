@@ -7,7 +7,7 @@ dist/pages/
 ├── index.html, privacy.html, disclaimer.html, 404.html, robots.txt, sitemap…, _astro/   the site (apps/site)
 ├── .well-known/security.txt                                                          the site's public/ (R.4)
 ├── app/              the web app (apps/web, base /app/), plus app/404.html for its client-side routes
-├── embed/            the embeddable player (5.2), once it exists
+├── embed/            the embeddable player (5.2: apps/web's embed, base /embed/), plus embed/404.html for its paths
 ├── sandbox/          innertube.html and userhost.html (1.10), eval.html (1.11), once they exist
 ├── third-party-notices.txt
 └── _headers          one Content-Security-Policy per path
@@ -19,7 +19,7 @@ Run them from the repository root.
 
 | Command | What it does |
 |---|---|
-| `make dist` | Builds the site and the app, composes `dist/pages/` and runs every check below. Takes a few seconds once the dependencies are installed |
+| `make dist` | Builds the site, the app and the embed, composes `dist/pages/` and runs every check below. Takes a few seconds once the dependencies are installed |
 | `scripts/run.sh pnpm --filter @fxm/deploy preview` | Serves `dist/pages/` the way Cloudflare Pages does (redirects, 404 pages, `_headers`) at `http://127.0.0.1:5800` (`FXM_PREVIEW_PORT` to change it; the port is strict) |
 | `scripts/run.sh pnpm --filter @fxm/deploy check:headers <url>` | The header check of a deployment (below), for example `https://develop.fxmusic.pages.dev` |
 | `scripts/run.sh pnpm --filter @fxm/deploy e2e` | The browser checks: against `FXM_DEPLOY_URL` if set, otherwise against `dist/pages/` (or the folder in `FXM_PAGES_DIR`) served on port 5800, with a second local origin on 5801 and up. Needs Chromium from `.tools/playwright` (`scripts/run.sh pnpm --filter @fxm/deploy exec playwright install chromium`) |
@@ -28,7 +28,7 @@ Run them from the repository root.
 
 ## What make dist does
 
-1. **Builds each part** into `dist/.staging/`: the site with `apps/site`'s own config plus hidden source maps and the bundle inventory (`site.astro.config.mjs`), the app the same way (`app.vite.config.ts`, with `vite build --sourcemap hidden`), its workers with the bundle inventory too (`src/dist-configs.ts`). Neither build reads `.env` files: every build variable comes from the environment `make dist` runs in, where the policies read them too ([Jamendo](#jamendo)). The embed and the sandbox documents come from other stages through `src/later-stages.ts`, which skips what doesn't exist yet: today the embed (5.2).
+1. **Builds each part** into `dist/.staging/`: the site with `apps/site`'s own config plus hidden source maps and the bundle inventory (`site.astro.config.mjs`), the app the same way (`app.vite.config.ts`, with `vite build --sourcemap hidden`), its workers with the bundle inventory too (`src/dist-configs.ts`), and the embed as the app (`embed.vite.config.ts`). No build reads `.env` files: every build variable comes from the environment `make dist` runs in, where the policies read them too ([Jamendo](#jamendo)). The embed and the sandbox documents come from other stages through `src/later-stages.ts`, which skips what doesn't exist yet.
 2. **Lists the bundled npm packages**: from the source maps (every source under `node_modules/`), from the bundle inventory (`src/bundle-inventory.ts`: the stylesheets, fonts, images and WebAssembly a build takes from packages, which source maps don't show, and the modules in each chunk, the workers' included), from `/*! name vX.Y.Z` banners in stylesheets, such as Tailwind's base styles, and for the sandbox documents, which have no source maps, from the `//#region <path>` markers Rolldown leaves in their unminified scripts (1.11's `eval.html` bundles bgutils-js). A source that a map names but that is no file must be accounted for: a Vite plugin's virtual module maps to the package whose code it is through `VIRTUAL_MODULES` (vite-plugin-pwa's `virtual:pwa-register`, behind the app's `registerSW`), and only Workbox's generated service worker entry and the bundler's own runtime need no package. The app's workers get source maps that name their sources where the check finds them (`src/worker-source-maps.ts`). It fails when:
    - a package's licence is not on the list FXM accepts (`ACCEPTED_LICENCES` in `src/licenses.ts`: permissive licences, MPL-2.0, LGPL, and licences for fonts and data). GPL and AGPL, in any spelling (`GPL-3.0`, `GPLv3`, `AGPL3`), never pass. Anything else, such as a missing licence, `BSD` (not an SPDX id), SSPL or a non-commercial licence, passes only after a human review recorded in `LICENCE_OVERRIDES`;
    - a package that FXM may ship only under the LGPL shares a chunk with other code, in the app's build or in a worker's: the LGPL lets FXM ship a library only where people can replace it, so its modules must sit in chunks of their own (a Vite `manualChunks` entry puts them there), next to the bundler's runtime at most, and it can't be inlined into a sandbox document;
@@ -98,7 +98,7 @@ Jamendo's API needs a `client_id`, and FXM's public one would be shared by every
 | Privacy page | lists Jamendo, contacted only once it is on | lists Jamendo as contacted |
 | `/app/*` policy | no `https://*.jamendo.com` (Jamendo's `requires` in `APP_SERVICES`) | `https://*.jamendo.com` in `connect-src` and `img-src` |
 
-Locally: `VITE_FXM_JAMENDO_CLIENT_ID=<client_id> make dist`. `make dist` builds the site and the app without reading `.env` files (`envDir: false`, `src/dist-configs.ts`), so a client_id kept in `apps/web/.env.local` for `make dev` never reaches a `make dist` build: the app, the site and the policies all read the one environment `make dist` runs in.
+Locally: `VITE_FXM_JAMENDO_CLIENT_ID=<client_id> make dist`. `make dist` builds the site, the app and the embed without reading `.env` files (`envDir: false`, `src/dist-configs.ts`), so a client_id kept in `apps/web/.env.local` for `make dev` never reaches a `make dist` build: the app, the site and the policies all read the one environment `make dist` runs in.
 
 ## Deploying
 

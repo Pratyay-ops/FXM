@@ -1,9 +1,10 @@
 /**
- * The configs `make dist` builds the site and the web app with (site.astro.config.mjs and
- * app.vite.config.ts): each one's own config, plus what the checks need. They are here, apart
- * from the config files, so that the tests can check them without loading either one's plugins.
+ * The configs `make dist` builds the site, the web app and the embeddable player with
+ * (site.astro.config.mjs, app.vite.config.ts and embed.vite.config.ts): each one's own config,
+ * plus what the checks need. They are here, apart from the config files, so that the tests can
+ * check them without loading any one's plugins.
  *
- * Both builds read no `.env` files (`envDir: false`): their build variables, such as
+ * No build reads `.env` files (`envDir: false`): their build variables, such as
  * `VITE_FXM_JAMENDO_CLIENT_ID` (README.md, "Jamendo"), come from make dist's environment alone,
  * which is also where the policies (`offeredServices`) read them. Otherwise a developer's
  * `apps/web/.env.local`, kept for `make dev`, could make the app offer Jamendo while the `/app/*`
@@ -20,7 +21,8 @@ export interface ViteConfigLike {
 }
 
 /**
- * The web app's config for make dist: apps/web/vite.config.ts with
+ * The web app's config for make dist, and the embeddable player's (stage 5.2): apps/web's
+ * vite.config.ts, or vite.embed.config.ts, with
  *
  * - the bundle inventory (src/bundle-inventory.ts) in the app's build and in each worker's,
  *   whose entries say `worker`: the licence check reads every chunk's modules from it, the

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bundleInventory, INVENTORY_VARIABLE } from './bundle-inventory.ts'
@@ -32,6 +33,14 @@ describe('the configs make dist builds with', () => {
     expect(names(config.worker.plugins())).toEqual(['worker-own', 'fxm:bundle-inventory'])
     // An app without worker plugins of its own.
     expect(names(distAppConfig({}).worker.plugins())).toEqual(['fxm:bundle-inventory'])
+  })
+
+  it('build the embeddable player as the web app: the inventory, and no .env files', () => {
+    // Read, not imported: importing the config files would load the apps' plugins.
+    for (const file of ['app.vite.config.ts', 'embed.vite.config.ts']) {
+      const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8')
+      expect(source, file).toMatch(/^export default distAppConfig\(\w+\)$/m)
+    }
   })
 
   it('give the site the inventory, hidden source maps and no .env files, keeping its own', () => {
