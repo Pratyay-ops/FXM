@@ -1,0 +1,341 @@
+{
+  "id": "sp:3CeCwYWvdfXbZLXFhBrbnf",
+  "split": "held-out",
+  "categories": ["mainstream", "re-recording"],
+  "provenance": [
+    "Spotify search \"Taylor's Version\" #1 (search:Taylor's Version), read 2026-10-25"
+  ],
+  "spotify": {
+    "id": "3CeCwYWvdfXbZLXFhBrbnf",
+    "popularity": 79,
+    "albumType": "single"
+  },
+  "variants": [
+    {
+      "slice": "spotify",
+      "source": {
+        "title": "Love Story (Taylor’s Version)",
+        "artists": [
+          {
+            "name": "Taylor Swift"
+          }
+        ],
+        "album": {
+          "name": "Love Story (Taylor’s Version)"
+        },
+        "durationMs": 235766,
+        "isrc": "USUG12100342",
+        "isrcOrigin": "catalog",
+        "explicit": false,
+        "releaseDate": "2021-02-12",
+        "label": "Taylor Swift",
+        "albumType": "single"
+      }
+    },
+    {
+      "slice": "data-export",
+      "source": {
+        "title": "Love Story (Taylor’s Version)",
+        "artists": [
+          {
+            "name": "Taylor Swift"
+          }
+        ],
+        "album": {
+          "name": "Love Story (Taylor’s Version)"
+        }
+      }
+    },
+    {
+      "slice": "musicbrainz-fuzzy",
+      "source": {
+        "title": "Love Story (Taylor’s Version)",
+        "artists": [
+          {
+            "name": "Taylor Swift"
+          }
+        ],
+        "album": {
+          "name": "Love Story (Taylor’s Version)"
+        },
+        "durationMs": 235766,
+        "explicit": false,
+        "isrc": "USUG12100342",
+        "isrcOrigin": "musicbrainz-fuzzy"
+      }
+    }
+  ],
+  "musicBrainz": {
+    "exact": null,
+    "fuzzy": {
+      "recording": "93484aa2-0ce6-4356-9ff4-9db61e07acd5",
+      "isrcs": ["USUG12100342"]
+    }
+  },
+  "recording": {
+    "recordedAt": ["2026-10-25"],
+    "items": {
+      "e7yg0A-PCTI": {
+        "kind": "song",
+        "title": "Love Story (Taylor’s Version)",
+        "artists": ["Taylor Swift"],
+        "album": "Love Story (Taylor’s Version)",
+        "albumId": "MPREb_LZmw4oUBUnJ",
+        "durationMs": 236000
+      },
+      "AAcvkhzMFlU": {
+        "kind": "song",
+        "title": "Beethoven Virus",
+        "artists": ["logan feece"],
+        "album": "Beethoven Virus",
+        "albumId": "MPREb_6Z9Vvc5aQqq",
+        "durationMs": 219000
+      },
+      "WaURUkHtCJ0": {
+        "kind": "song",
+        "title": "WA WA WA FUNK (Remix SLOWED)",
+        "artists": ["ZAYLO"],
+        "album": "WA WA WA FUNK",
+        "albumId": "MPREb_wxZbdPsvgwP",
+        "durationMs": 109000
+      },
+      "Nv_RW9yZNAU": {
+        "kind": "song",
+        "title": "8 Pa",
+        "artists": ["Grin Department"],
+        "album": "2NAH Ahgen",
+        "albumId": "MPREb_qm1kY6ms4gO",
+        "durationMs": 287000
+      },
+      "HJO1ltBNmik": {
+        "kind": "song",
+        "title": "Magbalik",
+        "artists": ["Callalily"],
+        "album": "Destination XYZ",
+        "albumId": "MPREb_MoLV0BKW6bB",
+        "durationMs": 327000
+      },
+      "Uxe-QpLhlyI": {
+        "kind": "song",
+        "title": "Gugmang Giatay",
+        "artists": ["The Ambassadors"],
+        "album": "Simple Changes",
+        "albumId": "MPREb_KfvwC4tDqKi",
+        "durationMs": 171000
+      },
+      "cqeaOWCoHy8": {
+        "kind": "song",
+        "title": "Syota Ng Bayan",
+        "artists": ["Grin Department"],
+        "album": "Grin Department",
+        "albumId": "MPREb_8c7zVDdNt1g",
+        "durationMs": 241000
+      },
+      "o2FZEQyw__c": {
+        "kind": "song",
+        "title": "Wag Mo Na Sana",
+        "artists": ["Parokya Ni Edgar"],
+        "album": "Gulong Itlog Gulong",
+        "albumId": "MPREb_nzKVnmIudD5",
+        "durationMs": 179000
+      },
+      "aZ1hziFhj1o": {
+        "kind": "song",
+        "title": "Love Story",
+        "artists": ["Taylor Swift"],
+        "album": "Fearless (Platinum Edition)",
+        "albumId": "MPREb_u721jSRXVRq",
+        "durationMs": 236000
+      },
+      "oOEhHDx6xOQ": {
+        "kind": "song",
+        "title": "Back To December (Taylor's Version)",
+        "artists": ["Taylor Swift"],
+        "album": "Speak Now (Taylor's Version)",
+        "albumId": "MPREb_7u82vYqpamW",
+        "durationMs": 295000
+      },
+      "dSvVXOs8FHA": {
+        "kind": "song",
+        "title": "Wedding Entrance X Love Story (Celebratory Orchestra Ver.)",
+        "artists": ["James Wong"],
+        "album": "Wedding Entrance X Love Story (Celebratory Orchestra Ver.)",
+        "albumId": "MPREb_t1bKN1hHQoz",
+        "durationMs": 61000
+      },
+      "26pTVcohoFQ": {
+        "kind": "song",
+        "title": "Love Story (Taylor's Version)",
+        "artists": ["Ana Done"],
+        "album": "Fearless (The Violin Covers)",
+        "albumId": "MPREb_B5xhrqiunI7",
+        "durationMs": 236000
+      },
+      "VCb5JPnyoHs": {
+        "kind": "song",
+        "title": "Bad Blood (Taylor's Version)",
+        "artists": ["Taylor Swift"],
+        "album": "1989 (Taylor's Version)",
+        "albumId": "MPREb_5XXbjpMgJar",
+        "durationMs": 212000
+      },
+      "FJcJhTy4svc": {
+        "kind": "song",
+        "title": "Fifteen (Taylor’s Version)",
+        "artists": ["Taylor Swift"],
+        "album": "Fearless (Taylor's Version)",
+        "albumId": "MPREb_W8Sz9ZLayFV",
+        "durationMs": 295000
+      },
+      "MSWhTUMH3pM": {
+        "kind": "song",
+        "title": "Better Than Revenge (Taylor's Version)",
+        "artists": ["Taylor Swift"],
+        "album": "Speak Now (Taylor's Version)",
+        "albumId": "MPREb_7u82vYqpamW",
+        "durationMs": 221000
+      },
+      "JzSPkFtCQ-o": {
+        "kind": "song",
+        "title": "Love Story (Taylor’s Version)",
+        "artists": ["Tezzaroo"],
+        "album": "Love Story (Taylor’s Version)",
+        "albumId": "MPREb_RPHEbzYZ5iQ",
+        "durationMs": 61000
+      },
+      "7xI-RTZcHVg": {
+        "kind": "song",
+        "title": "Love Story (Taylor’s Version)",
+        "artists": ["Baby girl"],
+        "album": "Love Story (Taylor’s Version)",
+        "albumId": "MPREb_PmQTtNexxuC",
+        "durationMs": 61000
+      },
+      "fFMPxt-XNIk": {
+        "kind": "song",
+        "title": "Message In A Bottle (Taylor's Version) [From The Vault]",
+        "artists": ["Taylor Swift"],
+        "album": "Red (Taylor's Version)",
+        "albumId": "MPREb_A6da7RWlGXJ",
+        "durationMs": 226000
+      },
+      "VOk5_r3Fm0g": {
+        "kind": "song",
+        "title": "Crazier",
+        "artists": ["Taylor Swift"],
+        "album": "Hannah Montana The Movie",
+        "albumId": "MPREb_Z43YxzbRqSl",
+        "durationMs": 192000
+      },
+      "LzBEh9x9unw": {
+        "kind": "song",
+        "title": "Love Story (Originally Performed By Taylor Swift) [Karaoke Backing Track]",
+        "artists": ["Paris Music"],
+        "album": "Karaoke Hits 2008, Vol. 10",
+        "albumId": "MPREb_7N4waFvVNPZ",
+        "durationMs": 235000
+      },
+      "0OsRXc0R4Bo": {
+        "kind": "song",
+        "title": "The Story Of Us",
+        "artists": ["Taylor Swift"],
+        "album": "Speak Now (Big Machine Radio Release Special)",
+        "albumId": "MPREb_WPj4YRlDlkT",
+        "durationMs": 268000
+      },
+      "3XMgpSpUSLY": {
+        "kind": "song",
+        "title": "Love Story (Studio Version)",
+        "artists": ["Julian Gamez"],
+        "album": "Love Story (Studio Version)",
+        "albumId": "MPREb_LpfwXOvrUBt",
+        "durationMs": 222000
+      },
+      "YM3Ks7x5ssc": {
+        "kind": "song",
+        "title": "Love Story (Taylor's Version on Piano)",
+        "artists": ["Laura Sullivan"],
+        "album": "Love Songs Solo Piano Covers",
+        "albumId": "MPREb_HIMEqth13ET",
+        "durationMs": 152000
+      },
+      "T9NrS3MDd5c": {
+        "kind": "song",
+        "title": "Love Story (Acoustic/Mood Cover)",
+        "artists": ["Bindu Subramaniam"],
+        "album": "Love Story (Acoustic/Mood Cover)",
+        "albumId": "MPREb_3bKz0nnQLgb",
+        "durationMs": 154000
+      },
+      "Q-NrKFwFLUo": {
+        "kind": "song",
+        "title": "Love Story (Taylor's Version) (Originally Perfomed By Taylor Swift) (Instrumental Karaoke Version)",
+        "artists": ["ZZang KARAOKE"],
+        "album": "ZZang KARAOKE 2024 Taylor Swift Vol. 2",
+        "albumId": "MPREb_5BQWWFRPdPz",
+        "durationMs": 235000
+      },
+      "flSWjVk9QKg": {
+        "kind": "song",
+        "title": "Love Story",
+        "artists": ["Travis Atreo"],
+        "album": "Love Story",
+        "albumId": "MPREb_qbHSmpYs2iZ",
+        "durationMs": 226000
+      },
+      "maM9NgsOlzw": {
+        "kind": "song",
+        "title": "Love Story",
+        "artists": ["Vitamin String Quartet"],
+        "album": "Vitamin String Quartet Performs Taylor Swift's Love Story",
+        "albumId": "MPREb_86zwR9TAWME",
+        "durationMs": 216000
+      }
+    },
+    "pages": {
+      "isrc-songs/1/USUG12100342": {
+        "items": [
+          "e7yg0A-PCTI",
+          "AAcvkhzMFlU",
+          "WaURUkHtCJ0",
+          "Nv_RW9yZNAU",
+          "HJO1ltBNmik",
+          "Uxe-QpLhlyI",
+          "cqeaOWCoHy8",
+          "o2FZEQyw__c"
+        ]
+      },
+      "songs/Taylor Swift Love Story (Taylor's Version)": {
+        "items": [
+          "e7yg0A-PCTI",
+          "aZ1hziFhj1o",
+          "oOEhHDx6xOQ",
+          "dSvVXOs8FHA",
+          "26pTVcohoFQ",
+          "VCb5JPnyoHs",
+          "FJcJhTy4svc",
+          "MSWhTUMH3pM",
+          "JzSPkFtCQ-o",
+          "7xI-RTZcHVg",
+          "fFMPxt-XNIk",
+          "VOk5_r3Fm0g",
+          "LzBEh9x9unw",
+          "0OsRXc0R4Bo",
+          "3XMgpSpUSLY",
+          "YM3Ks7x5ssc",
+          "T9NrS3MDd5c",
+          "Q-NrKFwFLUo",
+          "flSWjVk9QKg",
+          "maM9NgsOlzw"
+        ]
+      }
+    }
+  },
+  "labels": {
+    "e7yg0A-PCTI": {
+      "label": "exact",
+      "by": "rule",
+      "evidence": ["length +0.2 s", "found by the ISRC search for USUG12100342 (#1, attempt 1)"]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$comment": "Not read by the app yet. The Origin each host gets, in the shape of the `requestHeaders` option that tauri-apps/plugins-workspace PR #3703 proposes for tauri-plugin-http (open on 2026-10-26). Once a release with it is 14 days old, move the list to plugins > http > requestHeaders in tauri.conf.json and build the plugin without `unsafe-headers` (see apps/desktop/README.md). test/tauri-config.test.ts keeps it in step with NATIVE_ORIGINS in packages/platform/src/native.ts.",
+  "requestHeaders": [
+    { "url": "https://*/*", "headers": { "Origin": null }, "mode": "override" },
+    {
+      "url": "https://open.spotify.com/*",
+      "headers": { "Origin": "https://open.spotify.com" },
+      "mode": "override"
+    },
+    {
+      "url": "https://clienttoken.spotify.com/*",
+      "headers": { "Origin": "https://open.spotify.com" },
+      "mode": "override"
+    },
+    {
+      "url": "https://api-partner.spotify.com/*",
+      "headers": { "Origin": "https://open.spotify.com" },
+      "mode": "override"
+    },
+    {
+      "url": "https://spclient.wg.spotify.com/*",
+      "headers": { "Origin": "https://open.spotify.com" },
+      "mode": "override"
+    }
+  ]
+}

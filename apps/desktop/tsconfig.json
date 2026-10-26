@@ -1,7 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    // The smoke page and the tests use @fxm/platform, whose sources use the web platform's types.
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "allowImportingTsExtensions": true,
     "types": ["node"]
   },
-  "include": ["test"]
+  "include": ["test", "smoke"]
 }
