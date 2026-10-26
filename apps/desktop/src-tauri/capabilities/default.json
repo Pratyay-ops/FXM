@@ -13,6 +13,8 @@
     "core:window:default",
     "opener:default",
     "fxm-evaluator:default",
+    "fxm-downloads:default",
+    "fxm-spotify:default",
     "allow-user-hosts",
     "allow-approve-user-host",
     "allow-revoke-user-host",

@@ -97,11 +97,13 @@ fn user_agent() -> String {
     )
 }
 
-/// Why a command failed. The web app receives it as `{ code, message }`.
+/// Why a command failed. The web app receives it as `{ code, message }`. The downloads
+/// ([`crate::downloads`]) and the Spotify login ([`crate::spotify_login`]) answer with it too,
+/// with the codes their modules list.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CommandError {
-    /// What went wrong, for code: `invalid-host`, `not-focused`, `busy`, `too-soon`, `refused`,
-    /// `dialog`, `storage`, `bad-request`, `not-approved`, `forbidden-address`,
+    /// What went wrong, for code. Here: `invalid-host`, `not-focused`, `busy`, `too-soon`,
+    /// `refused`, `dialog`, `storage`, `bad-request`, `not-approved`, `forbidden-address`,
     /// `proxy-configured`, `too-large` or `network`.
     pub code: &'static str,
     /// What went wrong, for people.
@@ -109,7 +111,7 @@ pub struct CommandError {
 }
 
 impl CommandError {
-    fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
             code,
             message: message.into(),

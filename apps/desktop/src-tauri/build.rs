@@ -21,10 +21,37 @@ fn main() {
     let evaluator = tauri_build::InlinedPlugin::new()
         .commands(&["open", "eval", "close"])
         .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands);
+    // Downloads on disk (src/downloads.rs) and the Spotify login (src/spotify_login.rs), stage
+    // 7.4: their commands too need a permission, which capabilities/default.json grants to the
+    // main window only.
+    let downloads = tauri_build::InlinedPlugin::new()
+        .commands(&[
+            "open",
+            "write",
+            "truncate",
+            "flush",
+            "close",
+            "remove",
+            "list",
+            "size",
+            "read",
+            "name",
+            "folder",
+            "choose_folder",
+            "save_begin",
+            "save_write",
+            "save_end",
+        ])
+        .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands);
+    let spotify = tauri_build::InlinedPlugin::new()
+        .commands(&["status", "login", "logout", "token"])
+        .default_permission(tauri_build::DefaultPermissionRule::AllowAllCommands);
     tauri_build::try_build(
         tauri_build::Attributes::new()
             .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS))
-            .plugin("fxm-evaluator", evaluator),
+            .plugin("fxm-evaluator", evaluator)
+            .plugin("fxm-downloads", downloads)
+            .plugin("fxm-spotify", spotify),
     )
     .expect("failed to run tauri-build");
 }

@@ -187,6 +187,12 @@ importers:
       '@fxm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@fxm/downloads':
+        specifier: workspace:*
+        version: link:../../packages/downloads
+      '@fxm/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player
@@ -194,9 +200,9 @@ importers:
         specifier: ^2.12.3
         version: 2.12.3
     devDependencies:
-      '@fxm/platform':
+      '@fxm/sources':
         specifier: workspace:*
-        version: link:../../packages/platform
+        version: link:../../packages/sources
       '@tauri-apps/cli':
         specifier: ^2.12.2
         version: 2.12.2
