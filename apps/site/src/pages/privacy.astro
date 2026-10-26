@@ -66,6 +66,11 @@ const services: Service[] = [
     url: 'https://sponsor.ajay.app',
     use: "Only if you turn it on (it's off by default), in Music + Video mode: which parts of a music video aren't music, such as an intro or a skit, so FXM can skip them. FXM sends only the first four characters of a hash of the video's ID, which a great many videos share, so SponsorBlock can't tell which video you play.",
   },
+  {
+    name: 'GitHub',
+    url: 'https://github.com',
+    use: "Only if you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions.",
+  },
 ]
 
 const cookies = `FXM doesn't set cookies or use them to follow you. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, FXM uses your Spotify login as described in`
@@ -83,9 +88,9 @@ const webAppUpdates =
 
 <Document
   title="Privacy · FXM"
-  description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device. Here is which services your device talks to, and why."
+  description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device unless you turn on sync. Here is which services your device talks to, and why."
   heading="Privacy"
-  lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device."
+  lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device unless you turn on sync."
   updated="2026-10-26"
 >
   <h2>The short version</h2>
@@ -120,7 +125,18 @@ const webAppUpdates =
     The token and keys of a scrobbling account you connect are stored there too, and library backups
     leave them out.
   </p>
-  <p>Clearing this site's data in your browser, or uninstalling the app, deletes it for good.</p>
+  <p>
+    If you turn on sync, a copy also goes to a secret gist on your own GitHub account, so your other
+    devices can read it. The token that lets FXM write it stays on your device. GitHub keeps every
+    earlier version of the gist, and anyone with the gist's link can read them all. Removing
+    something in FXM, or clearing your history, doesn't remove it from those versions: delete the
+    gist to remove everything.
+  </p>
+  <p>
+    Clearing this site's data in your browser, or uninstalling the app, deletes what is on your
+    device for good. A sync gist stays on GitHub until you delete it there, or turn off sync in FXM
+    and choose to delete it.
+  </p>
 
   <h2>Services your device talks to</h2>
   <p>

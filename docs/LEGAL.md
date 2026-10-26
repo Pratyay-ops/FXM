@@ -66,6 +66,7 @@ FXM talks to YouTube and Spotify through APIs they don't document. Code that rel
 | ListenBrainz | [`packages/sources/src/listenbrainz/CLEAN-ROOM.md`](../packages/sources/src/listenbrainz/CLEAN-ROOM.md) | 3.2 |
 | Cover Art Archive | [`packages/sources/src/coverart/CLEAN-ROOM.md`](../packages/sources/src/coverart/CLEAN-ROOM.md) | 3.2 |
 | iTunes Search | [`packages/sources/src/itunes/CLEAN-ROOM.md`](../packages/sources/src/itunes/CLEAN-ROOM.md) | 3.2 |
+| Imported files and links (Spotify's data export, Exportify's CSV, M3U, YouTube links) | [`packages/sources/src/import/CLEAN-ROOM.md`](../packages/sources/src/import/CLEAN-ROOM.md) | 3.6 |
 | Scrobbling: Last.fm's and ListenBrainz's write APIs | [`packages/sources/src/scrobble/CLEAN-ROOM.md`](../packages/sources/src/scrobble/CLEAN-ROOM.md) | 8.2 |
 | SponsorBlock | [`packages/sources/src/sponsorblock/CLEAN-ROOM.md`](../packages/sources/src/sponsorblock/CLEAN-ROOM.md) | 8.7 |
 

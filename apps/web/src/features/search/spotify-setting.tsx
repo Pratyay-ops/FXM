@@ -33,15 +33,20 @@ export function SpotifySwitchControl({
   )
 }
 
-/** What the switch does here: whether Spotify is reachable decides the wording. */
+/**
+ * What the switch does here: whether Spotify is reachable decides the wording, and whether this
+ * build can read it at all (the web app needs the sandbox documents of stage 1.10 for that).
+ */
 export function SpotifySwitchHelp({ id }: { id?: string }) {
-  const { capabilities, spotifyEnabled } = useSourcesSnapshot()
+  const { capabilities, spotifyEnabled, providers } = useSourcesSnapshot()
   const reachable = capabilities.spotify !== 'unreachable'
   const text = !spotifyEnabled
     ? "Off: FXM doesn't contact Spotify."
-    : reachable
-      ? 'Search and browse Spotify too. Its tracks play from matching songs on other sources, never from Spotify.'
-      : "On wherever FXM can reach Spotify: with FXM Connect, the desktop app or the Android app. It can't from here."
+    : !reachable
+      ? "On wherever FXM can reach Spotify: with FXM Connect, the desktop app or the Android app. It can't from here."
+      : providers.has('spotify')
+        ? 'Search and browse Spotify too. Its tracks play from matching songs on other sources, never from Spotify.'
+        : "On, but this version of FXM can't read Spotify in a browser yet. That comes in a later update."
   return (
     <p id={id} aria-live="polite" className="text-sm text-text-muted">
       {text}

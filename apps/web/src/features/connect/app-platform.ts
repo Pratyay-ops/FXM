@@ -28,6 +28,10 @@ export function getAppPlatform(): Promise<FxmPlatform> {
   pending ??= createPlatform({
     ...(detectEnvironment() === 'browser' ? { sandbox: createSandboxTransport() } : {}),
     killSwitches: appKillSwitches,
+    // The YouTube stream ladder (stage 1.4) reports the bot checks it tells apart from age
+    // gates itself, for the app's player and the self-test alike: counting LOGIN_REQUIRED here
+    // too would count each twice, and an age gate as a bot check.
+    reportLoginRequired: false,
   })
   return pending
 }

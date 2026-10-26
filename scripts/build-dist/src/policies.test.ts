@@ -30,8 +30,15 @@ const PLAN_APP_POLICY =
     HASH,
   )
 
-/** The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm). */
-const LATER_CONNECT_HOSTS = ['https://api.listenbrainz.org', 'https://ws.audioscrobbler.com']
+/**
+ * The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm) and
+ * 8.4's library sync (GitHub).
+ */
+const LATER_CONNECT_HOSTS = [
+  'https://api.listenbrainz.org',
+  'https://ws.audioscrobbler.com',
+  'https://api.github.com',
+]
 
 /** The `/app/*` policy today: the plan's, with the hosts later stages added after its own. */
 const APP_POLICY = PLAN_APP_POLICY.replace(
@@ -77,7 +84,8 @@ describe('the web app policy', () => {
 
   it('stays under the 850-character estimate at M1, far below 2,000', () => {
     expect(PLAN_APP_POLICY.length).toBeLessThan(850)
-    expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(900)
+    // The plan expects about 1,200 once the later stages' hosts are in.
+    expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(1_200)
   })
 
   it('drops only frame-ancestors for the embed', () => {

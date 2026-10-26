@@ -2,13 +2,15 @@ import type { NetworkCapabilities } from '@fxm/core'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { renderApp } from '../../test/render'
+import { TIER_CAPABILITIES, type Tier } from '../search/sources'
+import { renderCatalog, resetCatalogState } from '../search/testing'
 import { FakeConnection, installConnection, removeConnection } from './fake-connection'
 import { QualitySection } from './quality-section'
 import { QUALITY_STORAGE_KEY, useQualityStore } from './quality-store'
 
 afterEach(() => {
   removeConnection()
+  resetCatalogState()
 })
 
 const LITE: NetworkCapabilities = {
@@ -29,9 +31,9 @@ function controls(section: HTMLElement) {
   }
 }
 
-/** Renders Settings and waits for the audio quality section. */
-async function renderQuality() {
-  const rendered = renderApp('/settings')
+/** Renders Settings on the Full tier, or `tier`, and waits for the audio quality section. */
+async function renderQuality(tier: Tier = 'full') {
+  const rendered = renderCatalog('/settings', { tier })
   const section = await screen.findByRole('region', { name: 'Audio quality' })
   return { ...rendered, section, ...controls(section) }
 }
@@ -317,6 +319,16 @@ describe('Audio quality settings', () => {
 })
 
 describe('Audio quality settings on other tiers and browsers', () => {
+  it('follow the tier the platform reaches, also when it changes', async () => {
+    const { select, platform } = await renderQuality('free')
+    expect(select('Streaming on Wi-Fi')).not.toHaveAccessibleDescription(/YouTube/)
+
+    // FXM Connect answered: the Full tier.
+    act(() => platform.setCapabilities(TIER_CAPABILITIES.full))
+
+    expect(select('Streaming on Wi-Fi')).toHaveAccessibleDescription(/the best YouTube audio/)
+  })
+
   it('say in Lite that downloads cover the free sources, and where YouTube songs download', () => {
     const { select } = renderSection(LITE)
     expect(select('Download format')).toHaveAccessibleDescription(
