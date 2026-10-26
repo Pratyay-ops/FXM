@@ -195,16 +195,17 @@ function storageDump(page: Page): Promise<string> {
 }
 
 /**
- * Waits until the section says the account is connected. On a busy machine FXM Connect's bridge
- * can answer later than the check waits; the section then says it couldn't check, and the test
- * does what a user would: Try again, at most twice. It logs each retry.
+ * Waits until the section says what the login check found (`found`, then `expected` in full). On
+ * a busy machine FXM Connect's bridge can answer later than the check waits; the section then
+ * says it couldn't check, and the test does what a user would: Try again, at most twice. It logs
+ * each retry.
  */
-async function expectConnected(page: Page, section: Locator) {
+async function expectChecked(page: Page, section: Locator, found: string, expected = found) {
   const deadline = Date.now() + 90_000
   let retries = 0
   while (Date.now() < deadline) {
     const text = (await section.textContent()) ?? ''
-    if (text.includes('Connected as')) break
+    if (text.includes(found)) break
     if (text.includes('couldn’t check your Spotify login') && retries < 2) {
       retries += 1
       console.log(`The login check failed (${text.slice(0, 160)}); trying again (${retries})`)
@@ -212,7 +213,12 @@ async function expectConnected(page: Page, section: Locator) {
     }
     await page.waitForTimeout(500)
   }
-  await expect(section).toContainText('Connected as E2E Listener.')
+  await expect(section).toContainText(expected)
+}
+
+/** Waits until the section says the account is connected (see {@link expectChecked}). */
+async function expectConnected(page: Page, section: Locator) {
+  await expectChecked(page, section, 'Connected as', 'Connected as E2E Listener.')
 }
 
 /** Connects the account from Settings: the notice, then FXM Connect's switch, then Try again. */
@@ -365,7 +371,7 @@ test('says so when the browser has no Spotify login', async () => {
     await browser.context.clearCookies({ name: SESSION.name })
     const page = await browser.context.newPage()
     const section = await connect(page, browser)
-    await expect(section).toContainText('FXM Connect got no Spotify login from this browser')
+    await expectChecked(page, section, 'FXM Connect got no Spotify login from this browser')
     await expect(section.getByRole('link', { name: /open\.spotify\.com/ })).toBeVisible()
     expect(network.requests(PATHFINDER_HOST).filter((entry) => entry.method === 'POST')).toEqual([])
     // The user signs in at open.spotify.com, comes back and tries again.
