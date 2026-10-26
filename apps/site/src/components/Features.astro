@@ -23,17 +23,18 @@ const feed = AVAILABLE.radio
   ? 'Quick picks, daily mixes and endless radio, put together on your device from YouTube Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz.'
   : 'Quick picks and daily mixes, put together on your device from YouTube Music radio, Spotify (unless you switch it off), Last.fm and ListenBrainz. Endless radio is coming soon.'
 
-// Downloads keep the source's file today; converting it to another format is stage 4.2.
+// Downloads keep the source's file, which plays offline; since stage 4.2 a downloaded song can
+// be saved to the device in another format, converted there.
 const downloadTitle = AVAILABLE.conversions
-  ? 'Download in the format you want'
+  ? 'Download, then save in the format you want'
   : 'Download for offline listening'
 const downloadText = AVAILABLE.conversions
-  ? 'Save any track for offline listening as Original, FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser.'
+  ? "Save any track for offline listening, as the file its source has: FLAC where it's lossless, Opus or AAC from YouTube Music. Then save it to your device as it is, or as FLAC, ALAC, WAV, MP3, AAC or Opus, converted on your device, with tags, cover art and lyrics. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser."
   : "Save any track for offline listening, as the file its source has: FLAC where it's lossless, Opus or AAC from YouTube Music. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser."
 // Jamendo is among the lossless sources only in a build that offers it (AVAILABLE.jamendo).
 const lossless = `You get real lossless FLAC where the source has it ${losslessSources(AVAILABLE.jamendo)}.`
 const formatsText = AVAILABLE.conversions
-  ? `${lossless} Conversions from lossy sources are labelled honestly, so you always know what you have.`
+  ? `${lossless} Conversions from lossy sources are labelled honestly, and YouTube Music's audio is never called lossless, so you always know what you have.`
   : `${lossless} Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon, and conversions from lossy sources will be labelled honestly.`
 
 const extras = [
