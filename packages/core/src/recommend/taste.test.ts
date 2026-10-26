@@ -108,6 +108,20 @@ describe('indexTaste', () => {
     expect(taste.tag('jazz')).toBe(0)
   })
 
+  it('counts a picked artist as one the user knows, played or not', () => {
+    const taste = indexTaste(
+      profileOf([play(copper, HOUR)], {
+        picks: { artists: [{ name: 'Basalt' }, { name: 'Aurora Lane' }], genres: [], at: NOW },
+      }),
+      NOW,
+    )
+    expect(taste.artist('basalt')).toMatchObject({ picked: true, familiarity: 1, plays: 0 })
+    expect(taste.artist('aurora lane')).toMatchObject({ picked: true, familiarity: 1, plays: 1 })
+    const unpicked = indexTaste(profileOf([play(copper, HOUR)]), NOW).artist('aurora lane')
+    expect(unpicked?.picked).toBe(false)
+    expect(unpicked?.familiarity).toBeCloseTo(0.4)
+  })
+
   it('merges artist entries that only a channel suffix kept apart', () => {
     const entry = (key: string, label: string, score: number): AffinityEntry => ({
       kind: 'artist',

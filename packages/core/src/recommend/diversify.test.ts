@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { createSeededRandom } from '../queue/random'
-import { DEFAULT_MMR_LAMBDA, DEFAULT_PER_ARTIST_CAP, diversify, songSimilarity } from './diversify'
+import {
+  createPicker,
+  DEFAULT_MMR_LAMBDA,
+  DEFAULT_PER_ARTIST_CAP,
+  diversify,
+  songSimilarity,
+} from './diversify'
 import type { PooledSong } from './pool'
 
 /** A pooled song: a title by artists, with tags. */
@@ -126,6 +132,74 @@ describe('diversify', () => {
         }
       }
       expect(diversify(items, options)).toEqual(picked)
+    }
+  })
+})
+
+/** MMR as the module documentation states it: every item weighed for every pick. */
+function referencePicks<T extends { song: PooledSong; score: number }>(
+  items: readonly T[],
+  options: { limit: number; lambda: number; perArtistCap: number },
+  after: readonly PooledSong[],
+  blocked: (song: PooledSong, round: number) => boolean,
+): T[] {
+  const finite = items.map((one) => one.score).filter(Number.isFinite)
+  const max = finite.length === 0 ? 0 : Math.max(...finite)
+  const min = finite.length === 0 ? 0 : Math.min(...finite)
+  const relevance = (score: number) =>
+    !Number.isFinite(score) ? 0 : max - min > 0 ? (score - min) / (max - min) : 1
+  const held = [...after]
+  const picked: T[] = []
+  for (let round = 0; picked.length < options.limit; round++) {
+    let best: T | undefined
+    let bestValue = -Infinity
+    for (const one of items) {
+      if (picked.includes(one) || blocked(one.song, round)) continue
+      if (one.song.keys.some((key) => held.some((song) => song.keys.includes(key)))) continue
+      const count = (key: string) => held.filter((song) => song.artistKeys.includes(key)).length
+      if (one.song.artistKeys.some((key) => count(key) >= options.perArtistCap)) continue
+      const near = Math.max(0, ...held.map((song) => songSimilarity(one.song, song)))
+      const value = options.lambda * relevance(one.score) - (1 - options.lambda) * near
+      if (value > bestValue) {
+        best = one
+        bestValue = value
+      }
+    }
+    if (best === undefined) break
+    picked.push(best)
+    held.push(best.song)
+  }
+  return picked
+}
+
+describe('createPicker', () => {
+  it('picks exactly what weighing every item every time picks, however the list is ordered', () => {
+    const random = createSeededRandom(44)
+    for (let round = 0; round < 200; round++) {
+      const size = Math.floor(random() * 60)
+      const items = Array.from({ length: size }, (_, index) => {
+        const artists = [`artist${Math.floor(random() * 8)}`]
+        if (random() < 0.2) artists.push(`artist${Math.floor(random() * 8)}`)
+        const tags = random() < 0.5 ? [`tag${Math.floor(random() * 3)}`] : []
+        const score = random() < 0.05 ? Number.NaN : Math.round(random() * 100) / 10
+        return item(`song${index}`, score, [...new Set(artists)], tags)
+      })
+      // Best first, as callers pass them, or in any order.
+      if (random() < 0.7) items.sort((a, b) => (b.score || 0) - (a.score || 0))
+      const options = {
+        limit: Math.floor(random() * 25),
+        lambda: random() < 0.1 ? 0 : random() < 0.1 ? 1 : random(),
+        perArtistCap: 1 + Math.floor(random() * 3),
+      }
+      const after = random() < 0.3 ? [song('held', [`artist${Math.floor(random() * 8)}`])] : []
+      // Another list takes songs between picks, as in Home's draft.
+      const taken = new Set(items.filter(() => random() < 0.2).map((one) => one.song.key))
+      const blocked = (one: PooledSong, turn: number) => turn > 1 && taken.has(one.key)
+      const picker = createPicker(items, { ...options, after: after.map((one) => ({ song: one })) })
+      for (let turn = 0; picker.next((one) => blocked(one, turn)) !== undefined; turn++) {
+        // Picks until the list is full or nothing fits.
+      }
+      expect(picker.picked).toEqual(referencePicks(items, options, after, blocked))
     }
   })
 })

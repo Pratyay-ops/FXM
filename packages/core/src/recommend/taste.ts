@@ -82,7 +82,12 @@ export interface ArtistTaste {
   readonly norm: number
   /** How much of what the user did with it was skipping. */
   readonly skipShare: number
-  /** How well the user knows the artist, from 0 (never played) to 1 (played often). */
+  /** Whether the user picked the artist in the onboarding. */
+  readonly picked: boolean
+  /**
+   * How well the user knows the artist, from 0 (never played) to 1 (played often, or picked:
+   * the user named them, so they are nobody new).
+   */
   readonly familiarity: number
 }
 
@@ -196,6 +201,7 @@ interface ArtistTotals {
   score: number
   skips: number
   plays: number
+  picked: boolean
 }
 
 /**
@@ -211,12 +217,13 @@ export function indexTaste(
   const halfLifeMs = options.halfLifeMs ?? AFFINITY_HALF_LIFE_MS
 
   // Artists: the entries plus the onboarding picks, merged by key.
+  const picks = pickContributions(profile.picks)
   const artistTotals = new Map<string, ArtistTotals>()
   const artistEntries = [
-    ...(profile.artists ?? []),
-    ...pickContributions(profile.picks).filter((entry) => entry.kind === 'artist'),
+    ...(profile.artists ?? []).map((entry) => ({ entry, picked: false })),
+    ...picks.filter((entry) => entry.kind === 'artist').map((entry) => ({ entry, picked: true })),
   ]
-  for (const entry of artistEntries) {
+  for (const { entry, picked } of artistEntries) {
     if (!isEntry(entry, 'artist')) continue
     const key = artistKeyOf(entry.label) ?? entry.key
     const { score, skips } = affinityAt(entry, now, halfLifeMs)
@@ -228,10 +235,12 @@ export function indexTaste(
       score: 0,
       skips: 0,
       plays: 0,
+      picked: false,
     }
     totals.score += score
     totals.skips += skips
     totals.plays += Number.isFinite(entry.plays) ? Math.max(0, entry.plays) : 0
+    totals.picked ||= picked
     if (entry.at > totals.labelAt && typeof entry.label === 'string' && entry.label !== '') {
       totals.label = entry.label
       totals.labelAt = entry.at
@@ -252,7 +261,10 @@ export function indexTaste(
       plays: totals.plays,
       norm: normalize(totals.score, maxArtist),
       skipShare: skipShareOf(totals.score, totals.skips),
-      familiarity: Math.min(1, totals.plays / FAMILIAR_PLAYS + (totals.score > 0 ? 0.2 : 0)),
+      picked: totals.picked,
+      familiarity: totals.picked
+        ? 1
+        : Math.min(1, totals.plays / FAMILIAR_PLAYS + (totals.score > 0 ? 0.2 : 0)),
     }))
     .filter((artist) => artist.score > 0 || artist.skips > 0 || artist.plays > 0)
     .sort((a, b) => b.score - a.score || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
@@ -260,10 +272,7 @@ export function indexTaste(
 
   // Tags.
   const tagScores = new Map<string, number>()
-  const tagEntries = [
-    ...(profile.tags ?? []),
-    ...pickContributions(profile.picks).filter((entry) => entry.kind === 'tag'),
-  ]
+  const tagEntries = [...(profile.tags ?? []), ...picks.filter((entry) => entry.kind === 'tag')]
   for (const entry of tagEntries) {
     if (!isEntry(entry, 'tag')) continue
     const key = tagAffinityKey(entry.label) ?? entry.key

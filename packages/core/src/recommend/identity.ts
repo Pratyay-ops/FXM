@@ -69,6 +69,16 @@ function looseText(text: string): string {
 }
 
 /**
+ * Song identities worked out so far, by title and artists. The text rules behind one cost far
+ * more than a lookup, and a build asks for the same songs again and again: the profile, the
+ * recent plays, each source's listing, the next build. Emptied when full, so it stays small.
+ */
+const identities = new Map<string, string | undefined>()
+
+/** Most identities {@link identities} holds. */
+const MAX_IDENTITIES = 4096
+
+/**
  * The key two listings of one song share, whatever their source: `song:` with the main artist
  * and the title proper, both normalized and with punctuation folded. Presentation noise ("(Official
  * Video)"), a leading "Artist - " that names a credited artist, qualifiers (versions) and featured
@@ -76,6 +86,20 @@ function looseText(text: string): string {
  */
 export function songIdentity(title: unknown, artists: readonly unknown[]): string | undefined {
   if (typeof title !== 'string' || !Array.isArray(artists)) return undefined
+  // Anything but a name counts as no artist, as `artistKeysOf` reads it.
+  const memo = JSON.stringify([
+    title,
+    ...artists.map((name) => (typeof name === 'string' ? name : null)),
+  ])
+  if (identities.has(memo)) return identities.get(memo)
+  const identity = workOutSongIdentity(title, artists)
+  if (identities.size >= MAX_IDENTITIES) identities.clear()
+  identities.set(memo, identity)
+  return identity
+}
+
+/** {@link songIdentity}, worked out. */
+function workOutSongIdentity(title: string, artists: readonly unknown[]): string | undefined {
   const credited = artistKeysOf(artists)
   const main = credited[0]
   if (main === undefined) return undefined

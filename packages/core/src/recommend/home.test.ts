@@ -381,6 +381,11 @@ describe('buildHome', () => {
     const home = buildHome({ ...base, seeds })
     expect(home.shelves.filter((one) => one.type === 'because')).toHaveLength(1)
   })
+
+  it('uses a taste index made at its time, and indexes the profile itself otherwise', () => {
+    expect(buildHome({ ...base, taste })).toEqual(feed)
+    expect(buildHome({ ...base, taste: indexTaste({}, NOW - DAY) })).toEqual(feed)
+  })
 })
 
 describe('a cold start', () => {
@@ -416,6 +421,11 @@ describe('a cold start', () => {
     expect(mixes.every((mix) => mix.tracks.every((item) => !item.familiar))).toBe(true)
     expect(tracksOf(shelf(home, 'quick-picks')).length).toBeGreaterThan(0)
     expect(shelf(home, 'on-repeat')).toBeUndefined()
+    // Discover is about artists the user hardly knows, and they just named the picked ones.
+    const discover = tracksOf(shelf(home, 'discover'))
+    expect(discover.length).toBeGreaterThanOrEqual(DEFAULT_HOME_OPTIONS.discover.minItems)
+    const picked = new Set(picks.artists.map((one) => artistKeyOf(one.name)))
+    expect(discover.filter((track) => picked.has(artistKeyOf(track.artists[0]?.name)))).toEqual([])
   })
 })
 

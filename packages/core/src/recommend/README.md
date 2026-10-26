@@ -22,17 +22,20 @@ The app runs the network steps (`apps/web/src/features/home`); everything else i
 ```ts
 import { buildHome, indexTaste, planExpansions, planSeeds, poolCandidates } from '@fxm/core'
 
-const seeds = planSeeds(indexTaste(profile, now), { mode })
+const taste = indexTaste(profile, now)
+const seeds = planSeeds(taste, { mode })
 const candidates = (await Promise.all(seeds.map((s) => collector.collect(s.seed, ctx, { parts: s.parts })))).flatMap((c) => c.candidates)
-const feed = buildHome({ profile, candidates, seeds, mode, now, utcOffsetMinutes, stable, spotifyConnected, sourceShelves })
+const feed = buildHome({ profile, taste, candidates, seeds, mode, now, utcOffsetMinutes, stable, spotifyConnected, sourceShelves })
 save(feed.stable)   // Discover and the Daily Mixes, kept for their week and day
 ```
+
+`taste` is optional: `buildHome` indexes the profile itself unless it gets the index made at the same `now`. The profile should hold every affinity entry the candidates name, not only the top of the affinity: the app reads the top few hundred, then the entries of the candidates' tracks and main artists (`completeProfile` in `apps/web/src/features/home/feed.ts`), so a song or artist the user skips (skips, no affinity) or a song played long ago is never taken for an unheard one.
 
 ## Candidates
 
 The engine reads candidates in the one format of `@fxm/sources/recommend` (`RecCandidate` here, which a `RecommendationCandidate` is as it is): a `track`, a `song-search` (a song known by artists and title only) or an `artist`, each with its `source`, `part`, `seed`, `rank` and `score` (0–1 within its list).
 
-**Pooling** (`poolCandidates`) merges listings that share a key: a track's `entityKey` or the **song identity** (`songIdentity`: main artist and title proper, normalized, versions folded, so "Creep" from YouTube Music and "Creep - Remastered" from Spotify are one song). Each pooled song keeps one piece of evidence per list (source, part and seed), whose **strength** is the score weighed by the source, the part (`DEFAULT_EVIDENCE_WEIGHTS`) and the seed (how much the user likes it, 0.5–1). Its **similarity** combines the strengths like independent votes, `1 − Π(1 − s)`, so songs several sources agree on rise. The track shown is the listing that plays most directly: a local file, then YouTube Music, Internet Archive, Jamendo, plain YouTube, and Spotify last (it still needs matching); a cover another listing has fills a gap. A radio never recommends its own seed.
+**Pooling** (`poolCandidates`) merges listings that share a key: a track's `entityKey` or the **song identity** (`songIdentity`: main artist and title proper, normalized, versions folded, so "Creep" from YouTube Music and "Creep - Remastered" from Spotify are one song; worked out once per title and artists, and remembered, since a build asks for the same songs many times). Each pooled song keeps one piece of evidence per list (source, part and seed), whose **strength** is the score weighed by the source, the part (`DEFAULT_EVIDENCE_WEIGHTS`) and the seed (how much the user likes it, 0.5–1). Its **similarity** combines the strengths like independent votes, `1 − Π(1 − s)`, so songs several sources agree on rise. The track shown is the listing that plays most directly: a local file, then YouTube Music, Internet Archive, Jamendo, plain YouTube, and Spotify last (it still needs matching); a cover another listing has fills a gap. A radio never recommends its own seed.
 
 **Expansions** (`planExpansions`): similar artists must become songs, and song searches tracks, which costs requests, so the engine picks the few worth it: artists by similarity, less the better the user knows them (Discover is about new artists), and none the pool already has three songs by; songs the user doesn't know, by score. `artistTrackCandidates` and `songTrackCandidates` turn what the app fetched back into candidates that keep the original evidence.
 
@@ -42,7 +45,7 @@ The engine reads candidates in the one format of `@fxm/sources/recommend` (`RecC
 
 - **Known** songs are those the user played, liked or saved, matched by track and by song identity: a song played on Spotify counts as played on YouTube Music.
 - **Liked enough** (`likedEnough`) to build on: an affinity of at least half a play, and more listening than skipping.
-- **The cold start:** fewer than three artists with an affinity (`MIN_TASTE_ARTISTS`). Home then asks for artists and genres. **Onboarding picks** (`TastePicks`) count like likes made when they were picked (`pickContributions`), so they seed the first mixes and fade with the affinity's 14-day half-life as real listening takes over.
+- **The cold start:** fewer than three artists with an affinity (`MIN_TASTE_ARTISTS`). Home then asks for artists and genres. **Onboarding picks** (`TastePicks`) count like likes made when they were picked (`pickContributions`), so they seed the first mixes and fade with the affinity's 14-day half-life as real listening takes over. A picked artist counts as one the user knows (`familiarity` 1, `picked`): they named it, so Discover, which is about artists they hardly know, leaves it out, and `planExpansions` doesn't take it for a new one.
 
 ## Ranking
 
@@ -69,7 +72,7 @@ A recommendation list never holds a song with a score of 0 or less, nor one whos
 
 **History de-duplication** (`filterHistory`): leave out songs the user knows (`unheard`), songs played within a time (`playedWithinMs`), songs among the last N plays (`lastPlays`, for 3.4's "no repeats within N tracks") and given keys (`exclude`).
 
-**Diversity** (`diversify`, `createPicker`): maximal marginal relevance, `λ · relevance − (1 − λ) · max similarity to what was picked`, with relevance the score scaled to 0–1 and similarity 1 for the same main artist, 0.7 for a shared credited artist and up to 0.5 for shared tags (`songSimilarity`). A hard **per-artist cap** counts every credited artist, so "feat." can't sneak a third song in. A list never holds a song twice.
+**Diversity** (`diversify`, `createPicker`): maximal marginal relevance, `λ · relevance − (1 − λ) · max similarity to what was picked`, with relevance the score scaled to 0–1 and similarity 1 for the same main artist, 0.7 for a shared credited artist and up to 0.5 for shared tags (`songSimilarity`). A hard **per-artist cap** counts every credited artist, so "feat." can't sneak a third song in. A list never holds a song twice. A pick does only the work it needs: an item's similarity to what the list holds is brought up to date when the item is weighed, and the search stops at the first item no later one can beat (an item is worth at most `λ · relevance`), so a list of a thousand songs costs little more than one of fifty. The picks are exactly those of weighing every item every time (`diversify.test.ts` compares them on random lists).
 
 ## Home's shelves
 
@@ -77,7 +80,7 @@ A recommendation list never holds a song with a score of 0 or less, nor one whos
 |---|---|---|
 | Quick picks | Favourites and new songs, by the `quickPicks` weights; nothing played in the last 12 hours | 20 · 2 · 0.75 |
 | Daily Mix 1–6 | One per cluster of the user's top artists: an artist and up to three of the top artists the sources link to it (by the pool's evidence, at least 0.25). At most half favourites by those artists, spread evenly from the first song; the rest new songs by them or suggested for them, not played in 3 days. Changes once a day | 30 · 5 · 0.6 (at least 10 songs) |
-| Discover | Songs the user never played, by artists they hardly know (familiarity below 0.8). Changes once a week | 30 · 2 · 0.6 (at least 6) |
+| Discover | Songs the user never played, by artists they hardly know (familiarity below 0.8; an artist they picked counts as known). Changes once a week | 30 · 2 · 0.6 (at least 6) |
 | Because you listened to X | For each of up to three recent plays that weren't skipped, one per artist: what the sources suggest for it, new to the user | 12 · 2 · 0.7 (at least 4) |
 | On repeat | The user's songs played twice or more and lately (within 30 days), liked enough, by affinity | 15 · 3 · 0.9 (at least 3) |
 | Rediscover | Songs played three times or more, or liked, and untouched for 30 days, by the affinity they had | 15 · 2 · 0.8 (at least 3) |

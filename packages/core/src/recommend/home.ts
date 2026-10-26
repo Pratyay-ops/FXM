@@ -252,6 +252,11 @@ export interface HomeInput {
   /** The user's taste. An empty profile is the cold start. */
   readonly profile: TasteProfile
   /**
+   * The profile indexed at `now` (`indexTaste(profile, now)`), when the caller has it already:
+   * it saves indexing the profile again. An index made at another time is not used.
+   */
+  readonly taste?: TasteIndex
+  /**
    * Every candidate collected for the seeds (stage 3.2's collector), plus the tracks of expanded
    * artists and found songs (see `planExpansions`).
    */
@@ -801,7 +806,7 @@ export function buildHome(input: HomeInput): HomeFeed {
   const options = resolveHomeOptions(input.options)
   const { mode, now } = input
   const offset = input.utcOffsetMinutes ?? 0
-  const taste = indexTaste(input.profile, now)
+  const taste = input.taste?.now === now ? input.taste : indexTaste(input.profile, now)
   const seeds = input.seeds ?? planSeeds(taste, { mode })
   const plannedWeights = new Map(seeds.map((seed) => [seed.key, seed.weight]))
   const pool = poolCandidates([...(input.candidates ?? []), ...familiarCandidates(taste, mode)], {

@@ -86,7 +86,15 @@ export interface Picker<T> {
   readonly full: boolean
 }
 
-/** Starts an MMR pick over `items` (best first): see the module documentation. */
+/**
+ * Starts an MMR pick over `items` (best first): see the module documentation.
+ *
+ * It does only the work a pick needs, so a long list costs little more than a short one: an
+ * item's similarity to what the list holds is brought up to date only when the item is weighed,
+ * and the search for the next pick stops at the first item that no later one can beat (an
+ * item's value is at most `λ · relevance`). The picks are exactly those of weighing every item
+ * every time.
+ */
 export function createPicker<T extends { readonly song: PooledSong; readonly score: number }>(
   items: readonly T[],
   options: DiversifyOptions,
@@ -104,25 +112,43 @@ export function createPicker<T extends { readonly song: PooledSong; readonly sco
   const relevance = scores.map((score) =>
     !Number.isFinite(score) ? 0 : span > 0 ? (score - min) / span : 1,
   )
+  // The best relevance from each item on: no item from there can be worth more than λ times it.
+  const bound = new Array<number>(items.length)
+  for (let index = items.length - 1, best = 0; index >= 0; index--) {
+    best = Math.max(best, relevance[index] as number)
+    bound[index] = best
+  }
 
   const picked: T[] = []
   const taken = new Set<number>()
   const pickedKeys = new Set<string>()
   const perArtist = new Map<string, number>()
+  /** What the list holds: the songs it came with (`after`), then its picks. */
+  const held: PooledSong[] = []
+  /** Each item's highest similarity to the first `seen[index]` songs held. */
   const nearest = items.map(() => 0)
+  const seen = items.map(() => 0)
   const fits = (item: T) =>
     !item.song.keys.some((key) => pickedKeys.has(key)) &&
     item.song.artistKeys.every((key) => (perArtist.get(key) ?? 0) < cap)
   const hold = (song: PooledSong) => {
     for (const key of song.keys) pickedKeys.add(key)
     for (const key of song.artistKeys) perArtist.set(key, (perArtist.get(key) ?? 0) + 1)
-    items.forEach((item, index) => {
-      if (taken.has(index)) return
-      const alike = similarity(item.song, song)
-      if (alike > (nearest[index] as number)) nearest[index] = alike
-    })
+    held.push(song)
   }
-  for (const held of options.after ?? []) hold(held.song)
+  /** The item's highest similarity to every song held, brought up to date. */
+  const nearestOf = (index: number) => {
+    const song = (items[index] as T).song
+    let near = nearest[index] as number
+    for (let at = seen[index] as number; at < held.length; at++) {
+      const alike = similarity(song, held[at] as PooledSong)
+      if (alike > near) near = alike
+    }
+    nearest[index] = near
+    seen[index] = held.length
+    return near
+  }
+  for (const one of options.after ?? []) hold(one.song)
 
   return {
     picked,
@@ -133,15 +159,17 @@ export function createPicker<T extends { readonly song: PooledSong; readonly sco
       if (picked.length >= limit) return undefined
       let best = -1
       let bestValue = -Infinity
-      items.forEach((item, index) => {
-        if (taken.has(index) || !fits(item) || blocked?.(item.song) === true) return
-        const value =
-          lambda * (relevance[index] as number) - (1 - lambda) * (nearest[index] as number)
+      for (let index = 0; index < items.length; index++) {
+        // Ties go to the earlier item, so nothing from here on can win.
+        if (lambda * (bound[index] as number) <= bestValue) break
+        const item = items[index] as T
+        if (taken.has(index) || !fits(item) || blocked?.(item.song) === true) continue
+        const value = lambda * (relevance[index] as number) - (1 - lambda) * nearestOf(index)
         if (value > bestValue) {
           best = index
           bestValue = value
         }
-      })
+      }
       if (best < 0) return undefined
       const chosen = items[best] as T
       taken.add(best)

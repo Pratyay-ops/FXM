@@ -14,6 +14,19 @@ import {
 } from './identity'
 import { artist, spotify, ytm } from './test-fixtures'
 
+describe('songIdentity, asked again', () => {
+  it('gives the same answer, from the title and names alone', () => {
+    const first = songIdentity('Copper Sun (Official Video)', ['Aurora Lane - Topic'])
+    expect(first).toBe('song:aurora lane|copper sun')
+    expect(songIdentity('Copper Sun (Official Video)', ['Aurora Lane - Topic'])).toBe(first)
+    // Anything but a name counts as no artist, the first time or the next.
+    expect(songIdentity('Copper Sun', [7, 'Aurora Lane'])).toBe('song:aurora lane|copper sun')
+    expect(songIdentity('Copper Sun', [null, 'Aurora Lane'])).toBe('song:aurora lane|copper sun')
+    expect(songIdentity('Copper Sun', [7])).toBeUndefined()
+    expect(songIdentity('Copper Sun', [7])).toBeUndefined()
+  })
+})
+
 describe('artistKeyOf', () => {
   it('keys an artist like the affinity does, without YouTube channel suffixes', () => {
     expect(artistKeyOf('Beyoncé')).toBe('beyonce')
