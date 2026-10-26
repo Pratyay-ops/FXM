@@ -38,6 +38,7 @@ import {
 } from '../../features/now-playing/playback-policy'
 import { appActions } from '../../features/search/actions'
 import { appSources } from '../../features/search/sources-context'
+import { spotifyAccountForHome } from '../../features/spotify-account/start'
 import { connectAppContext } from '../../lib/app-context'
 import { type AppServices, createAppServices } from './app-services'
 import type { DesktopLifecycleOptions } from './desktop'
@@ -176,6 +177,8 @@ function connectFeatures(app: AppServices, homeSources: HomeSources): void {
       sources: homeSources,
       playback: appActions.get().playback,
       spotify: app.sources.getSnapshot().providers.has('spotify'),
+      // Stage 3.5's view of the account: its status, and the sections its sync keeps.
+      spotifyAccount: spotifyAccountForHome,
     }),
   )
 }
