@@ -18,7 +18,9 @@ name: Desktop release
 #           job's own, never with the updater key: these jobs run the code of hundreds of crates
 #           and packages. macOS builds are signed ad hoc (bundle > macOS > signingIdentity "-") and
 #           not notarized; Windows builds are unsigned (apps/desktop/INSTALL.md says what that
-#           means for users). The macOS Intel build is cross-compiled on Apple silicon
+#           means for users). The macOS Intel build is cross-compiled on Apple silicon. On Linux,
+#           the tools the bundler makes the AppImage with, and the AppImage runtime, come from
+#           pinned releases, checked against their SHA-256 (apps/desktop/release/appimage-tools.ts)
 #   sign    signs the files the updater installs with the updater key, writes latest.json and
 #           checks every signature against the public key the apps carry
 #           (apps/desktop/release/release.ts). It installs nothing, so no third-party code ever
@@ -193,15 +195,30 @@ jobs:
           node --experimental-strip-types --disable-warning=ExperimentalWarning \
             apps/desktop/release/release.ts "${args[@]}"
 
+      # The bundler would download the tools it makes the AppImage with, and appimagetool the
+      # AppImage runtime, the file's first bytes, and run them unchecked, some from releases that
+      # are rebuilt every month. This puts each one where they look first (the bundler's tools
+      # folder, target/.tauri with useLocalToolsDir), from a release that isn't rebuilt, checked
+      # against its SHA-256 (apps/desktop/release/appimage-tools.ts).
+      - name: Fetch the AppImage tools, checked (Linux)
+        id: appimage-tools
+        if: runner.os == 'Linux'
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts appimage-tools --triple "$TRIPLE"
+          --out apps/desktop/src-tauri/target/.tauri
+
       # Without tagName or releaseId, tauri-action only builds: it uploads nothing and creates no
       # release. On macOS and Linux it runs the Tauri CLI through scripts/run.sh, so pnpm and Rust
       # come from .tools/: without a pnpm it can find, it would install the latest CLI globally.
+      # LDAI_RUNTIME_FILE hands appimagetool the checked runtime (Linux only).
       - name: Build the installers
         id: tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ steps.build-key.outputs.key }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          LDAI_RUNTIME_FILE: ${{ steps.appimage-tools.outputs.runtime-file }}
         with:
           projectPath: apps/desktop
           tauriScript: ${{ runner.os == 'Windows' && 'pnpm tauri' || format('{0}/scripts/run.sh pnpm tauri', github.workspace) }}
@@ -209,6 +226,15 @@ jobs:
             --target ${{ matrix.triple }} --bundles ${{ matrix.bundles }}
             --config src-tauri/tauri.release.conf.json ${{ steps.build-key.outputs.config-args }}
             -- --locked
+
+      # The bundler downloads a tool only when its file is missing: anything in the folder that the
+      # step above didn't put there, after an update of the Tauri CLI say, it fetched unchecked.
+      - name: Check that the bundler fetched no tool itself (Linux)
+        if: runner.os == 'Linux'
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts appimage-tools --triple "$TRIPLE"
+          --out apps/desktop/src-tauri/target/.tauri --after-build
 
       - name: Collect the release files
         shell: bash

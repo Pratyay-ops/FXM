@@ -65,7 +65,7 @@ chmod +x fxm-desktop-<version>-linux-x64.AppImage
 ./fxm-desktop-<version>-linux-x64.AppImage
 ```
 
-If it doesn't start, install FUSE 2 (the package `libfuse2`, called `libfuse2t64` on Ubuntu 24.04 and later), or run it with `--appimage-extract-and-run`. The AppImage brings its own GStreamer, which plays Opus, Vorbis, MP3 and FLAC but not AAC: its decoder comes from FFmpeg, which the AppImage leaves out. A song FXM can only get as AAC plays with the `.deb`, not with the AppImage. FXM updates the AppImage in place.
+It mounts itself with FUSE, which most desktops have: if it says "Cannot mount AppImage, please check your FUSE setup", install the package `fuse3`, or run it with `--appimage-extract-and-run`. It doesn't need libfuse2. The AppImage brings its own GStreamer, which plays Opus, Vorbis, MP3 and FLAC but not AAC: its decoder comes from FFmpeg, which the AppImage leaves out. A song FXM can only get as AAC plays with the `.deb`, not with the AppImage. FXM updates the AppImage in place.
 
 **The tray.** Closing FXM's window keeps the music playing, with FXM in the panel's tray, where the desktop shows tray icons: KDE Plasma, Cinnamon, XFCE and most others do, GNOME with its AppIndicator extension. Where none shows, closing the window quits FXM.
 

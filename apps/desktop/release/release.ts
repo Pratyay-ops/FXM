@@ -12,6 +12,12 @@
  *       never reaches a build job, which runs the code of hundreds of crates and packages. A dry
  *       run also gives the apps the throwaway public key (`--config`), since the placeholder can't
  *       build with updater files. Outputs key (the secret key's path) and config-args.
+ *   release.ts appimage-tools --triple <triple> --out <dir> [--after-build]
+ *       each Linux build job, before `tauri build`: downloads the tools the bundler makes the
+ *       AppImage with, and the AppImage runtime, checks each against its pinned SHA-256 and puts
+ *       them into the bundler's tools folder <out>, so it fetches none of them unchecked
+ *       (appimage-tools.ts). Outputs runtime-file, for LDAI_RUNTIME_FILE. With --after-build,
+ *       after `tauri build`: checks that <out> holds no tool the bundler fetched itself.
  *   release.ts collect --target <id> --version x.y.z --bundle-dir <dir> --out <dir>
  *       each build job: copies the target's files (targets.ts) into <out> under their release
  *       names. With ARTIFACT_PATHS (tauri-action's artifactPaths output) it also checks that
@@ -44,6 +50,15 @@ import {
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createReporter, parseOptions, type Reporter, requireOption } from './actions.ts'
+import {
+  appImageArch,
+  appImageTools,
+  checkTauriCli,
+  type Download,
+  fetchAppImageTools,
+  readTauriCliVersion,
+  unexpectedTools,
+} from './appimage-tools.ts'
 import { buildManifest, checkManifest, type Manifest } from './manifest.ts'
 import {
   decodePublicKey,
@@ -272,8 +287,43 @@ export function signRelease(options: SignOptions): { manifest: Manifest; keyId: 
   return { manifest, keyId: keyIdHex(secret.keyId) }
 }
 
-/** Runs a subcommand. */
-export function main(argv: readonly string[], env: NodeJS.ProcessEnv, reporter: Reporter) {
+/** Prepares the AppImage tools before `tauri build`, or checks them after it (`appimage-tools`). */
+async function appImageToolsCommand(
+  options: Map<string, string>,
+  reporter: Reporter,
+  download: Download | undefined,
+) {
+  const arch = appImageArch(requireOption(options, 'triple'))
+  const out = requireOption(options, 'out')
+  const tools = appImageTools(arch)
+  if (options.get('after-build') === 'true') {
+    const fetched = unexpectedTools(out, tools)
+    if (fetched.length > 0) {
+      throw new Error(
+        `The bundler fetched tools of its own, unchecked: ${fetched.join(', ')} in ${out}. ` +
+          'Pin them in apps/desktop/release/appimage-tools.ts: this build must not be released.',
+      )
+    }
+    reporter.info(`The ${arch} AppImage was built with the checked tools only.`)
+    return
+  }
+  checkTauriCli(readTauriCliVersion())
+  const { runtimeFile, files } = await fetchAppImageTools({
+    out,
+    tools,
+    ...(download ? { download } : {}),
+  })
+  for (const file of files) reporter.info(`${file.name}  ${file.size} bytes  ${file.sha256}`)
+  reporter.output('runtime-file', runtimeFile)
+}
+
+/** Runs a subcommand. `download` replaces the network for `appimage-tools`, in tests. */
+export async function main(
+  argv: readonly string[],
+  env: NodeJS.ProcessEnv,
+  reporter: Reporter,
+  { download }: { download?: Download } = {},
+) {
   const [command, ...rest] = argv
   const options = parseOptions(rest)
   switch (command) {
@@ -299,6 +349,8 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv, reporter: 
       reporter.output('config-args', configArgs)
       return
     }
+    case 'appimage-tools':
+      return appImageToolsCommand(options, reporter, download)
     case 'collect': {
       const target = targetById(requireOption(options, 'target'))
       const paths = env.ARTIFACT_PATHS ? (JSON.parse(env.ARTIFACT_PATHS) as string[]) : undefined
@@ -352,14 +404,14 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv, reporter: 
       return
     }
     default:
-      throw new Error('usage: release.ts <check|build-key|collect|sign> [options]')
+      throw new Error('usage: release.ts <check|build-key|appimage-tools|collect|sign> [options]')
   }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const reporter = createReporter()
   try {
-    main(process.argv.slice(2), process.env, reporter)
+    await main(process.argv.slice(2), process.env, reporter)
   } catch (error) {
     reporter.error('Desktop release', (error as Error).message)
     process.exitCode = 1

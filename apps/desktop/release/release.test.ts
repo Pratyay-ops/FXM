@@ -133,9 +133,9 @@ describe('check', () => {
     expect(pubkey.startsWith('PLACEHOLDER') || decodePublicKey(pubkey).key.length === 32).toBe(true)
   })
 
-  it('outputs the version to build', () => {
+  it('outputs the version to build', async () => {
     const { lines, reporter } = recorder()
-    main(['check', '--mode', 'dry-run', '--version', ''], {}, reporter)
+    await main(['check', '--mode', 'dry-run', '--version', ''], {}, reporter)
     expect(lines).toContain(`output version=${readAppVersion()}`)
   })
 })
@@ -303,15 +303,15 @@ describe('sign', () => {
     SLOW,
   )
 
-  it('needs the updater key unless it is a dry run', () => {
+  it('needs the updater key unless it is a dry run', async () => {
     const { reporter } = recorder()
-    expect(() =>
+    await expect(
       main(
         ['sign', '--version', '0.7.0', '--artifacts', folder, '--out', folder, '--repo', 'a/b'],
         {},
         reporter,
       ),
-    ).toThrow(/TAURI_SIGNING_PRIVATE_KEY is not set/)
+    ).rejects.toThrow(/TAURI_SIGNING_PRIVATE_KEY is not set/)
   })
 
   it('checks its inputs', () => {

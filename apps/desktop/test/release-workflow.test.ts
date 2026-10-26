@@ -105,6 +105,36 @@ describe('desktop-release.yml', () => {
     expect(build).toMatch(/TAURI_SIGNING_PRIVATE_KEY: \$\{\{ steps\.build-key\.outputs\.key \}\}/)
   })
 
+  it('builds the AppImage with checked tools only: fetched before tauri-action, checked after', () => {
+    const build = steps(job(workflow, 'build'))
+    const index = (predicate: (step: string) => boolean) => {
+      const found = build.findIndex(predicate)
+      expect(found).toBeGreaterThanOrEqual(0)
+      return found
+    }
+    const toolsFolder = '--out apps/desktop/src-tauri/target/.tauri'
+    const fetch = index(
+      (step) => step.includes('release.ts appimage-tools') && !step.includes('--after-build'),
+    )
+    const tauri = index((step) => step.includes('tauri-apps/tauri-action@'))
+    const check = index((step) => step.includes('--after-build'))
+    const upload = index((step) => step.includes('actions/upload-artifact@'))
+    expect(fetch).toBeLessThan(tauri)
+    expect(tauri).toBeLessThan(check)
+    expect(check).toBeLessThan(upload)
+    for (const step of [build[fetch], build[check]]) {
+      expect(step).toMatch(/\n\s+if: runner\.os == 'Linux'\n/)
+      expect(step).toContain('--triple "$TRIPLE"')
+      // The bundler's tools folder: <cargo target dir>/.tauri with useLocalToolsDir.
+      expect(step).toContain(toolsFolder)
+    }
+    expect(build[fetch]).toMatch(/\n\s+id: appimage-tools\n/)
+    // appimagetool takes the checked runtime instead of downloading one.
+    expect(build[tauri]).toContain(
+      `LDAI_RUNTIME_FILE: ${expression('steps.appimage-tools.outputs.runtime-file')}`,
+    )
+  })
+
   it('hands the updater key to the signing step alone, in a job that installs nothing', () => {
     const occurrences = workflow.match(/secrets\.TAURI_SIGNING_PRIVATE_KEY\b/g) ?? []
     expect(occurrences).toHaveLength(1)
