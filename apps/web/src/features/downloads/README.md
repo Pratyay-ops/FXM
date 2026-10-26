@@ -35,7 +35,7 @@ Stage 6.4. Where the `FxmDownloads` plugin is on the Capacitor bridge, the app's
 - **Save to Music folder.** Track lists offer it for finished downloads: a copy in Music/FXM, where every music app finds it, named `Artist - Title`. A download of a video file (YouTube's itag 18) says it can't be saved yet: its audio must be taken out first (stage 4.2).
 - **Offline playback** uses the same offline store; the playback URL of a file is the WebView URL Capacitor serves it at, which the native player (Media3) plays from the device.
 
-Until the composition root wires the download environment to the app's platform context and stream sources (`environment.ts`, the 4.1 row of [its README](../../app/services/README.md#where-the-other-stages-plug-in)), nothing is offered for download in the app either: the pending environment reports the free tier.
+The composition root's environment and queue (`src/app/services/downloads.ts`, stage 2.9b) are the same there: the app's platform fetches through Android's native HTTP, which reads YouTube's bytes (`mediaBytes`), so YouTube songs download in the app too, from URLs that passed the end-of-file probe and are resolved again once they expire, and the queue starts once the tier is known.
 
 ## One tab runs the queue
 

@@ -3,7 +3,9 @@
  * is resolved, also without a network (ARCHITECTURE.md §7.4):
  *
  * 1. **Downloads** (stage 4.1): the downloads' own store (`getOfflineStore()` of
- *    `features/downloads/runtime.ts`), a `blob:` URL of the stored file. Its code, with Dexie and
+ *    `features/downloads/runtime.ts`), a `blob:` URL of the stored file; in the Android app the
+ *    WebView URL of its file in the app's storage, which Media3 reads from the device (stage
+ *    6.4). Its code, with Dexie and
  *    the download manager, loads with the first resolution, beside the first render (`main.tsx`
  *    loads it then anyway to run the queue), so the composition root's chunk doesn't carry it.
  * 2. **The user's own files** (stage 4.4): a music file tagged with the track's ISRC, so a song

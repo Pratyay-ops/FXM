@@ -96,7 +96,7 @@ The logic is plain Kotlin and tested on the JVM: [`DownloadFiles`](src/test/kotl
 
 ## Checks on a device
 
-What only a device shows, for the owner. The downloads need the web app's download environment to be wired to the platform's context and the stream sources, which the composition root doesn't do yet (the 4.1 row of `apps/web/src/app/services/README.md`, and `apps/web/src/features/downloads/environment.ts`); until then nothing is offered for download in the app, while the device's music works at once.
+What only a device shows, for the owner, in a debug APK (`make apk`). The web app's composition root (stage 2.9b) runs the downloads on the app's own platform, Android's native HTTP, so all of them can be checked there.
 
 1. **A download in the background.** Download an album, lock the phone and leave it: the notification names the song and counts up the megabytes, and the downloads finish with the screen off. `scripts/run.sh adb shell dumpsys activity services io.github.pratyayops.fxm` lists `DownloadService` as a foreground service while they run, and not a few seconds after.
 2. **A YouTube song, end to end.** A YouTube Music song downloads (its URL passed the end-of-file probe: `fullLength: 'verified'`), plays offline in flight mode, and its file is in `files/downloads` (`scripts/run.sh adb shell run-as io.github.pratyayops.fxm ls -l files/downloads`).
