@@ -10,9 +10,11 @@ import {
 import { DOWNLOAD_FORMATS, type DownloadFormat, isLosslessCodec, type Track } from '@fxm/core'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { buttonClasses } from '../../../components/ui/button'
+import { RELEASED } from '../../connect/config'
 import { showStatus } from '../../library/status'
 import { Dialog, DialogActions } from '../../library/ui/dialog'
 import { getLyricsProvider, lyricsContext } from '../../lyrics/lyrics-source'
+import { effectiveDownloadFormat } from '../../settings/quality-options'
 import { useQualityStore } from '../../settings/quality-store'
 import { useSettingsStore } from '../../settings/settings-store'
 import { formatLabel } from '../format'
@@ -31,11 +33,19 @@ import {
   savePlan,
 } from './save'
 
-/** The formats `source` can be saved in, or `undefined` when FXM can't save it at all. */
-function choicesFor(source: SourceAudio, options: ExportOptions): ExportChoice[] | undefined {
+/**
+ * The formats `source` can be saved in, or `undefined` when FXM can't save it at all: all of
+ * them with conversions on (stage 4.2, `RELEASED.conversions`), else the original alone.
+ */
+function choicesFor(
+  source: SourceAudio,
+  options: ExportOptions,
+  conversions: boolean,
+): ExportChoice[] | undefined {
   if (!isExportable(source)) return undefined
   try {
-    return exportChoices(source, options)
+    const choices = exportChoices(source, options)
+    return conversions ? choices : choices.filter((choice) => choice.format === 'original')
   } catch {
     return undefined
   }
@@ -88,11 +98,21 @@ function CloseOnly({ onClose, children }: { onClose: () => void; children: React
   )
 }
 
-function SaveForm({ track, onClose }: { track: Track; onClose: () => void }) {
+function SaveForm({
+  track,
+  onClose,
+  conversions,
+}: {
+  track: Track
+  onClose: () => void
+  conversions: boolean
+}) {
   const record = useDownload(track)
   const download = useQualityStore((state) => state.prefs.download)
   const mode = useSettingsStore((state) => state.catalogMode)
-  const [format, setFormat] = useState<DownloadFormat>(download.format)
+  const [format, setFormat] = useState<DownloadFormat>(() =>
+    effectiveDownloadFormat(download.format, conversions),
+  )
   const [state, setState] = useState<SaveState>({ kind: 'idle' })
   const running = useRef<AbortController | undefined>(undefined)
   // Whether the dialog is still open: a save that ends after it closed changes nothing on it.
@@ -118,7 +138,7 @@ function SaveForm({ track, onClose }: { track: Track; onClose: () => void }) {
     )
   }
   const mp3Kbps = download.mp3Kbps
-  const choices = choicesFor(record.format, mp3Kbps === undefined ? {} : { mp3Kbps })
+  const choices = choicesFor(record.format, mp3Kbps === undefined ? {} : { mp3Kbps }, conversions)
   if (choices === undefined) {
     return (
       <CloseOnly onClose={onClose}>
@@ -270,10 +290,16 @@ function SaveForm({ track, onClose }: { track: Track; onClose: () => void }) {
 export function SaveToDeviceDialog({
   track,
   onClose,
+  conversions = RELEASED.conversions,
 }: {
   /** The song to save; `null` closes the dialog. */
   track: Track | null
   onClose: () => void
+  /**
+   * Whether other formats than the original are offered (stage 4.2). Default:
+   * `RELEASED.conversions`.
+   */
+  conversions?: boolean
 }) {
   const record = useDownload(track ?? undefined)
   return (
@@ -287,7 +313,7 @@ export function SaveToDeviceDialog({
           : `“${track.title}”${isSavable(record) ? ` · downloaded as ${formatLabel(record.format)}` : ''}`
       }
     >
-      {track !== null && <SaveForm track={track} onClose={onClose} />}
+      {track !== null && <SaveForm track={track} onClose={onClose} conversions={conversions} />}
     </Dialog>
   )
 }

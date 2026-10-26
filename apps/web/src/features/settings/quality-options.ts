@@ -187,8 +187,9 @@ export const DOWNLOAD_FORMAT_OPTIONS: readonly SelectOption<DownloadFormat>[] = 
 ).map((format) => ({ value: format, label: DOWNLOAD_FORMATS[format].label }))
 
 /**
- * The download formats this version offers: only Original until conversions ship (stage 4.2,
- * `RELEASED.conversions`), with the others listed as coming soon and not offered.
+ * The download formats this version offers: all of them since conversions ship (stage 4.2,
+ * `RELEASED.conversions`). With conversions off, only Original, the others listed as coming
+ * soon and not offered.
  */
 export function offeredDownloadFormats(
   conversions: boolean = RELEASED.conversions,
@@ -201,7 +202,10 @@ export function offeredDownloadFormats(
   )
 }
 
-/** The format downloads are saved in: the setting, while conversions ship, else Original. */
+/**
+ * The format a downloaded song's "Save to device…" starts at: the setting, with conversions on
+ * (stage 4.2), else Original. A download itself always stays the original file.
+ */
 export function effectiveDownloadFormat(
   format: DownloadFormat,
   conversions: boolean = RELEASED.conversions,
@@ -209,7 +213,7 @@ export function effectiveDownloadFormat(
   return conversions ? format : 'original'
 }
 
-/** What the download format help adds while only Original is offered. */
+/** What the download format help adds while only Original is offered (conversions off). */
 export const CONVERSIONS_COMING =
   'Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon.'
 

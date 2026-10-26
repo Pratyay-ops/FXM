@@ -134,6 +134,26 @@ describe('Save to device', { timeout: 30_000 }, () => {
     expect(labels.join(' ')).not.toMatch(/\blossless\b/i)
   })
 
+  it('offers the original alone while conversions are off, whatever the setting', async () => {
+    const song = await downloaded()
+    useQualityStore.getState().setDownloadFormat('flac')
+    const saver = fakeSaver()
+    setConverter(createInProcessConverter())
+    const user = userEvent.setup()
+    render(<SaveToDeviceDialog track={song} onClose={() => {}} conversions={false} />)
+    const dialog = await screen.findByRole('dialog', { name: 'Save to device' })
+    const formats = await within(dialog).findByRole('group', { name: 'Format' })
+    const radios = within(formats).getAllByRole('radio')
+    expect(radios.map((radio) => radio.closest('label')?.textContent)).toEqual([
+      'Original (Opus).webm',
+    ])
+    expect(radios[0]).toBeChecked()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(saver.written).toHaveLength(1))
+    expect(saver.requests.map((request) => request.fileName)).toEqual(['Artist 1 - Song 1.webm'])
+  })
+
   it('asks where to save, converts with tags, writes the file and says so', async () => {
     const song = await downloaded()
     const saver = fakeSaver()

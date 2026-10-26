@@ -2,6 +2,7 @@ import type { NetworkCapabilities } from '@fxm/core'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { RELEASED } from '../connect/config'
 import { TIER_CAPABILITIES, type Tier } from '../search/sources'
 import { renderCatalog, resetCatalogState } from '../search/testing'
 import { FakeConnection, installConnection, removeConnection } from './fake-connection'
@@ -41,10 +42,13 @@ async function renderQuality(tier: Tier = 'full') {
 const FULL: NetworkCapabilities = TIER_CAPABILITIES.full
 
 /**
- * Renders only the section, for a platform that reaches `capabilities`, and with conversions
- * (stage 4.2) when `conversions` says so.
+ * Renders only the section, for a platform that reaches `capabilities`, with conversions
+ * (stage 4.2) as released unless `conversions` says otherwise.
  */
-function renderSection(capabilities: NetworkCapabilities, { conversions = false } = {}) {
+function renderSection(
+  capabilities: NetworkCapabilities,
+  { conversions = RELEASED.conversions }: { conversions?: boolean } = {},
+) {
   const user = userEvent.setup()
   render(<QualitySection capabilities={capabilities} conversions={conversions} />)
   const section = screen.getByRole('region', { name: 'Audio quality' })
@@ -98,8 +102,40 @@ describe('Audio quality settings', () => {
       'Low',
     ])
     expect(select('Download format')).toHaveValue('original')
-    // Downloads keep the original file until conversions ship (stage 4.2): the other formats
-    // are listed as coming soon, and can't be chosen.
+    // Conversions are out (stage 4.2): every format can be chosen, as where a downloaded song's
+    // Save to device starts, and the download itself stays the original file.
+    expect(optionLabels(select('Download format'))).toEqual([
+      'Original',
+      'FLAC',
+      'ALAC',
+      'WAV',
+      'MP3',
+      'AAC',
+      'Opus',
+    ])
+    const options = within(select('Download format')).getAllByRole('option')
+    expect(options.filter((option) => (option as HTMLOptionElement).disabled)).toEqual([])
+    expect(select('Download format')).toHaveAccessibleDescription(
+      /“Save to device…” starts at this format\.$/,
+    )
+    expect(select('Download format')).not.toHaveAccessibleDescription(/coming soon/)
+    expect(within(section).queryByRole('combobox', { name: 'MP3 bitrate' })).toBeNull()
+  })
+
+  it('keep a format chosen before, with its MP3 bitrate', async () => {
+    useQualityStore.getState().setDownloadFormat('mp3')
+    const { section, select } = await renderQuality()
+
+    expect(select('Download format')).toHaveValue('mp3')
+    expect(within(section).getByRole('combobox', { name: 'MP3 bitrate' })).toHaveValue('320')
+  })
+
+  it('offer only Original, the rest as coming soon, while conversions are off', () => {
+    useQualityStore.getState().setDownloadFormat('mp3')
+    const { section, select } = renderSection(FULL, { conversions: false })
+
+    // Whatever was chosen before, Save to device starts at the original then.
+    expect(select('Download format')).toHaveValue('original')
     expect(optionLabels(select('Download format'))).toEqual([
       'Original',
       'FLAC (coming soon)',
@@ -112,14 +148,6 @@ describe('Audio quality settings', () => {
     const options = within(select('Download format')).getAllByRole('option')
     expect(options.filter((option) => (option as HTMLOptionElement).disabled)).toHaveLength(6)
     expect(select('Download format')).toHaveAccessibleDescription(/is coming soon\.$/)
-    expect(within(section).queryByRole('combobox', { name: 'MP3 bitrate' })).toBeNull()
-  })
-
-  it('save in the original format while conversions are coming, whatever was chosen before', async () => {
-    useQualityStore.getState().setDownloadFormat('mp3')
-    const { section, select } = await renderQuality()
-
-    expect(select('Download format')).toHaveValue('original')
     expect(within(section).queryByRole('combobox', { name: 'MP3 bitrate' })).toBeNull()
   })
 
@@ -270,8 +298,8 @@ describe('Audio quality settings', () => {
     expect(new Set(regions)).toEqual(new Set([own]))
   })
 
-  it('label conversions honestly once they ship: YouTube audio never becomes lossless', async () => {
-    const { user, select } = renderSection(FULL, { conversions: true })
+  it('label conversions honestly: YouTube audio never becomes lossless', async () => {
+    const { user, select } = renderSection(FULL)
     expect(select('Download format')).toHaveAccessibleDescription(
       /no conversion and no quality loss: Opus or AAC for YouTube songs/,
     )
@@ -299,8 +327,8 @@ describe('Audio quality settings', () => {
     expect(select('Download format')).not.toHaveAccessibleDescription(/never lossless/)
   })
 
-  it('offer the MP3 bitrates for MP3 downloads once conversions ship, 320 kbps by default', async () => {
-    const { user, section, select } = renderSection(FULL, { conversions: true })
+  it('offer the MP3 bitrates for MP3, 320 kbps by default', async () => {
+    const { user, section, select } = renderSection(FULL)
 
     await user.selectOptions(select('Download format'), 'mp3')
 
@@ -354,7 +382,7 @@ describe('Audio quality settings on other tiers and browsers', () => {
   it('say in Lite that downloads cover the free sources, and where YouTube songs download', () => {
     const { select } = renderSection(LITE)
     expect(select('Download format')).toHaveAccessibleDescription(
-      'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive. YouTube songs can be downloaded with FXM Connect. Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format. Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon.',
+      'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive. YouTube songs can be downloaded with FXM Connect. Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.',
     )
     // Lite still streams YouTube.
     expect(select('Streaming on Wi-Fi')).toHaveAccessibleDescription(/the best YouTube audio/)
