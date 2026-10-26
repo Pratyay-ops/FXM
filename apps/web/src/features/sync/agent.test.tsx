@@ -1,11 +1,17 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { Dexie, type ObservabilitySet, RangeSet } from 'dexie'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AFFINITY_MODEL_SETTING } from '../../db/affinity'
 import { getLibrary } from '../../db/repo'
 import { testRepo, track } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
+import { NOTICE_SPACE_VARIABLE } from '../connect/connect-notice'
+import { usePwaStore } from '../pwa/pwa-store'
+import { TOAST_SPACE_PROPERTY } from '../pwa/update-toast'
+import { showFeedback } from '../search/feedback'
 import { useSettingsStore } from '../settings/settings-store'
+import { CARDS_HEIGHT_PROPERTY } from '../sponsorblock/sponsorblock-notices'
+import { SYNC_TOAST_SPACE_PROPERTY } from './agent'
 import { changeKindOf, reportMessage } from './auto-sync'
 import { createMemoryBaseStore } from './base-store'
 import {
@@ -48,6 +54,31 @@ const gistReads = () =>
   github.requests.filter(
     (request) => request.method === 'GET' && request.path.startsWith('/gists/'),
   )
+
+/**
+ * Sets sync up with a playlist that another device renamed and synced, while this one renamed it
+ * too: the next sync keeps both versions, and the agent's toast says so.
+ */
+async function renamedOnTwoDevices() {
+  const library = getLibrary()
+  const mix = await library.createPlaylist({ name: 'Mix' })
+  await confirmConnect(await prepareConnect({ token: TOKEN }))
+  const gistId = useSyncStore.getState().gistId ?? ''
+  const other = {
+    repo: testRepo(),
+    github: createGitHubClient({ token: TOKEN, fetch: github.fetch }),
+    bases: createMemoryBaseStore(),
+    login: 'octo',
+    appSettings: { read: () => ({}), apply: () => {} },
+  }
+  await syncLibrary(other, gistId)
+  await other.repo.updatePlaylist(mix, { name: 'Theirs' })
+  await syncLibrary(other, gistId)
+  await library.updatePlaylist(mix, { name: 'Mine' })
+}
+
+/** A custom property the toasts keep on <html>. */
+const space = (property: string) => document.documentElement.style.getPropertyValue(property)
 
 describe('SyncAgent', { timeout: 30_000 }, () => {
   it('does nothing while sync is off', async () => {
@@ -109,28 +140,46 @@ describe('SyncAgent', { timeout: 30_000 }, () => {
   })
 
   it('says so when a sync kept two versions of a playlist', async () => {
-    const library = getLibrary()
-    const mix = await library.createPlaylist({ name: 'Mix' })
-    await confirmConnect(await prepareConnect({ token: TOKEN }))
-    const gistId = useSyncStore.getState().gistId ?? ''
-    // Another device renames it and syncs; this one renames it too, before syncing.
-    const other = {
-      repo: testRepo(),
-      github: createGitHubClient({ token: TOKEN, fetch: github.fetch }),
-      bases: createMemoryBaseStore(),
-      login: 'octo',
-      appSettings: { read: () => ({}), apply: () => {} },
-    }
-    await syncLibrary(other, gistId)
-    await other.repo.updatePlaylist(mix, { name: 'Theirs' })
-    await syncLibrary(other, gistId)
-    await library.updatePlaylist(mix, { name: 'Mine' })
-
+    await renamedOnTwoDevices()
     const { user, router } = renderApp('/library')
     const status = await screen.findByText(/Sync kept two versions of “Theirs”/)
     await user.click(within(status).getByRole('link', { name: 'Review' }))
     await waitFor(() => expect(router.state.location.pathname).toBe('/settings'))
     expect(await screen.findByText('Playlists with two versions')).toBeInTheDocument()
+  })
+
+  it('stacks its toast with the app’s other toasts above the player, none over another', async () => {
+    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(56)
+    await renamedOnTwoDevices()
+    const { user } = renderApp('/library')
+    act(() => usePwaStore.setState({ updateReady: true }))
+    const status = await screen.findByText(/Sync kept two versions of “Theirs”/)
+    act(() => showFeedback('Added to queue'))
+
+    // Placement is CSS. SponsorBlock's cards, the FXM Connect notice and the update toast sit
+    // above the player, each keeping room for what shows above it; this toast rises by that room
+    // and keeps room of its own, by which the app's confirmations rise in turn.
+    const region = status.closest('[role="status"]')
+    for (const below of [
+      '--shell-bottom',
+      CARDS_HEIGHT_PROPERTY,
+      NOTICE_SPACE_VARIABLE,
+      TOAST_SPACE_PROPERTY,
+    ]) {
+      expect(region?.className).toContain(`var(${below}`)
+    }
+    expect(space(TOAST_SPACE_PROPERTY)).toBe('calc(56px + 0.5rem)')
+    expect(space(SYNC_TOAST_SPACE_PROPERTY)).toBe('calc(56px + 0.5rem)')
+    const confirmation = screen.getByText('Added to queue').closest('[role="status"]')
+    expect(confirmation).not.toBe(region)
+    for (const below of [NOTICE_SPACE_VARIABLE, TOAST_SPACE_PROPERTY, SYNC_TOAST_SPACE_PROPERTY]) {
+      expect(confirmation?.className).toContain(`var(${below},0px)`)
+    }
+
+    // Gone, it keeps no room.
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText(/Sync kept two versions/)).not.toBeInTheDocument()
+    expect(space(SYNC_TOAST_SPACE_PROPERTY)).toBe('')
   })
 })
 
