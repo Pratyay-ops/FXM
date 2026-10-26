@@ -95,13 +95,13 @@ describe('downloadFormatHelp', () => {
     for (const capabilities of [LITE, FREE_ONLY]) {
       expect(downloadFormatHelp('original', capabilities)).toEqual([
         'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive.',
-        'YouTube songs can be downloaded with FXM Connect.',
+        'YouTube songs can be downloaded with FXM Connect or the desktop app.',
       ])
       expect(downloadFormatHelp('flac', capabilities)).toEqual([
         'An MP3 from Internet Archive: FLAC (converted from MP3, same quality as the source).',
         'A lossless source in FLAC: FLAC (no conversion).',
         'Lossy audio never becomes lossless: converting it gives a bigger file, not a better one.',
-        'YouTube songs can be downloaded with FXM Connect.',
+        'YouTube songs can be downloaded with FXM Connect or the desktop app.',
       ])
       expect(downloadFormatHelp('mp3', capabilities)[0]).toBe(
         'An MP3 from Internet Archive: MP3 (no conversion).',
