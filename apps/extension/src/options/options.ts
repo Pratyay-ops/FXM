@@ -1,6 +1,8 @@
 // Options page: version, allowed FXM origins and the Spotify login toggles. The toggles live in
 // IndexedDB in the extension's own origin, out of content scripts' reach (see settings.ts). In
-// Firefox, turning the login on also asks for Firefox's consent (see consent.ts).
+// Firefox, turning the login on also asks for Firefox's consent (see consent.ts). The
+// development build's own parts (its badge and warning, and the localhost toggle) are only in
+// its options.html: the release build drops them (data-dev, scripts/options-page.ts).
 import { DEV_BUILD, ORIGINS } from '../build-info.ts'
 import { loginConsent } from '../consent.ts'
 import { indexedDbSettings, SETTINGS_CHANNEL, type Settings } from '../settings.ts'
@@ -26,9 +28,6 @@ function showStatus(text: string, error = false): void {
 }
 
 byId('version', HTMLElement).textContent = api.runtime.getManifest().version
-byId('dev-badge', HTMLElement).hidden = !DEV_BUILD
-byId('dev-warning', HTMLElement).hidden = !DEV_BUILD
-byId('localhost-login', HTMLElement).hidden = !DEV_BUILD
 byId('spotify-consent-help', HTMLElement).hidden = !consent.needed
 
 const list = byId('origins', HTMLUListElement)
@@ -48,6 +47,26 @@ interface Toggle {
   saved: (on: boolean) => string
 }
 
+/**
+ * Shows the development build's own parts of the page and returns its localhost toggle. Only the
+ * development build calls it: the release build's page has none of these elements.
+ */
+function developmentParts(): Toggle[] {
+  byId('dev-badge', HTMLElement).hidden = false
+  byId('dev-warning', HTMLElement).hidden = false
+  byId('localhost-login', HTMLElement).hidden = false
+  return [
+    {
+      input: byId('spotify-login-localhost', HTMLInputElement),
+      key: 'spotifyLoginLocalhost',
+      saved: (on) =>
+        on
+          ? 'Saved. Localhost pages can now use your Spotify login.'
+          : 'Saved. Localhost pages can no longer use your Spotify login.',
+    },
+  ]
+}
+
 const toggles: Toggle[] = [
   {
     input: byId('spotify-login', HTMLInputElement),
@@ -57,14 +76,7 @@ const toggles: Toggle[] = [
         ? 'Saved. FXM can now use your Spotify login from this browser.'
         : 'Saved. FXM can no longer use your Spotify login.',
   },
-  {
-    input: byId('spotify-login-localhost', HTMLInputElement),
-    key: 'spotifyLoginLocalhost',
-    saved: (on) =>
-      on
-        ? 'Saved. Localhost pages can now use your Spotify login.'
-        : 'Saved. Localhost pages can no longer use your Spotify login.',
-  },
+  ...(DEV_BUILD ? developmentParts() : []),
 ]
 
 /** Firefox asks for consent before the login goes on. True where no consent is needed. */
@@ -110,10 +122,7 @@ async function load(): Promise<void> {
   } catch {
     showStatus('Could not read the settings.', true)
   } finally {
-    for (const { input, key } of toggles) {
-      // The release build has no localhost pages, so its localhost toggle stays off.
-      input.disabled = key === 'spotifyLoginLocalhost' && !DEV_BUILD
-    }
+    for (const { input } of toggles) input.disabled = false
   }
 }
 

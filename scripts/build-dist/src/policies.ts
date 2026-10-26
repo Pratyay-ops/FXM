@@ -278,9 +278,64 @@ export function policyProblems(rulePath: string, value: string): string[] {
   return problems
 }
 
+/**
+ * The features the Permissions-Policy turns off: only ones FXM never uses. It turns off none
+ * that a player may use ({@link PLAYER_FEATURES}).
+ */
+export const UNUSED_FEATURES = [
+  'camera',
+  'microphone',
+  'geolocation',
+  'payment',
+  'usb',
+  'serial',
+  'bluetooth',
+  'hid',
+  'midi',
+] as const
+
+/**
+ * Features the player may use, which the Permissions-Policy must never turn off. The media keys
+ * go through the Media Session API, which no policy controls.
+ */
+export const PLAYER_FEATURES: readonly string[] = [
+  'autoplay',
+  'fullscreen',
+  'picture-in-picture',
+  'screen-wake-lock',
+]
+
+/** `camera=(), microphone=(), …`: each unused feature allowed to no origin. */
+export const PERMISSIONS_POLICY = UNUSED_FEATURES.map((feature) => `${feature}=()`).join(', ')
+
+/**
+ * Why a Permissions-Policy breaks FXM's promise (an empty list when it doesn't): it may only turn
+ * off features FXM never uses, and never one the player may use.
+ */
+export function permissionsPolicyProblems(value: string): string[] {
+  const problems: string[] = []
+  for (const item of value.split(',')) {
+    const feature = /^\s*([a-z-]+)=\(\s*\)\s*$/.exec(item)?.[1]
+    if (feature === undefined) {
+      problems.push(`"${item.trim()}" doesn't turn a feature off (feature=())`)
+    } else if (PLAYER_FEATURES.includes(feature)) {
+      problems.push(`it turns off ${feature}, which the player may use`)
+    } else if (!(UNUSED_FEATURES as readonly string[]).includes(feature)) {
+      problems.push(`it turns off ${feature}, which isn't one of the features FXM never uses`)
+    }
+  }
+  return problems
+}
+
 /** Sent with every response, next to its policy (docs/PLAN.md, header rules). */
 export const COMMON_HEADERS: readonly (readonly [name: string, value: string])[] = [
   // googlevideo requests from the page would otherwise carry Referer: https://fxmusic.pages.dev/
   ['Referrer-Policy', 'no-referrer'],
   ['X-Content-Type-Options', 'nosniff'],
+  // A page opened at top level keeps no tie to a page of another site that opened it, or that it
+  // opens: neither can reach the other's window. Browsers ignore it in frames, so the embed and
+  // the sandbox documents work inside other pages as before; the embed counts on it when a page
+  // opens a player in a new window (apps/web/src/embed/README.md).
+  ['Cross-Origin-Opener-Policy', 'same-origin'],
+  ['Permissions-Policy', PERMISSIONS_POLICY],
 ]
