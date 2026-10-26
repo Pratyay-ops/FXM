@@ -21,7 +21,7 @@ The search page and the album, artist and playlist pages (`features/{album,artis
 | Download and equalizer on YouTube items | — | Hidden (the bytes can't be read), with a note that says why on search and on album, artist and playlist pages | ✅ |
 | Spotify in the source switch | — | — | ✅ when switched on |
 
-`itemFeatures(capabilities, source)` in `sources.ts` is the one rule for download and the equalizer: YouTube and Spotify items need `mediaBytes` (only `full` has it); Internet Archive, Jamendo and local files always allow them.
+`itemFeatures(capabilities, source, platform)` in `sources.ts` is the one rule for download and the equalizer: YouTube and Spotify items need `mediaBytes` (only `full` has it); Internet Archive, Jamendo and local files always allow them. In the desktop app the equalizer can't process YouTube or Spotify items yet (its webview plays them without reading them, until stage 7.6), so they offer no "Equalizer" there.
 
 ### Page URLs
 
@@ -50,7 +50,7 @@ Every touch-point with a stage built in parallel goes through one interface here
 | 2.2 player facade (merged), playing once 2.3 resolves streams | `PlaybackActions` (`play`, `playNext`, `addToQueue`); `playbackFromPlayer(player)` maps the facade onto it | No play or queue buttons | `appActions.set({ ...appActions.get(), playback: playbackFromPlayer(player) })` with the app's `Player` |
 | 2.6 library | `LibraryActions` (`playlists`, `addToPlaylist`, `createPlaylist`) | No "Add to playlist" | `appActions.set({ ...appActions.get(), library })` |
 | 4.1 downloads | `DownloadActions` | No "Download" | `appActions.set({ …, downloads })` |
-| 8.1 audio effects | `EqualizerActions` | No "Equalizer" | `appActions.set({ …, equalizer })` |
+| 8.1 audio effects (wired) | `EqualizerActions` | No "Equalizer" | `wireEqualizerActions()` in `main.tsx`: "Equalizer" opens the Sound dialog (`features/audio-effects/`) |
 | 2.7 onboarding | `ONBOARDING_URL` in `onboarding.tsx` | The landing page's "Get FXM" section | Point it at the in-app onboarding |
 
 An action appears in the UI only when its group is wired in, so the app never shows a button that does nothing. Queues start with `QueueContext` from `@fxm/core`: the album, artist or playlist, or the search query, so "Playing from …" can link back.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cleanDate, cleanText, readTags, titleFromFileName } from './tags'
+import { cleanDate, cleanText, loudnessOfTags, readTags, titleFromFileName } from './tags'
 import {
   audioFile,
   flacFile,
@@ -198,6 +198,53 @@ describe('readTags', () => {
       'broken.flac',
     )
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('loudness tags', () => {
+  it('reads ReplayGain from a FLAC file', async () => {
+    const extra: [string, string][] = [
+      ['REPLAYGAIN_TRACK_GAIN', '-7.89 dB'],
+      ['REPLAYGAIN_TRACK_PEAK', '0.988525'],
+      ['REPLAYGAIN_ALBUM_GAIN', '-8.20 dB'],
+      ['REPLAYGAIN_ALBUM_PEAK', '1.000000'],
+    ]
+    const result = await read(flacFile({ tags: { ...TAGS, extra } }), 'Night Drive.flac')
+    expect(result.tags.loudness).toEqual({
+      trackLufs: -10.11,
+      trackPeak: 0.988525,
+      albumLufs: -9.8,
+      albumPeak: 1,
+      source: 'replaygain',
+    })
+  })
+
+  it('reads R128 gains from an Opus file', async () => {
+    const extra: [string, string][] = [
+      ['R128_TRACK_GAIN', '-1280'],
+      ['R128_ALBUM_GAIN', '-1024'],
+    ]
+    const result = await read(opusFile({ tags: { title: 'Quiet', extra } }), 'quiet.opus')
+    expect(result.tags.loudness).toEqual({ trackLufs: -18, albumLufs: -19, source: 'r128' })
+  })
+
+  it('leaves loudness out without valid tags', async () => {
+    const result = await read(flacFile({ tags: TAGS }), 'Night Drive.flac')
+    expect(result.tags.loudness).toBeUndefined()
+    // A gain written without its unit reads as a ratio, which says nothing.
+    const unitless = loudnessOfTags({
+      common: { replaygain_track_gain: { dB: Number.NaN, ratio: -7.89 } },
+    } as never)
+    expect(unitless).toBeUndefined()
+  })
+
+  it('prefers ReplayGain to R128 outside Opus files', () => {
+    const loudness = loudnessOfTags({
+      common: { replaygain_track_gain: { dB: -3, ratio: 0.7 } },
+      native: { vorbis: [{ id: 'R128_TRACK_GAIN', value: '-1280' }] },
+      format: { codec: 'FLAC' },
+    } as never)
+    expect(loudness?.source).toBe('replaygain')
   })
 })
 

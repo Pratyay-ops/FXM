@@ -5,6 +5,7 @@ The Settings page and the stores behind it. Each store is a Zustand store persis
 | Store | Key | What it holds |
 |---|---|---|
 | `useSettingsStore` (`settings-store.ts`) | `fxm.settings.v1` | Catalog mode and theme (stage 2.1) |
+| `useAudioEffectsStore` (`features/audio-effects/effects-store.ts`) | `fxm.audio-effects.v1` | The audio effects (stage 8.1): the equalizer, loudness normalization, crossfade and speed, as `AudioEffectsSettings` from `@fxm/core`; Settings → Sound (`AudioEffectsSection`, [its README](../audio-effects/README.md)). The sleep timer lives there too but is never stored |
 | `useQualityStore` (`quality-store.ts`) | `fxm.quality.v1` | Audio quality (stage 4.3): `prefs` (`QualityPrefs` from `@fxm/core`: the tier ceilings on Wi-Fi and on mobile data, the download format and MP3 bitrate) and `streaming` (`StreamingSettings`: which connection's ceiling applies, the data saver) |
 
 `settings-layout.tsx` has the page's building blocks, `SettingsSection` and `SettingRow` (with an optional `badge` beside the label), for any feature that adds a section. `setting-select.tsx` is the native select for settings with many choices, and `setting-switch.tsx` the switch for on/off settings.

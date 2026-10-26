@@ -12,6 +12,7 @@ import {
 import { Fragment } from 'react'
 import { Link } from 'react-router'
 import { cn } from '../../../lib/cn'
+import { useConnection } from '../../connect/connection'
 import { useMediaActions } from '../actions'
 import { showFeedback } from '../feedback'
 import { itemFeatures } from '../sources'
@@ -89,6 +90,7 @@ function useTrackMenu(track: Track): MenuAction[] {
   const items = useTracksMenu([track], track.title)
   const { equalizer } = useMediaActions()
   const { capabilities } = useSourcesSnapshot()
+  const platform = useConnection((state) => state.platform)
   const links: MenuAction[] = []
   if (track.album?.id) {
     links.push({ key: 'album', label: 'Go to album', icon: Disc3, to: albumPath(track.album.id) })
@@ -98,7 +100,7 @@ function useTrackMenu(track: Track): MenuAction[] {
     links.push({ key: 'artist', label: 'Go to artist', icon: MicVocal, to: artistPath(artist.id) })
   }
   const effects: MenuAction[] =
-    equalizer && itemFeatures(capabilities, track.source).equalizer
+    equalizer && itemFeatures(capabilities, track.source, platform).equalizer
       ? [
           {
             key: 'equalizer',

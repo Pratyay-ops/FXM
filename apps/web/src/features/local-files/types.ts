@@ -11,7 +11,7 @@
  * @module
  */
 
-import type { Codec, Container, QualityTier } from '@fxm/core'
+import type { Codec, Container, QualityTier, StreamLoudness } from '@fxm/core'
 
 /**
  * Where a root's files come from:
@@ -87,6 +87,11 @@ export interface LocalTags {
   /** Whether the file is tagged as part of a compilation. */
   compilation?: boolean
   durationMs?: number
+  /**
+   * How loud the file is, from its ReplayGain tags, or for Opus its R128 gain tags (stage 8.1):
+   * loudness normalization plays it at the user's target level.
+   */
+  loudness?: StreamLoudness
 }
 
 /** One audio file FXM lists. */

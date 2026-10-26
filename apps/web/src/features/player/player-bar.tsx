@@ -3,6 +3,7 @@ import { Link, useLocation, useSearchParams } from 'react-router'
 import { Artwork } from '../../components/ui/artwork'
 import { iconButtonClasses } from '../../components/ui/icon-button'
 import { cn } from '../../lib/cn'
+import { SoundButton } from '../audio-effects/sound-button'
 import { useCurrentItem, usePlayerState } from '../now-playing/playback'
 import { TrackArtwork } from '../now-playing/track-artwork'
 import { CATALOG_MODE_OPTIONS } from '../settings/options'
@@ -131,6 +132,7 @@ export function PlayerBar() {
         </div>
 
         <div className="flex min-w-0 items-center justify-end gap-1">
+          <SoundButton />
           <QueueButton />
           <VolumeControl />
           <ModeIndicator className="ml-1" />
