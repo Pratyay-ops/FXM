@@ -8,16 +8,16 @@
  */
 
 import type {
+  FxmPlayerEntry,
   FxmPlayerEventMap,
+  FxmPlayerFailure,
   FxmPlayerListenerHandle,
+  FxmPlayerLoadOptions,
   FxmPlayerPlugin,
-  NativeEntry,
-  NativeFailure,
-  NativeLoadOptions,
-  NativeRepeat,
-  NativeSession,
-  NativeState,
-  NativeUpcomingOptions,
+  FxmPlayerRepeat,
+  FxmPlayerSession,
+  FxmPlayerState,
+  FxmPlayerUpcomingOptions,
 } from '../native/plugin'
 
 type Listener = (event: never) => void
@@ -25,7 +25,7 @@ type Listener = (event: never) => void
 /** Options for {@link createFakeFxmPlayer}. */
 export interface FakeFxmPlayerOptions {
   /** Where the native player is when the page attaches, e.g. after its renderer died. */
-  session?: Partial<NativeSession>
+  session?: Partial<FxmPlayerSession>
   /** Whether `addListener` answers at once, as Capacitor's injected bridge does, rather than
    * with a promise, as `registerPlugin` does. Default: `false`. */
   syncListeners?: boolean
@@ -39,13 +39,16 @@ export interface FakeFxmPlayer extends FxmPlayerPlugin {
    */
   readonly calls: string[]
   /** The native playlist: the current entry first. */
-  readonly entries: readonly NativeEntry[]
+  readonly entries: readonly FxmPlayerEntry[]
   /** The native state now. */
-  readonly state: NativeState
-  /** What `setUpcoming` and `load` said last. */
+  readonly state: FxmPlayerState
+  /** Whether the web app has more than the playlist holds, as `setUpcoming` or `load` said last. */
   readonly hasMore: boolean
-  readonly repeat: NativeRepeat
+  /** How the playlist repeats, as `setUpcoming` or `load` said last. */
+  readonly repeat: FxmPlayerRepeat
+  /** The volume `setVolume` set last, from 0 to 1. */
   readonly volume: number
+  /** What `saveSnapshot` stored last, or `null`. */
   readonly snapshot: string | null
   /** Whether a page attached. */
   readonly attached: boolean
@@ -63,8 +66,13 @@ export interface FakeFxmPlayer extends FxmPlayerPlugin {
   repeatRound(): void
   /** A system control (the notification, a headset) played or paused, or audio focus moved. */
   systemPlay(playWhenReady: boolean): void
-  /** The current entry failed. */
-  fail(failure?: Partial<NativeFailure>): void
+  /**
+   * The current entry failed. As the real coordinator does, the error goes out first and the
+   * idle state after it.
+   */
+  fail(failure?: Partial<FxmPlayerFailure>): void
+  /** Media3 stopped without a failure (`ExoPlayer.stop`): idle, `playWhenReady` unchanged. */
+  stop(): void
   /** A system control asked for next or previous. */
   command(command: 'next' | 'previous'): void
   /** The device changed network. */
@@ -80,8 +88,8 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
   const listeners = new Map<string, Set<Listener>>()
   const calls: string[] = []
   const preset = options.session
-  let entries: NativeEntry[] = [...(preset?.entries ?? [])]
-  let state: NativeState = {
+  let entries: FxmPlayerEntry[] = [...(preset?.entries ?? [])]
+  let state: FxmPlayerState = {
     id: preset?.id ?? entries[0]?.id ?? null,
     positionMs: preset?.positionMs ?? 0,
     durationMs: preset?.durationMs ?? -1,
@@ -89,11 +97,11 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
     playWhenReady: preset?.playWhenReady ?? false,
     state: preset?.state ?? (entries.length > 0 ? 'ready' : 'idle'),
   }
-  let error: NativeFailure | null = preset?.error ?? null
+  let error: FxmPlayerFailure | null = preset?.error ?? null
   let snapshot: string | null = preset?.snapshot ?? null
   let network = preset?.network ?? { id: 0, cellular: false }
   let hasMore = false
-  let repeat: NativeRepeat = 'off'
+  let repeat: FxmPlayerRepeat = 'off'
   let volume = 1
   let attached = false
 
@@ -104,13 +112,13 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
     }
   }
 
-  function update(patch: Partial<NativeState>): void {
+  function update(patch: Partial<FxmPlayerState>): void {
     state = { ...state, ...patch, id: entries[0]?.id ?? null }
     state = { ...state, playing: state.playWhenReady && state.state === 'ready' }
     emit('state', state)
   }
 
-  function titles(list: readonly NativeEntry[]): string {
+  function titles(list: readonly FxmPlayerEntry[]): string {
     return `[${list.map((entry) => entry.metadata.title).join(',')}]`
   }
 
@@ -151,7 +159,7 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
       return { ...state, entries: [...entries], error, snapshot, network }
     },
 
-    async load(load: NativeLoadOptions) {
+    async load(load: FxmPlayerLoadOptions) {
       calls.push(`load:${load.entry.metadata.title}@${load.startAtMs}+${titles(load.upcoming)}`)
       // The real player skips to a queued entry with the same bytes, keeping its buffer; either
       // way the playlist is the entry and the ones after it.
@@ -167,9 +175,9 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
       })
     },
 
-    async setUpcoming(upcoming: NativeUpcomingOptions) {
+    async setUpcoming(upcoming: FxmPlayerUpcomingOptions) {
       calls.push(`setUpcoming:${titles(upcoming.upcoming)}${upcoming.hasMore ? '+more' : ''}`)
-      entries = entries.length === 0 ? [] : [entries[0] as NativeEntry, ...upcoming.upcoming]
+      entries = entries.length === 0 ? [] : [entries[0] as FxmPlayerEntry, ...upcoming.upcoming]
       hasMore = upcoming.hasMore
       repeat = upcoming.repeat
     },
@@ -261,14 +269,18 @@ export function createFakeFxmPlayer(options: FakeFxmPlayerOptions = {}): FakeFxm
     },
 
     fail(failure = {}) {
-      const full: NativeFailure = {
+      const full: FxmPlayerFailure = {
         type: failure.type ?? 'network',
         status: failure.status === undefined ? 403 : failure.status,
         message: failure.message ?? 'ERROR_CODE_IO_BAD_HTTP_STATUS (HTTP 403)',
       }
       error = full
-      update({ state: 'idle' })
       emit('error', { ...full, id: entries[0]?.id ?? null })
+      update({ state: 'idle' })
+    },
+
+    stop() {
+      update({ state: 'idle' })
     },
 
     command(command) {

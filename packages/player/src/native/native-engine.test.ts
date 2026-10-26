@@ -1,7 +1,10 @@
 import { FxmError, httpStatusOf, isFxmError } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import { EngineError } from '../engine'
+import { Player } from '../player'
+import { FakeEngine } from '../testing/fake-engine'
 import { createFakeFxmPlayer } from '../testing/fake-fxm-player'
+import { FakeResolver } from '../testing/fake-resolver'
 import { testStream, testTrack, testTracks } from '../testing/fixtures'
 import { NativeEngine } from './native-engine'
 import { nativeSetup, settle } from './test-harness'
@@ -133,7 +136,100 @@ describe('NativeEngine', () => {
     await engine.load({ stream: testStream('a'), item: { uid: 1, track: testTrack('a') } })
     await settle()
     expect(errors.map((error) => error.type)).toEqual(['unsupported'])
+    expect(errors[0]?.message).toContain('refused the stream')
     engine.destroy()
+  })
+
+  it('blames the native player, not the stream, when it is unavailable', async () => {
+    const plugin = createFakeFxmPlayer()
+    const unavailable = Object.assign(new Error('The player service is not available'), {
+      code: 'UNAVAILABLE',
+    })
+    plugin.load = vi.fn(async () => {
+      throw unavailable
+    })
+    plugin.play = vi.fn(async () => {
+      throw Object.assign(new Error('The player failed'), { code: 'INTERNAL' })
+    })
+    const engine = new NativeEngine({ plugin })
+    const errors: EngineError[] = []
+    engine.on('error', (error) => errors.push(error))
+    await engine.load({ stream: testStream('a'), item: { uid: 1, track: testTrack('a') } })
+    await settle()
+    expect(errors[0]).toMatchObject({ type: 'network', cause: unavailable })
+    expect(errors[0]?.message).toContain('native player is not available')
+    // A refused play arrives as an error of the loaded entry, as the Engine contract says.
+    plugin.load = createFakeFxmPlayer().load
+    await engine.play()
+    expect(errors.map((error) => error.type)).toEqual(['network', 'network'])
+    expect(errors[1]?.message).toContain('could not play (INTERNAL)')
+    engine.destroy()
+  })
+
+  it('logs the commands the plugin refuses that nothing waits for', async () => {
+    const plugin = createFakeFxmPlayer()
+    const failure = Object.assign(new Error('The player failed'), { code: 'INTERNAL' })
+    plugin.pause = vi.fn(async () => {
+      throw failure
+    })
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const engine = new NativeEngine({ plugin })
+    engine.pause()
+    await settle()
+    expect(errors).toHaveBeenCalledWith('FxmPlayer.pause failed', failure)
+    errors.mockRestore()
+    engine.destroy()
+  })
+
+  it('is the only engine on the plugin while it lives', () => {
+    const plugin = createFakeFxmPlayer()
+    const engine = new NativeEngine({ plugin })
+    expect(() => new NativeEngine({ plugin })).toThrow(/Another NativeEngine/)
+    const android = { Capacitor: { isNativePlatform: () => true, Plugins: { FxmPlayer: plugin } } }
+    expect(() => NativeEngine.ifAvailable(android)).toThrow(/Another NativeEngine/)
+    engine.destroy()
+    const next = new NativeEngine({ plugin })
+    expect(next).toBeInstanceOf(NativeEngine)
+    next.destroy()
+  })
+
+  it('create() waits for the native player and says when it is unavailable', async () => {
+    const plugin = createFakeFxmPlayer()
+    const engine = await NativeEngine.create({ plugin })
+    expect(engine).toBeInstanceOf(NativeEngine)
+    expect(plugin.attached).toBe(true)
+    engine?.destroy()
+    expect(await NativeEngine.create()).toBeUndefined()
+    const broken = createFakeFxmPlayer()
+    broken.attach = async () => {
+      throw Object.assign(new Error('The player service is not available'), {
+        code: 'UNAVAILABLE',
+      })
+    }
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(await NativeEngine.create({ plugin: broken })).toBeUndefined()
+    // Without releasing anything, and leaving the plugin free for the app's next try.
+    expect(broken.calls).not.toContain('release')
+    expect(broken.listeners).toBe(0)
+    expect(new NativeEngine({ plugin: broken })).toBeInstanceOf(NativeEngine)
+    errors.mockRestore()
+  })
+
+  it('connects once per player', async () => {
+    const { engine, player, connect } = nativeSetup()
+    const first = connect()
+    expect(connect()).toBe(first)
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const other = new Player({ engine: new FakeEngine(), resolver: new FakeResolver() })
+    const refused = await engine.connect({ player: other, resolver: new FakeResolver() })
+    expect(refused.resumed).toBe(false)
+    expect(errors).toHaveBeenCalled()
+    errors.mockRestore()
+    const connection = await first
+    connection.disconnect()
+    const again = await engine.connect({ player, resolver: new FakeResolver() })
+    expect(again).not.toBe(connection)
+    again.disconnect()
   })
 
   it('plays what Media3 can: progressive HTTPS streams, with or without headers', () => {

@@ -1,4 +1,4 @@
-import { currentQueueItem, FxmError, type QueueState } from '@fxm/core'
+import { currentQueueItem, FxmError, type QueueState, type StreamOption } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import { EngineError } from '../engine'
 import { testStream, testTrack, testTracks } from '../testing/fixtures'
@@ -86,12 +86,74 @@ describe('the native queue', () => {
     expect(plugin.entries[1]?.source.url).toBe(testStream('b-preloaded').url)
   })
 
-  it('without a connected player, queues what the facade preloads', async () => {
+  it('without a connected player, queues what the facade preloads, and drops it on null', async () => {
     const { plugin, engine } = nativeSetup()
     await engine.load({ stream: testStream('a'), item: { uid: 1, track: testTrack('a') } })
     engine.preload({ stream: testStream('b'), item: { uid: 2, track: testTrack('b') } })
     await settle()
     expect(plugin.calls.slice(-2)).toEqual(['load:a@0+[]', 'setUpcoming:[b]'])
+    engine.preload(null)
+    await settle()
+    expect(titles(plugin.entries)).toEqual(['a'])
+    // Nothing queued, nothing to drop.
+    engine.preload(null)
+    await settle()
+    expect(plugin.calls.filter((call) => call.startsWith('setUpcoming'))).toHaveLength(2)
+  })
+
+  it('connected, follows the facade’s queue rather than what it preloads or drops', async () => {
+    const { plugin, engine, player, connect } = nativeSetup()
+    await connect()
+    await player.setQueue(testTracks('a', 'b', 'c'))
+    await settle()
+    engine.preload(null)
+    await settle()
+    expect(titles(plugin.entries)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('sends a tail Media3 refused again with the next change', async () => {
+    const { plugin, player, connect } = nativeSetup()
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const setUpcoming = plugin.setUpcoming.bind(plugin)
+    let refuse = true
+    plugin.setUpcoming = async (options) => {
+      if (refuse) throw Object.assign(new Error('The player failed'), { code: 'INTERNAL' })
+      return setUpcoming(options)
+    }
+    await connect()
+    await player.setQueue(testTracks('a', 'b'))
+    await settle()
+    player.addToQueue(testTracks('c'))
+    await settle()
+    // b was resolved after the load, and every tail since was refused.
+    expect(titles(plugin.entries)).toEqual(['a'])
+    expect(errors).toHaveBeenCalled()
+    refuse = false
+    player.addToQueue(testTracks('d'))
+    await settle()
+    expect(titles(plugin.entries)).toEqual(['a', 'b', 'c', 'd'])
+    errors.mockRestore()
+  })
+
+  it('stores a snapshot Media3 refused again with the next change', async () => {
+    const { plugin, player, connect } = nativeSetup()
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const save = plugin.saveSnapshot.bind(plugin)
+    let refuse = true
+    plugin.saveSnapshot = async (options) => {
+      if (refuse)
+        throw Object.assign(new Error('The snapshot is too large'), { code: 'BAD_REQUEST' })
+      return save(options)
+    }
+    await connect()
+    await player.setQueue(testTracks('a', 'b'), { autoplay: false })
+    await settle()
+    expect(plugin.snapshot).toBeNull()
+    refuse = false
+    player.setRepeat('all')
+    await settle()
+    expect(JSON.parse(plugin.snapshot ?? 'null')).toMatchObject({ v: 1, queue: { repeat: 'all' } })
+    errors.mockRestore()
   })
 
   it('resolves an entry whose URL expires afresh, telling the lifecycle which one expires', async () => {
@@ -204,7 +266,8 @@ describe('when the page comes back', () => {
   it('restores the queue and adopts what Media3 plays, without reloading it', async () => {
     const session = await diedOnB()
     const second = nativeSetup({ fake: { session } })
-    await second.connect()
+    const connection = await second.connect()
+    expect(connection.resumed).toBe(true)
     await settle()
     expect(second.current()).toBe('b')
     expect(second.player.getState()).toMatchObject({ status: 'playing', positionMs: 30_000 })
@@ -242,8 +305,182 @@ describe('when the page comes back', () => {
   it('starts empty without a snapshot', async () => {
     const session = await diedOnB()
     const second = nativeSetup({ fake: { session: { ...session, snapshot: null } } })
-    await second.connect()
+    const connection = await second.connect()
+    expect(connection.resumed).toBe(false)
     expect(second.player.getState().queue.items).toEqual([])
+  })
+
+  it('reports a failure Media3 met while the page was gone, once the player has the entry', async () => {
+    const session = await diedOnB()
+    const second = nativeSetup({
+      fake: {
+        session: {
+          ...session,
+          state: 'idle',
+          playing: false,
+          error: { type: 'network', status: 403, message: 'HTTP 403' },
+        },
+      },
+    })
+    await second.connect()
+    await settle()
+    const retry = second.resolver.requestsFor('b').find((request) => request.reason === 'retry')
+    expect(retry?.failure?.error).toMatchObject({ type: 'network' })
+    expect(retry?.failure?.positionMs).toBe(30_000)
+    expect(second.plugin.calls.some((call) => call.startsWith('load:b@30000'))).toBe(true)
+  })
+
+  it('keeps Media3 playing when resolving its item again would fail', async () => {
+    const session = await diedOnB()
+    const second = nativeSetup({ fake: { session } })
+    second.resolver.handler = (item) => {
+      if (item.track.title === 'b') throw new FxmError('Network', 'offline for a moment')
+      return { stream: testStream(item.track.title) }
+    }
+    await second.connect()
+    await settle()
+    expect(second.current()).toBe('b')
+    expect(second.player.getState()).toMatchObject({
+      status: 'playing',
+      stream: { url: testStream('b').url },
+    })
+    expect(second.plugin.state.playWhenReady).toBe(true)
+    expect(second.resolver.requestsFor('b')).toEqual([])
+    expect(second.plugin.calls.some((call) => call.startsWith('load'))).toBe(false)
+  })
+
+  it('connects without waiting for the player to take the entry over', async () => {
+    const session = await diedOnB()
+    // A page wired without the engine's resolver wrapper resolves b again, slowly.
+    const second = nativeSetup({ fake: { session }, wrap: false })
+    let release: (value: { stream: StreamOption }) => void = () => {}
+    second.resolver.handler = (item) =>
+      item.track.title === 'b'
+        ? new Promise((resolve) => {
+            release = resolve
+          })
+        : { stream: testStream(item.track.title) }
+    const connection = await second.connect()
+    expect(connection.resumed).toBe(true)
+    expect(second.player.getState().status).toBe('loading')
+    release({ stream: testStream('b') })
+    await settle()
+    expect(second.player.getState().status).toBe('playing')
+    expect(second.plugin.calls.some((call) => call.startsWith('load'))).toBe(false)
+  })
+
+  it('wraps around for repeat all when Media3 ran out on the last item', async () => {
+    const first = nativeSetup()
+    await first.connect()
+    await first.player.setQueue(testTracks('a', 'b'))
+    first.player.setRepeat('all')
+    await settle()
+    first.plugin.ready()
+    first.plugin.advance()
+    await settle()
+    const session = await first.plugin.attach()
+    first.plugin.detach()
+    const second = nativeSetup({
+      fake: { session: { ...session, state: 'ended', playing: false } },
+    })
+    await second.connect()
+    await settle()
+    expect(second.current()).toBe('a')
+    expect(second.player.getState().status).not.toBe('paused')
+    expect(second.plugin.calls.some((call) => call.startsWith('load:a@0'))).toBe(true)
+  })
+
+  it('lets the player’s own item play when the restored queue lost Media3’s', async () => {
+    const session = await diedOnB()
+    const snapshot = JSON.parse(session.snapshot ?? 'null') as { v: 1; queue: QueueState }
+    // b is gone from the stored queue (say the catalog mode hides it now).
+    const queue = {
+      ...snapshot.queue,
+      items: snapshot.queue.items.filter((item) => item.track.title !== 'b'),
+    }
+    const second = nativeSetup({
+      fake: { session: { ...session, snapshot: JSON.stringify({ v: 1, queue }) } },
+    })
+    const connection = await second.connect()
+    expect(connection.resumed).toBe(true)
+    await settle()
+    expect(second.current()).toBe('c')
+    expect(second.player.getState().status).not.toBe('paused')
+    expect(second.native()[0]).toBe('c')
+  })
+
+  it('takes Media3’s entry over when the app restored the same queue first', async () => {
+    const session = await diedOnB()
+    const snapshot = JSON.parse(session.snapshot ?? 'null') as { v: 1; queue: QueueState }
+    const second = nativeSetup({ fake: { session } })
+    // The app restores its own saved copy of the queue before connecting, against the docs.
+    second.player.restore({ ...snapshot.queue, index: 1 }, 12_000)
+    const connection = await second.connect()
+    expect(connection.resumed).toBe(true)
+    await settle()
+    expect(second.current()).toBe('b')
+    expect(second.player.getState().status).toBe('playing')
+    expect(second.plugin.calls.some((call) => call.startsWith('load'))).toBe(false)
+    expect(second.plugin.calls.some((call) => call.startsWith('seek'))).toBe(false)
+  })
+
+  it('releases Media3 when the app restored another queue first', async () => {
+    const session = await diedOnB()
+    const second = nativeSetup({ fake: { session } })
+    await second.player.setQueue(testTracks('x', 'y'), { autoplay: false })
+    const connection = await second.connect()
+    expect(connection.resumed).toBe(false)
+    await settle()
+    expect(second.plugin.calls).toContain('release')
+    expect(second.plugin.state.playWhenReady).toBe(false)
+    // Pausing and playing in the app now drive Media3.
+    await second.player.play()
+    second.plugin.ready()
+    await settle()
+    expect(second.native()[0]).toBe('x')
+    second.player.pause()
+    await settle()
+    expect(second.plugin.state.playWhenReady).toBe(false)
+  })
+
+  it('pauses Media3 when the app restores a queue after connecting without a snapshot', async () => {
+    const session = await diedOnB()
+    const second = nativeSetup({ fake: { session: { ...session, snapshot: null } } })
+    const connection = await second.connect()
+    expect(connection.resumed).toBe(false)
+    second.player.restore({ items: [] }, 0)
+    await second.player.setQueue(testTracks('x'), { autoplay: false })
+    await settle()
+    expect(second.plugin.state.playWhenReady).toBe(false)
+  })
+
+  it('never plays an entry for another track that reuses its uid', async () => {
+    const { plugin, player, connect, native } = nativeSetup()
+    await connect()
+    await player.setQueue(testTracks('a', 'b', 'c'))
+    await settle()
+    plugin.ready()
+    player.pause()
+    await settle()
+    // A restored queue numbers its items as it was saved: uid 1 is now z, not b.
+    const z = testTracks('y', 'z', 'w')
+    player.restore({
+      items: z.map((track, uid) => ({ uid, track })),
+      index: 0,
+      playedUids: [],
+      mode: 'music',
+      repeat: 'off',
+      shuffle: false,
+      nextUid: 3,
+    })
+    await settle()
+    await player.next()
+    await settle()
+    expect(native()[0]).not.toBe('b')
+    plugin.systemPlay(true)
+    plugin.ready()
+    await settle()
+    expect(native()[0]).toBe('z')
   })
 
   it('keeps a snapshot of the queue in Media3, trimmed around the current item', async () => {
