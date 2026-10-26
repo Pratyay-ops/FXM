@@ -128,7 +128,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | ✅ |
 | **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | ✅ |
 | **3.4** | Endless autoplay radio | `feat/3.4-autoplay` | 3.3 | ✅ |
-| **3.5** | Spotify account connect and sync (web) | `feat/3.5-spotify-sync` | 1.5, 2.6, 2.7 | ✅ |
+| **3.5** | Spotify account connect and sync (web), experimental in `v0.4.0` | `feat/3.5-spotify-sync` | 1.5, 2.6, 2.7 | ✅ |
 | **3.6** | Imports: Spotify, YouTube playlists, CSV/M3U, data export | `feat/3.6-imports` | 1.5, 1.7, 2.6, 3.1 | ✅ |
 | **4.1** | Download manager + offline playback | `feat/4.1-downloads` | 2.3, 2.6 | ✅ |
 | **4.2** | Conversion and tagging (custom LGPL ffmpeg.wasm build, mp4box.js) | `feat/4.2-convert` | 4.1 | ✅ |
