@@ -3,8 +3,9 @@
  * FXM's other channels (README.md). Node alone runs it, so the release scripts and workflows need
  * no `pnpm install` for it: `node --experimental-strip-types packaging/cli.ts <command>`.
  *
- *   sync [--check]                         write the files generated from listing.ts (--check:
- *                                          fail if any is stale)
+ *   sync [--check]                         write the generated files: those from listing.ts and
+ *                                          the READMEs' examples and links (--check: fail if
+ *                                          any is stale)
  *   version <x.y.z> [--dry-run]            set F-Droid's version.txt (scripts/release-version.sh
  *   version --check                        runs these with every other version)
  *   changelog <x.y.z>                      write a release's F-Droid changelog from its summary
@@ -35,17 +36,11 @@ import {
   VERSION_FILE,
   versionFile,
 } from './fdroid/recipe.ts'
-import { generatedFiles, staleFiles } from './files.ts'
+import { generatedFiles, pinnedReleaseCertificate, staleFiles } from './files.ts'
 import { ICON_SOURCE, metainfoXml } from './flatpak/appdata.ts'
 import { flatpakManifest, LOCAL_FILES, SHARED_MODULES } from './flatpak/manifest.ts'
 import { FLATPAK_ID } from './listing.ts'
-import {
-  addLink,
-  importLink,
-  type ObtainiumOptions,
-  pinnedCertificate,
-  webLink,
-} from './obtainium/obtainium.ts'
+import { addLink, importLink, type ObtainiumOptions, webLink } from './obtainium/obtainium.ts'
 import { parseSums } from './sums.ts'
 import {
   androidVersionCode,
@@ -82,7 +77,7 @@ function sync(check: boolean): void {
     return
   }
   for (const [path, contents] of generatedFiles()) write(path, contents)
-  process.stdout.write('Wrote the files generated from packaging/listing.ts\n')
+  process.stdout.write("Wrote the generated files: the listings and the READMEs' examples\n")
 }
 
 /** version.txt's version, or what is wrong with the file. */
@@ -155,10 +150,7 @@ function fdroid(version: Version, commit: string | undefined): void {
 }
 
 function obtainium(): void {
-  const certificateFile = join(REPO_ROOT, 'apps', 'mobile', 'release-certificate.txt')
-  const certificate = pinnedCertificate(
-    existsSync(certificateFile) ? readFileSync(certificateFile, 'utf8') : undefined,
-  )
+  const certificate = pinnedReleaseCertificate()
   const options: ObtainiumOptions = certificate === undefined ? {} : { certificate }
   const add = addLink()
   const app = importLink(options)

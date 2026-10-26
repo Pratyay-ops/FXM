@@ -3,14 +3,34 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { FASTLANE_DIR, FASTLANE_ICON, FASTLANE_LIMITS } from './fdroid/fastlane.ts'
 import { readVersionFile, VERSION_FILE } from './fdroid/recipe.ts'
-import { staleFiles } from './files.ts'
+import { blockMarkers, fillBlocks, readmeBlocks, staleFiles } from './files.ts'
 import { androidVersionCode, productVersion, REPO_ROOT } from './version.ts'
 
 const read = (path: string) => readFileSync(join(REPO_ROOT, path), 'utf8')
 
 describe('the generated files', () => {
-  it('match listing.ts: run `channels sync` after changing it', () => {
+  it('match their generators: run `channels sync` after changing one', () => {
     expect(staleFiles()).toEqual([])
+  })
+
+  it('include the READMEs’ examples and links, each between its markers', () => {
+    for (const [path, blocks] of readmeBlocks()) {
+      const readme = read(path)
+      for (const [name, contents] of Object.entries(blocks)) {
+        const { start, end } = blockMarkers(name)
+        expect(readme, path).toContain(`${start}\n\n${contents}\n\n${end}`)
+      }
+    }
+    expect(
+      fillBlocks(
+        'a\n<!-- channels sync: x -->\nold\n<!-- /channels sync: x -->\nb',
+        { x: 'new' },
+        'R',
+      ),
+    ).toBe('a\n<!-- channels sync: x -->\n\nnew\n\n<!-- /channels sync: x -->\nb')
+    expect(() => fillBlocks('no markers', { x: 'new' }, 'README.md')).toThrow(
+      /README\.md has no block <!-- channels sync: x -->/,
+    )
   })
 
   it('keep F-Droid’s texts within its limits', () => {

@@ -56,6 +56,73 @@ No files, devices or host access: downloads to disk (stage 7.4) will need the fi
 
 The Flatpak is `io.github.pratyay_ops.FXM`. Flathub derives the repository from an `io.github.` ID and checks it: `io.github.pratyay_ops.FXM` stands for `https://github.com/pratyay-ops/FXM`, an underscore replacing the dash, which IDs can't hold before their last part. The desktop app's own identifier, `io.github.pratyayops.fxm`, would stand for a GitHub account `pratyayops`, which didn't exist on 2026-10-26. A build from source could take the Flatpak ID as its Tauri identifier and set a GTK application ID (`app.enableGTKAppId`), and would then need neither of the two `--own-name` permissions.
 
+### The manifest, for an example release
+
+What `channels flatpak 1.2.3` writes, with placeholder checksums (zeros) where the channels workflow writes each `.deb`'s from the release's `SHA256SUMS`. `channels sync` keeps this copy in step with [`manifest.ts`](manifest.ts), and the tests fail when the two differ.
+
+<!-- channels sync: manifest -->
+
+```yaml
+# FXM 1.2.3 as a Flatpak, repackaged from the release's .deb files: for trying FXM
+# in the sandbox and for building a Flatpak yourself. Not for Flathub (packaging/flatpak/README.md).
+# Written by FXM's packaging/flatpak/manifest.ts (https://github.com/Pratyay-ops/FXM).
+# The first module comes from Flathub's shared modules: before building, check out
+# https://github.com/flathub/shared-modules.git at 3d87a6632cf1e787b009e234b13a8ccfa6d15df8 into ./shared-modules.
+id: io.github.pratyay_ops.FXM
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: fxm
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --share=network
+  - --socket=pulseaudio
+  - --own-name=io.github.pratyayops.fxm.SingleInstance
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --own-name=org.mpris.MediaPlayer2.org.webkit.app-26bedc89bd659ca1ee452a330e1e6b89f42e9728c63e830c9ec8126988e86778.*
+
+modules:
+  - shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json
+
+  - name: fxm
+    buildsystem: simple
+    build-commands:
+      - ar x fxm.deb
+      - tar -xf data.tar.*
+      - install -Dm755 usr/bin/fxm /app/bin/fxm
+      - if [ -d usr/lib/FXM ]; then mkdir -p /app/lib && cp -R usr/lib/FXM /app/lib/; fi
+      - install -Dm644 io.github.pratyay_ops.FXM.metainfo.xml /app/share/metainfo/io.github.pratyay_ops.FXM.metainfo.xml
+      - install -Dm644 io.github.pratyay_ops.FXM.desktop /app/share/applications/io.github.pratyay_ops.FXM.desktop
+      - install -Dm644 io.github.pratyay_ops.FXM.svg /app/share/icons/hicolor/scalable/apps/io.github.pratyay_ops.FXM.svg
+      - install -Dm644 LICENSE /app/share/licenses/io.github.pratyay_ops.FXM/LICENSE
+    sources:
+      - type: file
+        url: https://github.com/Pratyay-ops/FXM/releases/download/v1.2.3/fxm-desktop-1.2.3-linux-x64.deb
+        sha256: 0000000000000000000000000000000000000000000000000000000000000000
+        dest-filename: fxm.deb
+        only-arches:
+          - x86_64
+      - type: file
+        url: https://github.com/Pratyay-ops/FXM/releases/download/v1.2.3/fxm-desktop-1.2.3-linux-arm64.deb
+        sha256: 0000000000000000000000000000000000000000000000000000000000000000
+        dest-filename: fxm.deb
+        only-arches:
+          - aarch64
+      - type: file
+        path: io.github.pratyay_ops.FXM.metainfo.xml
+      - type: file
+        path: io.github.pratyay_ops.FXM.desktop
+      - type: file
+        path: io.github.pratyay_ops.FXM.svg
+      - type: file
+        path: LICENSE
+```
+
+<!-- /channels sync: manifest -->
+
 ## Flathub
 
 **Not submitted, and blocked.** Flathub's [requirements](https://docs.flathub.org/docs/for-app-authors/requirements), read 2026-10-26, rule FXM's packaging out as it stands:

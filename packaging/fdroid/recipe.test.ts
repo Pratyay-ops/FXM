@@ -2,6 +2,7 @@ import { accessSync, constants, existsSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
+import { EXAMPLE_VERSION } from '../files.ts'
 import { NON_FREE_NET_REASON } from '../listing.ts'
 import { androidVersionCode, parseVersion, REPO_ROOT } from '../version.ts'
 import {
@@ -117,6 +118,16 @@ describe('the F-Droid recipe', () => {
     expect(new RegExp(nameRegex).exec(text)?.[1]).toBe('0.6.0')
     // And today's file reads too.
     expect(new RegExp(codeRegex).exec(readFileSync(join(REPO_ROOT, file), 'utf8'))).not.toBeNull()
+  })
+
+  it('shows in the README what it prints for an example release', () => {
+    const readme = readFileSync(join(REPO_ROOT, 'packaging/fdroid/README.md'), 'utf8')
+    const example = fdroidRecipe({
+      version: EXAMPLE_VERSION,
+      commit: defaultCommit(EXAMPLE_VERSION),
+    })
+    expect(readme).toContain(`\`\`\`yaml\n${example}\`\`\``)
+    expect(readme).toContain(`For a release ${EXAMPLE_VERSION.text}, with its tag`)
   })
 
   it('tells F-Droid’s maintainers how the build works', () => {

@@ -85,6 +85,24 @@ export function webLink(link: string): string {
   return `${REDIRECT_URL}?r=${encodeURIComponent(link)}`
 }
 
+/**
+ * The table of links in README.md, which `channels sync` writes there (files.ts) with the
+ * certificate that apps/mobile/release-certificate.txt pins, if any: the README and the links
+ * people copy from it pin the certificate as soon as stage 6.6's file does.
+ */
+export function linksTable(options: ObtainiumOptions = {}): string {
+  const pinned =
+    options.certificate === undefined
+      ? ''
+      : `, and only an APK signed with FXM's release certificate, \`${colons(options.certificate)}\``
+  return [
+    '| Link | What it does |',
+    '|---|---|',
+    `| [Add FXM to Obtainium](${webLink(importLink(options))}) | Imports FXM with its settings: releases only, and always the universal APK, \`fxm-android-universal-<version>.apk\`${pinned}. Obtainium shows the settings before it adds anything |`,
+    `| [Open FXM's repository in Obtainium](${webLink(addLink())}) | Opens Obtainium's Add App screen with \`${SOURCE_URL}\` filled in, as \`${addLink()}\`. Obtainium then asks which APK to install when a release has more than one${options.certificate === undefined ? '' : ', and checks no certificate until you set one'} |`,
+  ].join('\n')
+}
+
 /** A SHA-256 fingerprint as Obtainium shows one: upper case, in pairs, with colons. */
 export function colons(fingerprint: string): string {
   const hex = fingerprint.replace(/[\s:]/g, '')

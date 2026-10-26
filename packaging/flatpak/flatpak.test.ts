@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 import { DEB_ARCHES, linuxDeb } from '../artifacts.ts'
+import { EXAMPLE_SHA256, EXAMPLE_VERSION } from '../files.ts'
 import { FLATPAK_ID } from '../listing.ts'
 import { parseVersion, REPO_ROOT } from '../version.ts'
 import {
@@ -178,6 +179,17 @@ describe('the local Flatpak manifest', () => {
     expect(read('packaging/flatpak/README.md')).toContain(
       `git -C shared-modules checkout ${SHARED_MODULES.commit}`,
     )
+  })
+
+  it('shows in its README what it writes for an example release', () => {
+    const readme = read('packaging/flatpak/README.md')
+    const example = flatpakManifest({
+      version: EXAMPLE_VERSION,
+      debSha256: { x86_64: EXAMPLE_SHA256, aarch64: EXAMPLE_SHA256 },
+    })
+    expect(readme).toContain(`\`\`\`yaml\n${example}\`\`\``)
+    expect(readme).toContain(`What \`channels flatpak ${EXAMPLE_VERSION.text}\` writes`)
+    expect(EXAMPLE_SHA256).toMatch(/^0{64}$/)
   })
 
   it('repackages each architecture’s .deb from the release, by checksum, offline', () => {

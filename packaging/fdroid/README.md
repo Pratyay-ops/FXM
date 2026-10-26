@@ -28,6 +28,63 @@ F-Droid can't build a useful FXM yet. These must hold first:
 - **No `Binaries` and no `AllowedAPKSigningKeys`**: F-Droid signs the APK with its own key. [Signing](#signing-f-droids-key-or-reproducible-builds) says what changes for reproducible builds.
 - **Updates**: `AutoUpdateMode: Version` with `UpdateCheckMode: Tags ^v\d+\.\d+\.\d+$` and `UpdateCheckData: packaging/fdroid/version.txt|versionCode=(\d+)|.|versionName=(\d+\.\d+\.\d+)`. F-Droid reads version codes only with a regular expression and "won't run the Gradle code" (its Quick Start Guide), and FXM's are computed in `app/build.gradle`, so `version.txt` repeats them. `scripts/release-version.sh` writes it in every release commit, and `--check` fails while it names another version. Once the recipe is in fdroiddata, F-Droid's checkupdates bot finds each new release tag by itself.
 
+For a release 1.2.3, with its tag where `channels fdroid` names the commit the tag points at, the recipe reads as follows. `channels sync` keeps this copy in step with [`recipe.ts`](recipe.ts), and the tests fail when the two differ.
+
+<!-- channels sync: recipe -->
+
+```yaml
+AntiFeatures:
+  NonFreeNet:
+    en-US: 'Uses YouTube Music, Spotify and Last.fm: non-free network services.'
+Categories:
+  - Internet
+  - Multimedia
+  - Online Media Player
+License: Apache-2.0
+WebSite: https://fxmusic.pages.dev
+SourceCode: https://github.com/Pratyay-ops/FXM
+IssueTracker: https://github.com/Pratyay-ops/FXM/issues
+Changelog: https://github.com/Pratyay-ops/FXM/releases
+
+AutoName: FXM
+
+RepoType: git
+Repo: https://github.com/Pratyay-ops/FXM.git
+
+Builds:
+  - versionName: 1.2.3
+    versionCode: 1002003
+    commit: v1.2.3
+    subdir: apps/mobile/android/app
+    gradle:
+      - yes
+    build:
+      - cd ../../../..
+      - packaging/fdroid/build.sh
+
+MaintainerNotes: |-
+  The Android app is a Capacitor shell around FXM's web app (apps/web). In the build step,
+  packaging/fdroid/build.sh installs Node.js 22 from nodejs.org (pinned and SHA-256 checked:
+  Debian's stable and testing suites have no Node.js 22) and pnpm (pinned, integrity checked),
+  then the lockfile's npm packages, some of them FLOSS build tools with prebuilt native binaries
+  (the README lists them). It builds the web app as an F-Droid build, copies it into the Android
+  project (cap sync) and writes the APK's third-party notices. An F-Droid build needs both flags
+  that build.sh sets: VITE_FXM_DISTRIBUTION=fdroid makes FXM's signed YouTube code updates and
+  plugins wait for an opt-in that says they bypass F-Droid's checks, and FXM_DISTRIBUTION=fdroid
+  keeps FXM's own update check off. A recipe that builds the web app itself must set both.
+  app/build.gradle computes the version code, which packaging/fdroid/version.txt repeats for
+  UpdateCheckData.
+  Details: https://github.com/Pratyay-ops/FXM/tree/main/packaging/fdroid
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags ^v\d+\.\d+\.\d+$
+UpdateCheckData: packaging/fdroid/version.txt|versionCode=(\d+)|.|versionName=(\d+\.\d+\.\d+)
+CurrentVersion: 1.2.3
+CurrentVersionCode: 1002003
+```
+
+<!-- /channels sync: recipe -->
+
 ### The build
 
 F-Droid's build server runs Debian trixie with its default JDK, OpenJDK 21, which the Android build needs (its Kotlin modules target Java 21), so the recipe needs no `sudo` step (fdroidserver's `buildserver/Dockerfile` and `provision-apt-get-install`, read 2026-10-26). `build.sh` runs after F-Droid's source scan, in this order:

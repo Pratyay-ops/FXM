@@ -1,7 +1,9 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { androidUniversalApk, linuxDeb, windowsSetup } from '../artifacts.ts'
+import { pinnedReleaseCertificate, RELEASE_CERTIFICATE_FILE, readmeBlocks } from '../files.ts'
 import { ANDROID_ID } from '../listing.ts'
 import { parseVersion, REPO_ROOT } from '../version.ts'
 import {
@@ -10,6 +12,7 @@ import {
   addLink,
   colons,
   importLink,
+  linksTable,
   obtainiumConfig,
   pinnedCertificate,
   REDIRECT_URL,
@@ -72,10 +75,36 @@ describe('Obtainium', () => {
     expect(new URL(link).searchParams.get('r')).toBe(addLink())
   })
 
-  it('gives the links in its README as the generator makes them', () => {
+  it('gives the links in its README as the generator makes them, with the pinned certificate', () => {
+    // Once apps/mobile/release-certificate.txt pins FXM's certificate (stage 6.6), this fails
+    // until `channels sync` has written the pinned import link into the README.
     const readme = readFileSync(join(REPO_ROOT, 'packaging/obtainium/README.md'), 'utf8')
-    expect(readme).toContain(addLink())
+    const certificate = pinnedReleaseCertificate()
+    const options = certificate === undefined ? {} : { certificate }
+    expect(readme).toContain(linksTable(options))
+    expect(readme).toContain(webLink(importLink(options)))
     expect(readme).toContain(webLink(addLink()))
-    expect(readme).toContain(webLink(importLink()))
+    expect(readme).toContain(addLink())
+  })
+
+  it('pins the certificate in the README’s import link as soon as 6.6’s file pins one', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fxm-obtainium-'))
+    try {
+      const file = join(root, RELEASE_CERTIFICATE_FILE)
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, `# The SHA-256 fingerprint\n${colons(FINGERPRINT)}\n`)
+      const links = readmeBlocks(root).get('packaging/obtainium/README.md')?.links
+      expect(links).toBe(linksTable({ certificate: FINGERPRINT }))
+      expect(links).toContain(webLink(importLink({ certificate: FINGERPRINT })))
+      expect(links).not.toContain(webLink(importLink()))
+      expect(links).toContain(
+        `only an APK signed with FXM's release certificate, \`${colons(FINGERPRINT)}\``,
+      )
+      // 6.6's placeholder pins nothing yet.
+      writeFileSync(file, '# The SHA-256\nnone yet: run scripts/make-android-keystore.sh\n')
+      expect(readmeBlocks(root).get('packaging/obtainium/README.md')?.links).toBe(linksTable())
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
