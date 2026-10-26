@@ -5,6 +5,8 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { DiagnosticsSection } from '../connect/diagnostics'
+import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
@@ -103,6 +105,10 @@ export function SettingsPage() {
           </SettingRow>
         </SettingsSection>
       )}
+
+      <ConnectSettingsEntry />
+
+      <DiagnosticsSection />
 
       <SettingsSection title="About">
         <div className="flex flex-col gap-5 p-4 sm:flex-row sm:items-center sm:p-5">

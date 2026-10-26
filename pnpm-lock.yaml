@@ -283,6 +283,9 @@ importers:
       '@fxm/downloads':
         specifier: workspace:*
         version: link:../../packages/downloads
+      '@fxm/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player

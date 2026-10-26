@@ -32,5 +32,8 @@ export default defineConfig({
     command: `vite build && vite preview --port ${port} --strictPort`,
     url: baseURL,
     reuseExistingServer: false,
+    // Includes the development fake mode, which stays off unless a test asks for it, e.g. the
+    // fake stream resolver of e2e/connect.spec.ts. Production builds leave it out.
+    env: { VITE_FXM_FAKES: 'on' },
   },
 })

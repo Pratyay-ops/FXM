@@ -2,6 +2,7 @@
 import { AVAILABLE, ISSUES_URL, REPO_URL } from '../config'
 import Document from '../layouts/Document.astro'
 import { privacyInstall, privacyUpdateCheck } from '../lib/connect'
+import { privacyLiteCheck } from '../lib/tiers'
 
 /** " (coming soon)" after anything AVAILABLE in src/config.ts doesn't mark as released. */
 const soon = (released: boolean) => (released ? '' : ' (coming soon)')
@@ -17,7 +18,7 @@ const services: Service[] = [
   {
     name: 'YouTube',
     url: 'https://www.youtube.com',
-    use: `YouTube Music and YouTube: search, song and video details, audio, and radio${soon(AVAILABLE.radio)}. For some songs, also Google's BotGuard service, to get the token YouTube asks for before it plays them.`,
+    use: `YouTube Music and YouTube: search, song and video details, audio, and radio${soon(AVAILABLE.radio)}. ${privacyLiteCheck(AVAILABLE.lite)}`,
   },
   {
     name: 'Spotify',
