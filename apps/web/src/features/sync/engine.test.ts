@@ -778,9 +778,9 @@ describe('what sync carries', () => {
       query: 'my very private search',
       title: 'my very private search',
     }
+    // It starts now, by the library's clock: the library refuses plays that start later.
     await a.repo.recordPlay({
       track: track(1),
-      playedAt: NOW - 1000,
       playedMs: 1000,
       completed: false,
       skipped: false,
@@ -839,13 +839,7 @@ describe('what sync carries', () => {
     const b = clocked(github, () => NOW)
     const { gistId } = await createSyncGist(a.deps)
     await sync(b.deps, gistId)
-    await a.repo.recordPlay({
-      track: track(4),
-      playedAt: NOW - 1000,
-      playedMs: 1,
-      completed: true,
-      skipped: false,
-    })
+    await a.repo.recordPlay({ track: track(4), playedMs: 1, completed: true, skipped: false })
     const writes = github.writes().length
 
     const waited = await syncLibrary(a.deps, gistId, { pushBackground: false })
