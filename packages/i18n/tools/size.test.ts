@@ -4,9 +4,9 @@ import { ENTRIES, measure } from './size.ts'
 /**
  * Brotli bytes each entry may weigh, about 10 % over what it weighed when set (2026-10-26:
  * core 3,745, react 4,066, formatters 1,179, pseudo 600), as stage 8.5a's budgets leave. The web
- * app's entry chunk has 150,000 bytes and used 137,475, so every byte here is one the first load
- * pays. If an entry grows past its budget, look at what grew; raise the number only on purpose,
- * here and in docs/I18N.md ("Bundle size").
+ * app's entry chunk has a budget of 152,500 bytes and used 138,449 at 8.5a's reset baseline, so
+ * every byte here is one the first load pays. If an entry grows past its budget, look at what
+ * grew; raise the number only on purpose, here and in docs/I18N.md ("Runtime and bundle size").
  */
 const BUDGETS: Readonly<Record<keyof typeof ENTRIES, number>> = {
   core: 4_100,
