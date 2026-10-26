@@ -1,4 +1,5 @@
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react'
+import { setAppSpotifySwitch, shownImageUrl } from '../../lib/images'
 import { appActions } from './actions'
 import { createSources, type Sources, type SourcesSnapshot } from './sources'
 import { createSpotifySwitch, syncSpotifySwitchAcrossTabs } from './spotify-switch'
@@ -13,6 +14,8 @@ syncSpotifySwitchAcrossTabs(appSpotifySwitch)
  * `appSources.setPlatform(platform)` and `appSources.register(provider)`.
  */
 export const appSources: Sources = createSources({ spotifySwitch: appSpotifySwitch })
+// What runs outside React asks `appShowsImage` (lib/images.ts), which follows this switch.
+setAppSpotifySwitch(() => appSources.getSnapshot().spotifyEnabled)
 
 // Development only (and screenshot builds made with VITE_FXM_FAKE_CATALOG=on): `?fake=full`,
 // `lite` or `free` in the URL plugs a fake catalog into the app's sources (see dev-fakes.ts).
@@ -37,4 +40,20 @@ export function useSources(): Sources {
 export function useSourcesSnapshot(): SourcesSnapshot {
   const sources = useSources()
   return useSyncExternalStore(sources.subscribe, sources.getSnapshot, sources.getSnapshot)
+}
+
+/** Whether the user's Spotify switch is on here; re-renders only when it changes. */
+export function useSpotifyEnabled(): boolean {
+  const sources = useSources()
+  const enabled = () => sources.getSnapshot().spotifyEnabled
+  return useSyncExternalStore(sources.subscribe, enabled, enabled)
+}
+
+/**
+ * `url` when the app may show it here and now, else `undefined`, so the placeholder shows: what
+ * its policy allows, and Spotify's images only while Spotify is switched on (`lib/images.ts`).
+ * Every image component asks this before it requests anything.
+ */
+export function useShownImage(url: string | undefined): string | undefined {
+  return shownImageUrl(url, useSpotifyEnabled())
 }

@@ -90,6 +90,18 @@ describe('mediaMetadataInit', () => {
     })
   })
 
+  it('shows only the artwork it is allowed to', () => {
+    const track = testTrack('Song', {
+      artwork: [
+        { url: 'https://i.scdn.co/image/cover', width: 640, height: 640 },
+        { url: 'https://i.test/l.jpg', width: 544, height: 544 },
+      ],
+    })
+    expect(mediaMetadataInit(track, (url) => !url.includes('scdn.co')).artwork).toEqual([
+      { src: 'https://i.test/l.jpg', sizes: '544x544' },
+    ])
+  })
+
   it('leaves the album empty when the track has none', () => {
     expect(mediaMetadataInit(testTrack('Song')).album).toBe('')
   })
@@ -228,6 +240,25 @@ describe('connectMediaSession', () => {
     player.remove(0)
     expect(session.metadata).toBeNull()
     expect(session.playbackState).toBe('none')
+  })
+
+  it('gives the system only the artwork the app allows, asked as each track comes', async () => {
+    let spotify = false
+    const { player, session } = setup({ showImage: (url) => spotify || !url.includes('scdn.co') })
+    const covers = (name: string) => [
+      { url: `https://i.scdn.co/image/${name}` },
+      { url: `https://i.test/${name}.jpg` },
+    ]
+    await player.setQueue([
+      testTrack('a', { artwork: covers('a') }),
+      testTrack('b', { artwork: covers('b') }),
+    ])
+    expect(session.metadata).toMatchObject({ artwork: [{ src: 'https://i.test/a.jpg' }] })
+    spotify = true
+    await player.next()
+    expect(session.metadata).toMatchObject({
+      artwork: [{ src: 'https://i.scdn.co/image/b' }, { src: 'https://i.test/b.jpg' }],
+    })
   })
 
   it('drops the artwork when the browser rejects it, and the metadata if it must', async () => {

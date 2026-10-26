@@ -17,8 +17,9 @@ import {
 import { formatId } from '@fxm/core'
 import { type DownloadRecord, newDownloadRecord } from '@fxm/downloads'
 import { createRequestBudget, createWebTransport } from '@fxm/platform'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { track } from '../../../test/library-fixtures'
+import { appSources } from '../../search/sources-context'
 import {
   fileDescription,
   isSavable,
@@ -76,6 +77,10 @@ const coreUnavailable = async (): Promise<FfmpegCore> => {
   throw new ConvertError('core-unavailable', "The ffmpeg core isn't available here: HTTP 404")
 }
 
+afterEach(() => {
+  appSources.setSpotifyEnabled(true)
+})
+
 describe('saving a download', () => {
   it('knows which downloads can be saved', () => {
     expect(isSavable(completed())).toBe(true)
@@ -131,6 +136,43 @@ describe('saving a download', () => {
     const saved = new Uint8Array(await (target.written[0] as Blob).arrayBuffer())
     expect(id3Summary(saved)).toMatchObject({ TIT2: 'Song 1', APIC: 'image/jpeg type 3' })
     expect(progress.at(-1)).toBe(1)
+  })
+
+  it('fetches no cover from Spotify while Spotify is switched off', async () => {
+    const spotifyCovered = (): SavableDownload =>
+      completed({
+        track: track(1, {
+          id: formatId('spotify', 'track', '4uLU6hMCjMI75M1A2tKUQC'),
+          source: 'spotify',
+          artwork: [
+            { url: 'https://i.scdn.co/image/ab67616d0000b273abcdef', width: 640, height: 640 },
+            { url: 'https://i.scdn.co/image/ab67616d00001e02abcdef', width: 300, height: 300 },
+          ],
+        }),
+      })
+    setConverter(createInProcessConverter())
+    const covers = vi.fn(async () => new Response(JPEG as BodyInit))
+    appSources.setSpotifyEnabled(false)
+    const off = await saveDownload(spotifyCovered(), {
+      format: 'mp3',
+      target: fakeTarget(),
+      read,
+      fetch: covers,
+    })
+    expect(off.tagged).toBe(true)
+    expect(covers).not.toHaveBeenCalled()
+
+    // Switched on, the same save takes Spotify's largest cover.
+    appSources.setSpotifyEnabled(true)
+    await saveDownload(spotifyCovered(), {
+      format: 'mp3',
+      target: fakeTarget(),
+      read,
+      fetch: covers,
+    })
+    expect(covers).toHaveBeenCalledWith('https://i.scdn.co/image/ab67616d0000b273abcdef', {
+      credentials: 'omit',
+    })
   })
 
   it('saves without the cover and lyrics when they fail', async () => {

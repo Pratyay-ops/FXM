@@ -30,6 +30,7 @@ import {
   type PlayerState,
 } from '@fxm/player'
 import { useEffect, useEffectEvent, useSyncExternalStore } from 'react'
+import { appShowsImage } from '../../lib/images'
 import { connectAudioEffects, createAppEngine } from '../audio-effects/connect'
 import { connectAutoplay } from '../autoplay/autoplay'
 import { autoplayContextOf } from '../autoplay/autoplay-marks'
@@ -129,7 +130,11 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
     // playback exists (a listener that reads the player would create a second one).
     connectAudioEffects(player),
     player.subscribe(notify),
-    options.mediaSession === false ? () => {} : connectMediaSession(player),
+    // The system's controls load the artwork themselves: only what the app may load (no
+    // Spotify image while Spotify is off, nothing its policy blocks).
+    options.mediaSession === false
+      ? () => {}
+      : connectMediaSession(player, { showImage: appShowsImage }),
     options.recordPlays === false
       ? () => {}
       : connectPlayRecorder(player, { contextOf: autoplayContextOf }),
