@@ -22,14 +22,14 @@ Confirmations ("Added Test Catalog", "Test Catalog 1.0.0 is up to date") show in
 - **`distribution.ts`**: the build's distribution, from `VITE_FXM_DISTRIBUTION` (stage R.3's F-Droid build sets `fdroid`). A value `parseDistribution` doesn't know counts as `fdroid`, which asks first.
 - **`plugins-store.ts`**: the F-Droid opt-in, under `fxm.plugins.v1`.
 - **Tabs**: a tab that installs, updates, switches or removes a plugin announces it on the `fxm-plugins` `BroadcastChannel`; the others read the store again.
-- **Audio**: the composition root (`app/services/index.ts`) calls `connectPluginAudio(lifecycle)`, which adds the resolver of every plugin that is on to the app's stream lifecycle (`addSource`, with 2.3's `fromAudioSource`) and takes it out when the plugin is switched off, updated or removed, so a plugin's songs play through its own `resolve`. `pluginRecommendations()` gives their radio.
+- **Audio**: the composition root (`app/services/index.ts`) connects the app's stream lifecycle with `connectPluginAudio(lifecycle)` from `audio-target.ts`, a tiny module, so the services' chunk doesn't load the plugin system. While plugins run, the runtime adds the resolver of every plugin that is on to it (`addSource`, with 2.3's `fromAudioSource`) and takes it out when the plugin is switched off, updated or removed, or when the lifecycle is disconnected, so a plugin's songs play through its own `resolve`. `pluginRecommendations()` gives their radio.
 
 | File | What |
 |---|---|
 | `plugins-settings.tsx` | The section: the opt-in, the explanation, the add buttons and the list |
 | `plugin-dialogs.tsx` | The offer, the address dialog and the removal confirmation |
 | `plugin-text.ts` | Words: operations, origins, checksums, failures |
-| `runtime.ts`, `user-hosts.ts`, `distribution.ts`, `plugins-db.ts`, `plugins-store.ts` | Above |
+| `runtime.ts`, `audio-target.ts`, `user-hosts.ts`, `distribution.ts`, `plugins-db.ts`, `plugins-store.ts` | Above |
 | `testing.ts` | The runtime with an in-memory store, `inProcessSandboxes()` of `@fxm/plugins/testing` (in-process evaluators whose plugin workers run in fresh realms), a fake site and fresh sources, for tests |
 
 ## Pending

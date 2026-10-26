@@ -9,9 +9,10 @@
  *   only for what the user explicitly asks of it (`requestPolicy: 'explicit'`).
  * - **Hosts.** The hosts those plugins declare, and the host of a download in progress, are the
  *   platform's user hosts (`user-hosts.ts`).
- * - **Audio.** {@link connectPluginAudio} adds the resolvers of the plugins that are on to the
- *   app's stream lifecycle (the composition root connects it), so a plugin's songs play through
- *   it, and removes them when a plugin goes. {@link pluginRecommendations} gives their radio.
+ * - **Audio.** The resolvers of the plugins that are on go to the app's stream lifecycle, which
+ *   the composition root connects with `connectPluginAudio` (`audio-target.ts`), so a plugin's
+ *   songs play through it; they leave it when a plugin goes, or the lifecycle does.
+ *   {@link pluginRecommendations} gives their radio.
  * - **Tabs.** A tab that installs, updates, switches or removes a plugin tells the others
  *   ({@link announcePluginChange}), which read the store again.
  *
@@ -33,7 +34,7 @@ import {
   type KeyValueStorage,
   memoryStorage,
 } from '@fxm/platform'
-import { fromAudioSource, type StreamSource } from '@fxm/player'
+import { fromAudioSource } from '@fxm/player'
 import {
   createPluginRegistry,
   type DownloadFetch,
@@ -45,6 +46,12 @@ import {
 } from '@fxm/plugins'
 import type { Sources } from '../search/sources'
 import { appSources } from '../search/sources-context'
+import {
+  type PluginAudioTarget,
+  pluginAudioTarget,
+  resetPluginAudioTarget,
+  subscribePluginAudioTarget,
+} from './audio-target'
 import { BUILD_DISTRIBUTION } from './distribution'
 import { createDexiePluginStore, openPluginsDatabase } from './plugins-db'
 import { usePluginsSettingsStore } from './plugins-store'
@@ -81,17 +88,14 @@ export interface PluginRuntimeOptions {
   readonly appVersion?: string
 }
 
-/** Where the plugins' resolvers go: the app's stream lifecycle (`StreamLifecycle.addSource`). */
-export interface PluginAudioTarget {
-  /** Adds a stream source; returns the function that removes it. */
-  addSource(source: StreamSource): () => void
-}
+export { connectPluginAudio, type PluginAudioTarget } from './audio-target'
 
 let options: PluginRuntimeOptions = {}
 let registry: PluginRegistry | undefined
 let stopSync: (() => void) | undefined
 /** The plugin catalogs registered with the sources, by plugin ID. */
 const registered = new Map<string, { metadata: object; unregister: () => void }>()
+/** The target the resolvers in {@link registeredAudio} were added to. */
 let audioTarget: PluginAudioTarget | undefined
 /** The plugin resolvers added to {@link audioTarget}, by plugin ID. */
 const registeredAudio = new Map<string, { audio: AudioSource; remove: () => void }>()
@@ -145,9 +149,16 @@ export async function pluginDownloadFetch(): Promise<DownloadFetch> {
 
 /**
  * Adds the resolvers of the plugins that are on (of `current`, none without it) to the audio
- * target, and removes the others.
+ * target the composition root connected, and removes the others; all of them from a target that
+ * was disconnected or replaced.
  */
 function syncAudio(current: PluginRegistry | undefined): void {
+  const target = pluginAudioTarget()
+  if (target !== audioTarget) {
+    for (const entry of registeredAudio.values()) entry.remove()
+    registeredAudio.clear()
+    audioTarget = target
+  }
   const live = new Map<string, AudioSource>()
   if (audioTarget !== undefined && current !== undefined) {
     for (const providers of current.providers()) {
@@ -165,24 +176,6 @@ function syncAudio(current: PluginRegistry | undefined): void {
     if (!registeredAudio.has(id)) {
       registeredAudio.set(id, { audio, remove: audioTarget.addSource(fromAudioSource(audio)) })
     }
-  }
-}
-
-/**
- * Makes the app's stream lifecycle play the plugins' songs: the resolver of every plugin that is
- * on becomes one of its stream sources (2.3's `fromAudioSource`), and leaves it when the plugin
- * is switched off, updated or removed. The composition root calls it with its lifecycle. Returns
- * the function that disconnects it.
- */
-export function connectPluginAudio(target: PluginAudioTarget): () => void {
-  for (const entry of registeredAudio.values()) entry.remove()
-  registeredAudio.clear()
-  audioTarget = target
-  syncAudio(registry)
-  return () => {
-    if (audioTarget !== target) return
-    audioTarget = undefined
-    syncAudio(undefined)
   }
 }
 
@@ -218,6 +211,11 @@ export async function startPlugins(): Promise<void> {
   if (stopSync === undefined) {
     setPluginHostsSource(() => current.hosts())
     const unsubscribe = current.subscribe(() => syncSources(current))
+    // The app's stream lifecycle, which the composition root connects when it starts and takes
+    // back when it stops: the resolver of every plugin that is on becomes one of its stream
+    // sources (2.3's `fromAudioSource`), and leaves it when the plugin is switched off, updated
+    // or removed.
+    const unfollow = subscribePluginAudioTarget(() => syncAudio(current))
     let channel: BroadcastChannel | undefined
     try {
       channel = new BroadcastChannel(PLUGINS_CHANNEL)
@@ -229,6 +227,7 @@ export async function startPlugins(): Promise<void> {
     }
     stopSync = () => {
       unsubscribe()
+      unfollow()
       channel?.close()
     }
   }
@@ -286,6 +285,7 @@ export function configurePluginRuntime(next: PluginRuntimeOptions): void {
 /** Stops everything and goes back to the defaults, for tests. */
 export function resetPluginRuntime(): void {
   stopPlugins()
+  resetPluginAudioTarget()
   audioTarget = undefined
   options = {}
 }

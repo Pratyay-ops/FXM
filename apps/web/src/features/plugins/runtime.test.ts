@@ -118,6 +118,32 @@ describe('the plugin runtime', () => {
     expect(removed).toHaveLength(3)
   })
 
+  it('follows the lifecycle the composition root connects after the plugins started', async () => {
+    setupPluginTestRuntime({ initial: [stored()] })
+    await startPlugins()
+    const added: string[] = []
+    const removed: string[] = []
+    const disconnect = connectPluginAudio({
+      addSource(source) {
+        added.push(source.id)
+        return () => removed.push(source.id)
+      },
+    })
+    expect(added).toEqual(['plugin.test-catalog'])
+    disconnect()
+    expect(removed).toEqual(['plugin.test-catalog'])
+    // The next lifecycle, such as the services' after they started again, gets them afresh.
+    const next: string[] = []
+    connectPluginAudio({
+      addSource(source) {
+        next.push(source.id)
+        return () => {}
+      },
+    })
+    expect(next).toEqual(['plugin.test-catalog'])
+    expect(added).toHaveLength(1)
+  })
+
   it('plays a plugin’s own song through its resolver in a stream lifecycle', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     setupPluginTestRuntime({ initial: [stored()] })
