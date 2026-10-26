@@ -19,7 +19,9 @@
   "dependencies": {
     "@fxm/core": "workspace:*",
     "@noble/curves": "^2.4.0",
-    "@noble/hashes": "^2.4.0"
+    "@noble/hashes": "^2.4.0",
+    "@tauri-apps/api": "^2.12.3",
+    "@tauri-apps/plugin-http": "^2.8.2"
   },
   "devDependencies": {
     "@fxm/sources": "workspace:*",

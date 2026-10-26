@@ -2,7 +2,9 @@
  * JSON backups of the whole library: every table, custom orders included, plus the app's own
  * settings (catalog mode, theme) when the caller passes them. This module owns the file format
  * and its validation; the repository reads and writes the tables (`snapshot` and `restore` in
- * `repo.ts`).
+ * `repo.ts`). The listening affinity is left out, with the version of the model that built it:
+ * it is derived from the history, the likes, the playlists and the track cache, and the
+ * repository rebuilds it on import.
  *
  * - **Export** takes the repository's snapshot, read in one transaction, so the file is
  *   consistent.
@@ -223,7 +225,9 @@ export type ImportMode = RestoreMode
  *   tracks only the other one has. The list of playlists keeps its order here, and the
  *   backup's playlists that it lacks follow at the end. In the match cache a pin wins.
  *
- * The built-in playlists exist afterwards in both modes.
+ * The built-in playlists exist afterwards in both modes, and the listening affinity is
+ * recomputed from the library that results. No time after the library's clock gets in: plays
+ * that start later are left out, and likes and playlist entries dated later count from now.
  */
 export async function importLibrary(
   repo: LibraryRepo,

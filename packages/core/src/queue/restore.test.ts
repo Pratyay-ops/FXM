@@ -69,6 +69,7 @@ const fullTrack: Track = {
   releaseDate: '2013-05-17',
   popularity: 72,
   externalIds: { spotify: '4uLU6hMCjMI75M1A2tKUQC' },
+  tags: ['Hip-Hop', 'lo-fi'],
 }
 
 describe('restoreQueue', () => {
@@ -155,6 +156,8 @@ describe('restoreQueue', () => {
     ['popularity', -1],
     ['externalIds', 'spotify:x'],
     ['externalIds', { napster: 'x', spotify: '' }],
+    ['tags', 'rock'],
+    ['tags', ['rock', 7]],
     ['album', { id: 'ytm:album:x' }],
     ['album', 'X'],
   ])('drops only a malformed optional %s (%j) and keeps the item', (key, value) => {
