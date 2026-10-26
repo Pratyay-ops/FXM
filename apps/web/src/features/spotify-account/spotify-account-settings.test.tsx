@@ -1,4 +1,5 @@
 import { FxmError, type NetworkCapabilities } from '@fxm/core'
+import { SpotifyError } from '@fxm/sources/spotify'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router'
@@ -175,7 +176,7 @@ describe('Settings → Spotify account', () => {
     )
   })
 
-  it('says why a sync failed', async () => {
+  it('says why a sync failed, until the status says what to do instead', async () => {
     tier(FULL)
     const { fake, user } = setup({ optedIn: true })
     const account = await section()
@@ -187,6 +188,37 @@ describe('Settings → Spotify account', () => {
         "FXM couldn't reach Spotify. Check your connection, then select Sync now.",
       ),
     ).toBeVisible()
+    // The next sync finds the login gone: only that, and its way out, stay on screen.
+    fake.account.failures.set('liked', new SpotifyError('login-required', 'logged out'))
+    await user.click(account.getByRole('button', { name: 'Sync now' }))
+    expect(
+      await account.findByText(/^FXM Connect got no Spotify login from this browser/),
+    ).toBeVisible()
+    expect(account.queryByText(/couldn't reach Spotify/)).toBeNull()
+    expect(account.queryByRole('button', { name: 'Sync now' })).toBeNull()
+    expect(account.getByRole('button', { name: 'Try again' })).toBeVisible()
+  })
+
+  it('says when the login check itself failed, and points to Try again', async () => {
+    tier(FULL)
+    const { fake, user } = setup({ optedIn: true })
+    fake.loggedIn = new SpotifyError('network', 'FXM Connect did not answer in time')
+    const account = await section()
+    expect(
+      await account.findByText('FXM couldn’t check your Spotify login just now.'),
+    ).toBeVisible()
+    expect(
+      account.getByText(
+        "FXM couldn't reach Spotify. Check your connection, then select Try again.",
+      ),
+    ).toBeVisible()
+    expect(account.queryByRole('button', { name: 'Sync now' })).toBeNull()
+    fake.loggedIn = true
+    await user.click(account.getByRole('button', { name: 'Try again' }))
+    expect(await account.findByText(/^Connected as/)).toHaveTextContent(
+      'Connected as Fixture User.',
+    )
+    expect(account.queryByText(/couldn't reach Spotify/)).toBeNull()
   })
 
   it('disconnects, keeping the copies unless asked, and forgets what it followed', async () => {
@@ -226,6 +258,11 @@ describe('words', () => {
       'Syncing your playlists: 3 of 12…',
     )
     expect(progressText({ step: 'liked' })).toBe('Syncing your liked songs…')
-    expect(failureText({ kind: 'changed' })).toMatch(/An update of FXM will fix it/)
+    expect(failureText({ kind: 'changed' }, 'Sync now')).toMatch(/An update of FXM will fix it/)
+    // Each names the button that is on screen.
+    expect(failureText({ kind: 'network' }, 'Sync now')).toMatch(/then select Sync now\.$/)
+    expect(failureText({ kind: 'network' }, 'Try again')).toMatch(/then select Try again\.$/)
+    expect(failureText({ kind: 'other' }, 'Sync now')).toBe('The sync failed. Try again later.')
+    expect(failureText({ kind: 'other' }, 'Try again')).toBeUndefined()
   })
 })

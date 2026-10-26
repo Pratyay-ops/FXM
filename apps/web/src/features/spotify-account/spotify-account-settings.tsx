@@ -51,21 +51,28 @@ export function progressText(progress: SyncProgress | undefined): string {
   }
 }
 
-/** Why the last sync failed, in words. */
-export function failureText(failure: SyncFailure): string {
+/** The button that tries again: Sync now when connected, Try again after a failed check. */
+export type RetryAction = 'Sync now' | 'Try again'
+
+/**
+ * Why the last sync failed, or the last login check, in words; `retry` is the button on screen
+ * that tries again. `undefined` when there is nothing to add to the status above it.
+ */
+export function failureText(failure: SyncFailure, retry: RetryAction): string | undefined {
   switch (failure.kind) {
     case 'rate-limited':
-      return 'Spotify asked FXM to slow down. FXM syncs again later.'
+      return 'Spotify asked FXM to slow down. FXM tries again later.'
     case 'secret':
       return "Spotify is paused: its web player's secret stopped working. FXM tries again later."
     case 'changed':
       return "Spotify answered in a way this version of FXM doesn't understand. An update of FXM will fix it."
     case 'network':
-      return "FXM couldn't reach Spotify. Check your connection, then select Sync now."
+      return `FXM couldn't reach Spotify. Check your connection, then select ${retry}.`
     case 'storage':
       return "FXM couldn't save to your library: this browser's storage may be full or blocked."
     default:
-      return 'The sync failed. Try again later.'
+      // After a failed check the status says so already.
+      return retry === 'Sync now' ? 'The sync failed. Try again later.' : undefined
   }
 }
 
@@ -413,7 +420,20 @@ export function SpotifyAccountSettings() {
       )
     }
   } else {
-    const failure = state.failure
+    // A failure means something where a button tries again: Sync now, or Try again after a
+    // failed check. Elsewhere the status says what to do, and a sync's old failure would mislead.
+    const retry: RetryAction | undefined =
+      !reachable || loadError !== undefined
+        ? undefined
+        : state.phase === 'connected'
+          ? 'Sync now'
+          : state.phase === 'unverified'
+            ? 'Try again'
+            : undefined
+    const failureLine =
+      state.failure === undefined || retry === undefined
+        ? undefined
+        : failureText(state.failure, retry)
     const syncedLine = synced === undefined ? undefined : syncedText(synced, now)
     status = (
       <>
@@ -434,8 +454,8 @@ export function SpotifyAccountSettings() {
           syncedLine !== undefined && <p>{syncedLine}</p>
         )}
         {state.syncingElsewhere && !state.syncing && <p>Another FXM tab is syncing right now.</p>}
-        {failure !== undefined && !state.syncing && (
-          <p className="font-semibold text-danger">{failureText(failure)}</p>
+        {failureLine !== undefined && !state.syncing && (
+          <p className="font-semibold text-danger">{failureLine}</p>
         )}
         {copies > 0 && (
           <p>

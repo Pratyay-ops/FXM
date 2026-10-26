@@ -224,6 +224,57 @@ describe('when it syncs', () => {
     expect(fake.switches).toEqual(['connect'])
   })
 
+  it('checks the login again on its own after a check that failed, then syncs', async () => {
+    const { repo, fake, runtime, ticks } = setup()
+    start(runtime)
+    fake.loggedIn = new SpotifyError('network', 'FXM Connect did not answer in time')
+    await runtime.connect()
+    expect(runtime.store.getState().phase).toBe('unverified')
+    // Nobody selects Try again: the schedule's next tick checks again.
+    fake.loggedIn = true
+    for (const tick of ticks) tick()
+    await vi.waitFor(async () => expect(await playlistNames(repo)).toContain('Road trip'))
+    await settled(runtime)
+    expect(runtime.store.getState()).toMatchObject({ phase: 'connected', syncing: false })
+    expect(runtime.store.getState().failure).toBeUndefined()
+  })
+
+  it('waits as long as Spotify asked before it checks again', async () => {
+    let now = Date.UTC(2026, 9, 26, 12)
+    const { fake, runtime, ticks } = setup({ now: () => now })
+    start(runtime)
+    fake.loggedIn = new FxmError('RateLimited', 'slow down', { retryAfterMs: 45 * 60_000 })
+    await runtime.connect()
+    expect(runtime.store.getState()).toMatchObject({
+      phase: 'unverified',
+      failure: { kind: 'rate-limited' },
+    })
+    fake.loggedIn = true
+    const asked = fake.account.calls.length
+    now += 30 * 60_000
+    for (const tick of ticks) tick()
+    await settled(runtime)
+    expect(fake.account.calls).toHaveLength(asked)
+    expect(runtime.store.getState().phase).toBe('unverified')
+    now += 30 * 60_000
+    for (const tick of ticks) tick()
+    await settled(runtime)
+    expect(runtime.store.getState().phase).toBe('connected')
+    expect(fake.account.calls[asked]).toBe('status')
+  })
+
+  it("doesn't check on its own after an answer that needs the user", async () => {
+    const { fake, runtime, ticks } = setup()
+    start(runtime)
+    fake.loggedIn = false
+    await runtime.connect()
+    expect(runtime.store.getState().phase).toBe('logged-out')
+    const asked = fake.account.calls.length
+    for (const tick of ticks) tick()
+    await settled(runtime)
+    expect(fake.account.calls).toHaveLength(asked)
+  })
+
   it('leaves the sync to the tab that holds the lock', async () => {
     const { repo, locks, runtime } = setup({ optedIn: true })
     locks.held.add(SYNC_LOCK)

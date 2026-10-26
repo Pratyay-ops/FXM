@@ -10,7 +10,9 @@
  *   bridge for them (or the desktop and Android logins later). Disconnect makes it forget them.
  * - **When it syncs:** right after Connect, when the app opens and the last sync is older than
  *   {@link SYNC_EVERY_MS}, every so often while it stays open, and on "Sync now". One tab syncs
- *   at a time (a Web Lock); the others see the result in the library.
+ *   at a time (a Web Lock); the others see the result in the library. A login check that failed
+ *   (the network, FXM Connect answering too late) is tried again on the same schedule, so a
+ *   passing failure when the app opens doesn't stop the sync until the user notices.
  *
  * @module
  */
@@ -35,7 +37,10 @@ import { type ForgetResult, forgetSync, runSpotifySync, type SyncProgress, write
 /** How old the last sync may get before the app syncs again by itself. */
 export const SYNC_EVERY_MS = 6 * 60 * 60_000
 
-/** How often an open app checks whether a sync is due. */
+/**
+ * How often an open app checks whether a sync is due, and checks the login again after a check
+ * that failed.
+ */
 export const CHECK_EVERY_MS = 30 * 60_000
 
 /** The pause between two of a sync's requests to Spotify: about one a second, as imports do. */
@@ -58,7 +63,7 @@ export const SYNC_LOCK = 'fxm-spotify-account-sync'
  * - `unreachable`: Spotify can't be reached here (no FXM Connect), or is switched off
  * - `unsupported`: this app has no Spotify login yet (desktop and Android: stages 7.4 and 6.5)
  * - `unverified`: the check itself failed (the network, FXM Connect not answering in time):
- *   `failure` says why, and Try again checks again
+ *   `failure` says why, and Try again checks again, as does the next tick of the schedule
  */
 export type AccountPhase =
   | 'off'
@@ -362,6 +367,17 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
     if (last === undefined || now() - last >= SYNC_EVERY_MS) await syncNow()
   }
 
+  /** The schedule's tick: checks the login again after a failed check, then syncs when due. */
+  async function tick(): Promise<void> {
+    if (!optedIn()) return
+    const { phase, failure } = store.getState()
+    if (phase === 'unverified') {
+      if (failure?.retryAt !== undefined && failure.retryAt > now()) return
+      if ((await check()) !== 'connected') return
+    }
+    await syncIfDue()
+  }
+
   async function runSync(signal: AbortSignal): Promise<void> {
     set({ syncing: true, syncingElsewhere: false, progress: { step: 'account' } })
     try {
@@ -547,9 +563,7 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         if (!optedIn()) return
         void check().then((phase) => (phase === 'connected' ? syncIfDue() : undefined))
       })
-      const stopTimer = every(() => {
-        if (optedIn()) void syncIfDue()
-      }, CHECK_EVERY_MS)
+      const stopTimer = every(() => void tick(), CHECK_EVERY_MS)
       if (optedIn()) {
         spotify.connect()
         void check().then((phase) => (phase === 'connected' ? syncIfDue() : undefined))
