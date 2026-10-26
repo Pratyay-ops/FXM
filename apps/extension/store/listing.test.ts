@@ -33,6 +33,12 @@ const allText = [
   ...Object.values(PERMISSION_JUSTIFICATIONS),
 ]
 
+/** The options page's help text for the Spotify login toggle, on one line. */
+function loginHelp(): string {
+  const page = readFileSync(new URL('../src/options/options.html', import.meta.url), 'utf8')
+  return (/<p id="spotify-login-help"[^>]*>([^<]*)<\/p>/.exec(page)?.[1] ?? '').replace(/\s+/g, ' ')
+}
+
 describe('AMO summary', () => {
   it("fits AMO's limit and has no URLs, which AMO refuses there", () => {
     expect(summary.length).toBeGreaterThan(50)
@@ -102,11 +108,13 @@ describe('store description', () => {
   it("repeats its sentence on Spotify's terms on the options page, by the login toggle", () => {
     const terms = /Spotify's terms [^.]*\./.exec(description)?.[0] ?? ''
     expect(terms).toContain('suspend accounts')
-    const page = readFileSync(new URL('../src/options/options.html', import.meta.url), 'utf8')
-    const help = /<p id="spotify-login-help"[^>]*>([^<]*)<\/p>/
-      .exec(page)?.[1]
-      ?.replace(/\s+/g, ' ')
-    expect(help).toContain(terms)
+    expect(loginHelp()).toContain(terms)
+  })
+
+  it('says on both that the web app uses the login only once the account is connected in FXM', () => {
+    const onlyWhenConnected = 'only after you also connect your Spotify account in FXM.'
+    expect(description).toContain(`The web app asks for one ${onlyWhenConnected}`)
+    expect(loginHelp()).toContain(`The app asks for one ${onlyWhenConnected}`)
   })
 
   it("says that the bridge's token is the only personal data FXM Connect handles", () => {
