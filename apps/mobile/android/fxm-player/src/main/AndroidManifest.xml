@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Network changes flush the queued stream URLs (NetworkWatcher). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- The mediaPlayback foreground service that keeps playback, and the app, running. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Media3's wake and Wi-Fi locks (C.WAKE_MODE_NETWORK) for screen-off streaming. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application>
+        <!-- Not exported: only FXM binds to it. The system's media controls, the lock screen,
+             Bluetooth and headsets reach the session through the platform's media session. -->
+        <service
+            android:name=".PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

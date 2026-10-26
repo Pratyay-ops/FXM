@@ -17,4 +17,7 @@ ext {
     // needs compileSdk 37, which Android Gradle plugin 8.13 does not support.
     okhttpVersion = '5.4.0'
     orgJsonVersion = '20250517'
+    // FXM's native player (fxm-player). 1.11 needs compileSdk 36; its OkHttp data source is built
+    // against OkHttp 4.12 and runs on fxm-http's 5.4.0, which keeps every method it calls.
+    media3Version = '1.11.1'
 }

@@ -95,7 +95,8 @@ jobs:
       - name: Build the debug APK
         run: make apk
 
-      # The JVM tests of FXM's OkHttp plugin (apps/mobile/android/fxm-http), offline.
+      # The JVM tests of FXM's OkHttp plugin and native player (apps/mobile/android/fxm-http and
+      # fxm-player), offline.
       - name: Run the native unit tests
         run: make android-test
 

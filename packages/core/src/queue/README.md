@@ -19,7 +19,7 @@ A pure, serializable model of what plays now, what played before and what plays 
 | `shuffle`, `unshuffled` | Whether the order is shuffled, and the original order to restore |
 | `nextUid` | The uid the next added item gets |
 
-A `uid` is unique within its queue, so a track can be queued twice. uids are comparable only within one queue and the queues this module derives from it: `createQueue` and `restoreQueue` number from 0 again.
+A `uid` is unique within its queue, so a track can be queued twice. uids are comparable only within one queue and the queues this module derives from it. `restoreQueue` keeps every valid stored uid, so a saved and restored queue names its items as before (the native player relies on it to find its entries after a page restart); `createQueue` numbers from 0, so uids from another queue may name other items.
 
 The invariants are listed on `QueueState` and checked after every step of the property-style tests (`queue.property.test.ts`).
 
