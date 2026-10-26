@@ -19,6 +19,10 @@
  * The Media Session stays the web app's (`connectMediaSession` from `@fxm/player`): the
  * webviews hand it to each system's media controls. See `apps/desktop/README.md`.
  *
+ * Web Audio (the equalizer of stage 8.1) reads googlevideo streams through the shell's
+ * `fxm-media:` scheme: `readableStreamUrl(stream)` (`media.ts`, stage 7.6) is the URL a
+ * `crossorigin="anonymous"` element loads instead of the stream's own.
+ *
  * @module
  */
 
@@ -32,6 +36,7 @@ import { connectTray, type TrayPlayer } from './tray'
 
 export * from './engine'
 export * from './keep-awake'
+export * from './media'
 export * from './network'
 export * from './options'
 export * from './shell'

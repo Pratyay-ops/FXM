@@ -17,6 +17,10 @@
 //!
 //! Updates (stage 7.5): release builds look for a newer version on GitHub Releases and offer it
 //! ([`updater`]), through tauri-plugin-updater, which only Rust uses.
+//!
+//! The readable audio path (stage 7.6): the [`media`] scheme, `fxm-media:`, serves googlevideo
+//! streams to the main window's `<audio>` elements through Rust, with CORS headers for the app,
+//! so Web Audio can read YouTube audio for the equalizer.
 
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
@@ -25,6 +29,7 @@ pub mod environment;
 mod evaluator;
 #[cfg(target_os = "macos")]
 mod fullscreen;
+pub mod media;
 pub mod network;
 pub mod playback;
 // The live smoke test's report listener: always compiled, so lints and tests cover it, but only
@@ -67,7 +72,12 @@ pub fn run() {
         .plugin(evaluator::init())
         // Updates (src/updater.rs). Only Rust calls it: the web app's capability grants none of
         // its commands.
-        .plugin(tauri_plugin_updater::Builder::new().build());
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // googlevideo streams for the main window's <audio>, readable by Web Audio (src/media.rs).
+        .register_asynchronous_uri_scheme_protocol(
+            media::SCHEME,
+            media::handler(media::MediaProxy::new(media::MediaPolicy::default())),
+        );
     // macOS: Tauri's default app menu, with Window > FXM (⌘0) to bring a hidden window back.
     #[cfg(target_os = "macos")]
     let builder = builder

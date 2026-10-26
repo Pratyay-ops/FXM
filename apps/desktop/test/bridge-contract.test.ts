@@ -2,10 +2,13 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   MEDIA_ACTIONS,
+  MEDIA_SCHEME,
   PLAYBACK_LOCK,
   PLAYBACK_STATES,
   SHELL_COMMANDS,
   SHELL_EVENTS,
+  STREAM_DOMAIN,
+  STREAM_PATH,
 } from '../bridge'
 
 // Keeps the bridge (bridge/) in step with the desktop shell's Rust side (src-tauri/src/), whose
@@ -125,6 +128,32 @@ describe('src/lib.rs', () => {
 
   it('watches the network for the stream lifecycle', () => {
     expect(lib).toMatch(/network::watch\(app\.handle\(\)\.clone\(\)\)/)
+  })
+
+  it('serves the readable audio path on the scheme the bridge builds URLs for', () => {
+    expect(lib).toMatch(
+      /\.register_asynchronous_uri_scheme_protocol\(\s*media::SCHEME,\s*media::handler\(media::MediaProxy::new\(media::MediaPolicy::default\(\)\)\),?\s*\)/,
+    )
+  })
+})
+
+describe('the readable audio path (stage 7.6)', () => {
+  const media = rust('media.rs')
+
+  it('has one scheme on both sides', () => {
+    expect(rustConst(media, 'SCHEME')).toBe(MEDIA_SCHEME)
+    expect(rustConst(media, 'WINDOWS_HOST')).toBe(`${MEDIA_SCHEME}.localhost`)
+  })
+
+  it('serves the stream URLs the bridge sends it, and only those', () => {
+    expect(rustConst(media, 'STREAM_DOMAIN')).toBe(STREAM_DOMAIN)
+    expect(rustConst(media, 'STREAM_PATH')).toBe(STREAM_PATH)
+  })
+
+  it('answers the main window’s own webview only', () => {
+    expect(media).toMatch(
+      /pub fn serves_webview\(label: &str\) -> bool \{\s*label == crate::MAIN_WINDOW\s*\}/,
+    )
   })
 })
 

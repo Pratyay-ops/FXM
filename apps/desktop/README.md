@@ -23,7 +23,7 @@ assets/tray-template.svg  the FXM bars alone: the macOS menu bar icon (the "tray
 assets/tray-color.svg     the tray icon on Windows and Linux, drawn for 16 px (the "tray-icon" script)
 scripts/prune-icons.mjs   keeps only the icons tauri.conf.json lists (run by the "icons" script)
 bridge/                   @fxm/desktop/bridge: the web app's side of playback and OS integration,
-                          with its tests next to the code
+                          and the readable audio path's URLs (media.ts), with tests next to the code
 test/                     Vitest checks of the Tauri config, the isolation hook, desktop.yml and
                           desktop-release.yml, the bridge's contract with the Rust side and the smoke
                           test's steps; part of `make test`, no Rust needed. fixtures/updater holds
@@ -50,6 +50,7 @@ src-tauri/
   src/environment.rs      the OS and webview versions (`desktop_environment`)
   src/updater.rs          looking for updates, offering them and installing them
   src/network.rs          native network change notifications
+  src/media.rs            the readable audio path: googlevideo streams on the `fxm-media:` scheme
   src/smoke.rs            prints the smoke test's report and exits (with `--features smoke` only)
   tauri.conf.json         app identity, window, CSP, the isolation pattern, the http plugin's
                           settings, build commands and bundle settings
@@ -70,7 +71,7 @@ src-tauri/
 - **Window.** One window labelled `main`: 1200×800, at least 360×600, titled FXM, with the dark theme's background (`#0b0b0f`) until the page paints. tauri-plugin-window-state restores its size, position, maximized and full-screen state, but never starts it hidden. tauri-plugin-single-instance brings it to the front when FXM is launched a second time, also when it was hidden in the tray. Its close button may hide it instead of quitting, and its page keeps running while hidden: see [Playback and OS integration](#playback-and-os-integration). `dragDropEnabled: false` leaves drag and drop to the page, as in a browser: Tauri's native file-drop handling would turn off HTML5 drag and drop on Windows, which playlist reordering may rely on.
 - **Links.** tauri-plugin-opener opens `target="_blank"` links in the default browser.
 - **Network.** Every request the web app makes through `ctx.fetch` goes through Rust, and IPC messages pass the isolation hook first: see [Network](#network) below, which also says where they don't.
-- **Playback.** `<audio>` in the webview, as on the web, with the desktop app's rules, a tray menu and background playback: see [Playback and OS integration](#playback-and-os-integration).
+- **Playback.** `<audio>` in the webview, as on the web, with the desktop app's rules, a tray menu and background playback: see [Playback and OS integration](#playback-and-os-integration). For Web Audio, Rust serves YouTube's streams under the app's own `fxm-media:` scheme: see [The readable audio path](#the-readable-audio-path).
 - **Version.** The app's version is `apps/desktop/package.json`'s (`"version": "../package.json"` in `tauri.conf.json`), which `make release-pr` sets with every other package's.
 - **Releases and updates.** Every release builds the installers for each platform, the updater's files and `latest.json`, and the app installs newer versions after asking: see [Releases](#releases) and [Updates](#updates).
 - **The isolated evaluator** (stage 1.11, `src/evaluator.rs`). The app's `fxm-evaluator` plugin opens a hidden webview window on its own URI scheme, `fxm-eval://localhost/eval.html` (`http://fxm-eval.localhost/` on Windows), and serves `apps/web/sandbox/eval.html` from it with that document's own policy: its inline script by hash, `'unsafe-eval'`, and no connections. The main window drives it through the plugin's `open` (a new window each time), `eval` (`eval_with_callback`) and `close` commands, which `fxm-evaluator:default` in `capabilities/default.json` grants to the main window only. YouTube's player script runs there, never in the main window ([packages/platform/src/evaluator/README.md](../../packages/platform/src/evaluator/README.md)). What its page can't do:
@@ -161,6 +162,7 @@ Page script is anything that runs in the main webview: the web app, a module sta
 | `plugin:http\|fetch`, through Tauri's IPC | Send any method, body and header to the hosts in the scope. Whatever the message's shape or command, the isolation hook drops a proxy, TLS exceptions, `Cookie`, `Host` and `Proxy-*`, and keeps `Origin` to a real site's, except for a message that slips through its start-up gap (above): that one keeps all of them, the proxy included. `unsafe-headers` still lets page script set other forbidden headers, such as `Referer`, until it is dropped (above) |
 | `user_host_fetch` | `GET` and `HEAD` to hosts the user approved, at public addresses only |
 | `img-src https:` and `media-src https:` in the CSP | Load an image or a media file from any HTTPS host and port, the user's own network included, through the webview's own networking: a `GET` whose URL can carry data, and whose success or failure the page sees |
+| The `fxm-media:` scheme (stage 7.6) | `GET` a googlevideo stream URL (`https://*.googlevideo.com/videoplayback`), with a `Range`, as media whose bytes the page may read: the scheme answers the app's own origins with CORS headers, and the main window's webview only. Those hosts are in the HTTP plugin's scope already, so it reaches nothing new; only `Range` and the webview's `User-Agent` go on to googlevideo. The CSP lets media elements load it, not `fetch()` |
 | `opener:default` | Open an `http(s):`, `mailto:` or `tel:` URL in the user's default browser or app, and show a file in the file manager |
 
 So the approved list and the public-address filter bind `user_host_fetch` only, and the header rules bind `ctx.fetch` and, through the hook, the HTTP plugin, but for the hook's start-up gap. None of them keeps page script from contacting a host of its own choosing: the CSP's `img-src` and `media-src` let it. Narrowing those would break artwork and playback from hosts known only at run time, such as a user's Invidious instance.
@@ -263,16 +265,63 @@ The webviews allow audio to start without a user gesture (wry's default), so tra
 
 **Capabilities.** The web app's capability grants Tauri's `core:default` minus `core:tray:default` and `core:menu:default`, so page script can neither change the tray nor add tray icons or menus of its own. `set_now_playing` and `desktop_environment` join the app's commands, each behind a permission, for the main window's own webview only. The page's text in the tray is untrusted input to Rust: it arrives through a struct that refuses unknown fields and states, and Rust drops control characters and caps its length.
 
+## The readable audio path
+
+Stage 7.6 gives Web Audio, and so the equalizer of stage 8.1, a way to read YouTube's audio in the desktop app. googlevideo sends no CORS headers to other sites, so the webview plays its URLs only as opaque media, and Web Audio turns opaque media into silence. Rust reads googlevideo's bytes anyway (stage 1.4's end-of-file probe does), so the shell serves the same stream under a URI scheme of its own, `fxm-media:`, with CORS headers for the app (`src/media.rs`):
+
+```ts
+import { readableStreamUrl } from '@fxm/desktop/bridge'
+
+const url = readableStreamUrl(stream) // undefined for anything but a googlevideo stream
+audio.crossOrigin = 'anonymous'
+audio.src = url ?? stream.url
+context.createMediaElementSource(audio).connect(equalizer)
+```
+
+`readableStreamUrl` (`bridge/media.ts`) gives `fxm-media://localhost/<the stream URL, encoded>`, `http://fxm-media.localhost/<…>` on Windows, as Tauri's `convertFileSrc` spells custom schemes there. It reads that function from the page, so a browser never loads Tauri's bindings, and gives `undefined` outside the app.
+
+| What the scheme does | Why |
+|---|---|
+| Answers the main window's webview only, and gives CORS headers only to the app's own origins: `tauri://localhost`, `http(s)://tauri.localhost`, and the dev server in debug builds | No other webview, such as stage 1.11's evaluator, and no other page reads through it |
+| Serves googlevideo stream URLs only: HTTPS, a host under `googlevideo.com`, the default port, the path `/videoplayback`; follows redirects only to such URLs | The HTTP plugin's scope has these hosts already, so page script reaches nothing new ([What page script can reach](#what-page-script-can-reach)) |
+| Takes `GET` only, and passes on only `Range` and the webview's `User-Agent`: no cookies, `Origin` or `Referer` | googlevideo sees what it sees when the page plays the URL directly |
+| Fetches each file in blocks of 1 MiB, keeps 32 MiB of them (the least recently used go first), and never answers past the block a range starts in | A custom scheme's answer reaches the webview whole, never streamed, so media elements ask again for the rest, as with Tauri's own asset protocol. WebKit reads an MP4 file's fragment headers a few bytes at a time (below), each of which would otherwise be a request to googlevideo |
+| Gives a request without `Range` the whole file, up to 128 MiB | WebKit asks for WebM files that way |
+| Hands googlevideo's error statuses on as they are; answers 502 when googlevideo can't be reached or answers out of turn, 504 after 30 s | A 403 reaches the element as on a direct load, so the player's recovery runs unchanged |
+
+**Stages 1.4 and 2.3 unchanged.** The stream is still the one the player chose: its `fullLength` from stage 1.4's probe, its `expiresAt` and `DesktopAudioEngine`'s rules apply to it, and only the URL the element loads changes. A 403 from googlevideo reaches the element as a 403, so stage 2.3 checks the URL's status and resolves it again as it would. Rust fetches the bytes as it resolved and probed the URL, so the requests leave from the address the URL is bound to, through the same proxy settings.
+
+**What uses it.** Nothing plays through it yet: stage 8.1's equalizer will. Its engine plays readable streams on `crossorigin` elements routed through Web Audio (`isReadable`), and in the desktop app it needs two things, which its integration adds:
+
+- `isReadable` that also takes a googlevideo stream, `isStreamUrl(stream.url)` (its own rule takes `blob:` URLs, Internet Archive and Jamendo), except, on macOS, a WebM one: WebKit plays WebM past the Web Audio graph (below), so a routed WebM element would skip the graph's volume and fades along with the effects;
+- an option for the URL a routed element loads, `readableStreamUrl(stream) ?? stream.url`. Plain elements keep playing `stream.url` directly, so a readable path that fails on some webview costs only the effects: 8.1's engine already plays a routed stream that fails before it starts again without them.
+
+**Measured.** The smoke test plays each verified stream from the scheme ([Live smoke test](#live-smoke-test)). On macOS 15.5 (WKWebView 20621.2.5.11.8), on 2026-10-26, with "Creep" by Radiohead (238.7 s): both streams played from the scheme in a muted `crossorigin="anonymous"` element through a Web Audio graph, 6 s from the start and then to their end after a seek to 4 s before it; the same URLs straight from googlevideo in such an element were refused, as googlevideo sends no CORS headers.
+
+| Stream | Start from the scheme (in a plain element) | Web Audio | What WebKit asked the scheme for |
+|---|---|---|---|
+| AAC 140 in M4A, 3.9 MB | 1.1 s (0.8 s) | Real samples, up to 0.53, although the element was muted | `bytes=0-1`, then the MP4's boxes and every fragment's header a few bytes at a time, then about 48 KB at a time: 133 requests, which took 4 fetches of 1 MiB from googlevideo |
+| Opus 251 in WebM, 4.0 MB | 2.0 s (0.3 s) | Silence | `bytes=0-1`, `0-7` and `0-1445`, then the whole file without a `Range`, as the research found WebKit does for WebM: 4 fetches of 1 MiB |
+
+- **Opus on macOS can't go through Web Audio.** WebKit plays WebM with a player of its own whose sound bypasses the graph of `createMediaElementSource`: [WebKit bug 276813](https://bugs.webkit.org/show_bug.cgi?id=276813), open since 2024 and still there in Safari 27, has a `GainNode` change nothing for WebM Opus while it works for MP4 AAC. So the equalizer of stage 8.1 can shape YouTube audio on macOS only as AAC 140: while an effect needs Web Audio, the macOS app should play AAC, for example by having `DesktopAudioEngine` rate Opus `maybe` then, as it does on macOS before 15.4.
+- **Few requests to googlevideo.** Without the blocks, each of WebKit's 133 reads of the AAC file was a request to googlevideo of its own (a first run, before the blocks); with them, 4.
+- **A slower start.** Rust fetches whole blocks before the webview sees a byte, and WebKit waits for a WebM file's last byte before it plays, so a stream starts later through the scheme than straight from googlevideo: about 0.3 s more for AAC, about 1.7 s more for Opus here. That cost comes only with the effects, which is one more reason for 8.1 to use the scheme only while one needs Web Audio.
+- **AAC 140's duration.** WebKit reads it as 477.3 s, twice the song's, from the scheme and straight from googlevideo alike, and the element still ends at the song's end. The player takes the engine's duration, so where the app plays AAC (macOS before 15.4, and with the effects on) the Now Playing view would show twice the length: for the player (stage 2.2) to settle, for example by trusting the track's own duration when the engine's is about twice it.
+
+Still to check: Windows (WebView2, whose custom schemes go through `http://fxm-media.localhost`) and Linux (WebKitGTK and GStreamer), on those machines, with the smoke test.
+
 ## Content security policy
 
 ```
-default-src 'self'; img-src 'self' https: data: blob:; media-src 'self' https: blob:;
+default-src 'self'; img-src 'self' https: data: blob:;
+media-src 'self' https: blob: fxm-media: http://fxm-media.localhost;
 connect-src ipc: http://ipc.localhost 'self'; script-src 'self' 'wasm-unsafe-eval' blob:;
 style-src 'self' 'unsafe-inline'
 ```
 
 - `connect-src` has no `https:`: `fetch()`, `XMLHttpRequest`, `WebSocket` and `EventSource` reach only Tauri's IPC (`ipc:` on macOS and Linux, `http://ipc.localhost` on Windows), so every request FXM makes goes through Rust, with its scope and header policy. A stray `fetch()` from page script is blocked instead of going out with the webview's origin and cookies. It doesn't keep page script off the network: see [What page script can reach](#what-page-script-can-reach).
 - `media-src https:` lets `<audio>` play googlevideo URLs directly, as well as Internet Archive's and Jamendo's media hosts and a user's Invidious instance, whose hosts can't be listed at build time. The page can't read those responses. `img-src https:` does the same for artwork.
+- `fxm-media:` and `http://fxm-media.localhost` (its form on Windows) let `<audio>` load the [readable audio path](#the-readable-audio-path) (stage 7.6). `connect-src` doesn't list it: page script can't `fetch()` from it.
 - At build time Tauri adds the isolation hook's own origin to `default-src`, for its iframe.
 - At build time Tauri adds the SHA-256 hash of every inline script to `script-src`, so the theme script in `apps/web/index.html` keeps running.
 - `blob:` in `script-src` lets the app run the signed YouTube resolver module it downloads from FXM's site (stage 1.13): the module's bytes are checked against their Ed25519 signature first, then loaded from a `blob:` URL made from exactly those bytes, which is revoked once loaded. It also lets the page run its other `blob:` URLs (artwork, audio) as scripts, which would matter only together with an injected `<script>` element naming one. The web app's own policy has no `blob:` there: it gets new code by redeploy. See [packages/platform/src/updates](../../packages/platform/src/updates/README.md).

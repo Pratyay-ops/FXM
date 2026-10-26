@@ -202,7 +202,8 @@ describe('tauri.conf.json', () => {
     expect(parseCsp(config.app.security.csp)).toEqual({
       'default-src': ["'self'"],
       'img-src': ["'self'", 'https:', 'data:', 'blob:'],
-      'media-src': ["'self'", 'https:', 'blob:'],
+      // fxm-media: the readable audio path (stage 7.6), in its macOS/Linux and Windows forms.
+      'media-src': ["'self'", 'https:', 'blob:', 'fxm-media:', 'http://fxm-media.localhost'],
       'connect-src': ['ipc:', 'http://ipc.localhost', "'self'"],
       // blob: loads the signed YouTube module (stage 1.13) from a URL made of its verified bytes.
       'script-src': ["'self'", "'wasm-unsafe-eval'", 'blob:'],
@@ -230,6 +231,17 @@ describe('tauri.conf.json', () => {
     ]) {
       expect(cspAllows(media, url), url).toBe(true)
     }
+  })
+
+  it('lets <audio> load the readable audio path, but never lets page script fetch from it', () => {
+    // Stage 7.6: googlevideo streams served by Rust under the app's own scheme, with CORS for the
+    // app, so Web Audio can read them (src/media.rs). Elements load it; fetch() can't.
+    const { 'media-src': media = [], 'connect-src': connect = [] } = parseCsp(
+      config.app.security.csp,
+    )
+    expect(media).toEqual(expect.arrayContaining(['fxm-media:', 'http://fxm-media.localhost']))
+    expect(connect).not.toContain('fxm-media:')
+    expect(connect).not.toContain('http://fxm-media.localhost')
   })
 
   it('sends the page’s requests only through Tauri’s IPC, so only Rust reaches the network', () => {
