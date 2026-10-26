@@ -60,6 +60,37 @@ const SPOTIFY_RADIO = [
   spotifyTrack('0000000000000000000002', 'Song 2', 'Blur'),
 ]
 
+/**
+ * The Internet Archive track of the report that found a wrong match seeding YouTube Music radio:
+ * a piano roll of Scott Joplin's rag.
+ */
+const MAPLE_LEAF_RAG: Track = {
+  id: formatId('archive', 'track', 'MapleLeafRag_PianoRoll/maple_leaf_rag.mp3'),
+  source: 'archive',
+  title: 'Maple leaf rag (Scott Joplin)',
+  artists: [{ name: 'Scott Joplin, piano rolls' }],
+  artwork: [],
+  durationMs: 192_000,
+  kind: 'song',
+}
+
+/** The rag on YouTube Music: the track's own song. */
+const MAPLE_SONG = ytmTrack('mapleLeaf01', 'Maple Leaf Rag', 'Scott Joplin')
+
+/** YouTube Music radio for the rag: more of Scott Joplin's, and other ragtime. */
+const RAGTIME_RADIO = [
+  ytmTrack('entertain01', 'The Entertainer', 'Scott Joplin'),
+  ytmTrack('tigerRag001', 'Tiger Rag', 'Harbor Street Stompers'),
+  ytmTrack('eliteSync01', 'Elite Syncopations', 'Scott Joplin'),
+]
+
+/** A wrong song's radio, as the report found it: kids' songs and regional pop. */
+const KIDS_RADIO = [
+  ytmTrack('kidsSong001', 'Five Little Ducks', 'Little Sprouts TV'),
+  ytmTrack('kidsSong002', 'Head, Shoulders, Knees and Toes', 'Tiny Tots Sing'),
+  ytmTrack('popSong0001', 'Monsoon Love', 'Coastal Hits'),
+]
+
 afterEach(() => {
   vi.useRealTimers()
 })
@@ -409,6 +440,80 @@ describe('createRecommendationCollector', () => {
     expect(outcomes(found)[0]).toBe('ytm/radio: ok 2')
     expect(youtube.seeds).toEqual([CREEP])
     expect(finder.seeds).toEqual([seed])
+  })
+
+  describe('YouTube Music radio for a track of another source', () => {
+    /** YouTube Music radio for the rag, whose match is `match`, and whose radio is `radio`. */
+    async function radioFor(match: RadioSeed | null, radio: Track[] = RAGTIME_RADIO) {
+      const youtube = fakeRadio('ytm', radio)
+      const collector = createRecommendationCollector({
+        youtube,
+        youtubeSeed: fakeYouTubeSeed(() => match),
+      })
+      const collection = await collector.collect(MAPLE_LEAF_RAG, testContext(), {
+        parts: ['radio'],
+      })
+      return { collection, asked: youtube.seeds }
+    }
+
+    it('starts from its own song, and keeps a radio that follows the track', async () => {
+      const { collection, asked } = await radioFor(MAPLE_SONG)
+      expect(outcomes(collection)[0]).toBe('ytm/radio: ok 3')
+      expect(names(collection)).toEqual([
+        'ytm/radio: The Entertainer',
+        'ytm/radio: Tiger Rag',
+        'ytm/radio: Elite Syncopations',
+      ])
+      expect(asked).toEqual([MAPLE_SONG])
+      // What the radio suggests is for the Internet Archive track.
+      expect(collection.candidates[0]?.seed).toEqual({
+        type: 'track',
+        id: MAPLE_LEAF_RAG.id,
+        name: 'Maple leaf rag (Scott Joplin)',
+        artists: ['Scott Joplin, piano rolls'],
+      })
+    })
+
+    it('skips the seed when its match is another song, and asks for no radio', async () => {
+      const wrongs = [
+        // Another song altogether, like the report's.
+        ytmTrack('wheelsBus01', 'Wheels on the Bus', 'Little Sprouts TV'),
+        // The artist's other song, another version, a tribute act's, a song the artist is only
+        // featured on.
+        ytmTrack('entertain01', 'The Entertainer', 'Scott Joplin'),
+        ytmTrack('mapleLive01', 'Maple Leaf Rag (Live)', 'Scott Joplin'),
+        ytmTrack('mapleTrib01', 'Maple Leaf Rag', 'Scott Joplin Tribute'),
+        ytmTrack('mapleFeat01', 'Maple Leaf Rag', 'DJ Lumen', 'song', {
+          artists: [{ name: 'DJ Lumen' }, { name: 'Scott Joplin' }],
+        }),
+      ]
+      for (const wrong of wrongs) {
+        const { collection, asked } = await radioFor(wrong, KIDS_RADIO)
+        expect(outcomes(collection)[0], wrong.title).toBe('ytm/radio: skipped unsupported-seed')
+        expect(collection.candidates).toEqual([])
+        expect(asked).toEqual([])
+      }
+    })
+
+    it('keeps its song’s radio only when it begins with the song or has more by the artist', async () => {
+      // Another listing of the song first (the radio leaves out its own seed) follows the track.
+      const listing = ytmTrack('mapleLeaf02', 'Maple Leaf Rag - Remastered', 'Scott Joplin - Topic')
+      const led = await radioFor(MAPLE_SONG, [listing, ...KIDS_RADIO])
+      expect(outcomes(led.collection)[0]).toBe('ytm/radio: ok 4')
+      // Nothing by the artist: the radio drifted elsewhere, and says nothing about the track.
+      const drifted = await radioFor(MAPLE_SONG, KIDS_RADIO)
+      expect(outcomes(drifted.collection)[0]).toBe('ytm/radio: skipped unsupported-seed')
+      expect(drifted.collection.candidates).toEqual([])
+      expect(drifted.asked).toEqual([MAPLE_SONG])
+      // The song again further down is no other song by the artist.
+      const again = await radioFor(MAPLE_SONG, [...KIDS_RADIO, listing])
+      expect(outcomes(again.collection)[0]).toBe('ytm/radio: skipped unsupported-seed')
+      // A seed of YouTube Music's own is its radio's seed itself: there is no match to check.
+      const own = await createRecommendationCollector({
+        youtube: fakeRadio('ytm', KIDS_RADIO),
+      }).collect(CREEP, testContext(), { parts: ['radio'] })
+      expect(outcomes(own)[0]).toBe('ytm/radio: ok 3')
+    })
   })
 
   it('uses the seed’s own Spotify artist, and skips a seed it cannot place', async () => {

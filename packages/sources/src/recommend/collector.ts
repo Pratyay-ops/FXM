@@ -23,6 +23,7 @@ import type { LastfmApiClient } from '../lastfm/api'
 import type { LastfmStations } from '../lastfm/station'
 import type { ListenBrainzClient } from '../listenbrainz/api'
 import { normalizeMbid } from '../shared/mbid'
+import { sameArtist } from '../shared/names'
 import { wholeNumber } from '../shared/numbers'
 import { isSpotifyError } from '../spotify/errors'
 import {
@@ -47,9 +48,15 @@ import {
   seedArtistName,
   seedRef,
   seedTitle,
-  youtubeRadioSeed,
+  youtubeRadioStart,
 } from './seeds'
-import { DEFAULT_MAX_CLASSIFICATION_MS, rankScore, stationCandidates } from './stations'
+import {
+  DEFAULT_MAX_CLASSIFICATION_MS,
+  namesSameSong,
+  rankScore,
+  type SongName,
+  stationCandidates,
+} from './stations'
 import type {
   ArtistCandidate,
   CandidateArtist,
@@ -169,7 +176,10 @@ export interface RecommendationCollector {
    * reason, at once, whether or not the sources heed it.
    *
    * - **YouTube Music radio** (`radio`), whenever YouTube can be reached. In Music mode it is
-   *   seeded with the song and filtered to songs.
+   *   seeded with the song and filtered to songs. A track of another source seeds it with the
+   *   YouTube Music song its match found (`youtubeSeed`), only when that is the track's own song,
+   *   and the radio counts only when it follows the track: it begins with that song, or holds
+   *   another song by the track's main artist. Otherwise the seed is skipped.
    * - **Spotify radio** (`radio`) and **related artists** (`similar-artists`), when Spotify is
    *   switched on and reachable.
    * - **Last.fm's similar-artists station** (`station`), in the Full tier only. In Music mode its
@@ -238,6 +248,43 @@ function trackCandidates(
     key: songKey(track.artists[0]?.name ?? '', track.title),
     track,
   }))
+}
+
+/** A track as a song named by its title and artists, for {@link namesSameSong}. */
+function songName(track: Track): SongName {
+  return { title: track.title, artists: track.artists.map((artist) => artist.name) }
+}
+
+/**
+ * Whether `song`, the YouTube Music song the `youtubeSeed` adapter found for `track` (a track of
+ * another source), is that very song: its main artist is the track's main artist, and its title
+ * proper and version are the track's (`namesSameSong`). The matching engine's best guess may be
+ * another song altogether, whose radio has nothing to do with the track.
+ */
+function isOwnSong(song: Track, track: Track): boolean {
+  const [main] = track.artists
+  const [own] = song.artists
+  if (main === undefined || own === undefined) return false
+  return namesSameSong({ ...song, artists: [own] }, { title: track.title, artists: [main.name] })
+}
+
+/**
+ * Whether the radio of `song`, the YouTube Music song found for `track` (a track of another
+ * source), follows `track`: it begins with the song (another listing of it, since the radio
+ * leaves out its seed), or it holds another song by the track's main artist. A radio that does
+ * neither has drifted somewhere else, and says nothing about `track`.
+ */
+function radioFollows(radio: readonly Track[], song: Track, track: Track): boolean {
+  const matched = songName(song)
+  const [first] = radio
+  if (first !== undefined && namesSameSong(first, matched)) return true
+  const main = track.artists[0]?.name
+  if (main === undefined) return false
+  return radio.some(
+    (other) =>
+      !namesSameSong(other, matched) &&
+      other.artists.some((artist) => sameArtist([main], artist.name)),
+  )
 }
 
 /** An artist candidate, unless it has no name or is the seed's own artist. */
@@ -358,12 +405,24 @@ export function createRecommendationCollector(
         if (youtube === undefined) return new Skip('not-configured')
         if (jobCtx.capabilities.youtube === 'none') return new Skip('unreachable')
         if (count === 0) return []
-        const radioSeed = await youtubeRadioSeed(seed, jobCtx, {
+        const start = await youtubeRadioStart(seed, jobCtx, {
           songForVideo: options.songForVideo,
           youtubeSeed: options.youtubeSeed,
         })
-        if (radioSeed === null) return new Skip('unsupported-seed')
-        const tracks = tracksForMode(await youtube.radio(radioSeed, jobCtx), jobCtx.mode)
+        if (start === null) return new Skip('unsupported-seed')
+        // A track of another source seeds the radio with the song its match found, which must be
+        // that very song; and the radio must still follow the track. Otherwise it is no radio
+        // for this seed.
+        if (start.matchedFrom !== undefined && !isOwnSong(start.seed, start.matchedFrom)) {
+          return new Skip('unsupported-seed')
+        }
+        const tracks = tracksForMode(await youtube.radio(start.seed, jobCtx), jobCtx.mode)
+        if (
+          start.matchedFrom !== undefined &&
+          !radioFollows(tracks, start.seed, start.matchedFrom)
+        ) {
+          return new Skip('unsupported-seed')
+        }
         return trackCandidates(tracks.slice(0, count), 'ytm', 'radio', ref)
       })
 
