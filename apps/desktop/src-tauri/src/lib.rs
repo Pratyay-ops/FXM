@@ -83,6 +83,10 @@ pub fn run() {
     let builder = builder
         .menu(window::app_menu)
         .on_menu_event(|app, event| window::on_menu_event(app, event.id().as_ref()));
+    // macOS: the smoke build runs unattended, often while someone works at the Mac, so it never
+    // takes the focus from the app in front, and (in setup) shows no Dock icon or menu bar.
+    #[cfg(all(target_os = "macos", feature = "smoke"))]
+    let builder = builder.activate_ignoring_other_apps(false);
     let app = builder
         .setup(|app| {
             let file = app.path().app_config_dir()?.join(user_hosts::FILE_NAME);
@@ -103,6 +107,8 @@ pub fn run() {
             // The live smoke test's build only (apps/desktop/smoke).
             #[cfg(feature = "smoke")]
             smoke::listen(app.handle());
+            #[cfg(all(target_os = "macos", feature = "smoke"))]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             Ok(())
         })
         .on_window_event(window::on_window_event)

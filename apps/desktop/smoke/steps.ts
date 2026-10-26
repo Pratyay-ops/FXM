@@ -4,7 +4,8 @@
  * goes through the app's real native networking: `createPlatform()` and `createDesktopFetch()`
  * over Tauri's HTTP plugin. The last of its own steps calls the plugin through Tauri's IPC directly
  * instead, as any page script can, to check the isolation hook; `extraSteps`, such as stage 7.3's
- * playback steps, run after it.
+ * playback steps, run after it. Stage 7.6's readable audio path (`readable`) is checked right
+ * after the probe, on the streams it verified.
  *
  * A step that needs a stage which hasn't merged yet throws {@link Pending}, and the report says
  * so instead of failing.
@@ -72,6 +73,14 @@ export interface MediaPlayer {
   playToEnd(url: string, options: { readonly timeoutMs: number }): Promise<{ durationS: number }>
 }
 
+/**
+ * Stage 7.6's check of the readable audio path: plays streams the resolve found from the shell's
+ * `fxm-media:` scheme through Web Audio (`readable.ts`). Resolves with the step's detail.
+ */
+export interface ReadablePath {
+  check(options: readonly StreamOption[]): Promise<string>
+}
+
 /** Tauri's `invoke`: calls a command through the app's IPC, as any page script can. */
 export type Invoke = (command: string, payload: unknown) => Promise<unknown>
 
@@ -102,6 +111,11 @@ export interface SmokeOptions {
    * without `createDesktopFetch()`.
    */
   readonly invoke: Invoke
+  /**
+   * Stage 7.6's readable audio path, checked on the verified streams right after the probe step;
+   * no such step without it.
+   */
+  readonly readable?: ReadablePath
   /** How long one track may take to play to its end. Default: 10 minutes. */
   readonly playTimeoutMs?: number
   /** The clock, in milliseconds. Default: `performance.now`. */
@@ -232,7 +246,7 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
     return [found, `${JSON.stringify(options.query)}: ${found.title ?? ''} (${found.videoId})`]
   })
 
-  const stream = await step(
+  const resolved = await step(
     'VISIONOS URL passes the end-of-file probe',
     song === undefined
       ? waiting('the search')
@@ -243,9 +257,23 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
             const seen = found.map((option) => `${option.codec} ${option.fullLength}`)
             throw new Error(`no stream passed the probe: ${seen.join(', ') || 'none'}`)
           }
-          return [verified, `${verified.codec} in ${verified.container}, ${verified.media}`]
+          return [
+            { stream: verified, found },
+            `${verified.codec} in ${verified.container}, ${verified.media}`,
+          ]
         },
   )
+  const stream = resolved?.stream
+
+  const { readable } = options
+  if (readable !== undefined) {
+    await step(
+      'Web Audio reads it through fxm-media',
+      resolved === undefined
+        ? waiting('a verified stream')
+        : async () => [true, await readable.check(resolved.found)],
+    )
+  }
 
   await step(
     'the track plays to the end',

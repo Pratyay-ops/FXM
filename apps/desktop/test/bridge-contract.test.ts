@@ -113,6 +113,16 @@ describe('src/lib.rs', () => {
     )
   })
 
+  it('keeps the smoke build on macOS out of the way: no focus taken, no Dock icon', () => {
+    // It runs unattended, often while someone works at the Mac (stage 7.6).
+    expect(lib).toMatch(
+      /#\[cfg\(all\(target_os = "macos", feature = "smoke"\)\)\]\s*let builder = builder\.activate_ignoring_other_apps\(false\);/,
+    )
+    expect(lib).toMatch(
+      /#\[cfg\(all\(target_os = "macos", feature = "smoke"\)\)\]\s*app\.set_activation_policy\(tauri::ActivationPolicy::Accessory\);/,
+    )
+  })
+
   it('handles the close button and the Dock icon in src/window.rs', () => {
     expect(lib).toMatch(/\.on_window_event\(window::on_window_event\)/)
     expect(lib).toMatch(/\.run\(\|app, event\| window::on_run_event\(app, &event\)\)/)
