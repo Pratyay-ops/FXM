@@ -65,8 +65,12 @@ async function runCheck({
   isOnline = () => globalThis.navigator?.onLine !== false,
 }: AppUpdateCheckOptions): Promise<void> {
   if (!isOnline()) {
-    // Nothing to ask; the `online` event starts the check (startAppUpdateChecks).
-    store.setState({ problem: 'offline' })
+    // Nothing to ask. The check is due now, so the `online` event makes it (startAppUpdateChecks),
+    // also after a "Check now" less than a day after the last check.
+    store.setState({
+      problem: 'offline',
+      nextCheckAt: Math.min(store.getState().nextCheckAt, now()),
+    })
     return
   }
   store.setState({ checking: true })
@@ -86,10 +90,11 @@ async function runCheck({
       : isFxmError(error, 'Parse')
         ? 'unexpected'
         : 'unreachable'
-    const wait = Math.max(
-      RETRY_INTERVAL_MS,
-      isFxmError(error, 'RateLimited') ? (error.retryAfterMs ?? 0) : 0,
-    )
+    // At least an hour, or as long as GitHub's rate limit asks, but never more than a day: a
+    // longer wait, as from a device clock days behind GitHub's x-ratelimit-reset, would look like
+    // a clock that went back to isCheckDue, which would then ask at every look.
+    const asked = isFxmError(error, 'RateLimited') ? (error.retryAfterMs ?? 0) : 0
+    const wait = Math.min(CHECK_INTERVAL_MS, Math.max(RETRY_INTERVAL_MS, asked))
     store.setState({ nextCheckAt: now() + wait, checking: false, problem })
   }
 }

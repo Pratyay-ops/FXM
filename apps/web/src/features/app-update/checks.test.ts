@@ -73,17 +73,35 @@ describe('checkForAppUpdate', () => {
     })
   })
 
+  it('but at most a day, so a long wait never reads as a clock that went back', async () => {
+    const { fetch } = fakeUpdateFetch(
+      jsonResponse(
+        { message: 'You have exceeded a secondary rate limit' },
+        { status: 429, headers: { 'retry-after': String(3 * 24 * 3600) } },
+      ),
+    )
+    await checkForAppUpdate({ store, fetch, now: () => NOW })
+    const { nextCheckAt } = store.getState()
+    expect(nextCheckAt).toBe(NOW + CHECK_INTERVAL_MS)
+    expect(isCheckDue(nextCheckAt, NOW)).toBe(false)
+  })
+
   it('says when GitHub’s answer makes no sense', async () => {
     const { fetch } = fakeUpdateFetch(jsonResponse({ tag_name: 'latest' }))
     await checkForAppUpdate({ store, fetch, now: () => NOW })
     expect(store.getState().problem).toBe('unexpected')
   })
 
-  it('asks nothing while the device is offline', async () => {
+  it('asks nothing while the device is offline, and is due as soon as it is online', async () => {
     const { fetch, calls } = fakeUpdateFetch()
+    // The last check was an hour ago, so the next scheduled one is nearly a day away.
+    store.setState({
+      lastCheckedAt: NOW - 3600_000,
+      nextCheckAt: NOW + CHECK_INTERVAL_MS - 3600_000,
+    })
     await checkForAppUpdate({ store, fetch, now: () => NOW, isOnline: () => false })
     expect(calls).toHaveLength(0)
-    expect(store.getState().problem).toBe('offline')
+    expect(store.getState()).toMatchObject({ problem: 'offline', nextCheckAt: NOW })
   })
 
   it('runs one check at a time, which every caller shares', async () => {
@@ -165,6 +183,65 @@ describe('startAppUpdateChecks', () => {
     expect(calls).toHaveLength(0)
     await vi.advanceTimersByTimeAsync(3600_000)
     expect(calls).toHaveLength(1)
+    stop()
+  })
+
+  it('backs off after a rate limit, also when the device’s clock is days behind GitHub’s', async () => {
+    vi.useFakeTimers({ now: NOW })
+    // GitHub's reset is absolute: on a clock two days behind, it looks two days away.
+    const reset = String(NOW / 1000 + 2 * 24 * 3600 + 600)
+    const { fetch, calls } = fakeUpdateFetch(
+      jsonResponse(
+        { message: 'API rate limit exceeded' },
+        { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': reset } },
+      ),
+      jsonResponse(releaseAnswer('0.6.0')),
+    )
+    const { page, network } = events()
+    const stop = startAppUpdateChecks({ support: ANDROID, store, fetch, page, network })
+    await vi.advanceTimersByTimeAsync(FIRST_CHECK_DELAY_MS)
+    expect(calls).toHaveLength(1)
+    expect(store.getState().problem).toBe('rate-limited')
+    // Every look, return to the foreground and reconnection of the next hours asks nothing.
+    for (let hour = 0; hour < 6; hour += 1) {
+      page.dispatchEvent(new Event('visibilitychange'))
+      network.dispatchEvent(new Event('online'))
+      await vi.advanceTimersByTimeAsync(3600_000)
+    }
+    expect(calls).toHaveLength(1)
+    // A day later it asks again.
+    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS)
+    expect(calls).toHaveLength(2)
+    expect(store.getState().problem).toBeNull()
+    stop()
+  })
+
+  it('checks once the device is online again after a check that found it offline', async () => {
+    vi.useFakeTimers({ now: NOW })
+    let online = true
+    const { page, network } = events()
+    const { fetch, calls } = fakeUpdateFetch(
+      jsonResponse(releaseAnswer('0.5.0')),
+      jsonResponse(releaseAnswer('0.6.0')),
+    )
+    const options = { support: ANDROID, store, fetch, page, network, isOnline: () => online }
+    const stop = startAppUpdateChecks(options)
+    await vi.advanceTimersByTimeAsync(FIRST_CHECK_DELAY_MS)
+    expect(calls).toHaveLength(1)
+    // "Check now" an hour later, offline: nothing is asked.
+    await vi.advanceTimersByTimeAsync(3600_000)
+    online = false
+    await checkForAppUpdate(options)
+    expect(calls).toHaveLength(1)
+    expect(store.getState().problem).toBe('offline')
+    online = true
+    network.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toHaveLength(2)
+    expect(store.getState()).toMatchObject({ problem: null, latest: { version: '0.6.0' } })
+    // And then no more than once a day again.
+    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS - DUE_CHECK_INTERVAL_MS)
+    expect(calls).toHaveLength(2)
     stop()
   })
 
