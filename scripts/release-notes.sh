@@ -6,12 +6,13 @@
 #                                       tag, up to tag v0.2.0 or, while it doesn't exist, to HEAD
 #   release-notes.sh --changelog 0.2.0  regenerates CHANGELOG.md with v0.2.0 as the newest release
 #
-# The notes are what the release pull request and the GitHub Release show, in Markdown without
-# the version heading: the version's hand-written summary (docs/releases/vX.Y.Z.md) when it has
-# one, then under "## Changes" its features, bug fixes and performance changes, each message once
-# (cliff.notes.toml). CHANGELOG.md lists every change of every release (cliff.toml). Every
-# release tag must be present locally (git fetch --tags), and the changelog needs them all in
-# HEAD's history, which merging main back into develop ensures.
+# A version's notes are what the release pull request and the GitHub Release show, in Markdown
+# without the version heading: the version's hand-written summary (docs/releases/vX.Y.Z.md) when
+# it has one, the legal notice under "## Legal", then under "## Changes" its features, bug fixes
+# and performance changes, each message once (cliff.notes.toml), folded in a <details> block.
+# Without a version, it prints that list alone, unfolded. CHANGELOG.md lists every change of
+# every release (cliff.toml). Every release tag must be present locally (git fetch --tags), and
+# the changelog needs them all in HEAD's history, which merging main back into develop ensures.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 source "$here/env.sh"
@@ -63,10 +64,39 @@ changes() {
   fi | awk 'done { print; next } /^## / { done = 1 }' | sed '/./,$!d'
 }
 
-if [ -n "$version" ] && fxm_release_has_summary "$version"; then
-  # The summary without the blank lines around it, then the list under its own heading.
+if [ -z "$version" ]; then
+  changes
+  exit 0
+fi
+
+list=$(changes)
+if fxm_release_has_summary "$version"; then
+  # The summary without the blank lines around it.
   sed '/[^[:space:]]/,$!d' "$FXM_ROOT/$(fxm_release_summary_file "$version")" |
     awk '/[^[:space:]]/ { for (; blank > 0; blank--) print ""; print; next } { blank++ }'
-  printf '\n## Changes\n\n'
+  echo
 fi
-changes
+# The notes name the services FXM works with, so they carry its non-affiliation notice
+# (docs/LEGAL.md, "Notice": change it there, in the README and on the disclaimer page too). It
+# comes before the list, the part that fxm_release_fit cuts when the notes are too long.
+cat <<'EOF'
+## Legal
+
+FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google, Spotify or any other service it works with, and it hosts no music. You are responsible for following the terms of the services you use with FXM and the laws where you live. The [disclaimer](https://fxmusic.pages.dev/disclaimer) and the [privacy page](https://fxmusic.pages.dev/privacy) have the details.
+
+## Changes
+
+EOF
+entries=$(grep -c '^- ' <<<"$list" || true)
+if [ "$entries" -eq 0 ]; then
+  printf '%s\n' "$list"
+  exit 0
+fi
+# The list comes from commit subjects, so it is long and written for developers: folded, it
+# leaves the summary and the release's files in view.
+since="since ${previous:-the project started}"
+echo "The features, bug fixes and performance changes $since, as their commit messages" \
+  "describe them. Some may be in parts of FXM that aren't released yet."
+echo
+if [ "$entries" -eq 1 ]; then count="1 change"; else count="$entries changes"; fi
+printf '<details>\n<summary>%s</summary>\n\n%s\n\n</details>\n' "$count" "$list"

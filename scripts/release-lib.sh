@@ -176,15 +176,25 @@ fxm_release_sums() {
 
 # fxm_release_fit <file> <max bytes> <note>: cuts the file at a line boundary so that it, plus
 # the note on a line of its own, stays under the limit (GitHub caps pull request bodies at
-# 65536 characters and release notes at 125000). Leaves a short enough file alone.
+# 65536 characters and release notes at 125000). A cut inside a <details> block, which folds
+# the notes' list of changes, puts the note inside it and closes the block, so the rest of the
+# page doesn't fold into it. Leaves a short enough file alone.
 fxm_release_fit() {
   local file=$1 max=$2 note=$3 budget cut
   [ "$(wc -c <"$file")" -gt "$max" ] || return 0
-  budget=$((max - ${#note} - 8))
+  # Room for the note, the blank lines around it and a closing </details>.
+  budget=$((max - $(printf '%s' "$note" | wc -c) - 16))
   cut=$(mktemp)
-  # LC_ALL=C: awk then counts bytes, which is what the limit is checked against.
-  LC_ALL=C awk -v budget="$budget" '{ size += length($0) + 1; if (size > budget) exit; print }' \
-    "$file" >"$cut"
-  printf '\n%s\n' "$note" >>"$cut"
+  # LC_ALL=C: awk then counts bytes, which is what the limit is checked against. The note goes
+  # through the environment, where awk reads it as it is (-v would expand backslashes).
+  FXM_FIT_NOTE=$note LC_ALL=C awk -v budget="$budget" '
+    { size += length($0) + 1; if (size > budget) exit }
+    /^<details>/ { open = 1 }
+    /^<\/details>/ { open = 0 }
+    { print }
+    END {
+      printf "\n%s\n", ENVIRON["FXM_FIT_NOTE"]
+      if (open) printf "\n</details>\n"
+    }' "$file" >"$cut"
   mv "$cut" "$file"
 }

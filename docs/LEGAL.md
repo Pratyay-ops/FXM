@@ -10,7 +10,7 @@ FXM hosts no music and has no servers of its own. Its apps run on the user's dev
 
 Users are responsible for how they use FXM, including following the terms of the services they use with it and the laws where they live. FXM is provided as is, without warranties or conditions of any kind, under the [Apache License 2.0](../LICENSE).
 
-The same notice is in the [README](../README.md#legal) and on the site's [disclaimer page](https://fxmusic.pages.dev/disclaimer) (source: [`apps/site/src/pages/disclaimer.astro`](../apps/site/src/pages/disclaimer.astro)). Change all three together.
+The same notice is in the [README](../README.md#legal), on the site's [disclaimer page](https://fxmusic.pages.dev/disclaimer) (source: [`apps/site/src/pages/disclaimer.astro`](../apps/site/src/pages/disclaimer.astro)) and, shorter, under "Legal" in every release's notes, which [`scripts/release-notes.sh`](../scripts/release-notes.sh) adds after the release's summary. Change them all together.
 
 ## Contacts
 
@@ -39,6 +39,7 @@ These rules are a review item for every stage that writes public text, and the [
 | FXM Connect's name, descriptions and options page | 1.9, R.2 |
 | The desktop app's bundle descriptions in `apps/desktop/src-tauri/tauri.conf.json` | 7.1 |
 | Store listings | R.2, R.3 |
+| The release notes: each release's summary in `docs/releases/`, which heads the release pull request and the GitHub Release | Every release |
 | The web app's strings and web app manifest (5.1 added the manifest), and the Android app's name and strings | Every stage that changes them |
 
 **Audit on 2026-10-26:** no logos, brand colours or lookalike names in the site's pages, metadata, icons and social image; FXM Connect's manifest, README, options page and icons; the desktop app's bundle descriptions and icon; the web app's `index.html` and its web app manifest (`app/manifest.webmanifest`, from 5.1: the name and short name "FXM", the description "A free, open-source music player: search and play practically any song.", the shortcuts "Search" and "Your library", FXM's own theme colour and icons drawn from FXM's violet mark); or the Android app's name, strings and icons.

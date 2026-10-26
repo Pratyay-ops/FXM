@@ -9,7 +9,7 @@
 #   2. Sets the version everywhere (release-version.sh) and regenerates CHANGELOG.md (git-cliff).
 #   3. Commits "chore(release): vX.Y.Z" on develop and pushes develop.
 #   4. Opens the pull request "Release vX.Y.Z" with the version's notes (release-notes.sh: the
-#      summary, then the changes) and prints its URL.
+#      summary, the legal notice, then the changes) and prints its URL.
 #
 # Run with the version of a release that is under way (develop already has it, and it has no
 # tag yet), it updates that release instead: after a fix reached develop while the pull request

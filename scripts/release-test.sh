@@ -292,6 +292,25 @@ for i in $(seq 1 2000); do echo "- entry $i, long enough to need many lines of n
 fxm_release_fit "$big" 20000 "See CHANGELOG.md."
 expect "cuts notes to GitHub's size limit" \
   test "$(wc -c <"$big")" -le 20000 -a "$(tail -1 "$big")" = "See CHANGELOG.md."
+folded=$tmp/folded.md
+{
+  printf 'FXM 9.9.9 brings things.\n\n## Changes\n\n<details>\n<summary>2000 changes</summary>\n\n'
+  for i in $(seq 1 2000); do echo "- entry $i, long enough to need many lines of notes"; done
+  printf '\n</details>\n'
+} >"$folded"
+fxm_release_fit "$folded" 20000 "See CHANGELOG.md."
+closes_the_fold() {
+  [ "$(wc -c <"$folded")" -le 20000 ] && [ "$(head -1 "$folded")" = "FXM 9.9.9 brings things." ] &&
+    [ "$(tail -3 "$folded" | tr '\n' '|')" = "See CHANGELOG.md.||</details>|" ]
+}
+expect "a cut in the folded list puts the note in it and closes it" closes_the_fold
+{
+  printf '<details>\n<summary>1 change</summary>\n\n- one\n\n</details>\n\n'
+  for i in $(seq 1 2000); do echo "- line $i of what follows the list"; done
+} >"$folded"
+fxm_release_fit "$folded" 5000 "See CHANGELOG.md."
+expect "a cut after it closes nothing" \
+  test "$(grep -c '^</details>$' "$folded")" = 1 -a "$(tail -1 "$folded")" = "See CHANGELOG.md."
 catalog_ok() {
   fxm_release_lookup release-bundles fxm-web-0.1.0.zip 0.1.0 >/dev/null &&
     fxm_release_lookup release-bundles fxm-connect-firefox-0.1.0.zip 0.1.0 >/dev/null &&
@@ -394,7 +413,18 @@ expect "skips unconventional commits" lacks "$notes" "Initial commit"
 expect "puts @names in code spans, so the notes notify nobody" \
   has "$notes" '**player:** Load `@fxm/core` lazily'
 expect "but leaves e-mail addresses alone" has "$notes" "**core:** Answer user@example.com ("
-expect "has no version heading" test -z "$(grep '^## ' "$notes" || true)"
+expect "has no version heading" test -z "$(grep -E '^## (\[|v?[0-9])' "$notes" || true)"
+expect "carries the legal notice" has "$notes" \
+  "not affiliated with or endorsed by YouTube, Google, Spotify or any other service"
+notice_then_folded_list() {
+  [ "$(grep -n -x -e '## Legal' -e '## Changes' -e '<details>' -e '### Features' "$notes" |
+    cut -d: -f2- | tr '\n' '|')" = "## Legal|## Changes|<details>|### Features|" ] &&
+    [ "$(tail -1 "$notes")" = "</details>" ]
+}
+expect "before the list, which is folded under its own heading" notice_then_folded_list
+expect "and says how many entries the fold holds" \
+  has "$notes" "<summary>$(grep -c '^- ' "$notes") changes</summary>"
+expect "and since when" has "$notes" "changes since the project started, as their commit messages"
 run "$work" scripts/release-notes.sh --changelog 0.1.0
 expect "regenerates CHANGELOG.md" has "$work/CHANGELOG.md" \
   "## [0.1.0](https://github.com/Pratyay-ops/FXM/releases/tag/v0.1.0)"
@@ -417,12 +447,15 @@ git -C "$work" commit -q -m "docs(release): summarize v0.1.0"
 expect "starts with the version's summary" \
   test "$(head -1 "$notes")" = "FXM 0.1.0 brings a thing."
 summary_then_changes() {
-  [ "$(sed -n '/^- A thing$/,/^### /p' "$notes" | tr '\n' '|')" = \
-    "- A thing||## Changes||### Features|" ]
+  [ "$(sed -n '/^- A thing$/,/^## Legal$/p' "$notes" | tr '\n' '|')" = "- A thing||## Legal|" ] &&
+    [ "$(grep -n -x -e '- A thing' -e '## Legal' -e '## Changes' -e '### Features' "$notes" |
+      cut -d: -f2- | tr '\n' '|')" = "- A thing|## Legal|## Changes|### Features|" ]
 }
-expect "then lists the changes under their own heading" summary_then_changes
+expect "then the legal notice and the changes under their own headings" summary_then_changes
 (cd "$work" && scripts/release-notes.sh) >"$notes"
 expect "without a version, there is no summary" lacks "$notes" "brings a thing"
+expect "nor notice or fold: only the list" \
+  test -z "$(grep -e '^## ' -e '<details>' "$notes" || true)" -a "$(head -1 "$notes")" = "### Features"
 run "$work" scripts/release-notes.sh --changelog 0.1.0
 expect "and the changelog has none" lacks "$work/CHANGELOG.md" "brings a thing"
 git -C "$work" switch -q -c feat/late
@@ -434,6 +467,7 @@ git -C "$work" merge -q --no-ff feat/late -m "Merge stage late"
 (cd "$work" && scripts/release-notes.sh 0.2.0) >"$notes"
 expect "the next release starts after the last tag" lacks "$notes" "Add a thing"
 expect "and includes branches started before it" has "$notes" "Add a late thing"
+expect "and says so" has "$notes" "changes since v0.1.0, as their commit messages"
 (cd "$work" && scripts/release-notes.sh 0.1.0) >"$notes"
 expect "a tagged release keeps its own notes" \
   test "$(grep -c 'Add a thing' "$notes")" = 1 -a "$(grep -c 'Speed something up' "$notes")" = 0
@@ -450,6 +484,7 @@ git -C "$work" tag v0.2.0
 commit "$work" "docs(plan): mark 1.2 done"
 (cd "$work" && scripts/release-notes.sh 0.3.0) >"$notes"
 expect "says so when nothing notable changed" has "$notes" "No notable changes."
+expect "without an empty fold" lacks "$notes" "<details>"
 
 echo "release-pr.sh"
 work=$(new_repo pr)
@@ -584,6 +619,7 @@ summary_first() {
     "FXM 0.1.0 is|## Changes|- **core:** |" ]
 }
 expect "after the release's summary" summary_first
+expect "and the legal notice" has "$GH_STUB_DIR/pr-body.md" "not affiliated with or endorsed by"
 expect "prints the pull request URL" says "Release pull request: https://github.com/test/fxm/pull/7"
 expect "leaves a clean tree" test -z "$(git -C "$work" status --porcelain)"
 expect "never merges" lacks "$GH_STUB_DIR/calls.log" "pr merge"
