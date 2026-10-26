@@ -88,7 +88,7 @@ One sync runs at a time across tabs (Web Locks; a lock within the tab where they
 - **Someone else's token** would copy this library to their account and let them change it: the confirmation names the account and asks to continue only if it is the user's own.
 - **Turning sync off** deletes the bases (`fxm-sync`), so nothing synced stays on the device where the user can't see it, and can delete the gist. The token stays valid on GitHub until it expires, so the dialog links to GitHub's list of tokens.
 - Requests go only to `api.github.com`, with the token as `Authorization: Bearer …`, `credentials: 'omit'`, `cache: 'no-store'` and no referrer. Errors never contain the token.
-- The web app's content security policy must allow `https://api.github.com` in `connect-src` (stage 2.8's service list). The desktop app's policy allows `https:` already.
+- The web app's content security policy allows `https://api.github.com` in `connect-src`: GitHub is in stage 2.8's service list (`APP_SERVICES` in `scripts/build-dist/src/policies.ts`), under the name the site's privacy page gives it. The desktop app's policy allows `https:` already.
 
 ## Files
 
