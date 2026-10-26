@@ -5,12 +5,23 @@
  * The rule the labels follow: **FLAC, ALAC and WAV are lossless, nothing else is.** The tier
  * comes from the codec through `tierOf`, so an MP3, AAC, Opus or Vorbis file is never called
  * lossless, whatever its bitrate, and formats a tag reader may call lossless but browsers can't
- * play (Monkey's Audio, WavPack, DSD, AIFF) are not listed at all.
+ * play (Monkey's Audio, WavPack, DSD, AIFF) are not listed at all. Nor is a FLAC, ALAC or WAV
+ * whose tags say it was converted from lossy audio, as FXM's own Save to device marks the files
+ * it makes from YouTube's Opus: it gets its source's tier (`convertedTier`) and says where it came
+ * from ("FLAC · converted from Opus").
  *
  * @module
  */
 
-import { CODEC_LABELS, type Codec, type Container, isLosslessCodec, tierOf } from '@fxm/core'
+import {
+  CODEC_LABELS,
+  type Codec,
+  type Container,
+  convertedTier,
+  isLosslessCodec,
+  type LossySource,
+  tierOf,
+} from '@fxm/core'
 import type { LocalAudioFormat } from './types'
 
 /**
@@ -162,11 +173,13 @@ function positiveInteger(value: number | undefined): number | undefined {
 
 /**
  * The format of a file from the tag reader's report, or why FXM doesn't list it: a video, or a
- * codec or container browsers don't play.
+ * codec or container browsers don't play. `convertedFrom` is the lossy audio the file's tags say
+ * it was converted from (`convertedFromTags`): its tier is then no better than that source's.
  */
 export function audioFormatOf(
   parsed: ParsedFormat,
   extension: string,
+  convertedFrom?: LossySource,
 ): { format: LocalAudioFormat } | { unsupported: string } {
   if (parsed.hasVideo === true) return { unsupported: 'A video file' }
   const codec = codecOf(parsed.codec)
@@ -178,11 +191,13 @@ export function audioFormatOf(
   const bitrateKbps = positiveInteger(
     parsed.bitrate === undefined ? undefined : parsed.bitrate / 1000,
   )
+  const own = bitrateKbps === undefined ? { codec } : { codec, bitrateKbps }
   const format: LocalAudioFormat = {
     codec,
     container,
-    tier: tierOf(bitrateKbps === undefined ? { codec } : { codec, bitrateKbps }),
+    tier: convertedFrom === undefined ? tierOf(own) : convertedTier(own, convertedFrom),
   }
+  if (convertedFrom !== undefined) format.convertedFrom = convertedFrom
   if (bitrateKbps !== undefined) format.bitrateKbps = bitrateKbps
   const sampleRateHz = positiveInteger(parsed.sampleRate)
   if (sampleRateHz !== undefined) format.sampleRateHz = sampleRateHz
@@ -191,9 +206,20 @@ export function audioFormatOf(
   return { format }
 }
 
-/** Whether a file's audio is lossless: FLAC, ALAC or WAV, nothing else. */
+/**
+ * Whether a file's audio is lossless: FLAC, ALAC or WAV, nothing else, and never one converted
+ * from lossy audio (its tier is its source's).
+ */
 export function isLossless(format: Pick<LocalAudioFormat, 'tier'>): boolean {
   return format.tier === 'lossless'
+}
+
+/** The codec a converted file came from, for people: `Opus`; `undefined` for other files. */
+export function convertedFromName(
+  format: Pick<LocalAudioFormat, 'convertedFrom'>,
+): string | undefined {
+  const from = format.convertedFrom
+  return from === undefined ? undefined : (CODEC_LABELS[from.codec] ?? from.codec)
 }
 
 /** The name of a format for people: the codec, except WAV's PCM, which people know as WAV. */
@@ -208,11 +234,15 @@ function kilohertz(hz: number): string {
 
 /**
  * The quality of a file for people, e.g. `FLAC · 24-bit · 96 kHz` or `MP3 · 320 kbps`. Lossless
- * files show their resolution, lossy ones their bitrate, when known.
+ * files show their resolution, lossy ones their bitrate, when known, and a file converted from
+ * lossy audio where it came from: `FLAC · converted from Opus`.
  */
 export function qualityLabel(format: LocalAudioFormat): string {
   const parts = [formatName(format)]
-  if (isLossless(format)) {
+  const from = convertedFromName(format)
+  if (from !== undefined) {
+    parts.push(`converted from ${from}`)
+  } else if (isLossless(format)) {
     if (format.bitDepth !== undefined) parts.push(`${format.bitDepth}-bit`)
     if (format.sampleRateHz !== undefined) parts.push(kilohertz(format.sampleRateHz))
   } else if (format.bitrateKbps !== undefined) {

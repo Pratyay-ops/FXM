@@ -137,7 +137,10 @@ export interface OpenedFile {
   root: LocalRootRecord
 }
 
-/** The stream to play a local file from its object URL. */
+/**
+ * The stream to play a local file from its object URL: its tier, and for a file converted from
+ * lossy audio that source, as the stream badge and Now playing's details show them.
+ */
 export function streamOptionOf(
   format: LocalAudioFormat,
   url: string,
@@ -157,6 +160,7 @@ export function streamOptionOf(
   if (format.bitrateKbps !== undefined) stream.bitrateKbps = format.bitrateKbps
   if (format.sampleRateHz !== undefined) stream.sampleRateHz = format.sampleRateHz
   if (format.bitDepth !== undefined) stream.bitDepth = format.bitDepth
+  if (format.convertedFrom !== undefined) stream.convertedFrom = format.convertedFrom
   if (loudness !== undefined) stream.loudness = loudness
   return stream
 }

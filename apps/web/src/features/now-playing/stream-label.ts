@@ -1,8 +1,8 @@
 /**
- * What the stream badge says: the audio format ("Opus", "AAC from 360p video"), where the audio
- * comes from ("YouTube Music") and, for audio found for another catalog's track, how sure the
- * match is ("Matched from Spotify · 0.93"). Plain words only: no logos or brand colours
- * (docs/LEGAL.md).
+ * What the stream badge says: the audio format ("Opus", "AAC from 360p video", "FLAC from Opus"
+ * for a file converted from lossy audio), where the audio comes from ("YouTube Music") and, for
+ * audio found for another catalog's track, how sure the match is ("Matched from Spotify · 0.93").
+ * Plain words only: no logos or brand colours (docs/LEGAL.md).
  *
  * @module
  */
@@ -95,9 +95,15 @@ function isYouTube(source: SourceId | undefined): boolean {
   return source === 'ytm' || source === 'yt'
 }
 
-/** The format of a stream, e.g. `Opus`, `FLAC` or `AAC from 360p video`. */
+/**
+ * The format of a stream, e.g. `Opus`, `FLAC` or `AAC from 360p video`, and `FLAC from Opus` for a
+ * file whose tags say it was converted from lossy audio (FXM's Save to device marks those): such
+ * a file is no better than its source, so its format never reads as plain FLAC.
+ */
 export function formatLabel(stream: StreamOption, source?: SourceId): string {
   const codec = CODEC_LABELS[stream.codec] ?? stream.codec
+  const from = stream.convertedFrom
+  if (from !== undefined) return `${codec} from ${CODEC_LABELS[from.codec] ?? from.codec}`
   if (stream.media !== 'muxed-video') return codec
   // YouTube's only muxed rung is itag 18, a 360p MP4 (ARCHITECTURE.md §7.3).
   return isYouTube(source) ? `${codec} from 360p video` : `${codec} from video`
@@ -157,10 +163,10 @@ export function describeStream(
 
   const details: StreamDetail[] = []
   if (stream !== undefined) {
-    const bitrate =
-      stream.bitrateKbps !== undefined && Number.isFinite(stream.bitrateKbps)
-        ? `, ${Math.round(stream.bitrateKbps)} kbps`
-        : ''
+    // A converted file's own bitrate says nothing of its quality: its source's does.
+    const kbps =
+      stream.convertedFrom === undefined ? stream.bitrateKbps : stream.convertedFrom.bitrateKbps
+    const bitrate = kbps !== undefined && Number.isFinite(kbps) ? `, ${Math.round(kbps)} kbps` : ''
     details.push({ label: 'Format', value: `${format}${bitrate}` })
     details.push({ label: 'Quality', value: TIER_LABELS[stream.tier] ?? stream.tier })
     details.push({ label: 'File', value: CONTAINER_LABELS[stream.container] ?? stream.container })

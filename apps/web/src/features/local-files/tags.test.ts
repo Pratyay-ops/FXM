@@ -1,5 +1,16 @@
+import { exportAudio, type SourceAudio, tagsFromTrack } from '@fxm/convert'
+import { FakeFfmpegCore, itag18File } from '@fxm/convert/testing'
+import { type DownloadFormat, formatId, type Track } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
-import { cleanDate, cleanText, loudnessOfTags, readTags, titleFromFileName } from './tags'
+import { isLossless, qualityLabel } from './format'
+import {
+  cleanDate,
+  cleanText,
+  convertedFromTags,
+  loudnessOfTags,
+  readTags,
+  titleFromFileName,
+} from './tags'
 import {
   audioFile,
   flacFile,
@@ -198,6 +209,107 @@ describe('readTags', () => {
       'broken.flac',
     )
     expect(result.ok).toBe(false)
+  })
+})
+
+describe('files FXM converted from lossy audio', () => {
+  /** A YouTube Music song, as Save to device tags it. */
+  const SONG: Track = {
+    id: formatId('ytm', 'track', 'abc123def45'),
+    source: 'ytm',
+    title: 'Sine 440',
+    artists: [{ name: 'FXM test' }],
+    album: { name: 'Generated' },
+    isrc: 'XXFXM2600001',
+    artwork: [],
+    kind: 'song',
+  }
+  /** YouTube's Opus (itag 251), as its download record describes it. */
+  const OPUS: SourceAudio = { codec: 'opus', container: 'webm', media: 'audio', bitrateKbps: 160 }
+
+  /** Saves the song as `format` the way Save to device does, with a stand-in for the core. */
+  async function saved(format: DownloadFormat, source: SourceAudio = OPUS) {
+    // A video's audio is extracted first, so it has to be a real MP4 (generated, filler audio).
+    const input = source.media === 'muxed-video' ? itag18File() : new Uint8Array(16)
+    const result = await exportAudio(
+      { input, source, format, tags: tagsFromTrack(SONG) },
+      { loadCore: async () => new FakeFfmpegCore() },
+    )
+    const name = `FXM test - Sine 440.${result.plan.output.extension}`
+    return read(new Uint8Array(await result.blob.arrayBuffer()), name)
+  }
+
+  it('reads a FLAC saved from Opus as converted, with the Opus’s quality, never lossless', async () => {
+    const { format, tags } = await saved('flac')
+    expect(format).toMatchObject({
+      codec: 'flac',
+      container: 'flac',
+      tier: 'high',
+      convertedFrom: { codec: 'opus', bitrateKbps: 160 },
+    })
+    expect(isLossless(format)).toBe(false)
+    expect(qualityLabel(format)).toBe('FLAC · converted from Opus')
+    // The rest of the tags read as before: it still plays as the song's offline copy.
+    expect(tags).toMatchObject({ title: 'Sine 440', artists: ['FXM test'], isrc: 'XXFXM2600001' })
+  })
+
+  it('reads a WAV saved from Opus (its id3 chunk) as converted', async () => {
+    const { format } = await saved('wav')
+    expect(format).toMatchObject({ codec: 'pcm', tier: 'high', convertedFrom: { codec: 'opus' } })
+    expect(isLossless(format)).toBe(false)
+    expect(qualityLabel(format)).toBe('WAV · converted from Opus')
+  })
+
+  it('reads an M4A and an MP3 saved from lossy audio as converted too', async () => {
+    // The stand-in core answers ALAC with an M4A whose track is AAC: the iTunes atoms matter here.
+    const m4a = await saved('alac')
+    expect(m4a.format.convertedFrom).toEqual({ codec: 'opus', bitrateKbps: 160 })
+    expect(isLossless(m4a.format)).toBe(false)
+    // From the AAC of YouTube's itag 18, whose bitrate the download didn't know.
+    const mp3 = await saved('mp3', { codec: 'aac', container: 'mp4', media: 'muxed-video' })
+    expect(mp3.format).toMatchObject({ codec: 'mp3', convertedFrom: { codec: 'aac' } })
+    expect(mp3.format.convertedFrom?.bitrateKbps).toBeUndefined()
+    expect(qualityLabel(mp3.format)).toBe('MP3 · converted from AAC')
+  })
+
+  it('keeps a real lossless file lossless: a FLAC saved from FLAC, the original, another tagger', async () => {
+    const fromFlac = await saved('alac', { codec: 'flac', container: 'flac', media: 'audio' })
+    expect(fromFlac.format.convertedFrom).toBeUndefined()
+    const flac = await read(
+      flacFile({ tags: { ...TAGS, extra: [['FXM_SOURCE_CODEC', 'flac']] } }),
+      'Night Drive.flac',
+    )
+    // A source codec that isn't lossy says nothing.
+    expect(flac.format).toMatchObject({ tier: 'lossless' })
+    expect(flac.format.convertedFrom).toBeUndefined()
+    expect(isLossless(flac.format)).toBe(true)
+  })
+
+  it('reads the source from any tag format, and believes only sensible bitrates', () => {
+    expect(
+      convertedFromTags({
+        vorbis: [
+          { id: 'fxm_source_codec', value: ' Opus ' },
+          { id: 'FXM_SOURCE_BITRATE', value: '141' },
+        ],
+      }),
+    ).toEqual({ codec: 'opus', bitrateKbps: 141 })
+    expect(
+      convertedFromTags({ 'ID3v2.3': [{ id: 'TXXX:FXM_SOURCE_CODEC', value: ['aac'] }] }),
+    ).toEqual({ codec: 'aac' })
+    expect(
+      convertedFromTags({
+        iTunes: [
+          { id: '----:com.apple.iTunes:FXM_SOURCE_CODEC', value: 'mp3' },
+          { id: '----:com.apple.iTunes:FXM_SOURCE_BITRATE', value: '99999' },
+        ],
+      }),
+    ).toEqual({ codec: 'mp3' })
+    expect(
+      convertedFromTags({ vorbis: [{ id: 'FXM_SOURCE_CODEC', value: 'pcm' }] }),
+    ).toBeUndefined()
+    expect(convertedFromTags({})).toBeUndefined()
+    expect(convertedFromTags(undefined)).toBeUndefined()
   })
 })
 

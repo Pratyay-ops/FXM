@@ -21,7 +21,7 @@ import { failureText } from '../library/failure'
 import { artistNames, artworkUrl, trackDuration } from '../library/format'
 import { showStatus } from '../library/status'
 import type { MenuItem } from '../library/ui/menu'
-import { formatName, isLossless, qualityLabel } from './format'
+import { convertedFromName, formatName, isLossless, qualityLabel } from './format'
 import { failureMessage, formatSupport, getLocalPlayer, onTrackFailed } from './player'
 import type { BlockedRoot } from './root-status'
 import type { LocalTrack } from './tracks'
@@ -30,7 +30,10 @@ import type { LocalAudioFormat } from './types'
 /** Roots whose songs can't play right now, by root ID (see `useBlockedRoots`). */
 export type BlockedRoots = ReadonlyMap<string, BlockedRoot>
 
-/** "Lossless" for FLAC, ALAC and WAV; nothing for any other format. */
+/**
+ * "Lossless" for FLAC, ALAC and WAV; nothing for any other format, nor for a file converted from
+ * lossy audio (its tier is its source's, so `lossless` is false for it).
+ */
 export function LosslessBadge({ lossless }: { lossless: boolean }) {
   if (!lossless) return null
   return (
@@ -173,6 +176,11 @@ export interface RowFields {
   album: string
   quality: string
   lossless: boolean
+  /**
+   * The codec a file converted from lossy audio came from, e.g. `Opus` (its tags say so): the
+   * row says "From Opus" where a lossless file says "Lossless". `undefined` for other files.
+   */
+  converted: string | undefined
   /** False when this browser can't play the file's format (ALAC in Chromium, say). */
   playable: boolean
   duration: string
@@ -189,6 +197,7 @@ export function rowFields({ track, file }: LocalTrack): RowFields {
     album: track.album?.name ?? '',
     quality: qualityLabel(file.format),
     lossless: isLossless(file.format),
+    converted: convertedFromName(file.format),
     playable: isPlayableHere(file.format),
     duration: trackDuration(track),
     cover: artworkUrl(track.artwork, 80),
@@ -234,6 +243,7 @@ export const LocalTrackRow = memo(function LocalTrackRow({
   album,
   quality,
   lossless,
+  converted,
   playable,
   duration,
   cover,
@@ -251,6 +261,7 @@ export const LocalTrackRow = memo(function LocalTrackRow({
   let badge: ReactNode
   if (blocked !== undefined) badge = <RowBadge icon={Lock}>{blocked}</RowBadge>
   else if (!playable) badge = <RowBadge>Can’t play here</RowBadge>
+  else if (converted !== undefined) badge = <RowBadge>From {converted}</RowBadge>
   else badge = <LosslessBadge lossless={lossless} />
   return (
     <li
@@ -287,7 +298,9 @@ export const LocalTrackRow = memo(function LocalTrackRow({
         </p>
       </div>
       <p className="hidden w-1/4 min-w-0 truncate text-sm text-text-muted lg:block">{album}</p>
-      <p className="hidden w-44 shrink-0 truncate text-sm text-text-muted xl:block">{quality}</p>
+      <p title={quality} className="hidden w-44 shrink-0 truncate text-sm text-text-muted xl:block">
+        {quality}
+      </p>
       <span className="hidden md:block">
         <IconButton
           label={`Like ${title}`}
