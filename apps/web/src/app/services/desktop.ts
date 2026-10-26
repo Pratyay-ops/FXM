@@ -9,7 +9,8 @@
  * - the equalizer's readability rule (stage 8.1, `appEngineOptions()` of
  *   `features/audio-effects/connect.ts`), as the browser's engine has it: the engine routes the
  *   user's files, downloads and the free sources through Web Audio, never googlevideo, which the
- *   webview loads without CORS until stage 7.6;
+ *   webview loads without CORS until the app plays it through stage 7.6's `fxm-media:` scheme,
+ *   which isn't wired in yet;
  * - `DESKTOP_PLAYER_OPTIONS`: streams loaded about 5 hours ago are resolved again, and a song
  *   whose probe got no answer is retried rather than skipped;
  * - the lifecycle's `refreshBeforeExpiryMs` (an hour) and the native network monitor;

@@ -114,7 +114,8 @@ describe('setUpDesktopPlayback', () => {
     expect(isReadable?.(testStream('file', { url: 'blob:http://tauri.localhost/0f1e' }))).toBe(true)
     const archive = testStream('archive', { url: 'https://archive.org/download/item/01.flac' })
     expect(isReadable?.(archive)).toBe(true)
-    // …but not googlevideo, which the webview loads without CORS until stage 7.6.
+    // …but not googlevideo, which the webview loads without CORS until the app plays it through
+    // stage 7.6's fxm-media: scheme, which isn't wired in yet.
     const youtube = testStream('ytm', { url: 'https://rr1---sn-x.googlevideo.com/videoplayback' })
     expect(isReadable?.(youtube)).toBe(false)
   })

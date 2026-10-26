@@ -61,8 +61,9 @@ function corsMediaHost(host: string): boolean {
  * - Internet Archive and Jamendo, which send CORS headers to any page;
  * - googlevideo only in a browser with FXM Connect (`platform` `web` with `mediaBytes`), whose
  *   rules add CORS for the FXM origin. Not in the Lite tier or without FXM Connect, and not in the
- *   desktop app, whose webview loads googlevideo without CORS (it reads bytes through Rust only,
- *   until stage 7.6 gives the equalizer a readable path), nor in the Android app's WebView;
+ *   desktop app, whose webview loads googlevideo without CORS (it reads bytes through Rust only:
+ *   stage 7.6's `fxm-media:` scheme serves them readably, but the app doesn't play through it
+ *   yet), nor in the Android app's WebView;
  * - nothing else: an unknown host (a plugin's, a user's Invidious instance) is assumed opaque.
  */
 export function isMediaReadable(

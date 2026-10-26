@@ -423,9 +423,10 @@ export interface ItemFeatures {
  * - Plugin sources are unknown, so they get neither.
  * - The equalizer reads YouTube audio only in a browser with FXM Connect (stage 8.1, the player's
  *   `isMediaReadable`). The desktop and Android apps (`platform`) play it in their webview without
- *   reading it, so there it can't process YouTube or Spotify items: on desktop until stage 7.6, on
- *   Android until the app plays through its native player (stage 6.3's `NativeEngine`), which
- *   processes every stream.
+ *   reading it, so there it can't process YouTube or Spotify items: on desktop until the app plays
+ *   them through stage 7.6's `fxm-media:` scheme, which isn't wired in yet, on Android until the
+ *   app plays through its native player (stage 6.3's `NativeEngine`), which processes every
+ *   stream.
  */
 export function itemFeatures(
   capabilities: NetworkCapabilities,
