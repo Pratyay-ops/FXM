@@ -181,6 +181,12 @@ export interface SourcesSnapshot {
   readonly spotifyEnabled: boolean
   /** The registered metadata providers, by source. */
   readonly providers: ReadonlyMap<SourceId, MetadataProvider>
+  /**
+   * Whether the tier is still being worked out: FXM Connect's marker is on the page, but it has
+   * not answered yet (a service worker waking up can take a second or two). Meanwhile the pages
+   * say they are connecting rather than offering to install it. Absent means `false`.
+   */
+  readonly detecting?: boolean
 }
 
 /** The app's sources: see the module documentation. */
@@ -201,6 +207,8 @@ export interface Sources {
   setPlatform(platform: SourcesPlatform): void
   /** Switches Spotify on or off (the setting, not whether it is reachable). */
   setSpotifyEnabled(enabled: boolean): void
+  /** Says whether the tier is still being worked out (see {@link SourcesSnapshot.detecting}). */
+  setDetecting(detecting: boolean): void
   /** A context for one provider call. */
   context(options: SourceContextOptions): ProviderContext
 }
@@ -237,6 +245,7 @@ export function createSources(options: SourcesOptions = {}): Sources {
     platformRevision: 0,
     spotifyEnabled: spotifySwitch.getState().enabled,
     providers: new Map(providers),
+    detecting: false,
   }
 
   function update(changes: Partial<SourcesSnapshot>) {
@@ -285,6 +294,9 @@ export function createSources(options: SourcesOptions = {}): Sources {
     },
     setSpotifyEnabled(enabled) {
       spotifySwitch.getState().setEnabled(enabled)
+    },
+    setDetecting(detecting) {
+      if (detecting !== snapshot.detecting) update({ detecting })
     },
     context: ({ priority = 'interactive', ...contextOptions }) =>
       platform.context({ ...contextOptions, priority }),

@@ -69,6 +69,14 @@ export const HOST_RULES: readonly HostRule[] = [
   { host: 'i.ytimg.com', hostClass: 'open', service: 'YouTube thumbnails' },
   { host: '*.ggpht.com', hostClass: 'open', service: 'YouTube images' },
   { host: 'i.scdn.co', hostClass: 'open', service: 'Spotify images' },
+  // BotGuard's interpreter, for the experimental YouTube rungs of stage 1.11. It sends no CORS
+  // headers, so only the desktop and Android apps can read it.
+  {
+    host: 'www.google.com',
+    hostClass: 'open',
+    service: "Google's BotGuard",
+    pathPrefix: '/js/th/',
+  },
   { host: 'www.youtube.com', hostClass: 'innertube', service: 'YouTube' },
   { host: 'music.youtube.com', hostClass: 'innertube', service: 'YouTube Music' },
   { host: 'youtubei.googleapis.com', hostClass: 'innertube', service: 'YouTube' },

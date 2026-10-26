@@ -7,7 +7,9 @@ import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { PwaShell } from '../../features/pwa/pwa-shell'
 import { FeedbackToast } from '../../features/search/feedback'
+import { ShareDialogHost } from '../../features/share/share-dialog'
 import { SponsorBlockNotices } from '../../features/sponsorblock/sponsorblock-notices'
+import { SyncAgent } from '../../features/sync/agent'
 import { BottomNav } from './bottom-nav'
 import { RouteAnnouncer } from './route-announcer'
 import { useDocumentTitle, useRouteHandle } from './route-meta'
@@ -87,10 +89,12 @@ export function AppLayout() {
       {/* The app's one toast: confirmations of the catalog pages and of the library, also of
           actions taken in the sidebar, on every page. */}
       <FeedbackToast />
+      <SyncAgent />
       {/* Phones: Now Playing's own controls fill the screen, so the update toast goes on top. */}
       <PwaShell fullScreen={fullScreen} />
       {/* The Android app's offer of a new version, in the same place (stage 6.6). */}
       <AppUpdateToast fullScreen={fullScreen} />
+      <ShareDialogHost />
       <ScrollRestoration />
     </>
   )

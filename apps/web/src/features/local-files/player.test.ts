@@ -2,6 +2,8 @@ import { createQueue, formatId, isFxmError, type QueueItem, type Track } from '@
 import type { ResolveRequest, StreamResolver } from '@fxm/player'
 import { FakeEngine, testTrack } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getPlayer } from '../now-playing/playback'
+import { FakePolicy, testCandidate } from '../now-playing/testing'
 import { useSettingsStore } from '../settings/settings-store'
 import { createLocalAudioSource } from './audio-source'
 import { resetLocalFiles } from './local-files'
@@ -12,6 +14,7 @@ import {
   onTrackFailed,
   resetLocalPlayer,
   withLocalFiles,
+  withLocalFilesFirst,
 } from './player'
 import {
   asHandle,
@@ -119,6 +122,29 @@ describe('withLocalFiles', () => {
   })
 })
 
+describe('withLocalFilesFirst', () => {
+  it('puts local files in front of a playback policy, and leaves the rest to it', async () => {
+    const { files, track } = await library()
+    const policy = new FakePolicy()
+    const remote = testTrack('Remote')
+    policy.alternativesOf.set(remote.id, [testCandidate('other')])
+    const local = withLocalFilesFirst(policy, () => files)
+
+    const own = await local.resolver.resolve(item(track('Night Drive')), request())
+    const elsewhere = await local.resolver.resolve(item(remote), request())
+    local.setPlayBestGuesses(true)
+
+    expect(own.stream.codec).toBe('flac')
+    expect(elsewhere.stream.url).toBe('https://media.test/Remote')
+    // Only the catalog track reached the policy's resolver: nothing about local files did.
+    expect(policy.resolver.log).toEqual(['Remote:play#0'])
+    expect(policy.playBestGuesses).toBe(true)
+    await expect(local.alternatives(remote, new AbortController().signal)).resolves.toEqual([
+      testCandidate('other'),
+    ])
+  })
+})
+
 describe('the local audio source', () => {
   it('matches a local track to its own file, and a catalog track by ISRC', async () => {
     const { files, track } = await library()
@@ -196,7 +222,13 @@ describe('the local player', () => {
     expect(failures).toEqual(['“Night Drive” is no longer in “Music”'])
   })
 
-  it('refuses anything that is not a local file until the playback policy is wired in', async () => {
+  it('plays through the app’s player, which the player bars and Now playing show', () => {
+    expect(getLocalPlayer()).toBe(getPlayer())
+    const configured = configureLocalPlayer({ engine: new FakeEngine(), mediaSession: false })
+    expect(getPlayer()).toBe(configured)
+  })
+
+  it('refuses anything that is not a local file where the music services don’t run', async () => {
     configureLocalPlayer({ engine: new FakeEngine(), mediaSession: false })
     const failures: Error[] = []
     const stop = onTrackFailed(({ error }) => failures.push(error))

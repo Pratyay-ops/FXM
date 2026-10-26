@@ -22,6 +22,7 @@ const PAGES = [
   ['artist', 'artist/ytm:UC-daft'],
   ['playlist', 'playlist/liked'],
   ['now-playing', 'now-playing'],
+  ['import', 'import'],
   ['settings', 'settings'],
   ['connect', 'connect'],
   ['not-found', 'no-such-page'],
@@ -29,6 +30,30 @@ const PAGES = [
 
 // The library after restoring e2e/fixtures/library-backup.json (fictional songs).
 const LIBRARY_BACKUP = fileURLToPath(new URL('./fixtures/library-backup.json', import.meta.url))
+// Two imports, one with songs to review and one paused (fictional songs).
+const IMPORT_BACKUP = fileURLToPath(new URL('./fixtures/import-backup.json', import.meta.url))
+const EXPORT_PLAYLISTS = {
+  name: 'Playlist1.json',
+  mimeType: 'application/json',
+  buffer: Buffer.from(
+    JSON.stringify({
+      playlists: ['Songs for the very long train ride through the mountains', 'Kitchen radio'].map(
+        (name, index) => ({
+          name,
+          items: [
+            {
+              track: {
+                trackName: `Song ${index + 1}`,
+                artistName: 'Neon Harbor',
+                trackUri: `spotify:track:fxm${String(index + 1).padStart(19, '0')}`,
+              },
+            },
+          ],
+        }),
+      ),
+    }),
+  ),
+}
 const LIBRARY_PAGES = [
   ['library-playlists', 'library'],
   ['library-liked', 'library?tab=liked'],
@@ -41,11 +66,11 @@ const LIBRARY_PAGES = [
   ['playlist-shuffled', 'playlist/local:playlist:6f1c2d3e-0000-4000-8000-000000000002'],
 ] as const
 
-async function restoreLibrary(page: Page) {
+async function restoreLibrary(page: Page, file = LIBRARY_BACKUP) {
   await page.goto('library')
   await page.getByRole('main').getByRole('button', { name: 'Backup' }).click()
   const dialog = page.getByRole('dialog', { name: 'Back up your library' })
-  await dialog.getByLabel('Choose a backup file').setInputFiles(LIBRARY_BACKUP)
+  await dialog.getByLabel('Choose a backup file').setInputFiles(file)
   await dialog.getByRole('radio', { name: /Replace/ }).check()
   await dialog.getByRole('button', { name: 'Replace my library' }).click()
   await expect(page.getByText('Library replaced from the backup')).toBeVisible()
@@ -156,6 +181,24 @@ for (const theme of THEMES) {
         await restoreLibrary(page)
         await capture(page, LIBRARY_PAGES, `${theme}-${width}`)
         await captureLibraryStates(page, `${theme}-${width}`)
+      })
+
+      test('captures imports: a preview, the list and a review', async ({ page }) => {
+        await seedSettings(page, 'music', theme)
+        const prefix = `${theme}-${width}`
+        await page.goto('import')
+        await page.getByLabel('Choose ZIP or JSON files').setInputFiles(EXPORT_PLAYLISTS)
+        await page.getByRole('heading', { name: 'Ready to import' }).waitFor()
+        await page.screenshot({ path: `screenshots/${prefix}-import-preview.png` })
+        await restoreLibrary(page, IMPORT_BACKUP)
+        await capture(
+          page,
+          [
+            ['import-list', 'import'],
+            ['import-review', 'import/6f1c2d3e-0000-4000-8000-0000000000b1'],
+          ],
+          prefix,
+        )
       })
     })
   }
@@ -357,6 +400,19 @@ for (const theme of THEMES) {
 
 test.describe('forced colors (Windows High Contrast) at 1280px', () => {
   test.use({ ...viewport(1280), forcedColors: 'active' })
+
+  test("captures Home's onboarding, with artists and genres picked", async ({ page }) => {
+    test.skip(
+      process.env.VITE_FXM_FAKE_CATALOG !== 'on',
+      "Home's development fakes need a build with VITE_FXM_FAKE_CATALOG=on",
+    )
+    await seedSettings(page, 'music', 'dark')
+    await page.goto('./?fake-home=lite')
+    const onboarding = page.getByRole('region', { name: 'What do you like to listen to?' })
+    await onboarding.getByRole('button', { name: 'Aurora Lane' }).click()
+    await onboarding.getByRole('button', { name: 'Jazz' }).click()
+    await onboarding.screenshot({ path: 'screenshots/forced-colors-1280-onboarding.png' })
+  })
 
   test('captures the sliders, segmented controls, source chips and tabs', async ({ page }) => {
     await seedSettings(page, 'all', 'dark')

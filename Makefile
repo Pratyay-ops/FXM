@@ -39,8 +39,9 @@ dev: ## Start the web app dev server
 
 lint: ## Check formatting and lint rules (Biome)
 	@$(RUN) pnpm run lint
-	@if git grep -niI -e 'fxm-music\.pages\.de[v]' -e 'fxm_music_pages_de[v]' -- . ':!docs/research/' \
-	  || git grep -nwI 'fxm-musi[c]' -- . ':!docs/research/' ':!docs/ARCHITECTURE.md' ':!Makefile'; then \
+	@# CHANGELOG.md is generated from commit history, which keeps the old name.
+	@if git grep -niI -e 'fxm-music\.pages\.de[v]' -e 'fxm_music_pages_de[v]' -- . ':!docs/research/' ':!CHANGELOG.md' \
+	  || git grep -nwI 'fxm-musi[c]' -- . ':!docs/research/' ':!docs/ARCHITECTURE.md' ':!Makefile' ':!CHANGELOG.md'; then \
 	  echo "FXM moved to fxmusic.pages.dev and the Pages project fxmusic (fxm-music was taken, see ARCHITECTURE.md D24): update the lines above."; \
 	  exit 1; \
 	fi

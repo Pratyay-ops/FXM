@@ -4,6 +4,7 @@ import {
   Clock,
   Disc3,
   Ellipsis,
+  FileInput,
   Heart,
   ListMusic,
   ListPlus,
@@ -36,6 +37,7 @@ import {
   LIKED_PLAYLIST_ID,
 } from '../../db/types'
 import { DownloadsPanel } from '../downloads/downloads-panel'
+import { isConnected, useSyncStore } from '../sync/sync-store'
 import { BackupDialog } from './backup-dialog'
 import { CoverArt } from './cover-art'
 import { failureText } from './failure'
@@ -354,11 +356,15 @@ function RecentRowItem({ row, onAdd }: { row: RecentRow; onAdd: (track: Track) =
   )
 }
 
+const CLEAR_HISTORY_HELP =
+  'Recently played starts over, and recommendations forget what you played. Your playlists and likes stay.'
+
 function RecentPanel() {
   const live = useRecentlyPlayed(50)
   const repo = useLibrary()
   const [adding, setAdding] = useState<Track[] | null>(null)
   const [clearing, setClearing] = useState(false)
+  const syncOn = useSyncStore(isConnected)
   const root = useRef<HTMLDivElement>(null)
   // After clearing, the button that opened the dialog is gone with the list: the tab panel,
   // which then shows the empty state, gets focus.
@@ -404,7 +410,11 @@ function RecentPanel() {
           return target
         }}
         title="Clear listening history?"
-        description="Recently played starts over, and recommendations forget what you played. Your playlists and likes stay."
+        description={
+          syncOn
+            ? `${CLEAR_HISTORY_HELP} Sync clears the plays of the last 90 days on your other devices too, asking there first when there are many. Earlier versions of your sync gist keep them until you delete the gist on GitHub.`
+            : CLEAR_HISTORY_HELP
+        }
       >
         <DialogActions>
           {/* Focus starts on Cancel: an extra Enter clears nothing. */}
@@ -467,6 +477,10 @@ export function LibraryPage() {
           <ArchiveRestore aria-hidden="true" />
           Backup
         </button>
+        <Link to="/import" className={buttonClasses({ variant: 'secondary' })}>
+          <FileInput aria-hidden="true" />
+          Import
+        </Link>
       </div>
       <Tabs
         label="Library"

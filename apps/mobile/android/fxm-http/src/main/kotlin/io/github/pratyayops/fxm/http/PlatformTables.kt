@@ -21,6 +21,7 @@ val HOST_RULES: List<HostRule> =
     HostRule("i.ytimg.com", HostClass.OPEN, "YouTube thumbnails"),
     HostRule("*.ggpht.com", HostClass.OPEN, "YouTube images"),
     HostRule("i.scdn.co", HostClass.OPEN, "Spotify images"),
+    HostRule("www.google.com", HostClass.OPEN, "Google's BotGuard", pathPrefix = "/js/th/"),
     HostRule("www.youtube.com", HostClass.INNERTUBE, "YouTube"),
     HostRule("music.youtube.com", HostClass.INNERTUBE, "YouTube Music"),
     HostRule("youtubei.googleapis.com", HostClass.INNERTUBE, "YouTube"),

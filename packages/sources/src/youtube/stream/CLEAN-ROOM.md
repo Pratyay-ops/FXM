@@ -30,6 +30,7 @@ The protocol facts the stream resolver in this folder relies on, each with where
 | googlevideo answers these requests with `Cross-Origin-Resource-Policy: cross-origin` and no `Access-Control-Allow-Origin` | Captured | 2026-10-26 |
 | itag 18's MP4 starts with its `moov` box. Its AAC track is AAC-LC, 44.1 kHz, stereo, at 128.0 kbps on average (the `stsz` sample sizes over the `mdhd` duration); the `esds` box declares no bitrate | Captured: the first 256–320 KiB of the itag 18 files of "Creep", "Baby Shark Dance" and the "Creep" video | 2026-10-26 |
 | A `Range` header with one range that has a start (`bytes=first-last`) is a CORS-safelisted request-header; a suffix range (`bytes=-500`) is not | Fetch Living Standard, "CORS-safelisted request-header" (fetch.spec.whatwg.org) | 2026-10-26 |
+| A VISIONOS URL that passed the end-of-file probe plays to its last byte in a browser's `<audio>`: Chromium's one `bytes=0-` request got 206 with the whole AAC 140 file (2,178,857 bytes), and the element reached `ended` after the song's 134.5 s | Stage 2.9's manual run in Chromium 156 with FXM Connect's development build, from a residential connection: "Blitzkrieg Bop" by Ramones ([apps/web/README.md](../../../../../apps/web/README.md#manual-run-with-fxm-connect-2026-10-26)) | 2026-10-26 |
 
 ## Playability
 

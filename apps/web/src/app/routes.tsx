@@ -70,6 +70,21 @@ export const routes: RouteObject[] = [
               })),
           },
           {
+            // Imports (stage 3.6): files, links and Spotify's data download, and their reviews.
+            path: 'import',
+            handle: page('Import'),
+            lazy: () =>
+              import('../features/import/import-page').then((m) => ({ Component: m.ImportPage })),
+          },
+          {
+            path: 'import/:id',
+            handle: page('Import'),
+            lazy: () =>
+              import('../features/import/import-detail-page').then((m) => ({
+                Component: m.ImportDetailPage,
+              })),
+          },
+          {
             path: 'settings',
             handle: page('Settings'),
             lazy: () =>

@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@fxm/core": "workspace:*"
+    "@fxm/core": "workspace:*",
+    "googlevideo": "^4.1.1"
   },
   "devDependencies": {
     "happy-dom": "^20.14.6"

@@ -83,7 +83,7 @@ A request a transport refuses rejects before anything is sent, with an `FxmError
 
 | Class | Hosts | On the web |
 |---|---|---|
-| `open` | `musicbrainz.org`, `coverartarchive.org`, `api.listenbrainz.org`, `labs.api.listenbrainz.org`, `ws.audioscrobbler.com`, `lrclib.net`, `archive.org` and `*.archive.org`, `api.jamendo.com` and `*.jamendo.com`, `itunes.apple.com`, `sponsor.ajay.app`, `i.ytimg.com`, `*.ggpht.com`, `i.scdn.co` | Direct |
+| `open` | `musicbrainz.org`, `coverartarchive.org`, `api.listenbrainz.org`, `labs.api.listenbrainz.org`, `ws.audioscrobbler.com`, `lrclib.net`, `archive.org` and `*.archive.org`, `api.jamendo.com` and `*.jamendo.com`, `itunes.apple.com`, `sponsor.ajay.app`, `i.ytimg.com`, `*.ggpht.com`, `i.scdn.co`; `www.google.com` for BotGuard's interpreter (stage 1.11), paths under `/js/th/` only | Direct (BotGuard's interpreter sends no CORS headers: only the native apps read it, and of those only Android so far: the desktop app's scope leaves it out, see [Desktop](#desktop)) |
 | `innertube` | `www.youtube.com`, `music.youtube.com`, `youtubei.googleapis.com` | FXM Connect, or the Lite sandbox for `/youtubei/v1/…` |
 | `googlevideo` | `*.googlevideo.com` | FXM Connect |
 | `spotify` | `open.spotify.com`, `clienttoken.spotify.com`, `api-partner.spotify.com`, `spclient.wg.spotify.com` | FXM Connect |
@@ -236,7 +236,7 @@ Without `http`, both are stubs: CORS-friendly hosts through the webview's own `f
 
 `createDesktopFetch()` (`src/desktop.ts`) is the desktop app's `NativeHttp`. It loads Tauri's bindings (`@tauri-apps/plugin-http` and `@tauri-apps/api`) on its first request, so a browser never downloads them, and sends:
 
-- **Hosts in the table** through Tauri's HTTP plugin, whose scope in the app's `capabilities/default.json` lists exactly those hosts. An address outside the scope rejects with a `TransportError` (`unknown-host`); a network failure with a `TypeError`, and an abort with the signal's reason, as `fetch` does. Reading the body fails the same way: the plugin's own stream errors with bare strings, which `createDesktopFetch()` turns into the signal's reason or a `TypeError`.
+- **Hosts in the table** through Tauri's HTTP plugin, whose scope in the app's `capabilities/default.json` lists exactly those hosts but BotGuard's interpreter (`www.google.com/js/th/`): only stage 1.11's PO-token rungs fetch it, and they need an evaluator document at YouTube's origin, which the desktop app's isn't. An address outside the scope rejects with a `TransportError` (`unknown-host`); a network failure with a `TypeError`, and an abort with the signal's reason, as `fetch` does. Reading the body fails the same way: the plugin's own stream errors with bare strings, which `createDesktopFetch()` turns into the signal's reason or a `TypeError`.
 - **`user` routes**, and any host off the table, through the app's `user_host_fetch` Rust command, which reaches only hosts the user approved, by `GET` or `HEAD`, over HTTPS, to public addresses, never through a proxy, with at most 8 MiB in 30 s. A host the user did not approve rejects with a `TransportError` (`unknown-host`), a request the command can't carry with one (`bad-request`), its other refusals with an `Unsupported` `FxmError`, and a response that is too large with a `Parse` one.
 
 Neither follows a redirect (the plugin gets `maxRedirections: 0`): each hands it back with its `Location`, and the transport follows it hop by hop, checking every hop against the host table first.
@@ -250,7 +250,7 @@ It enforces the header policy once more at the last step, whatever the caller se
 
   | Hosts | User-Agent |
   |---|---|
-  | Every host YouTube (Google) or Spotify runs: InnerTube, googlevideo, Spotify's API hosts and their image servers `i.ytimg.com`, `*.ggpht.com` and `i.scdn.co`; Last.fm's web player | A browser's (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS), as on the web, so FXM's traffic doesn't stand out from the same address's other requests |
+  | Every host YouTube (Google) or Spotify runs: InnerTube, googlevideo, Spotify's API hosts and their image servers `i.ytimg.com`, `*.ggpht.com` and `i.scdn.co`, and BotGuard's `www.google.com`; Last.fm's web player | A browser's (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS), as on the web, so FXM's traffic doesn't stand out from the same address's other requests |
   | Services that ask apps to name themselves: MusicBrainz, Cover Art Archive, ListenBrainz, the Last.fm API, LRCLIB, Internet Archive, Jamendo, iTunes Search, SponsorBlock | FXM's own (`fxmUserAgent`) |
 
 - headers go only in `init.headers`, as a plain object; `Cookie` and `Host` are never sent, and `Set-Cookie` never reaches the caller.
@@ -302,7 +302,6 @@ scripts/run.sh pnpm --filter @fxm/platform test:e2e:updates         # a signed m
 | `src/testing/` | The test helpers |
 | `src/sandbox/` | The Lite tier's sandbox documents and `createSandboxTransport` (stage 1.10, [its README](src/sandbox/README.md)) |
 | `src/updates/` | Signed updates for the desktop and Android apps: the YouTube config and resolver module, verified with Ed25519 ([its README](src/updates/README.md), stage 1.13) |
-
-`src/evaluator/` (1.11) belongs to a later stage.
+| `src/evaluator/` | The isolated evaluator of stage 1.11, one interface on every platform for the code FXM must not run in its pages; see [its README](src/evaluator/README.md) |
 
 See [ARCHITECTURE.md §8](../../docs/ARCHITECTURE.md#8-platforms-and-network-transports).
