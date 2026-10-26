@@ -484,6 +484,34 @@ describe('the pages', () => {
     expect(features).toContain("Spotify's radio, for your home feed and autoplay")
   })
 
+  it('say what FXM contacts while Spotify is on, and that it contacts nothing of it while off', () => {
+    const privacy = source('../pages/privacy.astro')
+    const entry = /name: 'Spotify',\s*url: '[^']*',\s*use: `([^`]*)`/.exec(privacy)?.[1] ?? ''
+    // The Spotify hosts of the web app's policy (APP_SERVICES in scripts/build-dist/src/policies.ts).
+    for (const host of [
+      'open.spotify.com',
+      'api-partner.spotify.com',
+      'spclient.wg.spotify.com',
+      'scdn.co',
+      'spotifycdn.com',
+    ]) {
+      expect(entry).toContain(host)
+    }
+    // The per-song lookups the matcher makes, and the covers, including a saved file's.
+    expect(entry).toContain('When you play or download a Spotify song, or your home feed or')
+    expect(entry).toContain('saving a Spotify song to your device fetches its cover from there')
+    // The app shows no Spotify-hosted image while the switch is off.
+    expect(entry).toContain(
+      "While the integration is off, FXM contacts none of Spotify's servers, not even for covers",
+    )
+    expect(source('../components/Features.astro')).toMatch(
+      /doesn't talk to Spotify at all, not\s+even for covers/,
+    )
+    expect(source('../components/demos/SpotifyDemo.astro')).toContain(
+      "Switch it off and FXM doesn't contact Spotify at all.",
+    )
+  })
+
   it('label the Spotify account sync experimental wherever they offer or describe it', () => {
     const features = source('../components/Features.astro')
     // The checklist's account item has the Experimental badge, and the note follows the list.

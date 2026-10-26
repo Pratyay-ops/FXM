@@ -15,7 +15,8 @@ const label = [
   account
     ? 'A button connects a Spotify account for an experimental, read-only sync of recommendations, liked songs and playlists.'
     : 'Connecting a Spotify account for a read-only sync of recommendations, liked songs and playlists is coming soon.',
-  "A note says that when the integration is off, FXM doesn't contact Spotify.",
+  // With the switch off, the app shows no Spotify-hosted image either (privacy page, Spotify).
+  "A note says that when the integration is off, FXM doesn't contact Spotify at all.",
 ].join(' ')
 const accountText = account
   ? 'Experimental: a read-only sync of recommendations, liked songs and playlists'
@@ -51,7 +52,7 @@ const accountText = account
   </div>
   <div class="note">
     <Icon name="plug" size={16} />
-    Switch it off and FXM doesn't contact Spotify.
+    Switch it off and FXM doesn't contact Spotify at all.
   </div>
 </div>
 
