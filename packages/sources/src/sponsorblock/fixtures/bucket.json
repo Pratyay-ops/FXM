@@ -1,0 +1,77 @@
+[
+  {
+    "videoID": "fxmVideoBBB",
+    "segments": [
+      {
+        "category": "music_offtopic",
+        "actionType": "skip",
+        "segment": [0, 6.25],
+        "UUID": "11111111111111111111111111111111111111111111111111111111111111117",
+        "videoDuration": 214.5,
+        "locked": 0,
+        "votes": 0,
+        "description": ""
+      }
+    ]
+  },
+  {
+    "videoID": "fxmVideoAAA",
+    "segments": [
+      {
+        "category": "music_offtopic",
+        "actionType": "skip",
+        "segment": [201.75, 240.0],
+        "UUID": "22222222222222222222222222222222222222222222222222222222222222227",
+        "videoDuration": 240.0,
+        "locked": 1,
+        "votes": 6,
+        "description": ""
+      },
+      {
+        "category": "music_offtopic",
+        "actionType": "skip",
+        "segment": [0, 14.5],
+        "UUID": "33333333333333333333333333333333333333333333333333333333333333337",
+        "videoDuration": 240.0,
+        "locked": 1,
+        "votes": 9,
+        "description": ""
+      },
+      {
+        "category": "music_offtopic",
+        "actionType": "skip",
+        "segment": [96.1, 103.35],
+        "UUID": "44444444444444444444444444444444444444444444444444444444444444447",
+        "videoDuration": 240.0,
+        "locked": 0,
+        "votes": 2,
+        "description": ""
+      }
+    ]
+  },
+  {
+    "videoID": "fxmVideoCCC",
+    "segments": [
+      {
+        "category": "music_offtopic",
+        "actionType": "skip",
+        "segment": [0, 3.5],
+        "UUID": "55555555555555555555555555555555555555555555555555555555555555557",
+        "videoDuration": 0,
+        "locked": 0,
+        "votes": 0,
+        "description": ""
+      },
+      {
+        "category": "music_offtopic",
+        "actionType": "skip",
+        "segment": [180.0, 187.4],
+        "UUID": "66666666666666666666666666666666666666666666666666666666666666667",
+        "videoDuration": 187.4,
+        "locked": 0,
+        "votes": 0,
+        "description": ""
+      }
+    ]
+  }
+]

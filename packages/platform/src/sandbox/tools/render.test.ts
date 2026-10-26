@@ -24,7 +24,8 @@ import {
 } from './render.ts'
 
 const KINDS = Object.keys(SANDBOX_DOCUMENT_FILES) as SandboxDocumentKind[]
-const FXM = 'https://fxm-music.pages.dev'
+const FXM = 'https://fxmusic.pages.dev'
+const TOKEN = '00112233445566778899aabbccddeeff'
 
 const committed = (kind: SandboxDocumentKind) =>
   readFile(join(DOCUMENTS_DIR, SANDBOX_DOCUMENT_FILES[kind].file), 'utf8')
@@ -51,7 +52,10 @@ describe('the committed sandbox documents', () => {
 })
 
 /** Runs a committed document's script in a fresh realm, as its browser window would. */
-async function runDocument(kind: SandboxDocumentKind, fetch: (url: string) => Promise<Response>) {
+async function runDocument(
+  kind: SandboxDocumentKind,
+  fetch: (url: string, init: RequestInit) => Promise<Response>,
+) {
   const [script] = inlineScripts(await committed(kind))
   const listeners: ((event: unknown) => void)[] = []
   const posted: { message: unknown; targetOrigin: string }[] = []
@@ -60,7 +64,9 @@ async function runDocument(kind: SandboxDocumentKind, fetch: (url: string) => Pr
   }
   const attributes = new Map<string, string>()
   const window = {
-    location: { href: `${FXM}/sandbox/${SANDBOX_DOCUMENT_FILES[kind].file}` },
+    // A sandboxed document's own origin is opaque.
+    origin: 'null',
+    location: { href: `${FXM}/sandbox/${SANDBOX_DOCUMENT_FILES[kind].file}#${TOKEN}` },
     document: {
       documentElement: {
         setAttribute: (name: string, value: string) => attributes.set(name, value),
@@ -78,8 +84,12 @@ async function runDocument(kind: SandboxDocumentKind, fetch: (url: string) => Pr
     AbortController,
     TextEncoder,
   }
-  runInNewContext(script ?? '', window)
+  runInNewContext(script ?? '', Object.assign(window, { self: window }))
   const { port1, port2 } = new MessageChannel()
+  const ready = new Promise<unknown>((resolve) => {
+    port1.addEventListener('message', (event) => resolve(event.data), { once: true })
+  })
+  port1.start()
   for (const listener of listeners) {
     listener({
       data: { type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL },
@@ -88,7 +98,7 @@ async function runDocument(kind: SandboxDocumentKind, fetch: (url: string) => Pr
       ports: [port2],
     })
   }
-  port1.start()
+  expect(await ready).toEqual({ type: SANDBOX_MESSAGE.ready, token: TOKEN })
   const ask = (message: Record<string, unknown>) =>
     new Promise<Record<string, unknown>>((resolve) => {
       port1.addEventListener('message', (event) => resolve(event.data), { once: true })
@@ -104,7 +114,12 @@ describe('the generated script', () => {
     )
     expect(document.posted).toEqual([
       {
-        message: { type: SANDBOX_MESSAGE.hello, protocol: SANDBOX_PROTOCOL, document: 'innertube' },
+        message: {
+          type: SANDBOX_MESSAGE.hello,
+          protocol: SANDBOX_PROTOCOL,
+          document: 'innertube',
+          token: TOKEN,
+        },
         targetOrigin: FXM,
       },
     ])
@@ -135,14 +150,55 @@ describe('the generated script', () => {
   })
 
   it('runs userhost.html in a fresh realm', async () => {
-    const document = await runDocument('userhost', async () => new Response('{"version":61}'))
-    expect(document.posted[0]?.message).toMatchObject({ document: 'userhost' })
+    const document = await runDocument('userhost', async (url) =>
+      url.endsWith('/moved')
+        ? Object.defineProperty(new Response(null), 'type', { value: 'opaqueredirect' })
+        : new Response('{"version":61}'),
+    )
+    expect(document.posted[0]?.message).toMatchObject({ document: 'userhost', token: TOKEN })
     const url = 'https://gist.githubusercontent.com/u/1/raw/secret.json'
     expect(await document.ask({ id: 'a', url, method: 'GET' })).toMatchObject({ status: 200 })
     expect(await document.ask({ id: 'b', url, method: 'POST', body: 'x' })).toMatchObject({
       code: 'forbidden-method',
     })
+    expect(
+      await document.ask({ id: 'c', url: 'https://invidious.example/moved', method: 'GET' }),
+    ).toMatchObject({ code: 'redirect' })
+    expect(document.fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['manual', 'manual'])
     document.close()
+  })
+
+  // Pages also serves each document at percent-encoded paths that no `_headers` rule matches
+  // (stage 2.8). No sandbox policy applies there, so the document has FXM's origin.
+  it.each(KINDS)('%s does nothing where its origin is not opaque', async (kind) => {
+    const [script] = inlineScripts(await committed(kind))
+    const posted: unknown[] = []
+    const listeners: unknown[] = []
+    const attributes = new Map<string, string>()
+    const window = {
+      origin: FXM,
+      location: { href: `${FXM}/sandbox/${SANDBOX_DOCUMENT_FILES[kind].file}#${TOKEN}` },
+      document: {
+        documentElement: {
+          setAttribute: (name: string, value: string) => attributes.set(name, value),
+          removeAttribute: (name: string) => attributes.delete(name),
+        },
+      },
+      parent: { postMessage: (message: unknown) => posted.push(message) },
+      addEventListener: (_type: string, listener: unknown) => listeners.push(listener),
+      removeEventListener: () => undefined,
+      fetch: vi.fn(),
+      setTimeout,
+      clearTimeout,
+      URL,
+      AbortController,
+      TextEncoder,
+    }
+    runInNewContext(script ?? '', Object.assign(window, { self: window }))
+    expect(posted).toEqual([])
+    expect(listeners).toEqual([])
+    expect(attributes.size).toBe(0)
+    expect(window.fetch).not.toHaveBeenCalled()
   })
 })
 

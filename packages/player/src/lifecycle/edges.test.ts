@@ -1,10 +1,12 @@
 import {
+  type AudioCandidate,
   type AudioSource,
   createQueue,
   currentQueueItem,
   FxmError,
   formatId,
   isFxmError,
+  ownCandidate,
   playbackProblemOf,
   type QueueItem,
   type StreamOption,
@@ -12,14 +14,25 @@ import {
   type Track,
 } from '@fxm/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Player } from '../player'
 import { testStream, testTrack } from '../testing/fixtures'
-import { createMemoryMatchStore, fromAudioSource, type MatchStore } from './adapters'
+import {
+  createMemoryMatchStore,
+  fromAudioSource,
+  type MatchKey,
+  type MatchStore,
+  type TrackMatcher,
+} from './adapters'
 import { StreamLifecycle } from './stream-lifecycle'
 import { ladderUrl, playRequest, settle, setup, useFakeClock } from './test-harness'
 import { FAKE_URL_LIFETIME_MS, FakeStreamSource, ladderStreams } from './testing/fake-stream-source'
 import { testCandidate, testContext, testSpotifyTrack } from './testing/fixtures'
 
-beforeEach(useFakeClock)
+beforeEach(() => {
+  useFakeClock()
+  // A lifecycle without a player warns once; the tests that call it directly need no player.
+  vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
 
 afterEach(() => {
   vi.useRealTimers()
@@ -29,6 +42,7 @@ afterEach(() => {
 const spotify = testSpotifyTrack('S')
 const x = testCandidate('x')
 const y = testCandidate('y')
+const songKey: MatchKey = { sourceTrackId: spotify.id, mode: 'music', target: 'song' }
 
 function itemOf(track: Track): QueueItem {
   const found = currentQueueItem(setQueue(createQueue({ mode: 'all' }), [track]))
@@ -36,9 +50,24 @@ function itemOf(track: Track): QueueItem {
   return found
 }
 
+/** The track's own audio, which every test track here has. */
+function ownOf(track: Track): AudioCandidate {
+  const own = ownCandidate(track)
+  if (own === undefined) throw new Error('no own audio')
+  return own
+}
+
+/** The uid of the current queue item. */
+function currentUid(player: Player): number {
+  const item = currentQueueItem(player.getState().queue)
+  if (item === undefined) throw new Error('no current item')
+  return item.uid
+}
+
 describe('the ladder, beyond the main paths', () => {
   it('goes back to the top when the remembered fallback stops working', async () => {
     const { player, youtube } = setup({ tier: 'full' })
+    youtube.fallThrough = false
     youtube.capped.add('a')
     await player.setQueue([testTrack('a'), testTrack('b')])
     expect(youtube.log).toEqual(['a:top', 'a:fallback'])
@@ -62,6 +91,7 @@ describe('the ladder, beyond the main paths', () => {
 
   it('prefetches with a guess of what the player can play before it ever asked', async () => {
     const youtube = new FakeStreamSource()
+    youtube.fallThrough = false
     youtube.capped.add('a')
     const lifecycle = new StreamLifecycle({ sources: [youtube], context: () => testContext() })
     lifecycle.prefetch([itemOf(testTrack('a'))])
@@ -179,10 +209,14 @@ describe('matching, beyond the main paths', () => {
 
   it('reports a pin that cannot play as the pin’s problem, verdict or not', async () => {
     const { lifecycle, player, youtube, failed } = setup()
-    await lifecycle.confirmMatch(spotify, x)
+    await lifecycle.pinMatch(spotify, x)
     youtube.errors.set('x', new FxmError('Unavailable', 'age-restricted'))
     await player.setQueue([spotify])
-    expect(playbackProblemOf(failed[0])).toMatchObject({ reason: 'pinned-unplayable' })
+    expect(playbackProblemOf(failed[0])).toMatchObject({
+      reason: 'pinned-unplayable',
+      code: 'Unavailable',
+      detail: 'age-restricted',
+    })
   })
 
   it('never matches over a pin, even one whose audio Smart Replace gave up on', async () => {
@@ -197,17 +231,18 @@ describe('matching, beyond the main paths', () => {
     await player.setQueue([testTrack('a'), spotify])
     await player.next()
     // A pin filed for the lossless copy, e.g. restored from a backup, names the dead video.
-    const lossless = { trackId: spotify.id, mode: 'music', target: 'lossless' } as const
+    const lossless: MatchKey = { ...songKey, target: 'lossless' }
     await matches.put(lossless, {
       band: 'auto',
       candidate: x,
       alternatives: [],
-      pinned: true,
-      matchedAt: 0,
+      evidence: [],
+      userPinned: true,
+      decidedAt: 0,
     })
     await player.setQueue([testTrack('a'), spotify])
     await player.next()
-    expect(await matches.get(lossless)).toMatchObject({ candidate: x, pinned: true })
+    expect(await matches.get(lossless)).toMatchObject({ candidate: x, userPinned: true })
     expect(matcher.callsFor(spotify, 'lossless')).toBe(1)
     expect(engine.loadedUrls.at(-1)).toContain('/y/')
   })
@@ -243,8 +278,15 @@ describe('matching, beyond the main paths', () => {
         throw new Error('delete')
       },
     }
-    const { player, youtube, matcher, failed } = setup({ lifecycle: { matches: store } })
-    matcher.rank(spotify, 'song', [{ candidate: x, band: 'auto' }])
+    // Matching again without the dead video misses a page, so the outcome is not kept, and the
+    // dead match is forgotten instead.
+    const matcher: TrackMatcher = {
+      match: async (_track, request) =>
+        request.exclude.length === 0
+          ? { band: 'auto', best: x, alternatives: [] }
+          : { band: 'none', alternatives: [], incomplete: true },
+    }
+    const { player, youtube, failed } = setup({ lifecycle: { matches: store, matcher } })
     youtube.verdicts.set('x', 'UNPLAYABLE')
     await player.setQueue([testTrack('a'), spotify])
     await player.next()
@@ -267,9 +309,119 @@ describe('matching, beyond the main paths', () => {
   it('needs no pin for a track’s own audio, nor for audio the mode does not play', async () => {
     const { lifecycle, matches } = setup()
     const song = testTrack('a')
-    await lifecycle.confirmMatch(song, testCandidate('a'))
-    await lifecycle.confirmMatch(spotify, testCandidate('v', { kind: 'video' }))
+    await lifecycle.pinMatch(song, testCandidate('a'))
+    await lifecycle.pinMatch(spotify, testCandidate('v', { kind: 'video' }))
     expect(matches.size).toBe(0)
+  })
+
+  it('goes back to a song’s own audio when the user picks it after another version', async () => {
+    const { player, engine, recorded } = setup()
+    const song = testTrack('a')
+    await player.setQueue([song])
+    const uid = currentUid(player)
+    player.setCandidate(uid, testCandidate('alt'))
+    await settle()
+    expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('alt', 251, 2))
+    player.setCandidate(uid, ownOf(song))
+    await settle()
+    expect(recorded()).toEqual(ownOf(song))
+    expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('a', 251, 1))
+  })
+
+  it('removes another version’s pin when the user pins the song’s own audio', async () => {
+    const { lifecycle, player, engine, matches, recorded } = setup()
+    const song = testTrack('a')
+    await lifecycle.pinMatch(song, testCandidate('alt'))
+    await player.setQueue([song])
+    expect(engine.loadedUrls).toEqual([ladderUrl('alt', 251, 1)])
+    await lifecycle.pinMatch(song, ownOf(song))
+    expect(matches.size).toBe(0)
+    await player.setQueue([song])
+    expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('a', 251, 2))
+    expect(recorded()).toEqual(ownOf(song))
+  })
+
+  it('plays the version picked for the item over the track’s pin, also on a retry', async () => {
+    const { lifecycle, player, engine, youtube, recorded } = setup()
+    const song = testTrack('a')
+    await lifecycle.pinMatch(song, testCandidate('alt'))
+    await player.setQueue([song])
+    player.setCandidate(currentUid(player), ownOf(song))
+    await settle()
+    expect(recorded()).toEqual(ownOf(song))
+    engine.progress(10_000)
+    engine.fail('network')
+    await settle()
+    expect(youtube.log).toEqual(['alt:top', 'a:top', 'a:top'])
+    expect(engine.loadStarts.at(-1)).toBe(10_000)
+  })
+
+  it('removes a pin when the user asks, so the policy decides again', async () => {
+    const { lifecycle, player, matcher, matches, recorded } = setup()
+    matcher.rank(spotify, 'song', [{ candidate: x, band: 'auto' }])
+    await lifecycle.pinMatch(spotify, y)
+    await player.setQueue([spotify])
+    expect(recorded()).toEqual(y)
+    await lifecycle.unpinMatch(spotify)
+    expect(matches.size).toBe(0)
+    await player.setQueue([spotify])
+    expect(recorded()).toEqual(x)
+    // The engine's decision is no pin, so it stays.
+    await lifecycle.unpinMatch(spotify)
+    expect(matches.size).toBe(1)
+  })
+
+  it('drops malformed alternatives of a stored match and reports the item as it is', async () => {
+    const { player, youtube, matcher, matches, failed } = setup()
+    const malformed = {
+      band: 'auto',
+      candidate: x,
+      alternatives: [null],
+      evidence: [],
+      userPinned: false,
+      decidedAt: Date.now(),
+    }
+    await matches.put(songKey, malformed as never)
+    youtube.handler = async (candidate, request) =>
+      ladderStreams(candidate.ref, {
+        rung: request.rung,
+        fullLength: 'capped',
+        serial: youtube.calls.length,
+      })
+    await player.setQueue([spotify])
+    expect(playbackProblemOf(failed[0])).toEqual({
+      type: 'unavailable',
+      trackId: spotify.id,
+      reason: 'no-stream',
+      alternatives: [],
+    })
+    expect(youtube.log).toEqual(['x:top', 'x:fallback'])
+    expect(matcher.calls).toHaveLength(0)
+  })
+
+  it('ignores a stored match that the catalog mode does not let play', async () => {
+    const { player, engine, matcher, matches, recorded } = setup()
+    const video = testCandidate('mv', { kind: 'music-video' })
+    await matches.put(songKey, {
+      band: 'auto',
+      candidate: video,
+      alternatives: [video],
+      evidence: [],
+      userPinned: false,
+      decidedAt: Date.now(),
+    })
+    matcher.rank(spotify, 'song', [{ candidate: x, band: 'auto' }])
+    await player.setQueue([spotify])
+    expect(engine.loadedUrls).toEqual([ladderUrl('x', 251, 1)])
+    expect(recorded()).toEqual(x)
+  })
+
+  it('plays a candidate named with plain YouTube’s prefix through the ytm source', async () => {
+    const { lifecycle, player, engine, youtube } = setup()
+    await lifecycle.pinMatch(spotify, testCandidate('v', { source: 'yt' }))
+    await player.setQueue([spotify])
+    expect(engine.loadedUrls).toEqual([ladderUrl('v', 251, 1)])
+    expect(youtube.calls[0]?.candidate.source).toBe('ytm')
   })
 
   it('replaces the linked song recorded on a music video', async () => {

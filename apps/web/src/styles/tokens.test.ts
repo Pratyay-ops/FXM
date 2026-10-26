@@ -37,6 +37,17 @@ function contrast(a: string, b: string): number {
   return (lighter + 0.05) / (darker + 0.05)
 }
 
+/** `top` at `alpha` opacity over `bottom`, blended as browsers do (`bg-danger/85`). */
+function mix(top: string, bottom: string, alpha: number): string {
+  const channel = (hex: string, i: number) => Number.parseInt(hex.slice(i, i + 2), 16)
+  const blended = [1, 3, 5].map((i) =>
+    Math.round(alpha * channel(top, i) + (1 - alpha) * channel(bottom, i))
+      .toString(16)
+      .padStart(2, '0'),
+  )
+  return `#${blended.join('')}`
+}
+
 // [foreground, background, minimum]: 4.5 for text, 3 for focus rings and control outlines.
 const PAIRS = [
   ...['background', 'surface', 'elevated', 'elevated-hover'].flatMap((bg) => [
@@ -52,6 +63,11 @@ const PAIRS = [
   ['background', 'text', 4.5],
   ['danger', 'background', 4.5],
   ['danger', 'surface', 4.5],
+  // Menu entries such as Delete, also under the hover and focus fill.
+  ['danger', 'elevated', 4.5],
+  ['danger', 'elevated-hover', 4.5],
+  // The danger button's label.
+  ['background', 'danger', 4.5],
   ['focus', 'background', 3],
   ['focus', 'surface', 3],
   ['focus', 'elevated', 3],
@@ -73,6 +89,12 @@ describe('design tokens', () => {
       expect(fg, `--color-${foreground}`).toBeDefined()
       expect(bg, `--color-${background}`).toBeDefined()
       expect(contrast(fg ?? '', bg ?? '')).toBeGreaterThanOrEqual(minimum)
+    })
+
+    it(`${theme}: the danger button's label stays readable on its hover fill`, () => {
+      // `hover:bg-danger/85` over the dialog's surface (button.ts).
+      const hover = mix(colors.danger ?? '', colors.surface ?? '', 0.85)
+      expect(contrast(colors.background ?? '', hover)).toBeGreaterThanOrEqual(4.5)
     })
   }
 })

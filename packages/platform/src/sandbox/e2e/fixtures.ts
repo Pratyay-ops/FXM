@@ -6,7 +6,14 @@
  */
 
 import { test as base, type Page } from '@playwright/test'
-import type { Outcome, PlayOptions, RungResult, StartOptions } from './harness/harness.ts'
+import type {
+  Outcome,
+  PlayOptions,
+  RungResult,
+  SongOptions,
+  SongResult,
+  StartOptions,
+} from './harness/harness.ts'
 import { FXM, startTestNetwork, type TestNetwork } from './network.ts'
 import { E2E_PORT } from './port.ts'
 
@@ -41,6 +48,10 @@ export class Harness {
 
   liteReady() {
     return this.page.evaluate(() => window.fxmHarness.liteReady())
+  }
+
+  liteState() {
+    return this.page.evaluate(() => window.fxmHarness.liteState())
   }
 
   budget() {
@@ -82,6 +93,10 @@ export class Harness {
 
   resolveAndPlay(options: PlayOptions): Promise<RungResult[]> {
     return this.page.evaluate((args) => window.fxmHarness.resolveAndPlay(args), options)
+  }
+
+  playSong(options: SongOptions): Promise<SongResult> {
+    return this.page.evaluate((args) => window.fxmHarness.playSong(args), options)
   }
 }
 

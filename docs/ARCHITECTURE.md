@@ -20,14 +20,14 @@ This document explains how FXM is built and why. The build order is in [PLAN.md]
 
 | Deliverable | What it is | Where |
 |---|---|---|
-| **Web page** | Landing site: features, how it works, downloads | `https://fxm-music.pages.dev/` |
-| **Web app (PWA)** | The full player, installable from the browser as its own window. With FXM Connect it reaches YouTube, Spotify and Last.fm (the Full tier). Without the extension it uses the experimental Lite tier for YouTube Music where the browser allows it, plus free sources (§8) | `https://fxm-music.pages.dev/app/` |
+| **Web page** | Landing site: features, how it works, downloads | `https://fxmusic.pages.dev/` |
+| **Web app (PWA)** | The full player, installable from the browser as its own window. With FXM Connect it reaches YouTube, Spotify and Last.fm (the Full tier). Without the extension it uses the experimental Lite tier for YouTube Music where the browser allows it, plus free sources (§8) | `https://fxmusic.pages.dev/app/` |
 | **FXM Connect** | A tiny companion browser extension for Chrome, Edge, Brave and Firefox. It lets the web app reach music services from the user's own browser. It contains no music-service logic | GitHub Releases (Chromium zip), Firefox Add-ons; Edge Add-ons if accepted |
 | **Desktop app** | The web app packaged with Tauri for macOS, Windows and Linux. Full features, no extension needed. This is FXM's installable "applet", like Spotify's desktop app, at about 10 MB | GitHub Releases |
 | **Android app** | The web app packaged with Capacitor, plus native networking and a native Media3 player for background playback | GitHub Releases (APK) |
-| **Embeddable mini-player** | An `<iframe>` player for a track, album or playlist | `https://fxm-music.pages.dev/embed/…` |
+| **Embeddable mini-player** | An `<iframe>` player for a track, album or playlist | `https://fxmusic.pages.dev/embed/…` |
 
-**Hosting is static files only, on one host.** Cloudflare Pages (free, `fxm-music.pages.dev`; `fxm.pages.dev` is taken) serves the site, the web app, the embed, the sandbox documents (`/sandbox/`, §8), and the signed YouTube config and resolver module that desktop and Android load (§10). Binaries and extension packages live on GitHub Releases. There are no Pages Functions, no API gateway, no relay, no database and no mirror. The owner runs nothing.
+**Hosting is static files only, on one host.** Cloudflare Pages (free, `fxmusic.pages.dev`; the names `fxm` and `fxm-music` were taken, see D24) serves the site, the web app, the embed, the sandbox documents (`/sandbox/`, §8), and the signed YouTube config and resolver module that desktop and Android load (§10). Binaries and extension packages live on GitHub Releases. There are no Pages Functions, no API gateway, no relay, no database and no mirror. The owner runs nothing.
 
 FXM is built mainly for personal use by its owner and by anyone who runs it on their own devices.
 
@@ -74,7 +74,7 @@ State as of October 2026:
   - Media responses send `Cross-Origin-Resource-Policy: cross-origin`. The server ignores User-Agent, Referer and Origin on media requests, and serves requests with no Referer. So `<audio src>` plays a URL resolved on the same IP, if that URL is served in full (below).
   - It sends no `Access-Control-Allow-Origin` to other sites, or to `null`. So `fetch()` (probes, downloads), MediaSource and Web Audio need FXM Connect or a native app. Web Audio outputs silence for cross-origin media without CORS.
   - Browsers ask for the whole file on the first request: Chromium (and WebView2) sends `bytes=0-`; WebKit sends WebM with no Range, and AAC as `bytes=0-1` then the rest. A capped URL therefore fails at once.
-  - Requests from a page carry `Referer: https://fxm-music.pages.dev/` unless the page sets a no-referrer policy (measured), which would let YouTube single out FXM traffic.
+  - Requests from a page carry `Referer: https://fxmusic.pages.dev/` unless the page sets a no-referrer policy (measured), which would let YouTube single out FXM traffic.
 - **Client landscape** (youtubei.js 18.3.0, residential IP, measured 2026-10-25):
 
   | Client (version) | What `/player` returns | Full-length without a PO token? |
@@ -242,6 +242,8 @@ packages/
               listenbrainz, musicbrainz
   player/     Player facade and engines (direct audio, MediaSource, native bridge), offline store,
               conversion worker
+  downloads/  Download manager (4.1): a resumable queue, the storage and record interfaces each
+              platform implements, and the offline store the playback policy plays downloads from
 docs/         Architecture, plan, workflow, development guide; research/ holds the decision memos
 scripts/      Toolchain bootstrap (everything installs into .tools/)
 ```
@@ -489,7 +491,7 @@ The site's privacy page names every service the apps contact, and the web app's 
 - **Spotify session bridge (opt-in in the extension's options, off by default).** The background script fetches `/api/token` with the user's own `open.spotify.com` cookies, using a strict parameter allow-list. It returns only the status and the token JSON, and never reads or stores cookies. It also relays `/api/server-time` without credentials, serves about ten requests a minute, and refuses private windows and Firefox container tabs. The toggle lives in the extension's own IndexedDB, out of content scripts' reach.
 - **No music-service logic and no remote code.** All logic lives in the web app, so a YouTube breakage is fixed by redeploying the static site. A strict extension CSP lets the extension's own pages connect only to `open.spotify.com`.
 - **Lite and Connect don't interfere.** The sandbox documents are opaque, so Connect's rules, which are scoped to the FXM origin, never match their requests.
-- **One origin.** Connect serves only `https://fxm-music.pages.dev` (plus localhost in dev builds). Serving another origin would take a new extension release, and unpacked Chromium installs update by hand.
+- **One origin.** Connect serves only `https://fxmusic.pages.dev` (plus localhost in dev builds). Serving another origin would take a new extension release, and unpacked Chromium installs update by hand.
 - **Store risk.** Mozilla can block an add-on for every user. Onboarding detects a Connect that was seen before and is now missing (§8).
 
 The permissions, privacy notes and page protocol are in [apps/extension/README.md](../apps/extension/README.md).
@@ -910,7 +912,7 @@ The key that signs the config and resolver module is never available to the depl
 
 ## 17. Security, privacy, licensing
 
-- **Privacy:** no accounts, analytics or telemetry. Data stays on the device, and backups are files the user creates. The site's privacy page names every service the apps contact (§8). SponsorBlock (8.7) is opt-in, uses the hash-prefix endpoint, and is named in Settings and on the privacy page. Every page sends `Referrer-Policy: no-referrer`, so googlevideo requests don't carry `Referer: https://fxm-music.pages.dev/`.
+- **Privacy:** no accounts, analytics or telemetry. Data stays on the device, and backups are files the user creates. The site's privacy page names every service the apps contact (§8). SponsorBlock (8.7) is opt-in, uses the hash-prefix endpoint, and is named in Settings and on the privacy page. Every page sends `Referrer-Policy: no-referrer`, so googlevideo requests don't carry `Referer: https://fxmusic.pages.dev/`.
 - **Extension:** FXM Connect only serves the FXM origin. It never sets wildcard CORS, never sends credentials except through the opt-in Spotify token bridge, and contains no remote code.
 - **Web app:** a strict Content Security Policy and no third-party scripts. Its CSP never contains `'unsafe-eval'`.
 - **Sandbox documents** (`/sandbox/innertube.html`, `userhost.html`, `eval.html`):
@@ -980,3 +982,4 @@ The key that signs the config and resolver module is never available to the depl
 | D21 | A signed config and resolver module for desktop and Android | Some YouTube fixes need code, and stable Spotube stayed broken for months waiting for an app release. Signatures stop a hijacked site or a leaked deploy token from pushing code to installed apps |
 | D22 | One static host now; no mirror | The owner's decision (2026-10-25). A mirror with per-path headers stays possible later, with a new FXM Connect release for its origin |
 | D23 | Free, unregistered distribution for now: no Apple program, no Android verification yet, no Chrome Web Store | The owner's decision (Decision 3, option B): nothing requires registration before 2027, and Android verification is revisited before the 2027 rollout |
+| D24 | FXM's address is fxmusic.pages.dev | The first choice, the Pages project name `fxm-music`, was already taken by another Cloudflare account (the API refused it with code 8000000, checked 2026-10-26). The owner left the new name to the orchestrator |

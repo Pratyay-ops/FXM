@@ -10,7 +10,7 @@ import {
   ruleHostPermissions,
 } from './rules.ts'
 
-const FXM = 'https://fxm-music.pages.dev'
+const FXM = 'https://fxmusic.pages.dev'
 const rules = buildRules(FXM)
 
 function find(operations: HeaderOperation[], header: string): HeaderOperation | undefined {
@@ -64,7 +64,7 @@ describe('CORS rules for the production origin', () => {
 
   it('scopes every rule to the FXM origin with initiatorDomains', () => {
     for (const rule of rules) {
-      expect(rule.condition.initiatorDomains).toEqual(['fxm-music.pages.dev'])
+      expect(rule.condition.initiatorDomains).toEqual(['fxmusic.pages.dev'])
     }
   })
 
@@ -288,7 +288,7 @@ describe('rulesets', () => {
     const rulesets = buildRulesets(fxmOrigins(false))
     expect(
       rulesets.map(({ id, path, enabled, origin }) => ({ id, path, enabled, origin })),
-    ).toEqual([{ id: 'fxm_music_pages_dev', path: 'rules.json', enabled: true, origin: FXM }])
+    ).toEqual([{ id: 'fxmusic_pages_dev', path: 'rules.json', enabled: true, origin: FXM }])
     expect(rulesets[0]?.rules).toEqual(rules)
     expect(PRODUCTION_ORIGINS).toEqual([FXM])
   })
@@ -296,7 +296,7 @@ describe('rulesets', () => {
   it('adds a ruleset per localhost origin in the dev build, enabling one per host', () => {
     const rulesets = buildRulesets(fxmOrigins(true))
     expect(rulesets.map(({ id, path, enabled }) => ({ id, path, enabled }))).toEqual([
-      { id: 'fxm_music_pages_dev', path: 'rules.json', enabled: true },
+      { id: 'fxmusic_pages_dev', path: 'rules.json', enabled: true },
       { id: 'localhost_5173', path: 'rules-localhost_5173.json', enabled: true },
       { id: 'localhost_4173', path: 'rules-localhost_4173.json', enabled: false },
     ])
@@ -311,7 +311,7 @@ describe('rulesets', () => {
   it('rejects empty, duplicate and insecure origin lists', () => {
     expect(() => buildRulesets([])).toThrow()
     expect(() => buildRulesets([FXM, FXM])).toThrow()
-    expect(() => buildRulesets(['http://fxm-music.pages.dev'])).toThrow(/HTTPS/)
+    expect(() => buildRulesets(['http://fxmusic.pages.dev'])).toThrow(/HTTPS/)
   })
 })
 

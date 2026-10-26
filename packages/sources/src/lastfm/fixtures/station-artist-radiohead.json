@@ -1,0 +1,934 @@
+{
+  "playlist": [
+    {
+      "_name": "Creep",
+      "name": "Creep",
+      "url": "/music/Radiohead/_/Creep",
+      "duration": 279,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "XFkzRNyygfk",
+          "url": "https://www.youtube.com/watch?v=XFkzRNyygfk",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "XFkzRNyygfk",
+          "url": "https://www.youtube.com/watch?v=XFkzRNyygfk",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Let Down",
+      "name": "Let Down",
+      "url": "/music/Radiohead/_/Let+Down",
+      "duration": 299,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "duBCwvC1kP4",
+          "url": "https://www.youtube.com/watch?v=duBCwvC1kP4",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "duBCwvC1kP4",
+          "url": "https://www.youtube.com/watch?v=duBCwvC1kP4",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "All I Need",
+      "name": "All I Need",
+      "url": "/music/Radiohead/_/All+I+Need",
+      "duration": 282,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "FM7ALFsOH4g",
+          "url": "https://www.youtube.com/watch?v=FM7ALFsOH4g",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "FM7ALFsOH4g",
+          "url": "https://www.youtube.com/watch?v=FM7ALFsOH4g",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "No Surprises",
+      "name": "No Surprises",
+      "url": "/music/Radiohead/_/No+Surprises",
+      "duration": 269,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "u5CVsCnxyXg",
+          "url": "https://www.youtube.com/watch?v=u5CVsCnxyXg",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "u5CVsCnxyXg",
+          "url": "https://www.youtube.com/watch?v=u5CVsCnxyXg",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Jigsaw Falling Into Place",
+      "name": "Jigsaw Falling Into Place",
+      "url": "/music/Radiohead/_/Jigsaw+Falling+Into+Place",
+      "duration": 248,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "GoLJJRIWCLU",
+          "url": "https://www.youtube.com/watch?v=GoLJJRIWCLU",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "GoLJJRIWCLU",
+          "url": "https://www.youtube.com/watch?v=GoLJJRIWCLU",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Weird Fishes / Arpeggi",
+      "name": "Weird Fishes / Arpeggi",
+      "url": "/music/Radiohead/_/Weird+Fishes+%2F+Arpeggi",
+      "duration": null,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "TNRCvG9YtYI",
+          "url": "https://www.youtube.com/watch?v=TNRCvG9YtYI",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "TNRCvG9YtYI",
+          "url": "https://www.youtube.com/watch?v=TNRCvG9YtYI",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Fake Plastic Trees",
+      "name": "Fake Plastic Trees",
+      "url": "/music/Radiohead/_/Fake+Plastic+Trees",
+      "duration": 274,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "n5h0qHwNrHk",
+          "url": "https://www.youtube.com/watch?v=n5h0qHwNrHk",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "n5h0qHwNrHk",
+          "url": "https://www.youtube.com/watch?v=n5h0qHwNrHk",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Karma Police",
+      "name": "Karma Police",
+      "url": "/music/Radiohead/_/Karma+Police",
+      "duration": 263,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "1uYWYWPc9HU",
+          "url": "https://www.youtube.com/watch?v=1uYWYWPc9HU",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "1uYWYWPc9HU",
+          "url": "https://www.youtube.com/watch?v=1uYWYWPc9HU",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Exit Music (for a Film)",
+      "name": "Exit Music (for a Film)",
+      "url": "/music/Radiohead/_/Exit+Music+(for+a+Film)",
+      "duration": 309,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "Bf01riuiJWA",
+          "url": "https://www.youtube.com/watch?v=Bf01riuiJWA",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "Bf01riuiJWA",
+          "url": "https://www.youtube.com/watch?v=Bf01riuiJWA",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "High and Dry",
+      "name": "High and Dry",
+      "url": "/music/Radiohead/_/High+and+Dry",
+      "duration": 267,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "7qFfFVSerQo",
+          "url": "https://www.youtube.com/watch?v=7qFfFVSerQo",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "7qFfFVSerQo",
+          "url": "https://www.youtube.com/watch?v=7qFfFVSerQo",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Just",
+      "name": "Just",
+      "url": "/music/Radiohead/_/Just",
+      "duration": 289,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "oIFLtNYI3Ls",
+          "url": "https://www.youtube.com/watch?v=oIFLtNYI3Ls",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "oIFLtNYI3Ls",
+          "url": "https://www.youtube.com/watch?v=oIFLtNYI3Ls",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Nude",
+      "name": "Nude",
+      "url": "/music/Radiohead/_/Nude",
+      "duration": 255,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "BbWBRnDK_AE",
+          "url": "https://www.youtube.com/watch?v=BbWBRnDK_AE",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "BbWBRnDK_AE",
+          "url": "https://www.youtube.com/watch?v=BbWBRnDK_AE",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "How to Disappear Completely",
+      "name": "How to Disappear Completely",
+      "url": "/music/Radiohead/_/How+to+Disappear+Completely",
+      "duration": 350,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "nZq_jeYsbTs",
+          "url": "https://www.youtube.com/watch?v=nZq_jeYsbTs",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "nZq_jeYsbTs",
+          "url": "https://www.youtube.com/watch?v=nZq_jeYsbTs",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Paranoid Android",
+      "name": "Paranoid Android",
+      "url": "/music/Radiohead/_/Paranoid+Android",
+      "duration": 384,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "fHiGbolFFGw",
+          "url": "https://www.youtube.com/watch?v=fHiGbolFFGw",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "fHiGbolFFGw",
+          "url": "https://www.youtube.com/watch?v=fHiGbolFFGw",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Black Star",
+      "name": "Black Star",
+      "url": "/music/Radiohead/_/Black+Star",
+      "duration": 247,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "d7lbzUUXj0k",
+          "url": "https://www.youtube.com/watch?v=d7lbzUUXj0k",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "d7lbzUUXj0k",
+          "url": "https://www.youtube.com/watch?v=d7lbzUUXj0k",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Motion Picture Soundtrack",
+      "name": "Motion Picture Soundtrack",
+      "url": "/music/Radiohead/_/Motion+Picture+Soundtrack",
+      "duration": 200,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "EcSvMFm2ABE",
+          "url": "https://www.youtube.com/watch?v=EcSvMFm2ABE",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "EcSvMFm2ABE",
+          "url": "https://www.youtube.com/watch?v=EcSvMFm2ABE",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Everything in Its Right Place",
+      "name": "Everything in Its Right Place",
+      "url": "/music/Radiohead/_/Everything+in+Its+Right+Place",
+      "duration": 307,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "NUnXxh5U25Y",
+          "url": "https://www.youtube.com/watch?v=NUnXxh5U25Y",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "NUnXxh5U25Y",
+          "url": "https://www.youtube.com/watch?v=NUnXxh5U25Y",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Street Spirit (Fade Out)",
+      "name": "Street Spirit (Fade Out)",
+      "url": "/music/Radiohead/_/Street+Spirit+(Fade+Out)",
+      "duration": 288,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "LCJblaUkkfc",
+          "url": "https://www.youtube.com/watch?v=LCJblaUkkfc",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "LCJblaUkkfc",
+          "url": "https://www.youtube.com/watch?v=LCJblaUkkfc",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Reckoner",
+      "name": "Reckoner",
+      "url": "/music/Radiohead/_/Reckoner",
+      "duration": 467,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "_uofQD-N6UI",
+          "url": "https://www.youtube.com/watch?v=_uofQD-N6UI",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "_uofQD-N6UI",
+          "url": "https://www.youtube.com/watch?v=_uofQD-N6UI",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Bodysnatchers",
+      "name": "Bodysnatchers",
+      "url": "/music/Radiohead/_/Bodysnatchers",
+      "duration": 265,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "nIQxhSvSRnQ",
+          "url": "https://www.youtube.com/watch?v=nIQxhSvSRnQ",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "nIQxhSvSRnQ",
+          "url": "https://www.youtube.com/watch?v=nIQxhSvSRnQ",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Subterranean Homesick Alien",
+      "name": "Subterranean Homesick Alien",
+      "url": "/music/Radiohead/_/Subterranean+Homesick+Alien",
+      "duration": 267,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "_fTWmUlTEqE",
+          "url": "https://www.youtube.com/watch?v=_fTWmUlTEqE",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "_fTWmUlTEqE",
+          "url": "https://www.youtube.com/watch?v=_fTWmUlTEqE",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "My Iron Lung",
+      "name": "My Iron Lung",
+      "url": "/music/Radiohead/_/My+Iron+Lung",
+      "duration": 303,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "pRU-6vaKaf4",
+          "url": "https://www.youtube.com/watch?v=pRU-6vaKaf4",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "pRU-6vaKaf4",
+          "url": "https://www.youtube.com/watch?v=pRU-6vaKaf4",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "15 Step",
+      "name": "15 Step",
+      "url": "/music/Radiohead/_/15+Step",
+      "duration": 238,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "bgsmr7t8zGE",
+          "url": "https://www.youtube.com/watch?v=bgsmr7t8zGE",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "bgsmr7t8zGE",
+          "url": "https://www.youtube.com/watch?v=bgsmr7t8zGE",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "House of Cards",
+      "name": "House of Cards",
+      "url": "/music/Radiohead/_/House+of+Cards",
+      "duration": 328,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "8nTFjVm9sTQ",
+          "url": "https://www.youtube.com/watch?v=8nTFjVm9sTQ",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "8nTFjVm9sTQ",
+          "url": "https://www.youtube.com/watch?v=8nTFjVm9sTQ",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "(Nice Dream)",
+      "name": "(Nice Dream)",
+      "url": "/music/Radiohead/_/(Nice+Dream)",
+      "duration": 257,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "jIjTFt6XmFM",
+          "url": "https://www.youtube.com/watch?v=jIjTFt6XmFM",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "jIjTFt6XmFM",
+          "url": "https://www.youtube.com/watch?v=jIjTFt6XmFM",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Man of War",
+      "name": "Man of War",
+      "url": "/music/Radiohead/_/Man+of+War",
+      "duration": 269,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "DXP1KdZX4io",
+          "url": "https://www.youtube.com/watch?v=DXP1KdZX4io",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "DXP1KdZX4io",
+          "url": "https://www.youtube.com/watch?v=DXP1KdZX4io",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Airbag",
+      "name": "Airbag",
+      "url": "/music/Radiohead/_/Airbag",
+      "duration": 284,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "xZUBP-uWwUE",
+          "url": "https://www.youtube.com/watch?v=xZUBP-uWwUE",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "xZUBP-uWwUE",
+          "url": "https://www.youtube.com/watch?v=xZUBP-uWwUE",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Lucky",
+      "name": "Lucky",
+      "url": "/music/Radiohead/_/Lucky",
+      "duration": 308,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "yuZYQvvLXVY",
+          "url": "https://www.youtube.com/watch?v=yuZYQvvLXVY",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "yuZYQvvLXVY",
+          "url": "https://www.youtube.com/watch?v=yuZYQvvLXVY",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "Climbing Up the Walls",
+      "name": "Climbing Up the Walls",
+      "url": "/music/Radiohead/_/Climbing+Up+the+Walls",
+      "duration": 285,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "XX4EpkR-Sp4",
+          "url": "https://www.youtube.com/watch?v=XX4EpkR-Sp4",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "XX4EpkR-Sp4",
+          "url": "https://www.youtube.com/watch?v=XX4EpkR-Sp4",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    },
+    {
+      "_name": "The Bends",
+      "name": "The Bends",
+      "url": "/music/Radiohead/_/The+Bends",
+      "duration": 241,
+      "artists": [
+        {
+          "_name": "Radiohead",
+          "name": "Radiohead",
+          "url": "/music/Radiohead"
+        }
+      ],
+      "_playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "K8z8hLvjb_U",
+          "url": "https://www.youtube.com/watch?v=K8z8hLvjb_U",
+          "source": "global_suggestion"
+        }
+      ],
+      "playlinks": [
+        {
+          "affiliate": "youtube",
+          "id": "K8z8hLvjb_U",
+          "url": "https://www.youtube.com/watch?v=K8z8hLvjb_U",
+          "source": "global_suggestion"
+        }
+      ],
+      "stats": null,
+      "similarity_score": null
+    }
+  ]
+}

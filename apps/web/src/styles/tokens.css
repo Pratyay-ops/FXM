@@ -130,7 +130,7 @@
     --color-border: #e2e2e8;
     --color-border-strong: #8a8a96;
     --color-focus: #6d28d9;
-    --color-danger: #c81e1e;
+    --color-danger: #b91c1c; /* AA also on hover fills and under the danger button's hover */
     --color-skeleton: #e6e6ec;
     --color-skeleton-highlight: #f3f3f7;
   }

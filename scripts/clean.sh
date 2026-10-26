@@ -19,7 +19,8 @@ remove_build_output() {
 }
 
 remove_dependencies() {
-  (cd "$1" && rm -rf node_modules apps/*/node_modules packages/*/node_modules .venv apps/*/.venv)
+  (cd "$1" && rm -rf node_modules apps/*/node_modules packages/*/node_modules .venv apps/*/.venv \
+    scripts/build-dist/node_modules scripts/build-dist-wrangler/node_modules)
 }
 
 # --- Android app (stage 6.1) -------------------------------------------------------------
@@ -31,7 +32,7 @@ remove_dependencies() {
 remove_android_output() {
   (cd "$1/apps" && rm -rf web/dist-mobile mobile/android/.gradle mobile/android/build \
     mobile/android/app/build mobile/android/capacitor-cordova-android-plugins/build \
-    mobile/android/app/src/main/assets/public)
+    mobile/android/fxm-http/build mobile/android/app/src/main/assets/public)
 }
 
 stop_android_processes() {

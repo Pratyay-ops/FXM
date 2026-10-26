@@ -94,8 +94,33 @@ describe('planStreamRecovery', () => {
       'top forbidden-again',
     ],
     ['another status, before it played', { status: 500 }, 'fallback probe-failed'],
-    // Decoding.
+    // Decoding and formats.
     ['a stream that cannot be decoded', { kind: 'decode' }, 'same decode avoid-format'],
+    [
+      'a verified URL refused before it plays: its format',
+      { kind: 'unsupported', fullLength: 'verified' },
+      'same unsupported avoid-format',
+    ],
+    [
+      'a refused URL whose status reads 206: its format',
+      { kind: 'unsupported', status: 206 },
+      'same unsupported avoid-format',
+    ],
+    [
+      'an unverified URL refused before it plays: a failed probe',
+      { kind: 'unsupported' },
+      'fallback probe-failed',
+    ],
+    [
+      'a verified URL refused with a 403: an IP change, not its format',
+      { kind: 'unsupported', fullLength: 'verified', status: 403, cached: true },
+      'same ip-changed flush',
+    ],
+    [
+      'a verified URL refused after it played',
+      { kind: 'unsupported', fullLength: 'verified', started: true },
+      'same mid-play',
+    ],
   ])('%s: %s', (_label, overrides, expected) => {
     expect(next(overrides)).toBe(expected)
   })

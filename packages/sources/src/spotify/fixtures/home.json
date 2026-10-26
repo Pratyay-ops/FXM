@@ -1,0 +1,488 @@
+{
+  "data": {
+    "home": {
+      "__typename": "HomeResponsePayload",
+      "greeting": {
+        "transformedLabel": "Good evening",
+        "translatedBaseText": "Good evening"
+      },
+      "sectionContainer": {
+        "sections": {
+          "items": [
+            {
+              "data": {
+                "__typename": "HomeGenericSectionData",
+                "headerEntity": {
+                  "__typename": "UnknownType"
+                },
+                "subtitle": {
+                  "transformedLabel": "",
+                  "translatedBaseText": null
+                },
+                "title": {
+                  "transformedLabel": "Trending songs",
+                  "translatedBaseText": "Trending songs"
+                }
+              },
+              "sectionItems": {
+                "items": [
+                  {
+                    "content": {
+                      "__typename": "TrackResponseWrapper",
+                      "data": {
+                        "__typename": "Track",
+                        "albumOfTrack": {
+                          "coverArt": {
+                            "sources": [
+                              {
+                                "height": 300,
+                                "url": "https://i.scdn.co/image/ab67616d00001e0278251330df407f7a8c3d29fb",
+                                "width": 300
+                              },
+                              {
+                                "height": 64,
+                                "url": "https://i.scdn.co/image/ab67616d0000485178251330df407f7a8c3d29fb",
+                                "width": 64
+                              },
+                              {
+                                "height": 640,
+                                "url": "https://i.scdn.co/image/ab67616d0000b27378251330df407f7a8c3d29fb",
+                                "width": 640
+                              }
+                            ]
+                          },
+                          "name": "Veezha Veera (From \"OM Chapter 1: Udhiram - The Blood Wood\") [Tamil]",
+                          "uri": "spotify:album:7hb3ZpMxjygpt1PQDXsqZK"
+                        },
+                        "artists": {
+                          "items": [
+                            {
+                              "profile": {
+                                "name": "Sai Abhyankkar"
+                              },
+                              "uri": "spotify:artist:5jJrJU7VVmxQQLcLAmmxXc"
+                            },
+                            {
+                              "profile": {
+                                "name": "Tippu"
+                              },
+                              "uri": "spotify:artist:0PykiHCcDsMPRV7s67qZ1B"
+                            },
+                            {
+                              "profile": {
+                                "name": "Arun Srinivasan"
+                              },
+                              "uri": "spotify:artist:6zk7r7UylV6GHjWmhCDw9K"
+                            }
+                          ]
+                        },
+                        "contentRating": {
+                          "label": "NONE"
+                        },
+                        "name": "Veezha Veera (From \"OM Chapter 1: Udhiram - The Blood Wood\") [Tamil]",
+                        "uri": "spotify:track:2ch1SJBrQ4Q4j6kGDJfbPz"
+                      }
+                    },
+                    "data": null,
+                    "uri": "spotify:track:2ch1SJBrQ4Q4j6kGDJfbPz"
+                  },
+                  {
+                    "content": {
+                      "__typename": "TrackResponseWrapper",
+                      "data": {
+                        "__typename": "Track",
+                        "albumOfTrack": {
+                          "coverArt": {
+                            "sources": [
+                              {
+                                "height": 300,
+                                "url": "https://i.scdn.co/image/ab67616d00001e02086eaed38ba9a780c1d9371a",
+                                "width": 300
+                              },
+                              {
+                                "height": 64,
+                                "url": "https://i.scdn.co/image/ab67616d00004851086eaed38ba9a780c1d9371a",
+                                "width": 64
+                              },
+                              {
+                                "height": 640,
+                                "url": "https://i.scdn.co/image/ab67616d0000b273086eaed38ba9a780c1d9371a",
+                                "width": 640
+                              }
+                            ]
+                          },
+                          "name": "Jailer 2 (Original Motion Picture Soundtrack)",
+                          "uri": "spotify:album:1uwOU5ZjczJJozQkhzrGJr"
+                        },
+                        "artists": {
+                          "items": [
+                            {
+                              "profile": {
+                                "name": "Anirudh Ravichander"
+                              },
+                              "uri": "spotify:artist:4zCH9qm4R2DADamUHMCa6O"
+                            },
+                            {
+                              "profile": {
+                                "name": "Thamizh Aadhavan"
+                              },
+                              "uri": "spotify:artist:2naoxh21roEyvOd7NWwDUb"
+                            }
+                          ]
+                        },
+                        "contentRating": {
+                          "label": "NONE"
+                        },
+                        "name": "Putaapu Gang",
+                        "uri": "spotify:track:55ePB3CmrchPFWCZKWZvhW"
+                      }
+                    },
+                    "data": null,
+                    "uri": "spotify:track:55ePB3CmrchPFWCZKWZvhW"
+                  }
+                ],
+                "pagingInfo": {
+                  "nextOffset": 0
+                },
+                "totalCount": 20
+              },
+              "uri": "spotify:section:0JQ5DB5E8N831KzFzsBBQ2"
+            },
+            {
+              "data": {
+                "__typename": "HomeGenericSectionData",
+                "headerEntity": {
+                  "__typename": "UnknownType"
+                },
+                "subtitle": {
+                  "transformedLabel": "",
+                  "translatedBaseText": null
+                },
+                "title": {
+                  "transformedLabel": "Popular artists",
+                  "translatedBaseText": "Popular artists"
+                }
+              },
+              "sectionItems": {
+                "items": [
+                  {
+                    "content": {
+                      "__typename": "ArtistResponseWrapper",
+                      "data": {
+                        "__typename": "Artist",
+                        "profile": {
+                          "name": "Pritam"
+                        },
+                        "uri": "spotify:artist:1wRPtKGflJrBx9BmLsSwlU",
+                        "visuals": {
+                          "avatarImage": {
+                            "sources": [
+                              {
+                                "height": 640,
+                                "url": "https://i.scdn.co/image/ab6761610000e5ebcb6926f44f620555ba444fca",
+                                "width": 640
+                              },
+                              {
+                                "height": 160,
+                                "url": "https://i.scdn.co/image/ab6761610000f178cb6926f44f620555ba444fca",
+                                "width": 160
+                              },
+                              {
+                                "height": 320,
+                                "url": "https://i.scdn.co/image/ab67616100005174cb6926f44f620555ba444fca",
+                                "width": 320
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "data": null,
+                    "uri": "spotify:artist:1wRPtKGflJrBx9BmLsSwlU"
+                  },
+                  {
+                    "content": {
+                      "__typename": "ArtistResponseWrapper",
+                      "data": {
+                        "__typename": "Artist",
+                        "profile": {
+                          "name": "A.R. Rahman"
+                        },
+                        "uri": "spotify:artist:1mYsTxnqsietFxj1OgoGbG",
+                        "visuals": {
+                          "avatarImage": {
+                            "sources": [
+                              {
+                                "height": 640,
+                                "url": "https://i.scdn.co/image/ab6761610000e5ebb19af0ea736c6228d6eb539c",
+                                "width": 640
+                              },
+                              {
+                                "height": 160,
+                                "url": "https://i.scdn.co/image/ab6761610000f178b19af0ea736c6228d6eb539c",
+                                "width": 160
+                              },
+                              {
+                                "height": 320,
+                                "url": "https://i.scdn.co/image/ab67616100005174b19af0ea736c6228d6eb539c",
+                                "width": 320
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "data": null,
+                    "uri": "spotify:artist:1mYsTxnqsietFxj1OgoGbG"
+                  }
+                ],
+                "pagingInfo": {
+                  "nextOffset": 10
+                },
+                "totalCount": 50
+              },
+              "uri": "spotify:section:0JQ5DAnM3wGh0gz1MXnu3C"
+            },
+            {
+              "data": {
+                "__typename": "HomeGenericSectionData",
+                "headerEntity": {
+                  "__typename": "UnknownType"
+                },
+                "subtitle": {
+                  "transformedLabel": "",
+                  "translatedBaseText": null
+                },
+                "title": {
+                  "transformedLabel": "Popular albums and singles",
+                  "translatedBaseText": "Popular albums and singles"
+                }
+              },
+              "sectionItems": {
+                "items": [
+                  {
+                    "content": {
+                      "__typename": "AlbumResponseWrapper",
+                      "data": {
+                        "__typename": "Album",
+                        "artists": {
+                          "items": [
+                            {
+                              "profile": {
+                                "name": "Mithoon"
+                              },
+                              "uri": "spotify:artist:09UmIX92EUH9hAK4bxvHx6"
+                            },
+                            {
+                              "profile": {
+                                "name": "Ankit Tiwari"
+                              },
+                              "uri": "spotify:artist:0E02VcvA5p1ndkLdqWD5JB"
+                            },
+                            {
+                              "profile": {
+                                "name": "Jeet Gannguli"
+                              },
+                              "uri": "spotify:artist:2kkQthS9OLpK4UqNWYqoVl"
+                            }
+                          ]
+                        },
+                        "coverArt": {
+                          "sources": [
+                            {
+                              "height": 300,
+                              "url": "https://i.scdn.co/image/ab67616d00001e026404721c1943d5069f0805f3",
+                              "width": 300
+                            },
+                            {
+                              "height": 64,
+                              "url": "https://i.scdn.co/image/ab67616d000048516404721c1943d5069f0805f3",
+                              "width": 64
+                            },
+                            {
+                              "height": 640,
+                              "url": "https://i.scdn.co/image/ab67616d0000b2736404721c1943d5069f0805f3",
+                              "width": 640
+                            }
+                          ]
+                        },
+                        "isPreRelease": false,
+                        "name": "Aashiqui 2",
+                        "playability": {
+                          "playable": true,
+                          "reason": "PLAYABLE"
+                        },
+                        "preReleaseEndDateTime": null,
+                        "albumType": "ALBUM",
+                        "uri": "spotify:album:0Rkv5iqjF2uenfL0OVB8hg"
+                      }
+                    },
+                    "data": null,
+                    "uri": "spotify:album:0Rkv5iqjF2uenfL0OVB8hg"
+                  },
+                  {
+                    "content": {
+                      "__typename": "AlbumResponseWrapper",
+                      "data": {
+                        "__typename": "Album",
+                        "artists": {
+                          "items": [
+                            {
+                              "profile": {
+                                "name": "Pritam"
+                              },
+                              "uri": "spotify:artist:1wRPtKGflJrBx9BmLsSwlU"
+                            }
+                          ]
+                        },
+                        "coverArt": {
+                          "sources": [
+                            {
+                              "height": 300,
+                              "url": "https://i.scdn.co/image/ab67616d00001e02707ea5b8023ac77d31756ed4",
+                              "width": 300
+                            },
+                            {
+                              "height": 64,
+                              "url": "https://i.scdn.co/image/ab67616d00004851707ea5b8023ac77d31756ed4",
+                              "width": 64
+                            },
+                            {
+                              "height": 640,
+                              "url": "https://i.scdn.co/image/ab67616d0000b273707ea5b8023ac77d31756ed4",
+                              "width": 640
+                            }
+                          ]
+                        },
+                        "isPreRelease": false,
+                        "name": "Yeh Jawaani Hai Deewani",
+                        "playability": {
+                          "playable": true,
+                          "reason": "PLAYABLE"
+                        },
+                        "preReleaseEndDateTime": null,
+                        "albumType": "ALBUM",
+                        "uri": "spotify:album:2Lxoc72vRTGdQfMvj7Ovi1"
+                      }
+                    },
+                    "data": null,
+                    "uri": "spotify:album:2Lxoc72vRTGdQfMvj7Ovi1"
+                  }
+                ],
+                "pagingInfo": {
+                  "nextOffset": 10
+                },
+                "totalCount": 30
+              },
+              "uri": "spotify:section:0JQ5DAnM3wGh0gz1MXnu3B"
+            },
+            {
+              "data": {
+                "__typename": "HomeGenericSectionData",
+                "headerEntity": {
+                  "__typename": "UnknownType"
+                },
+                "subtitle": {
+                  "transformedLabel": "",
+                  "translatedBaseText": null
+                },
+                "title": {
+                  "transformedLabel": "Popular radio",
+                  "translatedBaseText": "Popular radio"
+                }
+              },
+              "sectionItems": {
+                "items": [
+                  {
+                    "content": {
+                      "__typename": "PlaylistResponseWrapper",
+                      "data": {
+                        "__typename": "Playlist",
+                        "content": {
+                          "__typename": "PlaylistItemsPage",
+                          "totalCount": 50
+                        },
+                        "description": "With Vishal-Shekhar, Jeet Gannguli, Pritam and more",
+                        "format": "inspiredby-mix",
+                        "images": {
+                          "items": [
+                            {
+                              "sources": [
+                                {
+                                  "height": null,
+                                  "url": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/radio/artist/4YRxDV8wJFPHPTeXepOstw/en",
+                                  "width": null
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        "name": "Arijit Singh Radio",
+                        "ownerV2": {
+                          "data": {
+                            "__typename": "User",
+                            "name": "Spotify",
+                            "uri": "spotify:user:spotify"
+                          }
+                        },
+                        "uri": "spotify:playlist:37i9dQZF1E4oJSdHZrVjxD"
+                      }
+                    },
+                    "data": null,
+                    "uri": "spotify:playlist:37i9dQZF1E4oJSdHZrVjxD"
+                  },
+                  {
+                    "content": {
+                      "__typename": "PlaylistResponseWrapper",
+                      "data": {
+                        "__typename": "Playlist",
+                        "content": {
+                          "__typename": "PlaylistItemsPage",
+                          "totalCount": 50
+                        },
+                        "description": "With Pritam, Shankar-Ehsaan-Loy, Gajendra Verma and more",
+                        "format": "inspiredby-mix",
+                        "images": {
+                          "items": [
+                            {
+                              "sources": [
+                                {
+                                  "height": null,
+                                  "url": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/radio/artist/4fEkbug6kZzzJ8eYX6Kbbp/en",
+                                  "width": null
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        "name": "KK Radio",
+                        "ownerV2": {
+                          "data": {
+                            "__typename": "User",
+                            "name": "Spotify",
+                            "uri": "spotify:user:spotify"
+                          }
+                        },
+                        "uri": "spotify:playlist:37i9dQZF1E4xzuMPqbCJfm"
+                      }
+                    },
+                    "data": null,
+                    "uri": "spotify:playlist:37i9dQZF1E4xzuMPqbCJfm"
+                  }
+                ],
+                "pagingInfo": {
+                  "nextOffset": 10
+                },
+                "totalCount": 50
+              },
+              "uri": "spotify:section:0JQ5DAnM3wGh0gz1MXnu4h"
+            }
+          ],
+          "totalCount": 5
+        },
+        "uri": "spotify:page:0JQ5DAozXW0GUBAKjHsifF"
+      },
+      "homeChips": []
+    }
+  }
+}

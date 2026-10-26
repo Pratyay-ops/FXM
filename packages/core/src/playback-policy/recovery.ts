@@ -53,10 +53,12 @@ export type LadderRung = 'top' | 'fallback'
  *
  * - `expired`: the URL is past its expiry, or the player refreshes it before it plays again
  * - `decode`: the bytes arrived but could not be decoded
- * - `media`: any other playback failure: a media error (a refused request looks like one in a
- *   browser), or a stall in which no audio played for too long
+ * - `unsupported`: the player refused the stream: a format it cannot play, or in a browser a
+ *   refused request, which `<audio>` reports the same way (`MEDIA_ERR_SRC_NOT_SUPPORTED`)
+ * - `media`: any other playback failure: a network error, or a stall in which no audio played
+ *   for too long
  */
-export type StreamFailureKind = 'expired' | 'decode' | 'media'
+export type StreamFailureKind = 'expired' | 'decode' | 'unsupported' | 'media'
 
 /** The facts {@link planStreamRecovery} decides on. */
 export interface StreamFailureFacts {
@@ -107,6 +109,8 @@ export type RecoveryTarget = 'same' | 'fallback' | 'top'
  * - `first-request`: a verified URL failed before it played, so it is not capped
  * - `mid-play`: the stream failed or stalled after it had played
  * - `decode`: the bytes could not be decoded
+ * - `unsupported`: the player refused a stream whose URL works (`verified` by the end-of-file
+ *   probe, or a readable 2xx status) before it played: its format, not its URL
  */
 export type RecoveryReason =
   | 'expired'
@@ -119,6 +123,7 @@ export type RecoveryReason =
   | 'first-request'
   | 'mid-play'
   | 'decode'
+  | 'unsupported'
 
 /** What to do after a stream failed (see {@link planStreamRecovery}). */
 export interface StreamRecovery {
@@ -128,7 +133,8 @@ export interface StreamRecovery {
   flushAll: boolean
   /**
    * Avoid the failed stream's codec and container for this audio, and choose another format
-   * from the same resolution: the bytes arrived but could not be decoded.
+   * from the same resolution: the bytes arrived but could not be decoded, or the player refused
+   * a format whose URL works.
    */
   avoidFormat: boolean
   /** Why. */
@@ -139,6 +145,14 @@ export interface StreamRecovery {
 const STATUS_REASONS: Readonly<Record<number, RecoveryReason>> = {
   401: 'unauthorized',
   410: 'expired',
+}
+
+/**
+ * Whether the failed stream's URL is known to work: the end-of-file probe passed, or the
+ * failure's readable status is a success.
+ */
+function urlWorks({ fullLength, status }: StreamFailureFacts): boolean {
+  return fullLength === 'verified' || (status !== undefined && status >= 200 && status < 300)
 }
 
 /**
@@ -153,6 +167,7 @@ const STATUS_REASONS: Readonly<Record<number, RecoveryReason>> = {
  * | 403 on a fresh URL, the first on this rung | the same rung, fresh (once, before changing rung) |
  * | 403 again on a fresh URL | the fallback rung; from the fallback rung, the top again |
  * | could not decode | another format of the same resolution |
+ * | refused before it played, with a `verified` URL or a readable 2xx status | another format of the same resolution |
  * | an `unverified` URL fails before it plays | the fallback rung (a failed probe); from the fallback rung, the top again |
  * | a `verified` URL fails before it plays | the same rung, fresh: the probe proved it is not capped |
  * | a failure or a stall after playing | the same rung, fresh |
@@ -177,6 +192,9 @@ export function planStreamRecovery(facts: StreamFailureFacts): StreamRecovery {
   const statusReason = status === undefined ? undefined : STATUS_REASONS[status]
   if (statusReason !== undefined) return plan('same', statusReason)
   if (facts.kind === 'decode') return plan('same', 'decode', { avoidFormat: true })
+  if (facts.kind === 'unsupported' && !facts.started && urlWorks(facts)) {
+    return plan('same', 'unsupported', { avoidFormat: true })
+  }
   if (facts.started) return plan('same', 'mid-play')
   if (facts.fullLength === 'verified') return plan('same', 'first-request')
   if (facts.rung === 'fallback') return plan('top', 'fallback-failed')

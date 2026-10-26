@@ -4,6 +4,7 @@
  * headers. Advisory in CI, where datacenter IPs may meet bot checks.
  */
 import { describe, expect, it } from 'vitest'
+import { createRequestBudget } from './budget'
 import { createNodeTransport } from './node'
 
 const live =
@@ -12,7 +13,7 @@ const live =
 
 describe.skipIf(!live)('InnerTube, live', () => {
   it('answers a search sent in the CORS-simple shape', async () => {
-    const transport = createNodeTransport()
+    const transport = createNodeTransport({ budget: createRequestBudget() })
     const response = await transport.fetch('https://music.youtube.com/youtubei/v1/search', {
       method: 'POST',
       headers: {

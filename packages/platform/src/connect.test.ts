@@ -22,11 +22,12 @@ import { FAKE_CONNECT_FEATURES, installFakeConnect } from './testing/fake-connec
 /** Messages travel on happy-dom's real timers, which a busy machine can slow down a lot. */
 const PATIENCE = { timeout: 10_000 }
 
-const APP = 'https://fxm-music.pages.dev/app/'
-const ORIGIN = 'https://fxm-music.pages.dev'
+const APP = 'https://fxmusic.pages.dev/app/'
+const ORIGIN = 'https://fxmusic.pages.dev'
 
 type Page = ConnectWindow & {
   happyDOM: { close(): Promise<void> }
+  Event: typeof Event
   MessageEvent: typeof MessageEvent
   dispatchEvent(event: Event): boolean
 }
@@ -156,7 +157,7 @@ describe('detection', () => {
       )
     send(pong, { source: other })
     send(pong, { origin: 'https://evil.example' })
-    send(pong, { origin: 'https://preview.fxm-music.pages.dev' })
+    send(pong, { origin: 'https://preview.fxmusic.pages.dev' })
     send({ ...pong, version: 1 })
     send({ ...pong, version: '' })
     send({ ...pong, features: 'youtube' })
@@ -224,6 +225,30 @@ describe('detection', () => {
     expect(seen).toEqual(['present'])
   })
 
+  it('detects again when the page gets the focus back or becomes visible', async () => {
+    const { window, client } = setup()
+    const connect = installFakeConnect(window, { features: ['spotify'] })
+    expect((await client.detect()).features).toEqual(['spotify'])
+    // The user turned the Spotify login on in FXM Connect's options, in another tab.
+    connect.update({ features: ['spotify', 'spotify-login'] })
+    window.dispatchEvent(new window.Event('focus'))
+    await vi.waitFor(() => expect(client.status?.features).toContain('spotify-login'), PATIENCE)
+    connect.update({ features: ['spotify'] })
+    Object.defineProperty(window.document, 'visibilityState', {
+      value: 'hidden',
+      configurable: true,
+    })
+    window.document.dispatchEvent(new window.Event('visibilitychange'))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(client.status?.features).toContain('spotify-login')
+    Object.defineProperty(window.document, 'visibilityState', {
+      value: 'visible',
+      configurable: true,
+    })
+    window.document.dispatchEvent(new window.Event('visibilitychange'))
+    await vi.waitFor(() => expect(client.status?.features).toEqual(['spotify']), PATIENCE)
+  })
+
   it('needs a window', () => {
     expect(() => createConnectClient()).toThrow(FxmError)
   })
@@ -232,9 +257,12 @@ describe('detection', () => {
     const { window, client } = setup()
     client.dispose()
     client.dispose()
-    installFakeConnect(window)
+    const connect = installFakeConnect(window)
+    window.dispatchEvent(new window.Event('focus'))
+    window.document.dispatchEvent(new window.Event('visibilitychange'))
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(client.status).toBeUndefined()
+    expect(connect.pings).toBe(0)
   })
 })
 
@@ -295,7 +323,7 @@ describe('the Spotify session bridge', () => {
 
   it.each([
     ['login-disabled', 'AuthRequired'],
-    ['private-tab', 'Unsupported'],
+    ['private-tab', 'AuthRequired'],
     ['bad-request', 'Unsupported'],
     ['unsupported', 'Unsupported'],
     ['rate-limited', 'RateLimited'],
@@ -315,6 +343,20 @@ describe('the Spotify session bridge', () => {
       code === 'rate-limited' ? 60_000 : undefined,
     )
   })
+
+  it.each(['login-disabled', 'private-tab'])(
+    'detects again after a %s reply, since the announced login is out of date',
+    async (code) => {
+      const { client, connect } = await present({ bridge: () => ({ error: code }) })
+      const pings = connect.pings
+      connect.update({ features: [...FAKE_CONNECT_FEATURES] })
+      await rejection(client.spotifyToken({ reason: 'transport' }))
+      await vi.waitFor(() => expect(client.status?.features).not.toContain('spotify-login'), {
+        ...PATIENCE,
+      })
+      expect(connect.pings).toBe(pings + 1)
+    },
+  )
 
   it('times out when FXM Connect never answers', async () => {
     const { client, clock } = await present({ bridge: () => new Promise(() => {}) })
@@ -352,6 +394,57 @@ describe('the Spotify session bridge', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     clock.advance(CONNECT_BRIDGE_TIMEOUT_MS)
     expect(isFxmError(await rejection(request), 'Network')).toBe(true)
+  })
+
+  it('ignores replies with the pending request’s ID that come from anywhere but the page', async () => {
+    const { client, clock, window } = await present({ bridge: () => new Promise(() => {}) })
+    const post = vi.spyOn(window, 'postMessage')
+    let settled = false
+    const request = client.spotifyToken({ reason: 'transport' })
+    void request.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      },
+    )
+    await vi.waitFor(() => expect(post).toHaveBeenCalled(), PATIENCE)
+    const id = (post.mock.calls[0]?.[0] as { id?: string } | undefined)?.id
+    expect(typeof id).toBe('string')
+    const other = page('https://evil.example/')
+    const replies = [
+      { type: 'fxm-connect:response', id, status: 200, json: { accessToken: 'forged' } },
+      { type: 'fxm-connect:error', id, code: 'login-disabled' },
+    ]
+    const sources: { origin: string; source: unknown }[] = [
+      { origin: 'https://evil.example', source: window },
+      { origin: ORIGIN, source: other },
+      { origin: 'null', source: window },
+      { origin: ORIGIN, source: null },
+    ]
+    for (const data of replies) {
+      for (const { origin, source } of sources) {
+        window.dispatchEvent(
+          new window.MessageEvent('message', {
+            data,
+            origin,
+            source: source as MessageEventSource | null,
+          }),
+        )
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(settled).toBe(false)
+    window.dispatchEvent(
+      new window.MessageEvent('message', {
+        data: { type: 'fxm-connect:response', id, status: 200, json: { accessToken: 'real' } },
+        origin: ORIGIN,
+        source: window as unknown as MessageEventSource,
+      }),
+    )
+    await expect(request).resolves.toEqual({ status: 200, json: { accessToken: 'real' } })
+    expect(clock.pendingTimers).toBe(0)
   })
 
   it('ignores a reply with the right ID but a malformed body', async () => {

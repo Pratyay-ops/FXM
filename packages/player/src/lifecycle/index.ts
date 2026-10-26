@@ -9,19 +9,20 @@
 export {
   createMemoryMatchStore,
   fromAudioSource,
-  isStoredMatch,
   type MatchKey,
   type MatchOutcome,
-  type MatchRequest,
   type MatchStore,
   type MemoryMatchStore,
   matchKeyString,
   type OfflineStore,
   type ResolvePriority,
   type StoredMatch,
+  type StreamFailureReport,
   type StreamSource,
   type StreamSourceRequest,
+  sanitizeStoredMatch,
   type TrackMatcher,
+  type TrackMatchRequest,
 } from './adapters'
 export {
   type BrowserNetworkMonitorOptions,

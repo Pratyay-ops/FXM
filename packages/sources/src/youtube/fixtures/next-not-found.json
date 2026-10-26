@@ -1,0 +1,103 @@
+{
+  "contents": {
+    "singleColumnMusicWatchNextResultsRenderer": {
+      "tabbedRenderer": {
+        "watchNextTabbedResultsRenderer": {
+          "tabs": [
+            {
+              "tabRenderer": {
+                "title": "Up next",
+                "content": {
+                  "musicQueueRenderer": {
+                    "hack": true,
+                    "musicQueueConfig": {},
+                    "header": {
+                      "musicQueueHeaderRenderer": {
+                        "title": {
+                          "runs": [
+                            {
+                              "text": "Playing from"
+                            }
+                          ]
+                        },
+                        "subtitle": {
+                          "runs": [
+                            {
+                              "text": "Your Queue"
+                            }
+                          ]
+                        },
+                        "buttons": [
+                          {
+                            "chipCloudChipRenderer": {
+                              "style": {
+                                "styleType": "STYLE_TRANSPARENT"
+                              },
+                              "text": {
+                                "runs": [
+                                  {
+                                    "text": "Save"
+                                  }
+                                ]
+                              },
+                              "navigationEndpoint": {
+                                "saveQueueToPlaylistCommand": {}
+                              },
+                              "icon": {
+                                "iconType": "ADD_TO_PLAYLIST"
+                              },
+                              "isSelected": false,
+                              "uniqueId": "Save"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "tabRenderer": {
+                "title": "Lyrics",
+                "unselectable": true
+              }
+            },
+            {
+              "tabRenderer": {
+                "title": "Comments",
+                "content": {
+                  "messageRenderer": {
+                    "text": {
+                      "runs": [
+                        {
+                          "text": "Comments are turned off. "
+                        },
+                        {
+                          "text": "Learn more",
+                          "navigationEndpoint": {
+                            "urlEndpoint": {
+                              "url": "https://support.google.com/youtube/answer/9706180?hl=en",
+                              "target": "TARGET_NEW_WINDOW"
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "unselectable": true
+              }
+            },
+            {
+              "tabRenderer": {
+                "title": "Related",
+                "unselectable": true
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

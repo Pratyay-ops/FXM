@@ -23,6 +23,18 @@ updates:
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
 
+  # wrangler for the deploy job only (stage 2.8), in its own pnpm root with its own lockfile.
+  - package-ecosystem: npm
+    directory: /scripts/build-dist-wrangler
+    target-branch: develop
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: build
+
   # Rust crates of the desktop app (stage 7.1). Merge a minor bump of the tauri crate together
   # with the matching @tauri-apps/api bump from npm: tauri build refuses mismatched versions.
   - package-ecosystem: cargo

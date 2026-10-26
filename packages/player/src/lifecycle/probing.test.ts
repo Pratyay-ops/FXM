@@ -11,20 +11,45 @@ afterEach(() => {
 })
 
 describe('capped URLs: the HTTP end-of-file probe, where bytes are readable', () => {
-  it('falls back to itag 18 when the probe finds the top rung capped', async () => {
+  it('plays the itag 18 the ladder falls through to, never the capped URLs', async () => {
     const { player, engine, youtube } = setup({ tier: 'full' })
     youtube.capped.add('a')
     await player.setQueue([testTrack('a')])
-    expect(youtube.log).toEqual(['a:top', 'a:fallback'])
-    expect(engine.loadedUrls).toEqual([ladderUrl('a', 18, 2)])
+    expect(youtube.log).toEqual(['a:top'])
+    expect(engine.loadedUrls).toEqual([ladderUrl('a', 18, 1)])
     expect(player.getState()).toMatchObject({
       status: 'playing',
       stream: { media: 'muxed-video', fullLength: 'verified', codec: 'aac' },
     })
   })
 
+  it('asks for itag 18 itself when the top rung returns only capped URLs', async () => {
+    const { player, engine, youtube } = setup({ tier: 'full' })
+    youtube.fallThrough = false
+    youtube.capped.add('a')
+    await player.setQueue([testTrack('a')])
+    expect(youtube.log).toEqual(['a:top', 'a:fallback'])
+    expect(engine.loadedUrls).toEqual([ladderUrl('a', 18, 2)])
+    expect(player.getState().stream).toMatchObject({ media: 'muxed-video', fullLength: 'verified' })
+  })
+
+  it('knows that itag 18 from the whole ladder came from the fallback rung', async () => {
+    const { player, engine, youtube } = setup({ tier: 'full' })
+    youtube.capped.add('a')
+    engine.startOnPlay = false
+    await player.setQueue([testTrack('a')])
+    engine.startOnPlay = true
+    // A verified URL that fails before it plays is resolved again on its own rung: itag 18's.
+    engine.fail('network')
+    await settle()
+    expect(youtube.log).toEqual(['a:top', 'a:fallback'])
+    expect(engine.loadedUrls).toEqual([ladderUrl('a', 18, 1), ladderUrl('a', 18, 2)])
+    expect(youtube.reports).toEqual([])
+  })
+
   it('remembers the working rung for the video on this network', async () => {
     const { player, engine, youtube } = setup({ tier: 'full' })
+    youtube.fallThrough = false
     youtube.capped.add('a')
     await player.setQueue(testTracks('a', 'b'))
     await player.next()
@@ -72,6 +97,8 @@ describe('capped URLs: the media element’s first request, where bytes are unre
     expect(youtube.log).toEqual(['a:top', 'a:fallback'])
     expect(engine.loadedUrls).toEqual([ladderUrl('a', 251, 1), ladderUrl('a', 18, 2)])
     expect(player.getState()).toMatchObject({ status: 'playing', stream: { media: 'muxed-video' } })
+    // The ladder hears of the failed probe, so its rung's health counts it (1.4).
+    expect(youtube.reports).toEqual([{ url: ladderUrl('a', 251, 1), reason: 'probe-failed' }])
   })
 
   it('in Lite, falls back to itag 18 after a stall before the first play', async () => {
@@ -99,6 +126,10 @@ describe('capped URLs: the media element’s first request, where bytes are unre
       ladderUrl('a', 251, 1),
       ladderUrl('a', 18, 2),
       ladderUrl('a', 251, 3),
+    ])
+    expect(youtube.reports.map((report) => report.reason)).toEqual([
+      'probe-failed',
+      'fallback-failed',
     ])
   })
 
@@ -132,6 +163,8 @@ describe('capped URLs: the media element’s first request, where bytes are unre
     expect(youtube.log).toEqual(['a:top', 'a:top'])
     expect(engine.loadedUrls).toEqual([ladderUrl('a', 251, 1), ladderUrl('a', 251, 2)])
     expect(engine.loadStarts).toEqual([0, 60_000])
+    // A failure after playing says nothing about the rung.
+    expect(youtube.reports).toEqual([])
   })
 })
 
@@ -147,6 +180,40 @@ describe('format choice per canPlayType', () => {
     engine.canPlayStream = (stream) => (stream.codec === 'opus' ? 'maybe' : 'probably')
     await player.setQueue([testTrack('a')])
     expect(engine.loadedUrls).toEqual([ladderUrl('a', 140, 1)])
+  })
+
+  it('plays another format when the player refuses a verified one before it plays', async () => {
+    const { player, engine, youtube } = setup({ tier: 'full' })
+    // An engine that cannot tell which formats it plays, as `canPlayType` may answer "maybe".
+    engine.canPlayStream = () => 'maybe'
+    engine.startOnPlay = false
+    await player.setQueue([testTrack('a')])
+    engine.startOnPlay = true
+    engine.fail('unsupported')
+    await settle()
+    // The probe proved the URL serves the whole file, so the format is what failed.
+    expect(youtube.log).toEqual(['a:top'])
+    expect(engine.loadedUrls).toEqual([ladderUrl('a', 251, 1), ladderUrl('a', 140, 1)])
+    expect(player.getState().status).toBe('playing')
+  })
+
+  it('plays another format when a refused URL still answers 2xx', async () => {
+    const { player, engine, youtube } = setup({ tier: 'full' })
+    engine.canPlayStream = () => 'maybe'
+    youtube.handler = async (candidate, request) =>
+      ladderStreams(candidate.ref, {
+        rung: request.rung,
+        fullLength: 'unverified',
+        serial: youtube.calls.length,
+      })
+    youtube.statuses.set(ladderUrl('a', 251, 1), 206)
+    engine.startOnPlay = false
+    await player.setQueue([testTrack('a')])
+    engine.startOnPlay = true
+    engine.fail('unsupported')
+    await settle()
+    expect(youtube.log).toEqual(['a:top'])
+    expect(engine.loadedUrls.at(-1)).toBe(ladderUrl('a', 140, 1))
   })
 
   it('plays another format from the same resolution when one cannot be decoded', async () => {

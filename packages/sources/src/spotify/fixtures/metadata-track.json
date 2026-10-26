@@ -1,0 +1,41 @@
+{
+  "gid": "e666c6ccc4c7437f83552aa9bf4f2cfd",
+  "name": "Creep",
+  "album": {
+    "gid": "6b5fb828c555476190a9984d4dab7f5a",
+    "name": "Pablo Honey",
+    "artist": [
+      {
+        "gid": "a3d4a9be89174457bdd11d2ebd9aaf39",
+        "name": "Radiohead"
+      }
+    ],
+    "type": "ALBUM",
+    "label": "XL Recordings",
+    "date": {
+      "year": 1993,
+      "month": 2,
+      "day": 22
+    }
+  },
+  "artist": [
+    {
+      "gid": "a3d4a9be89174457bdd11d2ebd9aaf39",
+      "name": "Radiohead"
+    }
+  ],
+  "number": 2,
+  "disc_number": 1,
+  "duration": 238640,
+  "popularity": 93,
+  "explicit": true,
+  "external_id": [
+    {
+      "type": "isrc",
+      "id": "GBAYE9200070"
+    }
+  ],
+  "original_title": "Creep",
+  "canonical_uri": "spotify:track:70LcF31zb1H0PyJoS1Sx1r",
+  "media_type": "AUDIO"
+}

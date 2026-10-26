@@ -51,7 +51,7 @@ export function sharesHost(origin: string, origins: readonly string[]): boolean 
   return origins.some((other) => other !== origin && originHost(other) === host)
 }
 
-/** Manifest ID of an origin's static ruleset, e.g. `fxm_music_pages_dev` or `localhost_5173`. */
+/** Manifest ID of an origin's static ruleset, e.g. `fxmusic_pages_dev` or `localhost_5173`. */
 export function rulesetId(origin: string): string {
   const url = parseOrigin(origin)
   return `${url.hostname}${url.port ? `_${url.port}` : ''}`.replace(/[^a-z0-9]+/g, '_')

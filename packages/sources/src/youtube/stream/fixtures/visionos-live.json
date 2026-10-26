@@ -1,0 +1,76 @@
+{
+  "responseContext": {
+    "visitorData": "CgtGWE1fZml4dHVyZSiAgICAgICAgIAB"
+  },
+  "playabilityStatus": {
+    "status": "OK",
+    "playableInEmbed": true,
+    "liveStreamability": {
+      "liveStreamabilityRenderer": {
+        "videoId": "rFZHOHl-L8A",
+        "pollDelayMs": "15000"
+      }
+    }
+  },
+  "streamingData": {
+    "expiresInSeconds": "21540",
+    "adaptiveFormats": [
+      {
+        "itag": 139,
+        "url": "https://rr1---sn-fxmfixture.googlevideo.com/videoplayback?expire=1792979874&ei=fxm&ip=192.0.2.1&id=fxm&itag=139&aitags=fxm&source=yt_live_broadcast&requiressl=yes&xpc=fxm&met=fxm&mh=fxm&mm=fxm&mn=fxm&ms=fxm&mv=fxm&mvi=fxm&pl=fxm&rms=fxm&initcwndbps=fxm&bui=fxm&spc=fxm&vprv=fxm&live=fxm&hang=fxm&noclen=fxm&svpuc=fxm&mime=audio%2Fmp4&rqh=fxm&reg=fxm&gir=yes&mt=fxm&fvip=fxm&keepalive=fxm&fexp=fxm&c=VISIONOS&sparams=expire%2Cei%2Cip%2Cid%2Caitags%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cspc%2Cvprv%2Clive%2Chang%2Cnoclen%2Csvpuc%2Cmime%2Crqh%2Creg%2Cgir&sig=fxm&lsparams=met%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl%2Crms%2Cinitcwndbps&lsig=fxm",
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.5\"",
+        "bitrate": 64000,
+        "quality": "tiny",
+        "audioQuality": "AUDIO_QUALITY_LOW",
+        "audioSampleRate": "22050",
+        "audioChannels": 2
+      },
+      {
+        "itag": 140,
+        "url": "https://rr1---sn-fxmfixture.googlevideo.com/videoplayback?expire=1792979874&ei=fxm&ip=192.0.2.1&id=fxm&itag=140&aitags=fxm&source=yt_live_broadcast&requiressl=yes&xpc=fxm&met=fxm&mh=fxm&mm=fxm&mn=fxm&ms=fxm&mv=fxm&mvi=fxm&pl=fxm&rms=fxm&initcwndbps=fxm&bui=fxm&spc=fxm&vprv=fxm&live=fxm&hang=fxm&noclen=fxm&svpuc=fxm&mime=audio%2Fmp4&rqh=fxm&reg=fxm&gir=yes&mt=fxm&fvip=fxm&keepalive=fxm&fexp=fxm&c=VISIONOS&sparams=expire%2Cei%2Cip%2Cid%2Caitags%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cspc%2Cvprv%2Clive%2Chang%2Cnoclen%2Csvpuc%2Cmime%2Crqh%2Creg%2Cgir&sig=fxm&lsparams=met%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl%2Crms%2Cinitcwndbps&lsig=fxm",
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 144000,
+        "quality": "tiny",
+        "audioQuality": "AUDIO_QUALITY_MEDIUM",
+        "audioSampleRate": "44100",
+        "audioChannels": 2
+      },
+      {
+        "itag": 137,
+        "url": "https://rr1---sn-fxmfixture.googlevideo.com/videoplayback?expire=1792979874&ei=fxm&ip=192.0.2.1&id=fxm&itag=137&aitags=fxm&source=yt_live_broadcast&requiressl=yes&xpc=fxm&met=fxm&mh=fxm&mm=fxm&mn=fxm&ms=fxm&mv=fxm&mvi=fxm&pl=fxm&rms=fxm&initcwndbps=fxm&bui=fxm&spc=fxm&vprv=fxm&live=fxm&hang=fxm&noclen=fxm&svpuc=fxm&mime=video%2Fmp4&rqh=fxm&reg=fxm&gir=yes&mt=fxm&fvip=fxm&keepalive=fxm&fexp=fxm&c=VISIONOS&sparams=expire%2Cei%2Cip%2Cid%2Caitags%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cspc%2Cvprv%2Clive%2Chang%2Cnoclen%2Csvpuc%2Cmime%2Crqh%2Creg%2Cgir&sig=fxm&lsparams=met%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl%2Crms%2Cinitcwndbps&lsig=fxm",
+        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+        "bitrate": 5018593,
+        "quality": "hd1080",
+        "qualityLabel": "1080p",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30
+      },
+      {
+        "itag": 136,
+        "url": "https://rr1---sn-fxmfixture.googlevideo.com/videoplayback?expire=1792979874&ei=fxm&ip=192.0.2.1&id=fxm&itag=136&aitags=fxm&source=yt_live_broadcast&requiressl=yes&xpc=fxm&met=fxm&mh=fxm&mm=fxm&mn=fxm&ms=fxm&mv=fxm&mvi=fxm&pl=fxm&rms=fxm&initcwndbps=fxm&bui=fxm&spc=fxm&vprv=fxm&live=fxm&hang=fxm&noclen=fxm&svpuc=fxm&mime=video%2Fmp4&rqh=fxm&reg=fxm&gir=yes&mt=fxm&fvip=fxm&keepalive=fxm&fexp=fxm&c=VISIONOS&sparams=expire%2Cei%2Cip%2Cid%2Caitags%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cspc%2Cvprv%2Clive%2Chang%2Cnoclen%2Csvpuc%2Cmime%2Crqh%2Creg%2Cgir&sig=fxm&lsparams=met%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl%2Crms%2Cinitcwndbps&lsig=fxm",
+        "mimeType": "video/mp4; codecs=\"avc1.4D401F\"",
+        "bitrate": 2684050,
+        "quality": "hd720",
+        "qualityLabel": "720p",
+        "width": 1280,
+        "height": 720,
+        "fps": 30
+      }
+    ],
+    "hlsManifestUrl": "https://manifest.googlevideo.com/api/manifest/hls_variant/fxm",
+    "serverAbrStreamingUrl": "https://rr1---sn-fxmfixture.googlevideo.com/videoplayback?fxm=sabr"
+  },
+  "videoDetails": {
+    "videoId": "rFZHOHl-L8A",
+    "title": "lofi hip hop radio 📚 beats to relax/study to",
+    "lengthSeconds": "0",
+    "channelId": "UCSJ4gkVC6NrvII8umztf0Ow",
+    "author": "Lofi Girl",
+    "isLive": true,
+    "isLiveContent": true,
+    "isLiveDvrEnabled": true,
+    "isLowLatencyLiveStream": false,
+    "isPrivate": false
+  }
+}

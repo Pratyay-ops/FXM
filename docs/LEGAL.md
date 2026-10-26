@@ -10,7 +10,7 @@ FXM hosts no music and has no servers of its own. Its apps run on the user's dev
 
 Users are responsible for how they use FXM, including following the terms of the services they use with it and the laws where they live. FXM is provided as is, without warranties or conditions of any kind, under the [Apache License 2.0](../LICENSE).
 
-The same notice is in the [README](../README.md#legal) and on the site's [disclaimer page](https://fxm-music.pages.dev/disclaimer) (source: [`apps/site/src/pages/disclaimer.astro`](../apps/site/src/pages/disclaimer.astro)). Change all three together.
+The same notice is in the [README](../README.md#legal) and on the site's [disclaimer page](https://fxmusic.pages.dev/disclaimer) (source: [`apps/site/src/pages/disclaimer.astro`](../apps/site/src/pages/disclaimer.astro)). Change all three together.
 
 ## Contacts
 
@@ -61,6 +61,11 @@ FXM talks to YouTube and Spotify through APIs they don't document. Code that rel
 |---|---|---|
 | YouTube and YouTube Music | [`packages/sources/src/youtube/CLEAN-ROOM.md`](../packages/sources/src/youtube/CLEAN-ROOM.md) | 1.3 |
 | Spotify | [`packages/sources/src/spotify/CLEAN-ROOM.md`](../packages/sources/src/spotify/CLEAN-ROOM.md) | 1.5 |
+| Last.fm (stations and API) | [`packages/sources/src/lastfm/CLEAN-ROOM.md`](../packages/sources/src/lastfm/CLEAN-ROOM.md) | 3.2 |
+| ListenBrainz | [`packages/sources/src/listenbrainz/CLEAN-ROOM.md`](../packages/sources/src/listenbrainz/CLEAN-ROOM.md) | 3.2 |
+| Cover Art Archive | [`packages/sources/src/coverart/CLEAN-ROOM.md`](../packages/sources/src/coverart/CLEAN-ROOM.md) | 3.2 |
+| iTunes Search | [`packages/sources/src/itunes/CLEAN-ROOM.md`](../packages/sources/src/itunes/CLEAN-ROOM.md) | 3.2 |
+| SponsorBlock | [`packages/sources/src/sponsorblock/CLEAN-ROOM.md`](../packages/sources/src/sponsorblock/CLEAN-ROOM.md) | 8.7 |
 
 When FXM starts using another service's undocumented API, start a log for that service in its provider's folder (`packages/sources/src/<service>/CLEAN-ROOM.md`) and add a row here. FXM Connect was written before these logs: the service behaviour it relies on, measured against the live services in October 2026, is described in the header of [`apps/extension/src/rules.ts`](../apps/extension/src/rules.ts) and in the [extension's README](../apps/extension/README.md). New facts go into the logs.
 
@@ -106,7 +111,7 @@ Every link in this playbook was checked on 2026-10-26.
 ## Security
 
 - **Policy:** [`.github/SECURITY.md`](../.github/SECURITY.md). Reports go through GitHub's private vulnerability reporting.
-- **security.txt** ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116.html)): served at `https://fxm-music.pages.dev/.well-known/security.txt` from [`apps/site/public/.well-known/security.txt`](../apps/site/public/.well-known/security.txt).
+- **security.txt** ([RFC 9116](https://www.rfc-editor.org/rfc/rfc9116.html)): served at `https://fxmusic.pages.dev/.well-known/security.txt` from [`apps/site/public/.well-known/security.txt`](../apps/site/public/.well-known/security.txt).
   - Its `Expires` is 2027-10-25T00:00:00Z. Before then, set a new date at most a year ahead. Update `Canonical` if the site moves.
   - The site build copies it to `apps/site/dist/.well-known/`. The deploy (2.8) must keep that folder when it puts the site together, as the [site's README](../apps/site/README.md#deploying-with-the-web-app) notes: a shell glob such as `dist/*` skips folders whose names start with a dot.
   - Cloudflare Pages serves `/.well-known/` files: other `pages.dev` projects serve theirs as `text/plain; charset=utf-8`, and `wrangler pages deploy` doesn't skip dot-folders (checked on 2026-10-26).
