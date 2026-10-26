@@ -9,7 +9,7 @@
  * @module
  */
 
-import type { PlayContext, Track } from '@fxm/core'
+import type { QueueContext, Track } from '@fxm/core'
 import type { NewPlay } from '../../db/repo'
 
 /** A play that started. */
@@ -18,8 +18,8 @@ export interface PlayStarted {
   track: Track
   /** When it started playing, as epoch milliseconds. */
   startedAt: number
-  /** Where its queue was started from. */
-  context?: PlayContext
+  /** Where its queue was started from: the queue's context, as the library stores it. */
+  context?: QueueContext
 }
 
 /** What a listener hears. Both are optional. */

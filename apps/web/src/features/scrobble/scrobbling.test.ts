@@ -1,4 +1,4 @@
-import { formatId } from '@fxm/core'
+import { formatId, type QueueContext } from '@fxm/core'
 import { Player } from '@fxm/player'
 import { FakeEngine, FakeResolver, testTrack } from '@fxm/player/testing'
 import {
@@ -186,6 +186,33 @@ describe('scrobbling the player', () => {
     expect(services.sent.at(-1)?.body).not.toHaveProperty('timestamp[0]')
   })
 
+  it('tells Last.fm that a song from a radio queue was not the user’s choice', async () => {
+    const { services, accounts, scrobbler } = setup({ lastfm: true })
+    stops.push(connectScrobbler(scrobbler, accounts))
+    const engine = new FakeEngine()
+    const player = new Player({
+      engine,
+      resolver: new FakeResolver(),
+      stallTimeoutMs: 0,
+      preload: false,
+      maxRetries: 0,
+    })
+    stops.push(
+      connectPlayRecorder(player, { record: async () => {}, pageEvents: null, storage: null }),
+    )
+    const a = testTrack('a')
+    await player.setQueue([a], { context: { type: 'radio', seed: a.id, title: 'a radio' } })
+    // Two of its three minutes: more than half.
+    for (let ms = 0; ms < 120_000; ms += 250) {
+      await vi.advanceTimersByTimeAsync(250)
+      engine.progress(engine.positionMs + 250)
+    }
+    engine.end()
+    await vi.advanceTimersByTimeAsync(5000)
+    const scrobble = services.sent.find((request) => request.kind === 'track.scrobble')
+    expect(scrobble?.body).toMatchObject({ 'track[0]': 'a', 'chosenByUser[0]': '0' })
+  })
+
   it('scrobbles nothing for a quick skip, an imported play, or without an account', async () => {
     const connected = setup()
     stops.push(connectScrobbler(connected.scrobbler, connected.accounts))
@@ -369,14 +396,15 @@ describe('targetsFor', () => {
 
 describe('scrobblePlayOf', () => {
   it('turns a recorded play into what the scrobbler takes', () => {
-    const context = { type: 'radio', id: formatId('ytm', 'track', 'a'), title: 'Radio' }
+    const seed = formatId('ytm', 'track', 'a')
+    const context: QueueContext = { type: 'radio', seed, title: 'Radio' }
     const play = newPlay('a', 100_000, { durationMs: 200_000, context })
     expect(scrobblePlayOf(play)).toEqual({
       track: play.track,
       at: T0,
       playedMs: 100_000,
       durationMs: 200_000,
-      context,
+      context: { type: 'radio', id: seed, title: 'Radio' },
     })
     const { playedAt: _start, ...withoutStart } = newPlay('a')
     expect(scrobblePlayOf(withoutStart, 42).at).toBe(42)

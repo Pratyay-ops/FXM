@@ -17,6 +17,7 @@
  * @module
  */
 
+import { playContextOf } from '@fxm/core'
 import {
   type LastfmCredentials,
   LastfmScrobbleClient,
@@ -155,7 +156,10 @@ export function createAppScrobbler(deps: ScrobblingDeps): Scrobbler {
   })
 }
 
-/** A finished play from the play recorder, as the scrobbler takes it. */
+/**
+ * A finished play from the play recorder, as the scrobbler takes it: the queue's context the
+ * library keeps becomes the play context of the listening signals (`playContextOf`).
+ */
 export function scrobblePlayOf(play: NewPlay, now: number = Date.now()): ScrobblePlay {
   const result: ScrobblePlay = {
     track: play.track,
@@ -163,7 +167,8 @@ export function scrobblePlayOf(play: NewPlay, now: number = Date.now()): Scrobbl
     playedMs: play.playedMs,
   }
   if (play.durationMs !== undefined) result.durationMs = play.durationMs
-  if (play.context !== undefined) result.context = play.context
+  const context = playContextOf(play.context)
+  if (context !== undefined) result.context = context
   return result
 }
 
@@ -174,8 +179,10 @@ export function scrobblePlayOf(play: NewPlay, now: number = Date.now()): Scrobbl
 export function playListenerFor(scrobbler: Scrobbler, accounts: ScrobblingStore): PlayListener {
   const connected = () => hasAccounts(accounts.getState())
   return {
-    started: ({ track, context }) => {
-      if (connected()) scrobbler.playStarted(context === undefined ? { track } : { track, context })
+    started: ({ track, context: queueContext }) => {
+      if (!connected()) return
+      const context = playContextOf(queueContext)
+      scrobbler.playStarted(context === undefined ? { track } : { track, context })
     },
     ended: (play) => {
       // An imported history never reaches here, but would never be scrobbled either.
