@@ -21,6 +21,7 @@
  * @module
  */
 
+import { createHash } from 'node:crypto'
 import { DEB_ARCHES, linuxDeb } from '../artifacts.ts'
 import { APP_NAME, DESKTOP_BINARY, FLATPAK_ID, REPO_URL } from '../listing.ts'
 import { releaseAssetUrl, type Version } from '../version.ts'
@@ -42,6 +43,24 @@ export const SHARED_MODULES = {
   appIndicator: 'shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json',
 } as const
 
+/** Where the manifest installs the app's binary, which Flatpak runs as the app's command. */
+export const BINARY_PATH = `/app/bin/${DESKTOP_BINARY}`
+
+/**
+ * The start of the session bus names that WebKitGTK's media controls (MPRIS) own for the app. An
+ * app without a GTK application ID (Tauri sets none by default) and whose program name isn't a
+ * valid one (`fxm`) gets the ID `org.webkit.app-<the SHA-256 of its executable's path>`: WTF's
+ * `applicationID()` computes it in the app's own process, which hands it to its web processes
+ * (`WebProcessPoolGLib.cpp`), and each media session owns
+ * `org.mpris.MediaPlayer2.<that ID>.Sandboxed.instance-<n>` (WebCore's `MediaSessionGLib.cpp`;
+ * WebKit's sources read 2026-10-26). In the Flatpak the path is always {@link BINARY_PATH}, so
+ * the permission names FXM's own names and no other app's.
+ */
+export function mprisNamePrefix(binaryPath: string = BINARY_PATH): string {
+  const id = `org.webkit.app-${createHash('sha256').update(binaryPath).digest('hex')}`
+  return `org.mpris.MediaPlayer2.${id}`
+}
+
 /**
  * The sandbox's permissions:
  *
@@ -49,12 +68,11 @@ export const SHARED_MODULES = {
  * - the network: FXM talks to the music services from the device itself;
  * - sound, through PulseAudio's socket, which PipeWire also serves;
  * - the session bus names the app's parts own: Tauri's single-instance plugin
- *   (`<identifier>.SingleInstance`) and the tray icon's watcher. Flatpak lets an app own only
- *   names under its own ID by default, and the `.deb`'s app is built with the identifier
- *   `io.github.pratyayops.fxm`. WebKitGTK's media controls (MPRIS) take a name made from the
- *   executable's path when the app sets no GTK application ID (Tauri sets none by default), so
- *   `org.mpris.MediaPlayer2.org.webkit.*` covers them. A build from source with the Flatpak ID
- *   as its identifier and `enableGTKAppId` needs none of these (README.md).
+ *   (`<identifier>.SingleInstance`), the tray icon's watcher, and WebKitGTK's media controls
+ *   ({@link mprisNamePrefix}). Flatpak lets an app own only names under its own ID by default,
+ *   and the `.deb`'s app is built with the identifier `io.github.pratyayops.fxm` and no GTK
+ *   application ID. A build from source with the Flatpak ID as its identifier and
+ *   `enableGTKAppId` needs neither `--own-name` (README.md).
  */
 export const FINISH_ARGS = [
   '--share=ipc',
@@ -65,7 +83,7 @@ export const FINISH_ARGS = [
   '--socket=pulseaudio',
   '--own-name=io.github.pratyayops.fxm.SingleInstance',
   '--talk-name=org.kde.StatusNotifierWatcher',
-  '--own-name=org.mpris.MediaPlayer2.org.webkit.*',
+  `--own-name=${mprisNamePrefix()}.*`,
 ] as const
 
 /** The files the manifest's directory holds next to it, copied from the repository. */
@@ -126,7 +144,7 @@ export function flatpakManifest({ version, debSha256 }: ManifestOptions): string
     '    build-commands:',
     '      - ar x fxm.deb',
     '      - tar -xf data.tar.*',
-    `      - install -Dm755 usr/bin/${DESKTOP_BINARY} /app/bin/${DESKTOP_BINARY}`,
+    `      - install -Dm755 usr/bin/${DESKTOP_BINARY} ${BINARY_PATH}`,
     // The app's resources, such as the third-party notices of a release build (stage 7.5):
     // Tauri looks for them next to the binary, in ../lib/<productName>.
     `      - if [ -d usr/lib/${APP_NAME} ]; then mkdir -p /app/lib && cp -R usr/lib/${APP_NAME} /app/lib/; fi`,

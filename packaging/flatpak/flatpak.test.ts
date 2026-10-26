@@ -14,7 +14,15 @@ import {
   metainfoXml,
   xmlText,
 } from './appdata.ts'
-import { FINISH_ARGS, flatpakManifest, LOCAL_FILES, RUNTIME, SHARED_MODULES } from './manifest.ts'
+import {
+  BINARY_PATH,
+  FINISH_ARGS,
+  flatpakManifest,
+  LOCAL_FILES,
+  mprisNamePrefix,
+  RUNTIME,
+  SHARED_MODULES,
+} from './manifest.ts'
 
 /**
  * Checks that XML is well formed, as far as these files go: every tag closes in order, and text
@@ -137,6 +145,26 @@ describe('the local Flatpak manifest', () => {
     }
     expect(FINISH_ARGS).toContain('--share=network')
     expect(FINISH_ARGS).toContain('--socket=pulseaudio')
+  })
+
+  it('owns only the media control names of its own binary, none of other WebKitGTK apps', () => {
+    // WebKitGTK names an app without a GTK application ID after the SHA-256 of its executable's
+    // path, which is always /app/bin/fxm in the Flatpak.
+    expect(BINARY_PATH).toBe('/app/bin/fxm')
+    expect(mprisNamePrefix()).toBe(
+      'org.mpris.MediaPlayer2.org.webkit.app-26bedc89bd659ca1ee452a330e1e6b89f42e9728c63e830c9ec8126988e86778',
+    )
+    expect(FINISH_ARGS).toContain(`--own-name=${mprisNamePrefix()}.*`)
+    const names = FINISH_ARGS.filter((arg) => arg.startsWith('--own-name='))
+    expect(names).toEqual([
+      '--own-name=io.github.pratyayops.fxm.SingleInstance',
+      `--own-name=${mprisNamePrefix()}.*`,
+    ])
+    // The binary the manifest installs and runs is the one the name is made from.
+    expect(flatpakManifest({ version, debSha256 })).toContain(
+      `install -Dm755 usr/bin/fxm ${BINARY_PATH}`,
+    )
+    expect(mprisNamePrefix('/usr/bin/fxm')).not.toBe(mprisNamePrefix())
   })
 
   it('builds the tray icon’s library with Flathub’s shared module', () => {

@@ -26,7 +26,7 @@ flatpak run io.github.pratyay_ops.FXM
 
 The shared modules build libayatana-appindicator, the library the app's tray icon loads at runtime: the GNOME runtime has none, and without one the tray code (`libappindicator-sys`, behind Tauri's `tray-icon` feature) panics, which would stop the app. Flathub's apps add the same repository as a git submodule.
 
-The manifest has not been built on Linux yet: this stage ran on macOS, and the first release with the desktop app comes after it. Check playback (an Opus and an AAC song), the tray icon and closing to the tray, a second start bringing the first window back (single instance), media keys and the system's media controls, and Settings → About's third-party notices.
+The manifest has not been built on Linux yet: this stage ran on macOS, and the first release with the desktop app comes after it. Check playback (an Opus and an AAC song), the tray icon and closing to the tray, a second start bringing the first window back (single instance), media keys and the system's media controls (which also shows that WebKitGTK registers them under the name the permissions allow, `busctl --user list | grep MediaPlayer2`), and Settings → About's third-party notices.
 
 **Its updates.** The binary comes from the `.deb`, so FXM's own update check (stage 7.5) believes apt installed it, and its offer tells the user to install the new `.deb` with apt, which doesn't apply in a Flatpak. Build the Flatpak of the new release instead. A Flatpak that Flathub published would have to keep FXM's update check off, because Flathub updates it.
 
@@ -48,7 +48,7 @@ Only what the app uses (`FINISH_ARGS` in [`manifest.ts`](manifest.ts)):
 | `--socket=pulseaudio` | Sound (PipeWire serves PulseAudio's socket too) |
 | `--own-name=io.github.pratyayops.fxm.SingleInstance` | Tauri's single-instance plugin owns `<identifier>.SingleInstance` on the session bus, and the `.deb`'s app has the identifier `io.github.pratyayops.fxm`, outside the names Flatpak lets an app own by default (those under its own ID) |
 | `--talk-name=org.kde.StatusNotifierWatcher` | The tray icon |
-| `--own-name=org.mpris.MediaPlayer2.org.webkit.*` | The media controls: WebKitGTK names its MPRIS service after the app's application ID, which, when the app sets none (Tauri sets none by default), it makes from the executable's path: `org.webkit.app-<hash>` (WebKit's `ApplicationGLib.cpp` and `MediaSessionGLib.cpp`, read 2026-10-26) |
+| `--own-name=org.mpris.MediaPlayer2.org.webkit.app-26bedc89bd659ca1ee452a330e1e6b89f42e9728c63e830c9ec8126988e86778.*` | The media controls. WebKitGTK names its MPRIS service `org.mpris.MediaPlayer2.<application ID>.Sandboxed.instance-<n>`, and an app without a GTK application ID (Tauri sets none by default) gets the ID `org.webkit.app-<the SHA-256 of its executable's path>`, which the app's own process computes and hands to its web processes (WebKit's `wtf/glib/Application.cpp`, `WebProcessPoolGLib.cpp` and `MediaSessionGLib.cpp`, read 2026-10-26). In the Flatpak the path is always `/app/bin/fxm`, so the permission covers FXM's own names and none of another WebKitGTK app's (`mprisNamePrefix` in [`manifest.ts`](manifest.ts)) |
 
 No files, devices or host access: downloads to disk (stage 7.4) will need the file chooser portal or `--filesystem=xdg-download` when they come.
 
