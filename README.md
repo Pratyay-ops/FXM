@@ -1,6 +1,6 @@
 # FXM
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Pratyay-ops/FXM)
+[![Ask DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/Pratyay-ops/FXM)
 
 **FXM (Free Cross-platform Media)** is a free, open-source music player that runs in your browser, with desktop and Android apps on the way. FXM is in early development: anything marked (coming soon) is on its way.
 
