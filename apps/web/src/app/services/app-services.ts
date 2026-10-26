@@ -16,6 +16,7 @@
  * | Playback policy and stream lifecycle | 2.3 | `lifecycle`, `policy` (2.5's interface) |
  * | Search and browse seams | 2.4 | the sources registry and the actions store |
  * | Library seams | 2.6 | `library.ts`, over the repository passed in (`getLibrary()`) |
+ * | Audio quality | 4.3 | the lifecycle's `qualityPrefs` and `streaming`, from Settings |
  *
  * **Tiers.** The platform decides: Full with FXM Connect (or the desktop and Android apps once
  * their native HTTP exists), Lite with the sandbox documents of stage 1.10 (`sandbox`), Free
@@ -33,7 +34,6 @@ import {
   type AudioSource,
   type CatalogMode,
   DEFAULT_PLAYBACK_SETTINGS,
-  DEFAULT_QUALITY_PREFS,
   type LyricsProvider,
   type PlaybackSettings,
   type ProviderContext,
@@ -55,6 +55,7 @@ import {
   type NetworkMonitor,
   type Player,
   StreamLifecycle,
+  type StreamLifecycleOptions,
   type StreamResolver,
   type StreamSource,
   type TrackMatcher,
@@ -67,6 +68,7 @@ import {
 } from '../../features/search/actions'
 import type { Sources } from '../../features/search/sources'
 import { appSources } from '../../features/search/sources-context'
+import { lifecycleQualityOptions } from '../../features/settings/quality-store'
 import { useSettingsStore } from '../../features/settings/settings-store'
 import { createIndexedDbStore, type DeviceStore } from './device-store'
 import { createLoader, type Loader, lazyProvider } from './lazy-provider'
@@ -115,6 +117,11 @@ export interface AppServicesOptions {
    * `dispose()` stops following.
    */
   readonly network?: NetworkMonitor
+  /**
+   * The audio quality settings (stage 4.3): the tier ceilings and which connection's applies.
+   * Default: the app's, from Settings (`lifecycleQualityOptions()`), read for every stream.
+   */
+  readonly quality?: Pick<StreamLifecycleOptions, 'qualityPrefs' | 'streaming'>
   /** Imports `@fxm/sources/youtube`. Default: `import()`; tests pass one they control. */
   readonly importYouTube?: () => Promise<YouTubeModule>
 }
@@ -320,7 +327,7 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
     matcher,
     matches,
     context: (priority) => context({ priority }),
-    qualityPrefs: () => DEFAULT_QUALITY_PREFS,
+    ...(options.quality ?? lifecycleQualityOptions()),
     settings: () => playback,
     network,
   })

@@ -19,6 +19,7 @@ import {
   searchSourceIds,
   sourceAvailability,
 } from '../../features/search/sources'
+import { useQualityStore } from '../../features/settings/quality-store'
 import { createAppServices } from './app-services'
 import { createMemoryStore, RUNG_HEALTH_KEY, VISITOR_DATA_KEY } from './device-store'
 import type { LibraryMatchDecision, LibraryRepository } from './library'
@@ -147,6 +148,23 @@ describe('the Full tier (FXM Connect)', () => {
     engine.end()
     await until(() => engine.loadedUrls.length === 2, 'the next stream')
     expect(new URL(engine.loadedUrls[1] ?? '').searchParams.get('id')).toBe(videoId(songs[1]))
+  })
+
+  it('streams at the quality chosen in Settings (stage 4.3)', async () => {
+    const setup = setUp('full')
+    await setup.ready()
+    const songs = (await searchSongs(setup)).slice(0, 2)
+    const { engine, player } = playerFor(setup)
+    play(setup, songs.slice(0, 1))
+    await until(() => engine.loadedUrls.length === 1, 'the first stream')
+    expect(player.getState().stream?.tier).not.toBe('low')
+
+    useQualityStore.getState().setDataSaver(true)
+    play(setup, songs.slice(1))
+
+    // The data saver streams at Low on every connection, from the next stream on.
+    await until(() => engine.loadedUrls.length === 2, 'the next stream')
+    expect(player.getState().stream?.tier).toBe('low')
   })
 
   it('keeps one server-issued visitorData for the device, saved for the next visit', async () => {

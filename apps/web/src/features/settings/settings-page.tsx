@@ -5,11 +5,11 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { useSourcesSnapshot } from '../search/sources-context'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
-import { ASSUMED_CAPABILITIES } from './quality-options'
 import { QualitySection } from './quality-section'
 import { SettingRow, SettingsSection } from './settings-layout'
 import { useSettingsStore } from './settings-store'
@@ -20,6 +20,8 @@ export function SettingsPage() {
   const catalogMode = useSettingsStore((state) => state.catalogMode)
   const theme = useSettingsStore((state) => state.theme)
   const setTheme = useSettingsStore((state) => state.setTheme)
+  // What the platform reaches (stage 2.9 wires it in), so the quality help fits the tier.
+  const { capabilities } = useSourcesSnapshot()
   const modeLabelId = useId()
   const modeHelpId = useId()
   const themeLabelId = useId()
@@ -63,8 +65,7 @@ export function SettingsPage() {
         </SettingRow>
       </SettingsSection>
 
-      {/* The platform's capabilities once the app has them (stage 2.9). */}
-      <QualitySection capabilities={ASSUMED_CAPABILITIES} />
+      <QualitySection capabilities={capabilities} />
 
       <SettingsSection title="Appearance">
         <SettingRow
