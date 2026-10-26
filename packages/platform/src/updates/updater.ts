@@ -13,7 +13,8 @@
  * - **Bad and revoked versions.** A validly signed version that fails to load is remembered and
  *   never downloaded again until the next app update; the next higher version is. Versions the
  *   build lists as revoked are refused.
- * - **F-Droid builds** download and load code only after the user's opt-in.
+ * - **F-Droid builds** download and load code only after the user's opt-in, which is asked again
+ *   right before downloaded code loads and goes into use.
  *
  * The web app doesn't use the updater: it gets new code and config by redeploy.
  *
@@ -301,8 +302,11 @@ interface Runtime {
   lastCheck?: { at: number; outcome: ArtifactOutcome }
 }
 
-/** What became of a stored copy at restore. */
-type RestoreResult = 'used' | 'dropped' | 'kept'
+/**
+ * What became of a stored copy at restore. `opted-out`: the user turned code off while it was
+ * read, so it stays stored but unused.
+ */
+type RestoreResult = 'used' | 'dropped' | 'kept' | 'opted-out'
 
 /** A failed download, with the reason for the report. */
 class DownloadProblem extends Error {
@@ -560,6 +564,11 @@ export function createUpdater(options: UpdaterOptions): Updater {
   /**
    * Loads and activates a verified artifact. Returns `undefined` when it is in use, else the
    * problem: a failed load is remembered as bad, an `Unsupported` refusal is not.
+   *
+   * Code asks for the opt-in again right before it loads and before it is put to use, because
+   * the user may turn it off while its bytes download or its stored copy is read: code turned off
+   * never starts loading and never goes into use. Then the problem is `needs-opt-in`, which the
+   * callers report as a skip.
    */
   async function activate(
     artifact: UpdateArtifact,
@@ -570,8 +579,10 @@ export function createUpdater(options: UpdaterOptions): Updater {
     problems: UpdateProblem[],
   ): Promise<UpdateProblem | undefined> {
     const { version } = statement
+    if (!codeAllowed(artifact)) return optInProblem
     try {
       const value = await artifact.load(bytes, statement)
+      if (!codeAllowed(artifact)) return optInProblem
       artifact.activate(value, { origin, version })
     } catch (error) {
       if (isFxmError(error, 'Unsupported')) {
@@ -746,6 +757,8 @@ export function createUpdater(options: UpdaterOptions): Updater {
     }
     const problem = await activate(artifact, kept.bytes, statement, keyId, 'stored', problems)
     if (problem === undefined) return 'used'
+    // Turned off while the copy was read: it stays stored for when the user turns it on again.
+    if (problem.reason === 'needs-opt-in') return 'opted-out'
     problems.push(problem)
     return problem.reason === 'unusable' ? 'kept' : 'dropped'
   }
@@ -771,6 +784,10 @@ export function createUpdater(options: UpdaterOptions): Updater {
     if (kept !== undefined) {
       const result = await restoreStored(artifact, kept, problems)
       if (result === 'used') return report(artifact, 'current', problems)
+      if (result === 'opted-out') {
+        useBundled(artifact)
+        return report(artifact, 'skipped', [...problems, optInProblem])
+      }
       if (result === 'dropped') await forget(artifact, problems)
     }
     useBundled(artifact)
@@ -864,6 +881,11 @@ export function createUpdater(options: UpdaterOptions): Updater {
         continue
       }
       const problem = await activate(artifact, bytes, statement, keyId, 'fetched', problems)
+      if (problem?.reason === 'needs-opt-in') {
+        // Turned off while it downloaded: none of it runs or stays in use, and none is stored.
+        if (runtimeOf(artifact).activated.origin !== 'bundled') useBundled(artifact)
+        return report(artifact, 'skipped', [...problems, optInProblem])
+      }
       if (problem !== undefined) {
         // The same signed bytes would fail from any URL.
         problems.push({ ...problem, url: artifactUrl })

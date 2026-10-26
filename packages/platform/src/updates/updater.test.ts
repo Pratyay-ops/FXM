@@ -648,6 +648,126 @@ describe('F-Droid builds', () => {
     })
   })
 
+  it('never run, use or store a module the user turned off while it downloaded', async () => {
+    const world = setup()
+    const runs = globalThis as { fxmTestModuleRuns?: number }
+    delete runs.fxmTestModuleRuns
+    // The module counts its runs, so the test sees whether its code ever ran.
+    const bytes = utf8(
+      `globalThis.fxmTestModuleRuns = (globalThis.fxmTestModuleRuns ?? 0) + 1\n${moduleSource(3)}`,
+    )
+    const signed = await signer.sign({
+      kind: 'test-module',
+      version: 3,
+      api: 1,
+      file: MODULE_FILE,
+      bytes,
+    })
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    world.site.serve(`${BASE}${MODULE_FILE}.sig`, signed.envelope)
+    world.site.route(`${BASE}${MODULE_FILE}`, async () => {
+      await held
+      return new Response(new Uint8Array(bytes))
+    })
+    let optedIn = true
+    const subject = updater(world, { distribution: 'fdroid', allowCode: () => optedIn })
+
+    const checking = subject.check()
+    await vi.waitFor(() => expect(world.site.requests).toContain(`${BASE}${MODULE_FILE}`))
+    optedIn = false
+    release()
+    const report = await checking
+
+    expect(entry(report, 'test-module')).toMatchObject({
+      outcome: 'skipped',
+      version: 1,
+      origin: 'bundled',
+    })
+    expect(reasons(report, 'test-module')).toEqual(['needs-opt-in'])
+    expect(runs.fxmTestModuleRuns).toBeUndefined()
+    expect(world.events.filter((event) => event.event === 'activate')).toEqual([])
+    expect(await world.store.get('test-module')).toBeUndefined()
+    // Nothing is held against the version: once the user opts in again, it comes.
+    optedIn = true
+    expect(entry(await subject.check(), 'test-module')).toMatchObject({
+      outcome: 'updated',
+      version: 3,
+    })
+    expect(runs.fxmTestModuleRuns).toBe(1)
+    delete runs.fxmTestModuleRuns
+  })
+
+  it('never put into use a module the user turned off while it loaded', async () => {
+    const world = setup()
+    await publishModule(world.site, BASE, 3)
+    let optedIn = true
+    let loads = 0
+    // The user opts out while the module (after the platform's probe) loads.
+    const importer: ModuleImporter = async (url) => {
+      const exports = await nodeModuleImporter(url)
+      loads += 1
+      if (loads === 2) optedIn = false
+      return exports
+    }
+    const subject = updater(world, {
+      artifacts: [moduleArtifact(world.events, 1, { importer }), configArtifact(world.events)],
+      distribution: 'fdroid',
+      allowCode: () => optedIn,
+    })
+    const report = await subject.check()
+    expect(entry(report, 'test-module')).toMatchObject({ outcome: 'skipped', origin: 'bundled' })
+    expect(reasons(report, 'test-module')).toEqual(['needs-opt-in'])
+    expect(world.events.filter((event) => event.event === 'activate')).toEqual([])
+    expect(await world.store.get('test-module')).toBeUndefined()
+  })
+
+  it('never restore a stored module the user turned off while it was read, and keep it', async () => {
+    const world = setup()
+    await publishModule(world.site, BASE, 3)
+    await updater(world).check()
+    world.events.length = 0
+    let optedIn = true
+    let reading = false
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const store: UpdateStore = {
+      get: async (kind) => {
+        reading = true
+        await held
+        return world.store.get(kind)
+      },
+      set: (kind, update) => world.store.set(kind, update),
+      delete: (kind) => world.store.delete(kind),
+    }
+    const subject = updater(world, { store, distribution: 'fdroid', allowCode: () => optedIn })
+
+    const restoring = subject.restore()
+    await vi.waitFor(() => expect(reading).toBe(true))
+    optedIn = false
+    release()
+    const report = await restoring
+
+    expect(entry(report, 'test-module')).toMatchObject({
+      outcome: 'skipped',
+      version: 1,
+      origin: 'bundled',
+    })
+    expect(reasons(report, 'test-module')).toEqual(['needs-opt-in'])
+    expect(world.events.filter((event) => event.event === 'activate')).toEqual([])
+    // Kept for when the user opts in again.
+    expect(await world.store.get('test-module')).toBeDefined()
+    optedIn = true
+    expect(entry(await subject.restore(), 'test-module')).toMatchObject({
+      origin: 'stored',
+      version: 3,
+    })
+  })
+
   it('treat an opt-in setting that throws as off', async () => {
     const world = setup()
     await publishModule(world.site, BASE, 3)
