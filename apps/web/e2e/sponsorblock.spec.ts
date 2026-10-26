@@ -269,14 +269,15 @@ test.describe('on a 390 px phone', () => {
     const next = await track.getByRole('button', { name: 'Next' }).boundingBox()
     expect(box && next && box.y).toBeGreaterThanOrEqual((next?.y ?? 0) + (next?.height ?? 0))
 
-    // From the controls to Undo and back: focus returns to where it came from.
-    const repeat = track.getByRole('button', { name: 'Enable repeat' })
-    await repeat.focus()
+    // From the Lyrics and Queue buttons under the controls to Undo and back: focus returns to
+    // where it came from.
+    const shortcut = track.getByRole('button', { name: 'Queue', exact: true })
+    await shortcut.focus()
     await page.keyboard.press('Tab')
     await expect(notice.getByRole('button', { name: 'Undo' })).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(notice).toHaveCount(0)
-    await expect(repeat).toBeFocused()
+    await expect(shortcut).toBeFocused()
     await expect(page.getByRole('slider', { name: 'Seek' }).first()).toHaveAttribute(
       'aria-valuetext',
       /^0:00 of /,
