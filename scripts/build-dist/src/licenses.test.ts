@@ -15,6 +15,7 @@ import {
   inlineCodeProblems,
   isGplFamily,
   isWorkboxEntry,
+  type LicenceTextReview,
   lgplProblems,
   licenceTextProblems,
   licenseOf,
@@ -23,6 +24,7 @@ import {
   needsLgpl,
   packageDirOf,
   parseLicenseExpression,
+  REVIEWED_LICENCE_TEXTS,
   readInventory,
   regionPaths,
   renderNotices,
@@ -599,6 +601,16 @@ function bundled(
 }
 
 describe('licence texts', () => {
+  /** A review of version 0.9.0, as REVIEWED_LICENCE_TEXTS records one. */
+  const review = (fields: Partial<LicenceTextReview> = {}): LicenceTextReview => ({
+    version: '0.9.0',
+    expression: 'MIT OR Apache-2.0',
+    license: 'Apache-2.0',
+    notices: [],
+    reason: 'test',
+    ...fields,
+  })
+
   it('needs a licence file, or a review naming a licence the package offers', () => {
     const root = tempDir()
     const packages = [
@@ -609,16 +621,55 @@ describe('licence texts', () => {
       bundled(root, 'reviewed', 'MIT OR Apache-2.0'),
       bundled(root, 'wrongly-reviewed', 'MIT'),
     ]
-    const review = { license: 'Apache-2.0', reason: 'test' } as const
     expect(
       licenceTextProblems(packages, {
-        'reviewed@1.0.0': review,
-        'wrongly-reviewed@1.0.0': review,
+        reviewed: review(),
+        'wrongly-reviewed': review({ expression: 'MIT' }),
       }),
     ).toEqual([
       'spdx-only@1.0.0 (in app) ships no licence text: check what covers it (its licence is MIT OR Apache-2.0) and record that in REVIEWED_LICENCE_TEXTS in src/licenses.ts',
       "wrongly-reviewed@1.0.0 (in app): REVIEWED_LICENCE_TEXTS names Apache-2.0, which its licence (MIT) doesn't offer",
     ])
+  })
+
+  it('takes a later version while the review’s facts hold, and asks again when one changes', () => {
+    const root = tempDir()
+    const google =
+      '// Copyright 2008 Google Inc.  All rights reserved.\n//\n// Redistribution and use in source and binary forms, with or without\n// modification, are permitted provided that the following conditions are met.\nexport {}\n'
+    const buf =
+      '// Copyright 2021-2026 Buf Technologies, Inc.\n// Licensed under the Apache License, Version 2.0\nexport {}\n'
+    const reviewedNotices = [
+      'Copyright 2008 Google Inc.',
+      'Redistribution and use in source and binary forms, with or without modification',
+    ]
+    const both = '(Apache-2.0 AND BSD-3-Clause)'
+    const packages = [
+      // Version 1.0.0 of a package reviewed in 0.9.0: the same licence, in another spelling.
+      bundled(root, 'same', both, { 'wire/varint.js': google, 'index.js': buf }),
+      bundled(root, 'relicensed', 'MIT', { 'index.js': buf }),
+      bundled(root, 'lost-notice', both, { 'index.js': buf }),
+    ]
+    const reviews = {
+      same: review({ expression: 'Apache-2.0 and BSD-3-Clause', notices: reviewedNotices }),
+      relicensed: review(),
+      'lost-notice': review({ expression: both, notices: reviewedNotices }),
+    }
+    const again =
+      'check what covers it and update its entry in REVIEWED_LICENCE_TEXTS (src/licenses.ts)'
+    expect(licenceTextProblems(packages, reviews)).toEqual([
+      `relicensed@1.0.0 (in app): its licence is MIT, but REVIEWED_LICENCE_TEXTS reviewed MIT OR Apache-2.0 (version 0.9.0): ${again}`,
+      `lost-notice@1.0.0 (in app): its files no longer say "Copyright 2008 Google Inc.", which the review of version 0.9.0 in REVIEWED_LICENCE_TEXTS relies on: ${again}`,
+      `lost-notice@1.0.0 (in app): its files no longer say "Redistribution and use in source and binary forms, with or without modification", which the review of version 0.9.0 in REVIEWED_LICENCE_TEXTS relies on: ${again}`,
+    ])
+  })
+
+  it('records what each reviewed package’s notices must keep saying', () => {
+    for (const [name, entry] of Object.entries(REVIEWED_LICENCE_TEXTS)) {
+      // Keyed by package name alone: a version bump with the same facts needs no new review.
+      expect(name).toMatch(/^(?:@[\w.-]+\/)?[\w.-]+$/)
+      expect(entry.notices.length, name).toBeGreaterThan(0)
+      expect(() => parseLicenseExpression(entry.expression), name).not.toThrow()
+    }
   })
 })
 
@@ -729,7 +780,15 @@ describe('licence problems and notices', () => {
   const options = {
     repositoryUrl: 'https://github.com/Pratyay-ops/FXM',
     apacheLicense: () => '  Apache License\n  Version 2.0, January 2004  ',
-    reviewed: { 'bare@1.0.0': { license: 'Apache-2.0', reason: 'test' } },
+    reviewed: {
+      bare: {
+        version: '1.0.0',
+        expression: 'MIT OR Apache-2.0',
+        license: 'Apache-2.0',
+        notices: ['Copyright 2019 Bare Contributors'],
+        reason: 'test',
+      },
+    },
   } as const
 
   it('lists only the packages FXM may not ship', () => {

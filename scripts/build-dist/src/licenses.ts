@@ -30,7 +30,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { packageNotices } from './notices.ts'
+import { fileNotices, licenceFiles, noticesSay, packageNotices } from './notices.ts'
 
 export interface BundledPackage {
   readonly name: string
@@ -66,30 +66,50 @@ export const REVIEWED_BINARIES: Readonly<
 
 /** What covers a package that ships no licence text of its own (REVIEWED_LICENCE_TEXTS). */
 export interface LicenceTextReview {
+  /** The version a human reviewed. */
+  readonly version: string
+  /** The package's licence expression in that version, as its package.json gives it. */
+  readonly expression: string
   /**
    * The licence FXM uses the package under, which its licence expression must offer, and whose
    * full text the notices file carries: `Apache-2.0`, FXM's own licence (the repository's
    * LICENSE). Another licence needs its text added to the notices first.
    */
   readonly license: 'Apache-2.0'
+  /**
+   * What the notices of its bundled files must still say for the review to hold (compared without
+   * case, punctuation or years), such as the BSD-3-Clause notice of code it took from elsewhere.
+   */
+  readonly notices: readonly string[]
   /** Why that text, with the notices in the package's files, is all its licence asks for. */
   readonly reason: string
 }
 
 /**
  * Packages that ship no licence text of their own (no licence file, or only SPDX metadata such as
- * `LICENSE.spdx`), keyed by `name@version`, after a human checked what covers them. Their
- * notices name the licence and carry the copyright and licence comments of their files. A new
- * version needs a new review.
+ * `LICENSE.spdx`), keyed by package name, after a human checked what covers them. Their notices
+ * name the licence and carry the copyright and licence comments of their files. A later version
+ * passes while the review's facts hold (licenceTextProblems): the same licence expression, and
+ * its files' notices still saying what the review relies on. When one changes, make dist fails
+ * until a human reviews the package again, so a routine dependency update stays green.
  */
 export const REVIEWED_LICENCE_TEXTS: Readonly<Record<string, LicenceTextReview>> = {
-  '@bufbuild/protobuf@2.16.0': {
+  '@bufbuild/protobuf': {
+    version: '2.16.0',
+    expression: '(Apache-2.0 AND BSD-3-Clause)',
     license: 'Apache-2.0',
+    notices: [
+      'Copyright 2008 Google Inc.',
+      'Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met',
+    ],
     reason:
       "Licensed (Apache-2.0 AND BSD-3-Clause), with no licence file. Its files carry Buf's Apache-2.0 header. The BSD-3-Clause part is the varint code it took from Google's protobuf, whose file (dist/esm/wire/varint.js) keeps the whole BSD-3-Clause notice, which the notices reproduce. Reviewed 2026-10-26.",
   },
-  '@tauri-apps/plugin-http@2.8.2': {
+  '@tauri-apps/plugin-http': {
+    version: '2.8.2',
+    expression: 'MIT OR Apache-2.0',
     license: 'Apache-2.0',
+    notices: ['Copyright Tauri Programme within The Commons Conservancy'],
     reason:
       'Licensed MIT OR Apache-2.0. Its npm package ships only LICENSE.spdx (the crate of the same version has LICENSE_MIT and LICENSE_APACHE-2.0), so FXM uses it under Apache-2.0, with the copyright header of its files. Reviewed 2026-10-26.',
   },
@@ -809,10 +829,27 @@ function licenceIds(expression: string | undefined): string[] {
   return ids(tree)
 }
 
+/** An SPDX expression in one spelling, so that `(A AND B)` and `A and B` compare equal. */
+function canonicalExpression(expression: string | undefined): string | undefined {
+  if (expression === undefined) return undefined
+  let tree: LicenseNode
+  try {
+    tree = parseLicenseExpression(expression)
+  } catch {
+    return expression.trim()
+  }
+  const spell = (node: LicenseNode): string =>
+    node.type === 'license'
+      ? `${node.id}${node.exception === undefined ? '' : ` WITH ${node.exception}`}`.toLowerCase()
+      : `(${spell(node.left)} ${node.type.toUpperCase()} ${spell(node.right)})`
+  return spell(tree)
+}
+
 /**
  * Why a bundled package's notice would lack a licence text (an empty list when none would): a
  * package needs licence files of its own (SPDX metadata such as `LICENSE.spdx` doesn't count), or
- * a review in REVIEWED_LICENCE_TEXTS naming a licence its expression offers.
+ * a review in REVIEWED_LICENCE_TEXTS whose facts still hold: the same licence expression, which
+ * offers the review's licence, and notices in its files that still say what the review relies on.
  */
 export function licenceTextProblems(
   packages: Iterable<BundledPackage>,
@@ -820,19 +857,36 @@ export function licenceTextProblems(
 ): string[] {
   const problems: string[] = []
   for (const pkg of packages) {
-    if (packageNotices(pkg.dir, []).licenceFiles.length > 0) continue
+    if (licenceFiles(pkg.dir).length > 0) continue
     const label = `${pkg.name}@${pkg.version} (in ${[...pkg.usedIn].sort().join(', ')})`
-    const review = reviewed[`${pkg.name}@${pkg.version}`]
+    const review = Object.hasOwn(reviewed, pkg.name) ? reviewed[pkg.name] : undefined
     if (review === undefined) {
       problems.push(
         `${label} ships no licence text: check what covers it (its licence is ${pkg.license ?? 'unknown'}) and record that in REVIEWED_LICENCE_TEXTS in src/licenses.ts`,
       )
-    } else if (
-      !licenceIds(pkg.license).some((id) => id.toLowerCase() === review.license.toLowerCase())
-    ) {
+      continue
+    }
+    const again =
+      'check what covers it and update its entry in REVIEWED_LICENCE_TEXTS (src/licenses.ts)'
+    if (canonicalExpression(pkg.license) !== canonicalExpression(review.expression)) {
+      problems.push(
+        `${label}: its licence is ${pkg.license ?? 'unknown'}, but REVIEWED_LICENCE_TEXTS reviewed ${review.expression} (version ${review.version}): ${again}`,
+      )
+      continue
+    }
+    if (!licenceIds(pkg.license).some((id) => id.toLowerCase() === review.license.toLowerCase())) {
       problems.push(
         `${label}: REVIEWED_LICENCE_TEXTS names ${review.license}, which its licence (${pkg.license ?? 'unknown'}) doesn't offer`,
       )
+    }
+    // With no licence text to add to, every notice of its files counts.
+    const said = fileNotices(pkg.files, [], pkg.license)
+    for (const notice of review.notices) {
+      if (!noticesSay(said, notice)) {
+        problems.push(
+          `${label}: its files no longer say "${notice}", which the review of version ${review.version} in REVIEWED_LICENCE_TEXTS relies on: ${again}`,
+        )
+      }
     }
   }
   return problems
@@ -972,9 +1026,9 @@ export function renderNotices(packages: Iterable<BundledPackage>, options: Notic
     lines.push('', RULE, `${pkg.name} ${pkg.version}`, `Licence: ${pkg.license ?? 'unknown'}`)
     lines.push(`Used in: ${[...pkg.usedIn].sort().join(', ')}`)
     if (pkg.homepage) lines.push(pkg.homepage)
-    const { licenceFiles, fileNotices } = packageNotices(pkg.dir, pkg.files, pkg.license)
-    const review = reviewed[`${pkg.name}@${pkg.version}`]
-    if (licenceFiles.length === 0) {
+    const notices = packageNotices(pkg.dir, pkg.files, pkg.license)
+    const review = Object.hasOwn(reviewed, pkg.name) ? reviewed[pkg.name] : undefined
+    if (notices.licenceFiles.length === 0) {
       if (review?.license === 'Apache-2.0') {
         apache = true
         lines.push(
@@ -984,13 +1038,13 @@ export function renderNotices(packages: Iterable<BundledPackage>, options: Notic
       } else
         lines.push('', `The package ships no licence text; its package.json says ${pkg.license}.`)
     }
-    for (const file of licenceFiles) {
-      if (licenceFiles.length > 1) lines.push('', `--- ${file.name}`)
+    for (const file of notices.licenceFiles) {
+      if (notices.licenceFiles.length > 1) lines.push('', `--- ${file.name}`)
       lines.push('', file.text)
     }
-    if (fileNotices.length > 0) {
+    if (notices.fileNotices.length > 0) {
       lines.push('', '--- Notices in its files')
-      for (const notice of fileNotices) lines.push('', notice)
+      for (const notice of notices.fileNotices) lines.push('', notice)
     }
   }
   if (apache) lines.push('', RULE, 'The Apache License 2.0', '', options.apacheLicense().trim())
