@@ -36,6 +36,7 @@ import {
   playabilityVerdictOf,
   playbackProblemError,
   type QualityPrefs,
+  type StreamChoice,
   type StreamOption,
   type StreamSupport,
   type Track,
@@ -218,6 +219,31 @@ function aborted(signal: AbortSignal, error: unknown): boolean {
 }
 
 /**
+ * The stream to download: the best quality this device can play at all, then, among the streams
+ * of that quality, the one it is surest of (`choosePlaybackStream`).
+ *
+ * Playback puts every stream the browser is `probably` sure of before the `maybe` ones, whatever
+ * their quality. A download that did the same would lose quality wherever a browser answers by
+ * the letter of the HTML spec: Firefox and Safari say `maybe` to a type without codecs, such as
+ * `audio/flac` or `audio/mpeg`, and `probably` to `audio/ogg; codecs="vorbis"`, so an Internet
+ * Archive download there would be the item's lossy Vorbis derivative instead of its FLAC or
+ * 320 kbps MP3 original. Within one quality the surer stream still wins, so a browser unsure of
+ * Opus in WebM downloads YouTube's AAC.
+ */
+function chooseDownloadStream(
+  options: readonly StreamOption[],
+  choice: StreamChoice,
+): StreamOption | undefined {
+  const best = choosePlaybackStream(options, {
+    ...choice,
+    support: (option) => (choice.support(option) === 'no' ? 'no' : 'probably'),
+  })
+  if (best === undefined) return undefined
+  const sameQuality = options.filter((option) => option.tier === best.tier)
+  return choosePlaybackStream(sameQuality, choice) ?? best
+}
+
+/**
  * A {@link DownloadResolver} that follows the playback policy's order of preference
  * (`planPlayback`): the user's pin, the track's own audio, its linked song or its match, with
  * "prefer lossless" a lossless match first. It differs from playback where a download must:
@@ -226,8 +252,9 @@ function aborted(signal: AbortSignal, error: unknown): boolean {
  *   end-of-file probe; on the web that also rules out URLs whose bytes a googlevideo redirect
  *   made unreadable. When the top rung has none, the fallback rung (itag 18) is asked.
  * - **The best quality,** not the connection's ceiling: `lossless` as the ceiling, audio only
- *   before a muxed video, and streams this device can play first (`canPlay`), so the copy plays
- *   offline here.
+ *   before a muxed video, and only streams this device can play (`canPlay`), so the copy plays
+ *   offline here. Quality comes before how sure the browser is: a lossless original it is only
+ *   `maybe` sure of beats a lossy derivative it is `probably` sure of (`chooseDownloadStream`).
  * - **No best guesses:** a Suggest-band match is never downloaded, because an offline copy would
  *   then play without review from then on. Only a pin, an Auto match or "Play best guesses" let
  *   it through; otherwise it rejects with a `needs-review` problem.
@@ -286,10 +313,10 @@ export function createPolicyDownloadResolver(
     const { format } = request
     if (format !== undefined) {
       const same = usable.filter((option) => sameFileFormat(fileFormatOf(option), format))
-      const kept = choosePlaybackStream(same, choice)
+      const kept = chooseDownloadStream(same, choice)
       if (kept !== undefined) return kept
     }
-    return choosePlaybackStream(usable, choice)
+    return chooseDownloadStream(usable, choice)
   }
 
   const tryCandidate = async (
