@@ -484,6 +484,19 @@ describe('the pages', () => {
     expect(features).toContain("Spotify's radio, for your home feed and autoplay")
   })
 
+  it('sum up on the privacy page every way data leaves the device, not sync alone', () => {
+    const privacy = source('../pages/privacy.astro')
+    const description = /description="([^"]*)"/.exec(privacy)?.[1] ?? ''
+    const lead = /lead="([^"]*)"/.exec(privacy)?.[1] ?? ''
+    for (const summary of [description, lead]) {
+      expect(summary).toContain('unless you turn on sync or scrobbling')
+      expect(summary).toMatch(/go(es)? straight [^.]*to the services that answer/)
+    }
+    expect(privacy).toContain('<strong>What leaves your device.</strong>')
+    expect(privacy).toMatch(/to a plugin's services\s+if you add one/)
+    expect(privacy).toMatch(/only if you turn on sync[^.]*or\s+scrobbling/)
+  })
+
   it('say what FXM contacts while Spotify is on, and that it contacts nothing of it while off', () => {
     const privacy = source('../pages/privacy.astro')
     const entry = /name: 'Spotify',\s*url: '[^']*',\s*use: `([^`]*)`/.exec(privacy)?.[1] ?? ''

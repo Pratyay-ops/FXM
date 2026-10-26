@@ -102,9 +102,9 @@ const plugins =
 
 <Document
   title="Privacy · FXM"
-  description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your data stays on your device unless you turn on sync. Here is which services your device talks to, and why."
+  description="FXM has no analytics, no accounts and no servers, and sets no cookies. Your library stays on your device unless you turn on sync or scrobbling, and your searches and plays go straight to the services that answer them. Here is which services, and why."
   heading="Privacy"
-  lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM, and your data stays on your device unless you turn on sync."
+  lead="FXM is built so that there is nothing to collect: no analytics, no accounts, no cookies set by FXM and no FXM servers. Your library, history and settings stay on your device unless you turn on sync or scrobbling, and what you search for and play goes straight from your device to the services that answer it."
   updated="2026-10-26"
 >
   <h2>The short version</h2>
@@ -125,6 +125,15 @@ const plugins =
     <li>
       <strong>No FXM servers.</strong>
       Searches and plays don't pass through FXM, so FXM can't see what you look for or listen to.
+    </li>
+    <li>
+      <strong>What leaves your device.</strong>
+      What you search for and play goes to the services that answer it, and to a plugin's services
+      if you add one (see
+      <a href="#services">Services your device talks to</a>). The web app also checks this website
+      for updates. Your library and history leave your device only if you turn on sync (a copy in a
+      secret gist on your own GitHub account) or scrobbling (the songs you play go to Last.fm or
+      ListenBrainz).
     </li>
   </ul>
 
@@ -152,7 +161,7 @@ const plugins =
     and choose to delete it.
   </p>
 
-  <h2>Services your device talks to</h2>
+  <h2 id="services">Services your device talks to</h2>
   <p>
     FXM gets music, information and lyrics straight from the services below. Your device connects to
     them directly; in the web app, FXM Connect adjusts some of these requests so the services
