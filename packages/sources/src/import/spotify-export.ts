@@ -342,9 +342,10 @@ export const LIKED_SONGS_NAME = 'Liked Songs from Spotify'
  * second; plays of the shorter history are identified by artist and title through the export's
  * own playlists and liked songs, because it names no URIs.
  *
- * @throws ImportInputError `not-spotify-export` when no file is part of a data export, `no-tracks`
- * when the files hold nothing to import, `too-large` for a file over
- * {@link MAX_EXPORT_FILE_LENGTH}.
+ * @throws ImportInputError `not-spotify-export` when no file is part of a data export,
+ * `history-unidentified` when they are only the account data's history (whose plays it cannot
+ * identify alone), `no-tracks` when the files hold nothing else to import, `too-large` for a file
+ * over {@link MAX_EXPORT_FILE_LENGTH}.
  */
 export function parseSpotifyExport(files: readonly ExportFile[]): ParsedImport {
   const byKind = new Map<ExportFileKind, ExportFile[]>()
@@ -396,6 +397,13 @@ export function parseSpotifyExport(files: readonly ExportFile[]): ParsedImport {
     .map((collection) => dedupeCollection(collection, skipped))
     .filter((collection) => collection.rows.length > 0)
   if (deduped.length === 0 && plays.length === 0 && follows.length === 0) {
+    // The account data's history alone: its plays name no track, so none could be identified.
+    if (skipped.unknownPlays > 0) {
+      throw new ImportInputError(
+        'history-unidentified',
+        'The listening history needs the playlists and library files, or the extended history',
+      )
+    }
     throw new ImportInputError('no-tracks', 'The data export holds nothing to import')
   }
   return {

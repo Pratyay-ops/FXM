@@ -73,6 +73,36 @@ describe('loadSpotifyImport', () => {
     expect(track.collections[0]?.rows).toHaveLength(1)
   })
 
+  it('goes on after a page the mode filtered empty, until the cursors end', async () => {
+    const songs = Array.from({ length: 70 }, (_, index) =>
+      spotifyTrack(index + 1, `Song ${index + 1}`, 'Band', { seconds: 200 }),
+    )
+    const episodes = Array.from({ length: 100 }, (_, index) => ({
+      ...spotifyTrack(500 + index, `Episode ${index + 1}`, 'Show'),
+      kind: 'episode' as const,
+    }))
+    // 50 songs, 100 podcast episodes, 20 songs: the provider drops the episodes from its pages.
+    const all = [...songs.slice(0, 50), ...episodes, ...songs.slice(50)]
+    const fake = fakeSpotify({
+      playlists: { 'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M': { name: 'Mixed', tracks: all } },
+    })
+    const spotify = {
+      ...fake,
+      getPlaylistTracks: async (...args: Parameters<ImportSpotify['getPlaylistTracks']>) => {
+        const page = await fake.getPlaylistTracks(...args)
+        return { ...page, items: page.items.filter((track) => track.kind !== 'episode') }
+      },
+    } as unknown as ImportSpotify
+    const parsed = await loadSpotifyImport(
+      spotify,
+      'spotify:playlist:37i9dQZF1DXcBWIGoYBM5M' as EntityId<'playlist'>,
+      testContext(),
+      { sleep: noWait },
+    )
+    expect(parsed.collections[0]?.rows).toHaveLength(70)
+    expect(fake.calls.at(-1)).toBe('playlist spotify:playlist:37i9dQZF1DXcBWIGoYBM5M 150')
+  })
+
   it('passes the provider’s errors on, and refuses an empty playlist', async () => {
     const spotify = fakeSpotify({
       failWith: new FxmError('Unsupported', 'unreachable'),

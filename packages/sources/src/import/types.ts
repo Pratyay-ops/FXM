@@ -128,6 +128,8 @@ export interface ImportSkips {
   shortPlays: number
   /** Plays whose track the history does not identify and the export lists nowhere else. */
   unknownPlays: number
+  /** Rows of a playlist beyond the most one import holds (`MAX_IMPORT_ROWS`). */
+  overLimit: number
 }
 
 /** A {@link ImportSkips} with every count at 0. */
@@ -139,6 +141,7 @@ export function noSkips(): ImportSkips {
     duplicates: 0,
     shortPlays: 0,
     unknownPlays: 0,
+    overLimit: 0,
   }
 }
 

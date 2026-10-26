@@ -12,6 +12,7 @@ import {
   type ImportLink,
   isImportInputError,
   MAX_IMPORT_FILE_BYTES,
+  MAX_PLAYLIST_FILE_BYTES,
   type ParsedImport,
   parseExportFiles,
   parsePlaylistFile,
@@ -44,12 +45,13 @@ export async function readExportFiles(files: readonly File[]): Promise<ParsedImp
 }
 
 /**
- * Reads one playlist file (CSV, M3U or M3U8).
+ * Reads one playlist file (CSV, M3U or M3U8). A file over the playlist limit is refused before
+ * it is read into memory.
  *
  * @throws ImportInputError, e.g. `no-title-column`.
  */
 export async function readPlaylistFile(file: File): Promise<ParsedImport> {
-  if (file.size > MAX_IMPORT_FILE_BYTES) throw tooLarge()
+  if (file.size > MAX_PLAYLIST_FILE_BYTES) throw tooLarge()
   return parsePlaylistFile({ name: file.name, bytes: await bytesOf(file) })
 }
 
@@ -61,6 +63,8 @@ const INPUT_ERRORS: Readonly<Record<ImportInputErrorCode, string>> = {
   'no-tracks': 'There are no songs to import there.',
   'not-spotify-export':
     'Those files aren’t from Spotify’s data download. Choose the ZIP file Spotify sent you, or the JSON files inside it.',
+  'history-unidentified':
+    'Those plays don’t say which songs they are, so FXM needs the rest of the download to tell. Choose them together with Playlist1.json and YourLibrary.json from the same download (or the whole ZIP file), or choose the extended streaming history.',
   'bad-zip': 'That ZIP file can’t be read. Unpack it, then choose the JSON files inside it.',
   'zip-unsupported':
     'This browser can’t unpack ZIP files. Unpack it, then choose the JSON files inside it.',

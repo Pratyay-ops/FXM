@@ -14,6 +14,8 @@
  * - `no-title-column`: a CSV file without a column of song titles
  * - `no-tracks`: readable, but no song in it
  * - `not-spotify-export`: none of the files is part of Spotify's data export
+ * - `history-unidentified`: only the account data's listening history, whose plays name no
+ *   track: it needs the export's playlists and library beside it, or the extended history
  * - `bad-zip`: a ZIP file that cannot be read (damaged, encrypted or ZIP64)
  * - `zip-unsupported`: this browser cannot unpack ZIP files; unpack it and choose the files
  * - `bad-link`: not a link FXM can import
@@ -24,6 +26,7 @@ export type ImportInputErrorCode =
   | 'no-title-column'
   | 'no-tracks'
   | 'not-spotify-export'
+  | 'history-unidentified'
   | 'bad-zip'
   | 'zip-unsupported'
   | 'bad-link'

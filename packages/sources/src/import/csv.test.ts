@@ -200,6 +200,13 @@ describe('parseCsvImport', () => {
     })
   })
 
+  it('keeps at most 20,000 rows, and counts the rest as over the limit', () => {
+    const lines = Array.from({ length: 20_005 }, (_, index) => `Song ${index},Band`)
+    const parsed = parseCsvImport(['Title,Artist', ...lines].join('\n'))
+    expect(parsed.collections[0]?.rows).toHaveLength(20_000)
+    expect(parsed.skipped).toMatchObject({ overLimit: 5, unreadable: 0 })
+  })
+
   it('refuses a file without a title column, an empty file and one without songs', () => {
     const codeOf = (text: string) => {
       try {

@@ -132,7 +132,7 @@ export function rowKey(row: Pick<ImportRow, 'trackId' | 'title' | 'artists' | 'a
 /**
  * The collection with each track once (the first row of a track stays) and at most
  * {@link MAX_IMPORT_ROWS} rows. The rows dropped are counted in `skips.duplicates`, and those over
- * the limit in `skips.unreadable`.
+ * the limit in `skips.overLimit`.
  */
 export function dedupeCollection(
   collection: ImportCollection,
@@ -148,7 +148,7 @@ export function dedupeCollection(
     }
     seen.add(key)
     if (rows.length >= MAX_IMPORT_ROWS) {
-      skips.unreadable++
+      skips.overLimit++
       continue
     }
     rows.push(row)

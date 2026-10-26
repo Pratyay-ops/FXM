@@ -318,6 +318,8 @@ describe('parseSpotifyExport', () => {
     }
     expect(codeOf([file('Userdata.json', {}), file('notes.txt', {})])).toBe('not-spotify-export')
     expect(codeOf([file('Playlist1.json', { playlists: [] })])).toBe('no-tracks')
+    // The account data's history alone names no track: it needs the files that do.
+    expect(codeOf([file('StreamingHistory_music_0.json', HISTORY)])).toBe('history-unidentified')
     expect(codeOf([{ name: 'Playlist1.json', text: 'x'.repeat(129 * 1024 * 1024) }])).toBe(
       'too-large',
     )

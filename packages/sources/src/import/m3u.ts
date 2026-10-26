@@ -62,7 +62,11 @@ function splitDisplay(display: string): { artist?: string; title: string } {
   return { artist: artist.trim(), title: title.trim() }
 }
 
-/** The parts of a local path or file URL, without empty segments. */
+/**
+ * The folders and file name of a local path or file URL, without empty segments and drive
+ * letters. The `.` and `..` of a relative path are resolved, never read as folder names: `..`
+ * drops the folder before it, and one above the path's start is left out.
+ */
 function pathSegments(location: string): string[] {
   let path = location
   if (/^file:/iu.test(path)) {
@@ -72,18 +76,33 @@ function pathSegments(location: string): string[] {
       path = path.replace(/^file:\/*/iu, '/')
     }
   }
-  return path.split(/[\\/]/u).filter((segment) => segment !== '' && !/^[A-Za-z]:$/u.test(segment))
+  const segments: string[] = []
+  for (const segment of path.split(/[\\/]/u)) {
+    if (segment === '' || segment === '.' || /^[A-Za-z]:$/u.test(segment)) continue
+    if (segment === '..') segments.pop()
+    else segments.push(segment)
+  }
+  return segments
 }
 
 /**
- * What a file name says: its title, and its artist when written "Artist - Title". Leading track
- * numbers ("01 ", "1-02. ", "07 - ") are dropped, and so is the extension.
+ * A leading track number, which a file name's title does not include: a zero-padded one ("01 ",
+ * "007 "), a disc and track pair ("1-02 ", "2.07 "), or any number followed by a separator ("7. ",
+ * "12 - ", "3) ", "05_"). A bare number and a space stays, since it is usually part of the title
+ * ("99 Problems", "7 Rings").
+ */
+const TRACK_NUMBER =
+  /^(?:\d{1,2}[-.]\d{1,3}(?:\s*[-.)_]\s*|\s+)|0\d{1,2}(?:\s*[-.)_]\s*|\s+)|\d{1,3}\s*[-.)_]\s*)/u
+
+/**
+ * What a file name says: its title, and its artist when written "Artist - Title". A leading
+ * track number (see {@link TRACK_NUMBER}) is dropped, and so is the extension.
  */
 export function describeFileName(name: string): { artist?: string; title: string } | undefined {
-  const base = name
-    .replace(MEDIA_EXTENSION, '')
-    .replace(/^\d{1,3}(?:[-.]\d{1,3})?(?:\s*[-.)_]\s*|\s+)/u, '')
-  const clean = cleanText(base.replace(/_/gu, ' '))
+  const base = name.replace(MEDIA_EXTENSION, '')
+  const numbered = base.replace(TRACK_NUMBER, '')
+  // A name that is only a number ("1999.mp3") is its own title.
+  const clean = cleanText((cleanText(numbered) === undefined ? base : numbered).replace(/_/gu, ' '))
   return clean === undefined ? undefined : splitDisplay(clean)
 }
 

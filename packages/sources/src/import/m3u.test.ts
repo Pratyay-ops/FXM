@@ -49,6 +49,19 @@ describe('parseM3uImport', () => {
     expect(parseM3uImport(text, 'mix.m3u').collections[0]?.name).toBe('mix')
   })
 
+  it('never reads the dots of a relative path as folders', () => {
+    const text = ['../../Some Song.mp3', './Band/Album/../Other Song.mp3', '../x/y/z.mp3'].join(
+      '\n',
+    )
+    const rows = parseM3uImport(text, 'relative.m3u').collections[0]?.rows
+    expect(rows?.map(({ title, artists, album }) => ({ title, artists, album }))).toEqual([
+      { title: 'Some Song', artists: [], album: undefined },
+      // Band/Other Song.mp3: one folder, which may be the artist or the album.
+      { title: 'Other Song', artists: [], album: undefined },
+      { title: 'z', artists: ['x'], album: 'y' },
+    ])
+  })
+
   it('uses #EXTALB and #EXTART, and names catalog tracks by their links', () => {
     const text = [
       '#EXTM3U',
@@ -110,6 +123,17 @@ describe('describeFileName', () => {
     })
     expect(describeFileName('Just_A_Title.mp3')).toEqual({ title: 'Just A Title' })
     expect(describeFileName('.mp3')).toBeUndefined()
+    expect(describeFileName('007 Title.mp3')).toEqual({ title: 'Title' })
+    expect(describeFileName('12 - Title.mp3')).toEqual({ title: 'Title' })
+    expect(describeFileName('7. Rings.flac')).toEqual({ title: 'Rings' })
+    expect(describeFileName('05_Title.ogg')).toEqual({ title: 'Title' })
+  })
+
+  it('keeps a number that belongs to the title', () => {
+    expect(describeFileName('99 Problems.mp3')).toEqual({ title: '99 Problems' })
+    expect(describeFileName('7 Rings.flac')).toEqual({ title: '7 Rings' })
+    expect(describeFileName('1999.mp3')).toEqual({ title: '1999' })
+    expect(describeFileName('01 99 Problems.mp3')).toEqual({ title: '99 Problems' })
   })
 })
 

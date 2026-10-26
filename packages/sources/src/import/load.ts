@@ -29,7 +29,12 @@ export type ImportSpotify = Pick<
   'isAvailable' | 'getPlaylist' | 'getPlaylistTracks' | 'getAlbum' | 'getTrack' | 'getTrackDetails'
 >
 
-/** Options for the link loaders. */
+/**
+ * Options for the link loaders. The provider context decides the request budget's priority: a
+ * load the user started and waits for should use `interactive`, which neither queues behind a
+ * running import's bulk searches nor stops during a bot-check pause. Its `signal` cancels the
+ * load.
+ */
 export interface LoadOptions {
   /**
    * Waits between two page requests: imports pace Spotify at about one request per second.
@@ -45,6 +50,13 @@ export const PAGE_SPACING_MS = 1000
 
 /** How many tracks one page request asks for. */
 const PAGE_LIMIT = 100
+
+/**
+ * The most pages one playlist load reads. Providers filter each page by the mode (Spotify drops
+ * podcast episodes even in Music + Video mode), so a page can come back empty while more follow;
+ * this bounds a load whose pages never end.
+ */
+const MAX_PAGES = 1000
 
 /** A timer that stops early, with the signal's reason, when the signal aborts. */
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -83,7 +95,10 @@ export function rowFromTrack(track: Track): ImportRow {
   return row
 }
 
-/** Every track of a playlist: its first page, then the pages after it, up to the row limit. */
+/**
+ * Every track of a playlist: its first page, then the pages after it, up to the row limit. It
+ * goes on while the provider gives a new cursor, also after a page the mode filtered empty.
+ */
 async function allPlaylistTracks(
   first: Playlist,
   more: (cursor: string) => Promise<Page<Track>>,
@@ -94,13 +109,13 @@ async function allPlaylistTracks(
   const tracks = [...(first.tracks?.items ?? [])]
   let cursor = first.tracks?.nextCursor
   options.onProgress?.(tracks.length)
-  while (cursor !== undefined && tracks.length < MAX_IMPORT_ROWS) {
+  for (let pages = 1; cursor !== undefined && tracks.length < MAX_IMPORT_ROWS; pages++) {
+    if (pages >= MAX_PAGES) break
     await pause(PAGE_SPACING_MS, ctx.signal as AbortSignal | undefined)
     const page = await more(cursor)
     tracks.push(...page.items)
     options.onProgress?.(tracks.length)
-    if (page.items.length === 0 || page.nextCursor === cursor) break
-    cursor = page.nextCursor
+    cursor = page.nextCursor === cursor ? undefined : page.nextCursor
   }
   return tracks
 }
