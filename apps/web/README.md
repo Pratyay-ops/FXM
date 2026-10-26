@@ -94,7 +94,7 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 
 ## Playing music
 
-`main.tsx` starts the app's services (`src/app/services`, stage 2.9) before the first render: the platform of stage 1.2 (FXM Connect's answer takes a few milliseconds), then the providers in the sources registry and the player behind the catalog pages' play buttons. Provider code loads on first use; YouTube's starts loading as soon as the platform can reach it. What each tier gets and where the stages still to merge plug in are in [the services README](src/app/services/README.md). The development-only fake catalog (`?fake=full` and the like) still replaces all of it for its tab.
+`main.tsx` renders the shell at once and starts the app's services (`src/app/services`, stage 2.9) beside it, from a chunk of their own: the player behind the catalog pages' play buttons, the platform of stage 1.2 (FXM Connect's answer takes a few milliseconds), then the providers in the sources registry. While FXM Connect's marker is on the page but it hasn't answered yet, the pages say "Connecting to FXM Connect…" rather than offering to install it. Provider code loads on first use; YouTube's starts loading as soon as the platform can reach it. What each tier gets and where the stages still to merge plug in are in [the services README](src/app/services/README.md). The development-only fake catalog (`?fake=full` and the like) still replaces all of it for its tab.
 
 Until stage 2.5 lands, the player bar keeps its placeholder title, but its controls (play, pause, previous, next, seek, volume, shuffle, repeat) act on the real player, and the system media controls show what plays.
 
@@ -120,5 +120,5 @@ Run by the stage 2.9 agent on 2026-10-26 (IST), from a residential connection in
 Seen along the way, for later stages:
 
 - The first YouTube attempt stopped about a minute in, when the page searched again by itself: most likely the dev server reloading it after a file edit in `apps/web`. The run above had no edits.
-- After a page load, this development build answered FXM Connect's ping later than the platform's 800 ms wait (it switches to the localhost origin's ruleset first, and its service worker may be asleep), so the page showed the Free tier's "Search needs YouTube Music access" for about 3 s before it switched to the Full tier by itself. The release build has one origin and switches nothing.
+- After a page load, this development build answered FXM Connect's ping later than the platform's 800 ms wait (it switches to the localhost origin's ruleset first, and its service worker may be asleep), so the page showed the Free tier's "Search needs YouTube Music access" for about 3 s before it switched to the Full tier by itself. The release build has one origin and switches nothing. Since the review of this stage, the page says "Connecting to FXM Connect…" while it waits (up to 5 s), and `e2e/playback.spec.ts` checks that with an answer 1.5 s late.
 - The ladder chose AAC 140 over Opus 251 for this song: it ranks by average bitrate, the decision stage 1.4's README leaves open, and this Chromium plays AAC.
