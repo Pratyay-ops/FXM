@@ -9,11 +9,11 @@
 import type { NetworkCapabilities } from '@fxm/core'
 import {
   type ConnectStatus,
-  type ConnectWindow,
   createPlatform,
   type FxmPlatform,
   type KeyValueStorage,
   memoryStorage,
+  type PlatformWindow,
 } from '@fxm/platform'
 import {
   createFakeSandbox,
@@ -26,6 +26,7 @@ import { Window } from 'happy-dom'
 import { vi } from 'vitest'
 import { bindPlatform, type ConnectionState, INITIAL_CONNECTION, useConnection } from './connection'
 import type { MediaElementLike, ProbeClock } from './playback-probe'
+import { previewConnect } from './preview'
 import type { Tier } from './tiers'
 
 /** What {@link openTestPlatform} sets up. */
@@ -60,13 +61,12 @@ const openPages: { happyDOM: { close(): Promise<void> } }[] = []
  * needs a page of its own.) Close the pages with {@link closeTestPages}.
  */
 export async function openTestPlatform(setup: TestPlatformSetup = {}): Promise<TestPlatform> {
-  const window = new Window({ url: 'https://fxmusic.pages.dev/app/' })
-  openPages.push(window)
-  const page = window as unknown as ConnectWindow
+  const page = openTestPage()
   const connect = setup.connect === undefined ? undefined : installFakeConnect(page, setup.connect)
   let litePasses = setup.lite ?? false
   let killed = setup.killed ?? false
-  const sandbox = createFakeSandbox({ selfTest: () => litePasses })
+  // A failing self-test is a definite answer: InnerTube refused the sandbox.
+  const sandbox = createFakeSandbox({ selfTest: () => (litePasses ? 'pass' : 'refused') })
   const killSwitches = () => ({ lite: killed })
   const platform = await createPlatform({
     environment: 'browser',
@@ -90,10 +90,26 @@ export async function openTestPlatform(setup: TestPlatformSetup = {}): Promise<T
 }
 
 /** A happy-dom page for a platform a test creates itself. */
-export function openTestPage(): ConnectWindow {
+export function openTestPage(): PlatformWindow {
   const window = new Window({ url: 'https://fxmusic.pages.dev/app/' })
   openPages.push(window)
-  return window as unknown as ConnectWindow
+  return window as unknown as PlatformWindow
+}
+
+/**
+ * Storage that remembers FXM Connect `version` from an earlier visit, recorded the way the
+ * platform records it: by one detection of a fake FXM Connect on a page of its own. A platform on
+ * this storage, with no FXM Connect on its page, finds FXM Connect `missing` ("was present, now
+ * missing").
+ */
+export async function storageWithConnectSeen(version = '0.1.0'): Promise<KeyValueStorage> {
+  const storage = memoryStorage()
+  const page = openTestPage()
+  const connect = installFakeConnect(page, { version })
+  const status = await previewConnect({ window: page, storage })
+  connect.uninstall()
+  if (status?.version !== version) throw new Error(`FXM Connect ${version} wasn't detected`)
+  return storage
 }
 
 /** Closes the pages {@link openTestPlatform} and {@link openTestPage} opened. */

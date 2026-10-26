@@ -1,4 +1,4 @@
-import { CONNECT_SEEN_KEY, createPlatform, memoryStorage } from '@fxm/platform'
+import { createPlatform, memoryStorage } from '@fxm/platform'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   type ConnectPlatform,
@@ -10,7 +10,13 @@ import {
   useConnection,
 } from './connection'
 import { connectionTier, isDetecting } from './explain'
-import { CONNECT_STATUS, closeTestPages, openTestPage, openTestPlatform } from './testing'
+import {
+  CONNECT_STATUS,
+  closeTestPages,
+  openTestPage,
+  openTestPlatform,
+  storageWithConnectSeen,
+} from './testing'
 
 // The real platform from @fxm/platform, with a fake FXM Connect and a fake Lite sandbox.
 
@@ -79,8 +85,7 @@ describe('the connection store, on the real platform', () => {
   })
 
   it('knows FXM Connect from an earlier visit, and forgets it on request', async () => {
-    const storage = memoryStorage()
-    storage.setItem(CONNECT_SEEN_KEY, JSON.stringify({ version: '0.1.0', at: 1 }))
+    const storage = await storageWithConnectSeen('0.1.0')
     await openTestPlatform({ storage })
     await vi.waitFor(() => expect(state().connect?.state).toBe('missing'))
 

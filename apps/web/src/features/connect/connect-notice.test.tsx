@@ -1,4 +1,3 @@
-import { CONNECT_SEEN_KEY, memoryStorage } from '@fxm/platform'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderApp } from '../../test/render'
@@ -14,6 +13,7 @@ import {
   openTestPlatform,
   readyConnection,
   setConnection,
+  storageWithConnectSeen,
   TIER_CAPABILITIES,
   USER_AGENTS,
 } from './testing'
@@ -75,8 +75,7 @@ describe('the connection notice', { timeout: 30_000 }, () => {
   })
 
   it('says what to do about a missing FXM Connect, and goes away for good when removed', async () => {
-    const storage = memoryStorage()
-    storage.setItem(CONNECT_SEEN_KEY, JSON.stringify({ version: '0.1.0', at: 1 }))
+    const storage = await storageWithConnectSeen('0.1.0')
     await openTestPlatform({ storage })
     const { user } = await home()
     const prompt = within(await notice("FXM Connect isn't answering"))

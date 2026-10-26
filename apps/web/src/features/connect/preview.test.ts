@@ -1,8 +1,8 @@
-import { CONNECT_SEEN_KEY, memoryStorage } from '@fxm/platform'
+import { memoryStorage } from '@fxm/platform'
 import { installFakeConnect } from '@fxm/platform/testing'
 import { afterEach, describe, expect, it } from 'vitest'
 import { previewConnect } from './preview'
-import { closeTestPages, openTestPage } from './testing'
+import { closeTestPages, openTestPage, storageWithConnectSeen } from './testing'
 
 afterEach(() => closeTestPages())
 
@@ -18,11 +18,10 @@ describe('previewConnect', () => {
   })
 
   it('knows an FXM Connect seen here before, and one that never was', async () => {
-    const storage = memoryStorage()
-    expect(await previewConnect({ window: openTestPage(), storage })).toMatchObject({
-      state: 'absent',
-    })
-    storage.setItem(CONNECT_SEEN_KEY, JSON.stringify({ version: '0.1.0', at: 1 }))
+    expect(
+      await previewConnect({ window: openTestPage(), storage: memoryStorage() }),
+    ).toMatchObject({ state: 'absent' })
+    const storage = await storageWithConnectSeen('0.1.0')
     expect(await previewConnect({ window: openTestPage(), storage })).toMatchObject({
       state: 'missing',
       lastSeenVersion: '0.1.0',

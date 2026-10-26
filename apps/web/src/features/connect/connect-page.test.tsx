@@ -1,4 +1,3 @@
-import { CONNECT_SEEN_KEY, memoryStorage } from '@fxm/platform'
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { renderApp } from '../../test/render'
@@ -11,6 +10,7 @@ import {
   DETECTING,
   openTestPlatform,
   setConnection,
+  storageWithConnectSeen,
   TIER_CAPABILITIES,
   USER_AGENTS,
 } from './testing'
@@ -253,8 +253,7 @@ describe('the onboarding page', { timeout: 30_000 }, () => {
 
   it('says what to do about a missing FXM Connect, and forgets it on request', async () => {
     asBrowser(USER_AGENTS.chromeWindows)
-    const storage = memoryStorage()
-    storage.setItem(CONNECT_SEEN_KEY, JSON.stringify({ version: '0.1.0', at: 1 }))
+    const storage = await storageWithConnectSeen('0.1.0')
     await openTestPlatform({ storage })
     const { user } = await openPage()
 

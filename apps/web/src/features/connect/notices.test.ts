@@ -1,13 +1,15 @@
-import { CONNECT_SEEN_KEY, memoryStorage } from '@fxm/platform'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resetConnection, useConnection } from './connection'
 import { NOTICES_STORAGE_KEY, noticeFor, removedOnPurpose, useNotices } from './notices'
+import { previewConnect } from './preview'
 import {
   CONNECT_STATUS,
   closeTestPages,
   DETECTING,
+  openTestPage,
   openTestPlatform,
   readyConnection,
+  storageWithConnectSeen,
   TIER_CAPABILITIES,
 } from './testing'
 
@@ -63,15 +65,17 @@ describe('noticeFor', () => {
 
 describe('removedOnPurpose', () => {
   it('forgets FXM Connect and keeps the first-visit invitation away', async () => {
-    const storage = memoryStorage()
-    storage.setItem(CONNECT_SEEN_KEY, JSON.stringify({ version: '0.1.0', at: 1 }))
+    const storage = await storageWithConnectSeen('0.1.0')
     await openTestPlatform({ storage })
     await vi.waitFor(() => expect(useConnection.getState().connect?.state).toBe('missing'))
 
     removedOnPurpose()
 
     await vi.waitFor(() => expect(useConnection.getState().connect?.state).toBe('absent'))
-    expect(storage.getItem(CONNECT_SEEN_KEY)).toBeNull()
+    // Forgotten on this device too: the next visit finds it absent, not missing.
+    expect(await previewConnect({ window: openTestPage(), storage })).toMatchObject({
+      state: 'absent',
+    })
     expect(useNotices.getState().dismissed).toContain('intro')
   })
 })
