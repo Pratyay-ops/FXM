@@ -61,10 +61,13 @@ src/
                         hooks, ordering, match cache, backups (see src/db/README.md)
   features/<name>/      one folder per feature: home, search, library, album, artist,
                         playlist, now-playing (page, the app's player, stream badge),
-                        queue (panel, review list, saving), lyrics, player (bar, mini
+                        queue (panel, review list, saving), autoplay (songs like the last
+                        plays when the queue runs low), lyrics, player (bar, mini
                         player, controls), settings, signals (records the player's plays),
                         sponsorblock (skipping, its setting and offer), audio-effects
-                        (equalizer, loudness, crossfade, speed, sleep timer), downloads, pwa,
+                        (equalizer, loudness, crossfade, speed, sleep timer), downloads,
+                        local-files (music on the device), pwa, share (the dialog that
+                        copies a link or the embed's code), sync (through a secret gist),
                         connect (tiers, onboarding, Diagnostics: see its README),
                         scrobble (ListenBrainz, Last.fm), import (imports and their reviews),
                         spotify-account (connect a Spotify account, its read-only sync),

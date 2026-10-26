@@ -62,7 +62,7 @@ A downloaded track plays at the loudness its stream had (stage 8.1): the record 
 - **The catalog pages** (search, album, artist and playlist pages, stage 2.4) have "Download" in their menus: the composition root sets 2.4's `DownloadActions` to the downloads' own action, which says what became of the click.
 - **`DownloadButton`** sits beside the like button on Now playing (stage 2.5).
 
-Downloads keep the source's own file, which plays offline as it is; a copy in another format is what Save to device saves (below, stage 4.2, on with `RELEASED.conversions`, which Settings follows). Nothing is offered where the bytes are unreadable (YouTube audio needs FXM Connect, and later the desktop app or the Android app, and never the Lite tier), nor what the app can't resolve (before the composition root connected its environment, nothing). A download the manager paused on its own says why in its row ("Paused · There is no room left for downloads", or after a YouTube bot check).
+Downloads keep the source's own file, which plays offline as it is; a copy in another format is what Save to device saves (below, stage 4.2, on with `RELEASED.conversions`, which Settings follows). Nothing is offered where the bytes are unreadable (YouTube audio needs FXM Connect or the Android app, later the desktop app too, and never the Lite tier), nor what the app can't resolve (before the composition root connected its environment, nothing). A download the manager paused on its own says why in its row ("Paused · There is no room left for downloads", or after a YouTube bot check).
 
 ## Save to device
 
