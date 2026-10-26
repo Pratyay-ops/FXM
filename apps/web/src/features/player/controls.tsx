@@ -139,6 +139,37 @@ function PlayerPlayPauseButton({ appearance }: { appearance: PlayButtonAppearanc
   )
 }
 
+const SKIP_BUTTONS = {
+  previous: { label: 'Previous', Icon: SkipBack },
+  next: { label: 'Next', Icon: SkipForward },
+} as const
+
+/**
+ * Previous or Next for the app's player, off while the queue is empty. The player bar, Now
+ * playing and the mini player all use it, so they step the queue alike.
+ */
+export function SkipButton({
+  direction,
+  size = 'sm',
+}: {
+  direction: keyof typeof SKIP_BUTTONS
+  size?: IconButtonSize
+}) {
+  const hasTrack = usePlayerStore((state) => state.hasTrack)
+  const skip = usePlayerStore((state) => state[direction])
+  const { label, Icon } = SKIP_BUTTONS[direction]
+  return (
+    <IconButton
+      label={label}
+      icon={<Icon fill="currentColor" />}
+      size={size}
+      variant="plain"
+      disabled={!hasTrack}
+      onClick={skip}
+    />
+  )
+}
+
 /** Shuffle, previous, play/pause, next and repeat. */
 export function PlayerControls({
   size = 'md',
@@ -148,13 +179,10 @@ export function PlayerControls({
   size?: 'md' | 'lg'
   className?: string
 }) {
-  const hasTrack = usePlayerStore((state) => state.hasTrack)
   const shuffle = usePlayerStore((state) => state.shuffle)
   const repeat = usePlayerStore((state) => state.repeat)
   const toggleShuffle = usePlayerStore((state) => state.toggleShuffle)
   const cycleRepeat = usePlayerStore((state) => state.cycleRepeat)
-  const previous = usePlayerStore((state) => state.previous)
-  const next = usePlayerStore((state) => state.next)
   const RepeatIcon = repeat === 'one' ? Repeat1 : Repeat
   const skipSize: IconButtonSize = size === 'lg' ? 'lg' : 'sm'
 
@@ -174,23 +202,9 @@ export function PlayerControls({
         dot
         onClick={toggleShuffle}
       />
-      <IconButton
-        label="Previous"
-        icon={<SkipBack fill="currentColor" />}
-        size={skipSize}
-        variant="plain"
-        disabled={!hasTrack}
-        onClick={previous}
-      />
+      <SkipButton direction="previous" size={skipSize} />
       <PlayPauseButton appearance={size === 'lg' ? 'hero' : 'bar'} />
-      <IconButton
-        label="Next"
-        icon={<SkipForward fill="currentColor" />}
-        size={skipSize}
-        variant="plain"
-        disabled={!hasTrack}
-        onClick={next}
-      />
+      <SkipButton direction="next" size={skipSize} />
       <IconButton
         label={REPEAT_LABELS[repeat]}
         icon={<RepeatIcon />}

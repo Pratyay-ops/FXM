@@ -85,6 +85,16 @@ describe('the greeting', () => {
     expect(greetingFor(21)).toBe('Good evening')
     expect(greetingFor(3)).toBe('Good evening')
   })
+
+  it('heads Home on its own, with no tagline under it', async () => {
+    renderHome(homeServices('free'))
+    expect(await screen.findByRole('region', { name: 'Play practically any song' })).toBeVisible()
+
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+      /^Good (morning|afternoon|evening)$/,
+    )
+    expect(screen.queryByText(/Free music from everywhere|no ads from FXM/i)).toBeNull()
+  })
 })
 
 describe('Home', () => {

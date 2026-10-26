@@ -10,7 +10,14 @@ import { useCurrentItem, usePlayerState } from '../now-playing/playback'
 import { TrackArtwork } from '../now-playing/track-artwork'
 import { CATALOG_MODE_OPTIONS } from '../settings/options'
 import { useSettingsStore } from '../settings/settings-store'
-import { LikeButton, PlayerControls, PlayPauseButton, SeekBar, VolumeControl } from './controls'
+import {
+  LikeButton,
+  PlayerControls,
+  PlayPauseButton,
+  SeekBar,
+  SkipButton,
+  VolumeControl,
+} from './controls'
 import { usePlayerStore } from './player-store'
 
 /**
@@ -145,8 +152,10 @@ export function PlayerBar() {
 }
 
 /**
- * Compact player above the tab bar on phones; tapping it opens Now Playing. While the speed
- * isn't 1× (stage 8.1), it shows the speed, which the link's name says too.
+ * Compact player above the tab bar on phones; tapping the track opens Now Playing, while Like,
+ * Previous, Play/Pause and Next beside it act in place. Below 360 px the track's text needs the
+ * room, so Like stays on Now Playing. While the speed isn't 1× (stage 8.1), it shows the speed,
+ * which the link's name says too.
  */
 export function MiniPlayer() {
   const { title, artists, failed, label } = useNowPlaying()
@@ -177,8 +186,15 @@ export function MiniPlayer() {
             </span>
           )}
         </Link>
-        <LikeButton />
-        <PlayPauseButton appearance="mini" />
+        <div className="flex max-[359px]:hidden">
+          <LikeButton />
+        </div>
+        {/* No gap: each button is a 44 px target already, and the title keeps the room. */}
+        <div className="flex">
+          <SkipButton direction="previous" />
+          <PlayPauseButton appearance="mini" />
+          <SkipButton direction="next" />
+        </div>
         <div
           aria-hidden="true"
           className="absolute inset-x-2 bottom-0 h-0.5 overflow-hidden rounded-full bg-text/15"
