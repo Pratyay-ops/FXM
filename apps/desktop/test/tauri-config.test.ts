@@ -315,6 +315,29 @@ describe('the updater', () => {
   })
 })
 
+describe('the bundles', () => {
+  it('sign the macOS app ad hoc, so macOS offers "Open Anyway" instead of calling it damaged', () => {
+    expect(config.bundle.macOS).toEqual({ minimumSystemVersion: '11.0', signingIdentity: '-' })
+  })
+
+  it('make the .deb depend on the GStreamer plugins WebKitGTK plays music with', () => {
+    // Opus and MP3 need base and good, AAC needs libav, and nothing plays without an audio output.
+    expect(config.bundle.linux.deb).toEqual({
+      section: 'sound',
+      depends: [
+        'gstreamer1.0-plugins-base',
+        'gstreamer1.0-plugins-good',
+        'gstreamer1.0-libav',
+        'gstreamer1.0-pulseaudio | gstreamer1.0-alsa',
+      ],
+    })
+  })
+
+  it('give the AppImage GStreamer of its own, since it plays with its own libraries', () => {
+    expect(config.bundle.linux.appimage).toEqual({ bundleMediaFramework: true })
+  })
+})
+
 describe('capabilities', () => {
   const http = capability.permissions.find(
     (permission): permission is { identifier: string; allow: { url: string }[] } =>

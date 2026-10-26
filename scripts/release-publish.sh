@@ -103,6 +103,7 @@ fxm_release_fit "$body" 115000 \
   done
   echo
   echo "Install FXM Connect with the [steps in its README](https://github.com/$repo/blob/$tag/apps/extension/README.md#install)."
+  echo "Install the desktop app with the [steps in its install guide](https://github.com/$repo/blob/$tag/apps/desktop/INSTALL.md), which also say what to do when macOS or Windows warns about it."
   echo
   echo "To host the website and web app yourself, serve \`fxm-web-$version.zip\` as the [self-hosting steps](https://github.com/$repo/blob/$tag/scripts/build-dist/README.md#self-hosting) describe."
   echo

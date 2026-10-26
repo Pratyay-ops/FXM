@@ -22,7 +22,10 @@ function triggerPaths(trigger: string) {
 
 describe('desktop.yml', () => {
   it('pins every action to a full commit SHA', () => {
-    const actions = [...workflow.matchAll(/^\s*(?:- )?uses: (\S+)/gm)].map(([, action]) => action)
+    // Reusable workflows of this repository come from the same commit as the caller.
+    const actions = [...workflow.matchAll(/^\s*(?:- )?uses: (\S+)/gm)]
+      .map(([, action]) => action)
+      .filter((action) => !action?.startsWith('./.github/workflows/'))
     expect(actions).not.toHaveLength(0)
     for (const action of actions) {
       expect(action).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/)

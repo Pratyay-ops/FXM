@@ -108,13 +108,40 @@ fxm_release_published() {
 # file table. scripts/release-collect.sh refuses every other file, so no artifact job can add
 # or replace another job's files. A stage that adds an artifact job (the APK in 6.6, desktop
 # installers in 7.5, the signed XPI in R.2) adds its files here.
+#
+# A name without <version> is a fixed name, which installed apps look up in the latest release:
+# the desktop updater's latest.json (apps/desktop/README.md, "Updates"). It names the version
+# inside instead, and the job that writes it checks that (apps/desktop/release/release.ts).
 fxm_release_catalog() {
   cat <<'EOF'
 release-bundles|fxm-connect-chromium-<version>.zip|FXM Connect for Chrome, Edge, Brave and other Chromium browsers
 release-bundles|fxm-connect-firefox-<version>.zip|FXM Connect for Firefox, unsigned: for review, or a temporary install that Firefox removes when it restarts. Use the signed `.xpi` when the release has one
 release-bundles|fxm-web-<version>.zip|The website and web app for self-hosting: the files `fxmusic.pages.dev` serves, with the web app in `app/`, `_headers` and the third-party notices
 release-firefox|fxm-connect-firefox-<version>.xpi|FXM Connect for Firefox, signed by Mozilla: install it from Firefox's Add-ons Manager
+release-desktop|fxm-desktop-<version>-macos-arm64.dmg|The desktop app for Macs with Apple silicon (M1 and later), macOS 11 or later
+release-desktop|fxm-desktop-<version>-macos-x64.dmg|The desktop app for Macs with an Intel processor, macOS 11 or later
+release-desktop|fxm-desktop-<version>-windows-x64-setup.exe|The desktop app for Windows 10 and 11 (x64): installs for your account, without administrator rights
+release-desktop|fxm-desktop-<version>-windows-x64.msi|The desktop app for Windows 10 and 11 (x64) as an MSI package: installs for everyone on the PC, with administrator rights
+release-desktop|fxm-desktop-<version>-linux-x64.deb|The desktop app for Debian, Ubuntu and their derivatives (x64), with the GStreamer plugins it plays with
+release-desktop|fxm-desktop-<version>-linux-arm64.deb|The desktop app for Debian, Ubuntu and their derivatives (arm64)
+release-desktop|fxm-desktop-<version>-linux-x64.AppImage|The desktop app for other Linux distributions (x64): one file to make executable and run
+release-desktop|fxm-desktop-<version>-linux-arm64.AppImage|The desktop app for other Linux distributions (arm64)
+release-desktop|fxm-desktop-<version>-macos-arm64.app.tar.gz|For the desktop app's updater: the Apple silicon app
+release-desktop|fxm-desktop-<version>-macos-x64.app.tar.gz|For the desktop app's updater: the Intel Mac app
+release-desktop|latest.json|For the desktop app's updater: this version, and each platform's file and signature
 EOF
+}
+
+# fxm_release_fixed_name <artifact> <file name>: whether the catalog lists the name, without
+# <version>, for that artifact: a fixed name that needs no version in it (see above).
+fxm_release_fixed_name() {
+  local artifact pattern description
+  while IFS='|' read -r artifact pattern description; do
+    if [ "$artifact" = "$1" ] && [ "$pattern" = "$2" ] && [[ $pattern != *'<version>'* ]]; then
+      return 0
+    fi
+  done < <(fxm_release_catalog)
+  return 1
 }
 
 # fxm_release_lookup <artifact or ""> <file name> <version>: prints the catalog's description of
