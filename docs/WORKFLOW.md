@@ -134,7 +134,7 @@ So progress happens without anyone polling.
 
 ## 8. Releases
 
-FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs no secrets; only its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, which only runs on `main` can use, and they skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)).
+FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs one set of secrets: the key that signs the Android APKs, in the `android-release` environment, without which a release fails before it tags anything ([apps/mobile/RELEASING.md](../apps/mobile/RELEASING.md)). Its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, and skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)). Only runs on `main` can use either environment.
 
 ```mermaid
 flowchart LR
@@ -161,7 +161,7 @@ flowchart LR
    git push origin develop
    ```
 
-**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the APK (6.6) and the desktop installers (7.5). The header of `release.yml` says how to add a job.
+**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the desktop installers (7.5). The header of `release.yml` says how to add a job.
 
 | File | Contents |
 |---|---|
@@ -169,6 +169,7 @@ flowchart LR
 | `fxm-connect-firefox-x.y.z.xpi` | FXM Connect for Firefox, signed by Mozilla. Releases have it once the owner has added the AMO keys, while `AMO_CHANNEL` is `unlisted` (the default). With `listed`, Firefox users get FXM Connect from addons.mozilla.org instead |
 | `fxm-web-x.y.z.zip` | The web app for self-hosting, in `app/` because it is served from `/app/` |
 | `fxm-site-x.y.z.zip` | The landing page, served from `/`. Unzipped into one folder with the web app, it gives the site's layout |
+| `fxm-android-universal-x.y.z.apk`, `fxm-android-arm64-v8a-x.y.z.apk` | The Android app for every phone, and for 64-bit ARM phones, signed with FXM's key. The release notes give its certificate's SHA-256, and [apps/mobile/INSTALL.md](../apps/mobile/INSTALL.md) how to install and check it |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |
 
 Anyone can check a download. `sha256sum --check --ignore-missing SHA256SUMS` compares it with the checksums, and this checks that FXM's release workflow, run for `main` on GitHub's own runners, built it:

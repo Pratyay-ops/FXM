@@ -1,6 +1,6 @@
 # @fxm/mobile
 
-The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitorjs.com) 8 WebView. Stage 6.1 built the shell and its repo-local toolchain, stage 6.2 its native networking ([`android/fxm-http`](android/fxm-http/README.md)), and stage 6.3 its native player ([`android/fxm-player`](android/fxm-player/README.md)): Media3 in a foreground service, with the media notification and lock-screen controls.
+The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitorjs.com) 8 WebView. Stage 6.1 built the shell and its repo-local toolchain, stage 6.2 its native networking ([`android/fxm-http`](android/fxm-http/README.md)), and stage 6.3 its native player ([`android/fxm-player`](android/fxm-player/README.md)): Media3 in a foreground service, with the media notification and lock-screen controls. Stage 6.6 releases it: signed APKs on GitHub Releases ([RELEASING.md](RELEASING.md)), with an in-app update check and an [install guide](INSTALL.md) for users.
 
 ## Build it
 
@@ -8,6 +8,8 @@ The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitor
 make android-setup   # once: JDK and Android SDK in .tools/
 make apk             # apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
 make android-test    # the native unit tests (JVM, offline, no device)
+make apk-release     # the signed release APKs, with the key in the environment (RELEASING.md)
+make apk-sign-test   # the release signing's tests, offline, with a throwaway key
 ```
 
 Installing it on a phone, disk usage, licenses and cleanup are covered in [DEVELOPMENT.md](../../docs/DEVELOPMENT.md#android-app). `make test` runs this package's TypeScript tests, which only read files and need no Android tools.
@@ -23,12 +25,17 @@ android/              the native project from `cap add android`, committed; buil
   variables.gradle    SDK levels and AndroidX versions from Capacitor's template, plus OkHttp's and Media3's
 scripts/
   build-apk.sh        make apk
+  release-apk.sh      make apk-release and the release workflow: build, then sign and check, the release APKs
   test-native.sh      make android-test: the JVM tests of fxm-http and fxm-player
+  test-release.sh     make apk-sign-test: the keystore script and the release signing, offline
   native-tables.ts    writes fxm-http's PlatformTables.kt from @fxm/platform (host table, bridge codes)
   icons.ts            the launcher, splash and notification icons, drawn from the FXM mark
   generate-icons.ts   writes them into the app's and fxm-player's res folders (`pnpm icons`)
   png.ts              a minimal PNG encoder and decoder
 *.test.ts             checks of the config and the native project
+release-certificate.txt  the SHA-256 of the certificate that signs the release APKs, pinned
+INSTALL.md            installing FXM on a phone, for users
+RELEASING.md          the release APKs, the signing key, developer verification and F-Droid
 ```
 
 Run Capacitor commands through the package script. It sets `CI=1`, so the CLI stays non-interactive and sends no telemetry. It also turns on Node's type stripping, which the CLI needs to load `capacitor.config.ts` with TypeScript 7 and which Node 22 enables by default only from 22.18:
@@ -45,7 +52,8 @@ scripts/run.sh pnpm --filter @fxm/mobile cap sync android
 - **System bars and splash.** The app uses the web app's dark theme: `backgroundColor` and the window background are `#0b0b0f`, and the status and navigation bars are dark with light icons (`SystemBars.style: 'DARK'`). Android 15 and later draw the app edge to edge. Then `SystemBars.insetsHandling: 'native'` passes the insets to the page on WebView 140 and later, where the page's `viewport-fit=cover` and `env(safe-area-inset-*)` keep content clear of the bars. On older WebViews it pads the WebView instead. The splash screen shows the FXM mark on the same background: Android 12's splash API, through `core-splashscreen` on older versions.
 - **Known gap: the light theme.** The bar icons stay light when you pick the web app's light theme, or its system theme on a phone in light mode. Where the page draws behind the bars (WebView 140 and later), the clock and battery are then hard to read over the light top bar. Following the theme needs a script in the WebView that watches `<meta name="theme-color">` and calls `SystemBars.setStyle`. It must do so only while the page draws behind the bars: where Capacitor pads the WebView, the bars show the dark window background, so light icons stay right there. That script is left to a later stage that injects code into the WebView and can test it on devices.
 - **Backups.** `android:allowBackup="false"` plus `res/xml/data_extraction_rules.xml` keep app data out of cloud backups and device-to-device transfers, because the app will hold sign-in sessions (stage 6.5).
-- **Versions.** Capacitor's defaults: minSdk 24 (Android 7), compileSdk and targetSdk 36, Android Gradle plugin 8.13 and Gradle 8.14.3. `versionName` comes from this package's `version`, and `versionCode` stays 1 until release builds (stage 6.6).
+- **Versions.** Capacitor's defaults: minSdk 24 (Android 7), compileSdk and targetSdk 36, Android Gradle plugin 8.13 and Gradle 8.14.3. `versionName` comes from this package's `version`, and `versionCode` from it too: major × 1,000,000 + minor × 1,000 + patch, so every release can update the one before ([RELEASING.md](RELEASING.md#version-codes)).
+- **Release builds.** `make apk-release` and the release workflow build an APK for arm64-v8a phones and a universal one (`-PfxmReleaseApks`), unsigned, and sign them with apksigner, so the key never reaches Gradle. Their certificate must be the one pinned in `release-certificate.txt`. They check GitHub for new versions once a day and only offer the download (`apps/web/src/features/app-update`); F-Droid builds don't. [RELEASING.md](RELEASING.md) has the details.
 
 What differs from Capacitor's template:
 
@@ -54,7 +62,8 @@ What differs from Capacitor's template:
 - the icons, the splash screen and the theme colours;
 - the backup rules;
 - no Google services plugin, because FXM uses no Firebase;
-- `versionName` from `package.json`;
+- `versionName` and `versionCode` from `package.json`;
+- ABI splits for the release APKs, which Gradle leaves unsigned, and no dependency report for Google Play in the APK;
 - Gradle's smaller `-bin` distribution, checked against its SHA-256;
 - Gradle may use only the repo-local JDK;
 - the example tests live in the app's package;
