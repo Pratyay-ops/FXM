@@ -176,17 +176,24 @@ function BuiltInPanel({ id }: { id: EntityId<'playlist'> }) {
   )
 }
 
+/**
+ * What the Artists and Albums tabs say while they are empty: where follows come from today. The
+ * web app has no Follow or Save button yet; only an import of Spotify's data download brings the
+ * artists the user follows and the albums they saved there (`features/import`).
+ */
 const FOLLOW_EMPTY: Record<
   Exclude<FollowKind, 'playlist'>,
   { title: string; description: string }
 > = {
   artist: {
-    title: 'Follow artists you love',
-    description: 'Artists you follow show up here, and their new songs reach your home feed.',
+    title: 'No artists yet',
+    description:
+      'The artists you follow on Spotify show up here when you import your Spotify data. FXM can’t follow artists itself yet.',
   },
   album: {
-    title: 'Save albums to find them fast',
-    description: 'Albums you save show up here.',
+    title: 'No albums yet',
+    description:
+      'The albums you saved on Spotify show up here when you import your Spotify data. FXM can’t save albums itself yet.',
   },
 }
 
@@ -276,6 +283,11 @@ function FollowsPanel({ kind }: { kind: Exclude<FollowKind, 'playlist'> }) {
         icon={kind === 'artist' ? UserRound : Disc3}
         title={FOLLOW_EMPTY[kind].title}
         description={FOLLOW_EMPTY[kind].description}
+        action={
+          <Link to="/import" className={buttonClasses({ variant: 'secondary' })}>
+            Import music
+          </Link>
+        }
         headingLevel={3}
         className="rounded-2xl border border-dashed border-border"
       />

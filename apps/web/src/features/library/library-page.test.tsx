@@ -735,10 +735,26 @@ describe('Library page', { timeout: 30_000 }, () => {
     // The last one: the tab panel, now with the empty state, keeps focus.
     await user.click(within(artists).getByRole('button', { name: 'More options for Band' }))
     await user.click(await screen.findByRole('menuitem', { name: 'Unfollow' }))
-    expect(
-      await main().findByRole('heading', { name: 'Follow artists you love' }),
-    ).toBeInTheDocument()
+    expect(await main().findByRole('heading', { name: 'No artists yet' })).toBeInTheDocument()
     await waitFor(() => expect(main().getByRole('tabpanel')).toHaveFocus())
+  })
+
+  it('says where followed artists and saved albums come from while there are none', async () => {
+    // The web app has no Follow or Save button: only an import of Spotify's data brings them.
+    const { router } = renderApp('/library?tab=artists')
+    expect(await main().findByRole('heading', { name: 'No artists yet' })).toBeInTheDocument()
+    expect(
+      main().getByText(
+        'The artists you follow on Spotify show up here when you import your Spotify data. FXM can’t follow artists itself yet.',
+      ),
+    ).toBeVisible()
+    expect(main().queryByText(/Follow artists you love/)).toBeNull()
+    await act(() => router.navigate('/library?tab=albums'))
+    expect(await main().findByRole('heading', { name: 'No albums yet' })).toBeInTheDocument()
+    expect(main().getByText(/^The albums you saved on Spotify show up here/)).toBeVisible()
+    expect(
+      within(main().getByRole('tabpanel')).getByRole('link', { name: 'Import music' }),
+    ).toHaveAttribute('href', '/import')
   })
 
   it('shows a saved sort as the custom order at once, without the old order in between', async () => {
