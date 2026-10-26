@@ -24,6 +24,15 @@ const PLAN_APP_POLICY =
     HASH,
   )
 
+/** The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm). */
+const LATER_CONNECT_HOSTS = ['https://api.listenbrainz.org', 'https://ws.audioscrobbler.com']
+
+/** The `/app/*` policy today: the plan's, with the hosts later stages added. */
+const APP_POLICY = PLAN_APP_POLICY.replace(
+  'https://lrclib.net;',
+  `https://lrclib.net ${LATER_CONNECT_HOSTS.join(' ')};`,
+)
+
 describe('csp helpers', () => {
   it('hashes inline code as browsers do, after normalizing line endings', () => {
     const expected = `'sha256-${createHash('sha256').update('a\nb').digest('base64')}'`
@@ -55,17 +64,19 @@ describe('csp helpers', () => {
 })
 
 describe('the web app policy', () => {
-  it('is the policy docs/PLAN.md specifies for /app/*', () => {
-    expect(serializePolicy(appPolicy([HASH]))).toBe(PLAN_APP_POLICY)
+  it('is the policy docs/PLAN.md specifies for /app/*, with the hosts later stages added', () => {
+    expect(APP_POLICY).not.toBe(PLAN_APP_POLICY)
+    expect(serializePolicy(appPolicy([HASH]))).toBe(APP_POLICY)
   })
 
   it('stays under the 850-character estimate at M1, far below 2,000', () => {
+    expect(PLAN_APP_POLICY.length).toBeLessThan(850)
     expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(900)
   })
 
   it('drops only frame-ancestors for the embed', () => {
     const embed = serializePolicy(appPolicy([HASH], { embeddable: true }))
-    expect(embed).toBe(PLAN_APP_POLICY.replace(" frame-ancestors 'none';", ''))
+    expect(embed).toBe(APP_POLICY.replace(" frame-ancestors 'none';", ''))
   })
 
   it('takes later stages’ hosts and script sources from the lists', () => {
