@@ -1,9 +1,14 @@
 import { create } from 'zustand'
 
+/** A part of the Sound dialog it can open at: the equalizer, for the track menus' "Equalizer". */
+export type SoundSection = 'equalizer'
+
 interface SoundDialogState {
   /** Whether the Sound dialog is open. */
   open: boolean
-  openDialog: () => void
+  /** The part it opened at, with its first control focused; at the top without one. */
+  section: SoundSection | undefined
+  openDialog: (section?: SoundSection) => void
   close: () => void
 }
 
@@ -13,6 +18,7 @@ interface SoundDialogState {
  */
 export const useSoundDialogStore = create<SoundDialogState>()((set) => ({
   open: false,
-  openDialog: () => set({ open: true }),
-  close: () => set({ open: false }),
+  section: undefined,
+  openDialog: (section) => set({ open: true, section }),
+  close: () => set({ open: false, section: undefined }),
 }))

@@ -1,14 +1,22 @@
 import { PLAYBACK_RATE_PRESETS } from '@fxm/core'
-import { type ReactNode, useEffect, useId, useState } from 'react'
+import {
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
 import { Dialog } from '../now-playing/dialog'
 import { usePlayer } from '../now-playing/playback'
 import { Switch } from '../queue/switch'
-import { useEffectsNotes } from './effects-section'
+import { SOUND_SETTINGS_ID, useEffectsNotes } from './effects-section'
 import { type SleepTimerSetting, useAudioEffectsStore } from './effects-store'
-import { EqualizerEditor } from './equalizer-editor'
+import { EqualizerDisclosure } from './equalizer-editor'
 import { useSoundDialogStore } from './sound-dialog-store'
 import { formatRate, formatRemaining } from './status'
 
@@ -24,6 +32,15 @@ export function formatMinutes(minutes: number): string {
   const rest = minutes % 60
   if (hours === 0) return `${rest} min`
   return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`
+}
+
+/** A minute count as a screen reader says it: "15 minutes", "1 hour", "1 hour 30 minutes". */
+export function spokenMinutes(minutes: number): string {
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  const words = (count: number, unit: string) => `${count} ${unit}${count === 1 ? '' : 's'}`
+  if (hours === 0) return words(rest, 'minute')
+  return rest === 0 ? words(hours, 'hour') : `${words(hours, 'hour')} ${words(rest, 'minute')}`
 }
 
 /** The time now, ticking every second while `active`. */
@@ -45,43 +62,98 @@ export function sleepStatus(timer: SleepTimerSetting | undefined, now: number): 
   return `Pauses in ${formatRemaining(timer.endsAt - now)}`
 }
 
-/** A choice chip: a toggle button that shows when it is the one picked. */
-function Chip({
-  pressed,
-  onClick,
-  children,
+/** What screen readers hear when the user changes the sleep timer, once per change. */
+export function sleepAnnouncement(timer: SleepTimerSetting | undefined): string {
+  if (timer === undefined) return 'Sleep timer off'
+  if ('endOfTrack' in timer) return 'Sleep timer on: pauses after this track'
+  return `Sleep timer on: pauses in ${spokenMinutes(timer.minutes)}`
+}
+
+/** One chip of a {@link ChipGroup}. */
+interface Choice {
+  /** Its key among the group's chips. */
+  readonly key: string
+  readonly label: string
+}
+
+/**
+ * Chips of which one is picked: native radio buttons in a group named by `labelledBy`, so the
+ * group is one tab stop, the arrow keys move to another chip and pick it, and screen readers say
+ * which of how many is picked. Picking the chip that is picked calls `onPick` again (only a
+ * click comes then, no `change`): a sleep timer starts over.
+ */
+function ChipGroup({
+  labelledBy,
+  choices,
+  checked,
+  onPick,
 }: {
-  pressed: boolean
-  onClick: () => void
-  children: ReactNode
+  labelledBy: string
+  choices: readonly Choice[]
+  checked: string | undefined
+  onPick: (key: string) => void
 }) {
+  const name = useId()
   return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={cn(
-        'inline-flex h-touch items-center rounded-full border px-4 text-sm font-semibold transition-colors lg:h-9 lg:pointer-coarse:h-touch',
-        pressed
-          ? 'border-accent bg-accent text-on-accent'
-          : 'border-border bg-surface text-text hover:border-border-strong',
-      )}
-    >
-      {children}
-    </button>
+    <div role="radiogroup" aria-labelledby={labelledBy} className="flex flex-wrap gap-2">
+      {choices.map((choice) => {
+        const picked = choice.key === checked
+        return (
+          <label
+            key={choice.key}
+            className={cn(
+              'inline-flex h-touch cursor-pointer items-center rounded-full border px-4 text-sm font-semibold transition-colors select-none has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus lg:h-9 lg:pointer-coarse:h-touch',
+              // Forced colors (Windows High Contrast) drop the fill: mark the pick in system colors
+              // (adjust-none, or the browser's text backplate hides the HighlightText label).
+              picked
+                ? 'border-accent bg-accent text-on-accent forced-colors:border-[Highlight] forced-colors:bg-[Highlight] forced-colors:text-[HighlightText] forced-colors:forced-color-adjust-none forced-colors:has-[:focus-visible]:outline-[CanvasText]'
+                : 'border-border-strong bg-surface text-text hover:bg-text/8',
+            )}
+          >
+            <input
+              type="radio"
+              name={name}
+              value={choice.key}
+              checked={picked}
+              onChange={() => onPick(choice.key)}
+              onClick={() => {
+                if (picked) onPick(choice.key)
+              }}
+              className="sr-only"
+            />
+            {choice.label}
+          </label>
+        )
+      })}
+    </div>
   )
 }
 
 /**
- * One part of the dialog: a heading and its controls. A part whose switch names it (the
- * equalizer, volume) needs no heading.
+ * One part of the dialog: a heading (`titleId`, which names its controls) and its controls. A
+ * part whose switch names it (the equalizer, volume) needs no heading.
  */
-function Part({ title, children }: { title?: string; children: ReactNode }) {
-  const headingId = useId()
-  if (title === undefined) return <div className="space-y-3 py-4 first:pt-1">{children}</div>
+function Part({
+  title,
+  titleId,
+  ref,
+  children,
+}: {
+  title?: string
+  titleId?: string
+  ref?: Ref<HTMLDivElement> | undefined
+  children: ReactNode
+}) {
+  if (title === undefined) {
+    return (
+      <div ref={ref} className="space-y-3 py-4 first:pt-1">
+        {children}
+      </div>
+    )
+  }
   return (
-    <section aria-labelledby={headingId} className="space-y-3 py-4 first:pt-1">
-      <h3 id={headingId} className="font-semibold">
+    <section aria-labelledby={titleId} className="space-y-3 py-4 first:pt-1">
+      <h3 id={titleId} className="font-semibold">
         {title}
       </h3>
       {children}
@@ -89,71 +161,71 @@ function Part({ title, children }: { title?: string; children: ReactNode }) {
   )
 }
 
+const SLEEP_CHOICES: readonly Choice[] = [
+  { key: 'off', label: 'Off' },
+  ...SLEEP_MINUTES.map((minutes) => ({ key: String(minutes), label: formatMinutes(minutes) })),
+  { key: 'end', label: 'End of track' },
+]
+
+/** The sleep timer's chip for a setting. */
+function sleepChoiceOf(timer: SleepTimerSetting | undefined): string {
+  if (timer === undefined) return 'off'
+  return 'endOfTrack' in timer ? 'end' : String(timer.minutes)
+}
+
 /** The sleep timer's choices and what the running one does. */
 function SleepTimerPart() {
+  const titleId = useId()
   const timer = useAudioEffectsStore((state) => state.sleepTimer)
-  const sleepAfter = useAudioEffectsStore((state) => state.sleepAfter)
-  const sleepAtEnd = useAudioEffectsStore((state) => state.sleepAtEndOfTrack)
-  const cancel = useAudioEffectsStore((state) => state.cancelSleepTimer)
-  const now = useNow(timer !== undefined && !('endOfTrack' in timer))
-  const minutes = timer !== undefined && 'minutes' in timer ? timer.minutes : undefined
+  const [announcement, setAnnouncement] = useState('')
+  const counting = timer !== undefined && !('endOfTrack' in timer)
+  const now = useNow(counting)
+  const pick = (key: string) => {
+    const store = useAudioEffectsStore.getState()
+    if (key === 'off') store.cancelSleepTimer()
+    else if (key === 'end') store.sleepAtEndOfTrack()
+    else store.sleepAfter(Number(key))
+    setAnnouncement(sleepAnnouncement(useAudioEffectsStore.getState().sleepTimer))
+  }
   return (
-    <Part title="Sleep timer">
-      <p className="text-sm text-text-muted" aria-live="polite">
+    <Part title="Sleep timer" titleId={titleId}>
+      {/* A timer isn't read out as it counts down (its live region is off); a change is, below. */}
+      <p role={counting ? 'timer' : undefined} className="text-sm text-text-muted">
         {sleepStatus(timer, now)}
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Chip pressed={timer === undefined} onClick={cancel}>
-          Off
-        </Chip>
-        {SLEEP_MINUTES.map((option) => (
-          <Chip key={option} pressed={minutes === option} onClick={() => sleepAfter(option)}>
-            {formatMinutes(option)}
-          </Chip>
-        ))}
-        <Chip pressed={timer !== undefined && 'endOfTrack' in timer} onClick={sleepAtEnd}>
-          End of track
-        </Chip>
-      </div>
+      <ChipGroup
+        labelledBy={titleId}
+        choices={SLEEP_CHOICES}
+        checked={sleepChoiceOf(timer)}
+        onPick={pick}
+      />
+      <p className="sr-only" aria-live="polite">
+        {announcement}
+      </p>
     </Part>
   )
 }
 
+const SPEED_CHOICES: readonly Choice[] = QUICK_RATES.map((rate) => ({
+  key: String(rate),
+  label: formatRate(rate),
+}))
+
 /** Playback speed at a tap. */
 function SpeedPart() {
+  const titleId = useId()
   const rate = useAudioEffectsStore((state) => state.effects.playbackRate)
   const setRate = useAudioEffectsStore((state) => state.setPlaybackRate)
   const supported = usePlayer().effectsSupport().playbackRate
   if (!supported) return null
   return (
-    <Part title={`Speed: ${formatRate(rate)}`}>
-      <div className="flex flex-wrap gap-2">
-        {QUICK_RATES.map((option) => (
-          <Chip key={option} pressed={rate === option} onClick={() => setRate(option)}>
-            {formatRate(option)}
-          </Chip>
-        ))}
-      </div>
-    </Part>
-  )
-}
-
-/** The equalizer's switch, its bands, and why it can't process the track that plays. */
-function EqualizerPart() {
-  const equalizer = useAudioEffectsStore((state) => state.effects.equalizer)
-  const setEnabled = useAudioEffectsStore((state) => state.setEqualizerEnabled)
-  const notes = useEffectsNotes()
-  return (
-    <Part>
-      <Switch
-        label="Equalizer"
-        {...(equalizer.enabled && notes.equalizer !== undefined
-          ? { description: notes.equalizer }
-          : {})}
-        checked={equalizer.enabled}
-        onChange={setEnabled}
+    <Part title={`Speed: ${formatRate(rate)}`} titleId={titleId}>
+      <ChipGroup
+        labelledBy={titleId}
+        choices={SPEED_CHOICES}
+        checked={String(rate)}
+        onPick={(key) => setRate(Number(key))}
       />
-      <EqualizerEditor />
     </Part>
   )
 }
@@ -180,22 +252,67 @@ function LoudnessPart() {
 }
 
 /**
- * The Sound dialog: the sleep timer, speed, equalizer and volume normalization, from the player
- * bar, Now playing and the track menus ("Equalizer"). The app layout renders it once; anything
- * opens it through {@link useSoundDialogStore}.
+ * The equalizer's switch, why it can't process the track that plays, and its bands behind
+ * "Adjust the bands" (open when the dialog opened at the equalizer).
+ */
+function EqualizerPart({
+  ref,
+  openBands,
+}: {
+  ref?: Ref<HTMLDivElement> | undefined
+  openBands: boolean
+}) {
+  const equalizer = useAudioEffectsStore((state) => state.effects.equalizer)
+  const setEnabled = useAudioEffectsStore((state) => state.setEqualizerEnabled)
+  const notes = useEffectsNotes()
+  return (
+    <Part ref={ref}>
+      <Switch
+        label="Equalizer"
+        {...(equalizer.enabled && notes.equalizer !== undefined
+          ? { description: notes.equalizer }
+          : {})}
+        checked={equalizer.enabled}
+        onChange={setEnabled}
+      />
+      <EqualizerDisclosure defaultOpen={openBands} />
+    </Part>
+  )
+}
+
+/**
+ * The Sound dialog: the sleep timer, speed, volume normalization and the equalizer, from the
+ * player bar, Now playing and the track menus ("Equalizer", which opens it at the equalizer).
+ * The app layout renders it once; anything opens it through {@link useSoundDialogStore}.
  */
 export function SoundDialog() {
-  const open = useSoundDialogStore((state) => state.open)
+  const wanted = useSoundDialogStore((state) => state.open)
+  const section = useSoundDialogStore((state) => state.section)
   const close = useSoundDialogStore((state) => state.close)
+  // The host mounts this when the dialog should open. `Dialog` mounts closed and opens on the next
+  // render, as the app's other dialogs do: one mounted open and then remounted (React's StrictMode
+  // does that in development) would close itself, and its `close` event would close the dialog.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  const open = wanted && mounted
+  const equalizer = useRef<HTMLDivElement>(null)
+  // After the dialog's own focus (`showModal()`, in the layout effect of `Dialog`, a child): when
+  // it opened at the equalizer, the equalizer's part shows at the top, its switch focused.
+  useLayoutEffect(() => {
+    const part = equalizer.current
+    if (!open || section !== 'equalizer' || part === null) return
+    part.scrollIntoView({ block: 'start' })
+    part.querySelector<HTMLElement>('[role="switch"]')?.focus({ preventScroll: true })
+  }, [open, section])
   return (
     <Dialog
       open={open}
       title="Sound"
-      description="Sleep timer, speed, equalizer and volume."
+      description="Sleep timer, speed, volume and equalizer."
       onClose={close}
       footer={
         <Link
-          to="/settings#sound"
+          to={`/settings#${SOUND_SETTINGS_ID}`}
           onClick={close}
           className={buttonClasses({ variant: 'secondary', className: 'h-10 px-4' })}
         >
@@ -206,8 +323,8 @@ export function SoundDialog() {
       <div className="divide-y divide-border">
         <SleepTimerPart />
         <SpeedPart />
-        <EqualizerPart />
         <LoudnessPart />
+        <EqualizerPart ref={equalizer} openBands={section === 'equalizer'} />
       </div>
     </Dialog>
   )

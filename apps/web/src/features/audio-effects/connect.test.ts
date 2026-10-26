@@ -50,6 +50,33 @@ describe('connectAudioEffects', () => {
     expect(useFeedbackStore.getState().message).toBe(SLEEP_MESSAGE)
   })
 
+  it('ends the timer quietly when nothing plays at its time', async () => {
+    vi.useFakeTimers()
+    const { player, store } = setup()
+    await player.setQueue(testTracks('a', 'b'))
+    store.getState().sleepAfter(1)
+    player.pause()
+    await vi.advanceTimersByTimeAsync(61_000)
+    expect(player.getState().sleepTimer).toBeUndefined()
+    // Settings and the Sound dialog show the store's timer: it ended too.
+    expect(store.getState().sleepTimer).toBeUndefined()
+    expect(useFeedbackStore.getState().message).toBe('')
+  })
+
+  it('ends the timer when an engine’s own timer ends it, saying so only if it paused', async () => {
+    const engine = new FakeEngine()
+    Object.assign(engine, { setSleepTimer: () => {} })
+    const player = new Player({ engine, resolver: new FakeResolver() })
+    const store = createAudioEffectsStore({ storage: () => undefined })
+    connectAudioEffects(player, store)
+    await player.setQueue(testTracks('a'))
+    store.getState().sleepAtEndOfTrack()
+    player.pause()
+    engine.emit('sleep', { reason: 'end-of-track' })
+    expect(store.getState().sleepTimer).toBeUndefined()
+    expect(useFeedbackStore.getState().message).toBe('')
+  })
+
   it('passes the end-of-track timer, and cancelling', () => {
     const { player, store } = setup()
     store.getState().sleepAtEndOfTrack()

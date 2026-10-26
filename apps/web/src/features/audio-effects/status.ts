@@ -29,6 +29,9 @@ export function equalizerNote(
   if (context.platform === 'desktop') {
     return `Not available for this track: the desktop app can’t read YouTube audio for the equalizer yet. It works on ${READABLE_SOURCES}.`
   }
+  if (context.platform === 'android') {
+    return `Not available for this track: the Android app can’t read YouTube audio for the equalizer yet. It works on ${READABLE_SOURCES}.`
+  }
   if (context.platform === 'web' && context.capabilities.mediaBytes) {
     return 'Not available for this track: its audio couldn’t be read (the stream moved to another server, or the browser blocked Web Audio). The equalizer applies again from the next track.'
   }
@@ -62,6 +65,29 @@ export function loudnessNote(status: AudioEffectsStatus): string | undefined {
 /** A speed as people read it: "1×", "1.25×". */
 export function formatRate(rate: number): string {
   return `${Number(rate.toFixed(2))}×`
+}
+
+/** What differs from normal in the Sound dialog, as the buttons that open it show it. */
+export interface SoundChanges {
+  /** The playback speed, 1 being normal. */
+  readonly rate: number
+  /** Whether the equalizer is on. */
+  readonly equalizer: boolean
+  /** Whether a sleep timer runs. */
+  readonly sleepTimer: boolean
+}
+
+/**
+ * The name of a button that opens the Sound dialog: "Sound", and what differs from normal, e.g.
+ * "Sound: 1.25× speed, equalizer on, sleep timer on", which the button shows by its highlight.
+ */
+export function soundLabel({ rate, equalizer, sleepTimer }: SoundChanges): string {
+  const changes = [
+    ...(rate === 1 ? [] : [`${formatRate(rate)} speed`]),
+    ...(equalizer ? ['equalizer on'] : []),
+    ...(sleepTimer ? ['sleep timer on'] : []),
+  ]
+  return changes.length === 0 ? 'Sound' : `Sound: ${changes.join(', ')}`
 }
 
 /** A crossfade length as people read it: "Off", "6 s". */

@@ -9,6 +9,7 @@ import {
   formatRate,
   formatRemaining,
   loudnessNote,
+  soundLabel,
 } from './status'
 
 const UNAVAILABLE: AudioEffectsStatus = {
@@ -38,7 +39,7 @@ describe('equalizerNote', () => {
       platform: 'android',
       capabilities: { youtube: 'full', mediaBytes: true },
     } as const
-    expect(equalizerNote(UNAVAILABLE, android)).toBe('Not available for this track here.')
+    expect(equalizerNote(UNAVAILABLE, android)).toMatch(/Android app can’t read YouTube audio/)
   })
 
   it('says nothing while it works or is off', () => {
@@ -83,5 +84,17 @@ describe('formatting', () => {
     expect(formatRemaining(61_200)).toBe('1:02')
     expect(formatRemaining(3_725_000)).toBe('1:02:05')
     expect(formatRemaining(-5)).toBe('0:00')
+  })
+})
+
+describe('soundLabel', () => {
+  it('names the Sound button with what differs from normal', () => {
+    expect(soundLabel({ rate: 1, equalizer: false, sleepTimer: false })).toBe('Sound')
+    expect(soundLabel({ rate: 1.25, equalizer: true, sleepTimer: true })).toBe(
+      'Sound: 1.25× speed, equalizer on, sleep timer on',
+    )
+    expect(soundLabel({ rate: 1, equalizer: false, sleepTimer: true })).toBe(
+      'Sound: sleep timer on',
+    )
   })
 })

@@ -1,9 +1,8 @@
 /**
- * Where the audio effects meet the app's players (stage 8.1): the engine that knows which streams
+ * Where the audio effects meet the app's player (stage 8.1): the engine that knows which streams
  * the page can read, and {@link connectAudioEffects}, which keeps a player in step with the
  * settings and the sleep timer. The app's playback connects its player
- * (`features/now-playing/playback.ts`), and so does the local-files player until stage 2.9 makes
- * them one.
+ * (`features/now-playing/playback.ts`), which plays local files too.
  *
  * @module
  */
@@ -53,8 +52,9 @@ export const SLEEP_MESSAGE = 'Sleep timer paused playback'
 
 /**
  * Keeps `player` in step with the audio effects: their settings now and whenever they change,
- * and the sleep timer, which every connected player gets; the one that plays pauses, and that
- * ends the timer for all of them. Returns a function that disconnects it.
+ * and the sleep timer. When the player's timer ends, so does the setting that Settings and the
+ * Sound dialog show: with "Sleep timer paused playback" when it paused something, quietly when
+ * nothing played at its time. Returns a function that disconnects it.
  */
 export function connectAudioEffects(
   player: Player,
@@ -70,12 +70,15 @@ export function connectAudioEffects(
       player.setSleepTimer(sleepRequestOf(next.sleepTimer, now()))
     }
   })
-  const stopSleep = player.on('sleep', () => {
-    store.getState().cancelSleepTimer()
-    showFeedback(SLEEP_MESSAGE)
+  // The player's timer ended by itself (cancelling it in the store ends it there first).
+  const stopTimer = player.subscribe((next, previous) => {
+    if (previous.sleepTimer === undefined || next.sleepTimer !== undefined) return
+    if (store.getState().sleepTimer !== undefined) store.getState().cancelSleepTimer()
   })
+  const stopSleep = player.on('sleep', () => showFeedback(SLEEP_MESSAGE))
   return () => {
     stopStore()
+    stopTimer()
     stopSleep()
     player.setSleepTimer(null)
   }

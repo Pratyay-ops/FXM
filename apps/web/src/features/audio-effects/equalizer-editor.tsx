@@ -8,8 +8,8 @@ import {
   equalizerResponseDb,
   logFrequencies,
 } from '@fxm/core'
-import { RotateCcw } from 'lucide-react'
-import { useId, useMemo } from 'react'
+import { ChevronRight, RotateCcw } from 'lucide-react'
+import { useId, useMemo, useState } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { RangeSlider } from '../../components/ui/range-slider'
 import { cn } from '../../lib/cn'
@@ -85,8 +85,9 @@ const PRESET_OPTIONS: readonly { value: PresetChoice; label: string }[] = EQUALI
 
 /**
  * The equalizer's bands and presets: a preset menu, the curve, one slider per band (−12 to
- * +12 dB in half decibels) and a reset. Moving a band switches the equalizer on, as picking a
- * preset does.
+ * +12 dB in half decibels, filled from 0 dB in the middle, up for a boost and down for a cut) and
+ * a reset. Moving a band switches the equalizer on, as picking a preset does; while it is off, the
+ * fills are muted, like the curve.
  */
 export function EqualizerEditor({ className }: { className?: string }) {
   const equalizer = useAudioEffectsStore((state) => state.effects.equalizer)
@@ -132,6 +133,13 @@ export function EqualizerEditor({ className }: { className?: string }) {
                 step={EQUALIZER_GAIN_STEP_DB}
                 value={gain}
                 valueText={formatGain(gain)}
+                origin="center"
+                appearance="setting"
+                className={
+                  equalizer.enabled
+                    ? '[--range-active:var(--color-accent)]'
+                    : '[--range-active:var(--color-text-muted)]'
+                }
                 onValueChange={(value) => {
                   setGain(band, value)
                   if (!equalizer.enabled) setEnabled(true)
@@ -152,5 +160,32 @@ export function EqualizerEditor({ className }: { className?: string }) {
         Reset to flat
       </button>
     </div>
+  )
+}
+
+/**
+ * "Adjust the bands": the {@link EqualizerEditor} behind a disclosure, as Settings and the Sound
+ * dialog show it, closed unless `defaultOpen` (read on the first render only, so it never opens
+ * or closes under the user later).
+ */
+export function EqualizerDisclosure({
+  defaultOpen = false,
+  className,
+}: {
+  defaultOpen?: boolean
+  className?: string
+}) {
+  const [open] = useState(defaultOpen)
+  return (
+    <details open={open} className={cn('group', className)}>
+      <summary className="flex min-h-touch cursor-pointer list-none items-center gap-2 rounded-md text-sm font-semibold text-text-muted marker:content-none hover:text-text [&::-webkit-details-marker]:hidden">
+        <ChevronRight
+          aria-hidden="true"
+          className="size-4 shrink-0 transition-transform duration-200 group-open:rotate-90 motion-reduce:transition-none"
+        />
+        Adjust the bands
+      </summary>
+      <EqualizerEditor className="mt-2" />
+    </details>
   )
 }

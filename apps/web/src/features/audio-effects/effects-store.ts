@@ -57,7 +57,7 @@ export interface AudioEffectsState {
   sleepAfter: (minutes: number) => void
   /** Starts a sleep timer for the end of the current track. */
   sleepAtEndOfTrack: () => void
-  /** Cancels the sleep timer, or forgets it once it paused playback. */
+  /** Cancels the sleep timer, or forgets it once it ended. */
   cancelSleepTimer: () => void
 }
 

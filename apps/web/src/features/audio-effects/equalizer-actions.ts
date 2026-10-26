@@ -8,9 +8,9 @@
 import { appActions, type EqualizerActions, type MediaActionsStore } from '../search/actions'
 import { useSoundDialogStore } from './sound-dialog-store'
 
-/** Opens the Sound dialog with its equalizer. */
+/** Opens the Sound dialog at its equalizer. */
 export const equalizerActions: EqualizerActions = {
-  open: () => useSoundDialogStore.getState().openDialog(),
+  open: () => useSoundDialogStore.getState().openDialog('equalizer'),
 }
 
 /** Adds "Equalizer" to the track menus: the catalog pages' actions get {@link equalizerActions}. */

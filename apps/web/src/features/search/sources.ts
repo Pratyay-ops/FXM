@@ -420,8 +420,11 @@ export interface ItemFeatures {
  * - Spotify items play from a matched song, usually on YouTube, so they follow the same rule.
  * - Internet Archive, Jamendo and local files are always readable.
  * - Plugin sources are unknown, so they get neither.
- * - In the desktop app (`platform`), the webview plays YouTube audio without reading it, so its
- *   equalizer can't process YouTube or Spotify items until stage 7.6 (stage 8.1).
+ * - The equalizer reads YouTube audio only in a browser with FXM Connect (stage 8.1, the player's
+ *   `isMediaReadable`). The desktop and Android apps (`platform`) play it in their webview without
+ *   reading it, so there it can't process YouTube or Spotify items: on desktop until stage 7.6, on
+ *   Android until the app plays through its native player (stage 6.3's `NativeEngine`), which
+ *   processes every stream.
  */
 export function itemFeatures(
   capabilities: NetworkCapabilities,
@@ -432,5 +435,5 @@ export function itemFeatures(
   const readable = streamed
     ? capabilities.mediaBytes
     : source === 'archive' || source === 'jamendo' || source === 'local'
-  return { download: readable, equalizer: readable && !(streamed && platform === 'desktop') }
+  return { download: readable, equalizer: readable && !(streamed && platform !== 'web') }
 }

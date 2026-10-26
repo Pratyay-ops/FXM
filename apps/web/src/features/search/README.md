@@ -21,7 +21,7 @@ The search page and the album, artist and playlist pages (`features/{album,artis
 | Download and equalizer on YouTube items | — | Hidden (the bytes can't be read), with a note that says why on search and on album, artist and playlist pages | ✅ |
 | Spotify in the source switch | — | — | ✅ when switched on |
 
-`itemFeatures(capabilities, source, platform)` in `sources.ts` is the one rule for download and the equalizer: YouTube and Spotify items need `mediaBytes` (only `full` has it); Internet Archive, Jamendo and local files always allow them. In the desktop app the equalizer can't process YouTube or Spotify items yet (its webview plays them without reading them, until stage 7.6), so they offer no "Equalizer" there.
+`itemFeatures(capabilities, source, platform)` in `sources.ts` is the one rule for download and the equalizer: YouTube and Spotify items need `mediaBytes` (only `full` has it); Internet Archive, Jamendo and local files always allow them. In the desktop and Android apps the equalizer can't process YouTube or Spotify items yet (their webview plays them without reading them: on desktop until stage 7.6, on Android until the app plays through its native player), so they offer no "Equalizer" there.
 
 ### Page URLs
 

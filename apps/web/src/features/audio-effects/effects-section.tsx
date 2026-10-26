@@ -1,5 +1,7 @@
 import { LOUDNESS_TARGETS, MAX_CROSSFADE_MS, PLAYBACK_RATE_PRESETS } from '@fxm/core'
-import { useId } from 'react'
+import type { EffectsSupport } from '@fxm/player'
+import { type RefObject, useId, useLayoutEffect, useRef } from 'react'
+import { useLocation } from 'react-router'
 import { RangeSlider } from '../../components/ui/range-slider'
 import { useConnection } from '../connect/connection'
 import { usePlayer, usePlayerState } from '../now-playing/playback'
@@ -8,8 +10,11 @@ import { SettingSelect } from '../settings/setting-select'
 import { SettingSwitch } from '../settings/setting-switch'
 import { SettingRow, SettingsSection } from '../settings/settings-layout'
 import { useAudioEffectsStore } from './effects-store'
-import { EqualizerEditor } from './equalizer-editor'
+import { EqualizerDisclosure } from './equalizer-editor'
 import { equalizerNote, formatCrossfade, formatRate, loudnessNote } from './status'
+
+/** The anchor of Settings → Sound, which the Sound dialog's "More in Settings" links to. */
+export const SOUND_SETTINGS_ID = 'sound'
 
 const TARGET_OPTIONS = LOUDNESS_TARGETS.map((target) => ({
   value: String(target.lufs),
@@ -32,15 +37,45 @@ function rateOptions(current: number) {
   }))
 }
 
-/** What the effects do to the track that plays, and where the app runs. */
+/**
+ * What the effects do to the track that plays, and where the app runs; nothing while no stream is
+ * loaded (nothing plays, or the track hasn't resolved yet), when there is no track to talk about.
+ */
 export function useEffectsNotes() {
   const status = usePlayerState((state) => state.effects)
+  const loaded = usePlayerState((state) => state.stream !== undefined)
   const platform = useConnection((state) => state.platform)
   const capabilities = useConnection((state) => state.capabilities)
+  if (!loaded) return { equalizer: undefined, loudness: undefined }
   return {
     equalizer: equalizerNote(status, { platform, capabilities }),
     loudness: loudnessNote(status),
   }
+}
+
+/** What Settings says about crossfade where the player can't do it. */
+function crossfadeHelp(support: EffectsSupport): string {
+  if (support.crossfade) {
+    return 'The next song fades in while the one that ends fades out. Only between songs that follow each other by themselves.'
+  }
+  if (!support.volume) {
+    return 'Not available on this device: it doesn’t let FXM change the volume, so songs play one after the other.'
+  }
+  return 'Not available here yet: songs play one after the other without a gap.'
+}
+
+/**
+ * Moves the focus to the section's heading when the page opens at `#sound` (the Sound dialog's
+ * "More in Settings"), so keyboard and screen reader users land there, not back on the button
+ * that opened the dialog. A layout effect after the dialog's own clean-up, which gave the focus
+ * back to that button; the scroll is the router's.
+ */
+function useFocusOnArrival(heading: RefObject<HTMLHeadingElement | null>): void {
+  // A new location on every arrival, also at the same anchor again.
+  const location = useLocation()
+  useLayoutEffect(() => {
+    if (location.hash === `#${SOUND_SETTINGS_ID}`) heading.current?.focus({ preventScroll: true })
+  }, [location, heading])
 }
 
 /**
@@ -57,6 +92,8 @@ export function AudioEffectsSection() {
   const player = usePlayer()
   const support = player.effectsSupport()
   const notes = useEffectsNotes()
+  const heading = useRef<HTMLHeadingElement>(null)
+  useFocusOnArrival(heading)
   const ids = {
     equalizer: useId(),
     equalizerHelp: useId(),
@@ -72,7 +109,7 @@ export function AudioEffectsSection() {
   const { equalizer, loudness, crossfade, playbackRate } = effects
 
   return (
-    <SettingsSection title="Sound">
+    <SettingsSection title="Sound" headingRef={heading}>
       <SettingRow
         label="Equalizer"
         labelId={ids.equalizer}
@@ -93,12 +130,7 @@ export function AudioEffectsSection() {
           onChange={setEqualizerEnabled}
         />
       </SettingRow>
-      <details className="group p-4 sm:p-5">
-        <summary className="cursor-pointer text-sm font-semibold text-text-muted hover:text-text">
-          Adjust the bands
-        </summary>
-        <EqualizerEditor className="mt-4" />
-      </details>
+      <EqualizerDisclosure className="px-4 py-2 open:pb-4 sm:px-5 sm:open:pb-5" />
 
       <SettingRow
         label="Normalize volume"
@@ -110,9 +142,8 @@ export function AudioEffectsSection() {
               ReplayGain tags of your files. Quiet tracks get louder only where FXM can read their
               audio and knows their peaks.
             </p>
-            {loudness.enabled && notes.loudness !== undefined && (
-              <p aria-live="polite">{notes.loudness}</p>
-            )}
+            {/* Not a live region: it is the switch's description, read with it. */}
+            {loudness.enabled && notes.loudness !== undefined && <p>{notes.loudness}</p>}
           </div>
         }
       >
@@ -158,9 +189,7 @@ export function AudioEffectsSection() {
         labelId={ids.crossfade}
         help={
           <p id={ids.crossfadeHelp} className="text-sm text-text-muted">
-            {support.crossfade
-              ? 'The next song fades in while the one that ends fades out. Only between songs that follow each other by themselves.'
-              : 'Not available here yet: songs play one after the other without a gap.'}
+            {crossfadeHelp(support)}
           </p>
         }
       >
@@ -172,6 +201,7 @@ export function AudioEffectsSection() {
             step={1}
             value={crossfade.durationMs / 1000}
             valueText={formatCrossfade(crossfade.durationMs)}
+            appearance="setting"
             disabled={!support.crossfade}
             aria-describedby={ids.crossfadeHelp}
             onValueChange={(seconds) => setCrossfadeMs(seconds * 1000)}

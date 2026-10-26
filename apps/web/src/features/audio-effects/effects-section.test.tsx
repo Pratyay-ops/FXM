@@ -1,3 +1,4 @@
+import { testTrack } from '@fxm/player/testing'
 import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { renderApp } from '../../test/render'
@@ -43,6 +44,7 @@ describe('Settings → Sound', () => {
     renderApp('/settings')
     const section = await soundSection()
     act(() => useAudioEffectsStore.getState().setEqualizerEnabled(true))
+    await act(() => player.setQueue([testTrack('Creep')]))
     act(() => {
       useConnection.setState({ platform: 'web' })
       engine.emit('effects', { equalizer: 'unavailable', loudness: 'off', loudnessGainDb: 0 })
@@ -91,5 +93,48 @@ describe('Settings → Sound', () => {
     const section = await soundSection()
     expect(within(section).getByRole('slider', { name: 'Crossfade' })).toBeDisabled()
     expect(within(section).getByText(/Not available here yet/)).toBeInTheDocument()
+  })
+
+  it('says crossfade isn’t available where the device doesn’t let FXM change the volume', async () => {
+    const { engine } = setupTestPlayback()
+    Object.assign(engine, { canSetVolume: () => false })
+    renderApp('/settings')
+    const section = await soundSection()
+    expect(within(section).getByRole('slider', { name: 'Crossfade' })).toBeDisabled()
+    expect(within(section).getByText(/doesn’t let FXM change the volume/)).toBeInTheDocument()
+  })
+
+  it('says what loudness does only while a track is loaded, without reading it out', async () => {
+    const { player } = setupTestPlayback()
+    renderApp('/settings')
+    const section = await soundSection()
+    // Nothing plays: no track to talk about.
+    expect(within(section).queryByText(/doesn’t say how loud/)).toBeNull()
+    await act(() => player.setQueue([testTrack('Creep')]))
+    const note = within(section).getByText(/doesn’t say how loud/)
+    expect(note.closest('[aria-live]')).toBeNull()
+  })
+
+  it('moves the focus to its heading when the page opens at #sound', async () => {
+    setupTestPlayback()
+    renderApp('/settings#sound')
+    expect(await screen.findByRole('heading', { name: 'Sound' })).toHaveFocus()
+  })
+
+  it('fills the bands from 0 dB in the middle, muted while the equalizer is off', async () => {
+    setupTestPlayback()
+    const { user } = renderApp('/settings')
+    const section = await soundSection()
+    await user.click(within(section).getByText('Adjust the bands'))
+    act(() => {
+      useAudioEffectsStore.getState().setEqualizerEnabled(true)
+      useAudioEffectsStore.getState().setEqualizerGain(0, -6)
+    })
+    const band = within(section).getByRole('slider', { name: '31 Hz band' })
+    expect(band.style.getPropertyValue('--range-from')).toBe('25%')
+    expect(band.style.getPropertyValue('--range-to')).toBe('50%')
+    expect(band).toHaveClass('[--range-active:var(--color-accent)]')
+    act(() => useAudioEffectsStore.getState().setEqualizerEnabled(false))
+    expect(band).toHaveClass('[--range-active:var(--color-text-muted)]')
   })
 })
