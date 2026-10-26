@@ -1,6 +1,6 @@
 {
   "name": "@fxm/extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "FXM Connect: companion browser extension that lets the FXM web app reach music services from the user's own browser",
   "license": "Apache-2.0",

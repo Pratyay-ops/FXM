@@ -2,7 +2,7 @@
 export const APP_NAME = 'FXM'
 
 /** Release version shown in every FXM app (Settings → About). Bumped with each release tag. */
-export const APP_VERSION = '0.1.0'
+export const APP_VERSION = '0.2.0'
 
 /** What the letters stand for. */
 export const APP_TAGLINE = 'Free Cross-platform Media'
