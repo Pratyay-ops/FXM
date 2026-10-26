@@ -20,7 +20,16 @@
 //!   a key, never checks: it could verify nothing ([`is_usable_pubkey`]).
 //! - **Installing.** macOS replaces FXM.app (asking for an administrator's password when its
 //!   folder needs one); Windows runs the new installer in passive mode, which closes FXM and opens
-//!   it again; Linux replaces the AppImage, or installs the new `.deb` through pkexec.
+//!   it again; Linux replaces the AppImage.
+//! - **The `.deb`.** apt installed it, so apt updates it: the offer names the new version and
+//!   "Open Release Page" opens its page, where the user downloads the new `.deb` and installs it
+//!   with apt again ([`Delivery::Package`]). The plugin would install it with `pkexec dpkg -i`,
+//!   and when that fails, or the user cancels the system's prompt, ask for the user's password in
+//!   a dialog of its own (zenity or kdialog) and pipe it to `sudo -S`: cancelling wouldn't cancel,
+//!   and the password would pass through FXM.
+//! - **Stalls.** The check and the download give up once nothing arrives for [`READ_TIMEOUT`], as
+//!   after a laptop slept or the Wi-Fi changed mid-download, rather than hang this thread until
+//!   FXM restarts.
 //!
 //! Only Rust uses the plugin. The web app's capability grants no `updater:` permission, so no
 //! page script, a signed resolver module included, can check, download or install anything.
@@ -33,8 +42,12 @@ use std::{
 
 use base64::Engine as _;
 use rfd::{AsyncMessageDialog, MessageButtons, MessageDialogResult, MessageLevel};
-use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri::{
+    AppHandle, Manager, Runtime, WebviewWindow,
+    utils::{config::BundleType, platform::bundle_type},
+};
+use tauri_plugin_opener::OpenerExt;
+use tauri_plugin_updater::{Update, Updater, UpdaterExt};
 
 use crate::{MAIN_WINDOW, window::in_front};
 
@@ -55,6 +68,17 @@ pub const FRONT_POLL_INTERVAL: Duration = Duration::from_secs(5);
 /// sleeps every night still gets its daily check.
 pub const WAKE_INTERVAL: Duration = Duration::from_secs(10 * 60);
 
+/// How long connecting to GitHub may take, for the check and the download.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How long the check or the download may go without a byte arriving. reqwest sets no limit, so a
+/// connection that went half-open would otherwise hang it, and this thread with it.
+pub const READ_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// How long the whole check may take: `latest.json` is a few KB. Not the download, which takes as
+/// long as the connection needs, and stops only after [`READ_TIMEOUT`] without a byte.
+pub const CHECK_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Where every release, and what changed in it, is listed.
 pub const RELEASES_URL: &str = "https://github.com/Pratyay-ops/FXM/releases";
 
@@ -64,8 +88,30 @@ const DIALOG_TITLE: &str = "Update FXM?";
 /// The button that installs the update.
 const INSTALL: &str = "Install and Restart";
 
+/// The button that opens the release page, for an installation that apt updates.
+const OPEN_RELEASE: &str = "Open Release Page";
+
 /// The button that leaves it for now.
 const LATER: &str = "Later";
+
+/// How an installation takes a new version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delivery {
+    /// FXM downloads, checks and installs it, after asking: macOS, Windows and the AppImage.
+    InApp,
+    /// The package manager that installed FXM updates it: FXM offers the release page instead
+    /// (see the module's notes on the `.deb`).
+    Package,
+}
+
+/// How an installation from `bundle` (`tauri::utils::platform::bundle_type`) takes a new version:
+/// a `.deb`, or an `.rpm` someone built, through the package manager.
+pub fn delivery(bundle: Option<BundleType>) -> Delivery {
+    match bundle {
+        Some(BundleType::Deb | BundleType::Rpm) => Delivery::Package,
+        _ => Delivery::InApp,
+    }
+}
 
 /// Whether this build looks for updates: release builds only, with a usable key. Debug builds
 /// (`make desktop-dev`, the smoke test) never do.
@@ -141,20 +187,49 @@ pub fn next_nap(due: SystemTime, now: SystemTime) -> Option<Duration> {
         .map(|left| left.min(WAKE_INTERVAL))
 }
 
-/// The newer version that the endpoint announces, if there is one.
-async fn check<R: Runtime>(app: &AppHandle<R>) -> tauri_plugin_updater::Result<Option<Update>> {
-    app.updater()?.check().await
+/// The plugin's updater, with the timeouts of the check and the download. The client settings
+/// apply to both requests, `timeout` to the check alone.
+fn updater<R: Runtime>(app: &AppHandle<R>) -> tauri_plugin_updater::Result<Updater> {
+    app.updater_builder()
+        .configure_client(|client| {
+            client
+                .connect_timeout(CONNECT_TIMEOUT)
+                .read_timeout(READ_TIMEOUT)
+        })
+        .timeout(CHECK_TIMEOUT)
+        .build()
 }
 
-/// Offers `update` once FXM's window is in front, and installs it if the user says so. Gives up
-/// at `due`, the next check, which finds the newest version again.
+/// The newer version that the endpoint announces, if there is one.
+async fn check<R: Runtime>(app: &AppHandle<R>) -> tauri_plugin_updater::Result<Option<Update>> {
+    updater(app)?.check().await
+}
+
+/// Offers `update` once FXM's window is in front, and installs it, or opens its release page for
+/// an installation that apt updates, if the user says so. Gives up at `due`, the next check, which
+/// finds the newest version again.
 fn offer<R: Runtime>(app: &AppHandle<R>, update: Update, due: SystemTime) {
     let Some(window) = wait_until_in_front(app, due) else {
         return;
     };
-    let question = question_text(&update.current_version, &update.version);
-    match tauri::async_runtime::block_on(ask(&window, question)) {
-        Some(true) => install_and_restart(app, &window, &update),
+    let delivery = delivery(bundle_type());
+    let (question, action) = match delivery {
+        Delivery::InApp => (
+            question_text(&update.current_version, &update.version),
+            INSTALL,
+        ),
+        Delivery::Package => (
+            package_text(
+                &update.current_version,
+                &update.version,
+                release_cpu(std::env::consts::ARCH),
+            ),
+            OPEN_RELEASE,
+        ),
+    };
+    match tauri::async_runtime::block_on(ask(&window, question, action)) {
+        Some(true) if delivery == Delivery::InApp => install_and_restart(app, &window, &update),
+        Some(true) => open_release_page(app, &update.version),
         Some(false) => {}
         None => eprintln!("FXM could not show its update question"),
     }
@@ -178,27 +253,32 @@ fn wait_until_in_front<R: Runtime>(
     }
 }
 
-/// The offer's buttons. "Later" comes first where the first button is the one Return presses:
-/// NSAlert's on macOS, the task dialog's default on Windows. GTK (Linux and the BSDs) reports
-/// custom buttons only as OK and Cancel, and closing the dialog as Cancel too, so there the
-/// install button is OK and closing the dialog means later.
-fn offer_buttons() -> MessageButtons {
+/// The offer's buttons: `action` (install, or open the release page) and "Later". "Later" comes
+/// first where the first button is the one Return presses: NSAlert's on macOS, the task dialog's
+/// default on Windows. GTK (Linux and the BSDs) reports custom buttons only as OK and Cancel, and
+/// closing the dialog as Cancel too, so there the action is OK and closing the dialog means later.
+fn offer_buttons(action: &str) -> MessageButtons {
     if cfg!(any(target_os = "macos", windows)) {
-        MessageButtons::OkCancelCustom(LATER.into(), INSTALL.into())
+        MessageButtons::OkCancelCustom(LATER.into(), action.into())
     } else {
-        MessageButtons::OkCancelCustom(INSTALL.into(), LATER.into())
+        MessageButtons::OkCancelCustom(action.into(), LATER.into())
     }
 }
 
-/// Whether the answer installs the update: "Install and Restart", and nothing else. Closing the
-/// dialog leaves it for later.
-fn installs(answer: &MessageDialogResult) -> bool {
+/// Whether the answer takes the offer's `action`, and nothing else does. Closing the dialog leaves
+/// it for later.
+fn accepts(answer: &MessageDialogResult, action: &str) -> bool {
     match answer {
-        MessageDialogResult::Custom(label) => label == INSTALL,
-        // GTK's OK button, which is "Install and Restart" there (see `offer_buttons`).
+        MessageDialogResult::Custom(label) => label == action,
+        // GTK's OK button, which is the action there (see `offer_buttons`).
         MessageDialogResult::Ok => !cfg!(any(target_os = "macos", windows)),
         _ => false,
     }
+}
+
+/// The page of a release, with what changed in it and its files.
+pub fn release_page(version: &str) -> String {
+    format!("{RELEASES_URL}/tag/v{version}")
 }
 
 /// What the offer says, from the version FXM runs to the new one.
@@ -206,23 +286,52 @@ pub fn question_text(current: &str, new: &str) -> String {
     format!(
         "FXM {new} is available. You have {current}.\n\n\
          Installing it closes FXM, which stops the music, and opens the new version. \
-         What's new: {RELEASES_URL}/tag/v{new}"
+         What's new: {}",
+        release_page(new)
     )
 }
 
-/// Shows the offer over `window` and waits for the answer: `Some(true)` to install, `None` if the
-/// dialog couldn't be shown. rfd builds the dialog on the main thread, as for the approval of a
-/// new host, and the answer arrives without blocking it.
-async fn ask<R: Runtime>(window: &WebviewWindow<R>, question: String) -> Option<bool> {
+/// The CPU as the release's file names spell it (`std::env::consts::ARCH` in, `x64` or `arm64`
+/// out).
+pub fn release_cpu(arch: &str) -> &str {
+    match arch {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => other,
+    }
+}
+
+/// What the offer says to an installation that apt updates: the new version, and how to install
+/// it as FXM was installed (apps/desktop/INSTALL.md).
+pub fn package_text(current: &str, new: &str, cpu: &str) -> String {
+    let file = format!("fxm-desktop-{new}-linux-{cpu}.deb");
+    format!(
+        "FXM {new} is available. You have {current}.\n\n\
+         FXM was installed from its .deb package, so install the new version the same way: \
+         download {file} from the release page, then run sudo apt install ./{file} in the folder \
+         you saved it to. Release page: {}",
+        release_page(new)
+    )
+}
+
+/// Shows the offer over `window` and waits for the answer: `Some(true)` to take `action`, `None`
+/// if the dialog couldn't be shown. rfd builds the dialog on the main thread, as for the approval
+/// of a new host, and the answer arrives without blocking it.
+async fn ask<R: Runtime>(
+    window: &WebviewWindow<R>,
+    question: String,
+    action: &str,
+) -> Option<bool> {
     let (sender, receiver) = mpsc::sync_channel(1);
     let parent = window.clone();
+    let buttons = offer_buttons(action);
     window
         .run_on_main_thread(move || {
             let answer = AsyncMessageDialog::new()
                 .set_level(MessageLevel::Info)
                 .set_title(DIALOG_TITLE)
                 .set_description(question)
-                .set_buttons(offer_buttons())
+                .set_buttons(buttons)
                 .set_parent(&parent)
                 .show();
             let _ = sender.send(answer);
@@ -232,7 +341,15 @@ async fn ask<R: Runtime>(window: &WebviewWindow<R>, question: String) -> Option<
         .await
         .ok()?
         .ok()?;
-    Some(installs(&answer.await))
+    Some(accepts(&answer.await, action))
+}
+
+/// Opens the release page of `version` in the default browser, for an installation that apt
+/// updates.
+fn open_release_page<R: Runtime>(app: &AppHandle<R>, version: &str) {
+    if let Err(error) = app.opener().open_url(release_page(version), None::<&str>) {
+        eprintln!("FXM could not open the release page: {error}");
+    }
 }
 
 /// How much of the download has arrived, in whole percent, when the server said how big it is.
@@ -313,9 +430,13 @@ mod tests {
 
     use std::time::{Duration, SystemTime};
 
+    use tauri::utils::config::BundleType;
+
     use super::{
-        INSTALL, LATER, WAKE_INTERVAL, download_title, enabled, failure_text, install_title,
-        installs, is_usable_pubkey, next_nap, progress_percent, question_text,
+        CHECK_INTERVAL, CHECK_TIMEOUT, CONNECT_TIMEOUT, Delivery, INSTALL, LATER, OPEN_RELEASE,
+        READ_TIMEOUT, RETRY_INTERVAL, WAKE_INTERVAL, accepts, delivery, download_title, enabled,
+        failure_text, install_title, is_usable_pubkey, next_nap, package_text, progress_percent,
+        question_text, release_cpu,
     };
 
     /// A minisign public key in the plugin's format, from a key pair made for these tests only
@@ -407,27 +528,36 @@ mod tests {
     }
 
     #[test]
-    fn only_the_install_button_installs() {
-        assert!(installs(&MessageDialogResult::Custom(INSTALL.into())));
-        assert!(!installs(&MessageDialogResult::Custom(LATER.into())));
-        assert!(!installs(&MessageDialogResult::Cancel));
-        assert!(!installs(&MessageDialogResult::No));
-        assert_eq!(
-            installs(&MessageDialogResult::Ok),
-            !cfg!(any(target_os = "macos", windows)),
-            "OK is the install button on GTK only"
-        );
+    fn only_the_action_button_takes_the_offer() {
+        for action in [INSTALL, OPEN_RELEASE] {
+            assert!(accepts(&MessageDialogResult::Custom(action.into()), action));
+            assert!(!accepts(&MessageDialogResult::Custom(LATER.into()), action));
+            assert!(!accepts(&MessageDialogResult::Cancel, action));
+            assert!(!accepts(&MessageDialogResult::No, action));
+            assert_eq!(
+                accepts(&MessageDialogResult::Ok, action),
+                !cfg!(any(target_os = "macos", windows)),
+                "OK is the action button on GTK only"
+            );
+        }
+        assert!(!accepts(
+            &MessageDialogResult::Custom(OPEN_RELEASE.into()),
+            INSTALL
+        ));
     }
 
     #[test]
     fn later_is_the_button_return_presses_on_macos_and_windows() {
-        let rfd::MessageButtons::OkCancelCustom(first, second) = super::offer_buttons() else {
-            panic!("the offer has two custom buttons");
-        };
-        if cfg!(any(target_os = "macos", windows)) {
-            assert_eq!((first.as_str(), second.as_str()), (LATER, INSTALL));
-        } else {
-            assert_eq!((first.as_str(), second.as_str()), (INSTALL, LATER));
+        for action in [INSTALL, OPEN_RELEASE] {
+            let rfd::MessageButtons::OkCancelCustom(first, second) = super::offer_buttons(action)
+            else {
+                panic!("the offer has two custom buttons");
+            };
+            if cfg!(any(target_os = "macos", windows)) {
+                assert_eq!((first.as_str(), second.as_str()), (LATER, action));
+            } else {
+                assert_eq!((first.as_str(), second.as_str()), (action, LATER));
+            }
         }
     }
 
@@ -437,6 +567,40 @@ mod tests {
         assert!(text.starts_with("FXM 0.7.0 is available. You have 0.6.0."));
         assert!(text.contains("stops the music"));
         assert!(text.ends_with("https://github.com/Pratyay-ops/FXM/releases/tag/v0.7.0"));
+    }
+
+    #[test]
+    fn apt_updates_a_deb_installation_and_fxm_everything_else() {
+        assert_eq!(delivery(Some(BundleType::Deb)), Delivery::Package);
+        assert_eq!(delivery(Some(BundleType::Rpm)), Delivery::Package);
+        for bundle in [
+            Some(BundleType::AppImage),
+            Some(BundleType::App),
+            Some(BundleType::Msi),
+            Some(BundleType::Nsis),
+            None,
+        ] {
+            assert_eq!(delivery(bundle.clone()), Delivery::InApp, "{bundle:?}");
+        }
+    }
+
+    #[test]
+    fn a_deb_installation_is_told_which_file_to_install_with_apt_and_where() {
+        let text = package_text("0.6.0", "0.7.0", "arm64");
+        assert!(text.starts_with("FXM 0.7.0 is available. You have 0.6.0."));
+        assert!(text.contains("download fxm-desktop-0.7.0-linux-arm64.deb from the release page"));
+        assert!(text.contains("sudo apt install ./fxm-desktop-0.7.0-linux-arm64.deb"));
+        assert!(text.ends_with("https://github.com/Pratyay-ops/FXM/releases/tag/v0.7.0"));
+        // The CPU as the release names its files.
+        assert_eq!(release_cpu("x86_64"), "x64");
+        assert_eq!(release_cpu("aarch64"), "arm64");
+    }
+
+    #[test]
+    fn a_stalled_check_or_download_gives_up_long_before_the_next_check() {
+        assert!(CONNECT_TIMEOUT <= READ_TIMEOUT);
+        assert!(READ_TIMEOUT <= CHECK_TIMEOUT);
+        assert!(CHECK_TIMEOUT < RETRY_INTERVAL && RETRY_INTERVAL < CHECK_INTERVAL);
     }
 
     #[test]

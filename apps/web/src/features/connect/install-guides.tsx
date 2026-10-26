@@ -341,8 +341,8 @@ export function InstallGuides({ device, openFirst }: InstallGuidesProps) {
                   <ExternalLink href={DESKTOP_INSTALL_URL} className={textLinkClasses}>
                     install steps
                   </ExternalLink>{' '}
-                  have the details, Smart App Control and Linux's packages included. The app updates
-                  itself after asking you.
+                  have the details, Smart App Control and Linux's packages included. The app looks
+                  for updates and asks before it installs one.
                 </p>
               </>
             ) : (

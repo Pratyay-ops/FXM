@@ -1,6 +1,6 @@
 # Installing the FXM desktop app
 
-The FXM desktop app is on [GitHub Releases](https://github.com/Pratyay-ops/FXM/releases/latest), for macOS, Windows and Linux. It is free and open source, has everything built in (no browser extension needed), and updates itself: it asks before it installs a new version.
+The FXM desktop app is on [GitHub Releases](https://github.com/Pratyay-ops/FXM/releases/latest), for macOS, Windows and Linux. It is free and open source, has everything built in (no browser extension needed), and looks for new versions itself: it asks before it installs one, and tells a `.deb` installation which file to install with apt.
 
 FXM isn't signed with a certificate from Apple or Microsoft, which both charge for one, so macOS and Windows warn the first time you open it. This page says what you'll see and what to do. Each release lists checksums of its files and a record of the workflow that built them (see [Checking a download](#checking-a-download)).
 
@@ -56,7 +56,7 @@ Windows' media controls name FXM "Unknown app": a bug in WebView2, which owns th
 sudo apt install ./fxm-desktop-<version>-linux-x64.deb
 ```
 
-apt also installs what FXM plays music with: GStreamer's base and good plugins, gst-libav for AAC, and an audio output. On Ubuntu, gst-libav comes from the universe component, which is on by default. To update itself, FXM installs the new `.deb` and asks for your password to do so.
+apt also installs what FXM plays music with: GStreamer's base and good plugins, gst-libav for AAC, and an audio output. On Ubuntu, gst-libav comes from the universe component, which is on by default. apt updates FXM too: when a new version is out, FXM says so and opens its release page, where you download the new `.deb` and install it the same way. FXM never asks for your password itself.
 
 **Other distributions: the AppImage.** Make it executable, then run it:
 
@@ -71,7 +71,7 @@ It mounts itself with FUSE, which most desktops have: if it says "Cannot mount A
 
 ## Updates
 
-FXM looks for a new version when it starts and once a day while it runs, in the latest release on GitHub. When there is one, it asks, while its window is in front: **Install and Restart** downloads the new version, checks its signature, installs it and opens FXM again, which stops the music; **Later** leaves it until the next check. FXM installs nothing that isn't signed with FXM's update key for that very version.
+FXM looks for a new version when it starts and once a day while it runs, in the latest release on GitHub. When there is one, it asks, while its window is in front: **Install and Restart** downloads the new version, checks its signature, installs it and opens FXM again, which stops the music; **Later** leaves it until the next check. FXM installs nothing that isn't signed with FXM's update key for that very version. Installed from the `.deb`, FXM offers **Open Release Page** instead, and you install the new `.deb` with apt.
 
 ## Checking a download
 
