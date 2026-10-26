@@ -3,6 +3,7 @@
 
 import { createBridge } from './bridge.ts'
 import { ORIGINS } from './build-info.ts'
+import { loginConsent } from './consent.ts'
 import { indexedDbSettings } from './settings.ts'
 import { webExtApi } from './webext.ts'
 
@@ -12,6 +13,7 @@ const bridge = createBridge({
   runtimeId: api.runtime.id,
   origins: ORIGINS,
   settings: indexedDbSettings(indexedDB),
+  consent: loginConsent(api),
   session: api.storage.session,
   dnr: api.declarativeNetRequest,
   fetch: (url, init) => fetch(url, init),

@@ -1,9 +1,16 @@
-import { useId } from 'react'
+import { lazy, Suspense } from 'react'
 import { Link, NavLink } from 'react-router'
 import { cn } from '../../lib/cn'
-import { Artwork } from '../ui/artwork'
 import { LogoMark, Wordmark } from '../ui/logo'
-import { type NavItem, PLACEHOLDER_PLAYLISTS, PRIMARY_NAV } from './nav-items'
+import { type NavItem, PRIMARY_NAV } from './nav-items'
+
+// The library's playlists (stage 2.6) load after the shell's first render, not with it: they
+// bring the library database and drag and drop, and phones don't show the sidebar at all.
+const SidebarPlaylists = lazy(() =>
+  import('../../features/library/sidebar-playlists').then((module) => ({
+    default: module.SidebarPlaylists,
+  })),
+)
 
 function SidebarLink({ item }: { item: NavItem }) {
   const Icon = item.icon
@@ -34,7 +41,6 @@ function SidebarLink({ item }: { item: NavItem }) {
 
 /** Left sidebar from 768px: an icon rail on tablets, labels from 1024px. */
 export function Sidebar() {
-  const playlistsHeading = useId()
   return (
     <nav
       aria-label="Main"
@@ -63,42 +69,10 @@ export function Sidebar() {
 
       <div className="mx-4 my-4 border-t border-border lg:mx-6" />
 
-      <section aria-labelledby={playlistsHeading} className="flex min-h-0 flex-1 flex-col">
-        <h2
-          id={playlistsHeading}
-          className="sr-only lg:not-sr-only lg:px-6 lg:pb-2 lg:text-xs lg:font-bold lg:tracking-[0.12em] lg:text-text-muted lg:uppercase"
-        >
-          Your playlists
-        </h2>
-        {/* pt-1: the scroll box clips, so leave room for the first row's focus ring. */}
-        <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-3 pt-1 pb-4 scrollbar-thin">
-          {PLACEHOLDER_PLAYLISTS.map((playlist) => (
-            <li key={playlist.id}>
-              <NavLink
-                to={`/playlist/${playlist.id}`}
-                title={playlist.name}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 rounded-md p-2 transition-colors max-lg:justify-center',
-                    isActive ? 'bg-elevated' : 'hover:bg-text/6',
-                  )
-                }
-              >
-                <Artwork
-                  seed={`playlist:${playlist.id}`}
-                  icon={playlist.icon}
-                  rounded="sm"
-                  className="size-10"
-                />
-                <span className="sr-only min-w-0 lg:not-sr-only">
-                  <span className="block truncate text-sm font-semibold">{playlist.name}</span>
-                  <span className="block truncate text-xs text-text-muted">Playlist</span>
-                </span>
-              </NavLink>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {/* The library's playlists in their saved order, reorderable right here (stage 2.6). */}
+      <Suspense fallback={<div className="min-h-0 flex-1" />}>
+        <SidebarPlaylists />
+      </Suspense>
     </nav>
   )
 }

@@ -218,6 +218,13 @@ catalog_ok() {
     ! fxm_release_lookup "" SHA256SUMS 0.1.0 >/dev/null
 }
 expect "the catalog matches release files by artifact and exact version" catalog_ok
+# The signed add-on comes only from the firefox job (apps/extension/store/firefox.ts).
+xpi_ok() {
+  fxm_release_lookup release-firefox fxm-connect-firefox-0.1.0.xpi 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-bundles fxm-connect-firefox-0.1.0.xpi 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-firefox fxm-connect-firefox-0.1.0.zip 0.1.0 >/dev/null
+}
+expect "only the firefox job may publish the signed XPI" xpi_ok
 expect "every file in the catalog carries the version" \
   test -z "$(fxm_release_catalog | cut -d'|' -f2 | grep -v '<version>' || true)"
 

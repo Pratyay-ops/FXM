@@ -91,9 +91,4 @@ describe('player bar store', () => {
     view().toggleMute()
     expect(view()).toMatchObject({ muted: false, volume: 0.5 })
   })
-
-  it('keeps the like toggle as a placeholder until the library lands', () => {
-    view().toggleLiked()
-    expect(view().liked).toBe(true)
-  })
 })

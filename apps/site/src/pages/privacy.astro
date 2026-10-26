@@ -1,6 +1,7 @@
 ---
 import { AVAILABLE, ISSUES_URL, REPO_URL } from '../config'
 import Document from '../layouts/Document.astro'
+import { privacyInstall, privacyUpdateCheck } from '../lib/connect'
 
 /** " (coming soon)" after anything AVAILABLE in src/config.ts doesn't mark as released. */
 const soon = (released: boolean) => (released ? '' : ' (coming soon)')
@@ -36,12 +37,22 @@ const services: Service[] = [
   {
     name: 'ListenBrainz',
     url: 'https://listenbrainz.org',
-    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}.`,
+    use: `Recommendations for your home feed, and finding a song's album for its cover${soon(AVAILABLE.homeFeed)}.`,
   },
   {
     name: 'Last.fm',
     url: 'https://www.last.fm',
-    use: `Recommendations for your home feed${soon(AVAILABLE.homeFeed)}.`,
+    use: `Recommendations for your home feed and radio: similar artists, and in the apps and the web app with FXM Connect, Last.fm's stations${soon(AVAILABLE.homeFeed)}.`,
+  },
+  {
+    name: 'Cover Art Archive',
+    url: 'https://coverartarchive.org',
+    use: `Album covers for songs whose source has none${soon(AVAILABLE.homeFeed)}. Covers load from the Internet Archive's servers.`,
+  },
+  {
+    name: "Apple's iTunes Search",
+    url: 'https://performance-partners.apple.com/search-api',
+    use: `Album covers for songs that neither their source nor the Cover Art Archive has one for${soon(AVAILABLE.homeFeed)}.`,
   },
   {
     name: 'Internet Archive',
@@ -57,6 +68,8 @@ const downloads = AVAILABLE.downloads
   : 'Downloads will be stored there too, once they arrive.'
 const spotifyLogin = `Connecting your Spotify account is optional${AVAILABLE.spotifyAccount ? '' : ' and coming soon'}. If you do, FXM uses your Spotify login to get an access token from Spotify.`
 const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates, and fetch FXM's YouTube settings file from this website when they start.`
+const connectInstall = privacyInstall(AVAILABLE.firefox)
+const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
 const webAppUpdates =
   'The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself.'
 ---
@@ -134,9 +147,10 @@ const webAppUpdates =
 
   <h2 id="fxm-connect">FXM Connect</h2>
   <p>
-    FXM Connect is the small browser extension that lets the web app reach YouTube and Spotify. You
-    install it from a zip file, so your browser doesn't ask you to approve its permissions. Here is
-    what it does:
+    FXM Connect is the small browser extension that lets the web app reach YouTube, Spotify and
+    Last.fm.
+    {connectInstall}
+    Here is what it does:
   </p>
   <ul>
     <li>
@@ -147,9 +161,14 @@ const webAppUpdates =
       It adjusts a few headers on those requests so the services answer, and removes your cookies
       from them.
     </li>
+    <li>When the web app asks, it fetches Spotify's public server time, without your cookies.</li>
     <li>It runs only the code it was installed with and never downloads code from the internet.</li>
-    <li>It collects nothing: no analytics and no telemetry.</li>
-    <li>Its Spotify login option is off by default.</li>
+    <li>It sends nothing to FXM: no analytics and no telemetry.</li>
+    <li>
+      Its Spotify login option is off by default;
+      <a href="#spotify-login">Your Spotify login</a>
+      explains what it does when you turn it on.
+    </li>
   </ul>
   <p>
     Its source code, with the full list of its permissions, is in the
@@ -162,6 +181,7 @@ const webAppUpdates =
     the apps are published on GitHub Releases. Like any host, Cloudflare and GitHub handle the
     network requests needed to deliver those files, under their own privacy policies. FXM doesn't
     add analytics or tracking to either.
+    {connectUpdates}
   </p>
   <p>{webAppUpdates}</p>
   <p>{updates}</p>

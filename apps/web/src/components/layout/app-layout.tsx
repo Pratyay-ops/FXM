@@ -4,6 +4,7 @@ import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-rou
 import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
 import { PwaShell } from '../../features/pwa/pwa-shell'
+import { FeedbackToast } from '../../features/search/feedback'
 import { BottomNav } from './bottom-nav'
 import { RouteAnnouncer } from './route-announcer'
 import { useDocumentTitle, useRouteHandle } from './route-meta'
@@ -77,6 +78,9 @@ export function AppLayout() {
       {!fullScreen && <MiniPlayer />}
       {!fullScreen && <BottomNav />}
       <PlaybackAnnouncer />
+      {/* The app's one toast: confirmations of the catalog pages and of the library, also of
+          actions taken in the sidebar, on every page. */}
+      <FeedbackToast />
       {/* Phones: Now Playing's own controls fill the screen, so the update toast goes on top. */}
       <PwaShell fullScreen={fullScreen} />
       <ScrollRestoration />

@@ -34,13 +34,14 @@ describe('app layout', () => {
     expect(sidebar.getByRole('link', { name: 'Home' })).not.toHaveAttribute('aria-current')
   })
 
-  it('lists the placeholder playlists in the sidebar', async () => {
-    renderApp('/playlist/liked')
+  it('lists the playlists of the library in the sidebar, the open one marked', async () => {
+    renderApp('/playlist/local:playlist:liked')
     const sidebar = within(mainNavs()[0] as HTMLElement)
     expect(await sidebar.findByRole('link', { name: /Liked songs/ })).toHaveAttribute(
       'aria-current',
       'page',
     )
+    expect(sidebar.getByRole('link', { name: /Downloads/ })).not.toHaveAttribute('aria-current')
   })
 
   it('has banner, main and player landmarks', async () => {
@@ -133,9 +134,9 @@ describe('app layout', () => {
   it('keeps the play buttons of collection pages apart from the queue', async () => {
     const { player } = setupTestPlayback()
     await player.setQueue([testTrack('Creep')])
-    // The library's playlists are the placeholders left until stage 2.6.
-    const { user } = renderApp('/playlist/liked')
-    await screen.findByRole('heading', { level: 1, name: 'Playlist liked' })
+    // The library's playlist pages keep this placeholder until they play their playlist.
+    const { user } = renderApp('/playlist/local:playlist:liked')
+    await screen.findByRole('heading', { level: 1, name: 'Liked songs' })
     const main = within(screen.getByRole('main'))
 
     await user.click(main.getByRole('button', { name: 'Play' }))
