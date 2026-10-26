@@ -181,6 +181,10 @@ new_repo() {
   package_json "$work/packages/core/package.json" @fxm/core 0.0.0
   printf "export const APP_NAME = 'FXM'\n\nexport const APP_VERSION = '0.0.0'\n" \
     >"$work/packages/core/src/index.ts"
+  # The Android signing certificate, pinned (apps/mobile/RELEASING.md).
+  mkdir -p "$work/apps/mobile"
+  printf '# The test key\n%s\n' "$(printf 'cd%.0s' $(seq 32))" \
+    >"$work/apps/mobile/release-certificate.txt"
   git -C "$work" add -A
   git -C "$work" commit -q -m "Initial commit"
   git -C "$work" remote add origin "$root/origin.git"
@@ -357,6 +361,10 @@ refuses() {
 echo stray >"$work/stray.txt"
 refuses "a dirty working tree" "uncommitted or untracked files"
 rm "${work:?}/stray.txt"
+printf 'none yet: run scripts/make-android-keystore.sh\n' >"$work/apps/mobile/release-certificate.txt"
+refuses "while no Android signing certificate is pinned" \
+  "pins no Android signing certificate, so the release would stop before tagging"
+git -C "$work" checkout -q -- apps/mobile/release-certificate.txt
 git -C "$work" switch -q main
 refuses "another branch than develop" "not develop"
 git -C "$work" switch -q develop

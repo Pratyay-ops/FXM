@@ -145,7 +145,7 @@ flowchart LR
 ```
 
 1. **Preview.** `make release-pr VERSION=0.2.0 DRY_RUN=1` runs every check and prints the plan and the release notes, without changing anything. `make release-notes` prints only the notes.
-2. **Open the pull request.** `make release-pr VERSION=0.2.0` checks that `develop` is checked out, clean, equal to `origin/develop` and contains `origin/main`; that `0.2.0` is higher than the current version and has no tag; and that no release pull request is open. Then it:
+2. **Open the pull request.** `make release-pr VERSION=0.2.0` checks that `develop` is checked out, clean, equal to `origin/develop` and contains `origin/main`; that `0.2.0` is higher than the current version and has no tag; that `apps/mobile/release-certificate.txt` pins the Android signing certificate, without which the release would stop before tagging; and that no release pull request is open. Then it:
    - sets the version with `scripts/release-version.sh`: in the root and every workspace `package.json` (FXM Connect's manifest and the Android app's `versionName` are built from theirs) and in `APP_VERSION` of `packages/core` (Settings → About);
    - regenerates `CHANGELOG.md` with git-cliff;
    - commits `chore(release): v0.2.0` on `develop` and pushes it;
