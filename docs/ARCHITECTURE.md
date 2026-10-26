@@ -248,6 +248,9 @@ packages/
   plugins/    Plugin system (8.3): manifests, checksums, installs and approved updates, the host
               that runs plugin code in workers of the isolated evaluator, and its declared-hosts
               fetch broker
+  i18n/       Translations (8.5): keyed ICU messages typed from their English text, locale
+              negotiation, Intl formatting, React hooks, pseudo-locales, catalog checks and the
+              string inventory (docs/I18N.md)
 tools/
   ffmpeg-wasm/  The LGPL ffmpeg core's recipe (built into .tools, shipped by make dist)
 docs/         Architecture, plan, workflow, development guide; research/ holds the decision memos
