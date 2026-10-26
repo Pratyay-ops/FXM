@@ -20,10 +20,11 @@ name: Deploy
 #   verify             checks that deployment: every path's headers (check-headers.ts), and in
 #                      Chrome that the pages run under their policies and googlevideo requests
 #                      carry no Referer.
-#   release            main only: when the push brings a new version (a release pull request's
-#                      merge), waits up to 30 minutes for that version's GitHub Release, which
-#                      the release workflow publishes, so the site never links to a release
-#                      that isn't out yet (scripts/release-wait.sh). Any other push passes at once.
+#   release            main only: while main's version has no GitHub Release (after a release
+#                      pull request's merge, or a failed release run), waits up to 30 minutes
+#                      for the release workflow to publish it, so the site never links to a
+#                      release that isn't out yet (scripts/release-wait.sh). A version that is
+#                      out passes after one request.
 #   promote            main only, once verify and release passed: the same folder to production.
 #   verify-production  main only: the header check of production.
 on:
@@ -221,11 +222,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      # The commit and its first parent, the commit main had before: their versions tell
-      # whether this push brings a release.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 2
           persist-credentials: false
 
       - name: Wait for the version's GitHub Release

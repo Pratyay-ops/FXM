@@ -798,6 +798,7 @@ mkdir -p "$GH_STUB_DIR/released" "$GH_STUB_DIR/released-after"
 : >"$GH_STUB_DIR/calls.log"
 # wait_for_release [minutes]: runs release-wait.sh without pauses between its requests.
 wait_for_release() {
+  : >"$GH_STUB_DIR/calls.log"
   run "$work" env FXM_RELEASE_WAIT_INTERVAL=0 FXM_RELEASE_WAIT_MINUTES="${1:-0}" \
     scripts/release-wait.sh
 }
@@ -807,15 +808,14 @@ expect "0.0.0 waits for nothing" test "$status" -eq 0 -a "$(asked)" = 0
 (cd "$work" && scripts/release-version.sh 0.1.0 >/dev/null)
 git -C "$work" commit -q -am "chore(release): v0.1.0"
 wait_for_release
-expect "a commit that brings a version fails while its release isn't out" \
+expect "a version without a published release fails while it isn't out" \
   test "$status" -ne 0 -a -n "$(grep 'v0.1.0 is not out after 0 minutes' <<<"$out")"
 echo 2001 >"$GH_STUB_DIR/released/v0.1.0"
 wait_for_release
 expect "and passes once it is published" \
-  test "$status" -eq 0 -a -n "$(grep 'v0.1.0 is published' <<<"$out")"
+  test "$status" -eq 0 -a "$(asked)" = 1 -a -n "$(grep 'v0.1.0 is published' <<<"$out")"
 : >"$GH_STUB_DIR/released/v0.1.0"
 echo 2 >"$GH_STUB_DIR/released-after/v0.1.0"
-: >"$GH_STUB_DIR/calls.log"
 wait_for_release 1
 expect "asking again until it is out" test "$status" -eq 0 -a "$(asked)" = 3
 rm "$GH_STUB_DIR/released-after/v0.1.0"
@@ -824,11 +824,19 @@ wait_for_release
 expect "a failed request is no answer" test "$status" -ne 0 \
   -a -n "$(grep "didn't say whether v0.1.0 is published: gh: Server Error (HTTP 502)" <<<"$out")"
 : >"$GH_STUB_DIR/broken"
+# A later push to main that keeps the version, while its release is still missing (its run
+# failed): the release workflow publishes the version from this push, so production waits too.
+git -C "$work" switch -q -c fix/late
 commit "$work" "fix(core): a later fix on main"
-: >"$GH_STUB_DIR/calls.log"
+git -C "$work" switch -q main
+git -C "$work" merge -q --no-ff fix/late -m "Merge a later fix"
 wait_for_release
-expect "a commit that keeps the version waits for nothing" \
-  test "$status" -eq 0 -a "$(asked)" = 0 -a -n "$(grep 'keeps version 0.1.0' <<<"$out")"
+expect "a later merge that keeps the version waits while the release is missing" \
+  test "$status" -ne 0 -a -n "$(grep 'v0.1.0 is not out after 0 minutes' <<<"$out")"
+echo 2001 >"$GH_STUB_DIR/released/v0.1.0"
+wait_for_release
+expect "and passes after one request once it is out" \
+  test "$status" -eq 0 -a "$(asked)" = 1 -a -n "$(grep 'v0.1.0 is published' <<<"$out")"
 
 echo "release-collect.sh"
 work=$(new_repo collect)
