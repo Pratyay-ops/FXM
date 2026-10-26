@@ -244,6 +244,40 @@ describe('Home', () => {
     expect(seeds).toEqual(expect.arrayContaining(['Halcyon', 'Kestrel', 'Fable Kin']))
   })
 
+  it('says to type artists in where nothing can be suggested, as in the Lite tier', async () => {
+    // Lite: YouTube Music's provider has no home feed, and Spotify needs FXM Connect.
+    renderHome(homeServices('lite', { recommendations: fakeRecommendations() }))
+    const onboarding = await shelfNamed('What do you like to listen to?')
+    const hint = await within(onboarding).findByText(/^FXM has no artists to suggest here yet\./)
+    expect(hint).toHaveTextContent(
+      'FXM has no artists to suggest here yet. Type the name of an artist you like below, then select Add.',
+    )
+    expect(
+      within(onboarding).getByRole('textbox', { name: 'Add an artist' }),
+    ).toHaveAccessibleDescription(hint.textContent ?? '')
+  })
+
+  it('suggests the artists of the songs a new user played, before Home knows enough', async () => {
+    // Two artists: too few for Home, enough to suggest.
+    const now = Date.now()
+    await getLibrary().recordPlays(
+      favourites.slice(0, 3).map((track, index) => ({
+        track,
+        playedAt: now - (index + 1) * DAY,
+        playedMs: 200_000,
+        completed: true,
+        skipped: false,
+      })),
+    )
+    renderHome(homeServices('lite', { recommendations: fakeRecommendations() }))
+    const onboarding = await shelfNamed('What do you like to listen to?')
+    expect(
+      await within(onboarding).findByRole('button', { name: 'Aurora Lane', pressed: false }),
+    ).toBeInTheDocument()
+    expect(within(onboarding).getByRole('button', { name: 'Basalt', pressed: false })).toBeVisible()
+    expect(within(onboarding).queryByText(/^FXM has no artists to suggest here yet/)).toBeNull()
+  })
+
   it('puts the onboarding off with "Not now", and brings it back', async () => {
     const { user } = renderHome(homeServices('lite', { recommendations: fakeRecommendations() }))
     const onboarding = await shelfNamed('What do you like to listen to?')
