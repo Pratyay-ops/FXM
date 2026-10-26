@@ -11,7 +11,7 @@ From the [user-side research memo](../../docs/research/2026-10-25-userside-memo.
 | VISIONOS stream URLs answer a range in the last 64 KB of the file with `206`; the URLs of ANDROID_VR and IOS answer `403` from roughly 0.4 to 2 MiB on ("capped"). ANDROID's itag 18 is served to the last byte | Only URLs the end-of-file probe verified are downloaded (`isDownloadableStream`); a `403` mid-file means "resolve afresh" |
 | Stream URLs expire about 6 hours after they are issued (`expire`), and work only from the IP address that resolved them (`ip` in `sparams`) | A URL within a minute of its expiry, or one used across a network change, is resolved afresh; a URL is never stored with a download |
 | With FXM Connect, a page can read googlevideo's answers to single-range GETs: Connect sets `Access-Control-Allow-Origin` to the FXM origin and exposes the range headers | The transfer reads `Content-Range` there |
-| After a `302` to another googlevideo host, the browser sends `Origin: null`, which no static rule can answer, so the bytes stay unreadable and `fetch` fails without an answer | On the web, a request to a signed (IP-bound) URL that gets no answer is taken for such a redirect: the download resolves afresh rather than retrying the URL |
+| After a `302` to another googlevideo host, the browser sends `Origin: null`, which no static rule can answer, so the bytes stay unreadable and `fetch` fails without an answer | On the web, a request to a signed (IP-bound) URL that gets no answer is taken for such a redirect: the download resolves afresh rather than retrying the URL. An answer whose body breaks off is not (the URL answered, so it works), and neither is a failure on desktop or Android, whose native HTTP follows the redirect |
 
 ## Internet Archive
 

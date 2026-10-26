@@ -38,6 +38,13 @@ export interface FakeMediaRules {
   hideContentLength?: boolean
   /** Break the next answer's body off once this many bytes of the file have been sent. */
   breakAt?: number
+  /** Break every answer's body off after this many of its bytes: a flaky connection. */
+  breakEvery?: number
+  /**
+   * Say the file has this many bytes in `Content-Range` (of `206` and `416` answers) whatever it
+   * holds: a server that announces a far larger file.
+   */
+  claimSize?: number
   /**
    * Hold the next answer's body once this many bytes of the file have been sent, until
    * {@link FakeMediaServer.release} (or an abort).
@@ -173,7 +180,8 @@ export class FakeMediaServer {
       partial = true
       if (start >= size) {
         const hidden = rules.hideContentRange === true
-        return answer(416, null, hidden ? {} : { 'Content-Range': `bytes */${size}` })
+        const claimed = rules.claimSize ?? size
+        return answer(416, null, hidden ? {} : { 'Content-Range': `bytes */${claimed}` })
       }
     }
     if (rules.capAt !== undefined && end >= rules.capAt) return answer(403, null, {})
@@ -181,7 +189,7 @@ export class FakeMediaServer {
     if (file.lastModified !== undefined) headers['Last-Modified'] = file.lastModified
     if (rules.hideContentLength !== true) headers['Content-Length'] = String(end - start + 1)
     if (partial && rules.hideContentRange !== true) {
-      headers['Content-Range'] = `bytes ${start}-${end}/${size}`
+      headers['Content-Range'] = `bytes ${start}-${end}/${rules.claimSize ?? size}`
     }
     const body = this.#body(url, file.bytes, start, end + 1, rules, signal)
     return answer(partial ? 206 : 200, body, headers)
@@ -206,14 +214,16 @@ export class FakeMediaServer {
     const within = (position: number | undefined) =>
       position !== undefined && position >= from && position < to ? position : undefined
     // One-time rules apply to the answer whose bytes reach their position.
-    const breakAt = within(rules.breakAt)
+    const once = within(rules.breakAt)
+    const every = rules.breakEvery === undefined ? undefined : within(from + rules.breakEvery)
+    const breakAt = once === undefined ? every : every === undefined ? once : Math.min(once, every)
     let holdAt = within(rules.holdAt)
     let hold: Promise<void> | undefined
     if (holdAt !== undefined) {
       hold = new Promise((resolve) => this.#held.set(url, resolve))
       this.#consume(url, 'holdAt')
     }
-    if (breakAt !== undefined) this.#consume(url, 'breakAt')
+    if (once !== undefined) this.#consume(url, 'breakAt')
     const pieceBytes = this.#pieceBytes
     let at = from
     let stopped = false

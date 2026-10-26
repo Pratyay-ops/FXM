@@ -64,6 +64,31 @@ describe('status lines', () => {
     expect(statusLine(record({ status: 'completed' }), true)).toBe('Downloaded')
     expect(statusLine(record({ status: 'removing' }), true)).toBe('Removing')
   })
+
+  it('say why the manager paused a download on its own', () => {
+    expect(
+      statusLine(
+        record({
+          status: 'paused',
+          bytesDone: 1_000_000,
+          error: { code: 'bot-check', message: '', at: 1 },
+        }),
+        true,
+      ),
+    ).toBe(`Paused · ${ERROR_TEXT['bot-check']}`)
+    expect(
+      statusLine(
+        record({ status: 'paused', error: { code: 'storage-full', message: '', at: 1 } }),
+        true,
+      ),
+    ).toBe(`Paused · ${ERROR_TEXT['storage-full']}`)
+    expect(
+      statusLine(
+        record({ status: 'failed', error: { code: 'too-large', message: '', at: 1 } }),
+        true,
+      ),
+    ).toBe(ERROR_TEXT['too-large'])
+  })
 })
 
 describe('format labels', () => {

@@ -9,12 +9,16 @@
  * - **The stream sources** (1.4, the YouTube ladder with its end-of-file probe; 1.6, Internet
  *   Archive and Jamendo), **the matching engine** (1.7) and **the match cache** (2.6): the
  *   pieces `createPolicyDownloadResolver` from `@fxm/downloads` is built from, the same ones the
- *   stream lifecycle gets. Until then the stand-in has no sources, so a download fails as
- *   unavailable.
+ *   stream lifecycle gets. Until then the stand-in has no sources: its resolver's `canResolve`
+ *   says no for every track, so nothing is offered for download (Internet Archive and Jamendo
+ *   tracks included) rather than offered and then failed.
  *
  * Integration: in {@link createAppDownloadEnvironment}, return the real context (and its change
  * events) and `createPolicyDownloadResolver({ sources, matcher, matches, settings, canPlay })`.
- * Nothing else in the feature changes.
+ * Downloads are background work: the context's `fetch` must draw on the request budget at the
+ * `bulk` priority, which the resolver also asks its sources for by default, e.g. with 1.2's
+ * platform `context: () => platform.context({ mode, priority: 'bulk' })`. Nothing else in the
+ * feature changes.
  *
  * @module
  */
@@ -27,11 +31,15 @@ import { useSettingsStore } from '../settings/settings-store'
 /** What the app's downloads need from the rest of FXM. */
 export interface DownloadEnvironment {
   /**
-   * The provider context downloads run with, read afresh for every attempt: its `fetch` fetches
-   * the bytes, and its capabilities and catalog mode decide what may be downloaded.
+   * The provider context downloads run with, read afresh for every attempt: its `fetch` makes
+   * the resolver's calls at the request budget's `bulk` priority and fetches the bytes, and its
+   * capabilities and catalog mode decide what may be downloaded.
    */
   context(): ProviderContext
-  /** Finds what to download for a track. */
+  /**
+   * Finds what to download for a track. Its `canResolve` decides which tracks are offered for
+   * download at all.
+   */
   readonly resolver: DownloadResolver
   /**
    * Calls `listener` when what {@link context} returns changes, e.g. FXM Connect appeared or

@@ -79,7 +79,8 @@ export function createOfflineStore(options: OfflineStoreOptions): OfflineStore {
         if (!isDownloadRecord(record) || record.status !== 'completed') continue
         if (record.file === undefined || record.format === undefined) continue
         if (record.candidate === undefined || !isPlayable(record.candidate, ctx.mode)) continue
-        const type = mimeTypeOf(record.format) ?? ''
+        // Never an untyped URL: a browser could render one opened in a tab as a page.
+        const type = mimeTypeOf(record.format) ?? 'application/octet-stream'
         const url = await options.storage.playbackUrl(record.file, type)
         if (url === undefined) continue
         return offlineStream(record, url)

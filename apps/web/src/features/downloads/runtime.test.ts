@@ -1,12 +1,17 @@
-import { entityKey, playbackProblemOf } from '@fxm/core'
-import { downloadId, newDownloadRecord } from '@fxm/downloads'
+import { entityKey, formatId, playbackProblemOf } from '@fxm/core'
+import { createMemoryDownloadStorage, downloadId, newDownloadRecord } from '@fxm/downloads'
 import { testContext } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID } from '../../db/types'
 import { track } from '../../test/library-fixtures'
 import { useSettingsStore } from '../settings/settings-store'
-import { browserCanPlay, createAppDownloadEnvironment, FREE_TIER } from './environment'
+import {
+  browserCanPlay,
+  createAppDownloadEnvironment,
+  createPendingEnvironment,
+  FREE_TIER,
+} from './environment'
 import {
   browserNetwork,
   getDownloads,
@@ -89,7 +94,7 @@ describe('the app downloads', () => {
     const { downloads } = await setupDownloads({ run: false })
     const stop = startDownloads()
     expect(startDownloads()).toBe(stop)
-    expect(requests).toEqual([RUNNER_LOCK])
+    await vi.waitFor(() => expect(requests).toEqual([RUNNER_LOCK]))
     await vi.waitFor(() => expect(downloads.manager.running).toBe(true))
     stop()
     await vi.waitFor(() => expect(downloads.manager.running).toBe(false))
@@ -99,12 +104,49 @@ describe('the app downloads', () => {
   it('offer nothing where the browser cannot store files', async () => {
     await resetDownloads({ supported: false })
     const downloads = getDownloads()
-    expect(downloads.supported).toBe(false)
+    expect(downloads.support.current).toBe('unsupported')
+    expect(await downloads.support.known).toBe(false)
     startDownloads()
+    await Promise.resolve()
     expect(downloads.manager.running).toBe(false)
-    await expect(downloads.storage.open('x')).rejects.toMatchObject({ name: 'SecurityError' })
+    await expect(downloads.storage.open('x')).rejects.toMatchObject({ name: 'NotSupportedError' })
     expect(await downloads.storage.list()).toEqual([])
     expect(await downloads.storage.playbackUrl('x', '')).toBeUndefined()
+  })
+
+  it('run the queue only once the storage is known to work', async () => {
+    let answer: ((supported: boolean) => void) | undefined
+    await resetDownloads({
+      storage: createMemoryDownloadStorage(),
+      supported: new Promise((resolve) => {
+        answer = resolve
+      }),
+    })
+    const downloads = getDownloads()
+    expect(downloads.support.current).toBe('checking')
+    const heard = vi.fn()
+    downloads.support.subscribe(heard)
+    startDownloads()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(downloads.manager.running).toBe(false)
+    answer?.(true)
+    await vi.waitFor(() => expect(downloads.manager.running).toBe(true))
+    expect(downloads.support.current).toBe('supported')
+    expect(heard).toHaveBeenCalledTimes(1)
+  })
+
+  it('take many deleted downloads out of Downloads in one change', async () => {
+    const { downloads } = await setupDownloads()
+    const tracks = [track(1), track(2), track(3)]
+    await downloads.manager.enqueueAll(tracks)
+    await vi.waitFor(async () =>
+      expect((await downloadsOrder()).sort()).toEqual(['Song 1', 'Song 2', 'Song 3']),
+    )
+    const removeDownloads = vi.spyOn(getLibrary(), 'removeDownloads')
+    await downloads.manager.removeMany(tracks.map(downloadId))
+    await vi.waitFor(async () => expect(await downloadsOrder()).toEqual([]))
+    expect(removeDownloads).toHaveBeenCalledTimes(1)
+    expect(removeDownloads.mock.calls[0]?.[0]).toHaveLength(3)
   })
 })
 
@@ -154,6 +196,17 @@ describe('the pending environment', () => {
       })
       .catch((caught: unknown) => caught)
     expect(playbackProblemOf(error)).toMatchObject({ type: 'unavailable', reason: 'no-source' })
+  })
+
+  it('offers nothing it would fail to download, Internet Archive and Jamendo included', () => {
+    const environment = createPendingEnvironment()
+    const archive = {
+      ...track(1),
+      id: formatId('archive', 'track', 'item/a.flac'),
+      source: 'archive' as const,
+    }
+    expect(environment.resolver.canResolve?.(archive)).toBe(false)
+    expect(environment.resolver.canResolve?.(track(1))).toBe(false)
   })
 
   it("asks the browser whether it plays a stream's format", () => {

@@ -32,14 +32,19 @@ export type DownloadMenuItem = (
   },
 ) => MenuItem | undefined
 
-/** Download entries for the rows of a list, from one live read of every download. */
+/**
+ * Download entries for the rows of a list, from one live read of every download. Until that
+ * read answers, rows outside Downloads get no entry, rather than "Download" for a song that is
+ * downloaded already.
+ */
 export function useDownloadMenuItem(): DownloadMenuItem {
   const statuses = useDownloadStatuses()
   const canDownload = useCanDownload()
   return useCallback<DownloadMenuItem>(
     (row, { inDownloads = false } = {}) => {
       const title = row.track?.title
-      const status = statuses.get(downloadId(row))
+      if (!inDownloads && statuses === undefined) return undefined
+      const status = statuses?.get(downloadId(row))
       const remove = () => void removeDownloads([{ id: row.id, title }])
       if (inDownloads || status === 'completed') {
         return {

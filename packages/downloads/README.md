@@ -6,14 +6,15 @@ Downloads keep the **original bytes** of the stream (WebM/Opus, M4A/AAC, FLAC, M
 
 | Piece | What it is |
 |---|---|
-| `DownloadManager` | The queue: commands (`enqueue`, `enqueueAll`, `pause`, `resume`, `retry`, `remove`, `pauseAll`, `resumeAll`, `removeAll`), reading (`list`, `get`, `availability`), events (`completed`, `failed`, `removed`), and `start`/`stop` for the one manager that runs the queue |
-| `downloadAvailability`, `isDownloadableStream` | Where a track may be downloaded, and which streams |
-| `createPolicyDownloadResolver` | Finds what to download for a track, from the playback policy's pieces (`planPlayback`, the sources' `StreamSource`s, the matching engine, the match cache) |
+| `DownloadManager` | The queue: commands (`enqueue`, `enqueueAll`, `pause`, `resume`, `retry`, `remove`, `removeMany`, `pauseAll`, `resumeAll`, `removeAll`), reading (`list`, `get`, `availability`), events (`completed`, `failed`, `removed`), and `start`/`stop` for the one manager that runs the queue |
+| `downloadAvailability`, `isDownloadableStream`, `downloadLane` | Where a track may be downloaded, which streams, and which downloads wait together when a source says slow down |
+| `createPolicyDownloadResolver` | Finds what to download for a track, from the playback policy's pieces (`planPlayback`, the sources' `StreamSource`s, the matching engine, the match cache), and says which tracks it can resolve at all (`canResolve`) |
 | `transfer` | Fetches a file with single-range GETs and writes it as it arrives |
+| `maxDownloadBytes` | The largest file a download of a format and duration may be |
 | `classifyDownloadFailure` | What to do after a failure: one pure decision per error |
 | `createOfflineStore` | The stream lifecycle's `OfflineStore`, backed by completed downloads |
 | `DownloadStore`, `createMemoryDownloadStore` | Where records live: the interface and an in-memory store |
-| `DownloadStorage`, `createMemoryDownloadStorage` | Where bytes live: the interface and an in-memory storage |
+| `DownloadStorage`, `createMemoryDownloadStorage`, `isSafeFileName` | Where bytes live: the interface, an in-memory storage, and the file names a storage accepts |
 | `DownloadRecord`, `isDownloadRecord`, `downloadId` | The record of one download, its guard, and its ID (`entityKey` of the track, so both YouTube prefixes share a download) |
 
 ## Using it
@@ -25,7 +26,9 @@ const manager = new DownloadManager({
   store, // records, shared by every tab (IndexedDB in the web app)
   storage, // files (the Origin Private File System in the web app)
   resolver: createPolicyDownloadResolver({ sources, matcher, matches, settings, canPlay }),
-  context: () => providerContext, // read afresh each attempt: fetch, capabilities, catalog mode
+  // Read afresh each attempt: fetch, capabilities, catalog mode. Downloads are background work,
+  // so the fetch draws on the request budget at the bulk priority (stage 1.2).
+  context: () => platform.context({ mode, priority: 'bulk' }),
   network, // online or not; default: always online
 })
 manager.on('completed', (record) => library.addDownload(record.track))
@@ -49,6 +52,8 @@ On by default for every track wherever its bytes are readable (Decision 2, optio
 | A local file | Never: it is on the device already |
 | A track the catalog mode hides, a plugin source | Never |
 
+With a resolver, `downloadAvailability` also asks `canResolve`: a track whose audio no stream source here can resolve (an app whose sources aren't wired in yet) is not offered (`no-source`), rather than offered and then failed.
+
 `enqueue` refuses a track that isn't offered (an `Unsupported` `FxmError`), and a queued download whose bytes became unreadable (FXM Connect went away) fails as `unsupported`.
 
 ## Which stream is downloaded
@@ -58,7 +63,8 @@ On by default for every track wherever its bytes are readable (Decision 2, optio
 - **Only downloadable streams:** progressive and not capped, and for YouTube only URLs that **passed the end-of-file probe** (`fullLength: 'verified'`). When the top rung has none, it asks the fallback rung (itag 18).
 - **The best quality:** `lossless` as the ceiling, audio only before a muxed video, and streams this device can play first (`canPlay`, `canPlayType` in a browser), so the copy plays offline here.
 - **No best guesses:** a Suggest-band match is never downloaded, because the offline copy would then play without review from then on. Only a pin, an Auto match or "Play best guesses" let it through; otherwise the download fails as `needs-review`.
-- **Fresh every time:** nothing is cached, so every call is a fresh resolution. Resolutions draw on the request budget at the `prefetch` priority through the sources.
+- **Fresh every time:** nothing is cached, so every call is a fresh resolution.
+- **Background work:** sources and the matcher are asked at the request budget's `bulk` priority (`priority` changes it), and the provider context's `fetch` must draw at the same one. The budget (1.2) then spaces the calls out, stops them while it keeps the last 100 calls of the hour for search and playback, and pauses them after a bot check, so "Download all" on a long playlist never blocks searching.
 
 The manager checks `isDownloadableStream` again whatever the resolver, so no unverified YouTube URL is ever fetched.
 
@@ -68,16 +74,22 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 
 | Status | Meaning | Next |
 |---|---|---|
-| `queued` | Waiting for a slot (2 at a time by default, oldest first) or for the network | `downloading`, `paused`, `removing` |
-| `downloading` | Being fetched; `bytesDone` is saved every 500 ms | `completed`, `failed`, `paused`, `removing` |
-| `paused` | Stopped by the user; the partial file stays | `queued` (`resume`) |
+| `queued` | Waiting for a slot (2 at a time by default, oldest first), for the network, or for a wait a server or the request budget asked for | `downloading`, `paused`, `removing` |
+| `downloading` | Being fetched; `bytesDone` is saved every 500 ms | `completed`, `failed`, `paused`, `queued` (to wait), `removing` |
+| `paused` | Stopped by the user, or by the manager after the storage filled up or YouTube asked for a bot check (`error` says which); the partial file stays | `queued` (`resume`) |
 | `failed` | Stopped on an error (`error.code`, below) | `queued` (`retry` or `resume`) |
 | `completed` | The whole file is stored and plays offline | `removing` |
 | `removing` | Cancelled or deleted: hidden at once; the running manager deletes the file, then the record, and announces `removed` | gone |
 
 **Resumable ranges.** Bytes are written in order as they arrive, so the stored file is always a prefix of the real one, and a resume continues from its size (`Range: bytes=<size>-…`) after a pause, a failure, a crash or a closed tab. A resume asks the resolver for the same audio and format; if it gets another one (VISIONOS gave way to itag 18), or the server's `Last-Modified`/`ETag` or size changed, the file starts over.
 
-**Starting** tidies up after a manager that stopped without warning: downloads left `downloading` are queued again, completed downloads whose file is gone fail as `file-missing`, and files no record names are deleted.
+**Waiting without holding a slot.** When the request budget or a source refuses (`RateLimited`), the download goes back to the queue, and every download of its *lane* waits with it (`downloadLane`: everything that needs YouTube shares one lane; Internet Archive and Jamendo have their own), for `retryAfterMs` (1 s to 15 min; 1 min when none is given). Nothing counts as a failed attempt, so a long bot-check pause of the budget only delays the downloads, while the other lanes go on. A server's `Retry-After` longer than 30 s gives the slot back the same way, for that download; longer than 10 minutes fails it as `server`.
+
+**Stopping the queue on its own.** With the storage full, the queued downloads are paused, and after a bot check the queued YouTube downloads, each with the reason in `error`, so none of them spends a resolution (or asks YouTube again) to fail the same way.
+
+**Starting** tidies up after a manager that stopped without warning: downloads left `downloading` are queued again, completed downloads whose file is gone fail as `file-missing`, and files that no stored row names are deleted. Rows this version can't read (a newer FXM's, or damaged) still protect their files; "remove all" deletes those rows too, and their files go at the next start.
+
+**Many at once.** `enqueueAll`, `removeMany`, `removeAll`, `pauseAll` and `resumeAll` are one change to the store (`updateMany`), so every tab hears about a long list once. The running manager follows only status changes (`subscribe`), and each pass reads only the downloads on their way, so progress saves and thousands of completed downloads cost it nothing.
 
 ## Transfers
 
@@ -89,18 +101,24 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 
 ## Failures
 
-`classifyDownloadFailure` decides what each failure means; the manager counts per run:
+`classifyDownloadFailure` decides what each failure means. The manager counts failures in a row: an attempt that stores new bytes starts the counts of attempts and fresh resolutions over, so a long file on a flaky connection keeps going.
 
 | Failure | Next | Limit, then fails as |
 |---|---|---|
-| HTTP 401, 403, 410, 404; an expired URL; a page instead of the file | Resolve afresh, continue from the stored bytes, never hand out the failed URL again | 3 fresh resolutions: `server` or `unavailable` |
-| **No answer from a signed, IP-bound URL:** on the web, what a googlevideo redirect to another host looks like (its bytes are unreadable) | Resolve afresh | 3: `unverified` |
+| HTTP 401, 403, 410, 404; an expired URL; a page (text, JSON, HTML, XML) or an empty file instead of the file | Resolve afresh, continue from the stored bytes, never hand out the failed URL again | 3 fresh resolutions: `server` or `unavailable` |
+| **On the web, a request to a signed, IP-bound URL that gets no answer:** what a googlevideo redirect to another host looks like (its bytes are unreadable). Native HTTP on desktop and Android follows redirects | Resolve afresh | 3: `unverified` |
 | No stream passed the end-of-file probe | Resolve afresh | 3: `unverified` |
 | No answer, offline | Wait for the network without counting, then resolve afresh (a new IP address invalidates signed URLs) | none |
-| No answer otherwise, an answer that broke off, HTTP 408/425/429/5xx, `Network`/`RateLimited`/`Parse` from the resolver | Wait 1 s, 3 s, 10 s, 30 s (or `Retry-After`) and retry the same URL | 5 attempts: `network`, `server` |
+| `RateLimited` from the resolver: the request budget refused, or a source asks to slow down | Queue it again and hold its lane for the wait, without counting (see above) | none |
+| No answer otherwise; an answer that broke off or ended short (the URL works, even a signed one); HTTP 408/425/429/5xx; `Network`/`Parse` from the resolver | Wait 1 s, 3 s, 10 s, 30 s (or `Retry-After`, up to 10 minutes) and retry the same URL | 5 attempts: `network`, `server` |
 | HTTP 416 mid-file, a file that changed on the server | Start the file over | 2 restarts |
+| A file larger than `maxDownloadBytes` (announced, or arriving) | Fail at once, keeping none of it | `too-large` |
 | The storage is full (`QuotaExceededError`) | Fail, and pause the queued downloads instead of failing them one by one | `storage-full` |
-| `Unsupported`, `AuthRequired`, `BotCheck`, nothing to download, a match that needs review | Fail at once | `unsupported`, `bot-check`, `unavailable`, `needs-review` |
+| The storage can't work here (`SecurityError`, `NotAllowedError`, `NotSupportedError`: a private window, a missing feature, a worker that failed or stopped answering) | Fail at once | `storage` |
+| `BotCheck` | Fail at once, and pause the queued YouTube downloads | `bot-check` |
+| `Unsupported`, `AuthRequired`, nothing to download, a match that needs review | Fail at once | `unsupported`, `unavailable`, `needs-review` |
+
+**How large a file may be.** `maxDownloadBytes(format, durationMs)` allows the duration at the format's peak bitrate (lossy: 512 kbps or its own if higher; lossless: uncompressed stereo at its sample rate and depth; a muxed video: 2,000 kbps), half as much again, plus 4 MiB; never more than 2 GiB, which is also the limit for an unknown duration. A 4-minute Opus song may take about 27 MB, a 4-minute CD-quality FLAC about 68 MB, so no real file comes near it, while a mislabelled multi-gigabyte upload can't fill the storage the library shares.
 
 ## Offline playback
 
@@ -108,7 +126,15 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 
 ## Storage contract
 
-A `DownloadStorage` (see `storage.ts`) opens one writer per file (`size`, `write(offset, bytes)`, `truncate`, `flush`, `close`), removes, lists and sizes files, reads one as a `Blob`, and hands out a playback URL per complete file until it is removed. A full storage rejects with an error named `QuotaExceededError`. File names are opaque (random UUIDs). The web app implements it on the Origin Private File System; desktop (7.4) and Android (6.4) implement it on the file system.
+A `DownloadStorage` (see `storage.ts`) opens one writer per file (`size`, `write(offset, bytes)`, `truncate`, `flush`, `close`), removes, lists and sizes files, reads one as a `Blob`, and hands out a playback URL per complete file until it is removed. The web app implements it on the Origin Private File System; desktop (7.4) and Android (6.4) implement it on the file system.
+
+- **Names** are opaque: 1 to 64 ASCII letters, digits, `-` and `_` (the manager uses random UUIDs). A storage must refuse any other name (`isSafeFileName`, Windows device names included) before it touches the file system, so a damaged or tampered record can never name a path outside the downloads folder; `isDownloadRecord` refuses such records too.
+- **Errors:** a full storage rejects with an error named `QuotaExceededError` (`storageFullError`); one that can't work here at all with `SecurityError`, `NotAllowedError` or `NotSupportedError` (`storageUnavailableError`); anything else counts as passing.
+- **Every call settles.** A storage whose backend can hang (a worker) rejects after a timeout. The manager also gives up on a slow call when the download is paused or cancelled, and waits at most 30 s for a file to close or be deleted (the file is then left for the next start's tidy-up).
+
+## Record store contract
+
+A `DownloadStore` (see `store.ts`) gets, lists (all records, or those of some statuses, which the queue reads on every pass) and changes records atomically, one (`update`) or many in one transaction (`updateMany`). `rows()` lists every stored row's ID and file name, also of rows that fail `isDownloadRecord`, for housekeeping. `subscribe` must report records added or deleted and status changes, from every tab; it need not report progress (the web app's store doesn't).
 
 ## Touch-points with other stages
 
@@ -117,12 +143,12 @@ A `DownloadStorage` (see `storage.ts`) opens one writer per file (`size`, `write
 | The `ytm` `StreamSource` given to `createPolicyDownloadResolver` | The YouTube ladder (1.4): VISIONOS, then itag 18, with the end-of-file probe where bytes are readable | Not merged: tests use `FakeStreamSource` from `@fxm/player/testing` and `FakeDownloadResolver` |
 | `StreamSource`s for `archive`, `jamendo` | 1.6 through `fromAudioSource` | Merged on `develop`, not in this stage's base |
 | `TrackMatcher`, `MatchStore` | 1.7 and the match cache (2.6) | As for the stream lifecycle |
-| `ProviderContext` | 1.2 (transports, capability detection) | Merged on `develop`, not in this stage's base |
-| A `bulk` budget priority for large batches | 1.2's request budget | Downloads resolve at `prefetch`; see the follow-ups in the stage report |
+| `ProviderContext`, its `fetch` at the `bulk` priority | 1.2 (transports, capability detection, request budget): `platform.context({ mode, priority: 'bulk' })` | Merged on `develop`, not in this stage's base |
+| `ResolvePriority` `'bulk'` | 2.3's `StreamSourceRequest` and `MatchRequest`: 4.1 added `bulk` (on `develop` the type is `'current-track' \| 'prefetch'`, so it becomes `'current-track' \| 'prefetch' \| 'bulk'`) | Added in this stage |
 
 ## Testing
 
-`@fxm/downloads/testing` has `FakeMediaServer` (a `fetch` that serves files with ranges and misbehaves on request: capped URLs, statuses, dropped requests, hidden headers, bodies that break off or hold), `FakeDownloadResolver` and `FakeNetwork`. The tests run offline in Node: the queue, the transfers and their failures, the policy resolver against the lifecycle's fakes, and offline playback through the real `Player` and `StreamLifecycle`. A live check of the transfer against Internet Archive runs with `FXM_LIVE=1` (9 requests):
+`@fxm/downloads/testing` has `FakeMediaServer` (a `fetch` that serves files with ranges and misbehaves on request: capped URLs, statuses, dropped requests, hidden headers, bodies that break off once or every few bytes or hold, a size it claims), `FakeDownloadResolver` and `FakeNetwork`. The tests run offline in Node: the queue, the transfers and their failures, the policy resolver against the lifecycle's fakes, and offline playback through the real `Player` and `StreamLifecycle`. A live check of the transfer against Internet Archive runs with `FXM_LIVE=1` (9 requests):
 
 ```sh
 FXM_LIVE=1 scripts/run.sh pnpm exec vitest run packages/downloads/src/live.test.ts

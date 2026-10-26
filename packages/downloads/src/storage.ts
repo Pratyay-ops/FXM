@@ -24,11 +24,22 @@ export interface DownloadWriter {
 }
 
 /**
- * The files of downloads, by name. Names are opaque strings the manager chooses (no slashes).
+ * The files of downloads, by name. Names are opaque strings the manager chooses: 1 to 64 ASCII
+ * letters, digits, `-` and `_` (see {@link isSafeFileName}; the manager uses random UUIDs).
+ * Implementations must reject any other name (with a `TypeError`) before they touch the file
+ * system, so a damaged or tampered record can never name a path outside the downloads folder.
  *
- * Errors: a full disk or quota rejects with an error named `QuotaExceededError` (what browsers
- * throw; see {@link storageFullError}), which fails the download as `storage-full`. Any other
- * rejection counts as a passing storage problem.
+ * Errors:
+ *
+ * - a full disk or quota rejects with an error named `QuotaExceededError` (what browsers throw;
+ *   see {@link storageFullError}), which fails the download as `storage-full`;
+ * - a storage that can't work here at all (a private window, a missing browser feature, a worker
+ *   that failed or stopped answering) rejects with an error named `SecurityError`,
+ *   `NotAllowedError` or `NotSupportedError` (see {@link storageUnavailableError}), which fails
+ *   the download as `storage`;
+ * - any other rejection counts as a passing storage problem.
+ *
+ * Every call must settle: a storage whose backend can hang (a worker) rejects after a timeout.
  */
 export interface DownloadStorage {
   /**
@@ -70,6 +81,49 @@ export function storageFullError(message = 'The storage is full'): Error {
 /** Whether `error` says that the storage is full (see {@link storageFullError}). */
 export function isStorageFullError(error: unknown): boolean {
   return error instanceof Error && error.name === 'QuotaExceededError'
+}
+
+/**
+ * The error a {@link DownloadStorage} rejects with when it can't work here at all, e.g. its
+ * worker failed to start or stopped answering: a `DOMException` named `NotSupportedError`. No
+ * retry can help until the user acts (reloads the app, leaves a private window).
+ */
+export function storageUnavailableError(message = 'The storage is unavailable'): Error {
+  return new DOMException(message, 'NotSupportedError')
+}
+
+const UNAVAILABLE_NAMES: ReadonlySet<string> = new Set([
+  'SecurityError',
+  'NotAllowedError',
+  'NotSupportedError',
+])
+
+/**
+ * Whether `error` says that the storage can't work here at all (see
+ * {@link storageUnavailableError}): `SecurityError` and `NotAllowedError` (a private window, a
+ * site whose data is blocked) or `NotSupportedError` (a missing feature, a failed worker).
+ */
+export function isStorageUnavailableError(error: unknown): boolean {
+  return error instanceof Error && UNAVAILABLE_NAMES.has(error.name)
+}
+
+/** Names Windows reserves for devices, whatever the extension: never a file name. */
+const DEVICE_NAME = /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$/i
+
+/**
+ * Whether `name` may name a download's file: 1 to 64 ASCII letters, digits, `-` and `_`, and not
+ * a name Windows reserves for a device. No separator, dot or other character a file system
+ * could read as a path gets through.
+ */
+export function isSafeFileName(name: unknown): name is string {
+  return typeof name === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(name) && !DEVICE_NAME.test(name)
+}
+
+/** Rejects a name {@link isSafeFileName} refuses, as every {@link DownloadStorage} must. */
+export function assertSafeFileName(name: string): void {
+  if (!isSafeFileName(name)) {
+    throw new TypeError(`${JSON.stringify(name)} is not a download file name`)
+  }
 }
 
 /** Options for {@link createMemoryDownloadStorage}. */
@@ -134,8 +188,9 @@ function notAllowed(message: string): Error {
 /**
  * A {@link DownloadStorage} in memory, for tests and for a platform without file storage yet.
  * It behaves like the Origin Private File System where the manager relies on it: one writer per
- * file, removing an open file fails, and a full quota rejects with `QuotaExceededError`.
- * Playback URLs are `memory:<file>`.
+ * file, removing an open file fails, a full quota rejects with `QuotaExceededError`, and a name
+ * {@link isSafeFileName} refuses rejects with a `TypeError` (only `put`, a test's way to fill
+ * it, takes any name). Playback URLs are `memory:<file>`.
  */
 export function createMemoryDownloadStorage(
   options: MemoryDownloadStorageOptions = {},
@@ -165,6 +220,7 @@ export function createMemoryDownloadStorage(
       failures.set(operation, error)
     },
     async open(file) {
+      assertSafeFileName(file)
       fail('open')
       if (open.has(file)) throw notAllowed(`${file} is already open`)
       open.add(file)
@@ -206,6 +262,7 @@ export function createMemoryDownloadStorage(
       }
     },
     async remove(file) {
+      assertSafeFileName(file)
       fail('remove')
       if (open.has(file)) throw notAllowed(`${file} is open`)
       files.delete(file)
@@ -215,13 +272,16 @@ export function createMemoryDownloadStorage(
       return [...files.keys()]
     },
     async size(file) {
+      assertSafeFileName(file)
       return files.get(file)?.length
     },
     async read(file, type) {
+      assertSafeFileName(file)
       const buffer = files.get(file)
       return buffer === undefined ? undefined : new Blob([buffer.copy()], { type })
     },
     async playbackUrl(file) {
+      assertSafeFileName(file)
       return files.has(file) ? `memory:${file}` : undefined
     },
   }

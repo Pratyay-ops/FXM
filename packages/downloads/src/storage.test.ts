@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { createMemoryDownloadStorage, isStorageFullError, storageFullError } from './storage'
+import {
+  assertSafeFileName,
+  createMemoryDownloadStorage,
+  isSafeFileName,
+  isStorageFullError,
+  isStorageUnavailableError,
+  storageFullError,
+  storageUnavailableError,
+} from './storage'
 
 const bytes = (...values: number[]) => new Uint8Array(values)
 
@@ -84,5 +92,59 @@ describe('storage errors', () => {
     expect(isStorageFullError(new DOMException('x', 'QuotaExceededError'))).toBe(true)
     expect(isStorageFullError(new Error('QuotaExceededError'))).toBe(false)
     expect(isStorageFullError('QuotaExceededError')).toBe(false)
+  })
+
+  it("say when the storage can't work here", () => {
+    expect(isStorageUnavailableError(storageUnavailableError())).toBe(true)
+    for (const name of ['SecurityError', 'NotAllowedError', 'NotSupportedError']) {
+      expect(isStorageUnavailableError(new DOMException('x', name))).toBe(true)
+    }
+    expect(isStorageUnavailableError(new DOMException('x', 'InvalidStateError'))).toBe(false)
+    expect(isStorageUnavailableError(storageFullError())).toBe(false)
+  })
+})
+
+describe('file names', () => {
+  it('are short, plain and never a path', () => {
+    for (const name of [
+      'file-1',
+      '0b6d3c1e-5f0a-4c8e-9a51-2f7d3b9e8c41',
+      'a_B-9',
+      'a'.repeat(64),
+    ]) {
+      expect(isSafeFileName(name)).toBe(true)
+    }
+    for (const name of [
+      '',
+      '.',
+      '..',
+      '../x',
+      'a/b',
+      'a\\b',
+      'a.webm',
+      'a b',
+      'é',
+      'a'.repeat(65),
+      'CON',
+      'nul',
+      'com1',
+      'LPT9',
+      7,
+      undefined,
+    ]) {
+      expect(isSafeFileName(name)).toBe(false)
+    }
+  })
+
+  it('are checked before the memory storage touches a file', async () => {
+    const storage = createMemoryDownloadStorage()
+    storage.put('../escape', bytes(1))
+    expect(() => assertSafeFileName('../escape')).toThrow(TypeError)
+    await expect(storage.open('../escape')).rejects.toBeInstanceOf(TypeError)
+    await expect(storage.remove('../escape')).rejects.toBeInstanceOf(TypeError)
+    await expect(storage.size('../escape')).rejects.toBeInstanceOf(TypeError)
+    await expect(storage.read('../escape', '')).rejects.toBeInstanceOf(TypeError)
+    await expect(storage.playbackUrl('../escape', '')).rejects.toBeInstanceOf(TypeError)
+    expect(storage.bytes('../escape')).toEqual(bytes(1))
   })
 })

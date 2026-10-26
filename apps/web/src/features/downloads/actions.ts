@@ -46,16 +46,15 @@ export async function downloadTracks(tracks: readonly Track[]): Promise<void> {
 
 /**
  * Deletes the downloads of `tracks` and takes them out of the Downloads playlist, also for an
- * entry whose file isn't on this device (e.g. from a backup of another device).
+ * entry whose file isn't on this device (e.g. from a backup of another device): one change to
+ * the downloads and one to the playlist, however many there are.
  */
 export async function removeDownloads(tracks: readonly RemovableTrack[]): Promise<void> {
   const { manager } = getDownloads()
   const library = getLibrary()
   try {
-    for (const track of tracks) {
-      await manager.remove(downloadId(track))
-      await library.removeDownload(track.id)
-    }
+    await manager.removeMany(tracks.map((track) => downloadId(track)))
+    await library.removeDownloads(tracks.map((track) => track.id))
     const [only] = tracks
     showStatus(
       tracks.length === 1 && only?.title !== undefined
@@ -67,7 +66,7 @@ export async function removeDownloads(tracks: readonly RemovableTrack[]): Promis
   }
 }
 
-/** Deletes every download and empties the Downloads playlist. */
+/** Deletes every download and empties the Downloads playlist, each in one change. */
 export async function removeAllDownloads(): Promise<void> {
   const library = getLibrary()
   try {
@@ -77,7 +76,7 @@ export async function removeAllDownloads(): Promise<void> {
       ...removed.map((record) => record.track.id),
       ...(view?.rows.map((row) => row.id) ?? []),
     ])
-    for (const id of ids) await library.removeDownload(id)
+    await library.removeDownloads([...ids])
     showStatus('Removed every download')
   } catch {
     showStatus('Couldn’t remove the downloads')

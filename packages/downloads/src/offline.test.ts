@@ -125,6 +125,27 @@ describe('the offline store', () => {
     expect(await offline.find(video, testContext('full', { mode: 'all' }))).toBeUndefined()
   })
 
+  it('types the URL of a file whose format has no MIME type as plain bytes', async () => {
+    const track = testTrack('a')
+    // MP3 in a WebM container: a mislabelled source, which no MIME type describes.
+    const record = completed(track, 'file-a', {
+      format: { codec: 'mp3', container: 'webm', media: 'audio', tier: 'high' },
+    })
+    const store = createMemoryDownloadStore([record])
+    const types: string[] = []
+    const offline = createOfflineStore({
+      store,
+      storage: {
+        playbackUrl: async (_file, type) => {
+          types.push(type)
+          return 'blob:x'
+        },
+      },
+    })
+    expect((await offline.find(track, testContext('full')))?.url).toBe('blob:x')
+    expect(types).toEqual(['application/octet-stream'])
+  })
+
   it('needs a format to describe the stream', () => {
     const { format: _format, ...record } = completed(testTrack('a'), 'file-a')
     expect(offlineStream(record, 'memory:x')).toBeUndefined()

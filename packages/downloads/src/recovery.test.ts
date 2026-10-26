@@ -3,12 +3,12 @@ import { testCandidate } from '@fxm/player/testing'
 import { describe, expect, it } from 'vitest'
 import { classifyDownloadFailure, type DownloadFailure } from './recovery'
 import { NoDownloadableStreamError } from './resolver'
-import { storageFullError } from './storage'
+import { storageFullError, storageUnavailableError } from './storage'
 import { DownloadHttpError, DownloadNetworkError, DownloadProtocolError } from './transfer'
 
-const online = { online: true, ipBound: false }
-const signed = { online: true, ipBound: true }
-const offline = { online: false, ipBound: true }
+const online = { online: true, ipBound: false, platform: 'web' } as const
+const signed = { online: true, ipBound: true, platform: 'web' } as const
+const offline = { online: false, ipBound: true, platform: 'web' } as const
 
 function decision(kind: DownloadFailure['kind'], code: DownloadFailure['code']) {
   return { kind, code }
@@ -29,7 +29,16 @@ describe('classifyDownloadFailure', () => {
     ['HTTP 503', new DownloadHttpError(503, ''), decision('transient', 'server')],
     ['HTTP 408', new DownloadHttpError(408, ''), decision('transient', 'server')],
     ['HTTP 400', new DownloadHttpError(400, ''), decision('fatal', 'server')],
-    ['a dropped request', new DownloadNetworkError(''), decision('transient', 'network')],
+    [
+      'a dropped request',
+      new DownloadNetworkError('', 'request'),
+      decision('transient', 'network'),
+    ],
+    [
+      'an answer that broke off',
+      new DownloadNetworkError('', 'body'),
+      decision('transient', 'network'),
+    ],
     [
       'a range mismatch',
       new DownloadProtocolError('range-mismatch', ''),
@@ -54,6 +63,11 @@ describe('classifyDownloadFailure', () => {
       'a page instead of the file',
       new DownloadProtocolError('not-media', ''),
       decision('url', 'server'),
+    ],
+    [
+      'a file far larger than the track',
+      new DownloadProtocolError('too-large', ''),
+      decision('fatal', 'too-large'),
     ],
     [
       'no verified stream',
@@ -82,6 +96,16 @@ describe('classifyDownloadFailure', () => {
       new DOMException('', 'SecurityError'),
       decision('fatal', 'storage'),
     ],
+    [
+      'a browser without sync access handles',
+      new DOMException('', 'NotSupportedError'),
+      decision('fatal', 'storage'),
+    ],
+    [
+      'a storage worker that failed or stopped answering',
+      storageUnavailableError(),
+      decision('fatal', 'storage'),
+    ],
     ['a TypeError', new TypeError('Failed to fetch'), decision('transient', 'network')],
     ['anything else', new Error('?'), decision('transient', 'unknown')],
     ['not even an error', 'boom', decision('transient', 'unknown')],
@@ -89,14 +113,31 @@ describe('classifyDownloadFailure', () => {
     expect(classifyDownloadFailure(error, online)).toMatchObject(expected)
   })
 
-  it('takes a request to a signed URL that got no answer for a redirect: resolve afresh', () => {
-    expect(classifyDownloadFailure(new DownloadNetworkError(''), signed)).toEqual(
+  it('takes a request to a signed URL that got no answer on the web for a redirect', () => {
+    expect(classifyDownloadFailure(new DownloadNetworkError('', 'request'), signed)).toEqual(
       decision('url', 'unverified'),
     )
   })
 
+  it('retries the same signed URL after its answer broke off: the URL works', () => {
+    expect(classifyDownloadFailure(new DownloadNetworkError('', 'body'), signed)).toEqual(
+      decision('transient', 'network'),
+    )
+  })
+
+  it('expects no redirect where native HTTP follows it: desktop and Android', () => {
+    for (const platform of ['desktop', 'android'] as const) {
+      expect(
+        classifyDownloadFailure(new DownloadNetworkError('', 'request'), { ...signed, platform }),
+      ).toEqual(decision('transient', 'network'))
+    }
+  })
+
   it('waits for the network when offline', () => {
-    expect(classifyDownloadFailure(new DownloadNetworkError(''), offline)).toEqual(
+    expect(classifyDownloadFailure(new DownloadNetworkError('', 'request'), offline)).toEqual(
+      decision('offline', 'network'),
+    )
+    expect(classifyDownloadFailure(new DownloadNetworkError('', 'body'), offline)).toEqual(
       decision('offline', 'network'),
     )
     expect(classifyDownloadFailure(new FxmError('Network', ''), offline)).toEqual(
@@ -107,15 +148,21 @@ describe('classifyDownloadFailure', () => {
     )
   })
 
-  it('keeps the wait a server or a source asked for', () => {
+  it('keeps the wait a server asked for', () => {
     expect(classifyDownloadFailure(new DownloadHttpError(429, '', 5000), online)).toEqual({
       kind: 'transient',
       code: 'server',
       retryAfterMs: 5000,
     })
+  })
+
+  it('holds back when the request budget or a source asks to slow down', () => {
     expect(
       classifyDownloadFailure(new FxmError('RateLimited', '', { retryAfterMs: 9000 }), online),
-    ).toEqual({ kind: 'transient', code: 'server', retryAfterMs: 9000 })
+    ).toEqual({ kind: 'throttled', code: 'server', retryAfterMs: 9000 })
+    expect(classifyDownloadFailure(new FxmError('RateLimited', ''), online)).toEqual(
+      decision('throttled', 'server'),
+    )
   })
 
   it('tells a match that needs review from audio that is gone', () => {

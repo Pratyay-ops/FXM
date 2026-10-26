@@ -22,12 +22,26 @@ const scope = globalThis as unknown as {
 
 let folder: Promise<DirectoryHandleLike> | undefined
 
-const handle = createOpfsHandler(() => {
-  folder ??= scope.navigator.storage
-    .getDirectory()
-    .then((root) => root.getDirectoryHandle(DOWNLOADS_FOLDER, { create: true }))
-  return folder
-})
+/** Whether this browser has sync access handles (Safari before 17 may not). */
+function canSyncAccess(): boolean {
+  const handle = (globalThis as { FileSystemFileHandle?: { prototype?: object } })
+    .FileSystemFileHandle
+  return typeof handle?.prototype === 'object' && 'createSyncAccessHandle' in handle.prototype
+}
+
+const handle = createOpfsHandler(
+  () => {
+    folder ??= scope.navigator.storage
+      .getDirectory()
+      .then((root) => root.getDirectoryHandle(DOWNLOADS_FOLDER, { create: true }))
+    // A failure (a private window) may pass: try again next time.
+    folder.catch(() => {
+      folder = undefined
+    })
+    return folder
+  },
+  { canSyncAccess },
+)
 
 scope.onmessage = (event) => {
   const { id, request } = event.data

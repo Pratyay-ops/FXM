@@ -76,7 +76,43 @@ describe('the policy download resolver', () => {
       fullLength: 'verified',
     })
     expect(youtube.log).toEqual(['a:top'])
+    // Background work: the request budget spaces it out and stops it before search runs dry.
+    expect(youtube.calls[0]?.request.priority).toBe('bulk')
+  })
+
+  it('resolves and matches at the priority it is given', async () => {
+    const { resolver, youtube, matcher } = setup({ priority: 'prefetch' })
+    await resolver.resolve(testTrack('a'), request())
     expect(youtube.calls[0]?.request.priority).toBe('prefetch')
+    const track = testSpotifyTrack('hit')
+    matcher.rank(track, 'song', [{ candidate: testCandidate('m'), band: 'auto' }])
+    await resolver.resolve(track, request())
+    expect(matcher.calls[0]?.request.priority).toBe('prefetch')
+    // And at the bulk priority by default.
+    const plain = setup()
+    plain.matcher.rank(track, 'song', [{ candidate: testCandidate('m'), band: 'auto' }])
+    await plain.resolver.resolve(track, request())
+    expect(plain.matcher.calls[0]?.request.priority).toBe('bulk')
+  })
+
+  it('says which tracks it can resolve: those its sources cover', () => {
+    const archive = testTrack('a.flac', {
+      id: formatId('archive', 'track', 'item/a.flac'),
+      source: 'archive',
+    })
+    const jamendo = testTrack('j', { id: formatId('jamendo', 'track', '1'), source: 'jamendo' })
+    const { resolver } = setup()
+    expect(resolver.canResolve?.(testTrack('a'))).toBe(true)
+    expect(resolver.canResolve?.(testSpotifyTrack('hit'))).toBe(true)
+    expect(resolver.canResolve?.(archive)).toBe(false)
+    expect(resolver.canResolve?.(jamendo)).toBe(false)
+    const none = createPolicyDownloadResolver({ sources: [] })
+    expect(none.canResolve?.(testTrack('a'))).toBe(false)
+    const free = createPolicyDownloadResolver({
+      sources: [new FakeStreamSource({ id: 'archive' })],
+    })
+    expect(free.canResolve?.(archive)).toBe(true)
+    expect(free.canResolve?.(testTrack('a'))).toBe(false)
   })
 
   it('never downloads YouTube audio in the Lite tier', async () => {

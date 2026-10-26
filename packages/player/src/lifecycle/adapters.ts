@@ -31,10 +31,10 @@ import {
 } from '@fxm/core'
 
 /**
- * Which of the request budget's priorities (1.2) a call draws on: the track about to play, or
- * prefetching the next ones.
+ * Which of the request budget's priorities (1.2) a call draws on: the track about to play,
+ * prefetching the next ones, or `bulk` work nobody waits for, such as downloads (4.1).
  */
-export type ResolvePriority = 'playback' | 'prefetch'
+export type ResolvePriority = 'playback' | 'prefetch' | 'bulk'
 
 /** The details of one call to {@link StreamSource.resolve}. */
 export interface StreamSourceRequest {

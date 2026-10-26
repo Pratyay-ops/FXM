@@ -6,18 +6,32 @@
  * @module
  */
 
+import { assertSafeFileName } from '@fxm/downloads'
 import type { DirectoryHandleLike, OpfsRequest, SyncAccessHandleLike } from './protocol'
 
 function failure(name: string, message: string): Error {
   return new DOMException(message, name)
 }
 
+/** Options for {@link createOpfsHandler}. */
+export interface OpfsHandlerOptions {
+  /**
+   * Whether this browser has sync access handles, for `probe`. The worker checks
+   * `FileSystemFileHandle.prototype`; tests say. Default: yes.
+   */
+  canSyncAccess?: () => boolean
+}
+
 /**
  * A handler for the worker's requests over the folder `directory()` gives (the downloads folder
  * of the Origin Private File System). Resolves with the request's value (see `OpfsReply`), or
- * rejects with the file system's error, e.g. `QuotaExceededError` when the storage is full.
+ * rejects with the file system's error, e.g. `QuotaExceededError` when the storage is full. A
+ * file name `isSafeFileName` refuses is rejected before the file system sees it.
  */
-export function createOpfsHandler(directory: () => Promise<DirectoryHandleLike>) {
+export function createOpfsHandler(
+  directory: () => Promise<DirectoryHandleLike>,
+  options: OpfsHandlerOptions = {},
+) {
   const handles = new Map<string, SyncAccessHandleLike>()
   const open = (file: string): SyncAccessHandleLike => {
     const handle = handles.get(file)
@@ -35,7 +49,12 @@ export function createOpfsHandler(directory: () => Promise<DirectoryHandleLike>)
     }
   }
   return async function handle(request: OpfsRequest): Promise<number | undefined> {
+    if (request.op === 'probe') {
+      await directory()
+      return (options.canSyncAccess?.() ?? true) ? 1 : 0
+    }
     const { file } = request
+    assertSafeFileName(file)
     switch (request.op) {
       case 'open': {
         if (handles.has(file))

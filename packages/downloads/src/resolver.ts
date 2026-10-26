@@ -44,6 +44,7 @@ import {
   isStoredMatch,
   type MatchKey,
   type MatchStore,
+  type ResolvePriority,
   type StoredMatch,
   type StreamSource,
   type TrackMatcher,
@@ -97,13 +98,20 @@ export interface ResolvedDownload {
  * Finds what to download for a track. Rejects with an `FxmError` like a stream resolver does:
  * `Unsupported`, `AuthRequired` or `BotCheck` when nothing can be downloaded until the user
  * acts, `Unavailable` with a `PlaybackProblem` (`playbackProblemOf`) when there is nothing to
- * download (`needs-review` for a match that is only a best guess), `Network`, `RateLimited` or
- * `Parse` for passing trouble, and a {@link NoDownloadableStreamError} when the sources answered
- * but no stream may be downloaded.
+ * download (`needs-review` for a match that is only a best guess), `RateLimited` (with
+ * `retryAfterMs`) when the request budget or a source asks to wait, `Network` or `Parse` for
+ * other passing trouble, and a {@link NoDownloadableStreamError} when the sources answered but no
+ * stream may be downloaded.
  */
 export interface DownloadResolver {
   /** What to download for `track`. */
   resolve(track: Track, request: DownloadResolveRequest): Promise<ResolvedDownload>
+  /**
+   * Whether this resolver can find audio for `track` at all: it has a stream source for the
+   * track's own audio, or for the YouTube song matched to it. Tracks it can't resolve are not
+   * offered for download (`downloadAvailability`). Leave it out to resolve everything.
+   */
+  canResolve?(track: Pick<Track, 'id' | 'source' | 'kind' | 'songId'>): boolean
 }
 
 /**
@@ -148,6 +156,14 @@ export interface PolicyDownloadResolverOptions {
   now?: () => number
   /** How long an unpinned stored match counts. Default: 30 days, as in the stream lifecycle. */
   maxMatchAgeMs?: number
+  /**
+   * The request budget's priority the sources and the matcher are asked to resolve at.
+   * Default: `bulk`, background work nobody waits for, which the budget (1.2) spaces out, stops
+   * before the calls search and playback need, and pauses after a bot check. The provider
+   * context's `fetch` must draw on the budget at the same priority (see the manager's
+   * `context`).
+   */
+  priority?: ResolvePriority
 }
 
 /** `FxmError` codes after which nothing can be downloaded until the user acts. */
@@ -199,9 +215,13 @@ function aborted(signal: AbortSignal, error: unknown): boolean {
  *   then play without review from then on. Only a pin, an Auto match or "Play best guesses" let
  *   it through; otherwise it rejects with a `needs-review` problem.
  * - **Fresh every time:** nothing is cached, so each call is a fresh resolution.
+ * - **Background work:** sources and the matcher resolve at the `bulk` budget priority unless
+ *   `priority` says otherwise, so a long batch never takes the calls search and playback need.
  * - No Invidious: downloads read bytes from the source itself.
  *
- * New matches go to the match cache, as the stream lifecycle stores them.
+ * New matches go to the match cache, as the stream lifecycle stores them. `canResolve` says
+ * whether a source for the track's audio is set up: Internet Archive and Jamendo tracks need
+ * their own source, every other track the `ytm` one (its own audio, or the song matched to it).
  */
 export function createPolicyDownloadResolver(
   options: PolicyDownloadResolverOptions,
@@ -212,6 +232,7 @@ export function createPolicyDownloadResolver(
   const now = options.now ?? Date.now
   const maxMatchAgeMs = options.maxMatchAgeMs ?? DEFAULT_MAX_MATCH_AGE_MS
   const matches = options.matches
+  const priority = options.priority ?? 'bulk'
 
   const unavailable = (track: Track, reason: UnavailableReason): PlaybackProblem => ({
     type: 'unavailable',
@@ -289,7 +310,7 @@ export function createPolicyDownloadResolver(
         ctx: { ...ctx, signal },
         prefs: request.prefs,
         rung,
-        priority: 'prefetch',
+        priority,
         signal,
       })
     try {
@@ -360,7 +381,7 @@ export function createPolicyDownloadResolver(
         target,
         ctx: { ...ctx, signal },
         exclude: [],
-        priority: 'prefetch',
+        priority,
         signal,
       })
     } catch (error) {
@@ -447,6 +468,10 @@ export function createPolicyDownloadResolver(
   }
 
   return {
+    canResolve(track) {
+      if (track.source === 'archive' || track.source === 'jamendo') return sources.has(track.source)
+      return sources.has('ytm')
+    },
     async resolve(track, request) {
       const { ctx, signal } = request
       const state: RunState = { tried: new Set(), stops: [], problems: [], unverified: false }

@@ -14,7 +14,7 @@
  * @module
  */
 
-import { entityKey } from '@fxm/core'
+import { type EntityId, entityKey } from '@fxm/core'
 import {
   createOfflineStore,
   DownloadManager,
@@ -22,6 +22,7 @@ import {
   type DownloadNetwork,
   type DownloadStorage,
   type DownloadStore,
+  storageUnavailableError,
 } from '@fxm/downloads'
 import type { OfflineStore } from '@fxm/player'
 import { Dexie } from 'dexie'
@@ -35,9 +36,26 @@ import {
 } from './download-db'
 import { createAppDownloadEnvironment, type DownloadEnvironment } from './environment'
 import { createBrowserOpfsStorage, opfsSupported } from './opfs/storage'
+import { estimateStorage } from './persistence'
 
 /** The name of the Web Lock that the tab running the download queue holds. */
 export const RUNNER_LOCK = 'fxm-downloads'
+
+/**
+ * Whether this browser can store downloads: `checking` while the storage is tried (the Origin
+ * Private File System, its worker and sync access handles), then `supported` or `unsupported`.
+ */
+export type DownloadSupport = 'checking' | 'supported' | 'unsupported'
+
+/** Where the check of {@link DownloadSupport} stands, and a way to hear when it is done. */
+export interface SupportState {
+  /** Where the check stands now. */
+  readonly current: DownloadSupport
+  /** Calls `listener` once the check is done. Returns a function that stops it. */
+  subscribe(listener: () => void): () => void
+  /** Resolves with whether downloads can be stored, once known. Never rejects. */
+  readonly known: Promise<boolean>
+}
 
 /** The app's downloads, put together. */
 export interface Downloads {
@@ -50,10 +68,10 @@ export interface Downloads {
   /** Where the files go. */
   readonly storage: DownloadStorage
   /**
-   * Whether this browser can store downloads at all (the Origin Private File System). When it
-   * can't, nothing is offered for download.
+   * Whether this browser can store downloads at all. Until it is known to, nothing is offered
+   * for download; when it can't, the Downloads tab says why.
    */
-  readonly supported: boolean
+  readonly support: SupportState
   /** The stream lifecycle's offline store. */
   readonly offline: OfflineStore
   /** What the downloads run with. */
@@ -64,8 +82,11 @@ export interface Downloads {
 export interface DownloadsConfig {
   environment?: DownloadEnvironment
   storage?: DownloadStorage
-  /** Whether the storage works here. Default: true with a given storage, else OPFS support. */
-  supported?: boolean
+  /**
+   * Whether the storage works here, or a promise of it (a check under way). Default: true with
+   * a given storage, else what trying the Origin Private File System finds.
+   */
+  supported?: boolean | Promise<boolean>
   network?: DownloadNetwork
   /** The database name. Default: `fxm-downloads`. */
   dbName?: string
@@ -99,8 +120,7 @@ export function browserNetwork(): DownloadNetwork {
 /** A storage that holds nothing and refuses to write: where the browser can't store files. */
 function unsupportedStorage(): DownloadStorage {
   return {
-    open: () =>
-      Promise.reject(new DOMException('This browser cannot store downloads', 'SecurityError')),
+    open: () => Promise.reject(storageUnavailableError('This browser cannot store downloads')),
     remove: async () => {},
     list: async () => [],
     size: async () => undefined,
@@ -109,14 +129,87 @@ function unsupportedStorage(): DownloadStorage {
   }
 }
 
+/** A {@link SupportState} that settles with `check`. */
+function supportState(check: Promise<boolean> | boolean): SupportState {
+  const listeners = new Set<() => void>()
+  let current: DownloadSupport =
+    typeof check === 'boolean' ? (check ? 'supported' : 'unsupported') : 'checking'
+  const known = Promise.resolve(check)
+    .catch(() => false)
+    .then((supported) => {
+      current = supported ? 'supported' : 'unsupported'
+      for (const listener of [...listeners]) listener()
+      return supported
+    })
+  return {
+    get current() {
+      return current
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    known,
+  }
+}
+
+/** How long deleted downloads gather before they leave the Downloads playlist together. */
+const PLAYLIST_BATCH_MS = 200
+
+/**
+ * Takes deleted downloads out of the Downloads playlist in batches, so removing many downloads
+ * rewrites the playlist a few times rather than once per song.
+ */
+function playlistCleaner() {
+  const pending = new Set<EntityId<'track'>>()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const flush = () => {
+    timer = undefined
+    const ids = [...pending]
+    pending.clear()
+    if (ids.length > 0) {
+      getLibrary()
+        .removeDownloads(ids)
+        .catch(() => {})
+    }
+  }
+  return {
+    add(id: EntityId<'track'>) {
+      pending.add(id)
+      timer ??= setTimeout(flush, PLAYLIST_BATCH_MS)
+    },
+    cancel() {
+      if (timer !== undefined) clearTimeout(timer)
+      timer = undefined
+      pending.clear()
+    },
+  }
+}
+
 let config: DownloadsConfig = {}
-let current: Downloads | undefined
+let current: (Downloads & { readonly dispose: () => void }) | undefined
 let stopRunner: (() => void) | undefined
 
-function create(options: DownloadsConfig): Downloads {
+function create(options: DownloadsConfig): Downloads & { readonly dispose: () => void } {
   const environment = options.environment ?? createAppDownloadEnvironment()
-  const supported = options.supported ?? (options.storage !== undefined || opfsSupported())
-  const storage = options.storage ?? (supported ? createBrowserOpfsStorage() : unsupportedStorage())
+  let storage: DownloadStorage
+  let check: Promise<boolean> | boolean
+  if (options.storage !== undefined) {
+    storage = options.storage
+    check = options.supported ?? true
+  } else if (options.supported === false || !opfsSupported()) {
+    storage = unsupportedStorage()
+    check = false
+  } else {
+    // The worker and sync access handles may still be missing (an older Safari), or a private
+    // window may refuse the folder: try them before anything is offered.
+    const opfs = createBrowserOpfsStorage(estimateStorage)
+    storage = opfs
+    check = opfs.probe()
+  }
+  const support = supportState(check)
   const db = openDownloadsDatabase(options.dbName ?? DOWNLOADS_DB_NAME)
   const store = createDexieDownloadStore(db)
   const manager = new DownloadManager({
@@ -128,24 +221,22 @@ function create(options: DownloadsConfig): Downloads {
     ...options.manager,
   })
   // The tab that runs the queue completes and deletes downloads: it keeps the playlist in step.
+  const cleaner = playlistCleaner()
   manager.on('completed', (record) => {
     getLibrary()
       .addDownload(record.track)
       .catch(() => {})
   })
-  manager.on('removed', (record) => {
-    getLibrary()
-      .removeDownload(record.track.id)
-      .catch(() => {})
-  })
+  manager.on('removed', (record) => cleaner.add(record.track.id))
   return {
     manager,
     store,
     db,
     storage,
-    supported,
+    support,
     offline: createOfflineStore({ store, storage }),
     environment,
+    dispose: () => cleaner.cancel(),
   }
 }
 
@@ -182,13 +273,13 @@ export async function reconcileDownloadsPlaylist(
 
 /**
  * Runs the download queue in this tab once it holds the `fxm-downloads` Web Lock, which only
- * one tab holds at a time (without Web Locks, at once). Returns a function that stops it.
- * `main.tsx` calls it once; tests call it to run the queue.
+ * one tab holds at a time (without Web Locks, at once), and only once this browser is known to
+ * store downloads. Returns a function that stops it. `main.tsx` calls it once; tests call it to
+ * run the queue.
  */
 export function startDownloads(): () => void {
   if (stopRunner !== undefined) return stopRunner
   const downloads = getDownloads()
-  if (!downloads.supported) return () => {}
   const stop = new AbortController()
   const run = async () => {
     await downloads.manager.start()
@@ -199,12 +290,17 @@ export function startDownloads(): () => void {
     })
     await downloads.manager.stop()
   }
-  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
-  if (typeof locks?.request === 'function') {
-    locks.request(RUNNER_LOCK, { signal: stop.signal }, run).catch(() => {})
-  } else {
-    void run().catch(() => {})
+  const begin = () => {
+    const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
+    if (typeof locks?.request === 'function') {
+      locks.request(RUNNER_LOCK, { signal: stop.signal }, run).catch(() => {})
+    } else {
+      void run().catch(() => {})
+    }
   }
+  void downloads.support.known.then((supported) => {
+    if (supported && !stop.signal.aborted) begin()
+  })
   const stopThis = () => {
     stop.abort()
     if (stopRunner === stopThis) stopRunner = undefined
@@ -224,6 +320,7 @@ export async function resetDownloads(next: DownloadsConfig = {}): Promise<void> 
   config = next
   if (previous === undefined) return
   await previous.manager.destroy()
+  previous.dispose()
   previous.db.close()
   await Dexie.delete(previous.db.name)
 }

@@ -1,10 +1,12 @@
-import { FxmError, formatId, playbackProblemError } from '@fxm/core'
+import { FxmError, formatId, playbackProblemError, type Track } from '@fxm/core'
 import { testCandidate } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { downloadLane } from './availability'
 import { DownloadManager } from './manager'
 import { NoDownloadableStreamError } from './resolver'
-import { createMemoryDownloadStorage } from './storage'
-import { CHUNK, mediaUrl, setup, song } from './test-harness'
+import { createMemoryDownloadStorage, type DownloadStorage } from './storage'
+import { createMemoryDownloadStore, type DownloadStore } from './store'
+import { archiveFile, CHUNK, mediaUrl, setup, song } from './test-harness'
 import { downloadCandidate, downloadStream } from './testing/fake-resolver'
 import { testBytes } from './testing/fake-server'
 import { type DownloadRecord, downloadId, fileFormatOf, newDownloadRecord } from './types'
@@ -458,9 +460,11 @@ describe('failures', () => {
     await h.manager.enqueueAll([a, b])
     await h.manager.idle()
     expect(await h.record(a)).toMatchObject({ status: 'failed', error: { code: 'storage-full' } })
-    // b would fail the same way, after a resolution: it waits, paused.
-    expect((await h.record(b))?.status).toBe('paused')
+    // b would fail the same way, after a resolution: it waits, paused, saying why.
+    expect(await h.record(b)).toMatchObject({ status: 'paused', error: { code: 'storage-full' } })
     expect(h.resolver.calls).toHaveLength(1)
+    // Resuming forgets the reason.
+    expect(await h.manager.resume(downloadId(b))).not.toHaveProperty('error')
   })
 
   it('waits for the network, then resolves afresh', async () => {
@@ -672,5 +676,361 @@ describe('commands on many downloads', () => {
     await h.manager.idle()
     expect(await h.store.list()).toEqual([])
     expect(await h.storage.list()).toEqual([])
+  })
+})
+
+/** Twenty YouTube Music songs, served. */
+function twentySongs(h: ReturnType<typeof setup>): Track[] {
+  const songs = Array.from({ length: 20 }, (_, index) => song(`s${index}`))
+  for (const track of songs) h.serve(track, 1000)
+  return songs
+}
+
+describe('when YouTube or the request budget says stop', () => {
+  it('holds every YouTube download while the budget refuses, and fails none', async () => {
+    vi.useFakeTimers()
+    const h = setup()
+    const songs = twentySongs(h)
+    const free = archiveFile('free')
+    h.serve(free, 1000)
+    const working = h.resolver.handler
+    let refuse = true
+    h.resolver.handler = (track, request, call) => {
+      if (refuse && downloadLane(track) === 'youtube') {
+        throw new FxmError('RateLimited', 'The request budget refused', { retryAfterMs: 120_000 })
+      }
+      return working(track, request, call)
+    }
+    await h.manager.start()
+    await h.manager.enqueueAll([...songs, free])
+    await h.manager.idle()
+    const asked = () => h.resolver.calls.filter((call) => downloadLane(call.track) === 'youtube')
+    // One resolution per slot, then the lane waits; Internet Archive goes on meanwhile.
+    expect(asked()).toHaveLength(2)
+    expect((await h.record(free))?.status).toBe('completed')
+    for (const track of songs) {
+      expect(await h.record(track)).toMatchObject({ status: 'queued', attempts: 0 })
+    }
+    await vi.advanceTimersByTimeAsync(119_000)
+    expect(asked()).toHaveLength(2)
+    refuse = false
+    await vi.advanceTimersByTimeAsync(1_000)
+    await h.manager.idle()
+    for (const track of songs) expect((await h.record(track))?.status).toBe('completed')
+    expect(asked()).toHaveLength(22)
+  })
+
+  it('asks again after the longest wait when the budget names none', async () => {
+    vi.useFakeTimers()
+    const h = setup({ concurrency: 1 })
+    const track = song('a')
+    h.serve(track, 1000)
+    const working = h.resolver.handler
+    let refusals = 2
+    h.resolver.handler = (target, request, call) => {
+      if (refusals > 0) {
+        refusals -= 1
+        throw new FxmError('RateLimited', 'Slow down')
+      }
+      return working(target, request, call)
+    }
+    await h.manager.start()
+    await h.manager.enqueue(track)
+    await h.manager.idle()
+    expect(h.resolver.calls).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await h.manager.idle()
+    expect(h.resolver.calls).toHaveLength(2)
+    await vi.advanceTimersByTimeAsync(60_000)
+    await h.manager.idle()
+    expect(await h.record(track)).toMatchObject({ status: 'completed', attempts: 0 })
+  })
+
+  it('pauses the other YouTube downloads after a bot check, saying why', async () => {
+    const h = setup()
+    const songs = twentySongs(h)
+    const free = archiveFile('free')
+    h.serve(free, 1000)
+    const working = h.resolver.handler
+    h.resolver.handler = (track, request, call) => {
+      if (downloadLane(track) === 'youtube') throw new FxmError('BotCheck', 'Prove it')
+      return working(track, request, call)
+    }
+    await h.manager.start()
+    await h.manager.enqueueAll([...songs, free])
+    await h.manager.idle()
+    // The two that were running fail; the other eighteen never ask YouTube.
+    expect(h.resolver.calls.filter((call) => downloadLane(call.track) === 'youtube')).toHaveLength(
+      2,
+    )
+    const records = await Promise.all(songs.map((track) => h.record(track)))
+    const failed = records.filter((record) => record?.status === 'failed')
+    const paused = records.filter((record) => record?.status === 'paused')
+    expect(failed).toHaveLength(2)
+    expect(paused).toHaveLength(18)
+    for (const record of [...failed, ...paused]) {
+      expect(record?.error?.code).toBe('bot-check')
+    }
+    expect((await h.record(free))?.status).toBe('completed')
+  })
+
+  it('gives the slot back while a server asks to wait, and comes back after it', async () => {
+    vi.useFakeTimers()
+    const h = setup({ concurrency: 1 })
+    const [a, b] = [song('a'), song('b')]
+    h.serve(b, 1000)
+    const url = 'https://archive.test/a.flac'
+    h.server.add(url, testBytes(2000))
+    h.server.rule(url, { status: 503, statusTimes: 1, retryAfterSeconds: 120 })
+    const working = h.resolver.handler
+    h.resolver.handler = (track, request, call) =>
+      track === a
+        ? { candidate: downloadCandidate(a), stream: downloadStream(url, { ipBound: false }) }
+        : working(track, request, call)
+    await h.manager.start()
+    await h.manager.enqueueAll([a, b])
+    await h.manager.idle()
+    expect(await h.record(a)).toMatchObject({ status: 'queued', attempts: 1 })
+    expect((await h.record(b))?.status).toBe('completed')
+    await vi.advanceTimersByTimeAsync(120_000)
+    await h.manager.idle()
+    expect(await h.record(a)).toMatchObject({ status: 'completed', attempts: 0 })
+  })
+
+  it('fails a download whose server asks to wait too long', async () => {
+    const h = setup()
+    const track = song('a')
+    const url = 'https://archive.test/a.flac'
+    h.server.add(url, testBytes(2000))
+    h.server.rule(url, { status: 429, retryAfterSeconds: 3_600 })
+    h.resolver.handler = () => ({
+      candidate: downloadCandidate(track),
+      stream: downloadStream(url, { ipBound: false }),
+    })
+    await h.manager.start()
+    await h.manager.enqueue(track)
+    await h.manager.idle()
+    expect(await h.record(track)).toMatchObject({ status: 'failed', error: { code: 'server' } })
+    expect(h.server.requests).toHaveLength(1)
+  })
+})
+
+describe('progress and limits', () => {
+  it('retries a signed URL whose answer broke off, without resolving again', async () => {
+    const h = setup({ retryDelaysMs: [1] })
+    const track = song('a')
+    const bytes = h.serve(track, 5000)
+    h.server.rule(mediaUrl(track, 1), { breakAt: 1500 })
+    await h.manager.start()
+    await h.manager.enqueue(track)
+    await h.manager.idle()
+    expect((await h.record(track))?.status).toBe('completed')
+    expect(h.storage.bytes('file-1')).toEqual(bytes)
+    expect(h.resolver.reasonsFor(track)).toEqual(['start'])
+  })
+
+  it('keeps going while every attempt stores more of the file', async () => {
+    const h = setup({ maxAttempts: 3, retryDelaysMs: [1] })
+    const track = song('a')
+    const url = 'https://archive.test/a.flac'
+    const bytes = testBytes(8000)
+    h.server.add(url, bytes)
+    // A flaky connection: every answer breaks off after 512 bytes.
+    h.server.rule(url, { breakEvery: 512 })
+    h.resolver.handler = () => ({
+      candidate: downloadCandidate(track),
+      stream: downloadStream(url, { ipBound: false }),
+    })
+    await h.manager.start()
+    await h.manager.enqueue(track)
+    await h.manager.idle()
+    expect(await h.record(track)).toMatchObject({ status: 'completed', attempts: 0 })
+    expect(h.storage.bytes('file-1')).toEqual(bytes)
+    // Failures that store nothing still count.
+    h.server.rule(url, { breakEvery: 0 })
+    const again = song('b')
+    h.resolver.handler = () => ({
+      candidate: downloadCandidate(again),
+      stream: downloadStream(url, { ipBound: false }),
+    })
+    await h.manager.enqueue(again)
+    await h.manager.idle()
+    expect(await h.record(again)).toMatchObject({
+      status: 'failed',
+      attempts: 3,
+      error: { code: 'network' },
+    })
+  })
+
+  it('never completes an empty file', async () => {
+    const h = setup({ maxRefreshes: 1 })
+    const track = song('a')
+    h.serve(track, new Uint8Array(0))
+    const completed = vi.fn()
+    h.manager.on('completed', completed)
+    await h.manager.start()
+    await h.manager.enqueue(track)
+    await h.manager.idle()
+    expect(await h.record(track)).toMatchObject({ status: 'failed', error: { code: 'server' } })
+    expect(completed).not.toHaveBeenCalled()
+    expect(h.resolver.reasonsFor(track)).toEqual(['start', 'refresh'])
+  })
+
+  it('keeps nothing of a file far larger than the song can be', async () => {
+    const h = setup()
+    const track: Track = { ...song('a'), durationMs: 1_000 }
+    h.serve(track, 5000)
+    // The server says the file has 10 GiB.
+    h.server.rule(mediaUrl(track, 1), { claimSize: 10 * 1024 ** 3 })
+    await h.manager.start()
+    await h.manager.enqueue(track)
+    await h.manager.idle()
+    expect(await h.record(track)).toMatchObject({
+      status: 'failed',
+      bytesDone: 0,
+      error: { code: 'too-large' },
+    })
+    expect(h.storage.bytes('file-1')).toHaveLength(0)
+    expect(h.server.requests).toHaveLength(1)
+  })
+
+  it('never lets a file name that could be a path reach the storage', async () => {
+    const h = setup({ createFileName: () => '../../escape' })
+    const track = song('a')
+    h.serve(track, 1000)
+    await h.manager.start()
+    await h.manager.enqueue(track)
+    await h.manager.idle()
+    expect(await h.record(track)).toMatchObject({ status: 'failed', error: { code: 'unknown' } })
+    expect(await h.storage.list()).toEqual([])
+    expect(h.server.requests).toHaveLength(0)
+  })
+})
+
+describe('housekeeping', () => {
+  it('keeps the files of rows it cannot read, and "remove all" removes those rows', async () => {
+    const a = song('a')
+    // A row a newer FXM wrote, with a status this version doesn't know.
+    const newer = {
+      ...newDownloadRecord(a, 1),
+      status: 'converting',
+      file: 'file-newer',
+    } as unknown as DownloadRecord
+    const h = setup({ records: [newer] })
+    h.storage.put('file-newer', testBytes(10))
+    h.storage.put('orphan', testBytes(5))
+    await h.manager.start()
+    await h.manager.idle()
+    expect(await h.storage.list()).toEqual(['file-newer'])
+    expect(await h.manager.removeAll()).toEqual([])
+    await h.manager.idle()
+    expect(await h.store.rows()).toEqual([])
+    // Nothing names its file any more: the next start deletes it.
+    await h.manager.stop()
+    await h.manager.start()
+    await h.manager.idle()
+    expect(await h.storage.list()).toEqual([])
+  })
+
+  it('changes the store once for a command on many downloads', async () => {
+    const h = setup()
+    const tracks = [song('a'), song('b'), song('c')]
+    const updateMany = vi.spyOn(h.store, 'updateMany')
+    const update = vi.spyOn(h.store, 'update')
+    expect(await h.manager.enqueueAll(tracks)).toEqual({ queued: 3, present: 0, skipped: 0 })
+    expect((await h.manager.list()).map((record) => record.track.title)).toEqual(['a', 'b', 'c'])
+    await h.manager.pauseAll()
+    await h.manager.resumeAll()
+    expect(await h.manager.removeMany(tracks.map(downloadId))).toHaveLength(3)
+    expect(updateMany).toHaveBeenCalledTimes(4)
+    expect(update).not.toHaveBeenCalled()
+  })
+})
+
+describe('a storage that hangs', () => {
+  it('frees the slot of a download paused while its file never opens', async () => {
+    const memory = createMemoryDownloadStorage()
+    let hang = true
+    const storage: DownloadStorage = {
+      ...memory,
+      open: (file) => (hang ? new Promise(() => {}) : memory.open(file)),
+    }
+    const h = setup({ storage, concurrency: 1 })
+    const [a, b] = [song('a'), song('b')]
+    h.serve(a, 1000)
+    const bytes = h.serve(b, 1000)
+    await h.manager.start()
+    await h.manager.enqueueAll([a, b])
+    await vi.waitFor(() => expect(h.resolver.calls).toHaveLength(1))
+    hang = false
+    await h.manager.pause(downloadId(a))
+    await h.manager.idle()
+    expect((await h.record(a))?.status).toBe('paused')
+    expect((await h.record(b))?.status).toBe('completed')
+    expect(memory.bytes('file-2')).toEqual(bytes)
+  })
+
+  it('goes on when the storage never deletes a file', async () => {
+    vi.useFakeTimers()
+    const memory = createMemoryDownloadStorage()
+    let hang = false
+    const storage: DownloadStorage = {
+      ...memory,
+      remove: (file) => (hang ? new Promise(() => {}) : memory.remove(file)),
+    }
+    const h = setup({ storage })
+    const [a, b] = [song('a'), song('b')]
+    h.serve(a, 1000)
+    h.serve(b, 1000)
+    await h.manager.start()
+    await h.manager.enqueue(a)
+    await h.manager.idle()
+    hang = true
+    const removed = vi.fn()
+    h.manager.on('removed', removed)
+    await h.manager.remove(downloadId(a))
+    await h.manager.enqueue(b)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await h.manager.idle()
+    expect(removed).toHaveBeenCalledTimes(1)
+    expect(await h.record(a)).toBeUndefined()
+    expect((await h.record(b))?.status).toBe('completed')
+  })
+})
+
+describe('stopping', () => {
+  it('starts nothing once stopped, also a download a pass was starting just then', async () => {
+    const inner = createMemoryDownloadStore()
+    let open: (() => void) | undefined
+    const gate = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    let blocked = false
+    // A store that is slow to save the start of a download: stop() comes meanwhile.
+    const store: DownloadStore = {
+      ...inner,
+      async update(id, change) {
+        const current = await inner.get(id)
+        if (current?.status === 'queued' && change(current)?.status === 'downloading') {
+          blocked = true
+          await gate
+        }
+        return inner.update(id, change)
+      },
+    }
+    const h = setup({ store })
+    const track = song('a')
+    h.serve(track, 3000)
+    await h.manager.start()
+    await h.manager.enqueue(track)
+    await vi.waitFor(() => expect(blocked).toBe(true))
+    const stopped = h.manager.stop()
+    // A second stop waits for the same thing.
+    const again = h.manager.stop()
+    open?.()
+    await Promise.all([stopped, again])
+    expect(h.manager.running).toBe(false)
+    expect(h.server.requests).toHaveLength(0)
+    expect((await h.record(track))?.status).toBe('queued')
   })
 })

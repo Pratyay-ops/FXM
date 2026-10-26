@@ -1,10 +1,14 @@
-import { downloadId } from '@fxm/downloads'
+import { FxmError, formatId, type Track } from '@fxm/core'
+import { createMemoryDownloadStorage, downloadId, newDownloadRecord } from '@fxm/downloads'
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { track } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
 import { playlistPath } from '../library/paths'
+import { createPendingEnvironment } from './environment'
+import { ERROR_TEXT } from './format'
+import { getDownloads, resetDownloads } from './runtime'
 import { fakeMediaUrl, setupDownloads } from './testing'
 
 const main = () => within(screen.getByRole('main'))
@@ -21,6 +25,29 @@ afterEach(() => {
 async function openRowMenu(user: ReturnType<typeof renderApp>['user'], title: string) {
   await user.click(await main().findByRole('button', { name: `More options for ${title}` }))
   return screen.findByRole('menu')
+}
+
+/** A completed download of `song`, put straight into the store. */
+async function storeCompleted(downloads: ReturnType<typeof getDownloads>, song: Track) {
+  const record = {
+    ...newDownloadRecord(song, 1),
+    status: 'completed' as const,
+    file: 'kept',
+    bytesDone: 3,
+    bytesTotal: 3,
+  }
+  await downloads.store.update(record.id, () => record)
+}
+
+/**
+ * Waits until the list's menus know the downloads: the menu of `control`, a song with a
+ * completed download, offers "Remove download". Then closes it.
+ */
+async function waitForStatuses(user: ReturnType<typeof renderApp>['user'], control: string) {
+  const menu = await openRowMenu(user, control)
+  await within(menu).findByRole('menuitem', { name: 'Remove download' })
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('menu')).toBeNull())
 }
 
 describe('the Downloads tab', { timeout: 30_000 }, () => {
@@ -43,7 +70,8 @@ describe('the Downloads tab', { timeout: 30_000 }, () => {
     )
     await user.click(within(list).getByRole('button', { name: 'Pause downloading Song 1' }))
     const resume = await within(list).findByRole('button', { name: 'Resume downloading Song 1' })
-    expect(within(list).getByText(/Paused · 1\.0 KB of 3\.0 KB/)).toBeInTheDocument()
+    // Every byte that arrived before the pause is kept: 1,500 of them.
+    expect(await within(list).findByText(/Paused · 1\.5 KB of 3\.0 KB/)).toBeInTheDocument()
     await user.click(resume)
     const songs = await main().findByRole('list', { name: 'Songs in Downloads' })
     expect(await within(songs).findByText('Song 1')).toBeInTheDocument()
@@ -172,6 +200,21 @@ describe('the Downloads tab', { timeout: 30_000 }, () => {
     ).toBeInTheDocument()
   })
 
+  it('says why it paused the other downloads after a bot check', async () => {
+    const { downloads, resolver } = await setupDownloads()
+    resolver.handler = () => {
+      throw new FxmError('BotCheck', 'Sign in to confirm you’re not a bot')
+    }
+    await downloads.manager.enqueueAll([track(1), track(2), track(3)])
+    renderApp('/library?tab=downloads')
+    const list = await main().findByRole('list', { name: 'Downloads on their way' })
+    expect(
+      await within(list).findByText(`Paused · ${ERROR_TEXT['bot-check']}`, { exact: false }),
+    ).toBeInTheDocument()
+    expect(within(list).getAllByText(ERROR_TEXT['bot-check'], { exact: false })).toHaveLength(3)
+    expect(resolver.calls).toHaveLength(2)
+  })
+
   it('says when the browser cannot store downloads', async () => {
     await setupDownloads({ supported: false })
     renderApp('/library?tab=downloads')
@@ -190,13 +233,15 @@ describe('downloading from the library', { timeout: 30_000 }, () => {
     const { user } = renderApp('/library?tab=liked')
     await main().findByRole('list', { name: 'Songs in Liked songs' })
     const menu = await openRowMenu(user, 'Song 2')
-    await user.click(within(menu).getByRole('menuitem', { name: 'Download' }))
+    await user.click(await within(menu).findByRole('menuitem', { name: 'Download' }))
     expect(await screen.findByText('Downloading “Song 2”')).toBeInTheDocument()
     await waitFor(async () =>
       expect((await downloads.manager.get(track(2)))?.status).toBe('completed'),
     )
     const again = await openRowMenu(user, 'Song 2')
-    expect(within(again).getByRole('menuitem', { name: 'Remove download' })).toBeInTheDocument()
+    expect(
+      await within(again).findByRole('menuitem', { name: 'Remove download' }),
+    ).toBeInTheDocument()
   })
 
   it('downloads a selection, and a whole playlist', async () => {
@@ -222,10 +267,33 @@ describe('downloading from the library', { timeout: 30_000 }, () => {
   })
 
   it('offers no download where the bytes are unreadable', async () => {
-    await setupDownloads({ tier: 'lite' })
+    const { downloads } = await setupDownloads({ tier: 'lite' })
     await getLibrary().like(track(2))
+    await getLibrary().like(track(3))
+    await storeCompleted(downloads, track(3))
     const { user } = renderApp('/library?tab=liked')
     await main().findByRole('list', { name: 'Songs in Liked songs' })
+    await waitForStatuses(user, 'Song 3')
+    const menu = await openRowMenu(user, 'Song 2')
+    expect(within(menu).queryByRole('menuitem', { name: 'Download' })).toBeNull()
+  })
+
+  it('offers no download of a song the app cannot resolve yet', async () => {
+    await resetDownloads({
+      storage: createMemoryDownloadStorage(),
+      environment: createPendingEnvironment(),
+    })
+    const archive = {
+      ...track(2),
+      id: formatId('archive', 'track', 'item/song-2.flac'),
+      source: 'archive' as const,
+    }
+    await getLibrary().like(archive)
+    await getLibrary().like(track(3))
+    await storeCompleted(getDownloads(), track(3))
+    const { user } = renderApp('/library?tab=liked')
+    await main().findByRole('list', { name: 'Songs in Liked songs' })
+    await waitForStatuses(user, 'Song 3')
     const menu = await openRowMenu(user, 'Song 2')
     expect(within(menu).queryByRole('menuitem', { name: 'Download' })).toBeNull()
   })
@@ -238,7 +306,8 @@ describe('downloading from the library', { timeout: 30_000 }, () => {
     const { user } = renderApp('/library?tab=liked')
     await main().findByRole('list', { name: 'Songs in Liked songs' })
     const menu = await openRowMenu(user, 'Song 2')
-    await user.click(within(menu).getByRole('menuitem', { name: 'Cancel download' }))
+    // The menu follows the downloads as they are read.
+    await user.click(await within(menu).findByRole('menuitem', { name: 'Cancel download' }))
     await waitFor(async () =>
       expect(await downloads.store.get(downloadId(track(2)))).toBeUndefined(),
     )

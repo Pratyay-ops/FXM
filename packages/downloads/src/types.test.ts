@@ -119,6 +119,7 @@ describe('formats', () => {
 describe('isDownloadRecord', () => {
   it('accepts well-formed records', () => {
     expect(isDownloadRecord(record())).toBe(true)
+    expect(isDownloadRecord(record({ file: '0b6d3c1e-5f0a-4c8e-9a51-2f7d3b9e8c41' }))).toBe(true)
     expect(isDownloadRecord(newDownloadRecord(track, 0))).toBe(true)
     expect(
       isDownloadRecord(
@@ -135,6 +136,11 @@ describe('isDownloadRecord', () => {
     ['negative bytes', { ...record(), bytesDone: -1 }],
     ['fractional bytes', { ...record(), bytesTotal: 1.5 }],
     ['an empty file name', { ...record(), file: '' }],
+    ['a file name that climbs out of the folder', { ...record(), file: '../../secrets' }],
+    ['a file name with a separator', { ...record(), file: 'a/b' }],
+    ['a file name with a dot', { ...record(), file: 'a.webm' }],
+    ['a Windows device name', { ...record(), file: 'NUL' }],
+    ['an overlong file name', { ...record(), file: 'a'.repeat(65) }],
     ['a broken track', { ...record(), track: { ...track, id: 'nope' } }],
     ['a broken candidate', { ...record(), candidate: { source: 'ytm', ref: '' } }],
     ['a broken format', { ...record(), format: { codec: 'mp9' } }],

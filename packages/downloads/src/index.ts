@@ -10,12 +10,15 @@
 export {
   type DownloadAvailability,
   downloadAvailability,
+  downloadLane,
   isDownloadableStream,
 } from './availability'
 export type { Listener } from './emitter'
+export { MAX_DOWNLOAD_BYTES, maxDownloadBytes, peakKbps } from './limits'
 export {
   ALWAYS_ONLINE,
   DOWNLOAD_DEFAULTS,
+  DOWNLOAD_WAITS,
   type DownloadEventMap,
   DownloadManager,
   type DownloadManagerOptions,
@@ -45,17 +48,23 @@ export {
   type ResolvedDownload,
 } from './resolver'
 export {
+  assertSafeFileName,
   createMemoryDownloadStorage,
   type DownloadStorage,
   type DownloadWriter,
+  isSafeFileName,
   isStorageFullError,
+  isStorageUnavailableError,
   type MemoryDownloadStorage,
   type MemoryDownloadStorageOptions,
   storageFullError,
+  storageUnavailableError,
 } from './storage'
 export {
   createMemoryDownloadStore,
+  type DownloadRow,
   type DownloadStore,
+  fileOfRow,
   type MemoryDownloadStore,
   type RecordChange,
 } from './store'
@@ -63,6 +72,7 @@ export {
   DEFAULT_WRITE_BYTES,
   DownloadHttpError,
   DownloadNetworkError,
+  type DownloadNetworkPhase,
   DownloadProtocolError,
   type DownloadProtocolProblem,
   parseContentRange,

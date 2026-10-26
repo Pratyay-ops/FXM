@@ -1,7 +1,7 @@
 import { formatId, type Track } from '@fxm/core'
 import { TEST_CAPABILITIES, testCandidate, testSpotifyTrack, testTrack } from '@fxm/player/testing'
 import { describe, expect, it } from 'vitest'
-import { downloadAvailability, isDownloadableStream } from './availability'
+import { downloadAvailability, downloadLane, isDownloadableStream } from './availability'
 
 type Tier = keyof typeof TEST_CAPABILITIES
 
@@ -60,6 +60,39 @@ describe('downloadAvailability', () => {
       reason: 'hidden',
     })
     expect(downloadAvailability(video, inTier('full', 'all'))).toEqual({ available: true })
+  })
+
+  it('offers only what the resolver can resolve', () => {
+    const onlyArchive = { canResolve: (track: Pick<Track, 'source'>) => track.source === 'archive' }
+    expect(downloadAvailability(archive, inTier('free'), onlyArchive)).toEqual({ available: true })
+    expect(downloadAvailability(jamendo, inTier('free'), onlyArchive)).toEqual({
+      available: false,
+      reason: 'no-source',
+    })
+    expect(downloadAvailability(youtube, inTier('full'), onlyArchive)).toEqual({
+      available: false,
+      reason: 'no-source',
+    })
+    // Unreadable bytes are the more telling reason.
+    expect(downloadAvailability(youtube, inTier('lite'), onlyArchive)).toEqual({
+      available: false,
+      reason: 'needs-full-access',
+    })
+    // A resolver that doesn't say resolves everything.
+    expect(downloadAvailability(jamendo, inTier('free'), {})).toEqual({ available: true })
+  })
+})
+
+describe('downloadLane', () => {
+  it('puts everything that needs YouTube in one lane', () => {
+    expect([youtube, plainYouTube, spotify, video].map(downloadLane)).toEqual([
+      'youtube',
+      'youtube',
+      'youtube',
+      'youtube',
+    ])
+    expect(downloadLane(archive)).toBe('archive')
+    expect(downloadLane(jamendo)).toBe('jamendo')
   })
 })
 

@@ -1,5 +1,5 @@
 import { entityKey } from '@fxm/core'
-import { type DownloadRecord, isPendingDownload } from '@fxm/downloads'
+import type { DownloadRecord } from '@fxm/downloads'
 import {
   Info,
   type LucideIcon,
@@ -33,9 +33,14 @@ import {
 } from './actions'
 import { RemoveDownloadDialog } from './download-button'
 import { formatBytes, progressOf, statusLine } from './format'
-import { useCanDownload, useDownloadContext, useDownloadRecords, useStorageInfo } from './hooks'
+import {
+  useCanDownload,
+  useDownloadContext,
+  useDownloadRecords,
+  useDownloadSupport,
+  useStorageInfo,
+} from './hooks'
 import { ProgressBar } from './progress'
-import { getDownloads } from './runtime'
 
 function subscribeOnline(listener: () => void): () => void {
   window.addEventListener('online', listener)
@@ -338,7 +343,7 @@ function MissingNotice({ rows }: { rows: readonly TrackRow[] }) {
 export function DownloadsPanel() {
   const live = useDownloadRecords()
   const playlist = usePlaylistView(DOWNLOADS_PLAYLIST_ID)
-  const { supported } = getDownloads()
+  const support = useDownloadSupport()
   const ctx = useDownloadContext()
   if (live.status === 'loading') return null
   if (live.status === 'error') {
@@ -349,20 +354,20 @@ export function DownloadsPanel() {
       </Notice>
     )
   }
-  const records = live.data
-  const pending = records.filter(isPendingDownload)
+  const { pending, completed } = live.data
+  const records = [...pending, ...completed]
   const known = new Set(records.map((record) => record.id))
   const rows = playlist.status === 'ready' ? (playlist.data?.rows ?? []) : []
   const missing = rows.filter((row) => !known.has(entityKey(row.id)))
   return (
     <div className="space-y-6">
-      {!supported && (
+      {support === 'unsupported' && (
         <Notice icon={Info}>
           This browser can't store downloads. A current Chrome, Edge, Firefox or Safari can, outside
           private windows.
         </Notice>
       )}
-      {supported && !ctx.capabilities.mediaBytes && (
+      {support === 'supported' && !ctx.capabilities.mediaBytes && (
         <Notice icon={Info}>
           Downloading songs from YouTube Music takes FXM Connect, the desktop app or the Android
           app. Songs from Internet Archive and Jamendo download in any browser.

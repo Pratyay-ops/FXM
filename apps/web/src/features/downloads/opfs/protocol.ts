@@ -6,8 +6,13 @@
  * @module
  */
 
-/** One request to the worker. Offsets and sizes are in bytes. */
+/**
+ * One request to the worker. Offsets and sizes are in bytes. `probe` asks whether the worker can
+ * write downloads at all: it answers 1 when it reaches the downloads folder and has sync access
+ * handles, 0 otherwise.
+ */
 export type OpfsRequest =
+  | { op: 'probe' }
   | { op: 'open'; file: string }
   | { op: 'size'; file: string }
   | { op: 'write'; file: string; offset: number; data: ArrayBuffer }
@@ -17,8 +22,8 @@ export type OpfsRequest =
   | { op: 'remove'; file: string }
 
 /**
- * The worker's answer: a number for `open` and `size` (the file's size) and `write` (the bytes
- * written), nothing otherwise; or the error's `DOMException` name and message.
+ * The worker's answer: a number for `open` and `size` (the file's size), `write` (the bytes
+ * written) and `probe`, nothing otherwise; or the error's `DOMException` name and message.
  */
 export type OpfsReply = { ok: true; value?: number } | { ok: false; name: string; message: string }
 

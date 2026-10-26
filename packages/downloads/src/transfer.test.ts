@@ -169,16 +169,20 @@ describe('transfer', () => {
     expect(storage.bytes('a')).toHaveLength(2048)
   })
 
-  it('rejects a request without an answer as a network error', async () => {
+  it('rejects a request without an answer as a network error of the request', async () => {
     const { server, options } = await setup()
     server.rule(URL, { dropRequests: 1 })
-    await expect(transfer(options())).rejects.toBeInstanceOf(DownloadNetworkError)
+    const error = await transfer(options()).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(DownloadNetworkError)
+    expect(error).toMatchObject({ phase: 'request' })
   })
 
-  it('keeps the bytes of an answer that broke off', async () => {
+  it('keeps the bytes of an answer that broke off, a network error of the body', async () => {
     const { server, file, storage, options } = await setup()
     server.rule(URL, { breakAt: 1500 })
-    await expect(transfer(options())).rejects.toBeInstanceOf(DownloadNetworkError)
+    const error = await transfer(options()).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(DownloadNetworkError)
+    expect(error).toMatchObject({ phase: 'body' })
     expect(storage.bytes('a')).toEqual(file.slice(0, 1500))
   })
 
@@ -189,7 +193,96 @@ describe('transfer', () => {
         status: 206,
         headers: { 'Content-Range': 'bytes 0-2047/5000', 'Content-Length': '2048' },
       })
-    await expect(transfer(options({ fetch: short }))).rejects.toThrow(/broke off after 100 of 2048/)
+    const error = await transfer(options({ fetch: short })).catch((caught: unknown) => caught)
+    expect(error).toMatchObject({ message: expect.stringMatching(/broke off after 100 of 2048/) })
+    expect(error).toMatchObject({ name: 'DownloadNetworkError', phase: 'body' })
+  })
+
+  it.each<[string, () => Response]>([
+    [
+      'a 416 that says the file is empty',
+      () =>
+        new Response(null, {
+          status: 416,
+          headers: { 'Content-Range': 'bytes */0' },
+        }),
+    ],
+    [
+      'an empty 200',
+      () =>
+        new Response(new Uint8Array(0), {
+          status: 200,
+          headers: { 'Content-Length': '0', 'Content-Type': 'audio/webm' },
+        }),
+    ],
+    ['an empty 206 without a size', () => new Response(new Uint8Array(0), { status: 206 })],
+  ])('refuses an empty file: %s', async (_label, answer) => {
+    const { facts, options } = await setup()
+    const empty: typeof fetch = async () => answer()
+    await expect(transfer(options({ fetch: empty }))).rejects.toMatchObject({
+      name: 'DownloadProtocolError',
+      problem: 'not-media',
+    })
+    // An empty answer teaches nothing about the file.
+    expect(facts).toEqual([])
+  })
+
+  it('never trusts a size of zero from an earlier answer', async () => {
+    const { server, file, storage, options } = await setup(1000)
+    expect((await transfer(options({ total: 0 }))).total).toBe(1000)
+    expect(storage.bytes('a')).toEqual(file)
+    expect(server.requests).toHaveLength(1)
+  })
+
+  it('refuses a file announced over the limit before reading it', async () => {
+    const { server, storage, options } = await setup()
+    await expect(transfer(options({ maxBytes: 4999 }))).rejects.toMatchObject({
+      name: 'DownloadProtocolError',
+      problem: 'too-large',
+    })
+    expect(storage.bytes('a')).toHaveLength(0)
+    // Also when the server ignores the range and says the size with Content-Length.
+    server.rule(URL, { ignoreRange: true })
+    await expect(transfer(options({ maxBytes: 4999 }))).rejects.toMatchObject({
+      problem: 'too-large',
+    })
+    expect(storage.bytes('a')).toHaveLength(0)
+    // And a size an earlier answer told.
+    await expect(transfer(options({ total: 5000, maxBytes: 4999 }))).rejects.toMatchObject({
+      problem: 'too-large',
+    })
+    expect((await transfer(options({ maxBytes: 5000 }))).total).toBe(5000)
+  })
+
+  it.each<[string, Parameters<FakeMediaServer['rule']>[1]]>([
+    ['in ranges', { hideContentRange: true, hideContentLength: true }],
+    ['in one answer that ignores the range', { ignoreRange: true, hideContentLength: true }],
+  ])('keeps nothing past the limit of a file whose size is hidden, %s', async (_label, rules) => {
+    const { server, file, storage, options } = await setup()
+    server.rule(URL, rules)
+    await expect(transfer(options({ maxBytes: 3000 }))).rejects.toMatchObject({
+      problem: 'too-large',
+    })
+    const stored = storage.bytes('a') ?? new Uint8Array(0)
+    expect(stored.length).toBeLessThanOrEqual(3000)
+    expect(stored).toEqual(file.slice(0, stored.length))
+  })
+
+  it("learns nothing from an error page's headers", async () => {
+    const { facts, options } = await setup()
+    const refused: typeof fetch = async () =>
+      new Response('<html>Forbidden</html>', {
+        status: 403,
+        headers: { 'Content-Type': 'text/html', 'Last-Modified': 'Mon, 01 Jan 2024 00:00:00 GMT' },
+      })
+    await expect(transfer(options({ fetch: refused }))).rejects.toMatchObject({ status: 403 })
+    const page: typeof fetch = async () =>
+      new Response('<html></html>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html', 'Last-Modified': 'Mon, 01 Jan 2024 00:00:00 GMT' },
+      })
+    await expect(transfer(options({ fetch: page }))).rejects.toMatchObject({ problem: 'not-media' })
+    expect(facts).toEqual([])
   })
 
   it('notices a file that changed on the server', async () => {
@@ -224,6 +317,24 @@ describe('transfer', () => {
     const { server, options } = await setup()
     server.rule(URL, { page: true })
     await expect(transfer(options())).rejects.toMatchObject({ problem: 'not-media' })
+  })
+
+  it.each([
+    'application/xml',
+    'application/xhtml+xml',
+    'text/xml; charset=utf-8',
+    'application/problem+json',
+    'application/json',
+  ])('refuses an error body served as %s', async (type) => {
+    const { options } = await setup()
+    const answer: typeof fetch = async () =>
+      new Response('<Error><Code>AccessDenied</Code></Error>', {
+        status: 206,
+        headers: { 'Content-Type': type, 'Content-Range': 'bytes 0-39/40' },
+      })
+    await expect(transfer(options({ fetch: answer }))).rejects.toMatchObject({
+      problem: 'not-media',
+    })
   })
 
   it('refuses an answer with other bytes than asked for', async () => {

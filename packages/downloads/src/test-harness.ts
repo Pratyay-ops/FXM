@@ -5,7 +5,7 @@
  * @module
  */
 
-import type { NetworkCapabilities, ProviderContext, Track } from '@fxm/core'
+import { formatId, type NetworkCapabilities, type ProviderContext, type Track } from '@fxm/core'
 import { TEST_CAPABILITIES, testTrack } from '@fxm/player/testing'
 import { DownloadManager, type DownloadManagerOptions } from './manager'
 import { createMemoryDownloadStorage } from './storage'
@@ -109,4 +109,12 @@ export function setup(options: HarnessOptions = {}) {
 /** A YouTube Music song called `name`. */
 export function song(name: string): Track {
   return testTrack(name)
+}
+
+/** An Internet Archive file called `name`, whose download never needs YouTube. */
+export function archiveFile(name: string): Track {
+  return testTrack(name, {
+    id: formatId('archive', 'track', `item/${name}.flac`),
+    source: 'archive',
+  })
 }

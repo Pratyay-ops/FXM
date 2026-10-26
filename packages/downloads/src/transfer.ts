@@ -29,13 +29,25 @@ export class DownloadHttpError extends Error {
 }
 
 /**
- * The request failed without an answer (offline, a dropped connection, or on the web a CORS
- * failure, which is what a googlevideo redirect to another host looks like), or the answer broke
- * off before its end.
+ * Where a {@link DownloadNetworkError} happened:
+ *
+ * - `request`: the request got no answer at all (offline, a dropped connection, or on the web a
+ *   CORS failure, which is what a googlevideo redirect to another host looks like)
+ * - `body`: an answer came, but its body broke off or ended short, so the URL itself works
  */
+export type DownloadNetworkPhase = 'request' | 'body'
+
+/** The request failed without an answer, or the answer broke off before its end. */
 export class DownloadNetworkError extends Error {
   /** Always `DownloadNetworkError`. */
   override readonly name = 'DownloadNetworkError'
+  /** Whether the request got no answer, or its body broke off (see {@link DownloadNetworkPhase}). */
+  readonly phase: DownloadNetworkPhase
+
+  constructor(message: string, phase: DownloadNetworkPhase, options?: ErrorOptions) {
+    super(message, options)
+    this.phase = phase
+  }
 }
 
 /**
@@ -45,7 +57,8 @@ export class DownloadNetworkError extends Error {
  * - `size-changed`: the file's size differs from what an earlier answer said
  * - `validator-changed`: the file's `Last-Modified` or `ETag` differs from an earlier answer's
  * - `beyond-end`: the stored bytes go past the end of the file
- * - `not-media`: the server sent a page or a message instead of the file
+ * - `not-media`: the server sent a page, a message or an empty file instead of the file
+ * - `too-large`: the file is larger than {@link TransferOptions.maxBytes}
  */
 export type DownloadProtocolProblem =
   | 'range-mismatch'
@@ -53,6 +66,7 @@ export type DownloadProtocolProblem =
   | 'validator-changed'
   | 'beyond-end'
   | 'not-media'
+  | 'too-large'
 
 /** An answer the transfer can't use (see {@link DownloadProtocolProblem}). */
 export class DownloadProtocolError extends Error {
@@ -96,6 +110,12 @@ export interface TransferOptions {
   validator?: string
   /** The most bytes to ask for in one request. */
   chunkBytes: number
+  /**
+   * The largest file to accept (see `maxDownloadBytes`): a larger size announced by the server,
+   * or more bytes than this arriving, rejects with a `too-large` {@link DownloadProtocolError},
+   * and nothing past the limit is written. Default: no limit.
+   */
+  maxBytes?: number
   /** How many received bytes to collect before each write. Default: 256 KiB. */
   writeBytes?: number
   /** Stops the transfer. */
@@ -172,10 +192,28 @@ function lengthOf(headers: Pick<Headers, 'get'>): number | undefined {
   return Number(header)
 }
 
-/** Whether the answer is a page or a message rather than a media file. */
+/**
+ * Whether the answer is a page or a message rather than a media file: text, JSON, HTML or XML
+ * (an error page served as `application/xhtml+xml` or `application/xml` included).
+ */
 function isNotMedia(headers: Pick<Headers, 'get'>): boolean {
   const type = headers.get('content-type')?.toLowerCase().trim() ?? ''
-  return type.startsWith('text/') || type.startsWith('application/json')
+  const essence = type.split(';', 1)[0]?.trim() ?? ''
+  return (
+    essence.startsWith('text/') ||
+    essence === 'application/json' ||
+    essence.endsWith('+json') ||
+    essence.endsWith('/xml') ||
+    essence.endsWith('+xml') ||
+    essence.endsWith('/html')
+  )
+}
+
+function tooLarge(size: number, maxBytes: number): DownloadProtocolError {
+  return new DownloadProtocolError(
+    'too-large',
+    `The file is ${size} bytes or more, over the limit of ${maxBytes}`,
+  )
 }
 
 function hostOf(url: string): string {
@@ -213,7 +251,9 @@ async function request(options: TransferOptions, range: string): Promise<Respons
     })
   } catch (error) {
     if (options.signal.aborted) throw abortReason(options.signal, error)
-    throw new DownloadNetworkError(`Couldn't reach ${hostOf(options.url)}`, { cause: error })
+    throw new DownloadNetworkError(`Couldn't reach ${hostOf(options.url)}`, 'request', {
+      cause: error,
+    })
   }
 }
 
@@ -244,11 +284,15 @@ async function pipe(
     position += bytes.length
     options.onProgress?.(position, total)
   }
+  const { maxBytes } = options
   const take = async (chunk: Uint8Array) => {
     const from = received
     received += chunk.length
     if (received <= skip) return
     const piece = from < skip ? chunk.subarray(skip - from) : chunk
+    const end = position + pendingBytes + piece.length
+    // Nothing past the limit is kept: the bytes before it are written as the pipe ends.
+    if (maxBytes !== undefined && end > maxBytes) throw tooLarge(end, maxBytes)
     pending.push(piece)
     pendingBytes += piece.length
     if (pendingBytes >= writeBytes) await write()
@@ -260,8 +304,9 @@ async function pipe(
       buffer = await response.arrayBuffer()
     } catch (error) {
       if (signal.aborted) throw abortReason(signal, error)
-      throw new DownloadNetworkError('The answer broke off', { cause: error })
+      throw new DownloadNetworkError('The answer broke off', 'body', { cause: error })
     }
+    // One piece: `take` keeps all of it, or rejects before keeping any (`too-large`).
     await take(new Uint8Array(buffer))
     await write()
     return received
@@ -275,7 +320,7 @@ async function pipe(
         chunk = await reader.read()
       } catch (error) {
         if (signal.aborted) throw abortReason(signal, error)
-        throw new DownloadNetworkError('The answer broke off', { cause: error })
+        throw new DownloadNetworkError('The answer broke off', 'body', { cause: error })
       }
       if (chunk.done) break
       await take(chunk.value)
@@ -306,8 +351,9 @@ async function pipe(
  * - A `200` answer means the server ignored the range and sends the whole file: the bytes
  *   already stored are skipped, the rest written.
  * - Other statuses reject with a {@link DownloadHttpError}; a request without an answer, or an
- *   answer that breaks off, with a {@link DownloadNetworkError}; an answer that doesn't fit the
- *   file with a {@link DownloadProtocolError}. A storage failure rejects as the storage threw it.
+ *   answer that breaks off, with a {@link DownloadNetworkError} (its `phase` says which); an
+ *   answer that doesn't fit the file, an empty file, or a file over `maxBytes`, with a
+ *   {@link DownloadProtocolError}. A storage failure rejects as the storage threw it.
  * - Aborting rejects with the signal's reason.
  */
 export async function transfer(options: TransferOptions): Promise<TransferResult> {
@@ -315,14 +361,24 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
   if (!Number.isSafeInteger(chunkBytes) || chunkBytes <= 0) {
     throw new RangeError(`chunkBytes must be a positive integer, not ${chunkBytes}`)
   }
+  const { maxBytes } = options
   let offset = options.start
-  let total = options.total
+  // A size of zero is an empty answer, never something an earlier answer can have told.
+  let total = options.total === 0 ? undefined : options.total
   let validator = options.validator
   const learned = (facts: TransferFacts) => {
+    if (facts.total === 0) return
     if (facts.total !== undefined || facts.validator !== undefined) options.onFacts?.(facts)
   }
   const result = (): TransferResult =>
     validator === undefined ? { total: offset } : { total: offset, validator }
+  /** Rejects a size the server announced over the limit, before any of its bytes are read. */
+  const checkSize = async (size: number | undefined, response?: Response) => {
+    if (maxBytes === undefined || size === undefined || size <= maxBytes) return
+    await response?.body?.cancel().catch(() => {})
+    throw tooLarge(size, maxBytes)
+  }
+  await checkSize(total)
   for (;;) {
     if (total !== undefined && offset >= total) {
       if (offset > total) {
@@ -331,12 +387,25 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
           `${offset} bytes stored of a ${total}-byte file`,
         )
       }
+      // An empty "file" is an error page by another name: never a download.
+      if (total === 0) throw new DownloadProtocolError('not-media', 'The server sent an empty file')
       return result()
     }
     signal.throwIfAborted()
     const end = total === undefined ? offset + chunkBytes : Math.min(offset + chunkBytes, total)
     const response = await request(options, `bytes=${offset}-${end - 1}`)
     const { headers, status } = response
+    // Only an answer about the file itself tells anything about it: an error page's
+    // `Last-Modified` is the page's.
+    if (status !== 200 && status !== 206 && status !== 416) {
+      await response.body?.cancel().catch(() => {})
+      const retryAfter = parseRetryAfter(headers.get('retry-after'))
+      throw new DownloadHttpError(status, `${hostOf(options.url)} answered ${status}`, retryAfter)
+    }
+    if (status !== 416 && isNotMedia(headers)) {
+      await response.body?.cancel().catch(() => {})
+      throw new DownloadProtocolError('not-media', `${hostOf(options.url)} sent a page, not a file`)
+    }
     const seen = validatorOf(headers)
     if (validatorChanged(validator, seen)) {
       await response.body?.cancel().catch(() => {})
@@ -363,15 +432,6 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
       }
       throw new DownloadHttpError(416, `${hostOf(options.url)} refused the range`)
     }
-    if (status !== 200 && status !== 206) {
-      await response.body?.cancel().catch(() => {})
-      const retryAfter = parseRetryAfter(headers.get('retry-after'))
-      throw new DownloadHttpError(status, `${hostOf(options.url)} answered ${status}`, retryAfter)
-    }
-    if (isNotMedia(headers)) {
-      await response.body?.cancel().catch(() => {})
-      throw new DownloadProtocolError('not-media', `${hostOf(options.url)} sent a page, not a file`)
-    }
     const length = lengthOf(headers)
     if (status === 200) {
       // The whole file, whatever the range said.
@@ -380,10 +440,14 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
         throw new DownloadProtocolError('size-changed', `The file is ${length} bytes, not ${total}`)
       }
       const size = length ?? total
+      await checkSize(size, response)
       const received = await pipe(response, options, offset, offset, size)
       offset = Math.max(offset, received)
       if (size !== undefined && received < size) {
-        throw new DownloadNetworkError(`The answer broke off after ${received} of ${size} bytes`)
+        throw new DownloadNetworkError(
+          `The answer broke off after ${received} of ${size} bytes`,
+          'body',
+        )
       }
       if (total === undefined) learned({ total: offset })
       total = offset
@@ -405,6 +469,7 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
           `The file is ${range.total} bytes, not ${total}`,
         )
       }
+      await checkSize(range.total, response)
       total = range.total
       learned({ total })
     }
@@ -413,7 +478,10 @@ export async function transfer(options: TransferOptions): Promise<TransferResult
     const received = await pipe(response, options, offset, 0, total)
     offset += received
     if (expected !== undefined && received < expected) {
-      throw new DownloadNetworkError(`The answer broke off after ${received} of ${expected} bytes`)
+      throw new DownloadNetworkError(
+        `The answer broke off after ${received} of ${expected} bytes`,
+        'body',
+      )
     }
     // Without a readable size, a chunk shorter than asked for only suggests the end: a server
     // may also cap its answers. The next range confirms it with a 416 (see above) or nothing,

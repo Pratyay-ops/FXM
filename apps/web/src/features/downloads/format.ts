@@ -47,9 +47,10 @@ export const ERROR_TEXT: Readonly<Record<DownloadErrorCode, string>> = {
   network: 'The connection kept dropping',
   server: 'The server kept refusing. Try again later',
   'storage-full': 'There is no room left for downloads',
-  storage: "This browser window can't store downloads. Private windows often can't",
+  storage: "This window couldn't store the download. Reload FXM and try again",
   'bot-check': 'YouTube asked for a check that FXM can’t pass. Try again later',
   'file-missing': 'The downloaded file is gone. Download it again',
+  'too-large': 'The file was far larger than this song can be, so FXM didn’t keep it',
   unknown: 'Something went wrong',
 }
 
@@ -62,6 +63,8 @@ export function statusLine(record: DownloadRecord, online: boolean): string {
       if (!online) return `Waiting for a connection · ${bytesLabel(record)}`
       return record.bytesDone === 0 ? 'Starting' : bytesLabel(record)
     case 'paused':
+      // Paused on the manager's own account: say why (no room, a bot check).
+      if (record.error !== undefined) return `Paused · ${ERROR_TEXT[record.error.code]}`
       return record.bytesDone === 0 ? 'Paused' : `Paused · ${bytesLabel(record)}`
     case 'failed':
       return ERROR_TEXT[record.error?.code ?? 'unknown']

@@ -19,6 +19,7 @@ import {
   type StreamOption,
   type Track,
 } from '@fxm/core'
+import { isSafeFileName } from './storage'
 
 /** Every {@link DownloadStatus}, in the order a download usually goes through them. */
 export const DOWNLOAD_STATUSES = [
@@ -56,6 +57,7 @@ export const DOWNLOAD_ERROR_CODES = [
   'storage',
   'bot-check',
   'file-missing',
+  'too-large',
   'unknown',
 ] as const
 
@@ -73,14 +75,16 @@ export const DOWNLOAD_ERROR_CODES = [
  * - `network`: the network failed too often
  * - `server`: the server refused or failed too often
  * - `storage-full`: the device, or the browser's share of it, is full
- * - `storage`: the storage failed otherwise, e.g. a private window blocks it
+ * - `storage`: the storage can't work here, e.g. a private window blocks it or its worker failed
  * - `bot-check`: YouTube wants proof of a real user
  * - `file-missing`: the downloaded file is gone from storage
+ * - `too-large`: the server sent far more than the track can take (see `maxDownloadBytes`), so
+ *   nothing was kept
  * - `unknown`: anything else
  */
 export type DownloadErrorCode = (typeof DOWNLOAD_ERROR_CODES)[number]
 
-/** Why a download failed, as stored on its record. */
+/** Why a download failed, or why the manager paused it, as stored on its record. */
 export interface DownloadError {
   /** The reason, for the UI. */
   readonly code: DownloadErrorCode
@@ -135,7 +139,10 @@ export interface DownloadRecord {
   readonly bytesDone: number
   /** The file's size in bytes, once known. */
   readonly bytesTotal?: number
-  /** The name of its file in the {@link DownloadStorage}, once one was created. */
+  /**
+   * The name of its file in the `DownloadStorage`, once one was created: always a name
+   * `isSafeFileName` accepts.
+   */
   readonly file?: string
   /** The audio being downloaded, once resolved: a resume asks for the same audio. */
   readonly candidate?: AudioCandidate
@@ -146,9 +153,15 @@ export interface DownloadRecord {
    * whose validator differs starts the file over.
    */
   readonly validator?: string
-  /** Failed attempts in the current run, reset when the download completes or is retried. */
+  /**
+   * Failed attempts in a row that stored nothing new, reset when an attempt stores bytes, when
+   * the download completes and when it is retried.
+   */
   readonly attempts: number
-  /** Why it failed, while `failed`. */
+  /**
+   * Why it failed, while `failed`; why the manager paused it, while `paused` on the manager's
+   * own account (the storage is full, YouTube asked for a bot check). Resuming clears it.
+   */
   readonly error?: DownloadError
 }
 
@@ -334,7 +347,7 @@ export function isDownloadRecord(value: unknown): value is DownloadRecord {
     optional(record.completedAt, isTime) &&
     isByteCount(record.bytesDone) &&
     optional(record.bytesTotal, isByteCount) &&
-    optional(record.file, (file) => typeof file === 'string' && file !== '') &&
+    optional(record.file, isSafeFileName) &&
     optional(record.candidate, isCandidateLike) &&
     optional(record.format, isDownloadFileFormat) &&
     optional(record.validator, (validator) => typeof validator === 'string') &&
