@@ -8,6 +8,7 @@
  */
 
 export { matchTrack } from './engine'
+export * from './eval'
 export { addMatchResponse, nextMatchRequest, runMatch, videoSongsQuery } from './plan'
 export { parseReleaseDescription } from './release'
 export {
