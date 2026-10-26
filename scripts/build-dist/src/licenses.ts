@@ -480,8 +480,16 @@ export interface InventoryEntry {
   readonly modules: readonly string[]
   /** The files the build emitted that are not chunks, with the source files they came from. */
   readonly assets: readonly { readonly fileName: string; readonly sources: readonly string[] }[]
-  /** The chunks the build emitted, with the modules in each. */
-  readonly chunks?: readonly { readonly fileName: string; readonly modules: readonly string[] }[]
+  /**
+   * The chunks the build emitted, with the modules in each, and the chunks each imports
+   * statically and dynamically (file names, as `fileName`), where the bundler says.
+   */
+  readonly chunks?: readonly {
+    readonly fileName: string
+    readonly modules: readonly string[]
+    readonly imports?: readonly string[]
+    readonly dynamicImports?: readonly string[]
+  }[]
 }
 
 /** Reads a part's inventory file: one JSON object per line, one line per build. */
@@ -508,7 +516,11 @@ export function readInventory(file: string): InventoryEntry[] {
             Array.isArray(entry.chunks) &&
             entry.chunks.every(
               (chunk) =>
-                isObject(chunk) && typeof chunk.fileName === 'string' && strings(chunk.modules),
+                isObject(chunk) &&
+                typeof chunk.fileName === 'string' &&
+                strings(chunk.modules) &&
+                (chunk.imports === undefined || strings(chunk.imports)) &&
+                (chunk.dynamicImports === undefined || strings(chunk.dynamicImports)),
             )
           ))
       ) {

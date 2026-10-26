@@ -3,7 +3,9 @@
  * (licenses.ts): every module the bundler loaded, the source files of every file it emits
  * other than chunks, and the modules of every chunk. That shows the stylesheets, fonts, images
  * and WebAssembly a build takes from npm packages, which source maps don't, and the chunks that
- * hold only the bundler's own runtime, which have no source map.
+ * hold only the bundler's own runtime, which have no source map. Each chunk also lists the
+ * chunks it imports, statically and dynamically, which the web app's performance budgets read
+ * (apps/web/e2e/budgets) from the copy make dist keeps in dist/inventory/.
  *
  * Each build of each environment (Astro builds a prerender and a client environment) appends
  * one JSON line to the file named by FXM_BUNDLE_INVENTORY, which make dist sets for the parts
@@ -25,6 +27,9 @@ interface BundleOutput {
   readonly originalFileNames?: readonly string[]
   /** Rollup and Rolldown: the modules in an emitted chunk. */
   readonly moduleIds?: readonly string[]
+  /** Rollup and Rolldown: the chunks a chunk imports statically, and dynamically. */
+  readonly imports?: readonly string[]
+  readonly dynamicImports?: readonly string[]
 }
 
 interface PluginContext {
@@ -61,7 +66,14 @@ export function bundleInventory(options: { readonly environment?: string } = {})
         }))
       const chunks = Object.values(bundle)
         .filter((output) => output.type === 'chunk')
-        .map((chunk) => ({ fileName: chunk.fileName, modules: [...(chunk.moduleIds ?? [])] }))
+        .map((chunk) => ({
+          fileName: chunk.fileName,
+          modules: [...(chunk.moduleIds ?? [])],
+          ...(chunk.imports === undefined ? {} : { imports: [...chunk.imports] }),
+          ...(chunk.dynamicImports === undefined
+            ? {}
+            : { dynamicImports: [...chunk.dynamicImports] }),
+        }))
       const entry = {
         environment: options.environment ?? this.environment?.name ?? 'client',
         modules: [...this.getModuleIds()],

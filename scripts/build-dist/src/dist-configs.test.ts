@@ -77,4 +77,28 @@ describe('the configs make dist builds with', () => {
       ['client', [{ fileName: 'assets/worker.js', modules: ['/repo/a.ts'] }]],
     ])
   })
+
+  it('list the chunks each chunk imports, for the performance budgets', () => {
+    const file = join(tempDir(), 'inventory.jsonl')
+    vi.stubEnv(INVENTORY_VARIABLE, file)
+    const context = { getModuleIds: () => ['/repo/main.ts', '/repo/page.ts'] }
+    const bundle = {
+      'assets/index.js': {
+        type: 'chunk' as const,
+        fileName: 'assets/index.js',
+        moduleIds: ['/repo/main.ts'],
+        imports: ['assets/shared.js'],
+        dynamicImports: ['assets/page.js'],
+      },
+    }
+    bundleInventory().generateBundle.call(context, {}, bundle)
+    expect(readInventory(file)[0]?.chunks).toEqual([
+      {
+        fileName: 'assets/index.js',
+        modules: ['/repo/main.ts'],
+        imports: ['assets/shared.js'],
+        dynamicImports: ['assets/page.js'],
+      },
+    ])
+  })
 })

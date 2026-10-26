@@ -54,6 +54,12 @@ export interface ComposeOptions {
   readonly stagingDir: string
   /** The finished folder (dist/pages), replaced only when everything passed. */
   readonly outDir: string
+  /**
+   * Where to keep the parts' bundle inventories (`<part>.jsonl`) once outDir is written: the
+   * web app's performance budgets read the chunks and their imports from them (apps/web/e2e,
+   * "Performance budgets"). Outside outDir, so never deployed. Default: not kept.
+   */
+  readonly inventoryDir?: string
   readonly run: BuildContext['run']
   readonly log: (message: string) => void
   readonly repositoryUrl: string
@@ -249,6 +255,11 @@ export function compose(options: ComposeOptions): ComposeResult {
   rmSync(outDir, { recursive: true, force: true })
   mkdirSync(dirname(outDir), { recursive: true })
   renameSync(pagesDir, outDir)
+  if (options.inventoryDir !== undefined) {
+    rmSync(options.inventoryDir, { recursive: true, force: true })
+    mkdirSync(dirname(options.inventoryDir), { recursive: true })
+    renameSync(join(stagingDir, 'inventory'), options.inventoryDir)
+  }
   rmSync(stagingDir, { recursive: true, force: true })
   return {
     built: built.map((part) => part.name),

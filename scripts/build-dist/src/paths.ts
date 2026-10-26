@@ -9,6 +9,12 @@ export const ROOT = realpathSync(resolve(dirname(fileURLToPath(import.meta.url))
 /** The folder make dist writes and the deploy job uploads to Cloudflare Pages. */
 export const PAGES_DIR = join(ROOT, 'dist', 'pages')
 
+/**
+ * The bundle inventories of the last make dist, one `<part>.jsonl` each: never deployed, read by
+ * the web app's performance budgets (apps/web/e2e/budgets).
+ */
+export const INVENTORY_DIR = join(ROOT, 'dist', 'inventory')
+
 /** Scratch space for one make dist run. */
 export const STAGING_DIR = join(ROOT, 'dist', '.staging')
 

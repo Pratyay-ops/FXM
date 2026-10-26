@@ -2,7 +2,7 @@
 import { relative } from 'node:path'
 import { compose } from './compose.ts'
 import { PARTS, spawnRunner } from './parts.ts'
-import { PAGES_DIR, REPOSITORY_URL, ROOT, STAGING_DIR } from './paths.ts'
+import { INVENTORY_DIR, PAGES_DIR, REPOSITORY_URL, ROOT, STAGING_DIR } from './paths.ts'
 
 const log = (message: string) => console.log(`\u001b[32m✔\u001b[0m ${message}`)
 
@@ -13,6 +13,7 @@ try {
     parts: PARTS,
     stagingDir: STAGING_DIR,
     outDir: PAGES_DIR,
+    inventoryDir: INVENTORY_DIR,
     run: spawnRunner(ROOT),
     log,
     repositoryUrl: REPOSITORY_URL,

@@ -6,6 +6,7 @@ import { compose, DistError, NOTICES_FILE } from './compose.ts'
 import { metaPolicyOf, serializePolicy, sha256Source } from './csp.ts'
 import { parseHeaders } from './headers-file.ts'
 import { embedPart, sandboxPart } from './later-stages.ts'
+import { type InventoryEntry, readInventory } from './licenses.ts'
 import type { Part } from './parts.ts'
 import { appPolicy, SANDBOX_DOCUMENTS } from './policies.ts'
 import { listFiles } from './rules.ts'
@@ -37,7 +38,7 @@ const MIT = (name: string): FakePackage => ({
   files: { LICENSE: `${name} licence` },
 })
 
-function run(root: string, parts: readonly Part[]) {
+function run(root: string, parts: readonly Part[], inventoryDir?: string) {
   const logs: string[] = []
   const outDir = join(root, 'dist/pages')
   const result = compose({
@@ -45,6 +46,7 @@ function run(root: string, parts: readonly Part[]) {
     parts,
     stagingDir: join(root, 'dist/.staging'),
     outDir,
+    ...(inventoryDir === undefined ? {} : { inventoryDir }),
     run: () => {
       throw new Error('fake parts run no commands')
     },
@@ -323,6 +325,34 @@ describe('compose', () => {
     expect(problems[1]).toBe(
       'codec@2.0.0 (in app): GPL-2.0 is GPL or AGPL, which FXM must not ship (ARCHITECTURE.md §17)',
     )
+  })
+
+  it('keeps the inventories beside the output, for the performance budgets, never in it', () => {
+    const root = tempDir()
+    const own = join(root, 'apps/web/src/app.ts')
+    const entry: InventoryEntry = {
+      environment: 'client',
+      modules: [own],
+      assets: [],
+      chunks: [{ fileName: 'assets/index.js', modules: [own], dynamicImports: ['assets/page.js'] }],
+    }
+    const app = fakePart(
+      { name: 'app', mount: 'app', spa: true, required: true },
+      (outDir) => ({
+        'index.html': '<!doctype html><html><head><title>a</title></head><body></body></html>',
+        ...bundle(outDir, 'assets/index.js', [own]),
+      }),
+      () => [entry],
+    )
+    writeFiles(root, { 'apps/web/src/app.ts': 'export {}\n', 'dist/inventory/old.jsonl': '{}\n' })
+    const inventoryDir = join(root, 'dist/inventory')
+    const { outDir } = run(root, [fakeSitePart(root), app], inventoryDir)
+
+    // This build's inventories replace the last build's.
+    expect(readInventory(join(inventoryDir, 'app.jsonl'))).toEqual([entry])
+    expect(existsSync(join(inventoryDir, 'old.jsonl'))).toBe(false)
+    expect(listFiles(outDir).filter((file) => file.endsWith('.jsonl'))).toEqual([])
+    expect(existsSync(join(root, 'dist/.staging'))).toBe(false)
   })
 
   it('refuses code that is neither FXM’s own nor a package’s, such as an unmapped virtual module', () => {
