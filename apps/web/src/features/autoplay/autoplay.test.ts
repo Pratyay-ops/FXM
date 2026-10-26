@@ -1,5 +1,6 @@
 import {
   currentQueueItem,
+  DEFAULT_AUDIO_EFFECTS,
   entityKey,
   type NetworkCapabilities,
   type QueueItem,
@@ -10,11 +11,12 @@ import {
   type Track,
   trackKeys,
 } from '@fxm/core'
-import { Player } from '@fxm/player'
+import { Player, type PlayerOptions } from '@fxm/player'
 import { FakeEngine, FakeResolver, testTrack, testTracks } from '@fxm/player/testing'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createHomeServicesStore,
+  type HomeServices,
   type HomeSources,
   type HomeSourcesSnapshot,
   staticSources,
@@ -78,10 +80,15 @@ function changingSources(capabilities: NetworkCapabilities): HomeSources & {
 
 /**
  * A player on fakes with autoplay connected: its plans answer with `count` new songs named
- * `radio <n>`, from the radio of the track playing, unless a test answers otherwise.
+ * `radio <n>`, from the radio of the track playing, unless a test answers otherwise. `player`
+ * overrides the player's options.
  */
 function setup({
   services = homeServices('full', { recommendations: fakeRecommendations() }),
+  player: playerOptions = {},
+}: {
+  services?: HomeServices
+  player?: Partial<PlayerOptions>
 } = {}) {
   const engine = new FakeEngine()
   const player = new Player({
@@ -91,6 +98,7 @@ function setup({
     retryDelaysMs: [0],
     stallTimeoutMs: 0,
     preload: false,
+    ...playerOptions,
   })
   const store = createHomeServicesStore(services)
   const settings = createAutoplayStore({ storage: () => undefined })
@@ -361,6 +369,92 @@ describe('connectAutoplay', () => {
     expect(requests).toHaveLength(1)
     expect(player.getState().status).toBe('ended')
     expect(upcoming(player.getState().queue)).toEqual(['radio 1', 'radio 2', 'radio 3', 'radio 4'])
+  })
+
+  it('leaves the queue stopped when the sleep timer stopped its last track', async () => {
+    const { player, engine, requests, answer } = setup()
+    answer(async () => ({ picks: [] }))
+    await player.setQueue(testTracks('a'), { startIndex: 0 })
+    await settle()
+    expect(requests).toHaveLength(1)
+
+    player.setSleepTimer({ endOfTrack: true })
+    engine.end()
+    await settle(0)
+
+    // It tried again at once, as at any end of the queue, but the songs wait for Play.
+    expect(requests).toHaveLength(2)
+    expect(player.getState().status).toBe('ended')
+    expect(upcoming(player.getState().queue)).toEqual(['radio 1', 'radio 2', 'radio 3', 'radio 4'])
+    await player.play()
+    expect(currentQueueItem(player.getState().queue)?.track.title).toBe('radio 1')
+    expect(['loading', 'playing']).toContain(player.getState().status)
+  })
+
+  it('leaves the queue stopped when the sleep timer ended while songs were on their way', async () => {
+    // At the end of the last track, with the songs late.
+    const atEnd = setup()
+    const late = deferred<Extension>()
+    atEnd.answer(() => late.promise)
+    await atEnd.player.setQueue(testTracks('a'), { startIndex: 0 })
+    await settle()
+    atEnd.player.setSleepTimer({ endOfTrack: true })
+    atEnd.engine.end()
+    late.resolve({ picks: [pickOf(testTrack('next up'), testTrack('a'))] })
+    await settle(0)
+    expect(atEnd.player.getState().status).toBe('ended')
+    expect(upcoming(atEnd.player.getState().queue)).toEqual(['next up'])
+
+    // At its time, quietly, after the queue ended.
+    const atTime = setup()
+    const later = deferred<Extension>()
+    atTime.answer(() => later.promise)
+    await atTime.player.setQueue(testTracks('a'), { startIndex: 0 })
+    await settle()
+    atTime.player.setSleepTimer({ afterMs: 5_000 })
+    atTime.engine.end()
+    await settle(5_000)
+    expect(atTime.player.getState().sleepTimer).toBeUndefined()
+    later.resolve({ picks: [pickOf(testTrack('next up'), testTrack('a'))] })
+    await settle(0)
+    expect(atTime.player.getState().status).toBe('ended')
+    expect(upcoming(atTime.player.getState().queue)).toEqual(['next up'])
+  })
+
+  it('plays on while a sleep timer runs: the timer pauses at its time', async () => {
+    const { player, engine, answer } = setup()
+    const late = deferred<Extension>()
+    answer(() => late.promise)
+    await player.setQueue(testTracks('a'), { startIndex: 0 })
+    await settle()
+    player.setSleepTimer({ afterMs: 60 * 60_000 })
+    engine.end()
+    late.resolve({ picks: [pickOf(testTrack('next up'), testTrack('a'))] })
+    await settle(0)
+
+    expect(currentQueueItem(player.getState().queue)?.track.title).toBe('next up')
+    expect(['loading', 'playing']).toContain(player.getState().status)
+    expect(player.getState().sleepTimer).toBeDefined()
+  })
+
+  it('crossfades into the songs it added, as into any other', async () => {
+    const { player, engine } = setup({
+      player: {
+        preload: true,
+        effects: { ...DEFAULT_AUDIO_EFFECTS, crossfade: { durationMs: 6_000, sameAlbum: false } },
+      },
+    })
+    await player.setQueue(testTracks('a'), { startIndex: 0 })
+    await settle()
+    expect(upcoming(player.getState().queue)).toEqual(['radio 1', 'radio 2', 'radio 3', 'radio 4'])
+
+    // The player prepares radio 1 30 s before a's end, and fades into it in the last 6 s.
+    engine.progress(150_000)
+    await settle(0)
+    engine.progress(174_500)
+    expect(engine.crossfades.map((fade) => fade.source.item?.track.title)).toEqual(['radio 1'])
+    expect(currentQueueItem(player.getState().queue)?.track.title).toBe('radio 1')
+    expect(player.getState().status).toBe('playing')
   })
 
   it('stops adding when switched off, and takes out the songs it added that haven’t played', async () => {

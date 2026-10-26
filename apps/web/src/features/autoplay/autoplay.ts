@@ -20,6 +20,11 @@
  * - **The queue changing meanwhile.** A plan is dropped when the queue it was planned for
  *   changes before it is ready (another track, an edit, another mode): the new situation is
  *   planned instead. A queue that ended while a plan was on its way plays on with it.
+ * - **The sleep timer** (stage 8.1) has the last word. When it ends (at its time, at the end of
+ *   the track it waited for, the queue's last too, or cancelled), the songs on their way for a
+ *   queue that ended are added without playing on: they wait for Play, as the track after the
+ *   one an end-of-track timer waited for does. Crossfade needs nothing here: the player fades
+ *   into autoplay's songs as into any other.
  * - **Removed songs.** A song autoplay added that the user removes from the queue before it
  *   played, one by one or with Clear, never comes again in this session.
  * - **Switching it off** stops adding, and takes the songs autoplay added that haven't played
@@ -95,6 +100,15 @@ interface Run {
   resume: boolean
 }
 
+/** An extension waiting for the queue to settle. */
+interface Pending {
+  /** The situation of the queue it would extend (see `want`). */
+  readonly key: string
+  readonly timer: ReturnType<typeof setTimeout>
+  /** Whether the extension plays on (see {@link Run}). */
+  resume: boolean
+}
+
 /** What autoplay would do now: extend the situation `key` by `count` tracks. */
 interface Want {
   readonly key: string
@@ -125,7 +139,7 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
   /** Keys of the songs autoplay added that the user removed: they don't come again. */
   const removed = new Set<string>()
   /** The situation waiting for the queue to settle, and its timer. */
-  let pending: { readonly key: string; readonly timer: ReturnType<typeof setTimeout> } | undefined
+  let pending: Pending | undefined
   let run: Run | undefined
   /**
    * The situation whose plan added nothing (or failed): not planned again until something
@@ -198,16 +212,18 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
     }
     clearPending()
     const { key } = wanted
-    pending = {
+    const waiting: Pending = {
       key,
+      resume,
       timer: setTimeout(
         () => {
           pending = undefined
-          void extend(key, resume)
+          void extend(key, waiting.resume)
         },
         resume ? 0 : settleMs,
       ),
     }
+    pending = waiting
   }
 
   async function extend(key: string, resume: boolean): Promise<void> {
@@ -359,6 +375,17 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
     if (titles.length > 0) activity.setState({ change: { type: 'withdrawn', titles } })
   }
 
+  /**
+   * The sleep timer ended (see the module documentation): what is on its way, or waiting, for a
+   * queue that ended no longer plays on. Called on the player's `sleep`, which an end-of-track
+   * timer announces after `queueend`, and as the timer leaves the state, which a timer that
+   * ended while nothing played does quietly.
+   */
+  function stayStopped(): void {
+    if (run !== undefined) run.resume = false
+    if (pending !== undefined) pending.resume = false
+  }
+
   /** Something autoplay depends on changed: a situation tried before may go better now. */
   function retry(): void {
     tried = undefined
@@ -366,6 +393,7 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
   }
 
   const stopPlayer = player.subscribe((state, previous) => {
+    if (previous.sleepTimer !== undefined && state.sleepTimer === undefined) stayStopped()
     if (state.queue.items !== previous.queue.items) {
       noteRemovals(previous.queue, state.queue)
       marks.getState().keepOnly(state.queue.items)
@@ -374,6 +402,7 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
     if (state.queue !== previous.queue) evaluate()
   })
   const stopEnd = player.on('queueend', () => evaluate(true))
+  const stopSleep = player.on('sleep', stayStopped)
   const stopSettings = settings.subscribe((state, previous) => {
     if (state.enabled === previous.enabled) return
     if (!state.enabled) {
@@ -398,7 +427,14 @@ export function connectAutoplay(player: Player, options: AutoplayOptions = {}): 
     disconnected = true
     stop()
     report()
-    for (const disconnect of [stopPlayer, stopEnd, stopSettings, stopServices, stopSync]) {
+    for (const disconnect of [
+      stopPlayer,
+      stopEnd,
+      stopSleep,
+      stopSettings,
+      stopServices,
+      stopSync,
+    ]) {
       disconnect()
     }
     stopReach()
