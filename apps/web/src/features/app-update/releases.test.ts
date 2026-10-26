@@ -1,6 +1,8 @@
 import { isFxmError } from '@fxm/core'
 import type { UpdateFetch } from '@fxm/platform'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import releaseLib from '../../../../../scripts/release-lib.sh?raw'
+import releaseApk from '../../../../mobile/scripts/release-apk.sh?raw'
 import {
   apkDownloadUrl,
   apkFileName,
@@ -56,6 +58,20 @@ describe('links', () => {
       'https://github.com/Pratyay-ops/FXM/releases/download/v0.6.0/fxm-android-universal-0.6.0.apk',
     )
     expect(releasePageUrl('0.6.0')).toBe('https://github.com/Pratyay-ops/FXM/releases/tag/v0.6.0')
+  })
+
+  it('name the universal APK as the release workflow publishes it', () => {
+    // fxm_release_catalog lists the files a release may publish, with <version> for the version:
+    // a renamed APK there would make every installed app's check find no APK, silently.
+    const catalog = releaseLib
+      .split('\n')
+      .filter((line) => line.startsWith('release-android|'))
+      .map((line) => line.split('|')[1])
+    expect(catalog).toContain(apkFileName('<version>'))
+    // release-apk.sh sign writes the signed APKs under those names, the universal one included.
+    expect(releaseApk).toMatch(/^ABIS=\(arm64-v8a universal\)$/m)
+    expect(releaseApk).toContain('"$out/fxm-android-$abi-$version.apk"')
+    expect(apkFileName('1.2.3')).toBe('fxm-android-universal-1.2.3.apk')
   })
 })
 
