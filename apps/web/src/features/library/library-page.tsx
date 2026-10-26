@@ -35,6 +35,7 @@ import {
   type FollowRecord,
   LIKED_PLAYLIST_ID,
 } from '../../db/types'
+import { DownloadsPanel } from '../downloads/downloads-panel'
 import { BackupDialog } from './backup-dialog'
 import { CoverArt } from './cover-art'
 import { failureText } from './failure'
@@ -477,7 +478,12 @@ export function LibraryPage() {
       <TabPanel id={tabsId} value={tab}>
         {tab === 'playlists' && <PlaylistsPanel onCreate={dialogs.create} />}
         {tab === 'liked' && <BuiltInPanel id={LIKED_PLAYLIST_ID} />}
-        {tab === 'downloads' && <BuiltInPanel id={DOWNLOADS_PLAYLIST_ID} />}
+        {tab === 'downloads' && (
+          <div className="space-y-6">
+            <DownloadsPanel />
+            <BuiltInPanel id={DOWNLOADS_PLAYLIST_ID} />
+          </div>
+        )}
         {tab === 'local' && (
           <Suspense fallback={<ListSkeleton />}>
             <LocalFilesPanel />
