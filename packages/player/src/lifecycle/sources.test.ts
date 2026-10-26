@@ -47,6 +47,12 @@ describe('stream sources added later', () => {
     expect(playbackProblemOf(after)).toMatchObject({ type: 'unavailable', reason: 'no-source' })
   })
 
+  it('never replace a source the lifecycle was created with', () => {
+    const { lifecycle } = setup({ attach: false })
+    const impostor = new FakeStreamSource({ id: 'ytm', expires: false, now: () => Date.now() })
+    expect(() => lifecycle.addSource(impostor)).toThrow(RangeError)
+  })
+
   it('replace a source with the same id, and leave it when an older one is removed', async () => {
     const { lifecycle } = setup({ attach: false })
     const first = new FakeStreamSource({
