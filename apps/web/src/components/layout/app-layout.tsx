@@ -3,6 +3,7 @@ import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
 import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
+import { PwaShell } from '../../features/pwa/pwa-shell'
 import { FeedbackToast } from '../../features/search/feedback'
 import { SponsorBlockNotices } from '../../features/sponsorblock/sponsorblock-notices'
 import { SyncAgent } from '../../features/sync/agent'
@@ -19,7 +20,7 @@ function NavigationProgress() {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 overflow-hidden transition-opacity delay-150 duration-300 starting:opacity-0"
+      className="pointer-events-none fixed inset-x-0 top-[var(--safe-top)] z-50 h-0.5 overflow-hidden transition-opacity delay-150 duration-300 starting:opacity-0"
     >
       <div className="h-full w-2/5 animate-progress rounded-full bg-accent" />
     </div>
@@ -50,7 +51,9 @@ export function AppLayout() {
           event.preventDefault()
           main.current?.focus()
         }}
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-full focus:bg-accent focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-on-accent"
+        // Clear of a notch, and of the window buttons in an installed desktop window that
+        // draws its own title bar (--overlay-top, styles/index.css).
+        className="sr-only focus:not-sr-only focus:fixed focus:top-[calc(var(--overlay-top)+0.75rem)] focus:left-[calc(var(--safe-left)+0.75rem)] focus:z-50 focus:rounded-full focus:bg-accent focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-on-accent"
       >
         Skip to content
       </a>
@@ -82,6 +85,8 @@ export function AppLayout() {
           actions taken in the sidebar, on every page. */}
       <FeedbackToast />
       <SyncAgent />
+      {/* Phones: Now Playing's own controls fill the screen, so the update toast goes on top. */}
+      <PwaShell fullScreen={fullScreen} />
       <ScrollRestoration />
     </>
   )

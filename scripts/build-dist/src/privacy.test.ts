@@ -53,6 +53,7 @@ describe('privacyProblems', () => {
       'MusicBrainz',
       'Internet Archive',
       'LRCLIB',
+      'SponsorBlock',
       'GitHub',
     ])
     expect(privacyProblems(RULES, page)).toEqual([

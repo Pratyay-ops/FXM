@@ -44,8 +44,7 @@ export const INNERTUBE_HOSTS = [
  * - 3.2's recommendation providers, once the app calls them: the hosts in the table in
  *   packages/sources/src/recommend/README.md. It leaves out the plan's `api.listenbrainz.org`
  *   and `lastfm.freetls.fastly.net`, which FXM doesn't contact, and adds Internet Archive's
- *   hosts, already here, for the Cover Art Archive's redirects;
- * - 8.7: SponsorBlock (`sponsor.ajay.app`).
+ *   hosts, already here, for the Cover Art Archive's redirects.
  *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
  * storage hosts and a user's Invidious proxy, and page script can't read media responses.
@@ -75,6 +74,8 @@ export const APP_SERVICES: readonly Service[] = [
   },
   { privacyName: 'Jamendo', connect: ['https://*.jamendo.com'], img: ['https://*.jamendo.com'] },
   { privacyName: 'LRCLIB', connect: ['https://lrclib.net'] },
+  // 8.7: opt-in, and only for videos in Music + Video mode.
+  { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
   // 8.4: library sync, only once the user turns it on, with a secret gist on their account.
   { privacyName: 'GitHub', connect: ['https://api.github.com'] },
 ]

@@ -333,6 +333,7 @@ describe('compose', () => {
         'MusicBrainz',
         'Internet Archive',
         'Jamendo',
+        'SponsorBlock',
         'GitHub',
       ]),
     })
