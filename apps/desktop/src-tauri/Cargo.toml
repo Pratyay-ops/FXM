@@ -80,7 +80,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 # icons (src/tray.rs). Already in the dependency tree through tray-icon's libappindicator and GTK.
 [target.'cfg(target_os = "linux")'.dependencies]
 gio = "0.18.4"
-libloading = "0.7.4"
+libloading = "0.9.0"
 
 [features]
 # The live smoke test's build (apps/desktop/smoke): prints the hidden page's report and exits.
