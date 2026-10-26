@@ -1,10 +1,11 @@
 /**
- * The hosts plugins may reach, for the app's platform: `getAppPlatform()` passes
- * {@link pluginUserHosts} to `createPlatform` as its user hosts, which the platform reads on every
- * request. So a plugin's requests to its own declared hosts, and the download of a plugin from
- * the address the user entered, go out as user-host requests (on the web through the Lite tier's
- * `userhost.html`: `GET` only, without headers). The plugin runtime (`runtime.ts`) keeps the
- * list current; this module stays tiny, so the platform's chunk doesn't load the plugin system.
+ * The hosts plugins may reach, for the app's platform: `getAppPlatform()` adds
+ * {@link pluginUserHosts} to its user hosts, after the Spotify secret's, and the platform reads
+ * them on every request. So a plugin's requests to its own declared hosts, and the download of a
+ * plugin from the address the user entered, go out as user-host requests (on the web through the
+ * Lite tier's `userhost.html`: `GET` only, without headers). The plugin runtime (`runtime.ts`)
+ * keeps the list current; this module stays tiny, so the platform's chunk doesn't load the plugin
+ * system.
  *
  * @module
  */
