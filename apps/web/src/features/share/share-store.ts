@@ -3,17 +3,20 @@ import { create } from 'zustand'
 import { type EmbedTarget, embedTargetOf } from '../../embed/target'
 import type { PreviewInfo } from '../../embed/view'
 import { isWired } from '../../embed/wired'
+import { RELEASED } from '../connect/config'
 
 /**
- * Whether the app offers to share a player for `target`. A production build offers it only for
- * sources the embed can play (`WIRED_SOURCES`), so nobody publishes a player that can only say
- * it can't play; development builds and the tests always do, so the dialog can be tried.
+ * Whether the app offers to share a player for `target`. A production build offers it only once
+ * the embed is released (`RELEASED.embed`, with the landing page's `AVAILABLE.embed`), and then
+ * only for sources the embed can play (`WIRED_SOURCES`), so nobody publishes a player that can
+ * only say it can't play; development builds and the tests always do, so the dialog can be tried.
  */
 export function canShare(
   target: EmbedTarget,
   env: { readonly PROD: boolean } = import.meta.env,
+  released: boolean = RELEASED.embed,
 ): boolean {
-  return !env.PROD || isWired(target)
+  return !env.PROD || (released && isWired(target))
 }
 
 /** What the share dialog shares: the entity, and what the app knows about it for the preview. */

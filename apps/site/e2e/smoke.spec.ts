@@ -1,6 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, type Page, test } from '@playwright/test'
-import { AVAILABLE } from '../src/config'
+import { AVAILABLE, NOTICES_PATH } from '../src/config'
+import { freeSources, heroNote } from '../src/lib/tiers'
 
 // Browser checks on the production build: `pnpm --filter @fxm/site e2e`. They need
 // Chromium from .tools/playwright, so `make test` does not run them.
@@ -99,6 +100,26 @@ test('stops the playing animation when reduced motion is on', async ({ page }) =
     .first()
     .evaluate((element) => getComputedStyle(element).animationName)
   expect(animation).toBe('none')
+})
+
+test('says what the web app plays without FXM Connect, as the build’s flags say', async ({
+  page,
+}) => {
+  await page.goto('/')
+  // AVAILABLE.lite, and AVAILABLE.jamendo, which the build sets from its environment.
+  await expect(page.getByText(heroNote(AVAILABLE.lite))).toBeVisible()
+  await expect(page.locator('#features')).toContainText(
+    `free music from ${freeSources(AVAILABLE.jamendo)}`,
+  )
+})
+
+test('links the open-source licences from the footer', async ({ page }) => {
+  await page.goto('/privacy')
+  const legal = page.getByRole('navigation', { name: 'Footer' })
+  await expect(legal.getByRole('link', { name: 'Open-source licences' })).toHaveAttribute(
+    'href',
+    NOTICES_PATH,
+  )
 })
 
 test.describe('the Download button', () => {

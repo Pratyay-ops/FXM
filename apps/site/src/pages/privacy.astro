@@ -22,7 +22,7 @@ const appUpdateChecks = [
   AVAILABLE.android ? 'The Android app: it checks GitHub for a new version of itself.' : '',
 ].filter((sentence) => sentence !== '')
 const githubSync =
-  "Only if you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions."
+  "If you turn on sync in the app's settings: your library, your settings and the plays of the last 90 days, kept in a secret gist on your own GitHub account with a token you create. GitHub keeps every earlier version of the gist, so together they hold every play synced since you turned sync on, and what you removed since. GitHub doesn't list or search secret gists, but anyone who has the link can open one and its earlier versions. Whenever the Spotify integration is on, also the Spotify key file above, which GitHub hosts (raw.githubusercontent.com)."
 
 const services: Service[] = [
   {
@@ -33,7 +33,7 @@ const services: Service[] = [
   {
     name: 'Spotify',
     url: 'https://www.spotify.com',
-    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, and song radio${soon(AVAILABLE.radio)}. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account.`,
+    use: `When the Spotify integration is on (the default in the apps, and in the web app with FXM Connect; you can switch it off in Settings): search, related artists, recommendations for your home feed${soon(AVAILABLE.homeFeed)}, and song radio${soon(AVAILABLE.radio)}. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, also your recommendations, liked songs and playlists, and Spotify then knows these requests come from your account.`,
   },
   {
     name: 'Spotify key source',
@@ -53,7 +53,7 @@ const services: Service[] = [
   {
     name: 'Last.fm',
     url: 'https://www.last.fm',
-    use: `Recommendations for your home feed and radio: similar artists, and in the apps and the web app with FXM Connect, Last.fm's stations${soon(AVAILABLE.homeFeed)}. If you connect your Last.fm account in Settings (scrobbling, off until you do): each song you play (its title, main artist and album, its track number and length) with when you started it, and the song playing now. Songs that FXM's radio picked are marked as not chosen by you. They are sent with your API key and session key, and signed with your shared secret, which FXM never sends. Your Last.fm profile and the songs you scrobble are public by default.`,
+    use: `In the apps and the web app with FXM Connect, Last.fm's stations, as recommendations for your home feed${soon(AVAILABLE.homeFeed)}. If you connect your Last.fm account in Settings (scrobbling, off until you do): each song you play (its title, main artist and album, its track number and length) with when you started it, and the song playing now. Songs that FXM's radio picked are marked as not chosen by you. They are sent with your API key and session key, and signed with your shared secret, which FXM never sends. Your Last.fm profile and the songs you scrobble are public by default.`,
   },
   {
     name: 'Cover Art Archive',
@@ -63,14 +63,20 @@ const services: Service[] = [
   {
     name: "Apple's iTunes Search",
     url: 'https://performance-partners.apple.com/search-api',
-    use: `Album covers for songs that neither their source nor the Cover Art Archive has one for${soon(AVAILABLE.homeFeed)}.`,
+    use: 'Album covers for songs that neither their source nor the Cover Art Archive has one for (coming soon).',
   },
   {
     name: 'Internet Archive',
     url: 'https://archive.org',
     use: 'Free music, including lossless FLAC.',
   },
-  { name: 'Jamendo', url: 'https://www.jamendo.com', use: 'Free music, including lossless FLAC.' },
+  {
+    name: 'Jamendo',
+    url: 'https://www.jamendo.com',
+    use: AVAILABLE.jamendo
+      ? 'Free music, including lossless FLAC.'
+      : "Free music, including lossless FLAC (coming soon). FXM contacts Jamendo only once it is turned on, and this version doesn't have it on.",
+  },
   {
     name: 'SponsorBlock',
     url: 'https://sponsor.ajay.app',
@@ -105,7 +111,7 @@ const embeds = `Other websites can show an FXM player for a song, an album or a 
 const connectInstall = privacyInstall(AVAILABLE.firefox)
 const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
 const webAppUpdates =
-  'The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself.'
+  "The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself, and when it first uses YouTube Music, it fetches FXM's signed YouTube settings file from this website too."
 ---
 
 <Document

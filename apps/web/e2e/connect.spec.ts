@@ -124,23 +124,56 @@ const tierCards = (page: Page) => page.getByRole('region', { name: 'What works w
 const missingPanel = (page: Page) => page.getByRole('region', { name: "What you're missing" })
 const LITE_INTRO = 'Try YouTube Music here without an install (experimental)'
 
-/** The page's layout shift score so far (CLS, without shifts right after input). */
-async function layoutShift(page: Page): Promise<number> {
+/**
+ * `locator`'s box once it stays the same for 300 ms: Home's content grows as its shelves load,
+ * which a test that compares boxes must wait for.
+ */
+async function settledBox(locator: Locator) {
+  let last = JSON.stringify(await locator.boundingBox())
+  await expect
+    .poll(
+      async () => {
+        await new Promise((resolve) => setTimeout(resolve, 300))
+        const next = JSON.stringify(await locator.boundingBox())
+        const same = next === last
+        last = next
+        return same
+      },
+      { timeout: 10_000 },
+    )
+    .toBe(true)
+  return locator.boundingBox()
+}
+
+/**
+ * The layout shift score so far (CLS, without shifts right after input) of the shifts that moved
+ * `selector`'s element. Home's own content fills in below its greeting as its shelves load,
+ * which moves what follows it and has nothing to do with a notice; a notice that pushed the page
+ * would move the greeting too.
+ */
+async function layoutShiftOf(page: Page, selector: string): Promise<number> {
   return page.evaluate(
-    () =>
+    (target) =>
       new Promise<number>((resolve) => {
+        const element = document.querySelector(target)
         let total = 0
         new PerformanceObserver((list) => {
           for (const entry of list.getEntries() as unknown as {
             value: number
             hadRecentInput: boolean
+            sources?: { node?: Node | null }[]
           }[]) {
-            if (!entry.hadRecentInput) total += entry.value
+            if (entry.hadRecentInput) continue
+            const moved = (entry.sources ?? []).some(
+              (source) => source.node != null && element != null && source.node.contains(element),
+            )
+            if (moved) total += entry.value
           }
         }).observe({ type: 'layout-shift', buffered: true })
         // The buffered entries come in the observer's first call, right after observe().
         setTimeout(() => resolve(total), 200)
       }),
+    selector,
   )
 }
 
@@ -209,7 +242,7 @@ test.describe('the tiers', () => {
       'Lite (experimental) adds YouTube Music and its ad-free audio.',
     )
     await expect(missingPanel(page)).toContainText(
-      "Full adds YouTube Music without Lite's experimental route, and Spotify search",
+      "Full adds YouTube Music without Lite's experimental route, YouTube Music downloads and Spotify search",
     )
     // Desktop Chrome: the Chromium guide comes first, open, with Developer mode's warning, and
     // the main button leads to it.
@@ -341,17 +374,33 @@ test.describe('the notices never move the page', () => {
       await fakeYouTube(page, false, 1500)
       if (notice === 'Update FXM Connect') await addFakeConnect(page, '0.0.1')
       await page.goto('./')
-      await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Good /)
-      // The page itself: the first child of the content column, before the notice's layer.
+      const heading = page.getByRole('heading', { level: 1 })
+      await expect(heading).toHaveText(/^Good /)
+      // Where the page starts, before the notice (the Lite check takes 1.5 s).
+      const before = await heading.boundingBox()
+      // The page's own content, before the notice's layer. Its height follows Home's shelves as
+      // they load (the welcome card, here, once the tier is known), which a notice has nothing to
+      // do with.
       const content = page.locator('main > div > :first-child')
-      const before = await content.boundingBox()
 
       const shown = page.getByRole('region', { name: notice })
       await expect(shown).toBeVisible()
+      await expect(page.getByRole('region', { name: 'Play practically any song' })).toBeVisible()
 
-      // It floats above the mini player and the tab bar: nothing on the page moved.
-      expect(await content.boundingBox()).toEqual(before)
-      expect(await layoutShift(page)).toBeLessThan(0.01)
+      // It floats above the mini player and the tab bar: the page didn't move.
+      expect(await heading.boundingBox()).toEqual(before)
+      expect(await layoutShiftOf(page, 'main h1')).toBe(0)
+      // Nothing it does can push the page: it isn't part of the page's content, and its layer is
+      // fixed to the window.
+      expect(await shown.evaluate((box) => box.closest('main > div > :first-child'))).toBeNull()
+      expect(
+        await shown.evaluate((box) => {
+          for (let node: Element | null = box; node !== null; node = node.parentElement) {
+            if (getComputedStyle(node).position === 'fixed') return true
+          }
+          return false
+        }),
+      ).toBe(true)
       // The end of the page still scrolls clear of it.
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
       await expect(async () => {
@@ -359,9 +408,64 @@ test.describe('the notices never move the page', () => {
         const box = await shown.boundingBox()
         expect((end?.y ?? 0) + (end?.height ?? 0)).toBeLessThanOrEqual(box?.y ?? 0)
       }).toPass()
+      // And taking it away moves nothing on the page, once Home has settled: the same content,
+      // where it was.
+      await page.evaluate(() => window.scrollTo(0, 0))
+      const settled = await settledBox(content)
+      await shown.getByRole('button', { name: 'Dismiss' }).click()
+      await expect(shown).toHaveCount(0)
+      expect(await content.boundingBox()).toEqual(settled)
     })
   }
 })
+
+/** Names the focused element when something else covers its centre (a floating notice, say). */
+function coveredFocus(page: Page) {
+  return page.evaluate(() => {
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement) || active === document.body) return null
+    const target = active.closest('label') ?? active
+    const { left, top, width, height } = target.getBoundingClientRect()
+    const hit = document.elementFromPoint(left + width / 2, top + height / 2)
+    if (hit && (hit === target || target.contains(hit))) return null
+    return active.getAttribute('aria-label') ?? active.textContent?.trim() ?? active.tagName
+  })
+}
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 1280, height: 800 },
+] as const) {
+  test.describe(`the notice keeps clear of the page at ${viewport.width} px`, () => {
+    test.use({ viewport })
+
+    test('keyboard focus never lands behind it, and the page scrolls clear of it', async ({
+      page,
+    }) => {
+      await fakeYouTube(page, false)
+      // Local files: the buttons a phone without FXM Connect needs, low on a short page.
+      await page.goto('library?tab=local')
+      const notice = page.getByRole('region', { name: 'This browser plays free music' })
+      await expect(notice).toBeVisible()
+      const covered: string[] = []
+      for (let press = 0; press < 40; press++) {
+        await page.keyboard.press('Tab')
+        const name = await coveredFocus(page)
+        if (name) covered.push(name)
+      }
+      expect(covered).toEqual([])
+
+      // Scrolled to its end, the page's last content sits above the notice.
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+      const content = page.locator('main > div > :first-child')
+      await expect(async () => {
+        const [end, box] = await Promise.all([content.boundingBox(), notice.boundingBox()])
+        expect((end?.y ?? 0) + (end?.height ?? 0)).toBeLessThanOrEqual(box?.y ?? 0)
+      }).toPass()
+      await page.screenshot({ path: `screenshots/notice-clear-${viewport.width}.png` })
+    })
+  })
+}
 
 test.describe('with the other floating layers, on a 390 px phone', () => {
   test.use({ viewport: { width: 390, height: 844 } })

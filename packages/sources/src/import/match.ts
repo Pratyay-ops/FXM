@@ -11,8 +11,10 @@
  *   found on Spotify or through the MusicBrainz exact path), then the text searches. A row
  *   without a length runs in no-duration mode, which never goes beyond Suggest.
  *
- * The engine decides the band with the user's Auto setting; the verdict it leaves on the best
- * candidate says what the band would be with the setting on.
+ * The engine runs with `matchingOptions({ mode, autoMatch })` (stage 1.12), so the matching
+ * config's thresholds and its measured fallback (`requireReleaseAgreement`) apply, and Auto only
+ * where the config makes the band available and the user's setting is on. The verdict it leaves
+ * on the best candidate says what the band would be with the setting on.
  *
  * @module
  */
@@ -23,10 +25,12 @@ import {
   type EntityId,
   formatId,
   type MatchBand,
+  type MatchingConfig,
   type MatchRequest,
   type MatchResponse,
   type MatchResult,
   type MatchSource,
+  matchingOptions,
   matchVideoToSong,
   modePolicy,
   parseId,
@@ -320,6 +324,11 @@ export interface MatchRowInput {
   mode: CatalogMode
   /** The user's Auto setting. */
   autoMatch: boolean
+  /**
+   * The matching config (stage 1.12): its thresholds and measured fallback apply, and the Auto
+   * setting counts only where it makes the band available. Default: the one FXM ships with.
+   */
+  matchingConfig?: MatchingConfig
   /** Fetches a page the engine asks for (already paced by the request budget). */
   fetchPage: (request: MatchRequest) => Promise<MatchResponse | null>
   /** Every track the pages returned so far, by ID: where candidates' albums and artwork come from. */
@@ -344,16 +353,21 @@ export async function matchRow(input: MatchRowInput): Promise<RowResult> {
   if (plan === 'unplayable') {
     return { outcome: 'not-found', evidence: ['podcast episodes do not play in FXM'] }
   }
+  const options = matchingOptions({ mode, autoMatch }, input.matchingConfig)
   if (plan === 'video-song') {
     const video = catalogTrackOf(row) as Track
     const response = await fetchPage({ kind: 'text-songs', query: videoSongsQuery(video) })
     const songs = response?.kind === 'text-songs' ? response.tracks : []
-    const result = resultFromVideoMatch(matchVideoToSong(video, songs, { auto: autoMatch }), seen)
+    const videoMatch = matchVideoToSong(video, songs, {
+      auto: options.auto === true,
+      ...(options.thresholds === undefined ? {} : { thresholds: options.thresholds }),
+    })
+    const result = resultFromVideoMatch(videoMatch, seen)
     if (response === null) result.incomplete = true
     return result
   }
   const source = matchSourceOf(row, input.lookup)
-  const match = await runMatch(source, fetchPage, { mode, auto: autoMatch })
+  const match = await runMatch(source, fetchPage, options)
   return resultFromMatch(match, source, input.lookup, seen)
 }
 

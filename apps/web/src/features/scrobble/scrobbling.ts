@@ -33,6 +33,7 @@ import {
   type ScrobbleTarget,
 } from '@fxm/sources/scrobble'
 import type { NewPlay } from '../../db/repo'
+import { appContext } from '../../lib/app-context'
 import type { PlayListener } from '../signals/play-events'
 import {
   createDexieScrobbleStore,
@@ -50,13 +51,14 @@ import {
 export const FLUSH_LOCK = 'fxm-scrobble-flush'
 
 /**
- * The context scrobble requests go out with: the browser's own `fetch`, read at each call. Both
- * hosts answer any origin, and the clients refuse redirects. Where the app has the platform
- * layer (`@fxm/platform`), build it from the platform's context instead, so scrobbles go
- * through its host table and native transports like every other request.
+ * The context scrobble requests go out with, read at each call: the app platform's `fetch`
+ * (`appContext`, which the composition root connects), so scrobbles pass its host table, which
+ * lists both hosts, and the desktop and Android apps send them through their native HTTP; the
+ * page's own `fetch` until then. Both hosts answer any origin, and the clients refuse redirects.
  */
 export function scrobbleContext(): ScrobbleContext {
-  return { fetch: (input, init) => globalThis.fetch(input, init) }
+  const { fetch } = appContext('music')
+  return { fetch: (input, init) => fetch(input, init) }
 }
 
 /** The ListenBrainz client for a token, kept while the token is, so its rate limits hold. */

@@ -34,4 +34,16 @@ describe('comingSoon', () => {
   it('says nothing when everything is out', () => {
     expect(comingSoon([])).toBe('')
   })
+
+  it("writes the hero's sentence about what is still to come", () => {
+    // Hero.astro: the home feed and downloads are out, converting them is stage 4.2.
+    expect(
+      comingSoon(
+        unreleased([
+          [true, 'a home feed made for you'],
+          [false, 'converting downloads to FLAC, MP3 and other formats'],
+        ]),
+      ),
+    ).toBe('Converting downloads to FLAC, MP3 and other formats is coming soon.')
+  })
 })

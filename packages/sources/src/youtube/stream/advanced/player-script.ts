@@ -17,7 +17,6 @@
  */
 
 import { FxmError, isFxmError, type ProviderContext } from '@fxm/core'
-import { Player } from 'youtubei.js'
 import { fetchWithTimeout } from '../../../shared'
 import { requestFailure } from '../../errors'
 import { untilAborted } from './abort'
@@ -108,8 +107,14 @@ export function playerIdOf(iframeApi: string): string | undefined {
   return id !== undefined && PLAYER_ID.test(id) ? id : undefined
 }
 
-/** Extracts the functions with youtubei.js's `Player`, which parses but never runs the script. */
+/**
+ * Extracts the functions with youtubei.js's `Player`, which parses but never runs the script.
+ * youtubei.js is imported here, on first use, rather than with this module: the module host
+ * brings these rungs, which ship switched off, so a static import would load youtubei.js (about
+ * 200 KB gzipped) with YouTube's first chunk in every app and player.
+ */
 export const extractWithYoutubei: PlayerScriptExtractor = async (playerId, fetchScript) => {
+  const { Player } = await import('youtubei.js')
   const player = await Player.create(
     undefined,
     async (input) => fetchScript(input instanceof Request ? input.url : String(input)),

@@ -1,7 +1,7 @@
-import { type EntityId, formatId, type MatchRequest } from '@fxm/core'
+import { type EntityId, formatId, MATCHING_CONFIG, type MatchRequest } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
 import { matchRow, matchSourceOf, needsLoad, planRow, trackOfCandidate } from './match'
-import { fakeYouTube, song, testContext } from './testing'
+import { AUTO_AVAILABLE, fakeYouTube, song, testContext } from './testing'
 import type { StoredRow } from './types'
 
 const SPOTIFY = formatId('spotify', 'track', '0000000000000000000001')
@@ -96,6 +96,7 @@ describe('matchRow', () => {
       },
       mode: 'music',
       autoMatch: true,
+      matchingConfig: AUTO_AVAILABLE,
       fetchPage,
       seen,
     })
@@ -126,6 +127,44 @@ describe('matchRow', () => {
     })
     expect(result).toMatchObject({ outcome: 'review', verdict: 'auto' })
     expect(result.blockers).toContain('setting-off')
+  })
+
+  it('counts the Auto setting only where the matching config makes the band available', async () => {
+    const { fetchPage } = pagesFrom({ catalog: [creep] })
+    const row = {
+      title: 'Creep',
+      artists: ['Radiohead'],
+      durationMs: 238_640,
+      isrc: 'GBAYE9200070',
+    }
+    // The config FXM ships with keeps the band off (stage 1.12), whatever the stored setting.
+    const shipped = await matchRow({ row, mode: 'music', autoMatch: true, fetchPage })
+    expect(MATCHING_CONFIG.auto).toBe(false)
+    expect(shipped).toMatchObject({ outcome: 'review', verdict: 'auto' })
+    expect(shipped.blockers).toContain('setting-off')
+  })
+
+  it("applies the matching config's measured fallback to text matches", async () => {
+    const { fetchPage } = pagesFrom({ catalog: [creep] })
+    const row = { title: 'Creep', artists: ['Radiohead'], durationMs: 238_640 }
+    const plain = await matchRow({
+      row,
+      mode: 'music',
+      autoMatch: true,
+      matchingConfig: AUTO_AVAILABLE,
+      fetchPage,
+    })
+    const guarded = await matchRow({
+      row,
+      mode: 'music',
+      autoMatch: true,
+      matchingConfig: { ...AUTO_AVAILABLE, requireReleaseAgreement: true },
+      fetchPage,
+    })
+    expect(plain.outcome).toBe('matched')
+    // Without an ISRC, the album or year must agree before a match plays unasked.
+    expect(guarded).toMatchObject({ outcome: 'review', verdict: 'suggest' })
+    expect(guarded.blockers).toContain('release-agreement-required')
   })
 
   it('caps a row without a length at Suggest (no-duration mode)', async () => {
@@ -179,6 +218,7 @@ describe('matchRow', () => {
       },
       mode: 'music',
       autoMatch: true,
+      matchingConfig: AUTO_AVAILABLE,
       fetchPage,
     })
     expect(youtube.requests).toEqual(['text-songs Radiohead Creep'])
