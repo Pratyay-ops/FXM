@@ -367,11 +367,12 @@ export function InstallGuides({ device, openFirst }: InstallGuidesProps) {
             {RELEASED.android ? (
               <Steps>
                 <li>
-                  On your phone, download the APK from the{' '}
+                  On your phone, download the APK (
+                  <code className="wrap-anywhere">fxm-android-universal-….apk</code>) from the{' '}
                   <ReleaseLink>latest release on GitHub</ReleaseLink>.
                 </li>
                 <li>Open it. If Android asks, allow your browser to install apps.</li>
-                <li>Open FXM from your apps.</li>
+                <li>Open FXM from your apps. It tells you when a new version is out.</li>
               </Steps>
             ) : (
               <NotReleased />

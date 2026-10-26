@@ -6,11 +6,19 @@ import { APP_BASE } from './pwa/base.ts'
 import { APP_HEADERS, headersRevision } from './pwa/host.ts'
 import { pwaOptions } from './pwa/options.ts'
 import { serviceWorkerSourceMap } from './pwa/source-map.ts'
+import { distributionFlag } from './src/features/app-update/distribution-flag.ts'
 
 export default defineConfig({
   // Production serves the player from /app/ (the landing page owns /). The router
   // reads its basename from import.meta.env.BASE_URL, so this is the only place to change.
   base: APP_BASE,
+  // FXM_DISTRIBUTION=fdroid makes an F-Droid build (stage R.3), which never checks for new app
+  // versions by itself (features/app-update). Any other value than standard or fdroid fails here.
+  define: {
+    'import.meta.env.FXM_DISTRIBUTION': JSON.stringify(
+      distributionFlag(process.env.FXM_DISTRIBUTION),
+    ),
+  },
   // The installable web app: manifest, icons and the service worker (see pwa/ and the README).
   // The host's header rule is part of the page's revision in the service worker (pwa/host.ts),
   // and make dist reads the service worker's source map like the app's (pwa/source-map.ts).

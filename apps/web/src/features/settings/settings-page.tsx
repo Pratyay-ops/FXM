@@ -5,6 +5,7 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { AppUpdateSetting } from '../app-update/app-update-setting'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
@@ -137,6 +138,8 @@ export function SettingsPage() {
             <span className="sr-only">(opens in a new tab)</span>
           </a>
         </div>
+        {/* The Android app only: its check for new versions (stage 6.6). */}
+        <AppUpdateSetting />
         <SponsorBlockCredit />
       </SettingsSection>
     </div>

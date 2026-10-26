@@ -18,9 +18,10 @@ export const PHONE_QUERY = '(width < 48rem)'
 
 /**
  * Keeps {@link TOAST_SPACE_PROPERTY} on <html> while `active`, following the toast's height,
- * which grows when its buttons wrap (a narrow window, or large text).
+ * which grows when its buttons wrap (a narrow window, or large text). The Android app's update
+ * toast (features/app-update), which shows where this one does, uses it too.
  */
-function useSpaceAbovePlayer(toast: RefObject<HTMLElement | null>, active: boolean): void {
+export function useSpaceAbovePlayer(toast: RefObject<HTMLElement | null>, active: boolean): void {
   useLayoutEffect(() => {
     const element = toast.current
     if (!active || element === null) return

@@ -2,7 +2,7 @@
 
 The FXM web player: a React app served from `/app/`, installable as an app with its own window (a PWA, see [Installable app](#installable-app-pwa)), and the shell of the Android and desktop apps. Everything runs in the browser: there is no FXM backend.
 
-Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB. Stage 4.4 added **local files**: music on the device, read where it is, listed in the Library and in search and played through the player core. Stage 5.1 made it installable. Stage 8.7 added opt-in [SponsorBlock skipping](#sponsorblock-skipping-the-non-music-parts-of-videos) in Music + Video mode.
+Stage 2.1 built the **shell**: routing, layout, design system, settings and placeholder pages. Stage 2.5 added **playback**: the app's player, Now playing with its stream badge and version switcher, the queue panel and synced lyrics (see [Playback, Now playing, queue and lyrics](#playback-now-playing-queue-and-lyrics)). Stage 2.6 added the **library** (playlists in an order the user controls, likes, follows, history, backups) on IndexedDB. Stage 4.4 added **local files**: music on the device, read where it is, listed in the Library and in search and played through the player core. Stage 5.1 made it installable. Stage 8.7 added opt-in [SponsorBlock skipping](#sponsorblock-skipping-the-non-music-parts-of-videos) in Music + Video mode. Stage 6.6 added the Android app's check for new versions of itself ([src/features/app-update/README.md](src/features/app-update/README.md)), which only that app runs.
 
 Search and the album, artist and playlist pages (stage 2.4), with the app's single place for music sources (providers, tier and the Spotify switch) and the fake catalog for development and tests, are described in [src/features/search/README.md](src/features/search/README.md).
 
@@ -55,7 +55,8 @@ src/
                         player, controls), settings, signals (records the player's plays),
                         sponsorblock (skipping, its setting and offer), downloads, pwa,
                         connect (tiers, onboarding, Diagnostics: see its README),
-                        scrobble (ListenBrainz, Last.fm)
+                        scrobble (ListenBrainz, Last.fm), app-update (the Android
+                        app's update check: see its README)
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
