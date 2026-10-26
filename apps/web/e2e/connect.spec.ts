@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test'
 import { RELEASED } from '../src/features/connect/config'
-import { TIER_INFO } from '../src/features/connect/tiers'
 
 // The tiers, the onboarding prompts and the Diagnostics self-test, end to end in a real browser
 // against the production build, with fakes for everything outside it:
@@ -95,9 +94,16 @@ async function fakeYouTube(page: Page, lite: boolean, delayMs = 0) {
   return innerTube
 }
 
-// The sentences of src/features/connect/explain.ts about the apps (howToGetMore, appsSentence),
-// worded here: this test can't import that module, whose @fxm/platform import pulls in a JSON file
-// that Node loads only with an import attribute. Its unit tests pin the same words.
+// The sentences of src/features/connect/explain.ts and tiers.ts about the apps (howToGetMore,
+// appsSentence, TIER_INFO), worded here: this test can't import those modules. explain.ts's
+// @fxm/platform import pulls in a JSON file that Node loads only with an import attribute, and
+// tiers.ts names the free sources through src/lib/free-sources.ts, which reads Vite's
+// import.meta.env. Their unit tests pin the same words.
+
+/** TIER_INFO.full.how: what gives the Full tier, the apps not out yet as coming soon. */
+const FULL_TIER_HOW = `FXM Connect, the desktop app${RELEASED.desktop ? '' : ' (coming soon)'} or the Android app${
+  RELEASED.android ? '' : ' (coming soon)'
+}.`
 
 /** howToGetMore() for YouTube Music and Spotify, on a computer that can add FXM Connect. */
 const COMPUTER_INTRO = `For YouTube Music and Spotify, add the free FXM Connect extension${
@@ -256,7 +262,7 @@ test.describe('the tiers', () => {
     await expect(guide.locator('summary')).toBeFocused()
     // The tier card names the apps, those not out yet as coming soon, and only a released app's
     // guide has steps.
-    await expect(tierCards(page)).toContainText(TIER_INFO.full.how)
+    await expect(tierCards(page)).toContainText(FULL_TIER_HOW)
     const guideOf = (app: RegExp) =>
       page.locator('details', { has: page.getByRole('heading', { name: app }) })
     for (const [app, released] of [
