@@ -1,6 +1,7 @@
 /**
  * Turns the composed folder into `_headers` rules: one Content-Security-Policy per path, plus
- * Referrer-Policy and X-Content-Type-Options, with no two rules matching the same path
+ * the headers every response gets (COMMON_HEADERS: Referrer-Policy, X-Content-Type-Options,
+ * Cross-Origin-Opener-Policy and Permissions-Policy), with no two rules matching the same path
  * (docs/PLAN.md, stage 2.8).
  *
  * | Files                     | Rule                                   | Policy                         |
@@ -40,6 +41,7 @@ import {
   appPolicy,
   COMMON_HEADERS,
   isSandboxDocument,
+  permissionsPolicyProblems,
   policyProblems,
   SANDBOX_DOCUMENTS,
   STATIC_FILE_POLICY,
@@ -406,6 +408,16 @@ export function validateRules(rules: readonly HeaderRule[], files: readonly stri
     }
     if (values('x-content-type-options').join() !== 'nosniff') {
       errors.push(`${path}: X-Content-Type-Options must be nosniff, once`)
+    }
+    if (values('cross-origin-opener-policy').join() !== 'same-origin') {
+      errors.push(`${path}: Cross-Origin-Opener-Policy must be same-origin, once`)
+    }
+    const permissions = values('permissions-policy')
+    if (permissions.length !== 1) {
+      errors.push(`${path}: ${permissions.length} Permissions-Policy headers`)
+    }
+    for (const problem of permissions.flatMap(permissionsPolicyProblems)) {
+      errors.push(`${path}: Permissions-Policy: ${problem}`)
     }
   }
   for (let i = 0; i < rules.length; i++) {

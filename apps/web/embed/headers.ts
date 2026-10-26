@@ -37,11 +37,14 @@ export const EMBED_POLICY = APP_POLICY.replace("; frame-ancestors 'none'", '')
  * Every header of the `/embed/*` rule. `Cross-Origin-Opener-Policy: same-origin` cuts a player
  * opened at top level off from the page that opened it, which otherwise could count the
  * player's frames (`window.length`) and tell whether the visitor has FXM Connect. Browsers
- * ignore it in frames, so it doesn't get in the way of embedding.
+ * ignore it in frames, so it doesn't get in the way of embedding. The deploy sends both it and
+ * the Permissions-Policy with every path (`COMMON_HEADERS` in scripts/build-dist/src/policies.ts).
  */
 export const EMBED_HEADERS: Readonly<Record<string, string>> = Object.freeze({
   'content-security-policy': EMBED_POLICY,
   'cross-origin-opener-policy': 'same-origin',
+  'permissions-policy':
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=()',
   'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff',
 })
