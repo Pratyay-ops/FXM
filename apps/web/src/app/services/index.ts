@@ -36,6 +36,7 @@ import {
   createPendingPolicy,
   type PlaybackPolicy,
 } from '../../features/now-playing/playback-policy'
+import { connectPluginAudio } from '../../features/plugins/audio-target'
 import { appActions } from '../../features/search/actions'
 import { appSources } from '../../features/search/sources-context'
 import { spotifyAccountForHome } from '../../features/spotify-account/start'
@@ -211,6 +212,9 @@ async function start(): Promise<void> {
     disconnects.push(
       app.connectPlayer(getPlayer()),
       connectAppImportServices(() => createAppImportServices(app)),
+      // The resolvers of the plugins that are on (stage 8.3) join the lifecycle's stream
+      // sources, so their songs play, and leave it when a plugin is switched off or removed.
+      connectPluginAudio(app.lifecycle),
     )
     const ready = app.start()
     // Home follows the registry and plays through the player at once, with the tier unknown

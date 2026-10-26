@@ -69,6 +69,12 @@ async function start(): Promise<void> {
         connectAppImportServices(() => Promise.reject(error)),
       )
     })
+
+  // The plugins the user added and switched on (stage 8.3), each in a sandboxed document of its
+  // own: their catalogs join the sources registry, and their resolvers the stream lifecycle that
+  // the composition root hands them. Nothing runs until a plugin is installed; F-Droid builds
+  // wait for the user's opt-in.
+  void import('./features/plugins/runtime').then(({ startPlugins }) => startPlugins())
 }
 
 // An address with an encoded base, such as /%61pp/, gets none of the /app/* header rule's

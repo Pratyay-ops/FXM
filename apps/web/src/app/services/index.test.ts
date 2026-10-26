@@ -176,6 +176,17 @@ describe('startAppServices', () => {
     expect([...(userHosts[0]?.() ?? [])]).toEqual([])
   })
 
+  it("hands the lifecycle to the plugins' resolvers, and takes it back", async () => {
+    const { startAppServices, stopAppServices, getAppServices } = await load()
+    const { pluginAudioTarget } = await import('../../features/plugins/audio-target')
+    await startAppServices()
+
+    // Stage 8.3: the plugins that are on add their resolvers to the app's stream lifecycle.
+    expect(pluginAudioTarget()).toBe(getAppServices().lifecycle)
+    stopAppServices()
+    expect(pluginAudioTarget()).toBeUndefined()
+  })
+
   it("connects imports to the app's platform and providers", async () => {
     const { startAppServices, getAppServices, loadAppImportServices } = await load()
     const imports = loadAppImportServices()

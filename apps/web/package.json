@@ -33,6 +33,7 @@
     "@fxm/downloads": "workspace:*",
     "@fxm/platform": "workspace:*",
     "@fxm/player": "workspace:*",
+    "@fxm/plugins": "workspace:*",
     "@fxm/sources": "workspace:*",
     "@tanstack/react-query": "^5.104.1",
     "dexie": "^4.4.6",

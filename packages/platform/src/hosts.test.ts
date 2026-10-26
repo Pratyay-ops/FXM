@@ -8,6 +8,7 @@ import {
   isPlainHttpsUrl,
   matchesHost,
   parseUrl,
+  serviceHostRule,
 } from './hosts'
 
 function unsupported(run: () => unknown): boolean {
@@ -148,6 +149,24 @@ describe('matchesHost', () => {
     expect(matchesHost('googlevideo.com', '*.googlevideo.com')).toBe(false)
     expect(matchesHost('.googlevideo.com', '*.googlevideo.com')).toBe(false)
     expect(matchesHost('xgooglevideo.com', '*.googlevideo.com')).toBe(false)
+  })
+})
+
+describe('serviceHostRule', () => {
+  it('finds FXM’s own service on a host name, whatever the path or the port would be', () => {
+    expect(serviceHostRule('music.youtube.com')?.hostClass).toBe('innertube')
+    expect(serviceHostRule('rr1---sn-abc.googlevideo.com')?.hostClass).toBe('googlevideo')
+    expect(serviceHostRule(' Open.Spotify.COM ')?.service).toBe('Spotify')
+    // Rules with a path prefix count for the whole host.
+    expect(serviceHostRule('www.last.fm')?.hostClass).toBe('lastfm-web')
+    expect(serviceHostRule('www.google.com')?.service).toBe("Google's BotGuard")
+    expect(serviceHostRule('musicbrainz.org')?.hostClass).toBe('open')
+  })
+
+  it('finds nothing on other hosts', () => {
+    expect(serviceHostRule('api.example.org')).toBeUndefined()
+    expect(serviceHostRule('googlevideo.com')).toBeUndefined()
+    expect(serviceHostRule('youtube.com.example.org')).toBeUndefined()
   })
 })
 

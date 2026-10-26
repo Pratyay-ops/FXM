@@ -245,6 +245,9 @@ packages/
               platform implements, and the offline store the playback policy plays downloads from
   convert/    Conversion and tagging (4.2): formats and honest labels, the ffmpeg core worker,
               mp4box.js extraction, tag writers, Save to device
+  plugins/    Plugin system (8.3): manifests, checksums, installs and approved updates, the host
+              that runs plugin code in workers of the isolated evaluator, and its declared-hosts
+              fetch broker
 tools/
   ffmpeg-wasm/  The LGPL ffmpeg core's recipe (built into .tools, shipped by make dist)
 docs/         Architecture, plan, workflow, development guide; research/ holds the decision memos

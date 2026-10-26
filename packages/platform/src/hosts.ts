@@ -120,6 +120,17 @@ export function findHostRule(url: URL): HostRule | undefined {
 }
 
 /**
+ * The rule of a service FXM itself contacts on `hostname`, whatever the path and the port, or
+ * `undefined` when FXM contacts no service there: for code that must keep hosts of its own apart
+ * from FXM's services, such as the hosts a runtime plugin declares (stage 8.3). Unlike
+ * {@link findHostRule}, a rule with a `pathPrefix` counts for every path of its host.
+ */
+export function serviceHostRule(hostname: string): HostRule | undefined {
+  const name = hostname.trim().toLowerCase()
+  return HOST_RULES.find((candidate) => matchesHost(name, candidate.host))
+}
+
+/**
  * The {@link HostClass} of a URL. Throws a `TransportError` (an `Unsupported` `FxmError`) when the
  * URL is not an absolute URL that FXM contacts.
  */

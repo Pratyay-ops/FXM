@@ -301,6 +301,9 @@ importers:
       '@fxm/player':
         specifier: workspace:*
         version: link:../../packages/player
+      '@fxm/plugins':
+        specifier: workspace:*
+        version: link:../../packages/plugins
       '@fxm/sources':
         specifier: workspace:*
         version: link:../../packages/sources
@@ -462,6 +465,28 @@ importers:
       happy-dom:
         specifier: ^20.14.6
         version: 20.14.6
+
+  packages/plugins:
+    dependencies:
+      '@fxm/core':
+        specifier: workspace:*
+        version: link:../core
+      '@fxm/platform':
+        specifier: workspace:*
+        version: link:../platform
+      '@fxm/sources':
+        specifier: workspace:*
+        version: link:../sources
+      '@noble/hashes':
+        specifier: ^2.4.0
+        version: 2.4.0
+    devDependencies:
+      playwright-core:
+        specifier: ^1.64.0
+        version: 1.64.0
+      rolldown:
+        specifier: ^1.2.13
+        version: 1.2.13
 
   packages/sources:
     dependencies:

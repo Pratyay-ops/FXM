@@ -11,6 +11,7 @@ import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { ExternalLink as ExternalTextLink, standaloneLinkClasses } from '../connect/ui'
 import { ConverterAbout } from '../downloads/save/credit'
+import { PluginsSettings } from '../plugins/plugins-settings'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
 import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
@@ -101,6 +102,8 @@ export function SettingsPage() {
       </SettingsSection>
 
       <SpotifyAccountSettings />
+
+      <PluginsSettings />
 
       <QualitySection capabilities={capabilities} />
 
