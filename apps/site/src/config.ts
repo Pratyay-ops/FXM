@@ -10,10 +10,16 @@ export const SITE_URL = 'https://fxmusic.pages.dev'
 export const APP_PATH = '/app/'
 
 /**
+ * The licences of the open-source packages the site and the apps bundle, which `make dist`
+ * writes next to them at deploy time (scripts/build-dist/README.md).
+ */
+export const NOTICES_PATH = '/third-party-notices.txt'
+
+/**
  * Paths that exist in production but are not part of this site's build output. The
  * build-time link check skips them (see src/lib/build-check.ts).
  */
-export const EXTERNAL_PATHS = [APP_PATH] as const
+export const EXTERNAL_PATHS = [APP_PATH, NOTICES_PATH] as const
 
 /** <meta name="theme-color"> per theme: the page background (tokens.test.ts keeps them in sync). */
 export const THEME_COLOR = { dark: '#0b0b0f', light: '#f6f6f8' } as const
@@ -54,11 +60,12 @@ const BUILD_ENV: Readonly<Record<string, string | undefined>> =
 export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   /**
    * The experimental Lite tier: YouTube Music in the web app without FXM Connect, in browsers that
-   * pass its check (stage 1.10). Stage 2.8 turns it on once Lite plays a song on the deployed site,
-   * and leaves it off while Lite's kill switch is on. The sentences it changes are in
+   * pass its check (stage 1.10). On since Lite played a song on the deployed site in Chromium on
+   * 2026-10-26 (scripts/build-dist/README.md, "Lite on the deployed site", which says how to
+   * check again). Turn it off while Lite's kill switch is on. The sentences it changes are in
    * src/lib/tiers.ts.
    */
-  lite: false,
+  lite: true,
   /**
    * Free music from Jamendo (stage 1.6), which needs FXM's public Jamendo client_id: the deploy
    * passes the repository variable FXM_JAMENDO_CLIENT_ID to make dist as
