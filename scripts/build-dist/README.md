@@ -7,6 +7,7 @@ dist/pages/
 ├── index.html, privacy.html, disclaimer.html, 404.html, robots.txt, sitemap…, _astro/   the site (apps/site)
 ├── .well-known/security.txt                                                          the site's public/ (R.4)
 ├── app/              the web app (apps/web, base /app/), plus app/404.html for its client-side routes
+│   └── ffmpeg/       4.2's LGPL ffmpeg core for the app's conversions (tools/ffmpeg-wasm)
 ├── embed/            the embeddable player (5.2), once it exists
 ├── sandbox/          innertube.html and userhost.html (1.10), eval.html (1.11), once they exist
 ├── third-party-notices.txt
@@ -28,11 +29,12 @@ Run them from the repository root.
 
 ## What make dist does
 
-1. **Builds each part** into `dist/.staging/`: the site with `apps/site`'s own config plus hidden source maps and the bundle inventory (`site.astro.config.mjs`), the app the same way (`app.vite.config.ts`, with `vite build --sourcemap hidden`). The embed and the sandbox documents come from other stages through `src/later-stages.ts`, which skips what doesn't exist yet: today the embed (5.2) and `eval.html` (1.11).
+1. **Builds each part** into `dist/.staging/`: the site with `apps/site`'s own config plus hidden source maps and the bundle inventory (`site.astro.config.mjs`), the app the same way (`app.vite.config.ts`, with `vite build --sourcemap hidden`). The embed and the sandbox documents come from other stages through `src/later-stages.ts`, which skips what doesn't exist yet: today the embed (5.2) and `eval.html` (1.11). The app's workers get source maps that name their sources relative to where the maps go (`src/worker-source-maps.ts`): Vite's worker builds name them relative to a folder of their own, and the licence check couldn't see the npm packages inside (4.2's conversion worker bundles mp4box.js). Then **the ffmpeg core** (stage 4.2, `src/ffmpeg-core.ts`): the core built from tools/ffmpeg-wasm, copied into the app at `app/ffmpeg/`, from `FXM_FFMPEG_CORE_DIR` (CI downloads the ffmpeg-wasm job's artifact there) or from `.tools/` after `make ffmpeg-wasm`. In CI, or with `FXM_REQUIRE_FFMPEG_CORE=1`, make dist fails without it; locally it composes without it and says that this dist can't convert.
 2. **Lists the bundled npm packages**: from the source maps (every source under `node_modules/`), from the bundle inventory (`src/bundle-inventory.ts`: the stylesheets, fonts, images and WebAssembly a build takes from packages, which source maps don't show), and from `/*! name vX.Y.Z` banners in stylesheets, such as Tailwind's base styles. It fails when:
    - a package's licence is not on the list FXM accepts (`ACCEPTED_LICENCES` in `src/licenses.ts`: permissive licences, MPL-2.0, LGPL, and licences for fonts and data). GPL and AGPL, in any spelling (`GPL-3.0`, `GPLv3`, `AGPL3`), never pass. Anything else, such as a missing licence, `BSD` (not an SPDX id), SSPL or a non-commercial licence, passes only after a human review recorded in `LICENCE_OVERRIDES`;
    - JavaScript ships without a source map, because then nobody knows what it contains. The one exception is a chunk that the bundle inventory shows holds only the bundler's own runtime (`BUNDLER_RUNTIME_MODULES`: Rolldown's helpers, Vite's preload helper), which comes from no source file and so has no map;
    - WebAssembly ships that no npm package supplied, such as a binary copied into `public/`, unless its SHA-256 is in `REVIEWED_BINARIES` (the stock ffmpeg core is GPL, ARCHITECTURE.md §17);
+   - the ffmpeg core fails its own checks instead of these (a part's `prebuilt` files, `Part.prebuilt`): its files must be the ones its manifest names, built from the current recipe, each under 25 MiB, with an LGPL licence from FFmpeg's configure and no GPL or non-free flag (`coreProblems` in tools/ffmpeg-wasm/core-build.ts). Its entry in the notices names every part, its source and SHA-256, FFmpeg's configure line and how to replace the core;
    - a part without source maps (the sandbox documents) inlines code with a licence banner, or more than 64 KiB of it.
 3. **Composes** the parts under their paths, refusing two parts that write the same file, and copies each single-page app's `index.html` to its `404.html`. Source maps and inventories are never deployed: they would publish the build machine's paths.
 4. **Writes `third-party-notices.txt`** with every bundled package, its licence and its licence files.
@@ -50,7 +52,7 @@ Cloudflare gives a request the headers of every `_headers` rule that matches it 
 | Files | Rule | Policy (`src/policies.ts`) |
 |---|---|---|
 | `app/**` | `/app/*` | `appPolicy()`: the policy in docs/PLAN.md, with the hash of the app's inline theme script |
-| `embed/**` | `/embed/*` | `appPolicy({ embeddable: true })`: the same without `frame-ancestors` |
+| `embed/**` | `/embed/*` | `appPolicy({ embeddable: true })`: the same without `frame-ancestors`, and without what only the app needs (4.2's `'wasm-unsafe-eval'` and cover hosts) |
 | `sandbox/<doc>.html` | `/sandbox/<doc>` and `/sandbox/<doc>.html` | `SANDBOX_DOCUMENTS`: `sandbox allow-scripts`, the document's inline script by hash, and its hosts |
 | each other `.html` page | its path and its `.html` path, such as `/privacy` and `/privacy.html` | `sitePagePolicy()`: that page's own inline scripts and styles by hash, its own files |
 | `_astro/**`, `.well-known/**` | `/_astro/*`, `/.well-known/*` | `STATIC_FILE_POLICY`: nothing allowed |
@@ -73,7 +75,7 @@ Things Cloudflare does that the rules account for (from wrangler 4.149's copy of
 
 ### When a stage adds a service
 
-A stage that makes the web app contact a new service adds it to `APP_SERVICES` in `src/policies.ts`, with its `connect` and `img` hosts and its name exactly as the privacy page lists it, and adds it to `apps/site/src/pages/privacy.astro` (docs/PLAN.md, Definition of done). 4.2 adds `WASM_UNSAFE_EVAL` to `APP_SCRIPT_EXTRAS`. Nothing else changes but the tests that pin the list: the policy `src/policies.test.ts` expects for `/app/*` takes the new hosts too (8.2 added ListenBrainz's and Last.fm's to `LATER_CONNECT_HOSTS`, and 8.4 GitHub's, as the plan's policy row doesn't print them), and the privacy pages of `src/privacy.test.ts` and `src/compose.test.ts` that miss one service list the new one. `make dist` fails if the page misses the service.
+A stage that makes the web app contact a new service adds it to `APP_SERVICES` in `src/policies.ts`, with its `connect` and `img` hosts and its name exactly as the privacy page lists it, and adds it to `apps/site/src/pages/privacy.astro` (docs/PLAN.md, Definition of done). Hosts only the web app reads bytes from, never the embed, go in a service's `appConnect`: 4.2's cover art, which the app fetches from YouTube's and Spotify's image hosts to embed in saved files. `APP_SCRIPT_EXTRAS` holds `'wasm-unsafe-eval'` (4.2), for the conversion worker that compiles the ffmpeg core; it too is the app's only, and `appPolicy()` refuses `'unsafe-eval'` and `'unsafe-inline'`. Nothing else changes but the tests that pin the list: the policy `src/policies.test.ts` expects for `/app/*` takes the new hosts too (8.2 added ListenBrainz's and Last.fm's to `LATER_CONNECT_HOSTS`, and 8.4 GitHub's, as the plan's policy row doesn't print them), and the privacy pages of `src/privacy.test.ts` and `src/compose.test.ts` that miss one service list the new one. `make dist` fails if the page misses the service.
 
 ## Deploying
 
@@ -126,6 +128,8 @@ A copy on another origin runs without FXM Connect, which trusts only `https://fx
 | `src/parts.ts` | The site and the app; `src/later-stages.ts`: the embed (5.2) and the sandbox documents (1.10, 1.11) |
 | `site.astro.config.mjs`, `app.vite.config.ts` | The site's and the app's own configs, plus source maps and the bundle inventory |
 | `src/bundle-inventory.ts` | The Vite plugin that records which files a build takes from where, and the modules in each chunk |
+| `src/worker-source-maps.ts` | The Vite plugin that makes the app's workers' source maps name their sources where the licence check finds them |
+| `src/ffmpeg-core.ts` | 4.2's ffmpeg core as a part of the app, with its own checks and notice |
 | `src/policies.ts` | Every policy, the promises they keep, and the services the web app contacts |
 | `src/rules.ts` | Files → `_headers` rules, and their validation |
 | `src/headers-file.ts` | Writing, reading and matching `_headers` as Cloudflare does |

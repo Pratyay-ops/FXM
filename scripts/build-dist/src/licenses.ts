@@ -44,9 +44,10 @@ export interface BundledPackage {
 export const LICENCE_OVERRIDES: Readonly<Record<string, { license: string; reason: string }>> = {}
 
 /**
- * WebAssembly that no npm package supplies (copied from `public/`, or built by FXM), keyed by
- * its SHA-256 in hex, after a human reviewed its licence: 4.2's own LGPL build of the ffmpeg
- * core, for example. A changed binary needs a new review. Empty today.
+ * WebAssembly that no npm package supplies (copied from `public/`, say), keyed by its SHA-256 in
+ * hex, after a human reviewed its licence. A changed binary needs a new review. Empty today:
+ * 4.2's LGPL ffmpeg core is checked by its own recipe's checks instead (`Part.prebuilt`,
+ * src/ffmpeg-core.ts).
  */
 export const REVIEWED_BINARIES: Readonly<
   Record<string, { name: string; license: string; reason: string }>
@@ -593,8 +594,15 @@ export function licenseFiles(dir: string): { name: string; text: string }[] {
 
 const RULE = '='.repeat(78)
 
-/** The third-party notices file for everything FXM deploys. */
-export function renderNotices(packages: Iterable<BundledPackage>, repositoryUrl: string): string {
+/**
+ * The third-party notices file for everything FXM deploys: the bundled packages, then the
+ * entries of files FXM builds from its own recipes (`prebuilt`, such as the ffmpeg core).
+ */
+export function renderNotices(
+  packages: Iterable<BundledPackage>,
+  repositoryUrl: string,
+  prebuilt: readonly string[] = [],
+): string {
   const sorted = [...packages].sort(
     (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version),
   )
@@ -620,5 +628,6 @@ export function renderNotices(packages: Iterable<BundledPackage>, repositoryUrl:
       lines.push('', file.text)
     }
   }
+  for (const notice of prebuilt) lines.push('', RULE, notice)
   return `${lines.join('\n')}\n`
 }

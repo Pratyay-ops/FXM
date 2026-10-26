@@ -26,6 +26,11 @@ export interface Service {
   readonly connect?: readonly string[]
   /** img-src: hosts the app shows images from. */
   readonly img?: readonly string[]
+  /**
+   * connect-src for the web app only, never the embed: hosts the app reads bytes from that the
+   * embed has no use for. 4.2: the artwork CDNs, whose covers go into saved files.
+   */
+  readonly appConnect?: readonly string[]
 }
 
 /** YouTube's API hosts (InnerTube): the app with FXM Connect, and the Lite sandbox document. */
@@ -34,6 +39,16 @@ export const INNERTUBE_HOSTS = [
   'https://music.youtube.com',
   'https://youtubei.googleapis.com',
 ] as const
+
+/** Where YouTube's and YouTube Music's thumbnails and covers come from. */
+const YOUTUBE_IMAGE_HOSTS = [
+  'https://*.ytimg.com',
+  'https://*.googleusercontent.com',
+  'https://*.ggpht.com',
+] as const
+
+/** Where Spotify's covers come from. */
+const SPOTIFY_IMAGE_HOSTS = ['https://*.scdn.co', 'https://*.spotifycdn.com'] as const
 
 /**
  * Every service the web app and the embed contact, in the order their hosts appear in the
@@ -47,6 +62,11 @@ export const INNERTUBE_HOSTS = [
  *   sends to `api.listenbrainz.org`), and adds Internet Archive's hosts, already here, for the
  *   Cover Art Archive's redirects.
  *
+ * 4.2 lets the web app (not the embed) fetch the covers it already shows from YouTube's and
+ * Spotify's image hosts (`appConnect`), to embed them in saved files; Internet Archive's and
+ * Jamendo's covers come from hosts it reaches already. Those hosts send
+ * `Access-Control-Allow-Origin: *` (checked 2026-10-26).
+ *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
  * storage hosts and a user's Invidious proxy, and page script can't read media responses.
  */
@@ -54,7 +74,8 @@ export const APP_SERVICES: readonly Service[] = [
   {
     privacyName: 'YouTube',
     connect: [...INNERTUBE_HOSTS, 'https://*.googlevideo.com'],
-    img: ['https://*.ytimg.com', 'https://*.googleusercontent.com', 'https://*.ggpht.com'],
+    img: YOUTUBE_IMAGE_HOSTS,
+    appConnect: YOUTUBE_IMAGE_HOSTS,
   },
   {
     // Built in and on by default (Decision 1, option A). The secret source goes through the
@@ -65,7 +86,8 @@ export const APP_SERVICES: readonly Service[] = [
       'https://api-partner.spotify.com',
       'https://spclient.wg.spotify.com',
     ],
-    img: ['https://*.scdn.co', 'https://*.spotifycdn.com'],
+    img: SPOTIFY_IMAGE_HOSTS,
+    appConnect: SPOTIFY_IMAGE_HOSTS,
   },
   { privacyName: 'MusicBrainz', connect: ['https://musicbrainz.org'] },
   {
@@ -85,10 +107,11 @@ export const APP_SERVICES: readonly Service[] = [
 ]
 
 /**
- * Extra script-src sources for the web app and the embed. 4.2 adds WASM_UNSAFE_EVAL here for
- * ffmpeg.wasm in its worker. Never UNSAFE_EVAL or UNSAFE_INLINE: appPolicy() refuses them.
+ * Extra script-src sources for the web app, not the embed. 4.2's WASM_UNSAFE_EVAL lets the
+ * conversion worker compile FXM's ffmpeg core (WebAssembly); the embed converts nothing. Never
+ * UNSAFE_EVAL or UNSAFE_INLINE: appPolicy() refuses them.
  */
-export const APP_SCRIPT_EXTRAS: readonly string[] = []
+export const APP_SCRIPT_EXTRAS: readonly string[] = [WASM_UNSAFE_EVAL]
 
 /** An HTTPS origin, optionally with a `*.` sub-domain wildcard, and nothing else. */
 const HTTPS_HOST = /^https:\/\/(\*\.)?[a-z0-9-]+(\.[a-z0-9-]+)+$/
@@ -102,7 +125,11 @@ export function serviceProblems(services: readonly Service[] = APP_SERVICES): st
   const problems: string[] = []
   for (const service of services) {
     if (!/\S/.test(service.privacyName)) problems.push('a service in APP_SERVICES has no name')
-    for (const host of [...(service.connect ?? []), ...(service.img ?? [])]) {
+    for (const host of [
+      ...(service.connect ?? []),
+      ...(service.img ?? []),
+      ...(service.appConnect ?? []),
+    ]) {
       if (!HTTPS_HOST.test(host)) {
         problems.push(
           `${service.privacyName}: ${host} is not an HTTPS host such as https://example.com or https://*.example.com`,
@@ -120,7 +147,8 @@ const COMMON_DOCUMENT_DIRECTIVES: readonly Directive[] = [
 
 /**
  * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the same without
- * `frame-ancestors`, because any site may embed the player.
+ * `frame-ancestors`, because any site may embed the player, and without what only the app
+ * needs (`scriptExtras`, `appConnect`): the embed converts and saves nothing.
  */
 export function appPolicy(
   scriptHashes: readonly string[],
@@ -137,11 +165,17 @@ export function appPolicy(
       throw new Error(`the web app's script-src must never allow ${source}`)
     }
   }
-  const connect = unique(services.flatMap((service) => service.connect ?? []))
+  const app = !options.embeddable
+  const connect = unique(
+    services.flatMap((service) => [
+      ...(service.connect ?? []),
+      ...(app ? (service.appConnect ?? []) : []),
+    ]),
+  )
   const img = unique(services.flatMap((service) => service.img ?? []))
   return [
     ['default-src', [SELF]],
-    ['script-src', unique([SELF, ...scriptHashes, ...extras])],
+    ['script-src', unique([SELF, ...scriptHashes, ...(app ? extras : [])])],
     ['worker-src', [SELF, 'blob:']],
     ['style-src', [SELF, UNSAFE_INLINE]],
     ['img-src', [SELF, 'data:', 'blob:', ...img]],

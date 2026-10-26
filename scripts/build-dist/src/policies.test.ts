@@ -34,11 +34,35 @@ const LATER_CONNECT_HOSTS = [
   'https://api.github.com',
 ]
 
-/** The `/app/*` policy today: the plan's, with the hosts later stages added after its own. */
+/** The `/embed/*` policy today: the plan's, with the hosts later stages added after its own. */
+const EMBED_POLICY = PLAN_APP_POLICY.replace(
+  "; frame-src 'self';",
+  ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
+).replace(" frame-ancestors 'none';", '')
+
+/** What 4.2 adds for the app alone: the image hosts it fetches covers from, after each service's. */
+const COVER_HOSTS = {
+  youtube: 'https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com',
+  spotify: 'https://*.scdn.co https://*.spotifycdn.com',
+}
+
+/**
+ * The `/app/*` policy today: the plan's, with the hosts later stages added, and 4.2's
+ * 'wasm-unsafe-eval' for the ffmpeg core and its cover hosts.
+ */
 const APP_POLICY = PLAN_APP_POLICY.replace(
   "; frame-src 'self';",
   ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
 )
+  .replace(`script-src 'self' ${HASH};`, `script-src 'self' ${HASH} ${WASM_UNSAFE_EVAL};`)
+  .replace(
+    'https://*.googlevideo.com https://open.spotify.com',
+    `https://*.googlevideo.com ${COVER_HOSTS.youtube} https://open.spotify.com`,
+  )
+  .replace(
+    'https://spclient.wg.spotify.com https://musicbrainz.org',
+    `https://spclient.wg.spotify.com ${COVER_HOSTS.spotify} https://musicbrainz.org`,
+  )
 
 describe('csp helpers', () => {
   it('hashes inline code as browsers do, after normalizing line endings', () => {
@@ -76,15 +100,23 @@ describe('the web app policy', () => {
     expect(serializePolicy(appPolicy([HASH]))).toBe(APP_POLICY)
   })
 
-  it('stays under the 850-character estimate at M1, far below 2,000', () => {
+  it('stays under the plan’s estimates, far below 2,000 characters', () => {
     expect(PLAN_APP_POLICY.length).toBeLessThan(850)
     // The plan expects about 1,200 once the later stages' hosts are in.
     expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(1_200)
   })
 
-  it('drops only frame-ancestors for the embed', () => {
+  it('lets only the app, never the embed, compile WebAssembly and fetch covers (4.2)', () => {
+    const app = parsePolicy(serializePolicy(appPolicy([HASH])))
+    expect(app.get('script-src')).toEqual(["'self'", HASH, WASM_UNSAFE_EVAL])
+    expect(app.get('script-src')).not.toContain(UNSAFE_EVAL)
+    expect(app.get('connect-src')).toEqual(
+      expect.arrayContaining(['https://*.ytimg.com', 'https://*.scdn.co']),
+    )
     const embed = serializePolicy(appPolicy([HASH], { embeddable: true }))
-    expect(embed).toBe(APP_POLICY.replace(" frame-ancestors 'none';", ''))
+    expect(embed).toBe(EMBED_POLICY)
+    expect(embed).not.toContain(WASM_UNSAFE_EVAL)
+    expect(parsePolicy(embed).get('connect-src')).not.toContain('https://*.ytimg.com')
   })
 
   it('takes later stages’ hosts and script sources from the lists', () => {
@@ -102,6 +134,7 @@ describe('the web app policy', () => {
     )
     expect(policy.get('connect-src')?.at(-1)).toBe('https://coverartarchive.org')
     expect(policy.get('script-src')).toEqual(["'self'", HASH, WASM_UNSAFE_EVAL])
+    expect(APP_SCRIPT_EXTRAS).toEqual([WASM_UNSAFE_EVAL])
   })
 
   it("never allows 'unsafe-eval' or 'unsafe-inline' scripts", () => {
@@ -113,7 +146,11 @@ describe('the web app policy', () => {
   it('names only HTTPS hosts, each under the service the privacy page lists', () => {
     expect(serviceProblems()).toEqual([])
     for (const service of APP_SERVICES) {
-      for (const host of [...(service.connect ?? []), ...(service.img ?? [])]) {
+      for (const host of [
+        ...(service.connect ?? []),
+        ...(service.img ?? []),
+        ...(service.appConnect ?? []),
+      ]) {
         expect(isHostSource(host)).toBe(true)
       }
     }
