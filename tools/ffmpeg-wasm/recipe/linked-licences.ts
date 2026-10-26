@@ -31,7 +31,14 @@
  * @module
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -676,6 +683,21 @@ function main(args: readonly string[]): number {
   return 0
 }
 
-if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+/**
+ * Whether this file runs as a script (`node <file> …`) rather than as an import. Both paths are
+ * resolved to their real paths, so it also runs from a folder behind a symbolic link, such as
+ * macOS's /tmp.
+ */
+function runAsScript(): boolean {
+  const script = process.argv[1]
+  if (script === undefined) return false
+  try {
+    return realpathSync(script) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+
+if (runAsScript()) {
   process.exitCode = main(process.argv.slice(2))
 }
