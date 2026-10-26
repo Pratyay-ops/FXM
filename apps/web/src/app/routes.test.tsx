@@ -30,6 +30,7 @@ describe('routes', () => {
     ['/artist/ytm:UC-abc', 'This artist is on YouTube Music'],
     ['/playlist/liked', 'Playlist liked'],
     ['/now-playing', 'Now playing'],
+    ['/import', 'Import music'],
     ['/settings', 'Settings'],
     ['/connect', 'FXM Connect'],
     ['/no/such/page', 'Page not found'],

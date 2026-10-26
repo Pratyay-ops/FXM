@@ -229,6 +229,11 @@ export interface AffinityRecord extends AffinityEntry {
  * Settings that outgrow `localStorage`. The app's own settings stay there for now; the library
  * keeps the version of the scoring model the listening affinity was built with here
  * (`affinity.model`).
+ *
+ * Rows whose key starts with `sync.` sync to the user's other devices through their sync gist
+ * (stage 8.4), which anyone with its link can read; every other row stays on this device.
+ * Credentials, secret sources, network endpoints and per-device privacy switches must never use
+ * a `sync.` key.
  */
 export interface SettingRecord {
   /** Setting name. */
