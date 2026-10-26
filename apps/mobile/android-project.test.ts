@@ -293,6 +293,7 @@ describe('the Android project', () => {
         'android/fxm-http/src/main/AndroidManifest.xml',
         'android/fxm-player/src/main/AndroidManifest.xml',
         'android/fxm-downloads/src/main/AndroidManifest.xml',
+        'android/fxm-spotify/src/main/AndroidManifest.xml',
       ]) {
         const xml = read(file).replace(/<!--[\s\S]*?-->/g, '')
         expect(xml, file).not.toMatch(/MANAGE_EXTERNAL_STORAGE|MANAGE_MEDIA/)
