@@ -4,7 +4,7 @@ import { ExternalLink, Plug, RotateCw, Search, SlidersHorizontal } from 'lucide-
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
-import { StatusToast, showStatus } from '../library/status'
+import { showStatus } from '../library/status'
 import { Dialog } from '../library/ui/dialog'
 import { CATALOG_MODE_LABELS } from '../settings/options'
 import { useSettingsStore } from '../settings/settings-store'
@@ -335,7 +335,7 @@ export function HomeContent() {
   }
 
   return (
-    // A flex column, not space-y: the closed dialog and the toast take no room.
+    // A flex column, not space-y: the closed dialog takes no room.
     <div ref={root} className="flex flex-col gap-10 md:gap-12">
       {showOnboarding && (
         <TasteOnboarding
@@ -423,7 +423,6 @@ export function HomeContent() {
         ))}
 
       <MixDialog mix={openMix} playback={services.playback} onClose={() => setOpenMix(null)} />
-      <StatusToast />
     </div>
   )
 }
