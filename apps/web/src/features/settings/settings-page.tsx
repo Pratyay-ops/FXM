@@ -7,6 +7,8 @@ import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
+import { InstallAction, InstallHelp } from '../pwa/install-setting'
+import { isInstallableWebApp } from '../pwa/web-app'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { CatalogModeControl } from './catalog-mode-control'
@@ -27,6 +29,8 @@ export function SettingsPage() {
   const themeLabelId = useId()
   const spotifyLabelId = useId()
   const spotifyHelpId = useId()
+  const installLabelId = useId()
+  const installHelpId = useId()
 
   return (
     <div className="max-w-3xl space-y-8 pt-2 md:pt-4">
@@ -88,6 +92,19 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      {/* Only the web build installs; the Android and desktop apps are installed already. */}
+      {isInstallableWebApp() && (
+        <SettingsSection title="App">
+          <SettingRow
+            label="Install app"
+            labelId={installLabelId}
+            help={<InstallHelp id={installHelpId} />}
+          >
+            <InstallAction describedBy={installHelpId} />
+          </SettingRow>
+        </SettingsSection>
+      )}
 
       <ConnectSettingsEntry />
 

@@ -59,7 +59,7 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   /** Downloads in any format, with tags and cover art: 4.1 and 4.2 (M3) */
   downloads: false,
   /** Installing the web app as a PWA: 5.1 (M4) */
-  pwa: false,
+  pwa: true,
   /** The embeddable mini-player: 5.2 (M4) */
   embed: false,
   /** The Android APK on GitHub Releases: 6.6 (M5) */

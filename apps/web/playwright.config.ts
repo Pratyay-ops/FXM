@@ -16,6 +16,9 @@ export default defineConfig({
   use: {
     baseURL,
     trace: 'retain-on-failure',
+    // The service worker would serve the app from its cache and could show the update toast
+    // while e2e/pwa.spec.ts publishes new versions. Only that spec turns it on.
+    serviceWorkers: 'block',
   },
   projects: [
     {
