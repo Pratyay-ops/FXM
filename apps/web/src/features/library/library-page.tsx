@@ -4,6 +4,7 @@ import {
   Clock,
   Disc3,
   Ellipsis,
+  FileInput,
   Heart,
   ListMusic,
   ListPlus,
@@ -467,6 +468,10 @@ export function LibraryPage() {
           <ArchiveRestore aria-hidden="true" />
           Backup
         </button>
+        <Link to="/import" className={buttonClasses({ variant: 'secondary' })}>
+          <FileInput aria-hidden="true" />
+          Import
+        </Link>
       </div>
       <Tabs
         label="Library"
