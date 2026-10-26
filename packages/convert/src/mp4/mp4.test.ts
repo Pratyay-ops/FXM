@@ -42,8 +42,17 @@ describe('demuxMp4Audio', () => {
     expect(track.samples.map((sample) => sample.duration)).toEqual(samples.map(() => 1024))
   })
 
-  it('refuses files without an AAC or ALAC track', () => {
-    expect(() => demuxMp4Audio(mp3File())).toThrow(RangeError)
+  it('refuses a file that isn’t MP4 as damaged, and one without AAC or ALAC as unsupported', () => {
+    expect(() => demuxMp4Audio(mp3File())).toThrow(
+      expect.objectContaining({ name: 'ConvertError', code: 'corrupt-input' }),
+    )
+    // The same M4A with its sample entry renamed: Opus in MP4, which FXM doesn't take.
+    const opus = m4aFile()
+    const at = new TextDecoder('latin1').decode(opus).indexOf('mp4a')
+    opus.set(new TextEncoder().encode('Opus'), at)
+    expect(() => demuxMp4Audio(opus)).toThrow(
+      expect.objectContaining({ name: 'ConvertError', code: 'unsupported-input' }),
+    )
   })
 })
 

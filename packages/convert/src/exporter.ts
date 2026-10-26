@@ -18,7 +18,7 @@ import { writeFlacTags } from './tags/flac'
 import { writeMp3Tags } from './tags/id3v2'
 import { writeOggTags } from './tags/ogg'
 import { writeWavTags } from './tags/riff'
-import type { ExportTags, SourceAudio } from './types'
+import { type ExportTags, isConvertError, type SourceAudio } from './types'
 
 /** One file to save. */
 export interface ExportRequest {
@@ -37,7 +37,8 @@ export interface ExportResult {
   readonly plan: ExportPlan
   /**
    * Whether the tags made it into the file. A file whose own structure FXM can't edit (a WAV
-   * with sizes it never fixed, FLAC inside Ogg) is saved without them rather than not at all.
+   * with sizes it never fixed, FLAC inside Ogg), or an original WebM when the core can't write
+   * its tags, is saved without them rather than not at all.
    */
   readonly tagged: boolean
 }
@@ -113,11 +114,23 @@ function tagged(
 }
 
 /**
+ * Whether the plan's file may be the stored file itself, untouched, when the core can't run:
+ * Original, whose core step (WebM's) only remuxes it to write its tags.
+ */
+function keepsOriginal(plan: ExportPlan): boolean {
+  return plan.format === 'original' && !plan.extractAudio && plan.core?.codec === 'copy'
+}
+
+/**
  * Saves `request.input` as `request.format`: the file, its plan and whether it got its tags.
  * `onProgress` gets the fraction done, 0 to 1 (the core's work is nearly all of it).
  *
- * @throws ConvertError when the core can't load or the conversion fails, and RangeError when
- * the input isn't the file its format says (a video that isn't MP4, say).
+ * Original never fails for want of the core: when the core can't load or can't remux a WebM
+ * with its tags, the stored file is saved as it is, with `tagged: false`.
+ *
+ * @throws ConvertError when the core can't load or the conversion fails, `corrupt-input` when
+ * the input isn't the file its format says (a video that isn't MP4, say), `unsupported-input`
+ * for a source FXM can't save. A RangeError means memory ran out.
  */
 export async function exportAudio(
   request: ExportRequest,
@@ -148,16 +161,27 @@ export async function exportAudio(
   if (plan.core === undefined) {
     output = await bytesOf(input)
   } else {
-    const core = await dependencies.loadCore()
     const job: CoreJob =
       plan.tags === 'core' ? { ...plan.core, metadata: containerTags(request.tags) } : plan.core
-    output = await core.convert(input, job, {
-      inputExtension: extension,
-      outputExtension: plan.output.extension,
-      ...(onProgress === undefined
-        ? {}
-        : { onProgress: (done: number) => onProgress(done * 0.95) }),
-    })
+    try {
+      const core = await dependencies.loadCore()
+      output = await core.convert(input, job, {
+        inputExtension: extension,
+        outputExtension: plan.output.extension,
+        ...(onProgress === undefined
+          ? {}
+          : { onProgress: (done: number) => onProgress(done * 0.95) }),
+      })
+    } catch (error) {
+      if (!keepsOriginal(plan) || isConvertError(error, 'cancelled')) throw error
+      // The original as it is: untagged rather than not at all.
+      onProgress?.(1)
+      return {
+        blob: new Blob([request.input as BlobPart], { type }),
+        plan,
+        tagged: false,
+      }
+    }
   }
   const result = tagged(plan, output, request.tags)
   onProgress?.(1)

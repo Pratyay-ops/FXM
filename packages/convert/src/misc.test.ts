@@ -1,7 +1,7 @@
 import { formatId, type Track } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import { fetchCover, largestArtwork, MAX_COVER_BYTES, sniffImage } from './cover'
-import { exportFileName } from './naming'
+import { exportFileName, MAX_NAME_BYTES } from './naming'
 import { createBrowserDeviceSaver } from './save'
 import { tagsFromTrack } from './track-tags'
 
@@ -97,10 +97,49 @@ describe('exportFileName', () => {
     expect(exportFileName({ title: '..hidden..', artists: [] }, 'mp3')).toBe('hidden.mp3')
     expect(exportFileName({ title: '', artists: [] }, 'opus')).toBe('FXM download.opus')
     expect(exportFileName({ title: 'con', artists: [] }, 'wav')).toBe('con (track).wav')
-    expect(exportFileName({ title: 'x'.repeat(300), artists: [] }, 'mp3')).toHaveLength(154)
+    expect(exportFileName({ title: 'x'.repeat(300), artists: [] }, 'mp3')).toHaveLength(204)
     expect(exportFileName({ title: 'Tab\tand\nnewline', artists: [] }, '.m4a')).toBe(
       'Tab and newline.m4a',
     )
+  })
+
+  const utf8Bytes = (text: string) => new TextEncoder().encode(text).length
+
+  it('keeps long names within the bytes file systems allow, in any script', () => {
+    // 200 CJK characters are 600 bytes of UTF-8: after "歌手 - " (9 bytes) 63 of them fit.
+    const cjk = exportFileName({ title: '春'.repeat(200), artists: ['歌手'] }, 'flac')
+    expect(cjk).toBe(`歌手 - ${'春'.repeat(63)}.flac`)
+    expect(utf8Bytes(cjk.slice(0, -'.flac'.length))).toBe(198)
+    expect(utf8Bytes(cjk)).toBeLessThanOrEqual(MAX_NAME_BYTES + '.flac'.length)
+  })
+
+  it('never splits an emoji or an accented letter', () => {
+    const emoji = exportFileName({ title: `${'a'.repeat(199)}🎵🎵`, artists: [] }, 'mp3')
+    expect(emoji).toBe(`${'a'.repeat(199)}.mp3`)
+    expect(emoji).not.toMatch(/[\uD800-\uDFFF]/)
+    // A family emoji is one character of 25 bytes: it goes whole or not at all.
+    const family = '👨‍👩‍👧‍👦'
+    expect(exportFileName({ title: `${'b'.repeat(180)}${family}`, artists: [] }, 'mp3')).toBe(
+      `${'b'.repeat(180)}.mp3`,
+    )
+    // "é" written as e + a combining accent becomes one letter; "q́", which has no single
+    // letter, goes whole or not at all.
+    expect(exportFileName({ title: `${'c'.repeat(198)}e\u0301x`, artists: [] }, 'mp3')).toBe(
+      `${'c'.repeat(198)}\u00e9.mp3`,
+    )
+    expect(exportFileName({ title: `${'c'.repeat(198)}q\u0301`, artists: [] }, 'mp3')).toBe(
+      `${'c'.repeat(198)}.mp3`,
+    )
+    // Half a surrogate pair in the metadata is dropped.
+    expect(exportFileName({ title: 'Song \uD83D', artists: [] }, 'mp3')).toBe('Song.mp3')
+  })
+
+  it('names the file from what is text, whatever a stored track holds', () => {
+    const tags = { title: 42, artists: ['Artist', null, 7, ' '] } as unknown as {
+      title: string
+      artists: string[]
+    }
+    expect(exportFileName(tags, 'mp3')).toBe('Artist.mp3')
   })
 })
 
@@ -190,6 +229,74 @@ describe('createBrowserDeviceSaver', () => {
     const blob = new Blob(['x'])
     await target?.write(blob)
     expect(written).toEqual([blob])
+  })
+
+  /** A picked file as Chromium hands it over: created, empty, when the picker closed. */
+  function pickedFile(options: { size?: number; failWrite?: boolean } = {}) {
+    const events: string[] = []
+    let size = options.size ?? 0
+    const handle = {
+      name: 'A - B.flac',
+      getFile: async () => ({ size }),
+      remove: async () => {
+        events.push('remove')
+      },
+      createWritable: async () => ({
+        write: async (blob: Blob) => {
+          if (options.failWrite) throw new DOMException('No space left', 'QuotaExceededError')
+          events.push('write')
+          size = blob.size
+        },
+        close: async () => {
+          events.push('close')
+        },
+        abort: async () => {
+          events.push('abort')
+        },
+      }),
+    }
+    const saver = createBrowserDeviceSaver({ window: { showSaveFilePicker: async () => handle } })
+    return { events, saver }
+  }
+
+  it('removes the empty file the picker created when the save is given up', async () => {
+    const { events, saver } = pickedFile()
+    const target = await saver.choose({ fileName: 'A - B.flac', mimeType: 'audio/flac' })
+    await target?.discard()
+    expect(events).toEqual(['remove'])
+  })
+
+  it('never removes a file with content in it', async () => {
+    const { events, saver } = pickedFile({ size: 1234 })
+    const target = await saver.choose({ fileName: 'A - B.flac', mimeType: 'audio/flac' })
+    await target?.discard()
+    expect(events).toEqual([])
+  })
+
+  it('drops a half-written file when writing fails, and still removes the empty file', async () => {
+    const { events, saver } = pickedFile({ failWrite: true })
+    const target = await saver.choose({ fileName: 'A - B.flac', mimeType: 'audio/flac' })
+    await expect(target?.write(new Blob(['x']))).rejects.toThrow('No space left')
+    expect(events).toEqual(['abort'])
+    await target?.discard()
+    expect(events).toEqual(['abort', 'remove'])
+  })
+
+  it('gives a file up quietly where the browser can’t remove it', async () => {
+    const saver = createBrowserDeviceSaver({
+      window: {
+        showSaveFilePicker: async () => ({
+          name: 'x.mp3',
+          createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+          getFile: async () => {
+            throw new DOMException('gone', 'NotFoundError')
+          },
+          remove: async () => {},
+        }),
+      },
+    })
+    const target = await saver.choose({ fileName: 'x.mp3', mimeType: 'audio/mpeg' })
+    await expect(target?.discard()).resolves.toBeUndefined()
   })
 
   it('reports a cancelled picker as no target', async () => {

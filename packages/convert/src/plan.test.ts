@@ -1,7 +1,7 @@
 import { DOWNLOAD_FORMATS, type DownloadFormat } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
-import { exportChoices, exportLabel, planExport } from './plan'
-import type { SourceAudio } from './types'
+import { exportChoices, exportLabel, isExportable, planExport } from './plan'
+import { ConvertError, type SourceAudio } from './types'
 
 const OPUS: SourceAudio = { codec: 'opus', container: 'webm', media: 'audio', bitrateKbps: 150 }
 const AAC: SourceAudio = { codec: 'aac', container: 'm4a', media: 'audio', bitrateKbps: 128 }
@@ -137,48 +137,84 @@ describe('planExport', () => {
     expect(planExport(WAV, 'wav').core).toBeUndefined()
   })
 
-  it('refuses a video whose audio isn’t AAC in MP4', () => {
-    expect(() =>
-      planExport({ codec: 'opus', container: 'webm', media: 'muxed-video' }, 'original'),
-    ).toThrow(RangeError)
+  it('refuses a video whose audio isn’t AAC in MP4, as input it can’t read', () => {
+    const video: SourceAudio = { codec: 'opus', container: 'webm', media: 'muxed-video' }
+    expect(isExportable(video)).toBe(false)
+    expect(isExportable({ codec: 'aac', container: 'mkv' as never, media: 'muxed-video' })).toBe(
+      false,
+    )
+    expect(() => planExport(video, 'original')).toThrow(ConvertError)
+    expect(() => planExport(video, 'flac')).toThrow(
+      expect.objectContaining({ code: 'unsupported-input' }),
+    )
+    expect(() => exportChoices(video)).toThrow(ConvertError)
+    for (const source of [OPUS, AAC, ITAG_18, FLAC, MP3, VORBIS, WAV]) {
+      expect(isExportable(source), source.codec).toBe(true)
+    }
   })
 })
 
 describe('exportChoices', () => {
   it('lists every format with its label and extension, saying which need the core', () => {
     expect(exportChoices(AAC)).toEqual([
-      { format: 'original', label: 'Original (AAC)', extension: 'm4a', needsCore: false },
+      {
+        format: 'original',
+        label: 'Original (AAC)',
+        extension: 'm4a',
+        needsCore: false,
+        transcoded: false,
+      },
       {
         format: 'flac',
         label: 'FLAC (converted from AAC, same quality as the source)',
         extension: 'flac',
         needsCore: true,
+        transcoded: true,
       },
       {
         format: 'alac',
         label: 'ALAC (converted from AAC, same quality as the source)',
         extension: 'm4a',
         needsCore: true,
+        transcoded: true,
       },
       {
         format: 'wav',
         label: 'WAV (converted from AAC, same quality as the source)',
         extension: 'wav',
         needsCore: true,
+        transcoded: true,
       },
       {
         format: 'mp3',
         label: 'MP3 (converted from AAC, some quality loss)',
         extension: 'mp3',
         needsCore: true,
+        transcoded: true,
       },
-      { format: 'aac', label: 'AAC (no conversion)', extension: 'm4a', needsCore: false },
+      {
+        format: 'aac',
+        label: 'AAC (no conversion)',
+        extension: 'm4a',
+        needsCore: false,
+        transcoded: false,
+      },
       {
         format: 'opus',
         label: 'Opus (converted from AAC, some quality loss)',
         extension: 'opus',
         needsCore: true,
+        transcoded: true,
       },
     ])
+  })
+
+  it('tells a remux by the core from a conversion', () => {
+    const choices = exportChoices(OPUS)
+    const of = (format: string) => choices.find((choice) => choice.format === format)
+    // WebM's tags and the .opus file are the core's work, but the audio stays as it is.
+    expect(of('original')).toMatchObject({ needsCore: true, transcoded: false })
+    expect(of('opus')).toMatchObject({ needsCore: true, transcoded: false })
+    expect(of('flac')).toMatchObject({ needsCore: true, transcoded: true })
   })
 })

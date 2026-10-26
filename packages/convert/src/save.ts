@@ -24,9 +24,12 @@ export interface SaveRequest {
 export interface SaveTarget {
   /** The name the file will get (the user may have changed it in a picker). */
   readonly fileName: string
-  /** Writes the file there. */
+  /** Writes the file there. Rejects when the place refuses it; nothing half-written stays. */
   write(blob: Blob): Promise<void>
-  /** Gives the place up without writing, e.g. after a failed conversion. */
+  /**
+   * Gives the place up without writing, e.g. after a failed or cancelled conversion, removing
+   * whatever choosing it left behind (an empty file a picker created). Never rejects.
+   */
   discard(): Promise<void>
 }
 
@@ -34,9 +37,29 @@ export interface SaveTarget {
 export interface DeviceSaver {
   /**
    * Asks where to save, where the platform asks at all. Call it straight from the click.
-   * Resolves with the target, or `undefined` when the user cancelled.
+   * Resolves with the target, or `undefined` when the user cancelled. It may reject (a native
+   * dialog that fails): the app then reports the save as failed, saying the file couldn't be
+   * written there, and nothing is converted.
    */
   choose(request: SaveRequest): Promise<SaveTarget | undefined>
+}
+
+/** What FXM uses of a `FileSystemWritableFileStream`. */
+interface PickedFileWriter {
+  write(data: Blob): Promise<void>
+  close(): Promise<void>
+  /** Drops what was written; the file keeps what it had. */
+  abort?(): Promise<void>
+}
+
+/** What FXM uses of the `FileSystemFileHandle` a save picker returns. */
+interface PickedFile {
+  readonly name: string
+  createWritable(): Promise<PickedFileWriter>
+  /** The file as it is now. */
+  getFile?(): Promise<{ readonly size: number }>
+  /** Removes the file (Chromium 110 and later). */
+  remove?(): Promise<void>
 }
 
 /** The File System Access API's save picker, where the browser has it (Chromium on desktop). */
@@ -44,10 +67,7 @@ interface SavePickerWindow {
   showSaveFilePicker?: (options: {
     suggestedName?: string
     types?: { description?: string; accept: Record<string, string[]> }[]
-  }) => Promise<{
-    readonly name: string
-    createWritable(): Promise<{ write(data: Blob): Promise<void>; close(): Promise<void> }>
-  }>
+  }) => Promise<PickedFile>
 }
 
 /** What {@link createBrowserDeviceSaver} uses; tests pass fakes. */
@@ -80,6 +100,37 @@ function linkTarget(fileName: string, environment: BrowserSaverEnvironment): Sav
       setTimeout(() => revoke(url), LINK_LIFETIME_MS)
     },
     async discard() {},
+  }
+}
+
+/**
+ * A target that writes to the file the user picked. Chromium creates that file, empty, as the
+ * picker closes (and may empty a file the user chose to replace), so giving the target up
+ * removes it while it is still empty: a failed or cancelled save leaves no empty
+ * "Artist - Title.flac" behind, and a file with content in it is never removed.
+ */
+function pickedFileTarget(handle: PickedFile): SaveTarget {
+  return {
+    fileName: handle.name,
+    async write(blob) {
+      const writer = await handle.createWritable()
+      try {
+        await writer.write(blob)
+        await writer.close()
+      } catch (error) {
+        // The browser writes to a temporary copy until close(): drop it.
+        await writer.abort?.().catch(() => undefined)
+        throw error
+      }
+    },
+    async discard() {
+      try {
+        if (handle.getFile === undefined || handle.remove === undefined) return
+        if ((await handle.getFile()).size === 0) await handle.remove()
+      } catch {
+        // Gone already, or the browser refuses: nothing more to do.
+      }
+    },
   }
 }
 
@@ -118,15 +169,7 @@ export function createBrowserDeviceSaver(environment: BrowserSaverEnvironment = 
                 ],
               }),
         })
-        return {
-          fileName: handle.name,
-          async write(blob) {
-            const writable = await handle.createWritable()
-            await writable.write(blob)
-            await writable.close()
-          },
-          async discard() {},
-        }
+        return pickedFileTarget(handle)
       } catch (error) {
         if (isCancel(error)) return undefined
         // No user activation left, or a picker the browser refuses here: download instead.

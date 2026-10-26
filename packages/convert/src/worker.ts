@@ -17,7 +17,7 @@
 import { type CoreLoaderOptions, type FfmpegCore, loadFfmpegCore } from './core'
 import { exportAudio } from './exporter'
 import type { ConverterReply, ConverterRequest } from './protocol'
-import { ConvertError } from './types'
+import { ConvertError, isConvertError } from './types'
 
 /** The parts of a worker's global scope the worker uses. */
 export interface ConversionWorkerScope {
@@ -29,6 +29,28 @@ export interface ConversionWorkerScope {
 export interface ServeOptions {
   /** Loads the core from a base URL. Default: {@link loadFfmpegCore}. */
   loadCore?: (base: string, options?: CoreLoaderOptions) => Promise<FfmpegCore>
+}
+
+/**
+ * `error` as a {@link ConvertError} for the page. Damaged or unsupported input already is one
+ * (from the MP4 reader and the plan); a RangeError from a failed allocation means the browser ran
+ * out of memory (a long video, a long mix); anything else is a failure.
+ */
+export function toConvertError(error: unknown): ConvertError {
+  if (error instanceof ConvertError) return error
+  const message = error instanceof Error ? error.message : String(error)
+  if (error instanceof RangeError && /allocation|memory/i.test(message)) {
+    return new ConvertError('out-of-memory', message, { cause: error })
+  }
+  return new ConvertError('failed', message, { cause: error })
+}
+
+/**
+ * Whether a core's error means it stopped mid-way: out of memory, or a trap, which the core
+ * reports with its cause (core.ts). A plain FFmpeg error leaves the core usable.
+ */
+function stoppedMidway(error: unknown): boolean {
+  return isConvertError(error) && (error.code === 'out-of-memory' || error.cause !== undefined)
 }
 
 /** Answers conversion jobs on `scope`, one at a time. */
@@ -46,27 +68,37 @@ export function serveConversions(scope: ConversionWorkerScope, options: ServeOpt
     }
     return core.promise
   }
+
+  /**
+   * The core for `base`, which forgets itself when a conversion stops it mid-way, even when the
+   * export goes on without it (an original saved untagged), so the next job gets a fresh one.
+   */
+  const coreFor = async (base: string): Promise<FfmpegCore> => {
+    const promise = getCore(base)
+    const loaded = await promise
+    const forgetIfStopped = (error: unknown): never => {
+      if (stoppedMidway(error) && core?.promise === promise) core = undefined
+      throw error
+    }
+    return {
+      version: loaded.version,
+      convert: (input, job, convertOptions) =>
+        loaded.convert(input, job, convertOptions).catch(forgetIfStopped),
+      probe: (input, extension) => loaded.probe(input, extension).catch(forgetIfStopped),
+    }
+  }
   let queue: Promise<void> = Promise.resolve()
 
   const run = async ({ id, coreBase, job }: ConverterRequest) => {
     try {
-      const result = await exportAudio(job, { loadCore: () => getCore(coreBase) }, (done) =>
+      const result = await exportAudio(job, { loadCore: () => coreFor(coreBase) }, (done) =>
         scope.postMessage({ id, type: 'progress', done }),
       )
       scope.postMessage({ id, type: 'done', blob: result.blob, tagged: result.tagged })
     } catch (error) {
-      // A RangeError says the file isn't what its format claims (an MP4 that isn't one).
-      const failure =
-        error instanceof ConvertError
-          ? error
-          : new ConvertError(
-              error instanceof RangeError ? 'corrupt-input' : 'failed',
-              error instanceof Error ? error.message : String(error),
-            )
-      if (failure.code === 'out-of-memory' || failure.cause !== undefined) {
-        // The core stopped mid-way: start a fresh one for the next job.
-        core = undefined
-      }
+      const failure = toConvertError(error)
+      // Out of memory anywhere: a fresh core next time gives the browser the old one's memory.
+      if (failure.code === 'out-of-memory') core = undefined
       scope.postMessage({ id, type: 'error', code: failure.code, message: failure.message })
     }
   }

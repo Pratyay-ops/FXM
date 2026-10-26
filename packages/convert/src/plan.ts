@@ -17,7 +17,7 @@ import {
   describeConversion,
   type Mp3Bitrate,
 } from '@fxm/core'
-import type { SourceAudio } from './types'
+import { ConvertError, type SourceAudio } from './types'
 
 /** The muxers FXM's ffmpeg core writes (tools/ffmpeg-wasm). */
 export type CoreMuxer = 'flac' | 'ipod' | 'wav' | 'mp3' | 'ogg' | 'webm'
@@ -166,6 +166,17 @@ function sameContainer(a: Container, b: Container): boolean {
   return family(a) === family(b)
 }
 
+/**
+ * Whether FXM can save `source` at all: any audio file, and a video whose audio is AAC in MP4
+ * (YouTube's itag 18, the only video a source delivers). {@link planExport} refuses the rest.
+ */
+export function isExportable(source: Pick<SourceAudio, 'codec' | 'container' | 'media'>): boolean {
+  return (
+    source.media !== 'muxed-video' ||
+    (source.codec === 'aac' && sameContainer(source.container, 'm4a'))
+  )
+}
+
 /** How the source reads in labels: "Opus", or "AAC from 360p video" for itag 18. */
 export function sourceLabel(source: Pick<SourceAudio, 'codec' | 'media'>): string {
   const codec = CODEC_LABELS[source.codec]
@@ -200,17 +211,21 @@ export function exportLabel(source: SourceAudio, format: DownloadFormat): string
  *   source's depth, MP3 at the settings' bitrate, AAC at 256 kbps or Opus at 160 kbps.
  * - **A video** (itag 18): its AAC track is extracted with mp4box.js first, never the video.
  *
- * @throws RangeError for a muxed video whose audio isn't AAC in MP4, which no source delivers.
+ * @throws ConvertError `unsupported-input` for a source {@link isExportable} refuses: a video
+ * whose audio isn't AAC in MP4, which no source delivers.
  */
 export function planExport(
   source: SourceAudio,
   format: DownloadFormat,
   options: ExportOptions = {},
 ): ExportPlan {
-  const extractAudio = source.media === 'muxed-video'
-  if (extractAudio && !(source.codec === 'aac' && sameContainer(source.container, 'm4a'))) {
-    throw new RangeError(`Can't extract ${source.codec} audio from a ${source.container} video`)
+  if (!isExportable(source)) {
+    throw new ConvertError(
+      'unsupported-input',
+      `Can't extract ${source.codec} audio from a ${source.container} video`,
+    )
   }
+  const extractAudio = source.media === 'muxed-video'
   // What the audio is once extracted: itag 18's AAC track as an M4A file.
   const audio: { codec: Codec; container: Container } = extractAudio
     ? { codec: 'aac', container: 'm4a' }
@@ -279,9 +294,15 @@ export interface ExportChoice {
   readonly extension: string
   /** Whether it takes the ffmpeg core, which isn't available everywhere. */
   readonly needsCore: boolean
+  /** Whether the audio is re-encoded; with the core but without this, it is only remuxed. */
+  readonly transcoded: boolean
 }
 
-/** Every format a source can be saved in, in the menu's order, with their honest labels. */
+/**
+ * Every format a source can be saved in, in the menu's order, with their honest labels.
+ *
+ * @throws ConvertError `unsupported-input` for a source {@link isExportable} refuses.
+ */
 export function exportChoices(source: SourceAudio, options: ExportOptions = {}): ExportChoice[] {
   return (Object.keys(DOWNLOAD_FORMATS) as DownloadFormat[]).map((format) => {
     const plan = planExport(source, format, options)
@@ -290,6 +311,7 @@ export function exportChoices(source: SourceAudio, options: ExportOptions = {}):
       label: plan.label,
       extension: plan.output.extension,
       needsCore: plan.core !== undefined,
+      transcoded: plan.transcoded,
     }
   })
 }

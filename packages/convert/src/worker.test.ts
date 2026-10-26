@@ -4,7 +4,7 @@ import type { FfmpegCore } from './core'
 import type { ConverterReply, ConverterRequest, ExportJob } from './protocol'
 import { FakeFfmpegCore, mp3File, oggOpusFile } from './testing'
 import { ConvertError } from './types'
-import { serveConversions } from './worker'
+import { serveConversions, toConvertError } from './worker'
 
 const JOB: ExportJob = {
   input: new Blob([oggOpusFile() as BlobPart]),
@@ -122,6 +122,81 @@ describe('the conversion worker and its client', () => {
     await expect(converter.exportAudio(JOB)).rejects.toMatchObject({ code: 'out-of-memory' })
     await converter.exportAudio(JOB)
     expect(second.calls).toHaveLength(1)
+  })
+
+  it('reports memory running out as such, never as a damaged file', async () => {
+    const core = new FakeFfmpegCore()
+    core.convert = async () => {
+      throw new RangeError('Array buffer allocation failed')
+    }
+    const converter = createConverter({
+      createWorker: () => inProcessWorker(async () => core),
+      coreBase: 'https://fxm.test/',
+    })
+    await expect(converter.exportAudio(JOB)).rejects.toMatchObject({ code: 'out-of-memory' })
+    expect(toConvertError(new RangeError('Invalid typed array length: -4')).code).toBe('failed')
+    expect(toConvertError(new TypeError('x is not a function')).code).toBe('failed')
+    expect(toConvertError(new ConvertError('corrupt-input', 'bad')).code).toBe('corrupt-input')
+  })
+
+  it('saves an original WebM untagged when the core never loads', async () => {
+    const loadCore = vi.fn(async (): Promise<FfmpegCore> => {
+      throw new ConvertError('core-unavailable', 'HTTP 404')
+    })
+    const converter = createConverter({
+      createWorker: () => inProcessWorker(loadCore),
+      coreBase: 'https://fxm.test/',
+    })
+    const webm = new Blob([new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1])])
+    const outcome = await converter.exportAudio({
+      ...JOB,
+      input: webm,
+      source: { codec: 'opus', container: 'webm', media: 'audio' },
+      format: 'original',
+    })
+    expect(outcome.tagged).toBe(false)
+    expect(new Uint8Array(await outcome.blob.arrayBuffer())).toEqual(
+      new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1]),
+    )
+    await expect(converter.exportAudio(JOB)).rejects.toMatchObject({ code: 'core-unavailable' })
+  })
+
+  it('replaces a core that stopped mid-way, even when the original went on without it', async () => {
+    const first = new FakeFfmpegCore()
+    first.failNext = new ConvertError('failed', 'The ffmpeg core stopped: unreachable', {
+      cause: new Error('RuntimeError: unreachable'),
+    })
+    const second = new FakeFfmpegCore()
+    const loadCore = vi
+      .fn<(base: string) => Promise<FfmpegCore>>()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second)
+    const converter = createConverter({
+      createWorker: () => inProcessWorker(loadCore),
+      coreBase: 'https://fxm.test/',
+    })
+    const original = await converter.exportAudio({
+      ...JOB,
+      source: { codec: 'opus', container: 'webm', media: 'audio' },
+      format: 'original',
+    })
+    expect(original.tagged).toBe(false)
+    await converter.exportAudio(JOB)
+    expect(loadCore).toHaveBeenCalledTimes(2)
+    expect(second.calls).toHaveLength(1)
+  })
+
+  it('keeps a core whose conversion failed without stopping it', async () => {
+    const core = new FakeFfmpegCore()
+    core.failNext = new ConvertError('unsupported-input', 'Decoder not found')
+    const loadCore = vi.fn(async () => core)
+    const converter = createConverter({
+      createWorker: () => inProcessWorker(loadCore),
+      coreBase: 'https://fxm.test/',
+    })
+    await expect(converter.exportAudio(JOB)).rejects.toMatchObject({ code: 'unsupported-input' })
+    await converter.exportAudio(JOB)
+    expect(loadCore).toHaveBeenCalledTimes(1)
   })
 
   it('reports a file that isn’t what its format says as damaged', async () => {

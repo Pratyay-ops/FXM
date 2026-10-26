@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   CORE_FILES,
   type CoreModule,
+  type CoreModuleFactory,
   coreOptions,
   createCore,
   errorCodeOf,
   loadFfmpegCore,
 } from './core'
 
+/** The smallest WebAssembly module there is: the magic number and version 1, nothing else. */
 const WASM = new Uint8Array([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0])
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const LGPL = 'LGPL version 2.1 or later'
@@ -83,11 +85,30 @@ function loaderFor(files: Record<string, Uint8Array | object | number>, module: 
       : new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } })
   }
   const imported: string[] = []
+  const factoryOptions: Parameters<CoreModuleFactory>[0][] = []
+  const instances: WebAssembly.Instance[] = []
+  // Like Emscripten's glue: it hands instantiateWasm the imports and waits for the instance.
+  const factory: CoreModuleFactory = async (options) => {
+    factoryOptions.push(options)
+    await new Promise<void>((resolve) => {
+      options.instantiateWasm({ env: {} }, (instance) => {
+        instances.push(instance)
+        resolve()
+      })
+    })
+    return module
+  }
   const importScript = async (url: string) => {
     imported.push(url)
-    return { default: async () => module }
+    return { default: factory }
   }
-  return { fetched, imported, options: { fetch: fetchFile, importScript } }
+  return {
+    fetched,
+    imported,
+    factoryOptions,
+    instances,
+    options: { fetch: fetchFile, importScript },
+  }
 }
 
 function manifest(overrides: Record<string, unknown> = {}) {
@@ -119,6 +140,42 @@ describe('loadFfmpegCore', () => {
     expect(loader.imported).toEqual([
       `https://fxm.test/app/ffmpeg/ffmpeg-core.js?v=${'a'.repeat(16)}`,
     ])
+  })
+
+  it('runs the bytes it checked: the glue never fetches the WebAssembly itself', async () => {
+    const { module } = fakeModule()
+    const loader = loaderFor({ 'ffmpeg-core.json': manifest(), 'ffmpeg-core.wasm': WASM }, module)
+    await loadFfmpegCore('https://fxm.test/app/ffmpeg/', loader.options)
+    expect(loader.instances).toHaveLength(1)
+    expect(loader.instances[0]).toBeInstanceOf(WebAssembly.Instance)
+    // Only the options the build reads (INCOMING_MODULE_JS_API in recipe/build.sh).
+    expect(Object.keys(loader.factoryOptions[0] ?? {}).sort()).toEqual([
+      'instantiateWasm',
+      'print',
+      'printErr',
+    ])
+    expect(loader.fetched.filter((item) => item.url.includes('.wasm'))).toHaveLength(1)
+  })
+
+  it('says the core can’t start when its WebAssembly doesn’t instantiate, without hanging', async () => {
+    // Bytes that match the manifest but aren't WebAssembly.
+    const broken = new Uint8Array([1, 2, 3, 4])
+    const loader = loaderFor(
+      {
+        'ffmpeg-core.json': manifest({
+          files: {
+            [CORE_FILES.script]: { bytes: 10, sha256: 'a'.repeat(64) },
+            [CORE_FILES.wasm]: { bytes: broken.length, sha256: sha(broken) },
+          },
+        }),
+        'ffmpeg-core.wasm': broken,
+      },
+      fakeModule().module,
+    )
+    await expect(loadFfmpegCore('https://fxm.test/', loader.options)).rejects.toMatchObject({
+      code: 'core-unavailable',
+      message: expect.stringMatching(/^The ffmpeg core can't start: /),
+    })
   })
 
   it('fetches the WebAssembly again, past the cache, when it doesn’t match, then gives up', async () => {

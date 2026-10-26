@@ -231,6 +231,91 @@ describe('exportAudio', () => {
       exportAudio({ input: new Uint8Array(4), source: OPUS_WEBM, format: 'mp3', tags: TAGS }, deps),
     ).rejects.toMatchObject({ code: 'corrupt-input' })
   })
+
+  it('reports a video that isn’t an MP4 file as damaged', async () => {
+    const { deps } = setup()
+    await expect(
+      exportAudio({ input: mp3File(), source: ITAG_18, format: 'original', tags: TAGS }, deps),
+    ).rejects.toMatchObject({ name: 'ConvertError', code: 'corrupt-input' })
+  })
+})
+
+describe('exportAudio with a core that never loads', () => {
+  const neverLoads = {
+    loadCore: async () => {
+      throw new ConvertError('core-unavailable', "The ffmpeg core isn't available here: HTTP 404")
+    },
+  }
+  const webm = new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 9, 8, 7])
+
+  it('saves an original WebM (YouTube’s itag 251) as it is, untagged', async () => {
+    const progress: number[] = []
+    const result = await exportAudio(
+      { input: new Blob([webm as BlobPart]), source: OPUS_WEBM, format: 'original', tags: TAGS },
+      neverLoads,
+      (done) => progress.push(done),
+    )
+    expect(result).toMatchObject({ tagged: false, plan: { format: 'original' } })
+    expect(result.blob.type).toBe('audio/webm')
+    expect(await bytes(result.blob)).toEqual(webm)
+    expect(progress.at(-1)).toBe(1)
+  })
+
+  it('saves an original WebM untagged when the core can’t remux it', async () => {
+    const { deps, core } = setup()
+    core.failNext = new ConvertError('failed', 'The ffmpeg core stopped', { cause: 'trap' })
+    const result = await exportAudio(
+      { input: webm, source: OPUS_WEBM, format: 'original', tags: TAGS },
+      deps,
+    )
+    expect(result.tagged).toBe(false)
+    expect(await bytes(result.blob)).toEqual(webm)
+  })
+
+  it('fails every format that needs the core, Opus in its own .opus file included', async () => {
+    for (const format of ['opus', 'flac', 'mp3', 'wav', 'alac', 'aac'] as const) {
+      await expect(
+        exportAudio({ input: webm, source: OPUS_WEBM, format, tags: TAGS }, neverLoads),
+        format,
+      ).rejects.toMatchObject({ code: 'core-unavailable' })
+    }
+  })
+
+  it('still saves the originals and same-format copies FXM tags itself', async () => {
+    const m4a = await exportAudio(
+      { input: fragmentedM4aFile(), source: AAC, format: 'original', tags: TAGS },
+      neverLoads,
+    )
+    expect(m4a.tagged).toBe(true)
+    const video = await exportAudio(
+      { input: itag18File(), source: ITAG_18, format: 'aac', tags: TAGS },
+      neverLoads,
+    )
+    expect(readMp4Tags(await bytes(video.blob))['©nam']).toBe('Song')
+    const ogg = await exportAudio(
+      {
+        input: oggOpusFile(),
+        source: { codec: 'opus', container: 'ogg', media: 'audio' },
+        format: 'opus',
+        tags: TAGS,
+      },
+      neverLoads,
+    )
+    expect(ogg.tagged).toBe(true)
+  })
+
+  it('never turns a cancellation into an untagged original', async () => {
+    await expect(
+      exportAudio(
+        { input: webm, source: OPUS_WEBM, format: 'original', tags: TAGS },
+        {
+          loadCore: async () => {
+            throw new ConvertError('cancelled', 'The conversion was cancelled')
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ code: 'cancelled' })
+  })
 })
 
 describe('inputExtension', () => {

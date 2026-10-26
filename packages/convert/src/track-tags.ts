@@ -26,8 +26,11 @@ export function tagsFromTrack(track: Track, extras: TrackTagExtras = {}): Export
       : undefined
   const text = lines.map((line) => line.text).join('\n')
   return {
-    title: track.title,
-    artists: track.artists.map((artist) => artist.name),
+    title: typeof track.title === 'string' ? track.title : '',
+    // A stored track's names are data from disk: only text becomes a tag.
+    artists: track.artists.flatMap((artist) =>
+      typeof artist?.name === 'string' ? [artist.name] : [],
+    ),
     ...(track.album === undefined ? {} : { album: track.album.name }),
     ...(track.trackNumber === undefined ? {} : { trackNumber: track.trackNumber }),
     ...(track.discNumber === undefined ? {} : { discNumber: track.discNumber }),

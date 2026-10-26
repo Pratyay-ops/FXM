@@ -97,18 +97,22 @@ export class FakeFfmpegCore implements FfmpegCore {
 
 /**
  * A {@link Converter} that runs the export in-process on `core` (a fake by default) instead of
- * in a worker: the whole pipeline but the WebAssembly, for app tests.
+ * in a worker: the whole pipeline but the WebAssembly, for app tests. `core` may also be a
+ * loader, e.g. one that rejects with `core-unavailable`, as where the core can't load.
  */
-export function createInProcessConverter(core: FfmpegCore = new FakeFfmpegCore()): Converter & {
+export function createInProcessConverter(
+  core: FfmpegCore | (() => Promise<FfmpegCore>) = new FakeFfmpegCore(),
+): Converter & {
   readonly jobs: ExportJob[]
 } {
   const jobs: ExportJob[] = []
+  const loadCore = typeof core === 'function' ? core : async () => core
   return {
     jobs,
     async exportAudio(job, options = {}) {
       jobs.push(job)
       options.signal?.throwIfAborted()
-      const result = await exportAudio(job, { loadCore: async () => core }, options.onProgress)
+      const result = await exportAudio(job, { loadCore }, options.onProgress)
       return { blob: result.blob, tagged: result.tagged }
     },
     dispose() {},

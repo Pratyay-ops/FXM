@@ -4,11 +4,12 @@
  * it runs only when FXM_FFMPEG_CORE_DIR names one: in CI's ffmpeg-wasm job, and locally with
  * `make ffmpeg-wasm-test`. `make test` skips it.
  */
-import { readFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { DOWNLOAD_FORMATS, type DownloadFormat } from '@fxm/core'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { concat } from './bytes'
 import { type CoreProbe, type FfmpegCore, loadFfmpegCore } from './core'
 import { exportAudio } from './exporter'
@@ -51,24 +52,87 @@ const TAGS: ExportTags = {
 }
 
 const WAV_SOURCE: SourceAudio = { codec: 'pcm', container: 'wav', media: 'audio' }
-const EXTENSIONS: Record<string, string> = {
-  flac: 'flac',
-  ipod: 'm4a',
-  wav: 'wav',
-  mp3: 'mp3',
-  ogg: 'opus',
-  webm: 'webm',
+/** YouTube's usual audio, itag 251. */
+const OPUS_WEBM: SourceAudio = { codec: 'opus', container: 'webm', media: 'audio' }
+const FORMATS = Object.keys(DOWNLOAD_FORMATS) as DownloadFormat[]
+
+/** Checks that the tags of a saved file are there, read by a reader of its format's own. */
+function expectTags(writer: string, bytes: Uint8Array, format: DownloadFormat): void {
+  switch (writer) {
+    case 'flac':
+      expect(
+        readVorbisComments(
+          readFlacBlocks(bytes).blocks.find((block) => block.type === 4)?.body ?? new Uint8Array(),
+        ).fields,
+        format,
+      ).toContainEqual(['TITLE', 'Sine 440'])
+      break
+    case 'mp4':
+      expect(readMp4Tags(bytes), format).toMatchObject({
+        '©nam': 'Sine 440',
+        covr: 'type 14, 26 bytes',
+      })
+      break
+    case 'id3v2':
+      expect(id3Summary(bytes), format).toMatchObject({
+        TIT2: 'Sine 440',
+        TSRC: 'XXFXM2600001',
+        APIC: 'image/png type 3',
+      })
+      break
+    case 'ogg': {
+      const packets = readOggPackets(readOggPages(bytes))
+      expect(
+        readVorbisComments((packets[1] ?? new Uint8Array()).subarray(8)).fields,
+        format,
+      ).toContainEqual(['ARTIST', 'FXM test'])
+      break
+    }
+    case 'riff':
+      expect(
+        readRiffChunks(bytes).map((chunk) => chunk.id),
+        format,
+      ).toEqual(['fmt ', 'data', 'LIST', 'id3 '])
+      break
+    case 'core':
+      // Matroska tags, written by the core's muxer.
+      expect(new TextDecoder('latin1').decode(bytes), format).toContain('Sine 440')
+      break
+    default:
+      throw new Error(`unexpected tag writer ${writer}`)
+  }
 }
 
 describe.skipIf(dir === undefined)('the built ffmpeg core', () => {
   let core: FfmpegCore
+  let glueDir: string | undefined
+  const wasmRequests: string[] = []
 
   beforeAll(async () => {
     const base = `${pathToFileURL(dir ?? '.').href}/`
+    // The glue runs from a folder without the WebAssembly: the core starts only from the bytes
+    // the loader checked, never from a file the glue would load on its own.
+    glueDir = await mkdtemp(join(tmpdir(), 'fxm-core-glue-'))
+    await copyFile(join(dir ?? '.', 'ffmpeg-core.js'), join(glueDir, 'ffmpeg-core.js'))
     core = await loadFfmpegCore(base, {
-      fetch: async (url) => new Response((await readFile(new URL(url).pathname)) as BodyInit),
-      importScript: (url) => import(/* @vite-ignore */ join(new URL(url).pathname)),
+      fetch: async (url) => {
+        if (url.includes('.wasm')) wasmRequests.push(url)
+        return new Response((await readFile(new URL(url).pathname)) as BodyInit)
+      },
+      importScript: (url) =>
+        import(
+          /* @vite-ignore */ join(glueDir ?? '.', new URL(url).pathname.split('/').pop() ?? '')
+        ),
     })
+  })
+
+  afterAll(async () => {
+    if (glueDir !== undefined) await rm(glueDir, { recursive: true, force: true })
+  })
+
+  it('starts from the WebAssembly it checked, fetched once by its versioned URL', () => {
+    expect(wasmRequests).toHaveLength(1)
+    expect(wasmRequests[0]).toMatch(/ffmpeg-core\.wasm\?v=[0-9a-f]{16}$/)
   })
 
   const probe = (bytes: Uint8Array, extension: string): Promise<CoreProbe> =>
@@ -81,7 +145,7 @@ describe.skipIf(dir === undefined)('the built ffmpeg core', () => {
 
   it('saves a sine wave in every format, with tags the readers find', async () => {
     const input = sineWav({ seconds: 1 })
-    for (const format of Object.keys(DOWNLOAD_FORMATS) as DownloadFormat[]) {
+    for (const format of FORMATS) {
       const result = await exportAudio(
         { input, source: WAV_SOURCE, format, tags: TAGS },
         { loadCore: async () => core },
@@ -102,46 +166,47 @@ describe.skipIf(dir === undefined)('the built ffmpeg core', () => {
           opus: 'opus',
         }[format],
       )
-      switch (result.plan.tags) {
-        case 'flac':
-          expect(
-            readVorbisComments(
-              readFlacBlocks(bytes).blocks.find((block) => block.type === 4)?.body ??
-                new Uint8Array(),
-            ).fields,
-          ).toContainEqual(['TITLE', 'Sine 440'])
-          break
-        case 'mp4':
-          expect(readMp4Tags(bytes)).toMatchObject({
-            '©nam': 'Sine 440',
-            covr: 'type 14, 26 bytes',
-          })
-          break
-        case 'id3v2':
-          expect(id3Summary(bytes)).toMatchObject({
-            TIT2: 'Sine 440',
-            TSRC: 'XXFXM2600001',
-            APIC: 'image/png type 3',
-          })
-          break
-        case 'ogg': {
-          const packets = readOggPackets(readOggPages(bytes))
-          expect(
-            readVorbisComments((packets[1] ?? new Uint8Array()).subarray(8)).fields,
-          ).toContainEqual(['ARTIST', 'FXM test'])
-          break
-        }
-        case 'riff':
-          expect(readRiffChunks(bytes).map((chunk) => chunk.id)).toEqual([
-            'fmt ',
-            'data',
-            'LIST',
-            'id3 ',
-          ])
-          break
-        default:
-          throw new Error(`unexpected tag writer ${result.plan.tags}`)
-      }
+      expectTags(result.plan.tags, bytes, format)
+    }
+  })
+
+  it('saves YouTube’s WebM/Opus in every format: decoded, encoded and tagged', async () => {
+    // A WebM/Opus file like YouTube's itag 251, made by the core from a sine wave.
+    const opus = await core.convert(
+      sineWav({ seconds: 1 }),
+      { format: 'ogg', codec: 'libopus', bitRate: 128_000 },
+      { inputExtension: 'wav', outputExtension: 'opus' },
+    )
+    const webm = await core.convert(
+      opus,
+      { format: 'webm', codec: 'copy' },
+      { inputExtension: 'opus', outputExtension: 'webm' },
+    )
+    expect(await probe(webm, 'webm')).toMatchObject({ format: 'matroska,webm', codec: 'opus' })
+    for (const format of FORMATS) {
+      const result = await exportAudio(
+        { input: new Blob([webm as BlobPart]), source: OPUS_WEBM, format, tags: TAGS },
+        { loadCore: async () => core },
+      )
+      const bytes = new Uint8Array(await result.blob.arrayBuffer())
+      const info = await probe(bytes, result.plan.output.extension)
+      expect(result.tagged, format).toBe(true)
+      expect(result.plan.lossless, format).toBe(false)
+      expect(info.durationSeconds, format).toBeGreaterThan(0.95)
+      expect(info.durationSeconds, format).toBeLessThan(1.1)
+      expect(info.codec, format).toBe(
+        {
+          original: 'opus',
+          flac: 'flac',
+          alac: 'alac',
+          // Opus decodes to float, which WAV gets as 16-bit with dither.
+          wav: 'pcm_s16le',
+          mp3: 'mp3',
+          aac: 'aac',
+          opus: 'opus',
+        }[format],
+      )
+      expectTags(result.plan.tags, bytes, format)
     }
   })
 
@@ -246,9 +311,5 @@ describe.skipIf(dir === undefined)('the built ffmpeg core', () => {
         { inputExtension: 'mp3', outputExtension: 'flac' },
       ),
     ).rejects.toMatchObject({ code: 'corrupt-input' })
-  })
-
-  it('names its outputs as the plans expect', () => {
-    expect(Object.keys(EXTENSIONS).sort()).toEqual(['flac', 'ipod', 'mp3', 'ogg', 'wav', 'webm'])
   })
 })

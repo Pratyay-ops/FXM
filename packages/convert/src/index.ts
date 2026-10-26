@@ -45,7 +45,7 @@ export {
 } from './exporter'
 export { demuxMp4Audio, type Mp4AudioTrack, type Mp4Sample } from './mp4/demux'
 export { writeM4a } from './mp4/write'
-export { exportFileName } from './naming'
+export { exportFileName, MAX_NAME_BYTES } from './naming'
 export {
   type CoreJob,
   type CoreMuxer,
@@ -59,6 +59,7 @@ export {
   exportLabel,
   exportMimeType,
   FLAC_COMPRESSION_LEVEL,
+  isExportable,
   planExport,
   sourceLabel,
   type TagWriter,

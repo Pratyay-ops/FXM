@@ -5,7 +5,8 @@
  * The core is three files served together, by default from the app's `ffmpeg/` folder:
  * `ffmpeg-core.json` (what the build is, with each file's SHA-256), `ffmpeg-core.js`
  * (Emscripten's module factory) and `ffmpeg-core.wasm`. Before anything runs, the WebAssembly
- * must match the manifest's hash, and the libraries inside must report an LGPL licence.
+ * must match the manifest's hash (and those very bytes are the ones instantiated), and the
+ * libraries inside must report an LGPL licence.
  *
  * @module
  */
@@ -93,8 +94,26 @@ export interface CoreModule {
   onConvertProgress?: ((done: number, total: number) => void) | undefined
 }
 
-/** The default export of `ffmpeg-core.js`: Emscripten's module factory. */
-export type CoreModuleFactory = (options: Record<string, unknown>) => Promise<CoreModule>
+/**
+ * Emscripten's hook for instantiating the WebAssembly itself (`Module.instantiateWasm`): it
+ * hands over the imports and waits for the instance. FXM instantiates the bytes it checked, so
+ * the glue never fetches the file on its own.
+ */
+export type InstantiateWasm = (
+  imports: WebAssembly.Imports,
+  receive: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void,
+) => object
+
+/**
+ * The default export of `ffmpeg-core.js`: Emscripten's module factory. It reads only the
+ * options the build lists (`-sINCOMING_MODULE_JS_API`, tools/ffmpeg-wasm/recipe/build.sh):
+ * `instantiateWasm`, `print` and `printErr`.
+ */
+export type CoreModuleFactory = (options: {
+  instantiateWasm: InstantiateWasm
+  print: (line: string) => void
+  printErr: (line: string) => void
+}) => Promise<CoreModule>
 
 /** How {@link loadFfmpegCore} reaches the files; tests and Node pass their own. */
 export interface CoreLoaderOptions {
@@ -225,15 +244,33 @@ export async function loadFfmpegCore(
   }
   if (wasm === undefined) throw unavailable("The ffmpeg core doesn't match its manifest")
 
+  // The bytes just checked are the ones that run: Emscripten's glue gets them through
+  // instantiateWasm and never fetches the WebAssembly itself (Emscripten 6 ignores
+  // `wasmBinary` unless a build lists it, and would load the file again, unchecked).
+  const checked = wasm
+  let failInstantiation: (error: unknown) => void = () => {}
+  const instantiationFailed = new Promise<never>((_resolve, reject) => {
+    failInstantiation = reject
+  })
   let module: CoreModule
   try {
     const factory = (await importScript(url(CORE_FILES.script, scriptInfo.sha256.slice(0, 16))))
       .default
-    module = await factory({
-      wasmBinary: wasm,
-      print: () => {},
-      printErr: (line: string) => options.log?.(line),
-    })
+    module = await Promise.race([
+      factory({
+        instantiateWasm: (imports, receive) => {
+          WebAssembly.instantiate(checked, imports).then(
+            (result) => receive(result.instance, result.module),
+            // The glue waits for `receive` forever: a failure ends the race instead.
+            (error: unknown) => failInstantiation(error),
+          )
+          return {}
+        },
+        print: () => {},
+        printErr: (line: string) => options.log?.(line),
+      }),
+      instantiationFailed,
+    ])
   } catch (error) {
     throw unavailable(`The ffmpeg core can't start: ${(error as Error).message}`, error)
   }
@@ -294,7 +331,8 @@ export function createCore(module: CoreModule, version: CoreVersion): FfmpegCore
           [path, output, coreOptions(job)],
         ) as number
       } catch (error) {
-        // A trap (out of memory, a crash): this module can't be trusted any more.
+        // A trap (out of memory, a crash): this module can't be trusted any more. The error
+        // carries the trap as its cause, which tells the worker to start a fresh core.
         throw new ConvertError(
           /memory|OOM/i.test(String(error)) ? 'out-of-memory' : 'failed',
           `The ffmpeg core stopped: ${(error as Error).message}`,

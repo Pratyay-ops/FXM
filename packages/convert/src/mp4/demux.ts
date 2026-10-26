@@ -8,6 +8,7 @@
  */
 
 import { createFile, Log, MP4BoxBuffer } from 'mp4box'
+import { ConvertError } from '../types'
 
 /** One audio sample (an AAC or ALAC frame): its bytes and its duration in media time. */
 export interface Mp4Sample {
@@ -73,7 +74,9 @@ let quiet = false
 /**
  * The audio track of an MP4 file: its sample entry, timescales, samples and edit list.
  *
- * @throws RangeError when the file isn't an MP4 file or has no AAC or ALAC track.
+ * @throws ConvertError `corrupt-input` when the file isn't a readable MP4 file or holds no audio
+ * samples, `unsupported-input` when its audio isn't AAC or ALAC. A RangeError means memory ran
+ * out (the one copy of the file this makes).
  */
 export function demuxMp4Audio(bytes: Uint8Array): Mp4AudioTrack {
   if (!quiet) {
@@ -83,12 +86,14 @@ export function demuxMp4Audio(bytes: Uint8Array): Mp4AudioTrack {
   }
   const file = createFile() as unknown as Mp4BoxFile
   let failure: string | undefined
+  let ready = false
   let trackId: number | undefined
   const samples: Mp4Sample[] = []
   file.onError = (_module, message) => {
     failure = message
   }
   file.onReady = (info) => {
+    ready = true
     for (const track of info.tracks) {
       const box = file.getTrackById(track.id)
       const entry = box?.mdia.minf.stbl.stsd.entries[0]
@@ -111,11 +116,18 @@ export function demuxMp4Audio(bytes: Uint8Array): Mp4AudioTrack {
   new Uint8Array(buffer).set(bytes)
   file.appendBuffer(buffer)
   file.flush()
-  if (failure !== undefined) throw new RangeError(`Not a readable MP4 file: ${failure}`)
-  if (trackId === undefined) throw new RangeError('The MP4 file has no AAC or ALAC track')
+  if (failure !== undefined) {
+    throw new ConvertError('corrupt-input', `Not a readable MP4 file: ${failure}`)
+  }
+  if (!ready) throw new ConvertError('corrupt-input', 'Not a readable MP4 file: no movie box')
+  if (trackId === undefined) {
+    throw new ConvertError('unsupported-input', 'The MP4 file has no AAC or ALAC track')
+  }
   const box = file.getTrackById(trackId) as TrackBox
   const entry = box.mdia.minf.stbl.stsd.entries[0] as SampleEntryBox
-  if (samples.length === 0) throw new RangeError('The MP4 file holds no audio samples')
+  if (samples.length === 0) {
+    throw new ConvertError('corrupt-input', 'The MP4 file holds no audio samples')
+  }
   const edits = box.edts?.elst?.entries
   const mediaTime =
     edits?.length === 1 && (edits[0]?.media_time ?? -1) > 0 ? edits[0]?.media_time : undefined

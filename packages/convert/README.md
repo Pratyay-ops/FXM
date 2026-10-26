@@ -4,7 +4,7 @@ Conversion and tagging (stage 4.2): saving a download in the format the user pic
 
 | Piece | What it is |
 |---|---|
-| `planExport`, `exportChoices`, `exportLabel` | What saving a download in a format takes (extract, remux or re-encode, which tag writer) and the honest label of each format, from core's `describeConversion` |
+| `planExport`, `exportChoices`, `exportLabel`, `isExportable` | What saving a download in a format takes (extract, remux or re-encode, which tag writer) and the honest label of each format, from core's `describeConversion`; whether a stored file can be saved at all |
 | `exportAudio` | The pipeline: mp4box.js extraction, the core, the tag writers. Runs in the worker |
 | `createConverter` | The page's side of the worker: a queue of jobs, progress, cancellation |
 | `serveConversions` (`@fxm/convert/worker`) | The worker's side: loads the core on first use and answers jobs |
@@ -13,7 +13,7 @@ Conversion and tagging (stage 4.2): saving a download in the format the user pic
 | `writeMp3Tags`, `writeFlacTags`, `writeOggTags`, `writeWavTags` | The tag writers |
 | `tagsFromTrack`, `fetchCover` | The tags of a track: metadata, lyrics, and its cover as JPEG or PNG bytes |
 | `DeviceSaver`, `createBrowserDeviceSaver` | "Save to device": the interface each platform implements, and the browser's |
-| `exportFileName` | "Artist - Title.ext", safe on every file system |
+| `exportFileName` | "Artist - Title.ext", safe on every file system: at most 200 bytes of UTF-8 before the extension, cut between whole characters |
 
 ## Formats and labels
 
@@ -21,7 +21,7 @@ The formats are core's `DOWNLOAD_FORMATS`: Original, FLAC, ALAC, WAV, MP3, AAC a
 
 | Saving Opus from YouTube as | Label | How |
 |---|---|---|
-| Original | Original (Opus) | The WebM remuxed by the core with its tags (no re-encoding) |
+| Original | Original (Opus) | The WebM remuxed by the core with its tags (no re-encoding); where the core can't load or remux it, the stored file as it is, untagged |
 | FLAC, ALAC, WAV | FLAC (converted from Opus, same quality as the source) | Decoded and encoded losslessly: a bigger file, not a better one |
 | MP3, AAC | MP3 (converted from Opus, some quality loss) | MP3 at the download setting's bitrate (320 kbps by default), AAC at 256 kbps |
 | Opus | Opus (no conversion) | Remuxed into an `.opus` (Ogg) file, the same packets |
@@ -32,7 +32,7 @@ A real lossless source (FLAC from Internet Archive or Jamendo) keeps its depth: 
 
 ## Tags
 
-Every saved file gets the same information in its format's own fields; a file whose structure FXM can't edit (a WAV whose sizes were never fixed, FLAC inside Ogg) is saved without tags rather than not at all (`tagged: false`).
+Every saved file gets the same information in its format's own fields; a file whose structure FXM can't edit (a WAV whose sizes were never fixed, FLAC inside Ogg), or an original WebM where the core can't run, is saved without tags rather than not at all (`tagged: false`). So Original never fails for want of the core: YouTube's usual audio, a WebM with Opus (itag 251), saves on a device or a build without it, and offline.
 
 | | MP3 | FLAC | Ogg Opus, Vorbis | M4A (AAC, ALAC) | WAV | WebM (Original only) |
 |---|---|---|---|---|---|---|
@@ -69,10 +69,11 @@ serveConversions(globalThis as never)
 ```
 
 - **Jobs run one at a time**, in order. Cancelling a queued job removes it; cancelling the running one terminates the worker (the core can't be interrupted mid-conversion), and the next job starts a fresh one. A worker that crashes fails only its job.
-- **The core loads on the first job that needs it.** Saving an MP3 original, a FLAC as FLAC or an M4A as M4A doesn't: FXM's own writers do it. The worker fetches `ffmpeg-core.json`, then `ffmpeg-core.wasm`, and checks the wasm's SHA-256 against the manifest (once more past the HTTP cache if it doesn't match), imports `ffmpeg-core.js` and refuses a core whose libraries don't report an LGPL licence. Both files are fetched with a version query from the manifest, so a cached old file never pairs with a new one.
+- **The core loads on the first job that needs it.** Saving an MP3 original, a FLAC as FLAC or an M4A as M4A doesn't: FXM's own writers do it. The worker fetches `ffmpeg-core.json`, then `ffmpeg-core.wasm`, and checks the wasm's SHA-256 against the manifest (once more past the HTTP cache if it doesn't match), imports `ffmpeg-core.js`, instantiates the checked bytes itself (Emscripten's `instantiateWasm`, so the glue never loads the file on its own) and refuses a core whose libraries don't report an LGPL licence. Both files are fetched with a version query from the manifest, so a cached old file never pairs with a new one.
 - **Files reach the core without copies**: in a worker, the stored `Blob` is mounted with Emscripten's WORKERFS and read as needed; in Node, the bytes go into its memory file system.
-- **A core that failed to load** is tried again on the next job; one that ran out of memory or crashed is replaced.
-- **Errors** reach the page as `ConvertError` codes: `core-unavailable`, `unsupported-input`, `corrupt-input`, `out-of-memory`, `cancelled`, `failed`.
+- **A core that failed to load** is tried again on the next job; one that ran out of memory or crashed is replaced, even when the job went on without it (an original saved untagged).
+- **Errors** reach the page as `ConvertError` codes: `core-unavailable`; `unsupported-input` for a file FXM can't read (a video whose audio isn't AAC in MP4, an MP4 without AAC or ALAC, an FFmpeg decoder that isn't there); `corrupt-input` for a damaged file (an MP4 mp4box.js can't read, FFmpeg's invalid data); `out-of-memory` when the core or the browser runs out (a `RangeError` from a failed allocation, as a long video or mix can cause); `cancelled`; `failed` for anything else.
+- **Offline**, the web app's service worker keeps the core's three files once a save has loaded them (network first, `fxm-app-ffmpeg-core`), so conversions work without a connection too (apps/web/pwa/options.ts).
 
 The app's policy (`/app/*`, stage 2.8) allows `'wasm-unsafe-eval'` for this worker, and never `'unsafe-eval'`: the core's glue is built without `eval`.
 
@@ -85,10 +86,10 @@ const target = await saver.choose({ fileName, mimeType, description }) // from t
 if (target) await target.write(blob) // after the conversion
 ```
 
-`createBrowserDeviceSaver()` uses the File System Access API's save picker where the browser has one (Chromium on desktop: the user picks the folder and the name) and otherwise downloads the file through a temporary link. The desktop app (stage 7.4) and the Android app (6.4) implement `DeviceSaver` themselves (a native save dialog, the device's music library) and hand it to the web app with `setDeviceSaver` (apps/web/src/features/downloads/save).
+`createBrowserDeviceSaver()` uses the File System Access API's save picker where the browser has one (Chromium on desktop: the user picks the folder and the name) and otherwise downloads the file through a temporary link. Chromium creates the picked file, empty, as its picker closes, so a save that fails or is cancelled afterwards gives the target up (`discard`), which removes that file while it is still empty and never a file with content; a write that fails is aborted, leaving no half-written copy. The desktop app (stage 7.4) and the Android app (6.4) implement `DeviceSaver` themselves (a native save dialog, the device's music library) and hand it to the web app with `setDeviceSaver` (apps/web/src/features/downloads/save). Their `choose` may reject: the app then says the file couldn't be written there and converts nothing.
 
 ## Testing
 
-`@fxm/convert/testing` has audio the tests generate (sine waves and silence in WAV and MP3, and FLAC, Ogg Opus, Ogg Vorbis, M4A, fragmented M4A and itag 18 files with real structure and filler audio: never real recordings), readers that check tags independently of the writers, `FakeFfmpegCore` (answers each job with a generated file of its container) and `createInProcessConverter` (the pipeline without the worker, for app tests).
+`@fxm/convert/testing` has audio the tests generate (sine waves and silence in WAV and MP3, and FLAC, Ogg Opus, Ogg Vorbis, M4A, fragmented M4A and itag 18 files with real structure and filler audio: never real recordings), readers that check tags independently of the writers, `FakeFfmpegCore` (answers each job with a generated file of its container) and `createInProcessConverter` (the pipeline without the worker, for app tests; it takes a core, or a loader that rejects as where the core can't load).
 
-The tests run offline in Node. `core.wasm.test.ts` runs the real core on every format, decodes the results back and reads their tags; it needs a built core, so it runs only with `FXM_FFMPEG_CORE_DIR` set: `make ffmpeg-wasm-test`, and CI's ffmpeg-wasm job.
+The tests run offline in Node. `core.wasm.test.ts` runs the real core on every format, from a sine wave and from a WebM/Opus file like YouTube's itag 251, decodes the results back and reads their tags; it needs a built core, so it runs only with `FXM_FFMPEG_CORE_DIR` set: `make ffmpeg-wasm-test`, and CI's ffmpeg-wasm job.
