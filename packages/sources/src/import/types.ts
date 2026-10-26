@@ -200,7 +200,7 @@ export interface CandidateExtras {
   artwork?: { url: string; width?: number; height?: number }
 }
 
-/** What the user decided about a row in the review list. */
+/** What the user decided about a row in the review list. Reopening the row removes it. */
 export interface RowReview {
   /** `confirmed`: they chose a candidate; `skipped`: they left the row out. */
   action: 'confirmed' | 'skipped'
@@ -247,7 +247,9 @@ export interface RowResult {
   review?: RowReview
   /**
    * The track the row has in the playlist: its own catalog track, or the song it was matched
-   * to. Absent while a row without a catalog track waits for the user's review.
+   * to. Absent while a row without a catalog track waits for the user's review. For a row whose
+   * own track the mode hides (a plain YouTube video in Music mode), the matched song, placed
+   * right after that track.
    */
   playlistTrackId?: EntityId<'track'>
 }
@@ -276,6 +278,19 @@ export interface RowLookup {
 }
 
 /**
+ * Why an import's last run stopped before every row had a result, when the run could not go on
+ * by itself:
+ *
+ * - `unsupported`: YouTube Music cannot be reached on this platform (no FXM Connect or Lite
+ *   tier), or finding songs is not available in this version yet
+ * - `offline`: the network is out, or YouTube kept failing as if it were
+ */
+export type ImportBlockReason = 'unsupported' | 'offline'
+
+/** Every {@link ImportBlockReason}. */
+export const IMPORT_BLOCK_REASONS: readonly ImportBlockReason[] = ['unsupported', 'offline']
+
+/**
  * An import's saved progress: its rows, what was decided for each, and what was looked up. It
  * goes into the library's import-progress record (`state`), so an import resumes after a reload
  * where it stopped.
@@ -293,6 +308,11 @@ export interface ImportState {
   results: (RowResult | null)[]
   /** What was looked up about rows before matching, by row index. `null`: nothing was found. */
   lookups: Record<string, RowLookup | null>
+  /**
+   * Why the last run stopped with rows still waiting, when it could not go on by itself; absent
+   * once a run starts again.
+   */
+  blocked?: ImportBlockReason
 }
 
 /** The current {@link ImportState.version}. */

@@ -84,9 +84,9 @@ describe('runImport', () => {
     expect(sink.decisions.every((decision) => decision.mode === 'music')).toBe(true)
     // The playlist kept the Spotify tracks, in order, from the start.
     expect(sink.playlist).toEqual(scenario.tracks.map((track) => track.id))
-    // Each YouTube request waited for the budget first, and progress was saved row by row.
+    // Each YouTube request waited for the budget first, and the progress was saved at the end.
     expect(env.slots).toBe(youtube.requests.length)
-    expect(sink.saves.length).toBeGreaterThanOrEqual(100)
+    expect(sink.saves.at(-1)).toEqual(state)
     expect(importCounts(state)).toEqual({
       total: 100,
       done: 100,
@@ -241,10 +241,9 @@ describe('runImport', () => {
       'not-found',
     ])
     expect(music.state.results[1]?.best?.ref).toBe('songsongson')
-    expect(music.sink.decisions.map((decision) => decision.sourceTrackId)).toEqual([
-      video.id,
-      upload.id,
-    ])
+    // The plain video is hidden in Music mode: no decision is cached for it, it stays itself.
+    expect(music.sink.decisions.map((decision) => decision.sourceTrackId)).toEqual([video.id])
+    expect(music.state.results[2]?.playlistTrackId).toBe(upload.id)
 
     const all = setUp(collection, { youtube: fakeYouTube({ catalog: [theSong] }), mode: 'all' })
     all.state.mode = 'all'
@@ -276,16 +275,119 @@ describe('runImport', () => {
     expect(botChecked.env.reported).toHaveLength(2)
     expect(botChecked.env.waits.filter((ms) => ms >= 1000)).toHaveLength(2)
 
+    const failing = setUp(
+      { name: 'C', rows },
+      {
+        youtube: fakeYouTube({ catalog, failWith: { error: new FxmError('Parse', 'odd page') } }),
+      },
+    )
+    await run(failing.state, failing.env, failing.sink)
+    // Nothing could be fetched, so nothing is known: the row failed, and was never cached.
+    expect(failing.state.results[0]).toMatchObject({ outcome: 'failed', incomplete: true })
+    expect(failing.sink.decisions).toEqual([])
+  })
+
+  it('stops as offline when the network keeps failing, keeping the row waiting', async () => {
+    const tracks = [spotifyTrack(1, 'First Song', 'First Band', { seconds: 200 })]
+    const catalog = [song('first000001', 'First Song', 'First Band', { seconds: 200 })]
     const offline = setUp(
-      { name: 'B', rows },
+      { name: 'B', rows: tracks.map(rowFromTrack) },
       {
         youtube: fakeYouTube({ catalog, failWith: { error: new FxmError('Network', 'offline') } }),
       },
     )
-    await run(offline.state, offline.env, offline.sink)
-    expect(offline.state.results[0]).toMatchObject({ outcome: 'not-found', incomplete: true })
-    // An incomplete decision is shown, never cached.
+    await expect(run(offline.state, offline.env, offline.sink)).resolves.toMatchObject({
+      status: 'blocked',
+      reason: 'offline',
+    })
+    // A short drop is ridden out first: five more tries, further and further apart.
+    expect(offline.env.waits).toEqual([2000, 4000, 8000, 16_000, 30_000])
+    expect(offline.state.results[0]).toBeNull()
+    expect(offline.state.blocked).toBe('offline')
+    expect(offline.sink.saves.at(-1)?.blocked).toBe('offline')
     expect(offline.sink.decisions).toEqual([])
+
+    // Back online, the next run takes the row up again and forgets why it stopped.
+    const back = { ...offline.env, youtube: fakeYouTube({ catalog }) }
+    await expect(run(offline.state, back, offline.sink)).resolves.toEqual({ status: 'done' })
+    expect(offline.state.results[0]).toMatchObject({ outcome: 'matched' })
+    expect(offline.state.blocked).toBeUndefined()
+  })
+
+  it('stops at once while the device says it is offline', async () => {
+    const tracks = [spotifyTrack(1, 'First Song', 'First Band', { seconds: 200 })]
+    const youtube = fakeYouTube({ catalog: [] })
+    const { state, sink, env } = setUp(
+      { name: 'O', rows: tracks.map(rowFromTrack) },
+      { youtube, isOnline: () => false },
+    )
+    await expect(run(state, env, sink)).resolves.toMatchObject({
+      status: 'blocked',
+      reason: 'offline',
+    })
+    expect(youtube.requests).toEqual([])
+    expect(state.results[0]).toBeNull()
+  })
+
+  it('reads a search that finds nothing as an empty page, and caches the decision', async () => {
+    const tracks = [spotifyTrack(1, 'Lonely Song', 'Lonely Band', { seconds: 200 })]
+    const youtube = fakeYouTube({
+      catalog: [],
+      failWith: { error: new FxmError('NotFound', 'no results') },
+    })
+    const { state, sink, env } = setUp({ name: 'N', rows: tracks.map(rowFromTrack) }, { youtube })
+    await run(state, env, sink)
+    expect(state.results[0]).toMatchObject({ outcome: 'not-found' })
+    expect(state.results[0]?.incomplete).toBeUndefined()
+    expect(sink.decisions).toHaveLength(1)
+  })
+
+  it('saves its progress at most every 20 seconds, and keeps little of the rows that play', async () => {
+    const scenario = catalogScenario([
+      ['isrc', 30],
+      ['isrc-miss', 4],
+    ])
+    const collection: ImportCollection = { name: 'Mix', rows: scenario.tracks.map(rowFromTrack) }
+    const youtube = fakeYouTube({ catalog: scenario.catalog })
+    const { state, sink, env } = setUp(collection, { youtube })
+    let clock = Date.UTC(2026, 9, 26, 12)
+    const paced: ImportEnvironment = {
+      ...env,
+      now: () => clock,
+      // The budget hands out a bulk slot every 5 seconds.
+      async waitForBulkSlot(signal) {
+        signal.throwIfAborted()
+        clock += 5000
+      },
+    }
+    await run(state, paced, sink)
+    const seconds = youtube.requests.length * 5
+    expect(sink.saves.length).toBeLessThanOrEqual(Math.ceil(seconds / 20) + 1)
+    expect(sink.saves.length).toBeGreaterThan(1)
+    expect(sink.saves.length).toBeLessThan(state.rows.length)
+    // A matched row keeps its best candidate only; a row to review keeps its alternatives.
+    const matched = state.results.filter((result) => result?.outcome === 'matched')
+    expect(matched).toHaveLength(30)
+    expect(matched.every((result) => !result?.alternatives && !result?.extras)).toBe(true)
+    expect(matched.every((result) => result?.best !== undefined)).toBe(true)
+  })
+
+  it('matches a video Music mode hides like a row without a track, and places its song after it', async () => {
+    const theSong = song('songsongson', 'Bright Lights', 'Neon Band', { seconds: 200 })
+    const upload = song('uploadxxxxx', 'Bright Lights', 'Neon Band', {
+      kind: 'video',
+      seconds: 200,
+      source: 'yt',
+    })
+    const next = song('nextsongxxx', 'Other Song', 'Other Band', { seconds: 180 })
+    const collection: ImportCollection = { name: 'V', rows: [upload, next].map(rowFromTrack) }
+    const { state, sink, env } = setUp(collection, {
+      youtube: fakeYouTube({ catalog: [theSong, next] }),
+    })
+    await run(state, env, sink)
+    expect(state.results[0]).toMatchObject({ outcome: 'matched', playlistTrackId: theSong.id })
+    expect(sink.playlist).toEqual([upload.id, theSong.id, next.id])
+    expect(sink.decisions).toEqual([])
   })
 
   it('stops as blocked while YouTube Music cannot be reached, keeping the waiting rows', async () => {
@@ -299,10 +401,11 @@ describe('runImport', () => {
     }
     const { state, sink, env } = setUp(collection, { youtube: YOUTUBE_IMPORT_UNAVAILABLE })
     const end = await run(state, env, sink)
-    expect(end).toMatchObject({ status: 'blocked' })
+    expect(end).toMatchObject({ status: 'blocked', reason: 'unsupported' })
     expect(state.results[0]).toMatchObject({ outcome: 'ready' })
     expect(state.results[1]).toBeNull()
     expect(sink.saves.at(-1)?.results[0]).toMatchObject({ outcome: 'ready' })
+    expect(sink.saves.at(-1)?.blocked).toBe('unsupported')
   })
 
   it('looks Spotify rows up on Spotify one second apart, and falls back to MusicBrainz', async () => {
@@ -351,6 +454,32 @@ describe('runImport', () => {
     await run(fallback.state, fallback.env, fallback.sink)
     // One failed call pauses Spotify for the rest of the run.
     expect(failing.calls).toHaveLength(1)
+  })
+
+  it('marks a row incomplete when MusicBrainz is busy, so Retry looks it up again', async () => {
+    const tracks = [spotifyTrack(1, 'Busy Song', 'Busy Band')]
+    const rows = tracks.map((track) => ({
+      title: track.title,
+      artists: ['Busy Band'],
+      trackId: track.id,
+    }))
+    const catalog = [song('busysong001', 'Busy Song', 'Busy Band', { seconds: 200 })]
+    const { state, sink, env } = setUp(
+      { name: 'Busy', rows },
+      {
+        youtube: fakeYouTube({ catalog }),
+        musicBrainz: {
+          lookupUrls: async () => {
+            throw new FxmError('RateLimited', 'slow down')
+          },
+          getRecordings: async () => new Map(),
+        },
+      },
+    )
+    await run(state, env, sink)
+    expect(state.results[0]).toMatchObject({ outcome: 'review', incomplete: true })
+    expect(state.lookups).toEqual({})
+    expect(sink.decisions).toEqual([])
   })
 
   it('looks data-export rows up through MusicBrainz in one batch, which lets them auto-play', async () => {

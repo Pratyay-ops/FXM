@@ -9,6 +9,9 @@
  * the budget turns away meanwhile is simply tried again. Spotify requests are spaced about one
  * second apart, and MusicBrainz requests wait in MusicBrainz's own queue.
  *
+ * When the network is out, the run stops with the row it was on still waiting (`blocked`,
+ * `offline`), rather than recording what an outage made it miss.
+ *
  * @module
  */
 
@@ -22,6 +25,8 @@ import {
   type MatchRequest,
   type MatchResponse,
   type ProviderContext,
+  type ReleaseFacts,
+  type ReleaseFactsKey,
   type Track,
 } from '@fxm/core'
 import { type ImportSpotify, PAGE_SPACING_MS, rowFromTrack, sleep } from './load'
@@ -34,16 +39,22 @@ import {
 } from './lookup'
 import {
   candidateTrackId,
+  decisionOf,
+  hiddenInMode,
+  type ImportMatchDecision,
   MAX_ALTERNATIVES,
   matchRow,
   outcomeOfBand,
   planRow,
+  storedResult,
   trackOfCandidate,
 } from './match'
 import { catalogTrackOf, isSpotifyRow, storedRow } from './rows'
 import { firstPendingRow, nextPlaylistTrack } from './state'
-import type { ImportState, RowLookup, RowResult, StoredRow } from './types'
+import type { ImportBlockReason, ImportState, RowLookup, RowResult, StoredRow } from './types'
 import type { ImportYouTube } from './youtube'
+
+export type { ImportMatchDecision } from './match'
 
 /** What an import job needs from the app. */
 export interface ImportEnvironment {
@@ -64,6 +75,11 @@ export interface ImportEnvironment {
   musicBrainz?: ImportMusicBrainz | undefined
   /** The user's Auto setting: whether matches may play without asking at all. */
   autoMatch: boolean
+  /**
+   * Whether the device is online (`navigator.onLine`): when it says no, the run stops at once
+   * instead of trying requests. Default: always online.
+   */
+  isOnline?: () => boolean
   /** The clock, for tests. */
   now?: () => number
   /** A timer that rejects with the signal's reason when it aborts, for tests. */
@@ -84,30 +100,13 @@ export interface CachedMatch {
   userPinned: boolean
 }
 
-/** The engine's decision for a catalog track, for the library's match cache. */
-export interface ImportMatchDecision {
-  /** The catalog track that needs audio. */
-  sourceTrackId: EntityId<'track'>
-  /** The catalog mode the decision was made in. */
-  mode: CatalogMode
-  /**
-   * The band with the user's Auto setting applied, so the cache never confirms a match the
-   * setting holds back; the candidate's verdict keeps the band with the setting on.
-   */
-  band: MatchBand
-  /** The ISRC the match used. */
-  isrc?: string
-  /** The best candidate. */
-  candidate?: AudioCandidate
-  /** The alternatives, best first. */
-  alternatives: AudioCandidate[]
-  /** Why, for people. */
-  evidence: string[]
-}
-
 /** Where an import job puts what it decides: the app's library. */
 export interface ImportSink {
-  /** Saves the progress. Called after every row that took a request, and every few others. */
+  /**
+   * Saves the progress: at most every {@link SAVE_INTERVAL_MS} while the job runs, and when it
+   * ends. A run cut off between two saves repeats those few rows, which only writes what the
+   * library holds already.
+   */
   save(state: ImportState): Promise<void>
   /** The match cache's decision for a catalog track in a mode, to reuse instead of searching. */
   cachedMatch?(trackId: EntityId<'track'>, mode: CatalogMode): Promise<CachedMatch | undefined>
@@ -139,19 +138,26 @@ export interface ImportRunStatus {
  *
  * - `done`: every row has a result
  * - `stopped`: the signal aborted it (a pause or a cancel); the progress is saved
- * - `blocked`: YouTube Music cannot be reached on this platform (no FXM Connect or Lite tier),
- *   or is not available yet; the rows wait, and the job can resume later
+ * - `blocked`: it cannot go on by itself, for `reason` (also saved as `ImportState.blocked`):
+ *   YouTube Music cannot be reached on this platform or is not available yet (`unsupported`),
+ *   or the network is out (`offline`). The rows wait, and the job can resume later
  */
 export type ImportRunEnd =
   | { status: 'done' }
   | { status: 'stopped' }
-  | { status: 'blocked'; message: string }
+  | { status: 'blocked'; reason: ImportBlockReason; message: string }
 
-/** How many rows that took no request may pass between two saves. */
-const QUIET_ROWS_PER_SAVE = 25
+/** The longest a running job goes without saving its progress, in milliseconds. */
+export const SAVE_INTERVAL_MS = 20_000
 
-/** How many times a request is tried again after network failures. */
-const MAX_NETWORK_RETRIES = 2
+/**
+ * How many times a YouTube request is tried again after network failures, waiting 2, 4, 8, 16
+ * and 30 seconds, before the run stops as offline: enough to ride out a short drop.
+ */
+const MAX_NETWORK_RETRIES = 5
+
+/** The longest wait between two network retries, in milliseconds. */
+const MAX_NETWORK_WAIT_MS = 30_000
 
 /** How many times a request turned away by the budget or a bot check is tried again. */
 const MAX_BUDGET_RETRIES = 50
@@ -167,6 +173,22 @@ class SinkFailure extends Error {
   constructor(readonly original: unknown) {
     super('The library could not save the import')
   }
+}
+
+/** The network is out: the run stops, and the row it was on waits. */
+class OfflineStop extends Error {
+  constructor() {
+    super('The network is out, so the import paused')
+  }
+}
+
+/** The answer to a page the source has nothing for (`NotFound`): an empty page of its kind. */
+function emptyResponse(request: MatchRequest): MatchResponse {
+  if (request.kind === 'isrc-top-card') return { kind: request.kind, card: null }
+  if (request.kind === 'release-facts') {
+    return { kind: request.kind, facts: {} as Readonly<Record<ReleaseFactsKey, ReleaseFacts>> }
+  }
+  return { kind: request.kind, tracks: [] }
 }
 
 /** `call`, with its failure marked as the library's. */
@@ -221,25 +243,13 @@ function failed(error: string): RowResult {
   return { outcome: 'failed', error }
 }
 
-/** The match-cache decision for a catalog row's result. */
-function decisionOf(
-  sourceTrackId: EntityId<'track'>,
-  mode: CatalogMode,
-  result: RowResult,
-): ImportMatchDecision {
-  let band: MatchBand = 'none'
-  if (result.outcome === 'matched') band = 'auto'
-  else if (result.outcome === 'review') band = 'suggest'
-  const decision: ImportMatchDecision = {
-    sourceTrackId,
-    mode,
-    band,
-    alternatives: result.alternatives ?? [],
-    evidence: result.evidence ?? [],
-  }
-  if (result.isrc !== undefined) decision.isrc = result.isrc
-  if (result.best !== undefined) decision.candidate = result.best
-  return decision
+/**
+ * A result whose search could not fetch every page and found nothing: it says nothing about
+ * the song, so the row counts as failed, and "Retry" tries it again.
+ */
+function unfinished(result: RowResult): RowResult {
+  if (!result.incomplete || result.best !== undefined) return result
+  return { ...result, outcome: 'failed', error: 'The search for this song couldn’t be finished' }
 }
 
 /** Options for {@link runImport}. */
@@ -265,15 +275,23 @@ export async function runImport(
   const { signal, onStatus } = options
   const now = env.now ?? Date.now
   const pause = env.sleep ?? sleep
-  const seen = new Map<string, Track>()
+  const offline = () => env.isOnline?.() === false
+  // The tracks the current row's search pages listed, for its candidates' albums and artwork.
+  let seen = new Map<string, Track>()
   let unsaved = 0
+  let lastSave = now()
   let lastSpotifyCall = Number.NEGATIVE_INFINITY
   let spotifyOffUntil = 0
   let index = firstPendingRow(state)
+  if (state.blocked !== undefined) {
+    delete state.blocked
+    unsaved++
+  }
 
   const flush = async () => {
     if (unsaved === 0) return
     unsaved = 0
+    lastSave = now()
     await viaSink(() => sink.save(state))
   }
 
@@ -292,7 +310,9 @@ export async function runImport(
   /**
    * One YouTube request, paced by the budget: waits for a bulk slot, and tries again after the
    * budget turned it away, a bot check (whose pause the budget waits out) or a network failure.
-   * `null` when it keeps failing, or fails for another reason. `Unsupported` stops the run.
+   * `null` when the budget keeps turning it away, or it fails for another reason. `Unsupported`
+   * and `NotFound` are thrown; so is an {@link OfflineStop} when the device is offline or the
+   * network keeps failing.
    */
   const viaYouTube = async <T>(
     call: (ctx: ProviderContext) => Promise<T>,
@@ -301,6 +321,9 @@ export async function runImport(
     let networkFailures = 0
     let budgetFailures = 0
     for (;;) {
+      if (offline()) throw new OfflineStop()
+      // The wait may be long (a bot-check pause): what is done so far is saved first, when due.
+      if (now() - lastSave >= SAVE_INTERVAL_MS) await flush()
       onStatus?.({ index, phase: 'waiting' })
       await env.waitForBulkSlot(signal)
       onStatus?.({ index, phase })
@@ -309,33 +332,34 @@ export async function runImport(
       } catch (error) {
         if (signal.aborted) throw signal.reason
         env.report(error)
-        if (isFxmError(error, 'Unsupported')) throw error
+        if (isFxmError(error, 'Unsupported') || isFxmError(error, 'NotFound')) throw error
         if (isFxmError(error, 'RateLimited') || isFxmError(error, 'BotCheck')) {
           if (++budgetFailures > MAX_BUDGET_RETRIES) return null
           const retryAfter = isFxmError(error) ? (error.retryAfterMs ?? 0) : 0
           await pause(Math.min(Math.max(retryAfter, 1000), MAX_RETRY_WAIT_MS), signal)
           continue
         }
-        if (isFxmError(error, 'Network') && ++networkFailures <= MAX_NETWORK_RETRIES) {
-          await pause(2000 * networkFailures, signal)
+        if (isFxmError(error, 'Network')) {
+          if (++networkFailures > MAX_NETWORK_RETRIES || offline()) throw new OfflineStop()
+          await pause(Math.min(2000 * 2 ** (networkFailures - 1), MAX_NETWORK_WAIT_MS), signal)
           continue
         }
-        if (isFxmError(error, 'NotFound')) throw error
         return null
       }
     }
   }
 
   const fetchPage = async (request: MatchRequest): Promise<MatchResponse | null> => {
+    let response: MatchResponse | null
     try {
-      const response = await viaYouTube((ctx) => env.youtube.fetchMatchPage(request, ctx))
-      remember(response, seen)
-      return response
+      response = await viaYouTube((ctx) => env.youtube.fetchMatchPage(request, ctx))
     } catch (error) {
       // A search finding nothing is an empty page, not a failure.
-      if (isFxmError(error, 'NotFound')) return null
-      throw error
+      if (!isFxmError(error, 'NotFound')) throw error
+      response = emptyResponse(request)
     }
+    remember(response, seen)
+    return response
   }
 
   /** Loads the catalog track a row only links to, and puts it into the playlist. */
@@ -355,7 +379,11 @@ export async function runImport(
         track = await viaYouTube((ctx) => env.youtube.getTrack(id, ctx), 'loading')
       }
     } catch (error) {
-      if (signal.aborted || (!isSpotifyRow(row) && isFxmError(error, 'Unsupported'))) throw error
+      if (signal.aborted || error instanceof OfflineStop || error instanceof SinkFailure) {
+        throw error
+      }
+      if (!isSpotifyRow(row) && isFxmError(error, 'Unsupported')) throw error
+      if (offline()) throw new OfflineStop()
       return failed(
         isFxmError(error, 'NotFound') ? 'That song no longer exists' : 'The song could not be read',
       )
@@ -371,8 +399,12 @@ export async function runImport(
     return loaded
   }
 
-  /** Looks up an ISRC and a length for a Spotify row: on Spotify, else through MusicBrainz. */
-  const lookUp = async (row: StoredRow): Promise<RowLookup | null> => {
+  /**
+   * Looks up an ISRC and a length for a Spotify row: on Spotify, else through MusicBrainz.
+   * `undefined` when neither could be asked (MusicBrainz busy or failing), which the row's
+   * result marks as incomplete, so "Retry" looks it up again; `null` when nothing was found.
+   */
+  const lookUp = async (row: StoredRow): Promise<RowLookup | null | undefined> => {
     const known = state.lookups[index]
     if (known !== undefined) return known
     onStatus?.({ index, phase: 'looking-up' })
@@ -388,6 +420,7 @@ export async function runImport(
         return found.lookup
       } catch (error) {
         if (signal.aborted || error instanceof SinkFailure) throw error
+        if (offline()) throw new OfflineStop()
         // A track Spotify no longer has says nothing about Spotify; anything else pauses it.
         if (!isFxmError(error, 'NotFound')) {
           const retryAfter = isFxmError(error) ? error.retryAfterMs : undefined
@@ -406,15 +439,18 @@ export async function runImport(
     try {
       const found = await lookupOnMusicBrainz(env.musicBrainz, batch, env.context(signal))
       for (const [at, lookup] of found) state.lookups[at] = lookup
-    } catch {
+      unsaved++
+    } catch (error) {
       if (signal.aborted) throw signal.reason
-      // MusicBrainz is busy or out of reach: this row goes without, the next batch tries again.
-      state.lookups[index] = null
+      if (offline() || isFxmError(error, 'Network')) throw new OfflineStop()
+      // MusicBrainz is busy: this row goes without, and the next row's batch asks again.
+      return undefined
     }
     return state.lookups[index] ?? null
   }
 
   const processRow = async (): Promise<RowResult> => {
+    seen = new Map()
     let row = state.rows[index] as StoredRow
     if (planRow(row, state.mode) === 'load') {
       const loaded = await loadRow(row)
@@ -423,15 +459,18 @@ export async function runImport(
     }
     const plan = planRow(row, state.mode)
     const catalogId = catalogTrackOf(row) === undefined ? undefined : row.trackId
+    // A row whose own track the mode hides is matched like a row without one.
+    const hidden = catalogId !== undefined && hiddenInMode(row, state.mode)
+    const ownTrack = hidden ? undefined : catalogId
     const searches = plan === 'match' || plan === 'video-song'
     const cachedMatch = sink.cachedMatch?.bind(sink)
-    if (catalogId !== undefined && searches && cachedMatch !== undefined) {
-      const cached = await viaSink(() => cachedMatch(catalogId, state.mode))
+    if (ownTrack !== undefined && searches && cachedMatch !== undefined) {
+      const cached = await viaSink(() => cachedMatch(ownTrack, state.mode))
       if (cached !== undefined) {
-        return { ...resultFromCache(cached, env.autoMatch), playlistTrackId: catalogId }
+        return { ...resultFromCache(cached, env.autoMatch), playlistTrackId: ownTrack }
       }
     }
-    const lookup = plan === 'match' && wantsLookup(row) ? await lookUp(row) : undefined
+    const lookup = plan === 'match' && wantsLookup(row) ? await lookUp(row) : null
     const result = await matchRow({
       row,
       ...(lookup === undefined ? {} : { lookup }),
@@ -440,10 +479,11 @@ export async function runImport(
       fetchPage,
       seen,
     })
-    if (catalogId !== undefined) {
-      result.playlistTrackId = catalogId
+    if (lookup === undefined) result.incomplete = true
+    if (ownTrack !== undefined) {
+      result.playlistTrackId = ownTrack
       if (searches && !result.incomplete) {
-        const decision = decisionOf(catalogId, state.mode, result)
+        const decision = decisionOf(ownTrack, state.mode, result)
         await viaSink(() => sink.recordMatch(decision))
       }
     } else if (result.outcome === 'matched' && result.best !== undefined) {
@@ -453,8 +493,10 @@ export async function runImport(
       result.playlistTrackId = track.id
       state.results[index] = result
       await viaSink(() => sink.placeTrack(track, nextPlaylistTrack(state, index)))
+    } else if (hidden) {
+      result.playlistTrackId = catalogId as EntityId<'track'>
     }
-    return result
+    return unfinished(result)
   }
 
   try {
@@ -465,25 +507,44 @@ export async function runImport(
       try {
         result = await processRow()
       } catch (error) {
-        if (signal.aborted || error instanceof SinkFailure || isFxmError(error, 'Unsupported')) {
+        if (
+          signal.aborted ||
+          error instanceof SinkFailure ||
+          error instanceof OfflineStop ||
+          isFxmError(error, 'Unsupported')
+        ) {
+          // The row stays waiting, also when a placement was written for it already.
+          state.results[index] = null
           throw error
         }
         result = failed('Something went wrong while matching this song')
       }
-      state.results[index] = result
+      state.results[index] = storedResult(result)
       unsaved++
-      const quiet = result.outcome === 'ready' || result.cached === true
-      if (!quiet || unsaved >= QUIET_ROWS_PER_SAVE) await flush()
+      if (now() - lastSave >= SAVE_INTERVAL_MS) await flush()
     }
     await flush()
     return { status: 'done' }
   } catch (error) {
     if (error instanceof SinkFailure) throw error.original
+    const reason: ImportBlockReason | undefined = signal.aborted
+      ? undefined
+      : error instanceof OfflineStop
+        ? 'offline'
+        : isFxmError(error, 'Unsupported')
+          ? 'unsupported'
+          : undefined
+    if (reason !== undefined) {
+      state.blocked = reason
+      unsaved++
+    }
     await flush().catch((failure: unknown) => {
       throw failure instanceof SinkFailure ? failure.original : failure
     })
     if (signal.aborted) return { status: 'stopped' }
-    if (isFxmError(error, 'Unsupported')) return { status: 'blocked', message: error.message }
+    if (reason !== undefined) {
+      return { status: 'blocked', reason, message: (error as Error).message }
+    }
     throw error
   }
 }

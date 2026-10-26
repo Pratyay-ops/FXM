@@ -5,11 +5,15 @@ import {
   applyReview,
   createImportState,
   firstPendingRow,
+  importBlockOf,
   importCounts,
   initialPlaylistTracks,
   isLikelyMatch,
+  isRetryable,
   needsReview,
   nextPlaylistTrack,
+  planReopen,
+  planReview,
   playlistTrackIdOf,
   retryFailedRows,
   rowStatus,
@@ -112,12 +116,82 @@ describe('import state', () => {
     expect(() => applyReview(state, 1, { action: 'confirm', ref: 'nope' }, 13)).toThrow(RangeError)
   })
 
-  it('puts failed rows back in the queue', () => {
+  it('plans a decision without changing the state, so a failed library change loses nothing', () => {
+    const state = stateWithResults()
+    const before = structuredClone(state)
+    const planned = planReview(state, 1, { action: 'confirm', ref: 'two00000000' }, 10)
+    expect(planned.effect).toMatchObject({ type: 'place', track: { id: 'ytm:track:two00000000' } })
+    expect(planned.result).toMatchObject({
+      review: { action: 'confirmed', ref: 'two00000000', at: 10 },
+      playlistTrackId: 'ytm:track:two00000000',
+    })
+    expect(state).toEqual(before)
+  })
+
+  it('takes decisions back: unpins, takes a placed song out, or forgets a skip', () => {
+    const state = stateWithResults()
+    state.results[2] = { outcome: 'review', best: candidate('three000000', 'Three', 'C', 0.7) }
+    applyReview(state, 1, { action: 'confirm', ref: 'two00000000' }, 10)
+    applyReview(state, 2, { action: 'confirm', ref: 'three000000' }, 11)
+    applyReview(state, 0, { action: 'skip' }, 12)
+
+    const placed = planReopen(state, 1)
+    expect(placed.effect).toEqual({ type: 'unplace', trackId: 'ytm:track:two00000000' })
+    expect(placed.result.review).toBeUndefined()
+    expect(placed.result.playlistTrackId).toBeUndefined()
+    expect(needsReview(placed.result)).toBe(true)
+
+    const pinned = planReopen(state, 2)
+    expect(pinned.effect).toMatchObject({
+      type: 'unpin',
+      sourceTrackId: 'spotify:track:0000000000000000000003',
+      decision: { band: 'suggest', candidate: { ref: 'three000000' } },
+    })
+    expect(planReopen(state, 0).effect).toEqual({ type: 'none' })
+    expect(() => planReopen(state, 3)).toThrow(RangeError)
+    // A decided row is reopened before it is decided again.
+    expect(() => applyReview(state, 1, { action: 'skip' }, 13)).toThrow(RangeError)
+
+    // A song another row of the playlist has too stays in it.
+    state.results[3] = {
+      outcome: 'ready',
+      playlistTrackId: 'ytm:track:two00000000' as EntityId<'track'>,
+    }
+    expect(planReopen(state, 1).effect).toEqual({ type: 'none' })
+  })
+
+  it('places the song of a video Music mode hides, and takes it out again', () => {
+    const video = 'yt:track:videovideov' as EntityId<'track'>
+    const state = createImportState('youtube', 'music', {
+      name: 'V',
+      rows: [{ title: 'Clip', artists: ['A'], trackId: video, kind: 'video' }],
+    })
+    state.results[0] = {
+      outcome: 'review',
+      best: candidate('songsongson', 'Clip', 'A', 0.7),
+      playlistTrackId: video,
+    }
+    const effect = applyReview(state, 0, { action: 'confirm', ref: 'songsongson' }, 1)
+    expect(effect).toMatchObject({ type: 'place', track: { id: 'ytm:track:songsongson' } })
+    const reopened = planReopen(state, 0)
+    expect(reopened.effect).toEqual({ type: 'unplace', trackId: 'ytm:track:songsongson' })
+    expect(reopened.result.playlistTrackId).toBe(video)
+  })
+
+  it('puts failed rows, and unreviewed ones whose search was cut short, back in the queue', () => {
     const state = stateWithResults()
     state.results[3] = { outcome: 'failed', error: 'Network' }
-    expect(retryFailedRows(state)).toBe(1)
+    state.results[2] = { outcome: 'not-found', incomplete: true }
+    state.results[1] = {
+      outcome: 'review',
+      incomplete: true,
+      review: { action: 'skipped', at: 1 },
+    }
+    expect(state.results.map(isRetryable)).toEqual([false, false, true, true])
+    expect(retryFailedRows(state)).toBe(2)
     expect(state.results[3]).toBeNull()
-    expect(firstPendingRow(state)).toBe(3)
+    expect(state.results[2]).toBeNull()
+    expect(firstPendingRow(state)).toBe(2)
     expect(retryFailedRows(state)).toBe(0)
   })
 
@@ -141,8 +215,48 @@ describe('import state', () => {
       { ...state, results: [{ outcome: 'great' }, null, null, null] },
       { ...state, results: [{ outcome: 'matched', best: { ref: '' } }, null, null, null] },
       { ...state, lookups: { 0: { source: 'elsewhere' } } },
+      { ...state, blocked: 'tired' },
     ]
     for (const value of broken) expect(sanitizeImportState(value)).toBeNull()
+  })
+
+  it('checks every field of a saved result, since a backup brings it back', () => {
+    const state = stateWithResults()
+    const withResult = (result: unknown) => ({ ...state, results: [result, null, null, null] })
+    const good = state.results[1] as object
+    const best = candidate('one00000000', 'One', 'A', 0.95)
+    const broken = [
+      { ...good, evidence: 5 },
+      { ...good, evidence: [1] },
+      { ...good, blockers: {} },
+      { ...good, blockers: ['tired'] },
+      { ...good, error: 4 },
+      { ...good, lookup: 'elsewhere' },
+      { ...good, noDuration: false },
+      { ...good, incomplete: 'yes' },
+      { ...good, cached: 1 },
+      { ...good, review: { action: 'confirmed', at: 1 } },
+      { ...good, review: { action: 'confirmed', ref: 'x', at: 'now' } },
+      { ...good, extras: { a: { artwork: { url: 'javascript:alert(1)' } } } },
+      { ...good, extras: { a: { artwork: { url: 'http://img.example/a.jpg' } } } },
+      { ...good, extras: { a: { album: { name: 'LP', id: 7 } } } },
+      { ...good, extras: { a: { album: { id: 'ytm:album:MPREb_x' } } } },
+      { ...good, best: { ...best, kind: 'hologram' } },
+      { ...good, best: { ...best, durationMs: '3:00' } },
+      { ...good, best: { ...best, verdict: { band: 'auto', blockers: {}, matcherVersion: 1 } } },
+      { ...good, alternatives: [{ ...best, signals: { isrcVerified: 'yes' } }] },
+    ]
+    for (const result of broken) {
+      expect(sanitizeImportState(withResult(result)), JSON.stringify(result)).toBeNull()
+    }
+    expect(sanitizeImportState({ ...state, lookups: { 1: { source: 'spotify', isrc: 5 } } })).toBe(
+      null,
+    )
+    const blocked = { ...state, blocked: 'offline' }
+    expect(sanitizeImportState(blocked)?.blocked).toBe('offline')
+    expect(importBlockOf(blocked)).toBe('offline')
+    expect(importBlockOf(state)).toBeUndefined()
+    expect(importBlockOf('nonsense')).toBeUndefined()
   })
 })
 

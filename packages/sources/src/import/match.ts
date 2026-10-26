@@ -62,6 +62,31 @@ export function needsLoad(row: StoredRow): boolean {
   return isYouTubeRow(row) && row.kind === undefined
 }
 
+/**
+ * Whether the mode hides the row's own catalog track, so the playlist cannot play it in that
+ * mode: a plain YouTube video in Music mode. Such a row is matched like a row without a catalog
+ * track, and its song goes into the playlist right after the video.
+ */
+export function hiddenInMode(row: StoredRow, mode: CatalogMode): boolean {
+  if (row.trackId === undefined || !isYouTubeRow(row) || row.kind === undefined) return false
+  if (row.kind === 'episode') return false
+  return modePolicy({ id: row.trackId, kind: row.kind, ...songIdOf(row) }, mode) === 'hidden'
+}
+
+/**
+ * Whether a decision about the row goes into the library's match cache, for the row's own
+ * catalog track (a Spotify or YouTube track the mode shows); otherwise the matched song is put
+ * into the playlist.
+ */
+export function decidesForOwnTrack(row: StoredRow, mode: CatalogMode): boolean {
+  return (
+    row.trackId !== undefined &&
+    (isSpotifyRow(row) || isYouTubeRow(row)) &&
+    catalogTrackOf(row) !== undefined &&
+    !hiddenInMode(row, mode)
+  )
+}
+
 /** What the import does with `row` in `mode` (see {@link RowPlan}). */
 export function planRow(row: StoredRow, mode: CatalogMode): RowPlan {
   if (row.trackId === undefined) return 'match'
@@ -104,6 +129,56 @@ export function matchSourceOf(row: StoredRow, lookup?: RowLookup | null): MatchS
   const albumType = row.albumType ?? lookup?.albumType
   if (albumType !== undefined) source.albumType = albumType
   return source
+}
+
+/** The engine's decision for a catalog track, for the library's match cache. */
+export interface ImportMatchDecision {
+  /** The catalog track that needs audio. */
+  sourceTrackId: EntityId<'track'>
+  /** The catalog mode the decision was made in. */
+  mode: CatalogMode
+  /**
+   * The band with the user's Auto setting applied, so the library's cache, which confirms a
+   * `band: 'auto'` record without looking at the setting (stage 2.6's `getConfirmedMatch`),
+   * never lets a match play that the setting holds back.
+   */
+  band: MatchBand
+  /**
+   * The band of the engine's verdict, with the setting on: what a cache that applies the setting
+   * when it reads (`effectiveMatchBand`) stores, as `MatchVerdict` asks. The library sink switches
+   * to it once 2.6's cache reads that way (an integration touch-point).
+   */
+  verdictBand: MatchBand
+  /** The ISRC the match used. */
+  isrc?: string
+  /** The best candidate. */
+  candidate?: AudioCandidate
+  /** The alternatives, best first. */
+  alternatives: AudioCandidate[]
+  /** Why, for people. */
+  evidence: string[]
+}
+
+/** The match-cache decision for a catalog row's result, before the user's review. */
+export function decisionOf(
+  sourceTrackId: EntityId<'track'>,
+  mode: CatalogMode,
+  result: RowResult,
+): ImportMatchDecision {
+  let band: MatchBand = 'none'
+  if (result.outcome === 'matched') band = 'auto'
+  else if (result.outcome === 'review') band = 'suggest'
+  const decision: ImportMatchDecision = {
+    sourceTrackId,
+    mode,
+    band,
+    verdictBand: result.best?.verdict?.band ?? band,
+    alternatives: result.alternatives ?? [],
+    evidence: result.evidence ?? [],
+  }
+  if (result.isrc !== undefined) decision.isrc = result.isrc
+  if (result.best !== undefined) decision.candidate = result.best
+  return decision
 }
 
 /** The outcome a band gives a row. */
@@ -170,6 +245,32 @@ function withCandidates(
   const extras = extrasOf([best, ...alternatives], seen)
   if (extras !== undefined) result.extras = extras
   return result
+}
+
+/** A candidate with at most {@link MAX_EVIDENCE} lines of evidence. */
+function trimmedCandidate(candidate: AudioCandidate): AudioCandidate {
+  return candidate.evidence.length > MAX_EVIDENCE
+    ? { ...candidate, evidence: candidate.evidence.slice(0, MAX_EVIDENCE) }
+    : candidate
+}
+
+/**
+ * A row's result as its import keeps it: a row that plays (`ready`, `matched`) keeps only its
+ * best candidate, since nothing reviews it and the match cache holds the alternatives; every
+ * candidate keeps at most {@link MAX_EVIDENCE} lines of evidence. Saved progress is rewritten as
+ * the import goes, so its size counts.
+ */
+export function storedResult(result: RowResult): RowResult {
+  const stored: RowResult = { ...result }
+  if (result.outcome === 'ready' || result.outcome === 'matched') {
+    delete stored.alternatives
+    delete stored.extras
+  } else if (result.alternatives !== undefined) {
+    stored.alternatives = result.alternatives.slice(0, MAX_ALTERNATIVES).map(trimmedCandidate)
+  }
+  if (result.best !== undefined) stored.best = trimmedCandidate(result.best)
+  if (result.evidence !== undefined) stored.evidence = result.evidence.slice(0, MAX_EVIDENCE)
+  return stored
 }
 
 /** A row's result from the engine's decision on a track. */

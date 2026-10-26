@@ -47,6 +47,10 @@ export { type ImportMusicBrainz, MUSICBRAINZ_BATCH, wantsLookup } from './lookup
 export { decodeText, describeFileName, MAX_M3U_LENGTH, parseM3uImport } from './m3u'
 export {
   candidateTrackId,
+  decidesForOwnTrack,
+  decisionOf,
+  hiddenInMode,
+  type ImportMatchDecision,
   MAX_ALTERNATIVES,
   type MatchRowInput,
   matchRow,
@@ -54,6 +58,7 @@ export {
   needsLoad,
   planRow,
   type RowPlan,
+  storedResult,
   trackOfCandidate,
 } from './match'
 export {
@@ -70,12 +75,12 @@ export { catalogTrackOf, MAX_IMPORT_ROWS } from './rows'
 export {
   type CachedMatch,
   type ImportEnvironment,
-  type ImportMatchDecision,
   type ImportRunEnd,
   type ImportRunStatus,
   type ImportSink,
   type RunImportOptions,
   runImport,
+  SAVE_INTERVAL_MS,
 } from './run'
 export {
   type ExportFile,
@@ -92,12 +97,19 @@ export {
   createImportState,
   firstPendingRow,
   type ImportCounts,
+  importBlockOf,
   importCounts,
   initialPlaylistTracks,
   isLikelyMatch,
+  isRetryable,
   needsReview,
   nextPlaylistTrack,
+  type PlannedReopen,
+  type PlannedReview,
+  planReopen,
+  planReview,
   playlistTrackIdOf,
+  type ReopenEffect,
   type ReviewDecision,
   type ReviewEffect,
   type RowStatus,
@@ -107,8 +119,10 @@ export {
 } from './state'
 export {
   type CandidateExtras,
+  IMPORT_BLOCK_REASONS,
   IMPORT_KINDS,
   IMPORT_STATE_VERSION,
+  type ImportBlockReason,
   type ImportCollection,
   type ImportKind,
   type ImportPlay,
