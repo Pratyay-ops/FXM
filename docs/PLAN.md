@@ -133,7 +133,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **4.3** | Quality settings | `feat/4.3-quality` | 2.3 | ✅ |
 | **4.4** | Local music files (web) | `feat/4.4-local-files` | 2.2, 2.6 | ✅ |
 | **5.1** | PWA "web applet" | `feat/5.1-pwa` | 2.5 | ✅ |
-| **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3, 1.10 | 🟡 |
+| **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3, 1.10 | ✅ |
 | **5.3** | Landing page | `feat/5.3-site` | 0.4 | ✅ |
 | **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | ✅ |
 | **6.2** | Android native fetch (OkHttp plugin; YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | ✅ |
