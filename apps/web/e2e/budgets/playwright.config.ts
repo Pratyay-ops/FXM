@@ -34,8 +34,10 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   // CI's time budget for the whole run, under the workflow step's own (.github/workflows/e2e.yml).
   globalTimeout: process.env.CI ? 10 * 60_000 : 0,
-  // At most one retry, in CI only, where a busy runner can miss a timing a local run makes.
-  retries: process.env.CI ? 1 : 0,
+  // No retry: a budget exceeded fails the run. A retry would pass it as merely flaky once one
+  // median came in under, and the sizes come out the same every time. The timings are medians
+  // of several visits already (RUNS in budgets.ts).
+  retries: 0,
   reporter: process.env.CI ? [['list'], ['github']] : 'list',
   timeout: 60_000,
   use: {

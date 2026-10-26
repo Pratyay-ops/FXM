@@ -44,6 +44,13 @@ function total(transfers: readonly Transfer[]) {
   }
 }
 
+/** What each path cost, the largest first: what grew. */
+function byPath(transfers: readonly Transfer[]): Record<string, number> {
+  const paths = new Map<string, number>()
+  for (const { path, bytes } of transfers) paths.set(path, (paths.get(path) ?? 0) + bytes)
+  return Object.fromEntries([...paths].sort(([, a], [, b]) => b - a))
+}
+
 /** A first visit's transfer, unthrottled: without the service worker, or with it. */
 async function transferOfFirstVisit(browser: Browser, worker: boolean) {
   const context = await browser.newContext({
@@ -61,7 +68,7 @@ async function transferOfFirstVisit(browser: Browser, worker: boolean) {
         await navigator.serviceWorker.ready
       })
     }
-    return total(server.transfers)
+    return { ...total(server.transfers), paths: byPath(server.transfers) }
   } finally {
     await context.close()
   }
@@ -140,7 +147,8 @@ function each(budget: 'lcp' | 'cls' | 'inp', values: readonly number[]): string 
 }
 
 test('a first visit stays within its budgets', async ({ browser }) => {
-  test.setTimeout(RUNS * 90_000 + 60_000)
+  // About 20 s per throttled visit: the test ends within CI's limit (playwright.config.ts).
+  test.setTimeout(RUNS * 60_000 + 60_000)
   const page = await transferOfFirstVisit(browser, false)
   const withWorker = await transferOfFirstVisit(browser, true)
   const runs: Awaited<ReturnType<typeof timedFirstVisit>>[] = []
@@ -172,7 +180,8 @@ test('a first visit stays within its budgets', async ({ browser }) => {
       detail: `${each('inp', inp)}; at least ${interactions} interactions took 16 ms or more`,
     },
   ]
-  await report(test.info(), `First visit on ${PHONE.name}`, measured, {
+  const title = `First visit on ${PHONE.name}`
+  await report(test.info(), { name: 'first-visit', title }, measured, {
     transfer: { page, withWorker },
     runs,
   })

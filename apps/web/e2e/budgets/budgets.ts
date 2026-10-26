@@ -4,8 +4,12 @@ import type { ChunkGroup } from './chunks'
 // load must be on a mid-range phone over a slow network. apps/web/e2e/README.md has the baseline
 // they were set from, and how to change them: sizes from any build, timings from CI's runner.
 
-/** The lazy features whose chunks have a budget (see `chunkGraph` in chunks.ts). */
-export const GROUPS: readonly ChunkGroup[] = [
+/**
+ * The lazy features whose chunks have a budget, each named after its budget (see `chunkGraph` in
+ * chunks.ts). A root the first load holds fails the run, unless it is in the group's
+ * `inFirstLoad`; one listed there fails it once it loads lazily, so the list only shrinks.
+ */
+export const GROUPS: readonly ChunkGroup<Budget>[] = [
   {
     // The provider (stage 1.3), the stream resolver's module host (1.13), and youtubei.js, which
     // the provider loads on first use.
@@ -25,6 +29,13 @@ export const GROUPS: readonly ChunkGroup[] = [
       'apps/web/src/features/downloads/runtime.ts',
       'apps/web/src/features/downloads/actions.ts',
       'apps/web/src/features/downloads/opfs/worker.ts',
+    ],
+    // The shell's download buttons and menus import these two statically today (hooks.ts and
+    // menu.ts in features/downloads, and the library's track lists), so their chunks are in the
+    // first load, though the app's services load them with import(). The worker stays lazy.
+    inFirstLoad: [
+      'apps/web/src/features/downloads/runtime.ts',
+      'apps/web/src/features/downloads/actions.ts',
     ],
   },
 ]
@@ -54,7 +65,7 @@ export const PHONE = {
 } as const
 
 /** How many first loads the timings take the median of. */
-export const RUNS = 5
+export const RUNS = 7
 
 /**
  * The budgets. Sizes are bytes as Chromium downloads them from Cloudflare Pages (brotli, see

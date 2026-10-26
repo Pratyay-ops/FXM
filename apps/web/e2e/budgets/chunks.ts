@@ -54,8 +54,8 @@ export function transferSize(bytes: Uint8Array): number {
 }
 
 /** A feature whose code loads lazily, found by the modules that start it. */
-export interface ChunkGroup {
-  readonly name: string
+export interface ChunkGroup<Name extends string = string> {
+  readonly name: Name
   /** Modules that start the feature, relative to the repository root. */
   readonly roots: readonly string[]
   /**
@@ -63,6 +63,18 @@ export interface ChunkGroup {
    * loads part of its code on first use (the YouTube provider and youtubei.js).
    */
   readonly dynamic?: boolean
+  /**
+   * The roots the first load holds today, as an exception: every other root must stay out of it,
+   * and these must stay in it until they load lazily, when they come off this list. So a root
+   * can't join the first load, in the entry chunk or in a chunk the entry imports, unnoticed.
+   */
+  readonly inFirstLoad?: readonly string[]
+}
+
+/** A file's size on disk and as downloaded (see {@link transferSize}), in bytes. */
+export interface FileSize {
+  readonly raw: number
+  readonly transfer: number
 }
 
 /** A set of files and their sizes. */
@@ -81,13 +93,15 @@ export interface GroupFiles extends Files {
 }
 
 /** The first load's chunks, and each lazy feature's. */
-export interface ChunkReport {
+export interface ChunkReport<Name extends string = string> {
   /** The entry chunk alone, the script `index.html` starts. */
   readonly entry: Files
   /** What `index.html` loads before the app runs: the entry chunk, its imports, its styles. */
   readonly initial: Files
   /** Each group: its roots' chunks, and the chunks they import that the first load doesn't. */
-  readonly groups: Readonly<Record<string, GroupFiles>>
+  readonly groups: Readonly<Record<Name, GroupFiles>>
+  /** Every file counted above and its size, the largest download first: what grew. */
+  readonly sizes: Readonly<Record<string, FileSize>>
 }
 
 /** The module every page of the app starts from. */
@@ -98,16 +112,17 @@ export const MAIN_MODULE = 'apps/web/src/main.tsx'
  * each group, from one app build's inventory: a group has the chunks of its roots (from the
  * app's build or a worker's), plus the chunks those import that the first load doesn't, and, if
  * it is `dynamic`, the chunks they load with `import()` and theirs. Throws when a root is in no
- * chunk, or in the entry chunk, where it would no longer load lazily: the budgets need a look.
+ * chunk, or in the first load without being one of the group's `inFirstLoad` (it would no longer
+ * load lazily), or out of it while it is one of them: the budgets need a look.
  */
-export function chunkGraph(
+export function chunkGraph<Name extends string>(
   builds: readonly InventoryBuild[],
   root: string,
-  groups: readonly ChunkGroup[],
+  groups: readonly ChunkGroup<Name>[],
 ): {
   entry: string
   initial: string[]
-  groups: Record<string, { files: string[]; initial: string[] }>
+  groups: Record<Name, { files: string[]; initial: string[] }>
 } {
   // The app's own build first: a module a worker shares is looked up in the app's chunks.
   const chunks = [...builds]
@@ -132,16 +147,28 @@ export function chunkGraph(
   if (entry === undefined)
     throw new Error(`No chunk holds ${MAIN_MODULE}: is this the app's inventory?`)
   const initial = closure([entry.fileName])
-  const result: Record<string, { files: string[]; initial: string[] }> = {}
+  const result = {} as Record<Name, { files: string[]; initial: string[] }>
   for (const group of groups) {
+    const allowed = new Set(group.inFirstLoad ?? [])
+    for (const module of allowed) {
+      if (!group.roots.includes(module)) {
+        throw new Error(`${group.name}: ${module} is in inFirstLoad but not in its roots`)
+      }
+    }
     const starts = group.roots.map((module) => {
       const chunk = chunkOf(module)
       if (chunk === undefined) {
         throw new Error(`${group.name}: no chunk holds ${module}; update the budgets' roots`)
       }
-      if (chunk === entry) {
+      const where = chunk === entry ? 'the entry chunk' : chunk.fileName
+      if (initial.has(chunk.fileName) && !allowed.has(module)) {
         throw new Error(
-          `${group.name}: ${module} is in the entry chunk, so it no longer loads lazily; move it out or update the budgets`,
+          `${group.name}: ${module} is in the first load (${where}), so it no longer loads lazily: load it with import(), or list it in the group's inFirstLoad (budgets.ts)`,
+        )
+      }
+      if (!initial.has(chunk.fileName) && allowed.has(module)) {
+        throw new Error(
+          `${group.name}: ${module} loads lazily now: take it off the group's inFirstLoad (budgets.ts), so it stays lazy`,
         )
       }
       return chunk.fileName
@@ -174,14 +201,14 @@ export function stylesheetsOf(html: string, base = '/app/'): string[] {
  * The chunk report of the app in `appDir` (dist/pages/app), from its build's inventory and the
  * repository root the build ran in.
  */
-export function chunkReport(
+export function chunkReport<Name extends string>(
   appDir: string,
   inventoryFile: string,
   root: string,
-  groups: readonly ChunkGroup[],
-): ChunkReport {
+  groups: readonly ChunkGroup<Name>[],
+): ChunkReport<Name> {
   const graph = chunkGraph(readInventory(inventoryFile), root, groups)
-  const sizes = new Map<string, { raw: number; transfer: number }>()
+  const sizes = new Map<string, FileSize>()
   const files = (list: readonly string[]): Files => {
     let raw = 0
     let transfer = 0
@@ -198,14 +225,16 @@ export function chunkReport(
     return { files: [...list], raw, transfer }
   }
   const styles = stylesheetsOf(readFileSync(join(appDir, 'index.html'), 'utf8'))
+  const grouped = {} as Record<Name, GroupFiles>
+  for (const { name } of groups) {
+    grouped[name] = { ...files(graph.groups[name].files), initial: graph.groups[name].initial }
+  }
+  const entry = files([graph.entry])
+  const initial = files([...graph.initial, ...styles])
   return {
-    entry: files([graph.entry]),
-    initial: files([...graph.initial, ...styles]),
-    groups: Object.fromEntries(
-      Object.entries(graph.groups).map(([name, group]) => [
-        name,
-        { ...files(group.files), initial: group.initial },
-      ]),
-    ),
+    entry,
+    initial,
+    groups: grouped,
+    sizes: Object.fromEntries([...sizes].sort(([, a], [, b]) => b.transfer - a.transfer)),
   }
 }

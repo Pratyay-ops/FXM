@@ -2,9 +2,9 @@ import { existsSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { test } from '@playwright/test'
 import { PAGES_DIR, REPOSITORY_ROOT } from '../target'
-import { type Budget, GROUPS } from './budgets'
+import { GROUPS } from './budgets'
 import { chunkReport } from './chunks'
-import { format, type Measured, report } from './report'
+import { kilobytes, type Measured, report } from './report'
 
 // The chunks of make dist's app against their budgets: the entry chunk, what index.html loads
 // before the app runs, and what each lazy feature adds (budgets.ts). No browser: the sizes come
@@ -28,23 +28,22 @@ test('the chunks stay within their budgets', async () => {
     {
       budget: 'entry',
       value: chunks.entry.transfer,
-      detail: `${files(chunks.entry.files)}, ${format('entry', chunks.entry.raw)} on disk`,
+      detail: `${files(chunks.entry.files)}, ${kilobytes(chunks.entry.raw)} on disk`,
     },
     {
       budget: 'initial',
       value: chunks.initial.transfer,
-      detail: `${files(chunks.initial.files)}, ${format('initial', chunks.initial.raw)} on disk`,
+      detail: `${files(chunks.initial.files)}, ${kilobytes(chunks.initial.raw)} on disk`,
     },
-    ...GROUPS.map((group): Measured => {
-      const sizes = chunks.groups[group.name]
-      if (sizes === undefined) throw new Error(`No sizes for ${group.name}`)
+    ...GROUPS.map(({ name }): Measured => {
+      const sizes = chunks.groups[name]
       const loaded = sizes.initial.length > 0 ? `; in the first load: ${files(sizes.initial)}` : ''
       return {
-        budget: group.name as Budget,
+        budget: name,
         value: sizes.transfer,
-        detail: `${files(sizes.files)}, ${format('entry', sizes.raw)} on disk${loaded}`,
+        detail: `${files(sizes.files)}, ${kilobytes(sizes.raw)} on disk${loaded}`,
       }
     }),
   ]
-  await report(test.info(), 'Chunks', measured, chunks)
+  await report(test.info(), { name: 'chunks', title: 'Chunks' }, measured, chunks)
 })

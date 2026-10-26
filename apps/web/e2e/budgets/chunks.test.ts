@@ -91,11 +91,33 @@ describe('chunkGraph', () => {
     ])
   })
 
-  it("counts a root's own chunk even when the first load has it, and says so", () => {
+  it('refuses a root no chunk holds', () => {
+    expect(() =>
+      chunkGraph(BUILDS, ROOT, [{ name: 'gone', roots: ['apps/web/src/gone.ts'] }]),
+    ).toThrow('gone: no chunk holds apps/web/src/gone.ts')
+  })
+
+  it('refuses a root in the first load: in the entry chunk, or in a chunk the entry imports', () => {
+    expect(() =>
+      chunkGraph(BUILDS, ROOT, [{ name: 'shell', roots: ['apps/web/src/shell.tsx'] }]),
+    ).toThrow(
+      'shell: apps/web/src/shell.tsx is in the first load (the entry chunk), so it no longer loads lazily',
+    )
+    // As when the shell imports a lazy page's module: Rolldown then puts it in a chunk of its own
+    // that the entry imports, not into the entry chunk.
+    expect(() =>
+      chunkGraph(BUILDS, ROOT, [{ name: 'feature', roots: ['apps/web/src/feature/runtime.ts'] }]),
+    ).toThrow(
+      'feature: apps/web/src/feature/runtime.ts is in the first load (assets/feature.js), so it no longer loads lazily',
+    )
+  })
+
+  it("counts a root the first load may hold (inFirstLoad), and says it's there", () => {
     const groups = [
       {
         name: 'feature',
         roots: ['apps/web/src/feature/runtime.ts', 'apps/web/src/feature/worker.ts'],
+        inFirstLoad: ['apps/web/src/feature/runtime.ts', 'apps/web/src/feature/worker.ts'],
       },
     ]
     const graph = chunkGraph(BUILDS, ROOT, groups)
@@ -106,13 +128,25 @@ describe('chunkGraph', () => {
     })
   })
 
-  it('refuses a root no chunk holds, or one the entry chunk holds', () => {
+  it('refuses inFirstLoad for a root that loads lazily now, or for a module that is no root', () => {
     expect(() =>
-      chunkGraph(BUILDS, ROOT, [{ name: 'gone', roots: ['apps/web/src/gone.ts'] }]),
-    ).toThrow('gone: no chunk holds apps/web/src/gone.ts')
+      chunkGraph(BUILDS, ROOT, [
+        {
+          name: 'page',
+          roots: ['apps/web/src/page.tsx'],
+          inFirstLoad: ['apps/web/src/page.tsx'],
+        },
+      ]),
+    ).toThrow("page: apps/web/src/page.tsx loads lazily now: take it off the group's inFirstLoad")
     expect(() =>
-      chunkGraph(BUILDS, ROOT, [{ name: 'shell', roots: ['apps/web/src/shell.tsx'] }]),
-    ).toThrow('it no longer loads lazily')
+      chunkGraph(BUILDS, ROOT, [
+        {
+          name: 'page',
+          roots: ['apps/web/src/page.tsx'],
+          inFirstLoad: ['apps/web/src/shared.ts'],
+        },
+      ]),
+    ).toThrow('page: apps/web/src/shared.ts is in inFirstLoad but not in its roots')
   })
 
   it("refuses an inventory without the app's entry", () => {
@@ -169,6 +203,18 @@ describe('sizes', () => {
     ])
     expect(report.initial.raw).toBe(report.initial.files.reduce((sum, file) => sum + size(file), 0))
     expect(report.initial.transfer).toBeLessThan(report.initial.raw)
-    expect(report.groups.page?.raw).toBe(size('assets/page.js') + size('assets/shared.js'))
+    expect(report.groups.page.raw).toBe(size('assets/page.js') + size('assets/shared.js'))
+    // Every file counted, once, the largest download first.
+    expect(Object.keys(report.sizes).sort()).toEqual([
+      'assets/feature.js',
+      'assets/index.css',
+      'assets/index.js',
+      'assets/page.js',
+      'assets/react.js',
+      'assets/shared.js',
+    ])
+    const transfers = Object.values(report.sizes).map((file) => file.transfer)
+    expect(transfers).toEqual([...transfers].sort((a, b) => b - a))
+    expect(report.sizes['assets/index.css']?.raw).toBe(size('assets/index.css'))
   })
 })
