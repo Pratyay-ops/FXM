@@ -25,6 +25,7 @@ export {
   type FxmHttpResponseHead,
   fxmHttpErrorCode,
 } from './android-http'
+export * from './android-spotify-login'
 export type {
   AcquireOptions,
   BotCheckCause,

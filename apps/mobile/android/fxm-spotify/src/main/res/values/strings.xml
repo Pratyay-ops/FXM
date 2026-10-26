@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The Spotify login window (SpotifyLoginActivity). -->
+    <string name="fxm_spotify_login_title">Log in to Spotify</string>
+    <string name="fxm_spotify_login_close">Close the Spotify login</string>
+    <!-- The last sentence: MainActivity is singleTask, so starting it again (the launcher icon, the
+         media notification) finishes every activity above it, this window included. -->
+    <string name="fxm_spotify_login_notice">This is Spotify\'s own login page. FXM never sees your password: it keeps only the login Spotify gives this window, encrypted on this phone, and uses it only to get Spotify login tokens. Google and Facebook don\'t allow signing in here. Getting a code from another app? Come back through the recent apps screen: FXM\'s icon and its notification close this window.</string>
+    <string name="fxm_spotify_login_password">Use Google or Facebook for Spotify? Set a Spotify password first</string>
+    <!-- When the user picks a sign-in that blocks app windows. %1$s is Google or Facebook. -->
+    <string name="fxm_spotify_login_not_here">%1$s doesn\'t allow signing in inside apps. Log in with the email address of your Spotify account and a Spotify password instead. If your account has no password yet, set one first.</string>
+    <string name="fxm_spotify_login_elsewhere">This window opens only Spotify\'s login pages.</string>
+    <string name="fxm_spotify_login_offline">FXM couldn\'t reach Spotify\'s login page. Check your connection, then close this window and try again.</string>
+</resources>

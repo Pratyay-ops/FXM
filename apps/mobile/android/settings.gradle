@@ -5,6 +5,8 @@ include ':fxm-http'
 include ':fxm-player'
 // FXM's downloads and device music: app storage, Music/FXM, MediaStore (stage 6.4).
 include ':fxm-downloads'
+// FXM's Spotify login: its login window and the FxmSpotifyLogin plugin (stage 6.5).
+include ':fxm-spotify'
 include ':capacitor-cordova-android-plugins'
 project(':capacitor-cordova-android-plugins').projectDir = new File('./capacitor-cordova-android-plugins/')
 

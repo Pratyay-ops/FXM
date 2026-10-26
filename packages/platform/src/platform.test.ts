@@ -1,6 +1,7 @@
 import { FxmError, isFxmError } from '@fxm/core'
 import { Window } from 'happy-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { FXM_SPOTIFY_LOGIN_PLUGIN, spotifyLoginWindowOf } from './android-spotify-login'
 import type { SelfTestResult } from './lite'
 import type { NativeHttp } from './native'
 import {
@@ -13,6 +14,7 @@ import type { SessionTokenSource } from './spotify-session'
 import { memoryStorage } from './storage'
 import { installFakeConnect } from './testing/fake-connect'
 import { createFakeSandbox } from './testing/fake-sandbox'
+import { createFakeFxmSpotifyLogin } from './testing/fake-spotify-login'
 
 const SEARCH = 'https://music.youtube.com/youtubei/v1/search'
 const BODY = JSON.stringify({ context: { client: { clientName: 'WEB_REMIX' } }, query: 'x' })
@@ -305,4 +307,66 @@ describe('createPlatform', () => {
       expect(platform.spotifySession).toBeDefined()
     },
   )
+
+  describe('on Android, the Spotify login window (stage 6.5)', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    const native = { nativeHttp: vi.fn<NativeHttp>(async () => Response.json({})) }
+
+    it('is the login source when the app has its plugin, so Spotify is account', async () => {
+      const plugin = createFakeFxmSpotifyLogin({ loggedIn: true })
+      vi.stubGlobal('Capacitor', {
+        isNativePlatform: () => true,
+        Plugins: { [FXM_SPOTIFY_LOGIN_PLUGIN]: plugin },
+      })
+      const platform = await createPlatform({
+        environment: 'capacitor',
+        ...native,
+        storage: memoryStorage(),
+      })
+      expect(platform.capabilities.current.spotify).toBe('account')
+      expect(spotifyLoginWindowOf(platform.spotifySession)).toBeDefined()
+      await expect(
+        platform.spotifySession?.requestToken({ reason: 'transport', totp: '123456' }),
+      ).resolves.toMatchObject({ status: 200 })
+      expect(plugin.tokenRequests).toEqual([{ reason: 'transport', totp: '123456' }])
+    })
+
+    it('gives way to a source the app passes, and is none without the plugin', async () => {
+      vi.stubGlobal('Capacitor', {
+        isNativePlatform: () => true,
+        Plugins: { [FXM_SPOTIFY_LOGIN_PLUGIN]: createFakeFxmSpotifyLogin() },
+      })
+      const given = session()
+      const passed = await createPlatform({
+        environment: 'capacitor',
+        ...native,
+        spotifySession: given,
+        storage: memoryStorage(),
+      })
+      expect(passed.spotifySession).toBe(given)
+
+      vi.stubGlobal('Capacitor', { isNativePlatform: () => true, Plugins: {} })
+      const without = await createPlatform({
+        environment: 'capacitor',
+        ...native,
+        storage: memoryStorage(),
+      })
+      expect(without.spotifySession).toBeUndefined()
+      expect(without.capabilities.current.spotify).toBe('anonymous')
+      // The desktop app never picks up the Android plugin.
+      vi.stubGlobal('Capacitor', {
+        isNativePlatform: () => true,
+        Plugins: { [FXM_SPOTIFY_LOGIN_PLUGIN]: createFakeFxmSpotifyLogin() },
+      })
+      const desktop = await createPlatform({
+        environment: 'tauri',
+        ...native,
+        storage: memoryStorage(),
+      })
+      expect(desktop.spotifySession).toBeUndefined()
+    })
+  })
 })

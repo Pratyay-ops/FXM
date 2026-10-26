@@ -14,6 +14,7 @@ import {
   type ProviderContext,
 } from '@fxm/core'
 import { androidHttpIfAvailable } from './android-http'
+import { androidSpotifyLoginIfAvailable } from './android-spotify-login'
 import { createRequestBudget, type RequestBudget, type RequestPriority } from './budget'
 import { type CapabilityMonitor, createCapabilityMonitor } from './capabilities'
 import { createCapacitorTransport } from './capacitor'
@@ -117,7 +118,8 @@ export interface PlatformOptions {
   /**
    * Desktop, Android and Node: the token source of the user's Spotify login (the login window's
    * token command of stage 7.4 or 6.5). With it, Spotify is `account`. In a browser, FXM Connect's
-   * bridge is the source.
+   * bridge is the source. Default on Android: the app's login window, when the app has its
+   * FxmSpotifyLogin plugin ({@link androidSpotifyLoginIfAvailable}).
    */
   spotifySession?: SessionTokenSource
   /** Hosts the user added in Settings. */
@@ -270,16 +272,20 @@ function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptio
     environment === 'tauri'
       ? createTauriTransport(transportOptions)
       : createCapacitorTransport(transportOptions)
+  // On Android without one given: the app's Spotify login window (stage 6.5).
+  const spotifySession =
+    options.spotifySession ??
+    (environment === 'capacitor' ? androidSpotifyLoginIfAvailable() : undefined)
   const capabilities = createCapabilityMonitor({
     platform: ENVIRONMENT_PLATFORMS[environment],
     nativeTransport: nativeHttp !== undefined,
-    nativeSpotifyLogin: options.spotifySession !== undefined,
+    nativeSpotifyLogin: spotifySession !== undefined,
   })
   return {
     transport,
     budget,
     capabilities,
-    ...(options.spotifySession === undefined ? {} : { spotifySession: options.spotifySession }),
+    ...(spotifySession === undefined ? {} : { spotifySession }),
   }
 }
 
@@ -316,7 +322,8 @@ function nodePieces(options: PlatformOptions): Pieces {
  * - **browser:** the web transport with FXM Connect and, given `sandbox`, the Lite tier;
  * - **tauri** and **capacitor:** the native transport given `nativeHttp` (by default, in the
  *   desktop app `createDesktopFetch()` and on Android the app's FxmHttp plugin), else the stub
- *   that reaches only CORS-friendly hosts;
+ *   that reaches only CORS-friendly hosts; on Android, the app's Spotify login window as the
+ *   `spotifySession` unless one is given;
  * - **node:** the Node transport, with full access.
  *
  * It resolves once FXM Connect detection is done (at most its 800 ms ping), so

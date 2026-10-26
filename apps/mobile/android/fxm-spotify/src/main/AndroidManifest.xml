@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application>
+        <!-- The Spotify login window. Not exported: only FXM opens it, from the FxmSpotifyLogin
+             plugin. Rotating the phone or showing the keyboard keeps its WebView and the login in
+             progress. -->
+        <activity
+            android:name=".SpotifyLoginActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|navigation|density|locale"
+            android:exported="false"
+            android:label="@string/fxm_spotify_login_title"
+            android:theme="@style/FxmSpotifyLoginTheme"
+            android:windowSoftInputMode="adjustResize" />
+    </application>
+</manifest>

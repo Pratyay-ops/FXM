@@ -9,6 +9,7 @@ import io.github.pratyayops.fxm.evaluator.EvaluatorPlugin;
 import io.github.pratyayops.fxm.http.DisabledCapacitorHttp;
 import io.github.pratyayops.fxm.http.FxmHttpPlugin;
 import io.github.pratyayops.fxm.player.FxmPlayerPlugin;
+import io.github.pratyayops.fxm.spotify.SpotifyLoginPlugin;
 
 public class MainActivity extends BridgeActivity {
 
@@ -30,6 +31,9 @@ public class MainActivity extends BridgeActivity {
         // the dataSync service that keeps downloads going in the background; MediaStore's songs.
         registerPlugin(FxmDownloadsPlugin.class);
         registerPlugin(FxmDeviceMusicPlugin.class);
+        // FXM's Spotify login (fxm-spotify): its own login window, and the token call with the
+        // login it keeps, which never reaches the page.
+        registerPlugin(SpotifyLoginPlugin.class);
         super.onCreate(savedInstanceState);
         // Capacitor's local server would serve the page any file the app can read and any content
         // URI, the user's photos among them once FXM may read their music. From here on it serves

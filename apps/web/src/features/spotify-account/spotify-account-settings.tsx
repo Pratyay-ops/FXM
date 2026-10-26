@@ -11,7 +11,7 @@ import { SettingsSection } from '../settings/settings-layout'
 import { isConnected as isLibrarySyncOn } from '../sync/sync-store'
 import { useAccountAccess, useAccountRuntime } from './context'
 import { LIKED_NAME } from './ids'
-import type { AccountRuntimeState, SyncFailure } from './runtime'
+import type { AccountRuntimeState, DisconnectResult, LoginOutcome, SyncFailure } from './runtime'
 import { countCopies, readMeta, type SyncMeta } from './state'
 import type { SyncProgress } from './sync'
 
@@ -112,6 +112,50 @@ function NewTabLink({ href, children }: { href: string; children: ReactNode }) {
 const OPTIONS_HINT =
   'Open FXM Connect’s options from its button in the browser’s toolbar (or from the browser’s list of extensions)'
 
+/** Why the Android app's login window couldn't help, after Connect or Log in. */
+export const LOGIN_FAILED =
+  'FXM couldn’t open its Spotify login window, or couldn’t keep the login on this phone. Try again.'
+
+/** Why the Android app's login window didn't open at all, after Connect or Log in. */
+export const LOGIN_UNAVAILABLE = 'FXM can’t open its Spotify login window on this phone.'
+
+/** Why logging out of Spotify on the phone failed. */
+export const LOGOUT_FAILED = 'FXM couldn’t delete its Spotify login on this phone. Try again.'
+
+/** What Settings says after Connect or Log in opened the login window, if anything. */
+function loginText(outcome: LoginOutcome | undefined): string {
+  if (outcome === 'failed') return LOGIN_FAILED
+  if (outcome === 'unavailable') return LOGIN_UNAVAILABLE
+  return ''
+}
+
+/** What Disconnect did, in a sentence or two: to the library, and to the app's own login. */
+export function disconnectedText(result: DisconnectResult): string {
+  const done =
+    result.loginKept === true
+      ? 'Disconnected, but FXM couldn’t delete its Spotify login on this phone'
+      : result.loginKept === false
+        ? 'Disconnected and logged out of Spotify on this phone'
+        : 'Disconnected'
+  const library =
+    result.removed > 0
+      ? `FXM removed ${count(result.removed, 'synced playlist')}${result.kept > 0 ? ` and kept ${count(result.kept, 'playlist')} you changed` : ''}.`
+      : 'Your library keeps what FXM synced.'
+  const retry = result.loginKept === true ? ' Select Log out of Spotify to try again.' : ''
+  return `${done}. ${library}${retry}`
+}
+
+/** Where the Android app stands without a Spotify login: it logs in through its own window. */
+function AndroidLoggedOut() {
+  return (
+    <p>
+      You’re not logged in to Spotify in FXM. Select Log in to Spotify: Spotify’s own login page
+      opens in a window of FXM’s, and FXM never sees your password. Google and Facebook don’t allow
+      signing in there; if you use one of them for Spotify, the window says what to do instead.
+    </p>
+  )
+}
+
 /** What the account's state means for the user, and what they can do. */
 function PhaseText({
   state,
@@ -132,6 +176,7 @@ function PhaseText({
         </p>
       )
     case 'logged-out':
+      if (platform === 'android') return <AndroidLoggedOut />
       return (
         <p>
           FXM Connect got no Spotify login from this browser. Sign in at{' '}
@@ -141,6 +186,7 @@ function PhaseText({
         </p>
       )
     case 'needs-login':
+      if (platform === 'android') return <AndroidLoggedOut />
       return (
         <p>
           FXM Connect doesn’t use your Spotify login yet. {OPTIONS_HINT}, turn on “Use my Spotify
@@ -156,10 +202,19 @@ function PhaseText({
         </p>
       )
     case 'unsupported':
+      if (platform === 'android') {
+        return (
+          <p>
+            This phone’s WebView can’t keep FXM’s Spotify login apart from the app, so FXM doesn’t
+            open its login window. Update Android System WebView from the Play Store, then select
+            Try again.
+          </p>
+        )
+      }
       return (
         <p>
-          {platform === 'android' ? 'The Android app' : 'The desktop app'} gets its own Spotify
-          login later. Until then, connect your account in a browser with FXM Connect.
+          The desktop app gets its own Spotify login later. Until then, connect your account in a
+          browser with FXM Connect.
         </p>
       )
     case 'unreachable':
@@ -175,12 +230,14 @@ function PhaseText({
 function ConnectDialog({
   open,
   librarySync,
+  platform,
   onClose,
   onConnect,
 }: {
   open: boolean
   /** Whether library sync is on: the copies then go to the user's sync gist too. */
   librarySync: boolean
+  platform: 'web' | 'desktop' | 'android'
   onClose: () => void
   onConnect: () => void
 }) {
@@ -210,11 +267,20 @@ function ConnectDialog({
             private playlists included.
           </p>
         )}
-        <p>
-          FXM Connect asks Spotify for a login token with this browser’s Spotify login. The token
-          stays in FXM’s memory and is never saved. FXM never sees your password or Spotify’s
-          cookies.
-        </p>
+        {platform === 'android' ? (
+          <p>
+            Next, Spotify’s own login page opens in a window of FXM’s, where you log in. FXM never
+            sees your password. It keeps the login Spotify gives that window, encrypted on this
+            phone, and uses it only to ask Spotify for a login token. The token stays in FXM’s
+            memory and is never saved. Google and Facebook don’t allow signing in there.
+          </p>
+        ) : (
+          <p>
+            FXM Connect asks Spotify for a login token with this browser’s Spotify login. The token
+            stays in FXM’s memory and is never saved. FXM never sees your password or Spotify’s
+            cookies.
+          </p>
+        )}
         <p className="font-semibold">
           Spotify’s User Guidelines forbid accessing Spotify by automated means, and Spotify may
           suspend or terminate an account that breaks them. No case is known of an account suspended
@@ -243,6 +309,7 @@ function DisconnectDialog({
   open,
   copies,
   librarySync,
+  platform,
   onClose,
   onDisconnect,
 }: {
@@ -250,6 +317,7 @@ function DisconnectDialog({
   copies: number
   /** Whether library sync is on: the copies are in the user's sync gist too. */
   librarySync: boolean
+  platform: 'web' | 'desktop' | 'android'
   onClose: () => void
   onDisconnect: (removeCopies: boolean) => void
 }) {
@@ -268,6 +336,7 @@ function DisconnectDialog({
       <DisconnectChoices
         copies={copies}
         librarySync={librarySync}
+        platform={platform}
         onClose={onClose}
         onDisconnect={onDisconnect}
       />
@@ -279,11 +348,13 @@ function DisconnectDialog({
 function DisconnectChoices({
   copies,
   librarySync,
+  platform,
   onClose,
   onDisconnect,
 }: {
   copies: number
   librarySync: boolean
+  platform: 'web' | 'desktop' | 'android'
   onClose: () => void
   onDisconnect: (removeCopies: boolean) => void
 }) {
@@ -319,10 +390,17 @@ function DisconnectChoices({
             here.
           </p>
         )}
-        <p className="text-text-muted">
-          To stop FXM Connect from using your Spotify login at all, also turn off “Use my Spotify
-          login from this browser” in its options.
-        </p>
+        {platform === 'android' ? (
+          <p className="text-text-muted">
+            FXM also logs out of Spotify on this phone: it deletes the login it kept and its login
+            window’s cookies. Your Spotify account stays logged in elsewhere.
+          </p>
+        ) : (
+          <p className="text-text-muted">
+            To stop FXM Connect from using your Spotify login at all, also turn off “Use my Spotify
+            login from this browser” in its options.
+          </p>
+        )}
       </div>
       <DialogActions>
         <button
@@ -356,7 +434,9 @@ export function SpotifyAccountSettings() {
   const capabilities = useConnection((state) => state.capabilities)
   const platform = useConnection((state) => state.platform)
   const librarySync = useStore(access.librarySync, isLibrarySyncOn)
-  const { runtime, state, error: loadError } = useAccountRuntime(optedIn)
+  // The Android app's own login can outlive the account (a Disconnect that couldn't delete it),
+  // and only the runtime can tell, by asking the app: built there even while the account is off.
+  const { runtime, state, error: loadError } = useAccountRuntime(optedIn || platform === 'android')
   // Only the sync's own row: a sync rewrites the rows of its copies as it goes.
   const synced = useLiveQuery(
     () => (optedIn ? readMeta(access.library()).catch(() => undefined) : undefined),
@@ -376,9 +456,36 @@ export function SpotifyAccountSettings() {
     setMessage('')
     try {
       const loaded = runtime ?? (await access.load())
-      await loaded.connect()
+      // On Android this also opens the login window when no login is kept.
+      setMessage(loginText(await loaded.connect()))
     } catch {
       setMessage('FXM couldn’t start the Spotify account here. Reload the page and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const logIn = async () => {
+    if (runtime === undefined || busy) return
+    setBusy(true)
+    setMessage('')
+    try {
+      setMessage(loginText(await runtime.login()))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const logOut = async () => {
+    if (busy) return
+    setBusy(true)
+    setMessage('')
+    try {
+      const loaded = runtime ?? (await access.load())
+      const kept = await loaded.logout()
+      setMessage(kept === true ? LOGOUT_FAILED : 'Logged out of Spotify on this phone.')
+    } catch {
+      setMessage(LOGOUT_FAILED)
     } finally {
       setBusy(false)
     }
@@ -389,12 +496,8 @@ export function SpotifyAccountSettings() {
     setBusy(true)
     try {
       const loaded = runtime ?? (await access.load())
-      const result = await loaded.disconnect({ removeCopies })
-      setMessage(
-        result.removed > 0
-          ? `Disconnected. FXM removed ${count(result.removed, 'synced playlist')}${result.kept > 0 ? ` and kept ${count(result.kept, 'playlist')} you changed` : ''}.`
-          : 'Disconnected. Your library keeps what FXM synced.',
-      )
+      // On Android, Disconnect logs out of the app's own login too, and says when it couldn't.
+      setMessage(disconnectedText(await loaded.disconnect({ removeCopies })))
     } catch {
       // The account is off (the choice went first); only forgetting what was synced failed.
       access.choice.getState().setOptedIn(false)
@@ -456,6 +559,28 @@ export function SpotifyAccountSettings() {
         </button>
       )
     }
+    if (state.loginKept === true) {
+      // The app's own login outlived the account: a Disconnect that couldn't delete it.
+      status = (
+        <>
+          {status}
+          <p>FXM still keeps a Spotify login on this phone.</p>
+        </>
+      )
+      actions = (
+        <div className="flex flex-wrap gap-3">
+          {actions}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void logOut()}
+            className={buttonClasses({ variant: 'secondary' })}
+          >
+            Log out of Spotify
+          </button>
+        </div>
+      )
+    }
   } else {
     // A failure means something where a button tries again: Sync now, or Try again after a
     // failed check. Elsewhere the status says what to do, and a sync's old failure would mislead.
@@ -506,11 +631,16 @@ export function SpotifyAccountSettings() {
         )}
       </>
     )
+    // On Android a missing login takes the login window, not another look at the browser's.
+    const logInHere =
+      platform === 'android' && (state.phase === 'logged-out' || state.phase === 'needs-login')
     const loginProblem =
-      state.phase === 'logged-out' ||
-      state.phase === 'needs-login' ||
-      state.phase === 'private' ||
-      state.phase === 'unverified'
+      !logInHere &&
+      (state.phase === 'logged-out' ||
+        state.phase === 'needs-login' ||
+        state.phase === 'private' ||
+        state.phase === 'unverified' ||
+        (platform === 'android' && state.phase === 'unsupported'))
     actions = (
       <div className="flex flex-wrap gap-3">
         {state.phase === 'connected' && reachable && (
@@ -524,6 +654,16 @@ export function SpotifyAccountSettings() {
             className={buttonClasses()}
           >
             {state.syncing ? 'Syncing…' : 'Sync now'}
+          </button>
+        )}
+        {logInHere && reachable && (
+          <button
+            type="button"
+            aria-disabled={busy}
+            onClick={() => void logIn()}
+            className={buttonClasses()}
+          >
+            Log in to Spotify
           </button>
         )}
         {loginProblem && reachable && (
@@ -562,6 +702,7 @@ export function SpotifyAccountSettings() {
       <ConnectDialog
         open={dialog === 'connect'}
         librarySync={librarySync}
+        platform={platform}
         onClose={() => setDialog(null)}
         onConnect={() => void connect()}
       />
@@ -569,6 +710,7 @@ export function SpotifyAccountSettings() {
         open={dialog === 'disconnect'}
         copies={copies}
         librarySync={librarySync}
+        platform={platform}
         onClose={() => setDialog(null)}
         onDisconnect={(removeCopies) => void disconnect(removeCopies)}
       />

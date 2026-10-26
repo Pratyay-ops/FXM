@@ -171,8 +171,18 @@ const plugins =
       request. FXM Connect never reads or stores them.
     </li>
     <li>
-      In the desktop and Android apps, once they can connect an account, you sign in on Spotify's
-      own login page, in a window of the app. Your login stays on your device, in protected storage.
+      In the Android app{soon(AVAILABLE.android)}, you sign in on Spotify's own login page, in a
+      window of the app that keeps its cookies apart from everything else in FXM. FXM keeps the
+      login cookie Spotify gives that window, encrypted with a key that never leaves your phone's
+      keystore, and sends it only with that one token request. It is never backed up or shared.
+      Everything else the window holds, its other cookies and its cache, is deleted when it closes.
+      Google and Facebook don't allow signing in inside an app: there, sign in with your email
+      address and a Spotify password. The login page is Spotify's, and loads what Spotify's login
+      page loads.
+    </li>
+    <li>
+      In the desktop app, once it can connect an account, you sign in on Spotify's own login page,
+      in a window of the app. Your login stays on your device, in protected storage.
     </li>
   </ul>
   <p>
@@ -191,7 +201,9 @@ const plugins =
     Disconnecting in Settings removes the token from FXM at once and stops the sync. The copies stay
     in your library unless you choose to remove them; removing them doesn't remove them from a sync
     gist's earlier versions. To stop FXM Connect from using your login at all, also turn its option
-    off.
+    off. In the Android app{soon(AVAILABLE.android)}, disconnecting also logs out: FXM deletes the
+    login it kept and its login window's cookies, and tells you if it couldn't, so you can try
+    again.
   </p>
 
   <h2 id="fxm-connect">FXM Connect</h2>

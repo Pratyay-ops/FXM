@@ -176,9 +176,25 @@ Anonymous tokens need no bridge: with FXM Connect the page fetches `open.spotify
 `platform.spotifySession` is one `SessionTokenSource` for every platform: `requestToken(params, { signal })` resolves with the token endpoint's `{ status, json }`. Its shape matches the Spotify provider's `SessionTokenSource` (stage 1.5), so it can be passed to it as it is, and a provider's `ProviderContext` fits as the options.
 
 - **Web:** FXM Connect's bridge (`connectSessionSource(connect)`). It serves tokens while FXM Connect announces `spotify-login`, rejects with `AuthRequired` when the login is off or the tab is private, and with `Unsupported` without FXM Connect.
-- **Desktop, Android and Node:** `createPlatform({ spotifySession })`, the login window's token command of stages 7.4 and 6.5. Spotify is `account` exactly when it is given.
+- **Android:** the app's own login window (stage 6.5, `src/android-spotify-login.ts`), which `createPlatform` uses by itself when the app has its `FxmSpotifyLogin` plugin (`androidSpotifyLoginIfAvailable`), unless `spotifySession` is given. The user signs in on Spotify's page in a window with a WebView profile of its own; native code keeps Spotify's `sp_dc` login cookie, sealed with an Android Keystore key, and sends it only on the token call, through the OkHttp plugin's client with a cookie jar of its own ([`apps/mobile/android/fxm-spotify`](../../apps/mobile/android/fxm-spotify/README.md)). `requestToken` resolves with the token endpoint's answer, never the cookie, checks the parameters against FXM Connect's allow-list before anything is sent, and rejects with `AuthRequired` while no login is kept (the plugin's `LOGGED_OUT`), `RateLimited` past ten requests a minute (with `retryAfterMs`), `Network` and `Parse` as FXM Connect's bridge does; each failure is a `SpotifyLoginError`, whose `loginCode` is the plugin's code.
+- **Desktop and Node:** `createPlatform({ spotifySession })`, the login window's token command of stage 7.4. Spotify is `account` exactly when a source is given or found.
 
-`capabilities.spotify` says whether the source can serve a token right now (`account`).
+`capabilities.spotify` says whether the platform has a source that can serve a token (`account`). Whether the user is logged in is the source's to say, request by request.
+
+**The login window.** A source the app keeps the login for itself also has a window to log in with: `spotifyLoginWindowOf(platform.spotifySession)` returns its `SpotifyLoginWindow`, or `undefined` for FXM Connect's bridge, where the browser's login is the user's own. Settings uses it:
+
+```ts
+const window = spotifyLoginWindowOf(platform.spotifySession)
+if (window !== undefined) {
+  const { loggedIn, available } = await window.loginState() // available: the window can open here
+  if (!loggedIn) await window.openLogin() // resolves once the window closes, with the new state
+  // Disconnect: deletes the kept login and wipes the window's profile. It resolves with the
+  // state (`loggedIn: false` once it worked) and rejects (`Unavailable`, `STORAGE`) when it couldn't.
+  await window.logout()
+}
+```
+
+On Android, `available` is `false` on a WebView without profiles (androidx.webkit's `MULTI_PROFILE`): the window never opens there, because Spotify's cookies would share the app WebView's store.
 
 ## Capabilities
 
@@ -269,6 +285,7 @@ The app side, its scope, permissions and content security policy are in [apps/de
 - `createFakeSandbox()`: a `SandboxTransport` that refuses requests the real sandbox could not send (not CORS-simple, or not one of the allowed InnerTube paths) and records the rest. `selfTest` answers `'pass'` unless told otherwise.
 - `installFakeConnect(window)`: marks a page and answers pings and bridge requests the way FXM Connect's content script does.
 - `createFakeFxmHttp(options)`: the Android app's `FxmHttp` plugin, answering from a handler that returns a `Response`. It streams bodies in chunks, honours aborts, hands redirects back as they are, and refuses hosts as the native plugin does (`HOST_NOT_APPROVED` with `data.host`, which `answer` can then approve). `fxmHttpError(code)` makes the errors the plugin rejects with.
+- `createFakeFxmSpotifyLogin(options)`: the Android app's `FxmSpotifyLogin` plugin: a login kept or not, a login window the test answers (`window`), logout (which `logout` can make fail), and token requests that need a kept login, check their parameters and are rate limited as the native plugin's, answered by `answer`. `fxmSpotifyLoginError(code)` makes the errors the plugin rejects with. It never holds a cookie.
 - `createTestSigner()`, `fakeUpdateSite()` and `nodeModuleImporter`: a throwaway update signing key, a fake static site for signed updates, and a way to load verified modules in Node ([`src/updates/`](src/updates/README.md)).
 
 Tests that need a page create their own happy-dom `Window` at the FXM origin: in Vitest's global happy-dom environment, a message's `event.source` is not the page's `window`. happy-dom delivers `postMessage` on real timers, so the clients take an injectable `clock` for their timeouts.
@@ -290,6 +307,7 @@ scripts/run.sh pnpm --filter @fxm/platform test:e2e:updates         # a signed m
 | `src/transport.ts` | The shared transport core: classification, request forms, budget draws, redirects, bot-check reports |
 | `src/web.ts`, `src/node.ts`, `src/native.ts`, `src/tauri.ts`, `src/capacitor.ts` | One transport per environment, and the native contract |
 | `src/android-http.ts` | The Android app's native HTTP over the `FxmHttp` plugin (stage 6.2) |
+| `src/android-spotify-login.ts` | The Android app's Spotify login over the `FxmSpotifyLogin` plugin, and the login window's interface (stage 6.5) |
 | `src/desktop.ts` | The desktop app's native HTTP and its approved hosts (stage 7.2) |
 | `src/errors.ts` | `TransportError` and `RouteUnavailableError` |
 | `src/hosts.ts`, `src/cors.ts`, `src/innertube.ts` | The host table, the CORS safelist and the InnerTube request shape |
