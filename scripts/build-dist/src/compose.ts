@@ -19,11 +19,15 @@ import { scanPage } from './html.ts'
 import {
   addPackagesFromBanners,
   addPackagesFromInventory,
+  addPackagesFromRegions,
   addPackagesFromSourceMaps,
   type BundledPackage,
   binaryProblems,
   bundlerRuntimeChunks,
+  type InventoryEntry,
   inlineCodeProblems,
+  lgplProblems,
+  licenceTextProblems,
   licenseProblems,
   readInventory,
   renderNotices,
@@ -102,12 +106,14 @@ export function compose(options: ComposeOptions): ComposeResult {
 
   // Licences first: they need the source maps, which are not deployed.
   const packages = new Map<string, BundledPackage>()
+  const inventories = new Map<string, InventoryEntry[]>()
   const problems: string[] = []
   for (const part of built) {
     const dir = join(stagingDir, 'parts', part.name)
     const files = listFiles(dir)
     const maps = files.filter((file) => file.endsWith('.map')).map((file) => join(dir, file))
     const inventory = readInventory(inventoryOf(part))
+    inventories.set(part.name, inventory)
     const runtimeChunks = bundlerRuntimeChunks(inventory)
     for (const script of files.filter((file) => /\.m?js$/.test(file))) {
       if (!part.sourceMaps) {
@@ -126,10 +132,13 @@ export function compose(options: ComposeOptions): ComposeResult {
         problems.push(`${part.name}: ${script} has no source map, so its packages are unknown`)
       }
     }
-    const unattributed = addPackagesFromSourceMaps(maps, part.name, root, packages)
-    if (unattributed.length > 0) {
-      log(
-        `${part.name}: ${unattributed.length} generated module(s) without a file, e.g. ${unattributed[0]}`,
+    const scan = addPackagesFromSourceMaps(maps, part.name, root, packages)
+    if (scan.generated.length > 0) {
+      log(`${part.name}: generated modules accounted for: ${scan.generated.join(', ')}`)
+    }
+    for (const source of scan.unknown) {
+      problems.push(
+        `${part.name} ships code from ${source}, which is neither FXM's own file nor in node_modules: if a Vite plugin generates it, read the plugin's code and map the module to its package in VIRTUAL_MODULES (src/licenses.ts)`,
       )
     }
     // Stylesheets, fonts, images and WebAssembly the build took from packages.
@@ -139,14 +148,24 @@ export function compose(options: ComposeOptions): ComposeResult {
     problems.push(...binaryProblems(part.name, dir, files, origins))
     if (!part.sourceMaps) {
       for (const document of files.filter((file) => file.endsWith('.html'))) {
-        const scan = scanPage(readFileSync(join(dir, document), 'utf8'))
-        for (const code of [...scan.inlineScripts, ...scan.inlineStyles]) {
+        const page = scanPage(readFileSync(join(dir, document), 'utf8'))
+        for (const code of [...page.inlineScripts, ...page.inlineStyles]) {
           problems.push(...inlineCodeProblems(part.name, document, code))
         }
+        // Their bundles carry the bundler's module markers instead of a source map.
+        problems.push(
+          ...addPackagesFromRegions(page.inlineScripts, part.name, document, root, packages),
+        )
       }
     }
   }
   problems.push(...licenseProblems(packages.values()))
+  problems.push(...licenceTextProblems(packages.values()))
+  problems.push(
+    ...lgplProblems(packages.values(), (part) =>
+      inventories.get(part)?.flatMap((entry) => entry.chunks ?? []),
+    ),
+  )
   if (problems.length > 0) throw new DistError('The build ships code FXM may not ship', problems)
 
   // Compose: each part's files under its mount, never two writers for one path.
@@ -183,7 +202,11 @@ export function compose(options: ComposeOptions): ComposeResult {
   if (problems.length > 0) throw new DistError(`Can't compose dist`, problems)
   writeFileSync(
     join(pagesDir, NOTICES_FILE),
-    renderNotices(packages.values(), options.repositoryUrl),
+    renderNotices(packages.values(), {
+      repositoryUrl: options.repositoryUrl,
+      // FXM's licence, the Apache License 2.0, which also covers some packages (licenses.ts).
+      apacheLicense: () => readFileSync(join(root, 'LICENSE'), 'utf8'),
+    }),
   )
 
   const files = listFiles(pagesDir)

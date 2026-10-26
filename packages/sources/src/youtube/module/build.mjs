@@ -10,10 +10,12 @@
  * Plain JavaScript with types in `build.d.mts`, because the YouTube code's own TypeScript setup
  * has no Node types. Node runs it with type stripping, which also lets it read `version.ts`.
  */
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
+// The licence helpers make dist's third-party notices use too, so both read packages alike.
+import { packageNotices } from '../../../../../scripts/build-dist/src/notices.ts'
 import { YOUTUBE_MODULE_API, YOUTUBE_MODULE_FILE, YOUTUBE_MODULE_VERSION } from './version.ts'
 
 const HERE = fileURLToPath(new URL('.', import.meta.url))
@@ -21,7 +23,6 @@ const HERE = fileURLToPath(new URL('.', import.meta.url))
 const FXM_LICENSE = fileURLToPath(new URL('../../../../../LICENSE', import.meta.url))
 const SOURCE = 'https://github.com/Pratyay-ops/FXM'
 const NODE_MODULES = '/node_modules/'
-const LICENSE_FILE = /^(?:licen[cs]e|copying)(?:[.-].*)?$/iu
 
 /**
  * A plugin that gives the module another version. Only tests use it: a published module takes
@@ -88,46 +89,19 @@ function bundledPackages(moduleIds) {
 }
 
 /**
- * The comment a file starts with, without its comment marks.
- *
- * @param {string} code
- */
-function leadingComment(code) {
-  const lines = []
-  for (const line of code.split('\n')) {
-    const match = /^\s*\/\/ ?(.*)$/u.exec(line)
-    if (match === null) break
-    lines.push(match[1] ?? '')
-  }
-  if (lines.length > 0) return lines.join('\n').trim()
-  const block = /^\s*\/\*([\s\S]*?)\*\//u.exec(code)
-  return (block?.[1] ?? '')
-    .split('\n')
-    .map((line) => line.replace(/^\s*\* ?/u, ''))
-    .join('\n')
-    .trim()
-}
-
-/**
- * A package's licence notices: its licence files or, for a package that ships none (such as
- * `@bufbuild/protobuf`), the copyright headers of its bundled files.
+ * A package's licence notices: its licence files, then the copyright and licence comments of its
+ * bundled files that add to them (scripts/build-dist/src/notices.ts). That keeps the notices of
+ * code a package took from elsewhere, such as Google's in `@bufbuild/protobuf`'s varint code, and
+ * gives a package that ships no licence file (`@bufbuild/protobuf` again) its files' notices.
  *
  * @param {string} root
  * @param {readonly string[]} files
  */
-async function noticesOf(root, files) {
-  const names = (await readdir(root)).filter((name) => LICENSE_FILE.test(name)).sort()
-  if (names.length > 0) {
-    const texts = await Promise.all(names.map((name) => readFile(join(root, name), 'utf8')))
-    return texts.map((text) => text.trim()).join('\n\n')
-  }
-  const notices = new Set()
-  for (const file of files) {
-    const header = leadingComment(await readFile(file, 'utf8'))
-    if (/copyright/iu.test(header)) notices.add(header)
-  }
-  if (notices.size === 0) throw new Error(`No licence notice found for the bundled ${root}`)
-  return [...notices].join('\n\n')
+function noticesOf(root, files) {
+  const { licenceFiles, fileNotices } = packageNotices(root, files)
+  const texts = [...licenceFiles.map((file) => file.text), ...fileNotices]
+  if (texts.length === 0) throw new Error(`No licence notice found for the bundled ${root}`)
+  return texts.join('\n\n')
 }
 
 /**
@@ -145,7 +119,7 @@ async function licenseBanner(moduleIds, version) {
       version: packageVersion,
       license,
     } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
-    sections.push(`== ${name} ${packageVersion}: ${license} ==\n\n${await noticesOf(root, files)}`)
+    sections.push(`== ${name} ${packageVersion}: ${license} ==\n\n${noticesOf(root, files)}`)
   }
   sections.sort()
   const text = [

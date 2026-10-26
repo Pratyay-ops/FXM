@@ -42,8 +42,9 @@ export const embedPart: Part = {
  *   and so no `sandbox` applies (headers-file.ts). make dist only checks that the test is
  *   there; the browser checks confirm on each deployment that the document stays inert;
  * - no inline code that looks bundled (a licence banner, or more than 64 KiB), because this
- *   part has no source maps for the licence check. A document that bundles npm packages must
- *   be built here instead, with source maps.
+ *   part has no source maps for the licence check. A document that bundles npm packages, such
+ *   as 1.11's `eval.html` with bgutils-js, keeps its script unminified with the bundler's
+ *   `//#region <path>` markers, from which make dist attributes those packages (licenses.ts).
  */
 export const sandboxPart: Part = {
   name: 'sandbox',
