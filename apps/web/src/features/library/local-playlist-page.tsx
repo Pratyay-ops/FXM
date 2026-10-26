@@ -28,7 +28,6 @@ import { CoverArt } from './cover-art'
 import { artworkUrl, countLabel, totalDuration } from './format'
 import { playlistIcon } from './paths'
 import { duplicatePlaylist, usePlaylistDialogs } from './playlist-dialogs'
-import { StatusToast } from './status'
 import { TrackList, type TrackListKind } from './track-list'
 import { Menu, type MenuItem } from './ui/menu'
 
@@ -215,7 +214,6 @@ export function LocalPlaylistPage({ id }: { id: EntityId<'playlist'> }) {
         name={playlist.name}
         empty={<EmptyList kind={kind} />}
       />
-      <StatusToast />
       {dialogs.dialogs}
     </div>
   )

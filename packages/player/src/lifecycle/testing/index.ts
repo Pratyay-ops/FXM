@@ -13,6 +13,7 @@ export {
   FakeStreamSource,
   type FakeStreamSourceCall,
   type FakeStreamSourceOptions,
+  type FakeStreamSourceReport,
   type LadderStreamsOptions,
   ladderStreams,
 } from './fake-stream-source'

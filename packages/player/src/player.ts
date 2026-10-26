@@ -363,6 +363,8 @@ export class Player {
   #attempts = 0
   /** The current item's last failure, until it plays for a while; the next load retries it. */
   #lastFailure: { uid: number; failure: StreamFailure } | undefined
+  /** The current item's uid while it counts as asked for (see `ResolveRequest.explicit`). */
+  #explicitUid: number | undefined
   /** Tracks in the current run of failures that failed every retry. */
   #failedTracks = 0
   /** Tracks in the current run of failures, skipped ones included. */
@@ -465,6 +467,7 @@ export class Player {
     if (autoplay && item !== undefined) this.#engine.unlock?.()
     this.#userAction()
     this.#changeQueue(queue, 'queue')
+    this.#ask()
     if (item === undefined) {
       this.#commit({ status: 'idle', buffering: false })
       return
@@ -549,6 +552,9 @@ export class Player {
    * stream, the player resolves the new candidate (reason `replace`) and carries on at the same
    * position (from the start after the end of the queue), playing or paused as before. Ignored
    * for an unknown uid, and for a candidate the queue's mode does not let play.
+   *
+   * It records the version on this one item and remembers nothing else: to keep the choice for
+   * the track (a pin in the match cache), tell the resolver, e.g. `StreamLifecycle.pinMatch`.
    */
   setCandidate(uid: number, candidate?: AudioCandidate): void {
     if (this.#destroyed) return
@@ -558,6 +564,7 @@ export class Player {
     // A preparation of this item resolved the old candidate.
     if (this.#preload?.uid === uid) this.#cancelPreload()
     if (currentQueueItem(queue)?.uid !== uid) return
+    this.#ask()
     this.#lastFailure = undefined
     this.#attempts = 0
     const { status, positionMs } = this.#state
@@ -583,6 +590,7 @@ export class Player {
       this.#engine.unlock?.()
       this.#userAction()
       this.#changeQueue(jumped, 'jump')
+      this.#ask()
       await this.#load({ autoplay: true })
       return
     }
@@ -592,10 +600,13 @@ export class Player {
     this.#userAction()
     if (status === 'ended') {
       const next = hasNextQueueItem(queue) ? skipToNext(queue) : queue
-      if (this.#changeQueue(next, 'next')) await this.#load({ autoplay: true })
+      const moved = this.#changeQueue(next, 'next')
+      this.#ask()
+      if (moved) await this.#load({ autoplay: true })
       else await this.#restart(true, 'restart')
       return
     }
+    this.#ask()
     const loaded = this.#loaded
     const positionMs = this.#state.positionMs
     if (loaded === undefined) {
@@ -658,7 +669,9 @@ export class Player {
     this.#userAction()
     const autoplay = status !== 'paused'
     const back = skipToPrevious(queue, positionMs)
-    if (!this.#changeQueue(back, 'previous')) await this.#restart(autoplay, 'restart')
+    const moved = this.#changeQueue(back, 'previous')
+    this.#ask()
+    if (!moved) await this.#restart(autoplay, 'restart')
     else if (autoplay) await this.#load({ autoplay: true })
     else this.#commit({ status: 'paused', buffering: false })
   }
@@ -752,6 +765,7 @@ export class Player {
     this.#cancel()
     this.#attempts = 0
     this.#lastFailure = undefined
+    this.#explicitUid = undefined
     this.#healthyAtMs = undefined
     this.#announced = undefined
     this.#commit({
@@ -786,6 +800,11 @@ export class Player {
   #userAction(): void {
     this.#attempts = 0
     this.#resetRun()
+  }
+
+  /** The user asked for the current item: its resolutions are explicit until it changes. */
+  #ask(): void {
+    this.#explicitUid = currentQueueItem(this.#state.queue)?.uid
   }
 
   /** Ends the current run of failed tracks. */
@@ -831,7 +850,8 @@ export class Player {
   /** Loads a fresh stream for a loaded one that expires soon, at `positionMs`, and plays it. */
   async #refresh(stream: StreamOption, positionMs: number): Promise<void> {
     const error = new EngineError('expired', 'The stream URL expires before it can play')
-    const failure: StreamFailure = { error, stream, positionMs }
+    const started = this.#loaded?.stream === stream && this.#loaded?.played === true
+    const failure: StreamFailure = { error, stream, positionMs, started }
     await this.#load({ autoplay: true, startAtMs: positionMs, reason: 'refresh', failure })
   }
 
@@ -911,6 +931,8 @@ export class Player {
       reason,
       attempt: this.#attempts,
       ...(failure === undefined ? {} : { failure }),
+      explicit: reason === 'replace' || this.#explicitUid === item.uid,
+      mode: this.#state.queue.mode,
       signal,
       canPlay: this.#canPlay,
     })
@@ -1119,6 +1141,8 @@ export class Player {
         this.#resolver.resolve(next, {
           reason: 'preload',
           attempt: 0,
+          explicit: false,
+          mode: this.#state.queue.mode,
           signal: abort.signal,
           canPlay: this.#canPlay,
         }),

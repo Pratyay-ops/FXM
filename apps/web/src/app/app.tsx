@@ -4,6 +4,7 @@ import { flushSync } from 'react-dom'
 // Not 'react-router/dom': under Vitest that entry can load a different build of the
 // router than 'react-router' (ESM vs CJS), and hooks then miss the router context.
 import { RouterProvider, type RouterProviderProps } from 'react-router'
+import { syncQualityAcrossTabs } from '../features/settings/quality-store'
 import { syncSettingsAcrossTabs } from '../features/settings/settings-store'
 import { useThemeSync } from '../features/settings/theme'
 import { AppErrorBoundary } from './errors'
@@ -13,6 +14,7 @@ import { createQueryClient } from './query-client'
 function SettingsSync() {
   useThemeSync()
   useEffect(() => syncSettingsAcrossTabs(), [])
+  useEffect(() => syncQualityAcrossTabs(), [])
   return null
 }
 

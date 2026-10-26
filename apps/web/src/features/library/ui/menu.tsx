@@ -49,6 +49,20 @@ function focusable(menu: HTMLElement | null): HTMLButtonElement[] {
   return [...(menu?.querySelectorAll<HTMLButtonElement>('[data-menu-item]:not(:disabled)') ?? [])]
 }
 
+/**
+ * Puts focus back on the button that opened a menu, once the menu closed: at once, so a
+ * dialog that the chosen entry opens knows where focus returns; and again after the next
+ * frame if focus got lost meanwhile, as when a move from the menu re-rendered the list and
+ * took the row's button out of the page and back in.
+ */
+export function returnFocusTo(anchor: HTMLElement): void {
+  anchor.focus()
+  requestAnimationFrame(() => {
+    const active = document.activeElement
+    if (anchor.isConnected && (active === null || active === document.body)) anchor.focus()
+  })
+}
+
 // The focus ring sits inside the item: the menu's scroll box would clip it outside.
 const ITEM =
   'flex h-touch w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-medium whitespace-nowrap hover:bg-elevated-hover focus-visible:bg-elevated-hover focus-visible:-outline-offset-2 disabled:opacity-40 lg:h-9 lg:pointer-coarse:h-touch'
@@ -118,19 +132,33 @@ export interface MenuPopupProps {
   id?: string
   /** Which edge of the anchor the menu lines up with. */
   align?: 'start' | 'end'
-  /** Called when the menu closes; `returnFocus` when focus should go back to the anchor. */
+  /** Which entry gets focus when the menu opens: the last one after ArrowUp on its button. */
+  initialFocus?: 'first' | 'last'
+  /**
+   * Called when the menu closes; `returnFocus` when focus should go back to the anchor (see
+   * {@link returnFocusTo}).
+   */
   onClose: (returnFocus: boolean) => void
 }
 
 /**
  * The open menu (WAI-ARIA menu pattern): arrow keys, Home and End move through the items,
  * Escape closes it and returns focus to the anchor, and a click outside, Tab or scrolling its
- * button out of view closes it. It renders into `document.body` with fixed coordinates, so no scrolling
- * list or sidebar clips it.
+ * button out of view closes it. It renders into `document.body` with fixed coordinates, so no
+ * scrolling list or sidebar clips it.
  */
-export function MenuPopup({ anchor, items, label, id, align = 'end', onClose }: MenuPopupProps) {
+export function MenuPopup({
+  anchor,
+  items,
+  label,
+  id,
+  align = 'end',
+  initialFocus = 'first',
+  onClose,
+}: MenuPopupProps) {
   const menu = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+  const focused = useRef(false)
 
   // Below the anchor, or above it when there is no room, and inside the viewport.
   const place = useCallback(() => {
@@ -149,8 +177,18 @@ export function MenuPopup({ anchor, items, label, id, align = 'end', onClose }: 
 
   useLayoutEffect(() => {
     place()
-    focusable(menu.current)[0]?.focus()
   }, [place])
+
+  // Focus moves in once the menu is placed, so it never starts at the wrong spot. Only the first
+  // time: placing it again on scroll keeps focus where it is.
+  useLayoutEffect(() => {
+    if (position === null || focused.current) return
+    focused.current = true
+    const entries = focusable(menu.current)
+    const entry = initialFocus === 'last' ? entries.at(-1) : entries[0]
+    // A menu without an enabled entry still takes focus, so Escape and Tab close it.
+    ;(entry ?? menu.current)?.focus()
+  }, [position, initialFocus])
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent) => {
@@ -197,6 +235,9 @@ export function MenuPopup({ anchor, items, label, id, align = 'end', onClose }: 
         onClose(true)
         break
       case 'Tab':
+        // Tab moves on from the menu's button, as if the menu had never opened: the menu sits
+        // at the end of the page, where Tab would leave the page.
+        anchor.focus()
         onClose(false)
         return
       default:
@@ -220,10 +261,12 @@ export function MenuPopup({ anchor, items, label, id, align = 'end', onClose }: 
       tabIndex={-1}
       onKeyDown={onKeyDown}
       className="fixed z-50 max-h-[min(28rem,calc(100dvh-1rem))] min-w-52 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-xl border border-border bg-elevated p-1 text-text shadow-xl forced-colors:border-[CanvasText]"
-      // Hidden until placed, so it never flashes at the wrong spot.
+      // Transparent until placed, so it never flashes at the wrong spot. Not `visibility:
+      // hidden`: browsers ignore focus() on a hidden element, and with reduced motion the global
+      // 0.01 ms transitions keep the menu and its icons hidden for several frames after that.
       style={
         position === null
-          ? { top: 0, left: 0, visibility: 'hidden' }
+          ? { top: 0, left: 0, opacity: 0 }
           : { top: position.top, left: position.left }
       }
     >
@@ -246,6 +289,8 @@ export interface MenuProps {
   className: string
   align?: 'start' | 'end'
   disabled?: boolean
+  /** The trigger's `id`, so other controls can give it focus. */
+  triggerId?: string | undefined
 }
 
 /** A menu button: a trigger plus its {@link MenuPopup}. */
@@ -257,29 +302,32 @@ export function Menu({
   className,
   align = 'end',
   disabled = false,
+  triggerId,
 }: MenuProps) {
-  const [open, setOpen] = useState(false)
+  // Open with focus on the first entry, or on the last one after ArrowUp.
+  const [open, setOpen] = useState<'first' | 'last' | null>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const menuId = useId()
   const close = useCallback((returnFocus: boolean) => {
-    setOpen(false)
-    if (returnFocus) trigger.current?.focus()
+    setOpen(null)
+    if (returnFocus && trigger.current) returnFocusTo(trigger.current)
   }, [])
   return (
     <>
       <button
         ref={trigger}
+        id={triggerId}
         type="button"
         aria-label={iconOnly ? label : undefined}
         aria-haspopup="menu"
-        aria-expanded={open}
+        aria-expanded={open !== null}
         aria-controls={open ? menuId : undefined}
         disabled={disabled}
-        onClick={() => setOpen(!open)}
+        onClick={() => setOpen(open ? null : 'first')}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault()
-            setOpen(true)
+            setOpen(event.key === 'ArrowUp' ? 'last' : 'first')
           }
         }}
         className={className}
@@ -293,6 +341,7 @@ export function Menu({
           label={label}
           id={menuId}
           align={align}
+          initialFocus={open}
           onClose={close}
         />
       )}

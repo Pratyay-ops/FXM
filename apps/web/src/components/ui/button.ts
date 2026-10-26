@@ -19,7 +19,8 @@ export function buttonClasses({
   className?: string | undefined
 } = {}): string {
   return cn(
-    'inline-flex h-touch shrink-0 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold whitespace-nowrap transition-[color,background-color,transform] duration-150 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 motion-reduce:transform-none [&_svg]:size-4 [&_svg]:shrink-0',
+    // Forced colors (Windows High Contrast) drop the fills: outline the button instead.
+    'inline-flex h-touch shrink-0 items-center justify-center gap-2 rounded-full px-5 text-sm font-semibold whitespace-nowrap transition-[color,background-color,transform] duration-150 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 motion-reduce:transform-none forced-colors:border [&_svg]:size-4 [&_svg]:shrink-0',
     variants[variant],
     className,
   )

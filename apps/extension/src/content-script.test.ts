@@ -3,7 +3,7 @@ import { FEATURES, fxmOrigins } from './config.ts'
 import { type ContentScriptOptions, startContentScript } from './content-script.ts'
 import { MESSAGE, type MessageEventLike } from './messages.ts'
 
-const FXM = 'https://fxm-music.pages.dev'
+const FXM = 'https://fxmusic.pages.dev'
 
 function fakePage(origin = FXM, withRoot = true) {
   const listeners: ((event: MessageEventLike) => void)[] = []

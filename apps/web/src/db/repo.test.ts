@@ -236,6 +236,53 @@ describe('likes', () => {
     expect((await repo.getPlaylistView(id))?.rows.map((row) => row.liked)).toEqual([false, true])
   })
 
+  it('likes and unlikes 2,000 songs at once with one write of Liked songs each', async () => {
+    const repo = testRepo()
+    await repo.like(track(5000))
+    const many = tracks(2000)
+    const puts = vi.spyOn(repo.db.playlists, 'put')
+    const reads = vi.spyOn(repo.db.likes, 'toArray')
+
+    expect(await repo.addTracks(LIKED_PLAYLIST_ID, many)).toEqual({ added: 2000, skipped: 0 })
+
+    expect(puts).toHaveBeenCalledTimes(1)
+    expect(reads).toHaveBeenCalledTimes(1)
+    // New likes go to the top, the first one first, above the older like.
+    const order = await trackOrder(repo, LIKED_PLAYLIST_ID)
+    expect(order.slice(0, 3)).toEqual([track(1).id, track(2).id, track(3).id])
+    expect(order.at(-1)).toBe(track(5000).id)
+    expect(order).toHaveLength(2001)
+
+    puts.mockClear()
+    reads.mockClear()
+    const half = many.filter((_, index) => index % 2 === 0).map((item) => item.id)
+    expect(await repo.removeTracks(LIKED_PLAYLIST_ID, half)).toBe(1000)
+
+    expect(puts).toHaveBeenCalledTimes(1)
+    expect(reads).toHaveBeenCalledTimes(1)
+    expect(await trackOrder(repo, LIKED_PLAYLIST_ID)).toEqual([
+      ...many.filter((_, index) => index % 2 === 1).map((item) => item.id),
+      track(5000).id,
+    ])
+    expect(await repo.isLiked(track(1).id)).toBe(false)
+    expect(await repo.isLiked(track(2).id)).toBe(true)
+  })
+
+  it('skips songs already liked when adding several to Liked songs', async () => {
+    const repo = testRepo()
+    await repo.like(track(2))
+    expect(await repo.addTracks(LIKED_PLAYLIST_ID, [track(1), track(2), track(3)])).toEqual({
+      added: 2,
+      skipped: 1,
+    })
+    expect(await trackOrder(repo, LIKED_PLAYLIST_ID)).toEqual([
+      track(1).id,
+      track(3).id,
+      track(2).id,
+    ])
+    expect(await repo.removeTracks(LIKED_PLAYLIST_ID, [track(9).id])).toBe(0)
+  })
+
   it('heals a liked order that lost or kept stale entries', async () => {
     const repo = testRepo()
     await repo.like(track(1))
@@ -487,7 +534,7 @@ describe('history', () => {
         playedMs: 30_000,
         completed: false,
         skipped: true,
-        context: { type: 'playlist', id: LIKED_PLAYLIST_ID, title: 'Liked songs' },
+        context: { type: 'library', id: LIKED_PLAYLIST_ID, title: 'Liked songs' },
         stream: { source: 'ytm', codec: 'opus', bitrateKbps: 160, tier: 'high' },
       })
     await play(1, 1000)
@@ -503,7 +550,7 @@ describe('history', () => {
     expect((await repo.history())[0]).toMatchObject({
       skipped: true,
       stream: { codec: 'opus' },
-      context: { type: 'playlist' },
+      context: { type: 'library', id: LIKED_PLAYLIST_ID },
     })
     expect(await repo.recentlyPlayed(1)).toHaveLength(1)
     await repo.clearHistory()

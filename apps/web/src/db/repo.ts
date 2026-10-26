@@ -1,7 +1,8 @@
 /**
  * The library repository: the only code that reads and writes the library database. Pages read
- * through the hooks in `hooks.ts`, which run these reads as live queries; everything else
- * calls the methods directly.
+ * through the hooks in `hooks.ts`, which run these reads as live queries; everything else,
+ * backups included (`backup.ts` validates the file, then calls `restore`), calls the methods
+ * directly. The database itself is not part of the repository's API.
  *
  * Every write runs in one IndexedDB transaction, so a change either lands whole or not at all,
  * and every order change is a single write of one record (see `ordering.ts`).
@@ -21,6 +22,7 @@ import {
   formatId,
   type Playlist,
   parseId,
+  type QueueContext,
   type RandomSource,
   type Track,
 } from '@fxm/core'
@@ -34,6 +36,7 @@ import {
   pinnedRecord,
   recordFromDecision,
 } from './match-cache'
+import { mergePlaylist, playKey, prefersIncomingMatch, unionOrder } from './merge'
 import { type MoveTarget, moveKeys, reconcileOrder, sameOrder } from './ordering'
 import {
   DB_NAME,
@@ -44,6 +47,7 @@ import {
   type ImportProgressRecord,
   isLocalPlaylistId,
   LIKED_PLAYLIST_ID,
+  type LibraryTables,
   type LikeRecord,
   MATCH_TTL_MS,
   MAX_DESCRIPTION_LENGTH,
@@ -51,8 +55,8 @@ import {
   type MatchCacheRecord,
   type OrderUndo,
   PLAYLISTS_ORDER_ID,
-  type PlayContext,
   type PlaylistRecord,
+  type RestoreMode,
   type StreamInfo,
   type SystemPlaylist,
 } from './types'
@@ -167,7 +171,8 @@ export interface NewPlay {
   playedMs: number
   completed: boolean
   skipped: boolean
-  context?: PlayContext
+  /** Where it started: the queue's context, e.g. an album, a radio or Liked songs. */
+  context?: QueueContext
   stream?: StreamInfo
 }
 
@@ -360,30 +365,126 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
     })
   }
 
-  async function likeInTransaction(track: Track, likedAt: number): Promise<boolean> {
-    const key = entityKey(track.id)
-    if ((await db.likes.get(key)) !== undefined) return false
-    await db.likes.put({ key, trackId: track.id, likedAt })
-    const liked = await requirePlaylist(LIKED_PLAYLIST_ID)
-    const rest = (await likedOrder(liked)).filter((id) => keyOf(id) !== key)
-    await db.playlists.put(withOrder(liked, [track.id, ...rest]))
-    return true
+  /**
+   * Likes the tracks that aren't liked yet, all at `likedAt`: they go to the top of Liked
+   * songs, in the given order. However many there are, the likes are read once, written in one
+   * bulk write, and Liked songs is one write of its record. Returns how many were new. Call
+   * inside a transaction.
+   */
+  async function likeAll(tracks: readonly Track[], likedAt: number): Promise<number> {
+    const likes = await db.likes.toArray()
+    const liked = new Set(likes.map((like) => like.key))
+    const fresh = dedupeTracks(tracks).filter((track) => !liked.has(entityKey(track.id)))
+    if (fresh.length === 0) return 0
+    const record = await requirePlaylist(LIKED_PLAYLIST_ID)
+    // The order before the new likes: they go in front of it, as given.
+    const order = await likedOrder(record, likes)
+    await db.likes.bulkPut(
+      fresh.map((track) => ({ key: entityKey(track.id), trackId: track.id, likedAt })),
+    )
+    await db.playlists.put(withOrder(record, [...fresh.map((track) => track.id), ...order]))
+    return fresh.length
   }
 
-  async function unlikeInTransaction(trackId: EntityId<'track'>): Promise<boolean> {
-    const key = entityKey(trackId)
-    if ((await db.likes.get(key)) === undefined) return false
-    await db.likes.delete(key)
-    const liked = await requirePlaylist(LIKED_PLAYLIST_ID)
-    const rest = (await likedOrder(liked)).filter((id) => keyOf(id) !== key)
-    await db.playlists.put(withOrder(liked, rest))
-    return true
+  /**
+   * Removes the likes of `trackIds`: the likes are read once and deleted in one bulk delete,
+   * and Liked songs is one write of its record. Returns how many there were. Call inside a
+   * transaction.
+   */
+  async function unlikeAll(trackIds: readonly EntityId<'track'>[]): Promise<number> {
+    const removing = new Set(trackIds.map(keyOf))
+    const likes = await db.likes.toArray()
+    const gone = likes.filter((like) => removing.has(like.key))
+    if (gone.length === 0) return 0
+    // Removing every like ("Select all", then Remove) is one request instead of one per like.
+    if (gone.length === likes.length) await db.likes.clear()
+    else await db.likes.bulkDelete(gone.map((like) => like.key))
+    const record = await requirePlaylist(LIKED_PLAYLIST_ID)
+    const kept = likes.filter((like) => !removing.has(like.key))
+    await db.playlists.put(withOrder(record, await likedOrder(record, kept)))
+    return gone.length
+  }
+
+  /** Writes a backup's rows over an emptied library. Call inside the restore transaction. */
+  async function writeReplaced(tables: LibraryTables): Promise<void> {
+    for (const name of TABLE_NAMES) await db.table(name).clear()
+    await db.tracks.bulkPut(tables.tracks)
+    await db.likes.bulkPut(tables.likes)
+    await db.playlists.bulkPut(tables.playlists)
+    await db.orders.bulkPut(tables.orders)
+    await db.follows.bulkPut(tables.follows)
+    // Rows without an ID get a new one.
+    await db.history.bulkPut(tables.history as HistoryRecord[])
+    await db.settings.bulkPut(tables.settings)
+    await db.matchCache.bulkPut(tables.matchCache)
+    await db.importProgress.bulkPut(tables.importProgress)
+  }
+
+  /**
+   * Adds a backup's rows to the library, keeping everything here (rules in `merge.ts`). Call
+   * inside the restore transaction.
+   */
+  async function writeMerged(tables: LibraryTables): Promise<void> {
+    // Tracks: the most recently saved metadata wins.
+    const tracksHere = await db.tracks.bulkGet(tables.tracks.map((row) => row.id))
+    await db.tracks.bulkPut(
+      tables.tracks.filter((row, index) => {
+        const here = tracksHere[index]
+        return here === undefined || row.updatedAt > here.updatedAt
+      }),
+    )
+    // Likes, follows and reserved settings: what is here stays; the backup adds the rest.
+    await db.likes.bulkAdd(await missingRows(db.likes, tables.likes, (row) => row.key))
+    await db.follows.bulkAdd(await missingRows(db.follows, tables.follows, (row) => row.key))
+    await db.settings.bulkAdd(await missingRows(db.settings, tables.settings, (row) => row.key))
+    // Playlists: new ones are added; one that exists in both merges, the newer edit leading.
+    for (const incoming of tables.playlists) {
+      const here = await db.playlists.get(incoming.id)
+      await db.playlists.put(here === undefined ? incoming : mergePlaylist(here, incoming))
+    }
+    // The list of playlists: this order first, then the backup's playlists it lacks.
+    const order = await db.orders.get(PLAYLISTS_ORDER_ID)
+    const incomingOrder = tables.orders.find((row) => row.id === PLAYLISTS_ORDER_ID)
+    if (incomingOrder !== undefined) {
+      await db.orders.put({
+        id: PLAYLISTS_ORDER_ID,
+        order: unionOrder(order?.order ?? [], incomingOrder.order),
+        updatedAt: Math.max(order?.updatedAt ?? 0, incomingOrder.updatedAt),
+      })
+    }
+    // History: a play that is here already is not added twice.
+    const seen = new Set<string>()
+    await db.history.each((entry) => {
+      seen.add(playKey(entry))
+    })
+    const plays = tables.history
+      .filter((entry) => {
+        const key = playKey(entry)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .map(({ id: _id, ...entry }) => entry)
+    await db.history.bulkAdd(plays)
+    // Match cache: a pin wins, then the newer decision.
+    const matchesHere = await db.matchCache.bulkGet(tables.matchCache.map((row) => row.key))
+    await db.matchCache.bulkPut(
+      tables.matchCache.filter((row, index) => {
+        const here = matchesHere[index]
+        return here === undefined || prefersIncomingMatch(here, row)
+      }),
+    )
+    // Imports: the more recent progress wins.
+    const importsHere = await db.importProgress.bulkGet(tables.importProgress.map((row) => row.id))
+    await db.importProgress.bulkPut(
+      tables.importProgress.filter((row, index) => {
+        const here = importsHere[index]
+        return here === undefined || row.updatedAt > here.updatedAt
+      }),
+    )
   }
 
   return {
-    /** The database this repository works on. */
-    db,
-
     // --- Tracks ------------------------------------------------------------------------
 
     /** Saves (or refreshes) the metadata of `tracks` in the track cache. */
@@ -394,6 +495,25 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
     /** The cached metadata of one track. */
     async getTrack(id: EntityId<'track'>): Promise<Track | undefined> {
       return (await db.tracks.get(id))?.track
+    },
+
+    /**
+     * Refreshes the cached metadata of the tracks the library already holds, e.g. after the
+     * local-files feature (stage 4.4) read a file's tags again. Tracks it doesn't hold, and
+     * tracks whose metadata didn't change, are left alone, so lists don't re-render for nothing.
+     * Returns how many it updated.
+     */
+    async refreshTracks(tracks: readonly Track[]): Promise<number> {
+      if (tracks.length === 0) return 0
+      return db.transaction('rw', db.tracks, async () => {
+        const cached = await db.tracks.bulkGet(tracks.map((track) => track.id))
+        const changed = tracks.filter((track, index) => {
+          const old = cached[index]
+          return old !== undefined && JSON.stringify(old.track) !== JSON.stringify(track)
+        })
+        await putTracks(changed)
+        return changed.length
+      })
     },
 
     // --- Likes -------------------------------------------------------------------------
@@ -407,21 +527,27 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
     async like(track: Track): Promise<boolean> {
       return db.transaction('rw', [db.tracks, db.likes, db.playlists], async () => {
         await putTracks([track])
-        return likeInTransaction(track, now())
+        return (await likeAll([track], now())) > 0
       })
     },
 
     /** Removes a like. Returns false if the track wasn't liked. */
     async unlike(trackId: EntityId<'track'>): Promise<boolean> {
-      return db.transaction('rw', [db.likes, db.playlists], () => unlikeInTransaction(trackId))
+      return db.transaction('rw', [db.likes, db.playlists], async () => {
+        if ((await db.likes.get(entityKey(trackId))) === undefined) return false
+        return (await unlikeAll([trackId])) > 0
+      })
     },
 
     /** Likes `track`, or removes its like. Returns whether it is liked now. */
     async toggleLike(track: Track): Promise<boolean> {
       return db.transaction('rw', [db.tracks, db.likes, db.playlists], async () => {
-        if (await unlikeInTransaction(track.id)) return false
+        if ((await db.likes.get(entityKey(track.id))) !== undefined) {
+          await unlikeAll([track.id])
+          return false
+        }
         await putTracks([track])
-        await likeInTransaction(track, now())
+        await likeAll([track], now())
         return true
       })
     },
@@ -620,12 +746,8 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
         const unique = dedupeTracks(tracks)
         await putTracks(unique)
         if (playlistId === LIKED_PLAYLIST_ID) {
-          let added = 0
-          const at = now()
-          // Liked one after another, so the first track ends up on top.
-          for (const track of [...unique].reverse()) {
-            if (await likeInTransaction(track, at)) added++
-          }
+          // New likes go to the top, the first track first.
+          const added = await likeAll(unique, now())
           return { added, skipped: tracks.length - added }
         }
         const record = await requirePlaylist(playlistId)
@@ -657,11 +779,7 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
         throw new LibraryError('protected', 'Delete the download to remove it from Downloads')
       }
       return db.transaction('rw', [db.playlists, db.likes], async () => {
-        if (playlistId === LIKED_PLAYLIST_ID) {
-          let removed = 0
-          for (const id of trackIds) if (await unlikeInTransaction(id)) removed++
-          return removed
-        }
+        if (playlistId === LIKED_PLAYLIST_ID) return unlikeAll(trackIds)
         const record = await requirePlaylist(playlistId)
         const removing = new Set(trackIds.map(keyOf))
         const kept = record.trackIds.filter((id) => !removing.has(keyOf(id)))
@@ -1041,6 +1159,46 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
     // --- The whole library -------------------------------------------------------------------
 
+    /**
+     * Every row of every table, read in one transaction, so a backup is a consistent snapshot.
+     * `backup.ts` wraps it into the backup file.
+     */
+    async snapshot(): Promise<LibraryTables> {
+      return db.transaction(
+        'r',
+        TABLE_NAMES.map((name) => db.table(name)),
+        async () => ({
+          tracks: await db.tracks.toArray(),
+          likes: await db.likes.toArray(),
+          playlists: await db.playlists.toArray(),
+          orders: await db.orders.toArray(),
+          follows: await db.follows.toArray(),
+          history: await db.history.toArray(),
+          settings: await db.settings.toArray(),
+          matchCache: await db.matchCache.toArray(),
+          importProgress: await db.importProgress.toArray(),
+        }),
+      )
+    },
+
+    /**
+     * Writes rows a backup brought, already validated by `backup.ts`, in one transaction, so a
+     * failure leaves the library as it was. `replace` makes the library exactly `tables`,
+     * custom orders, undo orders and play IDs included; `merge` keeps everything here and adds
+     * the rest (the rules are in `merge.ts`). The built-in playlists exist afterwards either way.
+     */
+    async restore(tables: LibraryTables, mode: RestoreMode): Promise<void> {
+      await db.transaction(
+        'rw',
+        TABLE_NAMES.map((name) => db.table(name)),
+        async () => {
+          if (mode === 'replace') await writeReplaced(tables)
+          else await writeMerged(tables)
+          await ensureSystemRecords(db, now())
+        },
+      )
+    },
+
     /** Empties every table, then recreates the built-in playlists. */
     async clearLibrary(): Promise<void> {
       await db.transaction(
@@ -1069,7 +1227,18 @@ function dedupeTracks(tracks: readonly Track[]): Track[] {
   })
 }
 
-let current: LibraryRepo | undefined
+/** The rows of `rows` whose key `table` doesn't have yet, each key once. */
+async function missingRows<T>(
+  table: { bulkGet(keys: string[]): PromiseLike<unknown[]> },
+  rows: readonly T[],
+  keyOf: (row: T) => string,
+): Promise<T[]> {
+  const unique = new Map(rows.map((row) => [keyOf(row), row]))
+  const existing = await table.bulkGet([...unique.keys()])
+  return [...unique.values()].filter((_, index) => existing[index] === undefined)
+}
+
+let current: { repo: LibraryRepo; db: FxmDatabase } | undefined
 
 /**
  * The app's library, on the `fxm` database. Opened on first use, when engine decisions older
@@ -1077,11 +1246,12 @@ let current: LibraryRepo | undefined
  */
 export function getLibrary(): LibraryRepo {
   if (current === undefined) {
-    current = createLibraryRepo(openDatabase())
+    const db = openDatabase()
+    current = { repo: createLibraryRepo(db), db }
     // Housekeeping only: reads already ignore expired decisions.
-    current.pruneMatchCache().catch(() => {})
+    current.repo.pruneMatchCache().catch(() => {})
   }
-  return current
+  return current.repo
 }
 
 /**
@@ -1091,6 +1261,7 @@ export function getLibrary(): LibraryRepo {
 export async function resetLibrary(deps: Partial<RepoDeps> = {}): Promise<LibraryRepo> {
   current?.db.close()
   await Dexie.delete(DB_NAME)
-  current = createLibraryRepo(openDatabase(), deps)
-  return current
+  const db = openDatabase()
+  current = { repo: createLibraryRepo(db, deps), db }
+  return current.repo
 }

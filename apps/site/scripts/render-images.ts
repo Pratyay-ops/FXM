@@ -84,7 +84,7 @@ const card = `<!doctype html>
 </div>
 <div class="brand">${mark}FXM</div>
 <h1>Practically any song.<span>Free and private.</span></h1>
-<p><strong>fxm-music.pages.dev</strong> Free, open-source music player</p>
+<p><strong>fxmusic.pages.dev</strong> Free, open-source music player</p>
 </html>`
 
 const browser = await chromium.launch({ channel: 'chromium' })

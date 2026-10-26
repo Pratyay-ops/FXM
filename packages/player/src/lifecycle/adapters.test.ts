@@ -4,19 +4,20 @@ import { testStream } from '../testing/fixtures'
 import {
   createMemoryMatchStore,
   fromAudioSource,
-  isStoredMatch,
   type MatchKey,
   matchKeyString,
   type StoredMatch,
+  sanitizeStoredMatch,
 } from './adapters'
 import { testCandidate, testContext } from './testing/fixtures'
 
 const match: StoredMatch = {
   band: 'auto',
   candidate: testCandidate('x'),
-  alternatives: [],
-  pinned: false,
-  matchedAt: 1,
+  alternatives: [testCandidate('y')],
+  evidence: ['title 0.97'],
+  userPinned: false,
+  decidedAt: 1,
 }
 
 describe('fromAudioSource', () => {
@@ -38,7 +39,7 @@ describe('fromAudioSource', () => {
       ctx: testContext(),
       prefs: DEFAULT_QUALITY_PREFS,
       rung: 'top',
-      priority: 'playback',
+      priority: 'current-track',
       signal,
     })
     expect(options).toEqual([testStream('a')])
@@ -47,41 +48,64 @@ describe('fromAudioSource', () => {
 })
 
 describe('the memory match store', () => {
-  it('files matches by track, mode and target, one key for both YouTube prefixes', async () => {
+  it('files decisions by track, mode and target, as the match cache keys them', async () => {
     const store = createMemoryMatchStore()
-    const key: MatchKey = { trackId: formatId('ytm', 'track', 'v'), mode: 'music', target: 'song' }
+    const trackId = formatId('ytm', 'track', 'v')
+    const key: MatchKey = { sourceTrackId: trackId, mode: 'music', target: 'song' }
     await store.put(key, match)
-    expect(await store.get({ ...key, trackId: formatId('yt', 'track', 'v') })).toBe(match)
+    expect(await store.get({ ...key, sourceTrackId: formatId('yt', 'track', 'v') })).toBe(match)
     expect(await store.get({ ...key, mode: 'all' })).toBeUndefined()
     expect(await store.get({ ...key, target: 'lossless' })).toBeUndefined()
     expect(store.size).toBe(1)
     await store.delete(key)
     expect(store.size).toBe(0)
-    expect(matchKeyString(key)).toBe('youtube:track:v\u0000music\u0000song')
+    // The song decision under 2.6's `<entityKey>|<mode>`; the lossless one beside it.
+    expect(matchKeyString(key)).toBe('youtube:track:v|music')
+    expect(matchKeyString({ ...key, target: 'lossless' })).toBe('youtube:track:v|music|lossless')
   })
 })
 
-describe('isStoredMatch', () => {
-  it('accepts a well-formed match', () => {
-    expect(isStoredMatch(match)).toBe(true)
-    expect(isStoredMatch({ ...match, band: 'suggest', pinned: true })).toBe(true)
+describe('sanitizeStoredMatch', () => {
+  it('keeps a well-formed decision, a pin and a decision that nothing came close', () => {
+    expect(sanitizeStoredMatch(match)).toEqual(match)
+    const pin = { ...match, band: 'none', userPinned: true, signals: undefined }
+    expect(sanitizeStoredMatch(pin)).toEqual({ ...match, band: 'none', userPinned: true })
+    const miss = { band: 'none', alternatives: [], evidence: [], userPinned: false, decidedAt: 5 }
+    expect(sanitizeStoredMatch(miss)).toEqual(miss)
+    expect(sanitizeStoredMatch({ ...miss, candidate: null })).toEqual(miss)
+    const signals = { isrcVerified: true, sourceAlbumMatch: false }
+    expect(sanitizeStoredMatch({ ...match, signals })).toEqual({ ...match, signals })
+  })
+
+  it('drops malformed alternatives, evidence and signals, and unknown fields', () => {
+    const odd = {
+      ...match,
+      alternatives: [null, 42, {}, { source: 'ytm', ref: 'z' }, testCandidate('y')],
+      evidence: ['ok', 7],
+      signals: { isrcVerified: 'yes' },
+      extra: true,
+    }
+    expect(sanitizeStoredMatch(odd)).toEqual({ ...match, evidence: ['ok'] })
+    const bare = { band: 'auto', candidate: testCandidate('x'), userPinned: false, decidedAt: 1 }
+    expect(sanitizeStoredMatch(bare)).toEqual({ ...bare, alternatives: [], evidence: [] })
   })
 
   it.each([
     ['nothing', undefined],
     ['a string', 'match'],
-    ['a None band', { ...match, band: 'none' }],
-    ['no candidate', { ...match, candidate: null }],
+    ['an unknown band', { ...match, band: 'great' }],
+    ['an Auto decision without a candidate', { ...match, candidate: undefined }],
+    ['a pin without a candidate', { ...match, band: 'none', candidate: null, userPinned: true }],
     [
       'a candidate of an unknown source',
-      { ...match, candidate: { ...match.candidate, source: 'x' } },
+      { ...match, candidate: { ...testCandidate('x'), source: 'x' } },
     ],
-    ['a candidate without a ref', { ...match, candidate: { ...match.candidate, ref: '' } }],
-    ['a candidate without a kind', { ...match, candidate: { ...match.candidate, kind: 1 } }],
-    ['no alternatives', { ...match, alternatives: undefined }],
-    ['a pin flag that is not a boolean', { ...match, pinned: 'yes' }],
-    ['a time that is not a number', { ...match, matchedAt: Number.NaN }],
+    ['a candidate without a ref', { ...match, candidate: testCandidate('') }],
+    ['a candidate of an unknown kind', { ...match, candidate: { ...testCandidate('x'), kind: 1 } }],
+    ['a candidate without its title', { ...match, candidate: { source: 'ytm', ref: 'x' } }],
+    ['a pin flag that is not a boolean', { ...match, userPinned: 'yes' }],
+    ['a time that is not a number', { ...match, decidedAt: Number.NaN }],
   ])('rejects %s', (_label, value) => {
-    expect(isStoredMatch(value)).toBe(false)
+    expect(sanitizeStoredMatch(value)).toBeUndefined()
   })
 })
