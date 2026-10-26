@@ -1,14 +1,39 @@
 import { YOUTUBE_IMPORT_UNAVAILABLE } from '@fxm/sources/import'
 import { catalogScenario, fakeYouTube, song } from '@fxm/sources/import/testing'
-import { screen, waitFor, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { asBrowser, USER_AGENTS } from '../connect/testing'
 import { useSettingsStore } from '../settings/settings-store'
+import { MatchingNotice } from './matching-notice'
 import { resetImportRunner } from './runner'
 import { fakeServices, renderWithServices } from './testing'
 
-afterEach(() => resetImportRunner())
+// Which apps the notices take as released: RELEASED's own flags, unless a test overrides one, as
+// the test of a release that carries the desktop app does (stage 7.5).
+const releaseOverrides = vi.hoisted((): { desktop?: boolean; android?: boolean } => ({}))
+vi.mock('../connect/config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../connect/config')>()
+  return {
+    ...actual,
+    RELEASED: {
+      ...actual.RELEASED,
+      get desktop() {
+        return releaseOverrides.desktop ?? actual.RELEASED.desktop
+      },
+      get android() {
+        return releaseOverrides.android ?? actual.RELEASED.android
+      },
+    },
+  }
+})
+
+afterEach(() => {
+  delete releaseOverrides.desktop
+  delete releaseOverrides.android
+  resetImportRunner()
+})
 
 /** A data download's playlists file with these playlists, each of one made-up song. */
 function playlistsJson(names: readonly string[]): string {
@@ -360,6 +385,30 @@ describe('ImportPage', () => {
     expect(
       within(list).getByRole('button', { name: 'Resume importing kitchen' }),
     ).toBeInTheDocument()
+  })
+
+  it('offers the desktop app next to FXM Connect, once a release carries it', () => {
+    releaseOverrides.desktop = true
+    releaseOverrides.android = false
+    asBrowser(USER_AGENTS.chromeWindows)
+    render(
+      <MemoryRouter>
+        <MatchingNotice matching="needs-connect" where="preview" />
+      </MemoryRouter>,
+    )
+    const notice = screen.getByRole('complementary', { name: 'Finding songs' })
+    // The desktop app, which is out, and the Android app as coming.
+    expect(within(notice).getByRole('link', { name: 'add FXM Connect' })).toHaveAttribute(
+      'href',
+      '/connect',
+    )
+    expect(notice).toHaveTextContent(
+      'To let it, add FXM Connect to this browser, or use the desktop app, then resume.',
+    )
+    expect(notice).toHaveTextContent(
+      'The desktop app needs no extension: it has everything built in. The Android app is coming soon.',
+    )
+    expect(within(notice).queryByRole('link', { name: /desktop|Android/ })).toBeNull()
   })
 
   it("doesn't ask for FXM Connect where it can't be added, such as on an iPhone", async () => {

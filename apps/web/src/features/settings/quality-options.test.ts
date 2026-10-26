@@ -1,5 +1,5 @@
 import { type NetworkCapabilities, QUALITY_TIERS, type QualityTier } from '@fxm/core'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   type AudioReach,
   connectionHelp,
@@ -122,6 +122,30 @@ describe('downloadFormatHelp', () => {
       expect(downloadFormatHelp('mp3', capabilities)[0]).toBe(
         'An MP3 from Internet Archive: MP3 (no conversion).',
       )
+    }
+  })
+
+  it('names the desktop app for YouTube songs too, once it is out', async () => {
+    vi.resetModules()
+    vi.doMock('../connect/config', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../connect/config')>()
+      return { ...actual, RELEASED: { ...actual.RELEASED, desktop: true, android: false } }
+    })
+    try {
+      const { downloadFormatHelp: help } = await import('./quality-options')
+      for (const capabilities of [LITE, FREE_ONLY]) {
+        expect(help('original', capabilities)).toEqual([
+          'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive.',
+          'YouTube songs can be downloaded with FXM Connect or the desktop app.',
+          SAVE_TO_DEVICE_NOTE,
+        ])
+        expect(help('flac', capabilities)).toContain(
+          'YouTube songs can be downloaded with FXM Connect or the desktop app.',
+        )
+      }
+    } finally {
+      vi.doUnmock('../connect/config')
+      vi.resetModules()
     }
   })
 

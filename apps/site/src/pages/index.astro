@@ -9,16 +9,19 @@ import { AVAILABLE } from '../config'
 import Base from '../layouts/Base.astro'
 import { joinList, unreleased } from '../lib/copy'
 
-// Search results and social cards show the description on its own, so it says which apps are
-// still to come (AVAILABLE in src/config.ts), as Hero's note does, in at most 160 characters.
-const apps = unreleased([
+// Search results and social cards show the description on its own, so it names the apps that
+// are out and says which are still to come (AVAILABLE in src/config.ts), as Hero's note does,
+// in at most 160 characters.
+const apps = [
   [AVAILABLE.desktop, 'desktop'],
   [AVAILABLE.android, 'Android'],
-])
+] as const
+const platforms = joinList(['the web', ...apps.filter(([out]) => out).map(([, name]) => name)])
+const upcoming = unreleased(apps)
 const description =
-  apps.length === 0
-    ? 'Play practically any song with FXM, a free, open-source music player for the web, desktop and Android. No ads from FXM, no accounts, no tracking.'
-    : `Play practically any song with FXM, a free, open-source music player for the web. The ${joinList(apps)} ${apps.length === 1 ? 'app is' : 'apps are'} coming soon. No ads from FXM, no accounts.`
+  upcoming.length === 0
+    ? `Play practically any song with FXM, a free, open-source music player for ${platforms}. No ads from FXM, no accounts, no tracking.`
+    : `Play practically any song with FXM, a free, open-source music player for ${platforms}. The ${joinList(upcoming)} ${upcoming.length === 1 ? 'app is' : 'apps are'} coming soon. No ads from FXM, no accounts.`
 ---
 
 <Base title="FXM: free and open-source music player" description={description}>

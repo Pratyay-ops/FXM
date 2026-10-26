@@ -19,6 +19,9 @@
  * The Media Session stays the web app's (`connectMediaSession` from `@fxm/player`): the
  * webviews hand it to each system's media controls. See `apps/desktop/README.md`.
  *
+ * Settings → About reads the third-party notices that the app carries with
+ * `readThirdPartyNotices` (stage 7.5).
+ *
  * @module
  */
 
@@ -33,6 +36,7 @@ import { connectTray, type TrayPlayer } from './tray'
 export * from './engine'
 export * from './keep-awake'
 export * from './network'
+export * from './notices'
 export * from './options'
 export * from './shell'
 export * from './tray'

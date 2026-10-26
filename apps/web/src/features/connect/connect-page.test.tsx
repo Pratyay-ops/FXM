@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/render'
 import { resetConnection, useConnection } from './connection'
 import { useNotices } from './notices'
@@ -15,7 +15,29 @@ import {
   USER_AGENTS,
 } from './testing'
 
+// Which apps the page takes as released: RELEASED's own flags, unless a test overrides one, as
+// the tests of a release that carries the desktop app do (stage 7.5). Only what the page reads
+// while it renders follows an override: the tier cards' words are fixed when tiers.ts loads.
+const releaseOverrides = vi.hoisted((): { desktop?: boolean; android?: boolean } => ({}))
+vi.mock('./config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./config')>()
+  return {
+    ...actual,
+    RELEASED: {
+      ...actual.RELEASED,
+      get desktop() {
+        return releaseOverrides.desktop ?? actual.RELEASED.desktop
+      },
+      get android() {
+        return releaseOverrides.android ?? actual.RELEASED.android
+      },
+    },
+  }
+})
+
 afterEach(async () => {
+  delete releaseOverrides.desktop
+  delete releaseOverrides.android
   resetConnection()
   useNotices.setState({ dismissed: [] })
   await closeTestPages()
@@ -149,6 +171,51 @@ describe('the onboarding page', { timeout: 30_000 }, () => {
       expect(within(guide).getByText(/Not released yet/)).toBeInTheDocument()
       expect(guide.querySelector('ol')).toBeNull()
     }
+  })
+
+  describe('once a release carries the desktop app', () => {
+    beforeEach(() => {
+      releaseOverrides.desktop = true
+      releaseOverrides.android = false
+    })
+
+    it('gives its guide steps and links its install steps, the Android app still coming', async () => {
+      setConnection()
+      await openPage()
+      expect(
+        screen.getByText(
+          /The desktop app needs no extension: it has everything built in\. The Android app is coming soon\./,
+        ),
+      ).toBeInTheDocument()
+      const guide = (name: RegExp) =>
+        within(guides()).getByRole('heading', { level: 3, name }).closest('details') as HTMLElement
+      const android = guide(/^Android app/)
+      expect(within(android).getByText('Coming soon')).toBeInTheDocument()
+      expect(within(android).getByText(/Not released yet/)).toBeInTheDocument()
+      expect(android.querySelector('ol')).toBeNull()
+      const desktop = guide(/^Desktop app/)
+      expect(within(desktop).queryByText('Coming soon')).toBeNull()
+      expect(desktop.querySelector('ol')).not.toBeNull()
+      expect(within(desktop).getByRole('link', { name: /install steps/ })).toHaveAttribute(
+        'href',
+        'https://github.com/Pratyay-ops/FXM/blob/main/apps/desktop/INSTALL.md',
+      )
+    })
+
+    it('offers it with a button when FXM Connect stops answering', async () => {
+      asBrowser(USER_AGENTS.chromeWindows)
+      const storage = await storageWithConnectSeen('0.1.0')
+      await openTestPlatform({ storage })
+      await openPage()
+      const missing = screen.getByRole('region', { name: "FXM Connect isn't answering" })
+      expect(
+        within(missing).getByText(
+          'The desktop app needs no extension: it has everything built in. The Android app is coming soon.',
+        ),
+      ).toBeVisible()
+      expect(within(missing).getByRole('button', { name: 'Desktop app' })).toBeVisible()
+      expect(within(missing).queryByRole('button', { name: /Android app/ })).toBeNull()
+    })
   })
 
   it('leads with the Chromium guide in Chrome: Developer mode stays on, updates are manual', async () => {

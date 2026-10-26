@@ -94,6 +94,21 @@ describe('the tiers', () => {
     )
   })
 
+  it('drops the mark of an app once a release carries it, such as the desktop app', async () => {
+    vi.resetModules()
+    vi.doMock('./config', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./config')>()
+      return { ...actual, RELEASED: { ...actual.RELEASED, desktop: true, android: false } }
+    })
+    try {
+      const { TIER_INFO: info } = await import('./tiers')
+      expect(info.full.how).toBe('FXM Connect, the desktop app or the Android app (coming soon).')
+    } finally {
+      vi.doUnmock('./config')
+      vi.resetModules()
+    }
+  })
+
   it('keeps downloads and the Spotify account to Full, both released', () => {
     const feature = (id: string) => TIER_FEATURES.find((candidate) => candidate.id === id)
     // Stage 3.5: the web app with FXM Connect connects a Spotify account.

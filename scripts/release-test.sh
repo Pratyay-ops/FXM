@@ -339,8 +339,10 @@ apk_ok() {
     ! fxm_release_lookup release-android fxm-android-x86_64-0.1.0.apk 0.1.0 >/dev/null
 }
 expect "only the android-sign job may publish the APKs, signed" apk_ok
-expect "every file in the catalog carries the version" \
-  test -z "$(fxm_release_catalog | cut -d'|' -f2 | grep -v '<version>' || true)"
+# Only the desktop updater's manifest has a fixed name: installed apps look it up in the latest
+# release (apps/desktop/README.md, "Updates").
+expect "every file in the catalog carries the version, but latest.json" \
+  test "$(fxm_release_catalog | cut -d'|' -f2 | grep -v '<version>' || true)" = latest.json
 fingerprint_ok() {
   local file=$tmp/certificate.txt hex=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
   printf '# a comment\n\n%s\n' "$(fxm_release_colons "$hex")" >"$file"
@@ -350,6 +352,22 @@ fingerprint_ok() {
     ! (fxm_release_android_certificate "$file" >/dev/null 2>&1)
 }
 expect "reads the pinned Android certificate, and fails on the placeholder" fingerprint_ok
+desktop_ok() {
+  fxm_release_lookup release-desktop fxm-desktop-0.1.0-macos-arm64.dmg 0.1.0 >/dev/null &&
+    fxm_release_lookup release-desktop fxm-desktop-0.1.0-windows-x64-setup.exe 0.1.0 >/dev/null &&
+    fxm_release_lookup release-desktop fxm-desktop-0.1.0-linux-arm64.AppImage 0.1.0 >/dev/null &&
+    fxm_release_lookup release-desktop latest.json 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-bundles latest.json 0.1.0 >/dev/null &&
+    ! fxm_release_lookup release-desktop fxm-desktop-0.1.0-macos-arm64.dmg.sig 0.1.0 >/dev/null
+}
+expect "only the desktop job may publish the desktop files and latest.json" desktop_ok
+fixed_ok() {
+  fxm_release_fixed_name release-desktop latest.json &&
+    ! fxm_release_fixed_name release-bundles latest.json &&
+    ! fxm_release_fixed_name release-desktop 'fxm-desktop-<version>-macos-arm64.dmg' &&
+    ! fxm_release_fixed_name release-desktop latest.yml
+}
+expect "latest.json is a fixed name of the desktop job's alone" fixed_ok
 
 echo "release-version.sh"
 work=$(new_repo version)
@@ -933,6 +951,21 @@ echo unsigned >"$case_dir/artifacts/release-android/fxm-android-universal-0.1.0-
 collect
 expect "but never an unsigned one" \
   test "$status" -ne 0 -a -n "$(grep 'is not a file that release-android may publish' <<<"$out")"
+refuses_file "refuses a fixed name from another artifact" latest.json \
+  "release-bundles/latest.json does not carry the version 0.1.0"
+new_case
+mkdir "$case_dir/artifacts/release-desktop"
+echo '{"version":"0.1.0"}' >"$case_dir/artifacts/release-desktop/latest.json"
+echo dmg >"$case_dir/artifacts/release-desktop/fxm-desktop-0.1.0-macos-arm64.dmg"
+collect
+expect "takes latest.json, a fixed name, from the desktop job" \
+  test "$status" -eq 0 -a -f "$case_dir/out/latest.json" -a -f "$case_dir/out/fxm-desktop-0.1.0-macos-arm64.dmg"
+new_case
+mkdir "$case_dir/artifacts/release-desktop"
+echo '{}' >"$case_dir/artifacts/release-desktop/latest.yml"
+collect
+expect "refuses any other name without the version, also from the desktop job" \
+  test "$status" -ne 0 -a -n "$(grep 'release-desktop/latest.yml does not carry the version' <<<"$out")"
 new_case
 mkdir "$case_dir/artifacts/release-bundles/bundle"
 echo dmg >"$case_dir/artifacts/release-bundles/bundle/fxm-desktop-0.1.0.dmg"
@@ -1089,6 +1122,8 @@ expect "under a heading of the notes' level" \
   test -n "$(grep -x '## Files' "$GH_STUB_DIR/release-notes.md")"
 expect "and where the self-hosting steps are" has "$GH_STUB_DIR/release-notes.md" \
   "(https://github.com/test/fxm/blob/v0.1.0/scripts/build-dist/README.md#self-hosting)"
+expect "with the install guides of FXM Connect and the desktop app" \
+  has "$GH_STUB_DIR/release-notes.md" "blob/v0.1.0/apps/desktop/INSTALL.md"
 expect "that ends with SHA256SUMS" \
   test "$(grep '^| `' "$GH_STUB_DIR/release-notes.md" | tail -1 | cut -d'`' -f2)" = SHA256SUMS
 expect "and how to verify them against the release workflow on main" \

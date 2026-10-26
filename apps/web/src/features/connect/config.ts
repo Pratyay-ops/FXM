@@ -11,6 +11,9 @@ export const REPOSITORY_URL = 'https://github.com/Pratyay-ops/FXM'
 /** The latest release: the FXM Connect zips today, the desktop app and the APK later. */
 export const RELEASES_URL = `${REPOSITORY_URL}/releases/latest`
 
+/** How to install the desktop app, and what to do when macOS or Windows warns about it. */
+export const DESKTOP_INSTALL_URL = `${REPOSITORY_URL}/blob/main/apps/desktop/INSTALL.md`
+
 /**
  * What is released, for the tier panels and the install guides. The landing page keeps the same
  * kind of map (`AVAILABLE` in `apps/site/src/config.ts`): a stage that ships one of these flips
@@ -25,7 +28,11 @@ export const RELEASED = {
   firefoxAddon: false,
   /** FXM Connect listed on Edge Add-ons: stage R.2, once its first version is published there. */
   edgeAddon: false,
-  /** The desktop app for macOS, Windows and Linux on GitHub Releases: stage 7.5. */
+  /**
+   * The desktop app for macOS, Windows and Linux on GitHub Releases: stage 7.5. Turn it on with the
+   * landing page's `AVAILABLE.desktop`, once a release carries the installers
+   * (apps/desktop/README.md, "Releases"): the install guide then offers them.
+   */
   desktop: false,
   /**
    * The Android app (APK) on GitHub Releases: stage 6.6. Turn it on with the landing page's

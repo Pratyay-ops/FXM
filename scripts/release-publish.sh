@@ -119,6 +119,7 @@ fxm_release_fit "$body" 115000 \
   done
   echo
   echo "Install FXM Connect with the [steps in its README](https://github.com/$repo/blob/$tag/apps/extension/README.md#install)."
+  echo "Install the desktop app with the [steps in its install guide](https://github.com/$repo/blob/$tag/apps/desktop/INSTALL.md), which also say what to do when macOS or Windows warns about it."
   echo
   if [ -n "$certificate" ]; then
     # One echo per paragraph here too: GitHub keeps the line breaks of a release's notes.

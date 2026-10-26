@@ -39,13 +39,15 @@ use std::{
 use hyper_util::client::proxy::matcher::Matcher;
 use rfd::{AsyncMessageDialog, MessageButtons, MessageDialogResult, MessageLevel};
 use serde::{Deserialize, Serialize};
-use tauri::{Runtime, State, WebviewWindow};
+use tauri::{AppHandle, PackageInfo, Runtime, State, WebviewWindow};
 use tauri_plugin_http::reqwest::{
     self, Method, Url,
     dns::{Addrs, Name, Resolve, Resolving},
     header::HeaderValue,
     redirect::Policy,
 };
+
+use crate::window::in_front;
 
 /// The file in the app's config folder that keeps the approved hosts.
 pub const FILE_NAME: &str = "user-hosts.json";
@@ -89,12 +91,9 @@ const ALLOW: &str = "Allow";
 /// The button that refuses it.
 const DONT_ALLOW: &str = "Don't Allow";
 
-/// FXM's own User-Agent, as MusicBrainz asks apps to name themselves.
-fn user_agent() -> String {
-    format!(
-        "FXM/{} ( https://github.com/Pratyay-ops/FXM )",
-        env!("CARGO_PKG_VERSION")
-    )
+/// FXM's own User-Agent, as MusicBrainz asks apps to name themselves, with the app's version.
+fn user_agent(version: &str) -> String {
+    format!("FXM/{version} ( https://github.com/Pratyay-ops/FXM )")
 }
 
 /// Why a command failed. The web app receives it as `{ code, message }`.
@@ -462,13 +461,6 @@ pub async fn approve_user_host<R: Runtime>(
     Ok(Some(host))
 }
 
-/// Whether `window` is visible, not minimized, and has the focus.
-fn in_front<R: Runtime>(window: &WebviewWindow<R>) -> bool {
-    window.is_visible().unwrap_or(false)
-        && !window.is_minimized().unwrap_or(true)
-        && window.is_focused().unwrap_or(false)
-}
-
 /// The dialog's buttons. "Don't Allow" comes first where the first button is the one Return
 /// presses: NSAlert's on macOS, the task dialog's default on Windows. GTK (Linux and the BSDs)
 /// reports custom buttons only as OK and Cancel, and closing the dialog as Cancel too, so there
@@ -544,12 +536,14 @@ pub struct UserHostRequest {
 /// Fetches from an approved host. The answer is a 4-byte big-endian length, that many bytes of
 /// JSON (`{ status, statusText, url, headers }`), then the body.
 #[tauri::command]
-pub async fn user_host_fetch(
+pub async fn user_host_fetch<R: Runtime>(
+    app: AppHandle<R>,
     hosts: State<'_, UserHosts>,
     request: UserHostRequest,
 ) -> Result<tauri::ipc::Response, CommandError> {
     let approved = hosts.list();
-    let fetched = fetch(&request, &approved, &FetchPolicy::default()).await?;
+    let policy = FetchPolicy::for_app(app.package_info());
+    let fetched = fetch(&request, &approved, &policy).await?;
     Ok(tauri::ipc::Response::new(fetched.encode()))
 }
 
@@ -563,16 +557,27 @@ pub(crate) struct FetchPolicy {
     public_only: bool,
     /// The proxies the system and the environment set: a host they cover is refused.
     proxies: Arc<Matcher>,
+    /// FXM's User-Agent, with the app's version ([`user_agent`]).
+    user_agent: String,
 }
 
-impl Default for FetchPolicy {
-    fn default() -> Self {
+impl FetchPolicy {
+    /// The limits of the app's requests, which name its version: apps/desktop/package.json's,
+    /// which `make release-pr` sets (`"version": "../package.json"` in tauri.conf.json), not
+    /// Cargo.toml's, which stays 0.0.0.
+    fn for_app(package: &PackageInfo) -> Self {
+        Self::with_version(&package.version.to_string())
+    }
+
+    /// The limits of requests that name FXM `version`.
+    fn with_version(version: &str) -> Self {
         Self {
             max_body: MAX_BODY_BYTES,
             timeout: TIMEOUT,
             public_only: true,
             // The same settings tauri-plugin-http's requests follow (its `system-proxy` feature).
             proxies: Arc::new(Matcher::from_system()),
+            user_agent: user_agent(version),
         }
     }
 }
@@ -674,7 +679,7 @@ fn client(policy: &FetchPolicy) -> Result<reqwest::Client, CommandError> {
         .timeout(policy.timeout)
         .connect_timeout(CONNECT_TIMEOUT.min(policy.timeout))
         .no_proxy()
-        .user_agent(user_agent())
+        .user_agent(policy.user_agent.as_str())
         .https_only(policy.public_only);
     if policy.public_only {
         builder = builder.dns_resolver(Arc::new(PublicAddresses));
@@ -1118,14 +1123,14 @@ mod tests {
             max_body: 32,
             public_only: false,
             proxies: no_proxies(),
-            ..FetchPolicy::default()
+            ..FetchPolicy::with_version("1.2.3")
         }
     }
 
     fn public_policy() -> FetchPolicy {
         FetchPolicy {
             proxies: no_proxies(),
-            ..FetchPolicy::default()
+            ..FetchPolicy::with_version("1.2.3")
         }
     }
 
@@ -1174,9 +1179,28 @@ mod tests {
         );
         let request = seen.lock().unwrap()[0].to_lowercase();
         assert!(request.starts_with("get /api/v1/stats "), "{request}");
-        assert!(request.contains("user-agent: fxm/"), "{request}");
+        assert!(
+            request.contains("user-agent: fxm/1.2.3 ( https://github.com/pratyay-ops/fxm )"),
+            "{request}"
+        );
         assert!(!request.contains("cookie"), "{request}");
         assert!(!request.contains("origin"), "{request}");
+    }
+
+    #[test]
+    fn requests_name_the_version_of_the_app() {
+        // tauri.conf.json takes it from apps/desktop/package.json, which every release sets;
+        // Cargo.toml's stays 0.0.0.
+        let context = crate::context();
+        let package: serde_json::Value =
+            serde_json::from_str(include_str!("../../package.json")).expect("package.json");
+        let version = package["version"]
+            .as_str()
+            .expect("package.json has a version");
+        assert_eq!(
+            FetchPolicy::for_app(context.package_info()).user_agent,
+            format!("FXM/{version} ( https://github.com/Pratyay-ops/FXM )")
+        );
     }
 
     #[test]

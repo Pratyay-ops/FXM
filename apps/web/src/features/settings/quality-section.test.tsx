@@ -9,7 +9,28 @@ import { FakeConnection, installConnection, removeConnection } from './fake-conn
 import { QualitySection } from './quality-section'
 import { QUALITY_STORAGE_KEY, useQualityStore } from './quality-store'
 
+// Which apps the section takes as released: RELEASED's own flags, unless a test overrides one, as
+// the test of a release that carries the desktop app does (stage 7.5).
+const releaseOverrides = vi.hoisted((): { desktop?: boolean; android?: boolean } => ({}))
+vi.mock('../connect/config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../connect/config')>()
+  return {
+    ...actual,
+    RELEASED: {
+      ...actual.RELEASED,
+      get desktop() {
+        return releaseOverrides.desktop ?? actual.RELEASED.desktop
+      },
+      get android() {
+        return releaseOverrides.android ?? actual.RELEASED.android
+      },
+    },
+  }
+})
+
 afterEach(() => {
+  delete releaseOverrides.desktop
+  delete releaseOverrides.android
   removeConnection()
   resetCatalogState()
 })
@@ -386,6 +407,15 @@ describe('Audio quality settings on other tiers and browsers', () => {
     )
     // Lite still streams YouTube.
     expect(select('Streaming on Wi-Fi')).toHaveAccessibleDescription(/the best YouTube audio/)
+  })
+
+  it('say in Lite that YouTube songs download in the desktop app too, once it is out', () => {
+    releaseOverrides.desktop = true
+    releaseOverrides.android = false
+    const { select } = renderSection(LITE)
+    expect(select('Download format')).toHaveAccessibleDescription(
+      'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive. YouTube songs can be downloaded with FXM Connect or the desktop app. Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.',
+    )
   })
 
   it('describe the tiers in bitrates, without YouTube, where it can’t be reached', () => {

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   MEDIA_ACTIONS,
+  NOTICES_COMMAND,
   PLAYBACK_LOCK,
   PLAYBACK_STATES,
   SHELL_COMMANDS,
@@ -61,6 +62,24 @@ describe('the bridge and the shell agree on', () => {
     expect(commandArguments(playback, SHELL_COMMANDS.setNowPlaying)).toEqual(['now'])
     expect(environment).toContain(`pub fn ${SHELL_COMMANDS.environment}<`)
     expect(commandArguments(environment, SHELL_COMMANDS.environment)).toEqual([])
+  })
+
+  it('the command that reads the third-party notices, which takes no arguments', () => {
+    const notices = rust('notices.rs')
+    const signature = new RegExp(
+      String.raw`pub async fn ${NOTICES_COMMAND}<R: Runtime>\(app: AppHandle<R>\) -> Result<String, String>`,
+    )
+    expect(notices).toMatch(signature)
+  })
+
+  it('the file the release bundles, which the command reads from the resources', () => {
+    const releaseConfig = JSON.parse(read('../src-tauri/tauri.release.conf.json')) as {
+      bundle: { resources: Record<string, string> }
+    }
+    expect(Object.values(releaseConfig.bundle.resources)).toEqual([
+      rustConst(rust('notices.rs'), 'NOTICES_FILE'),
+    ])
+    expect(rust('notices.rs')).toContain('.resolve(NOTICES_FILE, BaseDirectory::Resource)')
   })
 
   it('the fields of what plays, which Rust reads in camelCase and nothing more', () => {

@@ -16,6 +16,9 @@ name: Release
 #                   after the ffmpeg core that its make dist needs)
 #   android-sign    signs them with FXM's key and checks them against the certificate pinned in
 #                   apps/mobile/release-certificate.txt (apps/mobile/scripts/release-apk.sh sign)
+#   desktop         builds the desktop app's installers for macOS, Windows and Linux, signs the
+#                   files its updater installs and writes the updater's latest.json
+#                   (desktop-release.yml, which apps/desktop/README.md explains)
 #   publish         collects the artifact jobs' files (scripts/release-collect.sh), writes
 #                   SHA256SUMS, attests every file's build provenance, creates tag vX.Y.Z and
 #                   publishes the release (scripts/release-publish.sh) with the version's notes:
@@ -44,6 +47,13 @@ name: Release
 # apksigner and aapt2 on the APKs that the android job built, so the key never meets Gradle, its
 # plugins or an npm package.
 #
+# The desktop job signs with the updater key, the secrets TAURI_SIGNING_PRIVATE_KEY and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD of the desktop-updater environment, which only runs on main
+# can use and whose every run the owner approves (apps/desktop/README.md, "The updater key"). The
+# job passes both on by name, as GitHub needs for an environment's secret to reach a called
+# workflow's job; they are never repository secrets. Without them, or while tauri.conf.json
+# carries the placeholder instead of the updater's public key, it fails, and nothing is published.
+#
 # Every job builds the commit the run was started for (plan's sha is always github.sha), which
 # is also the commit the attestations name. Re-running is safe: a published release stops at
 # the plan job, a draft left by a failed run is replaced, and a tag without a release is
@@ -51,7 +61,7 @@ name: Release
 # run, so a tag pushed by hand never gets a commit built and published. Builds start from a
 # clean runner, without caches, so nothing from other runs reaches the files.
 #
-# Adding artifacts (desktop installers in 7.5; the firefox and android-sign jobs are two):
+# Adding artifacts (the firefox, android-sign and desktop jobs are three):
 #   1. Add a job that needs plan, runs `if: needs.plan.outputs.release == 'true'`, checks out
 #      needs.plan.outputs.sha and uploads its files as an artifact named release-<name>. The
 #      files sit at the artifact's root (no folders) and carry the version in their names.
@@ -319,11 +329,26 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  desktop:
+    name: Desktop app
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    uses: ./.github/workflows/desktop-release.yml
+    permissions:
+      contents: read
+    with:
+      sha: ${{ needs.plan.outputs.sha }}
+      version: ${{ needs.plan.outputs.version }}
+      release: true
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
   publish:
     name: Publish ${{ needs.plan.outputs.tag }}
     # android too, not only android-sign: when android fails, android-sign is skipped, and only
     # android's failure keeps the release from going out without the APKs.
-    needs: [plan, bundles, firefox, android, android-sign]
+    needs: [plan, bundles, firefox, android, android-sign, desktop]
     # No artifact job may fail or be cancelled. A job that can skip itself on purpose doesn't
     # block, as long as its download step below runs only `if: needs.<job>.result == 'success'`.
     if: >-
@@ -362,6 +387,12 @@ jobs:
         with:
           name: release-android
           path: dist/artifacts/release-android
+
+      # Always, as for the APKs: a release without the desktop installers doesn't go out.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-desktop
+          path: dist/artifacts/release-desktop
 
       - name: Collect the release files
         env:

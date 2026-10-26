@@ -18,7 +18,28 @@ import {
   USER_AGENTS,
 } from './testing'
 
+// Which apps the notices take as released: RELEASED's own flags, unless a test overrides one, as
+// the test of a release that carries the desktop app does (stage 7.5).
+const releaseOverrides = vi.hoisted((): { desktop?: boolean; android?: boolean } => ({}))
+vi.mock('./config', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./config')>()
+  return {
+    ...actual,
+    RELEASED: {
+      ...actual.RELEASED,
+      get desktop() {
+        return releaseOverrides.desktop ?? actual.RELEASED.desktop
+      },
+      get android() {
+        return releaseOverrides.android ?? actual.RELEASED.android
+      },
+    },
+  }
+})
+
 afterEach(async () => {
+  delete releaseOverrides.desktop
+  delete releaseOverrides.android
   resetConnection()
   useNotices.setState({ dismissed: [] })
   await closeTestPages()
@@ -224,6 +245,23 @@ describe('what the notice says on each device', () => {
     expect(body(USER_AGENTS.androidChrome)).toBe(
       "Internet Archive works here. YouTube Music and Spotify need FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
     )
+  })
+
+  it('offers the desktop app next to the extension on computers, once it is out', () => {
+    releaseOverrides.desktop = true
+    releaseOverrides.android = false
+    expect(body(USER_AGENTS.firefoxLinux)).toBe(
+      'Internet Archive works here. For YouTube Music and Spotify, add the free FXM Connect extension, or use the desktop app.',
+    )
+    expect(body(USER_AGENTS.chromeWindows, lite)).toBe(
+      "This browser passed Lite's check. For Spotify, add the free FXM Connect extension, or use the desktop app.",
+    )
+    expect(body(USER_AGENTS.safariMac)).toBe(
+      "Internet Archive works here. YouTube Music and Spotify need FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there, or use the desktop app.",
+    )
+    // Never on a phone.
+    expect(body(USER_AGENTS.iphone)).not.toMatch(/desktop app/)
+    expect(body(USER_AGENTS.androidChrome)).not.toMatch(/desktop app/)
   })
 
   it('marks the Lite introduction experimental, and the warnings as warnings', () => {

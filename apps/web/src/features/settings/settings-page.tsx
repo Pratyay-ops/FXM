@@ -22,9 +22,11 @@ import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setti
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { SpotifyAccountSettings } from '../spotify-account/spotify-account-settings'
 import { SyncSettings } from '../sync/sync-settings'
+import { bundledNotices } from './bundled-notices'
 import { CatalogModeControl } from './catalog-mode-control'
 import { AutoMatchSetting } from './matching-setting'
 import { NOTICES_ROUTE, showsBundledNotices } from './notices'
+import { BundledNoticesButton } from './notices-dialog'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { QualitySection } from './quality-section'
 import { SettingRow, SettingsSection } from './settings-layout'
@@ -36,8 +38,9 @@ export const REPOSITORY_URL = 'https://github.com/Pratyay-ops/FXM'
 export const SITE_URL = 'https://fxmusic.pages.dev'
 
 /**
- * The website's third-party notices, of the code make dist deploys. The Android app shows the
- * notices its APK carries instead, on a page of its own (notices.ts).
+ * The website's third-party notices, of the code make dist deploys. The apps show the notices
+ * they carry instead: the Android app's APK on a page of its own (notices.ts), the desktop app's
+ * installers in a dialog (`bundledNotices()`, notices-dialog.tsx).
  */
 export const SITE_NOTICES_URL = `${SITE_URL}/third-party-notices.txt`
 
@@ -65,7 +68,10 @@ export function SettingsPage() {
   const spotifyHelpId = useId()
   const installLabelId = useId()
   const installHelpId = useId()
-  const ownNotices = showsBundledNotices()
+  // The Android app shows the notices its APK carries on a page of its own (stage 6.6).
+  const apkNotices = showsBundledNotices()
+  // Connected before the first render, in the desktop app only (stage 7.5).
+  const desktopNotices = bundledNotices()
 
   return (
     <div className="max-w-3xl space-y-8 pt-2 md:pt-4">
@@ -193,7 +199,10 @@ export function SettingsPage() {
           <ul aria-label="Legal" className="flex flex-wrap gap-x-6">
             {LEGAL_LINKS.map((link) => (
               <li key={link.href}>
-                {ownNotices && link.href === SITE_NOTICES_URL ? (
+                {link.href === SITE_NOTICES_URL && desktopNotices !== undefined ? (
+                  // The notices the desktop app's installers carry, in a dialog (stage 7.5).
+                  <BundledNoticesButton read={desktopNotices} siteHref={SITE_NOTICES_URL} />
+                ) : link.href === SITE_NOTICES_URL && apkNotices ? (
                   // The notices of what the APK bundles, shown in the app (stage 6.6).
                   <Link to={NOTICES_ROUTE} className={standaloneLinkClasses}>
                     {link.label}

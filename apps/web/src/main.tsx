@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { App } from './app/app'
 import { createAppRouter } from './app/router'
 import { markConnecting } from './app/services/connecting'
-import { setUpDesktopPlayback } from './app/services/desktop'
+import { connectDesktopNotices, setUpDesktopPlayback } from './app/services/desktop'
 import { wireEqualizerActions } from './features/audio-effects/equalizer-actions'
 import { startConnect } from './features/connect/start'
 import { connectAppPolicy, createPendingPolicy } from './features/now-playing/playback-policy'
@@ -44,6 +44,8 @@ async function start(): Promise<void> {
     console.error('FXM: could not set up the desktop playback', error)
     return undefined
   })
+  // Settings → About shows the third-party notices that desktop releases carry (stage 7.5).
+  connectDesktopNotices()
 
   createRoot(container).render(
     <StrictMode>

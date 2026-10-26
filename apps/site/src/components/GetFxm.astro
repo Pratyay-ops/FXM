@@ -1,5 +1,5 @@
 ---
-import { APP_PATH, AVAILABLE, RELEASES_URL } from '../config'
+import { APP_PATH, AVAILABLE, DESKTOP_INSTALL_URL, RELEASES_URL } from '../config'
 import { ANDROID_INSTALL, installFinePrint, noExtensionNote } from '../lib/connect'
 import { webCardIntro } from '../lib/tiers'
 import ComingSoon from './ComingSoon.astro'
@@ -114,6 +114,13 @@ const noExtension = noExtensionNote(AVAILABLE.firefox, {
           <li>Windows</li>
           <li>Linux</li>
         </ul>
+        {AVAILABLE.desktop && (
+          <p class="fine">
+            FXM isn't signed by Apple or Microsoft, so macOS and Windows warn the first time you
+            open it: the <a href={DESKTOP_INSTALL_URL}>install steps</a> say which file to pick and
+            what to do. The app looks for updates and asks before it installs one.
+          </p>
+        )}
         <div class="actions">
           <a class="button button-secondary" href={RELEASES_URL}>
             {AVAILABLE.desktop ? 'Download for desktop' : 'Follow releases on GitHub'}

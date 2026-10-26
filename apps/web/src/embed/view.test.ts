@@ -1,6 +1,6 @@
 import { createQueue, formatId, jumpInQueue, setQueue, type Track } from '@fxm/core'
 import type { PlayerState } from '@fxm/player'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { EmbedEntity } from './catalog'
 import type { EmbedState } from './controller'
 import type { EmbedTarget } from './target'
@@ -304,6 +304,32 @@ describe('helpers', () => {
     }
     expect(messageFor('not-found', 'track').text).toBe("This song isn't available.")
     expect(messageFor('empty', 'album').text).toBe('This album has nothing this player can play.')
+  })
+
+  it('names only FXM Connect for YouTube Music until an app is out, then the FXM app too', async () => {
+    expect(messageFor('needs-youtube', 'track')).toMatchObject({
+      text: "FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension.",
+      short: 'Needs FXM Connect to play here.',
+    })
+    // Once a release carries the desktop app (stage 7.5).
+    vi.resetModules()
+    vi.doMock('../features/connect/config', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('../features/connect/config')>()
+      return { ...actual, RELEASED: { ...actual.RELEASED, desktop: true } }
+    })
+    try {
+      const { messageFor: released } = await import('./view')
+      const message = released('needs-youtube', 'track')
+      expect(message).toMatchObject({
+        text: "FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension, or get the FXM app.",
+        short: 'Needs FXM Connect or the FXM app to play here.',
+      })
+      // Still two lines at most in the compact layout.
+      expect(message.short.length).toBeLessThanOrEqual(46)
+    } finally {
+      vi.doUnmock('../features/connect/config')
+      vi.resetModules()
+    }
   })
 
   it.each([

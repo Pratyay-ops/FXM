@@ -6,8 +6,9 @@
 #
 # <artifacts dir> holds one folder per artifact, named after it (release-bundles, ...), as the
 # publish job downloads them. Every file must be a plain file at the top of its artifact's
-# folder, carry the version in its name and be one that fxm_release_catalog
-# (scripts/release-lib.sh) lists for that artifact. No two artifacts may publish the same name.
+# folder, carry the version in its name (unless the catalog lists it as a fixed name, such as
+# latest.json) and be one that fxm_release_catalog (scripts/release-lib.sh) lists for that
+# artifact. No two artifacts may publish the same name.
 # So an artifact job can neither replace another job's files nor slip in files of its own: any
 # of that stops the release. <out dir> must be empty or missing.
 set -euo pipefail
@@ -49,7 +50,10 @@ while IFS= read -r folder; do
     fi
     case "$name" in
       *"$version"*) ;;
-      *) fxm_die "$artifact/$name does not carry the version $version in its name" ;;
+      *)
+        fxm_release_fixed_name "$artifact" "$name" ||
+          fxm_die "$artifact/$name does not carry the version $version in its name"
+        ;;
     esac
     fxm_release_lookup "$artifact" "$name" "$version" >/dev/null ||
       fxm_die "$artifact/$name is not a file that $artifact may publish (fxm_release_catalog" \

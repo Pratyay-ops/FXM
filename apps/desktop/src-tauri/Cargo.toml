@@ -53,7 +53,18 @@ rfd = { version = "0.17.2", default-features = false, features = [
 ] }
 tauri-plugin-opener = "2.7.1"
 tauri-plugin-single-instance = "2.5.3"
+# Updates from GitHub Releases (stage 7.5, src/updater.rs). Without `zip`, which only reads the
+# zipped and tarred update bundles of Tauri 1: FXM's releases ship the installers themselves
+# (Windows, Linux) and the bundler's .app.tar.gz (macOS), which the plugin always reads.
+tauri-plugin-updater = { version = "2.13.3", default-features = false, features = [
+  "rustls-tls",
+  "system-proxy",
+] }
 tauri-plugin-window-state = "2.5.0"
+# Check that the build carries a real updater key before it asks the user about an update
+# (src/updater.rs). Both are the plugin's own: minisign-verify is its signature check.
+base64 = "0.22.1"
+minisign-verify = "0.3.0"
 
 # The macOS version, which decides between Opus and AAC (src/environment.rs), and the
 # notification that the window has left full screen, which the close button waits for before it

@@ -1,0 +1,353 @@
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { MANIFEST_NAME, releaseFiles, TARGETS } from '../release/targets.ts'
+
+// Checks the desktop app's release workflow (.github/workflows/desktop-release.yml), how
+// release.yml and desktop.yml call it, and R.1's release catalog against release/targets.ts. The
+// workflows are read as text, so these checks rely on their layout: two-space indentation, one
+// item per line, as in workflow.test.ts.
+
+const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
+
+const workflow = read('../../../.github/workflows/desktop-release.yml')
+const release = read('../../../.github/workflows/release.yml')
+const desktop = read('../../../.github/workflows/desktop.yml')
+const releaseLib = read('../../../scripts/release-lib.sh')
+const toolchainToml = read('../src-tauri/rust-toolchain.toml')
+const releaseConfig = JSON.parse(read('../src-tauri/tauri.release.conf.json')) as Record<
+  string,
+  unknown
+>
+
+/** A GitHub Actions expression as the workflows spell it, `${{ … }}`. */
+const expression = (inner: string) => `\${{ ${inner} }}`
+
+/** The strings in a TOML array. */
+const tomlStrings = (array = '') => [...array.matchAll(/"([^"]*)"/g)].map(([, value]) => value)
+
+/** A job of a workflow, from its id to the next job, as text. */
+function job(source: string, id: string): string {
+  const start = source.indexOf(`\n  ${id}:\n`)
+  if (start < 0) throw new Error(`no job ${id}`)
+  const rest = source.slice(start + 1)
+  const next = rest.slice(1).search(/\n {2}[\w-]+:\n/)
+  return next < 0 ? rest : rest.slice(0, next + 1)
+}
+
+/** The steps of a job, each as text, from one `- ` at step depth to the next. */
+function steps(jobText: string): string[] {
+  return jobText.split(/\n(?= {6}- )/).slice(1)
+}
+
+/** The matrix entries of the build job. */
+function matrix() {
+  const entries = job(workflow, 'build')
+    .split(/\n(?= {10}- name: )/)
+    .slice(1)
+  return entries.map((entry) => {
+    const field = (name: string) =>
+      new RegExp(String.raw`^\s+(?:- )?${name}: (.+)$`, 'm').exec(entry)?.[1]
+    return {
+      target: field('target'),
+      os: field('os'),
+      triple: field('triple'),
+      bundles: field('bundles'),
+    }
+  })
+}
+
+describe('desktop-release.yml', () => {
+  it('pins every action to a full commit SHA', () => {
+    const actions = [...workflow.matchAll(/^\s*(?:- )?uses: (\S+)/gm)].map(([, action]) => action)
+    expect(actions).not.toHaveLength(0)
+    for (const action of actions) expect(action).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/)
+  })
+
+  it('builds exactly the targets of release/targets.ts, on runners of their own CPU or cross-compiled', () => {
+    expect(matrix().map(({ target, triple, bundles }) => ({ target, triple, bundles }))).toEqual(
+      TARGETS.map(({ id, triple, bundles }) => ({ target: id, triple, bundles })),
+    )
+    expect(matrix().map(({ os }) => os)).toEqual([
+      'macos-latest',
+      'macos-latest',
+      'windows-latest',
+      'ubuntu-22.04',
+      'ubuntu-22.04-arm',
+    ])
+  })
+
+  it('installs the Rust release and components of rust-toolchain.toml on Windows, with its target', () => {
+    const channel = /^channel = "([^"]+)"$/m.exec(toolchainToml)?.[1]
+    const components = tomlStrings(/^components = \[([^\]]*)\]$/m.exec(toolchainToml)?.[1])
+    const toolchains = [...workflow.matchAll(/^\s+toolchain: (\S+)$/gm)].map(([, value]) => value)
+    expect(toolchains).toEqual([channel])
+    expect(/^\s+components: (.+)$/m.exec(workflow)?.[1]?.split(/[\s,]+/)).toEqual(components)
+    expect(/^\s+targets: (.+)$/m.exec(workflow)?.[1]).toBe('x86_64-pc-windows-msvc')
+  })
+
+  it('turns on engine-strict where it installs without scripts/env.sh, as desktop.yml does', () => {
+    // docs/DEVELOPMENT.md, "Node version": pnpm-workspace.yaml leaves the setting out.
+    const installs = steps(job(workflow, 'build')).filter((step) =>
+      /^\s+(?:run: )?pnpm install\b/m.test(step),
+    )
+    expect(installs).not.toHaveLength(0)
+    for (const step of installs) {
+      expect(step).toMatch(/^ {10}pnpm_config_engine_strict: true$/m)
+    }
+  })
+
+  it('builds with tauri-action, which creates no release and uploads nothing', () => {
+    const build = steps(job(workflow, 'build')).find((step) =>
+      step.includes('tauri-apps/tauri-action@'),
+    )
+    expect(build).toBeDefined()
+    for (const input of [
+      'tagName',
+      'releaseId',
+      'releaseName',
+      'releaseDraft',
+      'uploadWorkflowArtifacts',
+    ]) {
+      expect(build).not.toMatch(new RegExp(String.raw`^\s+${input}:`, 'm'))
+    }
+    expect(build).toContain('--config src-tauri/tauri.release.conf.json')
+    expect(build).toContain('-- --locked')
+    // The throwaway key of the step before, never the updater key.
+    expect(build).toMatch(/TAURI_SIGNING_PRIVATE_KEY: \$\{\{ steps\.build-key\.outputs\.key \}\}/)
+  })
+
+  it('builds the AppImage with checked tools only: fetched before tauri-action, checked after', () => {
+    const build = steps(job(workflow, 'build'))
+    const index = (predicate: (step: string) => boolean) => {
+      const found = build.findIndex(predicate)
+      expect(found).toBeGreaterThanOrEqual(0)
+      return found
+    }
+    const toolsFolder = '--out apps/desktop/src-tauri/target/.tauri'
+    const fetch = index(
+      (step) => step.includes('release.ts appimage-tools') && !step.includes('--after-build'),
+    )
+    const tauri = index((step) => step.includes('tauri-apps/tauri-action@'))
+    const check = index((step) => step.includes('--after-build'))
+    const upload = index((step) => step.includes('actions/upload-artifact@'))
+    expect(fetch).toBeLessThan(tauri)
+    expect(tauri).toBeLessThan(check)
+    expect(check).toBeLessThan(upload)
+    for (const step of [build[fetch], build[check]]) {
+      expect(step).toMatch(/\n\s+if: runner\.os == 'Linux'\n/)
+      expect(step).toContain('--triple "$TRIPLE"')
+      // The bundler's tools folder: <cargo target dir>/.tauri with useLocalToolsDir.
+      expect(step).toContain(toolsFolder)
+    }
+    expect(build[fetch]).toMatch(/\n\s+id: appimage-tools\n/)
+    // The AppImages the build made, which must start with the checked runtime.
+    expect(build[check]).toContain(
+      '--bundle-dir "apps/desktop/src-tauri/target/$TRIPLE/release/bundle"',
+    )
+    // appimagetool takes the checked runtime instead of downloading one.
+    expect(build[tauri]).toContain(
+      `LDAI_RUNTIME_FILE: ${expression('steps.appimage-tools.outputs.runtime-file')}`,
+    )
+  })
+
+  it('hands the updater key to the signing step alone, in a job that installs nothing', () => {
+    const occurrences = workflow.match(/secrets\.TAURI_SIGNING_PRIVATE_KEY\b/g) ?? []
+    expect(occurrences).toHaveLength(1)
+    const sign = job(workflow, 'sign')
+    const signing = steps(sign).filter((step) => step.includes('secrets.'))
+    expect(signing).toHaveLength(1)
+    expect(signing[0]).toMatch(/release\.ts sign /)
+    expect(signing[0]).toMatch(/if: inputs\.release\n/)
+    // Only GitHub's own actions, and no package manager or toolchain: the key meets no
+    // third-party code.
+    const actions = [...sign.matchAll(/uses: ([\w-]+\/[\w-]+)@/g)].map(([, action]) => action)
+    expect(new Set(actions)).toEqual(
+      new Set([
+        'actions/checkout',
+        'actions/setup-node',
+        'actions/download-artifact',
+        'actions/upload-artifact',
+      ]),
+    )
+    expect(sign).not.toMatch(/\b(pnpm|npm|npx|make|cargo|apt-get)\b/)
+  })
+
+  it('signs a release in the updater key’s environment, and a dry run with a throwaway key', () => {
+    const sign = job(workflow, 'sign')
+    expect(sign).toContain(
+      `environment: ${expression("inputs.release && 'desktop-updater' || ''")}`,
+    )
+    const dryRun = steps(sign).find((step) => step.includes('--throwaway-key'))
+    expect(dryRun).toMatch(/if: \$\{\{ !inputs\.release \}\}/)
+  })
+
+  it('stops a release while the updater key is the placeholder, before anything builds', () => {
+    expect(job(workflow, 'check')).toMatch(/release\.ts check --mode "\$MODE"/)
+    expect(job(workflow, 'check')).toContain(
+      `MODE: ${expression("inputs.release && 'release' || 'dry-run'")}`,
+    )
+    expect(job(workflow, 'notices')).toMatch(/^ {4}needs: check$/m)
+    expect(job(workflow, 'build')).toMatch(/^ {4}needs: \[check, notices\]$/m)
+  })
+
+  it('writes the third-party notices once, from the crates and make dist’s notices', () => {
+    const notices = job(workflow, 'notices')
+    const make = steps(notices).find((step) => step.includes('run: make dist'))
+    // make dist with the deploy's Jamendo switch, as the builds below get it.
+    expect(make).toContain(
+      `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
+    )
+    // And without the ffmpeg core, which the installers don't carry: in CI make dist would
+    // require it (scripts/build-dist/src/ffmpeg-core.ts).
+    expect(make).toMatch(/\n\s+CI: false\n/)
+    expect(make).toContain(`FXM_FFMPEG_CORE_DIR: ${expression('runner.temp')}/no-ffmpeg-core`)
+    expect(make).not.toContain('FXM_REQUIRE_FFMPEG_CORE')
+    expect(read('../../web/package.json')).toContain(
+      '"build:desktop": "vite build --base=/ --outDir dist-desktop"',
+    )
+    expect(notices).toContain('make rust-setup')
+    expect(notices).toContain(
+      'apps/desktop/release/release.ts notices --version "$VERSION"\n          --web dist/pages/third-party-notices.txt --out apps/desktop/dist/third-party-notices.txt',
+    )
+    expect(notices).toMatch(
+      /name: third-party-notices\n\s+path: apps\/desktop\/dist\/third-party-notices\.txt\n/,
+    )
+    // No key reaches it.
+    expect(notices).not.toContain('secrets.')
+  })
+
+  it('bundles the notices into every installer, and checks that each carries them', () => {
+    const build = steps(job(workflow, 'build'))
+    const index = (predicate: (step: string) => boolean) => {
+      const found = build.findIndex(predicate)
+      expect(found).toBeGreaterThanOrEqual(0)
+      return found
+    }
+    const download = index((step) => step.includes('name: third-party-notices'))
+    const tauri = index((step) => step.includes('tauri-apps/tauri-action@'))
+    const check = index((step) => step.includes('carry the third-party notices'))
+    const collect = index((step) => step.includes('release.ts collect'))
+    expect(download).toBeLessThan(tauri)
+    expect(tauri).toBeLessThan(check)
+    expect(check).toBeLessThan(collect)
+    // Where tauri.release.conf.json takes the file from, relative to src-tauri.
+    expect(build[download]).toMatch(/\n\s+path: apps\/desktop\/dist\n/)
+    const resources = (releaseConfig.bundle as { resources: Record<string, string> }).resources
+    expect(Object.keys(resources)).toEqual(['../dist/third-party-notices.txt'])
+    // Byte for byte, where each platform's app reads it.
+    expect(build[check]).toContain('FXM.app/Contents/Resources/third-party-notices.txt')
+    expect(build[check]).toContain("'*usr/lib/FXM/third-party-notices.txt'")
+    expect(build[check]).toContain('"$release/third-party-notices.txt"')
+  })
+
+  it('builds the web app in the installers with the deploy’s Jamendo switch', () => {
+    const build = steps(job(workflow, 'build')).find((step) =>
+      step.includes('tauri-apps/tauri-action@'),
+    )
+    expect(build).toContain(
+      `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
+    )
+    // The same variable as the deploy's make dist.
+    expect(read('../../../.github/workflows/deploy.yml')).toContain(
+      `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
+    )
+  })
+
+  it('names only the build jobs’ artifacts desktop-*, which the sign job gathers', () => {
+    // The sign job downloads every desktop-* artifact, and release.ts sign refuses any folder
+    // that isn't a target's: an artifact of another job by such a name would stop every release.
+    expect(job(workflow, 'sign')).toMatch(/pattern: desktop-\*\n/)
+    const uploads = [
+      ...workflow.matchAll(/uses: actions\/upload-artifact@\S+.*\n\s+with:\n\s+name: (.+)/g),
+    ]
+    expect(uploads.map(([, name]) => name)).toEqual([
+      'third-party-notices',
+      `desktop-${expression('matrix.target')}`,
+      'release-desktop',
+    ])
+  })
+
+  it('uploads release-desktop, the artifact release.yml publishes', () => {
+    expect(job(workflow, 'sign')).toMatch(/name: release-desktop\n\s+path: dist\/release-desktop\//)
+  })
+
+  it('builds without caches, as release.yml does', () => {
+    expect(workflow).not.toContain('actions/cache@')
+  })
+
+  it('checks the macOS signature is ad hoc and the .deb asks for GStreamer', () => {
+    expect(workflow).toMatch(/grep -qx 'Signature=adhoc'/)
+    expect(workflow).toContain(
+      'for package in gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav',
+    )
+    expect(workflow).toContain('apps/desktop/release/gstreamer-check.sh')
+  })
+})
+
+describe('tauri.release.conf.json', () => {
+  it('turns on the updater’s files and bundles the notices, and changes nothing else', () => {
+    expect(releaseConfig).toEqual({
+      $schema: 'https://schema.tauri.app/config/2',
+      bundle: {
+        createUpdaterArtifacts: true,
+        resources: { '../dist/third-party-notices.txt': 'third-party-notices.txt' },
+      },
+    })
+  })
+})
+
+describe('release.yml', () => {
+  const desktopJob = job(release, 'desktop')
+
+  it('builds the desktop app for every release, with the updater key', () => {
+    expect(desktopJob).toContain('uses: ./.github/workflows/desktop-release.yml')
+    expect(desktopJob).toContain("if: needs.plan.outputs.release == 'true'")
+    expect(desktopJob).toMatch(/sha: \$\{\{ needs\.plan\.outputs\.sha \}\}/)
+    expect(desktopJob).toMatch(/version: \$\{\{ needs\.plan\.outputs\.version \}\}/)
+    expect(desktopJob).toMatch(/release: true/)
+    // By name: GitHub hands the desktop-updater environment's secrets to the called workflow's
+    // sign job only when the caller passes them, even though they exist in the environment alone.
+    const secrets = [...desktopJob.matchAll(/^ {6}(\w+): \$\{\{ secrets\.(\w+) \}\}$/gm)]
+    expect(secrets.map(([, name, secret]) => [name, secret])).toEqual([
+      ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY'],
+      ['TAURI_SIGNING_PRIVATE_KEY_PASSWORD', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD'],
+    ])
+  })
+
+  it('publishes only once the desktop job succeeded, with its files', () => {
+    const publish = job(release, 'publish')
+    // Next to the other artifact jobs it waits for, such as the Android app's.
+    expect(/^ {4}needs: \[(.*)\]$/m.exec(publish)?.[1]?.split(', ')).toContain('desktop')
+    expect(publish).toMatch(/name: release-desktop\n\s+path: dist\/artifacts\/release-desktop/)
+  })
+})
+
+describe('desktop.yml', () => {
+  it('checks the crates’ licences for the notices on Linux, before a release would', () => {
+    const check = steps(job(desktop, 'build')).find((step) =>
+      step.includes('apps/desktop/release/release.ts notices'),
+    )
+    expect(check).toMatch(/\n\s+if: runner\.os == 'Linux'\n/)
+    // Only the check: no make dist, no file.
+    expect(check).not.toMatch(/--web|--out/)
+  })
+
+  it('runs a dry run of the release when started by hand with release-dry-run', () => {
+    expect(desktop).toMatch(/workflow_dispatch:\n {4}inputs:\n {6}release-dry-run:\n/)
+    const dryRun = job(desktop, 'release-dry-run')
+    expect(dryRun).toContain('uses: ./.github/workflows/desktop-release.yml')
+    expect(dryRun).toContain(`if: ${expression('inputs.release-dry-run')}`)
+    // No key, no release.
+    expect(dryRun).not.toMatch(/secrets|release: true/)
+    expect(job(desktop, 'build')).toContain(`if: ${expression('!inputs.release-dry-run')}`)
+  })
+})
+
+describe('the release catalog (scripts/release-lib.sh)', () => {
+  it('lists for release-desktop exactly the files release/targets.ts makes, and latest.json', () => {
+    const listed = [...releaseLib.matchAll(/^release-desktop\|([^|]+)\|/gm)].map(([, name]) => name)
+    expect([...listed].sort()).toEqual(
+      [...releaseFiles('<version>').map((file) => file.name), MANIFEST_NAME].sort(),
+    )
+  })
+})

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RELEASED } from './config'
 import { detectDevice } from './device'
 import {
@@ -240,6 +240,76 @@ describe('the sentences that name the apps', () => {
     expect(connectExtensionOrApps()).toBe('the free FXM Connect browser extension')
     expect(appsReachSentence('YouTube Music')).toBe(
       'FXM reaches YouTube Music through the free FXM Connect browser extension. The desktop and Android apps are coming soon.',
+    )
+  })
+})
+
+describe('once the desktop app is out', () => {
+  // The words of a release that carries the desktop app (stage 7.5), over a release map with it
+  // on and the Android app still to come. RELEASED keeps it off until a release carries it.
+  async function explainWithDesktop() {
+    vi.resetModules()
+    vi.doMock('./config', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./config')>()
+      return { ...actual, RELEASED: { ...actual.RELEASED, desktop: true, android: false } }
+    })
+    return import('./explain')
+  }
+
+  afterEach(() => {
+    vi.doUnmock('./config')
+    vi.resetModules()
+  })
+
+  it('offers it next to FXM Connect on computers', async () => {
+    const { howToGetMore, reachSentence } = await explainWithDesktop()
+    for (const computer of [chrome, firefox]) {
+      expect(howToGetMore(computer, 'youtube-and-spotify')).toBe(
+        'For YouTube Music and Spotify, add the free FXM Connect extension, or use the desktop app.',
+      )
+      expect(howToGetMore(computer, 'spotify')).toBe(
+        'For Spotify, add the free FXM Connect extension, or use the desktop app.',
+      )
+    }
+    expect(howToGetMore({ browser: 'other', os: 'linux' }, 'spotify')).toBe(
+      'For Spotify, add the free FXM Connect extension to Chrome, Edge, Brave or Firefox, or use the desktop app.',
+    )
+    expect(howToGetMore(macSafari, 'spotify')).toBe(
+      "Spotify needs FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there, or use the desktop app.",
+    )
+    expect(howToGetMore(chrome, 'youtube')).toBe(
+      'For YouTube Music, add the free FXM Connect extension, or use the desktop app.',
+    )
+    expect(howToGetMore(chrome, 'youtube-downloads')).toBe(
+      'For downloads of YouTube Music songs, add the free FXM Connect extension, or use the desktop app.',
+    )
+    expect(reachSentence('Spotify', macSafari)).toBe(
+      "Spotify needs FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there, or use the desktop app.",
+    )
+  })
+
+  it('offers it on computers only, and the Android app only once that is out too', async () => {
+    const { appsSentence, howToGetMore } = await explainWithDesktop()
+    for (const somewhere of [chrome, firefox, macSafari, iphone]) {
+      expect(howToGetMore(somewhere, 'spotify')).not.toMatch(/Android app/)
+    }
+    expect(howToGetMore(iphone, 'spotify')).not.toMatch(/desktop app/)
+    expect(howToGetMore(android, 'youtube-and-spotify')).toBe(
+      "YouTube Music and Spotify need FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
+    )
+    expect(appsSentence()).toBe(
+      'The desktop app needs no extension: it has everything built in. The Android app is coming soon.',
+    )
+  })
+
+  it('names it in the sentences that name the apps, with the Android app as coming', async () => {
+    const { appsReachSentence, connectExtensionOrApps, connectOrApps } = await explainWithDesktop()
+    expect(connectOrApps()).toBe('FXM Connect or the desktop app')
+    expect(connectExtensionOrApps()).toBe(
+      'the free FXM Connect browser extension or the desktop app',
+    )
+    expect(appsReachSentence('YouTube Music')).toBe(
+      'FXM reaches YouTube Music through the free FXM Connect browser extension, or through the desktop app. The Android app is coming soon.',
     )
   })
 })

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   canAddConnect,
   detectDevice,
@@ -90,6 +90,23 @@ describe('recommendedGuide', () => {
 
   it("suggests the Chromium guide to a browser it doesn't know, until the desktop app is out", () => {
     expect(recommendedGuide({ browser: 'other', os: 'linux' })).toBe('chromium')
+  })
+
+  it("suggests the desktop app to a computer browser it doesn't know, once the app is out", async () => {
+    vi.resetModules()
+    vi.doMock('./config', async (importOriginal) => {
+      const actual = await importOriginal<typeof import('./config')>()
+      return { ...actual, RELEASED: { ...actual.RELEASED, desktop: true } }
+    })
+    try {
+      const { recommendedGuide: guide } = await import('./device')
+      expect(guide({ browser: 'other', os: 'linux' })).toBe('desktop')
+      // The browsers it knows keep their own guide.
+      expect(guide(at(UA.firefoxLinux))).toBe('firefox')
+    } finally {
+      vi.doUnmock('./config')
+      vi.resetModules()
+    }
   })
 })
 

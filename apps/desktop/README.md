@@ -1,6 +1,6 @@
 # @fxm/desktop
 
-The FXM desktop app for macOS, Windows and Linux: the web app (`apps/web`) in a [Tauri 2](https://v2.tauri.app) shell. This is FXM's installable "applet". It reaches YouTube, Spotify and every other service through native networking in Rust (tauri-plugin-http), so it needs no FXM Connect extension. Stage 7.1 built the shell, stage 7.2 its networking and stage 7.3 its playback and OS integration: a tray menu, a close button that keeps the music playing, playback in a hidden window and the system media controls.
+The FXM desktop app for macOS, Windows and Linux: the web app (`apps/web`) in a [Tauri 2](https://v2.tauri.app) shell. This is FXM's installable "applet". It reaches YouTube, Spotify and every other service through native networking in Rust (tauri-plugin-http), so it needs no FXM Connect extension. Stage 7.1 built the shell, stage 7.2 its networking, stage 7.3 its playback and OS integration (a tray menu, a close button that keeps the music playing, playback in a hidden window and the system media controls) and stage 7.5 its [releases](#releases) and [updates](#updates). How users install it is in [INSTALL.md](INSTALL.md).
 
 Setup, prerequisites per OS, commands and disk usage are in [DEVELOPMENT.md → Desktop app](../../docs/DEVELOPMENT.md#desktop-app). In short:
 
@@ -10,21 +10,30 @@ make desktop-dev     # web dev server on port 5260 + the app window, with hot re
 make desktop-build   # FXM.app on macOS (all bundle types elsewhere), in src-tauri/target/release/bundle/
 make desktop-check   # rustfmt, clippy, cargo test
 scripts/run.sh pnpm --filter @fxm/desktop smoke   # the live smoke test, in a hidden window
+scripts/run.sh gh workflow run desktop.yml --ref <branch> -f release-dry-run=true   # the release builds, as a dry run
 ```
 
 ## Layout
 
 ```
+INSTALL.md                how users install the app: which file, "Open Anyway", SmartScreen, Smart
+                          App Control, the Linux packages
 assets/icon.svg           the FXM mark (same art as the web favicon), source of every icon
 assets/tray-template.svg  the FXM bars alone: the macOS menu bar icon (the "tray-icon" script)
 assets/tray-color.svg     the tray icon on Windows and Linux, drawn for 16 px (the "tray-icon" script)
 scripts/prune-icons.mjs   keeps only the icons tauri.conf.json lists (run by the "icons" script)
 bridge/                   @fxm/desktop/bridge: the web app's side of playback and OS integration,
                           with its tests next to the code
-test/                     Vitest checks of the Tauri config, the isolation hook, desktop.yml, the
-                          bridge's contract with the Rust side and the smoke test's steps; part of
-                          `make test`, no Rust needed
+test/                     Vitest checks of the Tauri config, the isolation hook, desktop.yml and
+                          desktop-release.yml, the bridge's contract with the Rust side and the smoke
+                          test's steps; part of `make test`, no Rust needed. fixtures/updater holds
+                          a test key's signature that the Rust tests check too
 isolation/                the isolation hook that IPC messages pass through (see Network)
+release/                  the release workflow's steps (release.ts), the release targets (targets.ts),
+                          latest.json (manifest.ts), the updater's signatures (minisign.ts), the
+                          AppImage's pinned tools (appimage-tools.ts) and the third-party notices
+                          (notices.ts, with the licence texts it takes from crates' repositories in
+                          licences/), with their tests; see Releases
 smoke/                    the live smoke test: its page, its steps and run.mjs, which runs the app
 src-tauri/
   Cargo.toml, Cargo.lock  the Rust crate `fxm` (also the executable's name)
@@ -41,11 +50,15 @@ src-tauri/
   src/fullscreen.rs       macOS: leaving full screen before the close button hides the window
   src/playback.rs         what the web app's player is doing (`set_now_playing`)
   src/environment.rs      the OS and webview versions (`desktop_environment`)
+  src/updater.rs          looking for updates, offering them and installing them
+  src/notices.rs          the third-party notices among a release's resources, for Settings → About
+                          (`third_party_notices`)
   src/network.rs          native network change notifications
   src/smoke.rs            prints the smoke test's report and exits (with `--features smoke` only)
   tauri.conf.json         app identity, window, CSP, the isolation pattern, the http plugin's
                           settings, build commands and bundle settings
   tauri.smoke.conf.json   what the smoke build changes: its own identifier, its page, a hidden window
+  tauri.release.conf.json what release builds change: they make the updater's files
   capabilities/           what the web app may call: the http allow-list lives here
   request-headers.json    the Origin rules for when plugins-workspace PR #3703 ships (not read yet)
   permissions/            generated by tauri-build for the app's commands, not committed
@@ -62,7 +75,8 @@ src-tauri/
 - **Links.** tauri-plugin-opener opens `target="_blank"` links in the default browser.
 - **Network.** Every request the web app makes through `ctx.fetch` goes through Rust, and IPC messages pass the isolation hook first: see [Network](#network) below, which also says where they don't.
 - **Playback.** `<audio>` in the webview, as on the web, with the desktop app's rules, a tray menu and background playback: see [Playback and OS integration](#playback-and-os-integration).
-- **No updater yet.** Stage 7.5 adds the updater, installers on GitHub Releases and macOS signing.
+- **Version.** The app's version is `apps/desktop/package.json`'s (`"version": "../package.json"` in `tauri.conf.json`), which `make release-pr` sets with every other package's.
+- **Releases and updates.** Every release builds the installers for each platform, the updater's files and `latest.json`, and the app installs newer versions after asking: see [Releases](#releases) and [Updates](#updates).
 - **The isolated evaluator** (stage 1.11, `src/evaluator.rs`). The app's `fxm-evaluator` plugin opens a hidden webview window on its own URI scheme, `fxm-eval://localhost/eval.html` (`http://fxm-eval.localhost/` on Windows), and serves `apps/web/sandbox/eval.html` from it with that document's own policy: its inline script by hash, `'unsafe-eval'`, and no connections. The main window drives it through the plugin's `open` (a new window each time), `eval` (`eval_with_callback`) and `close` commands, which `fxm-evaluator:default` in `capabilities/default.json` grants to the main window only. YouTube's player script runs there, never in the main window ([packages/platform/src/evaluator/README.md](../../packages/platform/src/evaluator/README.md)). What its page can't do:
   - **Call commands.** No capability names its webview, so it can call no plugin command, and none of the app's own commands either: Tauri checks app commands (those of `tauri::Builder::invoke_handler`) against the capabilities only when the app declares an access-control manifest, and `build.rs` declares one for them (see [App commands and permissions](#network)). Without it, any page at a local URL, the evaluator's included, could call them; `test/evaluator.test.ts` fails if an app command is registered while `build.rs` declares no `app_manifest` for it.
   - **Leave its document.** The window refuses every navigation away from `eval.html` and every new window, and `eval` destroys a window that shows anything else instead of reading it. On macOS and Linux one page gets through before the plugin's guard sees it: Tauri always lets a webview load its isolation frame's page (stage 7.2), a local page that may connect nowhere.
@@ -71,7 +85,7 @@ src-tauri/
 - **The evaluator and the isolation hook.** The main window's calls to the plugin pass the isolation hook like any other IPC message, and reach Rust unchanged (`test/isolation.test.ts`). The evaluator's page needs no IPC, since the main window reads it with `eval`, and its policy keeps out the isolation frame that Tauri adds to every page.
 - **Still to check in a running app** (stage 1.11): that Tauri serves the `fxm-eval:` responses as the plugin writes them, policy included; that the navigation guard holds; that the evaluator document runs although its policy blocks the isolation frame, and keeps answering while FXM is hidden (WebView2 and WebKitGTK may throttle it, which the main window's Web Lock doesn't cover); and that FXM quits with the evaluator window open, through Quit on macOS, Windows and Linux, and through the close button where it closes the main window (Linux without a tray icon).
 
-The tests in `test/` pin the CSP, the isolation pattern and its hook, the http plugin's scope and settings, the permissions around them, `default.json` as the only capability file, the app's commands, the plugins `src/lib.rs` registers, the app's own evaluator plugin included, the tray feature and the window's background throttling, so widening any of them is always a deliberate change.
+The tests in `test/` pin the CSP, the isolation pattern and its hook, the http plugin's scope and settings, the permissions around them, `default.json` as the only capability file, the app's commands, the plugins `src/lib.rs` registers, the app's own evaluator plugin included, the tray feature, the window's background throttling, and the updater's endpoint and settings, so widening any of them is always a deliberate change.
 
 ## Network
 
@@ -341,6 +355,119 @@ Build the app (`make desktop-build`) and open `FXM.app`:
 | | Windows | | Not run yet |
 | | Linux | | Not run yet |
 
+## Releases
+
+Every release builds the desktop app: `release.yml` calls `.github/workflows/desktop-release.yml` with the commit and version it releases, then publishes what that uploads with the rest of the release ([docs/WORKFLOW.md, "Releases"](../../docs/WORKFLOW.md#8-releases)). tauri-action builds each target on a runner of its own, with `src-tauri/tauri.release.conf.json` merged over the config, which turns on the updater's files and bundles the [third-party notices](#third-party-notices):
+
+| Target | Runner | Files in the release |
+|---|---|---|
+| macOS, Apple silicon | `macos-latest` | `fxm-desktop-<version>-macos-arm64.dmg`, and its `.app.tar.gz` for the updater |
+| macOS, Intel | `macos-latest`, cross-compiled | `fxm-desktop-<version>-macos-x64.dmg`, and its `.app.tar.gz` |
+| Windows x64 | `windows-latest` | `fxm-desktop-<version>-windows-x64-setup.exe` (NSIS, for one account) and `-windows-x64.msi` (for every user) |
+| Linux x64 | `ubuntu-22.04` | `fxm-desktop-<version>-linux-x64.deb` and `-linux-x64.AppImage` |
+| Linux arm64 | `ubuntu-22.04-arm` | `fxm-desktop-<version>-linux-arm64.deb` and `-linux-arm64.AppImage` |
+
+And `latest.json`, the updater's manifest. `release/targets.ts` lists the targets and their files, and R.1's catalog (`fxm_release_catalog` in `scripts/release-lib.sh`) the same files, which a test keeps equal. Every name follows the release's own, `fxm-desktop-<version>-<os>-<cpu>`, with x64 and arm64 whatever a format calls them; `latest.json` alone has a fixed name, which installed apps look up. Linux builds on Ubuntu 22.04, so its files need glibc 2.35 or later. No `.rpm`: other distributions get the AppImage, and Flathub with stage R.3. How users install each file is in [INSTALL.md](INSTALL.md).
+
+**Signing.**
+
+- **macOS:** signed ad hoc (`bundle > macOS > signingIdentity` `"-"`), with the hardened runtime that Tauri turns on, and not notarized: FXM joins no Apple program ([docs/ARCHITECTURE.md §1](../../docs/ARCHITECTURE.md#non-goals)). Apple silicon calls an unsigned app from the internet "damaged"; signed ad hoc, it gets Gatekeeper's warning and "Open Anyway". The build checks the signature (`codesign --verify --deep --strict`, `Signature=adhoc`). `make desktop-build` signs ad hoc too, so local builds match: on 2026-10-26, on macOS 15.5 (Apple M4), `codesign --verify --deep --strict` passed with `flags=0x10002(adhoc,runtime)` and sealed resources, and `spctl --assess` rejected the app, as Gatekeeper does until the user chooses "Open Anyway". No Homebrew cask while the app isn't notarized: Homebrew disables casks that fail Gatekeeper.
+- **Windows:** unsigned, so SmartScreen warns about the installers and Smart App Control blocks them. Free signing through SignPath Foundation or OSSign is stage 7.6's, once one of them accepts FXM.
+- **Linux:** nothing to sign. Each release's `SHA256SUMS` and attestations cover every platform's files.
+
+**GStreamer.** WebKitGTK plays audio with GStreamer: Opus, Vorbis, MP3 and FLAC need its base and good plugins, and AAC (YouTube's AAC 140, and the itag 18 fallback) needs gst-libav.
+
+- The `.deb` depends on `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `gstreamer1.0-libav` and an audio output (`gstreamer1.0-pulseaudio | gstreamer1.0-alsa`), besides what Tauri adds itself (`libwebkit2gtk-4.1-0`, `libgtk-3-0`, `libayatana-appindicator3-1`), in the `sound` section. Debian's and Ubuntu's WebKitGTK depend on base and good already, but Ubuntu's only suggests gst-libav, which is in universe there.
+- The AppImage bundles GStreamer (`bundleMediaFramework`), so it plays with its own copy and none of the host's plugins. The release installs base, good and the audio outputs only, all LGPL, and `release/gstreamer-check.sh` stops a build that would bundle gst-libav, ugly or bad: gst-libav decodes with Ubuntu's FFmpeg, which has GPL parts. So the AppImage plays Opus, Vorbis, MP3 and FLAC, but no AAC: a song that only resolves to AAC plays with the `.deb`, not with the AppImage. An LGPL-only FFmpeg build in the AppImage would fix that: not done.
+
+**The AppImage's tools.** The bundler makes the AppImage with tools that it downloads from GitHub releases the first time and runs unchecked: the AppImage's entry point (`AppRun`), linuxdeploy and linuxdeploy's AppImage plugin, whose `continuous` release is rebuilt every month. The plugin's appimagetool downloads the AppImage runtime as well, the first bytes of the file, from type2-runtime's `continuous` release. The release signs the AppImage with the updater key, so whatever those tools put into it would reach every installed AppImage as an update. So each Linux build first fetches them, and the runtime, from releases that aren't rebuilt (`release.ts appimage-tools`), checks each against the SHA-256 in `release/appimage-tools.ts`, and puts them in the bundler's tools folder (`target/.tauri`, with `useLocalToolsDir`), which it looks in before it downloads anything; appimagetool gets the runtime as `LDAI_RUNTIME_FILE`. A file that doesn't match stops the build before anything runs it. After the build, a check stops the job if the folder holds a tool that the bundler fetched itself, or if an AppImage doesn't start with the pinned runtime, byte for byte but for the 16-byte digest that appimagetool writes into it. `desktop.yml`'s builds, whose files are never released, still let the bundler fetch them.
+
+**Jamendo.** The web app in the installers is built with the deploy's Jamendo switch, the repository variable `FXM_JAMENDO_CLIENT_ID` ([packages/sources/src/jamendo/README.md](../../packages/sources/src/jamendo/README.md)), so the desktop app offers Jamendo exactly when the deployed web app does.
+
+**The updater's files.** `tauri build` makes them only with a signing key (`TAURI_SIGNING_PRIVATE_KEY`), which it signs them with. The build jobs run the code of hundreds of crates and npm packages, so they never get the updater key: each one makes a throwaway key (`release.ts build-key`), and Tauri warns that it doesn't match the apps' public key. The sign job then gathers every build's files, signs the ones the updater installs with the updater key (`release.ts sign`, with Node's own crypto in `release/minisign.ts`: the job installs nothing), writes `latest.json` and checks every signature against the public key the apps carry, as each platform's updater will.
+
+**Dry run.** Start `desktop.yml` by hand with `release-dry-run` (`scripts/run.sh gh workflow run desktop.yml --ref <branch> -f release-dry-run=true`, or Actions → Desktop → Run workflow). It runs `desktop-release.yml` on the branch's commit with the version in `apps/desktop/package.json`: the notices job writes the third-party notices, every target builds, its apps carrying its build's throwaway public key in place of the placeholder (which can't build updater files), and the sign job signs with a throwaway key of its own, so no installed app would accept a dry run's update. The files stay with the run, as artifacts: `release-desktop`, the release's files and `latest.json`, for 30 days, and each target's own for 7. Nothing is published or tagged, and no secret is read. Locally, `make desktop-build` builds this machine's target without the updater's files, so it needs no key, and without the third-party notices.
+
+The first dry run, on 2026-10-26 ([run 40264753607](https://github.com/Pratyay-ops/FXM/actions/runs/40264753607), version 0.0.0), passed on every target. Its `release-desktop` held the ten installers and updater files (from 4.1 MB for the Windows installer to 95 MB for the x64 AppImage) and `latest.json`, with the 13 platforms each signed for version 0.0.0, and `scripts/release-collect.sh` took all eleven. Both `.app.tar.gz` held `FXM.app` alone, without AppleDouble files, its ad-hoc signature valid once extracted (arm64 and x86_64). The arm64 `.deb` asked for `gstreamer1.0-plugins-base, gstreamer1.0-plugins-good, gstreamer1.0-libav, gstreamer1.0-pulseaudio | gstreamer1.0-alsa, libayatana-appindicator3-1, libwebkit2gtk-4.1-0, libgtk-3-0`, and both AppImages bundled the GStreamer plugins of base (28), good (72), alsa, gl, x and GStreamer's core only. `gstreamer1.0-pulseaudio` brought no plugin of its own: since Debian 11 and Ubuntu 22.04 it is a transitional package, and the PulseAudio plugin is part of good. Where a distribution drops it, the `.deb`'s dependency falls back to `gstreamer1.0-alsa`.
+
+The second, also on 2026-10-26 ([run 40274843619](https://github.com/Pratyay-ops/FXM/actions/runs/40274843619)), built the AppImages with the pinned tools and passed on every target. Each Linux job fetched the four files with their pinned SHA-256, the bundler downloaded none of them (the first run's log shows its three downloads), and the tools folder held nothing else after the build. The x86_64 AppImage's first 944,632 bytes were those of type2-runtime 20251108, but for one run of 16 bytes, the digest; the runtime check, added after this run, accepts that AppImage. The third ([run 40277684121](https://github.com/Pratyay-ops/FXM/actions/runs/40277684121)), with that check, passed on every target too: both AppImages, x86_64 and aarch64, started with the pinned runtime, and the bundler again downloaded nothing.
+
+
+### Third-party notices
+
+Every installer carries `third-party-notices.txt` among the app's resources (`bundle > resources` in `tauri.release.conf.json`): in `FXM.app/Contents/Resources` on macOS, next to `fxm.exe` on Windows, and in `/usr/lib/FXM` in the `.deb` and the AppImage. Settings → About → Third-party notices shows it in the app: the web app's composition root connects it inside Tauri (`connectDesktopNotices` in `apps/web/src/app/services/desktop.ts`), and opening it reads the file through the bridge (`readThirdPartyNotices`) and `src/notices.rs`. Local and development builds carry none: About then says so, and links the notices on FXM's site. The command takes no arguments and reads that one file only, behind its `allow-third-party-notices` permission, which `default.json` grants to the main window's own webview, like the app's other commands. The release workflow's notices job writes the file once for all five targets (`release.ts notices`, `release/notices.ts`):
+
+- **Part 1, the Rust crates**, from `cargo metadata --filter-platform` for each target, followed from the app's crate along normal dependencies: build and dev dependencies, and proc macros with what only they use, run while the app compiles and none of their code ends up in it. Each crate is listed with its licence, its repository and the targets that include it, then come the licence, copying, copyright and notice files from each crate's source code as crates.io publishes it, deeper ones included (ring's once_cell polyfill, regex-syntax's Unicode tables), every text once with the crates it comes with. The crates that FXM may ship only under the MPL-2.0 are listed with crates.io's download of their source code, as the MPL asks of an executable (section 3.2). Every crate must come from crates.io. On 2026-10-26: 373 crates, 237 distinct licence texts, about 760 KB, with cssparser, dtoa-short, option-ext and selectors under the MPL-2.0.
+- **Part 2, the web app**: make dist's `third-party-notices.txt`, as the notices job's `make dist` writes it ([scripts/build-dist/README.md](../../scripts/build-dist/README.md)), which holds the web app's packages with the rest of FXM's site. It composes without stage 4.2's ffmpeg core (from an empty `FXM_FFMPEG_CORE_DIR`, with `CI: false`, as outside CI, where make dist doesn't require the core), since the desktop app's web build doesn't include it.
+
+The licence policy is make dist's (`ACCEPTED_LICENCES` in `scripts/build-dist/src/licenses.ts`: GPL and AGPL never), and the notices job stops the release on anything it can't cover:
+
+- a licence outside that policy, until a review in `CRATE_LICENCE_OVERRIDES`: webpki-roots' CDLA-Permissive-2.0, Mozilla's root certificates as data;
+- a crate that ships no licence text, until a review in `REVIEWED_CRATE_TEXTS` says which licence its expression offers FXM and where that licence's text comes from: FXM's own Apache License 2.0, another crate of the same project (selectors takes cssparser's MPL-2.0, alloc-stdlib alloc-no-stdlib's BSD-3-Clause), or the repository's licence file at a pinned commit, copied into `release/licences/` with its SHA-256 (objc2, block2, objc2-encode and objc2-foundation; webview2-com and webview2-com-sys; dlopen2). Twenty crates on 2026-10-26;
+- licence files deeper in a crate, which count unless `NESTED_EXCLUSIONS` says why they don't apply: libdbus-sys' copy of D-Bus's source, which it compiles only with its `vendored` feature.
+
+A review holds while the crate's licence expression stays the same: when one changes, check the crate again and update its entry. desktop.yml's Linux build checks the crates the same way on every push (`release.ts notices` without `--web` and `--out`), so a dependency update that would stop a release fails there first. After `tauri build`, each build job checks that its installers carry the notices job's file, byte for byte: in `FXM.app` and in the `.deb`, and on Windows, whose NSIS installer and MSI the runner can't read, in the copy that `tauri build` puts next to `fxm.exe` from the same resources.
+
+Still to do:
+
+- The AppImage bundles shared libraries from Ubuntu 22.04 (WebKitGTK, GTK, GStreamer and what they need, mostly under the LGPL), whose licences and source code are Ubuntu's packages'. The notices don't list them yet.
+- The desktop app's web build (`build:desktop`) has no ffmpeg core: make dist puts stage 4.2's core into the deployed app's `ffmpeg/` folder only, so the desktop app can't convert what it saves yet. Once the installers carry the core, the notices job's `make dist` must compose with it too, so that its notice comes along.
+
+## Updates
+
+The app looks for a newer version and installs it once the user agrees (`src/updater.rs`), through tauri-plugin-updater. Only Rust uses the plugin: the web app's capability grants none of its commands, so no page script, a signed resolver module included, can check, download or install anything.
+
+- **When.** In release builds that carry a real key only: 10 seconds after FXM starts, then every 24 hours while it runs (it can stay in the tray for days), or an hour after a check that failed. Debug builds (`make desktop-dev`, the smoke test) and builds with the placeholder never look.
+- **Where.** `https://github.com/Pratyay-ops/FXM/releases/latest/download/latest.json` (`plugins > updater > endpoints`): the latest release's manifest, which GitHub redirects to its download host. The request carries the plugin's User-Agent, `tauri-plugin-updater/<version>`. The site's privacy page says that the apps check GitHub for updates.
+- **Asking.** A native dialog, as when FXM asks before contacting a new host (rfd), and only while FXM's window is in front: never over another app, never from the tray, where the offer waits for the window. "Later" is the button Return presses on macOS and Windows, and the next check offers the version again. "Install and Restart" downloads it, with the progress in the window's title, checks it, installs it and starts FXM again. A failure is told in a message, with the release page's address.
+- **Stalls.** The check and the download give up when nothing arrives for a minute (and connecting gives up after 30 s; the whole check, `latest.json`, after a minute), as when a laptop sleeps or the Wi-Fi changes mid-download: without a limit, reqwest would wait for ever, the title would stay at its last percentage and FXM would look for updates again only after a restart. A download that gave up is told like any other failure.
+- **Installing.** macOS replaces `FXM.app` where it is (with an administrator's password when its folder needs one); Windows runs the new NSIS installer or MSI in passive mode (`plugins > updater > windows > installMode`), which closes FXM and opens it again; Linux replaces the AppImage. The plugin picks the file by the bundle the running app came from: the bundler marks each bundle's executable, and `latest.json` lists `<os>-<arch>-<bundle>` for each (`darwin-aarch64-app`, `windows-x86_64-msi`, `linux-x86_64-deb`, …), and `<os>-<arch>` for an app without a mark (the `.app.tar.gz`, the NSIS installer, the AppImage). So an MSI installation never gets the NSIS installer, nor a `.deb` installation the AppImage.
+- **The `.deb`.** apt installed it, so apt updates it: for a `.deb` installation the offer names the new version and the file to install with `sudo apt install`, and its button, "Open Release Page", opens the release in the browser. FXM installs nothing itself there, because the plugin would run `dpkg -i` through pkexec and, when that fails or the user cancels the system's password prompt, ask for the password again in a dialog of its own (zenity or kdialog), pipe it to `sudo -S`, and fall back to `sudo` in a terminal last: cancelling wouldn't cancel the install, and the user's password would pass through FXM. `latest.json` still lists the `.deb`s, so such an installation finds its new version.
+- **Trust.** The plugin installs a download only when its signature holds under the public key in `tauri.conf.json` (minisign, Ed25519). `requireSignedVersion` also has it check the version that the signature's trusted comment names against the version that `latest.json` announces: `latest.json` itself isn't signed, and without the check, whoever could serve one could pair a new version number with an older, validly signed release. No `dangerous…` setting, and no `allowDowngrades`.
+
+### The updater key
+
+A minisign key pair (Ed25519), made with the Tauri CLI. Every app carries the public key, which is committed in `tauri.conf.json`; the secret key signs every release, and only the release workflow's sign job gets it, from the `desktop-updater` environment, once the owner has approved the run. **Until the owner commits FXM's public key, `tauri.conf.json` holds a placeholder: every release stops at its first job (`release.ts check`), and no build looks for updates.**
+
+1. Make the pair outside the repository, with a password, which the CLI asks for twice. It never overwrites an existing key without `--force`. Give it an absolute path: `pnpm exec` runs in `apps/desktop`.
+
+   ```sh
+   mkdir -p ~/FXM-keys && chmod 700 ~/FXM-keys
+   scripts/run.sh pnpm --filter @fxm/desktop exec tauri signer generate -w ~/FXM-keys/fxm-desktop-updater.key
+   ```
+
+   It writes the secret key to `fxm-desktop-updater.key`, readable by you only, and the public key to `fxm-desktop-updater.key.pub`, each as one line of base64.
+2. Put the public key, the content of `fxm-desktop-updater.key.pub`, in `plugins > updater > pubkey` in `src-tauri/tauri.conf.json` in place of the placeholder, and commit it (`chore(desktop): trust the updater key`).
+3. Set up the `desktop-updater` environment once, before adding the key: only runs on `main` may use it, and you approve each one, so every release waits for you before its sign job gets the key. Neither a pushed branch with a changed workflow nor a pull request merged into `main` by mistake, or by a tool, can then sign anything. On GitHub, open **Settings → Environments → New environment**, name it `desktop-updater` and click **Configure environment**; under **Deployment branches and tags**, choose **Selected branches and tags** and add a rule for the branch `main`; under **Required reviewers**, add yourself, and leave **Prevent self-review** off so that you can approve your own releases. Or, from the repository folder:
+
+   ```sh
+   owner_id=$(scripts/run.sh gh api users/Pratyay-ops --jq .id)
+   scripts/run.sh gh api -X PUT repos/Pratyay-ops/FXM/environments/desktop-updater --input - <<EOF
+   {
+     "reviewers": [{ "type": "User", "id": $owner_id }],
+     "prevent_self_review": false,
+     "deployment_branch_policy": { "protected_branches": false, "custom_branch_policies": true }
+   }
+   EOF
+   scripts/run.sh gh api -X POST repos/Pratyay-ops/FXM/environments/desktop-updater/deployment-branch-policies \
+     -f name=main -f type=branch
+   ```
+
+   The sign job names the environment, so a release run would create it empty, with neither rule, if it didn't exist yet. Keep `main` protected and admin rights to yourself, as [Protect the store keys](../extension/README.md#protect-the-store-keys) says for the `stores` environment: whoever can push to `main` directly, or change the environment, can get around both rules.
+4. Add the secret key and its password as secrets of that environment, never as repository secrets, which a workflow run from any pushed branch can read:
+
+   ```sh
+   scripts/run.sh gh secret set TAURI_SIGNING_PRIVATE_KEY --env desktop-updater < ~/FXM-keys/fxm-desktop-updater.key
+   scripts/run.sh gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --env desktop-updater
+   ```
+
+   `release.yml` passes both names on to `desktop-release.yml`, as GitHub needs for an environment's secret to reach a called workflow's job, and the sign job, which names the environment, gets the environment's values. When a release run reaches it, GitHub asks you to approve (**Review deployments** on the run's page): the sign job, and so the release, waits until you do.
+5. Keep the secret key and its password offline too, in a password manager. Without them, no installed app can be updated any more, and their users would have to install the next version by hand. Whoever has both can sign updates that every installed FXM accepts, wherever they manage to publish them.
+
+`release.ts sign` refuses a key whose public key isn't the one in `tauri.conf.json`, since the apps would refuse every update it signs. Changing keys therefore takes one release signed with the old key whose apps carry the new public key, which needs a one-off change to that check; it hasn't been needed.
+
+Still to check, once two releases are out: an update from one to the next on each OS, to record in the [manual check's results](#results-of-the-manual-check). On macOS that includes whether App Management (System Settings → Privacy & Security, macOS 13 and later) asks before an app signed ad hoc replaces its own bundle, and on Windows whether the passive installer runs without a SmartScreen prompt.
+
 ## Maintenance
 
 **Icons.** Edit `assets/icon.svg`, then run `scripts/run.sh pnpm --filter @fxm/desktop icons` from the repo root. The tray icons have sources of their own: `assets/tray-template.svg` for the macOS menu bar, the bars alone in black on a 36 px canvas (18 pt at 2x), and `assets/tray-color.svg` for Windows and Linux, the tile edge to edge on a 32 px canvas, every edge on a 2 px grid so it halves cleanly to 16 px. Run `scripts/run.sh pnpm --filter @fxm/desktop tray-icon` after editing either. The mark sits on the macOS icon grid (an 824 px body on a 1024 px canvas), so it lines up with other apps in the Dock. `tauri icon` writes the entries of `icon.icns` in a different order on every run, so that file shows up as changed even when the art didn't.
@@ -354,6 +481,9 @@ Build the app (`make desktop-build`) and open `FXM.app`:
 | Crates | `src-tauri/Cargo.lock` | See below |
 | `@tauri-apps/cli`, `@tauri-apps/api` | `package.json` | pnpm's `minimumReleaseAge` applies. Keep `@tauri-apps/api` on the same minor version as the `tauri` crate: `tauri build` refuses mismatched versions |
 | `@tauri-apps/plugin-http` | `packages/platform/package.json` | The same minor version as the `tauri-plugin-http` crate (2.8), for the same reason |
+| `tauri-plugin-updater` | `src-tauri/Cargo.toml` | Without its `zip` feature, which only reads Tauri 1's zipped and tarred bundles. No JavaScript package: only Rust uses it |
+| tauri-action | `.github/workflows/desktop-release.yml` | v1.0.0, pinned to its commit like every action |
+| AppImage tools | `release/appimage-tools.ts` | The files the CLI's bundler looks for when it builds an AppImage (`AppRun`, linuxdeploy `07333c6` and its AppImage plugin `1-alpha-20250213-1`) and the AppImage runtime (type2-runtime `20251108`), each with its SHA-256, for `@tauri-apps/cli` 2.12.2 (`TAURI_CLI`). A test and the release workflow refuse any other version of the CLI until they are refreshed; see below |
 
 Cargo has no stable equivalent of pnpm's `minimumReleaseAge`, so re-resolve the whole lockfile with a publish-date cutoff 14 days back:
 
@@ -366,5 +496,9 @@ RUSTC_BOOTSTRAP=1 ../../../scripts/run.sh cargo generate-lockfile -Zunstable-opt
 `RUSTC_BOOTSTRAP=1` unlocks Cargo's unstable `--publish-time` flag for this one command, which only resolves versions and compiles nothing. Builds always use `--locked` in CI.
 
 **glib stays at 0.18.** On Linux, Tauri builds its windows on GTK 3 through gtk-rs's gtk 0.18, which requires glib 0.18. glib before 0.20 has an unsound iterator, `VariantStrIter`, which only `Variant::array_iter_str()` returns ([GHSA-wrw7-89jp-8q8g](https://github.com/advisories/GHSA-wrw7-89jp-8q8g)). gtk 0.19 moved to the fixed glib 0.22, but on 2026-10-26 no Tauri release allows it: tauri 2.12.5 and 3.0.0-alpha.5, wry 0.57.1, tao 0.37.2, muda 0.21.2, tray-icon 0.26.1 and webkit2gtk 2.0.2 all require gtk 0.18. Neither FXM's code nor any crate in its Linux build calls `array_iter_str()`, and the macOS and Windows builds contain no glib at all. Update glib when Tauri moves on, and FXM's own gio with it: gio follows the glib that GTK uses, since a newer gio would add a second glib instead of replacing the old one.
+
+**Signatures.** `release/minisign.ts` reads and writes the formats of the minisign crate 0.9, which the Tauri CLI 2.12 signs with, and minisign-verify 0.3, which tauri-plugin-updater 2.13 checks with, and writes the trusted comment as the CLI does (`timestamp:…`, `file:…`, `version:…`). Its tests make key pairs and signatures with the Tauri CLI from `node_modules`, and a Rust test checks one of its signatures with minisign-verify (`test/fixtures/updater`), so a change to either side's format fails them. After updating the Tauri CLI or the plugin, compare `src/helpers/updater_signature.rs` (tauri-cli) and `verify_signature` (tauri-plugin-updater) between the releases.
+
+**AppImage tools.** After updating `@tauri-apps/cli`, refresh `release/appimage-tools.ts` before the next release. Look up the tauri-bundler release that the CLI's crate depends on (on crates.io: `=2.10.2` for the CLI 2.12.2) and compare `prepare_tools` in its `src/bundle/linux/appimage/linuxdeploy.rs` with the list: the file names (linuxdeploy's carries `LINUXDEPLOY_COMMIT_HASH`), the releases they come from, and any file added. Take each file from a dated release, never `continuous`, with its SHA-256 from GitHub (`scripts/run.sh gh api repos/<owner>/<repo>/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'`) or from the downloaded file (`shasum -a 256`). Check that linuxdeploy-plugin-appimage still passes `LDAI_RUNTIME_FILE` on to appimagetool as `--runtime-file` (its `src/main.cpp`). Then set `TAURI_CLI` to the new version, and start a release dry run to see the AppImages build.
 
 **Tauri updates.** The isolation hook depends on how Tauri's frame serializes and sends a payload, and on the plugin's request fields. `test/isolation.test.ts` copies both from tauri 2.12.3, tauri-utils 2.10.1 and tauri-plugin-http 2.8.2, and fails once `Cargo.lock` holds other releases of them. Compare `scripts/process-ipc-message-fn.js` and `scripts/ipc.js` (tauri), `src/pattern/isolation.js` (tauri-utils), `src/ipc/protocol.rs` (tauri, how Rust reads a payload) and `ClientConfig` in `src/commands.rs` (tauri-plugin-http) between the releases. Adjust the hook and the test's copy to any change, then update the versions in the test.

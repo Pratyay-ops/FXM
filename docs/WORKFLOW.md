@@ -134,7 +134,7 @@ So progress happens without anyone polling.
 
 ## 8. Releases
 
-FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs one set of secrets: the key that signs the Android APKs, in the `android-release` environment, without which a release fails before it tags anything ([apps/mobile/RELEASING.md](../apps/mobile/RELEASING.md)). Its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, and skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)). Only runs on `main` can use either environment.
+FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs two sets of secrets, and stops before it tags anything without either. The key that signs the Android APKs is in the `android-release` environment ([apps/mobile/RELEASING.md](../apps/mobile/RELEASING.md)). The desktop updater's key (`TAURI_SIGNING_PRIVATE_KEY` and its password) is in the `desktop-updater` environment, and each run waits for the owner's approval before its sign job gets it; a release also stops while `apps/desktop/src-tauri/tauri.conf.json` carries the placeholder instead of the key's public half ([apps/desktop/README.md](../apps/desktop/README.md#the-updater-key)). Its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, and skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)). Only runs on `main` can use any of the three environments.
 
 ```mermaid
 flowchart LR
@@ -163,7 +163,7 @@ flowchart LR
    git push origin develop
    ```
 
-**What a release contains.** These files, plus the ones later stages add as jobs in `release.yml`: the desktop installers (7.5). The header of `release.yml` says how to add a job.
+**What a release contains.** These files, plus any that later stages add as jobs in `release.yml`. The header of `release.yml` says how to add a job.
 
 | File | Contents |
 |---|---|
@@ -171,7 +171,13 @@ flowchart LR
 | `fxm-connect-firefox-x.y.z.xpi` | FXM Connect for Firefox, signed by Mozilla. Releases have it once the owner has added the AMO keys, while `AMO_CHANNEL` is `unlisted` (the default). With `listed`, Firefox users get FXM Connect from addons.mozilla.org instead |
 | `fxm-web-x.y.z.zip` | Exactly what Cloudflare Pages serves at `https://fxmusic.pages.dev`, for self-hosting: `make dist`'s `dist/pages/`, with the landing page at the root, the web app in `app/`, the sandbox documents, `_headers`, `third-party-notices.txt` and `.well-known/`. [scripts/build-dist/README.md](../scripts/build-dist/README.md#self-hosting) says how to serve it |
 | `fxm-android-universal-x.y.z.apk`, `fxm-android-arm64-v8a-x.y.z.apk` | The Android app for every phone, and for 64-bit ARM phones, signed with FXM's key. The release notes give its certificate's SHA-256, and [apps/mobile/INSTALL.md](../apps/mobile/INSTALL.md) how to install and check it |
+| `fxm-desktop-x.y.z-macos-arm64.dmg`, `-macos-x64.dmg` | The desktop app for Macs with Apple silicon and with Intel, signed ad hoc, not notarized |
+| `fxm-desktop-x.y.z-windows-x64-setup.exe`, `-windows-x64.msi` | The desktop app for Windows, unsigned: the installer for one account, and the MSI package for every user |
+| `fxm-desktop-x.y.z-linux-x64.deb`, `-linux-arm64.deb`, `-linux-x64.AppImage`, `-linux-arm64.AppImage` | The desktop app for Linux |
+| `fxm-desktop-x.y.z-macos-arm64.app.tar.gz`, `-macos-x64.app.tar.gz`, `latest.json` | For the desktop app's updater: the Mac apps, and the manifest that installed apps read from the latest release, with each platform's file and signature. `latest.json` is the one file without the version in its name |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |
+
+Every desktop installer carries the third-party notices of the code it includes, the Rust crates and make dist's notices for the web app, which Settings → About shows ([apps/desktop/README.md](../apps/desktop/README.md#third-party-notices)).
 
 Anyone can check a download. `sha256sum --check --ignore-missing SHA256SUMS` compares it with the checksums, and this checks that FXM's release workflow, run for `main` on GitHub's own runners, built it:
 

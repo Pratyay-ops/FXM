@@ -5,17 +5,20 @@ import {
   type DesktopShell,
   type MediaAction,
   type NowPlaying,
+  type ShellInvoke,
 } from '@fxm/desktop/bridge'
 import type { DirectAudioEngineOptions } from '@fxm/player'
 import { testStream } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { INITIAL_CONNECTION, useConnection } from '../../features/connect/connection'
 import { getPlayer, resetPlayback } from '../../features/now-playing/playback'
-import { setUpDesktopPlayback } from './desktop'
+import { bundledNotices, connectBundledNotices } from '../../features/settings/bundled-notices'
+import { connectDesktopNotices, setUpDesktopPlayback } from './desktop'
 
 afterEach(() => {
   resetPlayback()
   useConnection.setState(INITIAL_CONNECTION, true)
+  connectBundledNotices(undefined)
 })
 
 /**
@@ -121,5 +124,51 @@ describe('setUpDesktopPlayback', () => {
 
     expect(await setUpDesktopPlayback({ tauri: false, loadBridge })).toBeUndefined()
     expect(loadBridge).not.toHaveBeenCalled()
+  })
+})
+
+describe('connectDesktopNotices', () => {
+  it('lets Settings → About read the notices the desktop app carries, once opened', async () => {
+    const readThirdPartyNotices = vi.fn(async () => 'FXM desktop app: third-party notices\n')
+    const loadBridge = vi.fn(async () => ({ readThirdPartyNotices }))
+
+    connectDesktopNotices({ tauri: true, loadBridge })
+    // Nothing is loaded or read before About asks.
+    expect(loadBridge).not.toHaveBeenCalled()
+
+    const read = bundledNotices()
+    expect(read).toBeDefined()
+    await expect(read?.()).resolves.toBe('FXM desktop app: third-party notices\n')
+    expect(readThirdPartyNotices).toHaveBeenCalledOnce()
+  })
+
+  it('passes on why a build has none', async () => {
+    const reason = 'This build of FXM carries no third-party notices file: release builds do.'
+    connectDesktopNotices({
+      tauri: true,
+      loadBridge: async () => ({ readThirdPartyNotices: () => Promise.reject(reason) }),
+    })
+    await expect(bundledNotices()?.()).rejects.toBe(reason)
+  })
+
+  it('connects nothing in a browser, which links the site’s notices instead', () => {
+    const loadBridge = vi.fn()
+    connectDesktopNotices({ tauri: false, loadBridge })
+    expect(bundledNotices()).toBeUndefined()
+    expect(loadBridge).not.toHaveBeenCalled()
+  })
+
+  it('reads them through the real bridge’s command', async () => {
+    // The bridge's reader, with Tauri's invoke faked: the command its Rust side registers.
+    const invoke = vi.fn(async () => 'notices')
+    connectDesktopNotices({
+      tauri: true,
+      loadBridge: async () => ({
+        readThirdPartyNotices: () =>
+          bridge.readThirdPartyNotices({ invoke: invoke as unknown as ShellInvoke }),
+      }),
+    })
+    await expect(bundledNotices()?.()).resolves.toBe('notices')
+    expect(invoke).toHaveBeenCalledWith(bridge.NOTICES_COMMAND)
   })
 })
