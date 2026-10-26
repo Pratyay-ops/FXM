@@ -1,6 +1,7 @@
 package io.github.pratyayops.fxm.player
 
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
 import android.os.Binder
 import android.os.Handler
@@ -14,7 +15,10 @@ import androidx.media3.datasource.DataSourceBitmapLoader
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
@@ -61,8 +65,10 @@ class PlaybackService : MediaSessionService() {
       ProgressiveMediaSource.Factory(
         ResolvingDataSource.Factory(OkHttpDataSource.Factory(client), EntryResolver(table)),
       ).setLoadErrorHandlingPolicy(LoadErrorPolicy())
+    // The equalizer (stage 8.1) runs in the audio sink, on every stream's decoded audio.
+    val equalizer = EqualizerProcessor()
     player =
-      ExoPlayer.Builder(this)
+      ExoPlayer.Builder(this, renderersFactory(equalizer))
         .setMediaSourceFactory(media)
         .setAudioAttributes(
           AudioAttributes.Builder()
@@ -81,7 +87,7 @@ class PlaybackService : MediaSessionService() {
       player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, true).build()
 
     coordinator =
-      Coordinator(ExoPort(player), table, WebViewRecovery, { System.currentTimeMillis() }, HandlerScheduler(handler))
+      Coordinator(ExoPort(player, equalizer), table, WebViewRecovery, { System.currentTimeMillis() }, HandlerScheduler(handler))
     sessionPlayer =
       SessionPlayer(
         player,
@@ -168,7 +174,13 @@ class PlaybackService : MediaSessionService() {
 
     override fun onPlaybackStateChanged(playbackState: Int) = coordinator.onStateChanged()
 
-    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = coordinator.onStateChanged()
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+      // Paused at the end of an entry: the sleep timer's "end of track" (stage 8.1).
+      if (!playWhenReady && reason == Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM) {
+        coordinator.onPausedAtEndOfItem()
+      }
+      coordinator.onStateChanged()
+    }
 
     override fun onPositionDiscontinuity(
       oldPosition: Player.PositionInfo,
@@ -203,6 +215,25 @@ class PlaybackService : MediaSessionService() {
     private const val SESSION_ID = "fxm"
     private const val TICK_VISIBLE_MS = 1_000L
     private const val TICK_HIDDEN_MS = 5_000L
+
+    /**
+     * Media3's renderers with [equalizer] in the audio sink, otherwise as the defaults build it
+     * (`DefaultRenderersFactory.buildAudioSink`): the custom processors run before the speed
+     * change.
+     */
+    private fun Context.renderersFactory(equalizer: EqualizerProcessor): DefaultRenderersFactory =
+      object : DefaultRenderersFactory(this) {
+        override fun buildAudioSink(
+          context: Context,
+          enableFloatOutput: Boolean,
+          enableAudioTrackPlaybackParams: Boolean,
+        ): AudioSink =
+          DefaultAudioSink.Builder(context)
+            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableAudioOutputPlaybackParameters(enableAudioTrackPlaybackParams)
+            .setAudioProcessors(arrayOf(equalizer))
+            .build()
+      }
 
     /**
      * Whole songs ahead: up to 10 minutes or 32 MiB, at least 2 minutes. A buffered track keeps

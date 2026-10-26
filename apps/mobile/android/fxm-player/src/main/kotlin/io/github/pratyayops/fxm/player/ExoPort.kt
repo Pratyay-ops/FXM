@@ -5,9 +5,13 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 
-/** The [PlayerPort] over Media3's player: one playlist item per [Slot]. */
-class ExoPort(private val player: Player) : PlayerPort {
+/**
+ * The [PlayerPort] over Media3's player: one playlist item per [Slot]. The equalizer runs in the
+ * player's audio sink ([equalizer]); speed and pausing at the end are ExoPlayer's own.
+ */
+class ExoPort(private val player: ExoPlayer, private val equalizer: EqualizerProcessor? = null) : PlayerPort {
   override val currentIndex: Int
     get() = if (player.mediaItemCount == 0) -1 else player.currentMediaItemIndex
 
@@ -67,6 +71,19 @@ class ExoPort(private val player: Player) : PlayerPort {
 
   override fun setVolume(volume: Float) {
     player.volume = volume
+  }
+
+  override fun setEqualizer(settings: EqualizerSettings) {
+    equalizer?.setEqualizer(settings)
+  }
+
+  override fun setSpeed(speed: Float) {
+    // The pitch stays 1: Media3 time-stretches (Sonic) without changing it.
+    player.setPlaybackSpeed(speed)
+  }
+
+  override fun setPauseAtEndOfMediaItems(pause: Boolean) {
+    player.pauseAtEndOfMediaItems = pause
   }
 
   override fun clear() {

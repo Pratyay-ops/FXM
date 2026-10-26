@@ -22,6 +22,7 @@ import {
   isBuiltInSourceId,
   type MetadataProvider,
   type NetworkCapabilities,
+  type Platform,
   type ProviderContext,
   type SourceId,
 } from '@fxm/core'
@@ -420,11 +421,23 @@ export interface ItemFeatures {
  * - Internet Archive, Jamendo and local files are always readable. A local file is on the
  *   device already: it gets the equalizer, but nothing to download.
  * - Plugin sources are unknown, so they get neither.
+ * - The equalizer reads YouTube audio only in a browser with FXM Connect (stage 8.1, the player's
+ *   `isMediaReadable`). The desktop and Android apps (`platform`) play it in their webview without
+ *   reading it, so there it can't process YouTube or Spotify items: on desktop until stage 7.6, on
+ *   Android until the app plays through its native player (stage 6.3's `NativeEngine`), which
+ *   processes every stream.
  */
-export function itemFeatures(capabilities: NetworkCapabilities, source: SourceId): ItemFeatures {
-  const readable =
-    isYouTubeSource(source) || source === 'spotify'
-      ? capabilities.mediaBytes
-      : source === 'archive' || source === 'jamendo' || source === 'local'
-  return { download: readable && source !== 'local', equalizer: readable }
+export function itemFeatures(
+  capabilities: NetworkCapabilities,
+  source: SourceId,
+  platform: Platform = 'web',
+): ItemFeatures {
+  const streamed = isYouTubeSource(source) || source === 'spotify'
+  const readable = streamed
+    ? capabilities.mediaBytes
+    : source === 'archive' || source === 'jamendo' || source === 'local'
+  return {
+    download: readable && source !== 'local',
+    equalizer: readable && !(streamed && platform !== 'web'),
+  }
 }

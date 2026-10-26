@@ -203,6 +203,23 @@ describe('the Full tier (FXM Connect)', () => {
     expect(JSON.stringify(await setup.store.get(RUNG_HEALTH_KEY))).toContain('visionos')
   })
 
+  it('plays a song at the loudness its /player answer gives (stage 8.1)', async () => {
+    const setup = setUp('full')
+    await setup.ready()
+    const { engine, player } = playerFor(setup)
+    play(setup, (await searchSongs(setup)).slice(0, 1))
+    await until(() => engine.loadedUrls.length === 1, 'the stream')
+
+    // VISIONOS says how far each format is above YouTube's reference of -14 LUFS (`loudnessDb`,
+    // 3.88 dB for "Creep"). The stream carries it through the module host and the lifecycle, and
+    // loudness normalization, on by default, turns the song down by that much, as YouTube does.
+    const loudness = player.getState().stream?.loudness
+    expect(loudness?.source).toBe('youtube')
+    expect(loudness?.trackLufs).toBeCloseTo(-10.1, 1)
+    await until(() => player.getState().effects.loudness === 'on', 'the loudness')
+    expect(player.getState().effects.loudnessGainDb).toBeCloseTo(-3.9, 1)
+  })
+
   it("doesn't offer Spotify in a browser without the sandbox's user-host document", async () => {
     const setup = setUp('full')
     await setup.ready()

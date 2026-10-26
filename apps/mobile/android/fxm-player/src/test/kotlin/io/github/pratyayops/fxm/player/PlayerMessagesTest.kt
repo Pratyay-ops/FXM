@@ -218,4 +218,67 @@ class PlayerMessagesTest {
     assertTrue(empty.isNull("snapshot"))
     assertTrue(empty.isNull("error"))
   }
+
+  // --- Stage 8.1: audio effects ----------------------------------------------------------------
+
+  private fun effectsJson(
+    gains: JSONArray = JSONArray(List(10) { 0 }),
+    mode: Any = "track",
+    speed: Any = 1.25,
+  ) =
+    JSONObject()
+      .put("equalizer", JSONObject().put("enabled", true).put("gainsDb", gains))
+      .put("loudness", JSONObject().put("enabled", true).put("targetLufs", -18).put("mode", mode))
+      .put("speed", speed)
+
+  @Test
+  fun `an entry carries its loudness, and a malformed one is left out`() {
+    val entry =
+      PlayerMessages.entry(entryJson("a", "source" to source("loudness" to JSONObject().put("trackLufs", -10.11).put("albumLufs", -9))))
+    assertEquals(Loudness(-10.11, -9.0), entry.source.loudness)
+    // It goes back to the web app as it came.
+    assertEquals(entry, PlayerMessages.entry(PlayerMessages.entryJson(entry)))
+    val odd = PlayerMessages.entry(entryJson("b", "source" to source("loudness" to JSONObject().put("trackLufs", "loud"))))
+    assertNull(odd.source.loudness)
+    val far = PlayerMessages.entry(entryJson("c", "source" to source("loudness" to JSONObject().put("trackLufs", -900))))
+    assertNull(far.source.loudness)
+  }
+
+  @Test
+  fun `the effects become the settings they describe`() {
+    val gains = JSONArray(listOf(4, 3, 1.5, 0, -1, -0.5, 1, 2.5, 3.5, 99))
+    val effects = PlayerMessages.effects(effectsJson(gains))
+    assertTrue(effects.equalizer.enabled)
+    assertEquals(listOf(4.0, 3.0, 1.5, 0.0, -1.0, -0.5, 1.0, 2.5, 3.5, 12.0), effects.equalizer.gainsDb)
+    assertEquals(LoudnessSettings(true, -18.0, false), effects.loudness)
+    assertEquals(1.25f, effects.speed)
+    assertTrue(PlayerMessages.effects(effectsJson(mode = "album")).loudness.album)
+  }
+
+  @Test
+  fun `malformed effects are refused`() {
+    assertEquals("The equalizer needs 10 gains", bad { PlayerMessages.effects(effectsJson(JSONArray(listOf(1, 2)))) })
+    assertEquals("Gains must be numbers", bad { PlayerMessages.effects(effectsJson(JSONArray(List(10) { "x" }))) })
+    assertEquals("Unknown loudness mode", bad { PlayerMessages.effects(effectsJson(mode = "loud")) })
+    assertEquals("The speed must be from 0.5 to 2", bad { PlayerMessages.effects(effectsJson(speed = 3)) })
+    assertEquals("The equalizer is missing", bad { PlayerMessages.effects(JSONObject()) })
+  }
+
+  @Test
+  fun `the sleep timer becomes a timer, or nothing to cancel it`() {
+    assertEquals(
+      SleepTimer(1_800_000_060_000L, 12_000, false),
+      PlayerMessages.sleepTimer(JSONObject().put("endsAt", 1_800_000_060_000L).put("fadeMs", 12_000).put("endOfTrack", false)),
+    )
+    assertEquals(SleepTimer(null, 0, true), PlayerMessages.sleepTimer(JSONObject().put("endsAt", JSONObject.NULL).put("fadeMs", 0).put("endOfTrack", true)))
+    assertNull(PlayerMessages.sleepTimer(JSONObject().put("endsAt", JSONObject.NULL).put("fadeMs", 0).put("endOfTrack", false)))
+    assertEquals("endOfTrack must be a boolean", bad { PlayerMessages.sleepTimer(JSONObject().put("endOfTrack", "yes")) })
+  }
+
+  @Test
+  fun `the sleep event names its reason`() {
+    val (name, json) = PlayerMessages.event(Event.Sleep(SleepReason.END_OF_TRACK))
+    assertEquals("sleep", name)
+    assertJson("""{"reason":"end-of-track"}""", json)
+  }
 }

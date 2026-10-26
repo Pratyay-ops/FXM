@@ -12,6 +12,7 @@ import {
 import { Fragment } from 'react'
 import { Link } from 'react-router'
 import { cn } from '../../../lib/cn'
+import { useConnection } from '../../connect/connection'
 import { type DownloadMenuItem, useDownloadMenuItem } from '../../downloads/menu'
 import { useMediaActions } from '../actions'
 import { showFeedback } from '../feedback'
@@ -93,6 +94,7 @@ function useTrackMenu(track: Track, downloadEntry?: DownloadMenuItem): MenuActio
   const listed = useTracksMenu([track], track.title)
   const { equalizer, downloads } = useMediaActions()
   const { capabilities } = useSourcesSnapshot()
+  const platform = useConnection((state) => state.platform)
   const entry = downloads === undefined ? undefined : downloadEntry?.({ id: track.id, track })
   const existing =
     entry !== undefined &&
@@ -121,7 +123,7 @@ function useTrackMenu(track: Track, downloadEntry?: DownloadMenuItem): MenuActio
     links.push({ key: 'artist', label: 'Go to artist', icon: MicVocal, to: artistPath(artist.id) })
   }
   const effects: MenuAction[] =
-    equalizer && itemFeatures(capabilities, track.source).equalizer
+    equalizer && itemFeatures(capabilities, track.source, platform).equalizer
       ? [
           {
             key: 'equalizer',

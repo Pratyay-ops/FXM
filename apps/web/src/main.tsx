@@ -6,6 +6,7 @@ import { App } from './app/app'
 import { createAppRouter } from './app/router'
 import { markConnecting } from './app/services/connecting'
 import { setUpDesktopPlayback } from './app/services/desktop'
+import { wireEqualizerActions } from './features/audio-effects/equalizer-actions'
 import { startConnect } from './features/connect/start'
 import { connectAppPolicy, createPendingPolicy } from './features/now-playing/playback-policy'
 import { listenForInstallPrompt } from './features/pwa/install'
@@ -30,6 +31,8 @@ async function start(): Promise<void> {
   startScrobbling()
   // Opt-in too: nothing loads or contacts Spotify until the user connects their account.
   startSpotifyAccount()
+  // "Equalizer" in the track menus opens the Sound dialog (stage 8.1).
+  wireEqualizerActions()
 
   // FXM Connect's marker is on the page but it hasn't answered yet: until it does, the pages say
   // they are connecting rather than offering to install it (see app/services/connecting.ts).

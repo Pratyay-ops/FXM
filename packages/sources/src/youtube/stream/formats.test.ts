@@ -49,9 +49,12 @@ describe('stream options from a /player response', () => {
       label: 'Opus',
       contentLength: 4_034_850,
       peakBitrateKbps: 150.2,
+      // loudnessDb 3.88: 3.88 dB above YouTube's -14 LUFS reference.
+      loudness: { trackLufs: -10.12, source: 'youtube' },
     })
     expect(aac).toMatchObject({
       label: 'AAC',
+      loudness: { trackLufs: -10.11, source: 'youtube' },
       codec: 'aac',
       container: 'm4a',
       media: 'audio',
@@ -66,6 +69,23 @@ describe('stream options from a /player response', () => {
       [249, 51.6, 'low'],
       [139, 48.9, 'low'],
     ])
+  })
+
+  it('reads how loud each format is, and leaves it out where YouTube gives none', () => {
+    const song = options(PLAYER_FIXTURES['visionos-song'])
+    expect(song.map((option) => option.loudness?.trackLufs)).toEqual([
+      -10.12, -10.11, -10.12, -10.12, -10.11,
+    ])
+    // ANDROID's itag 18 comes without loudnessDb.
+    const muxed = options(PLAYER_FIXTURES['android-song'], MUXED)
+    expect(muxed.length).toBeGreaterThan(0)
+    expect(muxed.every((option) => option.loudness === undefined)).toBe(true)
+    const odd = options(
+      withFormats((formats) =>
+        formats.map((format) => ({ ...format, loudnessDb: 'loud' as unknown as number })),
+      ),
+    )
+    expect(odd.every((option) => option.loudness === undefined)).toBe(true)
   })
 
   it('takes the tier from the nominal (peak) bitrate, so a quiet Opus 251 stays high', () => {

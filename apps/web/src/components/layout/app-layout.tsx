@@ -1,6 +1,7 @@
 import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
+import { SoundDialogHost } from '../../features/audio-effects/sound-dialog-host'
 import { ConnectNotice } from '../../features/connect/connect-notice'
 import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
@@ -85,6 +86,8 @@ export function AppLayout() {
       {!fullScreen && <MiniPlayer />}
       {!fullScreen && <BottomNav />}
       <PlaybackAnnouncer />
+      {/* The sleep timer, speed, equalizer and volume, opened from the bars and the menus. */}
+      <SoundDialogHost />
       {/* The app's one toast: confirmations of the catalog pages and of the library, also of
           actions taken in the sidebar, on every page. */}
       <FeedbackToast />

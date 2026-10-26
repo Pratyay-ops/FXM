@@ -11,6 +11,7 @@ import {
   type Codec,
   type Container,
   type FullLengthCheck,
+  loudnessFromYouTube,
   type StreamMedia,
   type StreamOption,
   tierOf,
@@ -168,6 +169,8 @@ function toOption(
   const label = !muxed
     ? codecLabel
     : `${codecLabel} from ${video === undefined ? '' : `${video} `}video`
+  // How far above YouTube's -14 LUFS reference the format is (see CLEAN-ROOM.md).
+  const loudness = loudnessFromYouTube(format.loudnessDb)
   return {
     url: url.href,
     codec: kind.codec,
@@ -186,6 +189,7 @@ function toOption(
     label,
     ...(contentLength === undefined ? {} : { contentLength }),
     ...(peak === undefined ? {} : { peakBitrateKbps: peak }),
+    ...(loudness === undefined ? {} : { loudness }),
   }
 }
 

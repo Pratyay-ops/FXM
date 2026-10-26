@@ -179,7 +179,9 @@ export function connectMediaSession(
       }
       const duration = durationMs / 1000
       const position = Math.min(Math.max(positionMs / 1000, 0), duration)
-      session.setPositionState({ duration, playbackRate: 1, position })
+      // A speed the browser can't take (0, say) would make it reject the whole state.
+      const playbackRate = state.playbackRate > 0 ? state.playbackRate : 1
+      session.setPositionState({ duration, playbackRate, position })
     } catch {
       // The browser rejected the values; the next update tries again.
     }
@@ -202,6 +204,8 @@ export function connectMediaSession(
       immediate = true
     }
     if (state.durationMs !== previous?.durationMs) immediate = true
+    // The system extrapolates the position at the speed it was told: tell it at once.
+    if (state.playbackRate !== previous?.playbackRate) immediate = true
     if (immediate) sendPosition(state)
     else if (state.positionMs !== previous?.positionMs && now() - positionSentAt >= intervalMs) {
       sendPosition(state)

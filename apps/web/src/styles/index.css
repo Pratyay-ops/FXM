@@ -213,6 +213,53 @@
     opacity: 1;
   }
 
+  /* A setting's slider (equalizer bands, crossfade): the thumb always shows. */
+  .range-setting::-webkit-slider-thumb {
+    opacity: 1;
+  }
+
+  .range-setting::-moz-range-thumb {
+    opacity: 1;
+  }
+
+  /*
+   * A value that goes both ways from the middle (an equalizer band's boost or cut): the fill runs
+   * from the middle to the value (--range-from to --range-to), over a mark at the middle that
+   * stands out above and below the thumb, drawn on the input's own background.
+   */
+  .range-center {
+    --range-from: 50%;
+    --range-to: 50%;
+    --range-mark: var(--color-text-muted);
+    background:
+      linear-gradient(var(--range-mark), var(--range-mark)) center / 2px 1.125rem no-repeat;
+  }
+
+  .range-center::-webkit-slider-runnable-track {
+    background: linear-gradient(
+      to right,
+      var(--range-track) var(--range-from),
+      var(--range-active) var(--range-from),
+      var(--range-active) var(--range-to),
+      var(--range-track) var(--range-to)
+    );
+  }
+
+  .range-center::-moz-range-track {
+    background: linear-gradient(
+      to right,
+      var(--range-track) var(--range-from),
+      var(--range-active) var(--range-from),
+      var(--range-active) var(--range-to),
+      var(--range-track) var(--range-to)
+    );
+  }
+
+  /* Firefox's progress fills from the start: the track draws the fill instead. */
+  .range-center::-moz-range-progress {
+    background: transparent;
+  }
+
   @media (pointer: coarse) {
     .range {
       height: var(--spacing-touch);
@@ -264,6 +311,34 @@
     .range::-moz-range-thumb {
       background: Highlight;
       opacity: 1;
+    }
+
+    .range-center {
+      --range-mark: CanvasText;
+    }
+
+    .range-center::-webkit-slider-runnable-track {
+      background: linear-gradient(
+        to right,
+        CanvasText var(--range-from),
+        Highlight var(--range-from),
+        Highlight var(--range-to),
+        CanvasText var(--range-to)
+      );
+    }
+
+    .range-center::-moz-range-track {
+      background: linear-gradient(
+        to right,
+        CanvasText var(--range-from),
+        Highlight var(--range-from),
+        Highlight var(--range-to),
+        CanvasText var(--range-to)
+      );
+    }
+
+    .range-center::-moz-range-progress {
+      background: transparent;
     }
   }
 }
