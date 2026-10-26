@@ -4,8 +4,8 @@
  *
  * - **One tab runs the queue.** Every tab can queue, pause or delete downloads and see their
  *   progress, but only the tab that holds the `fxm-downloads` Web Lock fetches and writes files
- *   (`startDownloads`, called once from `main.tsx`). When it closes, the next tab takes over and
- *   continues where the files end.
+ *   (`startDownloads`, which the app's composition root calls once the tier is known). When it
+ *   closes, the next tab takes over and continues where the files end.
  * - **The Downloads playlist follows.** A completed download joins the library's Downloads
  *   playlist (stage 2.6), and a deleted one leaves it.
  * - **Offline playback:** {@link getOfflineStore} is the stream lifecycle's `offline` store
@@ -306,8 +306,10 @@ export async function reconcileDownloadsPlaylist(
  * Runs the download queue in this tab once it holds the `fxm-downloads` Web Lock, which only
  * one tab holds at a time (without Web Locks, at once), and only once this browser is known to
  * store downloads. In the Android app it also keeps the app running in the background while the
- * queue has work. Returns a function that stops it. `main.tsx` calls it once; tests call it to
- * run the queue.
+ * queue has work. Returns a function that stops it. The app's composition root calls it once
+ * the tier is known (`startAppDownloads` in `src/app/services/downloads.ts`), so a download
+ * resumed from an earlier visit never meets the Free tier of a page whose FXM Connect is still
+ * waking up; tests call it to run the queue.
  */
 export function startDownloads(): () => void {
   if (stopRunner !== undefined) return stopRunner

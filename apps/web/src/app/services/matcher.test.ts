@@ -128,7 +128,7 @@ describe('createTrackMatcher, for songs', () => {
       youtube: async () => found,
       lossless: async () => [],
       details,
-      autoMatch: () => true,
+      matchOptions: (mode) => ({ mode, auto: true }),
     })
 
     const suggested = await off.match(SPOTIFY, request())
@@ -140,6 +140,52 @@ describe('createTrackMatcher, for songs', () => {
     expect(suggested.band).toBe('suggest')
     expect(auto.band).toBe('auto')
     expect(details).toHaveBeenCalledWith(SPOTIFY, expect.objectContaining({ target: 'song' }))
+  })
+
+  it("runs with the matching config's options: the measured fallback holds a text match back", async () => {
+    // A text match whose album isn't the track's: without an ISRC, the measured fallback of
+    // stage 1.12 asks for the album or the year to agree before it plays unasked.
+    const elsewhere = song('right2', { album: { name: 'The Best Of' } })
+    const { found } = searches([elsewhere])
+    const options = (requireReleaseAgreement: boolean) => (mode: 'music' | 'all') => ({
+      mode,
+      auto: true,
+      requireReleaseAgreement,
+    })
+    const plain = createTrackMatcher({
+      youtube: async () => found,
+      lossless: async () => [],
+      matchOptions: options(false),
+    })
+    const guarded = createTrackMatcher({
+      youtube: async () => found,
+      lossless: async () => [],
+      matchOptions: options(true),
+    })
+
+    const free = await plain.match(SPOTIFY, request())
+    const held = await guarded.match(SPOTIFY, request())
+
+    expect(free.best?.ref).toBe('right2')
+    expect(free.band).toBe('auto')
+    expect(held.best?.ref).toBe('right2')
+    expect(held.band).toBe('suggest')
+  })
+
+  it('keeps Auto off with the matching config FXM ships: every match is a suggestion', async () => {
+    const { found } = searches([RIGHT])
+    const details = vi.fn(async () => ({ isrc: ISRC }))
+    const matcher = createTrackMatcher({
+      youtube: async () => found,
+      lossless: async () => [],
+      details,
+    })
+
+    const outcome = await matcher.match(SPOTIFY, request())
+
+    // The engine is sure (its verdict says auto), but the config makes the band unavailable.
+    expect(outcome.best?.verdict?.band).toBe('auto')
+    expect(outcome.band).toBe('suggest')
   })
 
   it('matches by text without an ISRC, with the alternatives behind the best', async () => {

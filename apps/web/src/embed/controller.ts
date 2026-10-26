@@ -49,6 +49,13 @@ export interface EmbedPlatform {
   }
   /** A provider context with the `fetch` for a budget priority and the current capabilities. */
   context(options: ContextOptions): ProviderContext
+  /**
+   * The request budget, which the YouTube ladder tells of the bot checks it tells apart from age
+   * gates (`FxmPlatform.budget`). Optional: tests' platforms have none.
+   */
+  readonly budget?: { reportBotCheck(cause: 'login-required' | 'rate-limited'): void }
+  /** Passes a provider's error on, so a bot check pauses bulk work (`FxmPlatform.report`). */
+  report?(error: unknown): void
   /** Stops watching FXM Connect and frees the sandbox documents. */
   dispose(): void
 }

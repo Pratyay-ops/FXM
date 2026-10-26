@@ -9,6 +9,7 @@ import {
   ListMinus,
   ListPlus,
   Music,
+  Play,
 } from 'lucide-react'
 import { memo, type ReactNode, useCallback, useId, useMemo, useRef, useState } from 'react'
 import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
@@ -21,6 +22,7 @@ import { cn } from '../../lib/cn'
 import { downloadTracks, removeDownloads } from '../downloads/actions'
 import { useCanDownload } from '../downloads/hooks'
 import { useDownloadMenuItem, useSaveToMusicMenuItem } from '../downloads/menu'
+import { getPlayer } from '../now-playing/playback'
 import { CoverArt } from './cover-art'
 import { failureText } from './failure'
 import { addedLabel, artistNames, artworkUrl, countLabel, trackDuration } from './format'
@@ -78,18 +80,26 @@ interface RowBodyProps {
   cover: string | undefined
   liked: boolean
   canLike: boolean
+  /** Whether the row's song can play: the library has its track. */
+  canPlay: boolean
   selecting: boolean
   selected: boolean
   menuOpen: boolean
   onToggleSelect: (id: string, extend: boolean) => void
   onToggleLike: (id: string) => void
   onOpenMenu: (id: string, anchor: HTMLElement) => void
+  /** Plays the list from this row. */
+  onPlay: (id: string) => void
 }
 
 /**
  * Everything in a row but its drag handle. Memoized on plain values and callbacks that keep
  * their identity, so a reorder or a like re-renders only the rows it changes, also in a list
  * of thousands.
+ *
+ * Like the catalog's track rows, the title is a button that plays the list from this song and
+ * stretches over the whole row (a tap anywhere on it plays), while the row's own controls stay
+ * on top of it (`relative z-10`). While selecting, the title is text: a tap selects.
  */
 const RowBody = memo(function RowBody({
   id,
@@ -101,17 +111,20 @@ const RowBody = memo(function RowBody({
   cover,
   liked,
   canLike,
+  canPlay,
   selecting,
   selected,
   menuOpen,
   onToggleSelect,
   onToggleLike,
   onOpenMenu,
+  onPlay,
 }: RowBodyProps) {
+  const playable = canPlay && !selecting
   return (
     <>
       {selecting ? (
-        <label className="grid size-touch shrink-0 cursor-pointer place-items-center lg:size-8 lg:pointer-coarse:size-touch">
+        <label className="relative z-10 grid size-touch shrink-0 cursor-pointer place-items-center lg:size-8 lg:pointer-coarse:size-touch">
           <input
             type="checkbox"
             checked={selected}
@@ -128,14 +141,35 @@ const RowBody = memo(function RowBody({
           className="hidden w-7 shrink-0 text-right text-sm tabular-nums text-text-muted before:content-[counter(row)] md:block"
         />
       )}
-      <CoverArt src={cover} seed={id} icon={Music} rounded="sm" className="size-10" />
+      <span className="relative shrink-0">
+        <CoverArt src={cover} seed={id} icon={Music} rounded="sm" className="size-10" />
+        {playable && (
+          <span
+            aria-hidden="true"
+            className="absolute inset-0 hidden place-items-center rounded-sm bg-black/45 text-white group-hover:grid"
+          >
+            <Play className="size-4" fill="currentColor" strokeWidth={0} />
+          </span>
+        )}
+      </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate font-semibold">{title}</p>
+        {playable ? (
+          <button
+            type="button"
+            onClick={() => onPlay(id)}
+            aria-label={artists ? `Play ${title} by ${artists}` : `Play ${title}`}
+            className="block max-w-full truncate text-left font-semibold outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus focus-visible:after:outline-solid"
+          >
+            {title}
+          </button>
+        ) : (
+          <p className="truncate font-semibold">{title}</p>
+        )}
         <p className="truncate text-sm text-text-muted">{artists}</p>
       </div>
       <p className="hidden w-1/4 min-w-0 truncate text-sm text-text-muted lg:block">{album}</p>
       <p className="hidden w-28 shrink-0 truncate text-sm text-text-muted xl:block">{added}</p>
-      <span className="hidden md:block">
+      <span className="relative z-10 hidden md:block">
         <IconButton
           label={`Like ${title}`}
           icon={<Heart fill={liked ? 'currentColor' : 'none'} />}
@@ -150,7 +184,7 @@ const RowBody = memo(function RowBody({
         {duration}
       </span>
       {/* While selecting on a phone, the selection bar has the actions: room for the title. */}
-      <span className={selecting ? 'max-sm:hidden' : undefined}>
+      <span className={cn('relative z-10', selecting && 'max-sm:hidden')}>
         <button
           type="button"
           aria-label={`More options for ${title}`}
@@ -182,7 +216,7 @@ function SortableRow({ reorder, ...body }: SortableRowProps) {
       style={style}
       data-row={body.id}
       className={cn(
-        'flex items-center gap-2 rounded-lg py-1.5 pr-1 [contain-intrinsic-size:auto_3.5rem] [content-visibility:auto] [counter-increment:row] sm:gap-3',
+        'group relative flex items-center gap-2 rounded-lg py-1.5 pr-1 [contain-intrinsic-size:auto_3.5rem] [content-visibility:auto] [counter-increment:row] sm:gap-3',
         !reorder && 'pl-2',
         body.selected
           ? 'bg-accent/12 hover:bg-accent/16 forced-colors:outline forced-colors:outline-[Highlight]'
@@ -198,7 +232,7 @@ function SortableRow({ reorder, ...body }: SortableRowProps) {
           {...listeners}
           aria-label={`Reorder ${body.title}`}
           className={cn(
-            'grid size-touch shrink-0 cursor-grab touch-none place-items-center rounded-full text-text-muted hover:text-text active:cursor-grabbing lg:size-8 lg:pointer-coarse:size-touch',
+            'relative z-10 grid size-touch shrink-0 cursor-grab touch-none place-items-center rounded-full text-text-muted hover:text-text active:cursor-grabbing lg:size-8 lg:pointer-coarse:size-touch',
             // Selecting on a phone: the Move menu moves the selection, the title gets the room.
             body.selecting && 'max-sm:hidden',
           )}
@@ -254,6 +288,25 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
   const titleOf = useCallback(
     (id: string) => byIdRef.current.get(id)?.track?.title ?? UNKNOWN_TITLE,
     [],
+  )
+
+  const nameRef = useRef(name)
+  nameRef.current = name
+  /**
+   * Plays the list as it shows, from `id`, through the app's player, with the list as the
+   * queue's context ("Playing from …"). Songs the library has no track for are left out.
+   */
+  const play = useCallback(
+    (id: string) => {
+      const tracks = idsRef.current.flatMap((rowId) => byIdRef.current.get(rowId)?.track ?? [])
+      const startIndex = tracks.findIndex((track) => track.id === id)
+      if (startIndex < 0) return
+      void getPlayer().setQueue(tracks, {
+        startIndex,
+        context: { type: 'playlist', id: listId, title: nameRef.current },
+      })
+    },
+    [listId],
   )
 
   /** Keeps focus in the list when `gone` leave it: on the next row's `control`, else the list. */
@@ -515,12 +568,14 @@ export function TrackList({ listId, rows, undo, kind, name, empty }: TrackListPr
               cover={artworkUrl(row.track?.artwork, 80)}
               liked={row.liked}
               canLike={row.track !== undefined}
+              canPlay={row.track !== undefined}
               selecting={selecting}
               selected={selection.selected.has(row.id)}
               menuOpen={menu?.id === row.id}
               onToggleSelect={selection.toggle}
               onToggleLike={toggleLike}
               onOpenMenu={openMenu}
+              onPlay={play}
             />
           ))}
         </ol>
