@@ -1,0 +1,297 @@
+name: Deploy
+
+# Composes the static site with make dist on every push, and deploys it to the Cloudflare Pages
+# project fxmusic (docs/PLAN.md, stage 2.8): develop to the preview, develop.fxmusic.pages.dev,
+# and main, where releases land, to production, fxmusic.pages.dev, once a candidate of it passed
+# the checks.
+#
+#   dist               make dist: the site, the web app, _headers and the third-party notices,
+#                      with the licence, header and privacy checks. On every branch, so a stage
+#                      branch finds out before it merges. No secrets.
+#   deploy             develop: the preview. main: a release candidate at
+#                      main-candidate.fxmusic.pages.dev. Only these two branches deploy. Each
+#                      runs in its GitHub environment (preview, production), which holds the
+#                      Cloudflare secrets and which only its branch can use
+#                      (scripts/build-dist/README.md, "Deploying"). The job runs nothing but
+#                      wrangler, pinned by its own lockfile in scripts/build-dist-wrangler, and
+#                      restores no cache another run could have written.
+#   verify             checks that deployment: every path's headers (check-headers.ts), and in
+#                      Chrome that the pages run under their policies and googlevideo requests
+#                      carry no Referer.
+#   release            main only: while main's version has no GitHub Release (after a release
+#                      pull request's merge, or a failed release run), waits up to 30 minutes
+#                      for the release workflow to publish it, so the site never links to a
+#                      release that isn't out yet (scripts/release-wait.sh). A version that is
+#                      out passes after one request.
+#   promote            main only, once verify and release passed: the same folder to production.
+#   verify-production  main only: the header check of production.
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  # A newer push replaces a preview deployment; a production deployment always finishes.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  dist:
+    name: make dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      deploy: ${{ steps.target.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # pnpm and its store in .tools/, the same cache as ci.yml.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/bin
+            .tools/pnpm/store
+          key: tools-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'scripts/install-*.sh') }}
+          restore-keys: tools-${{ runner.os }}-
+
+      - name: Set up toolchain and dependencies (frozen lockfile)
+        run: make ci-setup
+
+      # Jamendo's public client_id, once the owner has registered one and confirmed Jamendo's
+      # terms (packages/sources/src/jamendo/README.md). While the repository variable is empty,
+      # the build leaves Jamendo out: the app, the site's copy and the /app/* policy.
+      - name: Compose dist/pages
+        env:
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
+        run: make dist
+
+      # develop and main deploy; every other branch stops here.
+      - name: Decide whether to deploy
+        id: target
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          case "$REF" in
+            refs/heads/develop | refs/heads/main) deploy=true ;;
+            *) deploy=false ;;
+          esac
+          echo "deploy=$deploy" >>"$GITHUB_OUTPUT"
+          echo "Deploy $REF: $deploy"
+
+      # Hidden files too: R.4's .well-known/security.txt lives in a dot-folder.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.target.outputs.deploy == 'true'
+        with:
+          name: pages
+          path: dist/pages/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy to Cloudflare Pages
+    needs: dist
+    # The branch test repeats the dist job's on purpose: this job holds the secrets.
+    if: >-
+      needs.dist.outputs.deploy == 'true' &&
+      (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }}
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pages
+          path: dist/pages
+
+      # pnpm is hash-checked by install-pnpm.sh, and wrangler and its dependencies by their
+      # lockfile's integrity hashes.
+      - name: Install pnpm and wrangler
+        run: |
+          scripts/install-pnpm.sh
+          scripts/run.sh pnpm install --frozen-lockfile --dir scripts/build-dist-wrangler
+
+      # main goes to its candidate address first; promote deploys production after the checks.
+      - name: Deploy
+        id: deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "$BRANCH" = main ]; then
+            scripts/build-dist-wrangler/deploy.sh main --candidate
+          else
+            scripts/build-dist-wrangler/deploy.sh "$BRANCH"
+          fi
+
+      - name: Summary
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+          ALIAS: ${{ steps.deploy.outputs.alias }}
+        run: |
+          {
+            echo "### Deployed to Cloudflare Pages"
+            echo
+            echo "- This deployment: $URL"
+            if [ -n "$ALIAS" ]; then echo "- Branch address: $ALIAS"; fi
+          } >>"$GITHUB_STEP_SUMMARY"
+
+  verify:
+    name: Check the deployment
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pages
+          path: dist/pages
+
+      # Only @fxm/deploy's dependencies (Playwright); the browser is the runner's own Chrome.
+      - name: Install pnpm and the checks' dependencies
+        run: |
+          scripts/install-pnpm.sh
+          scripts/run.sh pnpm install --frozen-lockfile --filter @fxm/deploy
+
+      # A new project's certificate for its sub-domains, which every deployment's own address
+      # uses, arrives a few minutes after its first deploy (2.5 minutes, measured 2026-10-26).
+      # Later deploys answer at once.
+      - name: Wait for the deployment to answer
+        env:
+          URL: ${{ needs.deploy.outputs.url }}
+        run: |
+          for _ in $(seq 60); do
+            if curl -sSf -o /dev/null "$URL/"; then exit 0; fi
+            sleep 10
+          done
+          echo "::error::$URL did not answer over HTTPS within 10 minutes"
+          exit 1
+
+      - name: Check every path's headers
+        env:
+          URL: ${{ needs.deploy.outputs.url }}
+        run: scripts/run.sh pnpm --filter @fxm/deploy check:headers "$URL"
+
+      - name: Check the pages in Chrome
+        env:
+          FXM_DEPLOY_URL: ${{ needs.deploy.outputs.url }}
+          FXM_E2E_CHANNEL: chrome
+        run: scripts/run.sh pnpm --filter @fxm/deploy e2e
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: playwright-traces
+          path: scripts/build-dist/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  release:
+    name: Wait for the release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # It only reads the releases.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Wait for the version's GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release-wait.sh
+
+  promote:
+    name: Deploy the release to production
+    needs: [verify, release]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: https://fxmusic.pages.dev
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # The folder the candidate was built and checked from: Pages uploads no file twice.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pages
+          path: dist/pages
+
+      - name: Install pnpm and wrangler
+        run: |
+          scripts/install-pnpm.sh
+          scripts/run.sh pnpm install --frozen-lockfile --dir scripts/build-dist-wrangler
+
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: scripts/build-dist-wrangler/deploy.sh main
+
+  verify-production:
+    name: Check production
+    needs: promote
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pages
+          path: dist/pages
+
+      - name: Install pnpm and the checks' dependencies
+        run: |
+          scripts/install-pnpm.sh
+          scripts/run.sh pnpm install --frozen-lockfile --filter @fxm/deploy
+
+      - name: Check every path's headers
+        run: scripts/run.sh pnpm --filter @fxm/deploy check:headers https://fxmusic.pages.dev

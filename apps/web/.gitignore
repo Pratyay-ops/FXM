@@ -1,0 +1,15 @@
+# Playwright output and visual-check screenshots (pnpm screenshots)
+/screenshots/
+/test-results/
+/playwright-report/
+/blob-report/
+
+# Web build for the Android app (build:mobile, run by `make apk`)
+/dist-mobile/
+
+# The build the desktop app embeds (build:desktop, base '/'; removed by make clean)
+/dist-desktop/
+
+# The embeddable player's build (build:embed), and the browser tests' build of it (e2e:embed)
+/dist-embed/
+/dist-embed-e2e/

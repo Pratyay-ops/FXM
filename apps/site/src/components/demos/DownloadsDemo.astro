@@ -1,0 +1,179 @@
+---
+import { AVAILABLE } from '../../config'
+import Icon from '../Icon.astro'
+
+const formats = ['Original', 'FLAC', 'ALAC', 'WAV', 'MP3', 'AAC', 'Opus']
+
+// Until conversions ship (stage 4.2), downloads keep the source's own file: Original is the only
+// choice, and the other formats are shown as coming soon.
+const conversions = AVAILABLE.conversions
+const chosen = conversions ? 'FLAC' : 'Original'
+const label = conversions
+  ? 'Download options: Original, FLAC, ALAC, WAV, MP3, AAC and Opus. A FLAC from Internet Archive is labelled lossless. A FLAC made from a lossy YouTube Music stream is labelled converted from lossy.'
+  : 'Download options: Original, as the file comes from its source; FLAC, ALAC, WAV, MP3, AAC and Opus are coming soon. A song from Internet Archive downloads as lossless FLAC, one from YouTube Music as Opus, each as the original file.'
+---
+
+<div class="demo" role="img" aria-label={label}>
+  <div class="label">Download as</div>
+  <div class="formats">
+    {formats.map((format) => (
+      <span
+        class:list={['format', { on: format === chosen, soon: format !== chosen && !conversions }]}
+      >
+        {format}
+      </span>
+    ))}
+  </div>
+  {!conversions && <div class="soon-note">Other formats coming soon</div>}
+  <div class="items">
+    <div class="item">
+      <span class="art art-4"></span>
+      <span class="meta">
+        <span class="title">Glasshouse</span>
+        <span class="artist">Nova Reyes · from Internet Archive</span>
+      </span>
+      <span class="quality lossless">
+        <Icon name="check" size={14} />
+        {conversions ? 'FLAC · Lossless' : 'FLAC · Lossless (original)'}
+      </span>
+    </div>
+    <div class="item">
+      <span class="art art-1"></span>
+      <span class="meta">
+        <span class="title">Paper Lanterns</span>
+        <span class="artist">Quiet Harbor · from YouTube Music</span>
+      </span>
+      <span class="quality">{conversions ? 'FLAC · Converted from lossy' : 'Opus · Original'}</span>
+    </div>
+  </div>
+  {conversions && (
+    <div class="foot">
+      <Icon name="music" size={16} />
+      Tags and cover art included
+    </div>
+  )}
+</div>
+
+<style>
+.label {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.formats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.format {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.format.on {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.format.soon {
+  border-style: dashed;
+}
+
+.soon-note {
+  margin-top: calc(-1 * var(--space-2));
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.items {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--color-elevated);
+}
+
+.art {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: var(--radius-md);
+}
+
+.meta {
+  display: grid;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.title {
+  font-weight: 650;
+}
+
+.artist {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.quality {
+  display: inline-flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  justify-self: start;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.quality.lossless {
+  border-color: var(--color-accent-line);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+}
+
+.quality svg {
+  color: var(--color-accent);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+
+.foot svg {
+  color: var(--color-accent);
+}
+
+@container (min-width: 26rem) {
+  .item {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .quality {
+    grid-column: auto;
+  }
+}
+</style>

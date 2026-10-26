@@ -1,0 +1,137 @@
+{
+  "recorded": "2026-10-26",
+  "note": "googlevideo's answers to ranged GETs of the URLs in the player fixtures, from Node on a residential connection. Bodies are not kept; 'bytes' is how many arrived.",
+  "answers": {
+    "visionos-251-end": {
+      "client": "VISIONOS",
+      "itag": 251,
+      "range": "bytes=3969314-4034849",
+      "status": 206,
+      "headers": {
+        "content-type": "audio/webm",
+        "content-length": "65536",
+        "content-range": "bytes 3969314-4034849/4034850",
+        "accept-ranges": "bytes",
+        "cache-control": "private, max-age=21272",
+        "cross-origin-resource-policy": "cross-origin",
+        "x-content-type-options": "nosniff",
+        "server": "gvs 1.0",
+        "last-modified": "Sat, 26 Sep 2026 15:42:10 GMT"
+      },
+      "bytes": 65536
+    },
+    "visionos-140-end": {
+      "client": "VISIONOS",
+      "itag": 140,
+      "range": "bytes=3799553-3865088",
+      "status": 206,
+      "headers": {
+        "content-type": "audio/mp4",
+        "content-length": "65536",
+        "content-range": "bytes 3799553-3865088/3865089",
+        "accept-ranges": "bytes",
+        "cache-control": "private, max-age=21272",
+        "cross-origin-resource-policy": "cross-origin",
+        "x-content-type-options": "nosniff",
+        "server": "gvs 1.0",
+        "last-modified": "Sat, 26 Sep 2026 15:46:51 GMT"
+      },
+      "bytes": 65536
+    },
+    "android-18-start": {
+      "client": "ANDROID",
+      "itag": 18,
+      "range": "bytes=0-262143",
+      "status": 206,
+      "headers": {
+        "content-type": "video/mp4",
+        "content-range": "bytes 0-262143/4757394"
+      },
+      "bytes": 262144
+    },
+    "android-18-end": {
+      "client": "ANDROID",
+      "itag": 18,
+      "range": "bytes=4691858-4757393",
+      "status": 206,
+      "headers": {
+        "content-type": "video/mp4",
+        "content-length": "65536",
+        "content-range": "bytes 4691858-4757393/4757394",
+        "accept-ranges": "bytes",
+        "cache-control": "private, max-age=21271",
+        "cross-origin-resource-policy": "cross-origin",
+        "x-content-type-options": "nosniff",
+        "server": "gvs 1.0",
+        "last-modified": "Sat, 26 Sep 2026 15:54:57 GMT"
+      },
+      "bytes": 65536
+    },
+    "android-kids-18-end": {
+      "client": "ANDROID",
+      "itag": 18,
+      "range": "bytes=7539241-7604776",
+      "status": 206,
+      "headers": {
+        "content-type": "video/mp4",
+        "content-length": "65536",
+        "content-range": "bytes 7539241-7604776/7604777",
+        "accept-ranges": "bytes",
+        "cache-control": "private, max-age=21299",
+        "cross-origin-resource-policy": "cross-origin",
+        "x-content-type-options": "nosniff",
+        "server": "gvs 1.0",
+        "last-modified": "Thu, 26 Feb 2026 16:56:16 GMT"
+      },
+      "bytes": 65536
+    },
+    "ios-140-start": {
+      "client": "IOS",
+      "itag": 140,
+      "range": "bytes=0-65535",
+      "status": 206,
+      "headers": {
+        "content-type": "audio/mp4",
+        "content-length": "65536",
+        "content-range": "bytes 0-65535/3865089",
+        "accept-ranges": "bytes",
+        "cache-control": "private, max-age=21300",
+        "cross-origin-resource-policy": "cross-origin",
+        "x-content-type-options": "nosniff",
+        "server": "gvs 1.0",
+        "last-modified": "Sat, 26 Sep 2026 15:46:51 GMT"
+      },
+      "bytes": 65536
+    },
+    "ios-140-past-1MiB": {
+      "client": "IOS",
+      "itag": 140,
+      "range": "bytes=1048576-1114111",
+      "status": 403,
+      "headers": {
+        "content-type": "text/plain",
+        "content-length": "0",
+        "cross-origin-resource-policy": "cross-origin",
+        "x-content-type-options": "nosniff",
+        "server": "gvs 1.0",
+        "last-modified": "Wed, 02 May 2007 10:26:10 GMT"
+      },
+      "bytes": 0
+    },
+    "ios-140-end": {
+      "client": "IOS",
+      "itag": 140,
+      "range": "bytes=3799553-3865088",
+      "status": 403,
+      "headers": {
+        "content-type": "text/plain",
+        "content-length": "0",
+        "cross-origin-resource-policy": "cross-origin",
+        "x-content-type-options": "nosniff",
+        "server": "gvs 1.0",
+        "last-modified": "Wed, 02 May 2007 10:26:10 GMT"
+      },
+      "bytes": 0
+    }
+  }
+}

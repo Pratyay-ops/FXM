@@ -1,0 +1,157 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Chromium manifest > matches the reviewed manifest 1`] = `
+{
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+    },
+    "default_title": "FXM Connect",
+  },
+  "background": {
+    "service_worker": "background.js",
+  },
+  "content_scripts": [
+    {
+      "all_frames": false,
+      "js": [
+        "content.js",
+      ],
+      "matches": [
+        "https://fxmusic.pages.dev/*",
+      ],
+      "run_at": "document_start",
+    },
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://open.spotify.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "enabled": true,
+        "id": "fxmusic_pages_dev",
+        "path": "rules.json",
+      },
+    ],
+  },
+  "description": "Only lets the FXM web app reach music services from your own browser. No analytics, no tracking and no remote code.",
+  "host_permissions": [
+    "https://fxmusic.pages.dev/*",
+    "https://www.youtube.com/*",
+    "https://music.youtube.com/*",
+    "https://youtubei.googleapis.com/*",
+    "https://*.googlevideo.com/*",
+    "https://open.spotify.com/*",
+    "https://api-partner.spotify.com/*",
+    "https://spclient.wg.spotify.com/*",
+    "https://www.last.fm/*",
+  ],
+  "icons": {
+    "128": "icons/icon-128.png",
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+  },
+  "manifest_version": 3,
+  "minimum_chrome_version": "120",
+  "name": "FXM Connect",
+  "options_ui": {
+    "open_in_tab": true,
+    "page": "options.html",
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+  ],
+  "version": "1.2.3",
+}
+`;
+
+exports[`Firefox manifest > matches the reviewed manifest 1`] = `
+{
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+    },
+    "default_title": "FXM Connect",
+  },
+  "background": {
+    "scripts": [
+      "background.js",
+    ],
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "data_collection_permissions": {
+        "optional": [
+          "authenticationInfo",
+        ],
+        "required": [
+          "none",
+        ],
+      },
+      "id": "fxm-connect@fxmusic.pages.dev",
+      "strict_min_version": "140.0",
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0",
+    },
+  },
+  "content_scripts": [
+    {
+      "all_frames": false,
+      "js": [
+        "content.js",
+      ],
+      "matches": [
+        "https://fxmusic.pages.dev/*",
+      ],
+      "run_at": "document_start",
+    },
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://open.spotify.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "enabled": true,
+        "id": "fxmusic_pages_dev",
+        "path": "rules.json",
+      },
+    ],
+  },
+  "description": "Only lets the FXM web app reach music services from your own browser. No analytics, no tracking and no remote code.",
+  "host_permissions": [
+    "https://fxmusic.pages.dev/*",
+    "https://www.youtube.com/*",
+    "https://music.youtube.com/*",
+    "https://youtubei.googleapis.com/*",
+    "https://*.googlevideo.com/*",
+    "https://open.spotify.com/*",
+    "https://api-partner.spotify.com/*",
+    "https://spclient.wg.spotify.com/*",
+    "https://www.last.fm/*",
+  ],
+  "icons": {
+    "128": "icons/icon-128.png",
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+  },
+  "manifest_version": 3,
+  "name": "FXM Connect",
+  "options_ui": {
+    "open_in_tab": true,
+    "page": "options.html",
+  },
+  "permissions": [
+    "declarativeNetRequest",
+    "storage",
+  ],
+  "version": "1.2.3",
+}
+`;

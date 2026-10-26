@@ -1,0 +1,5 @@
+# Playwright output and visual-check screenshots (pnpm screenshots)
+/screenshots/
+/test-results/
+/playwright-report/
+/blob-report/

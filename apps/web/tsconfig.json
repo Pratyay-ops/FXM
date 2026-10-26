@@ -3,7 +3,10 @@
   "compilerOptions": {
     "lib": ["es2023", "dom", "dom.iterable"],
     "jsx": "react-jsx",
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    // @fxm/platform's sandbox code imports `./document.ts` (its Node build tool needs the
+    // extension), and this program type-checks the package's source.
+    "allowImportingTsExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "embed"]
 }

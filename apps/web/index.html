@@ -2,12 +2,41 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0b0b0f" />
+    <meta
+      name="description"
+      content="FXM is a free, open-source music player: search and play practically any song."
+    />
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%238b5cf6'/%3E%3Cstop offset='1' stop-color='%235b21b6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cg fill='%23fff'%3E%3Crect x='4.8' y='15' width='3.2' height='9' rx='1.6'/%3E%3Crect x='9.6' y='8' width='3.2' height='16' rx='1.6'/%3E%3Crect x='14.4' y='13' width='3.2' height='11' rx='1.6'/%3E%3Crect x='19.2' y='8' width='3.2' height='16' rx='1.6'/%3E%3Crect x='24' y='15' width='3.2' height='9' rx='1.6'/%3E%3C/g%3E%3C/svg%3E"
+    />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="FXM" />
     <title>FXM</title>
+    <script>
+      // Apply the saved theme before the first paint, so a light-theme user never sees a
+      // dark flash. Mirrors resolveTheme() in src/features/settings/theme.ts and reads the
+      // settings store's storage key (a test keeps the two in sync).
+      ;(() => {
+        try {
+          let theme = JSON.parse(localStorage.getItem('fxm.settings.v1') || 'null')?.state?.theme
+          if (theme === 'system') {
+            theme = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+          }
+          if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme
+        } catch {
+          // Storage blocked or corrupt: keep the default dark theme.
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
+    <noscript>FXM needs JavaScript to run.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

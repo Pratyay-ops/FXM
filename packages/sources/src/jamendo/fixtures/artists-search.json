@@ -1,0 +1,20 @@
+{
+  "headers": {
+    "status": "success",
+    "code": 0,
+    "error_message": "",
+    "warnings": "",
+    "results_count": 1
+  },
+  "results": [
+    {
+      "id": "421168",
+      "name": "fankel",
+      "website": "",
+      "joindate": "2021-04-01",
+      "image": "",
+      "shorturl": "https://jamen.do/a/421168",
+      "shareurl": "https://www.jamendo.com/artist/421168"
+    }
+  ]
+}

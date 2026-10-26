@@ -1,0 +1,41 @@
+[
+  {
+    "id": 24732309,
+    "name": "Hans Zimmer - Time (Inception)",
+    "trackName": "Hans Zimmer - Time (Inception)",
+    "artistName": "Hans Zimmer",
+    "albumName": "Hans Zimmer",
+    "duration": 274.872,
+    "instrumental": true,
+    "hasWordSync": false,
+    "plainLyrics": null,
+    "syncedLyrics": null,
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: Hans Zimmer - Time (Inception)\n  artist: Hans Zimmer\n  album: Hans Zimmer\n  duration_ms: 274872\n  instrumental: true\nlines: []\n"
+  },
+  {
+    "id": 9890503,
+    "name": "Hans Zimmer - Time (Ben Walter remix)",
+    "trackName": "Hans Zimmer - Time (Ben Walter remix)",
+    "artistName": "Hans Zimmer",
+    "albumName": "Hans Zimmer - Time",
+    "duration": 333.0,
+    "instrumental": true,
+    "hasWordSync": false,
+    "plainLyrics": null,
+    "syncedLyrics": null,
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: Hans Zimmer - Time (Ben Walter remix)\n  artist: Hans Zimmer\n  album: Hans Zimmer - Time\n  duration_ms: 333000\n  instrumental: true\nlines: []\n"
+  },
+  {
+    "id": 34712809,
+    "name": "Hans Zimmer - Inception: Time - Orchestra Version",
+    "trackName": "Hans Zimmer - Inception: Time - Orchestra Version",
+    "artistName": "Hans Zimmer",
+    "albumName": "Hans Zimmer - Inception: Time - Orchestra Version",
+    "duration": 286.0,
+    "instrumental": true,
+    "hasWordSync": false,
+    "plainLyrics": null,
+    "syncedLyrics": null,
+    "lyricsfile": "version: '1.0'\nmetadata:\n  title: Hans Zimmer - Inception: Time - Orchestra Version\n  artist: Hans Zimmer\n  album: Hans Zimmer - Inception: Time - Orchestra Version\n  duration_ms: 286000\n  instrumental: true\nlines: []\n"
+  }
+]

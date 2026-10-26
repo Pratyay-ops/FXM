@@ -1,0 +1,71 @@
+# git-cliff configuration for the release notes people read: the release pull request and the
+# GitHub Release, which scripts/release-notes.sh prints without --changelog. They list the
+# features, bug fixes and performance changes of the release, each once, after the release's
+# hand-written summary (docs/releases/v<version>.md, which release-notes.sh prints first).
+# Documentation, tests, CI, build, chores and refactoring are left out, and so is the internal
+# work of every type: the scopes tooling, release, deploy, ci and plan, and integration and test
+# work (the parser before the features says which subjects). CHANGELOG.md keeps the whole
+# history (cliff.toml). Keep the body and the preprocessors in step with cliff.toml's.
+# Preview the next release's notes with `make release-notes`.
+# Docs: https://git-cliff.org/docs/configuration
+
+[changelog]
+# The same body as cliff.toml's. release-notes.sh drops the version heading, as the pull request
+# and the GitHub Release show their own title. Entries with the same message, such as a commit
+# and its copy on a stacked branch, are listed once.
+body = """
+
+{% if version -%}
+  {% if previous.version -%}
+    ## [{{ version | trim_start_matches(pat="v") }}](https://github.com/Pratyay-ops/FXM/compare/{{ previous.version }}...{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+  {% else -%}
+    ## [{{ version | trim_start_matches(pat="v") }}](https://github.com/Pratyay-ops/FXM/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+  {% endif -%}
+{% else -%}
+  ## Unreleased
+{% endif -%}
+{% if commits | length == 0 %}
+  No notable changes.
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+  ### {{ group | striptags | trim }}
+  {% for commit in commits | unique(attribute="message") %}
+    - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{% if commit.breaking %}**Breaking:** {% endif %}{{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/Pratyay-ops/FXM/commit/{{ commit.id }}))
+  {%- endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+# Drops commits that are not Conventional Commits: merges, "Initial commit" and the like.
+filter_unconventional = true
+split_commits = false
+# As in cliff.toml: an @name that isn't part of a word or an e-mail address goes into a code
+# span, so the notes notify nobody on GitHub.
+commit_preprocessors = [
+  { pattern = '(?m)(^|[^\w`])(@[\w-]+(?:\.[\w-]+)*(?:/[\w-]+(?:\.[\w-]+)*)?)', replace = '${1}`${2}`' },
+]
+# Groups in the order the template prints them; the HTML comments only sort them.
+commit_parsers = [
+  { field = "merge_commit", pattern = "^true$", skip = true },
+  { message = '^Merge ', skip = true },
+  # Internal work, whatever its type: the toolchain, releases, the deploy, CI and the plan.
+  { message = '^[a-z]+\((tooling|release|deploy|ci|plan)\)', skip = true },
+  # Integration and test work, whatever its type: what a merge of develop or another stage broke
+  # (merged, develop's, 2.9's) and the fakes the tests use (fixtures, type tests, test streams,
+  # the tests' helpers).
+  { message = '''^[a-z]+(\([a-z]+\))?!?: .*(\bmerged\b|\bdevelop's\b|\bfixtures\b|\btype tests\b|\btest streams\b|\btests' |\b[0-9]\.[0-9]+'s\b)''', skip = true },
+  { message = '^feat', group = "<!-- 0 -->Features" },
+  { message = '^fix', group = "<!-- 1 -->Bug fixes" },
+  { message = '^perf', group = "<!-- 2 -->Performance" },
+  # docs, test, ci, build, chore, refactor, style and any other type.
+  { message = '.*', skip = true },
+]
+protect_breaking_commits = false
+filter_commits = false
+# Release tags only: vX.Y.Z, created by .github/workflows/release.yml.
+tag_pattern = '^v[0-9]+\.[0-9]+\.[0-9]+$'
+topo_order = false
+topo_order_commits = true
+sort_commits = "oldest"

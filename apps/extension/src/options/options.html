@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>FXM Connect</title>
+    <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="options.css" />
+    <script src="options.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header class="masthead">
+        <img src="icons/icon.svg" width="48" height="48" alt="" />
+        <div>
+          <h1>FXM Connect</h1>
+          <p class="meta">
+            Version <span id="version"></span>
+            <span id="dev-badge" class="badge" data-dev hidden>Development build</span>
+          </p>
+        </div>
+      </header>
+
+      <p class="lead">
+        FXM Connect only lets the FXM web app reach music services (YouTube, Spotify and
+        Last.fm) from your own browser. It adds the headers those services need to answer FXM,
+        fetches Spotify's public server time for it and, only if you turn on the Spotify setting
+        below, gets a Spotify token for your own Spotify login. It has no analytics or tracking
+        and runs no remote code.
+      </p>
+
+      <p id="dev-warning" class="warning" data-dev hidden>
+        <strong>Development build.</strong> It treats any app served on the localhost origins
+        listed below as FXM, including other projects and their dependencies. Keep the Spotify
+        login off for localhost, or use a separate browser profile for development. Never
+        publish this build.
+      </p>
+
+      <section aria-labelledby="spotify-title">
+        <h2 id="spotify-title">Spotify</h2>
+        <div class="setting">
+          <input
+            type="checkbox"
+            id="spotify-login"
+            aria-describedby="spotify-login-help"
+            disabled
+          />
+          <label for="spotify-login">Use my Spotify login from this browser</label>
+        </div>
+        <p id="spotify-login-help" class="help">
+          Off by default. When on, the FXM app can ask FXM Connect for a Spotify access token for
+          the account you are signed in to at open.spotify.com in this browser. The app asks for
+          one only after you also connect your Spotify account in FXM. Connecting comes in a later
+          version of FXM: until then, this setting changes nothing. FXM Connect fetches the token
+          from open.spotify.com with your browser's existing Spotify session and passes FXM only
+          the token response. It never reads, stores or shares your cookies.
+          Spotify's terms don't permit automated access like FXM's, and they let Spotify suspend
+          accounts that break them; no such case has been reported for this kind of use.
+        </p>
+        <p id="spotify-consent-help" class="help" hidden>
+          When you turn this on, Firefox asks you to let FXM Connect "share authentication
+          information with extension developer", because the token is your Spotify login. Here
+          that means the FXM web app in this browser, which uses the token only for its requests
+          to Spotify; no FXM server receives it. If you withdraw the consent in Firefox's add-on
+          settings, FXM can no longer use your login.
+        </p>
+        <div id="localhost-login" data-dev hidden>
+          <div class="setting">
+            <input
+              type="checkbox"
+              id="spotify-login-localhost"
+              aria-describedby="spotify-login-localhost-help"
+              disabled
+            />
+            <label for="spotify-login-localhost">
+              Also let localhost pages use my Spotify login
+            </label>
+          </div>
+          <p id="spotify-login-localhost-help" class="help">
+            Development build only, off by default, and only in effect while the setting above is
+            on. Any app on the localhost origins below could then get a token for your Spotify
+            account.
+          </p>
+        </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
+
+      <section aria-labelledby="origins-title">
+        <h2 id="origins-title">Allowed FXM pages</h2>
+        <p class="help">Only pages on these origins can use FXM Connect:</p>
+        <ul id="origins" class="origins"></ul>
+      </section>
+
+      <p>
+        <a class="button" href="https://fxmusic.pages.dev/app/" target="_blank">Open FXM</a>
+      </p>
+    </main>
+  </body>
+</html>

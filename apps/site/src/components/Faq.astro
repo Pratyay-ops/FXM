@@ -1,0 +1,214 @@
+---
+import { AVAILABLE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../config'
+import { FIREFOX_TEMPORARY, phonesAnswer } from '../lib/connect'
+import { connectNeededFor, extensionFaq, iPhoneAnswer, losslessAnswer } from '../lib/tiers'
+
+// Answers that change as features ship (AVAILABLE in src/config.ts)
+const extension = extensionFaq(AVAILABLE.lite, AVAILABLE.jamendo)
+const needs = connectNeededFor(AVAILABLE.lite)
+const phones = phonesAnswer({
+  firefox: AVAILABLE.firefox,
+  android: AVAILABLE.android,
+  lite: AVAILABLE.lite,
+  jamendo: AVAILABLE.jamendo,
+})
+const iphone = `On iPhone and iPad you can use the web app in Safari${
+  AVAILABLE.pwa ? ' and add it to your Home Screen' : ''
+}.`
+const downloads = AVAILABLE.conversions
+  ? 'Downloads keep lossless audio without any loss. A FLAC, ALAC or WAV made from a lossy source is labelled as converted, so you always know what you have.'
+  : AVAILABLE.downloads
+    ? 'Downloads keep the file as its source has it, so lossless audio stays lossless. Converting to other formats is coming soon, and a FLAC, ALAC or WAV made from a lossy source will be labelled as converted.'
+    : 'When downloads arrive (coming soon), FXM will save lossless audio without any loss and label a FLAC, ALAC or WAV made from a lossy source as converted, so you always know what you have.'
+---
+
+<section id="faq" class="section" aria-labelledby="faq-title">
+  <div class="container layout">
+    <div class="intro">
+      <p class="eyebrow">FAQ</p>
+      <h2 id="faq-title">Questions, answered</h2>
+      <p class="lead">
+        Something else on your mind? <a href={ISSUES_URL}>Ask on the FXM issue tracker</a>.
+      </p>
+    </div>
+
+    <div class="list">
+      <details>
+        <summary>Is FXM free?</summary>
+        <div class="answer">
+          <p>
+            Yes. FXM is free and open source under the
+            <a href={LICENSE_URL}>Apache-2.0 license</a>, with no subscriptions, no in-app purchases
+            and no ads from FXM. Anyone can read the
+            <a href={REPO_URL}>source code on GitHub</a>.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>{extension.question}</summary>
+        <div class="answer">
+          {extension.answers.map((answer) => <p>{answer}</p>)}
+        </div>
+      </details>
+
+      <details>
+        <summary>Which browsers does it work in?</summary>
+        <div class="answer">
+          {AVAILABLE.firefox ? (
+            <p>
+              The web app works in any modern browser. FXM Connect, which it needs for {needs}, is
+              for Firefox (version 140 or later), and for Chrome, Edge and Brave (version 120 or
+              later) on a computer. Firefox adds it as an add-on signed by Mozilla; in Chrome, Edge
+              and Brave you install the zip from the GitHub release with
+              <strong>Load unpacked</strong> (<a href="#get-web">see the steps</a>).
+            </p>
+          ) : (
+            <p>
+              The web app works in any modern browser. FXM Connect, which it needs for {needs}, is
+              for Chrome, Edge and Brave (version 120 or later) on a computer. You install it from
+              the zip on the GitHub release with
+              <strong>Load unpacked</strong> (<a href="#get-web">see the steps</a>).
+              {FIREFOX_TEMPORARY}
+            </p>
+          )}
+          <p>{phones}</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Is there an iPhone app?</summary>
+        <div class="answer">
+          <p>
+            No, and none is planned for now.
+            {iphone}
+            {iPhoneAnswer(AVAILABLE.lite, AVAILABLE.jamendo)}
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Is my data private?</summary>
+        <div class="answer">
+          <p>
+            Yes. FXM has no accounts, no analytics and no servers, so there's nothing for FXM to
+            collect. Your library, history and settings stay in your browser or in the app, unless
+            you turn on sync (a copy in a secret gist on your own GitHub account) or connect a
+            scrobbling account (the songs you play go to Last.fm or ListenBrainz).
+          </p>
+          <p>
+            When you open the app, search or play, your device talks directly to the services you
+            use, and they see those requests as if you visited them yourself. The
+            <a href="/privacy">privacy page</a>
+            lists the services FXM uses, what each one is for and what FXM Connect can access.
+          </p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Can I get lossless audio?</summary>
+        <div class="answer">
+          <p>
+            {losslessAnswer(AVAILABLE.jamendo)}
+            YouTube Music doesn't offer lossless audio: its best streams are Opus and AAC.
+          </p>
+          <p>{downloads}</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Is FXM affiliated with YouTube or Spotify?</summary>
+        <div class="answer">
+          <p>
+            No. FXM is an independent open-source project, not affiliated with or endorsed by
+            YouTube, Google, Spotify or any music service. See the
+            <a href="/disclaimer">disclaimer</a>
+            for details.
+          </p>
+        </div>
+      </details>
+    </div>
+  </div>
+</section>
+
+<style>
+.layout {
+  display: grid;
+  gap: var(--space-10);
+}
+
+.intro {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+}
+
+.list {
+  border-top: 1px solid var(--color-border);
+}
+
+details {
+  border-bottom: 1px solid var(--color-border);
+}
+
+summary {
+  position: relative;
+  padding: var(--space-5) var(--space-10) var(--space-5) 0;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-lg);
+  font-weight: 650;
+  line-height: var(--leading-snug);
+  list-style: none;
+  cursor: pointer;
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: var(--space-2);
+  width: 0.6rem;
+  height: 0.6rem;
+  border-right: 2px solid var(--color-text-muted);
+  border-bottom: 2px solid var(--color-text-muted);
+  transform: translateY(-75%) rotate(45deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  summary::after {
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+}
+
+details[open] summary::after {
+  border-color: var(--color-accent);
+  transform: translateY(-25%) rotate(-135deg);
+}
+
+summary:hover {
+  color: var(--color-accent);
+}
+
+.answer {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-10) var(--space-6) 0;
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 60rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr);
+    gap: var(--space-16);
+  }
+
+  .intro {
+    position: sticky;
+    top: calc(var(--header-height) + var(--space-8));
+  }
+}
+</style>

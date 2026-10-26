@@ -1,18 +1,27 @@
 {
   "name": "@fxm/sources",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "FXM metadata, audio, lyrics and recommendation providers (one folder per source)",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./youtube/module/build": "./src/youtube/module/build.mjs",
+    "./youtube/module/testing": "./src/youtube/module/testing.ts",
     "./*": "./src/*/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@fxm/core": "workspace:*"
+    "@fxm/core": "workspace:*",
+    "bgutils-js": "^4.0.3",
+    "youtubei.js": "^18.1.0"
+  },
+  "devDependencies": {
+    "googlevideo": "^4.1.1",
+    "playwright-core": "^1.64.0",
+    "vite": "^8.3.4"
   }
 }

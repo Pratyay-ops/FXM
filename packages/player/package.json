@@ -1,18 +1,23 @@
 {
   "name": "@fxm/player",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "FXM player facade and playback engines (direct audio, YouTube embed, native bridge)",
+  "description": "FXM player facade, playback engines (direct audio, native bridge) and Media Session",
   "license": "Apache-2.0",
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
-    "@fxm/core": "workspace:*"
+    "@fxm/core": "workspace:*",
+    "googlevideo": "^4.1.1"
+  },
+  "devDependencies": {
+    "happy-dom": "^20.14.6"
   }
 }

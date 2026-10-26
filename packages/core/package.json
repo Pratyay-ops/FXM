@@ -1,6 +1,6 @@
 {
   "name": "@fxm/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "FXM domain model, interfaces and pure logic shared by every app",
   "license": "Apache-2.0",
@@ -10,6 +10,6 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p type-tests/tsconfig.dom.json && tsc --noEmit -p type-tests/tsconfig.worker.json && tsc --noEmit -p type-tests/tsconfig.node.json"
   }
 }

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Base application theme. -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">@color/fxm_surface</item>
+        <item name="colorPrimaryDark">@color/fxm_background</item>
+        <item name="colorAccent">@color/fxm_accent</item>
+    </style>
+
+    <!-- The running app (BridgeActivity switches to it): the dark theme's background behind
+         the WebView and dark system bars with light icons. From Android 15 the app is drawn
+         edge to edge, so the web app's own bars show behind the system bars instead. -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/fxm_background</item>
+        <item name="android:statusBarColor">@color/fxm_background</item>
+        <item name="android:navigationBarColor">@color/fxm_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>
+    </style>
+
+    <!-- The launch theme: a splash screen with the FXM mark on the dark background. -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/fxm_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+        <item name="android:statusBarColor">@color/fxm_background</item>
+        <item name="android:navigationBarColor">@color/fxm_background</item>
+    </style>
+</resources>

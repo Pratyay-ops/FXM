@@ -1,0 +1,195 @@
+name: Desktop
+
+# Builds the Tauri desktop app (apps/desktop) on macOS, Windows and Linux, checks its Rust
+# code and uploads the bundles as workflow artifacts. GitHub Releases come in stage 7.5.
+#
+# The path filters list everything the jobs build or run: the desktop app, the web app it
+# embeds and the packages that web app bundles, the Makefile targets and scripts behind
+# make ci-setup, rust-setup and desktop-* (not make dist's and the deploy job's, stage 2.8),
+# the dependency manifests, the Node version, the TypeScript base config the web build reads,
+# and this file. Keep both lists the same (a test in apps/desktop/test checks that).
+on:
+  push:
+    paths:
+      - apps/desktop/**
+      - apps/web/**
+      - packages/**
+      - scripts/**
+      - '!scripts/build-dist/**'
+      - '!scripts/build-dist-wrangler/**'
+      - Makefile
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .nvmrc
+      - tsconfig.base.json
+      - .github/workflows/desktop.yml
+  pull_request:
+    paths:
+      - apps/desktop/**
+      - apps/web/**
+      - packages/**
+      - scripts/**
+      - '!scripts/build-dist/**'
+      - '!scripts/build-dist-wrangler/**'
+      - Makefile
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .nvmrc
+      - tsconfig.base.json
+      - .github/workflows/desktop.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Smaller, faster debug builds for clippy and cargo test: CI never reuses incremental
+  # state or debug info.
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS and Linux use the repo's own toolchain scripts, so pnpm, rustup and
+          # Cargo's registry live in .tools/ exactly as on a developer's machine.
+          - name: macOS
+            os: macos-latest
+            cargo-home: .tools/cargo
+          - name: Linux
+            os: ubuntu-22.04
+            cargo-home: .tools/cargo
+          # The scripts are bash-only, so Windows uses pnpm/action-setup and
+          # dtolnay/rust-toolchain instead.
+          - name: Windows
+            os: windows-latest
+            cargo-home: ~/.cargo
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # The packages listed under "Desktop app" in docs/DEVELOPMENT.md.
+      - name: Install the Linux packages Tauri needs
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Cache pnpm and its store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/bin
+            .tools/pnpm/store
+          key: desktop-js-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'scripts/install-*.sh') }}
+          restore-keys: desktop-js-${{ runner.os }}-
+
+      # Release builds and the bundler's downloads (target/.tauri) only: 300 to 450 MB per OS
+      # once compressed. The debug builds behind clippy and cargo test would double that, and
+      # GitHub keeps 10 GB of caches per repository.
+      - name: Cache the Cargo registry and release target
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ matrix.cargo-home }}/registry/index/
+            ${{ matrix.cargo-home }}/registry/cache/
+            ${{ matrix.cargo-home }}/git/db/
+            apps/desktop/src-tauri/target/release/
+            apps/desktop/src-tauri/target/.tauri/
+          key: desktop-rust-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock', 'apps/desktop/src-tauri/rust-toolchain.toml') }}
+          restore-keys: desktop-rust-${{ runner.os }}-
+
+      - name: Set up pnpm, dependencies and Rust (frozen lockfile)
+        if: runner.os != 'Windows'
+        run: |
+          make ci-setup
+          make rust-setup
+
+      - name: Doctor
+        if: runner.os != 'Windows'
+        run: make doctor
+
+      - name: Set up pnpm (Windows)
+        if: runner.os == 'Windows'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      # The same toolchain and components as apps/desktop/src-tauri/rust-toolchain.toml (a test
+      # in apps/desktop/test keeps them equal), so cargo finds everything that file asks for.
+      - name: Install Rust (Windows)
+        if: runner.os == 'Windows'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
+        with:
+          toolchain: 1.98.1
+          components: clippy, rustfmt
+
+      - name: Install dependencies (Windows, frozen lockfile)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          pnpm_config_store_dir: ${{ github.workspace }}/.tools/pnpm/store
+        run: pnpm install --frozen-lockfile
+
+      # CI=true (set by GitHub) makes the DMG step skip its Finder layout script.
+      - name: Build FXM.app and the .dmg
+        if: runner.os == 'macOS'
+        run: make desktop-dmg
+
+      - name: Build the .deb, .rpm and AppImage
+        if: runner.os == 'Linux'
+        run: make desktop-build
+
+      # bash passes the bare `--` through to tauri, which hands --locked to cargo.
+      - name: Build the .msi and NSIS installer
+        if: runner.os == 'Windows'
+        shell: bash
+        run: pnpm --filter @fxm/desktop tauri build -- --locked
+
+      - name: Check the Rust code (rustfmt, clippy, cargo test)
+        if: runner.os != 'Windows'
+        run: make desktop-check
+
+      - name: Check the Rust code (clippy, cargo test)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+
+      - name: Upload the bundles
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fxm-desktop-${{ matrix.name }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/release/bundle/rpm/*.rpm
+            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            apps/desktop/src-tauri/target/release/bundle/msi/*.msi
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 14
+          # The bundles are compressed already.
+          compression-level: 0
+
+      # The bundles are uploaded already: keep them out of the cache.
+      - name: Remove the bundles before the target is cached
+        shell: bash
+        run: rm -rf apps/desktop/src-tauri/target/release/bundle

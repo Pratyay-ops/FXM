@@ -1,0 +1,246 @@
+---
+import { APP_PATH, REPO_URL } from '../config'
+import Icon from './Icon.astro'
+import Logo from './Logo.astro'
+
+const links = [
+  { href: '/#features', label: 'Features' },
+  { href: '/#how-it-works', label: 'How it works' },
+  { href: '/#get', label: 'Download' },
+  { href: '/#faq', label: 'FAQ' },
+  { href: REPO_URL, label: 'GitHub' },
+]
+---
+
+<header class="site-header">
+  <div class="container inner">
+    <a class="brand" href="/" aria-label="FXM home">
+      <Logo id="header" size={30} />
+      <span class="wordmark" aria-hidden="true">FXM</span>
+    </a>
+    <nav class="nav" aria-label="Main">
+      <ul class="bare-list links">
+        {links.map((link) => (
+          <li>
+            <a href={link.href}>{link.label}</a>
+          </li>
+        ))}
+      </ul>
+      {/* Small screens: the same links behind a menu button that works without JavaScript */}
+      <details class="menu" data-menu>
+        <summary class="menu-button">
+          <Icon name="menu" size={22} class="when-closed" />
+          <Icon name="close" size={22} class="when-open" />
+          <span class="sr-only">Menu</span>
+        </summary>
+        <ul class="bare-list menu-panel">
+          {links.map((link) => (
+            <li>
+              <a href={link.href}>{link.label}</a>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </nav>
+    <a class="button button-primary cta" href={APP_PATH}>
+      Open web app
+      <Icon name="arrow-right" size={18} class="cta-arrow" />
+    </a>
+  </div>
+</header>
+
+<script>
+// Progressive enhancement for the small-screen menu: close it once a link is chosen (an
+// in-page link would otherwise leave it open over the section), on Escape and on a
+// click anywhere else.
+const menu = document.querySelector<HTMLDetailsElement>('details[data-menu]')
+if (menu) {
+  const summary = menu.querySelector('summary')
+  menu.addEventListener('click', (event) => {
+    if (event.target instanceof Element && event.target.closest('a')) menu.open = false
+  })
+  document.addEventListener('click', (event) => {
+    if (menu.open && event.target instanceof Node && !menu.contains(event.target)) {
+      menu.open = false
+    }
+  })
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && menu.open) {
+      menu.open = false
+      summary?.focus()
+    }
+  })
+}
+</script>
+
+<style>
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-header);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+  backdrop-filter: saturate(160%) blur(14px);
+}
+
+.inner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--header-height);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--touch);
+  margin-right: auto;
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.brand:hover {
+  color: var(--color-text);
+}
+
+.wordmark {
+  font-size: var(--text-xl);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* Inline links from 48rem; a menu button below that */
+.links {
+  display: none;
+}
+
+.links {
+  gap: var(--space-1);
+}
+
+.links a,
+.menu-panel a {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch);
+  text-decoration: none;
+}
+
+.links a {
+  padding-inline: var(--space-2);
+  border-radius: var(--radius-full);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+.links a:hover {
+  color: var(--color-text);
+}
+
+.menu-button {
+  display: grid;
+  place-items: center;
+  width: var(--touch);
+  height: var(--touch);
+  border-radius: var(--radius-full);
+  color: var(--color-text);
+  list-style: none;
+  cursor: pointer;
+}
+
+.menu-button::-webkit-details-marker {
+  display: none;
+}
+
+.menu-button:hover,
+.menu[open] .menu-button {
+  background: var(--color-elevated);
+}
+
+.menu-button > :global(svg) {
+  grid-area: 1 / 1;
+}
+
+.menu :global(.when-open),
+.menu[open] :global(.when-closed) {
+  display: none;
+}
+
+.menu[open] :global(.when-open) {
+  display: block;
+}
+
+/* Opens under the header, across the whole width */
+.menu-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  left: 0;
+  display: grid;
+  padding: var(--space-2) var(--gutter) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.menu-panel li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.menu-panel a {
+  min-height: var(--space-12);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.menu-panel a:hover {
+  color: var(--color-accent);
+}
+
+.cta {
+  min-height: var(--touch);
+  padding-inline: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+/* Room for the logo, the menu button and the button on a 320 px screen */
+@media (max-width: 24rem) {
+  .cta {
+    padding-inline: var(--space-3);
+  }
+
+  .cta :global(.cta-arrow) {
+    display: none;
+  }
+}
+
+@media (min-width: 30rem) {
+  .inner {
+    gap: var(--space-3);
+  }
+}
+
+@media (min-width: 48rem) {
+  .inner {
+    gap: var(--space-4);
+  }
+
+  .links {
+    display: flex;
+  }
+
+  .menu {
+    display: none;
+  }
+}
+
+@media (min-width: 64rem) {
+  .links a {
+    padding-inline: var(--space-3);
+  }
+}
+</style>
