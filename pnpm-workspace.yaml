@@ -1,6 +1,8 @@
 packages:
   - apps/*
   - packages/*
+  # make dist and the deploy checks (stage 2.8)
+  - scripts/build-dist
 
 # Supply-chain safety: only install versions that have been public for at
 # least 14 days (in minutes). Applies to transitive dependencies too.

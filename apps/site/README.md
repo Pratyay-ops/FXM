@@ -51,22 +51,11 @@ Content rules:
 
 ## Deploying with the web app
 
-The site and the web app (`apps/web`) are deployed together to the Cloudflare Pages project `fxmusic`. Stage 2.8 (static deploy) composes one `dist/` folder:
-
-```
-dist/
-├── index.html, privacy.html, disclaimer.html, 404.html   ← apps/site/dist
-├── robots.txt, sitemap-index.xml, sitemap-0.xml
-├── favicon.svg, favicon-32.png, apple-touch-icon.png, og.png, _astro/
-├── .well-known/security.txt                              ← apps/site/dist, from public/ (see the notes)
-├── app/                                                  ← the web app (apps/web, base /app/)
-└── embed/                                                ← the embeddable mini-player (stage 5.2)
-```
-
-Notes for that stage:
+The site and the web app (`apps/web`) are deployed together to the Cloudflare Pages project `fxmusic`. `make dist` (stage 2.8) builds both into `dist/pages/`, the site at `/` and the app at `/app/`, and writes the `_headers` file; [scripts/build-dist/README.md](../../scripts/build-dist/README.md) has the details.
 
 - Links to `/app/` are not checked by the build check (`EXTERNAL_PATHS` in `src/config.ts`), because the web app is not part of this build.
-- `404.html` at the root belongs to the site: Cloudflare Pages serves it with status 404 for unknown paths. The web app needs its own fallback for its client-side routes, such as a `_redirects` rule `/app/* /app/index.html 200`.
+- `404.html` at the root belongs to the site: Cloudflare Pages serves it with status 404 for unknown paths. The web app answers its client-side routes with `app/404.html`, a copy of its `index.html` that `make dist` writes. A `_redirects` rule can't do this: on Pages, redirects win over files, so it would catch the app's scripts too.
 - `robots.txt` and the sitemap belong to the site. Add `/app/` to the sitemap there if the web app should be indexed.
-- `.well-known/security.txt` (RFC 9116, see [docs/LEGAL.md](../../docs/LEGAL.md#security)) is copied from `public/` into the build. Copy the build with its dot-folders, for example `cp -R apps/site/dist/. <target>`: a shell glob such as `dist/*` skips them. After deploying, check that `/.well-known/security.txt` returns 200 with `text/plain`.
-- The site uses a few small inline `<style>` blocks and two inline module scripts. The Content Security Policy in `_headers` must allow them by hash, or allow `'unsafe-inline'` for styles.
+- `.well-known/security.txt` (RFC 9116, see [docs/LEGAL.md](../../docs/LEGAL.md#security)) is copied from `public/` into the build. `make dist` keeps dot-folders and gives `/.well-known/*` its own header rule. After deploying, check that `/.well-known/security.txt` returns 200 with `text/plain`.
+- Each page gets its own Content-Security-Policy, which allows its inline `<style>` blocks and module scripts by hash. `make dist` fails when a page gains something a hash can't allow: a `style` attribute, an inline event handler, a `javascript:` link, or a script or stylesheet from another site.
+- `make dist` also checks this site's privacy page: every service whose hosts the web app's policy allows must be in its list of services.
