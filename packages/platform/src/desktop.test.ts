@@ -20,6 +20,7 @@ import {
   siteOrigin,
   type TauriBindings,
 } from './desktop'
+import { isTransportError } from './errors'
 import { HOST_RULES, type HostRule } from './hosts'
 import { SIMPLE_CONTENT_TYPE } from './innertube'
 import type { NativeRequestInit } from './native'
@@ -64,8 +65,17 @@ function fakeTauri(respond: Respond = () => Response.json({ ok: true }), answer?
   return { tauri, fetches, invokes }
 }
 
+/** A request as the native transport hands it over: by default a plain GET with no `Origin`. */
 function nativeInit(init: Partial<NativeRequestInit> = {}): NativeRequestInit {
-  return { method: 'GET', headers: {}, ...init }
+  return {
+    method: 'GET',
+    headers: {},
+    origin: null,
+    route: 'open',
+    credentials: 'omit',
+    redirect: 'manual',
+    ...init,
+  }
 }
 
 /** A `user_host_fetch` answer: the length of the JSON head, the head, then the body. */
@@ -121,6 +131,7 @@ describe('siteOrigin', () => {
 
   it.each([
     undefined,
+    null,
     '',
     'null',
     'tauri://localhost',
@@ -219,14 +230,18 @@ describe('sendsBrowserAgent', () => {
 })
 
 describe('desktopHeaders', () => {
+  const none = { headers: {}, origin: null }
+
   it('sends no Origin and a browser agent to YouTube, and never a cookie or a Host', () => {
     expect(
       desktopHeaders(
         {
-          'Content-Type': SIMPLE_CONTENT_TYPE,
-          origin: '',
-          Cookie: 'VISITOR_INFO1_LIVE=x',
-          Host: 'evil.example',
+          headers: {
+            'Content-Type': SIMPLE_CONTENT_TYPE,
+            Cookie: 'VISITOR_INFO1_LIVE=x',
+            Host: 'evil.example',
+          },
+          origin: null,
         },
         rule('music.youtube.com'),
         AGENTS,
@@ -236,9 +251,21 @@ describe('desktopHeaders', () => {
 
   it('replaces a webview origin, or a missing one, with none', () => {
     expect(
-      desktopHeaders({ origin: 'tauri://localhost' }, rule('music.youtube.com'), AGENTS).origin,
+      desktopHeaders(
+        { headers: {}, origin: 'tauri://localhost' },
+        rule('music.youtube.com'),
+        AGENTS,
+      ).origin,
     ).toBe('')
-    expect(desktopHeaders({}, rule('*.googlevideo.com'), AGENTS)).toEqual({
+    expect(desktopHeaders(none, rule('*.googlevideo.com'), AGENTS)).toEqual({
+      origin: '',
+      'user-agent': BROWSER,
+    })
+  })
+
+  it('takes the Origin from init.origin only, never from the headers', () => {
+    const headers = { Origin: 'https://open.spotify.com' }
+    expect(desktopHeaders({ headers, origin: null }, rule('open.spotify.com'), AGENTS)).toEqual({
       origin: '',
       'user-agent': BROWSER,
     })
@@ -246,22 +273,27 @@ describe('desktopHeaders', () => {
 
   it('keeps Spotify’s own origin and gives it a browser agent', () => {
     expect(
-      desktopHeaders({ origin: 'https://open.spotify.com' }, rule('open.spotify.com'), AGENTS),
+      desktopHeaders(
+        { headers: {}, origin: 'https://open.spotify.com' },
+        rule('open.spotify.com'),
+        AGENTS,
+      ),
     ).toEqual({ origin: 'https://open.spotify.com', 'user-agent': BROWSER })
   })
 
   it('gives YouTube’s and Spotify’s images a browser agent, and other hosts FXM’s', () => {
     for (const host of ['i.ytimg.com', '*.ggpht.com', 'i.scdn.co', 'www.last.fm']) {
-      expect(desktopHeaders({}, rule(host), AGENTS)['user-agent'], host).toBe(BROWSER)
+      expect(desktopHeaders(none, rule(host), AGENTS)['user-agent'], host).toBe(BROWSER)
     }
     for (const host of ['lrclib.net', 'musicbrainz.org', 'ws.audioscrobbler.com']) {
-      expect(desktopHeaders({}, rule(host), AGENTS)['user-agent'], host).toBe(APP)
+      expect(desktopHeaders(none, rule(host), AGENTS)['user-agent'], host).toBe(APP)
     }
   })
 
   it('keeps an agent the request names', () => {
+    const headers = { 'User-Agent': 'FXM/1.0' }
     expect(
-      desktopHeaders({ 'User-Agent': 'FXM/1.0' }, rule('open.spotify.com'), AGENTS)['user-agent'],
+      desktopHeaders({ headers, origin: null }, rule('open.spotify.com'), AGENTS)['user-agent'],
     ).toBe('FXM/1.0')
   })
 })
@@ -294,12 +326,16 @@ describe('createDesktopFetch through the HTTP plugin', () => {
     const { tauri, fetches } = fakeTauri()
     const http = createDesktopFetch({ tauri, browserUserAgent: BROWSER, appUserAgent: APP })
     const signal = new AbortController().signal
-    await http(SEARCH, {
-      method: 'POST',
-      headers: { 'content-type': SIMPLE_CONTENT_TYPE, origin: '' },
-      body: BODY,
-      signal,
-    })
+    await http(
+      SEARCH,
+      nativeInit({
+        method: 'POST',
+        headers: { 'content-type': SIMPLE_CONTENT_TYPE },
+        route: 'innertube',
+        body: BODY,
+        signal,
+      }),
+    )
     const [call] = fetches
     expect(call?.url).toBe(SEARCH)
     expect(call?.init.headers).toEqual({
@@ -310,7 +346,7 @@ describe('createDesktopFetch through the HTTP plugin', () => {
     expect(Object.getPrototypeOf(call?.init.headers)).toBe(Object.prototype)
     expect(call?.init).toMatchObject({ method: 'POST', body: BODY, signal })
     expect(call?.init.connectTimeout).toBe(DESKTOP_CONNECT_TIMEOUT_MS)
-    expect('maxRedirections' in (call?.init ?? {})).toBe(false)
+    expect(call?.init.maxRedirections).toBe(0)
   })
 
   it('sends InnerTube calls in the simple shape, with no Origin, drawing on the budget', async () => {
@@ -445,35 +481,67 @@ describe('createDesktopFetch through the HTTP plugin', () => {
     expect(page.body).toBeNull()
   })
 
-  it('follows redirects by default, returns them for manual, and refuses them for error', async () => {
+  it('hands every redirect back as it is, with its Location', async () => {
     const respond = () =>
       new Response(null, { status: 302, headers: { location: 'https://archive.org/x' } })
     const { tauri, fetches } = fakeTauri(respond)
-    const http = createDesktopFetch({ tauri })
-    const manual = await http(LYRICS, nativeInit({ redirect: 'manual' }))
-    expect(manual.status).toBe(302)
-    expect(manual.headers.get('location')).toBe('https://archive.org/x')
+    const response = await createDesktopFetch({ tauri })(LYRICS, nativeInit())
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toBe('https://archive.org/x')
+    expect(response.url).toBe(LYRICS)
+    expect(fetches).toHaveLength(1)
     expect(fetches[0]?.init.maxRedirections).toBe(0)
-
-    const error = await rejection(http(LYRICS, nativeInit({ redirect: 'error' })))
-    expect(error).toBeInstanceOf(TypeError)
-    expect((error as Error).message).toBe(
-      'https://lrclib.net/api/get redirects, and the request asked not to follow redirects',
-    )
-    expect(fetches[1]?.init.maxRedirections).toBe(0)
-
-    await http(LYRICS, nativeInit({ redirect: 'follow' }))
-    expect('maxRedirections' in (fetches[2]?.init ?? {})).toBe(false)
   })
 
-  it('reports an address the scope refuses, a redirect’s included, as Unsupported', async () => {
-    const refusal = 'url not allowed on the configured scope: https://evil.example/x?ip=203.0.113.7'
+  it('lets the transport follow redirects hop by hop, within the host table', async () => {
+    const DOWNLOAD = 'https://archive.org/download/bell/bell.mp3'
+    const STORAGE = 'https://dn710102.ca.archive.org/0/items/bell/bell.mp3'
+    const { tauri, fetches } = fakeTauri((url) =>
+      url === DOWNLOAD
+        ? new Response(null, { status: 302, headers: { location: STORAGE } })
+        : new Response(new Uint8Array([1, 2]), { status: 206 }),
+    )
+    const transport = createTauriTransport({
+      http: createDesktopFetch({ tauri, appUserAgent: APP }),
+      budget: createRequestBudget(),
+    })
+    const response = await transport.fetch(DOWNLOAD, { headers: { Range: 'bytes=-65536' } })
+    expect(response.status).toBe(206)
+    expect(response.url).toBe(STORAGE)
+    expect(fetches.map((call) => call.url)).toEqual([DOWNLOAD, STORAGE])
+    for (const call of fetches) {
+      expect(call.init.maxRedirections).toBe(0)
+      expect(call.init.headers).toEqual({
+        range: 'bytes=-65536',
+        origin: '',
+        'user-agent': APP,
+      })
+    }
+  })
+
+  it('never sends a redirect out of the host table', async () => {
+    const { tauri, fetches } = fakeTauri(
+      () => new Response(null, { status: 302, headers: { location: 'https://evil.example/x' } }),
+    )
+    const transport = createTauriTransport({
+      http: createDesktopFetch({ tauri }),
+      budget: createRequestBudget(),
+    })
+    const error = await rejection(transport.fetch(LYRICS))
+    expect(isTransportError(error, 'redirect')).toBe(true)
+    expect(fetches).toHaveLength(1)
+  })
+
+  it('reports an address the scope refuses as a TransportError (unknown-host)', async () => {
+    const refusal = `url not allowed on the configured scope: ${MEDIA}&ip=203.0.113.7`
     const { tauri } = fakeTauri(() => {
       throw refusal
     })
     const error = await rejection(createDesktopFetch({ tauri })(MEDIA, nativeInit()))
-    expect(isFxmError(error, 'Unsupported')).toBe(true)
-    expect((error as Error).message).toBe('The desktop app does not contact https://evil.example/x')
+    expect(isTransportError(error, 'unknown-host')).toBe(true)
+    expect((error as Error).message).toBe(
+      'The desktop app does not contact https://rr3---sn-ab5l6nrz.googlevideo.com/videoplayback',
+    )
     expect((error as Error).cause).toBe(refusal)
   })
 
@@ -578,7 +646,7 @@ describe('createDesktopFetch through the HTTP plugin', () => {
   it('refuses a URL that is not absolute before anything else', async () => {
     const { tauri, fetches } = fakeTauri()
     const error = await rejection(createDesktopFetch({ tauri })('/relative', nativeInit()))
-    expect(isFxmError(error, 'Unsupported')).toBe(true)
+    expect(isTransportError(error, 'bad-request')).toBe(true)
     expect(fetches).toHaveLength(0)
   })
 })
@@ -616,24 +684,82 @@ describe('createDesktopFetch for hosts the user approved', () => {
     expect(await response.json()).toEqual({ version: '2' })
   })
 
+  it('sends a user route through the command, even to a host on the table', async () => {
+    const { tauri, fetches, invokes } = fakeTauri(undefined, () => frame({ ...head, url: LYRICS }))
+    await createDesktopFetch({ tauri })(LYRICS, nativeInit({ route: 'user' }))
+    expect(fetches).toHaveLength(0)
+    expect(invokes.map((call) => call.command)).toEqual([DESKTOP_COMMANDS.userHostFetch])
+  })
+
   it('refuses other methods itself', async () => {
     const { tauri, invokes } = fakeTauri()
     const error = await rejection(
-      createDesktopFetch({ tauri })(INSTANCE, nativeInit({ method: 'POST', body: 'x' })),
+      createDesktopFetch({ tauri })(
+        INSTANCE,
+        nativeInit({ method: 'POST', body: 'x', route: 'user' }),
+      ),
     )
-    expect(isFxmError(error, 'Unsupported')).toBe(true)
+    expect(isTransportError(error, 'bad-request')).toBe(true)
     expect(invokes).toHaveLength(0)
   })
 
   it.each([
-    [{ code: 'not-approved', message: 'not approved' }, 'Unsupported'],
+    [{ code: 'not-approved', message: 'not approved' }, 'unknown-host'],
+    [{ code: 'bad-request', message: 'only HTTPS' }, 'bad-request'],
+  ] as const)('maps the command’s %j to a TransportError (%s)', async (failure, reason) => {
+    const { tauri } = fakeTauri(undefined, () => Promise.reject(failure))
+    const error = await rejection(
+      createDesktopFetch({ tauri })(INSTANCE, nativeInit({ route: 'user' })),
+    )
+    expect(isTransportError(error, reason)).toBe(true)
+    expect((error as Error).message).toBe(failure.message)
+    expect((error as Error).cause).toBe(failure)
+  })
+
+  it.each([
     [{ code: 'forbidden-address', message: 'private address' }, 'Unsupported'],
+    [{ code: 'proxy-configured', message: 'a proxy is set' }, 'Unsupported'],
     [{ code: 'too-large', message: 'over 8 MiB' }, 'Parse'],
   ] as const)('maps the command’s %j to a %s FxmError', async (failure, code) => {
     const { tauri } = fakeTauri(undefined, () => Promise.reject(failure))
-    const error = await rejection(createDesktopFetch({ tauri })(INSTANCE, nativeInit()))
+    const error = await rejection(
+      createDesktopFetch({ tauri })(INSTANCE, nativeInit({ route: 'user' })),
+    )
     expect(isFxmError(error, code)).toBe(true)
+    expect(isTransportError(error)).toBe(false)
     expect((error as Error).message).toBe(failure.message)
+  })
+
+  it('hands a redirect back, which the transport follows on the same host only', async () => {
+    const MOVED = 'https://invidious.example.org/api/v1/stats/'
+    const OTHER = 'https://gist.example.org/raw'
+    const redirect = (location: string) =>
+      frame({
+        status: 301,
+        statusText: 'Moved Permanently',
+        url: INSTANCE,
+        headers: [['location', location]],
+      })
+    const { tauri, invokes } = fakeTauri(undefined, (_, args) => {
+      const { url } = (args?.request ?? {}) as { url?: string }
+      if (url === INSTANCE) return redirect(MOVED)
+      if (url === MOVED) return redirect(OTHER)
+      return frame(head)
+    })
+    const http = createDesktopFetch({ tauri })
+    const raw = await http(INSTANCE, nativeInit({ route: 'user' }))
+    expect(raw.status).toBe(301)
+    expect(raw.headers.get('location')).toBe(MOVED)
+
+    const transport = createTauriTransport({
+      http,
+      budget: createRequestBudget(),
+      userHosts: () => ['invidious.example.org', 'gist.example.org'],
+    })
+    const error = await rejection(transport.fetch(INSTANCE))
+    expect(isTransportError(error, 'redirect')).toBe(true)
+    const urls = invokes.map(({ args }) => (args?.request as { url?: string } | undefined)?.url)
+    expect(urls).toEqual([INSTANCE, INSTANCE, MOVED])
   })
 
   it('rejects like fetch when the command’s network request fails, or the command does', async () => {
@@ -641,13 +767,15 @@ describe('createDesktopFetch for hosts the user approved', () => {
       Promise.reject({ code: 'network', message: 'timed out' }),
     )
     const error = await rejection(
-      createDesktopFetch({ tauri: network.tauri })(INSTANCE, nativeInit()),
+      createDesktopFetch({ tauri: network.tauri })(INSTANCE, nativeInit({ route: 'user' })),
     )
     expect(error).toBeInstanceOf(TypeError)
     expect((error as Error).message).toBe('timed out')
     const broken = fakeTauri(undefined, () => Promise.reject('command user_host_fetch not found'))
     expect(
-      await rejection(createDesktopFetch({ tauri: broken.tauri })(INSTANCE, nativeInit())),
+      await rejection(
+        createDesktopFetch({ tauri: broken.tauri })(INSTANCE, nativeInit({ route: 'user' })),
+      ),
     ).toBeInstanceOf(TypeError)
   })
 
@@ -661,7 +789,7 @@ describe('createDesktopFetch for hosts the user approved', () => {
         headers: [['content-disposition', `attachment; filename="${latin1}"`]],
       }),
     )
-    const response = await createDesktopFetch({ tauri })(INSTANCE, nativeInit())
+    const response = await createDesktopFetch({ tauri })(INSTANCE, nativeInit({ route: 'user' }))
     const value = response.headers.get('content-disposition') ?? ''
     const bytes = Uint8Array.from(value, (character) => character.charCodeAt(0))
     expect(new TextDecoder().decode(bytes)).toBe('attachment; filename="日本.mp3"')
@@ -672,7 +800,7 @@ describe('createDesktopFetch for hosts the user approved', () => {
     const first = fakeTauri(undefined, () => new Promise(() => {}))
     const before = createDesktopFetch({ tauri: first.tauri })(
       INSTANCE,
-      nativeInit({ signal: early.signal }),
+      nativeInit({ signal: early.signal, route: 'user' }),
     )
     early.abort()
     expect(await rejection(before)).toBe(early.signal.reason)
@@ -682,7 +810,7 @@ describe('createDesktopFetch for hosts the user approved', () => {
     const second = fakeTauri(undefined, () => new Promise(() => {}))
     const during = createDesktopFetch({ tauri: second.tauri })(
       INSTANCE,
-      nativeInit({ signal: late.signal }),
+      nativeInit({ signal: late.signal, route: 'user' }),
     )
     await vi.waitFor(() => expect(second.invokes).toHaveLength(1))
     late.abort()
@@ -880,6 +1008,7 @@ describe('in the desktop app', () => {
     expect(config?.headers).toContainEqual(['user-agent', FALLBACK_BROWSER_USER_AGENT])
     expect(config?.headers.map(([name]) => name.toLowerCase())).not.toContain('cookie')
     expect(config?.connectTimeout).toBe(DESKTOP_CONNECT_TIMEOUT_MS)
+    expect(config?.maxRedirections).toBe(0)
     expect(new TextDecoder().decode(Uint8Array.from(config?.data ?? []))).toBe(BODY)
 
     expect(response.status).toBe(200)

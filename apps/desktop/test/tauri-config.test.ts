@@ -307,8 +307,8 @@ describe('request-headers.json (staged for plugins-workspace PR #3703)', () => {
 
   it('gives every host in the table the Origin the native transports send', () => {
     for (const rule of HOST_RULES) {
-      const expected = NATIVE_ORIGINS[rule.hostClass] === '' ? null : NATIVE_ORIGINS[rule.hostClass]
-      expect(originFor(sampleUrl(rule)), rule.host).toBe(expected)
+      // `null` is no Origin at all, in the rules as in the transports.
+      expect(originFor(sampleUrl(rule)), rule.host).toBe(NATIVE_ORIGINS[rule.hostClass])
     }
   })
 

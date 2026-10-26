@@ -3,22 +3,25 @@
  * that the Tauri transport sends every request through:
  *
  * - hosts in the host table go through Tauri's HTTP plugin (`@tauri-apps/plugin-http`). Its
- *   scope in `apps/desktop/src-tauri/capabilities/default.json` lists exactly those hosts, and
- *   its `scopeRedirects` setting checks every redirect against that scope;
- * - hosts the user approved in Settings, such as an Invidious instance, go through FXM's
- *   `user_host_fetch` Rust command instead, because the plugin's scope is fixed at build time.
- *   Rust lets a host through only once the user has approved it in a native dialog
- *   ({@link createDesktopUserHosts}), and only over HTTPS to a public address.
+ *   scope in `apps/desktop/src-tauri/capabilities/default.json` lists exactly those hosts;
+ * - `user` routes, the hosts the user approved in Settings such as an Invidious instance, go
+ *   through FXM's `user_host_fetch` Rust command instead, because the plugin's scope is fixed at
+ *   build time. So does any other host off the table. Rust lets a host through only once the user
+ *   has approved it in a native dialog ({@link createDesktopUserHosts}), and only over HTTPS to a
+ *   public address.
+ *
+ * Neither follows a redirect: each hands it back as it is (`redirect: 'manual'`), and the
+ * transport follows it, checking every hop against the host table before it is sent.
  *
  * The header policy is `createNativeTransport`'s (see `NATIVE_ORIGINS`). This module enforces its
  * rules once more at the last step, so no provider, or anything else that calls `ctx.fetch`, can
  * get around them:
  *
- * - **Never a webview origin.** A request without an `Origin`, or with anything but the `https:`
- *   origin of a real site, goes out with `origin: ''`, which the plugin (built with
- *   `unsafe-headers`) turns into no `Origin` header at all. Otherwise the plugin would add the
- *   webview's own origin (`tauri://localhost`, `http(s)://tauri.localhost` or the dev server's),
- *   which InnerTube refuses with 403.
+ * - **Never a webview origin.** The `Origin` comes only from `init.origin`. A request without
+ *   one (`null`), or with anything but the `https:` origin of a real site, goes out with
+ *   `origin: ''`, which the plugin (built with `unsafe-headers`) turns into no `Origin` header at
+ *   all. Otherwise the plugin would add the webview's own origin (`tauri://localhost`,
+ *   `http(s)://tauri.localhost` or the dev server's), which InnerTube refuses with 403.
  * - **Never the plugin's User-Agent** (`tauri-plugin-http/<version>`), which Spotify refuses with
  *   `403 Client/request not allowed` and which would single out FXM's traffic. Every host that
  *   YouTube (Google) or Spotify runs, their image hosts included, and Last.fm's web player get a
@@ -35,13 +38,16 @@
  * the message's shape or command, except in a start-up gap (see `apps/desktop/README.md`).
  *
  * Errors follow `fetch`, for the response and for reading its body: the signal's reason once the
- * request was aborted, else a `TypeError` when the network failed. Their messages name a URL only
- * by its origin and path: googlevideo's query carries the user's IP address and signatures.
+ * request was aborted, else a `TypeError` when the network failed. Refusals by FXM's network
+ * rules are `TransportError`s, with the reasons the transports give for the same refusals. Their
+ * messages name a URL only by its origin and path: googlevideo's query carries the user's IP
+ * address and signatures.
  *
  * @module
  */
 
 import { FxmError, isFxmError } from '@fxm/core'
+import { TransportError, type TransportErrorReason } from './errors'
 import { findHostRule, type HostClass, type HostRule, parseUrl } from './hosts'
 import type { NativeHttp, NativeRequestInit } from './native'
 
@@ -123,17 +129,29 @@ export const BROWSER_AGENT_HOSTS: ReadonlySet<string> = new Set([
   'i.scdn.co',
 ])
 
+/**
+ * Request headers that never go out: `Cookie` and `Host`, and `Origin`, which comes only from
+ * `init.origin`.
+ */
+const NEVER_SENT_HEADERS: ReadonlySet<string> = new Set(['cookie', 'host', 'origin'])
+
 /** Response headers page JavaScript never sees: no cookie is ever stored or sent. */
 const DROPPED_RESPONSE_HEADERS: ReadonlySet<string> = new Set(['set-cookie', 'set-cookie2'])
 
 /** Statuses whose responses have no body (`new Response` refuses one). */
 const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([101, 103, 204, 205, 304])
 
-/** Statuses that redirect. */
-const REDIRECT_STATUSES: ReadonlySet<number> = new Set([301, 302, 303, 307, 308])
-
-/** How the plugin words a URL its scope refuses, the requested one or a redirect's target. */
+/** How the plugin words a URL its scope refuses. */
 const SCOPE_REFUSAL = 'url not allowed on the configured scope'
+
+/**
+ * The `user_host_fetch` errors that FXM's network rules give, and the `TransportError` reason the
+ * transports give for the same refusal.
+ */
+const COMMAND_REFUSALS: ReadonlyMap<string, TransportErrorReason> = new Map([
+  ['not-approved', 'unknown-host'],
+  ['bad-request', 'bad-request'],
+])
 
 /** A header name: an HTTP token. */
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
@@ -193,11 +211,12 @@ export function fxmUserAgent(version?: string): string {
 
 /**
  * `origin` when it is the `https:` origin of a real site, such as `https://open.spotify.com`, and
- * `''` otherwise: no `Origin` header at all. A webview's origin (`tauri://localhost`,
- * `http(s)://tauri.localhost`, a dev server's `http://localhost:…`) never passes.
+ * `''` otherwise, `null` included: no `Origin` header at all. A webview's origin
+ * (`tauri://localhost`, `http(s)://tauri.localhost`, a dev server's `http://localhost:…`) never
+ * passes.
  */
-export function siteOrigin(origin: string | undefined): string {
-  if (origin === undefined || origin === '') return ''
+export function siteOrigin(origin: string | null | undefined): string {
+  if (origin === undefined || origin === null || origin === '') return ''
   let url: URL
   try {
     url = new URL(origin)
@@ -219,20 +238,22 @@ export function sendsBrowserAgent(rule: Pick<HostRule, 'host' | 'hostClass'>): b
 }
 
 /**
- * The headers a request to the host of `rule` goes out with: lower-case names, no `Cookie` and
- * no `Host`, an `origin` from {@link siteOrigin} (`''` for none), and a User-Agent when the
- * request names none: `browserAgent` where {@link sendsBrowserAgent} says so, else `appAgent`.
+ * The headers a request to the host of `rule` goes out with: `init.headers` with lower-case
+ * names, without `Cookie`, `Host` or `Origin`; then `init.origin` as `origin`, through
+ * {@link siteOrigin} (`''` for none); and a User-Agent when the request names none:
+ * `browserAgent` where {@link sendsBrowserAgent} says so, else `appAgent`.
  */
 export function desktopHeaders(
-  headers: Readonly<Record<string, string>>,
+  init: Pick<NativeRequestInit, 'headers' | 'origin'>,
   rule: Pick<HostRule, 'host' | 'hostClass'>,
   agents: { readonly browserAgent: string; readonly appAgent: string },
 ): Record<string, string> {
   const result: Record<string, string> = {}
-  for (const [name, value] of Object.entries(headers)) result[name.toLowerCase()] = value
-  delete result.cookie
-  delete result.host
-  result.origin = siteOrigin(result.origin)
+  for (const [name, value] of Object.entries(init.headers)) {
+    const lower = name.toLowerCase()
+    if (!NEVER_SENT_HEADERS.has(lower)) result[lower] = value
+  }
+  result.origin = siteOrigin(init.origin)
   if (!result['user-agent']) {
     result['user-agent'] = sendsBrowserAgent(rule) ? agents.browserAgent : agents.appAgent
   }
@@ -293,16 +314,19 @@ export interface DesktopFetchOptions {
 }
 
 /**
- * Creates the desktop app's {@link NativeHttp}. Pass it to `createTauriTransport({ http })`;
- * `createPlatform()` does so by itself when it runs in the desktop app.
+ * Creates the desktop app's {@link NativeHttp}. Pass it to
+ * `createTauriTransport({ budget, http })`; `createPlatform()` does so by itself when it runs in
+ * the desktop app.
  *
  * A host in the host table goes through the HTTP plugin with the headers of
- * {@link desktopHeaders}; any other host goes through the `user_host_fetch` command, which
- * reaches only hosts the user approved (GET and HEAD only, without headers). `redirect: 'manual'`
- * returns a redirect as it is, and `redirect: 'error'` rejects one; by default the plugin follows
- * up to 10, each checked against its scope. Rejections follow `fetch`, for the response and for
- * reading its body: the signal's reason when it aborted, a `TypeError` when the network failed,
- * plus an `Unsupported` `FxmError` when FXM refuses the address, e.g. a redirect out of the scope.
+ * {@link desktopHeaders}. A `user` route, and any host off the table, goes through the
+ * `user_host_fetch` command, which reaches only hosts the user approved (GET and HEAD only,
+ * without headers). Every redirect comes back as it is, for the transport to follow. Rejections
+ * follow `fetch`, for the response and for reading its body: the signal's reason when it
+ * aborted, a `TypeError` when the network failed, plus a `TransportError` when FXM's rules refuse
+ * the request: `unknown-host` for an address outside the plugin's scope or a host the user did
+ * not approve, `bad-request` for a request the command can't carry. The command's other
+ * refusals are `Unsupported` `FxmError`s, and a response that is too large a `Parse` one.
  */
 export function createDesktopFetch(options: DesktopFetchOptions = {}): NativeHttp {
   const bindings = bindingsOnce(options.tauri ?? loadTauriBindings)
@@ -318,8 +342,10 @@ export function createDesktopFetch(options: DesktopFetchOptions = {}): NativeHtt
     const rule = findHostRule(target)
     const tauri = await bindings()
     init.signal?.throwIfAborted()
-    if (rule === undefined) return fetchUserHost(tauri.invoke, target, init)
-    const headers = desktopHeaders(init.headers, rule, agents)
+    if (rule === undefined || init.route === 'user') {
+      return fetchUserHost(tauri.invoke, target, init)
+    }
+    const headers = desktopHeaders(init, rule, agents)
     return fetchThroughPlugin(tauri.fetch, target, init, headers, connectTimeout)
   }
 }
@@ -331,26 +357,20 @@ async function fetchThroughPlugin(
   headers: Record<string, string>,
   connectTimeout: number,
 ): Promise<Response> {
-  const redirect = init.redirect ?? 'follow'
   let response: Response
   try {
-    // A fresh object: the plugin deletes its own options from the one it gets.
+    // A fresh object: the plugin deletes its own options from the one it gets. A redirect comes
+    // back as it is (`maxRedirections: 0`): the transport follows it, hop by hop.
     response = await pluginFetch(target.href, {
       method: init.method,
       headers,
       ...(init.body === undefined ? {} : { body: init.body }),
       ...(init.signal === undefined ? {} : { signal: init.signal }),
       connectTimeout,
-      ...(redirect === 'follow' ? {} : { maxRedirections: 0 }),
+      maxRedirections: 0,
     })
   } catch (error) {
     throw fetchError(error, target, init.signal)
-  }
-  if (redirect === 'error' && REDIRECT_STATUSES.has(response.status)) {
-    await response.body?.cancel().catch(() => {})
-    throw new TypeError(
-      `${describeUrl(target)} redirects, and the request asked not to follow redirects`,
-    )
   }
   const body = NULL_BODY_STATUSES.has(response.status)
     ? null
@@ -359,18 +379,18 @@ async function fetchThroughPlugin(
 }
 
 /**
- * A rejection of the plugin's `fetch`, as `fetch` itself would reject. The message names URLs by
- * origin and path only; the plugin's own error stays in `cause`.
+ * A rejection of the plugin's `fetch`, as `fetch` itself would reject, or a `TransportError`
+ * (`unknown-host`) for an address outside the plugin's scope. The message names URLs by origin
+ * and path only; the plugin's own error stays in `cause`.
  */
 function fetchError(error: unknown, target: URL, signal: AbortSignal | undefined): unknown {
   if (signal?.aborted) return signal.reason
   if (isFxmError(error)) return error
   const message = error instanceof Error ? error.message : String(error)
   if (message.startsWith(SCOPE_REFUSAL)) {
-    // The refused URL is the request's, or that of a redirect from it.
     const refused = message.slice(SCOPE_REFUSAL.length).replace(/^:\s*/, '')
-    return new FxmError(
-      'Unsupported',
+    return new TransportError(
+      'unknown-host',
       `The desktop app does not contact ${describeUrl(refused || target)}`,
       { cause: error },
     )
@@ -462,10 +482,12 @@ function isCommandError(value: unknown): value is CommandError {
 
 /**
  * A desktop command's rejection as an error: `network` failures as a `TypeError`, as `fetch`
- * rejects; `too-large` as a `Parse` `FxmError`; anything else FXM refused as `Unsupported`, such
- * as a host that isn't approved, or an approval FXM won't ask about right now (`not-focused`,
- * `busy`, `too-soon`, `refused`). Rust words the messages for people, without URLs' queries, and
- * the command's `{ code, message }` stays in `cause`.
+ * rejects; a host that isn't approved (`not-approved`) and a request the command can't carry
+ * (`bad-request`) as a `TransportError` with the reason the transports give for the same refusal
+ * (`unknown-host`, `bad-request`); `too-large` as a `Parse` `FxmError`; anything else FXM refused
+ * as `Unsupported`, such as a private address, a proxy, or an approval FXM won't ask about right
+ * now (`not-focused`, `busy`, `too-soon`, `refused`). Rust words the messages for people, without
+ * URLs' queries, and the command's `{ code, message }` stays in `cause`.
  */
 function commandError(error: unknown, signal?: AbortSignal): unknown {
   if (signal?.aborted) return signal.reason
@@ -473,6 +495,8 @@ function commandError(error: unknown, signal?: AbortSignal): unknown {
     return new TypeError(`The desktop app failed: ${errorText(error)}`, { cause: error })
   }
   if (error.code === 'network') return new TypeError(error.message, { cause: error })
+  const reason = COMMAND_REFUSALS.get(error.code)
+  if (reason !== undefined) return new TransportError(reason, error.message, { cause: error })
   const code = error.code === 'too-large' ? 'Parse' : 'Unsupported'
   return new FxmError(code, error.message, { cause: error })
 }
@@ -504,7 +528,7 @@ async function fetchUserHost(
 ): Promise<Response> {
   const method = init.method.toUpperCase()
   if (method !== 'GET' && method !== 'HEAD') {
-    throw new FxmError('Unsupported', `Only GET and HEAD requests go to ${url.host}`)
+    throw new TransportError('bad-request', `Only GET and HEAD requests go to ${url.host}`)
   }
   let raw: unknown
   try {
@@ -562,7 +586,8 @@ function rawBytes(raw: unknown): Uint8Array {
 
 /**
  * Decodes a `user_host_fetch` response: a 4-byte big-endian length, that many bytes of JSON with
- * the status, status text, final URL and headers, then the body.
+ * the status, status text, URL and headers, then the body. A redirect arrives as it is, with its
+ * `Location`, for the transport to follow.
  */
 export function decodeUserHostResponse(raw: unknown, requestUrl: string): Response {
   const bytes = rawBytes(raw)

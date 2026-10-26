@@ -236,14 +236,16 @@ Without `http`, both are stubs: CORS-friendly hosts through the webview's own `f
 
 `createDesktopFetch()` (`src/desktop.ts`) is the desktop app's `NativeHttp`. It loads Tauri's bindings (`@tauri-apps/plugin-http` and `@tauri-apps/api`) on its first request, so a browser never downloads them, and sends:
 
-- **Hosts in the table** through Tauri's HTTP plugin, whose scope in the app's `capabilities/default.json` lists exactly those hosts and whose `scopeRedirects` setting checks every redirect against it. A refused address, a redirect's included, rejects with an `Unsupported` `FxmError`; a network failure with a `TypeError`, and an abort with the signal's reason, as `fetch` does. Reading the body fails the same way: the plugin's own stream errors with bare strings, which `createDesktopFetch()` turns into the signal's reason or a `TypeError`.
-- **Any other host** through the app's `user_host_fetch` Rust command, which reaches only hosts the user approved, by `GET` or `HEAD`, over HTTPS, to public addresses, never through a proxy, with at most 8 MiB in 30 s. Its refusals reject with an `Unsupported` `FxmError` (`Parse` for a response that is too large).
+- **Hosts in the table** through Tauri's HTTP plugin, whose scope in the app's `capabilities/default.json` lists exactly those hosts. An address outside the scope rejects with a `TransportError` (`unknown-host`); a network failure with a `TypeError`, and an abort with the signal's reason, as `fetch` does. Reading the body fails the same way: the plugin's own stream errors with bare strings, which `createDesktopFetch()` turns into the signal's reason or a `TypeError`.
+- **`user` routes**, and any host off the table, through the app's `user_host_fetch` Rust command, which reaches only hosts the user approved, by `GET` or `HEAD`, over HTTPS, to public addresses, never through a proxy, with at most 8 MiB in 30 s. A host the user did not approve rejects with a `TransportError` (`unknown-host`), a request the command can't carry with one (`bad-request`), its other refusals with an `Unsupported` `FxmError`, and a response that is too large with a `Parse` one.
+
+Neither follows a redirect (the plugin gets `maxRedirections: 0`): each hands it back with its `Location`, and the transport follows it hop by hop, checking every hop against the host table first.
 
 Error messages name a URL only by its scheme, host and path (`describeUrl`, `redactUrls`): a googlevideo URL's query carries the user's IP address and signatures. The plugin's own error stays in `cause`.
 
 It enforces the header policy once more at the last step, whatever the caller sent:
 
-- `origin` is `''` (no `Origin` header, which needs the plugin's `unsafe-headers` feature) unless it is the `https:` origin of a real site, such as Spotify's: the webview's own origin (`tauri://localhost`, `http(s)://tauri.localhost`, a dev server's) never goes out (`siteOrigin`);
+- the plugin's `origin` header is `init.origin`, never one from `init.headers`: `''` for `null` (no `Origin` header, which needs the plugin's `unsafe-headers` feature), and for anything but the `https:` origin of a real site, such as Spotify's, so the webview's own origin (`tauri://localhost`, `http(s)://tauri.localhost`, a dev server's) never goes out (`siteOrigin`);
 - a request that names no User-Agent gets one by service (`sendsBrowserAgent`), never the plugin's `tauri-plugin-http/<version>`, which Spotify refuses:
 
   | Hosts | User-Agent |
