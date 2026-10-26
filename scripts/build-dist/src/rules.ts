@@ -10,6 +10,7 @@
  * | embed/**                  | /embed/*                               | appPolicy({ embeddable })      |
  * | sandbox/<doc>.html        | /sandbox/<doc> and /sandbox/<doc>.html | SANDBOX_DOCUMENTS[<doc>.html]  |
  * | _astro/**, .well-known/** | /_astro/*, /.well-known/*              | STATIC_FILE_POLICY             |
+ * | source/**                 | /source/*                              | STATIC_FILE_POLICY             |
  * | other .html files         | each page's path and its .html path    | sitePagePolicy() for that page |
  * | other files               | each file's path                       | STATIC_FILE_POLICY             |
  *
@@ -49,12 +50,16 @@ import {
   sitePagePolicy,
 } from './policies.ts'
 
-/** Folders served by one splat rule, and the policy family of each. */
+/**
+ * Folders served by one splat rule, and the policy family of each. `source/` holds the source of
+ * what the site ships built from it: the ffmpeg core's tarballs and recipe (src/ffmpeg-core.ts).
+ */
 const SPLAT_FOLDERS = {
   app: 'app',
   embed: 'embed',
   _astro: 'static',
   '.well-known': 'static',
+  source: 'static',
 } as const
 
 /** A path inside a single-page app that no file answers: Pages serves the app's 404.html. */

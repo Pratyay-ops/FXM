@@ -5,20 +5,27 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   CORE_FILES,
   CORE_LICENSE_TEXTS,
+  CORE_SOURCE_DIR,
+  CORE_SOURCE_PATH,
+  type CoreComponent,
   coreComponents,
   coreNotice,
   coreProblems,
+  coreSourceFiles,
   currentCommit,
   librariesHash,
   MAX_CORE_FILE_BYTES,
+  RECIPE_ARCHIVE,
   RECIPE_DIR,
   readCoreManifest,
   readPins,
   recipeHash,
 } from '../../../tools/ffmpeg-wasm/core-build.ts'
 import { compose, DistError, NOTICES_FILE } from './compose.ts'
+import { serializePolicy } from './csp.ts'
 import { CORE_FOLDER, createFfmpegCorePart } from './ffmpeg-core.ts'
 import { parseHeaders } from './headers-file.ts'
+import { STATIC_FILE_POLICY } from './policies.ts'
 import { fakeAppPart, fakeSitePart, removeTempDirs, tempDir, writeFiles } from './testing.ts'
 
 afterEach(removeTempDirs)
@@ -31,7 +38,25 @@ const COMMIT = '0123456789abcdef0123456789abcdef01234567'
 /** A stand-in for each licence text, which build.sh copies from the real sources. */
 const licenseText = (file: string) => `The licence text of ${file}.\n`
 
-/** A built core in a folder: its files, the licence texts and the manifest build.sh writes. */
+/** A stand-in for each source file: a part's tarball, or the recipe's archive. */
+const sourceFile = (name: string) => `The source file ${name}.\n`
+
+/**
+ * The recipe's parts, with their stand-in tarballs' SHA-256 as the pins: the checks compare
+ * the tarballs a core carries with the pins (the real ones hash to the real pins).
+ */
+const COMPONENTS: readonly CoreComponent[] = coreComponents().map((part) =>
+  part.archive === undefined ? part : { ...part, sha256: sha(sourceFile(part.archive)) },
+)
+
+/** coreProblems with the stand-ins' pins. */
+const problemsOf = (dir: string, options: Parameters<typeof coreProblems>[1] = {}) =>
+  coreProblems(dir, { components: COMPONENTS, ...options })
+
+/**
+ * A built core in a folder: its files, the licence texts, its source and the manifest build.sh
+ * writes.
+ */
 function fakeCore(overrides: Record<string, unknown> = {}): string {
   const dir = tempDir()
   const script = 'export default async function createFfmpegCore() {}\n'
@@ -46,6 +71,11 @@ function fakeCore(overrides: Record<string, unknown> = {}): string {
     writeFiles(dir, { [file]: licenseText(file) })
     files[file] = { bytes: licenseText(file).length, sha256: sha(licenseText(file)) }
   }
+  const sources: Record<string, { bytes: number; sha256: string }> = {}
+  for (const name of coreSourceFiles(COMPONENTS)) {
+    writeFiles(dir, { [`${CORE_SOURCE_DIR}/${name}`]: sourceFile(name) })
+    sources[name] = { bytes: sourceFile(name).length, sha256: sha(sourceFile(name)) }
+  }
   const manifest = {
     schema: 1,
     recipeHash: recipeHash(),
@@ -55,6 +85,7 @@ function fakeCore(overrides: Record<string, unknown> = {}): string {
     components: coreComponents(),
     patches: [],
     files,
+    sources,
     ...overrides,
   }
   writeFileSync(join(dir, CORE_FILES.manifest), JSON.stringify(manifest))
@@ -99,6 +130,29 @@ describe('the recipe', () => {
     }
   })
 
+  it('carries each tarball by the name of its release URL, and the recipe (build.sh)', () => {
+    const buildScript = readFileSync(join(RECIPE_DIR, 'build.sh'), 'utf8')
+    const tarballs = coreComponents().filter((part) => part.archive !== undefined)
+    expect(tarballs.map((part) => part.archive)).toEqual([
+      `ffmpeg-${readPins().FFMPEG_VERSION}.tar.xz`,
+      `lame-${readPins().LAME_VERSION}.tar.gz`,
+      `opus-${readPins().OPUS_VERSION}.tar.gz`,
+    ])
+    for (const part of tarballs) {
+      // build.sh downloads each under that name, then copies it into the source folder.
+      const prefix = part.name.toUpperCase()
+      expect(buildScript, part.name).toContain(
+        `"${part.archive?.replace(part.version, `$${prefix}_VERSION`)}"`,
+      )
+    }
+    expect(buildScript).toContain(`"$dist/source/${RECIPE_ARCHIVE}"`)
+    expect(coreSourceFiles()).toEqual([...tarballs.map((part) => part.archive), RECIPE_ARCHIVE])
+    // Debian's copies, which build.sh tries when a release URL fails, are named in the notice.
+    expect(coreComponents().find((part) => part.name === 'FFmpeg')?.mirrors).toEqual([
+      readPins().FFMPEG_MIRROR,
+    ])
+  })
+
   it('has hashes that change with the recipe, the libraries’ only with their own files', () => {
     const dir = tempDir()
     writeFiles(dir, {
@@ -118,31 +172,31 @@ describe('the recipe', () => {
 
 describe('coreProblems', () => {
   it('passes a complete LGPL core built from the current recipe', () => {
-    expect(coreProblems(fakeCore())).toEqual([])
+    expect(problemsOf(fakeCore())).toEqual([])
   })
 
   it('refuses a missing core, files the manifest doesn’t describe, and a stale build', () => {
-    expect(coreProblems(tempDir())[0]).toMatch(/no ffmpeg core/)
+    expect(problemsOf(tempDir())[0]).toMatch(/no ffmpeg core/)
     const changed = fakeCore()
     writeFileSync(join(changed, CORE_FILES.wasm), new Uint8Array([1, 2, 3]))
-    expect(coreProblems(changed)).toEqual([
+    expect(problemsOf(changed)).toEqual([
       'ffmpeg-core.wasm is not the file ffmpeg-core.json describes',
     ])
-    expect(coreProblems(fakeCore({ recipeHash: 'f'.repeat(64) }))[0]).toMatch(
+    expect(problemsOf(fakeCore({ recipeHash: 'f'.repeat(64) }))[0]).toMatch(
       /not the current recipe/,
     )
   })
 
   it('refuses a core that isn’t LGPL, or was configured to take GPL or non-free code', () => {
-    expect(coreProblems(fakeCore({ ffmpegLicense: 'GPL version 2 or later' }))).toEqual([
+    expect(problemsOf(fakeCore({ ffmpegLicense: 'GPL version 2 or later' }))).toEqual([
       'FFmpeg\'s configure reported the licence "GPL version 2 or later": the core must be LGPL',
     ])
-    expect(coreProblems(fakeCore({ configure: '--enable-gpl --enable-libx264' }))).toEqual([
+    expect(problemsOf(fakeCore({ configure: '--enable-gpl --enable-libx264' }))).toEqual([
       'FFmpeg was configured with --enable-gpl',
       'FFmpeg was configured without --disable-gpl',
     ])
     expect(
-      coreProblems(
+      problemsOf(
         fakeCore({
           components: [...coreComponents(), { name: 'x264', license: 'GPL-2.0-or-later' }],
         }),
@@ -153,32 +207,65 @@ describe('coreProblems', () => {
   it('refuses a core without the licence texts of its parts', () => {
     const dir = fakeCore()
     rmSync(join(dir, 'licenses/Opus-COPYING.txt'))
-    expect(coreProblems(dir)).toEqual([
+    expect(problemsOf(dir)).toEqual([
       'licenses/Opus-COPYING.txt is missing: the core must carry the licence texts of its parts (recipe/build.sh)',
     ])
     const changed = fakeCore()
     writeFileSync(join(changed, 'licenses/LAME-COPYING.txt'), 'something else')
-    expect(coreProblems(changed)).toEqual([
+    expect(problemsOf(changed)).toEqual([
       'licenses/LAME-COPYING.txt is not the file ffmpeg-core.json describes',
     ])
   })
 
   it('refuses a manifest that lacks what the checks and the notice need', () => {
-    expect(coreProblems(withoutKeys(fakeCore(), 'components', 'patches'))).toEqual([
+    expect(problemsOf(withoutKeys(fakeCore(), 'components', 'patches'))).toEqual([
       'ffmpeg-core.json has no list of patches (an empty one when there are none)',
       'ffmpeg-core.json lists no components',
     ])
-    expect(coreProblems(withoutKeys(fakeCore(), 'configure', 'emscripten'))).toEqual([
+    expect(problemsOf(withoutKeys(fakeCore(), 'configure', 'emscripten'))).toEqual([
       'ffmpeg-core.json has no configure',
       'ffmpeg-core.json has no emscripten',
     ])
     const ffmpegless = coreComponents().filter((part) => part.name !== 'FFmpeg')
-    expect(coreProblems(fakeCore({ components: ffmpegless }))).toEqual([
+    expect(problemsOf(fakeCore({ components: ffmpegless }))).toEqual([
       "ffmpeg-core.json doesn't name FFmpeg's source and its SHA-256",
     ])
-    expect(coreProblems(withoutKeys(fakeCore(), 'files'))).toEqual([
+    expect(problemsOf(withoutKeys(fakeCore(), 'files'))).toEqual([
       'ffmpeg-core.json lists no files',
     ])
+  })
+
+  it('refuses a core without its source, or with a tarball other than the pinned one', () => {
+    const dir = fakeCore()
+    rmSync(join(dir, CORE_SOURCE_DIR, 'opus-1.6.1.tar.gz'))
+    expect(problemsOf(dir)).toEqual([
+      'source/opus-1.6.1.tar.gz is missing: the core must carry its source (recipe/build.sh)',
+    ])
+    const changed = fakeCore()
+    writeFileSync(join(changed, CORE_SOURCE_DIR, RECIPE_ARCHIVE), 'another recipe')
+    expect(problemsOf(changed)).toEqual([
+      `source/${RECIPE_ARCHIVE} is not the file ffmpeg-core.json describes`,
+    ])
+    // Built from other tarballs than the recipe pins (the real pins here).
+    expect(coreProblems(fakeCore())).toEqual([
+      'source/ffmpeg-9.0.2.tar.xz is not the tarball recipe/versions.sh pins',
+      'source/lame-4.0.tar.gz is not the tarball recipe/versions.sh pins',
+      'source/opus-1.6.1.tar.gz is not the tarball recipe/versions.sh pins',
+    ])
+    expect(problemsOf(withoutKeys(fakeCore(), 'sources'))).toEqual([
+      'ffmpeg-core.json lists no sources: the core was built before it carried them, so build it again',
+    ])
+  })
+
+  it('reads the source where make dist put it', () => {
+    const dir = fakeCore()
+    const elsewhere = tempDir()
+    for (const name of coreSourceFiles(COMPONENTS)) {
+      writeFiles(elsewhere, { [name]: sourceFile(name) })
+    }
+    rmSync(join(dir, CORE_SOURCE_DIR), { recursive: true })
+    expect(problemsOf(dir)).toHaveLength(coreSourceFiles(COMPONENTS).length)
+    expect(problemsOf(dir, { sourceDir: elsewhere })).toEqual([])
   })
 
   it('refuses a WebAssembly file of 25 MiB or more', () => {
@@ -197,7 +284,7 @@ describe('coreProblems', () => {
         },
       }),
     )
-    expect(coreProblems(dir)).toEqual([
+    expect(problemsOf(dir)).toEqual([
       `ffmpeg-core.wasm is ${MAX_CORE_FILE_BYTES} bytes: it must stay under 25 MiB (${MAX_CORE_FILE_BYTES} bytes), Cloudflare Pages' limit per file`,
     ])
   })
@@ -217,6 +304,44 @@ describe('coreNotice', () => {
     expect(notice).toContain('Patches: none')
     expect(notice.replace(/\s+/g, ' ')).toContain('you may replace with your own build')
     expect(notice).toContain('compiler-rt')
+  })
+
+  it('points at the source on the same site first, then where its project publishes it', () => {
+    const notice = coreNotice(fakeCore(), options)
+    const pins = readPins()
+    expect(notice).toContain(
+      [
+        'FFmpeg 9.0.2 (LGPL-2.1-or-later), https://ffmpeg.org/',
+        '  Source: /source/ffmpeg-core/ffmpeg-9.0.2.tar.xz',
+        `  Also at: ${pins.FFMPEG_URL}`,
+        `           ${pins.FFMPEG_MIRROR}`,
+        `  SHA-256: ${pins.FFMPEG_SHA256}`,
+      ].join('\n'),
+    )
+    expect(notice).toContain(
+      ['  Source: /source/ffmpeg-core/opus-1.6.1.tar.gz', `  Also at: ${pins.OPUS_URL}`].join('\n'),
+    )
+    const recipe = readCoreManifest(fakeCore()).sources[RECIPE_ARCHIVE]
+    expect(notice).toContain(
+      [
+        `FXM's recipe (Apache-2.0): /source/ffmpeg-core/${RECIPE_ARCHIVE}`,
+        `  Also at: ${REPOSITORY}/tree/${COMMIT}/tools/ffmpeg-wasm`,
+        `  SHA-256: ${recipe?.sha256}`,
+      ].join('\n'),
+    )
+    const flat = notice.replace(/\s+/g, ' ')
+    expect(flat).toContain('https://fxmusic.pages.dev/source/ffmpeg-core/')
+    expect(flat).toContain('fxm-ffmpeg-core-source-<version>.zip')
+    expect(flat).toContain('their sources are on this site, in /source/ffmpeg-core/')
+    expect(CORE_SOURCE_PATH).toBe('source/ffmpeg-core')
+  })
+
+  it("carries the linked files' notices with the parts' licence texts", () => {
+    const flat = coreNotice(fakeCore(), options).replace(/\s+/g, ' ')
+    expect(flat).toContain(
+      "the notices of the files linked into the core that are under licences of their own (FFmpeg's MIT and BSD files, Opus's BSD files)",
+    )
+    expect(CORE_LICENSE_TEXTS.map((text) => text.file)).toContain('licenses/linked-notices.txt')
   })
 
   it('links the recipe and the converter at the commit the site is built from, never main', () => {
@@ -291,9 +416,14 @@ describe('the ffmpeg core in make dist', () => {
     throw new Error('expected a DistError')
   }
 
-  it('ships the core at /app/ffmpeg/ under the app’s policy, with its notice', () => {
+  it('ships the core at /app/ffmpeg/ under the app’s policy, and its source at /source/', () => {
     const root = tempDir()
-    const core = createFfmpegCorePart({ dir: fakeCore(), required: true, commit: COMMIT })
+    const core = createFfmpegCorePart({
+      dir: fakeCore(),
+      required: true,
+      commit: COMMIT,
+      components: COMPONENTS,
+    })
     const { outDir } = run(root, [fakeSitePart(root), fakeAppPart(root), core])
     for (const name of [
       ...Object.values(CORE_FILES),
@@ -310,6 +440,28 @@ describe('the ffmpeg core in make dist', () => {
     const { rules } = parseHeaders(readFileSync(join(outDir, '_headers'), 'utf8'))
     const app = rules.find((rule) => rule.path === '/app/*')
     expect(app?.headers.get('content-security-policy')).toContain("'wasm-unsafe-eval'")
+    // The source outside the app, where its service worker can't answer for it, with a rule.
+    for (const name of coreSourceFiles(COMPONENTS)) {
+      expect(readFileSync(join(outDir, CORE_SOURCE_PATH, name), 'utf8'), name).toBe(
+        sourceFile(name),
+      )
+    }
+    expect(existsSync(join(outDir, 'app', CORE_FOLDER, CORE_SOURCE_DIR))).toBe(false)
+    const source = rules.find((rule) => rule.path === '/source/*')
+    expect(source?.headers.get('content-security-policy')).toBe(serializePolicy(STATIC_FILE_POLICY))
+    expect(notices).toContain(`  Source: /${CORE_SOURCE_PATH}/ffmpeg-9.0.2.tar.xz`)
+  })
+
+  it('never ships the core without its source', () => {
+    const dir = fakeCore()
+    rmSync(join(dir, CORE_SOURCE_DIR, 'lame-4.0.tar.gz'))
+    expect(
+      refused(
+        createFfmpegCorePart({ dir, required: true, commit: COMMIT, components: COMPONENTS }),
+      ),
+    ).toEqual([
+      'ffmpeg-core: source/lame-4.0.tar.gz is missing: the core must carry its source (recipe/build.sh)',
+    ])
   })
 
   it('leaves the core out where none is built, unless it is required', () => {
@@ -337,6 +489,7 @@ describe('the ffmpeg core in make dist', () => {
       dir: fakeCore({ ffmpegLicense: 'GPL version 3 or later' }),
       required: true,
       commit: COMMIT,
+      components: COMPONENTS,
     })
     expect(refused(bad)).toEqual([
       'ffmpeg-core: FFmpeg\'s configure reported the licence "GPL version 3 or later": the core must be LGPL',
@@ -351,6 +504,7 @@ describe('the ffmpeg core in make dist', () => {
           dir: withoutKeys(fakeCore(), 'components', 'patches'),
           required: true,
           commit: COMMIT,
+          components: COMPONENTS,
         }),
       ),
     ).toEqual([
@@ -359,7 +513,14 @@ describe('the ffmpeg core in make dist', () => {
     ])
     // A notice that can't link the recipe at the site's commit.
     expect(
-      refused(createFfmpegCorePart({ dir: fakeCore(), required: true, commit: () => undefined })),
+      refused(
+        createFfmpegCorePart({
+          dir: fakeCore(),
+          required: true,
+          commit: () => undefined,
+          components: COMPONENTS,
+        }),
+      ),
     ).toEqual([
       "ffmpeg-core: can't tell which commit this dist is built from (no GITHUB_SHA, no git): the core's notice links its recipe at that commit",
     ])

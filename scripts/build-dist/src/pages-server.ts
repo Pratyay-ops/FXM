@@ -41,6 +41,9 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.woff2': 'font/woff2',
   '.txt': 'text/plain; charset=utf-8',
   '.xml': 'application/xml',
+  '.tar': 'application/x-tar',
+  '.gz': 'application/gzip',
+  '.xz': 'application/x-xz',
 }
 
 type Resolution =

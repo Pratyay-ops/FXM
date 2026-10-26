@@ -8,9 +8,10 @@ name: Deploy
 #   ffmpeg-core        stage 4.2's LGPL ffmpeg core for the app's conversions (ffmpeg-wasm.yml):
 #                      built when its recipe changed, otherwise from the cache, and checked
 #                      (under 25 MiB, LGPL) on every run.
-#   dist               make dist: the site, the web app with the ffmpeg core, _headers and the
-#                      third-party notices, with the licence, header and privacy checks. On every
-#                      branch, so a stage branch finds out before it merges. No secrets.
+#   dist               make dist: the site, the web app with the ffmpeg core, the core's source,
+#                      _headers and the third-party notices, with the licence, header and privacy
+#                      checks. On every branch, so a stage branch finds out before it merges. No
+#                      secrets.
 #   deploy             develop: the preview. main: a release candidate at
 #                      main-candidate.fxmusic.pages.dev. Only these two branches deploy. Each
 #                      runs in its GitHub environment (preview, production), which holds the
@@ -74,7 +75,8 @@ jobs:
       - name: Set up toolchain and dependencies (frozen lockfile)
         run: make ci-setup
 
-      # The core the ffmpeg-core job built and checked, for make dist to ship at /app/ffmpeg/.
+      # The core the ffmpeg-core job built and checked, for make dist to ship at /app/ffmpeg/,
+      # with its source at /source/ffmpeg-core/.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ffmpeg-core

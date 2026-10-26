@@ -9,8 +9,10 @@
 #   .tools/emsdk/<version>/                    emsdk and the Emscripten toolchain
 #   .tools/ffmpeg-wasm/downloads/              the tarballs, each checked by its SHA-256
 #   .tools/ffmpeg-wasm/libs/<libs hash>/       Opus, LAME and FFmpeg, built (libs.sh)
-#   .tools/ffmpeg-wasm/builds/<recipe hash>/   the core; dist/ holds its three files and
-#                                              licenses/, the licence texts of its parts
+#   .tools/ffmpeg-wasm/builds/<recipe hash>/   the core; dist/ holds its three files,
+#                                              licenses/, the licence texts of its parts and
+#                                              the notices of its linked files, and source/,
+#                                              the tarballs it was built from and the recipe
 #
 # A build is keyed by the hash of this folder (core-build.ts), so it is reused until the recipe
 # changes; the libraries are reused until versions.sh, libs.sh or pkg-config.sh changes, so a
@@ -135,13 +137,14 @@ configure_line=$(sed -n 's/^#define FFMPEG_CONFIGURATION "\(.*\)"$/\1/p' "$libs/
 # 'unsafe-eval'. WORKERFS lets the worker read the input from a Blob without copying it. The
 # glue reads only the module options core.ts passes (INCOMING_MODULE_JS_API): instantiateWasm,
 # through which core.ts instantiates the very bytes it checked against the manifest (the glue
-# never fetches the WebAssembly itself), and print and printErr.
+# never fetches the WebAssembly itself), and print and printErr. The linker lists every object it
+# takes from an archive (--why-extract, which leaves the output as it is), for the licences below.
 fxm_info "Linking the core"
 mkdir -p "$dist"
 cp "$recipe/fxm_convert.c" "$build/fxm_convert.c"
 (
   cd "$build" &&
-    emcc -O3 fxm_convert.c -o dist/ffmpeg-core.js \
+    emcc -O3 fxm_convert.c -o dist/ffmpeg-core.js -Wl,--why-extract=linked.tsv \
       -I"$libs/stage/usr/include" -L"$libs/stage/usr/lib" -L"$libs/prefix/lib" \
       -lavformat -lavcodec -lswresample -lavutil -lmp3lame -lopus -lm \
       --no-entry -lworkerfs.js \
@@ -177,17 +180,37 @@ license_from() {
     fxm_die "no $2 in $(basename "$1")"
   fi
 }
-archive=$(fetch "$FFMPEG_SHA256" "ffmpeg-$FFMPEG_VERSION.tar.xz" "$FFMPEG_URL" "$FFMPEG_MIRROR") || exit 1
-license_from "$archive" "ffmpeg-$FFMPEG_VERSION/LICENSE.md" FFmpeg-LICENSE.md.txt
-license_from "$archive" "ffmpeg-$FFMPEG_VERSION/COPYING.LGPLv2.1" FFmpeg-COPYING.LGPLv2.1.txt
-archive=$(fetch "$LAME_SHA256" "lame-$LAME_VERSION.tar.gz" "$LAME_URL" "$LAME_MIRROR") || exit 1
-license_from "$archive" "lame-$LAME_VERSION/LICENSE" LAME-LICENSE.txt
-license_from "$archive" "lame-$LAME_VERSION/COPYING" LAME-COPYING.txt
-archive=$(fetch "$OPUS_SHA256" "opus-$OPUS_VERSION.tar.gz" "$OPUS_URL") || exit 1
-license_from "$archive" "opus-$OPUS_VERSION/COPYING" Opus-COPYING.txt
+ffmpeg_tarball=$(fetch "$FFMPEG_SHA256" "ffmpeg-$FFMPEG_VERSION.tar.xz" "$FFMPEG_URL" "$FFMPEG_MIRROR") || exit 1
+license_from "$ffmpeg_tarball" "ffmpeg-$FFMPEG_VERSION/LICENSE.md" FFmpeg-LICENSE.md.txt
+license_from "$ffmpeg_tarball" "ffmpeg-$FFMPEG_VERSION/COPYING.LGPLv2.1" FFmpeg-COPYING.LGPLv2.1.txt
+lame_tarball=$(fetch "$LAME_SHA256" "lame-$LAME_VERSION.tar.gz" "$LAME_URL" "$LAME_MIRROR") || exit 1
+license_from "$lame_tarball" "lame-$LAME_VERSION/LICENSE" LAME-LICENSE.txt
+license_from "$lame_tarball" "lame-$LAME_VERSION/COPYING" LAME-COPYING.txt
+opus_tarball=$(fetch "$OPUS_SHA256" "opus-$OPUS_VERSION.tar.gz" "$OPUS_URL") || exit 1
+license_from "$opus_tarball" "opus-$OPUS_VERSION/COPYING" Opus-COPYING.txt
 emscripten="$emsdk/upstream/emscripten"
 cp "$emscripten/LICENSE" "$licenses/Emscripten-LICENSE.txt"
 cp "$emscripten/system/lib/libc/musl/COPYRIGHT" "$licenses/musl-COPYRIGHT.txt"
+
+# The licences of every file the linker took into the core, read from the sources the libraries
+# were built from: the notices that the texts above don't carry (FFmpeg's MIT and BSD files, such
+# as its Ogg demuxer, and Opus's BSD files, with their copyright lines) go into
+# linked-notices.txt, and a file under the GPL or a licence it doesn't know stops the build.
+fxm_info "Reading the licences of the linked files"
+node --experimental-strip-types --disable-warning=ExperimentalWarning "$recipe/linked-licences.ts" \
+  "$build/linked.tsv" "$libs" "$emsdk" "$licenses/linked-notices.txt" ||
+  fxm_die "The files linked into the core need a decision about their licences (above)"
+
+# --- the source --------------------------------------------------------------------------
+# What the LGPL asks to come with the core: the tarballs it was built from, exactly as checked
+# above, and FXM's recipe, which builds the core from them and links FXM's converter with them
+# (source-archive.ts). make dist serves them next to the core, and every release attaches them
+# (tools/ffmpeg-wasm/README.md, "The LGPL").
+fxm_info "Collecting the source"
+mkdir -p "$dist/source"
+cp "$ffmpeg_tarball" "$lame_tarball" "$opus_tarball" "$dist/source/"
+node --experimental-strip-types --disable-warning=ExperimentalWarning "$recipe/source-archive.ts" \
+  "$dist/source/fxm-ffmpeg-core-recipe.tar" "$root" || fxm_die "Couldn't archive the recipe"
 
 "${core_build[@]}" manifest "$dist" \
   --recipe-hash "$hash" \
