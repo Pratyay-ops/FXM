@@ -62,6 +62,12 @@ build: ## Build every app
 
 check: lint typecheck test build ## Everything a stage must pass before merging
 
+# Run from a residential connection: datacenter IPs get YouTube's bot checks, so CI's live runs
+# are only advisory. docs/DEVELOPMENT.md has a daily schedule for the owner's Mac.
+.PHONY: live-smoke
+live-smoke: ## Live smoke tests against the real services (FXM_LIVE=1, a few requests each)
+	@FXM_LIVE=1 $(RUN) pnpm exec vitest run live.test --no-file-parallelism
+
 extension: ## Build the FXM Connect extension and its zips (FXM_EXTENSION_DEV=1: dev build)
 	@$(RUN) pnpm --filter @fxm/extension build
 
