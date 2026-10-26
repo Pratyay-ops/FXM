@@ -68,6 +68,6 @@ export {
   createSandboxEvaluator,
   createSandboxPort,
   EVALUATOR_DOCUMENT_PATH,
+  type EvaluatorHostWindow,
   type SandboxEvaluatorOptions,
-  type SandboxHostWindow,
 } from './web'

@@ -35,7 +35,7 @@ import { parseEvaluatorHello } from './protocol'
 export const EVALUATOR_DOCUMENT_PATH = '/sandbox/eval.html'
 
 /** The parts of the page's `window` the web evaluator uses. */
-export interface SandboxHostWindow {
+export interface EvaluatorHostWindow {
   /** The page. */
   readonly document: Document
   /** The page's origin, which the evaluator document's URL defaults to. */
@@ -49,7 +49,7 @@ export interface SandboxHostWindow {
 /** Options for {@link createSandboxEvaluator}. */
 export interface SandboxEvaluatorOptions extends CreateEvaluatorOptions {
   /** The page. Default: the global `window`. */
-  window?: SandboxHostWindow
+  window?: EvaluatorHostWindow
   /** The document's URL. Default: {@link EVALUATOR_DOCUMENT_PATH} on the page's origin. */
   url?: string
 }
@@ -72,7 +72,7 @@ interface FrameDocument {
 
 /** The document's URL for `options`, without a fragment. */
 function documentUrl(options: Pick<SandboxEvaluatorOptions, 'window' | 'url'>): URL {
-  const window = options.window ?? (globalThis as unknown as { window: SandboxHostWindow }).window
+  const window = options.window ?? (globalThis as unknown as { window: EvaluatorHostWindow }).window
   const url = new URL(options.url ?? EVALUATOR_DOCUMENT_PATH, window.location.origin)
   url.hash = ''
   return url
@@ -82,7 +82,7 @@ function documentUrl(options: Pick<SandboxEvaluatorOptions, 'window' | 'url'>): 
 export function createSandboxPort(
   options: Pick<SandboxEvaluatorOptions, 'window' | 'url'> = {},
 ): EvaluatorPort {
-  const window = options.window ?? (globalThis as unknown as { window: SandboxHostWindow }).window
+  const window = options.window ?? (globalThis as unknown as { window: EvaluatorHostWindow }).window
   const url = documentUrl(options)
   const inbox = new Inbox()
   let current: FrameDocument | undefined
