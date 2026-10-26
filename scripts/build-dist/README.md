@@ -157,6 +157,17 @@ FXM_LIVE=1 FXM_DEPLOY_URL=https://develop.fxmusic.pages.dev scripts/run.sh pnpm 
 
 It passed on **2026-10-26** (04:18 to 04:25 UTC) against `https://develop.fxmusic.pages.dev/app/`, which served stage 2.9's build, from a residential connection in India, in Playwright 1.64.0's Chromium 156.0.8078.4, headless, with `--mute-audio`, a temporary profile and no extension, on macOS 15.5 (arm64). Lite's kill switch was off. The app said "This browser passed Lite's check" and Diagnostics "Check passed"; searching "Blitzkrieg Bop Ramones" returned 20 songs; "Blitzkrieg Bop" played from googlevideo, muted, its `currentTime` going from 0.3 s to 12.4 s in 12.1 s; five requests reached YouTube (two `music/get_search_suggestions`, the self-test's and the search box's, one `search`, one `player` and one `videoplayback`), and no policy was violated. So `AVAILABLE.lite` is on. Once the check counted every request this way, it passed again against the develop preview on **2026-10-26** at 07:01 UTC, in the same browser and setup, in 17 s.
 
+### Autoplay in the Lite tier
+
+The site turns on `AVAILABLE.radio` (`apps/site/src/config.ts`) since autoplay (stage 3.4, endless radio) kept a queue going in the composed app. `e2e/radio.e2e.ts` is that check: in a browser without FXM Connect, in the Lite tier, the last song of a search's results plays, so nothing is up next; autoplay adds four songs like it, marked "Autoplay" in the queue, with its switch on; and after Next the first of them plays, "Playing from Autoplay", from googlevideo, muted, its `currentTime` advancing for at least 5 s, all within 15 YouTube requests. It counts and refuses requests as the Lite check does, and also refuses the `player` requests of the songs the app prefetches after autoplay's first. It reaches YouTube for real, so it runs only when asked (`FXM_LIVE=1`), from a residential connection, and never retries. Without `FXM_DEPLOY_URL` it runs against `make dist`'s `dist/pages/`, served the way Cloudflare Pages would; the JSON reporter shows its result (the songs, and the requests that reached YouTube):
+
+```sh
+make dist
+FXM_LIVE=1 FXM_PREVIEW_PORT=6540 scripts/run.sh pnpm --filter @fxm/deploy exec playwright test radio --reporter=json
+```
+
+It passed on **2026-10-26** at 09:12 UTC against `make dist`'s build of `feat/3.4-autoplay` (develop with stage 2.9b's wiring, plus 3.4), served by `src/pages-server.ts` on `127.0.0.1:6540`, from a residential connection in India, in Playwright 1.64.0's Chromium 156.0.8078.4, headless, with `--mute-audio`, a temporary profile and no extension, on macOS 15.5 (arm64), in 15 s. The app passed Lite's check, autoplay added four songs after the search's last one, and the first of them played from its radio, within the budget, with no policy violated. So `AVAILABLE.radio` is on. Once 3.4 is merged, run it against the develop preview too (`FXM_DEPLOY_URL=https://develop.fxmusic.pages.dev`).
+
 ### Previews and FXM Connect
 
 FXM Connect trusts only `https://fxmusic.pages.dev` (plus localhost in its dev build), so the develop preview runs without it: free sources and Lite only. Adding the exact preview origin to the dev build is possible but not done: DNR's `initiatorDomains` also matches sub-domains, so the production ruleset would need `excludedInitiatorDomains` for the preview first, and every develop merge would gain the dev build's trust. Test FXM Connect with its dev build against `vite preview` on port 4173, and on production after a release.
@@ -198,4 +209,5 @@ A copy on another origin runs without FXM Connect, which trusts only `https://fx
 | `src/deploy-script.test.ts` | `deploy.sh`'s tests, with stand-ins for wrangler and curl |
 | `e2e/deployed.e2e.ts` | The browser checks |
 | `e2e/lite.e2e.ts` | The live Lite check behind the site's `AVAILABLE.lite` (`FXM_LIVE=1` only) |
+| `e2e/radio.e2e.ts` | The live autoplay check behind the site's `AVAILABLE.radio` (`FXM_LIVE=1` only) |
 | `../build-dist-wrangler/` | wrangler, its lockfile and `deploy.sh` (CI only) |
