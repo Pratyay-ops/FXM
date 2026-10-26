@@ -45,6 +45,7 @@ import {
   type ListeningSignalTrack,
   mergeAffinity,
   parseId,
+  playContextOf,
   reattributeAffinity,
   type Track,
 } from '@fxm/core'
@@ -320,11 +321,15 @@ export function librarySignals(state: LibraryState): ListeningSignal[] {
   return signals
 }
 
-/** The play signal of a history entry, scored with its track's effective metadata. */
+/**
+ * The play signal of a history entry, scored with its track's effective metadata. The history
+ * keeps the queue's context; the signal its stored form (`playContextOf`).
+ */
 export function playSignalOf(
   entry: Omit<HistoryRecord, 'id'>,
   tracks: ReadonlyMap<string, Track>,
 ): ListeningSignal {
+  const context = playContextOf(entry.context)
   return {
     type: 'play',
     at: entry.playedAt,
@@ -333,7 +338,7 @@ export function playSignalOf(
     ...(entry.durationMs === undefined ? {} : { durationMs: entry.durationMs }),
     completed: entry.completed,
     skipped: entry.skipped,
-    ...(entry.context === undefined ? {} : { context: entry.context }),
+    ...(context === undefined ? {} : { context }),
     ...(entry.stream === undefined ? {} : { stream: entry.stream }),
   }
 }

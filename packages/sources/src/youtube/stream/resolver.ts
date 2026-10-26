@@ -56,8 +56,8 @@ export type YouTubeAudioSessionOptions =
 export interface YouTubeStreamSourceOptions {
   /**
    * The ladder's config: a value, or a function that returns the one in use, so that a newer
-   * config (see `pickYouTubeConfigs`) takes effect without a new source. The bundled one by
-   * default.
+   * trusted config (bundled, or verified by `@fxm/platform`'s updater; see `pickYouTubeConfigs`)
+   * takes effect without a new source. The bundled one by default.
    */
   streamConfig?: StreamConfig | (() => StreamConfig)
   /**

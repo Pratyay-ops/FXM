@@ -1,6 +1,7 @@
 ---
 import { AVAILABLE, ISSUES_URL, REPO_URL } from '../config'
 import Document from '../layouts/Document.astro'
+import { privacyInstall, privacyUpdateCheck } from '../lib/connect'
 
 /** " (coming soon)" after anything AVAILABLE in src/config.ts doesn't mark as released. */
 const soon = (released: boolean) => (released ? '' : ' (coming soon)')
@@ -59,6 +60,11 @@ const services: Service[] = [
     use: 'Free music, including lossless FLAC.',
   },
   { name: 'Jamendo', url: 'https://www.jamendo.com', use: 'Free music, including lossless FLAC.' },
+  {
+    name: 'SponsorBlock',
+    url: 'https://sponsor.ajay.app',
+    use: "Only if you turn it on (it's off by default), in Music + Video mode: which parts of a music video aren't music, such as an intro or a skit, so FXM can skip them. FXM sends only the first four characters of a hash of the video's ID, which a great many videos share, so SponsorBlock can't tell which video you play.",
+  },
 ]
 
 const cookies = `FXM doesn't set cookies or use them to follow you. If you connect your Spotify account${soon(AVAILABLE.spotifyAccount)}, FXM uses your Spotify login as described in`
@@ -66,7 +72,9 @@ const downloads = AVAILABLE.downloads
   ? 'So are your downloads.'
   : 'Downloads will be stored there too, once they arrive.'
 const spotifyLogin = `Connecting your Spotify account is optional${AVAILABLE.spotifyAccount ? '' : ' and coming soon'}. If you do, FXM uses your Spotify login to get an access token from Spotify.`
-const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates, and fetch FXM's YouTube settings file from this website when they start.`
+const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates. When they start, they fetch FXM's YouTube settings file from this website, and download FXM's signed YouTube code from it too, so YouTube keeps working between app releases. That code is checked against FXM's signature before it runs.`
+const connectInstall = privacyInstall(AVAILABLE.firefox)
+const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
 ---
 
 <Document
@@ -146,9 +154,10 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
 
   <h2 id="fxm-connect">FXM Connect</h2>
   <p>
-    FXM Connect is the small browser extension that lets the web app reach YouTube and Spotify. You
-    install it from a zip file, so your browser doesn't ask you to approve its permissions. Here is
-    what it does:
+    FXM Connect is the small browser extension that lets the web app reach YouTube, Spotify and
+    Last.fm.
+    {connectInstall}
+    Here is what it does:
   </p>
   <ul>
     <li>
@@ -159,9 +168,14 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
       It adjusts a few headers on those requests so the services answer, and removes your cookies
       from them.
     </li>
+    <li>When the web app asks, it fetches Spotify's public server time, without your cookies.</li>
     <li>It runs only the code it was installed with and never downloads code from the internet.</li>
-    <li>It collects nothing: no analytics and no telemetry.</li>
-    <li>Its Spotify login option is off by default.</li>
+    <li>It sends nothing to FXM: no analytics and no telemetry.</li>
+    <li>
+      Its Spotify login option is off by default;
+      <a href="#spotify-login">Your Spotify login</a>
+      explains what it does when you turn it on.
+    </li>
   </ul>
   <p>
     Its source code, with the full list of its permissions, is in the
@@ -174,6 +188,7 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
     the apps are published on GitHub Releases. Like any host, Cloudflare and GitHub handle the
     network requests needed to deliver those files, under their own privacy policies. FXM doesn't
     add analytics or tracking to either.
+    {connectUpdates}
   </p>
   <p>{updates}</p>
 

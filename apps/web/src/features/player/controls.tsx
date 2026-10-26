@@ -209,7 +209,7 @@ export function SeekBar({ className }: { className?: string }) {
 
 /**
  * Likes the current track: it goes to the top of Liked songs in the library. Off while nothing
- * plays.
+ * plays, and until the library has loaded.
  */
 export function LikeButton({ size = 'sm' }: { size?: IconButtonSize }) {
   const track = useCurrentItem()?.track

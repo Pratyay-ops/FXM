@@ -29,6 +29,9 @@ const DAY = 24 * 60 * 60 * 1000
 const T0 = Date.UTC(2026, 9, 1, 12)
 const { like: LIKE, playlistAdd: ADD } = DEFAULT_AFFINITY_WEIGHTS
 
+/** A test repository, which also hands over its database to look at what is stored. */
+type TestRepo = ReturnType<typeof testRepo>
+
 /** A repository whose clock stands still until the test moves it. */
 function setup(start = T0) {
   let clock = start
@@ -43,7 +46,7 @@ function setup(start = T0) {
 }
 
 /** Every stored entry's affinity at `now`, by record ID. */
-async function scores(repo: LibraryRepo, now: number) {
+async function scores(repo: TestRepo, now: number) {
   const records = await repo.db.affinity.toArray()
   return Object.fromEntries(
     records.map((record) => {
@@ -54,7 +57,7 @@ async function scores(repo: LibraryRepo, now: number) {
 }
 
 /** The stored entry with `id`. */
-async function stored(repo: LibraryRepo, id: string): Promise<AffinityEntry | undefined> {
+async function stored(repo: TestRepo, id: string): Promise<AffinityEntry | undefined> {
   return repo.db.affinity.get(id)
 }
 
@@ -75,7 +78,7 @@ const ytTrack = (n: number, overrides: Partial<Track> = {}): Track => ({
  * from the library gives: the same entries, with the same affinity and skips at `now` and the
  * same plays. Only artists and tags may remember a later last play.
  */
-async function expectRebuildEquals(repo: LibraryRepo, now: number) {
+async function expectRebuildEquals(repo: TestRepo, now: number) {
   const incremental = await repo.db.affinity.toArray()
   await repo.rebuildAffinity()
   const rebuilt = new Map((await repo.db.affinity.toArray()).map((record) => [record.id, record]))
@@ -175,6 +178,16 @@ describe('the listening affinity in the library', () => {
     expect((await stored(repo, trackId(1)))?.score).toBe(ADD)
     await repo.removeDownload(track(1).id)
     expect(await stored(repo, trackId(1))).toBeUndefined()
+  })
+
+  it('forgets what downloads removed together added, and keeps the rest', async () => {
+    const { repo } = setup()
+    for (const n of [1, 2, 3]) await repo.addDownload(track(n))
+    expect(await repo.removeDownloads([track(1).id, track(2).id, track(9).id])).toBe(2)
+    expect(await stored(repo, trackId(1))).toBeUndefined()
+    expect(await stored(repo, artistId(2))).toBeUndefined()
+    expect((await stored(repo, trackId(3)))?.score).toBe(ADD)
+    await expectRebuildEquals(repo, T0)
   })
 
   it('scores plays by the share played, and skips by the share left', async () => {
@@ -402,6 +415,17 @@ describe('metadata that changes', () => {
     expect(await stored(repo, affinityId('tag', 'ambient'))).toMatchObject({ score: ADD })
     await repo.removeTracks(id, [track(2).id])
     expect(await repo.db.affinity.count()).toBe(0)
+  })
+
+  it('moves what a track holds when its tags are read again, as local files do', async () => {
+    const { repo } = setup()
+    await repo.like(track(1))
+    const retagged = track(1, { artists: [{ name: 'Someone' }], tags: ['folk'] })
+    expect(await repo.refreshTracks([retagged])).toBe(1)
+    expect(await stored(repo, artistId(1))).toBeUndefined()
+    expect(await stored(repo, affinityId('artist', 'someone'))).toMatchObject({ score: LIKE })
+    expect(await stored(repo, affinityId('tag', 'folk'))).toMatchObject({ score: LIKE })
+    await expectRebuildEquals(repo, T0)
   })
 
   it('credits the artist the track is credited to now, not the one it was liked with', async () => {

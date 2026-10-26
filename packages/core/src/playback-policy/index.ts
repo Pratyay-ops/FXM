@@ -9,6 +9,7 @@
 
 export * from './order'
 export * from './problems'
+export * from './quality-settings'
 export * from './recovery'
 export * from './settings'
 export * from './streams'

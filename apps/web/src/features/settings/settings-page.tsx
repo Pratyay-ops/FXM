@@ -7,8 +7,11 @@ import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
+import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
+import { ASSUMED_CAPABILITIES } from './quality-options'
+import { QualitySection } from './quality-section'
 import { SettingRow, SettingsSection } from './settings-layout'
 import { useSettingsStore } from './settings-store'
 
@@ -44,6 +47,7 @@ export function SettingsPage() {
             className="w-full md:w-auto"
           />
         </SettingRow>
+        <SponsorBlockSetting />
       </SettingsSection>
 
       <SettingsSection title="Sources">
@@ -59,6 +63,9 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      {/* The platform's capabilities once the app has them (stage 2.9). */}
+      <QualitySection capabilities={ASSUMED_CAPABILITIES} />
 
       <SettingsSection title="Appearance">
         <SettingRow
@@ -107,6 +114,7 @@ export function SettingsPage() {
             <span className="sr-only">(opens in a new tab)</span>
           </a>
         </div>
+        <SponsorBlockCredit />
       </SettingsSection>
     </div>
   )

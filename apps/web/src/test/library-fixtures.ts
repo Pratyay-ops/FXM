@@ -26,16 +26,19 @@ let databases = 0
 
 /**
  * A repository on a database of its own, with a clock that moves one second per call (so
- * every timestamp differs), unless `deps` says otherwise.
+ * every timestamp differs), unless `deps` says otherwise. Tests also get the database (`db`),
+ * to look at or damage what is stored; the app's repository doesn't expose it.
  */
 export function testRepo(deps: Partial<RepoDeps> = {}) {
   let clock = Date.UTC(2026, 9, 25, 12)
   databases++
-  return createLibraryRepo(openDatabase(`fxm-test-${databases}-${Math.random()}`), {
+  const db = openDatabase(`fxm-test-${databases}-${Math.random()}`)
+  const repo = createLibraryRepo(db, {
     now: () => {
       clock += 1000
       return clock
     },
     ...deps,
   })
+  return Object.assign(repo, { db })
 }

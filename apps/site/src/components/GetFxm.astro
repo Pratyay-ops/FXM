@@ -1,7 +1,13 @@
 ---
 import { APP_PATH, AVAILABLE, RELEASES_URL } from '../config'
+import { ANDROID_INSTALL, installFinePrint, noExtensionNote } from '../lib/connect'
 import ComingSoon from './ComingSoon.astro'
 import Icon from './Icon.astro'
+
+// The Firefox steps appear once the signed add-on is out (AVAILABLE.firefox).
+const finePrint = installFinePrint(AVAILABLE.firefox)
+const firefoxUpdate = AVAILABLE.firefox ? 'In Firefox, install the new file the same way.' : ''
+const noExtension = noExtensionNote(AVAILABLE.firefox)
 ---
 
 <section id="get" class="section" aria-labelledby="get-title">
@@ -27,6 +33,7 @@ import Icon from './Icon.astro'
         <p>
           Runs in your browser. Add the free FXM Connect extension to use YouTube Music and Spotify.
         </p>
+        {AVAILABLE.firefox && <h4 class="install-title">Chrome, Edge and Brave</h4>}
         <ol class="install">
           <li>
             Download the Chromium zip (<code>fxm-connect-chromium-….zip</code>) from the latest
@@ -39,13 +46,36 @@ import Icon from './Icon.astro'
           </li>
           <li>Choose <strong>Load unpacked</strong>, pick that folder, then reload the web app.</li>
         </ol>
-        <p class="fine">
-          For Chrome, Edge and Brave 120 or later, on a computer.
-          {!AVAILABLE.firefox && 'A Firefox add-on is coming.'}
-        </p>
+        {AVAILABLE.firefox && (
+          <>
+            <h4 class="install-title">Firefox</h4>
+            <ol class="install">
+              <li>
+                Download the Firefox add-on (<code>fxm-connect-firefox-….xpi</code>) from the latest
+                GitHub release.
+              </li>
+              <li>
+                In Firefox, open <code>about:addons</code>, click the gear button and choose
+                <strong>Install Add-on From File</strong>.
+              </li>
+              <li>
+                Pick the file, choose <strong>Add</strong>, then reload the web app.
+              </li>
+            </ol>
+          </>
+        )}
+        <p class="fine">{finePrint}</p>
+        {AVAILABLE.firefox && (
+          <p class="fine">
+            {ANDROID_INSTALL.map((part) =>
+              typeof part === 'string' ? part : <strong>{part.label}</strong>,
+            )}
+          </p>
+        )}
         <p class="fine">
           FXM Connect doesn't update itself. When the web app says a new version is out, unzip it
           over the same folder and press <strong>Reload</strong> on the extension's card.
+          {firefoxUpdate}
         </p>
         <div class="actions">
           <a class="button button-primary" href={APP_PATH}>
@@ -56,10 +86,7 @@ import Icon from './Icon.astro'
         </div>
         <p class="no-extension">
           <Icon name="library" size={20} />
-          <span>
-            No extension, or on a phone or tablet? The web app still plays free music from Internet
-            Archive and Jamendo.
-          </span>
+          <span>{noExtension}</span>
         </p>
       </div>
 
@@ -227,8 +254,18 @@ if (target) {
   overflow-wrap: normal;
 }
 
+.install-title {
+  margin-bottom: calc(var(--space-2) * -1);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
 .get-card > .fine {
   font-size: var(--text-sm);
+}
+
+.get-card > .fine strong {
+  color: var(--color-text);
 }
 
 .no-extension {

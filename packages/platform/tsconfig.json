@@ -4,5 +4,6 @@
     "lib": ["es2023", "dom", "dom.iterable"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/sandbox/tools", "src/sandbox/e2e"]
 }

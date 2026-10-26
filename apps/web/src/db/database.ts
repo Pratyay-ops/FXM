@@ -48,6 +48,7 @@ import {
   type SystemPlaylist,
   type TrackRecord,
 } from './types'
+import { sanitizeCandidate, sanitizeCandidates } from './validate'
 
 /** The newest schema version. Backups record it, and imports accept it or anything older. */
 export const SCHEMA_VERSION = 3
@@ -139,14 +140,22 @@ export interface MatchCacheRecordV1 {
  * record the catalog mode, so a decision whose audio is a song (or that has none) becomes a
  * Music decision, and one whose audio is a video becomes a Music + Video decision, the only
  * mode that may play it. An override becomes a pin. A `suggest` decision stays unconfirmed.
+ *
+ * Nothing stored is trusted: the candidates go through the same guards as a backup's
+ * (`validate.ts`), and a decision whose candidate is unusable is dropped (fail closed), so the
+ * engine decides again.
  */
 export function upgradeMatchRecord(value: unknown): MatchCacheRecord | null {
-  if (typeof value !== 'object' || value === null) return null
-  const old = value as Partial<MatchCacheRecordV1>
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null
+  const old = value as Record<keyof MatchCacheRecordV1, unknown>
   if (!isEntityId(old.sourceTrackId, 'track')) return null
   if (old.band !== 'auto' && old.band !== 'suggest' && old.band !== 'none') return null
-  const decidedAt = typeof old.decidedAt === 'number' ? old.decidedAt : 0
-  const candidate = old.candidate
+  const candidate = old.candidate === undefined ? undefined : sanitizeCandidate(old.candidate)
+  if (candidate === null) return null
+  const decidedAt =
+    typeof old.decidedAt === 'number' && Number.isFinite(old.decidedAt) && old.decidedAt >= 0
+      ? old.decidedAt
+      : 0
   const mode = candidate === undefined || candidate.kind === 'song' ? 'music' : 'all'
   const record: MatchCacheRecord = {
     key: matchKey(old.sourceTrackId, mode),
@@ -154,7 +163,7 @@ export function upgradeMatchRecord(value: unknown): MatchCacheRecord | null {
     sourceTrackId: old.sourceTrackId,
     mode,
     band: old.band,
-    alternatives: Array.isArray(old.alternatives) ? old.alternatives : [],
+    alternatives: sanitizeCandidates(old.alternatives),
     evidence: candidate?.evidence ?? [],
     userPinned: old.userOverride === true && candidate !== undefined,
     decidedAt,
@@ -164,13 +173,23 @@ export function upgradeMatchRecord(value: unknown): MatchCacheRecord | null {
   return record
 }
 
+/** {@link upgradeMatchRecord}, dropping a row that can't be read at all instead of failing. */
+function upgradeMatchRow(value: unknown): MatchCacheRecord[] {
+  try {
+    const record = upgradeMatchRecord(value)
+    return record === null ? [] : [record]
+  } catch {
+    // An exception would abort the upgrade and leave the whole library unreadable.
+    return []
+  }
+}
+
 async function upgradeToV2(tx: Transaction): Promise<void> {
   const table = tx.table('matchCache')
   const rows: unknown[] = await table.toArray()
   await table.clear()
-  const upgraded = rows.map(upgradeMatchRecord).filter((row) => row !== null)
   // Two version 1 rows can't collide: each had its own source key, and gets one mode.
-  await table.bulkPut(upgraded)
+  await table.bulkPut(rows.flatMap(upgradeMatchRow))
 }
 
 /**

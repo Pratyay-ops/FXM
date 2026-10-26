@@ -7,6 +7,8 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./youtube/module/build": "./src/youtube/module/build.mjs",
+    "./youtube/module/testing": "./src/youtube/module/testing.ts",
     "./*": "./src/*/index.ts"
   },
   "scripts": {
@@ -15,5 +17,8 @@
   "dependencies": {
     "@fxm/core": "workspace:*",
     "youtubei.js": "^18.1.0"
+  },
+  "devDependencies": {
+    "vite": "^8.3.4"
   }
 }

@@ -19,9 +19,9 @@ import {
   formatId,
   type JsonValue,
   type MatchSignals,
-  type PlayContext,
   type PlayStream,
   parseId,
+  type QueueContext,
   type Track,
 } from '@fxm/core'
 
@@ -173,13 +173,6 @@ export interface FollowRecord {
   followedAt: number
 }
 
-/**
- * Where a play started, like the player's queue context: an album, a playlist, an artist, a
- * radio or a search. The type stays an open string so that newer contexts in a backup survive.
- * The listening signals (stage 3.1) define it in `@fxm/core`.
- */
-export type { PlayContext }
-
 /** What actually played: `PlayStream` from `@fxm/core`, which the listening signals share. */
 export type StreamInfo = PlayStream
 
@@ -202,8 +195,11 @@ export interface HistoryRecord {
   completed: boolean
   /** Whether the user skipped it. */
   skipped: boolean
-  /** Where the play started. */
-  context?: PlayContext
+  /**
+   * Where the play started: the player's queue context, such as an album, a radio or Liked
+   * songs (`library`).
+   */
+  context?: QueueContext
   /** What actually played. */
   stream?: StreamInfo
   /**
@@ -212,6 +208,9 @@ export interface HistoryRecord {
    */
   importId?: string
 }
+
+/** A play as a backup or an import brings it: its database ID only when it had a valid one. */
+export type HistoryEntry = Omit<HistoryRecord, 'id'> & { id?: number }
 
 /**
  * The listening affinity of one track, artist or tag (stage 3.1): a core `AffinityEntry`, kept
@@ -337,6 +336,28 @@ export interface ImportProgressRecord {
   /** When it last saved progress. */
   updatedAt: number
 }
+
+/**
+ * The rows of every table: what a backup holds, and what a restore writes. The listening
+ * affinity is left out: it is derived from these, and a restore rebuilds it.
+ */
+export interface LibraryTables {
+  tracks: TrackRecord[]
+  likes: LikeRecord[]
+  playlists: PlaylistRecord[]
+  orders: OrderRecord[]
+  follows: FollowRecord[]
+  history: HistoryEntry[]
+  settings: SettingRecord[]
+  matchCache: MatchCacheRecord[]
+  importProgress: ImportProgressRecord[]
+}
+
+/**
+ * How a restore treats the library that is already here: `replace` makes it exactly the
+ * backup's; `merge` keeps everything here and adds the backup on top (see `merge.ts`).
+ */
+export type RestoreMode = 'merge' | 'replace'
 
 /** Longest playlist name the library stores. */
 export const MAX_NAME_LENGTH = 100

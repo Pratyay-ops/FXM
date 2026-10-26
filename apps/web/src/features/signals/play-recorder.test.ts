@@ -446,7 +446,7 @@ describe('checkpoints', () => {
       durationMs: 180_000,
       completed: false,
       skipped: false,
-      context: { type: 'album', id: 'ytm:album:x' },
+      context: { type: 'album', id: formatId('ytm', 'album', 'x'), title: 'X' },
       stream: { source: 'ytm', codec: 'opus' },
     }
     storage.setItem(gone, JSON.stringify({ savedAt: now() - ABANDONED_AFTER_MS, plays: [left] }))
