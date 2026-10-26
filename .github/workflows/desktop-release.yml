@@ -254,7 +254,7 @@ jobs:
 
       # tauri build makes the updater's files only with a key, and signs them with it. That is a
       # throwaway key: the sign job signs the files again with the updater key. A dry run also
-      # builds the apps with the throwaway public key, as the placeholder can't build them.
+      # builds the apps with the throwaway public key, in place of FXM's.
       - name: Make a throwaway key for tauri build
         id: build-key
         shell: bash

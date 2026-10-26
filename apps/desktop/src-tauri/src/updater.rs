@@ -121,8 +121,8 @@ pub fn enabled(debug_build: bool, pubkey: Option<&str>) -> bool {
 
 /// Whether `pubkey`, the `plugins > updater > pubkey` of `tauri.conf.json`, is a minisign public
 /// key as the plugin reads it: the key file's text in base64, decoded as it stands, so a key with
-/// a space or a line break around it isn't. Nor is the placeholder that ships until the owner
-/// commits FXM's key, so such a build never offers an update it couldn't verify.
+/// a space or a line break around it isn't. Nor is the placeholder that `tauri.conf.json` held
+/// until the owner committed FXM's key, so such a build never offers an update it couldn't verify.
 pub fn is_usable_pubkey(pubkey: &str) -> bool {
     base64::engine::general_purpose::STANDARD
         .decode(pubkey)
@@ -443,7 +443,7 @@ mod tests {
     /// (test/fixtures/updater in apps/desktop has it with a signature, and how it was made).
     const TEST_PUBKEY: &str = include_str!("../../test/fixtures/updater/test-key.pub");
 
-    /// The placeholder in tauri.conf.json until the owner commits FXM's key.
+    /// The key in tauri.conf.json: FXM's, or the placeholder that stood there before.
     fn configured_pubkey() -> String {
         let config: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");

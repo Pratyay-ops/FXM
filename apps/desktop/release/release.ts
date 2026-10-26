@@ -10,8 +10,8 @@
  *       each build job: a throwaway key pair for the signatures that `tauri build` makes of the
  *       updater's files, which nothing uses (the sign job signs the files again). The updater key
  *       never reaches a build job, which runs the code of hundreds of crates and packages. A dry
- *       run also gives the apps the throwaway public key (`--config`), since the placeholder can't
- *       build with updater files. Outputs key (the secret key's path) and config-args.
+ *       run also gives the apps the throwaway public key (`--config`), in place of FXM's. Outputs
+ *       key (the secret key's path) and config-args.
  *   release.ts appimage-tools --triple <triple> --out <dir> [--after-build --bundle-dir <dir>]
  *       each Linux build job, before `tauri build`: downloads the tools the bundler makes the
  *       AppImage with, and the AppImage runtime, checks each against its pinned SHA-256 and puts
