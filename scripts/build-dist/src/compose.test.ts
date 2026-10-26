@@ -328,6 +328,61 @@ describe('compose', () => {
     ])
   })
 
+  it('refuses LGPL code that shares a chunk with other code, in the app or in a worker', () => {
+    const appWith = (root: string, workerModules: (lgpl: string) => readonly string[]) => {
+      writeFiles(root, {
+        'apps/web/src/app.ts': 'export {}\n',
+        'apps/web/src/worker.ts': 'export {}\n',
+      })
+      const lgpl = installPackage(root, {
+        name: 'lgpl-lib',
+        version: '1.0.0',
+        license: 'LGPL-3.0-only',
+        files: { COPYING: 'GNU Lesser General Public License' },
+      })
+      return fakePart(
+        { name: 'app', mount: 'app', spa: true, required: true },
+        (outDir) => ({
+          'index.html':
+            '<!doctype html><html><head><title>a</title></head><body><h1>a</h1></body></html>',
+          ...bundle(outDir, 'assets/index.js', [join(root, 'apps/web/src/app.ts')]),
+          ...bundle(outDir, 'assets/lgpl-lib.js', [lgpl]),
+          ...bundle(outDir, 'assets/worker.js', workerModules(lgpl)),
+        }),
+        () => [
+          {
+            environment: 'client',
+            modules: [],
+            assets: [],
+            chunks: [
+              { fileName: 'assets/index.js', modules: [join(root, 'apps/web/src/app.ts')] },
+              { fileName: 'assets/lgpl-lib.js', modules: [lgpl, '\0rolldown/runtime.js'] },
+            ],
+          },
+          // What bundle-inventory.ts records for the app's worker (dist-configs.ts).
+          {
+            environment: 'worker',
+            modules: [],
+            assets: [],
+            chunks: [{ fileName: 'assets/worker.js', modules: workerModules(lgpl) }],
+          },
+        ],
+      )
+    }
+    const root = tempDir()
+    const worker = join(root, 'apps/web/src/worker.ts')
+    expect(
+      problemsOf(() => run(root, [fakeSitePart(root), appWith(root, (lgpl) => [worker, lgpl])])),
+    ).toEqual([
+      `lgpl-lib@1.0.0 (in app) is under the LGPL, so it must sit in chunks of its own, but assets/worker.js also holds 1 other module(s), such as ${worker}: give it a chunk of its own (manualChunks)`,
+    ])
+
+    // A worker that holds the library alone, as its own chunk, passes.
+    const other = tempDir()
+    const { result } = run(other, [fakeSitePart(other), appWith(other, (lgpl) => [lgpl])])
+    expect(result.packages.map((pkg) => pkg.name)).toEqual(['lgpl-lib'])
+  })
+
   it('attributes the packages the sandbox documents bundle, and names the parts holding them', () => {
     const root = tempDir()
     installPackage(root, {
