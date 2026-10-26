@@ -249,6 +249,28 @@ describe('the Android project', () => {
       )
     })
 
+    it('leaves nothing of a login in the window’s profile', () => {
+      const window = kotlin('SpotifyLoginActivity.kt')
+      // Whenever the window goes (logged in, closed, given up, closed by Android), once its
+      // WebView is gone: nothing sets a cookie after that.
+      const destroy = /override fun onDestroy\(\) \{([\s\S]*?)\n {2}\}/.exec(window)?.[1] ?? ''
+      expect(destroy).toContain('SpotifyLogin.wipeWindow()')
+      expect(destroy.indexOf('::discard')).toBeGreaterThan(-1)
+      expect(destroy.indexOf('::discard')).toBeLessThan(destroy.indexOf('wipeWindow'))
+      expect(/private fun discard\([\s\S]*?\n {2}\}/.exec(window)?.[0]).toContain(
+        'view.clearCache(true)',
+      )
+      const login = kotlin('SpotifyLogin.kt')
+      expect(login).toContain('ProfileStore.getInstance().deleteProfile(PROFILE)')
+      expect(login).toContain('WebStorageCompat.deleteBrowsingData(profile.webStorage)')
+      expect(/fun logout\(context: Context\) \{[\s\S]*?\n {2}\}/.exec(login)?.[0]).toContain(
+        'wipeWindow()',
+      )
+      // What a window left when the app was ended with it open: deleted at the next start.
+      const load = /override fun load\(\) \{[\s\S]*?\n {2}\}/.exec(kotlin('SpotifyLoginPlugin.kt'))
+      expect(load?.[0]).toContain('SpotifyLogin.wipeWindow()')
+    })
+
     it('never handles the password: no script bridge, no injected script, no request bodies', () => {
       for (const file of sources('android/fxm-spotify/src/main', ['.kt', '.java'])) {
         expect(withoutComments(read(file)), file).not.toMatch(

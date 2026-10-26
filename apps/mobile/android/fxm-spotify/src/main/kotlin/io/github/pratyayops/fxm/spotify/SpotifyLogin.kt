@@ -1,10 +1,13 @@
 package io.github.pratyayops.fxm.spotify
 
+import android.annotation.SuppressLint
 import android.content.Context
 import androidx.webkit.ProfileStore
+import androidx.webkit.WebStorageCompat
 import androidx.webkit.WebViewFeature
 import io.github.pratyayops.fxm.http.FxmHttp
 import java.io.File
+import java.io.IOException
 
 /**
  * The Spotify login's pieces, one of each per app process: the kept login ([store]), the token
@@ -60,21 +63,54 @@ object SpotifyLogin {
       false
     }
 
-  /** Clears the login window's profile: its cookies, Spotify's among them, and its storage. */
+  /**
+   * Clears the login window's profile: its cookies, Spotify's among them, and its storage, and on
+   * WebViews that can ([WebViewFeature.DELETE_BROWSING_DATA]) its network cache and every other
+   * store too. Main thread, as the WebView's profiles require.
+   */
+  @SuppressLint("RequiresFeature") // windowAvailable() checks for profiles.
   fun clearWindow() {
-    if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) return
+    if (!windowAvailable()) return
     val profile = ProfileStore.getInstance().getProfile(PROFILE) ?: return
     profile.cookieManager.removeAllCookies(null)
     profile.cookieManager.flush()
     profile.webStorage.deleteAllData()
+    if (WebViewFeature.isFeatureSupported(WebViewFeature.DELETE_BROWSING_DATA)) {
+      WebStorageCompat.deleteBrowsingData(profile.webStorage) {}
+    }
   }
 
   /**
-   * Logs out on this device: deletes the kept login and its key, and clears the login window's
-   * cookies and storage. Main thread, as the WebView's profiles require.
+   * Wipes the login window's profile: deletes it whole (cookies, cache, storage, service workers),
+   * or clears it ([clearWindow]) where WebView won't delete it. WebView deletes a profile only
+   * while this process hasn't loaded it: once a login window opened, the profile is cleared, and
+   * deleted at the app's next start (the plugin's `load`). Main thread.
+   */
+  @SuppressLint("RequiresFeature") // windowAvailable() checks for profiles.
+  fun wipeWindow() {
+    if (!windowAvailable()) return
+    try {
+      ProfileStore.getInstance().deleteProfile(PROFILE)
+    } catch (e: IllegalStateException) {
+      // Loaded in this process, or a WebView still uses it.
+      clearWindow()
+    }
+  }
+
+  /**
+   * Logs out on this device: deletes the kept login and its key, and wipes the login window's
+   * profile ([wipeWindow]). Throws when the login is still kept ([SessionStore.forget]), after
+   * wiping the profile all the same. Main thread, as the WebView's profiles require.
    */
   fun logout(context: Context) {
-    store(context).forget()
-    if (windowAvailable()) clearWindow()
+    val forgotten =
+      try {
+        store(context).forget()
+        null
+      } catch (e: IOException) {
+        e
+      }
+    wipeWindow()
+    if (forgotten != null) throw forgotten
   }
 }

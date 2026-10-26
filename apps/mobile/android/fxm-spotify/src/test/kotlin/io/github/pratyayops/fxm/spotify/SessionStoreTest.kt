@@ -1,9 +1,14 @@
 package io.github.pratyayops.fxm.spotify
 
 import java.io.File
+import java.io.IOException
+import java.security.ProviderException
+import java.security.UnrecoverableKeyException
+import javax.crypto.AEADBadTagException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -63,6 +68,74 @@ class SessionStoreTest {
   }
 
   @Test
+  fun `a keystore failure that may pass keeps the login, and says so`() {
+    store.save(COOKIE)
+    // As secure hardware that is busy or out of reach surfaces, e.g. during the hourly token call.
+    cipher.openFailures.add(ProviderException("The keystore is busy"))
+    val failure = assertThrows(LoginFailure::class.java) { store.cookie() }
+    assertEquals(LoginErrorCode.STORAGE, failure.code)
+    assertTrue(store.isLoggedIn())
+    assertEquals(0, cipher.forgotten)
+    assertEquals(COOKIE, store.cookie())
+  }
+
+  @Test
+  fun `only a failure that lasts deletes the login`() {
+    for (lasting in
+      listOf(
+        SessionKeyGone("gone"),
+        AEADBadTagException("another key"),
+        UnrecoverableKeyException("damaged"),
+      )) {
+      store.save(COOKIE)
+      cipher.openFailures.add(lasting)
+      assertNull(lasting.toString(), store.cookie())
+      assertNull(lasting.toString(), file.text)
+      assertFalse(store.isLoggedIn())
+    }
+    assertFalse(SessionStore.isPermanent(ProviderException("busy")))
+    assertFalse(SessionStore.isPermanent(java.security.KeyStoreException("not loaded")))
+    assertFalse(SessionStore.isPermanent(IllegalStateException("anything else")))
+  }
+
+  @Test
+  fun `a key that fails to seal is replaced with a new one, once`() {
+    store.save("AQ-an-earlier-login")
+    cipher.sealFailures.add(ProviderException("The key was invalidated"))
+    store.save(COOKIE)
+    assertEquals(1, cipher.forgotten)
+    assertEquals(COOKIE, store.cookie())
+  }
+
+  @Test
+  fun `a key that never seals fails the save, and leaves no login that can't open`() {
+    store.save("AQ-an-earlier-login")
+    cipher.sealFailures.add(ProviderException("The key was invalidated"))
+    cipher.sealFailures.add(ProviderException("The keystore is gone"))
+    assertThrows(ProviderException::class.java) { store.save(COOKIE) }
+    // The earlier login's key is gone, and with it the earlier login.
+    assertNull(file.text)
+    assertFalse(store.isLoggedIn())
+  }
+
+  @Test
+  fun `logging out fails only when the login is still kept`() {
+    store.save(COOKIE)
+    cipher.forgetFailure = ProviderException("The keystore is busy")
+    store.forget()
+    assertNull("the file is gone, and the login with it", file.text)
+
+    store.save(COOKIE)
+    cipher.forgetFailure = null
+    file.deleteFailure = IOException("The disk failed")
+    store.forget()
+    assertEquals("the key is gone, so the login never opens", 1, cipher.forgotten)
+
+    cipher.forgetFailure = ProviderException("The keystore is busy")
+    assertThrows(IOException::class.java) { store.forget() }
+  }
+
+  @Test
   fun `a damaged file is deleted, and counts as logged out`() {
     for (damaged in
       listOf(
@@ -71,6 +144,9 @@ class SessionStoreTest {
         "${SessionStore.FORMAT}\n!!!\nAAAA\n",
         "${SessionStore.FORMAT}\nAAAAAAAAAAAAAAAA\n\n",
         "fxm-spotify-session/2\nAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAAAA\n",
+        // A nonce of 3 bytes, which the keystore never makes; then bytes too short for a tag.
+        "${SessionStore.FORMAT}\nAAAA\nAAAAAAAAAAAAAAAAAAAAAAAA\n",
+        "${SessionStore.FORMAT}\nAAAAAAAAAAAAAAAA\nAAAAAAAAAAAAAAAAAAAAAA==\n",
       )) {
       file.text = damaged
       assertFalse(damaged, store.isLoggedIn())
@@ -118,6 +194,12 @@ class SessionStoreTest {
       onDisk.delete()
       assertNull(onDisk.read())
       assertEquals(emptyList<String>(), dir.list()?.toList())
+      onDisk.delete()
+
+      // A file that stays (here a folder with something in it, which File.delete() refuses).
+      val stuck = File(dir, "stuck").apply { mkdirs() }
+      File(stuck, "inside").writeText("x")
+      assertThrows(IOException::class.java) { FileSessionFile(stuck).delete() }
     } finally {
       dir.deleteRecursively()
     }

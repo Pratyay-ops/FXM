@@ -4,11 +4,11 @@ import io.github.pratyayops.fxm.http.FxmHttp
 import io.github.pratyayops.fxm.http.InMemoryApprovedHosts
 import io.github.pratyayops.fxm.http.RequestPolicy
 import java.io.Closeable
+import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketAddress
-import java.security.GeneralSecurityException
 import java.util.concurrent.TimeUnit
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -98,12 +98,25 @@ class FakeSpotify : Closeable {
   }
 }
 
-/** A [SessionCipher] with an AES-GCM key in memory, standing in for the Android Keystore. */
+/**
+ * A [SessionCipher] with an AES-GCM key in memory, standing in for the Android Keystore, which a
+ * test can make fail as the keystore does: each queued failure is thrown once, by the next call.
+ */
 class MemoryCipher : SessionCipher {
   var key: SecretKey? = newKey()
   var forgotten = 0
 
+  /** What the next [seal] calls throw, one each. */
+  val sealFailures = ArrayDeque<Exception>()
+
+  /** What the next [open] calls throw, one each. */
+  val openFailures = ArrayDeque<Exception>()
+
+  /** What [forget] throws, every time, while set. */
+  var forgetFailure: Exception? = null
+
   override fun seal(plain: ByteArray, aad: ByteArray): Sealed {
+    sealFailures.removeFirstOrNull()?.let { throw it }
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(Cipher.ENCRYPT_MODE, key ?: newKey().also { key = it })
     cipher.updateAAD(aad)
@@ -112,10 +125,11 @@ class MemoryCipher : SessionCipher {
   }
 
   override fun open(sealed: Sealed, aad: ByteArray): ByteArray {
+    openFailures.removeFirstOrNull()?.let { throw it }
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")
     cipher.init(
       Cipher.DECRYPT_MODE,
-      key ?: throw GeneralSecurityException("no key"),
+      key ?: throw SessionKeyGone("no key"),
       GCMParameterSpec(128, sealed.iv),
     )
     cipher.updateAAD(aad)
@@ -123,6 +137,7 @@ class MemoryCipher : SessionCipher {
   }
 
   override fun forget() {
+    forgetFailure?.let { throw it }
     key = null
     forgotten += 1
   }
@@ -132,8 +147,11 @@ class MemoryCipher : SessionCipher {
   }
 }
 
-/** A [SessionFile] in memory. */
+/** A [SessionFile] in memory, whose deleting a test can make fail. */
 class MemoryFile(var text: String? = null) : SessionFile {
+  /** What [delete] throws, every time, while set: the text stays. */
+  var deleteFailure: IOException? = null
+
   override fun read(): String? = text
 
   override fun write(text: String) {
@@ -141,6 +159,7 @@ class MemoryFile(var text: String? = null) : SessionFile {
   }
 
   override fun delete() {
+    deleteFailure?.let { throw it }
     text = null
   }
 }

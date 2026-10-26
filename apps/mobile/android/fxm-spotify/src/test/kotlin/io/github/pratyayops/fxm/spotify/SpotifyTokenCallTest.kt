@@ -126,6 +126,17 @@ class SpotifyTokenCallTest {
   }
 
   @Test
+  fun `says STORAGE when the keystore fails for a moment, sends nothing and keeps the login`() {
+    store.save(COOKIE)
+    cipher.openFailures.add(java.security.ProviderException("The keystore is busy"))
+    assertEquals(LoginErrorCode.STORAGE, failure().code)
+    assertEquals(0, spotify.server.requestCount)
+    spotify.server.enqueue(token())
+    assertEquals(200, call.request(PARAMS).status)
+    assertEquals("sp_dc=$COOKIE", spotify.take().headers["Cookie"])
+  }
+
+  @Test
   fun `fails on a redirect, which the cookie never follows`() {
     store.save(COOKIE)
     spotify.server.enqueue(

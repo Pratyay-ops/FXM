@@ -41,8 +41,12 @@ import androidx.webkit.WebViewFeature
  *   made with them.
  * - **The login.** Once Spotify sets its `sp_dc` login cookie in the profile, the window keeps it
  *   ([SessionStore], sealed with a Keystore key), clears the profile and closes with
- *   [RESULT_OK], or [RESULT_NOT_KEPT] when it couldn't keep it. Each login starts from an empty
- *   profile; closing the window keeps an earlier login.
+ *   [RESULT_OK], or [RESULT_NOT_KEPT] when it couldn't keep it. Closing the window keeps an
+ *   earlier login.
+ * - **Nothing stays behind.** Each login starts from an empty profile, and the window wipes it
+ *   again whenever it goes ([onDestroy]: logged in, closed, given up, or closed by Android), so
+ *   no cookie of a login given up (an Apple ID's, say) and none a late response set after the
+ *   capture stays on disk, nor the network cache.
  */
 class SpotifyLoginActivity : AppCompatActivity() {
   private val main = Handler(Looper.getMainLooper())
@@ -74,6 +78,11 @@ class SpotifyLoginActivity : AppCompatActivity() {
     WindowCompat.setDecorFitsSystemWindows(window, false)
     setContentView(R.layout.fxm_spotify_login)
     val root = findViewById<View>(R.id.fxm_spotify_login_root)
+    findViewById<Toolbar>(R.id.fxm_spotify_login_toolbar).setNavigationOnClickListener { close() }
+    notice = findViewById(R.id.fxm_spotify_login_notice)
+    progress = findViewById(R.id.fxm_spotify_login_progress)
+    val password = findViewById<View>(R.id.fxm_spotify_login_password)
+    password.setOnClickListener { webView?.loadUrl(LoginPage.PASSWORD_RESET_URL) }
     ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
       val edges =
         insets.getInsets(
@@ -82,17 +91,15 @@ class SpotifyLoginActivity : AppCompatActivity() {
             WindowInsetsCompat.Type.ime(),
         )
       view.setPadding(edges.left, edges.top, edges.right, edges.bottom)
+      // While the keyboard is up, Spotify's page needs the room: the notice and the link wait.
+      val typing = insets.isVisible(WindowInsetsCompat.Type.ime())
+      notice.visibility = if (typing) View.GONE else View.VISIBLE
+      password.visibility = if (typing) View.GONE else View.VISIBLE
       WindowInsetsCompat.CONSUMED
     }
     WindowCompat.getInsetsController(window, root).apply {
       isAppearanceLightStatusBars = false
       isAppearanceLightNavigationBars = false
-    }
-    findViewById<Toolbar>(R.id.fxm_spotify_login_toolbar).setNavigationOnClickListener { close() }
-    notice = findViewById(R.id.fxm_spotify_login_notice)
-    progress = findViewById(R.id.fxm_spotify_login_progress)
-    findViewById<View>(R.id.fxm_spotify_login_password).setOnClickListener {
-      webView?.loadUrl(LoginPage.PASSWORD_RESET_URL)
     }
     onBackPressedDispatcher.addCallback(
       this,
@@ -132,7 +139,12 @@ class SpotifyLoginActivity : AppCompatActivity() {
     main.removeCallbacksAndMessages(null)
     webView?.let(::discard)
     webView = null
-    if (opened) open = false
+    if (opened) {
+      // The WebView is gone, so nothing sets a cookie after this. WebView deletes a profile only
+      // before a process loads it, so this clears it, and the app's next start deletes it.
+      runCatching { SpotifyLogin.wipeWindow() }
+      open = false
+    }
     super.onDestroy()
   }
 
@@ -171,8 +183,8 @@ class SpotifyLoginActivity : AppCompatActivity() {
       } catch (e: Exception) {
         false
       }
-    // From here on the login lives in the kept file alone. The next login clears the profile
-    // again first, should this fail.
+    // From here on the login lives in the kept file alone. A first pass: onDestroy wipes the
+    // profile again once the WebView is gone, and the next login clears it first.
     runCatching { SpotifyLogin.clearWindow() }
     setResult(if (kept) RESULT_OK else RESULT_NOT_KEPT)
     finish()
@@ -265,6 +277,9 @@ class SpotifyLoginActivity : AppCompatActivity() {
 
   private fun discard(view: WebView) {
     view.stopLoading()
+    // The profile's network cache: a WebView's clearCache clears its own profile's, which older
+    // WebViews clear no other way.
+    runCatching { view.clearCache(true) }
     (view.parent as? ViewGroup)?.removeView(view)
     view.destroy()
   }

@@ -2,7 +2,6 @@ package io.github.pratyayops.fxm.spotify
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import java.security.GeneralSecurityException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -14,6 +13,9 @@ import javax.crypto.spec.GCMParameterSpec
  * so the app's files alone don't open the login, and uninstalling the app deletes it. The
  * keystore picks every nonce. The key needs no unlocked screen: the token call also runs with
  * the screen off, while music plays.
+ *
+ * Without its key, [open] throws [SessionKeyGone]. The keystore's own failures pass through as
+ * they are, for [SessionStore.isPermanent] to tell those that last from those that pass.
  */
 class KeystoreCipher(private val alias: String = ALIAS) : SessionCipher {
   override fun seal(plain: ByteArray, aad: ByteArray): Sealed {
@@ -25,7 +27,7 @@ class KeystoreCipher(private val alias: String = ALIAS) : SessionCipher {
   }
 
   override fun open(sealed: Sealed, aad: ByteArray): ByteArray {
-    val key = key() ?: throw GeneralSecurityException("The Spotify login's key is gone")
+    val key = key() ?: throw SessionKeyGone("The Spotify login's key is gone")
     val cipher = Cipher.getInstance(TRANSFORMATION)
     cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, sealed.iv))
     cipher.updateAAD(aad)

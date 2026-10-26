@@ -18,7 +18,8 @@ import org.json.JSONObject
  *
  * - `status` says whether a login is kept, and whether the login window can open here.
  * - `login` opens the login window ([SpotifyLoginActivity]) and resolves once it closes.
- * - `logout` deletes the kept login and its key and clears the login window's cookies.
+ * - `logout` deletes the kept login and its key and wipes the login window's profile, or rejects
+ *   with `STORAGE` when the login is still kept.
  * - `requestToken` sends the token call with the kept login ([SpotifyTokenCall]) and resolves with
  *   Spotify's status and JSON body. The cookie never crosses the bridge, nor does the password.
  *
@@ -34,6 +35,9 @@ class SpotifyLoginPlugin : Plugin() {
     store = SpotifyLogin.store(context)
     tokens = SpotifyLogin.tokenCall(context)
     available = SpotifyLogin.windowAvailable()
+    // Deletes what a login window left when the app was ended with it open (no onDestroy then):
+    // at the start, before anything loads the profile, which is when WebView deletes one.
+    if (available && !SpotifyLoginActivity.open) runCatching { SpotifyLogin.wipeWindow() }
   }
 
   /** Resolves with where the login stands. */
@@ -71,16 +75,20 @@ class SpotifyLoginPlugin : Plugin() {
     bridge.releaseCall(call)
   }
 
-  /** Logs out on this device; resolves with where the login stands then. */
+  /**
+   * Logs out on this device; resolves with where the login stands then, or rejects with `STORAGE`
+   * when the kept login could not be deleted.
+   */
   @PluginMethod
   fun logout(call: PluginCall) {
     bridge.executeOnMainThread {
       try {
         SpotifyLogin.logout(context)
         call.resolve(state())
-      } catch (e: RuntimeException) {
-        // On the main thread, an uncaught exception would end the app.
-        reject(call, LoginFailure(LoginErrorCode.STORAGE, "FXM couldn't log out of Spotify here"))
+      } catch (e: Exception) {
+        // The login still kept (the disk and the keystore both failed), or the WebView failed. On
+        // the main thread, an uncaught exception would end the app.
+        reject(call, LoginFailure(LoginErrorCode.STORAGE, "FXM couldn't delete its Spotify login"))
       }
     }
   }
