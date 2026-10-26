@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { formatId } from '../ids'
 import type { CatalogMode } from '../mode'
 import type { Track } from '../model'
 import { createQueue, setQueue, setQueueRepeat } from '../queue/queue'
@@ -16,6 +17,7 @@ import {
   type RadioOptions,
   radioShortfall,
   resolveRadioOptions,
+  skippedEarly,
 } from './radio'
 import { indexTaste } from './taste'
 import {
@@ -176,6 +178,29 @@ describe('planRadioSeeds', () => {
     expect(names(seeds)).toEqual(['Low Tide', 'Harbor Lights', 'Glass River'])
   })
 
+  it('leaves out a song the user skipped just now, however much they like it', () => {
+    const favourite = by('Kestrel', 'fav')
+    const other = by('Orchid Static', 'o1')
+    const before = [1, 2, 3].map((day) => play(favourite, day * DAY))
+    const seeds = seedsOf([skip(favourite, 4 * MINUTE), play(other, 8 * MINUTE), ...before])
+    expect(names(seeds)).toEqual(['Low Tide', 'Orchid Static o1'])
+    // So its radio isn't the one fetched.
+    expect(nextRadioSeed(seeds, () => false)?.ref.name).toBe('Orchid Static o1')
+    // Heard through, it is the heaviest seed.
+    const heard = seedsOf([play(favourite, 4 * MINUTE), play(other, 8 * MINUTE), ...before])
+    expect(nextRadioSeed(heard, () => false)?.ref.name).toBe('Kestrel fav')
+  })
+
+  it('counts a play the user skipped near its end as a listen', () => {
+    const outro = play(harbor, 4 * MINUTE, { completed: false, skipped: true, playedMs: 180_000 })
+    expect(names(seedsOf([outro, ...session.slice(1)]))).toEqual([
+      'Low Tide',
+      'Harbor Lights',
+      'Static Bloom',
+      'Glass River',
+    ])
+  })
+
   it('leaves out the track playing now only when the user skips it more than they listen', () => {
     // Skipped once, last week: it doesn't seed, Harbor Lights leads.
     expect(names(seedsOf([...session, skip(lowTide, 7 * DAY)]))[0]).toBe('Harbor Lights')
@@ -208,9 +233,9 @@ describe('planRadioSeeds', () => {
     expect(names(seedsOf(session, { options: { sessionGapMs: 0 } }))).toEqual(['Low Tide'])
   })
 
-  it('counts each song once, and only what the catalog mode allows', () => {
+  it('counts each song once, and only what the catalog mode shows', () => {
     const sameSong = spotify('sp1', 'Harbor Lights', 'Cinder')
-    const video = by('Echo', 'v1', { kind: 'music-video' })
+    const video = by('Echo', 'v1', { kind: 'video' })
     const history = [...session, play(sameSong, 14 * MINUTE), play(video, 16 * MINUTE)]
     expect(names(seedsOf(history))).toEqual([
       'Low Tide',
@@ -219,6 +244,21 @@ describe('planRadioSeeds', () => {
       'Glass River',
     ])
     expect(names(seedsOf(history, { mode: 'all' }))).toContain('Echo v1')
+  })
+
+  it('grows from official music videos in Music mode too, linked to their song or not', () => {
+    const linked = by('Echo', 'mv1', {
+      kind: 'music-video',
+      songId: formatId('ytm', 'track', 'echo-song'),
+    })
+    const unlinked = by('Fable Kin', 'mv2', { kind: 'music-video' })
+    const episode = by('Talk Show', 'ep1', { kind: 'episode' })
+    const seeds = seedsOf([play(unlinked, 4 * MINUTE), play(episode, 8 * MINUTE)], {
+      current: linked,
+    })
+    expect(names(seeds)).toEqual(['Echo mv1', 'Fable Kin mv2'])
+    // A playlist of videos keeps the radio going: the one heard through is fetched first.
+    expect(nextRadioSeed(seeds, () => false)?.ref.name).toBe('Fable Kin mv2')
   })
 
   it('falls back to the newest play the user listened to when they skipped all the last ones', () => {
@@ -231,6 +271,31 @@ describe('planRadioSeeds', () => {
   it('has nothing to grow from without plays', () => {
     expect(seedsOf([], { current: null })).toEqual([])
     expect(seedsOf(session, { options: { seedPlays: 0 } })).toEqual([])
+  })
+})
+
+describe('skippedEarly', () => {
+  const skipAt = (playedMs: number, durationMs?: number) => ({
+    skipped: true,
+    completed: false,
+    playedMs,
+    ...(durationMs === undefined ? {} : { durationMs }),
+  })
+
+  it('counts a skip before half the track as a skip, and a later one as a listen', () => {
+    expect(skippedEarly(skipAt(4_000, 200_000))).toBe(true)
+    expect(skippedEarly(skipAt(99_000, 200_000))).toBe(true)
+    expect(skippedEarly(skipAt(100_000, 200_000))).toBe(false)
+    expect(skippedEarly(skipAt(195_000, 200_000))).toBe(false)
+    // Without its length, against a typical song's (3.5 minutes).
+    expect(skippedEarly(skipAt(60_000))).toBe(true)
+    expect(skippedEarly(skipAt(150_000))).toBe(false)
+  })
+
+  it('counts only skips', () => {
+    expect(skippedEarly({ ...skipAt(4_000, 200_000), skipped: false })).toBe(false)
+    expect(skippedEarly({ ...skipAt(4_000, 200_000), completed: true })).toBe(false)
+    expect(skippedEarly(null as never)).toBe(false)
   })
 })
 

@@ -108,7 +108,7 @@ export interface ProfileTrack {
   readonly track?: Track
 }
 
-/** One recent play, for the history filters and the recently-played penalty. */
+/** One recent play, for the history filters, the recently-played penalty and endless radio. */
 export interface RecentPlay {
   /** The track that played. */
   readonly trackId: EntityId<'track'>
@@ -116,6 +116,12 @@ export interface RecentPlay {
   readonly playedAt: number
   /** Its metadata, when cached: it lets other sources' listings of the song count as played. */
   readonly track?: Track
+  /**
+   * Whether the user skipped this play before hearing half of it (`skippedEarly`): such a play
+   * seeds no radio (`planRadioSeeds`). A play skipped later counts as a listen, as the affinity
+   * counts it. Absent when not known.
+   */
+  readonly skipped?: boolean
 }
 
 /** An artist the user picked when FXM knew nothing about their taste (the cold start). */

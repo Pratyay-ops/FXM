@@ -6,32 +6,34 @@
  * | Step | Function |
  * |---|---|
  * | Whether the queue needs more | {@link radioShortfall}: 4 tracks once fewer than 3 remain after the current one |
- * | What it grows from | {@link planRadioSeeds}: the last 5 plays of the listening session that the user didn't skip, each weighed by its age and how much the user likes it |
+ * | What it grows from | {@link planRadioSeeds}: the last 5 plays of the listening session that the user didn't skip ({@link skippedEarly}), each weighed by its age and how much the user likes it |
  * | Which radio to fetch | {@link nextRadioSeed}: one per extension, the heaviest seed whose radio isn't at hand (the app caches each seed's) |
  * | What to add | {@link buildRadioBatch}: what the seeds' radios suggest, pooled, scored with `SCORE_PRESETS.radio`, without songs from the last 50 tracks or the queue, diversified |
  *
- * **Likes and skips retune it** through stage 3.1's affinity, which the app reads afresh for
- * every extension: a play the user skipped seeds nothing, its song and its artist score lower
- * (the skip penalty), and a song or artist they mostly skip never comes; a like makes its song
- * a heavier seed, whose radio counts more and is fetched sooner, and lifts every song by its
- * artist.
+ * **Likes and skips retune it** through stage 3.1's signals, which the app reads afresh for
+ * every extension: a play the user skipped seeds nothing, however much they like the song, which
+ * scores lower with its artist (the skip penalty), and a song or artist they mostly skip never
+ * comes; a like makes its song a heavier seed, whose radio counts more and is fetched sooner,
+ * and lifts every song by its artist.
  *
  * Everything here is pure and deterministic: the time and the noise are inputs.
  *
  * @module
  */
 
-import type { CatalogMode } from '../mode'
+import { type CatalogMode, modePolicy } from '../mode'
 import type { Track } from '../model'
 import { hasOwnAudio } from '../playback-policy/order'
 import { type QueueState, upcomingQueueItems } from '../queue/queue'
 import type { RandomSource } from '../queue/random'
 import { tagAffinityKey } from '../signals/keys'
+import { COMPLETED_PLAY_SHARE, playedShare } from '../signals/play'
+import type { PlaySignal } from '../signals/signals'
 import { DEFAULT_MMR_LAMBDA, DEFAULT_PER_ARTIST_CAP, diversify } from './diversify'
 import { filterHistory } from './history'
 import { artistKeysOf, recSeedOf, seedArtistKey, seedKey, trackKeys } from './identity'
 import { seededRandomFor } from './period'
-import { compareKeys, fitsMode, type PooledSong, poolCandidates } from './pool'
+import { compareKeys, type PooledSong, poolCandidates } from './pool'
 import { SCORE_PRESETS, scoreSongs, welcomeSongs } from './score'
 import { type PlannedSeed, seedWeight } from './seeds'
 import { indexTaste, likedEnough, mostlySkipped, type TasteIndex } from './taste'
@@ -141,36 +143,53 @@ const RECENCY_STEP = 0.15
 /** The least of its weight a seed's age leaves it. */
 const MIN_RECENCY = 0.4
 
+/**
+ * Whether the user skipped a play before hearing half of it ({@link COMPLETED_PLAY_SHARE} of the
+ * track, `playedShare`): what a radio counts as a skip (`RecentPlay.skipped`). A play skipped
+ * later counts as a listen, as the affinity counts it (a skip weighs the share left unplayed):
+ * someone who skips the last seconds of every song still listened to it.
+ */
+export function skippedEarly(
+  play: Pick<PlaySignal, 'skipped' | 'completed' | 'playedMs' | 'durationMs'>,
+): boolean {
+  return (
+    play?.skipped === true && play.completed !== true && playedShare(play) < COMPLETED_PLAY_SHARE
+  )
+}
+
 /** One play of the listening session, newest first. */
 interface SessionPlay {
   readonly track: Track
   /** Whether it is the track playing now. */
   readonly current: boolean
+  /** Whether the user skipped it ({@link skippedEarly}). Never the track playing now. */
+  readonly skipped: boolean
 }
 
 /**
  * The plays of the listening session, newest first, one per song: the current track, then the
  * history's plays back to the first pause longer than `gapMs` (measured from the end of a play,
- * so a long track doesn't end the session). Plays without metadata are left out: no radio can
- * start from them.
+ * so a long track doesn't end the session). A song played twice counts as its newest play, so a
+ * song the user skipped just now counts as skipped. Plays without metadata are left out: no
+ * radio can start from them.
  */
 function sessionPlays(taste: TasteIndex, current: Track | undefined, gapMs: number): SessionPlay[] {
   const plays: SessionPlay[] = []
   const seen = new Set<string>()
-  const add = (track: Track, isCurrent: boolean) => {
+  const add = (track: Track, isCurrent: boolean, skipped: boolean) => {
     const keys = trackKeys(track)
     if (keys.length === 0 || keys.some((key) => seen.has(key))) return
     for (const key of keys) seen.add(key)
-    plays.push({ track, current: isCurrent })
+    plays.push({ track, current: isCurrent, skipped })
   }
   let next = current === undefined ? taste.recent[0]?.playedAt : taste.now
-  if (current !== undefined) add(current, true)
+  if (current !== undefined) add(current, true, false)
   for (const play of taste.recent) {
     const lengthMs = play.track?.durationMs
     const endedAt = play.playedAt + (typeof lengthMs === 'number' && lengthMs > 0 ? lengthMs : 0)
     if (next === undefined || next - endedAt > gapMs) break
     next = play.playedAt
-    if (play.track !== undefined) add(play.track, false)
+    if (play.track !== undefined) add(play.track, false, play.skipped === true)
   }
   return plays
 }
@@ -179,11 +198,15 @@ function sessionPlays(taste: TasteIndex, current: Track | undefined, gapMs: numb
  * The plays the radio grows from, newest first: the last `seedPlays` (5) plays of the
  * listening session, the current track first, without
  *
- * - a play the user skipped: a played track seeds only when the user likes it enough
- *   (`likedEnough`: at least half a play, more listening than skipping), the current track
- *   unless they skip it more than they listen to it;
- * - a track the catalog mode doesn't let recommendations hold, or by an artist the user mostly
- *   skips;
+ * - a play the user skipped (`RecentPlay.skipped`: before hearing half of it), however much
+ *   they like its song;
+ * - a played track the user doesn't like enough (`likedEnough`: at least half a play, more
+ *   listening than skipping), and the current track when they skip it more than they listen
+ *   to it;
+ * - a track the catalog mode hides (`modePolicy`): in Music mode a plain video or an episode.
+ *   An official music video seeds in Music mode too: the recommendation sources start its
+ *   radio from its song, and the batch keeps to songs;
+ * - a track by an artist the user mostly skips;
  * - a second play of one song.
  *
  * When none of them can seed (the user skipped them all), the newest play of the session that
@@ -195,7 +218,7 @@ export function planRadioSeeds(taste: TasteIndex, input: RadioSeedInput): Planne
   const { mode } = input
   const seedOf = (play: SessionPlay, age: number): PlannedSeed | undefined => {
     const { track } = play
-    if (!fitsMode(track, mode)) return undefined
+    if (play.skipped || modePolicy(track, mode) === 'hidden') return undefined
     const known = taste.track(trackKeys(track))
     if (known !== undefined && (play.current ? known.skips > known.score : !likedEnough(known))) {
       return undefined
