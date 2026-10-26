@@ -1,0 +1,1460 @@
+{
+  "count": 38,
+  "offset": 0,
+  "recordings": [
+    {
+      "id": "e9aa91cd-33f6-482c-96bf-4bb5ded2f0b6",
+      "score": 100,
+      "title": "Creep",
+      "length": 244955,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "releases": [
+        {
+          "id": "733951da-f9ea-4130-8e6c-36868a14261b",
+          "title": "1993‐06‐30: Cabaret Metro, Chicago, IL, USA",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Live"]
+          }
+        }
+      ],
+      "disambiguation": "live, 1993‐06‐30: Cabaret Metro, Chicago, IL, USA"
+    },
+    {
+      "id": "4a62582f-ea08-4ef8-bb9e-5c90b2bbecfc",
+      "score": 100,
+      "title": "Creep",
+      "length": 227530,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "releases": [
+        {
+          "id": "851f57dc-8c30-4b89-bb6f-388926c42876",
+          "title": "1993‐05‐05: Bevrijdingspop, Haarlem, Netherlands",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Live"]
+          }
+        }
+      ],
+      "disambiguation": "live, 1993‐05‐05: Bevrijdingspop, Haarlem, Netherlands"
+    },
+    {
+      "id": "307ed81f-a179-4527-8b36-6bae6062adc5",
+      "score": 100,
+      "title": "Creep",
+      "length": 236000,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "first-release-date": "1995",
+      "releases": [
+        {
+          "id": "5653ef20-d0c5-446b-9464-a2eb998d0da0",
+          "title": "Cyclo",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Soundtrack"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "4c9ce44d-1982-4ace-9189-a4a570bf8446",
+      "score": 100,
+      "title": "Creep",
+      "length": 242133,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "first-release-date": "2017",
+      "releases": [
+        {
+          "id": "13154b1b-fd3c-4e85-aa0b-0e3a059a2875",
+          "title": "Every Last Crumb",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        }
+      ],
+      "disambiguation": "live, 1992-06-22"
+    },
+    {
+      "id": "f9cfdebe-edf3-4d3b-94e7-7b7c364a9206",
+      "score": 100,
+      "title": "Creep",
+      "length": 233000,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "first-release-date": "2004",
+      "releases": [
+        {
+          "id": "70f80946-d618-496f-8384-4e6c5f0578a5",
+          "title": "Towering Above the Rest",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "aa1e6810-906c-4d4d-b40b-01f277f6fbd2",
+          "title": "Towering Above the Rest Complete",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "70595637-9310-45f2-a266-58f8de4874a7",
+      "score": 100,
+      "title": "Creep",
+      "length": 236666,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "first-release-date": "1992-09-21",
+      "isrcs": ["GBAYE9200070"],
+      "releases": [
+        {
+          "id": "287dca89-2bf4-42c2-ba32-b6eddceb835f",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "c14f28ab-a265-46f9-a60a-b661eadc8da1",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "0d5d78b6-62e3-45e9-9b22-ef8696217f74",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "79e50442-79d0-4540-b2ee-887a2ebc7bea",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "24dbe5aa-2541-4423-9da9-a72436d7975c",
+          "title": "The Rock Album",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "5fdd4427-8604-4004-965b-d33c3a65f30c",
+          "title": "Album Box Set",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "f2b0c9de-35ad-46ec-b44a-3051621b5a59",
+          "title": "Greatest Hits",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "0c1a7410-384d-41a3-b860-82075511e253",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "5b90cd01-4ae2-4e65-a25c-73b88d039003",
+          "title": "Best of Brit‐Pop",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "066e2c2d-66ed-4c33-ba57-cb4485c9f106",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "dd8ff0bf-52d1-4e3b-a4d0-ebda483523fe",
+          "title": "Wow that's a Hit",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "8c2e89c6-073a-431e-8087-002dc5e02ad9",
+          "title": "Mastermix Professional Engineered for DJs: Decades",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "d7ca84b1-7be9-4d4d-a8e5-f29137f1dc4d",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "9265eabe-2d51-46eb-8035-f66fc09f0d2a",
+          "title": "The Alt Vault",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "53eb8b5f-e9aa-45dd-8a12-83af836bd9ab",
+          "title": "Reservoir Rock, Volume II",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "f22eb85c-b705-4938-a94a-1480a83c1c0f",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "8a84f63f-ab3f-4edc-b823-7a0b2f9f51c1",
+          "title": "What's Up 2",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "4c337b67-2eac-46a8-a61d-800cfec66cd8",
+          "title": "Rock Master",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "512d34cc-edd3-4cc3-840e-23523936f247",
+          "title": "RTL2 20 ans et plus",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "b58a6026-a82a-4294-8188-5a1dd3e34460",
+          "title": "Everybody Loves… 90’s, Vol. I",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "9945a907-65da-49d6-9d87-2d2b06713103",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "0a29c4b7-e1c1-4b3b-adf7-a8cc1a5ef11b",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "fe09d753-9a5b-40cf-80c7-1c127260fe29",
+          "title": "The Best Anthems… Ever!",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "3572d5bf-5a08-47b6-be39-143e8586c420",
+          "title": "Creep EP",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "EP",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "8c6d3f51-2ffd-4ec1-89db-5387f5e17169",
+          "title": "Triple J Hottest 100 (The Hottest of the Hottest)",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "0abfabcd-0b74-4b73-b86a-156e401a489f",
+          "title": "Alle 40 goed: Wereldsterren, vol. 2",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "82567d26-bdd6-433d-b2dc-cf896ef9d9ab",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "e4046db4-0443-4b77-b014-432a9e5268fb",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "89489f8e-3ecf-4825-81e4-5caa12154cdd",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "815d1976-a626-4689-b997-080c59eff678",
+          "title": "Hit Connection 96/1",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "a33608d4-63e2-4cde-a935-67527c91004d",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "130fe36f-ecf4-3c1f-89a0-a47c1b59cae3",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "6045195e-697c-308c-8cbb-3d6a7293f128",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "e8c069b9-5ac3-48f5-93ba-c6e02db81b08",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "c24fd4e7-d513-4b59-a492-48fe0fff2738",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "5145f5d5-301b-44de-8269-a42778e2c117",
+          "title": "The Vox ’Phone Box",
+          "status": "Promotion",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "8125fd6f-addc-45a8-ba34-4b023aeae962",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "29575ff4-cbce-468a-9305-79176ebefb80",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "7d9ed971-a3f1-4952-bdc7-d615149db2b0",
+          "title": "Untitled",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "0cc5d317-88f0-473d-822b-2ce8fa237f7c",
+          "title": "Untitled",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "2484fbb9-4de8-479f-980a-0562da15888b",
+          "title": "Rocks Off",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "a2721e0e-fb46-43fa-b718-e700b17de8f1",
+          "title": "Triple J: Hottest 100, Volume 1",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "19f33880-0fb3-408f-8f63-5389086c1a39",
+          "title": "Top Gear 3: Rock Ballads",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "0684a371-4e5c-47b6-a8d2-3d28fe4fb1c0",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "e71bf938-ab69-43ed-a06d-bbee7418e328",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "65dcd9ac-994f-4f61-a058-19c73434b17b",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "9f3f5edf-19e3-46b9-9de4-9ab8816f6972",
+          "title": "Greatest Hits",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "9b8fafaa-819d-4afe-8746-fa9ddc9f5624",
+          "title": "Best of Indie Top 20",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "e1fa5365-b4a9-41e7-bc43-c6d171c68b79",
+          "title": "The Best Alternative Ballads – Ever",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "eb596749-0fa4-481e-9375-18439d5ffb09",
+          "title": "Classic Cuts Presents: 90s Night: The Ultimate DJ Collection: 1993",
+          "status": "Promotion",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "fca30cbb-c4c3-4ff4-a7ef-0490e1a862a1",
+          "title": "The No.1 All Time Rock Album",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "8dbea562-e6e6-474b-a4e5-82626eff9951",
+          "title": "Original Rock, Volume 1",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "58e79646-de87-461f-8168-d1c058f74a88",
+          "title": "Best of British: 50 Years of Great British Pop & Rock",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "d9c6df17-cdc6-4f8d-82df-233dbe28fa79",
+          "title": "Best of the 90s",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "edae7ed1-abd5-470f-8336-6fcffbb9a762",
+          "title": "Indie Top 20, Volume 19",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "57239c02-096e-48fd-950d-61441529a8f7",
+          "title": "Les Inrockuptibles: 10 ans/100 chansons",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "d66cb4ae-c9a0-43fc-be78-4212adf197db",
+          "title": "EMI Special Markets Presents a World of Music",
+          "status": "Promotion",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "5d616600-baf8-452d-a754-6afd01db6e19",
+          "title": "Pure Soft Metal",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "e21a7f48-2f20-4525-917e-a85225a8ff37",
+          "title": "The Trip 2",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "327aa699-5256-4ea2-8d08-be96f3561d5d",
+          "title": "World Ballads Collection",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "17d2740f-f800-4ab8-8c17-c50f86742ed3",
+          "title": "Monster Halloween Hits",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "73cc1ee9-77cb-4cf5-9723-281aac4bddc8",
+          "title": "F1 Rock",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "9d81d5bc-0e76-4c17-a6ef-1d7e61e521e7",
+          "title": "Best of British",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "6b3c5e10-6f9e-48cd-a3e7-425394305f85",
+          "title": "The Ultimate Bands: The Classic Anthems",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "c52c26d2-7866-439f-a5cd-f9dec6fe2a65",
+          "title": "S.F.W.",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Soundtrack"]
+          }
+        },
+        {
+          "id": "d9af1b41-b089-4317-8692-53d8f74d9c3b",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "92e0e678-dc66-42a4-b5b8-253ddc043866",
+          "title": "MTV Rocks: Indie Revolution",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "607e5a8d-0308-424f-80dd-749513c8d855",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "81ca48bb-2b91-4279-a576-b4498ec1a8b7",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "e2acc8df-2dfe-486b-a88b-d7b73f536677",
+          "title": "Triple J Hottest 100 (The Hottest of the Hottest)",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "97ffceb5-9685-4472-bee0-5e5ad96aec5e",
+          "title": "MTV Buzz Bin: Volume 1",
+          "status": null,
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "c08e0cf1-912b-4ee3-a6ae-aba9eedb99ad",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "89da00a8-be47-4e30-bb9e-7404009854e7",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "EP",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "5f70c06a-1176-4995-867b-3e9e3c7712cf",
+          "title": "The Rock Album",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "051cfabc-f80c-4fc8-89a3-27161fa95c59",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "054813d3-99cd-4c7e-aaa7-c63b8c3b5b48",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "4cf4ed93-2899-4069-a8b7-664bfe4d9781",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "99726b5e-a17a-4d75-81dc-e09771e1bffd",
+          "title": "5 Album Set",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "286912b9-24d1-4073-9f0d-b03cffad61f8",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "e25818ac-77cf-4364-9f2f-15e1f2498dab",
+          "title": "101 Indie Classics",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "eabdab86-5317-4a77-bf39-bd632faa0ea1",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "d167d2cd-e579-4b09-a40e-68e833def38b",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Single",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "d056fee9-ebbf-415b-b82f-d4e5faf7efb0",
+          "title": "Rock Alternativo",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "171bc475-9d98-4d32-a522-d1e13aa6c902",
+          "title": "Go Ape",
+          "status": "Promotion",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "77246f00-726c-32ce-8c89-09838a159ce2",
+          "title": "S.F.W.",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Soundtrack"]
+          }
+        },
+        {
+          "id": "3d17069b-194f-4f08-921a-b3d7e8fc3c53",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "509ca2da-ac45-4687-8142-bf1fcd3a6e4f",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "c56d9a6a-414b-4525-b9ec-96d76379a213",
+          "title": "Mastermix Classic Cuts 41: Alternative",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "da615699-5fcc-4505-bc39-060f6e6e004c",
+          "title": "Greatest Hits of Modern Rock",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "241499cc-ab40-40c6-8847-fdecf293857a",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "af8722d8-6248-4b9c-9d30-2183eafa2ed9",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "5e94423b-ca48-3c25-9504-bec33c466f8c",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "ae8c1966-4224-4c19-b5e7-769abcb801c8",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "8197e68a-9141-4796-a215-4e0706912548",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "1e991439-8675-4376-885a-192e32e6b628",
+          "title": "Unlaced",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "619c8769-41ff-4358-8572-044371518f78",
+          "title": "Triple J: Hottest 100, Volume 1",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "e18f03f4-2507-478d-b8d8-d8d141573a5b",
+          "title": "Britpop, Volume 1",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "7b3d649d-8fd3-4b0d-a26e-8e0d89d69683",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "697d1e10-32a2-4049-94e5-929011a4713d",
+          "title": "The Best of the Nineties …So Far",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "9207cdc8-0c68-4331-95fc-a46fe64eeea8",
+          "title": "Greatest Hits 98",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "45fe8faf-1696-4c4c-a0d9-d20dbd8a2bb7",
+          "title": "Anyone Can Play Guitar",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "EP",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "ed118c5f-d940-4b52-a37b-b1a205374abe",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "EP",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "6be24f35-bc2d-4e99-9f6e-3e836991f46e",
+          "title": "De Afrekening, Vol. 5",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "2ede9a1e-9ed3-425a-be23-f8e6021ad528",
+          "title": "Baba MTV",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "0b87cef8-fa7f-4392-9476-3abefca88f14",
+          "title": "Alive in the 90’s",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "5998a03e-8bd3-4fb8-af36-5944d84f6af4",
+          "title": "MTV Buzz Bin: Volume 1",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "c92161fa-7960-4196-bd48-7ed55ac6cd6d",
+          "title": "Classic Rock: 1990–1996",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "25c762b1-65d0-4bc4-a007-7f206db03c76",
+          "title": "Addicted to Rock",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "bd91effb-7e3f-4395-8402-cef58af85b74",
+          "title": "Ils se marièrent et eurent beaucoup d’enfants",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation", "Soundtrack"]
+          }
+        },
+        {
+          "id": "5f3f8f7a-8b96-48b1-808e-64bb2f13030c",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "336162c1-3320-3f80-a9d5-e437cc017bb7",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "de920ef4-d662-37be-9a73-1ef1b2071f45",
+          "title": "The Best Of",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "40359441-199d-48c1-9b4f-f89ddd579c41",
+          "title": "Creep",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "EP",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "0f1d46d9-94e3-4bbe-94ed-2199664aa4a8",
+          "title": "101 Indie Classics",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "811bddb6-a6c4-43cf-b782-a2bed0b834ac",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "07aab296-9a40-42a9-8d1f-6b06aa032e8a",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "77c92990-6eef-33f4-b25c-3c60670e74c3",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "8bc2ad8e-d821-38f8-b233-4ae30970e8ec",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "84b9d51c-c6de-3529-8be0-b28ebe2ed157",
+          "title": "Radiohead Box",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "b38ae233-bb6f-3115-9185-3f8f149b0a44",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "4d4cc42b-b15c-3f1d-8a10-5386803009f6",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "661e10a1-8a01-4201-8f1b-e3a42684739d",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "4972a96f-413e-31c5-bb4e-f11c1f2cf45f",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "02769f4d-ee78-3680-aa79-67f3a821c931",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "24d10180-a965-39a2-9494-288ea15d27d6",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "54ed4e79-5754-4432-9355-b7fa57d7bc67",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "5df336df-cb28-4147-a126-ba414820f02f",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "06487940-c7d4-4af3-976d-0be796d686ce",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        },
+        {
+          "id": "8001e350-324c-4f78-83ab-ee8f6e4afe65",
+          "title": "Classic Cuts Presents: 90’s Night: The Ultimate DJ Collection: Complete Set",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        },
+        {
+          "id": "b1a9b282-7f04-4d14-9aea-bcd2b33e3156",
+          "title": "Pablo Honey",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": []
+          }
+        }
+      ],
+      "disambiguation": "You’re so fucking special"
+    },
+    {
+      "id": "5c37f75b-061a-4ef8-afc7-632cbd6c8d73",
+      "score": 100,
+      "title": "Creep",
+      "length": 246000,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "first-release-date": "2001",
+      "releases": [
+        {
+          "id": "31823773-73e8-408b-ba65-549be7cb1ef3",
+          "title": "NPA Live",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Live"]
+          }
+        }
+      ],
+      "disambiguation": "live, 1993-11-24: Nulle Part Ailleurs, Canal+ Studios, Paris, France"
+    },
+    {
+      "id": "d8b2fac9-343e-484b-9acb-0c8ff2d03a8f",
+      "score": 100,
+      "title": "Creep",
+      "length": 238026,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "first-release-date": "1995",
+      "releases": [
+        {
+          "id": "e8888e9b-15cc-45b2-9c60-d600b68cefcc",
+          "title": "Top 40’s Top Hits of the 90’s: 32 Original Chart Hits Including 14 No 1's",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "445e1157-02b7-4bac-9cd6-9c4eeedcd0ae",
+      "score": 100,
+      "title": "Creep",
+      "length": 236000,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "first-release-date": "1995",
+      "releases": [
+        {
+          "id": "ce493c0f-2ac6-4a88-bd1c-980bf05ca903",
+          "title": "Kevin Savage’s Music Power, Volume 2",
+          "status": "Official",
+          "release-group": {
+            "primary-type": "Album",
+            "secondary-types": ["Compilation"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "13fbdcf8-2d18-44e5-90bd-204649633197",
+      "score": 100,
+      "title": "Creep",
+      "length": 236000,
+      "artist-credit": [
+        {
+          "name": "Radiohead",
+          "joinphrase": "",
+          "artist": {
+            "id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+            "name": "Radiohead"
+          }
+        }
+      ],
+      "first-release-date": "1993-07-14",
+      "releases": [
+        {
+          "id": "8c856abb-028e-4f4e-8173-cceab317db04",
+          "title": "1993‐07‐14: The Arsenio Hall Show, Paramount Studios, Los Angeles, CA, USA",
+          "status": "Bootleg",
+          "release-group": {
+            "primary-type": "Broadcast",
+            "secondary-types": ["Live"]
+          }
+        }
+      ]
+    }
+  ]
+}

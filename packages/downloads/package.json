@@ -1,0 +1,20 @@
+{
+  "name": "@fxm/downloads",
+  "version": "0.0.0",
+  "private": true,
+  "description": "FXM download manager: a resumable download queue, a storage interface and offline lookup",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@fxm/core": "workspace:*",
+    "@fxm/player": "workspace:*"
+  }
+}

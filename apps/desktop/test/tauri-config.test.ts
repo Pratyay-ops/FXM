@@ -16,7 +16,7 @@ interface TauriConfig {
   }
   app: {
     windows: Record<string, unknown>[]
-    security: { csp: string }
+    security: { csp: string; pattern?: unknown }
   }
   bundle: { useLocalToolsDir?: boolean; icon: string[]; createUpdaterArtifacts?: unknown }
   plugins?: Record<string, unknown>
@@ -29,8 +29,12 @@ interface RequestHeaderRule {
   mode?: 'default' | 'override'
 }
 
-/** The Tauri plugins of the shell, as `tauri-plugin-<name>` crates. */
-const PLUGINS = ['single-instance', 'window-state', 'http', 'dialog', 'opener']
+/**
+ * The Tauri plugins of the shell, as `tauri-plugin-<name>` crates. Not tauri-plugin-dialog: its
+ * script would replace `window.alert` and `window.confirm` in every page with IPC calls the app
+ * doesn't allow, so `confirm()` would return a Promise, which is always truthy.
+ */
+const PLUGINS = ['single-instance', 'window-state', 'http', 'opener']
 
 /** The app's own Rust commands: src/user_hosts.rs, then src/playback.rs and src/environment.rs. */
 const COMMANDS = [
@@ -70,6 +74,8 @@ const capabilityFiles = readdirSync(new URL('../src-tauri/capabilities/', import
 const capability = readJson<{ permissions: unknown[] } & Record<string, unknown>>(
   '../src-tauri/capabilities/default.json',
 )
+const isolationHtml = read('../isolation/index.html')
+const isolationHook = read('../isolation/hook.js')
 const requestHeaders = readJson<{ requestHeaders: RequestHeaderRule[] }>(
   '../src-tauri/request-headers.json',
 ).requestHeaders
@@ -123,6 +129,14 @@ const baseArgs = (command: string) =>
 /** The strings in a TOML array, such as the features of a dependency. */
 const tomlStrings = (array = '') => [...array.matchAll(/"([^"]*)"/g)].map(([, value]) => value)
 
+/** The inline table of a dependency in Cargo.toml, e.g. `{ version = "…", features = […] }`. */
+const dependency = (name: string) =>
+  new RegExp(String.raw`^${name} = \{([^}]*)\}`, 'm').exec(cargoToml)?.[1] ?? ''
+
+/** The features a dependency in Cargo.toml turns on. */
+const featuresOf = (name: string) =>
+  tomlStrings(/features = \[([^\]]*)\]/.exec(dependency(name))?.[1])
+
 /** The quoted strings of a Rust array or macro list. */
 const rustStrings = (list = '') => [...list.matchAll(/"([^"]*)"/g)].map(([, value]) => value)
 
@@ -155,17 +169,25 @@ describe('tauri.conf.json', () => {
     expect(config.app.windows[0]?.backgroundThrottling).toBe('disabled')
   })
 
-  it('keeps the content security policy and no other security setting', () => {
+  it('keeps the content security policy, the isolation pattern and no other security setting', () => {
     // Capabilities listed here would replace the capabilities/ folder, and settings such as
     // dangerousDisableAssetCspModification or assetProtocol widen what the page may do.
-    expect(Object.keys(config.app.security)).toEqual(['csp'])
+    expect(Object.keys(config.app.security)).toEqual(['csp', 'pattern'])
     expect(parseCsp(config.app.security.csp)).toEqual({
       'default-src': ["'self'"],
       'img-src': ["'self'", 'https:', 'data:', 'blob:'],
       'media-src': ["'self'", 'https:', 'blob:'],
       'connect-src': ['ipc:', 'http://ipc.localhost', "'self'"],
-      'script-src': ["'self'", "'wasm-unsafe-eval'"],
+      // blob: loads the signed YouTube module (stage 1.13) from a URL made of its verified bytes.
+      'script-src': ["'self'", "'wasm-unsafe-eval'", 'blob:'],
       'style-src': ["'self'", "'unsafe-inline'"],
+    })
+  })
+
+  it('passes IPC messages through the isolation hook in ../isolation', () => {
+    expect(config.app.security.pattern).toEqual({
+      use: 'isolation',
+      options: { dir: '../isolation' },
     })
   })
 
@@ -239,7 +261,7 @@ describe('capabilities', () => {
     expect(capabilityFiles).toEqual(['default.json'])
   })
 
-  it('declares nothing but an identifier, windows and permissions', () => {
+  it('declares nothing but an identifier, webviews and permissions', () => {
     // A `remote` block would open the IPC to remote pages, and `platforms` or `local` would
     // change where the capability applies.
     expect(Object.keys(capability).sort()).toEqual([
@@ -247,12 +269,16 @@ describe('capabilities', () => {
       'description',
       'identifier',
       'permissions',
-      'windows',
+      'webviews',
     ])
   })
 
-  it('applies to the main window only', () => {
-    expect(capability.windows).toEqual(['main'])
+  it('applies to the main window’s own webview only, not to every webview in that window', () => {
+    // A capability matched by window applies to every webview of the window, so a child webview
+    // such as stage 1.11's evaluator would get all of it. The main window's webview has the
+    // window's label.
+    expect(capability.webviews).toEqual([config.app.windows[0]?.label])
+    expect(capability.windows).toBeUndefined()
   })
 
   it('grants core, opener, the app’s commands and http, and nothing else', () => {
@@ -315,8 +341,8 @@ describe('request-headers.json (staged for plugins-workspace PR #3703)', () => {
 
   it('gives every host in the table the Origin the native transports send', () => {
     for (const rule of HOST_RULES) {
-      const expected = NATIVE_ORIGINS[rule.hostClass] === '' ? null : NATIVE_ORIGINS[rule.hostClass]
-      expect(originFor(sampleUrl(rule)), rule.host).toBe(expected)
+      // `null` is no Origin at all, in the rules as in the transports.
+      expect(originFor(sampleUrl(rule)), rule.host).toBe(NATIVE_ORIGINS[rule.hostClass])
     }
   })
 
@@ -354,16 +380,33 @@ describe('tauri.smoke.conf.json (the live smoke test)', () => {
 })
 
 describe('Cargo.toml', () => {
-  const http = /^tauri-plugin-http = \{([^}]*)\}/m.exec(cargoToml)?.[1] ?? ''
+  const http = dependency('tauri-plugin-http')
 
   it('builds tauri-plugin-http with unsafe-headers, so requests can set or drop Origin', () => {
     // Until plugins-workspace PR #3703 lets request-headers.json do it from the config.
-    expect(tomlStrings(/features = \[([^\]]*)\]/.exec(http)?.[1])).toContain('unsafe-headers')
+    expect(featuresOf('tauri-plugin-http')).toContain('unsafe-headers')
   })
 
   it('builds tauri-plugin-http without its cookie jar, which saves cookies in plain text', () => {
     expect(http).toMatch(/\bdefault-features = false\b/)
-    expect(tomlStrings(/features = \[([^\]]*)\]/.exec(http)?.[1])).not.toContain('cookies')
+    expect(featuresOf('tauri-plugin-http')).not.toContain('cookies')
+  })
+
+  it('lets responses arrive compressed, as in a browser', () => {
+    // The plugin asks for `identity` whenever a request has a Range header, so media probes
+    // stay byte for byte.
+    expect(featuresOf('tauri-plugin-http')).toEqual(expect.arrayContaining(['gzip', 'brotli']))
+  })
+
+  it('builds tauri and tauri-build with the isolation pattern, which the config alone can’t turn on', () => {
+    // Without the feature, Tauri quietly falls back to the brownfield pattern.
+    expect(featuresOf('tauri')).toContain('isolation')
+    expect(featuresOf('tauri-build')).toContain('isolation')
+  })
+
+  it('shows the approval dialog with rfd: GTK 3 on Linux, task dialogs on Windows', () => {
+    expect(dependency('rfd')).toMatch(/\bdefault-features = false\b/)
+    expect(featuresOf('rfd').sort()).toEqual(['common-controls-v6', 'gtk3'])
   })
 
   it('builds tauri with its tray icon, which the playback menu needs (src/tray.rs)', () => {
@@ -382,6 +425,18 @@ describe('Cargo.toml', () => {
   it('includes exactly the plugins of the shell', () => {
     const plugins = [...cargoToml.matchAll(/^tauri-plugin-([a-z-]+) = /gm)].map(([, name]) => name)
     expect(plugins.sort()).toEqual([...PLUGINS].sort())
+  })
+})
+
+describe('the isolation app', () => {
+  it('loads the hook, which Tauri inlines when it builds the app', () => {
+    expect(isolationHtml).toMatch(/<script src="hook\.js"><\/script>/)
+    // Tauri refuses to build an isolation app that sets no hook.
+    expect(isolationHook).toMatch(/window\.__TAURI_ISOLATION_HOOK__ = /)
+  })
+
+  it('is rebuilt into the app whenever it changes', () => {
+    expect(buildRs).toMatch(/println!\("cargo:rerun-if-changed=\.\.\/isolation"\)/)
   })
 })
 

@@ -8,6 +8,7 @@
 
 import { createPlatform } from '@fxm/platform'
 import { connectMediaSession, mimeTypeOf } from '@fxm/player'
+import { type InvokeArgs, invoke } from '@tauri-apps/api/core'
 import { emit } from '@tauri-apps/api/event'
 import { createDesktopPlayback, type DesktopPlayback, PLAYBACK_LOCK, pageLocks } from '../bridge'
 import { type PlaybackEnvironment, runPlaybackSteps } from './playback-steps'
@@ -79,6 +80,8 @@ async function smoke(): Promise<SmokeReport> {
       player: htmlAudioPlayer(),
       query: 'Radiohead Creep',
       freeTrack: FREE_TRACK,
+      // Untyped on purpose: the hook step sends a Map, which InvokeArgs doesn't list.
+      invoke: (command, payload) => invoke(command, payload as InvokeArgs),
       onStep: (step) => log(`${step.status} ${step.name}: ${step.detail}`),
       // Stage 7.3: three tracks in a row through the app's player, in this hidden window.
       extraSteps: (step) =>

@@ -1,6 +1,7 @@
 import { formatTime } from '@fxm/player'
 import {
   Heart,
+  LoaderCircle,
   Pause,
   Play,
   Repeat,
@@ -12,10 +13,17 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
+import { lazy, Suspense, useState } from 'react'
 import { IconButton, type IconButtonSize } from '../../components/ui/icon-button'
 import { RangeSlider } from '../../components/ui/range-slider'
 import { cn } from '../../lib/cn'
+import { useCurrentItem } from '../now-playing/playback'
 import { type RepeatMode, usePlayerStore } from './player-store'
+
+// The library (IndexedDB) loads after the shell's first render, not with it.
+const LibraryLikeButton = lazy(() =>
+  import('../library/like-button').then((module) => ({ default: module.LibraryLikeButton })),
+)
 
 const REPEAT_LABELS: Readonly<Record<RepeatMode, string>> = {
   off: 'Enable repeat',
@@ -37,23 +45,62 @@ const PLAY_BUTTON_STYLES = {
   cta: { variant: 'accent', className: 'size-14 [&_svg]:size-6' },
 } as const
 
-export function PlayPauseButton({
-  appearance = 'bar',
-}: {
-  appearance?: keyof typeof PLAY_BUTTON_STYLES
-}) {
+type PlayButtonAppearance = keyof typeof PLAY_BUTTON_STYLES
+
+/**
+ * The big play button of the library's placeholder playlist pages (`/playlist/liked`, …). It
+ * responds but plays nothing, like the shell's other placeholders, rather than pausing whatever
+ * the queue plays: those playlists play once the library (stage 2.6) gives them pages. The
+ * catalog's album, artist and playlist pages (stage 2.4) have their own play buttons.
+ */
+function CollectionPlayButton() {
+  const [playing, setPlaying] = useState(false)
+  const Icon = playing ? Pause : Play
+  const style = PLAY_BUTTON_STYLES.cta
+  return (
+    <IconButton
+      label={playing ? 'Pause' : 'Play'}
+      icon={<Icon fill="currentColor" strokeWidth={0} className={cn(!playing && 'ml-0.5')} />}
+      size="custom"
+      variant={style.variant}
+      className={style.className}
+      onClick={() => setPlaying(!playing)}
+    />
+  )
+}
+
+/** Play/pause for the app's player; `cta` is the collection pages' placeholder for now. */
+export function PlayPauseButton({ appearance = 'bar' }: { appearance?: PlayButtonAppearance }) {
+  return appearance === 'cta' ? (
+    <CollectionPlayButton />
+  ) : (
+    <PlayerPlayPauseButton appearance={appearance} />
+  )
+}
+
+function PlayerPlayPauseButton({ appearance }: { appearance: PlayButtonAppearance }) {
+  const hasTrack = usePlayerStore((state) => state.hasTrack)
   const isPlaying = usePlayerStore((state) => state.isPlaying)
+  const busy = usePlayerStore((state) => state.busy)
   const togglePlay = usePlayerStore((state) => state.togglePlay)
   const Icon = isPlaying ? Pause : Play
   const style = PLAY_BUTTON_STYLES[appearance]
   return (
     <IconButton
       label={isPlaying ? 'Pause' : 'Play'}
-      // The play triangle's visual center sits left of its box: nudge it right.
-      icon={<Icon fill="currentColor" strokeWidth={0} className={cn(!isPlaying && 'ml-0.5')} />}
+      icon={
+        isPlaying && busy ? (
+          // Waiting for the stream: pressing it still pauses.
+          <LoaderCircle className="animate-spin" />
+        ) : (
+          // The play triangle's visual center sits left of its box: nudge it right.
+          <Icon fill="currentColor" strokeWidth={0} className={cn(!isPlaying && 'ml-0.5')} />
+        )
+      }
       size="custom"
       variant={style.variant}
       className={style.className}
+      disabled={!hasTrack}
       onClick={togglePlay}
     />
   )
@@ -68,6 +115,7 @@ export function PlayerControls({
   size?: 'md' | 'lg'
   className?: string
 }) {
+  const hasTrack = usePlayerStore((state) => state.hasTrack)
   const shuffle = usePlayerStore((state) => state.shuffle)
   const repeat = usePlayerStore((state) => state.repeat)
   const toggleShuffle = usePlayerStore((state) => state.toggleShuffle)
@@ -98,6 +146,7 @@ export function PlayerControls({
         icon={<SkipBack fill="currentColor" />}
         size={skipSize}
         variant="plain"
+        disabled={!hasTrack}
         onClick={previous}
       />
       <PlayPauseButton appearance={size === 'lg' ? 'hero' : 'bar'} />
@@ -106,6 +155,7 @@ export function PlayerControls({
         icon={<SkipForward fill="currentColor" />}
         size={skipSize}
         variant="plain"
+        disabled={!hasTrack}
         onClick={next}
       />
       <IconButton
@@ -120,21 +170,36 @@ export function PlayerControls({
   )
 }
 
-/** Elapsed time, seek slider and duration, with times formatted by @fxm/player. */
+/**
+ * Elapsed time, seek slider and duration, with times formatted by @fxm/player. While the thumb
+ * is dragged, the slider shows where it is and seeks only when it is let go (or on each key
+ * press): every seek may start a new request for the stream.
+ */
 export function SeekBar({ className }: { className?: string }) {
+  const hasTrack = usePlayerStore((state) => state.hasTrack)
   const position = usePlayerStore((state) => state.position)
   const duration = usePlayerStore((state) => state.duration)
   const seek = usePlayerStore((state) => state.seek)
+  const [dragged, setDragged] = useState<number | null>(null)
+  const shown = dragged ?? position
   return (
     <div className={cn('flex w-full items-center gap-2 text-xs text-text-muted', className)}>
-      <span className="min-w-10 text-right tabular-nums">{formatTime(position)}</span>
+      <span className="min-w-10 text-right tabular-nums">{formatTime(shown)}</span>
       <RangeSlider
         label="Seek"
         min={0}
         max={duration}
-        value={position}
-        valueText={`${formatTime(position)} of ${formatTime(duration)}`}
-        onValueChange={seek}
+        value={shown}
+        valueText={`${formatTime(shown)} of ${formatTime(duration)}`}
+        onValueChange={setDragged}
+        onValueCommit={(seconds) => {
+          setDragged(null)
+          seek(seconds)
+        }}
+        // Let go where it started: no change event follows, so stop showing the drag.
+        onPointerUp={() => setTimeout(() => setDragged(null))}
+        onBlur={() => setDragged(null)}
+        disabled={!hasTrack}
         className="min-w-0 flex-1"
       />
       <span className="min-w-10 tabular-nums">{formatTime(duration)}</span>
@@ -142,17 +207,18 @@ export function SeekBar({ className }: { className?: string }) {
   )
 }
 
+/**
+ * Likes the current track: it goes to the top of Liked songs in the library. Off while nothing
+ * plays, and until the library has loaded.
+ */
 export function LikeButton({ size = 'sm' }: { size?: IconButtonSize }) {
-  const liked = usePlayerStore((state) => state.liked)
-  const toggleLiked = usePlayerStore((state) => state.toggleLiked)
+  const track = useCurrentItem()?.track
+  const off = <IconButton label="Like" icon={<Heart />} size={size} pressed={false} disabled />
+  if (track === undefined) return off
   return (
-    <IconButton
-      label="Like"
-      icon={<Heart fill={liked ? 'currentColor' : 'none'} />}
-      size={size}
-      pressed={liked}
-      onClick={toggleLiked}
-    />
+    <Suspense fallback={off}>
+      <LibraryLikeButton track={track} size={size} />
+    </Suspense>
   )
 }
 

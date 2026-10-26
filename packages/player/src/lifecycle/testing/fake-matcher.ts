@@ -9,18 +9,18 @@ import {
   type AudioCandidate,
   candidateKey,
   entityKey,
+  type MatchBand,
   type MatchTarget,
-  type PlaybackBand,
   type Track,
 } from '@fxm/core'
-import type { MatchOutcome, MatchRequest, TrackMatcher } from '../adapters'
+import type { MatchOutcome, TrackMatcher, TrackMatchRequest } from '../adapters'
 
 /** One ranked candidate with the band the matching engine would give it. */
 export interface RankedCandidate {
   /** The candidate. */
   candidate: AudioCandidate
   /** Its band. */
-  band: PlaybackBand
+  band: MatchBand
 }
 
 /** One call to {@link FakeMatcher.match}. */
@@ -28,7 +28,7 @@ export interface FakeMatcherCall {
   /** The track. */
   track: Track
   /** The request. */
-  request: MatchRequest
+  request: TrackMatchRequest
 }
 
 /**
@@ -52,7 +52,7 @@ export class FakeMatcher implements TrackMatcher {
     this.#errors.set(this.#key(track, target), error)
   }
 
-  async match(track: Track, request: MatchRequest): Promise<MatchOutcome> {
+  async match(track: Track, request: TrackMatchRequest): Promise<MatchOutcome> {
     this.calls.push({ track, request })
     const key = this.#key(track, request.target)
     const error = this.#errors.get(key)

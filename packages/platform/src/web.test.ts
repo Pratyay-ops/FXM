@@ -1,13 +1,14 @@
 import { isFxmError } from '@fxm/core'
 import { Window } from 'happy-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createRequestBudget } from './budget'
+import { createRequestBudget, isBudgetError } from './budget'
 import { type ConnectStatus, type ConnectWindow, createConnectClient } from './connect'
 import { isCorsSimpleRequest } from './cors'
+import { isRouteUnavailable, isTransportError, RouteUnavailableError } from './errors'
 import { SIMPLE_CONTENT_TYPE } from './innertube'
 import { createLiteTier, type KillSwitches } from './lite'
 import { memoryStorage } from './storage'
-import { createFakeClock } from './testing/fake-clock'
+import { createFakeClock, flushPromises } from './testing/fake-clock'
 import { FAKE_CONNECT_FEATURES, installFakeConnect } from './testing/fake-connect'
 import { createFakeSandbox, type FakeSandboxOptions } from './testing/fake-sandbox'
 import { createWebTransport } from './web'
@@ -33,9 +34,12 @@ const connected = (features: readonly string[] = FAKE_CONNECT_FEATURES): Connect
 interface TierOptions {
   connect?: ConnectStatus
   sandbox?: FakeSandboxOptions | false
+  /** Whether to run the Lite self-test before the test starts. Default `true`. */
+  check?: boolean
   killSwitches?: () => KillSwitches
   userHosts?: string[]
   respond?: (url: string, init: RequestInit) => Response
+  reportLoginRequired?: boolean
 }
 
 async function tier(options: TierOptions = {}) {
@@ -50,9 +54,10 @@ async function tier(options: TierOptions = {}) {
       ? undefined
       : createLiteTier({
           sandbox,
+          clock,
           ...(options.killSwitches ? { killSwitches: options.killSwitches } : {}),
         })
-  await lite?.check()
+  if (options.check !== false) await lite?.check()
   const connect = { status: options.connect }
   const transport = createWebTransport({
     fetch: pageFetch as typeof fetch,
@@ -60,8 +65,11 @@ async function tier(options: TierOptions = {}) {
     budget,
     ...(lite ? { lite } : {}),
     ...(options.userHosts ? { userHosts: () => options.userHosts as string[] } : {}),
+    ...(options.reportLoginRequired === undefined
+      ? {}
+      : { reportLoginRequired: options.reportLoginRequired }),
   })
-  return { transport, pageFetch, sandbox, budget, clock, connect }
+  return { transport, pageFetch, sandbox, budget, clock, connect, lite }
 }
 
 async function rejection(promise: Promise<unknown>): Promise<unknown> {
@@ -120,9 +128,56 @@ describe('the Free tier (no FXM Connect, no Lite)', () => {
     expect(pageFetch).not.toHaveBeenCalled()
   })
 
-  it('refuses InnerTube when the Lite self-test failed', async () => {
-    const { transport } = await tier({ sandbox: { selfTest: false } })
+  it('refuses InnerTube when InnerTube refused the Lite self-test', async () => {
+    const { transport } = await tier({ sandbox: { selfTest: 'refused' } })
     expect(await refusedAsUnsupported(transport.fetch(SEARCH, innerTubeInit()))).toBe(true)
+  })
+
+  it('says what would open a closed route', async () => {
+    const noLite = await tier({ sandbox: false })
+    const innerTube = await rejection(noLite.transport.fetch(SEARCH, innerTubeInit()))
+    expect(innerTube).toBeInstanceOf(RouteUnavailableError)
+    expect(innerTube).toMatchObject({
+      reason: 'route-closed',
+      route: 'innertube',
+      needs: ['connect', 'native'],
+      connectFeature: 'youtube',
+    })
+    expect((innerTube as Error).message).toBe(
+      'Reaching YouTube Music needs FXM Connect or the desktop or Android app',
+    )
+    const media = await rejection(noLite.transport.fetch(MEDIA))
+    expect(media).toMatchObject({ route: 'googlevideo', connectFeature: 'googlevideo' })
+    const unchecked = await tier({ check: false })
+    expect(await rejection(unchecked.transport.fetch(SEARCH, innerTubeInit()))).toMatchObject({
+      needs: ['connect', 'lite', 'native'],
+    })
+    const refused = await tier({ sandbox: { selfTest: 'refused' } })
+    expect(await rejection(refused.transport.fetch(SEARCH, innerTubeInit()))).toMatchObject({
+      needs: ['connect', 'native'],
+    })
+  })
+
+  it('tells unknown hosts and malformed requests apart from closed routes', async () => {
+    const { transport } = await tier()
+    const unknown = await rejection(transport.fetch('https://example.com/'))
+    expect(isTransportError(unknown, 'unknown-host')).toBe(true)
+    expect(isRouteUnavailable(unknown)).toBe(false)
+    const notJson = await rejection(transport.fetch(SEARCH, { method: 'POST', body: 'query=x' }))
+    expect(isTransportError(notJson, 'bad-request')).toBe(true)
+    const relative = await rejection(transport.fetch('/youtubei/v1/search'))
+    expect(isTransportError(relative, 'bad-request')).toBe(true)
+  })
+
+  it('says which URLs it can reach right now, without drawing from the budget', async () => {
+    const { transport, budget } = await tier({ sandbox: false })
+    expect(transport.canReach(LYRICS)).toBe(true)
+    expect(transport.canReach(new URL(LYRICS))).toBe(true)
+    expect(transport.canReach(SEARCH)).toBe(false)
+    expect(transport.canReach(STATION)).toBe(false)
+    expect(transport.canReach('https://example.com/')).toBe(false)
+    expect(transport.canReach('not a url')).toBe(false)
+    expect(budget.snapshot().used).toBe(0)
   })
 })
 
@@ -165,6 +220,26 @@ describe('the Lite tier (sandbox, no FXM Connect)', () => {
     const { transport, budget } = await tier({ sandbox: false })
     await rejection(transport.fetch(SEARCH, innerTubeInit()))
     expect(budget.snapshot().used).toBe(0)
+  })
+
+  it('reaches InnerTube once the Lite self-test passes', async () => {
+    const { transport, lite } = await tier({ check: false })
+    expect(transport.canReach(SEARCH)).toBe(false)
+    await lite?.check()
+    expect(transport.canReach(SEARCH)).toBe(true)
+  })
+
+  it('checks the route again after waiting for a budget slot: a kill switch set meanwhile wins', async () => {
+    let switches: KillSwitches = {}
+    const { transport, sandbox, clock } = await tier({ killSwitches: () => switches })
+    const bulk = transport.withPriority('bulk')
+    await bulk(SEARCH, innerTubeInit())
+    const waiting = rejection(bulk(SEARCH, innerTubeInit()))
+    await flushPromises()
+    switches = { lite: true }
+    await clock.advanceAsync(5_000)
+    expect(isRouteUnavailable(await waiting)).toBe(true)
+    expect(sandbox?.requests).toHaveLength(1)
   })
 })
 
@@ -227,6 +302,21 @@ describe('the Full tier (FXM Connect)', () => {
     expect(await refusedAsUnsupported(transport.fetch(MEDIA))).toBe(true)
     connect.status = connected()
     await expect(transport.fetch(MEDIA)).resolves.toBeInstanceOf(Response)
+  })
+
+  it('refuses a call queued for its slot when FXM Connect went away in the meantime', async () => {
+    const { transport, connect, pageFetch, clock } = await tier({
+      connect: connected(),
+      sandbox: false,
+    })
+    const bulk = transport.withPriority('bulk')
+    await bulk(SEARCH, innerTubeInit())
+    const waiting = rejection(bulk('https://www.youtube.com/sw.js_data'))
+    await flushPromises()
+    connect.status = { state: 'missing', features: [], lastSeenVersion: '0.1.0' }
+    await clock.advanceAsync(5_000)
+    expect(isRouteUnavailable(await waiting)).toBe(true)
+    expect(pageFetch).toHaveBeenCalledOnce()
   })
 
   it('forwards the body of a Request, such as a Spotify GraphQL query', async () => {
@@ -293,6 +383,70 @@ describe('the request budget', () => {
     expect(budget.snapshot().lastBotCheck?.cause).toBe('login-required')
   })
 
+  it('counts a LOGIN_REQUIRED in another language as a bot check', async () => {
+    const player = {
+      playabilityStatus: {
+        status: 'LOGIN_REQUIRED',
+        reason: 'Melde dich an, um zu bestätigen, dass du kein Bot bist',
+      },
+    }
+    const { transport, budget } = await tier({
+      connect: connected(),
+      respond: () => Response.json(player),
+    })
+    await transport.fetch(PLAYER, innerTubeInit())
+    expect(budget.snapshot().lastBotCheck?.cause).toBe('login-required')
+  })
+
+  it('leaves LOGIN_REQUIRED to the stream resolver when told to', async () => {
+    const player = { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'Sign in' } }
+    const { transport, budget } = await tier({
+      connect: connected(),
+      respond: () => Response.json(player),
+      reportLoginRequired: false,
+    })
+    await transport.fetch(PLAYER, innerTubeInit())
+    expect(budget.snapshot().lastBotCheck).toBeUndefined()
+  })
+
+  it.each([
+    [
+      'an age gate (any language)',
+      {
+        playabilityStatus: {
+          status: 'LOGIN_REQUIRED',
+          reason: 'Inicia sesión para confirmar tu edad',
+          desktopLegacyAgeGateReason: 1,
+        },
+      },
+    ],
+    [
+      'an age gate in English, without the age-gate field',
+      {
+        playabilityStatus: {
+          status: 'LOGIN_REQUIRED',
+          errorScreen: {
+            playerErrorMessageRenderer: {
+              reason: { simpleText: 'Sign in to confirm your age' },
+              subreason: { runs: [{ text: 'This video may be inappropriate for some users.' }] },
+            },
+          },
+        },
+      },
+    ],
+    [
+      'a private video',
+      { playabilityStatus: { status: 'LOGIN_REQUIRED', reason: 'This video is private' } },
+    ],
+  ])('does not count %s as a bot check', async (_case, player) => {
+    const { transport, budget } = await tier({
+      connect: connected(),
+      respond: () => Response.json(player),
+    })
+    await transport.fetch(PLAYER, innerTubeInit())
+    expect(budget.snapshot().lastBotCheck).toBeUndefined()
+  })
+
   it.each([
     ['a playable /player response', PLAYER, { playabilityStatus: { status: 'OK' } }],
     ['LOGIN_REQUIRED elsewhere in /player', PLAYER, { note: 'LOGIN_REQUIRED' }],
@@ -345,7 +499,33 @@ describe('the request budget', () => {
 
   it('refuses unknown priorities', async () => {
     const { transport } = await tier()
+    expect(() => transport.withPriority('urgent' as never)).toThrow(RangeError)
     expect(() => transport.withPriority('urgent' as never)).toThrow(/Unknown request priority/)
+  })
+
+  it('rejects a bulk call at once while bulk work is paused, sending nothing', async () => {
+    const { transport, budget, pageFetch } = await tier({ connect: connected() })
+    budget.reportBotCheck('login-required')
+    const error = await rejection(transport.withPriority('bulk')(SEARCH, innerTubeInit()))
+    expect(isBudgetError(error, 'paused')).toBe(true)
+    expect((error as { retryAfterMs?: number }).retryAfterMs).toBe(30 * 60_000)
+    expect(pageFetch).not.toHaveBeenCalled()
+    // Playback goes on.
+    await expect(
+      transport.withPriority('current-track')(SEARCH, innerTubeInit()),
+    ).resolves.toBeInstanceOf(Response)
+  })
+
+  it('lets a bulk call wait briefly for its turn, but not behind a queue', async () => {
+    const { transport, budget, clock } = await tier({ connect: connected() })
+    const bulk = transport.withPriority('bulk')
+    await bulk(SEARCH, innerTubeInit())
+    const second = bulk(SEARCH, innerTubeInit())
+    const third = bulk(SEARCH, innerTubeInit())
+    expect(isBudgetError(await rejection(third), 'spacing')).toBe(true)
+    await clock.advanceAsync(5_000)
+    await expect(second).resolves.toBeInstanceOf(Response)
+    expect(budget.snapshot().used).toBe(2)
   })
 
   it('refuses at once when the signal is already aborted', async () => {
@@ -392,11 +572,58 @@ describe('hosts the user added', () => {
   })
 })
 
+describe('redirects', () => {
+  /** A response the browser got after following redirects to `url`. */
+  function landedAt(url: string, body: BodyInit | null = '{}'): Response {
+    const response = new Response(body)
+    Object.defineProperty(response, 'redirected', { value: true })
+    Object.defineProperty(response, 'url', { value: url })
+    return response
+  }
+
+  it('accepts a response that ended on a host of the same class', async () => {
+    const { transport } = await tier({
+      respond: () => landedAt('https://ia800300.us.archive.org/1/items/x/01.flac'),
+    })
+    const response = await transport.fetch('https://archive.org/download/x/01.flac')
+    expect(response.status).toBe(200)
+  })
+
+  it.each([
+    ['outside the host table', 'https://evil.example/x'],
+    ['on a host of another class', 'https://www.youtube.com/sw.js_data'],
+  ])('refuses a response that ended %s', async (_case, url) => {
+    const { transport } = await tier({ respond: () => landedAt(url) })
+    const error = await rejection(transport.fetch('https://archive.org/download/x/01.flac'))
+    expect(isTransportError(error, 'redirect')).toBe(true)
+    expect((error as Error).message).not.toContain('?')
+  })
+
+  it('counts a detour to Google’s "unusual traffic" page as a bot check', async () => {
+    const { transport, budget } = await tier({
+      connect: connected(),
+      respond: () => landedAt('https://www.google.com/sorry/index?continue=x', '<html>'),
+    })
+    const error = await rejection(transport.fetch(SEARCH, innerTubeInit()))
+    expect(isFxmError(error, 'BotCheck')).toBe(true)
+    expect(budget.snapshot().lastBotCheck?.cause).toBe('rate-limited')
+  })
+
+  it('ignores responses that were not redirected, or say nothing about it', async () => {
+    const unredirected = new Response('{}')
+    Object.defineProperty(unredirected, 'url', { value: 'https://evil.example/' })
+    const { transport } = await tier({ respond: () => unredirected })
+    await expect(transport.fetch(LYRICS)).resolves.toBe(unredirected)
+    const { transport: other } = await tier({ respond: () => landedAt('') })
+    await expect(other.fetch(LYRICS)).resolves.toBeInstanceOf(Response)
+  })
+})
+
 describe('defaults', () => {
-  it('uses the global fetch and a budget of its own when given nothing', async () => {
+  it('uses the global fetch when given none', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({}))
     try {
-      const transport = createWebTransport()
+      const transport = createWebTransport({ budget: createRequestBudget() })
       await transport.fetch(LYRICS)
       expect(spy).toHaveBeenCalledOnce()
       expect(transport.budget.snapshot().used).toBe(0)
@@ -413,12 +640,12 @@ describe('all three tiers against the fake FXM Connect and the fake sandbox', ()
     await Promise.all(pages.splice(0).map((page) => page.happyDOM.close()))
   })
 
-  async function page(selfTest: boolean) {
-    const window = new Window({ url: 'https://fxm-music.pages.dev/app/' })
+  async function page(pass: boolean) {
+    const window = new Window({ url: 'https://fxmusic.pages.dev/app/' })
     pages.push(window)
     const view = window as unknown as ConnectWindow
     const connect = createConnectClient({ window: view, storage: memoryStorage() })
-    const sandbox = createFakeSandbox({ selfTest })
+    const sandbox = createFakeSandbox({ selfTest: pass ? 'pass' : 'refused' })
     const lite = createLiteTier({ sandbox })
     await lite.check()
     const pageFetch = vi.fn(async () => Response.json({}))

@@ -33,7 +33,10 @@ export interface DisposableNetworkMonitor extends NetworkMonitor {
 
 /** The parts of the Network Information API (`navigator.connection`, Chromium only) it reads. */
 export interface ConnectionLike extends EventTarget {
-  /** The connection type, e.g. `wifi` or `cellular`. */
+  /**
+   * The connection type, e.g. `wifi` or `cellular`. Chrome has it on Android and ChromeOS only;
+   * desktop Chrome and Edge leave it out (MDN's compatibility data, checked 2026-10-26).
+   */
   readonly type?: string
 }
 
@@ -42,8 +45,10 @@ export interface BrowserNetworkMonitorOptions {
   /** Where `online` and `offline` fire. Default: `window`. */
   target?: EventTarget
   /**
-   * The Network Information API, whose `change` event fires on a connection change. Default:
-   * `navigator.connection` where the browser has one (Chromium); `null` for none.
+   * The Network Information API, whose `change` event fires when the connection `type` changes,
+   * and also when only its estimates (`downlink`, `rtt`) move (the WICG specification, checked
+   * 2026-10-26). Default: `navigator.connection` where the browser has one (Chromium); `null`
+   * for none.
    */
   connection?: ConnectionLike | null
 }
@@ -67,9 +72,12 @@ function notify(listeners: ReadonlySet<() => void>): void {
 
 /**
  * A {@link NetworkMonitor} for browsers and webviews: the network changes on `online` and
- * `offline`, and on the Network Information API's `change` event where the browser has it
- * (Chromium). Desktop and Android report changes from native network callbacks instead (stages
- * 7.3 and 6.3), behind the same interface.
+ * `offline`, and on a Network Information API `change` event that changes the connection
+ * `type` (Chromium on Android and ChromeOS). A `change` of the estimates alone is no new
+ * network, and desktop Chromium, which has no `type`, changes network only on `online` and
+ * `offline`; a 403 on a cached URL still flushes the cache there. Desktop and Android apps
+ * report changes from native network callbacks instead (stages 7.3 and 6.3), behind the same
+ * interface.
  */
 export function createBrowserNetworkMonitor(
   options: BrowserNetworkMonitorOptions = {},
@@ -79,13 +87,18 @@ export function createBrowserNetworkMonitor(
   const listeners = new Set<() => void>()
   const stop = new AbortController()
   let generation = 0
+  let type = connection?.type
   const changed = () => {
     generation += 1
+    type = connection?.type
     notify(listeners)
+  }
+  const connectionChanged = () => {
+    if (connection?.type !== type) changed()
   }
   target.addEventListener('online', changed, { signal: stop.signal })
   target.addEventListener('offline', changed, { signal: stop.signal })
-  connection?.addEventListener('change', changed, { signal: stop.signal })
+  connection?.addEventListener('change', connectionChanged, { signal: stop.signal })
   return {
     get id() {
       return `network-${generation}`

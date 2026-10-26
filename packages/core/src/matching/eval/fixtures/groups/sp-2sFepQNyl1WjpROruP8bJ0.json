@@ -1,0 +1,414 @@
+{
+  "id": "sp:2sFepQNyl1WjpROruP8bJ0",
+  "split": "calibration",
+  "categories": ["mainstream"],
+  "provenance": ["Top 50 - Global #1 (playlist:37i9dQZEVXbMDoHDwVN2tF), read 2026-10-25"],
+  "spotify": {
+    "id": "2sFepQNyl1WjpROruP8bJ0",
+    "popularity": 94,
+    "albumType": "single"
+  },
+  "variants": [
+    {
+      "slice": "spotify",
+      "source": {
+        "title": "Housewife",
+        "artists": [
+          {
+            "name": "Tate McRae"
+          }
+        ],
+        "album": {
+          "name": "Housewife"
+        },
+        "durationMs": 208810,
+        "isrc": "USRC12601916",
+        "isrcOrigin": "catalog",
+        "explicit": false,
+        "releaseDate": "2026-10-15",
+        "label": "RCA Records Label",
+        "albumType": "single"
+      }
+    },
+    {
+      "slice": "data-export",
+      "source": {
+        "title": "Housewife",
+        "artists": [
+          {
+            "name": "Tate McRae"
+          }
+        ],
+        "album": {
+          "name": "Housewife"
+        },
+        "isrc": "USRC12601916",
+        "isrcOrigin": "musicbrainz-exact",
+        "durationMs": 209000
+      }
+    },
+    {
+      "slice": "musicbrainz-exact",
+      "source": {
+        "title": "Housewife",
+        "artists": [
+          {
+            "name": "Tate McRae"
+          }
+        ],
+        "durationMs": 209000,
+        "isrc": "USRC12601916",
+        "isrcOrigin": "musicbrainz-exact",
+        "releaseDate": "2026-10-16"
+      }
+    },
+    {
+      "slice": "musicbrainz-fuzzy",
+      "source": {
+        "title": "Housewife",
+        "artists": [
+          {
+            "name": "Tate McRae"
+          }
+        ],
+        "album": {
+          "name": "Housewife"
+        },
+        "durationMs": 208810,
+        "explicit": false,
+        "isrc": "USRC12601916",
+        "isrcOrigin": "musicbrainz-fuzzy"
+      }
+    }
+  ],
+  "musicBrainz": {
+    "exact": {
+      "recording": "a55c4960-2fd2-4e2d-babf-04083d78a3ca",
+      "title": "Housewife",
+      "artists": ["Tate McRae"],
+      "lengthMs": 209000,
+      "isrcs": ["USRC12601916"],
+      "firstReleaseDate": "2026-10-16"
+    },
+    "fuzzy": {
+      "recording": "a55c4960-2fd2-4e2d-babf-04083d78a3ca",
+      "isrcs": ["USRC12601916"]
+    }
+  },
+  "recording": {
+    "recordedAt": ["2026-10-25"],
+    "items": {
+      "FXk4oLgkKL0": {
+        "kind": "song",
+        "title": "Housewife",
+        "artists": ["Tate McRae"],
+        "album": "Housewife",
+        "albumId": "MPREb_gDMKqwwGeaI",
+        "durationMs": 209000
+      },
+      "ATflA6WOy0I": {
+        "kind": "song",
+        "title": "Vishnu Sahasranamam - M.S.Subbulakshmi",
+        "artists": ["M.S.Subbulakshmi"],
+        "album": "M. S. Subbulakshmi Sings For Tirupati Lord Balaji Vol 2",
+        "albumId": "MPREb_KedegM07SaD",
+        "durationMs": 1786000
+      },
+      "lhg9bYNLvOg": {
+        "kind": "song",
+        "title": "Thunderstruck",
+        "artists": ["AC/DC"],
+        "album": "The Razors Edge",
+        "albumId": "MPREb_Dlj3PZaTijk",
+        "durationMs": 293000
+      },
+      "tPJIvodZEtM": {
+        "kind": "song",
+        "title": "No One's Gonna Love You",
+        "artists": ["The S.O.S. Band"],
+        "album": "Best Of",
+        "albumId": "MPREb_lLayQmVpKOq",
+        "durationMs": 407000
+      },
+      "7rOFMNsjvLY": {
+        "kind": "song",
+        "title": "Kaleidoscope World",
+        "artists": ["Francis M"],
+        "album": "Best Of Francis M",
+        "albumId": "MPREb_jhsyFoXKwd0",
+        "durationMs": 291000
+      },
+      "XK0TiqUTcZY": {
+        "kind": "song",
+        "title": "Do You Love What You Feel",
+        "artists": ["Rufus & Chaka Khan"],
+        "album": "Masterjam",
+        "albumId": "MPREb_IiDf8O4TS9V",
+        "durationMs": 270000
+      },
+      "1km26XrwYp4": {
+        "kind": "song",
+        "title": "Meeting in My Bedroom",
+        "artists": ["Silk"],
+        "album": "Tonight",
+        "albumId": "MPREb_VETOLknh1Q0",
+        "durationMs": 307000
+      },
+      "kBhSh7y_IkM": {
+        "kind": "song",
+        "title": "I'll Be There",
+        "artists": ["Jackson 5"],
+        "album": "Third Album",
+        "albumId": "MPREb_OnOcvbKKG9s",
+        "durationMs": 238000
+      },
+      "ZpEwX3HCSco": {
+        "kind": "song",
+        "title": "If You",
+        "artists": ["Silk"],
+        "album": "Tonight",
+        "albumId": "MPREb_VETOLknh1Q0",
+        "durationMs": 338000
+      },
+      "hqwieO9A9Kk": {
+        "kind": "song",
+        "title": "Ignition (Remix)",
+        "artists": ["R.Kelly"],
+        "album": "The R. In R&B Collection: Volume 1",
+        "albumId": "MPREb_ILHLs8W446F",
+        "durationMs": 188000
+      },
+      "2Vs5BYG5zCU": {
+        "kind": "song",
+        "title": "Nondakwirire Chinji",
+        "artists": ["Joseph Kamaru"],
+        "album": "Ngwa na Marurumi",
+        "albumId": "MPREb_QCJNBsMvulu",
+        "durationMs": 319000
+      },
+      "xV6Rwl57eqI": {
+        "kind": "song",
+        "title": "I'm A Mess",
+        "artists": ["Anthony Hamilton"],
+        "album": "Comin' From Where I'm From",
+        "albumId": "MPREb_hF16vBTeSrR",
+        "durationMs": 265000
+      },
+      "0SQPckXf3_A": {
+        "kind": "song",
+        "title": "Alade Ogo, Pt. 1",
+        "artists": ["Evang. Dare Melody And The International Gospel Singers"],
+        "album": "Alade Ogo",
+        "albumId": "MPREb_hBuZGEX3re2",
+        "durationMs": 1062000
+      },
+      "4zwqO9erZNY": {
+        "kind": "song",
+        "title": "Housewife",
+        "artists": ["Zsaya"],
+        "album": "Housewife",
+        "albumId": "MPREb_uUDRmCSH7iM",
+        "durationMs": 192000,
+        "explicit": true
+      },
+      "hJ_2LW6-iKE": {
+        "kind": "song",
+        "title": "Sports Car",
+        "artists": ["Tate McRae"],
+        "album": "50 Hits Summer 2025",
+        "albumId": "MPREb_VwEs9N9k4cI",
+        "durationMs": 164000
+      },
+      "qObPmxqU2pQ": {
+        "kind": "song",
+        "title": "Housewife",
+        "artists": ["HEXXENMIND"],
+        "album": "Housewife (Rock)",
+        "albumId": "MPREb_Sd9yQyHOJPg",
+        "durationMs": 205000
+      },
+      "Z4Gt5CsBsyQ": {
+        "kind": "song",
+        "title": "Housewife",
+        "artists": ["Chemicals", "Jazmine"],
+        "album": "Housewife",
+        "albumId": "MPREb_jio55lDuvli",
+        "durationMs": 155000
+      },
+      "JqWgFeuIZyU": {
+        "kind": "song",
+        "title": "It's ok I'm ok",
+        "artists": ["Tate McRae"],
+        "album": "It's ok I'm ok",
+        "albumId": "MPREb_KzbfxXpC3Mm",
+        "durationMs": 157000
+      },
+      "bLlwQPrIsSg": {
+        "kind": "song",
+        "title": "Sports car (TELYKAST Remix)",
+        "artists": ["Tate McRae"],
+        "album": "Sports car (remixes)",
+        "albumId": "MPREb_6KarCcGvSrK",
+        "durationMs": 150000
+      },
+      "THvjEssbuJI": {
+        "kind": "song",
+        "title": "Housewife",
+        "artists": ["ORLIA"],
+        "album": "Housewife",
+        "albumId": "MPREb_m3Kxe6UrQGQ",
+        "durationMs": 219000,
+        "explicit": true
+      },
+      "TG2AtaWuikA": {
+        "kind": "song",
+        "title": "10:35",
+        "artists": ["Tiësto", "Tate McRae"],
+        "album": "DRIVE",
+        "albumId": "MPREb_HlCTW432LWk",
+        "durationMs": 173000
+      },
+      "z1PHsXykH1k": {
+        "kind": "song",
+        "title": "feel like shit",
+        "artists": ["Tate McRae"],
+        "album": "feel like shit",
+        "albumId": "MPREb_1HNlkaNwUfI",
+        "durationMs": 205000,
+        "explicit": true
+      },
+      "L58cFabP90I": {
+        "kind": "song",
+        "title": "what's your problem?",
+        "artists": ["Tate McRae"],
+        "album": "i used to think i could fly",
+        "albumId": "MPREb_wO0lpwA5IiL",
+        "durationMs": 168000,
+        "explicit": true
+      },
+      "HPtjMBUNAfc": {
+        "kind": "song",
+        "title": "i still say goodnight",
+        "artists": ["Tate McRae"],
+        "album": "i used to think i could fly",
+        "albumId": "MPREb_wO0lpwA5IiL",
+        "durationMs": 189000,
+        "explicit": true
+      },
+      "NdD2Dp7RhpQ": {
+        "kind": "song",
+        "title": "run for the hills",
+        "artists": ["Tate McRae"],
+        "album": "THINK LATER",
+        "albumId": "MPREb_dLfuHQ9NVnM",
+        "durationMs": 144000
+      },
+      "5BWCBDMIYPM": {
+        "kind": "song",
+        "title": "that way (Jonasu Remix)",
+        "artists": ["Tate McRae"],
+        "album": "that way (Jonasu Remix)",
+        "albumId": "MPREb_mnFE7NxTbgr",
+        "durationMs": 168000
+      },
+      "73KjIW9tPVQ": {
+        "kind": "song",
+        "title": "Can't Get It Out",
+        "artists": ["Tate McRae"],
+        "album": "Can't Get It Out",
+        "albumId": "MPREb_MwrSWppvR5d",
+        "durationMs": 183000
+      },
+      "ETrSfxng1-4": {
+        "kind": "song",
+        "title": "Hard to Find",
+        "artists": ["Tate McRae"],
+        "album": "Hard to Find",
+        "albumId": "MPREb_OM49frna6E0",
+        "durationMs": 194000
+      },
+      "-5GI38vWew8": {
+        "kind": "song",
+        "title": "Taste",
+        "artists": ["Sabrina Carpenter"],
+        "album": "Short n' Sweet",
+        "albumId": "MPREb_FN2r5jrFXVm",
+        "durationMs": 158000
+      },
+      "NjR7JpMqiAc": {
+        "kind": "song",
+        "title": "rubberband",
+        "artists": ["Tate McRae"],
+        "album": "TOO YOUNG TO BE SAD",
+        "albumId": "MPREb_BbaaDtVDgoZ",
+        "durationMs": 148000
+      },
+      "5T80jkLd94g": {
+        "kind": "song",
+        "title": "wish i loved you in the 90s",
+        "artists": ["Tate McRae"],
+        "album": "TOO YOUNG TO BE SAD",
+        "albumId": "MPREb_BbaaDtVDgoZ",
+        "durationMs": 177000
+      },
+      "g_z-sWAGvLM": {
+        "kind": "song",
+        "title": "housewife",
+        "artists": ["Addy Nagar"],
+        "album": "housewife",
+        "albumId": "MPREb_fB8rLX1ohPA",
+        "durationMs": 137000
+      }
+    },
+    "pages": {
+      "isrc-songs/1/USRC12601916": {
+        "items": [
+          "FXk4oLgkKL0",
+          "ATflA6WOy0I",
+          "lhg9bYNLvOg",
+          "tPJIvodZEtM",
+          "7rOFMNsjvLY",
+          "XK0TiqUTcZY",
+          "1km26XrwYp4",
+          "kBhSh7y_IkM",
+          "ZpEwX3HCSco",
+          "hqwieO9A9Kk",
+          "2Vs5BYG5zCU",
+          "xV6Rwl57eqI",
+          "0SQPckXf3_A"
+        ]
+      },
+      "songs/Tate McRae Housewife": {
+        "items": [
+          "FXk4oLgkKL0",
+          "4zwqO9erZNY",
+          "hJ_2LW6-iKE",
+          "qObPmxqU2pQ",
+          "Z4Gt5CsBsyQ",
+          "JqWgFeuIZyU",
+          "bLlwQPrIsSg",
+          "THvjEssbuJI",
+          "TG2AtaWuikA",
+          "z1PHsXykH1k",
+          "L58cFabP90I",
+          "HPtjMBUNAfc",
+          "NdD2Dp7RhpQ",
+          "5BWCBDMIYPM",
+          "73KjIW9tPVQ",
+          "ETrSfxng1-4",
+          "-5GI38vWew8",
+          "NjR7JpMqiAc",
+          "5T80jkLd94g",
+          "g_z-sWAGvLM"
+        ]
+      }
+    }
+  },
+  "labels": {
+    "FXk4oLgkKL0": {
+      "label": "exact",
+      "by": "rule",
+      "evidence": ["length +0.2 s", "found by the ISRC search for USRC12601916 (#1, attempt 1)"]
+    }
+  }
+}

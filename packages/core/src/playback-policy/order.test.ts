@@ -4,9 +4,11 @@ import type { CatalogMode } from '../mode'
 import type { Track } from '../model'
 import type { AudioCandidate, NetworkCapabilities } from '../providers'
 import {
+  audioSourceOf,
   candidateKey,
   canReachAudio,
   hasOwnAudio,
+  isAudioCandidate,
   isYouTubeCandidate,
   linkedSongCandidate,
   ownCandidate,
@@ -126,6 +128,30 @@ describe('planPlayback: the order of preference', () => {
     ])
   })
 
+  it('plays the version the user picked for the item first, before a pin, and nothing else', () => {
+    const picked = candidate('picked')
+    const pinned = candidate('pinned')
+    expect(
+      plan({ track: spotify, recorded: picked, pinned, picked: true }, { preferLossless: true }),
+    ).toEqual(['offline', 'candidate picked ytm:picked'])
+    expect(
+      plan(
+        { track: song, recorded: picked, picked: true, skipOffline: true },
+        { useInvidious: true },
+      ),
+    ).toEqual(['candidate picked ytm:picked', 'invidious'])
+  })
+
+  it('plays the pin when the version picked for the item cannot play in the mode', () => {
+    const picked = candidate('vid', { kind: 'video' })
+    const pinned = candidate('pinned')
+    expect(plan({ track: spotify, recorded: picked, pinned, picked: true })).toEqual([
+      'offline',
+      'candidate pinned ytm:pinned',
+    ])
+    expect(plan({ track: spotify, picked: true })).toEqual(['offline', 'match song'])
+  })
+
   it('ignores a pin the mode does not let play', () => {
     const pinnedVideo = candidate('vid', { kind: 'video' })
     expect(plan({ track: spotify, pinned: pinnedVideo })).toEqual(['offline', 'match song'])
@@ -230,6 +256,36 @@ describe('candidates built from a track', () => {
   })
 })
 
+describe('isAudioCandidate', () => {
+  it('accepts a well-formed candidate, with or without its optional fields', () => {
+    expect(isAudioCandidate(candidate('x'))).toBe(true)
+    const full = candidate('x', {
+      durationMs: 0,
+      signals: { isrcVerified: true, sourceAlbumMatch: false, releaseYear: 2001 },
+    })
+    expect(isAudioCandidate(full)).toBe(true)
+  })
+
+  it.each<[string, unknown]>([
+    ['nothing', null],
+    ['an array', [candidate('x')]],
+    ['an unknown source', { ...candidate('x'), source: 'nope' }],
+    ['an empty ref', candidate('')],
+    ['an unknown kind', { ...candidate('x'), kind: 'podcast' }],
+    ['an inherited kind', { ...candidate('x'), kind: 'toString' }],
+    ['no title', { ...candidate('x'), title: undefined }],
+    ['artists that are not strings', { ...candidate('x'), artists: [{ name: 'A' }] }],
+    ['a confidence above 1', { ...candidate('x'), confidence: 1.5 }],
+    ['a confidence that is not a number', { ...candidate('x'), confidence: Number.NaN }],
+    ['no evidence', { ...candidate('x'), evidence: undefined }],
+    ['a negative duration', { ...candidate('x'), durationMs: -1 }],
+    ['an endless duration', { ...candidate('x'), durationMs: Number.POSITIVE_INFINITY }],
+    ['signals without their flags', { ...candidate('x'), signals: { isrcVerified: true } }],
+  ])('rejects %s', (_label, value) => {
+    expect(isAudioCandidate(value)).toBe(false)
+  })
+})
+
 describe('candidate keys and sources', () => {
   it('give a YouTube video one key under either prefix', () => {
     expect(candidateKey(candidate('x'))).toBe('youtube:track:x')
@@ -238,10 +294,18 @@ describe('candidate keys and sources', () => {
     expect(candidateKey({ source: 'archive', ref: 'a/b' })).toBe('archive:track:a/b')
   })
 
-  it('give malformed candidates keys that match no valid one', () => {
+  it('give malformed candidates keys that match no valid one, and never throw', () => {
     const bad = { source: 'nope' as AudioCandidate['source'], ref: 'x' }
     expect(candidateKey(bad)).toBe('invalid:nope:x')
     expect(candidateKey({ source: 'ytm', ref: '' })).toBe('invalid:ytm:')
+    expect(candidateKey(null as unknown as AudioCandidate)).toBe('invalid:undefined:undefined')
+    expect(candidateKey(42 as unknown as AudioCandidate)).toBe('invalid:undefined:undefined')
+  })
+
+  it('resolve every YouTube video through the ytm audio source', () => {
+    expect(audioSourceOf('yt')).toBe('ytm')
+    expect(audioSourceOf('ytm')).toBe('ytm')
+    expect(audioSourceOf('archive')).toBe('archive')
   })
 
   it('know which sources have audio and which are YouTube', () => {

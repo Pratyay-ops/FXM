@@ -1,7 +1,10 @@
 import { APP_NAME } from '@fxm/core'
 import { useRef } from 'react'
 import { Outlet, ScrollRestoration, useLocation, useNavigation } from 'react-router'
+import { PlaybackAnnouncer } from '../../features/now-playing/playback-problem'
 import { MiniPlayer, PlayerBar } from '../../features/player/player-bar'
+import { FeedbackToast } from '../../features/search/feedback'
+import { SponsorBlockNotices } from '../../features/sponsorblock/sponsorblock-notices'
 import { BottomNav } from './bottom-nav'
 import { RouteAnnouncer } from './route-announcer'
 import { useDocumentTitle, useRouteHandle } from './route-meta'
@@ -25,12 +28,15 @@ function NavigationProgress() {
 /**
  * The app frame: sidebar (768px+), top bar, scrolling page, player bar (768px+),
  * and on phones a mini player above the tab bar. Pages render into <Outlet />.
+ * On phones, Now playing fills the screen: no mini player or tab bar (the top
+ * bar's back arrow leaves it), which `data-full-screen` tells the CSS.
  */
 export function AppLayout() {
   const handle = useRouteHandle()
   useDocumentTitle(handle)
   const { pathname } = useLocation()
   const main = useRef<HTMLElement>(null)
+  const fullScreen = pathname === '/now-playing'
 
   return (
     <>
@@ -57,6 +63,7 @@ export function AppLayout() {
           ref={main}
           id="main"
           tabIndex={-1}
+          data-full-screen={fullScreen || undefined}
           className="relative isolate px-gutter pt-2 pb-shell outline-none"
         >
           <div className="mx-auto w-full max-w-page">
@@ -64,10 +71,15 @@ export function AppLayout() {
           </div>
         </main>
       </div>
+      <SponsorBlockNotices />
       <PlayerBar />
       {/* Now Playing has its own big controls on phones. */}
-      {pathname !== '/now-playing' && <MiniPlayer />}
-      <BottomNav />
+      {!fullScreen && <MiniPlayer />}
+      {!fullScreen && <BottomNav />}
+      <PlaybackAnnouncer />
+      {/* The app's one toast: confirmations of the catalog pages and of the library, also of
+          actions taken in the sidebar, on every page. */}
+      <FeedbackToast />
       <ScrollRestoration />
     </>
   )

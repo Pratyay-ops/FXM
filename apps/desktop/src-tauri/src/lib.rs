@@ -5,6 +5,11 @@
 //! needs no browser extension. Hosts the user adds in Settings go through the commands in
 //! [`user_hosts`] instead.
 //!
+//! IPC payloads from a page pass the isolation hook in `../isolation` (Tauri's isolation pattern,
+//! set in tauri.conf.json) before Rust reads them. Whatever the command, the hook keeps page
+//! script from giving the HTTP plugin a proxy of its own or a forbidden header, except in a
+//! start-up gap that the app's README describes.
+//!
 //! Playback and OS integration (stage 7.3): the [`tray`] icon controls playback while the window
 //! is hidden, the close button keeps music playing in the background ([`window`]), the
 //! [`network`] watcher tells the web app when stream URLs need resolving again, and
@@ -51,8 +56,6 @@ pub fn run() {
         // Requests are limited to the hosts in capabilities/default.json, and so are redirects
         // (`scopeRedirects` in tauri.conf.json).
         .plugin(tauri_plugin_http::init())
-        // Only Rust opens dialogs: the web app has no dialog permission.
-        .plugin(tauri_plugin_dialog::init())
         // Opens links with target="_blank" in the default browser.
         .plugin(tauri_plugin_opener::init());
     // macOS: Tauri's default app menu, with Window > FXM (⌘0) to bring a hidden window back.
@@ -138,5 +141,16 @@ mod tests {
             main.background_throttling,
             Some(BackgroundThrottlingPolicy::Disabled)
         ));
+    }
+
+    #[test]
+    fn ipc_messages_pass_the_isolation_hook() {
+        // Without the crate's `isolation` feature, Tauri would quietly fall back to the brownfield
+        // pattern, and no message would pass the hook.
+        let context = context();
+        assert!(
+            matches!(context.pattern(), tauri::Pattern::Isolation { .. }),
+            "tauri.conf.json must set the isolation pattern, and Cargo.toml the feature"
+        );
     }
 }

@@ -11,9 +11,15 @@ describe('capacitor.config', () => {
   })
 
   it('keeps the global CapacitorHttp fetch patch off', () => {
-    // It drops Cookie, Origin and Referer and corrupts binary bodies; stage 6.2 brings its
-    // own explicit native fetch instead.
+    // It drops Cookie, Origin and Referer and corrupts binary bodies; the FxmHttp plugin
+    // (stage 6.2) is the app's fetch instead.
     expect(config.plugins?.CapacitorHttp?.enabled).toBe(false)
+  })
+
+  it('keeps plugin results, such as response bodies and tokens, out of the logs', () => {
+    // With 'debug', debug builds log every bridge result to the console, which reaches logcat.
+    expect(config.loggingBehavior).toBe('none')
+    expect(config.android?.loggingBehavior).toBeUndefined()
   })
 
   it('wraps the web build that build:mobile makes with base /', () => {

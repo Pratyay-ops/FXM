@@ -1,0 +1,233 @@
+{
+  "contents": {
+    "singleColumnMusicWatchNextResultsRenderer": {
+      "tabbedRenderer": {
+        "watchNextTabbedResultsRenderer": {
+          "tabs": [
+            {
+              "tabRenderer": {
+                "title": "Up next",
+                "content": {
+                  "musicQueueRenderer": {
+                    "content": {
+                      "playlistPanelRenderer": {
+                        "contents": [
+                          {
+                            "playlistPanelVideoRenderer": {
+                              "title": {
+                                "runs": [
+                                  {
+                                    "text": "Creep"
+                                  }
+                                ]
+                              },
+                              "longBylineText": {
+                                "runs": [
+                                  {
+                                    "text": "Radiohead",
+                                    "navigationEndpoint": {
+                                      "browseEndpoint": {
+                                        "browseId": "UCr_iyUANcn9OX_yy9piYoLw",
+                                        "browseEndpointContextSupportedConfigs": {
+                                          "browseEndpointContextMusicConfig": {
+                                            "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "text": " • "
+                                  },
+                                  {
+                                    "text": "1.5B views"
+                                  },
+                                  {
+                                    "text": " • "
+                                  },
+                                  {
+                                    "text": "8.7M likes"
+                                  }
+                                ]
+                              },
+                              "thumbnail": {
+                                "thumbnails": [
+                                  {
+                                    "url": "https://i.ytimg.com/vi/XFkzRNyygfk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3n_l1PzAstlYx2OuQ6qkz80nrUzYQ",
+                                    "width": 400,
+                                    "height": 225
+                                  },
+                                  {
+                                    "url": "https://i.ytimg.com/vi/XFkzRNyygfk/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3l-25HB758-B-CHHg3lqoKN_kijYQ",
+                                    "width": 800,
+                                    "height": 450
+                                  },
+                                  {
+                                    "url": "https://i.ytimg.com/vi/XFkzRNyygfk/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3mBPH0XZq2fs71HMUA2YAk2JoZrBQ",
+                                    "width": 853,
+                                    "height": 479
+                                  }
+                                ]
+                              },
+                              "lengthText": {
+                                "runs": [
+                                  {
+                                    "text": "3:57"
+                                  }
+                                ]
+                              },
+                              "selected": true,
+                              "navigationEndpoint": {
+                                "watchEndpoint": {
+                                  "videoId": "XFkzRNyygfk",
+                                  "params": "OAHyAQIIAeoEC1hGa3pSTnl5Z2Zr",
+                                  "watchEndpointMusicSupportedConfigs": {
+                                    "watchEndpointMusicConfig": {
+                                      "hasPersistentPlaylistPanel": true,
+                                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                                    }
+                                  }
+                                }
+                              },
+                              "videoId": "XFkzRNyygfk",
+                              "shortBylineText": {
+                                "runs": [
+                                  {
+                                    "text": "Radiohead"
+                                  }
+                                ]
+                              },
+                              "menu": {
+                                "menuRenderer": {
+                                  "items": []
+                                }
+                              },
+                              "canReorder": true
+                            }
+                          },
+                          {
+                            "automixPreviewVideoRenderer": {
+                              "content": {
+                                "automixPlaylistVideoRenderer": {
+                                  "navigationEndpoint": {
+                                    "watchPlaylistEndpoint": {
+                                      "playlistId": "RDAMVMXFkzRNyygfk",
+                                      "params": "wAEB8gECeAHqBAtYRmt6Uk55eWdmaw%3D%3D"
+                                    }
+                                  },
+                                  "automixMode": "AUTOMIX_MODE_DEFAULT_ON"
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "isInfinite": false
+                      }
+                    },
+                    "hack": true,
+                    "musicQueueConfig": {},
+                    "header": {
+                      "musicQueueHeaderRenderer": {
+                        "title": {
+                          "runs": [
+                            {
+                              "text": "Playing from"
+                            }
+                          ]
+                        },
+                        "subtitle": {
+                          "runs": [
+                            {
+                              "text": "Creep Mix"
+                            }
+                          ]
+                        },
+                        "buttons": [
+                          {
+                            "chipCloudChipRenderer": {
+                              "style": {
+                                "styleType": "STYLE_TRANSPARENT"
+                              },
+                              "text": {
+                                "runs": [
+                                  {
+                                    "text": "Save"
+                                  }
+                                ]
+                              },
+                              "navigationEndpoint": {
+                                "saveQueueToPlaylistCommand": {}
+                              },
+                              "icon": {
+                                "iconType": "ADD_TO_PLAYLIST"
+                              },
+                              "isSelected": false,
+                              "uniqueId": "Save"
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "tabRenderer": {
+                "endpoint": {
+                  "browseEndpoint": {
+                    "browseId": "MPLYt_HPte5nX3Jyn",
+                    "browseEndpointContextSupportedConfigs": {
+                      "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_TRACK_LYRICS"
+                      }
+                    }
+                  }
+                },
+                "title": "Lyrics"
+              }
+            },
+            {
+              "tabRenderer": {
+                "title": "Comments",
+                "content": {
+                  "sectionListRenderer": {
+                    "continuations": [
+                      {
+                        "reloadContinuationData": {
+                          "continuation": "Eg0SC1hGa3pSTnl5Z2ZrGAYyHCINIgtYRmt6Uk55eWdma0ILWEZrelJOeXlnZmtqC1hGa3pSTnl5Z2Zr"
+                        }
+                      }
+                    ],
+                    "targetId": "XFkzRNyygfk"
+                  }
+                }
+              }
+            },
+            {
+              "tabRenderer": {
+                "endpoint": {
+                  "browseEndpoint": {
+                    "browseId": "MPTRt_HPte5nX3Jyn",
+                    "browseEndpointContextSupportedConfigs": {
+                      "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_TRACK_RELATED"
+                      }
+                    }
+                  }
+                },
+                "title": "Related"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "currentVideoEndpoint": {
+    "watchEndpoint": {
+      "videoId": "XFkzRNyygfk",
+      "ustreamerConfig": "GgIIBQ=="
+    }
+  }
+}

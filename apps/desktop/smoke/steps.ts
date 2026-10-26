@@ -2,7 +2,9 @@
  * The desktop app's live smoke test: stage 7.2's "done when", run in a hidden window of a debug
  * build (`scripts/run.sh pnpm --filter @fxm/desktop smoke`, see the app's README). Every request
  * goes through the app's real native networking: `createPlatform()` and `createDesktopFetch()`
- * over Tauri's HTTP plugin.
+ * over Tauri's HTTP plugin. The last of its own steps calls the plugin through Tauri's IPC directly
+ * instead, as any page script can, to check the isolation hook; `extraSteps`, such as stage 7.3's
+ * playback steps, run after it.
  *
  * A step that needs a stage which hasn't merged yet throws {@link Pending}, and the report says
  * so instead of failing.
@@ -11,6 +13,7 @@
  */
 
 import type { NetworkCapabilities, ProviderContext, StreamOption } from '@fxm/core'
+import { fxmUserAgent } from '@fxm/platform'
 
 /** How a step ended. */
 export type StepStatus = 'passed' | 'failed' | 'pending'
@@ -69,6 +72,9 @@ export interface MediaPlayer {
   playToEnd(url: string, options: { readonly timeoutMs: number }): Promise<{ durationS: number }>
 }
 
+/** Tauri's `invoke`: calls a command through the app's IPC, as any page script can. */
+export type Invoke = (command: string, payload: unknown) => Promise<unknown>
+
 /** A short free track, played to its end to show `<audio>` works in a hidden window. */
 export interface FreeTrack {
   /** Its URL on a host in the CSP's `media-src` and the http plugin's scope. */
@@ -91,6 +97,11 @@ export interface SmokeOptions {
   readonly query: string
   /** The free track to probe and play. */
   readonly freeTrack: FreeTrack
+  /**
+   * Tauri's `invoke`, for the step that calls the HTTP plugin directly, as any page script can,
+   * without `createDesktopFetch()`.
+   */
+  readonly invoke: Invoke
   /** How long one track may take to play to its end. Default: 10 minutes. */
   readonly playTimeoutMs?: number
   /** The clock, in milliseconds. Default: `performance.now`. */
@@ -113,6 +124,12 @@ export const SPOTIFY_TIME_URL = 'https://open.spotify.com/api/server-time'
 /** The size of the end-of-file probe: the last 64 KB, as stage 1.4's probe asks for. */
 export const PROBE_BYTES = 65_536
 
+/**
+ * A proxy nothing answers at: the discard port of the machine itself. A request through it fails,
+ * so a request that a page gave it and that the host answered went out without it.
+ */
+export const DEAD_PROXY = 'http://127.0.0.1:9'
+
 /** `sw.js_data` starts with this guard before its JSON. */
 const JSON_GUARD = ")]}'"
 
@@ -120,6 +137,27 @@ const DEFAULT_PLAY_TIMEOUT_MS = 10 * 60_000
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The visitorData that `sw.js_data` issues, if its answer holds one. The answer is a JSPB array
+ * behind the `)]}'` guard, with the device info at `[0][2][0][0]` and the visitorData at its
+ * index 13, as recorded in packages/sources/src/youtube/CLEAN-ROOM.md (youtubei.js `Session`
+ * reads it there; seen on 2026-10-26). The same device info holds the caller's IP address at
+ * index 3, so neither value may go into the report.
+ */
+export function swJsDataVisitorData(text: string): string | undefined {
+  if (!text.startsWith(JSON_GUARD)) return undefined
+  let json: unknown
+  try {
+    json = JSON.parse(text.slice(JSON_GUARD.length))
+  } catch {
+    return undefined
+  }
+  const at = (value: unknown, index: number): unknown =>
+    Array.isArray(value) ? value[index] : undefined
+  const visitorData = at(at(at(at(at(json, 0), 2), 0), 0), 13)
+  return typeof visitorData === 'string' && visitorData !== '' ? visitorData : undefined
 }
 
 /** The stream that stage 7.2's done-when plays: one whose end-of-file probe passed. */
@@ -168,10 +206,15 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
   await step('server-issued visitorData is readable', async () => {
     const response = await options.context().fetch(SW_JS_DATA_URL)
     const text = await response.text()
+    // Never the answer itself: it holds the caller's IP address.
     if (response.status !== 200 || !text.startsWith(JSON_GUARD)) {
-      throw new Error(`sw.js_data answered ${response.status} with ${text.slice(0, 40)}`)
+      throw new Error(`sw.js_data answered ${response.status} without its JSON guard`)
     }
-    return [true, `sw.js_data: ${text.length} characters`]
+    const visitorData = swJsDataVisitorData(text)
+    if (visitorData === undefined) {
+      throw new Error(`sw.js_data answered ${text.length} characters without a visitorData`)
+    }
+    return [true, `sw.js_data issued a visitorData of ${visitorData.length} characters`]
   })
 
   await step('Spotify answers', async () => {
@@ -235,6 +278,30 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
           return [true, `${durationS.toFixed(1)} s`]
         },
   )
+
+  await step('page script can’t give the HTTP plugin a proxy', async () => {
+    // Straight through Tauri's IPC, as any page script can call the plugin, with a proxy nothing
+    // answers at, and in Maps, which Tauri's serializer turns into objects only after the
+    // isolation hook. The host answers only if the hook dropped the proxy.
+    const request = new Map<string, unknown>([
+      ['method', 'HEAD'],
+      ['url', options.freeTrack.url],
+      ['headers', [['user-agent', fxmUserAgent()]]],
+      ['data', null],
+      ['maxRedirections', 0],
+      ['proxy', { all: DEAD_PROXY }],
+    ])
+    let head: { status?: unknown; rid?: unknown }
+    try {
+      const rid = await options.invoke('plugin:http|fetch', new Map([['clientConfig', request]]))
+      head = (await options.invoke('plugin:http|fetch_send', { rid })) as typeof head
+    } catch (error) {
+      throw new Error(`the request failed, as it would through ${DEAD_PROXY}: ${message(error)}`)
+    }
+    await options.invoke('plugin:http|fetch_cancel_body', { rid: head.rid }).catch(() => {})
+    const host = new URL(options.freeTrack.url).host
+    return [true, `${host} answered ${String(head.status)} directly, not through ${DEAD_PROXY}`]
+  })
 
   await options.extraSteps?.(step)
 
