@@ -1,0 +1,493 @@
+{
+  "contents": {
+    "twoColumnWatchNextResults": {
+      "results": {
+        "results": {
+          "contents": [
+            {
+              "videoPrimaryInfoRenderer": {
+                "title": {
+                  "runs": [
+                    {
+                      "text": "Creep"
+                    }
+                  ]
+                },
+                "viewCount": {
+                  "videoViewCountRenderer": {
+                    "viewCount": {
+                      "simpleText": "277,390,892 views"
+                    },
+                    "shortViewCount": {
+                      "simpleText": "277M views"
+                    },
+                    "originalViewCount": "0"
+                  }
+                },
+                "videoActions": {
+                  "menuRenderer": {
+                    "items": [],
+                    "flexibleItems": [
+                      {
+                        "menuFlexibleItemRenderer": {
+                          "menuItem": {
+                            "menuServiceItemRenderer": {
+                              "text": {
+                                "runs": [
+                                  {
+                                    "text": "Save"
+                                  }
+                                ]
+                              },
+                              "icon": {
+                                "iconType": "PLAYLIST_ADD"
+                              },
+                              "serviceEndpoint": {}
+                            }
+                          },
+                          "topLevelButton": {
+                            "buttonViewModel": {
+                              "iconName": "PLAYLIST_ADD",
+                              "title": "Save",
+                              "onTap": {
+                                "serialCommand": {
+                                  "commands": [
+                                    {
+                                      "logGestureCommand": {
+                                        "gestureType": "GESTURE_EVENT_TYPE_LOG_GENERIC_CLICK"
+                                      }
+                                    },
+                                    {
+                                      "innertubeCommand": {}
+                                    }
+                                  ]
+                                }
+                              },
+                              "accessibilityText": "Save to playlist",
+                              "style": "BUTTON_VIEW_MODEL_STYLE_MONO",
+                              "isFullWidth": false,
+                              "type": "BUTTON_VIEW_MODEL_TYPE_TONAL",
+                              "tooltip": "Save"
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "dateText": {
+                  "simpleText": "Apr 6, 2016"
+                },
+                "relativeDateText": {
+                  "simpleText": "10 years ago"
+                }
+              }
+            },
+            {
+              "videoSecondaryInfoRenderer": {
+                "owner": {
+                  "videoOwnerRenderer": {
+                    "thumbnail": {
+                      "thumbnails": [
+                        {
+                          "url": "https://yt3.ggpht.com/H4O6JTiFsfQ47-UG0jyVWcQeXEh_qZ53My1W5YAXRgoO_ceSVn_7ClSi7PCdzVLqfLSF5EMR2w=s48-c-k-c0x00ffffff-no-rj",
+                          "width": 48,
+                          "height": 48
+                        },
+                        {
+                          "url": "https://yt3.ggpht.com/H4O6JTiFsfQ47-UG0jyVWcQeXEh_qZ53My1W5YAXRgoO_ceSVn_7ClSi7PCdzVLqfLSF5EMR2w=s88-c-k-c0x00ffffff-no-rj",
+                          "width": 88,
+                          "height": 88
+                        },
+                        {
+                          "url": "https://yt3.ggpht.com/H4O6JTiFsfQ47-UG0jyVWcQeXEh_qZ53My1W5YAXRgoO_ceSVn_7ClSi7PCdzVLqfLSF5EMR2w=s176-c-k-c0x00ffffff-no-rj",
+                          "width": 176,
+                          "height": 176
+                        }
+                      ]
+                    },
+                    "title": {
+                      "runs": [
+                        {
+                          "text": "Radiohead",
+                          "navigationEndpoint": {
+                            "commandMetadata": {
+                              "webCommandMetadata": {
+                                "webPageType": "WEB_PAGE_TYPE_CHANNEL"
+                              }
+                            },
+                            "browseEndpoint": {
+                              "browseId": "UCq19-LqvG35A-30oyAiPiqA",
+                              "canonicalBaseUrl": "/channel/UCq19-LqvG35A-30oyAiPiqA"
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "navigationEndpoint": {
+                      "commandMetadata": {
+                        "webCommandMetadata": {
+                          "webPageType": "WEB_PAGE_TYPE_CHANNEL"
+                        }
+                      },
+                      "browseEndpoint": {
+                        "browseId": "UCq19-LqvG35A-30oyAiPiqA",
+                        "canonicalBaseUrl": "/channel/UCr_iyUANcn9OX_yy9piYoLw"
+                      }
+                    },
+                    "subscriberCountText": {
+                      "simpleText": "5.44M subscribers"
+                    },
+                    "badges": [
+                      {
+                        "metadataBadgeRenderer": {
+                          "icon": {
+                            "iconType": "AUDIO_BADGE"
+                          },
+                          "style": "BADGE_STYLE_TYPE_VERIFIED_ARTIST",
+                          "tooltip": "Official Artist Channel"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "subscribeButton": {
+                  "subscribeButtonRenderer": {
+                    "buttonText": {
+                      "runs": [
+                        {
+                          "text": "Subscribe"
+                        }
+                      ]
+                    },
+                    "subscribed": false,
+                    "enabled": true,
+                    "type": "FREE",
+                    "channelId": "UCq19-LqvG35A-30oyAiPiqA",
+                    "showPreferences": false,
+                    "subscribedButtonText": {
+                      "runs": [
+                        {
+                          "text": "Subscribed"
+                        }
+                      ]
+                    },
+                    "unsubscribedButtonText": {
+                      "runs": [
+                        {
+                          "text": "Subscribe"
+                        }
+                      ]
+                    },
+                    "unsubscribeButtonText": {
+                      "runs": [
+                        {
+                          "text": "Unsubscribe"
+                        }
+                      ]
+                    },
+                    "subscribeAccessibility": {},
+                    "unsubscribeAccessibility": {},
+                    "notificationPreferenceButton": {
+                      "subscriptionNotificationToggleButtonRenderer": {
+                        "states": [
+                          {
+                            "stateId": 3,
+                            "nextStateId": 3,
+                            "state": {
+                              "buttonRenderer": {
+                                "style": "STYLE_TEXT",
+                                "isDisabled": false,
+                                "icon": {
+                                  "iconType": "NOTIFICATIONS_NONE"
+                                }
+                              }
+                            }
+                          },
+                          {
+                            "stateId": 0,
+                            "nextStateId": 0,
+                            "state": {
+                              "buttonRenderer": {
+                                "style": "STYLE_TEXT",
+                                "isDisabled": false,
+                                "icon": {
+                                  "iconType": "NOTIFICATIONS_OFF"
+                                }
+                              }
+                            }
+                          }
+                        ],
+                        "currentStateId": 3,
+                        "command": {
+                          "commandExecutorCommand": {
+                            "commands": [
+                              {
+                                "openPopupAction": {
+                                  "popup": {
+                                    "menuPopupRenderer": {
+                                      "items": []
+                                    }
+                                  },
+                                  "popupType": "DROPDOWN"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        "targetId": "notification-bell",
+                        "secondaryIcon": {
+                          "iconType": "EXPAND_MORE"
+                        }
+                      }
+                    },
+                    "targetId": "watch-subscribe",
+                    "signInEndpoint": {},
+                    "subscribedEntityKey": "EhhVQ3ExOS1McXZHMzVBLTMwb3lBaVBpcUEgMygB",
+                    "onSubscribeEndpoints": [
+                      {
+                        "subscribeEndpoint": {
+                          "channelIds": ["UCq19-LqvG35A-30oyAiPiqA"],
+                          "params": "EgIIAxgAIgt6RllFWVJjaksyZw%3D%3D"
+                        }
+                      }
+                    ],
+                    "onUnsubscribeEndpoints": [
+                      {
+                        "signalServiceEndpoint": {
+                          "signal": "CLIENT_SIGNAL",
+                          "actions": [
+                            {
+                              "openPopupAction": {
+                                "popup": {
+                                  "confirmDialogRenderer": {
+                                    "dialogMessages": [
+                                      {
+                                        "runs": [
+                                          {
+                                            "text": "Unsubscribe from "
+                                          },
+                                          {
+                                            "text": "Radiohead"
+                                          },
+                                          {
+                                            "text": "?"
+                                          }
+                                        ]
+                                      }
+                                    ],
+                                    "confirmButton": {
+                                      "buttonRenderer": {
+                                        "style": "STYLE_BLUE_TEXT",
+                                        "isDisabled": false,
+                                        "text": {
+                                          "runs": [
+                                            {
+                                              "text": "Unsubscribe"
+                                            }
+                                          ]
+                                        },
+                                        "serviceEndpoint": {
+                                          "unsubscribeEndpoint": {
+                                            "channelIds": ["UCq19-LqvG35A-30oyAiPiqA"],
+                                            "params": "CgIIAxILekZZRVlSY2pLMmcYAA%3D%3D"
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "cancelButton": {
+                                      "buttonRenderer": {
+                                        "style": "STYLE_TEXT",
+                                        "isDisabled": false,
+                                        "text": {
+                                          "runs": [
+                                            {
+                                              "text": "Cancel"
+                                            }
+                                          ]
+                                        }
+                                      }
+                                    },
+                                    "primaryIsCancel": false
+                                  }
+                                },
+                                "popupType": "DIALOG"
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                "metadataRowContainer": {
+                  "metadataRowContainerRenderer": {
+                    "rows": [
+                      {
+                        "metadataRowRenderer": {
+                          "title": {
+                            "runs": [
+                              {
+                                "text": "Parental warning"
+                              }
+                            ]
+                          },
+                          "contents": [
+                            {
+                              "simpleText": "Explicit lyrics"
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                },
+                "showMoreText": {
+                  "simpleText": "...more"
+                },
+                "showLessText": {
+                  "simpleText": "Show less"
+                },
+                "defaultExpanded": false,
+                "descriptionCollapsedLines": 3,
+                "showMoreCommand": {
+                  "commandExecutorCommand": {
+                    "commands": [
+                      {
+                        "changeEngagementPanelVisibilityAction": {
+                          "targetId": "engagement-panel-structured-description",
+                          "visibility": "ENGAGEMENT_PANEL_VISIBILITY_EXPANDED"
+                        }
+                      },
+                      {
+                        "scrollToEngagementPanelCommand": {
+                          "targetId": "engagement-panel-structured-description"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "showLessCommand": {
+                  "changeEngagementPanelVisibilityAction": {
+                    "targetId": "engagement-panel-structured-description",
+                    "visibility": "ENGAGEMENT_PANEL_VISIBILITY_HIDDEN"
+                  }
+                },
+                "attributedDescription": {
+                  "content": "Provided to YouTube by Beggars Group Digital Ltd.\n\nCreep · Radiohead\n\nPablo Honey\n\n℗ 1992 XL Recordings Ltd\n\nReleased on: 1993-02-22\n\nAssociated Performer: Colin Greenwood\nAssociated Performer: Ed O'Brien\nAssociated Performer: Jonny Greenwo…"
+                },
+                "headerRuns": [
+                  {
+                    "startIndex": 0,
+                    "length": 829,
+                    "headerMapping": "ATTRIBUTED_STRING_HEADER_MAPPING_UNSPECIFIED"
+                  }
+                ]
+              }
+            },
+            {
+              "compositeVideoPrimaryInfoRenderer": {}
+            },
+            {
+              "itemSectionRenderer": {
+                "contents": [
+                  {
+                    "continuationItemRenderer": {
+                      "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+                      "continuationEndpoint": {
+                        "continuationCommand": {
+                          "token": "Eg0SC3pGWUVZUmNqSzJnGAYyJSIRIgt6RllFWVJjaksyZzAAeAJCEGNvbW1lbnRzLXNlY3Rpb24%3D",
+                          "request": "CONTINUATION_REQUEST_TYPE_WATCH_NEXT"
+                        }
+                      }
+                    }
+                  }
+                ],
+                "header": {
+                  "commentsHeaderRenderer": {
+                    "countText": {
+                      "runs": [
+                        {
+                          "text": "Comments"
+                        }
+                      ]
+                    },
+                    "screenReaderOnly": true
+                  }
+                },
+                "sectionIdentifier": "comment-item-section",
+                "targetId": "comments-section"
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "currentVideoEndpoint": {
+    "commandMetadata": {
+      "webCommandMetadata": {
+        "webPageType": "WEB_PAGE_TYPE_WATCH"
+      }
+    },
+    "watchEndpoint": {
+      "videoId": "zFYEYRcjK2g"
+    }
+  },
+  "onResponseReceivedEndpoints": [
+    {
+      "loadMarkersCommand": {
+        "visibleOnLoadKeys": ["EgpIRUFUU0VFS0VSIJICKAE%3D"],
+        "entityKeys": ["EgpIRUFUU0VFS0VSIJICKAE%3D"]
+      }
+    }
+  ],
+  "pageVisualEffects": [
+    {
+      "cinematicContainerRenderer": {
+        "gradientColorConfig": [
+          {
+            "darkThemeColor": 2566914048,
+            "startLocation": 0
+          },
+          {
+            "darkThemeColor": 2130706432
+          },
+          {
+            "darkThemeColor": 4278190080,
+            "startLocation": 1
+          }
+        ],
+        "presentationStyle": "CINEMATIC_CONTAINER_PRESENTATION_STYLE_DYNAMIC_BLURRED",
+        "config": {
+          "lightThemeBackgroundColor": 4278190080,
+          "darkThemeBackgroundColor": 4278190080,
+          "animationConfig": {
+            "minImageUpdateIntervalMs": 5000,
+            "crossfadeDurationMs": 5000,
+            "crossfadeStartOffset": 1,
+            "maxFrameRate": 30
+          },
+          "colorSourceSizeMultiplier": 2.5,
+          "applyClientImageBlur": true,
+          "bottomColorSourceHeightMultiplier": 0.67,
+          "maxBottomColorSourceHeight": 260,
+          "colorSourceWidthMultiplier": 1.5,
+          "colorSourceHeightMultiplier": 2,
+          "blurStrength": 5,
+          "watchFullscreenConfig": {
+            "colorSourceWidthMultiplier": 2,
+            "colorSourceHeightMultiplier": 2,
+            "scrimWidthMultiplier": 2.5,
+            "scrimHeightMultiplier": 2.5,
+            "flatScrimColor": 2566914048
+          },
+          "enableInLightTheme": true
+        }
+      }
+    }
+  ],
+  "microformat": {
+    "microformatDataRenderer": {}
+  }
+}

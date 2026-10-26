@@ -3,8 +3,7 @@
  * module's tests and the recommendation engine's (stage 3.3). Never import it from app code.
  *
  * Each fake records its calls and answers from a table, or with an error, like the real
- * provider would. They stand in for stages that were not merged when this module was written:
- * YouTube Music (1.3), Spotify (1.5), the platform's budget and tiers (1.2), the matching
+ * provider would: YouTube Music (1.3), Spotify (1.5), the platform's budget (1.2), the matching
  * engine (1.7) and MusicBrainz (1.6).
  *
  * @module
@@ -17,7 +16,9 @@ import {
   FxmError,
   formatId,
   isTrackSeed,
-  type NetworkCapabilities,
+  MATCHER_VERSION,
+  type MatchBand,
+  type MatchVerdict,
   type ProviderContext,
   parseId,
   type RadioSeed,
@@ -26,50 +27,25 @@ import {
   type Track,
   type TrackKind,
 } from '@fxm/core'
-import type { LastfmApi, LastfmSimilarArtist } from '../../lastfm/api'
+import type { LastfmApiClient, LastfmSimilarArtist } from '../../lastfm/api'
 import type { LastfmStation, LastfmStations, LastfmStationTrack } from '../../lastfm/station'
-import type { ListenBrainzClient, RecordingLookup, SimilarArtist } from '../../listenbrainz/api'
+import type {
+  ListenBrainzClient,
+  ListenBrainzRecordingLookup,
+  ListenBrainzSimilarArtist,
+} from '../../listenbrainz/api'
 import type {
   ArtistMbidLookup,
   ClassificationBudget,
   SongForVideo,
   SpotifyMetadata,
   SpotifyRadio,
+  VideoSong,
   YouTubeLookup,
   YouTubeRadio,
+  YouTubeSeedFinder,
 } from '../adapters'
-
-/** The three tiers of the web app, plus what desktop and Android have (`full`). */
-export type Tier = 'free' | 'lite' | 'full'
-
-/** The capabilities of a tier, with Spotify reachable only in the Full tier. */
-export function capabilitiesFor(tier: Tier): NetworkCapabilities {
-  if (tier === 'full') {
-    return { youtube: 'full', spotify: 'anonymous', mediaBytes: true, fileSystem: false }
-  }
-  return {
-    youtube: tier === 'lite' ? 'simple' : 'none',
-    spotify: 'unreachable',
-    mediaBytes: false,
-    fileSystem: false,
-  }
-}
-
-/** A provider context for tests: the Full tier and Music mode unless `overrides` say otherwise. */
-export function testContext(
-  overrides: Partial<ProviderContext> & { tier?: Tier } = {},
-): ProviderContext {
-  const { tier = 'full', ...rest } = overrides
-  const fetchUnused: typeof fetch = () =>
-    Promise.reject(new Error('This test does not expect a network request'))
-  return {
-    fetch: fetchUnused,
-    platform: 'web',
-    capabilities: capabilitiesFor(tier),
-    mode: 'music',
-    ...rest,
-  }
-}
+import type { RecommendationSeed } from '../types'
 
 /** A YouTube Music track: a song unless `kind` says otherwise. */
 export function ytmTrack(
@@ -128,11 +104,15 @@ function answer<T>(value: Answer<T>, seed: RadioSeed): Promise<T> {
   return result instanceof Error ? Promise.reject(result) : Promise.resolve(result)
 }
 
-/** A fake YouTube Music or Spotify radio, with its calls. */
+/**
+ * A fake YouTube Music or Spotify radio, with its calls. `available`, when given, becomes its
+ * `isAvailable`, like the Spotify provider's switch.
+ */
 export function fakeRadio(
   id: 'ytm' | 'spotify',
   radio: Answer<Track[]>,
   home?: Shelf[] | Error,
+  available?: (ctx: Pick<ProviderContext, 'capabilities'>) => boolean,
 ): (YouTubeRadio & SpotifyRadio) & { seeds: RadioSeed[]; homeCalls: number } {
   const fake = {
     id,
@@ -150,29 +130,49 @@ export function fakeRadio(
             return home instanceof Error ? Promise.reject(home) : Promise.resolve(home)
           },
         }),
+    ...(available === undefined ? {} : { isAvailable: available }),
   }
   return fake
 }
 
 /**
  * A fake YouTube lookup over `videos`, keyed by videoId: a track, or an error to reject with.
- * Unknown videos reject with `NotFound`. `calls` lists the videoIds looked up.
+ * Unknown videos reject with `NotFound`. `calls` lists the videoIds looked up, and `contexts` the
+ * context of each call.
  */
 export function fakeYouTubeLookup(
   videos: Record<string, Track | Error>,
-): YouTubeLookup & { calls: string[] } {
+): YouTubeLookup & { calls: string[]; contexts: ProviderContext[] } {
   const calls: string[] = []
+  const contexts: ProviderContext[] = []
   return {
     calls,
-    async getTrack(id: EntityId<'track'>) {
+    contexts,
+    async getTrack(id: EntityId<'track'>, ctx: ProviderContext) {
       const { nativeId } = parseId(id)
       calls.push(nativeId)
+      contexts.push(ctx)
       const found = videos[nativeId]
       if (found === undefined) throw new FxmError('NotFound', `No video ${nativeId}`)
       if (found instanceof Error) throw found
       return found
     },
   }
+}
+
+/**
+ * A fake {@link YouTubeSeedFinder}: `find` answers for each seed, and `seeds` lists the seeds it
+ * was asked for.
+ */
+export function fakeYouTubeSeed(
+  find: (seed: RecommendationSeed) => RadioSeed | null,
+): YouTubeSeedFinder & { seeds: RecommendationSeed[] } {
+  const seeds: RecommendationSeed[] = []
+  const finder = async (seed: RecommendationSeed) => {
+    seeds.push(seed)
+    return find(seed)
+  }
+  return Object.assign(finder, { seeds })
 }
 
 /** A fake Spotify metadata provider: related artists by artist ID, and an artist search. */
@@ -198,20 +198,44 @@ export function fakeSpotifyMetadata(
   }
 }
 
-/** A budget with a fixed allowance. */
-export function fakeBudget(allowance: number): ClassificationBudget {
-  return { allowance: () => allowance }
+/**
+ * A budget with a fixed allowance, and a classification context made by `context` when given
+ * (e.g. one that marks the priority).
+ */
+export function fakeBudget(
+  allowance: number,
+  context?: (ctx: ProviderContext) => ProviderContext,
+): ClassificationBudget {
+  return context === undefined
+    ? { allowance: () => allowance }
+    : { allowance: () => allowance, context }
 }
 
-/** A fake video-to-song rule over `songs`, keyed by the video's videoId. */
-export function fakeSongForVideo(songs: Record<string, Track>): SongForVideo & { calls: string[] } {
+/** A matcher verdict with the given band, from this matcher version. */
+export function verdictOf(band: MatchBand): MatchVerdict {
+  return { band, blockers: band === 'auto' ? [] : ['low-score'], matcherVersion: MATCHER_VERSION }
+}
+
+/**
+ * A fake video-to-song rule over `songs`, keyed by the video's videoId: the song a match finds,
+ * with a verdict of `band` (`auto` by default), or a whole {@link VideoSong}. Unknown videos map
+ * to no song.
+ */
+export function fakeSongForVideo(
+  songs: Record<string, Track | VideoSong>,
+  band: MatchBand = 'auto',
+): SongForVideo & { calls: string[]; contexts: ProviderContext[] } {
   const calls: string[] = []
-  const rule = async (video: Track) => {
+  const contexts: ProviderContext[] = []
+  const rule = async (video: Track, ctx: ProviderContext): Promise<VideoSong | null> => {
     const { nativeId } = parseId(video.id)
     calls.push(nativeId)
-    return songs[nativeId] ?? null
+    contexts.push(ctx)
+    const found = songs[nativeId]
+    if (found === undefined) return null
+    return 'song' in found ? found : { song: found, via: 'match', verdict: verdictOf(band) }
   }
-  return Object.assign(rule, { calls })
+  return Object.assign(rule, { calls, contexts })
 }
 
 /** A fake MusicBrainz artist lookup over `mbids`, keyed by artist name. */
@@ -219,13 +243,18 @@ export function fakeArtistMbid(mbids: Record<string, string>): ArtistMbidLookup 
   return async (artist: ArtistRef) => mbids[artist.name] ?? null
 }
 
-/** A fake Last.fm station reader: the songs of each station, keyed by `<type>:<artist>`. */
+/**
+ * A fake Last.fm station reader: the songs of each station, keyed by `<type>:<artist>`. It
+ * reaches the stations where `reachable` says so: by default in the Full tier.
+ */
 export function fakeLastfmStations(
   stations: Record<string, LastfmStationTrack[] | Error>,
+  reachable: (ctx: ProviderContext) => boolean = (ctx) => ctx.capabilities.youtube === 'full',
 ): LastfmStations & { calls: LastfmStation[] } {
   const calls: LastfmStation[] = []
   return {
     calls,
+    isReachable: reachable,
     async station(station: LastfmStation) {
       calls.push(station)
       const found = stations[`${station.type}:${station.artist}`]
@@ -236,7 +265,9 @@ export function fakeLastfmStations(
 }
 
 /** A fake Last.fm API: similar artists by artist name. */
-export function fakeLastfmApi(similar: Record<string, LastfmSimilarArtist[] | Error>): LastfmApi {
+export function fakeLastfmApi(
+  similar: Record<string, LastfmSimilarArtist[] | Error>,
+): LastfmApiClient {
   return {
     async similarArtists(artist: string) {
       const found = similar[artist]
@@ -248,17 +279,20 @@ export function fakeLastfmApi(similar: Record<string, LastfmSimilarArtist[] | Er
 
 /** A fake ListenBrainz client: lookups by `<artist>|<recording>`, similar artists by MBID. */
 export function fakeListenBrainz(
-  lookups: Record<string, RecordingLookup>,
-  similar: Record<string, SimilarArtist[] | Error>,
-): ListenBrainzClient & { lookups: string[] } {
-  const calls: string[] = []
+  lookups: Record<string, ListenBrainzRecordingLookup>,
+  similar: Record<string, ListenBrainzSimilarArtist[] | Error>,
+): ListenBrainzClient & { lookups: string[]; similarCalls: string[] } {
+  const lookupCalls: string[] = []
+  const similarCalls: string[] = []
   return {
-    lookups: calls,
+    lookups: lookupCalls,
+    similarCalls,
     async lookupRecording(artist: string, recording: string) {
-      calls.push(`${artist}|${recording}`)
+      lookupCalls.push(`${artist}|${recording}`)
       return lookups[`${artist}|${recording}`] ?? null
     },
     async similarArtists(mbid: string) {
+      similarCalls.push(mbid)
       const found = similar[mbid]
       if (found instanceof Error) throw found
       return found ?? []
@@ -273,12 +307,15 @@ export function seedArtistOf(seed: RadioSeed): string {
 
 export {
   type CorsRecord,
+  capabilitiesFor,
   type FetchCall,
   fakeFetch,
   jsonResponse,
   liveEnv,
   liveTestsEnabled,
   paramsOf,
+  type Tier,
+  testContext,
   textResponse,
   withOrigin,
-} from './http'
+} from '../../shared/fake-network'

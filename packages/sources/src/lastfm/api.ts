@@ -7,7 +7,7 @@
  */
 
 import { FxmError, type ProviderContext } from '@fxm/core'
-import { RequestGate } from '../recommend/internal/gate'
+import { RequestGate } from '../shared/gate'
 import {
   field,
   getText,
@@ -16,8 +16,9 @@ import {
   rateLimited,
   retryAfterMs,
   type TextResponse,
-} from '../recommend/internal/http'
-import { comparable } from '../recommend/internal/text'
+} from '../shared/http'
+import { normalizeMbid } from '../shared/mbid'
+import { wholeNumber } from '../shared/numbers'
 import { TtlCache } from '../shared/ttl-cache'
 import { LASTFM_WEB_ORIGIN, lastfmPathSegment } from './station'
 
@@ -39,9 +40,12 @@ export interface LastfmSimilarArtist {
   url: string
 }
 
-/** Options for {@link createLastfmApi}. */
+/** Options for {@link createLastfmApiClient}. */
 export interface LastfmApiOptions {
-  /** The Last.fm API key. Required: FXM ships none (see the README). */
+  /**
+   * The Last.fm API key. Required: FXM ships none (see the README), and a blank key throws a
+   * `TypeError`, so that a cleared settings field never looks like "no similar artists".
+   */
   apiKey: string
   /** The API's endpoint. Default {@link LASTFM_API_URL}. */
   apiUrl?: string
@@ -49,7 +53,10 @@ export interface LastfmApiOptions {
   timeoutMs?: number
   /** Pause this many milliseconds between requests. Default 250. */
   minIntervalMs?: number
-  /** The longest a call waits for its turn before failing with `RateLimited`. Default 10,000. */
+  /**
+   * The longest a call waits for its turn, counted from when it was made, before failing with
+   * `RateLimited`. Default 10,000.
+   */
   maxWaitMs?: number
   /**
    * How long to keep an answer when Last.fm's `Cache-Control` does not say. Last.fm's terms ask
@@ -58,37 +65,42 @@ export interface LastfmApiOptions {
   cacheTtlMs?: number
 }
 
-/** Options for {@link LastfmApi.similarArtists}. */
-export interface SimilarArtistsOptions {
+/** Options for {@link LastfmApiClient.similarArtists}. */
+export interface LastfmSimilarArtistsOptions {
   /** At most this many artists, from 1 to 100. Default 30. */
   limit?: number
 }
 
 /** The Last.fm API calls FXM uses. */
-export interface LastfmApi {
+export interface LastfmApiClient {
   /**
    * Artists similar to `artist` (a name; Last.fm corrects misspellings), most similar first.
-   * Empty when Last.fm does not know the artist.
+   * Empty when Last.fm says it does not know the artist.
    *
    * Rejects with an `FxmError`: `AuthRequired` when Last.fm refuses the API key (invalid or
-   * suspended), `RateLimited` when it asks FXM to slow down, `Network`, `Unavailable` for other
+   * suspended) or says the request lacks a required parameter, which for FXM's requests is the
+   * key; `RateLimited` when it asks FXM to slow down; `Network`; `Unavailable` for other
    * failures and `Parse` for answers FXM cannot read.
    */
   similarArtists(
     artist: string,
     ctx: ProviderContext,
-    options?: SimilarArtistsOptions,
+    options?: LastfmSimilarArtistsOptions,
   ): Promise<LastfmSimilarArtist[]>
 }
-
-/** A lower-case MusicBrainz ID. */
-const MBID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u
 
 /** The longest and shortest time FXM keeps an answer, whatever Last.fm's headers say. */
 const MIN_TTL_MS = 10 * 60_000
 const MAX_TTL_MS = 24 * 3_600_000
 /** How long FXM remembers that Last.fm does not know an artist. */
 const MISS_TTL_MS = 3_600_000
+
+/**
+ * Error 6's message for an artist Last.fm cannot find ("The artist you supplied could not be
+ * found", see `CLEAN-ROOM.md`). Error 6 also means "Invalid parameters - Your request is missing
+ * a required parameter", which is not about the artist.
+ */
+const UNKNOWN_ARTIST = /\bcould not be found\b/iu
 
 /** Reads one artist of `similarartists.artist`, or `null` when it has no name. */
 function similarArtistOf(value: unknown): LastfmSimilarArtist | null {
@@ -104,8 +116,8 @@ function similarArtistOf(value: unknown): LastfmSimilarArtist | null {
   const url = field(value, 'url')
   if (typeof url === 'string' && /^https:\/\/www\.last\.fm\/music\/\S+$/u.test(url))
     artist.url = url
-  const mbid = field(value, 'mbid')
-  if (typeof mbid === 'string' && MBID.test(mbid)) artist.mbid = mbid
+  const mbid = normalizeMbid(field(value, 'mbid'))
+  if (mbid !== undefined) artist.mbid = mbid
   return artist
 }
 
@@ -113,7 +125,7 @@ function similarArtistOf(value: unknown): LastfmSimilarArtist | null {
  * Reads `artist.getSimilar`'s JSON. Like Last.fm's other JSON answers, a list of one may come as
  * the object itself instead of an array.
  */
-export function parseSimilarArtists(body: unknown): LastfmSimilarArtist[] {
+export function parseLastfmSimilarArtists(body: unknown): LastfmSimilarArtist[] {
   const similar = field(body, 'similarartists')
   if (similar === undefined) {
     throw new FxmError('Parse', 'Last.fm sent similar artists FXM does not understand')
@@ -123,14 +135,18 @@ export function parseSimilarArtists(body: unknown): LastfmSimilarArtist[] {
   return items.map(similarArtistOf).filter((artist) => artist !== null)
 }
 
-/** The error code in a Last.fm API answer (`{"error": 6, "message": …}`), if it has one. */
-function errorCodeOf(body: unknown): number | undefined {
+/** The error in a Last.fm API answer (`{"error": 6, "message": …}`), if it has one. */
+function errorOf(body: unknown): { code: number; message: string } | undefined {
   const code = field(body, 'error')
-  return typeof code === 'number' && Number.isInteger(code) ? code : undefined
+  if (typeof code !== 'number' || !Number.isInteger(code)) return undefined
+  const message = field(body, 'message')
+  return { code, message: typeof message === 'string' ? message : '' }
 }
 
-/** Creates a {@link LastfmApi} client. Share one instance, so that its pacing and cache hold. */
-export function createLastfmApi(options: LastfmApiOptions): LastfmApi {
+/** Creates a {@link LastfmApiClient}. Share one instance, so that its pacing and cache hold. */
+export function createLastfmApiClient(options: LastfmApiOptions): LastfmApiClient {
+  const apiKey = typeof options.apiKey === 'string' ? options.apiKey.trim() : ''
+  if (apiKey === '') throw new TypeError('The Last.fm API needs an API key')
   const apiUrl = options.apiUrl ?? LASTFM_API_URL
   const timeoutMs = options.timeoutMs ?? 10_000
   const defaultTtlMs = options.cacheTtlMs ?? 6 * 3_600_000
@@ -142,68 +158,72 @@ export function createLastfmApi(options: LastfmApiOptions): LastfmApi {
   const cache = new TtlCache<LastfmSimilarArtist[]>({ maxEntries: 500 })
 
   /**
-   * The outcome of an answer that holds no similar artists: none when Last.fm does not know the
-   * artist, otherwise the matching `FxmError`, thrown.
+   * The `FxmError` for an answer that holds no similar artists, after any back-off it calls for.
+   * An unknown artist is not an error: the caller handles that first.
    */
-  function failed(response: TextResponse, code: number | undefined): LastfmSimilarArtist[] {
-    // 6: "Invalid parameters", which is also how Last.fm says it does not know the artist.
-    if (code === 6) return []
-    if (code === 10 || code === 26) {
-      throw new FxmError('AuthRequired', 'Last.fm refused the API key (invalid or suspended)')
+  function failure(response: TextResponse, code: number | undefined): FxmError {
+    if (code === 6 || code === 10 || code === 26) {
+      const reason =
+        code === 6 ? 'says the request lacks a required parameter' : 'refused the API key'
+      return new FxmError('AuthRequired', `${SERVICE} ${reason} (error ${code})`)
     }
     if (code === 29 || response.status === 429) {
       const delayMs = retryAfterMs(response.headers.get('retry-after'), 60_000)
-      throw rateLimited(SERVICE, gate.backOff(delayMs, true))
+      return rateLimited(SERVICE, gate.backOff(delayMs, true))
     }
     if (code === 11 || code === 16 || response.status >= 500) gate.backOff(5_000, false)
     const reason = code === undefined ? `HTTP ${response.status}` : `error ${code}`
-    throw new FxmError('Unavailable', `${SERVICE} answered with ${reason}`)
+    return new FxmError('Unavailable', `${SERVICE} answered with ${reason}`)
   }
 
   return {
-    async similarArtists(artist, ctx, { limit = 30 } = {}) {
+    async similarArtists(artist, ctx, { limit } = {}) {
       const name = artist.replace(/\s+/gu, ' ').trim()
       if (name === '') return []
-      const count = Math.min(100, Math.max(1, Math.round(limit)))
-      const key = `${comparable(name)}\u0000${count}`
+      const count = wholeNumber(limit, 30, 1, 100)
+      // Keyed on what is sent: names that differ only in punctuation are different artists.
+      const key = `${name}\u0000${count}`
       const cached = cache.get(key)
       if (cached !== undefined) return cached
-      return gate.run(ctx.signal, async (ready) => {
-        const queued = cache.get(key)
-        if (queued !== undefined) return queued
-        const url = new URL(apiUrl)
-        url.search = new URLSearchParams({
-          method: 'artist.getsimilar',
-          artist: name,
-          autocorrect: '1',
-          limit: String(count),
-          api_key: options.apiKey,
-          format: 'json',
-        }).toString()
-        await ready()
-        const response = await getText(ctx, url.href, {
-          service: SERVICE,
-          timeoutMs,
-          maxBytes: 2_000_000,
-        })
-        let body: unknown
-        try {
-          body = parseJson(response, SERVICE)
-        } catch (error) {
-          if (response.status === 200) throw error
-          return failed(response, undefined)
-        }
-        const code = errorCodeOf(body)
-        if (response.status !== 200 || code !== undefined) {
-          const result = failed(response, code)
-          cache.set(key, result, MISS_TTL_MS)
-          return result
-        }
-        const artists = parseSimilarArtists(body)
-        const ttlMs = maxAgeMs(response.headers.get('cache-control')) ?? defaultTtlMs
-        cache.set(key, artists, Math.min(MAX_TTL_MS, Math.max(MIN_TTL_MS, ttlMs)))
-        return artists
-      })
+      return gate.run(
+        async (ready) => {
+          const queued = cache.get(key)
+          if (queued !== undefined) return queued
+          const url = new URL(apiUrl)
+          url.search = new URLSearchParams({
+            method: 'artist.getsimilar',
+            artist: name,
+            autocorrect: '1',
+            limit: String(count),
+            api_key: apiKey,
+            format: 'json',
+          }).toString()
+          await ready()
+          const response = await getText(ctx, url.href, {
+            service: SERVICE,
+            timeoutMs,
+            maxBytes: 2_000_000,
+          })
+          let body: unknown
+          try {
+            body = parseJson(response, SERVICE)
+          } catch (error) {
+            if (response.status === 200) throw error
+            throw failure(response, undefined)
+          }
+          const error = errorOf(body)
+          if (error?.code === 6 && UNKNOWN_ARTIST.test(error.message)) {
+            cache.set(key, [], MISS_TTL_MS)
+            return []
+          }
+          if (response.status !== 200 || error !== undefined) throw failure(response, error?.code)
+          const artists = parseLastfmSimilarArtists(body)
+          const ttlMs = maxAgeMs(response.headers.get('cache-control')) ?? defaultTtlMs
+          cache.set(key, artists, Math.min(MAX_TTL_MS, Math.max(MIN_TTL_MS, ttlMs)))
+          return artists
+        },
+        { signal: ctx.signal },
+      )
     },
   }
 }

@@ -1,42 +1,28 @@
 /**
  * JSON backups of the whole library: every table, custom orders included, plus the app's own
- * settings (catalog mode, theme) when the caller passes them. The listening affinity is left
- * out: it is derived from the history, the likes and the playlists, and rebuilt on import.
+ * settings (catalog mode, theme) when the caller passes them. This module owns the file format
+ * and its validation; the repository reads and writes the tables (`snapshot` and `restore` in
+ * `repo.ts`). The listening affinity is left out: it is derived from the history, the likes and
+ * the playlists, and the repository rebuilds it on import.
  *
- * - **Export** reads every table in one transaction, so the file is a consistent snapshot.
+ * - **Export** takes the repository's snapshot, read in one transaction, so the file is
+ *   consistent.
  * - **Import** parses and validates first: anything that isn't an FXM backup, or comes from a
- *   newer FXM, is refused, and each record goes through the guards in `validate.ts`, which drop
- *   bad ones. Then it writes in one transaction, so a failure leaves the library as it was.
+ *   newer FXM (a newer file format or a newer database schema), is refused, and each record
+ *   goes through the guards in `validate.ts`, which drop bad ones. Then the repository writes
+ *   it in one transaction, so a failure leaves the library as it was.
  *   - **Replace** makes the library exactly the backup's.
- *   - **Merge** keeps everything here and adds what the backup has on top (see
- *     {@link importLibrary} for the rules).
+ *   - **Merge** keeps everything here and adds what the backup has on top (the rules are in
+ *     `merge.ts`).
  *
  * @module
  */
 
-import { APP_NAME, APP_VERSION, type EntityId, entityKey, type JsonObject } from '@fxm/core'
-import { rebuildAffinity } from './affinity'
-import {
-  ensureSystemRecords,
-  type FxmDatabase,
-  SCHEMA_VERSION,
-  TABLE_NAMES,
-  type TableName,
-} from './database'
+import { APP_NAME, APP_VERSION, type JsonObject } from '@fxm/core'
+import { SCHEMA_VERSION, type TableName } from './database'
 import type { LibraryRepo } from './repo'
-import type {
-  FollowRecord,
-  HistoryRecord,
-  ImportProgressRecord,
-  LikeRecord,
-  MatchCacheRecord,
-  OrderRecord,
-  PlaylistRecord,
-  SettingRecord,
-  TrackRecord,
-} from './types'
+import type { LibraryTables, RestoreMode } from './types'
 import {
-  type HistoryEntry,
   sanitizeFollowRecord,
   sanitizeHistoryRecord,
   sanitizeImportProgress,
@@ -57,19 +43,6 @@ export const BACKUP_VERSION = 1
 /** Largest backup file accepted, in bytes. */
 export const MAX_BACKUP_BYTES = 64 * 1024 * 1024
 
-/** The rows of every table. */
-export interface BackupTables {
-  tracks: TrackRecord[]
-  likes: LikeRecord[]
-  playlists: PlaylistRecord[]
-  orders: OrderRecord[]
-  follows: FollowRecord[]
-  history: (HistoryEntry & { id?: number })[]
-  settings: SettingRecord[]
-  matchCache: MatchCacheRecord[]
-  importProgress: ImportProgressRecord[]
-}
-
 /** A library backup file, as JSON. */
 export interface LibraryBackup {
   format: typeof BACKUP_FORMAT
@@ -83,7 +56,7 @@ export interface LibraryBackup {
   /** The app's own settings, such as the catalog mode and theme, when included. */
   appSettings?: JsonObject
   /** Every table's rows. */
-  tables: BackupTables
+  tables: LibraryTables
 }
 
 /** Why a file can't be imported. */
@@ -105,25 +78,7 @@ export async function exportLibrary(
   repo: LibraryRepo,
   { appSettings, now = new Date() }: { appSettings?: JsonObject; now?: Date } = {},
 ): Promise<LibraryBackup> {
-  const { db } = repo
-  const tables = await db.transaction(
-    'r',
-    TABLE_NAMES.map((name) => db.table(name)),
-    async () => {
-      const read = <T>(name: TableName) => db.table<T>(name).toArray()
-      return {
-        tracks: await read<TrackRecord>('tracks'),
-        likes: await read<LikeRecord>('likes'),
-        playlists: await read<PlaylistRecord>('playlists'),
-        orders: await read<OrderRecord>('orders'),
-        follows: await read<FollowRecord>('follows'),
-        history: await read<HistoryRecord>('history'),
-        settings: await read<SettingRecord>('settings'),
-        matchCache: await read<MatchCacheRecord>('matchCache'),
-        importProgress: await read<ImportProgressRecord>('importProgress'),
-      }
-    },
-  )
+  const tables = await repo.snapshot()
   const backup: LibraryBackup = {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
@@ -183,7 +138,8 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 /**
  * Parses and validates a backup file's text. Throws a {@link BackupError} for anything that
- * isn't an FXM library backup or comes from a newer FXM; drops invalid records and counts them.
+ * isn't an FXM library backup or comes from a newer FXM, whose file format or database schema
+ * this version can't know; drops invalid records and counts them.
  */
 export function parseBackup(text: string): ParsedBackup {
   if (text.length > MAX_BACKUP_BYTES) {
@@ -204,6 +160,13 @@ export function parseBackup(text: string): ParsedBackup {
   if ((data.version as number) > BACKUP_VERSION) {
     throw new BackupError('too-new', 'The backup comes from a newer version of FXM')
   }
+  // A newer schema may hold tables and fields this version would silently drop.
+  const schemaVersion = Number.isSafeInteger(data.schemaVersion)
+    ? (data.schemaVersion as number)
+    : 0
+  if (schemaVersion > SCHEMA_VERSION) {
+    throw new BackupError('too-new', 'The backup comes from a newer version of FXM')
+  }
   const raw = data.tables
   let skipped = 0
   const take = <T>(name: TableName, sanitize: (row: unknown) => T | null): T[] => {
@@ -211,7 +174,7 @@ export function parseBackup(text: string): ParsedBackup {
     skipped += result.skipped
     return result.rows
   }
-  const tables: BackupTables = {
+  const tables: LibraryTables = {
     tracks: take('tracks', sanitizeTrackRecord),
     likes: take('likes', sanitizeLikeRecord),
     playlists: take('playlists', sanitizePlaylistRecord),
@@ -231,7 +194,7 @@ export function parseBackup(text: string): ParsedBackup {
       name: typeof app.name === 'string' ? app.name : APP_NAME,
       version: typeof app.version === 'string' ? app.version : '',
     },
-    schemaVersion: Number.isSafeInteger(data.schemaVersion) ? (data.schemaVersion as number) : 0,
+    schemaVersion,
     tables,
   }
   if (isObject(data.appSettings)) backup.appSettings = data.appSettings as JsonObject
@@ -250,132 +213,10 @@ export function parseBackup(text: string): ParsedBackup {
 }
 
 /** How an import treats the library that is already here. */
-export type ImportMode = 'merge' | 'replace'
-
-/** Merges two orders: `first`, then the items of `second` it lacks, by `entityKey`. */
-function unionOrder<K extends string>(first: readonly K[], second: readonly K[]): K[] {
-  const seen = new Set(first.map((id) => entityKey(id as unknown as EntityId)))
-  const extra = second.filter((id) => {
-    const key = entityKey(id as unknown as EntityId)
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
-  return [...first, ...extra]
-}
-
-/** One playlist that exists here and in the backup: the newer edit leads. */
-function mergePlaylist(here: PlaylistRecord, incoming: PlaylistRecord): PlaylistRecord {
-  const [newer, older] = incoming.updatedAt > here.updatedAt ? [incoming, here] : [here, incoming]
-  const trackIds = unionOrder(newer.trackIds, older.trackIds)
-  const addedAt: Record<string, number> = {}
-  for (const id of trackIds) {
-    const dates = [here.addedAt[id], incoming.addedAt[id]].filter(
-      (at): at is number => at !== undefined,
-    )
-    if (dates.length > 0) addedAt[id] = Math.min(...dates)
-  }
-  const { undo: _undo, ...rest } = newer
-  return {
-    ...rest,
-    createdAt: Math.min(here.createdAt, incoming.createdAt),
-    trackIds,
-    addedAt,
-  }
-}
-
-/** Whether `incoming` should replace `here` in the match cache: a pin always wins. */
-function newerDecision(here: MatchCacheRecord, incoming: MatchCacheRecord): boolean {
-  if (here.userPinned !== incoming.userPinned) return incoming.userPinned
-  return incoming.decidedAt > here.decidedAt
-}
-
-async function writeMerged(db: FxmDatabase, tables: BackupTables): Promise<void> {
-  // Tracks: the most recently saved metadata wins.
-  const tracksHere = await db.tracks.bulkGet(tables.tracks.map((row) => row.id))
-  await db.tracks.bulkPut(
-    tables.tracks.filter((row, index) => {
-      const here = tracksHere[index]
-      return here === undefined || row.updatedAt > here.updatedAt
-    }),
-  )
-  // Likes, follows and reserved settings: what is here stays; the backup adds the rest.
-  await db.likes.bulkAdd(await missing(db.likes, tables.likes, (row) => row.key))
-  await db.follows.bulkAdd(await missing(db.follows, tables.follows, (row) => row.key))
-  await db.settings.bulkAdd(await missing(db.settings, tables.settings, (row) => row.key))
-  // Playlists: new ones are added; one that exists in both merges, the newer edit leading.
-  for (const incoming of tables.playlists) {
-    const here = await db.playlists.get(incoming.id)
-    await db.playlists.put(here === undefined ? incoming : mergePlaylist(here, incoming))
-  }
-  // The list of playlists: this order first, then the backup's playlists it lacks.
-  const order = await db.orders.get('playlists')
-  const incomingOrder = tables.orders.find((row) => row.id === 'playlists')
-  if (incomingOrder !== undefined) {
-    await db.orders.put({
-      id: 'playlists',
-      order: unionOrder(order?.order ?? [], incomingOrder.order),
-      updatedAt: Math.max(order?.updatedAt ?? 0, incomingOrder.updatedAt),
-    })
-  }
-  // History: plays of the same track at the same time are the same play.
-  const seen = new Set<string>()
-  await db.history.each((entry) => {
-    seen.add(`${entityKey(entry.trackId)}|${entry.playedAt}`)
-  })
-  const plays = tables.history
-    .filter((entry) => {
-      const key = `${entityKey(entry.trackId)}|${entry.playedAt}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .map(({ id: _id, ...entry }) => entry)
-  await db.history.bulkAdd(plays)
-  // Match cache: a pin wins, then the newer decision.
-  const matchesHere = await db.matchCache.bulkGet(tables.matchCache.map((row) => row.key))
-  await db.matchCache.bulkPut(
-    tables.matchCache.filter((row, index) => {
-      const here = matchesHere[index]
-      return here === undefined || newerDecision(here, row)
-    }),
-  )
-  // Imports: the more recent progress wins.
-  const importsHere = await db.importProgress.bulkGet(tables.importProgress.map((row) => row.id))
-  await db.importProgress.bulkPut(
-    tables.importProgress.filter((row, index) => {
-      const here = importsHere[index]
-      return here === undefined || row.updatedAt > here.updatedAt
-    }),
-  )
-}
-
-/** The rows of `rows` whose key `table` doesn't have yet, each key once. */
-async function missing<T>(
-  table: { bulkGet(keys: string[]): PromiseLike<unknown[]> },
-  rows: readonly T[],
-  keyOf: (row: T) => string,
-): Promise<T[]> {
-  const unique = new Map(rows.map((row) => [keyOf(row), row]))
-  const existing = await table.bulkGet([...unique.keys()])
-  return [...unique.values()].filter((_, index) => existing[index] === undefined)
-}
-
-async function writeReplaced(db: FxmDatabase, tables: BackupTables): Promise<void> {
-  for (const name of TABLE_NAMES) await db.table(name).clear()
-  await db.tracks.bulkPut(tables.tracks)
-  await db.likes.bulkPut(tables.likes)
-  await db.playlists.bulkPut(tables.playlists)
-  await db.orders.bulkPut(tables.orders)
-  await db.follows.bulkPut(tables.follows)
-  await db.history.bulkPut(tables.history as HistoryRecord[])
-  await db.settings.bulkPut(tables.settings)
-  await db.matchCache.bulkPut(tables.matchCache)
-  await db.importProgress.bulkPut(tables.importProgress)
-}
+export type ImportMode = RestoreMode
 
 /**
- * Writes a parsed backup into the library, in one transaction.
+ * Writes a parsed backup into the library, in one transaction (the repository's `restore`).
  *
  * - `replace`: the library becomes exactly the backup's, custom orders included.
  * - `merge`: nothing here is lost. New playlists, likes, follows and plays are added. A
@@ -391,15 +232,5 @@ export async function importLibrary(
   parsed: ParsedBackup,
   mode: ImportMode,
 ): Promise<void> {
-  const { db } = repo
-  await db.transaction(
-    'rw',
-    TABLE_NAMES.map((name) => db.table(name)),
-    async () => {
-      if (mode === 'replace') await writeReplaced(db, parsed.backup.tables)
-      else await writeMerged(db, parsed.backup.tables)
-      await ensureSystemRecords(db)
-      await rebuildAffinity(db)
-    },
-  )
+  await repo.restore(parsed.backup.tables, mode)
 }

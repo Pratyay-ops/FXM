@@ -15,11 +15,12 @@ import type { MoveTarget } from '../../db/ordering'
 import { sameOrder } from '../../db/ordering'
 import type { OrderUndo } from '../../db/types'
 import { cn } from '../../lib/cn'
+import { useMediaQuery } from '../../lib/use-media-query'
 import { describeSort, directionLabel } from './sort'
 import { Menu, type MenuItem } from './ui/menu'
 import { defaultDirection, type SortView } from './view-store'
 
-/** A compact toolbar button: 36 px with a mouse, 44 px on touch screens. */
+/** A compact toolbar button: 36 px high with a mouse, 44 px on touch screens, never narrower. */
 export function chipClasses({
   pressed = false,
   tone = 'default',
@@ -29,7 +30,7 @@ export function chipClasses({
   tone?: 'default' | 'danger'
 } = {}): string {
   return cn(
-    'inline-flex h-9 shrink-0 items-center gap-2 rounded-full border px-3 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-40 pointer-coarse:h-touch max-lg:h-touch [&_svg]:size-4 [&_svg]:shrink-0',
+    'inline-flex h-9 min-w-touch shrink-0 items-center justify-center gap-2 rounded-full border px-3 text-sm font-semibold whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-40 pointer-coarse:h-touch max-lg:h-touch [&_svg]:size-4 [&_svg]:shrink-0',
     pressed
       ? 'border-text bg-text text-background forced-colors:border-[Highlight]'
       : cn(
@@ -37,6 +38,32 @@ export function chipClasses({
           tone === 'danger' ? 'text-danger' : 'text-text',
         ),
   )
+}
+
+/** How a move of several items reads: "Moved 3 songs to the top". */
+const MOVE_WORDS: Readonly<Record<'top' | 'bottom' | 'up' | 'down', string>> = {
+  top: 'to the top',
+  bottom: 'to the bottom',
+  up: 'up',
+  down: 'down',
+}
+
+/**
+ * What a move from a menu did, for the status toast and screen readers (drag and drop has its
+ * own announcements): "Moved Creep to position 1 of 8", "Moved 3 songs to the top".
+ */
+export function moveMessage(
+  moved: readonly string[],
+  target: MoveTarget,
+  order: readonly string[],
+  { nameOf, noun }: { nameOf: (key: string) => string; noun: (count: number) => string },
+): string {
+  const [only] = moved
+  if (moved.length === 1 && only !== undefined) {
+    return `Moved ${nameOf(only)} to position ${order.indexOf(only) + 1} of ${order.length}`
+  }
+  const where = typeof target === 'string' ? ` ${MOVE_WORDS[target]}` : ''
+  return `Moved ${noun(moved.length)}${where}`
 }
 
 /** The move entries of a menu, for one item at `index` of `total` or for a selection. */
@@ -83,9 +110,14 @@ export interface OrderToolbarProps<K extends string> {
   onShuffle: () => void
   selecting: boolean
   onSelecting: (on: boolean) => void
+  /** The `id` of the sort button, so the notice below can give it focus. */
+  sortId?: string
 }
 
-/** Sort view, Shuffle order and Select, above a reorderable list. */
+/**
+ * Sort view, Shuffle order and Select, above a reorderable list. Phones have room for two
+ * chips with their labels, so Shuffle order moves into the sort menu there, where it has one.
+ */
 export function OrderToolbar<K extends string>({
   sorts,
   view,
@@ -95,7 +127,10 @@ export function OrderToolbar<K extends string>({
   onShuffle,
   selecting,
   onSelecting,
+  sortId,
 }: OrderToolbarProps<K>) {
+  // Tailwind's `max-sm`: below 640 px.
+  const phone = useMediaQuery('(width < 40rem)')
   const current = sorts.find((sort) => sort.key === view.key)?.label ?? ''
   const items: MenuItem[] = [
     {
@@ -130,24 +165,41 @@ export function OrderToolbar<K extends string>({
       })),
     })
   }
+  if (phone) {
+    items.push({ kind: 'separator', id: 'shuffle-separator' })
+    items.push({
+      id: 'shuffle',
+      label: 'Shuffle order',
+      icon: Dices,
+      disabled: !canShuffle,
+      onSelect: onShuffle,
+    })
+  }
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Menu label="Sort and view" items={items} className={chipClasses()} align="start">
+      <Menu
+        label="Sort and view"
+        items={items}
+        className={chipClasses()}
+        align="start"
+        triggerId={sortId}
+      >
         <ArrowDownUp aria-hidden="true" />
         <span className="sr-only">Sort: </span>
         {current}
       </Menu>
-      <button
-        type="button"
-        className={chipClasses()}
-        disabled={!canShuffle}
-        onClick={onShuffle}
-        title={`Put the saved order of these ${plural} in a random order. You can undo it.`}
-      >
-        <Dices aria-hidden="true" />
-        {/* Icons only on phones, where all three chips must fit one row. */}
-        <span className="max-sm:sr-only">Shuffle order</span>
-      </button>
+      {!phone && (
+        <button
+          type="button"
+          className={chipClasses()}
+          disabled={!canShuffle}
+          onClick={onShuffle}
+          title={`Put the saved order of these ${plural} in a random order. You can undo it.`}
+        >
+          <Dices aria-hidden="true" />
+          Shuffle order
+        </button>
+      )}
       <button
         type="button"
         aria-pressed={selecting}
@@ -155,13 +207,17 @@ export function OrderToolbar<K extends string>({
         onClick={() => onSelecting(!selecting)}
       >
         <ListChecks aria-hidden="true" />
-        <span className="max-sm:sr-only">Select</span>
+        Select
       </button>
     </div>
   )
 }
 
-/** Explains a sort view and offers to save it, or offers Undo after a shuffle or saved sort. */
+/**
+ * Explains a sort view and offers to save it, or offers Undo after a shuffle or saved sort.
+ * Each of its buttons changes the notice or makes it go, and its button with it: focus moves
+ * to `focusAfter` (the sort button) first, so the keyboard never falls back to the page.
+ */
 export function OrderNotice<K extends string>({
   sorts,
   view,
@@ -169,6 +225,7 @@ export function OrderNotice<K extends string>({
   onSave,
   onCustom,
   onUndo,
+  focusAfter,
 }: {
   sorts: readonly { key: K; label: string }[]
   view: SortView<K>
@@ -176,17 +233,22 @@ export function OrderNotice<K extends string>({
   onSave: () => void
   onCustom: () => void
   onUndo: () => void
+  focusAfter?: () => HTMLElement | null
 }) {
   const link =
     'inline-flex h-touch items-center rounded-md font-semibold text-accent underline-offset-2 hover:underline lg:h-8 lg:pointer-coarse:h-touch'
+  const act = (action: () => void) => () => {
+    focusAfter?.()?.focus()
+    action()
+  }
   if (view.key !== 'custom') {
     return (
       <div className="flex flex-wrap items-center gap-x-4 rounded-lg bg-elevated px-3 py-1 text-sm">
         <p className="mr-auto py-2 text-text-muted">{describeSort(sorts, view)}.</p>
-        <button type="button" className={link} onClick={onSave}>
+        <button type="button" className={link} onClick={act(onSave)}>
           Save as custom order
         </button>
-        <button type="button" className={link} onClick={onCustom}>
+        <button type="button" className={link} onClick={act(onCustom)}>
           Show custom order
         </button>
       </div>
@@ -198,7 +260,7 @@ export function OrderNotice<K extends string>({
       <p className="mr-auto py-2 text-text-muted">
         {undo.action === 'shuffle' ? 'The order was shuffled.' : 'The sorted order was saved.'}
       </p>
-      <button type="button" className={link} onClick={onUndo}>
+      <button type="button" className={link} onClick={act(onUndo)}>
         {undo.action === 'shuffle' ? 'Undo shuffle' : 'Undo'}
       </button>
     </div>
@@ -244,9 +306,11 @@ export function SelectionBar({
 }
 
 /**
- * Shows a new order at once while it is saved, so a drop never flickers back to the old order
- * and a dragged row keeps focus. The live data takes over again once it has the new order, or
- * with the first update after the save, whatever it holds.
+ * Shows a new order at once while it is saved, so a drop never flickers back to the old order,
+ * a dragged row keeps focus and a saved sort shows as the custom order right away. The live
+ * data takes over again once it has the new order, or with the first update after the save,
+ * whatever it holds. `apply` returns what `save` returned; when that is `false` (nothing
+ * changed, so no update will come), the live data takes over at once.
  */
 export function useOptimisticOrder(ids: readonly string[]) {
   const [pending, setPending] = useState<{ order: string[]; settledOn?: readonly string[] } | null>(
@@ -260,13 +324,15 @@ export function useOptimisticOrder(ids: readonly string[]) {
   }, [ids, pending])
 
   const apply = useCallback(
-    async (next: string[], save: () => Promise<unknown>) => {
+    async <T,>(next: string[], save: () => Promise<T>): Promise<T> => {
       setPending({ order: next })
       try {
-        await save()
-        setPending((current) =>
-          current?.order === next ? { order: next, settledOn: ids } : current,
-        )
+        const result = await save()
+        setPending((current) => {
+          if (current?.order !== next) return current
+          return result === false ? null : { order: next, settledOn: ids }
+        })
+        return result
       } catch (error) {
         setPending(null)
         throw error

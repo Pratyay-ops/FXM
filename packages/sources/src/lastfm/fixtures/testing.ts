@@ -8,10 +8,15 @@
  * and MBIDs from ListenBrainz's similar artists for Radiohead and made-up `match` values. The
  * live test checks the real format when `FXM_LASTFM_API_KEY` is set.
  *
+ * `api-error-unknown-artist-synthetic.json` is not a recording either: it is the answer for an
+ * artist Last.fm cannot find, as a bug report's logs quote it (see `CLEAN-ROOM.md`); FXM needs a
+ * key to see it.
+ *
  * @module
  */
 
 import apiErrorMissingParameter from './api-error-missing-parameter.json'
+import apiErrorUnknownArtist from './api-error-unknown-artist-synthetic.json'
 import apiSimilarArtists from './api-similar-artists-synthetic.json'
 import { CLIENT_CHALLENGE_HTML } from './client-challenge'
 import stationArtist from './station-artist-radiohead.json'
@@ -29,4 +34,6 @@ export const fixtures = {
   apiSimilarArtists,
   /** The API's answer to a request without an API key (HTTP 400). */
   apiErrorMissingParameter,
+  /** The API's answer for an artist it cannot find (as reported, not recorded). */
+  apiErrorUnknownArtist,
 }

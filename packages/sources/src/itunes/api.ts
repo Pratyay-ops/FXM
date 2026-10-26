@@ -8,15 +8,9 @@
  */
 
 import { type Artwork, FxmError, type ProviderContext } from '@fxm/core'
-import { RequestGate } from '../recommend/internal/gate'
-import {
-  field,
-  getText,
-  maxAgeMs,
-  parseJson,
-  rateLimited,
-  retryAfterMs,
-} from '../recommend/internal/http'
+import { type PacedCallOptions, RequestGate } from '../shared/gate'
+import { field, getText, maxAgeMs, parseJson, rateLimited, retryAfterMs } from '../shared/http'
+import { wholeNumber } from '../shared/numbers'
 import { TtlCache } from '../shared/ttl-cache'
 
 /** The search endpoint. */
@@ -42,6 +36,11 @@ export interface ItunesSong {
   durationMs?: number
   /** The album's cover, 100 pixels square (see {@link itunesArtwork} for larger sizes). */
   artworkUrl?: string
+  /**
+   * The song's page in Apple's store (`trackViewUrl`), for the store badge that Apple's terms
+   * want next to its artwork.
+   */
+  storeUrl?: string
 }
 
 /** An album in the iTunes Store. */
@@ -54,6 +53,8 @@ export interface ItunesAlbum {
   artist: string
   /** The album's cover, 100 pixels square. */
   artworkUrl?: string
+  /** The album's page in Apple's store (`collectionViewUrl`), for the store badge. */
+  storeUrl?: string
 }
 
 /** Options for {@link createItunesClient}. All have defaults. */
@@ -65,16 +66,20 @@ export interface ItunesOptions {
   /** At most this many searches in any minute: Apple allows about 20. Default 20. */
   maxPerMinute?: number
   /**
-   * The longest a call waits for a free slot before failing with `RateLimited`. Artwork is never
-   * urgent, so a call waits rather than fails. Default 60,000.
+   * The longest a call waits for its turn, counted from when it was made (the searches ahead of
+   * it included), before failing with `RateLimited`. Artwork is never urgent, so a call waits
+   * rather than fails. Default 60,000.
    */
   maxWaitMs?: number
   /** How long to keep an answer when its `Cache-Control` does not say. Default 24 hours. */
   cacheTtlMs?: number
 }
 
-/** Options for one search. */
-export interface ItunesSearchOptions {
+/**
+ * Options for one search. Its `priority` puts background work (`bulk`, such as filling a list's
+ * artwork) behind the cover the user is looking at.
+ */
+export interface ItunesSearchOptions extends PacedCallOptions {
   /** At most this many results, from 1 to 200. Default 10. */
   limit?: number
   /**
@@ -89,9 +94,9 @@ export interface ItunesClient {
   /**
    * Songs matching `term`, in Apple's order.
    *
-   * Rejects with an `FxmError`: `RateLimited` when the per-minute limit is used up beyond
-   * `maxWaitMs` or Apple refuses with 403 or 429, `Network`, `Unavailable` for other HTTP errors
-   * and `Parse` for answers FXM cannot read.
+   * Rejects with an `FxmError`: `RateLimited` when the search would wait longer than
+   * `maxWaitMs` for its turn or Apple refuses with 403 or 429, `Network`, `Unavailable` for other
+   * HTTP errors and `Parse` for answers FXM cannot read.
    */
   searchSongs(
     term: string,
@@ -156,8 +161,27 @@ function artworkUrlOf(result: unknown): string | undefined {
   return typeof url === 'string' && itunesArtwork(url).length > 0 ? url : undefined
 }
 
+/**
+ * A store page from a result (`trackViewUrl`, `collectionViewUrl`), when it is an https URL on
+ * one of Apple's hosts, e.g. `https://music.apple.com/us/album/get-lucky/617154241?i=…`.
+ */
+export function itunesStoreUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return undefined
+  }
+  const host = url.hostname
+  if (url.protocol !== 'https:' || (host !== 'apple.com' && !host.endsWith('.apple.com'))) {
+    return undefined
+  }
+  return url.username === '' && url.password === '' && url.port === '' ? url.href : undefined
+}
+
 /** Reads a song search's answer, keeping only songs. */
-export function parseSongs(body: unknown): ItunesSong[] {
+export function parseItunesSongs(body: unknown): ItunesSong[] {
   const songs: ItunesSong[] = []
   for (const result of resultsOf(body)) {
     const trackId = field(result, 'trackId')
@@ -172,13 +196,15 @@ export function parseSongs(body: unknown): ItunesSong[] {
     if (typeof ms === 'number' && Number.isFinite(ms) && ms > 0) song.durationMs = Math.round(ms)
     const artworkUrl = artworkUrlOf(result)
     if (artworkUrl !== undefined) song.artworkUrl = artworkUrl
+    const storeUrl = itunesStoreUrl(field(result, 'trackViewUrl'))
+    if (storeUrl !== undefined) song.storeUrl = storeUrl
     songs.push(song)
   }
   return songs
 }
 
 /** Reads an album search's answer, keeping only albums. */
-export function parseAlbums(body: unknown): ItunesAlbum[] {
+export function parseItunesAlbums(body: unknown): ItunesAlbum[] {
   const albums: ItunesAlbum[] = []
   for (const result of resultsOf(body)) {
     const collectionId = field(result, 'collectionId')
@@ -189,6 +215,8 @@ export function parseAlbums(body: unknown): ItunesAlbum[] {
     const album: ItunesAlbum = { collectionId, name, artist }
     const artworkUrl = artworkUrlOf(result)
     if (artworkUrl !== undefined) album.artworkUrl = artworkUrl
+    const storeUrl = itunesStoreUrl(field(result, 'collectionViewUrl'))
+    if (storeUrl !== undefined) album.storeUrl = storeUrl
     albums.push(album)
   }
   return albums
@@ -216,7 +244,7 @@ export function createItunesClient(options: ItunesOptions = {}): ItunesClient {
     entity: 'song' | 'album',
     term: string,
     ctx: ProviderContext,
-    { limit = 10, country }: ItunesSearchOptions,
+    { limit, country, priority }: ItunesSearchOptions,
   ): Promise<unknown> {
     const store = [country, ctx.region, DEFAULT_ITUNES_COUNTRY].find(
       (code) => code !== undefined && /^[a-z]{2}$/iu.test(code),
@@ -226,43 +254,50 @@ export function createItunesClient(options: ItunesOptions = {}): ItunesClient {
       country: (store ?? DEFAULT_ITUNES_COUNTRY).toUpperCase(),
       media: 'music',
       entity,
-      limit: String(Math.min(200, Math.max(1, Math.round(limit)))),
+      limit: String(wholeNumber(limit, 10, 1, 200)),
     })
     const url = new URL(searchUrl)
     url.search = params.toString()
     const key = url.href
     const hit = cache.get(key)
     if (hit !== undefined) return hit
-    return gate.run(ctx.signal, async (ready) => {
-      const queued = cache.get(key)
-      if (queued !== undefined) return queued
-      await ready()
-      const response = await getText(ctx, key, { service: SERVICE, timeoutMs, maxBytes: 2_000_000 })
-      const { status, headers } = response
-      // Apple documents no error for its limit; 403 and 429 are both taken as "slow down".
-      if (status === 403 || status === 429) {
-        const delayMs = retryAfterMs(headers.get('retry-after'), 60_000)
-        throw rateLimited(SERVICE, gate.backOff(delayMs, true))
-      }
-      if (status !== 200) {
-        throw new FxmError('Unavailable', `iTunes Search answered with HTTP ${status}`)
-      }
-      const body = parseJson(response, SERVICE)
-      resultsOf(body)
-      const ttlMs = maxAgeMs(headers.get('cache-control')) ?? defaultTtlMs
-      cache.set(key, body, Math.min(MAX_TTL_MS, Math.max(MIN_TTL_MS, ttlMs)))
-      return body
-    })
+    return gate.run(
+      async (ready) => {
+        const queued = cache.get(key)
+        if (queued !== undefined) return queued
+        await ready()
+        const response = await getText(ctx, key, {
+          service: SERVICE,
+          timeoutMs,
+          maxBytes: 2_000_000,
+        })
+        const { status, headers } = response
+        // Apple documents no error for its limit; 403 and 429 are both taken as "slow down".
+        if (status === 403 || status === 429) {
+          const delayMs = retryAfterMs(headers.get('retry-after'), 60_000)
+          throw rateLimited(SERVICE, gate.backOff(delayMs, true))
+        }
+        if (status !== 200) {
+          throw new FxmError('Unavailable', `iTunes Search answered with HTTP ${status}`)
+        }
+        const body = parseJson(response, SERVICE)
+        resultsOf(body)
+        const ttlMs = maxAgeMs(headers.get('cache-control')) ?? defaultTtlMs
+        cache.set(key, body, Math.min(MAX_TTL_MS, Math.max(MIN_TTL_MS, ttlMs)))
+        return body
+      },
+      { signal: ctx.signal, priority },
+    )
   }
 
   return {
     async searchSongs(term, ctx, options = {}) {
       if (term.trim() === '') return []
-      return parseSongs(await search('song', term, ctx, options))
+      return parseItunesSongs(await search('song', term, ctx, options))
     },
     async searchAlbums(term, ctx, options = {}) {
       if (term.trim() === '') return []
-      return parseAlbums(await search('album', term, ctx, options))
+      return parseItunesAlbums(await search('album', term, ctx, options))
     },
   }
 }

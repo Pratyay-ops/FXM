@@ -12,49 +12,66 @@ import {
   type EntityId,
   entityKey,
   filterPlayable,
-  isFxmError,
   isTrackSeed,
   type ProviderContext,
   parseId,
-  type RadioSeed,
   type Shelf,
   type ShelfItem,
   type Track,
 } from '@fxm/core'
-import type { LastfmApi } from '../lastfm/api'
+import type { LastfmApiClient } from '../lastfm/api'
 import type { LastfmStations } from '../lastfm/station'
 import type { ListenBrainzClient } from '../listenbrainz/api'
+import { normalizeMbid } from '../shared/mbid'
+import { wholeNumber } from '../shared/numbers'
+import { isSpotifyError } from '../spotify/errors'
 import {
   type ArtistMbidLookup,
+  type AutoMatchSetting,
   type ClassificationBudget,
-  FULL_TIER,
   type SongForVideo,
-  SPOTIFY_ON,
   type SpotifyMetadata,
   type SpotifyRadio,
   type SpotifySwitch,
-  type TierCheck,
   UNLIMITED_CLASSIFICATION_BUDGET,
   type YouTubeLookup,
   type YouTubeRadio,
+  type YouTubeSeedFinder,
 } from './adapters'
-import { artistKey, songKey } from './internal/text'
-import { seedArtist, seedArtistName, seedRef, seedTitle, youtubeRadioSeed } from './seeds'
-import { rankScore, stationCandidates } from './stations'
+import { deadlineOf, type Job, type JobResult, runJobs, Skip } from './jobs'
+import { artistKey, songKey } from './keys'
+import {
+  isMusicMode,
+  seedArtist,
+  seedArtistMbid,
+  seedArtistName,
+  seedRef,
+  seedTitle,
+  youtubeRadioSeed,
+} from './seeds'
+import { DEFAULT_MAX_CLASSIFICATION_MS, rankScore, stationCandidates } from './stations'
 import type {
   ArtistCandidate,
   CandidateArtist,
+  CandidatePart,
   Collection,
   HomeCollection,
   RecommendationCandidate,
-  RecommendationPart,
+  RecommendationSeed,
   RecommendationSource,
   SeedRef,
   SkipReason,
-  SourceOutcome,
+  SourceResult,
   SourceShelf,
+  SourceShelves,
   TrackCandidate,
 } from './types'
+
+/** By default, classify at most this many station items' videos. */
+export const DEFAULT_MAX_CLASSIFICATIONS = 8
+
+/** By default, at most this many candidates from each source and part. */
+export const DEFAULT_LIMIT = 50
 
 /** The sources and adapters a collector uses. Every one is optional: leave out what the app lacks. */
 export interface RecommendationCollectorOptions {
@@ -62,44 +79,94 @@ export interface RecommendationCollectorOptions {
   youtube?: YouTubeRadio
   /** Looks YouTube videos up, to classify Last.fm station items in Music mode (stage 1.3). */
   youtubeLookup?: YouTubeLookup
+  /**
+   * Finds a YouTube seed for a seed without a YouTube ID, e.g. a Spotify track (stages 1.3 and
+   * 1.7). Without it, YouTube Music radio skips such seeds (`unsupported-seed`).
+   */
+  youtubeSeed?: YouTubeSeedFinder
   /** Spotify's radio and home feed (stage 1.5). */
   spotify?: SpotifyRadio
   /** Spotify's related artists and artist search (stage 1.5). */
   spotifyMetadata?: SpotifyMetadata
-  /** Whether the user's Spotify switch is on. Default: on. */
+  /**
+   * Whether the user's Spotify switch is on. Default: the Spotify provider's own `isAvailable`
+   * when it has one (stage 1.5's does), else on.
+   */
   spotifyEnabled?: SpotifySwitch
-  /** Last.fm's station JSON (Full tier). */
+  /** Last.fm's station JSON (Full tier: see its `reachable` option). */
   lastfmStations?: LastfmStations
   /** The Last.fm API, for similar artists: only when the app has a Last.fm API key. */
-  lastfmApi?: LastfmApi
+  lastfmApi?: LastfmApiClient
   /** ListenBrainz's labs API, for similar artists. */
   listenbrainz?: ListenBrainzClient
-  /** The request budget's room for classifying station items (stage 1.2). Default: unlimited. */
+  /**
+   * The request budget's room, and the context, for classifying station items (stage 1.2).
+   * Default: no limit of its own, and the caller's context.
+   */
   classificationBudget?: ClassificationBudget
-  /** Whether the platform is in the Full tier (stage 1.2). Default {@link FULL_TIER}. */
-  fullTier?: TierCheck
-  /** The video-to-song rule (stage 1.7). Without it, official videos without a link don't count. */
+  /**
+   * The video-to-song rule (stage 1.7). Without it, official videos without a song link seed no
+   * YouTube Music radio and become song searches in stations.
+   */
   songForVideo?: SongForVideo
-  /** MusicBrainz IDs for artist seeds (stage 1.6). Without it, ListenBrainz skips artist seeds. */
+  /**
+   * Whether the user's Auto setting lets matches play unasked (stage 1.7). Only then does a
+   * station's official video become its matched song. Default: off.
+   */
+  autoMatch?: AutoMatchSetting
+  /** MusicBrainz IDs for artist seeds that carry none (stage 1.6). Without it, ListenBrainz skips them. */
   artistMbid?: ArtistMbidLookup
-  /** Classify at most this many items of one Last.fm station. Default 8. */
+  /**
+   * Make at most this many classification calls for one Last.fm station (lookups, linked songs
+   * and video-to-song calls). Default {@link DEFAULT_MAX_CLASSIFICATIONS}; a value that is not a
+   * whole number of at least 0 means the default.
+   */
   maxClassifications?: number
+  /**
+   * Stop classifying a station this many milliseconds after its first call; the rest become
+   * song searches. Default {@link DEFAULT_MAX_CLASSIFICATION_MS}.
+   */
+  maxClassificationMs?: number
 }
 
 /** Options for one {@link RecommendationCollector.collect} call. */
 export interface CollectOptions {
-  /** Which parts to run. Default `radio`, `station` and `similar-artists`. */
-  parts?: readonly RecommendationPart[]
-  /** At most this many candidates from each source and part. Default 50. */
+  /** Which parts to run. Default {@link DEFAULT_PARTS}. */
+  parts?: readonly CandidatePart[]
+  /**
+   * At most this many candidates from each source and part. Default {@link DEFAULT_LIMIT}; a
+   * value that is not a finite number means the default, and others are rounded down to 0 or
+   * more.
+   */
   limit?: number
+  /**
+   * Stop waiting after this many milliseconds: the sources that have not finished are cancelled
+   * and reported as `timed-out`, and the call resolves with what the others found.
+   */
+  deadlineMs?: number
+  /**
+   * Called with each source's result as soon as it has one, in the order they finish, for
+   * screens that show what is ready (sources that time out included). It must not throw: if it
+   * does, the call rejects with its error.
+   */
+  onResult?: (result: SourceResult) => void
+}
+
+/** Options for one {@link RecommendationCollector.home} call. */
+export interface HomeOptions {
+  /** Stop waiting after this many milliseconds, as for {@link CollectOptions.deadlineMs}. */
+  deadlineMs?: number
+  /** Called with each source's shelves as soon as it has them. It must not throw. */
+  onResult?: (result: SourceShelves) => void
 }
 
 /** Collects recommendations from every source that can run. */
 export interface RecommendationCollector {
   /**
    * Candidates for `seed` from every source that can run on this platform, in this mode, with
-   * the user's settings, all at once. A source that fails, or cannot run, adds nothing and
-   * reports why in `outcomes`; only a cancelled `ctx.signal` rejects, with its reason.
+   * the user's settings, all at once. A source that fails, cannot run, or misses the deadline
+   * adds nothing and reports why in `outcomes`. Only a cancelled `ctx.signal` rejects, with its
+   * reason, at once, whether or not the sources heed it.
    *
    * - **YouTube Music radio** (`radio`), whenever YouTube can be reached. In Music mode it is
    *   seeded with the song and filtered to songs.
@@ -110,34 +177,28 @@ export interface RecommendationCollector {
    * - **Last.fm similar artists** (`similar-artists`), with an API key.
    * - **ListenBrainz similar artists** (`similar-artists`), which need no key.
    */
-  collect(seed: RadioSeed, ctx: ProviderContext, options?: CollectOptions): Promise<Collection>
+  collect(
+    seed: RecommendationSeed,
+    ctx: ProviderContext,
+    options?: CollectOptions,
+  ): Promise<Collection>
   /**
    * The home feeds of the sources that have one (YouTube Music; Spotify when it is on and
    * reachable), with their tracks filtered to the catalog mode.
    */
-  home(ctx: ProviderContext): Promise<HomeCollection>
+  home(ctx: ProviderContext, options?: HomeOptions): Promise<HomeCollection>
 }
 
 /** The parts {@link RecommendationCollector.collect} runs by default. */
-export const DEFAULT_PARTS: readonly RecommendationPart[] = ['radio', 'station', 'similar-artists']
-
-/** What one source's job yields. */
-interface JobResult<T> {
-  items: T[]
-  outcome: SourceOutcome
-}
-
-/** A job that did not run. */
-class Skip {
-  constructor(readonly reason: SkipReason) {}
-}
+export const DEFAULT_PARTS: readonly CandidatePart[] = ['radio', 'station', 'similar-artists']
 
 /**
  * The tracks of a list that recommendations may hold in `mode`: songs in Music mode ("filtered
- * to songs"), anything but episodes in Music + Video. Each track once.
+ * to songs"), anything but episodes in Music + Video. An unknown mode gets Music mode's rules.
+ * Each track once.
  */
 export function tracksForMode(tracks: readonly Track[], mode: CatalogMode): Track[] {
-  const kept = mode === 'music' ? filterPlayable(tracks, 'music') : applyModeFilter(tracks, mode)
+  const kept = isMusicMode(mode) ? filterPlayable(tracks, 'music') : applyModeFilter(tracks, 'all')
   const seen = new Set<string>()
   return kept.filter((track) => {
     const key = entityKey(track.id)
@@ -160,35 +221,11 @@ function shelfForMode(shelf: Shelf, mode: CatalogMode): Shelf {
   return { ...shelf, items }
 }
 
-/** Runs one source's job and records what happened. Only a cancellation rejects. */
-async function run<T>(
-  source: RecommendationSource,
-  part: RecommendationPart,
-  ctx: ProviderContext,
-  job: () => Promise<T[] | Skip>,
-): Promise<JobResult<T>> {
-  try {
-    const result = await job()
-    if (result instanceof Skip) {
-      return { items: [], outcome: { source, part, status: 'skipped', reason: result.reason } }
-    }
-    return { items: result, outcome: { source, part, status: 'ok', count: result.length } }
-  } catch (error) {
-    if (ctx.signal?.aborted) throw ctx.signal.reason
-    if (isFxmError(error, 'Unsupported')) {
-      return { items: [], outcome: { source, part, status: 'skipped', reason: 'unsupported-seed' } }
-    }
-    const code = isFxmError(error) ? error.code : 'Unknown'
-    const message = error instanceof Error ? error.message : String(error)
-    return { items: [], outcome: { source, part, status: 'failed', code, message } }
-  }
-}
-
 /** Tracks as candidates of one source and part, scored by rank. */
 function trackCandidates(
   tracks: readonly Track[],
   source: RecommendationSource,
-  part: RecommendationPart,
+  part: CandidatePart,
   seed: SeedRef,
 ): TrackCandidate[] {
   return tracks.map((track, rank) => ({
@@ -203,7 +240,7 @@ function trackCandidates(
   }))
 }
 
-/** An artist candidate, unless it is the seed's own artist. */
+/** An artist candidate, unless it has no name or is the seed's own artist. */
 function artistCandidate(
   artist: CandidateArtist,
   base: Omit<ArtistCandidate, 'type' | 'artist' | 'key'>,
@@ -215,30 +252,56 @@ function artistCandidate(
 }
 
 /** The Spotify artist ID of the seed's main artist, when its source is Spotify. */
-function spotifyArtistId(seed: RadioSeed): EntityId<'artist'> | undefined {
+function spotifyArtistId(seed: RecommendationSeed): EntityId<'artist'> | undefined {
   const id = seedArtist(seed)?.id
-  return id !== undefined && parseId(id).source === 'spotify' ? id : undefined
+  return id !== undefined && parseId(id as unknown)?.source === 'spotify' ? id : undefined
+}
+
+/**
+ * The Spotify provider's explicit refusals that are skips: a seed it cannot place, and its own
+ * switch and reachability checks (when the app's switch and the provider's disagree).
+ */
+function spotifySkipFor(error: unknown): SkipReason | undefined {
+  if (isSpotifyError(error, 'unsupported-seed')) return 'unsupported-seed'
+  if (isSpotifyError(error, 'disabled')) return 'switched-off'
+  if (isSpotifyError(error, 'unreachable')) return 'unreachable'
+  return undefined
 }
 
 /** Creates a {@link RecommendationCollector} over the given sources and adapters. */
 export function createRecommendationCollector(
   options: RecommendationCollectorOptions = {},
 ): RecommendationCollector {
-  const spotifyEnabled = options.spotifyEnabled ?? SPOTIFY_ON
-  const fullTier = options.fullTier ?? FULL_TIER
   const budget = options.classificationBudget ?? UNLIMITED_CLASSIFICATION_BUDGET
-  const maxClassifications = options.maxClassifications ?? 8
+  const requested = options.maxClassifications
+  const maxClassifications =
+    requested !== undefined && Number.isInteger(requested) && requested >= 0
+      ? requested
+      : DEFAULT_MAX_CLASSIFICATIONS
+  const maxClassificationMs = wholeNumber(
+    options.maxClassificationMs,
+    DEFAULT_MAX_CLASSIFICATION_MS,
+  )
+
+  /** Whether the user's Spotify switch is on: the app's switch, else the provider's own. */
+  function spotifySwitchedOn(ctx: ProviderContext): boolean {
+    if (options.spotifyEnabled !== undefined) return options.spotifyEnabled(ctx)
+    const { spotify, spotifyMetadata } = options
+    if (spotify?.isAvailable !== undefined) return spotify.isAvailable(ctx)
+    if (spotifyMetadata?.isAvailable !== undefined) return spotifyMetadata.isAvailable(ctx)
+    return true
+  }
 
   /** Why Spotify cannot run now, or `undefined` when it can. */
   function spotifySkip(ctx: ProviderContext): SkipReason | undefined {
-    if (!spotifyEnabled()) return 'switched-off'
     if (ctx.capabilities.spotify === 'unreachable') return 'unreachable'
+    if (!spotifySwitchedOn(ctx)) return 'switched-off'
     return undefined
   }
 
   /** The Spotify artist to ask for related artists: the seed's own, else a search by name. */
   async function spotifyArtist(
-    seed: RadioSeed,
+    seed: RecommendationSeed,
     metadata: SpotifyMetadata,
     ctx: ProviderContext,
   ): Promise<EntityId<'artist'> | undefined> {
@@ -251,14 +314,21 @@ export function createRecommendationCollector(
     return results.artists?.items.find((artist) => artistKey(artist.name) === wanted)?.id
   }
 
-  /** The MusicBrainz ID of the seed's main artist, for ListenBrainz. */
+  /**
+   * The MusicBrainz ID of the seed's main artist, for ListenBrainz: the one an artist seed
+   * carries, else the `artistMbid` adapter's for an artist, ListenBrainz's lookup for a track.
+   */
   async function artistMbid(
-    seed: RadioSeed,
+    seed: RecommendationSeed,
     listenbrainz: ListenBrainzClient,
     ctx: ProviderContext,
   ): Promise<string | undefined> {
+    const known = seedArtistMbid(seed)
+    if (known !== undefined) return known
     if (!isTrackSeed(seed)) {
-      return (await options.artistMbid?.(seed, ctx)) ?? undefined
+      const found = await options.artistMbid?.(seed, ctx)
+      // A value that is not an MBID is passed on as it is, for ListenBrainz to refuse loudly.
+      return found === null || found === undefined ? undefined : (normalizeMbid(found) ?? found)
     }
     const artist = seedArtistName(seed)
     const title = seedTitle(seed)
@@ -268,85 +338,107 @@ export function createRecommendationCollector(
   }
 
   return {
-    async collect(seed, ctx, { parts = DEFAULT_PARTS, limit = 50 } = {}) {
+    async collect(seed, ctx, { parts = DEFAULT_PARTS, limit, deadlineMs, onResult } = {}) {
+      const count = wholeNumber(limit, DEFAULT_LIMIT)
       const ref = seedRef(seed)
       const seedKey = artistKey(seedArtistName(seed))
-      const wants = (part: RecommendationPart) => parts.includes(part)
-      const jobs: Array<Promise<JobResult<RecommendationCandidate>>> = []
+      const jobs: Job<RecommendationCandidate>[] = []
       const job = (
         source: RecommendationSource,
-        part: RecommendationPart,
-        work: () => Promise<RecommendationCandidate[] | Skip>,
+        part: CandidatePart,
+        work: Job<RecommendationCandidate>['work'],
+        skipFor?: Job<RecommendationCandidate>['skipFor'],
       ) => {
-        if (wants(part)) jobs.push(run(source, part, ctx, work))
+        if (!parts.includes(part)) return
+        jobs.push(skipFor === undefined ? { source, part, work } : { source, part, work, skipFor })
       }
 
-      job('ytm', 'radio', async () => {
+      job('ytm', 'radio', async (jobCtx) => {
         const { youtube } = options
         if (youtube === undefined) return new Skip('not-configured')
-        if (ctx.capabilities.youtube === 'none') return new Skip('unreachable')
-        const radioSeed = await youtubeRadioSeed(seed, ctx, options.songForVideo)
-        if (radioSeed === null) return new Skip('unsupported-seed')
-        const tracks = tracksForMode(await youtube.radio(radioSeed, ctx), ctx.mode)
-        return trackCandidates(tracks.slice(0, limit), 'ytm', 'radio', ref)
-      })
-
-      job('spotify', 'radio', async () => {
-        const { spotify } = options
-        if (spotify === undefined) return new Skip('not-configured')
-        const skip = spotifySkip(ctx)
-        if (skip !== undefined) return new Skip(skip)
-        const tracks = tracksForMode(await spotify.radio(seed, ctx), ctx.mode)
-        return trackCandidates(tracks.slice(0, limit), 'spotify', 'radio', ref)
-      })
-
-      job('spotify', 'similar-artists', async () => {
-        const metadata = options.spotifyMetadata
-        const getRelated = metadata?.getRelatedArtists?.bind(metadata)
-        if (metadata === undefined || getRelated === undefined) return new Skip('not-configured')
-        const skip = spotifySkip(ctx)
-        if (skip !== undefined) return new Skip(skip)
-        const id = await spotifyArtist(seed, metadata, ctx)
-        if (id === undefined) return new Skip('unsupported-seed')
-        const related: Artist[] = (await getRelated(id, ctx)).slice(0, limit)
-        return related.flatMap((artist, rank) => {
-          const candidate = artistCandidate(
-            { name: artist.name, id: artist.id, artwork: artist.artwork },
-            {
-              source: 'spotify',
-              part: 'similar-artists',
-              seed: ref,
-              rank,
-              score: rankScore(rank, related.length),
-            },
-            seedKey,
-          )
-          return candidate === null ? [] : [candidate]
+        if (jobCtx.capabilities.youtube === 'none') return new Skip('unreachable')
+        if (count === 0) return []
+        const radioSeed = await youtubeRadioSeed(seed, jobCtx, {
+          songForVideo: options.songForVideo,
+          youtubeSeed: options.youtubeSeed,
         })
+        if (radioSeed === null) return new Skip('unsupported-seed')
+        const tracks = tracksForMode(await youtube.radio(radioSeed, jobCtx), jobCtx.mode)
+        return trackCandidates(tracks.slice(0, count), 'ytm', 'radio', ref)
       })
 
-      job('lastfm', 'station', async () => {
+      job(
+        'spotify',
+        'radio',
+        async (jobCtx) => {
+          const { spotify } = options
+          if (spotify === undefined) return new Skip('not-configured')
+          const skip = spotifySkip(jobCtx)
+          if (skip !== undefined) return new Skip(skip)
+          if (count === 0) return []
+          const tracks = tracksForMode(await spotify.radio(seed, jobCtx), jobCtx.mode)
+          return trackCandidates(tracks.slice(0, count), 'spotify', 'radio', ref)
+        },
+        spotifySkipFor,
+      )
+
+      job(
+        'spotify',
+        'similar-artists',
+        async (jobCtx) => {
+          const metadata = options.spotifyMetadata
+          const getRelated = metadata?.getRelatedArtists?.bind(metadata)
+          if (metadata === undefined || getRelated === undefined) return new Skip('not-configured')
+          const skip = spotifySkip(jobCtx)
+          if (skip !== undefined) return new Skip(skip)
+          if (count === 0) return []
+          const id = await spotifyArtist(seed, metadata, jobCtx)
+          if (id === undefined) return new Skip('unsupported-seed')
+          const related: Artist[] = (await getRelated(id, jobCtx)).slice(0, count)
+          return related.flatMap((artist, rank) => {
+            const candidate = artistCandidate(
+              { name: artist.name, id: artist.id, artwork: artist.artwork },
+              {
+                source: 'spotify',
+                part: 'similar-artists',
+                seed: ref,
+                rank,
+                score: rankScore(rank, related.length),
+              },
+              seedKey,
+            )
+            return candidate === null ? [] : [candidate]
+          })
+        },
+        spotifySkipFor,
+      )
+
+      job('lastfm', 'station', async (jobCtx) => {
         const stations = options.lastfmStations
         if (stations === undefined) return new Skip('not-configured')
-        if (!fullTier(ctx.capabilities)) return new Skip('needs-full-tier')
+        if (!stations.isReachable(jobCtx)) return new Skip('needs-full-tier')
         const artist = seedArtistName(seed)
         if (artist === '') return new Skip('unsupported-seed')
-        const items = await stations.station({ type: 'similar', artist }, ctx)
-        return stationCandidates(items.slice(0, limit), ref, ctx, {
+        if (count === 0) return []
+        const items = await stations.station({ type: 'similar', artist }, jobCtx)
+        return stationCandidates(items.slice(0, count), ref, jobCtx, {
           budget,
           maxClassifications,
-          ...(options.youtubeLookup === undefined ? {} : { lookup: options.youtubeLookup }),
-          ...(options.songForVideo === undefined ? {} : { songForVideo: options.songForVideo }),
+          maxClassificationMs,
+          lookup: options.youtubeLookup,
+          songForVideo: options.songForVideo,
+          autoMatch: options.autoMatch,
         })
       })
 
-      job('lastfm', 'similar-artists', async () => {
+      job('lastfm', 'similar-artists', async (jobCtx) => {
         const api = options.lastfmApi
         if (api === undefined) return new Skip('not-configured')
         const artist = seedArtistName(seed)
         if (artist === '') return new Skip('unsupported-seed')
-        const similar = await api.similarArtists(artist, ctx, { limit })
-        return similar.flatMap((found, rank) => {
+        if (count === 0) return []
+        const similar = await api.similarArtists(artist, jobCtx, { limit: count })
+        return similar.slice(0, count).flatMap((found, rank) => {
           const candidate = artistCandidate(
             {
               name: found.name,
@@ -367,13 +459,14 @@ export function createRecommendationCollector(
         })
       })
 
-      job('listenbrainz', 'similar-artists', async () => {
+      job('listenbrainz', 'similar-artists', async (jobCtx) => {
         const { listenbrainz } = options
         if (listenbrainz === undefined) return new Skip('not-configured')
-        const mbid = await artistMbid(seed, listenbrainz, ctx)
+        if (count === 0) return []
+        const mbid = await artistMbid(seed, listenbrainz, jobCtx)
         if (mbid === undefined) return new Skip('unsupported-seed')
-        const similar = await listenbrainz.similarArtists(mbid, ctx, { limit })
-        return similar.flatMap((found, rank) => {
+        const similar = await listenbrainz.similarArtists(mbid, jobCtx, { limit: count })
+        return similar.slice(0, count).flatMap((found, rank) => {
           const candidate = artistCandidate(
             { name: found.name, mbid: found.mbid, artwork: [] },
             {
@@ -389,36 +482,66 @@ export function createRecommendationCollector(
         })
       })
 
-      const results = await Promise.all(jobs)
+      const results = await runJobs(jobs, ctx, {
+        deadlineMs: deadlineOf(deadlineMs),
+        onResult:
+          onResult === undefined
+            ? undefined
+            : (result: JobResult<RecommendationCandidate>) =>
+                onResult({ outcome: result.outcome, candidates: result.items }),
+      })
       return {
         candidates: results.flatMap((result) => result.items),
         outcomes: results.map((result) => result.outcome),
       }
     },
 
-    async home(ctx) {
-      const jobs: Array<Promise<JobResult<SourceShelf>>> = []
-      const shelvesOf = (source: RecommendationSource, shelves: readonly Shelf[]) =>
+    async home(ctx, { deadlineMs, onResult } = {}) {
+      const shelvesOf = (
+        source: RecommendationSource,
+        shelves: readonly Shelf[],
+        mode: CatalogMode,
+      ) =>
         shelves
-          .map((shelf) => ({ source, shelf: shelfForMode(shelf, ctx.mode) }))
+          .map((shelf) => ({ source, shelf: shelfForMode(shelf, mode) }))
           .filter(({ shelf }) => shelf.items.length > 0)
 
-      jobs.push(
-        run('ytm', 'home', ctx, async () => {
-          const home = options.youtube?.home?.bind(options.youtube)
-          if (home === undefined) return new Skip('not-configured')
-          if (ctx.capabilities.youtube === 'none') return new Skip('unreachable')
-          return shelvesOf('ytm', await home(ctx))
-        }),
-        run('spotify', 'home', ctx, async () => {
-          const home = options.spotify?.home?.bind(options.spotify)
-          if (home === undefined) return new Skip('not-configured')
-          const skip = spotifySkip(ctx)
-          if (skip !== undefined) return new Skip(skip)
-          return shelvesOf('spotify', await home(ctx))
-        }),
-      )
-      const results = await Promise.all(jobs)
+      const jobs: Job<SourceShelf>[] = [
+        {
+          source: 'ytm',
+          part: 'home',
+          work: async (jobCtx) => {
+            const home = options.youtube?.home?.bind(options.youtube)
+            if (home === undefined) return new Skip('not-configured')
+            if (jobCtx.capabilities.youtube === 'none') return new Skip('unreachable')
+            return shelvesOf('ytm', await home(jobCtx), jobCtx.mode)
+          },
+        },
+        {
+          source: 'spotify',
+          part: 'home',
+          work: async (jobCtx) => {
+            const home = options.spotify?.home?.bind(options.spotify)
+            if (home === undefined) return new Skip('not-configured')
+            const skip = spotifySkip(jobCtx)
+            if (skip !== undefined) return new Skip(skip)
+            return shelvesOf('spotify', await home(jobCtx), jobCtx.mode)
+          },
+          // A home feed has no seed, so only the switch and reachability refusals are skips.
+          skipFor: (error) => {
+            const reason = spotifySkipFor(error)
+            return reason === 'unsupported-seed' ? undefined : reason
+          },
+        },
+      ]
+      const results = await runJobs(jobs, ctx, {
+        deadlineMs: deadlineOf(deadlineMs),
+        onResult:
+          onResult === undefined
+            ? undefined
+            : (result: JobResult<SourceShelf>) =>
+                onResult({ outcome: result.outcome, shelves: result.items }),
+      })
       return {
         shelves: results.flatMap((result) => result.items),
         outcomes: results.map((result) => result.outcome),

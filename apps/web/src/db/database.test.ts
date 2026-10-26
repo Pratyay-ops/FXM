@@ -263,10 +263,59 @@ describe('library database', () => {
     expect(upgradeMatchRecord(null)).toBeNull()
     expect(upgradeMatchRecord({ sourceTrackId: 'nope', band: 'auto' })).toBeNull()
     expect(upgradeMatchRecord({ sourceTrackId: spotifyA, band: 'maybe' })).toBeNull()
+    // A candidate that isn't one: the decision is dropped, so the engine decides again.
+    for (const candidate of [null, 'videoId', { ...song, confidence: 7 }, { ref: 'x' }]) {
+      expect(upgradeMatchRecord({ sourceTrackId: spotifyA, band: 'auto', candidate })).toBeNull()
+    }
+    // Bad alternatives and evidence are left out; unknown fields are never copied.
+    expect(
+      upgradeMatchRecord({
+        sourceTrackId: spotifyA,
+        band: 'auto',
+        candidate: { ...song, extra: 'smuggled' },
+        alternatives: [video, null, 'x', { ...video, kind: 'podcast' }],
+        decidedAt: Number.NaN,
+      }),
+    ).toEqual({
+      key: `${entityKey(spotifyA)}|music`,
+      sourceKey: entityKey(spotifyA),
+      sourceTrackId: spotifyA,
+      mode: 'music',
+      band: 'auto',
+      candidate: song,
+      alternatives: [video],
+      signals: song.signals,
+      evidence: ['isrc'],
+      userPinned: false,
+      decidedAt: 0,
+    })
     // An override without a candidate pins nothing.
     expect(
       upgradeMatchRecord({ sourceTrackId: spotifyA, band: 'none', userOverride: true }),
     ).toMatchObject({ mode: 'music', userPinned: false, alternatives: [], evidence: [] })
+  })
+
+  it('still opens a version 1 library whose match cache holds broken rows', async () => {
+    const name = uniqueName()
+    await writeVersion1(name)
+    const v1 = new Dexie(name)
+    v1.version(1).stores(SCHEMA_V1)
+    const spotifyD = formatId('spotify', 'track', 'dddddddddddddddddddddd')
+    const spotifyE = formatId('spotify', 'track', 'eeeeeeeeeeeeeeeeeeeeee')
+    await v1.table('matchCache').bulkPut([
+      { key: entityKey(spotifyD), sourceTrackId: spotifyD, band: 'auto', candidate: null },
+      { key: entityKey(spotifyE), sourceTrackId: spotifyE, band: 'auto', candidate: 'videoId' },
+    ])
+    v1.close()
+
+    const db = openDatabase(name)
+    await db.open()
+
+    expect(db.verno).toBe(SCHEMA_VERSION)
+    // Version 1 wrote three good decisions; both broken rows are gone.
+    expect(await db.matchCache.count()).toBe(3)
+    expect(await db.playlists.count()).toBe(3)
+    db.close()
   })
 
   it('brings back a built-in playlist that went missing, on the next open', async () => {

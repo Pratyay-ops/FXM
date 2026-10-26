@@ -1,0 +1,47 @@
+// FXM's native HTTP (stage 6.2): one OkHttp client without cookies and with FXM's host and
+// header policy, shared by the FxmHttp Capacitor plugin (the web app's fetch on Android) and,
+// from stage 6.3, the Media3 player. See README.md next to this file.
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace = "io.github.pratyayops.fxm.http"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    testOptions {
+        unitTests.all {
+            // The tests run offline against MockWebServer on the loopback interface.
+            systemProperty 'java.net.preferIPv4Stack', 'true'
+            testLogging {
+                events 'failed'
+                exceptionFormat 'full'
+            }
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    // `api`: the Media3 player (stage 6.3) builds its data source on the same OkHttpClient.
+    api "com.squareup.okhttp3:okhttp:$okhttpVersion"
+
+    testImplementation "junit:junit:$junitVersion"
+    testImplementation "com.squareup.okhttp3:mockwebserver3:$okhttpVersion"
+    testImplementation "com.squareup.okhttp3:okhttp-tls:$okhttpVersion"
+    // The real org.json for the plugin's message tests (android.jar only has stubs of it).
+    testImplementation "org.json:json:$orgJsonVersion"
+}

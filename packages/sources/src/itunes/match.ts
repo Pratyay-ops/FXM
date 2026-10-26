@@ -1,23 +1,18 @@
 /**
  * Picks the iTunes result whose cover belongs to a track. Searches are noisy: for "Radiohead
  * Creep" the US store's top 25 held covers, lullaby versions, an acoustic EP and other artists'
- * songs called "Creep", but not the original. So a result must be by the track's artist and have
- * its title (or album) and its version; anything else gives no artwork rather than a wrong one.
+ * songs called "Creep", but not the original. So a result must be by the track's artist (by name,
+ * not a tribute or karaoke act whose name contains it) and have its title (or album) and its
+ * version; anything else gives no artwork rather than a wrong one.
  *
  * @module
  */
 
-import {
-  artistSimilarity,
-  comparable,
-  readTitle,
-  sameVersions,
-  similarity,
-} from '../recommend/internal/text'
+import { comparable, readTitle, sameArtist, sameVersions, similarity } from '../shared/names'
 import type { ItunesAlbum, ItunesSong } from './api'
 
 /** What a cover is looked up for. */
-export interface ArtworkQuery {
+export interface ItunesArtworkQuery {
   /** The track's title. */
   title: string
   /** Its artists' names, main artist first. */
@@ -28,8 +23,6 @@ export interface ArtworkQuery {
   durationMs?: number
 }
 
-/** A result must be by an artist at least this similar. */
-const MIN_ARTIST = 0.6
 /** A title or album name must be at least this similar. */
 const MIN_NAME = 0.9
 /** A song whose duration is further off than this is another cut, e.g. a remix. */
@@ -40,7 +33,7 @@ function albumName(name: string): string {
   return name.replace(/\s+-\s+(?:single|ep)$/iu, '')
 }
 
-/** How alike two titles are, and whether their versions agree, after {@link readTitle}. */
+/** How alike two titles are, and whether their versions agree, after `readTitle`. */
 function compareTitles(wanted: string, theirs: string, artists: readonly string[]) {
   const a = readTitle(wanted, artists)
   const b = readTitle(theirs, artists)
@@ -52,15 +45,19 @@ function compareTitles(wanted: string, theirs: string, artists: readonly string[
 }
 
 /**
- * The song among `songs` that is the track: by its artist (similarity 0.6 or more), with its
- * title (0.9 or more for the title proper) and the same strong version tags, and no more than
- * 30 s longer or shorter when both durations are known. Among those, the exact title wins, then
- * the track's album, then Apple's order. `null` when none qualifies.
+ * The song among `songs` that is the track: by its artist (a name of the credit at least 0.9
+ * similar to one of the track's artists), with its title (0.9 or more for the title proper) and
+ * the same strong version tags, and no more than 30 s longer or shorter when both durations are
+ * known. Among those, the exact title wins, then the track's album, then Apple's order. `null`
+ * when none qualifies.
  */
-export function bestSong(songs: readonly ItunesSong[], query: ArtworkQuery): ItunesSong | null {
+export function bestItunesSong(
+  songs: readonly ItunesSong[],
+  query: ItunesArtworkQuery,
+): ItunesSong | null {
   let best: { song: ItunesSong; rank: number } | null = null
   for (const song of songs) {
-    if (artistSimilarity(query.artists, song.artist) < MIN_ARTIST) continue
+    if (!sameArtist(query.artists, song.artist)) continue
     const title = compareTitles(query.title, song.title, query.artists)
     if (title.score < MIN_NAME || !title.sameVersion) continue
     const { durationMs } = query
@@ -82,17 +79,20 @@ export function bestSong(songs: readonly ItunesSong[], query: ArtworkQuery): Itu
 }
 
 /**
- * The album among `albums` that is the track's: by its artist (similarity 0.6 or more), named
- * like it (0.9 or more for the name proper, without " - Single" or " - EP") with the same strong
- * version tags. The exact name wins over an edition such as "(10th Anniversary Edition)", then
- * Apple's order. `null` when none qualifies, or the query has no album.
+ * The album among `albums` that is the track's: by its artist (as for {@link bestItunesSong}),
+ * named like it (0.9 or more for the name proper, without " - Single" or " - EP") with the same
+ * strong version tags. The exact name wins over an edition such as "(10th Anniversary Edition)",
+ * then Apple's order. `null` when none qualifies, or the query has no album.
  */
-export function bestAlbum(albums: readonly ItunesAlbum[], query: ArtworkQuery): ItunesAlbum | null {
+export function bestItunesAlbum(
+  albums: readonly ItunesAlbum[],
+  query: ItunesArtworkQuery,
+): ItunesAlbum | null {
   if (query.album === undefined) return null
   const wanted = albumName(query.album)
   let best: { album: ItunesAlbum; rank: number } | null = null
   for (const album of albums) {
-    if (artistSimilarity(query.artists, album.artist) < MIN_ARTIST) continue
+    if (!sameArtist(query.artists, album.artist)) continue
     const name = compareTitles(wanted, albumName(album.name), query.artists)
     if (name.score < MIN_NAME || !name.sameVersion) continue
     const rank = name.exact ? 1 : 0

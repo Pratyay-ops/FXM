@@ -1,10 +1,20 @@
-import { FxmError, formatId, type RadioSeed, type Shelf, type Track } from '@fxm/core'
-import { describe, expect, it } from 'vitest'
+import {
+  type CatalogMode,
+  FxmError,
+  formatId,
+  type ProviderContext,
+  type RadioSeed,
+  type Shelf,
+  type Track,
+} from '@fxm/core'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import stationSimilar from '../lastfm/fixtures/station-similar-radiohead.json'
-import { createLastfmStations } from '../lastfm/station'
+import { createLastfmStations, LastfmStationPacing } from '../lastfm/station'
 import { createListenBrainzClient } from '../listenbrainz/api'
 import acrLookup from '../listenbrainz/fixtures/acr-lookup-radiohead-creep.json'
 import similarArtists from '../listenbrainz/fixtures/similar-artists-radiohead.json'
+import { sleep } from '../shared/gate'
+import { SpotifyError } from '../spotify/errors'
 import {
   createRecommendationCollector,
   DEFAULT_PARTS,
@@ -22,6 +32,7 @@ import {
   fakeSongForVideo,
   fakeSpotifyMetadata,
   fakeYouTubeLookup,
+  fakeYouTubeSeed,
   jsonResponse,
   spotifyArtist,
   spotifyTrack,
@@ -29,7 +40,7 @@ import {
   textResponse,
   ytmTrack,
 } from './testing'
-import type { Collection, RecommendationCandidate, SourceOutcome } from './types'
+import type { RecommendationCandidate, SourceOutcome, SourceResult } from './types'
 
 const RADIOHEAD_MBID = 'a74b1b7f-71a5-4011-9441-d0b5e4122711'
 const CREEP = ytmTrack('XFkzRNyygfk', 'Creep', 'Radiohead', 'song', {
@@ -48,6 +59,10 @@ const SPOTIFY_RADIO = [
   spotifyTrack('0000000000000000000001', 'High and Dry', 'Radiohead'),
   spotifyTrack('0000000000000000000002', 'Song 2', 'Blur'),
 ]
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 /** Every source, faked, as the Full tier would have them. */
 function everything(
@@ -120,30 +135,44 @@ function everything(
   }
 }
 
+/** What a candidate names. */
+function nameOf(candidate: RecommendationCandidate): string {
+  if (candidate.type === 'track') return candidate.track.title
+  if (candidate.type === 'artist') return candidate.artist.name
+  return `search ${candidate.title}`
+}
+
 /** What each candidate names, by source and part. */
-function names(collection: Collection): string[] {
-  return collection.candidates.map((candidate: RecommendationCandidate) => {
-    const what =
-      candidate.type === 'track'
-        ? candidate.track.title
-        : candidate.type === 'artist'
-          ? candidate.artist.name
-          : `search ${candidate.title}`
-    return `${candidate.source}/${candidate.part}: ${what}`
-  })
+function names(collection: { candidates: RecommendationCandidate[] }): string[] {
+  return collection.candidates.map(
+    (candidate) => `${candidate.source}/${candidate.part}: ${nameOf(candidate)}`,
+  )
+}
+
+/** One outcome as a short string. */
+function line(outcome: SourceOutcome): string {
+  const detail =
+    outcome.status === 'ok'
+      ? outcome.count
+      : outcome.status === 'skipped'
+        ? outcome.reason
+        : outcome.status === 'failed'
+          ? outcome.code
+          : outcome.afterMs
+  return `${outcome.source}/${outcome.part}: ${outcome.status} ${detail}`
 }
 
 /** The outcomes as short strings. */
 function outcomes(collection: { outcomes: SourceOutcome[] }): string[] {
-  return collection.outcomes.map((outcome) => {
-    const detail =
-      outcome.status === 'ok'
-        ? outcome.count
-        : outcome.status === 'skipped'
-          ? outcome.reason
-          : outcome.code
-    return `${outcome.source}/${outcome.part}: ${outcome.status} ${detail}`
-  })
+  return collection.outcomes.map(line)
+}
+
+/** A radio that never answers: it ignores its signal. */
+function hangingRadio(id: 'ytm' | 'spotify') {
+  return {
+    id,
+    radio: () => new Promise<Track[]>(() => undefined),
+  }
 }
 
 describe('tracksForMode', () => {
@@ -159,6 +188,13 @@ describe('tracksForMode', () => {
       'music-video',
       'song',
       'video',
+    ])
+  })
+
+  it('gives an unknown mode Music mode’s rules', () => {
+    expect(tracksForMode(YTM_RADIO, 'video' as CatalogMode).map((track) => track.kind)).toEqual([
+      'song',
+      'song',
     ])
   })
 })
@@ -241,7 +277,24 @@ describe('createRecommendationCollector', () => {
     expect(uprising).toMatchObject({ track: { id: 'yt:track:m1aaaaaaaaa', kind: 'video' } })
   })
 
-  it('runs what the Lite tier reaches: YouTube Music and ListenBrainz', async () => {
+  it('treats an unknown mode as Music mode', async () => {
+    const collector = createRecommendationCollector(everything())
+    const collection = await collector.collect(
+      CREEP,
+      testContext({ mode: 'video' as CatalogMode }),
+      {
+        parts: ['radio', 'station'],
+      },
+    )
+    expect(names(collection).filter((name) => name.startsWith('ytm'))).toEqual([
+      'ytm/radio: Karma Police',
+      'ytm/radio: Bitter Sweet Symphony',
+    ])
+    const uprising = collection.candidates.find((c) => c.source === 'lastfm' && c.type === 'track')
+    expect(uprising).toMatchObject({ track: { id: 'ytm:track:m1aaaaaaaaa', kind: 'song' } })
+  })
+
+  it('runs what the Lite tier reaches: YouTube Music and the open services', async () => {
     const collection = await createRecommendationCollector(everything()).collect(
       CREEP,
       testContext({ tier: 'lite' }),
@@ -271,14 +324,47 @@ describe('createRecommendationCollector', () => {
     ])
   })
 
+  it('asks the station reader’s own reachability check, and only that', async () => {
+    const station = { 'similar:Radiohead': [] }
+    const open = createRecommendationCollector({
+      lastfmStations: fakeLastfmStations(station, () => true),
+    })
+    const lite = await open.collect(CREEP, testContext({ tier: 'lite' }), { parts: ['station'] })
+    expect(outcomes(lite)).toEqual(['lastfm/station: ok 0'])
+    const closed = createRecommendationCollector({
+      lastfmStations: fakeLastfmStations(station, () => false),
+    })
+    const full = await closed.collect(CREEP, testContext(), { parts: ['station'] })
+    expect(outcomes(full)).toEqual(['lastfm/station: skipped needs-full-tier'])
+  })
+
   it('leaves Spotify out when the user switched it off', async () => {
     const options = everything({ spotifyEnabled: () => false })
     const collection = await createRecommendationCollector(options).collect(CREEP, testContext())
-    expect(outcomes(collection).filter((line) => line.startsWith('spotify'))).toEqual([
+    expect(outcomes(collection).filter((entry) => entry.startsWith('spotify'))).toEqual([
       'spotify/radio: skipped switched-off',
       'spotify/similar-artists: skipped switched-off',
     ])
     expect((options.spotify as ReturnType<typeof fakeRadio>).seeds).toEqual([])
+  })
+
+  it('follows the Spotify provider’s own switch unless the app gives one', async () => {
+    const seen: ProviderContext[] = []
+    const spotify = fakeRadio('spotify', SPOTIFY_RADIO, undefined, () => false)
+    const off = await createRecommendationCollector({ spotify }).collect(CREEP, testContext(), {
+      parts: ['radio'],
+    })
+    expect(outcomes(off)).toContain('spotify/radio: skipped switched-off')
+    const app = createRecommendationCollector({
+      spotify,
+      spotifyEnabled: (ctx) => {
+        seen.push(ctx)
+        return true
+      },
+    })
+    const on = await app.collect(CREEP, testContext(), { parts: ['radio'] })
+    expect(outcomes(on)).toContain('spotify/radio: ok 2')
+    expect(seen[0]?.mode).toBe('music')
   })
 
   it('reports sources the app did not register', async () => {
@@ -294,7 +380,7 @@ describe('createRecommendationCollector', () => {
     const youtube = fakeRadio('ytm', YTM_RADIO)
     const withRule = createRecommendationCollector({
       youtube,
-      songForVideo: fakeSongForVideo({ omvOMVomvOM: song }),
+      songForVideo: fakeSongForVideo({ omvOMVomvOM: song }, 'suggest'),
     })
     await withRule.collect(video, testContext(), { parts: ['radio'] })
     expect(youtube.seeds).toEqual([song])
@@ -305,6 +391,24 @@ describe('createRecommendationCollector', () => {
       'spotify/radio: skipped not-configured',
     ])
     expect(youtube.seeds).toHaveLength(1)
+  })
+
+  it('finds a YouTube seed for a seed from another source through the adapter', async () => {
+    const seed = spotifyTrack('70LcF31zb1H0PyJoS1Sx1r', 'Creep', 'Radiohead')
+    const youtube = fakeRadio('ytm', YTM_RADIO)
+    const without = await createRecommendationCollector({ youtube }).collect(seed, testContext(), {
+      parts: ['radio'],
+    })
+    expect(outcomes(without)[0]).toBe('ytm/radio: skipped unsupported-seed')
+    const finder = fakeYouTubeSeed(() => CREEP)
+    const found = await createRecommendationCollector({ youtube, youtubeSeed: finder }).collect(
+      seed,
+      testContext(),
+      { parts: ['radio'] },
+    )
+    expect(outcomes(found)[0]).toBe('ytm/radio: ok 2')
+    expect(youtube.seeds).toEqual([CREEP])
+    expect(finder.seeds).toEqual([seed])
   })
 
   it('uses the seed’s own Spotify artist, and skips a seed it cannot place', async () => {
@@ -330,57 +434,114 @@ describe('createRecommendationCollector', () => {
     expect(outcomes(nameless)[0]).toBe('spotify/similar-artists: skipped unsupported-seed')
   })
 
-  it('finds ListenBrainz’s artist for an artist seed through the MBID adapter', async () => {
+  it('finds ListenBrainz’s artist through the seed’s MBID, else the MBID adapter', async () => {
     const listenbrainz = fakeListenBrainz({}, { [RADIOHEAD_MBID]: [] })
-    const collector = createRecommendationCollector({
-      listenbrainz,
-      artistMbid: fakeArtistMbid({ Radiohead: RADIOHEAD_MBID }),
-    })
+    const adapter = vi.fn(fakeArtistMbid({ Radiohead: RADIOHEAD_MBID }))
+    const collector = createRecommendationCollector({ listenbrainz, artistMbid: adapter })
     const ctx = testContext()
-    const found = await collector.collect({ name: 'Radiohead' }, ctx, {
-      parts: ['similar-artists'],
-    })
+    const parts = ['similar-artists'] as const
+    const found = await collector.collect({ name: 'Radiohead' }, ctx, { parts })
     expect(outcomes(found)).toContain('listenbrainz/similar-artists: ok 0')
-    const missing = await collector.collect({ name: 'Nobody' }, ctx, { parts: ['similar-artists'] })
+    const missing = await collector.collect({ name: 'Nobody' }, ctx, { parts })
     expect(outcomes(missing)).toContain('listenbrainz/similar-artists: skipped unsupported-seed')
     const withoutAdapter = createRecommendationCollector({ listenbrainz })
-    const skipped = await withoutAdapter.collect({ name: 'Radiohead' }, ctx, {
-      parts: ['similar-artists'],
-    })
+    const skipped = await withoutAdapter.collect({ name: 'Radiohead' }, ctx, { parts })
     expect(outcomes(skipped)).toContain('listenbrainz/similar-artists: skipped unsupported-seed')
+    // An artist candidate's own MBID needs neither the adapter nor a lookup.
+    adapter.mockClear()
+    const known = await collector.collect(
+      { name: 'Radiohead', mbid: RADIOHEAD_MBID.toUpperCase() },
+      ctx,
+      { parts },
+    )
+    expect(outcomes(known)).toContain('listenbrainz/similar-artists: ok 0')
+    expect(adapter).not.toHaveBeenCalled()
     expect(listenbrainz.lookups).toEqual([])
+    expect(listenbrainz.similarCalls.at(-1)).toBe(RADIOHEAD_MBID)
   })
 
-  it('reports failures without losing the other sources', async () => {
+  it('keeps similar artists whose names are symbols only', async () => {
+    const collector = createRecommendationCollector({
+      lastfmApi: fakeLastfmApi({
+        Radiohead: [
+          { name: '!!!', match: 0.8, url: 'https://www.last.fm/music/%21%21%21' },
+          { name: '✝✝✝', match: 0.7, url: 'https://www.last.fm/music/x' },
+          { name: '   ', match: 0.6, url: 'https://www.last.fm/music/y' },
+        ],
+      }),
+    })
+    const collection = await collector.collect(CREEP, testContext(), { parts: ['similar-artists'] })
+    expect(names(collection)).toEqual([
+      'lastfm/similar-artists: !!!',
+      'lastfm/similar-artists: ✝✝✝',
+    ])
+    expect(collection.candidates.map((candidate) => candidate.key)).toEqual(['!!!', '✝✝✝'])
+  })
+
+  it('reports failures, Unsupported ones included, with their errors', async () => {
+    const clientRejected = new SpotifyError('client-rejected', '403 Client/request not allowed')
+    const routeClosed = Object.assign(new FxmError('Unsupported', 'FXM Connect lacks lastfm'), {
+      reason: 'route-closed',
+      route: 'lastfm-web',
+      needs: ['connect'],
+    })
     const collector = createRecommendationCollector(
       everything({
         youtube: fakeRadio('ytm', new FxmError('Network', 'offline')),
-        spotify: fakeRadio('spotify', new FxmError('Unsupported', 'no seed')),
-        lastfmStations: fakeLastfmStations({ 'similar:Radiohead': new FxmError('BotCheck', 'x') }),
+        spotify: fakeRadio('spotify', clientRejected),
+        lastfmStations: fakeLastfmStations({ 'similar:Radiohead': routeClosed }),
         lastfmApi: fakeLastfmApi({ Radiohead: new TypeError('bug') }),
       }),
     )
     const collection = await collector.collect(CREEP, testContext())
     expect(outcomes(collection)).toEqual([
       'ytm/radio: failed Network',
-      'spotify/radio: skipped unsupported-seed',
+      'spotify/radio: failed Unsupported',
       'spotify/similar-artists: ok 2',
-      'lastfm/station: failed BotCheck',
+      'lastfm/station: failed Unsupported',
       'lastfm/similar-artists: failed Unknown',
       'listenbrainz/similar-artists: ok 2',
     ])
     expect(collection.outcomes[0]).toMatchObject({ message: 'offline' })
+    expect(collection.outcomes[1]).toMatchObject({ error: clientRejected })
+    expect(collection.outcomes[3]).toMatchObject({ error: routeClosed })
     expect(collection.outcomes[4]).toMatchObject({ message: 'bug' })
   })
 
-  it('runs only the parts asked for, at most `limit` from each', async () => {
-    const collection = await createRecommendationCollector(everything()).collect(
-      CREEP,
-      testContext(),
-      { parts: ['radio'], limit: 1 },
-    )
-    expect(names(collection)).toEqual(['ytm/radio: Karma Police', 'spotify/radio: High and Dry'])
+  it('skips only the seed refusals a provider makes explicitly', async () => {
+    const refusals = [
+      [new SpotifyError('unsupported-seed', 'no such track'), 'skipped unsupported-seed'],
+      [new SpotifyError('disabled', 'off'), 'skipped switched-off'],
+      [new SpotifyError('unreachable', 'no route'), 'skipped unreachable'],
+      [new SpotifyError('operation-unsupported', 'no hash'), 'failed Unsupported'],
+      [new FxmError('Unsupported', 'a bare refusal'), 'failed Unsupported'],
+    ] as const
+    for (const [error, expected] of refusals) {
+      const collector = createRecommendationCollector({ spotify: fakeRadio('spotify', error) })
+      const collection = await collector.collect(CREEP, testContext(), { parts: ['radio'] })
+      expect(outcomes(collection)).toContain(`spotify/radio: ${expected}`)
+    }
+  })
+
+  it('runs only the parts asked for, at most `limit` from each, read defensively', async () => {
+    const collector = createRecommendationCollector(everything())
+    const one = await collector.collect(CREEP, testContext(), { parts: ['radio'], limit: 1 })
+    expect(names(one)).toEqual(['ytm/radio: Karma Police', 'spotify/radio: High and Dry'])
     expect(DEFAULT_PARTS).toEqual(['radio', 'station', 'similar-artists'])
+    const rounded = await collector.collect(CREEP, testContext(), { parts: ['radio'], limit: 1.9 })
+    expect(names(rounded)).toHaveLength(2)
+    const notANumber = await collector.collect(CREEP, testContext(), {
+      parts: ['radio'],
+      limit: Number.NaN,
+    })
+    expect(names(notANumber)).toHaveLength(4)
+    const options = everything()
+    const none = await createRecommendationCollector(options).collect(CREEP, testContext(), {
+      limit: -1,
+    })
+    expect(none.candidates).toEqual([])
+    expect(none.outcomes.every((outcome) => outcome.status === 'ok')).toBe(true)
+    expect((options.youtube as ReturnType<typeof fakeRadio>).seeds).toEqual([])
   })
 
   it('classifies station items within the budget', async () => {
@@ -395,6 +556,25 @@ describe('createRecommendationCollector', () => {
     expect((options.youtubeLookup as ReturnType<typeof fakeYouTubeLookup>).calls).toEqual([])
   })
 
+  it('keeps the classification cap when it is given something that is not one', async () => {
+    const items = Array.from({ length: 12 }, () => ({
+      title: 'Uprising',
+      artists: ['Muse'],
+      youtubeId: 'm1aaaaaaaaa',
+      url: 'https://www.last.fm/music/Muse/_/Uprising',
+    }))
+    for (const maxClassifications of [Number.NaN, -1, 2.5]) {
+      const lookup = fakeYouTubeLookup({ m1aaaaaaaaa: ytmTrack('m1aaaaaaaaa', 'Uprising', 'Muse') })
+      const collector = createRecommendationCollector({
+        lastfmStations: fakeLastfmStations({ 'similar:Radiohead': items }),
+        youtubeLookup: lookup,
+        maxClassifications,
+      })
+      await collector.collect(CREEP, testContext(), { parts: ['station'] })
+      expect(lookup.calls).toHaveLength(8)
+    }
+  })
+
   it('rejects with the reason when the call is cancelled', async () => {
     const controller = new AbortController()
     const reason = new Error('stop')
@@ -406,6 +586,72 @@ describe('createRecommendationCollector', () => {
     await expect(collector.collect(CREEP, testContext({ signal: controller.signal }))).rejects.toBe(
       reason,
     )
+    await expect(
+      collector.collect(CREEP, testContext({ signal: AbortSignal.abort(reason) })),
+    ).rejects.toBe(reason)
+  })
+
+  it('rejects at once when cancelled, even with a source that ignores its signal', async () => {
+    const controller = new AbortController()
+    const collector = createRecommendationCollector({ youtube: hangingRadio('ytm') })
+    const pending = collector.collect(CREEP, testContext({ signal: controller.signal }))
+    const reason = new Error('stop')
+    controller.abort(reason)
+    await expect(pending).rejects.toBe(reason)
+  })
+
+  it('returns what is ready at the deadline, and cancels the rest', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-26T00:00:00Z') })
+    let cancelled: unknown
+    const slowSpotify = {
+      id: 'spotify',
+      async radio(_seed: RadioSeed, ctx: ProviderContext) {
+        await sleep(10_000, ctx.signal).catch((error: unknown) => {
+          cancelled = error
+          throw error
+        })
+        return SPOTIFY_RADIO
+      },
+    }
+    const collector = createRecommendationCollector({
+      youtube: fakeRadio('ytm', YTM_RADIO),
+      spotify: slowSpotify,
+    })
+    const pending = collector.collect(CREEP, testContext(), { parts: ['radio'], deadlineMs: 2_000 })
+    await vi.advanceTimersByTimeAsync(2_000)
+    const collection = await pending
+    expect(outcomes(collection)).toEqual(['ytm/radio: ok 2', 'spotify/radio: timed-out 2000'])
+    expect(names(collection)).toEqual([
+      'ytm/radio: Karma Police',
+      'ytm/radio: Bitter Sweet Symphony',
+    ])
+    expect(cancelled).toBeInstanceOf(DOMException)
+  })
+
+  it('delivers each source’s result as soon as it has one', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-26T00:00:00Z') })
+    const delivered: string[] = []
+    const late = {
+      id: 'spotify',
+      async radio(_seed: RadioSeed, ctx: ProviderContext) {
+        await sleep(1_000, ctx.signal)
+        return SPOTIFY_RADIO
+      },
+    }
+    const collector = createRecommendationCollector({
+      youtube: fakeRadio('ytm', YTM_RADIO),
+      spotify: late,
+    })
+    const pending = collector.collect(CREEP, testContext(), {
+      parts: ['radio'],
+      onResult: (result: SourceResult) =>
+        delivered.push(`${line(result.outcome)} (${result.candidates.length})`),
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(delivered).toEqual(['ytm/radio: ok 2 (2)'])
+    await vi.advanceTimersByTimeAsync(1_000)
+    await pending
+    expect(delivered).toEqual(['ytm/radio: ok 2 (2)', 'spotify/radio: ok 2 (2)'])
   })
 
   it('works with the real Last.fm and ListenBrainz clients', async () => {
@@ -416,7 +662,9 @@ describe('createRecommendationCollector', () => {
       return textResponse('Not found', { status: 404 })
     })
     const collector = createRecommendationCollector({
-      lastfmStations: createLastfmStations({ minIntervalMs: 0 }),
+      lastfmStations: createLastfmStations({
+        pacing: new LastfmStationPacing({ minIntervalMs: 0 }),
+      }),
       listenbrainz: createListenBrainzClient({ minIntervalMs: 0 }),
     })
     const seed: RadioSeed = CREEP
@@ -478,6 +726,8 @@ describe('home', () => {
     expect(outcomes(home)).toEqual(['ytm/home: ok 1', 'spotify/home: ok 1'])
     const all = await collector.home(testContext({ mode: 'all' }))
     expect(all.shelves.map(({ shelf: { items } }) => items.length)).toEqual([4, 2, 1])
+    const stale = await collector.home(testContext({ mode: 'video' as CatalogMode }))
+    expect(stale.shelves.map(({ shelf: { items } }) => items.length)).toEqual([2, 1])
   })
 
   it('skips feeds that cannot run, and reports failures', async () => {
@@ -503,5 +753,46 @@ describe('home', () => {
       testContext(),
     )
     expect(outcomes(noHome)[0]).toBe('ytm/home: skipped not-configured')
+  })
+
+  it('reports every Unsupported refusal of a home feed as a failure, having no seed', async () => {
+    for (const error of [
+      new FxmError('Unsupported', 'no hash for home'),
+      new SpotifyError('operation-unsupported', 'no hash for home'),
+      new SpotifyError('client-rejected', '403 Client/request not allowed'),
+      new SpotifyError('unsupported-seed', 'not a seed'),
+    ]) {
+      const home = await createRecommendationCollector({
+        spotify: fakeRadio('spotify', [], error),
+      }).home(testContext())
+      expect(outcomes(home)).toContain('spotify/home: failed Unsupported')
+      expect(home.outcomes[1]).toMatchObject({ error })
+    }
+    const disabled = await createRecommendationCollector({
+      spotify: fakeRadio('spotify', [], new SpotifyError('disabled', 'off')),
+    }).home(testContext())
+    expect(outcomes(disabled)).toContain('spotify/home: skipped switched-off')
+  })
+
+  it('returns what is ready at the deadline, and delivers each feed as it comes', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-26T00:00:00Z') })
+    const delivered: string[] = []
+    const slow = {
+      id: 'spotify',
+      radio: async () => [],
+      home: () => new Promise<Shelf[]>(() => undefined),
+    }
+    const collector = createRecommendationCollector({
+      youtube: fakeRadio('ytm', [], [shelf('quick-picks', YTM_RADIO)]),
+      spotify: slow,
+    })
+    const pending = collector.home(testContext(), {
+      deadlineMs: 500,
+      onResult: (result) => delivered.push(line(result.outcome)),
+    })
+    await vi.advanceTimersByTimeAsync(500)
+    const home = await pending
+    expect(outcomes(home)).toEqual(['ytm/home: ok 1', 'spotify/home: timed-out 500'])
+    expect(delivered).toEqual(['ytm/home: ok 1', 'spotify/home: timed-out 500'])
   })
 })

@@ -1,13 +1,20 @@
 import { isFxmError } from '@fxm/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fakeFetch, jsonResponse, paramsOf, testContext, textResponse } from '../recommend/testing'
+import {
+  fakeFetch,
+  jsonResponse,
+  paramsOf,
+  testContext,
+  textResponse,
+} from '../shared/fake-network'
 import {
   createItunesClient,
   ITUNES_SEARCH_URL,
   type ItunesOptions,
   itunesArtwork,
-  parseAlbums,
-  parseSongs,
+  itunesStoreUrl,
+  parseItunesAlbums,
+  parseItunesSongs,
 } from './api'
 import ramAlbums from './fixtures/search-album-daft-punk-ram.json'
 import getLucky from './fixtures/search-song-daft-punk-get-lucky.json'
@@ -60,9 +67,28 @@ describe('itunesArtwork', () => {
   })
 })
 
-describe('parseSongs and parseAlbums', () => {
+describe('itunesStoreUrl', () => {
+  it('keeps https pages on Apple’s hosts only', () => {
+    const page = 'https://music.apple.com/us/album/get-lucky/617154241?i=617154366&uo=4'
+    expect(itunesStoreUrl(page)).toBe(page)
+    expect(itunesStoreUrl('https://itunes.apple.com/us/album/x/1')).toBe(
+      'https://itunes.apple.com/us/album/x/1',
+    )
+    for (const url of [
+      'http://music.apple.com/us/album/x/1',
+      'https://apple.com.evil.example/x',
+      'https://user@music.apple.com/x',
+      'javascript:alert(1)',
+      42,
+    ]) {
+      expect(itunesStoreUrl(url)).toBeUndefined()
+    }
+  })
+})
+
+describe('parseItunesSongs and parseItunesAlbums', () => {
   it('read the recorded searches', () => {
-    const songs = parseSongs(getLucky)
+    const songs = parseItunesSongs(getLucky)
     expect(songs).toHaveLength(10)
     expect(songs[0]).toEqual({
       trackId: getLucky.results[0]?.trackId,
@@ -71,18 +97,20 @@ describe('parseSongs and parseAlbums', () => {
       album: 'Random Access Memories',
       durationMs: 369_629,
       artworkUrl: getLucky.results[0]?.artworkUrl100,
+      storeUrl: getLucky.results[0]?.trackViewUrl,
     })
-    const albums = parseAlbums(ramAlbums)
+    const albums = parseItunesAlbums(ramAlbums)
     expect(albums.map((album) => album.name)).toContain('Random Access Memories')
     expect(albums[0]).toMatchObject({
       artist: 'Daft Punk',
       artworkUrl: ramAlbums.results[0]?.artworkUrl100,
+      storeUrl: 'https://music.apple.com/us/album/random-access-memories/617154241?uo=4',
     })
   })
 
   it('skip results of other kinds and results without names, and leave out bad artwork', () => {
     expect(
-      parseSongs({
+      parseItunesSongs({
         results: [
           { kind: 'music-video', trackId: 1, trackName: 'A', artistName: 'B' },
           { kind: 'song', trackId: 2, trackName: ' ', artistName: 'B' },
@@ -92,19 +120,20 @@ describe('parseSongs and parseAlbums', () => {
             trackName: 'C',
             artistName: 'D',
             artworkUrl100: 'https://evil.example/x.jpg',
+            trackViewUrl: 'https://evil.example/song',
           },
         ],
       }),
     ).toEqual([{ trackId: 3, title: 'C', artist: 'D' }])
     expect(
-      parseAlbums({
+      parseItunesAlbums({
         results: [{ wrapperType: 'track', collectionId: 1, collectionName: 'A', artistName: 'B' }],
       }),
     ).toEqual([])
   })
 
   it('reject an answer without results', () => {
-    expect(() => parseSongs({ resultCount: 0 })).toThrowError(
+    expect(() => parseItunesSongs({ resultCount: 0 })).toThrowError(
       expect.objectContaining({ code: 'Parse' }),
     )
   })
@@ -134,8 +163,11 @@ describe('createItunesClient', () => {
       country: 'gb',
       limit: 500,
     })
+    await client.searchAlbums('Daft Punk Discovery', ctx, { limit: Number.NaN })
+    await client.searchAlbums('Daft Punk', ctx, { limit: -1 })
     expect(paramsOf(calls[0])).toMatchObject({ country: 'US', entity: 'album', limit: '10' })
     expect(paramsOf(calls[1])).toMatchObject({ country: 'GB', limit: '200' })
+    expect(calls.map((call) => paramsOf(call).limit)).toEqual(['10', '200', '10', '1'])
   })
 
   it('caches answers for as long as Apple says', async () => {
@@ -172,6 +204,34 @@ describe('createItunesClient', () => {
     const { client, ctx } = setup(() => jsonResponse(creep), { maxPerMinute: 1, maxWaitMs: 1_000 })
     await client.searchSongs('a', ctx)
     expect(isFxmError(await failure(client.searchSongs('b', ctx)), 'RateLimited')).toBe(true)
+  })
+
+  it('never keeps a search waiting longer than maxWaitMs, the queue included', async () => {
+    vi.useFakeTimers({ now: Date.parse('2026-10-26T00:00:00Z') })
+    const { client, ctx, calls } = setup(() => jsonResponse(creep))
+    const t0 = Date.now()
+    const settled: number[] = []
+    const searches = Array.from({ length: 65 }, (_, index) =>
+      failure(client.searchSongs(`term ${index}`, ctx)).finally(() =>
+        settled.push(Date.now() - t0),
+      ),
+    )
+    await vi.advanceTimersByTimeAsync(200_000)
+    const results = await Promise.all(searches)
+    const refused = results.filter((result) => isFxmError(result, 'RateLimited'))
+    expect(calls.length).toBeGreaterThanOrEqual(20)
+    expect(refused).toHaveLength(65 - calls.length)
+    expect(Math.max(...settled)).toBeLessThanOrEqual(60_000)
+  })
+
+  it('lets the cover the user is waiting for go before background searches', async () => {
+    const { client, ctx, calls } = setup(() => jsonResponse(creep))
+    const background = ['a', 'b', 'c'].map((term) =>
+      client.searchSongs(term, ctx, { priority: 'bulk' }),
+    )
+    const now = client.searchSongs('now playing', ctx, { priority: 'current-track' })
+    await Promise.all([...background, now])
+    expect(calls.map((call) => paramsOf(call).term)).toEqual(['a', 'now playing', 'b', 'c'])
   })
 
   it('backs off when Apple refuses with 403 or 429', async () => {

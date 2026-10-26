@@ -197,11 +197,17 @@ export interface Playlist {
   tracks?: Page<Track>
 }
 
-/** One page of a longer list. */
+/**
+ * One page of a longer list.
+ *
+ * A page may hold fewer items than the `limit` asked for, or none, and still have a
+ * `nextCursor`, e.g. when its provider filters it by the catalog mode after cutting it to the
+ * limit. Only a missing `nextCursor` ends the list: an empty page is not the end.
+ */
 export interface Page<T> {
   /** The items on this page, in order. */
   items: T[]
-  /** Opaque cursor for the next page. Absent on the last page. */
+  /** Opaque cursor for the next page. Absent on the last page, and only there. */
   nextCursor?: string
   /** Total number of items across all pages, when the source says. */
   total?: number

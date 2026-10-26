@@ -51,6 +51,18 @@ export interface WebExtApi {
     }): Promise<void>
   }
   action?: { onClicked: { addListener(listener: () => void): void } }
+  /** Firefox only asks for `data_collection` consent (see consent.ts). */
+  permissions?: {
+    contains(permissions: PermissionsRequest): Promise<boolean>
+    request(permissions: PermissionsRequest): Promise<boolean>
+    remove(permissions: PermissionsRequest): Promise<unknown>
+  }
+}
+
+/** The part of a permissions.request() argument that FXM Connect uses. */
+export interface PermissionsRequest {
+  /** Optional data collection categories (Firefox 140 and later, 142 on Android). */
+  data_collection?: string[]
 }
 
 /** The extension API of the current context: `browser` (Firefox) or `chrome` (Chromium). */

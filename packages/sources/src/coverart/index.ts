@@ -14,6 +14,7 @@
 export {
   COVER_ART_ARCHIVE_ORIGIN,
   COVER_ART_SIZES,
+  type CoverArtCallOptions,
   type CoverArtClient,
   type CoverArtOptions,
   coverArtUrl,

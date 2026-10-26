@@ -9,8 +9,8 @@ const PAGES = [
   'library',
   'library?tab=liked',
   'library?tab=recent',
-  'album/MPREb_42',
-  'artist/UC-daft',
+  'album/ytm:MPREb_42',
+  'artist/ytm:UC-daft',
   'playlist/liked',
   'playlist/local:playlist:liked',
   'now-playing',
@@ -118,7 +118,8 @@ test('searches from the top bar, one Back away from where it started', async ({ 
     .getByRole('searchbox', { name: 'Search' })
     .pressSequentially('daft punk')
   await expect(page).toHaveURL(/\/app\/search\?q=daft%20punk$/)
-  await expect(page.getByRole('heading', { name: 'Results for “daft punk”' })).toBeVisible()
+  // What follows depends on the tier (results, or how to reach YouTube Music): not checked here.
+  await expect(page.getByRole('heading', { level: 1, name: 'Search' })).toBeVisible()
 
   await page.goBack()
 
@@ -143,7 +144,7 @@ test('skips to the page content without breaking Back', async ({ page }) => {
 
 test('keeps the catalog mode and theme across a reload', async ({ page }) => {
   await page.goto('settings')
-  await page.locator('label', { hasText: 'Music + Video' }).click()
+  await page.locator('label', { hasText: /^Music \+ Video$/ }).click()
   await page.locator('label', { hasText: /^Light$/ }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
 
@@ -217,6 +218,122 @@ test('drags a song with the mouse into a new place', async ({ page }) => {
   await expect.poll(async () => (await songOrder(page, 'Road trip'))[3]).toBe('Midnight Drive')
 })
 
+test('works the menus with the keyboard alone', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto(ROAD_TRIP)
+  await expect(page.getByRole('heading', { level: 1, name: 'Road trip' })).toBeVisible()
+  await centerList(page, 'Road trip')
+
+  // A song's menu: Enter opens it on its first entry, the arrow keys move, Escape closes it.
+  const trigger = page.getByRole('button', { name: 'More options for Copper Sun' })
+  const menu = page.getByRole('menu', { name: 'More options for Copper Sun' })
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  await expect(menu.getByRole('menuitem', { name: 'Move to top' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(menu.getByRole('menuitem', { name: 'Move up' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(trigger).toBeFocused()
+
+  // Its entries work from the keyboard, and say where the song went.
+  await page.keyboard.press('Enter')
+  await expect(menu.getByRole('menuitem', { name: 'Move to top' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('Moved Copper Sun to position 1 of 8')).toBeVisible()
+  await expect.poll(async () => (await songOrder(page, 'Road trip'))[0]).toBe('Copper Sun')
+  await expect(trigger).toBeFocused()
+
+  // Tab closes a menu and moves on from its button.
+  await page.keyboard.press('Enter')
+  await expect(menu).toBeVisible()
+  await page.keyboard.press('Tab')
+  await expect(menu).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Reorder Midnight Drive' })).toBeFocused()
+
+  // The sort menu: ArrowDown opens it, Enter picks a sort; then Save as custom order.
+  const sort = page.getByRole('button', { name: 'Sort: Custom order' })
+  const sortMenu = page.getByRole('menu', { name: 'Sort and view' })
+  await sort.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(sortMenu.getByRole('menuitemradio', { name: 'Custom order' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(sortMenu.getByRole('menuitemradio', { name: 'Title' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(sortMenu).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Sort: Title' })).toBeFocused()
+  await page.getByRole('button', { name: 'Save as custom order' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByText('The sorted order was saved.')).toBeVisible()
+  // The notice's button went with the sort view: the sort button has focus.
+  await expect(page.getByRole('button', { name: 'Sort: Custom order' })).toBeFocused()
+  await expect
+    .poll(async () => (await songOrder(page, 'Road trip')).slice(0, 3))
+    .toEqual(['Copper Sun', 'Gravity Letters', 'Midnight Drive'])
+})
+
+test.describe('with reduced motion', () => {
+  // The app turns every transition into 0.01 ms then: a menu must still take focus at once.
+  test.use({ reducedMotion: 'reduce' })
+
+  test('opens a menu with focus in it, and closes it back onto its button', async ({ page }) => {
+    await page.goto('playlist/local:playlist:liked')
+    const trigger = page
+      .getByRole('main')
+      .getByRole('button', { name: 'More options for Liked songs' })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('menuitem', { name: 'Duplicate' })).toBeFocused()
+    await expect(page.getByRole('menuitem', { name: 'Duplicate' }).locator('svg')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+})
+
+test('keeps keyboard focus in a list when rows leave it', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto(ROAD_TRIP)
+  await expect(page.getByRole('heading', { level: 1, name: 'Road trip' })).toBeVisible()
+  await centerList(page, 'Road trip')
+
+  // Remove a song from its menu: the next song's menu button takes over.
+  await page.getByRole('button', { name: 'More options for Copper Sun' }).focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('End')
+  await expect(page.getByRole('menuitem', { name: 'Remove from this playlist' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => songOrder(page, 'Road trip')).not.toContain('Copper Sun')
+  await expect(page.getByRole('button', { name: 'More options for Gravity Letters' })).toBeFocused()
+
+  // Delete a playlist from the sidebar: the next playlist's menu button takes over.
+  const sidebar = page.getByRole('region', { name: 'Your playlists' })
+  await sidebar.getByRole('button', { name: 'More options for Focus flow' }).focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('End')
+  await expect(page.getByRole('menuitem', { name: 'Delete…' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  const confirm = page.getByRole('alertdialog', { name: 'Delete playlist?' })
+  await expect(confirm.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(confirm.getByRole('button', { name: 'Delete' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(confirm).toBeHidden()
+  await expect(sidebar.getByRole('link', { name: /Focus flow/ })).toHaveCount(0)
+  await expect(sidebar.getByRole('button', { name: 'More options for Late night' })).toBeFocused()
+})
+
+test('confirms a sidebar action on any page', async ({ page }) => {
+  await restoreLibrary(page)
+  await page.goto('settings')
+  const sidebar = page.getByRole('region', { name: 'Your playlists' })
+  await sidebar.getByRole('link', { name: /Late night/ }).hover()
+  await sidebar.getByRole('button', { name: 'More options for Late night' }).click()
+  await page.getByRole('menuitem', { name: 'Duplicate' }).click()
+  await expect(page.getByRole('status').getByText('Created Late night (copy)')).toBeVisible()
+  await expect(sidebar.getByRole('link', { name: /Late night \(copy\)/ })).toBeVisible()
+})
+
 test.describe('on a short desktop window', () => {
   test.use({ viewport: { width: 1280, height: 680 } })
 
@@ -226,10 +343,11 @@ test.describe('on a short desktop window', () => {
 
     expect(await tabAndCollectCovered(page, 30)).toEqual([])
 
-    // Back from the player bar to the last link of the page, which sits behind the bar.
+    // Back from the player bar to the last link of the page, which sits behind the bar: the
+    // last one in About.
     await page.getByRole('region', { name: 'Player' }).getByRole('link').first().focus()
     await page.keyboard.press('Shift+Tab')
-    await expect(page.getByRole('link', { name: /Source on GitHub/ })).toBeFocused()
+    await expect(page.getByRole('region', { name: 'About' }).getByRole('link').last()).toBeFocused()
     expect(await coveredFocus(page)).toBeNull()
   })
 })

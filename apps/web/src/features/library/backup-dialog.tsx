@@ -16,8 +16,8 @@ import {
 import { useLibrary } from '../../db/hooks'
 import { cn } from '../../lib/cn'
 import { sanitizeSettings, useSettingsStore } from '../settings/settings-store'
+import { failureText } from './failure'
 import { addedLabel, countLabel } from './format'
-import { failureText } from './playlist-dialogs'
 import { showStatus } from './status'
 import { Dialog } from './ui/dialog'
 

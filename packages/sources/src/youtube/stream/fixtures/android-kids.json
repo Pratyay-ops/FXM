@@ -1,0 +1,115 @@
+{
+  "responseContext": {
+    "visitorData": "CgtGWE1fZml4dHVyZSiAgICAgICAgIAB"
+  },
+  "playabilityStatus": {
+    "status": "OK",
+    "playableInEmbed": true
+  },
+  "streamingData": {
+    "expiresInSeconds": "21540",
+    "formats": [
+      {
+        "itag": 18,
+        "url": "https://rr1---sn-fxmfixture.googlevideo.com/videoplayback?expire=1792979568&ei=fxm&ip=192.0.2.1&id=fxm&itag=18&source=youtube&requiressl=yes&xpc=fxm&cps=fxm&met=fxm&mh=fxm&mm=fxm&mn=fxm&ms=fxm&mv=fxm&mvi=fxm&pl=fxm&rms=fxm&initcwndbps=fxm&bui=fxm&spc=fxm&vprv=fxm&svpuc=fxm&mime=video%2Fmp4&rqh=fxm&cnr=fxm&ratebypass=yes&dur=136.115&lmt=1772124976556792&mt=fxm&fvip=fxm&fexp=fxm&c=ANDROID&txp=fxm&sparams=expire%2Cei%2Cip%2Cid%2Citag%2Csource%2Crequiressl%2Cxpc%2Cbui%2Cspc%2Cvprv%2Csvpuc%2Cmime%2Crqh%2Ccnr%2Cratebypass%2Cdur%2Clmt&sig=fxm&lsparams=cps%2Cmet%2Cmh%2Cmm%2Cmn%2Cms%2Cmv%2Cmvi%2Cpl%2Crms%2Cinitcwndbps&lsig=fxm",
+        "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
+        "bitrate": 447268,
+        "quality": "medium",
+        "qualityLabel": "360p",
+        "width": 640,
+        "height": 360,
+        "fps": 30,
+        "audioQuality": "AUDIO_QUALITY_LOW",
+        "audioSampleRate": "44100",
+        "audioChannels": 2,
+        "approxDurationMs": "136115"
+      }
+    ],
+    "adaptiveFormats": [
+      {
+        "itag": 139,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.5\"",
+        "bitrate": 49966,
+        "averageBitrate": 48829,
+        "contentLength": "831086",
+        "quality": "tiny",
+        "audioQuality": "AUDIO_QUALITY_LOW",
+        "audioSampleRate": "22050",
+        "audioChannels": 2,
+        "approxDurationMs": "136161"
+      },
+      {
+        "itag": 140,
+        "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
+        "bitrate": 130502,
+        "averageBitrate": 129518,
+        "contentLength": "2203672",
+        "quality": "tiny",
+        "audioQuality": "AUDIO_QUALITY_MEDIUM",
+        "audioSampleRate": "44100",
+        "audioChannels": 2,
+        "approxDurationMs": "136115"
+      },
+      {
+        "itag": 249,
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "bitrate": 61634,
+        "averageBitrate": 44116,
+        "contentLength": "750430",
+        "quality": "tiny",
+        "audioQuality": "AUDIO_QUALITY_LOW",
+        "audioSampleRate": "48000",
+        "audioChannels": 2,
+        "approxDurationMs": "136081"
+      },
+      {
+        "itag": 251,
+        "mimeType": "audio/webm; codecs=\"opus\"",
+        "bitrate": 149004,
+        "averageBitrate": 111660,
+        "contentLength": "1899360",
+        "quality": "tiny",
+        "audioQuality": "AUDIO_QUALITY_MEDIUM",
+        "audioSampleRate": "48000",
+        "audioChannels": 2,
+        "approxDurationMs": "136081"
+      },
+      {
+        "itag": 137,
+        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+        "bitrate": 4177892,
+        "averageBitrate": 2233777,
+        "contentLength": "37985674",
+        "quality": "hd1080",
+        "qualityLabel": "1080p",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "approxDurationMs": "136041"
+      },
+      {
+        "itag": 248,
+        "mimeType": "video/webm; codecs=\"vp9\"",
+        "bitrate": 2900349,
+        "averageBitrate": 2073017,
+        "contentLength": "35251914",
+        "quality": "hd1080",
+        "qualityLabel": "1080p",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "approxDurationMs": "136041"
+      }
+    ],
+    "serverAbrStreamingUrl": "https://rr1---sn-fxmfixture.googlevideo.com/videoplayback?fxm=sabr"
+  },
+  "videoDetails": {
+    "videoId": "XqZsoesa55w",
+    "title": "Baby Shark Dance | #babyshark Most Viewed Video | Animal Songs | PINKFONG Songs for Children",
+    "lengthSeconds": "136",
+    "channelId": "UCcdwLMPsaU2ezNSJU1nFoBQ",
+    "author": "Baby Shark - Pinkfong Kids’ Songs & Stories",
+    "isLiveContent": false,
+    "isPrivate": false
+  }
+}
