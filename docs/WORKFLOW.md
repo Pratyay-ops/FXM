@@ -169,7 +169,7 @@ flowchart LR
 |---|---|
 | `fxm-connect-chromium-x.y.z.zip`, `fxm-connect-firefox-x.y.z.zip` | FXM Connect, as `make extension` builds it |
 | `fxm-connect-firefox-x.y.z.xpi` | FXM Connect for Firefox, signed by Mozilla. Releases have it once the owner has added the AMO keys, while `AMO_CHANNEL` is `unlisted` (the default). With `listed`, Firefox users get FXM Connect from addons.mozilla.org instead |
-| `fxm-web-x.y.z.zip` | Exactly what Cloudflare Pages serves at `https://fxmusic.pages.dev`, for self-hosting: `make dist`'s `dist/pages/`, with the landing page at the root, the web app in `app/` with its ffmpeg core, the core's source in `source/ffmpeg-core/`, the sandbox documents, `_headers`, `third-party-notices.txt` and `.well-known/`. [scripts/build-dist/README.md](../scripts/build-dist/README.md#self-hosting) says how to serve it |
+| `fxm-web-x.y.z.zip` | Exactly what Cloudflare Pages serves at `https://fxmusic.pages.dev`, for self-hosting: `make dist`'s `dist/pages/`, with the landing page at the root, the web app in `app/` with its ffmpeg core, the core's source in `source/ffmpeg-core/`, the sandbox documents, `_headers`, `_redirects`, `third-party-notices.txt` and `.well-known/`. [scripts/build-dist/README.md](../scripts/build-dist/README.md#self-hosting) says how to serve it |
 | `fxm-ffmpeg-core-source-x.y.z.zip` | The source of the web app's LGPL ffmpeg core, as the web zip has it in `source/ffmpeg-core/`: the release tarballs of FFmpeg, LAME and Opus it was built from and FXM's recipe ([tools/ffmpeg-wasm/README.md](../tools/ffmpeg-wasm/README.md#the-lgpl)). The LGPL asks to offer it from the same place as the core, so every release attaches it |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |
 

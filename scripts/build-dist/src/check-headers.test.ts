@@ -1,11 +1,18 @@
-import { cpSync, readFileSync, writeFileSync } from 'node:fs'
+import { cpSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { checkDeployment, type Probe, probesFor, responseProblems } from './check-headers.ts'
+import {
+  checkDeployment,
+  type Probe,
+  probesFor,
+  REWRITE_PROBE_ID,
+  responseProblems,
+} from './check-headers.ts'
 import { serializeHeaders } from './headers-file.ts'
 import { createPagesServer, listen } from './pages-server.ts'
-import { addDocumentPolicies, generateRules } from './rules.ts'
+import { redirectRules, serializeRedirects } from './redirects.ts'
+import { addDocumentPolicies, generateRules, listFiles } from './rules.ts'
 import { removeTempDirs, sandboxDocument, tempDir, writeFiles } from './testing.ts'
 
 const servers: Server[] = []
@@ -32,6 +39,24 @@ function composed(): string {
   const rules = generateRules(dir)
   addDocumentPolicies(dir, rules)
   writeFileSync(join(dir, '_headers'), serializeHeaders(rules))
+  return dir
+}
+
+/** The same with the embed, whose routes _redirects answers with its page (src/redirects.ts). */
+function composedWithEmbed(): string {
+  const dir = tempDir()
+  writeFiles(dir, {
+    'index.html': page(),
+    'app/index.html': page(),
+    'app/404.html': page(),
+    'embed/index.html': page(),
+    'embed/404.html': page(),
+    'embed/assets/e.js': '1',
+  })
+  const rules = generateRules(dir)
+  addDocumentPolicies(dir, rules)
+  writeFileSync(join(dir, '_headers'), serializeHeaders(rules))
+  writeFileSync(join(dir, '_redirects'), serializeRedirects(redirectRules(listFiles(dir))))
   return dir
 }
 
@@ -83,6 +108,28 @@ describe('probesFor', () => {
     ])
   })
 
+  it("expects each of the embed's routes to answer 200 with its page and the /embed/* rule", () => {
+    const probes = probesFor(composedWithEmbed())
+    const routes = probes.filter((probe) => probe.path.includes(REWRITE_PROBE_ID))
+    expect(routes.map((probe) => [probe.path, probe.status, probe.rule?.path])).toEqual([
+      [`/embed/track/${REWRITE_PROBE_ID}`, 200, '/embed/*'],
+      [`/embed/album/${REWRITE_PROBE_ID}`, 200, '/embed/*'],
+      [`/embed/playlist/${REWRITE_PROBE_ID}`, 200, '/embed/*'],
+    ])
+    const embed = probes.find((probe) => probe.path === '/embed/')
+    for (const route of routes) {
+      expect(route.documentPolicy).toBe(embed?.documentPolicy)
+      expect(route.documentPolicy).toBe(route.rule?.headers.get('content-security-policy'))
+    }
+    // Everything else as before: a path no route names still gets the embed's 404 page, and
+    // neither configuration file is a path.
+    expect(
+      probes.find((probe) => probe.path === '/embed/__fxm-route-check__/deep/link')?.status,
+    ).toBe(404)
+    expect(probes.find((probe) => probe.path === '/embed/assets/e.js')?.status).toBe(200)
+    expect(probes.some((probe) => /^\/_(headers|redirects)$/.test(probe.path))).toBe(false)
+  })
+
   it('asks the site and the apps for no-referrer in their pages, not the sandbox', () => {
     const probes = probesFor(composed())
     const referrer = (path: string) => probes.find((probe) => probe.path === path)?.referrerMeta
@@ -96,6 +143,20 @@ describe('checkDeployment', () => {
   it('passes when the host applies exactly the generated rules', async () => {
     const dir = composed()
     expect(await checkDeployment(await serve(dir), probesFor(dir))).toEqual([])
+  })
+
+  it("passes the embed's routes where the host applies _redirects, and fails them where not", async () => {
+    const dir = composedWithEmbed()
+    expect(await checkDeployment(await serve(dir), probesFor(dir))).toEqual([])
+    // A host without the rewrites answers the routes with the embed's 404 page.
+    const plain = tempDir()
+    cpSync(dir, plain, { recursive: true })
+    rmSync(join(plain, '_redirects'))
+    const problems = await checkDeployment(
+      await serve(plain),
+      probesFor(dir).filter((probe) => probe.path.startsWith('/embed/track/')),
+    )
+    expect(problems).toEqual([`/embed/track/${REWRITE_PROBE_ID}: status 404, expected 200`])
   })
 
   it('catches a policy joined from two rules, a missing header and a wrong status', async () => {

@@ -9,9 +9,9 @@ name: Deploy
 #                      built when its recipe changed, otherwise from the cache, and checked
 #                      (under 25 MiB, LGPL) on every run.
 #   dist               make dist: the site, the web app with the ffmpeg core, the core's source,
-#                      _headers and the third-party notices, with the licence, header and privacy
-#                      checks. On every branch, so a stage branch finds out before it merges. No
-#                      secrets.
+#                      _headers, _redirects and the third-party notices, with the licence, header
+#                      and privacy checks. On every branch, so a stage branch finds out before it
+#                      merges. No secrets.
 #   deploy             develop: the preview. main: a release candidate at
 #                      main-candidate.fxmusic.pages.dev. Only these two branches deploy. Each
 #                      runs in its GitHub environment (preview, production), which holds the

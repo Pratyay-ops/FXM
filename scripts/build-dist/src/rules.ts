@@ -240,7 +240,8 @@ function rule(path: string, policy: Policy): HeaderRule {
 
 /** The `_headers` rules for a composed folder. Throws when a file can't get a correct policy. */
 export function generateRules(pagesDir: string): HeaderRule[] {
-  const files = listFiles(pagesDir).filter((file) => file !== '_headers')
+  // Pages reads these two as its configuration and serves neither.
+  const files = listFiles(pagesDir).filter((file) => file !== '_headers' && file !== '_redirects')
   const fileSet = new Set(files)
   const readHtml = (file: string) => readFileSync(join(pagesDir, file), 'utf8')
   const problems: string[] = [...serviceProblems()]
