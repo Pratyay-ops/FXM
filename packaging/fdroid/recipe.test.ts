@@ -121,7 +121,21 @@ describe('the F-Droid recipe', () => {
 
   it('tells F-Droid’s maintainers how the build works', () => {
     expect(recipe.MaintainerNotes).toMatch(/packaging\/fdroid\/build\.sh/)
-    expect(recipe.MaintainerNotes).toMatch(/FXM_DISTRIBUTION=fdroid/)
     expect(RECIPE_FILE).toBe('io.github.pratyayops.fxm.yml')
+  })
+
+  it('tells them which flag holds downloaded code back, as build.sh sets both', () => {
+    // VITE_FXM_DISTRIBUTION is the one the opt-ins read (apps/web/src/lib/distribution.ts): a
+    // recipe that set only FXM_DISTRIBUTION would download code and run plugins without asking.
+    const notes = String(recipe.MaintainerNotes).replaceAll('\n', ' ')
+    expect(notes).toMatch(
+      /VITE_FXM_DISTRIBUTION=fdroid makes FXM's signed YouTube code updates and plugins wait for an opt-in/,
+    )
+    expect(notes).toMatch(/FXM_DISTRIBUTION=fdroid keeps FXM's own update check off/)
+    expect(notes).toMatch(/must set both/)
+    const script = readFileSync(join(REPO_ROOT, BUILD_COMMANDS[1]), 'utf8')
+    expect(script).toContain('FXM_DISTRIBUTION=fdroid VITE_FXM_DISTRIBUTION=fdroid pnpm')
+    const gate = readFileSync(join(REPO_ROOT, 'apps/web/src/lib/distribution.ts'), 'utf8')
+    expect(gate).toContain('import.meta.env.VITE_FXM_DISTRIBUTION')
   })
 })

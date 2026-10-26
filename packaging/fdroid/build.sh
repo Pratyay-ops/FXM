@@ -22,10 +22,13 @@
 #      app, plus those of make dist when step 6 runs. They are installed here, after F-Droid's
 #      scan, which would delete files that the build needs: Capacitor's template archive and
 #      the prebuilt binaries of build tools (README.md, "The build").
-#   4. The web app as an F-Droid build: FXM_DISTRIBUTION=fdroid, which turns FXM's own app
-#      update check off (stage 6.6), and VITE_FXM_DISTRIBUTION=fdroid, which keeps the YouTube
-#      code updates from FXM's website (stage 1.13) and plugins (stage 8.3) off until the user
-#      opts in. Both, until the stages that read them agree on one name.
+#   4. The web app as an F-Droid build, with two flags, both needed until FXM has one:
+#      VITE_FXM_DISTRIBUTION=fdroid holds the YouTube code updates from FXM's website (stage
+#      1.13) and plugins (stage 8.3) back until the user opts in (apps/web/src/lib/distribution.ts,
+#      the one gate both read), and FXM_DISTRIBUTION=fdroid keeps FXM's own app update check off
+#      (stage 6.6). Vite builds in only VITE_ variables by itself: the gate reads FXM_DISTRIBUTION
+#      too once stage 6.6's Vite config builds it in, and until then only VITE_FXM_DISTRIBUTION
+#      asks before downloaded code.
 #   5. `cap sync android`, which copies it into apps/mobile/android.
 #   6. The APK's third-party notices, which Settings → About shows, as the GitHub APK's build
 #      writes them (stage 6.6): make dist's notices of the web code, and the Android libraries

@@ -49,16 +49,22 @@ export const UPDATE_CHECK_MODE = 'Tags ^v\\d+\\.\\d+\\.\\d+$'
 /** Where F-Droid finds the version code and name at a tag. */
 export const UPDATE_CHECK_DATA = `${VERSION_FILE}|versionCode=(\\d+)|.|versionName=(\\d+\\.\\d+\\.\\d+)`
 
-/** What F-Droid's maintainers should know about the build. */
+/**
+ * What F-Droid's maintainers should know about the build. They follow it when they rework a
+ * recipe that broke, so it names both distribution flags and what each does (README.md, "The
+ * build"): a recipe with only `FXM_DISTRIBUTION` would download code without asking.
+ */
 export const MAINTAINER_NOTES = `The Android app is a Capacitor shell around FXM's web app (apps/web). In the build step,
 packaging/fdroid/build.sh installs Node.js 22 from nodejs.org (pinned and SHA-256 checked:
 Debian's stable and testing suites have no Node.js 22) and pnpm (pinned, integrity checked),
 then the lockfile's npm packages, some of them FLOSS build tools with prebuilt native binaries
-(the README lists them). It builds the web app with FXM_DISTRIBUTION=fdroid, copies it into the
-Android project (cap sync) and writes the APK's third-party notices. FXM_DISTRIBUTION=fdroid
-turns FXM's own update check off, and FXM's signed YouTube code updates and plugins wait for an
-opt-in that says they bypass F-Droid's checks. app/build.gradle computes the version code, which
-packaging/fdroid/version.txt repeats for UpdateCheckData.
+(the README lists them). It builds the web app as an F-Droid build, copies it into the Android
+project (cap sync) and writes the APK's third-party notices. An F-Droid build needs both flags
+that build.sh sets: VITE_FXM_DISTRIBUTION=fdroid makes FXM's signed YouTube code updates and
+plugins wait for an opt-in that says they bypass F-Droid's checks, and FXM_DISTRIBUTION=fdroid
+keeps FXM's own update check off. A recipe that builds the web app itself must set both.
+app/build.gradle computes the version code, which packaging/fdroid/version.txt repeats for
+UpdateCheckData.
 Details: ${REPO_URL}/tree/main/packaging/fdroid`
 
 /** The contents of version.txt for a release. */
