@@ -1,6 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { runInThisContext } from 'node:vm'
-import { siteOrigin } from '@fxm/platform'
+import {
+  EVALUATOR_CHANNEL,
+  HELLO_SCRIPT,
+  receiveScript,
+  siteOrigin,
+  TAURI_EVALUATOR_PLUGIN,
+  takeScript,
+} from '@fxm/platform'
 import { describe, expect, it } from 'vitest'
 
 // Runs the desktop app's isolation hook (isolation/hook.js) the way Tauri's isolation frame does,
@@ -374,6 +381,32 @@ const FXM_MESSAGES: [string, IpcMessage][] = [
     message({ event: 'fxm-network-change', eventId: 9 }, 'plugin:event|unlisten'),
   ],
   ['a request for a channel’s data', message(null, 'plugin:__TAURI_CHANNEL__|fetch')],
+  // Stage 1.11's evaluator plugin, as `createTauriEvaluator` drives it: the scripts read and fill
+  // the evaluator document's mailbox.
+  ['the evaluator’s open', message({}, `plugin:${TAURI_EVALUATOR_PLUGIN}|open`)],
+  [
+    'the evaluator’s hello',
+    message({ script: HELLO_SCRIPT }, `plugin:${TAURI_EVALUATOR_PLUGIN}|eval`),
+  ],
+  [
+    'a request for the evaluator',
+    message(
+      {
+        script: receiveScript({
+          channel: EVALUATOR_CHANNEL,
+          id: 1,
+          method: 'evaluate',
+          params: { source: 'return args[0] + "\u00e9"', args: ['caf'] },
+        }),
+      },
+      `plugin:${TAURI_EVALUATOR_PLUGIN}|eval`,
+    ),
+  ],
+  [
+    'an evaluator’s answer',
+    message({ script: takeScript(1) }, `plugin:${TAURI_EVALUATOR_PLUGIN}|eval`),
+  ],
+  ['the evaluator’s close', message({}, `plugin:${TAURI_EVALUATOR_PLUGIN}|close`)],
 ]
 
 /** The headers that reach Rust for a request with `headers`. */

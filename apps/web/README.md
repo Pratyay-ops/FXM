@@ -17,8 +17,10 @@ From the repository root (tools run through `make` or `scripts/run.sh`, see [DEV
 | `make dev` | Dev server at http://localhost:5173/app/ |
 | `make test` | Unit tests (Vitest + happy-dom), together with every other package |
 | `make check` | Lint, typecheck, test and build: what every change must pass |
-| `scripts/run.sh pnpm --filter @fxm/web build` | Production build in `apps/web/dist/` |
+| `scripts/run.sh pnpm --filter @fxm/web build` | Production build in `apps/web/dist/`, and the embeddable player's in `apps/web/dist-embed/` |
 | `scripts/run.sh pnpm --filter @fxm/web preview` | Serve the build at http://localhost:4173/app/ |
+| `scripts/run.sh pnpm --filter @fxm/web dev:embed` | The embeddable player's dev server at http://localhost:5174/embed/…, with the sandbox documents at `/sandbox/` (`preview:embed` serves its build on port 4174) |
+| `scripts/run.sh pnpm --filter @fxm/web e2e:embed` | The player's browser tests in Chromium and Firefox, on another origin, in the Lite tier ([src/embed/README.md](src/embed/README.md#tests)) |
 
 End-to-end tests and screenshots use Playwright and are **not** part of `make check`. Install Chromium once (it lands in `.tools/playwright/`):
 
@@ -64,8 +66,11 @@ src/
   lib/                  small helpers (class names, safe storage, media queries, seeds)
   styles/               index.css (base, components, utilities) and tokens.css (design tokens)
   test/                 Vitest setup and the renderApp() helper
-e2e/                    Playwright smoke test, Now playing and SponsorBlock tests (with now-playing-seed.ts), local files test (with local-files-fixture.ts), PWA test and screenshot capture; fixtures/ holds a library backup to restore
+embed/                  the embeddable player's page and entry (stage 5.2), built by vite.embed.config.ts
+e2e/                    Playwright smoke test, Now playing and SponsorBlock tests (with now-playing-seed.ts), local files test (with local-files-fixture.ts), PWA test and screenshot capture; fixtures/ holds a library backup to restore, embed/ the embeddable player's browser tests
 ```
+
+`src/embed/` is the embeddable player (stage 5.2): its own page under `/embed/`, which any site may frame, with a postMessage API. `src/features/share/` is the share dialog that copies its code; the "Share" entry of the album and playlist pages' "More options" menus opens it. Both are described in [src/embed/README.md](src/embed/README.md).
 
 Later stages own their feature folders (`features/search`, `features/now-playing`, `features/library`, …, see [PLAN.md](../../docs/PLAN.md)), so the shell rarely needs to change.
 
@@ -79,6 +84,7 @@ Later stages own their feature folders (`features/search`, `features/now-playing
 - **Listening signals:** every play, like and playlist add counts toward an on-device affinity for tracks, artists and tags, which the recommendations rank with (stage 3.1; `src/db/README.md` has the details). The library records likes and playlist adds as it saves them. `features/signals/play-recorder.ts` records plays: the app's player connects it where it is created (`connectPlayRecorder(player)` in `features/now-playing/playback.ts`), and it saves each play when it ends, with the time actually listened, whether it completed (at least half heard) or was skipped, the queue's context and the stream. It keeps checkpoints in `localStorage`, so a page killed in the background loses no play: the next start records them. It also announces each play as it starts and ends (`features/signals/play-events.ts`), for features that follow the listening.
 - **Scrobbling** (stage 8.2, opt-in): Settings → Scrobbling connects a ListenBrainz or Last.fm account, and the songs the player plays then go to that profile, with a queue in IndexedDB for when the device is offline or a service is down. `main.tsx` starts it with `startScrobbling()`, which loads and sends nothing until an account is connected. See [features/scrobble/README.md](src/features/scrobble/README.md).
 - **Downloads** (stage 4.1): `features/downloads/` runs the download queue of [`@fxm/downloads`](../../packages/downloads/README.md) in the tab that holds a Web Lock, keeps the files in the Origin Private File System (written by a worker) and their records in a second IndexedDB database, `fxm-downloads`, and keeps the Downloads playlist in step. The library's Downloads tab shows the queue, its progress and a storage meter; song menus offer "Download". Its offline store lets the player play downloads first. See [its README](src/features/downloads/README.md).
+- **Home:** shelves built on the device from the listening affinity and the recommendation sources (stage 3.3): Quick picks, Daily Mixes, Discover, Because you listened, On repeat, Rediscover and a connected Spotify account's sections, plus an onboarding for a cold start. The platform, providers and player plug in through one seam; [features/home/README.md](src/features/home/README.md) has the details.
 - **Local files:** `features/local-files/` (its [README](src/features/local-files/README.md) has the details) lists the music files of a folder the browser keeps access to (Chromium's File System Access API, the handle in IndexedDB) or of files chosen through a file input, with tags and covers from music-metadata, in the Library's Local files tab (`/library?tab=local`) and as "On this device" on the search page. They play through the player core from object URLs; FLAC, ALAC and WAV are labelled lossless, nothing else is. Its own database, `fxm-local-files`, stays out of backups.
 - **Ordering:** every playlist, Liked songs and Downloads included, and the list of playlists keep a custom order the user controls: drag and drop on dnd-kit (pointer, touch and keyboard: Space picks a row up, the arrow keys move it, Space drops it, Escape cancels), Move up, down, to top and to bottom in each row's menu, multi-select moves, **Shuffle order** (a permanent random order, with Undo until the next change) and sort views by title, artist, album, date added or duration that "Save as custom order" makes permanent. In the sidebar a row drags by itself (with the mouse after a few pixels, by a long press on touch); its menu has the moves. Long lists skip the drag animations, and their rows re-render only when their own data changes.
 - **Theme:** dark by default, plus light and system. `data-theme` on `<html>` switches the tokens; the inline script in `index.html` applies the saved theme before React loads (a content security policy must allow it by hash).

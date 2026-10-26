@@ -111,6 +111,7 @@ export {
   TRANSPORT_ERROR_REASONS,
   TransportError,
 } from './errors'
+export * from './evaluator'
 export type { HostClass, HostRule } from './hosts'
 export {
   classifyUrl,

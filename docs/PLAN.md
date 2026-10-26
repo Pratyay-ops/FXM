@@ -110,7 +110,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | ✅ |
 | **1.9** | FXM Connect browser extension | `feat/1.9-connect-extension` | 0.4 | ✅ |
 | **1.10** | Opaque-origin transport (Lite tier) | `feat/1.10-sandbox-transport` | 1.2 | ✅ |
-| **1.11** | YouTube resolver: deciphered, attested and SABR rungs (experimental) | `feat/1.11-youtube-advanced-rungs` | 1.2, 1.4, 1.9, 2.2, 6.1, 7.1 | 🟡 |
+| **1.11** | YouTube resolver: deciphered, attested and SABR rungs (experimental) | `feat/1.11-youtube-advanced-rungs` | 1.2, 1.4, 1.9, 2.2, 6.1, 7.1 | ✅ |
 | **1.12** | Matching evaluation: labelled set, report and Auto switch | `test/1.12-matching-eval` | 1.2, 1.3, 1.5, 1.6, 1.7 | ✅ |
 | **1.13** | Signed config and resolver module | `feat/1.13-signed-updates` | 1.2, 1.3, 1.4, 7.1 | ✅ |
 | **2.1** | Web app shell and settings | `feat/2.1-web-shell` | 0.4 | ✅ |
@@ -124,7 +124,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **2.9** | App composition: real providers, resolver and player | `feat/2.9-app-wiring` | 1.4, 2.3, 2.4, 2.6 | 🟡 |
 | **3.1** | Listening signals and affinity | `feat/3.1-signals` | 2.2, 2.6 | ✅ |
 | **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | ✅ |
-| **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | 🟡 |
+| **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | ✅ |
 | **3.4** | Endless autoplay radio | `feat/3.4-autoplay` | 3.3 | ⬜ |
 | **3.5** | Spotify account connect and sync (web) | `feat/3.5-spotify-sync` | 1.5, 2.6, 2.7 | ⬜ |
 | **3.6** | Imports: Spotify, YouTube playlists, CSV/M3U, data export | `feat/3.6-imports` | 1.5, 1.7, 2.6, 3.1 | 🟡 |
@@ -133,7 +133,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **4.3** | Quality settings | `feat/4.3-quality` | 2.3 | ✅ |
 | **4.4** | Local music files (web) | `feat/4.4-local-files` | 2.2, 2.6 | ✅ |
 | **5.1** | PWA "web applet" | `feat/5.1-pwa` | 2.5 | ✅ |
-| **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3, 1.10 | 🟡 |
+| **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3, 1.10 | ✅ |
 | **5.3** | Landing page | `feat/5.3-site` | 0.4 | ✅ |
 | **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | ✅ |
 | **6.2** | Android native fetch (OkHttp plugin; YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | ✅ |

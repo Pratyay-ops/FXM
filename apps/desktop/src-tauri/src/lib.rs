@@ -19,6 +19,7 @@ use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 
 pub mod environment;
+mod evaluator;
 #[cfg(target_os = "macos")]
 mod fullscreen;
 pub mod network;
@@ -57,7 +58,9 @@ pub fn run() {
         // (`scopeRedirects` in tauri.conf.json).
         .plugin(tauri_plugin_http::init())
         // Opens links with target="_blank" in the default browser.
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        // The isolated evaluator in a hidden webview of its own (stage 1.11, src/evaluator.rs).
+        .plugin(evaluator::init());
     // macOS: Tauri's default app menu, with Window > FXM (⌘0) to bring a hidden window back.
     #[cfg(target_os = "macos")]
     let builder = builder

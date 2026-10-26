@@ -12,6 +12,7 @@
     "core:webview:default",
     "core:window:default",
     "opener:default",
+    "fxm-evaluator:default",
     "allow-user-hosts",
     "allow-approve-user-host",
     "allow-revoke-user-host",
