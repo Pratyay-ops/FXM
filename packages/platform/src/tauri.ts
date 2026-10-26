@@ -1,6 +1,7 @@
 /**
- * The desktop app's transport (Tauri 2). Stage 7.2 supplies its native HTTP, built on
- * `@tauri-apps/plugin-http` with the `unsafe-headers` feature; until then this is a stub that
+ * The desktop app's transport (Tauri 2). Its native HTTP is stage 7.2's `createDesktopFetch()`
+ * (`./desktop`), built on `@tauri-apps/plugin-http` with the `unsafe-headers` feature, which
+ * `createPlatform()` supplies by itself in the desktop app. Without one, this is a stub that
  * reaches only CORS-friendly hosts.
  *
  * The contract 7.2 implements (see {@link NativeHttp}):
@@ -25,7 +26,11 @@ import type { Transport, TransportOptions } from './transport'
 
 /** Options for {@link createTauriTransport}. */
 export interface TauriTransportOptions extends TransportOptions {
-  /** Stage 7.2's native HTTP. Without it, the transport is the stub. */
+  /**
+   * Stage 7.2's native HTTP, `createDesktopFetch()`. Without it, the transport is the stub. It
+   * sends the hosts the user added in Settings (`userHosts`) through a Rust command that checks
+   * them again: `createDesktopUserHosts().current` gives the list Rust keeps.
+   */
   http?: NativeHttp
   /** A browser `User-Agent` for YouTube and Spotify. */
   userAgent?: string
