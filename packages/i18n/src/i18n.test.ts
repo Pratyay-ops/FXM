@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { type Catalog, createI18n, type I18nOptions } from './i18n'
 import { defineMessages } from './messages'
-import { negotiateLocale } from './negotiate'
+import { applyDocumentLocale, negotiateLocale } from './negotiate'
 import type { MessageNode } from './parse'
 
 const library = defineMessages('library', {
@@ -176,6 +176,21 @@ describe('createI18n', () => {
     expect([i18n.locale, i18n.formatLocale]).toEqual(['pt-BR', 'pt-BR'])
     expect(load.mock.calls).toEqual([['zh-Hant'], ['pt-BR']])
     expect(i18n.translator(library)('title')).toBe('Biblioteca')
+  })
+
+  it('gives <html lang dir> what it shows, even when a switch fails', async () => {
+    const { i18n } = setup({ derived: { 'ar-XB': (nodes) => [...nodes] } })
+    const attributes = new Map<string, string>()
+    const html = { setAttribute: (name: string, value: string) => attributes.set(name, value) }
+    i18n.subscribe(() => applyDocumentLocale(i18n, html))
+    // Negotiation chose Japanese, but its catalog didn't load: the page is still English.
+    await expect(i18n.setLocale('ja')).rejects.toThrow()
+    applyDocumentLocale(i18n, html)
+    expect(Object.fromEntries(attributes)).toEqual({ lang: 'en', dir: 'ltr' })
+    await i18n.setLocale('ar-XB')
+    expect(Object.fromEntries(attributes)).toEqual({ lang: 'ar-XB', dir: 'rtl' })
+    await i18n.setLocale('de')
+    expect(Object.fromEntries(attributes)).toEqual({ lang: 'de', dir: 'ltr' })
   })
 
   it('refuses locales it doesn’t know', async () => {

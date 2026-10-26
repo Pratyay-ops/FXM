@@ -64,8 +64,14 @@ const choice = negotiateLocale({
   requested: requestedLocales(),
   preference: settings.language, // undefined: follow the browser
 })
-await appI18n.setLocale(choice.locale, choice.formatLocale)
-applyDocumentLocale(choice) // <html lang dir>
+try {
+  await appI18n.setLocale(choice.locale, choice.formatLocale)
+} catch {
+  // The catalog didn't load: the app stays in English.
+}
+// <html lang dir> from what the instance shows, not from the choice, now and after every switch.
+applyDocumentLocale(appI18n)
+appI18n.subscribe(() => applyDocumentLocale(appI18n))
 ```
 
 - **Fallback.** A message a catalog lacks, or leaves empty as translation platforms write untranslated ones, falls back along the locale's chain (`pt-BR`, then `pt`; never across scripts, so `zh-Hant` doesn't fall back to Simplified `zh`), then to English, and `onMissing` hears about it once. A translation that doesn't parse shows English and goes to `onError`; so does a value the code didn't pass, which shows as `{name}`.

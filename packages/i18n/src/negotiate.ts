@@ -180,7 +180,11 @@ export function fallbackChain(locale: string): string[] {
   return chain
 }
 
-/** Sets `lang` and `dir` on `element`, the document's `<html>` by default. */
+/**
+ * Sets `lang` and `dir` on `element`, the document's `<html>` by default. Give it the app's
+ * `I18n`, which has both, rather than a negotiated choice: the instance says what the page shows,
+ * and a catalog that didn't load leaves it in English, whatever was chosen.
+ */
 export function applyDocumentLocale(
   choice: Pick<LocaleChoice, 'locale' | 'direction'>,
   element: { setAttribute(name: string, value: string): void } | undefined = (
