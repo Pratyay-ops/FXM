@@ -39,8 +39,9 @@ name: Release
 # (`secrets.X != ''`); only the step that submits gets the values.
 #
 # The Android signing key is in the `android-release` environment, which, like `stores`, only
-# runs on main can use: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and
-# ANDROID_KEY_PASSWORD (scripts/make-android-keystore.sh makes them; apps/mobile/RELEASING.md).
+# runs on main can use, and whose every run the owner approves before android-sign gets the key:
+# ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD
+# (scripts/make-android-keystore.sh makes them; apps/mobile/RELEASING.md).
 # Unlike the store keys they are required: without them, or with a key whose certificate isn't the
 # pinned one, android-sign fails and nothing is published, so a release never carries an APK
 # signed with another key, or none at all. android-sign runs only the JDK and the Android SDK's
@@ -292,7 +293,8 @@ jobs:
     if: needs.plan.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # The signing key is a secret of this environment, which only runs on main can use.
+    # The signing key is a secret of this environment, which only runs on main can use. Each run
+    # waits here for the owner's approval before the key reaches this job.
     environment: android-release
     permissions:
       contents: read

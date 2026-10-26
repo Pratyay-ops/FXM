@@ -70,11 +70,13 @@ The folder must be outside every git checkout, where the key could be committed,
 
 ### Secrets
 
-The key lives in the GitHub environment `android-release`, which only runs on `main` can use, like the store keys in `stores`. Create it once (from the repository folder, with the GitHub CLI, `make gh-setup`):
+The key lives in the GitHub environment `android-release`, which only runs on `main` can use, like the store keys in `stores`, and the owner approves each run: a release waits at `android-sign` until the owner does, so a pull request merged into `main` by mistake, or by a tool, signs nothing. Create it once, with the owner as its required reviewer (from the repository folder, with the GitHub CLI, `make gh-setup`):
 
 ```sh
-scripts/run.sh gh api -X PUT 'repos/{owner}/{repo}/environments/android-release' --input - <<'EOF'
-{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
+owner_id=$(scripts/run.sh gh api 'repos/{owner}/{repo}' --jq .owner.id)
+scripts/run.sh gh api -X PUT 'repos/{owner}/{repo}/environments/android-release' --input - <<EOF
+{"reviewers": [{"type": "User", "id": $owner_id}], "prevent_self_review": false,
+ "deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
 EOF
 scripts/run.sh gh api -X POST 'repos/{owner}/{repo}/environments/android-release/deployment-branch-policies' \
   -f name=main -f type=branch
