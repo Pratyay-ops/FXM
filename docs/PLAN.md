@@ -723,7 +723,7 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
 | Rule (path) | Content-Security-Policy | Why |
 |---|---|---|
 | Each site page, listed one by one (today `/`, `/privacy`, `/disclaimer`, `/404.html`), and `/_astro/*` | The site's own policy, with its inline scripts and styles allowed by hash ([apps/site/README.md](../apps/site/README.md)) | One rule per page, so no rule overlaps `/app/`, `/embed/` or `/sandbox/`, and none needs `/*` |
-| `/app/*` | `default-src 'self'; script-src 'self' 'sha256-…'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://*.scdn.co https://*.spotifycdn.com https://archive.org https://*.archive.org https://*.jamendo.com; media-src 'self' blob: https:; connect-src 'self' https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com https://*.googlevideo.com https://open.spotify.com https://api-partner.spotify.com https://spclient.wg.spotify.com https://musicbrainz.org https://archive.org https://*.archive.org https://*.jamendo.com https://lrclib.net; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'` | See the notes below |
+| `/app/*` | `default-src 'self'; script-src 'self' 'sha256-…'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://*.scdn.co https://*.spotifycdn.com https://archive.org https://*.archive.org https://*.jamendo.com; media-src 'self' blob: https:; connect-src 'self' https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com https://*.googlevideo.com https://open.spotify.com https://api-partner.spotify.com https://spclient.wg.spotify.com https://musicbrainz.org https://archive.org https://*.archive.org https://*.jamendo.com https://lrclib.net https://sponsor.ajay.app; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'` | See the notes below |
 | `/embed/*` | As `/app/*`, without `frame-ancestors` | Any site may embed the player. Lite still works inside third-party pages, because the sandbox documents set no `frame-ancestors` |
 | `/sandbox/innertube.html` | `sandbox allow-scripts; default-src 'none'; script-src 'sha256-…'; connect-src https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com; base-uri 'none'; form-action 'none'` | `sandbox` makes it opaque however it is loaded |
 | `/sandbox/userhost.html` | `sandbox allow-scripts; default-src 'none'; script-src 'sha256-…'; connect-src https:; base-uri 'none'; form-action 'none'` | GET only, to user-configurable hosts |
@@ -731,11 +731,10 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
 
   Notes on the `/app/*` rule:
 
-  - It allows only what M1's stages use. Later stages add what they need when they ship (Definition of done), so the `_headers` generator builds this rule from lists that a stage can extend without editing the rule:
+  - It allows only what the shipped stages use: M1's, plus SponsorBlock (`sponsor.ajay.app`, 8.7), which merged before M1's release. Later stages add what they need when they ship (Definition of done), so the `_headers` generator builds this rule from lists that a stage can extend without editing the rule:
     - 1.11: the BotGuard hosts, once one of its rungs is on;
     - 3.2: Last.fm (`www.last.fm`, `ws.audioscrobbler.com`, `lastfm.freetls.fastly.net`), ListenBrainz (`api.listenbrainz.org`, `labs.api.listenbrainz.org`), Cover Art Archive (`coverartarchive.org`) and iTunes Search (`itunes.apple.com`, `*.mzstatic.com`);
-    - 4.2: `'wasm-unsafe-eval'`, for ffmpeg.wasm in its worker;
-    - 8.7: SponsorBlock (`sponsor.ajay.app`).
+    - 4.2: `'wasm-unsafe-eval'`, for ffmpeg.wasm in its worker.
   - The line is about 850 characters at M1, and about 1,200 with all of the above, under the 2,000-character limit.
   - The `sha256-…` hashes, here and in the sandbox rules, are computed at build: for the app, the inline theme script in `apps/web/index.html`.
   - `media-src https:` covers googlevideo, Internet Archive's redirect hosts (`ia*.us.archive.org`), Jamendo's storage hosts and a user's Invidious proxy. Page script can't read media responses.
