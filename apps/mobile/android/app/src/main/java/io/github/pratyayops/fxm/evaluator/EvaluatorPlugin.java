@@ -1,7 +1,6 @@
 package io.github.pratyayops.fxm.evaluator;
 
 import android.annotation.SuppressLint;
-import android.app.Activity;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -20,7 +19,6 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
-import com.getcapacitor.WebViewListener;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -50,9 +48,10 @@ import java.util.List;
  *       ({@code window.__fxmEvaluator}) through {@code evaluateJavascript}, whose callback hands
  *       back the script's value as JSON.
  *   <li>All of the app's WebViews share one renderer process. If it dies, the evaluator's WebView
- *       is destroyed and the app's own is replaced by restarting the activity, instead of Android
- *       killing the app; and if a script hangs it (a mailbox read that takes {@value
- *       #EVAL_TIMEOUT_MS} ms), the renderer is ended, where the WebView allows it.
+ *       is destroyed, and the app's own is left to the FxmPlayer plugin (stage 6.3), which keeps
+ *       the app alive and brings the web app back on its own schedule ({@code WebViewRecovery});
+ *       and if a script hangs the renderer (a mailbox read that takes {@value #EVAL_TIMEOUT_MS}
+ *       ms), it is ended, where the WebView allows it.
  * </ul>
  *
  * <p>The app's page drives it through {@code createCapacitorEvaluator} of
@@ -85,23 +84,6 @@ public class EvaluatorPlugin extends Plugin {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Pending> pending = new ArrayList<>();
     private WebView webView;
-    private boolean guardingRenderer;
-
-    /**
-     * Keeps the app alive when the renderer it shares with the evaluator dies: the app's WebView
-     * can't be used any more, so the activity starts again with a new one.
-     */
-    private final WebViewListener rendererGuard = new WebViewListener() {
-        @Override
-        public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
-            main.post(() -> {
-                destroyWebView("The evaluator's renderer is gone");
-                Activity activity = getActivity();
-                if (activity != null && !activity.isFinishing()) activity.recreate();
-            });
-            return true;
-        }
-    };
 
     /** Creates the evaluator WebView (again) and loads {@code html} into it. */
     @PluginMethod
@@ -121,10 +103,6 @@ public class EvaluatorPlugin extends Plugin {
                     return;
                 }
                 clearProfile();
-                if (!guardingRenderer) {
-                    getBridge().addWebViewListener(rendererGuard);
-                    guardingRenderer = true;
-                }
                 webView = createWebView();
                 webView.loadDataWithBaseURL(BASE_URL, html, "text/html", "utf-8", null);
                 call.resolve();
@@ -179,10 +157,6 @@ public class EvaluatorPlugin extends Plugin {
     @Override
     protected void handleOnDestroy() {
         destroyWebView("The app is closing");
-        if (guardingRenderer) {
-            getBridge().removeWebViewListener(rendererGuard);
-            guardingRenderer = false;
-        }
     }
 
     /** A WebView that runs scripts and nothing else: no network, files, storage or windows. */
@@ -210,7 +184,9 @@ public class EvaluatorPlugin extends Plugin {
 
             @Override
             public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
-                // Handled: the WebView is destroyed, and Android leaves the app running.
+                // Handled: the WebView is destroyed, and Android leaves the app running. The app's
+                // own WebView shares the renderer: the FxmPlayer plugin handles its death and
+                // recreates the activity, spacing out restarts that keep failing in the background.
                 if (view == webView) destroyWebView("The evaluator's renderer is gone");
                 return true;
             }

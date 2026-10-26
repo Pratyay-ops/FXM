@@ -11,6 +11,9 @@ const withoutComments = (java: string) => java.replace(/\/\*[\s\S]*?\*\/|^\s*\/\
 const plugin = withoutComments(read(`${javaDir}/evaluator/EvaluatorPlugin.java`))
 const pin = withoutComments(read(`${javaDir}/evaluator/EvaluatorDocument.java`))
 const activity = withoutComments(read(`${javaDir}/MainActivity.java`))
+const fxmPlayer = withoutComments(
+  read('android/fxm-player/src/main/kotlin/io/github/pratyayops/fxm/player/FxmPlayerPlugin.kt'),
+)
 const appGradle = read('android/app/build.gradle')
 const platformHost = read('../../packages/platform/src/evaluator/capacitor.ts')
 
@@ -72,16 +75,21 @@ describe('the Android evaluator host', () => {
   })
 
   it('keeps the app alive when the shared renderer dies, and ends a hung one', () => {
-    // Both handlers, the evaluator's own and the one on the app's WebView, say it was handled.
+    // The evaluator's own handler says the death was handled, so Android doesn't kill the app.
     const handlers = plugin.split('public boolean onRenderProcessGone(').slice(1)
-    expect(handlers).toHaveLength(2)
-    for (const handler of handlers) {
-      const code = handler.split('@Override')[0] ?? ''
-      expect(code).toContain('return true;')
-      expect(code).not.toContain('return false;')
-    }
-    expect(plugin).toContain('getBridge().addWebViewListener(rendererGuard)')
-    expect(plugin).toContain('activity.recreate()')
+    expect(handlers).toHaveLength(1)
+    const code = handlers[0]?.split('@Override')[0] ?? ''
+    expect(code).toContain('destroyWebView(')
+    expect(code).toContain('return true;')
+    expect(code).not.toContain('return false;')
+    // The app's own WebView is stage 6.3's: the FxmPlayer plugin, always registered, says its
+    // death was handled too and lets WebViewRecovery recreate the activity, spacing out restarts.
+    // A second restart from here would undo that spacing.
+    expect(plugin).not.toContain('addWebViewListener(')
+    expect(plugin).not.toContain('.recreate()')
+    expect(activity).toContain('registerPlugin(FxmPlayerPlugin.class)')
+    expect(fxmPlayer).toContain('bridge.addWebViewListener(renderer)')
+    expect(fxmPlayer).toContain('WebViewRecovery::onRendererGone')
     expect(plugin).toContain('renderer.terminate()')
   })
 
