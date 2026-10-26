@@ -6,6 +6,10 @@
 #                                       the web app in app/, the sandbox documents, _headers,
 #                                       third-party-notices.txt and .well-known/
 #                                       (scripts/build-dist/README.md, "Self-hosting")
+#   fxm-ffmpeg-core-source-<version>.zip  the source of the web app's ffmpeg core (LGPL), as the
+#                                       web zip has it in source/ffmpeg-core/: the tarballs of
+#                                       FFmpeg, LAME and Opus it was built from and FXM's recipe
+#                                       (tools/ffmpeg-wasm/README.md, "The LGPL")
 #   fxm-connect-chromium-<version>.zip  FXM Connect for Chromium browsers (apps/extension)
 #   fxm-connect-firefox-<version>.zip   FXM Connect for Firefox
 #
@@ -105,6 +109,19 @@ for file in index.html app/index.html _headers third-party-notices.txt; do
   [ -f "dist/pages/$file" ] || fxm_die "make dist built no dist/pages/$file for the web zip"
 done
 zip_folder dist/pages "$out/fxm-web-$version.zip"
+
+# The source of the ffmpeg core, which the LGPL asks to offer from the same place as the core: the
+# release attaches it next to the web zip that holds the core, as one file, since every release
+# file carries the version. make dist ships the two together (scripts/build-dist/src/ffmpeg-core.ts),
+# and in CI it fails without them.
+sources=dist/pages/source/ffmpeg-core
+if [ -d "$sources" ]; then
+  zip_folder "$sources" "$out/fxm-ffmpeg-core-source-$version.zip"
+elif [ -e dist/pages/app/ffmpeg ]; then
+  fxm_die "make dist shipped the ffmpeg core without its source in dist/pages/source/ffmpeg-core"
+else
+  fxm_warn "This build has no ffmpeg core (make ffmpeg-wasm builds one), so neither has the release"
+fi
 
 if exists extension; then
   # The release variant: the dev build also trusts localhost and must never ship.

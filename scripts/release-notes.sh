@@ -77,12 +77,22 @@ if fxm_release_has_summary "$version"; then
   echo
 fi
 # The notes name the services FXM works with, so they carry its non-affiliation notice
-# (docs/LEGAL.md, "Notice": change it there, in the README and on the disclaimer page too). It
-# comes before the list, the part that fxm_release_fit cuts when the notes are too long.
+# (docs/LEGAL.md, "Notice": change it there, in the README and on the disclaimer page too), and
+# say where the source of the LGPL ffmpeg core in the web zip is (tools/ffmpeg-wasm/README.md,
+# "The LGPL"). Both come before the list, the part that fxm_release_fit cuts when the notes are
+# too long.
 cat <<'EOF'
 ## Legal
 
 FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google, Spotify or any other service it works with, and it hosts no music. You are responsible for following the terms of the services you use with FXM and the laws where you live. The [disclaimer](https://fxmusic.pages.dev/disclaimer) and the [privacy page](https://fxmusic.pages.dev/privacy) have the details.
+
+EOF
+echo "The web app converts downloads with FXM's build of FFmpeg (LGPL-2.1-or-later), LAME (LGPL)" \
+  "and Opus (BSD). Their licences and notices are in the [third-party" \
+  "notices](https://fxmusic.pages.dev/third-party-notices.txt), and the source it was built" \
+  "from comes with every copy: in \`source/ffmpeg-core/\` of the web zip and on the site, and" \
+  "as \`fxm-ffmpeg-core-source-$version.zip\` in the release."
+cat <<'EOF'
 
 ## Changes
 
