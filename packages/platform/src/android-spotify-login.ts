@@ -35,7 +35,8 @@ export const FXM_SPOTIFY_LOGIN_PLUGIN = 'FxmSpotifyLogin'
  *
  * - `BAD_REQUEST`: a token parameter outside the allow-list, or a malformed message
  * - `LOGGED_OUT`: no Spotify login is kept on this device (never logged in, logged out, or a
- *   kept login that can't be read any more, which the plugin then deletes)
+ *   kept login that never opens again, its key gone or the file damaged, which the plugin then
+ *   deletes)
  * - `BUSY`: the login window is open already
  * - `NO_ACTIVITY`: there is no screen to open the login window on
  * - `RATE_LIMITED`: more token requests in a minute than the plugin allows
@@ -43,7 +44,8 @@ export const FXM_SPOTIFY_LOGIN_PLUGIN = 'FxmSpotifyLogin'
  * - `NETWORK`: Spotify's token endpoint could not be reached, or it redirected
  * - `TIMEOUT`: the token request took longer than {@link FXM_SPOTIFY_TOKEN_TIMEOUT_MS}
  * - `TOO_LARGE`: the token endpoint's answer was over {@link FXM_SPOTIFY_TOKEN_MAX_BYTES}
- * - `STORAGE`: the login window's login could not be kept (the keystore or the file failed)
+ * - `STORAGE`: the keystore or the file failed: the login window's login could not be kept, the
+ *   kept login could not be opened just now (it stays kept), or logging out could not delete it
  */
 export const FXM_SPOTIFY_LOGIN_ERROR_CODES = [
   'BAD_REQUEST',
@@ -113,10 +115,12 @@ export interface SpotifyLoginWindow {
    */
   openLogin(): Promise<SpotifyLoginState>
   /**
-   * Logs out on this device: deletes the kept login and its key, and clears the login window's
-   * cookies (Spotify's among them) and storage. The Spotify session itself stays valid elsewhere.
+   * Logs out on this device: deletes the kept login and its key, and wipes the login window's
+   * cookies (Spotify's among them), storage and cache. Resolves with where the login stands then.
+   * Rejects with an `Unavailable` `FxmError` (`STORAGE`) when the kept login could not be deleted.
+   * The Spotify session itself stays valid elsewhere.
    */
-  logout(): Promise<void>
+  logout(): Promise<SpotifyLoginState>
 }
 
 /**
@@ -326,7 +330,7 @@ export function createAndroidSpotifyLogin(
     },
     async logout() {
       try {
-        await plugin.logout()
+        return stateOf(await plugin.logout())
       } catch (error) {
         throw loginError(error, 'Logging out of Spotify on this device')
       }

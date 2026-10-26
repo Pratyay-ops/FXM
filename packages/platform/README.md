@@ -188,7 +188,9 @@ const window = spotifyLoginWindowOf(platform.spotifySession)
 if (window !== undefined) {
   const { loggedIn, available } = await window.loginState() // available: the window can open here
   if (!loggedIn) await window.openLogin() // resolves once the window closes, with the new state
-  await window.logout() // Disconnect: deletes the kept login and the window's cookies
+  // Disconnect: deletes the kept login and wipes the window's profile. It resolves with the
+  // state (`loggedIn: false` once it worked) and rejects (`Unavailable`, `STORAGE`) when it couldn't.
+  await window.logout()
 }
 ```
 
@@ -283,7 +285,7 @@ The app side, its scope, permissions and content security policy are in [apps/de
 - `createFakeSandbox()`: a `SandboxTransport` that refuses requests the real sandbox could not send (not CORS-simple, or not one of the allowed InnerTube paths) and records the rest. `selfTest` answers `'pass'` unless told otherwise.
 - `installFakeConnect(window)`: marks a page and answers pings and bridge requests the way FXM Connect's content script does.
 - `createFakeFxmHttp(options)`: the Android app's `FxmHttp` plugin, answering from a handler that returns a `Response`. It streams bodies in chunks, honours aborts, hands redirects back as they are, and refuses hosts as the native plugin does (`HOST_NOT_APPROVED` with `data.host`, which `answer` can then approve). `fxmHttpError(code)` makes the errors the plugin rejects with.
-- `createFakeFxmSpotifyLogin(options)`: the Android app's `FxmSpotifyLogin` plugin: a login kept or not, a login window the test answers (`window`), logout, and token requests that need a kept login, check their parameters and are rate limited as the native plugin's, answered by `answer`. `fxmSpotifyLoginError(code)` makes the errors the plugin rejects with. It never holds a cookie.
+- `createFakeFxmSpotifyLogin(options)`: the Android app's `FxmSpotifyLogin` plugin: a login kept or not, a login window the test answers (`window`), logout (which `logout` can make fail), and token requests that need a kept login, check their parameters and are rate limited as the native plugin's, answered by `answer`. `fxmSpotifyLoginError(code)` makes the errors the plugin rejects with. It never holds a cookie.
 - `createTestSigner()`, `fakeUpdateSite()` and `nodeModuleImporter`: a throwaway update signing key, a fake static site for signed updates, and a way to load verified modules in Node ([`src/updates/`](src/updates/README.md)).
 
 Tests that need a page create their own happy-dom `Window` at the FXM origin: in Vitest's global happy-dom environment, a message's `event.source` is not the page's `window`. happy-dom delivers `postMessage` on real timers, so the clients take an injectable `clock` for their timeouts.

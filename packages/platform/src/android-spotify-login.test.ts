@@ -265,9 +265,23 @@ describe('the login window', () => {
 
   it('logs out: the next token request needs a new login', async () => {
     const { plugin, login } = setup({ loggedIn: true })
-    await login.logout()
+    await expect(login.logout()).resolves.toEqual({ loggedIn: false, available: true })
     expect(plugin.loggedIn).toBe(false)
     expect(isFxmError(await failure(login.requestToken(PARAMS)), 'AuthRequired')).toBe(true)
+  })
+
+  it('says when logging out could not delete the login', async () => {
+    const { plugin, login } = setup({
+      loggedIn: true,
+      logout: () => {
+        throw fxmSpotifyLoginError('STORAGE', "FXM couldn't delete its Spotify login")
+      },
+    })
+    const error = await failure(login.logout())
+    expect(isFxmError(error, 'Unavailable')).toBe(true)
+    expect((error as SpotifyLoginError).loginCode).toBe('STORAGE')
+    await expect(login.loginState()).resolves.toEqual({ loggedIn: true, available: true })
+    expect(plugin.loggedIn).toBe(true)
   })
 
   it('is told apart from a source without one, such as FXM Connect’s bridge', () => {

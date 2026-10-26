@@ -1,7 +1,8 @@
 /**
  * A fake `FxmSpotifyLogin` plugin (the Android app's Spotify login, stage 6.5) for tests. It
  * speaks the bridge protocol of `android-spotify-login.ts` the way the native plugin does: a
- * login kept or not, a login window that a test answers, logout, and token requests that need a
+ * login kept or not, a login window that a test answers, logout (which a test can make fail),
+ * and token requests that need a
  * kept login (`LOGGED_OUT` otherwise), check their parameters (`BAD_REQUEST`) and are rate
  * limited (`RATE_LIMITED` with `data.retryAfterMs`). Answers come from a handler. No cookie ever
  * exists here: the native plugin keeps it, and JavaScript never sees it.
@@ -42,6 +43,12 @@ export interface FakeFxmSpotifyLoginOptions {
    * (e.g. {@link fxmSpotifyLoginError} `STORAGE`) makes `login` reject. Default: they sign in.
    */
   window?: () => boolean | Promise<boolean>
+  /**
+   * What logging out does: returning logs out, a thrown error (e.g. {@link fxmSpotifyLoginError}
+   * `STORAGE`) makes `logout` reject with the login still kept, as when the native side couldn't
+   * delete it. Default: it logs out.
+   */
+  logout?: () => void
   /**
    * Spotify's answer to a token request with the kept login, or a thrown error (e.g.
    * `NETWORK`). Default: 200 with a logged-in token that expires in an hour.
@@ -103,6 +110,7 @@ export function createFakeFxmSpotifyLogin(
     },
     async logout() {
       calls.push('logout')
+      options.logout?.()
       fake.loggedIn = false
       return state()
     },
