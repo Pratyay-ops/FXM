@@ -20,12 +20,7 @@ export function HomePage() {
   return (
     <div className="space-y-10 md:space-y-12">
       <PageWash color="color-mix(in oklab, var(--color-accent) 24%, transparent)" />
-      <div className="pt-4 md:pt-6">
-        <h1 className="text-display font-extrabold">{greeting}</h1>
-        <p className="mt-2 text-text-muted md:text-lg">
-          Free music from everywhere. No account, no ads from FXM.
-        </p>
-      </div>
+      <h1 className="pt-4 text-display font-extrabold md:pt-6">{greeting}</h1>
 
       {/* Phones only, while the browser offers to install FXM (stage 5.1). */}
       <InstallCard />
