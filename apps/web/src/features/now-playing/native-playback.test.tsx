@@ -1,6 +1,11 @@
 import { NativeEngine } from '@fxm/player'
-import { createFakeFxmPlayer, type FakeFxmPlayer, testTracks } from '@fxm/player/testing'
-import { afterEach, describe, expect, it } from 'vitest'
+import {
+  createFakeFxmPlayer,
+  FakeEngine,
+  type FakeFxmPlayer,
+  testTracks,
+} from '@fxm/player/testing'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { configurePlayback, getPlayback, resetPlayback } from './playback'
 import { FakePolicy, setupTestPlayback } from './testing'
 
@@ -140,6 +145,43 @@ describe('the app’s playback in the Android app', () => {
     plugin.changeNetwork(true)
     stop?.()
     expect(changes).toEqual([true])
+  })
+
+  it('plays in the WebView when Media3’s service can’t be bound', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await saveQueue('a', 'b')
+    const plugin = createFakeFxmPlayer()
+    plugin.attach = async () => {
+      throw Object.assign(new Error('The player service is not available'), {
+        code: 'UNAVAILABLE',
+      })
+    }
+    const webView = new FakeEngine()
+    const playback = configurePlayback({
+      createEngine: () => new NativeEngine({ plugin, origin: 'https://localhost' }),
+      createFallbackEngine: () => webView,
+      policy: new FakePolicy(),
+      mediaSession: false,
+      recordPlays: false,
+      player: { retryDelaysMs: [0], stallTimeoutMs: 0 },
+    })
+    await playback.ready
+    // The saved queue is back in the same player, which plays in the WebView from now on.
+    expect(queueTitles()).toEqual(['a', 'b'])
+    expect(getPlayback().player).toBe(playback.player)
+    await playback.player.play()
+    await settle()
+    expect(webView.source?.item?.track.title).toBe('b')
+    expect(webView.calls.find((call) => call.method === 'load')?.args[1]).toBe(42_000)
+    expect(playback.player.getState().status).toBe('playing')
+    expect(plugin.calls.some((call) => call.startsWith('load'))).toBe(false)
+    // The stream lifecycle follows the WebView's network events, no longer Android's callbacks.
+    expect(playback.network?.id.startsWith('native-')).toBe(false)
+    expect(errors).toHaveBeenCalledWith(
+      expect.stringContaining('native player is unavailable'),
+      expect.objectContaining({ code: 'Unavailable' }),
+    )
+    errors.mockRestore()
   })
 
   it('plays in the WebView elsewhere, at once', async () => {

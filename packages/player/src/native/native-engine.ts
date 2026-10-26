@@ -358,6 +358,8 @@ export class NativeEngine implements Engine {
   readonly #prefix = `n${Math.floor(Math.random() * 2 ** 32).toString(36)}`
   #sequence = 0
   #attached = false
+  /** Why attaching to the native player failed, if it did. */
+  #attachError: unknown
   #destroyed = false
   #volume = 1
   #muted = false
@@ -434,7 +436,8 @@ export class NativeEngine implements Engine {
   /**
    * A native engine on the Android app's plugin (see the class's "One engine per page"), or
    * `undefined` elsewhere. It cannot tell whether attaching to the native player works; if that
-   * fails, the engine logs it and plays without events. {@link create} waits and tells.
+   * fails, the engine logs it, plays without events and {@link connect} rejects. {@link create}
+   * waits and tells.
    *
    * @throws an `Error` while another engine is alive on the plugin.
    */
@@ -670,6 +673,11 @@ export class NativeEngine implements Engine {
    * queue, the engine takes Media3's entry over only when it plays the player's current item,
    * and otherwise releases Media3. Connecting again with the same player resolves with the same
    * connection; another player is refused with an error in the console.
+   *
+   * Rejects with an `Unavailable` `FxmError`, whose `cause` is the plugin's error, when attaching
+   * to the native player failed (its service could not be bound): nothing would play for the
+   * player, which is left as it was, and the app can fall back to the direct audio engine, as
+   * {@link create} lets it.
    */
   connect(options: NativeConnectOptions): Promise<NativeConnection> {
     if (this.#destroyed) return Promise.resolve(NOT_CONNECTED)
@@ -694,6 +702,15 @@ export class NativeEngine implements Engine {
     this.#aheadMs = Math.max(0, options.aheadMs ?? NATIVE_ENGINE_DEFAULTS.aheadMs)
     const session = await this.#ready
     if (this.#destroyed || this.#player !== player) return NOT_CONNECTED
+    if (!this.#attached) {
+      // Nothing would play for the player: Media3's service could not be bound.
+      this.#player = undefined
+      this.#resolver = undefined
+      this.#connection = undefined
+      throw new FxmError('Unavailable', 'The native player is not available', {
+        cause: this.#attachError,
+      })
+    }
     const resumed =
       session !== undefined && this.#loaded === undefined && this.#resync(session, player)
     const stop = player.subscribe((state, previous) => this.#onPlayerState(state, previous))
@@ -969,6 +986,7 @@ export class NativeEngine implements Engine {
       return session
     } catch (error) {
       console.error(error)
+      this.#attachError = error
       return undefined
     }
   }

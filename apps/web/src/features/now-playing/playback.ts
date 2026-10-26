@@ -4,7 +4,9 @@
  *
  * - plays through the direct audio engine, two `<audio>` elements, or in the Android app through
  *   the native engine, Media3 in a foreground service (stage 6.3), connected before the saved
- *   queue is restored (see {@link AppPlayback.ready});
+ *   queue is restored (see {@link AppPlayback.ready}); when Media3's service turns out to be
+ *   unavailable there, the same player plays through the direct audio engine from then on
+ *   (`android-engine.ts`);
  * - gets its streams from the playback policy (stage 2.3, see `playback-policy.ts`);
  * - follows the catalog mode setting;
  * - shows the current track in the system media controls (Media Session);
@@ -43,6 +45,7 @@ import { useQueueReviewStore } from '../queue/review-store'
 import { useSettingsStore } from '../settings/settings-store'
 import { connectPlayRecorder } from '../signals/play-recorder'
 import { connectSponsorBlock } from '../sponsorblock/skipping'
+import { AndroidEngine } from './android-engine'
 import { createAppPolicy, type PlaybackPolicy } from './playback-policy'
 
 /** How the app's playback is put together. Every field has a default; tests pass fakes. */
@@ -50,9 +53,13 @@ export interface PlaybackOptions {
   /**
    * Creates the engine. Default: in the Android app the native engine on its `FxmPlayer`
    * plugin, else (or when it can't attach) a `DirectAudioEngine`. A `NativeEngine` is connected
-   * to the player before the saved queue is restored.
+   * to the player before the saved queue is restored, and gives way to
+   * {@link PlaybackOptions.createFallbackEngine}'s engine, in the same player, when its `connect`
+   * rejects: Media3's service is unavailable.
    */
   createEngine?: () => Engine
+  /** The engine that takes over from an unavailable `NativeEngine`. Default: a `DirectAudioEngine`. */
+  createFallbackEngine?: () => Engine
   /** The playback policy. Default: {@link createAppPolicy}. */
   policy?: PlaybackPolicy
   /** Where the queue is saved. Default: `localStorage`. */
@@ -80,8 +87,9 @@ export interface AppPlayback {
   readonly ready: Promise<void>
   /**
    * In the Android app, the native engine's network: Android's own callbacks, which keep
-   * arriving with the screen off. The stream lifecycle follows it (the composition root passes
-   * it on); elsewhere `undefined`, and the lifecycle follows the browser's events.
+   * arriving with the screen off, and the WebView's events once the player gave up on Media3.
+   * The stream lifecycle follows it (the composition root passes it on); elsewhere `undefined`,
+   * and the lifecycle follows the browser's events.
    */
   readonly network: NetworkMonitor | undefined
 }
@@ -138,16 +146,25 @@ function defaultEngine(): Engine {
 }
 
 function createPlayback(options: PlaybackOptions, notify: () => void): Connected {
-  const engine = options.createEngine?.() ?? defaultEngine()
-  const native = engine instanceof NativeEngine ? engine : undefined
+  const created = options.createEngine?.() ?? defaultEngine()
+  // In the Android app: Media3, and the WebView's own audio if Media3's service is unavailable.
+  const android =
+    created instanceof NativeEngine
+      ? new AndroidEngine(
+          created,
+          options.createFallbackEngine === undefined
+            ? {}
+            : { createFallback: options.createFallbackEngine },
+        )
+      : undefined
   const policy = options.policy ?? createAppPolicy()
   const storage = options.storage
   const saved = loadSavedPlayback(storage)
   const player = new Player({
     ...options.player,
-    engine,
+    engine: android ?? created,
     // Taking over what Media3 already plays makes no request (the native engine's README).
-    resolver: native?.wrapResolver(policy.resolver) ?? policy.resolver,
+    resolver: android?.wrapResolver(policy.resolver) ?? policy.resolver,
     queue: { mode: useSettingsStore.getState().catalogMode },
     ...(saved.volume === undefined ? {} : { volume: saved.volume }),
     ...(saved.muted === undefined ? {} : { muted: saved.muted }),
@@ -160,33 +177,43 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
   }
   let disposed = false
   let connection: NativeConnection | undefined
+  let stopMediaSession: (() => void) | undefined
   let ready: Promise<void>
-  if (native === undefined) {
+  if (android === undefined) {
     restoreSaved()
     ready = Promise.resolve()
   } else {
     // Connect first: when the page was recreated while Media3 played on (its renderer died),
     // connect picks up Media3's queue, and the saved one must not replace it. A queue the user
     // started meanwhile stays too.
-    ready = native
+    ready = android
       .connect({ player, resolver: policy.resolver })
-      .then((connected) => {
-        if (disposed) {
-          connected.disconnect()
-          return
-        }
-        connection = connected
-        if (!connected.resumed && player.getState().queue.items.length === 0) restoreSaved()
-      })
-      .catch((error: unknown) => {
-        console.error(error)
-        if (!disposed && player.getState().queue.items.length === 0) restoreSaved()
-      })
+      .then(
+        (connected) => {
+          if (disposed) {
+            connected.disconnect()
+            return
+          }
+          connection = connected
+          if (!connected.resumed && player.getState().queue.items.length === 0) restoreSaved()
+        },
+        (error: unknown) => {
+          if (disposed) return
+          // Media3's service could not be bound: the same player plays in the WebView from now
+          // on (the engine fell back), with the WebView's Media Session for the system controls.
+          console.error('FXM: the native player is unavailable; playing in the WebView', error)
+          if (options.mediaSession !== false) stopMediaSession = connectMediaSession(player)
+          if (player.getState().queue.items.length === 0) restoreSaved()
+        },
+      )
+      .catch((error: unknown) => console.error(error))
   }
   const disconnects = [
     player.subscribe(notify),
     // Media3's own session drives the notification and the lock screen in the Android app.
-    options.mediaSession === false || native !== undefined ? () => {} : connectMediaSession(player),
+    options.mediaSession === false || android !== undefined
+      ? () => {}
+      : connectMediaSession(player),
     options.recordPlays === false ? () => {} : connectPlayRecorder(player),
     persistPlayback(player, storage, options.persist),
     connectReview(player, policy),
@@ -198,12 +225,13 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
     }),
     connectSponsorBlock(player),
     () => connection?.disconnect(),
+    () => stopMediaSession?.(),
   ]
   return {
     player,
     policy,
     ready,
-    network: native?.network,
+    network: android?.network,
     dispose() {
       disposed = true
       for (const disconnect of disconnects) disconnect()
