@@ -45,6 +45,19 @@ describe('negotiateLocale', () => {
     expect(negotiate(['en-AU'], undefined, ['en', 'en-AU']).locale).toBe('en-AU')
   })
 
+  it('gives a bare language its likely region, whatever the order of the catalogs', () => {
+    const both = (requested: string, list: string[]) => [
+      negotiate([requested], undefined, list).locale,
+      negotiate([requested], undefined, [...list].reverse()).locale,
+    ]
+    expect(both('pt', ['en', 'pt-PT', 'pt-BR'])).toEqual(['pt-BR', 'pt-BR'])
+    expect(both('es', ['en', 'es-419', 'es-ES'])).toEqual(['es-ES', 'es-ES'])
+    expect(both('pt-PT', ['en', 'pt', 'pt-BR'])).toEqual(['pt', 'pt'])
+    // Without a catalog for its region or the language, the language's main variety.
+    expect(both('es-AR', ['en', 'es-MX', 'es-ES'])).toEqual(['es-ES', 'es-ES'])
+    expect(both('pt-AO', ['en', 'pt-PT', 'pt-BR'])).toEqual(['pt-BR', 'pt-BR'])
+  })
+
   it('honours the Settings choice, keeping the user’s region for formats', () => {
     expect(negotiate(['en-US', 'de-AT'], 'de')).toEqual({
       locale: 'de',

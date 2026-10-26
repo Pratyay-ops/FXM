@@ -5,8 +5,12 @@
  *
  * Matching uses `Intl.Locale`'s likely subtags, so scripts are respected: `zh-TW` and `zh-HK`
  * get Traditional Chinese (`zh-Hant`), `zh` and `zh-SG` Simplified (`zh-Hans`), and `sr-Latn`
- * never falls back to Cyrillic `sr`. A region only picks between catalogs of one language:
- * `pt-PT` takes `pt-PT`, else `pt`, else `pt-BR`.
+ * never falls back to Cyrillic `sr`. A region only picks between catalogs of one language, by the
+ * region asked for or else the one likely for the language, whatever the catalogs' order:
+ * `pt-PT` takes `pt-PT`, else `pt`, else `pt-BR`; a bare `pt` takes `pt-BR` and `es` takes
+ * `es-ES`. Varieties that stand for several regions, such as Latin American Spanish (`es-419`)
+ * for `es-MX`, need CLDR's parent locales, which come with the first such catalog
+ * (docs/I18N.md, "Adding a language").
  *
  * @module
  */
@@ -103,11 +107,14 @@ function match(wanted: Intl.Locale, available: readonly Intl.Locale[]): Intl.Loc
   const exact = available.find((tag) => tag.toString() === wanted.toString())
   if (exact !== undefined) return exact
   const candidates = available.filter((tag) => sameLanguage(tag, wanted))
-  const region = wanted.maximize().region
+  // The region asked for, else the one likely for the language: `pt` is Brazil's, `es` Spain's.
+  const region = wanted.region ?? wanted.maximize().region
   return (
-    candidates.find((tag) => tag.region !== undefined && tag.region === wanted.region) ??
+    candidates.find((tag) => tag.region === region) ??
     candidates.find((tag) => tag.region === undefined && tag.maximize().region === region) ??
     candidates.find((tag) => tag.region === undefined) ??
+    // The language's main variety, es-ES for es-AR, rather than the first in the list.
+    candidates.find((tag) => tag.minimize().region === undefined) ??
     candidates[0]
   )
 }
