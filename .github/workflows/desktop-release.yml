@@ -121,7 +121,7 @@ jobs:
           make rust-setup
 
       # make dist's third-party notices: the packages of the web app the desktop app shows, with
-      # the Jamendo switch of the deploy's make dist (deploy.yml).
+      # the Jamendo switch of the deploy's make dist (deploy.yml) and of the builds below.
       - name: Compose dist/pages, for its third-party notices
         env:
           VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
@@ -272,7 +272,9 @@ jobs:
       # Without tagName or releaseId, tauri-action only builds: it uploads nothing and creates no
       # release. On macOS and Linux it runs the Tauri CLI through scripts/run.sh, so pnpm and Rust
       # come from .tools/: without a pnpm it can find, it would install the latest CLI globally.
-      # LDAI_RUNTIME_FILE hands appimagetool the checked runtime (Linux only).
+      # LDAI_RUNTIME_FILE hands appimagetool the checked runtime (Linux only). The web app it
+      # embeds gets the Jamendo switch of make dist (deploy.yml), so it offers Jamendo exactly when
+      # the deployed web app does.
       - name: Build the installers
         id: tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -280,6 +282,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ steps.build-key.outputs.key }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
           LDAI_RUNTIME_FILE: ${{ steps.appimage-tools.outputs.runtime-file }}
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         with:
           projectPath: apps/desktop
           tauriScript: ${{ runner.os == 'Windows' && 'pnpm tauri' || format('{0}/scripts/run.sh pnpm tauri', github.workspace) }}

@@ -182,7 +182,7 @@ describe('desktop-release.yml', () => {
   it('writes the third-party notices once, from the crates and make dist’s notices', () => {
     const notices = job(workflow, 'notices')
     const make = steps(notices).find((step) => step.includes('run: make dist'))
-    // make dist with the deploy's Jamendo switch.
+    // make dist with the deploy's Jamendo switch, as the builds below get it.
     expect(make).toContain(
       `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
     )
@@ -219,6 +219,19 @@ describe('desktop-release.yml', () => {
     expect(build[check]).toContain('FXM.app/Contents/Resources/third-party-notices.txt')
     expect(build[check]).toContain("'*usr/lib/FXM/third-party-notices.txt'")
     expect(build[check]).toContain('"$release/third-party-notices.txt"')
+  })
+
+  it('builds the web app in the installers with the deploy’s Jamendo switch', () => {
+    const build = steps(job(workflow, 'build')).find((step) =>
+      step.includes('tauri-apps/tauri-action@'),
+    )
+    expect(build).toContain(
+      `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
+    )
+    // The same variable as the deploy's make dist.
+    expect(read('../../../.github/workflows/deploy.yml')).toContain(
+      `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
+    )
   })
 
   it('uploads release-desktop, the artifact release.yml publishes', () => {
