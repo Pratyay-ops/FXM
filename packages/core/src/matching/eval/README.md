@@ -117,6 +117,7 @@ The proof run is too small to judge the matcher, but it already shows cases the 
 - An ISRC hit can miss the gate's duration window by a hair: YouTube Music's single of Vaundy's "しわあわせ" is the first item of both ISRC searches and the top-result card, but 5.5 s longer than Spotify's album track, outside the window of 5.47 s. The ISRC-miss cap then keeps the right song at Suggest.
 - Spotify Singles keep " - Spotify Singles" in their titles, which the matcher reads as part of the title, and their ISRCs return only filler on YouTube Music.
 - The data-export rows reach Auto only through MusicBrainz's exact path, which linked 4 of the 8 tracks.
+- A data-export row names one artist, which for classical music is the composer: for Lang Lang's recording of Bach's C major prelude, the row "Johann Sebastian Bach" finds another performance, 54 s shorter, which the matcher then suggests.
 - Its 10 held-out Auto plays come from 3 tracks, so they bound the wrong-Auto rate only below 63 %.
 
 ## Replaying and updating

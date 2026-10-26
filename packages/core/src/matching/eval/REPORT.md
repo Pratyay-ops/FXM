@@ -36,8 +36,8 @@ Bands with the Auto setting on, per category: the Spotify, CSV and fixed inputs,
 | compilation | 0 | – | 0 | – | – | – | 0 |
 | spotify-singles | 1 | 0 (0 %) | 0 | 1 (100 %) | 1 (100 %) | 0 (0 %) | 0 |
 | isrc-squatter | 0 | – | 0 | – | – | – | 0 |
-| data-export | 5 | 2 (40 %) | 0 | 3 (60 %) | 3 (100 %) | 0 (0 %) | 0 |
-| **all** | 10 | 5 (50 %) | 0 | 5 (50 %) | 5 (100 %) | 0 (0 %) | 0 |
+| data-export | 5 | 2 (40 %) | 0 | 3 (60 %) | 2 (66.7 %) | 0 (0 %) | 0 |
+| **all** | 10 | 5 (50 %) | 0 | 5 (50 %) | 4 (80 %) | 0 (0 %) | 0 |
 
 Per input slice, every case:
 
@@ -46,10 +46,10 @@ Per input slice, every case:
 | spotify | 5 | 3 (60 %) | 0 | 2 (40 %) | 2 (100 %) | 0 (0 %) | 0 |
 | csv | 0 | – | 0 | – | – | – | 0 |
 | fixed | 0 | – | 0 | – | – | – | 0 |
-| data-export | 5 | 2 (40 %) | 0 | 3 (60 %) | 3 (100 %) | 0 (0 %) | 0 |
+| data-export | 5 | 2 (40 %) | 0 | 3 (60 %) | 2 (66.7 %) | 0 (0 %) | 0 |
 | musicbrainz-exact | 2 | 2 (100 %) | 0 | 0 (0 %) | – | 0 (0 %) | 0 |
 | musicbrainz-fuzzy | 3 | 3 (100 %) | 0 | 0 (0 %) | – | 0 (0 %) | 0 |
-| **all** | 15 | 10 (66.7 %) | 0 | 5 (33.3 %) | 5 (100 %) | 0 (0 %) | 0 |
+| **all** | 15 | 10 (66.7 %) | 0 | 5 (33.3 %) | 4 (80 %) | 0 (0 %) | 0 |
 
 MusicBrainz exact-path coverage (the Spotify track URL looked up through URL relationships):
 

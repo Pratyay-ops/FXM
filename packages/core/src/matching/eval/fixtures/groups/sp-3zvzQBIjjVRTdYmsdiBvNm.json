@@ -43,12 +43,6 @@
         "artists": [
           {
             "name": "Gurdas Maan"
-          },
-          {
-            "name": "Diljit Dosanjh"
-          },
-          {
-            "name": "Ikky"
           }
         ],
         "album": {
@@ -295,6 +289,102 @@
         "album": "Maximum Respect",
         "albumId": "MPREb_1Ym3PHAObOk",
         "durationMs": 410000
+      },
+      "sA0yu_nSLR0": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Pritam", "Babbu Mann", "Suzanne D'Mello"],
+        "album": "Crook (Original Motion Picture Soundtrack)",
+        "albumId": "MPREb_4ARwjJHdGfP",
+        "durationMs": 226000
+      },
+      "Jo91qRX9taM": {
+        "kind": "song",
+        "title": "Collaborations",
+        "artists": ["Sukshinder Shinda", "Gurdas Maan", "Abrar Ul Haq"],
+        "album": "Collaborations",
+        "albumId": "MPREb_3DyGE1UyE3S",
+        "durationMs": 398000
+      },
+      "x0_neVzQq4I": {
+        "kind": "song",
+        "title": "Sajna Ve Sajna",
+        "artists": ["Gurdas Maan"],
+        "album": "Ibbadat Gurdas Maan",
+        "albumId": "MPREb_rHXLgtPrTi2",
+        "durationMs": 382000
+      },
+      "7deDlPYWObs": {
+        "kind": "song",
+        "title": "Pind Di Hawa",
+        "artists": ["Gurdas Maan"],
+        "album": "Roti",
+        "albumId": "MPREb_LDrmXRecFap",
+        "durationMs": 403000
+      },
+      "NSSKSbOGqg0": {
+        "kind": "song",
+        "title": "Pind Grammar Challa",
+        "artists": ["DJ Aps"],
+        "album": "Bhangra Hiphop Street Remixes, Vol. 2",
+        "albumId": "MPREb_05FshhC3goI",
+        "durationMs": 214000
+      },
+      "IEoW3Nz6Lu0": {
+        "kind": "song",
+        "title": "Chhala",
+        "artists": ["Gurdas Maan"],
+        "album": "Punjabi Non - Film Hits Vol - 8",
+        "albumId": "MPREb_n4PZFUztwEZ",
+        "durationMs": 404000
+      },
+      "_cFdRfKQLZY": {
+        "kind": "song",
+        "title": "Tera Challa",
+        "artists": ["Gurdas Sandhu", "Kunwar Brar"],
+        "album": "Tera Challa",
+        "albumId": "MPREb_s0YQtFkHxj2",
+        "durationMs": 175000
+      },
+      "F-yr0j0D9X4": {
+        "kind": "song",
+        "title": "MAGICIAN (feat. Gurdas Maan)",
+        "artists": ["DJ SLYR"],
+        "album": "MAGICIAN",
+        "albumId": "MPREb_15F48SDMMtG",
+        "durationMs": 214000
+      },
+      "SDY-PGmtrRA": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Dilshaan"],
+        "album": "Nishaniyan",
+        "albumId": "MPREb_ae9CfpTEwe1",
+        "durationMs": 386000
+      },
+      "RrhwbcfEsLQ": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Surinder Shinda", "GURLEZ AKHTAR"],
+        "album": "Challa",
+        "albumId": "MPREb_CrHUDjx4cpe",
+        "durationMs": 324000
+      },
+      "N8KtCA46cBo": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Bushra Sadiq"],
+        "album": "Best Of Bushra Sadiq",
+        "albumId": "MPREb_IulETQ4oYY5",
+        "durationMs": 424000
+      },
+      "QlADc6Oyl98": {
+        "kind": "song",
+        "title": "Balle O Chalaak Sajna",
+        "artists": ["Gurdas Maan"],
+        "album": "Ghar Bhulgi Morh Te Aake",
+        "albumId": "MPREb_N0o7Smqke2z",
+        "durationMs": 304000
       }
     },
     "pages": {
@@ -358,6 +448,30 @@
           "releaseYear": 2023
         },
         "excerpt": "Provided to YouTube by Sai Productions & Diljit D.\nChalla · Gurdas Maan · Diljit Dosanjh · Ikky\nChalla\n℗ 2023 Sai Productions & Diljit Dosanjh\nVocals: Diljit Dosanjh\nVocals: Gurdas Maan"
+      },
+      "songs/Gurdas Maan Challa - Spotify Singles": {
+        "items": [
+          "fsM-eXNNSSo",
+          "3sM8hWZEiX4",
+          "oWceG6AACyI",
+          "sA0yu_nSLR0",
+          "S2VUGhSseDo",
+          "Jo91qRX9taM",
+          "x0_neVzQq4I",
+          "Rv3jRchEdEc",
+          "7deDlPYWObs",
+          "NSSKSbOGqg0",
+          "IEoW3Nz6Lu0",
+          "_cFdRfKQLZY",
+          "-FosatJWWas",
+          "F-yr0j0D9X4",
+          "SDY-PGmtrRA",
+          "hhssZ5bDa8E",
+          "RrhwbcfEsLQ",
+          "N8KtCA46cBo",
+          "iw7RcVTEcn0",
+          "QlADc6Oyl98"
+        ]
       }
     }
   },

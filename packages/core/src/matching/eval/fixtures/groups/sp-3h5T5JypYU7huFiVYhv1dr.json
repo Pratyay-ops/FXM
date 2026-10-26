@@ -43,12 +43,6 @@
         "artists": [
           {
             "name": "KAROL G"
-          },
-          {
-            "name": "Judeline"
-          },
-          {
-            "name": "rusowsky"
           }
         ],
         "album": {
@@ -417,6 +411,95 @@
         "album": "BbY WOW",
         "albumId": "MPREb_PcpXK81Bypg",
         "durationMs": 82000
+      },
+      "7mnGB_h6MTY": {
+        "kind": "song",
+        "title": "Drunk on love (Karol G-Bby wow remix)",
+        "artists": ["Amavio"],
+        "album": "Drunk on love (Karol G-Bby wow remix)",
+        "albumId": "MPREb_B1Q9smENFbY",
+        "durationMs": 278000
+      },
+      "F_bif9x6ZPE": {
+        "kind": "song",
+        "title": "Baby esti WOW (Live)",
+        "artists": ["Costel Biju"],
+        "album": "Baby esti WOW (Live)",
+        "albumId": "MPREb_uH2e3jOO1kK",
+        "durationMs": 274000
+      },
+      "zk24FRDya1g": {
+        "kind": "song",
+        "title": "Mayores",
+        "artists": ["Becky G", "Bad Bunny"],
+        "album": "MALA SANTA",
+        "albumId": "MPREb_MLaHty9dxXc",
+        "durationMs": 204000
+      },
+      "hYPYslGNZ28": {
+        "kind": "song",
+        "title": "Gatita",
+        "artists": ["Bellakath"],
+        "album": "Gatita",
+        "albumId": "MPREb_KfCxg2w2xvv",
+        "durationMs": 161000
+      },
+      "eWvJxFjizAU": {
+        "kind": "song",
+        "title": "PROVENZA (REMIX)",
+        "artists": ["KAROL G", "Tiësto"],
+        "album": "MAÑANA SERÁ BONITO (BICHOTA SEASON)",
+        "albumId": "MPREb_0UlZ08cNYMK",
+        "durationMs": 188000
+      },
+      "oVr0wpamTLk": {
+        "kind": "song",
+        "title": "brujita",
+        "artists": ["rusowsky", "Saramalacara"],
+        "album": "BABAYAGA",
+        "albumId": "MPREb_7YUqkfBwtky",
+        "durationMs": 160000
+      },
+      "xfutz1YKZ38": {
+        "kind": "song",
+        "title": "La Vida Es Una (From Puss in Boots: The Last Wish)",
+        "artists": ["KAROL G"],
+        "album": "La Vida Es Una (From Puss in Boots: The Last Wish)",
+        "albumId": "MPREb_VT4rEM0nPY8",
+        "durationMs": 190000
+      },
+      "pJPmdSkO6RE": {
+        "kind": "song",
+        "title": "Tá OK (Remix)",
+        "artists": ["DENNIS", "Maluma", "MC Kevin o Chris"],
+        "album": "Tá OK (Remix)",
+        "albumId": "MPREb_md64qGEFJoN",
+        "durationMs": 172000
+      },
+      "D9BqbKCo18E": {
+        "kind": "song",
+        "title": "BBY ROMEO",
+        "artists": ["rusowsky", "Ralphie Choo"],
+        "album": "DAISY",
+        "albumId": "MPREb_PJs3buvLflg",
+        "durationMs": 199000
+      },
+      "H_1ZnrwWZCM": {
+        "kind": "song",
+        "title": "Bby Wow (Techengue)",
+        "artists": ["Jere Suez", "Laucha Frankkk", "js music"],
+        "album": "Bby Wow (Techengue)",
+        "albumId": "MPREb_UYeWNsvcMA8",
+        "durationMs": 143000
+      },
+      "KPZKwzwPk1g": {
+        "kind": "song",
+        "title": "DISPO",
+        "artists": ["KAROL G", "Young Miko"],
+        "album": "DISPO",
+        "albumId": "MPREb_dKBnK2O5J3H",
+        "durationMs": 194000,
+        "explicit": true
       }
     },
     "pages": {
@@ -469,6 +552,30 @@
           "q4D6aTNiO-Y",
           "K3zfkVlhxqs",
           "7sLeWFaNRfM"
+        ]
+      },
+      "songs/KAROL G BbY WOW": {
+        "items": [
+          "ljAH6jNaApU",
+          "7mnGB_h6MTY",
+          "F_bif9x6ZPE",
+          "zk24FRDya1g",
+          "YgiSdQsEaFc",
+          "az3_6jmrcHY",
+          "2C29r956v40",
+          "ZlLJoi13WuM",
+          "WsGnCt-gT44",
+          "hYPYslGNZ28",
+          "eWvJxFjizAU",
+          "oVr0wpamTLk",
+          "xfutz1YKZ38",
+          "pJPmdSkO6RE",
+          "O9YHwmLF6JQ",
+          "D9BqbKCo18E",
+          "H_1ZnrwWZCM",
+          "tkYnyh5LIWo",
+          "KPZKwzwPk1g",
+          "gDD0pxL1arg"
         ]
       }
     }

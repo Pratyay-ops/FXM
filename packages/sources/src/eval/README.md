@@ -98,3 +98,5 @@ The tests (`*.test.ts` besides `commands.test.ts`) run offline with fake provide
 ## Proof run
 
 Recorded from a residential connection in India on 2026-10-25 (UTC), with `FXM_EVAL_PLAN=proof`: 8 tracks, 17 Spotify and 13 MusicBrainz requests for the inputs, then 30 InnerTube requests (28 pages and two `sw.js_data` reads) in two runs: the first stopped after 3 groups (`FXM_EVAL_LIMIT=3`), the second resumed with the other 5 and fetched none of the first run's pages again. The bulk spacing held: 5 s between InnerTube requests.
+
+After the data-export rows were changed to name one artist (the first review of the stage), the inputs builder, run with providers that refused every request, rebuilt the inputs of 4 groups, and a record run on the old checkpoint planned all 8 groups again and fetched only the 3 pages the new rows needed, plus one `sw.js_data` read (2026-10-25, 23:55 UTC).

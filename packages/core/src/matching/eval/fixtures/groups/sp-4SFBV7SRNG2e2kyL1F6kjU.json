@@ -40,9 +40,6 @@
         "artists": [
           {
             "name": "Johann Sebastian Bach"
-          },
-          {
-            "name": "Lang Lang"
           }
         ],
         "album": {
@@ -257,6 +254,142 @@
         "album": "Bach: The Well-Tempered Piano I",
         "albumId": "MPREb_C0jHDY3lEjR",
         "durationMs": 122000
+      },
+      "X87CuDYjWgA": {
+        "kind": "song",
+        "title": "J.S. Bach: The Well-Tempered Clavier I, Prelude & Fugue No. 1 in C Major, BWV 846: I. Prelude",
+        "artists": ["Wilhelm Kempff", "Johann Sebastian Bach"],
+        "album": "Bach III",
+        "albumId": "MPREb_KH6eXdkL5kk",
+        "durationMs": 85000
+      },
+      "Xc7rEpI4zTQ": {
+        "kind": "song",
+        "title": "J.S. Bach: The Well-Tempered Clavier I, Prelude & Fugue No. 1 in C Major, BWV 846: I. Prelude",
+        "artists": ["Wilhelm Kempff", "Johann Sebastian Bach"],
+        "album": "Bach: The Well-tempered Clavier I - Selection",
+        "albumId": "MPREb_fXoUz4sofyz",
+        "durationMs": 87000
+      },
+      "a3uqkMrvOWY": {
+        "kind": "song",
+        "title": "The Well-Tempered Clavier, Book I, Prelude and Fugue No. 1 in C Major, BWV 846: Prelude",
+        "artists": ["Cyprien Katsaris", "Johann Sebastian Bach"],
+        "album": "Bach Recital (World Premiere Recordings)",
+        "albumId": "MPREb_FW7TNacFnv3",
+        "durationMs": 125000
+      },
+      "nA6UJWmoxaY": {
+        "kind": "song",
+        "title": "J.S. Bach: The Well-Tempered Clavier I: Prelude & Fugue No. 1 in C Major, BWV 846: II. Fugue",
+        "artists": ["Minsoo Sohn", "Johann Sebastian Bach"],
+        "album": "Bach: The Well-tempered Clavier I",
+        "albumId": "MPREb_buoO5ROy7qF",
+        "durationMs": 129000
+      },
+      "yLu9toTEr_4": {
+        "kind": "song",
+        "title": "Bach, JS: The Well-Tempered Clavier, Book 1, Prelude and Fugue No. 1 in C Major, BWV 846: I. Prelude",
+        "artists": ["Scott Ross"],
+        "album": "Bach, JS: Keyboard Works",
+        "albumId": "MPREb_KoWcz8wYhLp",
+        "durationMs": 122000
+      },
+      "uQzPrZUPDII": {
+        "kind": "song",
+        "title": "J.S. Bach: The Well-Tempered Clavier I: Prelude & Fugue No. 1 in C Major, BWV 846: II. Fugue (Live)",
+        "artists": ["Kit Armstrong", "Johann Sebastian Bach"],
+        "album": "Piano Chronicles (Live)",
+        "albumId": "MPREb_V9TNggfZlrM",
+        "durationMs": 133000
+      },
+      "O2rlWP2oQ1c": {
+        "kind": "song",
+        "title": "The Well-Tempered Clavier, Book I, Prelude and Fugue No. 1 in C Major, BWV 846: Prelude",
+        "artists": ["Bob van Asperen", "Johann Sebastian Bach"],
+        "album": "Bach: The Well-Tempered Clavier, Book I",
+        "albumId": "MPREb_9eQYWZ4wgR6",
+        "durationMs": 171000
+      },
+      "oTnbYT89YGY": {
+        "kind": "song",
+        "title": "The Well-Tempered Clavier, Book I, BWV 846-869: Prelude & Fugue No. 1 in C Major, BWV 846: I. Prelude",
+        "artists": ["Boris Bloch", "Johann Sebastian Bach"],
+        "album": "Aveu passionné",
+        "albumId": "MPREb_Dng3vkwAuzM",
+        "durationMs": 158000
+      },
+      "wQt2-TtPg2o": {
+        "kind": "song",
+        "title": "The Well Tempered Clavier - Preludes and Fugues - No.1 in C major, BWV846",
+        "artists": ["Academy Of St. Christopher Orchestra", "Johann Sebastian Bach"],
+        "album": "Bach: All Time Greatest Moments",
+        "albumId": "MPREb_3SoC4OrYgSe",
+        "durationMs": 228000
+      },
+      "cThBgMSF1zY": {
+        "kind": "song",
+        "title": "Prelude & Fugue No. 1 in C Major, BWV 870: Fuga",
+        "artists": ["Glenn Gould", "Johann Sebastian Bach"],
+        "album": "Bach: The Well-Tempered Clavier, Book II, Preludes & Fugues Nos. 1-8, BWV 870-877 (Gould Remastered)",
+        "albumId": "MPREb_v3LFewpB38q",
+        "durationMs": 109000
+      },
+      "kIHdxYS0v4Y": {
+        "kind": "song",
+        "title": "The Well-Tempered Clavier, Book 1, Prelude and Fugue No. 1 in C Major, BWV 846: I. Prelude",
+        "artists": ["Alexandre Tharaud", "Johann Sebastian Bach"],
+        "album": "Le Poète du piano",
+        "albumId": "MPREb_iCijqzi7cT7",
+        "durationMs": 136000
+      },
+      "XwvhKHkvCzw": {
+        "kind": "song",
+        "title": "Prelude and Fugue No. 2  in C Minor, BWV 847: Prelude",
+        "artists": ["Glenn Gould", "Johann Sebastian Bach"],
+        "album": "Bach: The Well-Tempered Clavier, Book I, Preludes & Fugues Nos. 1-8, BWV 846-853 (Gould Remastered)",
+        "albumId": "MPREb_eggEbyB1rKw",
+        "durationMs": 129000
+      },
+      "mj9VD0EzSKI": {
+        "kind": "song",
+        "title": "The Well-Tempered Clavier, Book I, Prelude No. 1 in C Major, BWV 846: I. Prelude (2026 Remaster)",
+        "artists": ["Walter Rinaldi", "Johann Sebastian Bach"],
+        "album": "Beethoven: Moonlight Sonata and For Elise - Mozart: Turkish March and Sonata Facile - Pachelbel: Canon in D Major - Mendelssohn: Wedding March - J.S. Bach: Prelude No. 1 - Liszt: Love Dream, La Campanella and Tarantella - Ave Maria (2026 Remaster)",
+        "albumId": "MPREb_30T2dPCpLVB",
+        "durationMs": 109000
+      },
+      "JFEUlHn64AA": {
+        "kind": "song",
+        "title": "The Well-Tempered Clavier, Book 1: Prelude and Fugue No. 1 in C Major, BWV 846",
+        "artists": ["Samuil Feinberg", "Johann Sebastian Bach"],
+        "album": "Russian Piano School: Samuel Feinberg (1958-1961)",
+        "albumId": "MPREb_yypgIFxoZgL",
+        "durationMs": 283000
+      },
+      "On-NViagvis": {
+        "kind": "song",
+        "title": "The Well-Tempered Clavier, BWV 846: No. 1, Prelude in C Major",
+        "artists": ["Johann Sebastian Bach", "James Rhodes"],
+        "album": "Bach: Prelude No. 1 in C Major / Puccini: O Mio Babbino Caro",
+        "albumId": "MPREb_UibcTKnsLWa",
+        "durationMs": 109000
+      },
+      "7pUB5ZwvRL4": {
+        "kind": "song",
+        "title": "J.S. Bach: The Well-Tempered Clavier, Book 1: Prelude No. 1 in C Major, BWV 846/1",
+        "artists": ["Till Fellner", "Johann Sebastian Bach"],
+        "album": "Bach: Das wohltemperierte Klavier I",
+        "albumId": "MPREb_RmftYlhTu0T",
+        "durationMs": 124000
+      },
+      "Mz467qYe-Nc": {
+        "kind": "song",
+        "title": "Prelude & Fugue No. 1 in C Major, BWV 846: Fugue",
+        "artists": ["Glenn Gould", "Johann Sebastian Bach"],
+        "album": "Glenn Gould Plays Bach Vol. 2",
+        "albumId": "MPREb_gv2oByjkEyX",
+        "durationMs": 114000
       }
     },
     "pages": {
@@ -307,6 +440,30 @@
           "label": "A Warner Classics release, ℗ 2020 Parlophone Records Limited"
         },
         "excerpt": "Provided to YouTube by Warner Classics\nThe Well-Tempered Clavier, Book I, Prelude and Fugue No. 1 in C Major, BWV 846: I. Prelude · Aurélien Pontier\nBach: Das Wohltemperierte Klavier: Prelude No. 1\n℗ A Warner Classics release, ℗ 2020 Parlophone Records Limited\nPiano: Aurélien Pontier\nComposer: Johann Sebastian Bach"
+      },
+      "songs/Johann Sebastian Bach The Well-Tempered Clavier I, Prelude & Fugue No. 1 in C Major, BWV 846: I. Prelude": {
+        "items": [
+          "X87CuDYjWgA",
+          "Xc7rEpI4zTQ",
+          "a3uqkMrvOWY",
+          "nA6UJWmoxaY",
+          "yLu9toTEr_4",
+          "uQzPrZUPDII",
+          "O2rlWP2oQ1c",
+          "oTnbYT89YGY",
+          "wQt2-TtPg2o",
+          "cThBgMSF1zY",
+          "kIHdxYS0v4Y",
+          "XwvhKHkvCzw",
+          "mj9VD0EzSKI",
+          "ZDZ5CAOn5Yg",
+          "JFEUlHn64AA",
+          "On-NViagvis",
+          "u8QGJ-5i9rs",
+          "7pUB5ZwvRL4",
+          "Mz467qYe-Nc",
+          "SbZE9Xi5YiU"
+        ]
       }
     }
   },
@@ -321,6 +478,11 @@
         "released 2019",
         "same title, artist and length; the label agrees with the input's"
       ]
+    },
+    "X87CuDYjWgA": {
+      "label": "wrong",
+      "by": "rule",
+      "evidence": ["length -54.3 s", "more than 10 s apart: another edit or recording"]
     },
     "vVpn-jrKj_0": {
       "label": "wrong",
