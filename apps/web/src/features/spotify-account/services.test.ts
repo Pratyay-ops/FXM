@@ -1,7 +1,17 @@
-import { isFxmError } from '@fxm/core'
+import { isFxmError, type NetworkCapabilities, type ProviderContext } from '@fxm/core'
+import {
+  type CapabilityMonitor,
+  connectSessionSource,
+  createAndroidSpotifyLogin,
+  type SessionTokenSource,
+} from '@fxm/platform'
+import { createFakeFxmSpotifyLogin } from '@fxm/platform/testing'
 import { describe, expect, it, vi } from 'vitest'
+import { testRepo } from '../../test/library-fixtures'
 import { createAccountChoice, SPOTIFY_ACCOUNT_STORAGE_KEY } from './account-store'
 import { createSecretFetch } from './secret-fetch'
+import { servicesFrom } from './services'
+import { fakeServices } from './testing'
 
 const HOSTS = ['raw.githubusercontent.com', 'gist.githubusercontent.com']
 const SECRET = 'https://raw.githubusercontent.com/someone/secrets/main/secret.json'
@@ -62,5 +72,52 @@ describe('the choice', () => {
     const choice = createAccountChoice()
     await choice.persist.rehydrate()
     expect(choice.getState().optedIn).toBe(false)
+  })
+})
+
+describe('the services over the app’s platform', () => {
+  const ANDROID: NetworkCapabilities = {
+    youtube: 'full',
+    spotify: 'account',
+    mediaBytes: true,
+    fileSystem: true,
+  }
+  const capabilities: CapabilityMonitor = {
+    current: ANDROID,
+    refresh: async () => ANDROID,
+    subscribe: () => () => {},
+    dispose: () => {},
+  }
+  const context = (): ProviderContext => ({
+    fetch: () => Promise.reject(new Error('These tests never fetch')),
+    platform: 'android',
+    capabilities: ANDROID,
+    mode: 'all',
+  })
+  const library = testRepo()
+  const spotify = fakeServices(library).services.spotify
+  const over = (spotifySession?: SessionTokenSource) =>
+    servicesFrom(
+      { context, capabilities, ...(spotifySession === undefined ? {} : { spotifySession }) },
+      spotify,
+      library,
+    )
+
+  it('bring the Android app’s login window, which Connect and Log in open', async () => {
+    const plugin = createFakeFxmSpotifyLogin()
+    const services = over(createAndroidSpotifyLogin({ plugin }))
+    expect(services.loginWindow).toBeDefined()
+    await expect(services.loginWindow?.openLogin()).resolves.toEqual({
+      loggedIn: true,
+      available: true,
+    })
+    expect(plugin.calls).toEqual(['login'])
+  })
+
+  it('bring no login window for FXM Connect’s bridge, or without a login source', () => {
+    const bridge = connectSessionSource({ spotifyToken: async () => ({ status: 200, json: {} }) })
+    expect(over(bridge).loginWindow).toBeUndefined()
+    expect('loginWindow' in over(bridge)).toBe(false)
+    expect(over().loginWindow).toBeUndefined()
   })
 })

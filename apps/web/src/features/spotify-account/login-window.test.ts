@@ -2,6 +2,7 @@ import { FxmError } from '@fxm/core'
 import { createAndroidSpotifyLogin, type SpotifyLoginWindow } from '@fxm/platform'
 import {
   createFakeFxmSpotifyLogin,
+  type FakeFxmSpotifyLogin,
   type FakeFxmSpotifyLoginOptions,
   fxmSpotifyLoginError,
 } from '@fxm/platform/testing'
@@ -23,14 +24,15 @@ function setup(
   options: {
     optedIn?: boolean
     plugin?: FakeFxmSpotifyLoginOptions
-    window?: SpotifyLoginWindow
+    /** The login window over the fake plugin. Default: the platform's, as the app has it. */
+    window?: (plugin: FakeFxmSpotifyLogin) => SpotifyLoginWindow
   } = {},
 ) {
   const repo = testRepo()
   const fake = fakeServices(repo)
   fake.setCapabilities('account', 'android')
   const plugin = createFakeFxmSpotifyLogin(options.plugin)
-  const loginWindow = options.window ?? createAndroidSpotifyLogin({ plugin })
+  const loginWindow = options.window?.(plugin) ?? createAndroidSpotifyLogin({ plugin })
   const choice = createAccountChoice({ storage: () => undefined })
   if (options.optedIn) choice.getState().setOptedIn(true)
   const runtime = createAccountRuntime({
@@ -57,9 +59,26 @@ describe('the Android login window', () => {
     const { fake, plugin, runtime } = setup({ optedIn: true })
     start(runtime)
     await settled(runtime)
-    expect(runtime.store.getState().phase).toBe('logged-out')
+    expect(runtime.store.getState()).toMatchObject({ phase: 'logged-out', loginKept: false })
     expect(plugin.calls).toEqual(['status'])
     expect(fake.account.calls).toEqual([])
+  })
+
+  it('lets Home ask the window first too', async () => {
+    const { fake, plugin, runtime } = setup({ optedIn: true })
+    start(runtime)
+    await settled(runtime)
+    const ctx = fake.services.context('interactive')
+    // Without a kept login the provider would load the secret and ask Spotify's clock first.
+    await expect(runtime.forHome.status(ctx)).resolves.toEqual({ connected: false })
+    expect(fake.account.calls).toEqual([])
+    plugin.loggedIn = true
+    plugin.available = false
+    await expect(runtime.forHome.status(ctx)).resolves.toEqual({ connected: false })
+    expect(fake.account.calls).toEqual([])
+    plugin.available = true
+    await expect(runtime.forHome.status(ctx)).resolves.toMatchObject({ connected: true })
+    expect(fake.account.calls).toEqual(['status'])
   })
 
   it('opens on Connect when no login is kept, then checks the login and syncs', async () => {
@@ -67,10 +86,12 @@ describe('the Android login window', () => {
     start(runtime)
     await expect(runtime.connect()).resolves.toBe('done')
     expect(choice.getState().optedIn).toBe(true)
-    expect(plugin.calls.slice(0, 3)).toEqual(['status', 'login', 'status'])
+    // Start asked whether a login is kept (for Settings), then Connect's check asked again.
+    expect(plugin.calls.slice(0, 4)).toEqual(['status', 'status', 'login', 'status'])
     expect(runtime.store.getState()).toMatchObject({
       phase: 'connected',
       displayName: 'Fixture User',
+      loginKept: true,
     })
     await settled(runtime)
     expect(fake.account.calls).toContain('liked 0')
@@ -86,15 +107,24 @@ describe('the Android login window', () => {
     expect(plugin.calls).not.toContain('login')
   })
 
+  it('says whether a login is kept while the account is off, without asking Spotify', async () => {
+    const { fake, plugin, runtime } = setup({ plugin: { loggedIn: true } })
+    start(runtime)
+    await settled(runtime)
+    expect(runtime.store.getState()).toMatchObject({ phase: 'off', loginKept: true })
+    expect(plugin.calls).toEqual(['status'])
+    expect(fake.account.calls).toEqual([])
+  })
+
   it('stays logged out when the user closes it, and Log in opens it again', async () => {
     let answer = false
     const { runtime } = setup({ plugin: { window: () => answer } })
     start(runtime)
     await expect(runtime.connect()).resolves.toBe('done')
-    expect(runtime.store.getState().phase).toBe('logged-out')
+    expect(runtime.store.getState()).toMatchObject({ phase: 'logged-out', loginKept: false })
     answer = true
     await expect(runtime.login()).resolves.toBe('done')
-    expect(runtime.store.getState().phase).toBe('connected')
+    expect(runtime.store.getState()).toMatchObject({ phase: 'connected', loginKept: true })
   })
 
   it('shares one window between two taps', async () => {
@@ -147,12 +177,13 @@ describe('the Android login window', () => {
   })
 
   it('counts a window that would not answer as a failed check', async () => {
-    const { plugin } = setup()
-    const broken: SpotifyLoginWindow = {
-      ...createAndroidSpotifyLogin({ plugin }),
-      loginState: () => Promise.reject(new FxmError('Network', 'The bridge broke')),
-    }
-    const { runtime } = setup({ optedIn: true, window: broken })
+    const { runtime } = setup({
+      optedIn: true,
+      window: (plugin) => ({
+        ...createAndroidSpotifyLogin({ plugin }),
+        loginState: () => Promise.reject(new FxmError('Network', 'The bridge broke')),
+      }),
+    })
     start(runtime)
     await settled(runtime)
     expect(runtime.store.getState()).toMatchObject({
@@ -166,24 +197,72 @@ describe('the Android login window', () => {
     start(runtime)
     await runtime.connect()
     await settled(runtime)
-    await runtime.disconnect()
+    await expect(runtime.disconnect()).resolves.toEqual({ removed: 0, kept: 3, loginKept: false })
     expect(choice.getState().optedIn).toBe(false)
     expect(plugin.calls).toContain('logout')
     expect(plugin.loggedIn).toBe(false)
     expect(fake.switches).toContain('disconnect')
-    expect(runtime.store.getState().phase).toBe('off')
+    expect(runtime.store.getState()).toMatchObject({ phase: 'off', loginKept: false })
   })
 
-  it('disconnects even when logging out fails', async () => {
-    const { plugin } = setup()
-    const stubborn: SpotifyLoginWindow = {
-      ...createAndroidSpotifyLogin({ plugin }),
-      logout: () => Promise.reject(new FxmError('Unavailable', 'The keystore failed')),
-    }
-    const { choice, runtime } = setup({ optedIn: true, window: stubborn })
+  it('disconnects even when logging out fails, says so, and logs out later', async () => {
+    let failing = true
+    const { plugin, choice, runtime } = setup({
+      optedIn: true,
+      plugin: {
+        loggedIn: true,
+        logout: () => {
+          if (failing) throw fxmSpotifyLoginError('STORAGE', 'The keystore failed')
+        },
+      },
+    })
     start(runtime)
     await settled(runtime)
-    await expect(runtime.disconnect()).resolves.toMatchObject({ removed: 0 })
+    await expect(runtime.disconnect()).resolves.toMatchObject({ loginKept: true })
     expect(choice.getState().optedIn).toBe(false)
+    expect(runtime.store.getState()).toMatchObject({ phase: 'off', loginKept: true })
+    await expect(runtime.logout()).resolves.toBe(true)
+    failing = false
+    await expect(runtime.logout()).resolves.toBe(false)
+    expect(plugin.loggedIn).toBe(false)
+    expect(runtime.store.getState()).toMatchObject({ phase: 'off', loginKept: false })
+    expect(plugin.calls).not.toContain('login')
+  })
+
+  it('counts a login it can’t ask about after a failed logout as kept', async () => {
+    const { runtime } = setup({
+      optedIn: true,
+      plugin: { loggedIn: true },
+      window: (plugin) => {
+        const login = createAndroidSpotifyLogin({ plugin })
+        let broken = false
+        return {
+          ...login,
+          loginState: () =>
+            broken
+              ? Promise.reject(new FxmError('Network', 'The bridge broke'))
+              : login.loginState(),
+          logout: () => {
+            broken = true
+            return Promise.reject(new FxmError('Network', 'The bridge broke'))
+          },
+        }
+      },
+    })
+    start(runtime)
+    await settled(runtime)
+    await expect(runtime.disconnect()).resolves.toMatchObject({ loginKept: true })
+  })
+
+  it('logs out while connected: the account is logged out then', async () => {
+    const { fake, plugin, runtime } = setup({ optedIn: true, plugin: { loggedIn: true } })
+    start(runtime)
+    await settled(runtime)
+    expect(runtime.store.getState().phase).toBe('connected')
+    await expect(runtime.logout()).resolves.toBe(false)
+    expect(plugin.loggedIn).toBe(false)
+    expect(runtime.store.getState()).toMatchObject({ phase: 'logged-out', loginKept: false })
+    // The provider forgot the account's token before the check.
+    expect(fake.switches.at(-1)).toBe('connect')
   })
 })

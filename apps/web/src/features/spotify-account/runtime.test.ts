@@ -78,6 +78,9 @@ describe('before the user connects', () => {
     expect(await runtime.forHome.status(homeCtx)).toEqual({ connected: false })
     expect(await runtime.forHome.sections(homeCtx)).toEqual([])
     expect(fake.account.calls).toEqual([])
+    // The browser's login is the user's own: FXM keeps none to log out of here.
+    expect(await runtime.logout()).toBeUndefined()
+    expect(runtime.store.getState().loginKept).toBeUndefined()
   })
 })
 

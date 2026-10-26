@@ -17,7 +17,7 @@ import { appSources } from '../search/sources-context'
 import { createAccountChoice } from './account-store'
 import { type AccountAccess, SpotifyAccountProvider } from './context'
 import { type AccountRuntime, createAccountRuntime } from './runtime'
-import { LOGIN_FAILED } from './spotify-account-settings'
+import { LOGIN_FAILED, LOGIN_UNAVAILABLE, LOGOUT_FAILED } from './spotify-account-settings'
 import { fakeLocks, fakeServices } from './testing'
 
 // Settings → Spotify account in the Android app (stage 6.5), which logs in through a window of
@@ -90,7 +90,8 @@ describe('Settings → Spotify account in the Android app', () => {
     expect(dialog).toHaveTextContent('Google and Facebook don’t allow signing in there')
     expect(dialog).not.toHaveTextContent('FXM Connect')
     expect(dialog).toHaveTextContent('Spotify’s User Guidelines forbid accessing Spotify')
-    expect(login.calls).toEqual([])
+    // Settings only asked whether a login is kept: nothing opened, nothing was sent.
+    expect(login.calls).toEqual(['status'])
 
     await user.click(within(dialog).getByRole('button', { name: 'Connect' }))
     expect(await account.findByText(/^Connected as/)).toHaveTextContent(
@@ -134,6 +135,19 @@ describe('Settings → Spotify account in the Android app', () => {
     expect(await account.findByText(LOGIN_FAILED)).toBeVisible()
   })
 
+  it('says when the window can’t open on this phone after all', async () => {
+    const { login, user } = setup({ optedIn: true })
+    const account = await section()
+    const button = await account.findByRole('button', { name: 'Log in to Spotify' })
+    // The WebView changed since the check (an update rolled back): the window doesn't open.
+    login.available = false
+    await user.click(button)
+    expect(await account.findByText(LOGIN_UNAVAILABLE)).toBeVisible()
+    expect(
+      account.getByText(/^This phone’s WebView can’t keep FXM’s Spotify login apart/),
+    ).toBeVisible()
+  })
+
   it('explains a WebView without profiles, and tries again', async () => {
     const { user } = setup({ optedIn: true, plugin: { available: false } })
     const account = await section()
@@ -164,5 +178,53 @@ describe('Settings → Spotify account in the Android app', () => {
     expect(choice.getState().optedIn).toBe(false)
     expect(login.loggedIn).toBe(false)
     expect(login.calls).toContain('logout')
+  })
+
+  it('says when Disconnect couldn’t delete the login, and logs out of it later', async () => {
+    let failing = true
+    const { login, choice, user } = setup({
+      optedIn: true,
+      plugin: {
+        loggedIn: true,
+        logout: () => {
+          if (failing) throw fxmSpotifyLoginError('STORAGE')
+        },
+      },
+    })
+    const account = await section()
+    await account.findByText(/^Last synced/)
+    await user.click(account.getByRole('button', { name: 'Disconnect' }))
+    const dialog = await screen.findByRole('alertdialog', {
+      name: 'Disconnect your Spotify account?',
+    })
+    await user.click(within(dialog).getByRole('button', { name: 'Disconnect' }))
+    expect(
+      await account.findByText(
+        'Disconnected, but FXM couldn’t delete its Spotify login on this phone. Your library keeps what FXM synced. Select Log out of Spotify to try again.',
+      ),
+    ).toBeVisible()
+    expect(choice.getState().optedIn).toBe(false)
+    expect(login.loggedIn).toBe(true)
+    expect(account.getByText('FXM still keeps a Spotify login on this phone.')).toBeVisible()
+
+    await user.click(account.getByRole('button', { name: 'Log out of Spotify' }))
+    expect(await account.findByText(LOGOUT_FAILED)).toBeVisible()
+    failing = false
+    await user.click(account.getByRole('button', { name: 'Log out of Spotify' }))
+    expect(await account.findByText('Logged out of Spotify on this phone.')).toBeVisible()
+    expect(login.loggedIn).toBe(false)
+    expect(account.queryByRole('button', { name: 'Log out of Spotify' })).toBeNull()
+    expect(account.queryByText('FXM still keeps a Spotify login on this phone.')).toBeNull()
+  })
+
+  it('offers to log out of a login kept while the account is off', async () => {
+    const { login, user } = setup({ plugin: { loggedIn: true } })
+    const account = await section()
+    expect(await account.findByText('FXM still keeps a Spotify login on this phone.')).toBeVisible()
+    expect(account.getByRole('button', { name: 'Connect your account' })).toBeVisible()
+    await user.click(account.getByRole('button', { name: 'Log out of Spotify' }))
+    expect(await account.findByText('Logged out of Spotify on this phone.')).toBeVisible()
+    expect(login.loggedIn).toBe(false)
+    expect(login.calls).toEqual(['status', 'logout'])
   })
 })
