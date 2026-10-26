@@ -13,7 +13,9 @@ let toastId = 0
 /**
  * Runs automatic sync while sync is on (`auto-sync.ts`, loaded only then), follows the sync
  * settings of other tabs, and says so when a sync kept two versions of a playlist or a deleted
- * one. It sits in the app layout and renders nothing else.
+ * one. It sits in the app layout and renders nothing else. Like the app's toast, its toast rises
+ * above the cards SponsorBlock stacks over the bars (`--shell-cards`), so it never hides their
+ * buttons.
  */
 export function SyncAgent() {
   const token = useSyncStore((state) => state.token)
@@ -53,7 +55,7 @@ export function SyncAgent() {
     <div
       role="status"
       aria-live="polite"
-      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--shell-bottom)+0.75rem)] z-40 flex justify-center px-4"
+      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--shell-bottom)+var(--shell-cards,0px)+0.75rem)] z-40 flex justify-center px-4"
     >
       {toast && (
         <div
