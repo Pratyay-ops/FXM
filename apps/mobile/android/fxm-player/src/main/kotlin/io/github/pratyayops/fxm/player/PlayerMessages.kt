@@ -35,29 +35,38 @@ object PlayerMessages {
 
   // --- From the web app ------------------------------------------------------------------------
 
-  fun entry(json: JSONObject?): Entry {
+  /** An entry; its file source, if it has one, must be one [local] allows. */
+  fun entry(json: JSONObject?, local: LocalSources = LocalSources.NONE): Entry {
     if (json == null) throw bad("An entry is missing")
     val id = json.opt("id") as? String
     if (id == null || !ID.matches(id)) throw bad("Invalid entry id")
     val uid = wholeNumber(json.opt("uid")) ?: throw bad("Invalid entry uid")
     val data = optionalString(json, "data", MAX_ENTRY_DATA_CHARS)
-    return Entry(id, uid, source(json.optJSONObject("source")), metadata(json.optJSONObject("metadata")), data)
+    val source = source(json.optJSONObject("source"), local)
+    return Entry(id, uid, source, metadata(json.optJSONObject("metadata")), data)
   }
 
   /** At most [MAX_UPCOMING] entries with distinct ids. */
-  fun entries(array: JSONArray?): List<Entry> {
+  fun entries(array: JSONArray?, local: LocalSources = LocalSources.NONE): List<Entry> {
     if (array == null) return emptyList()
     if (array.length() > MAX_UPCOMING) throw bad("At most $MAX_UPCOMING entries can be queued")
-    val entries = (0 until array.length()).map { entry(array.optJSONObject(it)) }
+    val entries = (0 until array.length()).map { entry(array.optJSONObject(it), local) }
     if (entries.map { it.id }.toSet().size != entries.size) throw bad("Entry ids must be unique")
     return entries
   }
 
-  fun source(json: JSONObject?): Source {
+  /**
+   * A source: an HTTPS stream (`kind` `http`, the default), or a file on the device (`file`)
+   * that [local] allows. A file has nothing but its URI: no headers, expiry, network or key.
+   */
+  fun source(json: JSONObject?, local: LocalSources = LocalSources.NONE): Source {
     if (json == null) throw bad("A source is missing")
-    // Only HTTPS sources so far; offline copies (stage 6.4) will be another kind.
     when (json.opt("kind")) {
       null, JSONObject.NULL, "http" -> {}
+      "file" -> {
+        val url = json.opt("url") as? String ?: throw bad("A file source needs a URI")
+        return Source(local.check(url), kind = SourceKind.FILE)
+      }
       else -> throw bad("Unknown source kind")
     }
     val url = json.opt("url") as? String
@@ -184,6 +193,7 @@ object PlayerMessages {
         .put("url", entry.source.url)
         .put("headers", headers)
         .put("ipBound", entry.source.ipBound)
+    if (entry.source.kind != SourceKind.HTTP) source.put("kind", entry.source.kind.wire)
     entry.source.expiresAt?.let { source.put("expiresAt", it) }
     entry.source.network?.let { source.put("network", it) }
     entry.source.fileKey?.let { source.put("fileKey", it) }

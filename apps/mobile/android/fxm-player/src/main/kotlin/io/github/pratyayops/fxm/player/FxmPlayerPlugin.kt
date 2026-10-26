@@ -16,6 +16,7 @@ import com.getcapacitor.PluginCall
 import com.getcapacitor.PluginMethod
 import com.getcapacitor.WebViewListener
 import com.getcapacitor.annotation.CapacitorPlugin
+import io.github.pratyayops.fxm.downloads.DownloadFiles
 import org.json.JSONObject
 
 /**
@@ -38,6 +39,9 @@ class FxmPlayerPlugin : Plugin() {
   @Volatile private var gone = false
   /** Work that waits for the service, run on the main thread once it is bound. */
   private val waiting = mutableListOf<(PlaybackService?) -> Unit>()
+
+  /** The files entries may play: the app's downloads, and the device's music (stage 6.4). */
+  private val local by lazy { LocalSources(listOf(DownloadFiles.directory(context))) }
 
   private val link =
     JsLink { event ->
@@ -111,9 +115,9 @@ class FxmPlayerPlugin : Plugin() {
     val parsed =
       parse(call) {
         LoadRequest(
-          PlayerMessages.entry(data.optJSONObject("entry")),
+          PlayerMessages.entry(data.optJSONObject("entry"), local),
           PlayerMessages.position(data, "startAtMs"),
-          PlayerMessages.entries(data.optJSONArray("upcoming")),
+          PlayerMessages.entries(data.optJSONArray("upcoming"), local),
           PlayerMessages.hasMore(data),
           PlayerMessages.repeat(data.opt("repeat")),
         )
@@ -128,7 +132,7 @@ class FxmPlayerPlugin : Plugin() {
   @PluginMethod
   fun setUpcoming(call: PluginCall) {
     val data = call.data
-    val upcoming = parse(call) { PlayerMessages.entries(data.optJSONArray("upcoming")) } ?: return
+    val upcoming = parse(call) { PlayerMessages.entries(data.optJSONArray("upcoming"), local) } ?: return
     val repeat = parse(call) { PlayerMessages.repeat(data.opt("repeat")) } ?: return
     val hasMore = PlayerMessages.hasMore(data)
     onService(call) {

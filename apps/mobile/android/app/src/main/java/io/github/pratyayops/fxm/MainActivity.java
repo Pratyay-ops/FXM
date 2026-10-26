@@ -2,6 +2,8 @@ package io.github.pratyayops.fxm;
 
 import android.os.Bundle;
 import com.getcapacitor.BridgeActivity;
+import io.github.pratyayops.fxm.downloads.FxmDeviceMusicPlugin;
+import io.github.pratyayops.fxm.downloads.FxmDownloadsPlugin;
 import io.github.pratyayops.fxm.evaluator.EvaluatorPlugin;
 import io.github.pratyayops.fxm.http.DisabledCapacitorHttp;
 import io.github.pratyayops.fxm.http.FxmHttpPlugin;
@@ -23,6 +25,10 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(FxmPlayerPlugin.class);
         // The isolated evaluator's WebView (stage 1.11).
         registerPlugin(EvaluatorPlugin.class);
+        // FXM's downloads and the device's music (fxm-downloads): app storage, Music/FXM and
+        // the dataSync service that keeps downloads going in the background; MediaStore's songs.
+        registerPlugin(FxmDownloadsPlugin.class);
+        registerPlugin(FxmDeviceMusicPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

@@ -1,6 +1,6 @@
 # @fxm/downloads
 
-The download manager (stage 4.1): a queue that downloads tracks for offline playback, with concurrency, progress, pause, resume, retry, cancel and delete, and transfers that continue from the bytes already stored. It is runtime-agnostic: it fetches with the platform's injected `fetch`, keeps bytes in a `DownloadStorage` and records in a `DownloadStore` that each platform implements, and plays downloads offline through the stream lifecycle's `OfflineStore` (stage 2.3). The web app's storage (the Origin Private File System) and records (IndexedDB) are in [`apps/web/src/features/downloads`](../../apps/web/src/features/downloads/README.md).
+The download manager (stage 4.1): a queue that downloads tracks for offline playback, with concurrency, progress, pause, resume, retry, cancel and delete, and transfers that continue from the bytes already stored. It is runtime-agnostic: it fetches with the platform's injected `fetch`, keeps bytes in a `DownloadStorage` and records in a `DownloadStore` that each platform implements, and plays downloads offline through the stream lifecycle's `OfflineStore` (stage 2.3). The web app's storage (the Origin Private File System) and records (IndexedDB) are in [`apps/web/src/features/downloads`](../../apps/web/src/features/downloads/README.md); the Android app's storage, background service and "Save to Music" (stage 6.4) are in [`src/native`](src/native/README.md).
 
 Downloads keep the **original bytes** of the stream (WebM/Opus, M4A/AAC, FLAC, MP3, or YouTube's itag 18 as the MP4 it is). Converting, tagging and "Save to device" are stage 4.2.
 
@@ -16,6 +16,7 @@ Downloads keep the **original bytes** of the stream (WebM/Opus, M4A/AAC, FLAC, M
 | `DownloadStore`, `createMemoryDownloadStore` | Where records live: the interface and an in-memory store |
 | `DownloadStorage`, `createMemoryDownloadStorage`, `isSafeFileName` | Where bytes live: the interface, an in-memory storage, and the file names a storage accepts |
 | `DownloadRecord`, `isDownloadRecord`, `downloadId` | The record of one download, its guard, and its ID (`entityKey` of the track, so both YouTube prefixes share a download) |
+| `createNativeDownloadStorage`, `connectBackgroundDownloads`, `exportDownloadToMusic`, `findFxmDownloadsPlugin` | The Android app (stage 6.4): its storage, the foreground service that keeps the queue running in the background, and a copy of a download in Music/FXM ([`src/native`](src/native/README.md)) |
 
 ## Using it
 
@@ -128,7 +129,7 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 
 ## Storage contract
 
-A `DownloadStorage` (see `storage.ts`) opens one writer per file (`size`, `write(offset, bytes)`, `truncate`, `flush`, `close`), removes, lists and sizes files, reads one as a `Blob`, and hands out a playback URL per complete file until it is removed. The web app implements it on the Origin Private File System; desktop (7.4) and Android (6.4) implement it on the file system.
+A `DownloadStorage` (see `storage.ts`) opens one writer per file (`size`, `write(offset, bytes)`, `truncate`, `flush`, `close`), removes, lists and sizes files, reads one as a `Blob`, and hands out a playback URL per complete file until it is removed. The web app implements it on the Origin Private File System, the Android app on its own storage through the `FxmDownloads` plugin (`createNativeDownloadStorage`, stage 6.4), and desktop (7.4) will on the file system.
 
 - **Names** are opaque: 1 to 64 ASCII letters, digits, `-` and `_` (the manager uses random UUIDs). A storage must refuse any other name (`isSafeFileName`, Windows device names included) before it touches the file system, so a damaged or tampered record can never name a path outside the downloads folder; `isDownloadRecord` refuses such records too.
 - **Errors:** a full storage rejects with an error named `QuotaExceededError` (`storageFullError`); one that can't work here at all with `SecurityError`, `NotAllowedError` or `NotSupportedError` (`storageUnavailableError`); anything else counts as passing.
@@ -150,7 +151,7 @@ A `DownloadStore` (see `store.ts`) gets, lists (all records, or those of some st
 
 ## Testing
 
-`@fxm/downloads/testing` has `FakeMediaServer` (a `fetch` that serves files with ranges and misbehaves on request: capped URLs, statuses, dropped requests, hidden headers, bodies that break off once or every few bytes or hold, a size it claims), `FakeDownloadResolver` and `FakeNetwork`. The tests run offline in Node: the queue, the transfers and their failures, the policy resolver against the lifecycle's fakes, and offline playback through the real `Player` and `StreamLifecycle`. A live check of the transfer against Internet Archive runs with `FXM_LIVE=1` (9 requests):
+`@fxm/downloads/testing` has `FakeMediaServer` (a `fetch` that serves files with ranges and misbehaves on request: capped URLs, statuses, dropped requests, hidden headers, bodies that break off once or every few bytes or hold, a size it claims), `FakeDownloadResolver`, `FakeNetwork` and `createFakeFxmDownloads` (the Android app's plugin in memory). The tests run offline in Node: the queue, the transfers and their failures, the policy resolver against the lifecycle's fakes, and offline playback through the real `Player` and `StreamLifecycle`. A live check of the transfer against Internet Archive runs with `FXM_LIVE=1` (9 requests):
 
 ```sh
 FXM_LIVE=1 scripts/run.sh pnpm exec vitest run packages/downloads/src/live.test.ts

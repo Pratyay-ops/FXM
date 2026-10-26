@@ -23,6 +23,16 @@ Where each fact this module relies on comes from, with the date it was checked. 
 | A controller's play goes through `Util.handlePlayButtonAction`: `prepare()` when the player is idle, `seekToDefaultPosition()` when it ended, then `play()` | `javap -c` of `Util` and `MediaSessionImpl.handleMediaControllerPlayRequestInternal` (1.11.1), read 2026-10-26 |
 | `media3-datasource-okhttp` 1.11.1 depends on OkHttp 4.12.0. Every OkHttp method its `OkHttpDataSource` calls (27, listed with `javap -c`) exists with the same JVM signature in the Android build of OkHttp 5.4.0, which the app resolves | `media3-datasource-okhttp-1.11.1.pom`; `javap` of `OkHttpDataSource` and of `okhttp-android-5.4.0` |
 
+## Media3 1.11.1 and Capacitor: files on the device (stage 6.4, `javap` of the runtime jars, read 2026-10-26)
+
+| Fact | Source |
+|---|---|
+| `DefaultDataSource.Factory(Context)` makes its HTTP data sources with `DefaultHttpDataSource.Factory`; `DefaultDataSource.Factory(Context, DataSource.Factory)` uses the factory it is given for every URI it doesn't read itself | `javap -c` of `DefaultDataSource$Factory` (media3-datasource 1.11.1) |
+| `DefaultDataSource.open` reads a local file URI (`Util.isLocalFileUri`: no scheme or `file`) with `FileDataSource` (`AssetDataSource` under `/android_asset/`), and the schemes `asset`, `content`, `rtmp`, `udp`, `data`, `rawresource` and `android.resource` with their own data sources; anything else goes to the base factory | `javap -c` of `DefaultDataSource` |
+| `FileDataSource` reports a missing file as `ERROR_CODE_IO_FILE_NOT_FOUND` (2005) and a refused one as `ERROR_CODE_IO_NO_PERMISSION` (2006); `ContentDataSource` reports a `FileNotFoundException` as 2005. `DataSourceException.reason` carries the code | `javap -c` of `FileDataSource`, `ContentDataSource`, `DataSourceException`; `javap -constants` of `PlaybackException` (media3-common 1.11.1) |
+| Capacitor's local server serves a device file at `<origin>/_capacitor_file_<path>` and a content URI at `<origin>/_capacitor_content_<authority>/<path>`, the URLs `convertFileSrc` makes; `deviceFileUri` in `packages/player/src/native/device-files.ts` turns them back into the `file:` and `content:` URIs the player reads | `WebViewLocalServer.java`, `AndroidProtocolHandler.java`, `src/main/assets/native-bridge.js` (Capacitor 8.5.3) |
+| `File.getCanonicalPath` resolves `.`, `..` and symbolic links. `LocalSources` compares the canonical paths of the downloads folder and of the file, so neither a `..` in a URI nor a link (in the folder or on the app's data path) can make a file look inside the folder when it isn't, or outside when it is | JDK documentation of `File.getCanonicalPath`; `LocalSourcesTest` |
+
 ## Capacitor 8.5.3 (`@capacitor/android`, read 2026-10-26)
 
 | Fact | Source |

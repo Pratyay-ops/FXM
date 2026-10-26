@@ -1,6 +1,7 @@
 package io.github.pratyayops.fxm.player
 
 import androidx.media3.common.PlaybackException
+import androidx.media3.datasource.DataSourceException
 import androidx.media3.datasource.HttpDataSource
 import io.github.pratyayops.fxm.http.FxmHttpException
 
@@ -43,6 +44,17 @@ object Failures {
 
   /** Whether Media3 tried to open a playlist item that is not one of FXM's entries. */
   fun unknownEntry(error: Throwable?): Boolean = causes(error).any { it is UnknownEntryException }
+
+  /**
+   * Whether a file on the device is gone or no longer readable (a deleted download, a song
+   * removed from the device, music access taken back): retrying cannot bring it back.
+   */
+  fun fileUnavailable(error: Throwable?): Boolean =
+    causes(error).filterIsInstance<DataSourceException>().any { it.reason in FILE_UNAVAILABLE }
+
+  /** `ERROR_CODE_IO_FILE_NOT_FOUND` and `ERROR_CODE_IO_NO_PERMISSION`. */
+  private val FILE_UNAVAILABLE =
+    setOf(PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND, PlaybackException.ERROR_CODE_IO_NO_PERMISSION)
 
   /** The failure for Media3's [error]. */
   fun of(error: PlaybackException): Failure =

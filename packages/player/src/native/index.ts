@@ -1,11 +1,13 @@
 /**
  * The native engine (stage 6.3): the player facade on the Android app's Media3 player, through
  * the `FxmPlayer` Capacitor plugin. See `README.md` in this folder. The entry builders stay
- * internal; the plugin's types are here for a custom plugin or a fake.
+ * internal; the plugin's types are here for a custom plugin or a fake, and the WebView URLs of
+ * files on the device (stage 6.4) for the stores that play them.
  *
  * @module
  */
 
+export { deviceFileUri, pageOrigin, webViewFileUrl } from './device-files'
 export {
   NATIVE_ENGINE_DEFAULTS,
   type NativeConnection,

@@ -6,6 +6,7 @@
  * @module
  */
 
+export * from './fake-fxm-downloads'
 export { FakeNetwork } from './fake-network'
 export {
   type DownloadResolveHandler,

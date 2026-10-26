@@ -248,6 +248,25 @@ describe('NativeEngine', () => {
     engine.destroy()
   })
 
+  it('plays offline copies and the device’s music from the device', async () => {
+    const plugin = createFakeFxmPlayer()
+    const engine = new NativeEngine({ plugin, origin: 'https://localhost' })
+    const copy = testStream('a', {
+      url: 'https://localhost/_capacitor_file_/data/data/app/files/downloads/2f1c',
+      fullLength: 'verified',
+    })
+    expect(engine.canPlay(copy)).toBe('probably')
+    // A blob: URL is nothing Media3 can read.
+    expect(engine.canPlay({ ...copy, url: 'blob:https://localhost/2f1c' })).toBe('no')
+    await engine.load({ stream: copy, item: { uid: 1, track: testTrack('a') } })
+    await settle()
+    expect(plugin.entries[0]?.source).toEqual({
+      kind: 'file',
+      url: 'file:///data/data/app/files/downloads/2f1c',
+    })
+    engine.destroy()
+  })
+
   it('without a connected player, leaves the system’s next and previous to Media3', async () => {
     const { plugin, player } = nativeSetup()
     await player.setQueue(testTracks('a', 'b'))

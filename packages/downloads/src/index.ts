@@ -26,6 +26,7 @@ export {
   type EnqueueAllResult,
   randomFileName,
 } from './manager'
+export * from './native'
 export {
   createOfflineStore,
   type OfflineStoreOptions,

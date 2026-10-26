@@ -115,9 +115,10 @@ describe('the Android project', () => {
     const files = [
       ...sources('android/fxm-http/src/main', ['.kt', '.java']),
       ...sources('android/fxm-player/src/main', ['.kt', '.java']),
+      ...sources('android/fxm-downloads/src/main', ['.kt', '.java']),
       ...sources('android/app/src/main/java', ['.kt', '.java']),
     ]
-    expect(files.length).toBeGreaterThan(15)
+    expect(files.length).toBeGreaterThan(25)
     for (const file of files) {
       expect(withoutComments(read(file)), file).not.toMatch(
         /HttpURLConnection|openConnection\(|com\.getcapacitor\.plugin\.|HttpRequestHandler|DefaultHttpDataSource|JavaNetCookieJar/,
@@ -198,6 +199,139 @@ describe('the Android project', () => {
       }
       for (const event of ['state', 'transition', 'error', 'request', 'command', 'network']) {
         expect(messages).toContain(`"${event}" to`)
+      }
+    })
+  })
+
+  describe('downloads and the device’s music (fxm-downloads)', () => {
+    const downloads = (path: string) => read(`android/fxm-downloads/${path}`)
+    const kotlin = (name: string) =>
+      downloads(`src/main/kotlin/io/github/pratyayops/fxm/downloads/${name}`)
+    const manifest = () => downloads('src/main/AndroidManifest.xml')
+
+    it('is built into the app, and its plugins registered before the bridge starts', () => {
+      expect(read('android/settings.gradle')).toMatch(/^include ':fxm-downloads'$/m)
+      expect(read('android/app/build.gradle')).toContain("implementation project(':fxm-downloads')")
+      const activity = withoutComments(
+        read('android/app/src/main/java/io/github/pratyayops/fxm/MainActivity.java'),
+      )
+      for (const plugin of ['FxmDownloadsPlugin', 'FxmDeviceMusicPlugin']) {
+        const register = activity.indexOf(`registerPlugin(${plugin}.class)`)
+        expect(register, plugin).toBeGreaterThan(-1)
+        expect(register, plugin).toBeLessThan(activity.indexOf('super.onCreate'))
+      }
+      expect(read('scripts/test-native.sh')).toContain(':fxm-downloads:testDebugUnitTest')
+    })
+
+    it('keeps downloads going in a dataSync foreground service that only FXM starts', () => {
+      const service = /<service[\s\S]*?\/>/.exec(manifest())?.[0] ?? ''
+      expect(service).toContain('android:name=".DownloadService"')
+      expect(service).toContain('android:exported="false"')
+      expect(service).toContain('android:foregroundServiceType="dataSync"')
+      for (const permission of [
+        'FOREGROUND_SERVICE',
+        'FOREGROUND_SERVICE_DATA_SYNC',
+        'WAKE_LOCK',
+        'POST_NOTIFICATIONS',
+      ]) {
+        expect(manifest()).toContain(
+          `<uses-permission android:name="android.permission.${permission}" />`,
+        )
+      }
+      expect(withoutComments(kotlin('DownloadService.kt'))).toContain(
+        'ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC',
+      )
+    })
+
+    it('reads the device’s music with the narrowest permission each Android version has', () => {
+      const text = manifest()
+      expect(text).toContain(
+        '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />',
+      )
+      expect(text).toMatch(
+        /<uses-permission\s+android:name="android\.permission\.READ_EXTERNAL_STORAGE"\s+android:maxSdkVersion="32" \/>/,
+      )
+      expect(text).toMatch(
+        /<uses-permission\s+android:name="android\.permission\.WRITE_EXTERNAL_STORAGE"\s+android:maxSdkVersion="28" \/>/,
+      )
+      // Never the permission to every file on the device.
+      for (const file of [
+        'android/app/src/main/AndroidManifest.xml',
+        'android/fxm-http/src/main/AndroidManifest.xml',
+        'android/fxm-player/src/main/AndroidManifest.xml',
+        'android/fxm-downloads/src/main/AndroidManifest.xml',
+      ]) {
+        const xml = read(file).replace(/<!--[\s\S]*?-->/g, '')
+        expect(xml, file).not.toMatch(/MANAGE_EXTERNAL_STORAGE|MANAGE_MEDIA/)
+      }
+      // Asked for only when the web app calls requestAccess: from the user opening their music.
+      const plugin = withoutComments(kotlin('FxmDeviceMusicPlugin.kt'))
+      expect(plugin.match(/requestPermissionForAlias\(/g)).toHaveLength(1)
+      expect(plugin).toMatch(
+        /fun requestAccess\(call: PluginCall\)[\s\S]*?requestPermissionForAlias/,
+      )
+      expect(plugin).toContain('if (Build.VERSION.SDK_INT >= 33) AUDIO else STORAGE')
+    })
+
+    it('speaks the same messages as the web app', () => {
+      const ts = read('../../packages/downloads/src/native/plugin.ts')
+      const plugin = kotlin('FxmDownloadsPlugin.kt')
+      expect(plugin).toContain(
+        `const val NAME = "${/FXM_DOWNLOADS_PLUGIN = '(\w+)'/.exec(ts)?.[1]}"`,
+      )
+      expect(/FXM_DOWNLOADS_MAX_READ_BYTES = 1024 \* 1024/.test(ts)).toBe(true)
+      expect(plugin).toContain('const val MAX_READ_BYTES = 1024L * 1024')
+      const codes = /FXM_DOWNLOADS_ERROR_CODES = \[([^\]]+)\]/.exec(ts)?.[1] ?? ''
+      const native = kotlin('DownloadFiles.kt')
+      for (const code of codes.match(/'\w+'/g) ?? []) {
+        expect(native).toContain(`= "${code.slice(1, -1)}"`)
+      }
+      const methods = /const PLUGIN_METHODS = \[([^\]]+)\]/.exec(ts)?.[1] ?? ''
+      for (const method of methods.match(/'\w+'/g) ?? []) {
+        expect(plugin).toContain(`fun ${method.slice(1, -1)}(call: PluginCall)`)
+      }
+      const music = read('../web/src/features/local-files/device-music.ts')
+      const musicPlugin = kotlin('FxmDeviceMusicPlugin.kt')
+      expect(musicPlugin).toContain(
+        `const val NAME = "${/FXM_DEVICE_MUSIC_PLUGIN = '(\w+)'/.exec(music)?.[1]}"`,
+      )
+      expect(musicPlugin).toContain(
+        `const val MAX_PAGE = ${/FXM_DEVICE_MUSIC_MAX_PAGE = (\d+)/.exec(music)?.[1]}`,
+      )
+      expect(musicPlugin).toContain(
+        `const val MAX_ALBUMS = ${/FXM_DEVICE_MUSIC_MAX_ALBUMS = (\d+)/.exec(music)?.[1]}`,
+      )
+      const musicMethods = /const PLUGIN_METHODS = \[([^\]]+)\]/.exec(music)?.[1] ?? ''
+      for (const method of musicMethods.match(/'\w+'/g) ?? []) {
+        expect(musicPlugin).toContain(`fun ${method.slice(1, -1)}(call: PluginCall)`)
+      }
+    })
+
+    it('lets the player read offline copies and the device’s music, and nothing else', () => {
+      const player = (name: string) =>
+        withoutComments(
+          read(`android/fxm-player/src/main/kotlin/io/github/pratyayops/fxm/player/${name}`),
+        )
+      expect(read('android/fxm-player/build.gradle')).toContain(
+        "implementation project(':fxm-downloads')",
+      )
+      expect(player('FxmPlayerPlugin.kt')).toContain(
+        'LocalSources(listOf(DownloadFiles.directory(context)))',
+      )
+      // HTTPS stays on the shared OkHttp client: DefaultDataSource only routes files to Media3's
+      // file and content readers, given OkHttp as its base (without one it would make a
+      // DefaultHttpDataSource).
+      const service = player('PlaybackService.kt')
+      expect(service).toContain('DefaultDataSource.Factory(this, OkHttpDataSource.Factory(client))')
+      expect(service).not.toMatch(/DefaultDataSource\.Factory\(this\)/)
+      // Capacitor serves a device file at these paths of the page's origin (convertFileSrc).
+      const bridge = read(
+        'node_modules/@capacitor/android/capacitor/src/main/assets/native-bridge.js',
+      )
+      const files = read('../../packages/player/src/native/device-files.ts')
+      for (const prefix of ['/_capacitor_file_', '/_capacitor_content_']) {
+        expect(bridge).toContain(`'${prefix}'`)
+        expect(files).toContain(`'${prefix}'`)
       }
     })
   })

@@ -1,0 +1,44 @@
+// FXM's downloads and device music (stage 6.4): the files of offline copies in the app's own
+// storage, written for the web app's download manager; their export to the device's Music/FXM
+// folder through MediaStore; a dataSync foreground service that keeps downloads going in the
+// background; and the device's music listed from MediaStore. The download manager itself, and its
+// fetches through fxm-http's shared OkHttp client, run in the web app. See README.md next to this
+// file.
+apply plugin: 'com.android.library'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+    namespace = "io.github.pratyayops.fxm.downloads"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        minSdkVersion rootProject.ext.minSdkVersion
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    testOptions {
+        unitTests.all {
+            testLogging {
+                events 'failed'
+                exceptionFormat 'full'
+            }
+        }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21
+    }
+}
+
+dependencies {
+    implementation project(':capacitor-android')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+
+    testImplementation "junit:junit:$junitVersion"
+    // The real org.json for the message tests (android.jar only has stubs of it).
+    testImplementation "org.json:json:$orgJsonVersion"
+}
