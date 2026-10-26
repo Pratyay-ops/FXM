@@ -79,7 +79,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = [
 # Whether the library behind the Linux tray icon is installed, and whether a panel shows such
 # icons (src/tray.rs). Already in the dependency tree through tray-icon's libappindicator and GTK.
 [target.'cfg(target_os = "linux")'.dependencies]
-gio = "0.18.4"
+gio = "0.22.10"
 libloading = "0.7.4"
 
 [features]
