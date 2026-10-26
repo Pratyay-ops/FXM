@@ -3,8 +3,9 @@
 # features, bug fixes and performance changes of the release, each once, after the release's
 # hand-written summary (docs/releases/v<version>.md, which release-notes.sh prints first).
 # Documentation, tests, CI, build, chores and refactoring are left out, and so is the internal
-# work of every type: the scopes tooling, release, deploy, ci and plan. CHANGELOG.md keeps the
-# whole history (cliff.toml). Keep the body and the preprocessors in step with cliff.toml's.
+# work of every type: the scopes tooling, release, deploy, ci and plan, and integration and test
+# work (the parser before the features says which subjects). CHANGELOG.md keeps the whole
+# history (cliff.toml). Keep the body and the preprocessors in step with cliff.toml's.
 # Preview the next release's notes with `make release-notes`.
 # Docs: https://git-cliff.org/docs/configuration
 
@@ -51,6 +52,10 @@ commit_parsers = [
   { message = '^Merge ', skip = true },
   # Internal work, whatever its type: the toolchain, releases, the deploy, CI and the plan.
   { message = '^[a-z]+\((tooling|release|deploy|ci|plan)\)', skip = true },
+  # Integration and test work, whatever its type: what a merge of develop or another stage broke
+  # (merged, develop's, 2.9's) and the fakes the tests use (fixtures, type tests, test streams,
+  # the tests' helpers).
+  { message = '''^[a-z]+(\([a-z]+\))?!?: .*(\bmerged\b|\bdevelop's\b|\bfixtures\b|\btype tests\b|\btest streams\b|\btests' |\b[0-9]\.[0-9]+'s\b)''', skip = true },
   { message = '^feat', group = "<!-- 0 -->Features" },
   { message = '^fix', group = "<!-- 1 -->Bug fixes" },
   { message = '^perf', group = "<!-- 2 -->Performance" },

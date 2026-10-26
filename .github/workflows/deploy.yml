@@ -12,14 +12,12 @@ name: Deploy
 #                      third-party notices, with the licence, header and privacy checks. On every
 #                      branch, so a stage branch finds out before it merges. No secrets.
 #   deploy             develop: the preview. main: a release candidate at
-#                      main-candidate.fxmusic.pages.dev. Only these two branches deploy, each in
-#                      its GitHub environment (preview, production). The Cloudflare secrets are
-#                      repository secrets for now, which a run on any branch could read; the
-#                      recommended setup limits each environment to its branch and moves the
-#                      secrets into the environments (scripts/build-dist/README.md, "Deploying").
-#                      The job runs nothing but wrangler, pinned by its own lockfile in
-#                      scripts/build-dist-wrangler, and restores no cache another run could
-#                      have written.
+#                      main-candidate.fxmusic.pages.dev. Only these two branches deploy. Each
+#                      runs in its GitHub environment (preview, production), which holds the
+#                      Cloudflare secrets and which only its branch can use
+#                      (scripts/build-dist/README.md, "Deploying"). The job runs nothing but
+#                      wrangler, pinned by its own lockfile in scripts/build-dist-wrangler, and
+#                      restores no cache another run could have written.
 #   verify             checks that deployment: every path's headers (check-headers.ts), and in
 #                      Chrome that the pages run under their policies and googlevideo requests
 #                      carry no Referer.

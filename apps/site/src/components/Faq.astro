@@ -1,6 +1,6 @@
 ---
 import { AVAILABLE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../config'
-import { phonesAnswer } from '../lib/connect'
+import { FIREFOX_TEMPORARY, phonesAnswer } from '../lib/connect'
 import { connectNeededFor, extensionFaq, iPhoneAnswer, losslessAnswer } from '../lib/tiers'
 
 // Answers that change as features ship (AVAILABLE in src/config.ts)
@@ -68,8 +68,8 @@ const downloads = AVAILABLE.conversions
               The web app works in any modern browser. FXM Connect, which it needs for {needs}, is
               for Chrome, Edge and Brave (version 120 or later) on a computer. You install it from
               the zip on the GitHub release with
-              <strong>Load unpacked</strong> (<a href="#get-web">see the steps</a>). A Firefox
-              add-on is coming.
+              <strong>Load unpacked</strong> (<a href="#get-web">see the steps</a>).
+              {FIREFOX_TEMPORARY}
             </p>
           )}
           <p>{phones}</p>
@@ -92,7 +92,9 @@ const downloads = AVAILABLE.conversions
         <div class="answer">
           <p>
             Yes. FXM has no accounts, no analytics and no servers, so there's nothing for FXM to
-            collect. Your library, history and settings stay in your browser or in the app.
+            collect. Your library, history and settings stay in your browser or in the app, unless
+            you turn on sync (a copy in a secret gist on your own GitHub account) or connect a
+            scrobbling account (the songs you play go to Last.fm or ListenBrainz).
           </p>
           <p>
             When you open the app, search or play, your device talks directly to the services you

@@ -1,6 +1,6 @@
 {
   "name": "@fxm/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "FXM domain model, interfaces and pure logic shared by every app",
   "license": "Apache-2.0",

@@ -1,6 +1,6 @@
 {
   "name": "@fxm/platform",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "FXM platform adapters: network transports, FXM Connect detection, capability detection and the shared YouTube request budget",
   "license": "Apache-2.0",

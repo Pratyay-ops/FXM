@@ -20,11 +20,19 @@ export interface ConnectFlags {
   jamendo?: boolean
 }
 
+/**
+ * Until the signed add-on is out, each release also has a Firefox zip, which Firefox loads as a
+ * temporary add-on (the web app's install guide, apps/web/src/features/connect/install-guides.tsx,
+ * has the steps).
+ */
+export const FIREFOX_TEMPORARY =
+  'Until the signed Firefox add-on is out, Firefox 140 or later can load the Firefox zip from the same release as a temporary add-on, which it removes when it restarts.'
+
 /** The fine print under the install steps of the "Get FXM" web card. */
 export function installFinePrint(firefox: boolean): string {
   return firefox
     ? 'The zip is for Chrome, Edge and Brave 120 or later, on a computer. The signed add-on is for Firefox 140 or later, and for Firefox 142 or later on Android.'
-    : 'For Chrome, Edge and Brave 120 or later, on a computer. A Firefox add-on is coming.'
+    : `For Chrome, Edge and Brave 120 or later, on a computer. ${FIREFOX_TEMPORARY}`
 }
 
 /** A label of a browser's own interface, which the page shows in bold. */

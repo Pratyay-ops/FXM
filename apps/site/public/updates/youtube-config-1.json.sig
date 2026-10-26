@@ -1,0 +1,6 @@
+{
+  "format": "fxm-signed-update-1",
+  "keyId": "ed25519-05f33e9965c21517",
+  "statement": "eyJraW5kIjoieW91dHViZS1jb25maWciLCJ2ZXJzaW9uIjoxLCJhcGkiOjEsImZpbGUiOiJ5b3V0dWJlLWNvbmZpZy0xLmpzb24iLCJzaXplIjo0MzU4LCJzaGEyNTYiOiI4MjRmNjAyYzVlYTU4NTE5MjAwYWRiOTVhOTJjYjFkNzEwMzhiYzhkNTg3MGFmYTYwYWUzMGZjMzczZjc2M2JjIiwic291cmNlIjoiNGM5OWVjNjFmYWQ3YWRjMzQ1ZmI3YTMwNjQ0NzkzYTg1YTFjMjZhOSIsInNpZ25lZEF0IjoiMjAyNi0xMC0yNlQwOToyODo0Ny45ODdaIn0=",
+  "signature": "eoJwxa2Ar+5/W9nkhZoECjANlbi+rrZ7q1pL8AE27EzJyn6ITiFMjPYxElMQGWTcpYV/fqQ8ISBXJyhEQXjfDw=="
+}

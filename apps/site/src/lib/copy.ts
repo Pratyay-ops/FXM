@@ -22,3 +22,21 @@ export function comingSoon(items: readonly string[]): string {
   const verb = items.length === 1 ? 'is' : 'are'
   return `${text.charAt(0).toUpperCase()}${text.slice(1)} ${verb} coming soon.`
 }
+
+/**
+ * Where FXM runs, after "a music player": "for the web, with desktop and Android apps coming
+ * soon" while neither app is out (AVAILABLE.desktop and AVAILABLE.android), "for the web, desktop
+ * and Android" once both are. `later` replaces "coming soon".
+ */
+export function platforms(desktop: boolean, android: boolean, later = 'coming soon'): string {
+  const apps = [
+    [desktop, 'desktop'],
+    [android, 'Android'],
+  ] as const
+  const out = apps.filter(([released]) => released).map(([, label]) => label)
+  const upcoming = unreleased(apps)
+  const where = `for ${joinList(['the web', ...out])}`
+  if (upcoming.length === 0) return where
+  if (upcoming.length > 1) return `${where}, with ${joinList(upcoming)} apps ${later}`
+  return `${where}, with ${upcoming[0] === 'Android' ? 'an' : 'a'} ${upcoming[0]} app ${later}`
+}
