@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { serializePolicy } from './csp.ts'
 import type { HeaderRule } from './headers-file.ts'
-import { APP_SERVICES, appPolicy, SANDBOX_DOCUMENTS } from './policies.ts'
+import { appPolicy, SANDBOX_DOCUMENTS } from './policies.ts'
 import { isHostSource, policyHosts, privacyPageServices, privacyProblems } from './privacy.ts'
 import { privacyPage } from './testing.ts'
 
@@ -47,9 +47,16 @@ describe('privacyProblems', () => {
   })
 
   it('names each service the page is missing', () => {
-    const page = privacyPage(
-      APP_SERVICES.map((service) => service.privacyName).filter((name) => name !== 'Jamendo'),
-    )
+    const page = privacyPage([
+      'YouTube',
+      'Spotify',
+      'MusicBrainz',
+      'Internet Archive',
+      'LRCLIB',
+      'SponsorBlock',
+      'ListenBrainz',
+      'Last.fm',
+    ])
     expect(privacyProblems(RULES, page)).toEqual([
       "the privacy page doesn't list Jamendo, whose hosts the policies allow: add it to apps/site/src/pages/privacy.astro",
     ])

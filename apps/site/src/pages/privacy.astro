@@ -75,6 +75,8 @@ const spotifyLogin = `Connecting your Spotify account is optional${AVAILABLE.spo
 const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILABLE.android)} also check GitHub for updates. When they start, they fetch FXM's YouTube settings file from this website, and download FXM's signed YouTube code from it too, so YouTube keeps working between app releases. That code is checked against FXM's signature before it runs.`
 const connectInstall = privacyInstall(AVAILABLE.firefox)
 const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
+const webAppUpdates =
+  'The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself.'
 ---
 
 <Document
@@ -190,6 +192,7 @@ const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
     add analytics or tracking to either.
     {connectUpdates}
   </p>
+  <p>{webAppUpdates}</p>
   <p>{updates}</p>
 
   <h2>Changes</h2>

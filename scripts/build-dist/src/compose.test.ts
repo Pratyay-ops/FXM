@@ -6,7 +6,7 @@ import { metaPolicyOf, serializePolicy, sha256Source } from './csp.ts'
 import { parseHeaders } from './headers-file.ts'
 import { embedPart, sandboxPart } from './later-stages.ts'
 import type { Part } from './parts.ts'
-import { APP_SERVICES, appPolicy, SANDBOX_DOCUMENTS } from './policies.ts'
+import { appPolicy, SANDBOX_DOCUMENTS } from './policies.ts'
 import { listFiles } from './rules.ts'
 import {
   APP_THEME_SCRIPT,
@@ -327,9 +327,16 @@ describe('compose', () => {
   it('refuses a privacy page that misses a service the policies name', () => {
     const root = tempDir()
     const site = fakeSitePart(root, {
-      privacy: privacyPage(
-        APP_SERVICES.map((service) => service.privacyName).filter((name) => name !== 'LRCLIB'),
-      ),
+      privacy: privacyPage([
+        'YouTube',
+        'Spotify',
+        'MusicBrainz',
+        'Internet Archive',
+        'Jamendo',
+        'SponsorBlock',
+        'ListenBrainz',
+        'Last.fm',
+      ]),
     })
     expect(problemsOf(() => run(root, [site, fakeAppPart(root)]))).toEqual([
       "the privacy page doesn't list LRCLIB, whose hosts the policies allow: add it to apps/site/src/pages/privacy.astro",
