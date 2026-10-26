@@ -441,7 +441,7 @@ The UI adapts to what each platform can do:
 | Last.fm stations | — | — | ✅ | ✅ | ✅ |
 | Downloads | Free sources only | Free sources only | ✅ every track | ✅ every track, to disk | ✅ every track |
 | Background playback | ✅ tab or PWA window | ✅ | ✅ | ✅ tray, hidden window | ✅ foreground service |
-| Equalizer | Free sources | Free sources | ✅ (bytes through Connect + MediaSource, unless the stream was redirected) | ✅ (googlevideo through Rust's `fxm-media:` scheme, 7.6; on macOS AAC only, as WebKit plays WebM past Web Audio) | ✅ ExoPlayer effects |
+| Equalizer | Free sources | Free sources | ✅ (bytes through Connect + MediaSource, unless the stream was redirected) | Free sources; YouTube through Rust's `fxm-media:` scheme (7.6) once 8.1 plays through it. Verified on macOS with AAC only (WebKit plays WebM past Web Audio); Windows and Linux still to check | ✅ ExoPlayer effects |
 | Local music files | ✅ (folder access in Chromium, file picker elsewhere) | ✅ | ✅ | ✅ | ✅ MediaStore |
 
 ### Services, CORS and keys (measured 2026-10-25)
