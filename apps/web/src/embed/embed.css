@@ -1,0 +1,42 @@
+/*
+ * The embed's styles: the app's design tokens and base styles, fitted to an iframe.
+ *
+ * The embed's Vite root is apps/web/embed/ (vite.embed.config.ts), and Tailwind's automatic
+ * source detection only scans the Vite root, so name the code the embed renders.
+ */
+@import "../styles/index.css";
+
+@source "./";
+@source "../components";
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    /* The app's bars don't exist here. */
+    scroll-padding: 0;
+    background-color: var(--color-surface);
+  }
+
+  body {
+    min-height: 0;
+    overflow: hidden;
+    padding: 0;
+    background-color: var(--color-surface);
+  }
+
+  /* Opened as a page of its own (a shared player link): the player sits centred on the page's
+     background, and the page scrolls when the window is shorter than the player. */
+  html[data-standalone],
+  html[data-standalone] body {
+    background-color: var(--color-background);
+  }
+
+  html[data-standalone] body {
+    overflow: auto;
+  }
+}
