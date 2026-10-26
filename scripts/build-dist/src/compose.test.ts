@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { pageRevision } from '../../../apps/web/pwa/host.ts'
 import { compose, DistError, NOTICES_FILE } from './compose.ts'
 import { metaPolicyOf, serializePolicy, sha256Source } from './csp.ts'
 import { parseHeaders } from './headers-file.ts'
@@ -142,6 +143,24 @@ describe('compose', () => {
       'react',
       'tailwindcss',
     ])
+  })
+
+  it("revisions the page in the app's service worker from the deployed page and rule", () => {
+    const root = tempDir()
+    const { outDir, logs } = run(root, [
+      fakeSitePart(root),
+      fakeAppPart(root, { serviceWorker: true }),
+    ])
+    const { rules } = parseHeaders(readFileSync(join(outDir, '_headers'), 'utf8'))
+    const app = rules.find((rule) => rule.path === '/app/*')
+    const page = readFileSync(join(outDir, 'app/index.html'), 'utf8')
+    const revision = pageRevision(page, Object.fromEntries(app?.headers ?? []))
+    // The final page: make dist added its policy's meta elements.
+    expect(page).toContain('<meta http-equiv="Content-Security-Policy"')
+    expect(readFileSync(join(outDir, 'app/sw.js'), 'utf8')).toContain(
+      `{url:"index.html",revision:"${revision}"}`,
+    )
+    expect(logs).toContain(`app/sw.js: the page's precache revision is ${revision}`)
   })
 
   it('skips the parts later stages add, and builds without them', () => {
