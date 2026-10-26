@@ -119,6 +119,30 @@ describe('mergeIntoLibrary', () => {
     expect((await repo.getPlaylistView(road))?.playlist.undo).toBeUndefined()
   })
 
+  it('keeps the cover of a local file, which sync doesn’t carry', async () => {
+    const repo = testRepo()
+    const cover = { url: 'data:image/webp;base64,UklGRhIAAABXRUJQVlA4', width: 128, height: 128 }
+    const song = track(1, {
+      id: formatId('local', 'track', '0123456789abcdef'),
+      source: 'local',
+      artwork: [cover],
+    })
+    await repo.like(song)
+    const base = await readLibrarySnapshot(repo, settings)
+    // The gist never holds the `data:` URL.
+    expect(base.tracks.map((row) => row.track.artwork)).toEqual([[]])
+    // Another device with the same folder read the file's tags again.
+    const remote = structuredClone(base)
+    const [row] = remote.tracks
+    if (row === undefined) throw new Error('missing')
+    row.track.title = 'Song 1 (Live)'
+    row.updatedAt += 10_000
+
+    await mergeIntoLibrary(repo, { base, remote, remoteFromBase: true, appSettings: settings })
+
+    expect(await repo.getTrack(song.id)).toMatchObject({ title: 'Song 1 (Live)', artwork: [cover] })
+  })
+
   it('replaces a play the other side holds differently instead of adding it twice', async () => {
     const repo = testRepo()
     await repo.recordPlay({

@@ -15,7 +15,13 @@
 import { type EntityId, formatId, type JsonObject, type QueueContext } from '@fxm/core'
 import { sameOrder } from '../../db/ordering'
 import { LibraryError, type LibraryRepo, randomUuid, type SyncedTables } from '../../db/repo'
-import { DOWNLOADS_PLAYLIST_ID, PLAYLISTS_ORDER_ID, type PlaylistRecord } from '../../db/types'
+import {
+  DOWNLOADS_PLAYLIST_ID,
+  PLAYLISTS_ORDER_ID,
+  type PlaylistRecord,
+  type TrackRecord,
+} from '../../db/types'
+import { sanitizeArtworkItem } from '../../db/validate'
 import { canonicalJson } from './canonical'
 import {
   conflictOriginalOf,
@@ -155,7 +161,7 @@ async function writeChanges(
   // Tracks are a cache: the merge never removes one. `local` holds the cached versions of the
   // gist's tracks too, so only what is new or newer is written.
   const tracks = diff(local.tracks, merged.tracks, (row) => row.id)
-  await db.tracks.bulkPut(tracks.puts)
+  await db.tracks.bulkPut(await keepDeviceArtwork(db, tracks.puts))
   changed += tracks.puts.length
 
   const likes = diff(local.likes, merged.likes, (row) => row.key)
@@ -247,6 +253,26 @@ async function writeChanges(
   changed += pins.puts.length + pins.deletes.length
 
   return changed
+}
+
+/**
+ * `rows`, to write over the track cache: a track that comes without artwork keeps the artwork
+ * here that sync can't carry. A local file's cover (stage 4.4) is a `data:` URL, which the
+ * backup's guards drop, so a newer version of the track from another device that has the same
+ * folder never brings it, and must not take it away here.
+ */
+async function keepDeviceArtwork(
+  db: SyncedTables,
+  rows: readonly TrackRecord[],
+): Promise<TrackRecord[]> {
+  const cached = await db.tracks.bulkGet(rows.map((row) => row.id))
+  return rows.map((row, index) => {
+    if (row.track.artwork.length > 0) return row
+    const kept = (cached[index]?.track.artwork ?? []).filter(
+      (size) => sanitizeArtworkItem(size) === null,
+    )
+    return kept.length === 0 ? row : { ...row, track: { ...row.track, artwork: kept } }
+  })
 }
 
 // --- Settling a conflict ---------------------------------------------------------------------

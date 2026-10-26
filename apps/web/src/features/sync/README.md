@@ -22,7 +22,7 @@ Records are the library backup's (`db/backup.ts`), and every one goes through th
 | Reserved settings whose key starts with `sync.` | Every other reserved setting: credentials, secret sources, network endpoints and per-device privacy switches must never use `sync.` |
 | Plays of the last 90 days | Older plays: sync never reads, sends or deletes them. The query of a search a play started from |
 | Pins ("Not the right version?") | The matching engine's own decisions: a cache each device rebuilds |
-| The track metadata the above use | The rest of the track cache |
+| The track metadata the above use | The rest of the track cache. The covers of local files (stage 4.4), `data:` URLs the backup's guards drop: a track that comes without artwork keeps its cover here (`library-io.ts`) |
 | App settings: catalog mode and theme | Import progress: an import resumes on the device that runs it |
 
 The app settings (`appSettingsIO` in `controller.ts`) and the `sync.` settings apply on every device, from a gist anyone with its link can read. Only settings that should be the same everywhere belong there: never a credential, a secret source, a network endpoint, or a per-device switch such as turning a service off on one device.
