@@ -1,0 +1,14 @@
+{
+  "about": "What FXM's desktop and Android apps trust for signed updates (the YouTube config and resolver module): the Ed25519 public keys whose signatures they accept, and in \"revoked\" the versions they refuse even when validly signed, per artifact kind, e.g. {\"youtube-module\": [4]}. The first key signs updates; the second is its offline backup, used only if the signing key leaks or is lost (both created with scripts/make-signing-key.sh on 2026-10-26). Never put a private key here.",
+  "keys": [
+    {
+      "keyId": "ed25519-05f33e9965c21517",
+      "publicKey": "O2C+f9jG1Yy0lio21mGAqW8iLnbVTWEGOh1Vk9jn9nM="
+    },
+    {
+      "keyId": "ed25519-fb960ef25a2918c2",
+      "publicKey": "FWDvtLTMYmBc3+mlXdZiQiIluvS+sn76I/LC1U+K9uY="
+    }
+  ],
+  "revoked": {}
+}

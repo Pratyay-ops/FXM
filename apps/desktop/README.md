@@ -41,12 +41,13 @@ src-tauri/
 
 ```
 default-src 'self'; img-src 'self' https: data: blob:; media-src 'self' https: blob:;
-connect-src ipc: http://ipc.localhost 'self' https:; script-src 'self' 'wasm-unsafe-eval';
+connect-src ipc: http://ipc.localhost 'self' https:; script-src 'self' 'wasm-unsafe-eval' blob:;
 style-src 'self' 'unsafe-inline'
 ```
 
 - `ipc:` and `http://ipc.localhost` carry Tauri's IPC (macOS and Linux, then Windows).
 - At build time Tauri adds the SHA-256 hash of every inline script to `script-src`, so the theme script in `apps/web/index.html` keeps running.
+- `blob:` in `script-src` lets the app run the signed YouTube resolver module it downloads from FXM's site (stage 1.13): the module's bytes are checked against their Ed25519 signature first, then loaded from a `blob:` URL made from exactly those bytes, which is revoked once loaded. It also lets the page run its other `blob:` URLs (artwork, audio) as scripts, which would matter only together with an injected `<script>` element naming one. The web app's own policy has no `blob:` there: it gets new code by redeploy. See [packages/platform/src/updates](../../packages/platform/src/updates/README.md).
 - **No `'unsafe-eval'`.** Stage 7.2 doesn't add it: YouTube deciphering runs in a separate, hidden evaluator webview with its own policy (stage 1.11). Only if that webview can't work may 1.11 add `'unsafe-eval'` here, with the reason recorded in this README.
 
 ## Maintenance

@@ -9,7 +9,7 @@ import java.util.concurrent.Executors
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.Cookie
-import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.CookieJar
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -17,6 +17,7 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -89,33 +90,29 @@ class WebViewCookieIsolationTest {
   @Test
   fun `nor does a request the web app sends through the plugin, even with a Cookie header`() {
     internet.server.enqueue(MockResponse.Builder().body("{}").build())
-    val executor = Executors.newCachedThreadPool()
-    try {
-      val exchanges = Exchanges(internet.client(), executor)
-      val options =
-        JSONObject()
-          .put("id", "r1")
-          .put("url", "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
-          .put("method", "POST")
-          .put(
-            "headers",
-            JSONObject()
-              .put("content-type", "text/plain;charset=UTF-8")
-              .put("origin", "")
-              .put("cookie", "SID=a-cookie-from-javascript"),
-          )
-          .put("body", """{"videoId":"x"}""")
-      val (id, request) = BridgeMessages.request(options)
-      val head = Recorded<ResponseHead>()
-      exchanges.start(id, request, head)
-      assertEquals(200, head.value().status)
-    } finally {
-      executor.shutdownNow()
-    }
+    val options =
+      JSONObject()
+        .put("id", "r1")
+        .put("url", "https://www.youtube.com/youtubei/v1/player?prettyPrint=false")
+        .put("method", "POST")
+        .put(
+          "headers",
+          JSONObject()
+            .put("content-type", "text/plain;charset=UTF-8")
+            .put("origin", "")
+            .put("cookie", "SID=a-cookie-from-javascript"),
+        )
+        .put("body", """{"videoId":"x"}""")
+    assertEquals(200, throughPlugin(internet.client(), options).status)
 
     val recorded = internet.take()
     assertNull(recorded.headers["Cookie"])
     assertTrue(webView.asked.isEmpty())
+  }
+
+  @Test
+  fun `the client the plugin and Media3 share has no cookie jar at all`() {
+    assertSame(CookieJar.NO_COOKIES, internet.client().cookieJar)
   }
 
   @Test
@@ -130,7 +127,6 @@ class WebViewCookieIsolationTest {
     }
     assertNull(internet.take().headers["Cookie"])
     assertNull(internet.take().headers["Cookie"])
-    assertTrue(internet.cookieJar.loadForRequest("https://www.youtube.com/".toHttpUrl()).isEmpty())
     assertTrue(webView.stored.isEmpty())
   }
 
@@ -151,9 +147,10 @@ class WebViewCookieIsolationTest {
   }
 
   @Test
-  fun `only cookies native code adds reach the requests they match`() {
-    // Stage 6.5 sends the Spotify login cookie on the token call alone this way.
-    internet.cookieJar.add(
+  fun `a cookie native code keeps for itself never reaches a request of the plugin`() {
+    // Stage 6.5's token command can send the Spotify login cookie on a client of its own this way.
+    val jar = FxmCookieJar()
+    jar.add(
       Cookie.Builder()
         .name("sp_dc")
         .value("native-only")
@@ -162,22 +159,42 @@ class WebViewCookieIsolationTest {
         .secure()
         .build(),
     )
-    val client = internet.client()
-    for (url in
-      listOf(
-        "https://open.spotify.com/api/token",
-        "https://api-partner.spotify.com/pathfinder/v2/query",
-        "https://music.youtube.com/youtubei/v1/next",
-      )) {
-      internet.server.enqueue(MockResponse.Builder().body("{}").build())
-      client.newCall(Request.Builder().url(url).build()).execute().close()
+    val shared = internet.client()
+    val nativeOnly = FxmHttp.withCookies(shared, jar)
+    assertSame(shared.connectionPool, nativeOnly.connectionPool)
+    repeat(3) { internet.server.enqueue(MockResponse.Builder().body("{}").build()) }
+    for (url in listOf(TOKEN, "https://api-partner.spotify.com/pathfinder/v2/query")) {
+      nativeOnly.newCall(Request.Builder().url(url).build()).execute().close()
     }
+    val fromJavaScript =
+      JSONObject()
+        .put("id", "r1")
+        .put("url", TOKEN)
+        .put("headers", JSONObject().put("origin", "https://open.spotify.com"))
+    assertEquals(200, throughPlugin(shared, fromJavaScript).status)
+
     assertEquals("sp_dc=native-only", internet.take().headers["Cookie"])
-    assertNull(internet.take().headers["Cookie"])
-    assertNull(internet.take().headers["Cookie"])
+    assertNull("a cookie for another host", internet.take().headers["Cookie"])
+    assertNull("the native-only cookie on a plugin request", internet.take().headers["Cookie"])
+  }
+
+  /** Sends `request` options through the plugin's [Exchanges] on [client]; returns the head. */
+  private fun throughPlugin(client: okhttp3.OkHttpClient, options: JSONObject): ResponseHead {
+    val executor = Executors.newCachedThreadPool()
+    try {
+      val exchanges = Exchanges(client, executor)
+      val (id, request) = BridgeMessages.request(options)
+      val head = Recorded<ResponseHead>()
+      exchanges.start(id, request, head)
+      return head.value().also { exchanges.abort(id) }
+    } finally {
+      executor.shutdownNow()
+    }
   }
 
   companion object {
+    private const val TOKEN = "https://open.spotify.com/api/token"
+
     private const val WEBVIEW_COOKIE = "SID=webview-login-cookie"
     private val TEXT = "text/plain;charset=UTF-8".toMediaType()
   }

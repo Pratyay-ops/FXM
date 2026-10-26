@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createRequestBudget } from './budget'
 import { createCapacitorTransport, unpatchedFetch } from './capacitor'
 import { isCorsSimpleRequest } from './cors'
+import { isRouteUnavailable, isTransportError } from './errors'
 import { SIMPLE_CONTENT_TYPE, toSimpleInnerTubeRequest } from './innertube'
 import {
   createNativeStub,
@@ -23,11 +24,11 @@ function outgoing(url: string, init: Partial<OutgoingRequest['init']> = {}): Out
   return { url, init: { method: 'GET', headers: {}, credentials: 'omit', ...init } }
 }
 
-function nativeHttp() {
+function nativeHttp(respond?: (url: string, init: NativeRequestInit) => Response) {
   const calls: { url: string; init: NativeRequestInit }[] = []
   const http: NativeHttp = async (url, init) => {
     calls.push({ url, init })
-    return Response.json({})
+    return respond?.(url, init) ?? Response.json({})
   }
   return { http, calls }
 }
@@ -44,13 +45,13 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
 describe('the native header policy', () => {
   it('never sends a webview origin: no Origin for YouTube, Spotify’s own for Spotify', () => {
     expect(NATIVE_ORIGINS).toEqual({
-      open: '',
-      innertube: '',
-      'youtube-web': '',
-      googlevideo: '',
+      open: null,
+      innertube: null,
+      'youtube-web': null,
+      googlevideo: null,
       spotify: 'https://open.spotify.com',
-      'lastfm-web': '',
-      user: '',
+      'lastfm-web': null,
+      user: null,
     })
   })
 
@@ -64,17 +65,20 @@ describe('the native header policy', () => {
     expect(native.url).toBe(`${SEARCH}?prettyPrint=false`)
     expect(native.init.headers).toEqual({
       'content-type': SIMPLE_CONTENT_TYPE,
-      origin: '',
       'user-agent': AGENT,
     })
-    expect(native.init.method).toBe('POST')
+    expect(native.init).toMatchObject({
+      method: 'POST',
+      origin: null,
+      route: 'innertube',
+      credentials: 'omit',
+      redirect: 'manual',
+    })
     expect(typeof native.init.body).toBe('string')
     expect(
       isCorsSimpleRequest(
         'POST',
-        Object.entries(native.init.headers).filter(
-          ([name]) => !['origin', 'user-agent'].includes(name),
-        ),
+        Object.entries(native.init.headers).filter(([name]) => name !== 'user-agent'),
       ),
     ).toBe(true)
   })
@@ -85,17 +89,23 @@ describe('the native header policy', () => {
       'spotify',
       AGENT,
     )
-    expect(spotify.init.headers).toEqual({
-      authorization: 'Bearer x',
-      origin: 'https://open.spotify.com',
-      'user-agent': AGENT,
-    })
+    expect(spotify.init.headers).toEqual({ authorization: 'Bearer x', 'user-agent': AGENT })
+    expect(spotify.init.origin).toBe('https://open.spotify.com')
     const own = await toNativeRequest(
       outgoing('https://musicbrainz.org/ws/2/', { headers: { 'user-agent': 'FXM/0.1' } }),
       'open',
       AGENT,
     )
-    expect(own.init.headers).toEqual({ 'user-agent': 'FXM/0.1', origin: '' })
+    expect(own.init.headers).toEqual({ 'user-agent': 'FXM/0.1' })
+    expect(own.init.origin).toBeNull()
+  })
+
+  it('never carries an Origin or Cookie header, whatever it is handed', async () => {
+    const native = await toNativeRequest(
+      outgoing('https://lrclib.net/', { headers: { Origin: 'tauri://localhost', Cookie: 'a=b' } }),
+      'open',
+    )
+    expect(native.init.headers).toEqual({})
   })
 
   it('turns any body into text or bytes, with the Content-Type fetch would add', async () => {
@@ -132,19 +142,27 @@ describe('the native header policy', () => {
     expect(text.init.body).toBe('hello')
   })
 
-  it('keeps the signal and the redirect mode', async () => {
+  it('keeps the signal, and always asks for manual redirects and no cookies', async () => {
     const signal = new AbortController().signal
     const native = await toNativeRequest(
-      outgoing('https://lrclib.net/api', { signal, redirect: 'error' }),
+      outgoing('https://lrclib.net/api', { signal, redirect: 'error', credentials: 'include' }),
       'open',
     )
     expect(native.init.signal).toBe(signal)
-    expect(native.init.redirect).toBe('error')
+    expect(native.init.redirect).toBe('manual')
+    expect(native.init.credentials).toBe('omit')
     const bare = await toNativeRequest(
       { url: 'https://lrclib.net/', init: { headers: {} } },
-      'open',
+      'user',
     )
-    expect(bare.init).toEqual({ method: 'GET', headers: { origin: '' } })
+    expect(bare.init).toEqual({
+      method: 'GET',
+      headers: {},
+      origin: null,
+      route: 'user',
+      credentials: 'omit',
+      redirect: 'manual',
+    })
   })
 })
 
@@ -165,23 +183,44 @@ describe('createNativeTransport', () => {
     await transport.fetch('https://spclient.wg.spotify.com/metadata/4/track/x')
     await transport.fetch('https://www.last.fm/player/station/music/x')
     await transport.fetch('https://gist.example.org/raw/secret.json')
-    expect(calls.map((call) => call.init.headers.origin)).toEqual([
-      '',
-      '',
-      'https://open.spotify.com',
-      '',
-      '',
+    expect(calls.map((call) => [call.init.route, call.init.origin])).toEqual([
+      ['innertube', null],
+      ['googlevideo', null],
+      ['spotify', 'https://open.spotify.com'],
+      ['lastfm-web', null],
+      ['user', null],
     ])
     expect(calls[1]?.init.headers.range).toBe('bytes=0-65535')
+    for (const call of calls) expect(call.init).toMatchObject({ credentials: 'omit' })
     expect(budget.snapshot().used).toBe(1)
     expect(
-      isFxmError(await rejection(transport.fetch('https://example.com/')), 'Unsupported'),
+      isTransportError(await rejection(transport.fetch('https://example.com/')), 'unknown-host'),
     ).toBe(true)
   })
 
-  it('has a budget of its own when given none', () => {
-    const { http } = nativeHttp()
-    expect(createNativeTransport({ http }).budget.snapshot().hourlyLimit).toBe(600)
+  it('follows redirects itself, sending each hop through the native HTTP', async () => {
+    const { http, calls } = nativeHttp((url) =>
+      url.includes('rr1---')
+        ? new Response(null, {
+            status: 302,
+            headers: {
+              location: 'https://rr5---sn-y.googlevideo.com/videoplayback?cms_redirect=yes',
+            },
+          })
+        : new Response('bytes'),
+    )
+    const transport = createNativeTransport({ http, budget: createRequestBudget() })
+    const response = await transport.fetch('https://rr1---sn-x.googlevideo.com/videoplayback', {
+      headers: { Range: 'bytes=0-1' },
+    })
+    await expect(response.text()).resolves.toBe('bytes')
+    expect(
+      calls.map((call) => [new URL(call.url).host, call.init.route, call.init.redirect]),
+    ).toEqual([
+      ['rr1---sn-x.googlevideo.com', 'googlevideo', 'manual'],
+      ['rr5---sn-y.googlevideo.com', 'googlevideo', 'manual'],
+    ])
+    expect(calls[1]?.init.headers.range).toBe('bytes=0-1')
   })
 })
 
@@ -191,6 +230,8 @@ describe('createNativeStub', () => {
     const transport = createNativeStub({
       needs: 'the native networking of stage 9.9',
       webFetch: webFetch as typeof fetch,
+      budget: createRequestBudget(),
+      userHosts: () => ['invidious.example.org'],
     })
     await transport.fetch('https://lrclib.net/api/get', {
       headers: { Origin: 'tauri://localhost', 'User-Agent': 'FXM/0.1', Accept: 'application/json' },
@@ -204,9 +245,13 @@ describe('createNativeStub', () => {
       'https://open.spotify.com/api/token',
     ]) {
       const error = await rejection(transport.fetch(url, { method: 'POST', body: BODY }))
-      expect(isFxmError(error, 'Unsupported')).toBe(true)
+      expect(isRouteUnavailable(error)).toBe(true)
+      expect(error).toMatchObject({ needs: ['native'] })
       expect((error as Error).message).toContain('stage 9.9')
     }
+    expect(
+      isRouteUnavailable(await rejection(transport.fetch('https://invidious.example.org/x'))),
+    ).toBe(true)
     expect(transport.budget.snapshot().used).toBe(0)
   })
 })
@@ -214,7 +259,10 @@ describe('createNativeStub', () => {
 describe('createTauriTransport', () => {
   it('is the stub until stage 7.2 supplies its native HTTP', async () => {
     const webFetch = vi.fn(async () => Response.json({}))
-    const transport = createTauriTransport({ webFetch: webFetch as typeof fetch })
+    const transport = createTauriTransport({
+      webFetch: webFetch as typeof fetch,
+      budget: createRequestBudget(),
+    })
     await transport.fetch('https://lrclib.net/api/get')
     expect(webFetch).toHaveBeenCalledOnce()
     const error = await rejection(transport.fetch(SEARCH, { method: 'POST', body: BODY }))
@@ -233,7 +281,9 @@ describe('createTauriTransport', () => {
     })
     await transport.fetch(SEARCH, { method: 'POST', body: BODY })
     await transport.fetch('https://invidious.example.org/api/v1/stats')
-    expect(calls[0]?.init.headers).toMatchObject({ origin: '', 'user-agent': AGENT })
+    expect(calls[0]?.init.headers).toMatchObject({ 'user-agent': AGENT })
+    expect(calls[0]?.init.origin).toBeNull()
+    expect(calls[1]?.init.route).toBe('user')
     expect(transport.budget).toBe(budget)
     expect(calls).toHaveLength(2)
   })
@@ -263,7 +313,10 @@ describe('createCapacitorTransport', () => {
 
   it('is the stub until stage 6.2 supplies its OkHttp plugin', async () => {
     const webFetch = vi.fn(async () => Response.json({}))
-    const transport = createCapacitorTransport({ webFetch: webFetch as typeof fetch })
+    const transport = createCapacitorTransport({
+      webFetch: webFetch as typeof fetch,
+      budget: createRequestBudget(),
+    })
     await transport.fetch('https://lrclib.net/api/get')
     expect(webFetch).toHaveBeenCalledOnce()
     const error = await rejection(transport.fetch('https://open.spotify.com/api/token'))
@@ -280,16 +333,14 @@ describe('createCapacitorTransport', () => {
       userHosts: () => [],
     })
     await transport.fetch('https://open.spotify.com/api/token')
-    expect(calls[0]?.init.headers).toEqual({
-      origin: 'https://open.spotify.com',
-      'user-agent': AGENT,
-    })
+    expect(calls[0]?.init.headers).toEqual({ 'user-agent': AGENT })
+    expect(calls[0]?.init.origin).toBe('https://open.spotify.com')
   })
 
   it('defaults to the unpatched global fetch for the stub', async () => {
     const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({}))
     try {
-      await createCapacitorTransport().fetch('https://lrclib.net/')
+      await createCapacitorTransport({ budget: createRequestBudget() }).fetch('https://lrclib.net/')
       expect(spy).toHaveBeenCalledOnce()
     } finally {
       spy.mockRestore()

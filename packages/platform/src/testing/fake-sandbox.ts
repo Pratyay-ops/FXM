@@ -10,7 +10,7 @@ import { FxmError } from '@fxm/core'
 import { isCorsSimpleRequest } from '../cors'
 import { findHostRule } from '../hosts'
 import type { SimpleInnerTubeRequest } from '../innertube'
-import type { SandboxTransport, UserHostInit } from '../lite'
+import type { SandboxTransport, SelfTestResult, UserHostInit } from '../lite'
 
 /** The InnerTube paths stage 1.10's sandbox allows. */
 export const SANDBOX_INNERTUBE_PATHS = [
@@ -23,8 +23,13 @@ export const SANDBOX_INNERTUBE_PATHS = [
 
 /** Options for {@link createFakeSandbox}. */
 export interface FakeSandboxOptions {
-  /** What the self-test answers, or a function deciding it. Default `true`. */
-  selfTest?: boolean | (() => boolean | Promise<boolean>)
+  /**
+   * What the self-test answers, or a function deciding it (it gets the self-test's options, so
+   * it can watch the signal). Default `pass`.
+   */
+  selfTest?:
+    | SelfTestResult
+    | ((options?: { signal?: AbortSignal }) => SelfTestResult | Promise<SelfTestResult>)
   /** Answers InnerTube calls. Default: 200 with `{}`. */
   respond?: (request: SimpleInnerTubeRequest) => Response | Promise<Response>
   /** Answers user-host requests. Without it, the fake has no `userHost` method. */
@@ -60,10 +65,10 @@ export function createFakeSandbox(options: FakeSandboxOptions = {}): FakeSandbox
     get selfTests() {
       return selfTests
     },
-    async selfTest() {
+    async selfTest(testOptions) {
       selfTests += 1
-      const { selfTest = true } = options
-      return typeof selfTest === 'function' ? selfTest() : selfTest
+      const { selfTest = 'pass' } = options
+      return typeof selfTest === 'function' ? selfTest(testOptions) : selfTest
     },
     async innerTube(request) {
       const url = new URL(request.url)

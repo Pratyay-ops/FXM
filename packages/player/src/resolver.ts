@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { AudioCandidate, QueueItem, StreamOption } from '@fxm/core'
+import type { AudioCandidate, CatalogMode, QueueItem, StreamOption } from '@fxm/core'
 import type { PlaySupport } from './engine'
 
 /**
@@ -23,22 +23,36 @@ import type { PlaySupport } from './engine'
  */
 export type ResolveReason = 'play' | 'preload' | 'retry' | 'refresh' | 'replace'
 
-/** What went wrong with the previous attempt to play an item. */
-export interface StreamFailure {
-  /** The failure: an `EngineError` from playback, or the error a resolution rejected with. */
-  error: Error
-  /** The stream that failed. Absent when the resolution itself failed. */
-  stream?: StreamOption
-  /** Where playback was, in milliseconds; the player resumes there. */
-  positionMs: number
-  /**
-   * Whether the failed stream had started playing: the engine reported `play` for it. `false`
-   * for a failure before the first `play` event, which in the Lite tier, where the bytes cannot
-   * be read, is how a capped URL shows: the media element's first request is the probe. Present
-   * whenever `stream` is.
-   */
-  started?: boolean
-}
+/**
+ * What went wrong with the previous attempt to play an item: the resolution failed, or a stream
+ * did, and then whether it had started playing.
+ */
+export type StreamFailure =
+  | {
+      /** The error the resolution rejected with. */
+      error: Error
+      /** Absent: the resolution itself failed. */
+      stream?: undefined
+      /** Where playback was, in milliseconds; the player resumes there. */
+      positionMs: number
+      /** Absent with `stream`. */
+      started?: undefined
+    }
+  | {
+      /** The failure: an `EngineError` from playback, or the player's refusal of the stream. */
+      error: Error
+      /** The stream that failed. */
+      stream: StreamOption
+      /** Where playback was, in milliseconds; the player resumes there. */
+      positionMs: number
+      /**
+       * Whether the failed stream had started playing: the engine reported `play` for it.
+       * `false` for a failure before the first `play` event, which in the Lite tier, where the
+       * bytes cannot be read, is how a capped URL shows: the media element's first request is
+       * the probe.
+       */
+      started: boolean
+    }
 
 /** The details of one resolution. */
 export interface ResolveRequest {
@@ -54,6 +68,17 @@ export interface ResolveRequest {
    * format or an alternative candidate.
    */
   failure?: StreamFailure
+  /**
+   * Whether the user asked for this item: they tapped it (a new queue's start item), jumped to
+   * it, went back to it with "previous", pressed play on it, or picked a version for it
+   * (`replace`). Reaching it by itself, when the track before ended or failed or after "next",
+   * is not explicit, and neither is a `preload`. A Suggest-band match plays only for an explicit
+   * request. The player sets it on every request; a resolver that finds it absent decides
+   * itself.
+   */
+  explicit?: boolean
+  /** The queue's catalog mode. The player sets it on every request. */
+  mode?: CatalogMode
   /** Aborted when the player no longer needs the stream, e.g. after a skip. */
   signal: AbortSignal
   /**

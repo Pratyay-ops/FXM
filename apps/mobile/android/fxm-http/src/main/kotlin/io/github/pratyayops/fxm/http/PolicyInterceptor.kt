@@ -23,7 +23,9 @@ data class Redirects(val count: Int)
  * Applies [RequestPolicy] to every request of the shared client, before OkHttp opens any
  * connection, and follows redirects itself so that each hop is checked the same way: the client
  * is built with OkHttp's own redirect following off. A request may carry a [RedirectMode] tag;
- * without one it follows redirects, as Media3's requests do.
+ * without one it follows redirects, as Media3's requests do. A hop the rules refuse fails the
+ * request with [BridgeErrorCode.REDIRECT], whatever the reason, so a refusal of the hop is never
+ * mistaken for one of the request's own host (which would ask the user about the wrong host).
  */
 class PolicyInterceptor(private val policy: RequestPolicy) : Interceptor {
   override fun intercept(chain: Interceptor.Chain): Response {
@@ -50,13 +52,16 @@ class PolicyInterceptor(private val policy: RequestPolicy) : Interceptor {
             "${request.url.host} redirected to an invalid URL",
           )
       val previous = request
-      request = checked {
-        policy
-          .redirect(previous, next, response.code)
-          .newBuilder()
-          .tag(Redirects::class.java, Redirects(count))
-          .build()
-      }
+      val hop =
+        try {
+          checked { policy.redirect(previous, next, response.code) }
+        } catch (_: FxmHttpException) {
+          throw FxmHttpException(
+            BridgeErrorCode.REDIRECT,
+            "${previous.url.host} redirected to ${Hosts.hostPort(next)}, which FXM may not follow",
+          )
+        }
+      request = hop.newBuilder().tag(Redirects::class.java, Redirects(count)).build()
     }
   }
 

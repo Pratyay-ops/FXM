@@ -21,7 +21,8 @@ const config: CapacitorConfig = {
   plugins: {
     // Keep Capacitor's global fetch/XHR patch off: it drops the Cookie, Origin and Referer
     // headers and corrupts binary bodies, and sends WebView cookies. The web app's fetch is the
-    // FxmHttp plugin (android/fxm-http), which @fxm/platform uses on Android.
+    // FxmHttp plugin (android/fxm-http), which @fxm/platform uses on Android. This setting leaves
+    // the CapacitorHttp plugin itself callable, so MainActivity replaces it with one that refuses.
     CapacitorHttp: { enabled: false },
     SystemBars: {
       // The web app uses viewport-fit=cover and pads its bars with env(safe-area-inset-*),

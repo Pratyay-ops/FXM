@@ -85,6 +85,8 @@ Save `JSON.stringify(state)`. Read it back with `restoreQueue(json, mode)`, whic
 
 `player.restore(json, positionMs)` runs `restoreQueue` itself, in the player's mode.
 
+The cleaners it uses are exported for other stores of the same shapes, such as the library's backups: `cleanTrack`, `cleanCandidate`, `cleanSignals` and `cleanContext` each return a clean copy with only the known fields, or `undefined`.
+
 ## Randomness
 
 - `RandomSource`: a function returning a number in `[0, 1)`, like `Math.random` (the default).

@@ -91,14 +91,21 @@ export interface ConnectStatus {
 export interface ConnectWindow {
   /** The page's origin, the only one messages are accepted from and posted to. */
   readonly location: { readonly origin: string }
-  /** The page, whose `<html>` carries the marker. */
+  /**
+   * The page, whose `<html>` carries the marker, and whose `visibilitychange` tells the client
+   * the user came back to the tab.
+   */
   readonly document: Document
   /** Posts a message to the page itself. */
   postMessage(message: unknown, targetOrigin: string): void
   /** Listens for messages. */
   addEventListener(type: 'message', listener: (event: MessageEvent) => void): void
+  /** Listens for the window getting the focus back. */
+  addEventListener(type: 'focus', listener: () => void): void
   /** Stops listening. */
   removeEventListener(type: 'message', listener: (event: MessageEvent) => void): void
+  /** Stops listening. */
+  removeEventListener(type: 'focus', listener: () => void): void
   /** Watches the marker, so detection re-runs when it appears. */
   readonly MutationObserver?: typeof MutationObserver
 }
@@ -169,7 +176,9 @@ export interface ConnectClient {
    * Detects FXM Connect: without the marker it answers at once; with it, it pings and waits up to
    * the ping timeout. Calls made while a detection runs share one more run after it, so a marker
    * change in between is never missed. The client also re-detects by itself whenever the marker
-   * appears, changes or goes away.
+   * appears, changes or goes away, when the page gets the focus back or becomes visible (the
+   * user may have changed FXM Connect's options in another tab, and FXM Connect never announces
+   * that on its own), and after the bridge said the Spotify login is off.
    */
   detect(): Promise<ConnectStatus>
   /** Calls `listener` with every new status. Returns a function that removes it. */
@@ -183,7 +192,8 @@ export interface ConnectClient {
    * Asks the bridge for a token from `open.spotify.com/api/token` with the browser's own Spotify
    * login. Rejects with an `Unsupported` `FxmError` when FXM Connect is not `present` or a
    * parameter is outside the allow-list, with a {@link ConnectBridgeError} when FXM Connect refuses
-   * (`login-disabled` until the user turns the login on), and with a `Network` one on timeout.
+   * (`AuthRequired` for `login-disabled`, until the user turns the login on, and for
+   * `private-tab`), and with a `Network` one on timeout.
    */
   spotifyToken(params: SpotifyTokenParams, options?: BridgeRequestOptions): Promise<BridgeResponse>
   /** Asks the bridge for `open.spotify.com/api/server-time`, without credentials. */
@@ -218,7 +228,7 @@ const BRIDGE_ERRORS: Record<ConnectErrorCode, { code: FxmErrorCode; message: str
     message: 'Turn on "Use my Spotify login from this browser" in FXM Connect’s options',
   },
   'private-tab': {
-    code: 'Unsupported',
+    code: 'AuthRequired',
     message: 'The Spotify login is not available in private windows and container tabs',
   },
   'rate-limited': { code: 'RateLimited', message: 'Too many FXM Connect bridge requests' },
@@ -387,9 +397,22 @@ export function createConnectClient(options: ConnectClientOptions = {}): Connect
       }
     } else if (typeof data.code === 'string') {
       request.settle(new ConnectBridgeError(data.code))
+      // The announced features are out of date: the login was turned off, or never applied here.
+      if (data.code === 'login-disabled' || data.code === 'private-tab') void detect()
     }
   }
   window.addEventListener('message', onMessage)
+
+  // FXM Connect announces nothing when the user changes its options, often in another tab, so
+  // detect again when the user comes back to this one.
+  const onFocus = () => {
+    void detect()
+  }
+  const onVisibilityChange = () => {
+    if (window.document.visibilityState === 'visible') void detect()
+  }
+  window.addEventListener('focus', onFocus)
+  window.document.addEventListener('visibilitychange', onVisibilityChange)
 
   const Observer = window.MutationObserver
   const observer =
@@ -557,6 +580,8 @@ export function createConnectClient(options: ConnectClientOptions = {}): Connect
       if (disposed) return
       disposed = true
       window.removeEventListener('message', onMessage)
+      window.removeEventListener('focus', onFocus)
+      window.document.removeEventListener('visibilitychange', onVisibilityChange)
       observer?.disconnect()
       listeners.clear()
       for (const request of [...pending.values()]) {

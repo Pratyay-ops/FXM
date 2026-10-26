@@ -74,13 +74,39 @@ describe('the Android project', () => {
     )
   })
 
-  it('builds FXM’s native HTTP into the app and registers its plugin before the bridge starts', () => {
+  it('builds FXM’s native HTTP into the app and registers its plugins before the bridge starts', () => {
     expect(read('android/settings.gradle')).toMatch(/^include ':fxm-http'$/m)
     expect(read('android/app/build.gradle')).toContain("implementation project(':fxm-http')")
-    const activity = read('android/app/src/main/java/io/github/pratyayops/fxm/MainActivity.java')
-    const register = activity.indexOf('registerPlugin(FxmHttpPlugin.class)')
-    expect(register).toBeGreaterThan(-1)
-    expect(register).toBeLessThan(activity.indexOf('super.onCreate'))
+    const activity = withoutComments(
+      read('android/app/src/main/java/io/github/pratyayops/fxm/MainActivity.java'),
+    )
+    for (const plugin of ['FxmHttpPlugin', 'DisabledCapacitorHttp']) {
+      const register = activity.indexOf(`registerPlugin(${plugin}.class)`)
+      expect(register, plugin).toBeGreaterThan(-1)
+      expect(register, plugin).toBeLessThan(activity.indexOf('super.onCreate'))
+    }
+  })
+
+  it('replaces Capacitor’s own CapacitorHttp plugin with one that refuses every call', () => {
+    // The bridge registers CapacitorHttp whatever capacitor.config.ts says, and its methods reach
+    // any URL with the WebView's cookies. The app's plugins replace built-in ones of the same name.
+    const builtIn = read(
+      'node_modules/@capacitor/android/capacitor/src/main/java/com/getcapacitor/plugin/CapacitorHttp.java',
+    )
+    expect(builtIn).toMatch(/^public class CapacitorHttp extends Plugin \{$/m)
+    const builtInMethods = [...builtIn.matchAll(/@PluginMethod\s+public void (\w+)\(/g)]
+    expect(builtInMethods.length).toBeGreaterThan(3)
+    const stub = withoutComments(
+      read(
+        'android/fxm-http/src/main/kotlin/io/github/pratyayops/fxm/http/DisabledCapacitorHttp.kt',
+      ),
+    )
+    expect(stub).toMatch(/@CapacitorPlugin\(name = DisabledCapacitorHttp\.NAME\)/)
+    expect(stub).toContain('const val NAME = "CapacitorHttp"')
+    for (const [, method] of builtInMethods) {
+      expect(stub, method).toContain(`@PluginMethod fun ${method}(call: PluginCall) = refuse(call)`)
+    }
+    expect(stub).toContain('private fun refuse(call: PluginCall) = call.unavailable(MESSAGE)')
   })
 
   it('gives native code no HTTP stack that shares the WebView’s cookies', () => {
@@ -94,7 +120,7 @@ describe('the Android project', () => {
     expect(files.length).toBeGreaterThan(15)
     for (const file of files) {
       expect(withoutComments(read(file)), file).not.toMatch(
-        /HttpURLConnection|openConnection\(|CapacitorHttp|DefaultHttpDataSource|JavaNetCookieJar/,
+        /HttpURLConnection|openConnection\(|com\.getcapacitor\.plugin\.|HttpRequestHandler|DefaultHttpDataSource|JavaNetCookieJar/,
       )
     }
   })
