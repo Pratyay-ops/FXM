@@ -5,7 +5,7 @@
  * | Part | Built from |
  * |---|---|
  * | `sources` | The sources registry (stage 2.4): the tier, the Spotify switch, a context per call; `detecting` until the platform's first detection ends (`homeSourcesUntil`) |
- * | `recommendations` | Stage 3.2's `createRecommendationCollector` over the app's providers: YouTube Music radio, Spotify when it is switched on and reachable, Last.fm's stations (where the platform reaches them: FXM Connect, the desktop and Android apps), ListenBrainz's similar artists, and the Cover Art Archive for tracks without a cover. Loaded with Home's first build |
+ * | `recommendations` | Stage 3.2's `createRecommendationCollector` over the app's providers: YouTube Music radio (for a track of another source, from its match only when the engine is sure of it), Spotify when it is switched on and reachable, Last.fm's stations (where the platform reaches them: FXM Connect, the desktop and Android apps), ListenBrainz's similar artists, and the Cover Art Archive for tracks without a cover. Loaded with Home's first build |
  * | `catalog` | `findArtist` (a YouTube Music artist search, the same name only), `artistTracks` (an artist page's top songs) and `findSong` (the matching engine over YouTube Music's song searches, stage 1.7) |
  * | `spotifyAccount` | Stage 3.5's view of the account (`spotifyAccountForHome`), where Spotify is registered: whether it is connected, and the sections its sync keeps |
  * | `playback` | The app's player, as 2.4's `PlaybackActions` |
@@ -19,7 +19,9 @@
 
 import {
   type ArtistRef,
+  type AudioCandidate,
   type EntityId,
+  effectiveMatchBand,
   formatId,
   isEntityId,
   normalizeText,
@@ -73,6 +75,17 @@ async function youtubeArtist(
   )
   const found = results.artists?.items.find((artist) => sameName(artist.name, name))
   return found === undefined ? null : { id: found.id, name: found.name }
+}
+
+/**
+ * Whether the matching engine is as sure of a match as the app needs to play one unattended:
+ * its verdict is the Auto band, from this matcher version (`effectiveMatchBand`, which counts a
+ * stale or missing verdict as a guess). The user's Auto setting is left out: it says whether
+ * such a match may play without asking (never while the matching config offers no Auto band),
+ * and a match that only seeds a radio plays nothing.
+ */
+function sureOfMatch(match: Pick<AudioCandidate, 'verdict'>): boolean {
+  return effectiveMatchBand(match.verdict, true) === 'auto'
 }
 
 /** Home's catalog over the app's YouTube Music provider and matching engine. */
@@ -148,8 +161,7 @@ export function recommendationLoader(
         youtubeLookup: music,
         async youtubeSeed(seed, ctx) {
           if ('kind' in seed) {
-            // A track from another source: its YouTube Music song, through the matching engine
-            // and the match cache.
+            // A track from another source: its YouTube Music song, through the matching engine.
             const outcome = await app.matcher.match(seed, {
               target: 'song',
               ctx,
@@ -158,7 +170,10 @@ export function recommendationLoader(
               signal: (ctx.signal as AbortSignal | undefined) ?? new AbortController().signal,
             })
             const best = outcome.best
-            if (best === undefined || outcome.band === 'none' || best.source !== 'ytm') return null
+            // A guess may be another song, whose radio would fill Home with music that has
+            // nothing to do with the track. The collector then checks that the song is the
+            // track's own, and that its radio follows the track.
+            if (best === undefined || best.source !== 'ytm' || !sureOfMatch(best)) return null
             return {
               id: formatId('ytm', 'track', best.ref),
               source: 'ytm',

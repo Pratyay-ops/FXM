@@ -492,6 +492,43 @@ describe('buildHomeFeed', () => {
     expect(stored.size).toBe(1)
   })
 
+  it("keeps no lists from a build where YouTube Music's radio skipped a seed", async () => {
+    const repo = await library()
+    const cache = createCollectionCache()
+    let skipping = true
+    const fake = fakeRecommendations({ radio: { '*': variedSongs('r', 100) } })
+    const recommendations: HomeRecommendations = {
+      async collect(seed, ctx, options) {
+        const name = isTrackSeed(seed) ? seed.title : seed.name
+        // As for a track of another source whose match isn't surely its own song.
+        if (skipping && name === 'Static Bloom') {
+          return { candidates: [], outcomes: [{ source: 'ytm', part: 'radio', status: 'skipped' }] }
+        }
+        const { candidates } = await fake.collect(seed, ctx, options)
+        const outcomes = [
+          { source: 'ytm', part: 'radio', status: 'ok' },
+          // Other sources' skips don't count: Spotify has no radio for a song it lacks.
+          { source: 'spotify', part: 'radio', status: 'skipped' },
+        ]
+        return { candidates, outcomes }
+      },
+      home: fake.home,
+    }
+    const services = homeServices('lite', { recommendations })
+    const skipped = await build(services, { repo, cache })
+    // Home shows what the other seeds brought, as a whole build...
+    expect(skipped.complete).toBe(true)
+    expect(types(skipped.shelves)).toContain('discover')
+    // ...but doesn't keep it for the week, nor while the collection comes from the cache.
+    expect(stored.size).toBe(0)
+    await build(services, { repo, cache, now: NOW + 10 * 60_000 })
+    expect(stored.size).toBe(0)
+    // Once every seed has its radio, the lists are kept.
+    skipping = false
+    await build(services, { repo, cache, now: NOW + 31 * 60_000 })
+    expect(stored.size).toBe(1)
+  })
+
   it("builds from what arrived when a source doesn't answer in time, and caches the rest", async () => {
     const repo = await library()
     let answer = () => {}

@@ -10,17 +10,35 @@ let stop: (() => void) | undefined
 afterEach(() => {
   stop?.()
   stop = undefined
-  // Only the mocks a single test sets. Every test mocks the updates and the app platform again
-  // (`load`): Vitest resolves queued mocks and unmocks of one path in no set order, so an unmock
-  // here could land after the next test's mock and hand it the real platform.
-  vi.doUnmock('./app-services')
-  vi.doUnmock('../../features/downloads/runtime')
   vi.resetModules()
   window.history.replaceState(null, '', '/')
   sessionStorage.clear()
 })
 
-async function load() {
+/** A module's replacement, as `vi.doMock` takes it. */
+type Replacement = Parameters<typeof vi.doMock>[1]
+
+/** Replaces the module at `path` for the next import, or puts the real one back. */
+function replaceModule(path: string, replacement: Replacement | undefined): void {
+  if (replacement === undefined) vi.doUnmock(path)
+  else vi.doMock(path, replacement)
+}
+
+/** The modules a test may replace: the services themselves, and the download queue's runtime. */
+interface Replacements {
+  readonly appServices?: Replacement
+  readonly downloads?: Replacement
+}
+
+async function load(replace: Replacements = {}) {
+  // All of this file's mocks and unmocks are queued here, right before the import that applies
+  // them, and none in afterEach. Vitest applies its queue at the next import, whoever makes it,
+  // and keeps the order only among what one import took: an unmock queued in afterEach went
+  // with an import of the teardown that nothing waits for (the setup file's resetPlayback has
+  // the player store make the next player, whose play recorder preloads the library), and on a
+  // busy machine it could land after the next test's mock of the same module.
+  replaceModule('./app-services', replace.appServices)
+  replaceModule('../../features/downloads/runtime', replace.downloads)
   // The signed updates of stage 1.13 would ask this page's origin, which nothing serves here.
   const keepYouTubeCurrent = vi.fn()
   vi.doMock('./updates', () => ({ keepYouTubeCurrent }))
@@ -229,11 +247,12 @@ describe('startAppServices', () => {
 
   it('runs the download queue once the tier is known', async () => {
     const startDownloads = vi.fn(() => () => {})
-    vi.doMock('../../features/downloads/runtime', async (importOriginal) => ({
-      ...(await importOriginal<object>()),
-      startDownloads,
-    }))
-    const { startAppServices, appSources } = await load()
+    const { startAppServices, appSources } = await load({
+      downloads: async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        startDownloads,
+      }),
+    })
     // FXM Connect's marker is on the page, and its service worker is still waking up.
     appSources.setDetecting(true)
 
@@ -372,13 +391,14 @@ describe('startAppServices', () => {
   })
 
   it("lets the app's player stop with a reason when the services can't start", async () => {
-    vi.doMock('./app-services', () => ({
-      createAppServices: () => {
-        throw new Error('A bug')
-      },
-    }))
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const { startAppServices, appSources, appPolicy } = await load()
+    const { startAppServices, appSources, appPolicy } = await load({
+      appServices: () => ({
+        createAppServices: () => {
+          throw new Error('A bug')
+        },
+      }),
+    })
 
     await startAppServices()
 

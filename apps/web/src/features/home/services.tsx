@@ -70,6 +70,16 @@ export interface HomeSourceShelf {
   readonly shelf: Shelf
 }
 
+/** What one source did for a seed, as stage 3.2's `SourceOutcome` says. */
+export interface HomeSourceOutcome {
+  /** `ok`, `skipped`, `failed` or `timed-out`. */
+  readonly status: string
+  /** The service, e.g. `ytm`. */
+  readonly source?: string
+  /** The call, e.g. `radio`. */
+  readonly part?: string
+}
+
 /**
  * The recommendation sources: stage 3.2's `RecommendationCollector`, which asks YouTube Music,
  * Spotify, Last.fm and ListenBrainz at once and returns their candidates in one format.
@@ -77,7 +87,8 @@ export interface HomeSourceShelf {
 export interface HomeRecommendations {
   /**
    * Candidates for one seed, from every source that can run, and what each source did (a
-   * collection with a `failed` source isn't cached). Fails only when cancelled.
+   * collection with a `failed` source isn't cached, and a build with one, or with a seed that
+   * YouTube Music's radio skipped, doesn't keep its lists). Fails only when cancelled.
    */
   collect(
     seed: RadioSeed,
@@ -85,7 +96,7 @@ export interface HomeRecommendations {
     options?: { parts?: readonly string[]; limit?: number },
   ): Promise<{
     readonly candidates: readonly RecCandidate[]
-    readonly outcomes?: readonly { readonly status: string }[]
+    readonly outcomes?: readonly HomeSourceOutcome[]
   }>
   /** The home feeds of the sources that have one, filtered to the mode. */
   home(ctx: ProviderContext): Promise<{ readonly shelves: readonly HomeSourceShelf[] }>

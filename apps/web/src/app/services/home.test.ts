@@ -1,5 +1,13 @@
-import { formatId, type Track } from '@fxm/core'
+import {
+  formatId,
+  MATCHER_VERSION,
+  type MatchBand,
+  parseId,
+  type RadioSeed,
+  type Track,
+} from '@fxm/core'
 import type { LiteState } from '@fxm/platform'
+import type { MatchOutcome } from '@fxm/player'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { HomeServices } from '../../features/home/services'
 import {
@@ -8,9 +16,16 @@ import {
   TIER_CAPABILITIES,
 } from '../../features/search/sources'
 import { spotifyAccountForHome } from '../../features/spotify-account/start'
-import { createAppHomeServices, homeSourcesUntil, tierKnown } from './home'
+import {
+  appHomeRecommendations,
+  createAppHomeServices,
+  homeSourcesUntil,
+  recommendationLoader,
+  tierKnown,
+} from './home'
 import { RADIOHEAD_CHANNEL } from './testing/fixtures'
 import { servicesOnTier, type TierServices } from './testing/tiers'
+import type { YouTube } from './youtube'
 
 let setups: TierServices[] = []
 
@@ -137,6 +152,155 @@ describe("Home on the app's services", () => {
         new URL(request.url).hostname.endsWith('youtube.com'),
       ),
     ).toBe(false)
+  })
+})
+
+describe('YouTube Music radio for a track of another source', () => {
+  /** The Internet Archive track of the report: a piano roll of Scott Joplin's rag. */
+  const mapleLeafRag: Track = {
+    id: formatId('archive', 'track', 'MapleLeafRag_PianoRoll/maple_leaf_rag.mp3'),
+    source: 'archive',
+    title: 'Maple leaf rag (Scott Joplin)',
+    artists: [{ name: 'Scott Joplin, piano rolls' }],
+    artwork: [],
+    durationMs: 192_000,
+    kind: 'song',
+  }
+
+  /** A YouTube Music song with a cover, so that Home looks none up for it. */
+  function ytmSong(videoId: string, title: string, artist: string): Track {
+    return {
+      id: formatId('ytm', 'track', videoId),
+      source: 'ytm',
+      title,
+      artists: [{ name: artist }],
+      artwork: [{ url: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` }],
+      durationMs: 190_000,
+      kind: 'song',
+    }
+  }
+
+  const ownSong = ytmSong('mapleLeaf01', 'Maple Leaf Rag', 'Scott Joplin')
+  const wrongSong = ytmSong('wheelsBus01', 'Wheels on the Bus', 'Little Sprouts TV')
+  const ragtimeRadio = [
+    ytmSong('entertain01', 'The Entertainer', 'Scott Joplin'),
+    ytmSong('tigerRag001', 'Tiger Rag', 'Harbor Street Stompers'),
+  ]
+  // What the report found: kids' channels and regional pop.
+  const kidsRadio = [
+    ytmSong('kidsSong001', 'Five Little Ducks', 'Little Sprouts TV'),
+    ytmSong('popSong0001', 'Monsoon Love', 'Coastal Hits'),
+  ]
+
+  /**
+   * The matching engine's answer: `song`, with a verdict of `band`. The app matches with Auto
+   * off (this release's matching config has no Auto band), so even a sure match is a suggestion
+   * to play.
+   */
+  function matchOf(song: Track, band: MatchBand, matcherVersion = MATCHER_VERSION): MatchOutcome {
+    return {
+      band: band === 'none' ? 'none' : 'suggest',
+      best: {
+        source: 'ytm',
+        ref: parseId(song.id).nativeId,
+        kind: 'song',
+        title: song.title,
+        artists: song.artists.map((artist) => artist.name),
+        confidence: band === 'auto' ? 0.97 : 0.7,
+        evidence: [],
+        verdict: { band, blockers: band === 'auto' ? [] : ['low-score'], matcherVersion },
+      },
+      alternatives: [],
+      incomplete: false,
+    }
+  }
+
+  /**
+   * Collects YouTube Music radio for the rag through the app's collector, in the Lite tier, with
+   * the matching engine answering `match` and YouTube Music's radio answering `radio`.
+   */
+  async function radioFor(match: MatchOutcome, radio: readonly Track[]) {
+    const sources = createSources({ platform: createStaticPlatform(TIER_CAPABILITIES.lite) })
+    const matched: Track[] = []
+    const asked: RadioSeed[] = []
+    const music = {
+      id: 'ytm',
+      async radio(seed: RadioSeed) {
+        asked.push(seed)
+        return [...radio]
+      },
+    }
+    const youtube = { music } as unknown as YouTube
+    const recommendations = appHomeRecommendations(
+      recommendationLoader({
+        youtube: { load: async () => youtube, current: youtube },
+        spotify: { load: () => Promise.reject(new Error('No Spotify here')), current: undefined },
+        spotifyAvailable: () => false,
+        sources,
+        platform: undefined,
+        matcher: {
+          async match(track) {
+            matched.push(track)
+            return match
+          },
+        },
+        matchOptions: (mode) => ({ mode }),
+      }),
+    )
+    const collection = await recommendations.collect(
+      mapleLeafRag,
+      sources.context({ mode: 'music' }),
+      { parts: ['radio'] },
+    )
+    const outcome = (collection.outcomes ?? []).find((one) => {
+      const { source, part } = one as { source?: string; part?: string }
+      return source === 'ytm' && part === 'radio'
+    })
+    const titles = collection.candidates.map((candidate) =>
+      candidate.type === 'track' ? candidate.track?.title : undefined,
+    )
+    return { outcome, titles, matched, asked }
+  }
+
+  const skipped = { status: 'skipped', reason: 'unsupported-seed' }
+
+  it('starts nowhere from the match of another song, however sure the engine is', async () => {
+    for (const band of ['suggest', 'auto'] as const) {
+      const { outcome, titles, matched, asked } = await radioFor(
+        matchOf(wrongSong, band),
+        kidsRadio,
+      )
+      expect(matched).toEqual([mapleLeafRag])
+      expect(outcome, band).toMatchObject(skipped)
+      expect(titles).toEqual([])
+      expect(asked).toEqual([])
+    }
+  })
+
+  it('starts nowhere from a guess, even of the same song', async () => {
+    const guesses = [
+      matchOf(ownSong, 'suggest'),
+      // An Auto verdict another matcher version made counts as a guess.
+      matchOf(ownSong, 'auto', MATCHER_VERSION + 1),
+      { band: 'none' as const, alternatives: [] },
+    ]
+    for (const guess of guesses) {
+      const { outcome, titles, asked } = await radioFor(guess, ragtimeRadio)
+      expect(outcome).toMatchObject(skipped)
+      expect(titles).toEqual([])
+      expect(asked).toEqual([])
+    }
+  })
+
+  it('starts from the same song the engine is sure of, with Auto off, if its radio follows the track', async () => {
+    const sure = await radioFor(matchOf(ownSong, 'auto'), ragtimeRadio)
+    expect(sure.outcome).toMatchObject({ status: 'ok', count: 2 })
+    expect(sure.titles).toEqual(['The Entertainer', 'Tiger Rag'])
+    expect(sure.asked).toMatchObject([{ id: ownSong.id, source: 'ytm', title: 'Maple Leaf Rag' }])
+    // A radio that drifted elsewhere is dropped all the same.
+    const drifted = await radioFor(matchOf(ownSong, 'auto'), kidsRadio)
+    expect(drifted.outcome).toMatchObject(skipped)
+    expect(drifted.titles).toEqual([])
   })
 })
 
