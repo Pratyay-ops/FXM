@@ -13,7 +13,7 @@
  */
 
 import type { AccountStatus, NetworkCapabilities, ProviderContext } from '@fxm/core'
-import type { FxmPlatform } from '@fxm/platform'
+import { type FxmPlatform, type SpotifyLoginWindow, spotifyLoginWindowOf } from '@fxm/platform'
 import type { SpotifyProvider } from '@fxm/sources/spotify'
 import { getLibrary } from '../../db/repo'
 import { appSources } from '../search/sources-context'
@@ -49,17 +49,29 @@ export interface SpotifyAccountServices {
    * (in another tab, which FXM Connect doesn't announce).
    */
   refresh(): Promise<void>
+  /**
+   * The app's own Spotify login window, where the app keeps the login itself: the Android app's
+   * (stage 6.5). Connect opens it when no login is kept, and Disconnect logs out of it. None on
+   * the web, where the browser's own login is FXM Connect's to use.
+   */
+  readonly loginWindow?: SpotifyLoginWindow
 }
 
-/** Builds the services over the app's platform, a provider and the library. */
+/**
+ * Builds the services over the app's platform, a provider and the library. The platform's login
+ * source brings the login window, where it has one (`spotifyLoginWindowOf`).
+ */
 export function servicesFrom(
-  platform: Pick<FxmPlatform, 'context' | 'capabilities'>,
+  platform: Pick<FxmPlatform, 'context' | 'capabilities'> &
+    Partial<Pick<FxmPlatform, 'spotifySession'>>,
   spotify: AccountSpotify,
   library: SyncLibrary = getLibrary(),
 ): SpotifyAccountServices {
+  const loginWindow = spotifyLoginWindowOf(platform.spotifySession)
   return {
     spotify,
     library,
+    ...(loginWindow === undefined ? {} : { loginWindow }),
     // Every mode: the sync copies what Spotify holds, and Home filters what it shows.
     context: (priority, signal) =>
       platform.context({ mode: 'all', priority, ...(signal === undefined ? {} : { signal }) }),

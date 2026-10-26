@@ -7,7 +7,11 @@
  *   choice is persisted (`account-store.ts`) and followed by every open tab: a Disconnect in one
  *   tab stops the account in all of them.
  * - **Tokens** never pass through here: the provider keeps them in memory and asks FXM Connect's
- *   bridge for them (or the desktop and Android logins later). Disconnect makes it forget them.
+ *   bridge for them, or the Android app's login (stage 6.5; desktop's comes later). Disconnect
+ *   makes it forget them.
+ * - **The app's own login window** (Android, `services.loginWindow`): the login is the app's to
+ *   keep, so the check asks the window first, Connect opens it when no login is kept, Log in
+ *   opens it again, and Disconnect also logs out of it.
  * - **When it syncs:** right after Connect, when the app opens and the last sync is older than
  *   {@link SYNC_EVERY_MS}, every so often while it stays open, and on "Sync now". One tab syncs
  *   at a time (a Web Lock); the others see the result in the library.
@@ -22,6 +26,7 @@ import {
   type ProviderContext,
   type Shelf,
 } from '@fxm/core'
+import type { SpotifyLoginState } from '@fxm/platform'
 import { isSpotifyError } from '@fxm/sources/spotify'
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import { LibraryError } from '../../db/repo'
@@ -56,7 +61,8 @@ export const SYNC_LOCK = 'fxm-spotify-account-sync'
  *   or its consent was withdrawn)
  * - `private`: a private window or a container tab, where FXM Connect never uses the login
  * - `unreachable`: Spotify can't be reached here (no FXM Connect), or is switched off
- * - `unsupported`: this app has no Spotify login yet (desktop and Android: stages 7.4 and 6.5)
+ * - `unsupported`: this app has no Spotify login yet (desktop: stage 7.4), or its login window
+ *   can't open here (the Android app on a WebView without profiles)
  * - `unverified`: the check itself failed (the network, FXM Connect not answering in time):
  *   `failure` says why, and Try again checks again
  */
@@ -113,6 +119,16 @@ export interface LockManagerLike {
 /** How long Disconnect waits for another tab's sync to stop before it goes on regardless. */
 export const DISCONNECT_WAIT_MS = 10_000
 
+/**
+ * What opening the app's own login window came to:
+ *
+ * - `done`: it opened and closed, and the check that followed says where the account stands
+ *   (`connected`, or `logged-out` when the user closed it without logging in)
+ * - `unavailable`: it can't open here (no login window, or an Android WebView without profiles)
+ * - `failed`: it couldn't open (no screen, or it is open already), or couldn't keep the login
+ */
+export type LoginOutcome = 'done' | 'unavailable' | 'failed'
+
 /** Options for {@link createAccountRuntime}. */
 export interface AccountRuntimeOptions {
   /** The services: the provider, the library, the platform. */
@@ -146,12 +162,21 @@ export interface AccountRuntime {
   /**
    * Connects the account after the user accepted the notice: the opt-in goes on, the login is
    * checked, and a first sync starts in the background when it works. Resolves after the check.
+   * Where the app keeps the login itself and none is kept yet (Android), it opens the login
+   * window first ({@link AccountRuntime.login}) and resolves with what that came to.
    */
-  connect(): Promise<void>
+  connect(): Promise<LoginOutcome | undefined>
+  /**
+   * Opens the app's own Spotify login window (Android), where the user logs in on Spotify's page;
+   * once it closes, checks the login again and syncs when it works. Opening it again while it is
+   * open shares the first call.
+   */
+  login(): Promise<LoginOutcome>
   /**
    * Disconnects: the opt-in goes off, the provider forgets the account's token at once, a
    * running sync stops, and the sync's state and the personal home are forgotten. The copies
-   * stay, unless `removeCopies` (then those nobody changed go; see `forgetSync`).
+   * stay, unless `removeCopies` (then those nobody changed go; see `forgetSync`). Where the app
+   * keeps the login itself (Android), it also logs out of the login window.
    */
   disconnect(options?: { removeCopies?: boolean }): Promise<ForgetResult>
   /** Asks again whether the login works ("Try again"), and starts a sync when one is due. */
@@ -280,6 +305,9 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
   }
   let running: { controller: AbortController; done: Promise<void> } | undefined
   let checking: Promise<AccountPhase> | undefined
+  let loggingIn: Promise<LoginOutcome> | undefined
+  /** `syncIfDue` calls still reading when the last sync was, before they start one. */
+  const deciding = new Set<Promise<void>>()
   /** Whether this runtime changes the choice itself, so it doesn't follow its own change. */
   let ownChange = false
 
@@ -308,6 +336,13 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
     }
     set({ phase: 'checking' })
     try {
+      // The app's own login first: without one kept, asking Spotify would only cost requests.
+      const kept = await services.loginWindow?.loginState()
+      if (kept !== undefined && (!kept.available || !kept.loggedIn)) {
+        const phase = !optedIn() ? 'off' : kept.available ? 'logged-out' : 'unsupported'
+        update({ phase }, drop)
+        return phase
+      }
       const status = await spotify.status(services.context('interactive'))
       if (!optedIn()) {
         update({ phase: 'off' }, drop)
@@ -354,12 +389,23 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
     }
   }
 
-  async function syncIfDue(): Promise<void> {
+  async function decideSync(): Promise<void> {
     if (store.getState().phase !== 'connected' || running) return
     const last = await lastSyncAt()
     const { failure } = store.getState()
     if (failure?.retryAt !== undefined && failure.retryAt > now()) return
     if (last === undefined || now() - last >= SYNC_EVERY_MS) await syncNow()
+  }
+
+  /** Syncs when one is due. Until it knows, it counts as in flight for `whenIdle`. */
+  function syncIfDue(): Promise<void> {
+    const work = decideSync()
+    deciding.add(work)
+    const done = () => {
+      deciding.delete(work)
+    }
+    work.then(done, done)
+    return work
   }
 
   async function runSync(signal: AbortSignal): Promise<void> {
@@ -418,6 +464,36 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
     if (!current) return undefined
     current.controller.abort(new DOMException('Spotify was disconnected', 'AbortError'))
     return current.done
+  }
+
+  async function openLoginWindow(): Promise<LoginOutcome> {
+    const { loginWindow } = services
+    if (loginWindow === undefined) return 'unavailable'
+    if (!optedIn()) return 'failed'
+    let state: SpotifyLoginState
+    try {
+      state = await loginWindow.openLogin()
+    } catch {
+      return 'failed'
+    }
+    if (!state.available) {
+      update({ phase: 'unsupported' }, [])
+      return 'unavailable'
+    }
+    // A new login, or the same: forget a remembered logged-out answer, and ask again, after any
+    // check that started while the window was open (it may not have seen the new login).
+    spotify.connect()
+    await checking
+    // A login may be another account's: sync at once, so the copies follow the account in use.
+    if ((await check()) === 'connected') void syncNow()
+    return 'done'
+  }
+
+  function login(): Promise<LoginOutcome> {
+    loggingIn ??= openLoginWindow().finally(() => {
+      loggingIn = undefined
+    })
+    return loggingIn
   }
 
   async function recheck(): Promise<void> {
@@ -493,9 +569,14 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
       }
       spotify.connect()
       update({}, ['failure'])
+      const phase = await check()
       // The first sync goes on in the background: Disconnect stays possible meanwhile.
-      if ((await check()) === 'connected') void syncNow()
+      if (phase === 'connected') void syncNow()
+      // Where the app keeps the login itself, connecting is logging in.
+      else if (phase === 'logged-out' && services.loginWindow !== undefined) return login()
+      return undefined
     },
+    login,
     async disconnect({ removeCopies = false } = {}) {
       ownChange = true
       try {
@@ -504,6 +585,8 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
         ownChange = false
       }
       spotify.disconnect()
+      // The login is the app's own: it goes too. At its best effort: Disconnect goes on regardless.
+      await services.loginWindow?.logout().catch(() => undefined)
       await stopSync()
       update({ phase: 'off', syncing: false, syncingElsewhere: false }, ['failure', 'progress'])
       const forget = () => forgetSync(library, { removeCopies })
@@ -526,10 +609,12 @@ export function createAccountRuntime(options: AccountRuntimeOptions): AccountRun
     async whenIdle() {
       for (
         let rounds = 0;
-        rounds < 100 && (checking !== undefined || running !== undefined);
+        rounds < 100 && (checking !== undefined || running !== undefined || deciding.size > 0);
         rounds++
       ) {
         await checking
+        // A due sync reads the library before it starts: until then, `running` isn't set.
+        await Promise.all(deciding)
         await running?.done
         // A check may start a sync once it resolves, a microtask later.
         await new Promise((resolve) => setTimeout(resolve, 0))
