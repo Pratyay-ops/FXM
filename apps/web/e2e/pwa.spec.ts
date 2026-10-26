@@ -525,6 +525,29 @@ test.describe('in Chromium', () => {
         .toBe(true)
     })
 
+    test("the toast sits above SponsorBlock's offer, not over it", async ({ page }) => {
+      // In Music + Video mode SponsorBlock offers itself above the player (stage 8.7).
+      await page.addInitScript(() => {
+        localStorage.setItem(
+          'fxm.settings.v1',
+          JSON.stringify({ state: { catalogMode: 'all', theme: 'dark' }, version: 1 }),
+        )
+      })
+      await newVersionWaits(page, 'library')
+      const offer = page.getByRole('region', { name: 'Skip non-music parts of videos?' })
+      await expect(offer).toBeVisible()
+
+      const toast = page.getByRole('region', { name: 'App update' })
+      // Polled: the card slides in.
+      await expect
+        .poll(async () => {
+          const below = await box(offer)
+          const above = await box(toast)
+          return above.y + above.height <= below.y
+        })
+        .toBe(true)
+    })
+
     test.describe('on a phone', () => {
       test.use({ viewport: { width: 320, height: 720 }, hasTouch: true })
 

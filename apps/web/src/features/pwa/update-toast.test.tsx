@@ -2,6 +2,7 @@ import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/render'
 import { showFeedback } from '../search/feedback'
+import { CARDS_HEIGHT_PROPERTY } from '../sponsorblock/sponsorblock-notices'
 import { usePwaStore } from './pwa-store'
 import { PHONE_QUERY, TOAST_SPACE_PROPERTY } from './update-toast'
 
@@ -111,6 +112,15 @@ describe('update toast', () => {
     const region = toast().parentElement
     expect(region?.className).toMatch(/max-md:top-\[calc\(var\(--shell-top\)/)
     expect(region?.className).toMatch(/max-md:bottom-auto/)
+  })
+
+  it("sits above SponsorBlock's cards, like the app's confirmations", async () => {
+    renderApp('/')
+    await screen.findByRole('heading', { level: 1 })
+    newVersionWaits()
+
+    // Placement is CSS: it rises by the height the cards take (e2e/pwa.spec.ts checks the boxes).
+    expect(toast().parentElement?.className).toContain(`var(${CARDS_HEIGHT_PROPERTY},0px)`)
   })
 
   it("keeps the app's confirmations above it, not over it", async () => {
