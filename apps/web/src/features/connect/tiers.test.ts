@@ -135,4 +135,30 @@ describe('missingSummary', () => {
     expect(missingSummary('lite').map((line) => line.tier)).toEqual(['full'])
     expect(missingSummary('full')).toEqual([])
   })
+
+  it('says what is not released yet as "Coming soon: …"', async () => {
+    // Everything Full lists is out in this build, so a build without two of them shows the line.
+    vi.resetModules()
+    vi.doMock('./config', async (importOriginal) => {
+      const config = await importOriginal<typeof import('./config')>()
+      return {
+        ...config,
+        RELEASED: { ...config.RELEASED, downloads: false, spotifyAccount: false },
+      }
+    })
+    try {
+      const tiers = await import('./tiers')
+      expect(tiers.missingSummary('lite')).toEqual([
+        {
+          tier: 'full',
+          adds: "YouTube Music without Lite's experimental route and Spotify search and related artists",
+          later:
+            'Coming soon: YouTube Music downloads and a read-only sync of your Spotify account.',
+        },
+      ])
+    } finally {
+      vi.doUnmock('./config')
+      vi.resetModules()
+    }
+  })
 })
