@@ -20,8 +20,9 @@
 //! - addresses on the public internet: a name that resolves only to loopback, private,
 //!   link-local or other special-purpose addresses is refused after DNS resolution, so an
 //!   approved name can't point this command at the user's own network;
-//! - at most [`MAX_REDIRECTS`] redirects, each checked like the first request, and responses of
-//!   at most [`MAX_BODY_BYTES`] within [`TIMEOUT`].
+//! - no redirect: the command hands a redirect back as it is, and the web app's transport follows
+//!   it, to the same host only, through this command again;
+//! - responses of at most [`MAX_BODY_BYTES`] within [`TIMEOUT`].
 //!
 //! Error messages name a host or an origin, never a whole URL: a query can carry the user's IP
 //! address, signatures or search terms.
@@ -48,9 +49,6 @@ use tauri_plugin_http::reqwest::{
 
 /// The file in the app's config folder that keeps the approved hosts.
 pub const FILE_NAME: &str = "user-hosts.json";
-
-/// The most redirects one request follows.
-pub const MAX_REDIRECTS: usize = 5;
 
 /// The largest response body, in bytes: 8 MiB.
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
@@ -559,7 +557,6 @@ pub async fn user_host_fetch(
 #[derive(Debug, Clone)]
 pub(crate) struct FetchPolicy {
     max_body: usize,
-    max_redirects: usize,
     timeout: Duration,
     /// Whether only HTTPS URLs on domain names that resolve to public addresses may be fetched.
     /// Only tests turn it off, to fetch from a local server.
@@ -572,7 +569,6 @@ impl Default for FetchPolicy {
     fn default() -> Self {
         Self {
             max_body: MAX_BODY_BYTES,
-            max_redirects: MAX_REDIRECTS,
             timeout: TIMEOUT,
             public_only: true,
             // The same settings tauri-plugin-http's requests follow (its `system-proxy` feature).
@@ -670,26 +666,11 @@ impl Resolve for PublicAddresses {
 }
 
 /// The client for one request: no cookies, no proxy, FXM's User-Agent, the policy's limits, and
-/// every redirect checked like the request itself.
-fn client(approved: &[String], policy: &FetchPolicy) -> Result<reqwest::Client, CommandError> {
-    let redirects = {
-        let approved = approved.to_vec();
-        let policy = policy.clone();
-        Policy::custom(move |attempt| {
-            if attempt.previous().len() > policy.max_redirects {
-                return attempt.error(CommandError::new(
-                    "network",
-                    format!("more than {} redirects", policy.max_redirects),
-                ));
-            }
-            match check_url(attempt.url(), &approved, &policy) {
-                Ok(()) => attempt.follow(),
-                Err(error) => attempt.error(error),
-            }
-        })
-    };
+/// no redirects. A redirect comes back as it is, with its `Location`: the web app's transport
+/// follows it, checking the next hop against its rules, and sends it through [`fetch`] again.
+fn client(policy: &FetchPolicy) -> Result<reqwest::Client, CommandError> {
     let mut builder = reqwest::Client::builder()
-        .redirect(redirects)
+        .redirect(Policy::none())
         .timeout(policy.timeout)
         .connect_timeout(CONNECT_TIMEOUT.min(policy.timeout))
         .no_proxy()
@@ -719,8 +700,8 @@ fn describe_error(error: &dyn std::error::Error) -> String {
     text
 }
 
-/// The [`CommandError`] behind a failed request: one of ours from the redirect policy or the
-/// resolver, else a `network` error, described without the request's URL.
+/// The [`CommandError`] behind a failed request: one of ours from the resolver, else a `network`
+/// error, described without the request's URL.
 fn request_error(error: reqwest::Error) -> CommandError {
     let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
     while let Some(current) = source {
@@ -817,7 +798,7 @@ pub(crate) async fn fetch(
         )
     })?;
     check_url(&url, approved, policy)?;
-    let mut response = client(approved, policy)?
+    let mut response = client(policy)?
         .request(method.clone(), url)
         .send()
         .await
@@ -1074,10 +1055,10 @@ mod tests {
         assert!(question_text("inv.example.org").contains("inv.example.org"));
     }
 
-    /// A test server: `/redirect` answers a 302 to `location` (an absolute URL, or `/target`),
-    /// `/big` sends more than the test's body limit, `/head` announces a large body to a HEAD
-    /// request, `/utf8` sends a header with UTF-8 bytes, and anything else answers `hello` with a
-    /// cookie. It records each request line and the request's headers.
+    /// A test server: `/redirect` answers a 302 to `location`, `/big` sends more than the test's
+    /// body limit, `/head` announces a large body to a HEAD request, `/utf8` sends a header with
+    /// UTF-8 bytes, and anything else answers `hello` with a cookie. It records each request line
+    /// and the request's headers.
     fn serve(location: Option<String>) -> (u16, Arc<Mutex<Vec<String>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1269,43 +1250,28 @@ mod tests {
     }
 
     #[test]
-    fn redirects_must_stay_on_approved_hosts() {
+    fn redirects_come_back_unfollowed() {
         let (target, target_seen) = serve(None);
-        let (port, _) = serve(Some(format!("http://127.0.0.1:{target}/secret")));
-        let approved = vec![format!("127.0.0.1:{port}")];
-        let error = get(
+        let (port, seen) = serve(Some(format!("http://127.0.0.1:{target}/secret")));
+        let approved = vec![format!("127.0.0.1:{port}"), format!("127.0.0.1:{target}")];
+        let fetched = get(
             &format!("http://127.0.0.1:{port}/redirect"),
             &approved,
             &local_policy(),
         )
-        .err()
         .unwrap();
-        assert_eq!(error.code, "not-approved");
+        assert_eq!(fetched.head.status, 302);
+        assert_eq!(
+            fetched.head.url,
+            format!("http://127.0.0.1:{port}/redirect")
+        );
+        assert!(fetched.head.headers.contains(&(
+            "location".into(),
+            format!("http://127.0.0.1:{target}/secret")
+        )));
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        // Not even to another approved host: the web app's transport decides where it may go.
         assert!(target_seen.lock().unwrap().is_empty());
-
-        let (port, _) = serve(Some("/target".to_owned()));
-        let fetched = get(
-            &format!("http://127.0.0.1:{port}/redirect"),
-            &[format!("127.0.0.1:{port}")],
-            &local_policy(),
-        )
-        .unwrap();
-        assert_eq!(fetched.body, b"hello");
-        assert_eq!(fetched.head.url, format!("http://127.0.0.1:{port}/target"));
-    }
-
-    #[test]
-    fn redirect_loops_end() {
-        let (port, seen) = serve(Some("/redirect".to_owned()));
-        let error = get(
-            &format!("http://127.0.0.1:{port}/redirect"),
-            &[format!("127.0.0.1:{port}")],
-            &local_policy(),
-        )
-        .err()
-        .unwrap();
-        assert_eq!(error.code, "network");
-        assert_eq!(seen.lock().unwrap().len(), MAX_REDIRECTS + 1);
     }
 
     #[test]
