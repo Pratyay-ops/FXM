@@ -2,7 +2,8 @@
  * Messages as code declares them: the English source of every translation, in namespaces, with
  * types read from the messages themselves.
  *
- * A namespace is a feature's messages, declared next to the code that shows them:
+ * A namespace is the messages of code that loads together, declared next to that code
+ * (`library.messages.ts`):
  *
  * ```ts
  * export const libraryMessages = defineMessages('library', {
@@ -16,9 +17,11 @@
  * `t('songCount', { count: 3 })` needs a number, `t('title')` takes nothing. The types come from
  * the message text through {@link MessageValues}, so they can't drift from it.
  *
- * Bundles keep each namespace with the code that imports it, so a lazy page carries its own
- * English messages and the embed carries only the embed's. Translation files name a message
- * `<namespace>.<key>` (`library.songCount`).
+ * A namespace is one module and its messages one object, so a bundle keeps all of it with the
+ * code that imports it, and can't drop the keys a chunk doesn't use. Import a namespace only from
+ * modules that load together: then a lazy page carries its own English messages, and the first
+ * load holds none of them (docs/I18N.md, "Namespaces and keys"). Translation files name a
+ * message `<namespace>.<key>` (`library.songCount`).
  *
  * @module
  */

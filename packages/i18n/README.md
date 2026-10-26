@@ -14,7 +14,7 @@ No app imports it yet: converting the apps' text is phase 2 of the design.
 
 ## Messages
 
-A feature declares its English messages next to the code that shows them. Keys are camelCase words; the namespace is the first part of each message's id in translation files (`library.songCount`).
+Code declares its English messages next to it, one namespace for code that loads together: a namespace is one module, so all of it loads with whatever imports it, and a lazy page's namespace imported by the first load would take the page's text along (docs/I18N.md, "Namespaces and keys"). Keys are camelCase words; the namespace is the first part of each message's id in translation files (`library.songCount`).
 
 ```ts
 import { defineMessages } from '@fxm/i18n'
