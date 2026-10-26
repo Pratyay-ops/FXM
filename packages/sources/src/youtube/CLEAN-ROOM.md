@@ -12,6 +12,7 @@ The YouTube Music and YouTube providers in this folder talk to InnerTube, an API
 | **Rec-25** | FXM's own requests, through these providers, recorded by [`fixtures/record.live.test.ts`](fixtures/record.live.test.ts) on 2026-10-25 UTC: YouTube's answers, sanitized, are the fixtures named |
 | **Rec-26** | FXM's own requests on 2026-10-26 while answering the first review: the same recorder (`search-top.json`, `next-web-creep.json`), and one-off probes from Node whose answers were read and not kept |
 | **1.4-26** | FXM's own `player` calls recorded by stage 1.4 on 2026-10-26 (its `stream/fixtures/`) |
+| **Eval-25** | FXM's own requests through these providers by the matching evaluation's recorder (stage 1.12, [`../eval/`](../eval/README.md)) on 2026-10-25 UTC: the answers, reduced to what the labelled set keeps, are the groups in `packages/core/src/matching/eval/fixtures/groups/` |
 | **youtubei.js** | youtubei.js 18.1.0 (MIT, by LuanRT), as installed in `node_modules/youtubei.js/dist/src/`, file named; read on 2026-10-25 and 2026-10-26 |
 | **Docs** | Public documentation, linked |
 
@@ -52,6 +53,7 @@ The YouTube Music and YouTube providers in this folder talk to InnerTube, an API
 | An unfiltered search answers the top result as a `musicCardShelfRenderer` (its title run links the item: a `watchEndpoint`, or a `browseEndpoint` with a page type; `subtitle` is a byline; `onTap`), followed by one `itemSectionRenderer` per row | Rec-26 (`search-top.json`, and a search for an ISRC) | 2026-10-26 |
 | A `WEB` search answer: `twoColumnSearchResultsRenderer`, `itemSectionRenderer`s of `videoRenderer`, `channelRenderer` and `lockupViewModel` (`contentType: LOCKUP_CONTENT_TYPE_PLAYLIST`); continuations as `appendContinuationItemsAction` | Rec-25 (`web-search-*.json`); youtubei.js `parser/parser.js` (`appendContinuationItemsAction`) | 2026-10-25 |
 | Suggestions: `music/get_search_suggestions` with `{ input }` answers `searchSuggestionsSectionRenderer`s of `searchSuggestionRenderer`s, each with `navigationEndpoint.searchEndpoint.query` | youtubei.js `core/clients/Music.js`; Rec-25 (`suggest.json`) | 2026-10-25 |
+| A Songs-filtered search with an ISRC as the query lists the recording first when YouTube Music has the ISRC, and unrelated filler when it does not; the unfiltered search's top-result card can be the recording too | Eval-25 (the recording first for 6 of 8 ISRCs, filler for the other 2; the card for Vaundy's "しわあわせ"); Memo §6.3 | 2026-10-25 |
 
 ## Classification
 
@@ -92,6 +94,7 @@ The YouTube Music and YouTube providers in this folder talk to InnerTube, an API
 | An unknown video's `next` and an unknown album's, playlist's or channel's `browse` answer HTTP 200 with an empty page (no `contents`) | Rec-25 (`next-not-found.json`, `album-not-found.json`); Rec-26 (`VLPL…` and `UC…` IDs that do not exist) | 2026-10-26 |
 | Plain YouTube's watch page (`next` with `WEB`) holds the description at `twoColumnWatchNextResults.results.results.contents[].videoSecondaryInfoRenderer.attributedDescription.content`, e.g. a song's "Provided to YouTube by …", ℗ line and "Released on:" | Rec-26 (`next-web-creep.json`); youtubei.js `parser/classes/VideoSecondaryInfo.js` | 2026-10-26 |
 | An anonymous `WEB_REMIX` `player` call answered `UNPLAYABLE` ("The page needs to be reloaded") with `videoDetails` but no description, which is why descriptions come from the watch page | Rec-26 | 2026-10-26 |
+| The lines YouTube generates for a label upload's description, in order: "Provided to YouTube by <distributor>", "<title> · <artists>", the album, "℗ <year> <label>" (the year may be missing), "Released on: <date>", then credits | Eval-25 (the descriptions of `fsM-eXNNSSo`, `Xay0HJ4LsNc` and `ChdQ3xmTh8s`); Rec-26 (`next-web-creep.json`) | 2026-10-25 |
 
 ## Errors and bot checks
 
