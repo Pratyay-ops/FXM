@@ -3,15 +3,21 @@
  * and FXM Connect reach YouTube differently).
  *
  * A rung that failed for a reason of its own (a bot check, capped URLs, no usable formats, a
- * response about another video, an answer FXM can't read, or a URL that failed to play) cools
- * down: for 5 minutes after one failure, doubling with each failure in a row up to an hour. The
- * ladder tries cooling rungs only after the others, so while VISIONOS is flagged, songs start on
- * the rung that worked last instead of spending a call on VISIONOS each time, and VISIONOS is
- * tried again when its cool-down ends. A video's own state (age-restricted, made for kids, live,
- * removed) says nothing about a rung and doesn't count.
+ * response about another video, an answer FXM can't read, or a URL that failed its first
+ * request in the player) cools down: for 5 minutes after one failure, doubling with each failure
+ * in a row up to an hour. The ladder tries cooling rungs only after the others, so while VISIONOS
+ * is flagged, songs start on the rung that worked last instead of spending a call on VISIONOS
+ * each time, and VISIONOS is tried again when its cool-down ends. A video's own state
+ * (age-restricted, made for kids, live, removed) says nothing about a rung and doesn't count.
+ *
+ * A rung counts as working only when one of its URLs is known to play: a URL that passed the
+ * end-of-file probe, or, where nothing can be probed (Lite), one the player reports playing.
+ * Resolving URLs nobody checked resets nothing, so a rung whose URLs keep failing in the player
+ * backs off towards an hour.
  *
  * The state can be persisted through a {@link RungHealthStore}, so the memory survives a
- * restart.
+ * restart. What is read back is checked entry by entry: a malformed entry is dropped, and so is
+ * a time ahead of the clock, which would otherwise cool a rung down for that long.
  *
  * @module
  */
@@ -28,7 +34,7 @@ export type RungFailure =
   | 'mismatch'
   /** YouTube's answer could not be read, or refused the request's shape. */
   | 'error'
-  /** A URL of the rung failed to play, which in the Lite tier is the probe. */
+  /** A URL of the rung failed in the player in a way that says the rung is at fault. */
   | 'playback'
 
 const FAILURES: readonly RungFailure[] = [
@@ -44,7 +50,7 @@ const FAILURES: readonly RungFailure[] = [
 export interface RungHealth {
   /** The rung's ID. */
   readonly rung: string
-  /** How often it yielded a playable URL. */
+  /** How often one of its URLs was known to play: it passed the probe, or the player said so. */
   readonly successes: number
   /** How often it failed for a reason of its own. */
   readonly failures: number
@@ -64,7 +70,7 @@ export interface RungHealth {
 export interface LadderHealth {
   /** The platform and tier, e.g. `web/full`, `web/simple`, `desktop/full`. */
   readonly scope: string
-  /** The rung that last yielded a playable URL here. */
+  /** The rung that last worked here (see {@link RungHealth.successes}). */
   readonly lastWorking?: string
   /** When it did, in epoch milliseconds. */
   readonly lastWorkingAt?: number
@@ -84,6 +90,11 @@ export interface RungHealthStore {
 export interface RungHealthOptions {
   /** Where to persist the state; in memory only by default. */
   store?: RungHealthStore
+  /**
+   * The IDs of the rungs the config lists now. The book forgets every other rung when it loads
+   * and saves, so rungs a config dropped or renamed don't pile up. Every rung is kept without it.
+   */
+  rungs?: () => readonly string[]
   /** The clock, for tests. */
   now?: () => number
   /** How long one failure cools a rung down; 5 minutes by default. */
@@ -92,7 +103,7 @@ export interface RungHealthOptions {
   maxCooldownMs?: number
 }
 
-/** One rung's counters, as stored. */
+/** One rung's counters, in their stored form. */
 interface Entry {
   s: number
   f: number
@@ -102,17 +113,11 @@ interface Entry {
   k?: RungFailure
 }
 
-/** One scope's state, as stored. */
-interface Scope {
+/** One scope's state. */
+interface ScopeState {
   w?: string
   wa?: number
-  r: Record<string, Entry>
-}
-
-/** The stored form. */
-interface Stored {
-  v: 1
-  scopes: Record<string, Scope>
+  readonly r: Map<string, Entry>
 }
 
 const MAX_SCOPES = 16
@@ -128,7 +133,8 @@ function isTime(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
-function readEntry(value: unknown): Entry | undefined {
+/** A stored entry, or `undefined` when it is malformed. Times ahead of `now` are dropped. */
+function readEntry(value: unknown, now: number): Entry | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const { s, f, c, ls, lf, k } = value as Partial<Record<keyof Entry, unknown>>
   if (!isCount(s) || !isCount(f) || !isCount(c)) return undefined
@@ -139,53 +145,73 @@ function readEntry(value: unknown): Entry | undefined {
     s,
     f,
     c,
-    ...(ls === undefined ? {} : { ls }),
-    ...(lf === undefined ? {} : { lf }),
+    ...(ls === undefined || ls > now ? {} : { ls }),
+    ...(lf === undefined || lf > now ? {} : { lf }),
     ...(k === undefined ? {} : { k: k as RungFailure }),
   }
 }
 
-/** The stored state, or an empty one when it is missing or malformed (fail closed). */
-function readStored(value: unknown): Stored {
-  const empty: Stored = { v: 1, scopes: {} }
-  if (typeof value !== 'object' || value === null) return empty
-  const { v, scopes } = value as { v?: unknown; scopes?: unknown }
-  if (v !== 1 || typeof scopes !== 'object' || scopes === null) return empty
-  const entries = Object.entries(scopes)
-  if (entries.length > MAX_SCOPES) return empty
-  const result: Stored = { v: 1, scopes: {} }
-  for (const [name, scope] of entries) {
-    if (!SCOPE_NAME.test(name) || typeof scope !== 'object' || scope === null) return empty
+/**
+ * The stored state, entry by entry: a malformed scope or rung entry is dropped, as is a time
+ * ahead of `now`, and a state it can't read at all is an empty one.
+ */
+function readStored(value: unknown, now: number): Map<string, ScopeState> {
+  const scopes = new Map<string, ScopeState>()
+  if (typeof value !== 'object' || value === null) return scopes
+  const { v, scopes: stored } = value as { v?: unknown; scopes?: unknown }
+  if (v !== 1 || typeof stored !== 'object' || stored === null) return scopes
+  for (const [name, scope] of Object.entries(stored)) {
+    if (scopes.size >= MAX_SCOPES) break
+    if (!SCOPE_NAME.test(name) || typeof scope !== 'object' || scope === null) continue
     const { w, wa, r } = scope as { w?: unknown; wa?: unknown; r?: unknown }
-    if (w !== undefined && (typeof w !== 'string' || !RUNG_NAME.test(w))) return empty
-    if (wa !== undefined && !isTime(wa)) return empty
-    if (typeof r !== 'object' || r === null || Object.keys(r).length > MAX_RUNGS) return empty
-    const rungs: Record<string, Entry> = {}
+    if (typeof r !== 'object' || r === null) continue
+    const rungs = new Map<string, Entry>()
     for (const [rung, entry] of Object.entries(r)) {
-      const parsed = RUNG_NAME.test(rung) ? readEntry(entry) : undefined
-      if (parsed === undefined) return empty
-      rungs[rung] = parsed
+      if (rungs.size >= MAX_RUNGS) break
+      const parsed = RUNG_NAME.test(rung) ? readEntry(entry, now) : undefined
+      if (parsed !== undefined) rungs.set(rung, parsed)
     }
-    result.scopes[name] = {
-      ...(w === undefined ? {} : { w }),
-      ...(wa === undefined ? {} : { wa }),
-      r: rungs,
+    const state: ScopeState = { r: rungs }
+    if (typeof w === 'string' && RUNG_NAME.test(w)) {
+      state.w = w
+      if (isTime(wa) && wa <= now) state.wa = wa
     }
+    scopes.set(name, state)
   }
-  return result
+  return scopes
+}
+
+/** A stored entry, followed by what was recorded (from nothing) after it. */
+function merged(stored: Entry, recorded: Entry): Entry {
+  const ls = recorded.ls ?? stored.ls
+  const lf = recorded.lf ?? stored.lf
+  const k = recorded.k ?? stored.k
+  return {
+    s: stored.s + recorded.s,
+    f: stored.f + recorded.f,
+    // A success since then restarted the run of failures; otherwise it goes on.
+    c: recorded.ls === undefined ? stored.c + recorded.c : recorded.c,
+    ...(ls === undefined ? {} : { ls }),
+    ...(lf === undefined ? {} : { lf }),
+    ...(k === undefined ? {} : { k }),
+  }
 }
 
 /** The health of every rung on every platform this device has used. */
 export class RungHealthBook {
-  #state: Stored = { v: 1, scopes: {} }
+  #scopes = new Map<string, ScopeState>()
   #loaded: Promise<void> | undefined
+  #saving: Promise<void> = Promise.resolve()
+  #dirty = false
   readonly #store: RungHealthStore | undefined
+  readonly #rungs: (() => readonly string[]) | undefined
   readonly #now: () => number
   readonly #cooldownMs: number
   readonly #maxCooldownMs: number
 
   constructor(options: RungHealthOptions = {}) {
     this.#store = options.store
+    this.#rungs = options.rungs
     this.#now = options.now ?? Date.now
     this.#cooldownMs = options.cooldownMs ?? 5 * 60_000
     this.#maxCooldownMs = Math.max(this.#cooldownMs, options.maxCooldownMs ?? 60 * 60_000)
@@ -195,14 +221,26 @@ export class RungHealthBook {
   ready(): Promise<void> {
     this.#loaded ??= (async () => {
       try {
-        const stored = readStored(await this.#store?.load())
-        // A rung recorded before the load finished keeps what was recorded.
-        for (const [name, scope] of Object.entries(this.#state.scopes)) {
-          const before = stored.scopes[name]
-          stored.scopes[name] =
-            before === undefined ? scope : { ...before, ...scope, r: { ...before.r, ...scope.r } }
+        const stored = readStored(await this.#store?.load(), this.#now())
+        // What was recorded before the load finished happened after what was stored.
+        for (const [name, scope] of this.#scopes) {
+          const before = stored.get(name)
+          if (before === undefined) {
+            stored.set(name, scope)
+            continue
+          }
+          for (const [rung, entry] of scope.r) {
+            const old = before.r.get(rung)
+            before.r.set(rung, old === undefined ? entry : merged(old, entry))
+          }
+          if (scope.w !== undefined) {
+            before.w = scope.w
+            if (scope.wa === undefined) delete before.wa
+            else before.wa = scope.wa
+          }
         }
-        this.#state = stored
+        this.#scopes = stored
+        this.#prune()
       } catch {
         // Keep the in-memory state.
       }
@@ -210,21 +248,31 @@ export class RungHealthBook {
     return this.#loaded
   }
 
-  /** When `rung`'s cool-down on `scope` ends, if it is cooling down now. */
-  coolingUntil(scope: string, rung: string): number | undefined {
-    const entry = this.#state.scopes[scope]?.r[rung]
-    if (entry === undefined || entry.c === 0 || entry.lf === undefined) return undefined
-    const length = Math.min(this.#cooldownMs * 2 ** (entry.c - 1), this.#maxCooldownMs)
-    const until = entry.lf + length
-    return until > this.#now() ? until : undefined
+  /** Resolves once every save started so far has finished: for tests, and before quitting. */
+  settled(): Promise<void> {
+    return this.#saving
   }
 
-  /** Records that `rung` yielded a playable URL on `scope`. */
-  succeed(scope: string, rung: string): void {
+  /** When `rung`'s cool-down on `scope` ends, if it is cooling down now. */
+  coolingUntil(scope: string, rung: string): number | undefined {
+    const entry = this.#scopes.get(scope)?.r.get(rung)
+    if (entry === undefined || entry.c === 0 || entry.lf === undefined) return undefined
     const now = this.#now()
-    const state = this.#scope(scope)
-    const entry = this.#entry(state, rung)
-    state.r[rung] = { ...entry, s: entry.s + 1, c: 0, ls: now }
+    // A failure ahead of the clock was recorded while the clock was wrong: ignore it rather
+    // than cool the rung down until then.
+    if (entry.lf > now) return undefined
+    const length = Math.min(this.#cooldownMs * 2 ** (entry.c - 1), this.#maxCooldownMs)
+    const until = entry.lf + length
+    return until > now ? until : undefined
+  }
+
+  /** Records that a URL of `rung` is known to play on `scope`. */
+  succeed(scope: string, rung: string): void {
+    const state = this.#scope(scope, rung)
+    if (state === undefined) return
+    const now = this.#now()
+    const entry = state.r.get(rung) ?? { s: 0, f: 0, c: 0 }
+    state.r.set(rung, { ...entry, s: entry.s + 1, c: 0, ls: now })
     state.w = rung
     state.wa = now
     this.#save()
@@ -232,21 +280,22 @@ export class RungHealthBook {
 
   /** Records that `rung` failed on `scope` for a reason of its own. */
   fail(scope: string, rung: string, why: RungFailure): void {
-    const state = this.#scope(scope)
-    const entry = this.#entry(state, rung)
-    state.r[rung] = { ...entry, f: entry.f + 1, c: entry.c + 1, lf: this.#now(), k: why }
+    const state = this.#scope(scope, rung)
+    if (state === undefined) return
+    const entry = state.r.get(rung) ?? { s: 0, f: 0, c: 0 }
+    state.r.set(rung, { ...entry, f: entry.f + 1, c: entry.c + 1, lf: this.#now(), k: why })
     this.#save()
   }
 
   /** The health of `rungs` on `scope`, in that order. */
   snapshot(scope: string, rungs: readonly string[]): LadderHealth {
-    const state = this.#state.scopes[scope]
+    const state = this.#scopes.get(scope)
     return {
       scope,
       ...(state?.w === undefined ? {} : { lastWorking: state.w }),
       ...(state?.wa === undefined ? {} : { lastWorkingAt: state.wa }),
       rungs: rungs.map((rung) => {
-        const entry = state?.r[rung] ?? { s: 0, f: 0, c: 0 }
+        const entry = state?.r.get(rung) ?? { s: 0, f: 0, c: 0 }
         const coolingUntil = this.coolingUntil(scope, rung)
         return {
           rung,
@@ -262,29 +311,61 @@ export class RungHealthBook {
     }
   }
 
-  #scope(name: string): Scope {
-    let scope = this.#state.scopes[name]
+  /** The state of `name`, created when needed; `undefined` for a malformed name. */
+  #scope(name: string, rung: string): ScopeState | undefined {
+    if (!SCOPE_NAME.test(name) || !RUNG_NAME.test(rung)) return undefined
+    let scope = this.#scopes.get(name)
     if (scope === undefined) {
-      scope = { r: {} }
-      this.#state.scopes[name] = scope
+      scope = { r: new Map() }
+      this.#scopes.set(name, scope)
     }
     return scope
   }
 
-  #entry(scope: Scope, rung: string): Entry {
-    return scope.r[rung] ?? { s: 0, f: 0, c: 0 }
+  /** Forgets rungs the config no longer lists. */
+  #prune(): void {
+    if (this.#rungs === undefined) return
+    const listed = new Set(this.#rungs())
+    for (const scope of this.#scopes.values()) {
+      for (const rung of scope.r.keys()) if (!listed.has(rung)) scope.r.delete(rung)
+      if (scope.w !== undefined && !listed.has(scope.w)) {
+        delete scope.w
+        delete scope.wa
+      }
+    }
   }
 
+  /** The state in its stored form, a small JSON value. */
+  #stored(): unknown {
+    const scopes: Record<string, unknown> = {}
+    for (const [name, scope] of this.#scopes) {
+      scopes[name] = {
+        ...(scope.w === undefined ? {} : { w: scope.w }),
+        ...(scope.wa === undefined ? {} : { wa: scope.wa }),
+        r: Object.fromEntries(scope.r),
+      }
+    }
+    return { v: 1, scopes }
+  }
+
+  /**
+   * Saves the state once the stored one has loaded, so that a record made before then never
+   * overwrites what was saved; saves run one at a time, each with the state as it is then.
+   */
   #save(): void {
     const store = this.#store
     if (store === undefined) return
-    const copy = structuredClone(this.#state)
-    void (async () => {
+    this.#dirty = true
+    this.#saving = this.#saving.then(async () => {
+      if (!this.#dirty) return
+      this.#dirty = false
+      await this.ready()
+      this.#prune()
       try {
-        await store.save(copy)
+        await store.save(structuredClone(this.#stored()))
       } catch {
         // The state stays in memory.
       }
-    })()
+    })
   }
 }

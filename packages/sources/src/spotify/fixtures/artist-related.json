@@ -1,0 +1,118 @@
+{
+  "data": {
+    "artistUnion": {
+      "__typename": "Artist",
+      "id": "4Z8W4fKeB5YxbusRsdQVPb",
+      "profile": {
+        "name": "Radiohead"
+      },
+      "relatedContent": {
+        "relatedArtists": {
+          "items": [
+            {
+              "id": "3yY2gUcIsjMr8hjo51PoJ8",
+              "profile": {
+                "name": "The Smiths"
+              },
+              "uri": "spotify:artist:3yY2gUcIsjMr8hjo51PoJ8",
+              "visuals": {
+                "avatarImage": {
+                  "sources": [
+                    {
+                      "height": 970,
+                      "url": "https://i.scdn.co/image/4bf08a9e6eea088b20d4092d1322bbd3f39ff9af",
+                      "width": 640
+                    },
+                    {
+                      "height": 97,
+                      "url": "https://i.scdn.co/image/d3a2542f2811b5b01ee3483ec7c193f72a882ea1",
+                      "width": 64
+                    },
+                    {
+                      "height": 303,
+                      "url": "https://i.scdn.co/image/bd4c7f5ff2c5c4385604e60c71eac1dd498ddbd9",
+                      "width": 200
+                    },
+                    {
+                      "height": 1516,
+                      "url": "https://i.scdn.co/image/481b980af463122013e4578c08fb8c5cbfaed1e9",
+                      "width": 1000
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "id": "6olE6TJLqED3rqDCT0FyPh",
+              "profile": {
+                "name": "Nirvana"
+              },
+              "uri": "spotify:artist:6olE6TJLqED3rqDCT0FyPh",
+              "visuals": {
+                "avatarImage": {
+                  "sources": [
+                    {
+                      "height": 677,
+                      "url": "https://i.scdn.co/image/a4e10b79a642e9891383448cbf37d7266a6883d6",
+                      "width": 640
+                    },
+                    {
+                      "height": 68,
+                      "url": "https://i.scdn.co/image/e797ad36d56c3fc8fa06c6fe91263a15bf8391b8",
+                      "width": 64
+                    },
+                    {
+                      "height": 211,
+                      "url": "https://i.scdn.co/image/42ae0f180f16e2f21c1f2212717fc436f5b95451",
+                      "width": 200
+                    },
+                    {
+                      "height": 1057,
+                      "url": "https://i.scdn.co/image/84282c28d851a700132356381fcfbadc67ff498b",
+                      "width": 1000
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "id": "3nnQpaTvKb5jCQabZefACI",
+              "profile": {
+                "name": "Jeff Buckley"
+              },
+              "uri": "spotify:artist:3nnQpaTvKb5jCQabZefACI",
+              "visuals": {
+                "avatarImage": {
+                  "sources": [
+                    {
+                      "height": 973,
+                      "url": "https://i.scdn.co/image/248e8ddbf1be229fd0c31722fb0a01b31b01f474",
+                      "width": 640
+                    },
+                    {
+                      "height": 97,
+                      "url": "https://i.scdn.co/image/2a93d455e8981b0e1f6f1918b934c454c1243b20",
+                      "width": 64
+                    },
+                    {
+                      "height": 304,
+                      "url": "https://i.scdn.co/image/8822f816dea6ea25c70e942763c9812c6271e516",
+                      "width": 200
+                    },
+                    {
+                      "height": 1520,
+                      "url": "https://i.scdn.co/image/67779606c7f151618a28f62b1d24fb514d39dacf",
+                      "width": 1000
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "totalCount": 40
+        }
+      },
+      "uri": "spotify:artist:4Z8W4fKeB5YxbusRsdQVPb"
+    }
+  }
+}

@@ -137,3 +137,22 @@ export async function probeEndOfFile(
     return { ...failure(error, ctx), ...(length === undefined ? {} : { contentLength: length }) }
   }
 }
+
+/**
+ * The HTTP status `url` answers now to a one-byte ranged GET (`bytes=0-0`), e.g. 403 once the
+ * device's IP address changed, or `undefined` when the request failed (a network failure, which
+ * includes a CORS failure after a googlevideo redirect, or a timeout). It never throws, except
+ * to pass on the caller's cancellation (`ctx.signal`).
+ */
+export async function statusOf(
+  ctx: ProviderContext,
+  url: string,
+  timeoutMs: number,
+): Promise<number | undefined> {
+  try {
+    return await ranged(ctx, url, 0, 0, timeoutMs, async (response) => response.status)
+  } catch {
+    if (ctx.signal?.aborted === true) throw ctx.signal.reason
+    return undefined
+  }
+}

@@ -1,9 +1,15 @@
-import { isFxmError } from '@fxm/core'
+import { FxmError, isFxmError } from '@fxm/core'
 import { Window } from 'happy-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ConnectWindow } from './connect'
+import type { SelfTestResult } from './lite'
 import type { NativeHttp } from './native'
-import { createPlatform, detectEnvironment, ENVIRONMENT_PLATFORMS } from './platform'
+import {
+  createPlatform,
+  detectEnvironment,
+  ENVIRONMENT_PLATFORMS,
+  type PlatformWindow,
+} from './platform'
+import type { SessionTokenSource } from './spotify-session'
 import { memoryStorage } from './storage'
 import { installFakeConnect } from './testing/fake-connect'
 import { createFakeSandbox } from './testing/fake-sandbox'
@@ -16,11 +22,18 @@ afterEach(async () => {
   await Promise.all(pages.splice(0).map((page) => page.happyDOM.close()))
 })
 
+/** Messages travel on happy-dom's real timers, which a busy machine can slow down a lot. */
+const PATIENCE = { timeout: 10_000 }
+
 function page() {
-  const window = new Window({ url: 'https://fxm-music.pages.dev/app/' })
+  const window = new Window({ url: 'https://fxmusic.pages.dev/app/' })
   pages.push(window)
-  return window as unknown as ConnectWindow
+  return window as unknown as PlatformWindow
 }
+
+const session = (): SessionTokenSource => ({
+  requestToken: async () => ({ status: 200, json: { accessToken: 'token' } }),
+})
 
 describe('detectEnvironment', () => {
   it.each([
@@ -87,13 +100,9 @@ describe('createPlatform', () => {
       signal: controller.signal,
     })
     expect(context.fetch).toBe(platform.transport.withPriority('current-track'))
-    expect(platform.context({ mode: 'all' }).fetch).toBe(platform.transport.fetch)
-    expect(Object.keys(platform.context({ mode: 'all' })).sort()).toEqual([
-      'capabilities',
-      'fetch',
-      'mode',
-      'platform',
-    ])
+    const plain = platform.context({ mode: 'all', priority: 'interactive' })
+    expect(plain.fetch).toBe(platform.transport.fetch)
+    expect(Object.keys(plain).sort()).toEqual(['capabilities', 'fetch', 'mode', 'platform'])
     await context.fetch(SEARCH, { method: 'POST', body: BODY })
     expect(platform.budget.snapshot().used).toBe(1)
     platform.dispose()
@@ -101,15 +110,17 @@ describe('createPlatform', () => {
 
   it('in Node: honours the Spotify login source and the user agent', async () => {
     const fetch = vi.fn(async () => Response.json({}))
+    const spotifySession = session()
     const platform = await createPlatform({
       environment: 'node',
       fetch: fetch as typeof globalThis.fetch,
-      nativeSpotifyLogin: true,
+      spotifySession,
       userAgent: 'Mozilla/5.0',
       userHosts: () => ['secrets.example.org'],
       storage: memoryStorage(),
     })
     expect(platform.capabilities.current.spotify).toBe('account')
+    expect(platform.spotifySession).toBe(spotifySession)
     await platform.transport.fetch('https://secrets.example.org/s.json')
     await platform.transport.fetch('https://open.spotify.com/api/server-time')
     const calls = fetch.mock.calls as unknown as [string, RequestInit][]
@@ -147,7 +158,8 @@ describe('createPlatform', () => {
       userHosts: () => [],
     })
     expect(platform.connect?.status?.state).toBe('absent')
-    expect(platform.capabilities.current.youtube).toBe('simple')
+    // The self-test runs in the background; the capabilities follow when it passes.
+    await vi.waitFor(() => expect(platform.capabilities.current.youtube).toBe('simple'), PATIENCE)
     await platform.transport.fetch(SEARCH, { method: 'POST', body: BODY })
     expect(sandbox.requests).toHaveLength(1)
     // The self-test and the search both drew from the budget.
@@ -157,11 +169,78 @@ describe('createPlatform', () => {
     platform.dispose()
   })
 
+  it('in a browser, resolves without waiting for a Lite self-test that never ends', async () => {
+    const pending: { signal: AbortSignal | undefined }[] = []
+    const sandbox = createFakeSandbox({
+      selfTest: (options) =>
+        new Promise<SelfTestResult>(() => {
+          pending.push({ signal: options?.signal })
+        }),
+    })
+    const platform = await createPlatform({
+      environment: 'browser',
+      window: page(),
+      storage: memoryStorage(),
+      sandbox,
+    })
+    expect(platform.capabilities.current.youtube).toBe('none')
+    expect(platform.lite?.state).toBe('checking')
+    await vi.waitFor(() => expect(pending).toHaveLength(1), PATIENCE)
+    platform.dispose()
+    expect(pending[0]?.signal?.aborted).toBe(true)
+    expect(platform.lite?.ready).toBe(false)
+  })
+
   it('in a browser without sandbox documents: the Free tier', async () => {
     const platform = await createPlatform({ environment: 'browser', window: page() })
     expect(platform.lite).toBeUndefined()
     expect(platform.capabilities.current.youtube).toBe('none')
     platform.dispose()
+  })
+
+  it('in a browser: the Spotify login goes through FXM Connect’s bridge', async () => {
+    const window = page()
+    const extension = installFakeConnect(window, {
+      features: ['spotify', 'spotify-login'],
+      bridge: (request) => ({ status: 200, json: { echoed: request.params } }),
+    })
+    const platform = await createPlatform({
+      environment: 'browser',
+      window,
+      storage: memoryStorage(),
+    })
+    expect(platform.capabilities.current.spotify).toBe('account')
+    const controller = new AbortController()
+    await expect(
+      platform.spotifySession?.requestToken(
+        { reason: 'transport', productType: 'web-player' },
+        { signal: controller.signal },
+      ),
+    ).resolves.toEqual({
+      status: 200,
+      json: { echoed: { reason: 'transport', productType: 'web-player' } },
+    })
+    await platform.spotifySession?.requestToken({ reason: 'init' })
+    expect(extension.bridgeRequests.map((request) => request.type)).toEqual([
+      'fxm-connect:spotify-token',
+      'fxm-connect:spotify-token',
+    ])
+    platform.dispose()
+  })
+
+  it('passes the bot checks providers notice on to the budget, and nothing else', async () => {
+    const platform = await createPlatform({
+      environment: 'node',
+      fetch: vi.fn(async () => Response.json({})) as typeof globalThis.fetch,
+    })
+    expect(platform.report(new FxmError('RateLimited', 'Spotify said slow down'))).toBe(false)
+    expect(platform.report(new Error('boom'))).toBe(false)
+    expect(platform.budget.snapshot().bulkPausedUntil).toBeUndefined()
+    expect(platform.report(new FxmError('BotCheck', 'unusual traffic'))).toBe(true)
+    expect(platform.budget.snapshot()).toMatchObject({
+      pauseLevel: 1,
+      lastBotCheck: { cause: 'login-required' },
+    })
   })
 
   it('in a browser, needs a window', async () => {
@@ -208,10 +287,11 @@ describe('createPlatform', () => {
       const platform = await createPlatform({
         environment,
         nativeHttp: http,
-        nativeSpotifyLogin: true,
+        spotifySession: session(),
         userAgent: 'Mozilla/5.0',
         userHosts: () => [],
         storage: memoryStorage(),
+        reportLoginRequired: false,
       })
       expect(platform.capabilities.current).toEqual({
         youtube: 'full',
@@ -221,7 +301,8 @@ describe('createPlatform', () => {
       })
       await platform.transport.fetch(SEARCH, { method: 'POST', body: BODY })
       expect(http).toHaveBeenCalledOnce()
-      expect(http.mock.calls[0]?.[1].headers.origin).toBe('')
+      expect(http.mock.calls[0]?.[1].origin).toBeNull()
+      expect(platform.spotifySession).toBeDefined()
     },
   )
 })

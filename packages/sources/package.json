@@ -7,6 +7,8 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./youtube/module/build": "./src/youtube/module/build.mjs",
+    "./youtube/module/testing": "./src/youtube/module/testing.ts",
     "./*": "./src/*/index.ts"
   },
   "scripts": {
@@ -20,6 +22,7 @@
   "devDependencies": {
     "@fxm/platform": "workspace:*",
     "googlevideo": "^4.1.1",
-    "playwright-core": "^1.64.0"
+    "playwright-core": "^1.64.0",
+    "vite": "^8.3.4"
   }
 }

@@ -12,16 +12,26 @@
     "./testing/evaluator": "./src/testing/evaluator.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit -p .",
-    "build:evaluator": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/build-evaluator.ts"
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p src/sandbox/tsconfig.node.json",
+    "sandbox:build": "node --experimental-strip-types --disable-warning=ExperimentalWarning src/sandbox/tools/build.ts",
+    "build:evaluator": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/build-evaluator.ts",
+    "test:e2e": "../../scripts/run.sh playwright install --no-shell chromium firefox && ../../scripts/run.sh playwright test -c src/sandbox/e2e/playwright.config.ts",
+    "test:e2e:updates": "playwright test -c src/updates/e2e/playwright.config.mjs"
   },
   "dependencies": {
     "@fxm/core": "workspace:*",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0",
     "bgutils-js": "^4.0.3"
   },
   "devDependencies": {
+    "@fxm/sources": "workspace:*",
+    "@playwright/test": "^1.64.0",
+    "@types/node": "^22.20.5",
+    "fake-indexeddb": "^6.2.5",
     "happy-dom": "^20.14.6",
     "playwright-core": "^1.64.0",
-    "rolldown": "^1.2.13"
+    "rolldown": "^1.2.13",
+    "vite": "^8.3.4"
   }
 }

@@ -33,6 +33,11 @@ export interface YouTubeStreamOption extends StreamOption {
   readonly label: string
   /** The file's length in bytes, when YouTube said or the probe found out. */
   readonly contentLength?: number
+  /**
+   * The format's nominal (peak) bitrate in kbps, YouTube's `bitrate`, for an audio-only format.
+   * It sets the tier (see {@link streamOptionsOf}); `bitrateKbps` stays the average.
+   */
+  readonly peakBitrateKbps?: number
 }
 
 /** Whether `option` came from the YouTube ladder. */
@@ -148,12 +153,12 @@ function toOption(
   if (url === undefined || kind === undefined) return undefined
   // A muxed video's bitrate covers the picture too: its audio track's comes from the config.
   const muxed = kind.media === 'muxed-video'
+  const peak = muxed ? undefined : kbps(count(format.bitrate))
   const average = muxed
     ? context.config.muxedAudioKbps[String(itag)]
-    : kbps(count(format.averageBitrate) ?? count(format.bitrate))
-  // The tier follows the format's nominal (peak) bitrate, so Opus 251 is high like AAC 140
-  // even for a quiet track whose average dips below 120 kbps.
-  const nominal = muxed ? average : (kbps(count(format.bitrate)) ?? average)
+    : (kbps(count(format.averageBitrate)) ?? peak)
+  // The tier follows the format's nominal (peak) bitrate (see `streamOptionsOf`).
+  const nominal = peak ?? average
   const sampleRate = count(format.audioSampleRate)
   const contentLength = count(format.contentLength) ?? count(url.searchParams.get('clen'))
   const expiresAt = expiry(url, context.response, now)
@@ -180,6 +185,7 @@ function toOption(
     itag,
     label,
     ...(contentLength === undefined ? {} : { contentLength }),
+    ...(peak === undefined ? {} : { peakBitrateKbps: peak }),
   }
 }
 
@@ -187,6 +193,14 @@ function toOption(
  * The stream options a rung offers in a playable `/player` response: one per format in the
  * rung's `itags` that the response carries with a direct googlevideo URL, in the rung's order
  * of preference. Every option starts `unverified`; the end-of-file probe may change that.
+ *
+ * **Bitrate and tier.** `bitrateKbps` is the file's average (`averageBitrate`), and for a muxed
+ * video its audio track's bitrate from the config (`muxedAudioKbps`). The `tier` of an audio
+ * format is `tierOf` its nominal (peak) bitrate, YouTube's `bitrate`, kept as
+ * `peakBitrateKbps`: the format is encoded to that bitrate, and a quiet passage of variable-
+ * bitrate Opus averages less without sounding worse. So Opus 251 is `high`, as
+ * ARCHITECTURE.md §7.3 has it, even for a quiet song whose average dips below 120 kbps, where
+ * `tierOf(option)` of the average would say `normal`: read the tier from the option.
  */
 export function streamOptionsOf(
   response: JsonRecord,

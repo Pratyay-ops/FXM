@@ -1,7 +1,7 @@
 /**
- * YouTube's audio source: `resolve` walks the ladder of direct rungs (VISIONOS's Opus and AAC,
- * then the ANDROID client's itag 18) until one yields a playable URL, probing the end of each
- * file where the bytes can be read.
+ * YouTube's audio source: `resolve` walks the ladder of rungs (VISIONOS's Opus and AAC, then the
+ * ANDROID client's itag 18) until one yields a playable URL, probing the end of the files where
+ * the bytes can be read.
  *
  * @module
  */
@@ -21,36 +21,52 @@ import {
   type Track,
 } from '@fxm/core'
 import { VIDEO_ID } from '../ids'
+import type { JsonRecord } from '../json'
 import {
   assertYouTubeReachable,
   createYouTubeSession,
   type YouTubeSession,
   type YouTubeSessionOptions,
 } from '../session'
-import type { AdvancedPlayerCall, AdvancedRungs } from './advanced/hook'
 import { type StreamBudget, type StreamRequestPriority, UNMETERED_STREAM_BUDGET } from './budget'
 import { BUNDLED_STREAM_CONFIG, type StreamConfig, type StreamRungConfig } from './config'
-import { isYouTubeStreamOption, streamOptionsOf, type YouTubeStreamOption } from './formats'
+import { isYouTubeStreamOption, parseStreamUrl, type YouTubeStreamOption } from './formats'
 import { type LadderHealth, type RungFailure, RungHealthBook, type RungHealthStore } from './health'
+import { DIRECT_RUNGS, type RungTools, type StreamRungKind } from './kinds'
 import { classifyPlayability, type Playability, YouTubeUnplayableError } from './playability'
-import { callPlayer } from './player'
-import { probeEndOfFile } from './probe'
+import type { PlayerAnswer } from './player'
+import { probeEndOfFile, statusOf } from './probe'
 
-/** Options for {@link createYouTubeAudioSource}. */
-export interface YouTubeAudioSourceOptions extends YouTubeSessionOptions {
-  /**
-   * The device's YouTube session, shared with the metadata providers so that every call uses
-   * one visitorData. When absent, the source creates its own from the other options.
-   */
-  session?: YouTubeSession
+/**
+ * The session the audio source calls YouTube through: the device's session, shared with the
+ * metadata providers so that every call uses one visitorData, or the options to create one of
+ * its own (see `createYouTubeSession`). Never both.
+ */
+export type YouTubeAudioSessionOptions =
+  | {
+      /** The device's YouTube session. */
+      session: YouTubeSession
+      config?: never
+      visitorDataStore?: never
+      timeoutMs?: never
+    }
+  | (YouTubeSessionOptions & { session?: never })
+
+/** What {@link createYouTubeAudioSource} takes besides its session. */
+export interface YouTubeStreamSourceOptions {
   /**
    * The ladder's config: a value, or a function that returns the one in use, so that a newer
-   * config (see `pickStreamConfig`) takes effect without a new source. The bundled one by
-   * default.
+   * trusted config (bundled, or verified by `@fxm/platform`'s updater; see `pickYouTubeConfigs`)
+   * takes effect without a new source. The bundled one by default.
    */
   streamConfig?: StreamConfig | (() => StreamConfig)
   /**
-   * The request budget every `/player` call draws on, and that hears about bot checks. Leave it
+   * The rung kinds this source runs besides `direct`, e.g. stage 1.11's (see `kinds.ts`). Parse
+   * the config with the same kinds, or their rungs are left out of it.
+   */
+  rungKinds?: readonly StreamRungKind[]
+  /**
+   * The request budget every InnerTube call draws on, and that hears about bot checks. Leave it
    * out when `ctx.fetch` comes from `@fxm/platform`, whose transports do both themselves.
    */
   budget?: StreamBudget
@@ -60,29 +76,79 @@ export interface YouTubeAudioSourceOptions extends YouTubeSessionOptions {
   cooldownMs?: number
   /** The longest cool-down, in milliseconds; 1 hour by default. */
   maxCooldownMs?: number
-  /** How long one `/player` call may take, in milliseconds; 20 s by default. */
+  /**
+   * How long each `/player` call may take, in milliseconds, and so may the call that asks
+   * YouTube for a visitorData first in the Lite tier; 20 s by default. (A session's own
+   * `timeoutMs` governs its other requests, such as `sw.js_data`.)
+   */
   playerTimeoutMs?: number
-  /** How long one probe request may take, in milliseconds; 10 s by default. */
+  /** How long each googlevideo request of a probe or status check may take; 10 s by default. */
   probeTimeoutMs?: number
   /** The clock, for tests. */
   now?: () => number
-  /**
-   * The experimental rungs (stage 1.11, `createAdvancedRungs()` of `./advanced`). Without it,
-   * rungs whose kind is not `direct` are never tried.
-   */
-  advanced?: AdvancedRungs
 }
+
+/** Options for {@link createYouTubeAudioSource}: the session, and the stream options. */
+export type YouTubeAudioSourceOptions = YouTubeAudioSessionOptions & YouTubeStreamSourceOptions
+
+/**
+ * Which URLs `resolve` probes at the end of their file, where the bytes can be read:
+ *
+ * - `best` (the default): for each codec and media, its best URL as `compareStreams` ranks them
+ *   (Opus 251, AAC 140, itag 18), or the next one when that one is capped. The others stay
+ *   `unverified`. Caps belong to a client, not a format, so this answers the probe's question
+ *   with two requests on VISIONOS instead of five, and covers what playback and downloads pick
+ *   first on Wi-Fi in any browser
+ * - `all`: every URL, e.g. for a download in a lower format
+ * - `none`: no URL; probe one later with `probeEndOfFile`
+ */
+export type ProbeMode = 'best' | 'all' | 'none'
 
 /** Options for one {@link YouTubeAudioSource.resolve} call. */
 export interface YouTubeResolveOptions {
   /** What the calls are for, for the request budget: `current-track` by default. */
   priority?: StreamRequestPriority
   /**
-   * Rungs not to try this time, by ID, e.g. after a URL from one of them failed to play.
-   * `reportPlaybackFailure` makes later resolutions of that video skip the rung anyway.
+   * `all` (the default): the whole ladder, best rung first. `fallback`: only the last-resort rung
+   * (`fallback` in the config: itag 18), e.g. after the URLs of the top of the ladder failed
+   * their probe in the player. The playback policy's `rung: 'top'` and `rung: 'fallback'`.
    */
-  skipRungs?: readonly string[]
+  rungs?: 'all' | 'fallback'
+  /** Which URLs to probe where the bytes can be read: `best` by default (see {@link ProbeMode}). */
+  probe?: ProbeMode
 }
+
+/**
+ * Why a URL from the ladder failed to play, in the words of the playback policy's recovery plan
+ * (stage 2.3's `RecoveryReason`). Only three say the rung is at fault, and count against it:
+ *
+ * - `probe-failed`: an `unverified` URL failed its first request, which is the probe where
+ *   nothing could be probed before (Lite, or a Connect probe that failed CORS after a redirect)
+ * - `fallback-failed`: the same, for a URL of the last-resort rung
+ * - `forbidden-again`: a fresh URL of the rung answered 403 again
+ *
+ * The others say nothing about the rung: `expired`, `unauthorized`, `ip-changed`, `forbidden`
+ * (a first 403, which is resolved again on the same rung), `first-request` (a `verified` URL
+ * failed before it played, so it isn't capped), `mid-play` and `decode`.
+ */
+export type PlaybackFailureReason =
+  | 'probe-failed'
+  | 'fallback-failed'
+  | 'forbidden-again'
+  | 'forbidden'
+  | 'ip-changed'
+  | 'expired'
+  | 'unauthorized'
+  | 'first-request'
+  | 'mid-play'
+  | 'decode'
+
+/** The {@link PlaybackFailureReason}s that count against the rung. */
+const RUNG_AT_FAULT: ReadonlySet<string> = new Set([
+  'probe-failed',
+  'fallback-failed',
+  'forbidden-again',
+])
 
 /** YouTube as an audio source. Create it with {@link createYouTubeAudioSource}. */
 export interface YouTubeAudioSource extends AudioSource {
@@ -90,6 +156,12 @@ export interface YouTubeAudioSource extends AudioSource {
   readonly id: 'ytm'
   /** The session it calls YouTube through. */
   readonly session: YouTubeSession
+  /**
+   * Whether the config in use has a last-resort rung that is on and that this source runs,
+   * which `resolve`'s `rungs: 'fallback'` asks for: the playback policy's
+   * `StreamSource.hasFallback`.
+   */
+  readonly hasFallback: boolean
   /**
    * The candidate for a YouTube track: the track itself, or in Music mode, for an official
    * video that links its song, that song. Tracks of other sources, and videos without a linked
@@ -103,11 +175,14 @@ export interface YouTubeAudioSource extends AudioSource {
    * whether the end-of-file probe passed (`fullLength`) and whether it is audio or a muxed
    * video. When every URL found was capped, those capped options are all it returns.
    *
-   * @throws FxmError `Unsupported` without YouTube access, before any request; `NotFound` for
-   * a malformed videoId; a {@link YouTubeUnplayableError} for a video the rungs can't play
-   * (`Unavailable` with a labelled state such as `age-restricted`, `GeoBlocked`, `NotFound`);
-   * `BotCheck` when every rung tried met a bot check; `Parse` when no rung's answer could be
-   * used; and `RateLimited`, `Network` or the caller's cancellation as they come.
+   * @throws FxmError `Unsupported` before any request: without YouTube access, for a candidate
+   * of another source, when no rung that is on can run here, or with `rungs: 'fallback'` when
+   * there is no such last-resort rung. `NotFound` for a malformed videoId. A
+   * {@link YouTubeUnplayableError}, whose `cause` is the playback policy's playability
+   * verdict, for a video the rungs can't play: `NotFound` (YouTube's `ERROR`), `GeoBlocked`,
+   * or `Unavailable` (a labelled state such as `age-restricted`, a private video, or another
+   * reason). `BotCheck` when every rung tried met a bot check; `Parse` when no rung's answer
+   * could be used; and `RateLimited`, `Network` or the caller's cancellation as they come.
    */
   resolve(
     candidate: AudioCandidate,
@@ -116,21 +191,34 @@ export interface YouTubeAudioSource extends AudioSource {
     options?: YouTubeResolveOptions,
   ): Promise<YouTubeStreamOption[]>
   /**
-   * Tells the ladder that a URL it resolved failed to play: in the Lite tier, a media error or
-   * a stall before the first `playing` event, which is that tier's probe. The rung counts a
-   * failure, and the next resolutions of that video, for the next 30 minutes, skip it; once
-   * every rung was skipped that way, resolution starts again from the top.
+   * Tells the ladder that a URL it resolved started playing (the player's first `playing`
+   * event). Where nothing could be probed (Lite), this is what makes a rung count as working
+   * and the last working rung. A `verified` URL counted when it was resolved, so it is ignored
+   * here, and so is an option the ladder did not resolve.
    */
-  reportPlaybackFailure(option: StreamOption, ctx: ProviderContext): void
+  reportPlaybackSuccess(option: StreamOption, ctx: ProviderContext): void
+  /**
+   * Tells the ladder that a URL it resolved failed to play, and why. Only a reason that puts
+   * the rung at fault counts against it (see {@link PlaybackFailureReason}), which cools it
+   * down for later resolutions of every video. Which rung to resolve the failed item on next is
+   * the caller's choice (`rungs`): the ladder keeps no memory per video. Options the ladder did
+   * not resolve are ignored.
+   */
+  reportPlaybackFailure(
+    option: StreamOption,
+    ctx: ProviderContext,
+    reason: PlaybackFailureReason,
+  ): void
+  /**
+   * The HTTP status a URL from the ladder answers now to a one-byte ranged GET, where the bytes
+   * can be read (`ctx.capabilities.mediaBytes`): e.g. 403 when the device's IP address changed
+   * since it was resolved. `undefined` where the status can't be read, after a failed request,
+   * or for an option the ladder did not resolve. The playback policy's `checkStatus`.
+   */
+  checkStatus(option: StreamOption, ctx: ProviderContext): Promise<number | undefined>
   /** The rungs' health and the last working rung on the platform and tier of `ctx`. */
   health(ctx: ProviderContext): Promise<LadderHealth>
 }
-
-/** How long a failed playback makes later resolutions of that video skip the rung. */
-const PLAYBACK_MEMORY_MS = 30 * 60_000
-
-/** At most this many videos' playback failures are remembered. */
-const MAX_REMEMBERED_VIDEOS = 200
 
 /** The health scope of a context: the platform, and the tier of YouTube access. */
 function scopeOf(ctx: ProviderContext): string {
@@ -169,17 +257,21 @@ interface Attempt {
  * const options = await audio.resolve(candidate, ctx, prefs)
  * ```
  *
- * **The ladder.** The config's enabled rungs, in its order: VISIONOS (Opus 251, AAC 140 and the
- * smaller formats), then the ANDROID client's itag 18, a 360p video whose AAC track plays
- * (`media: 'muxed-video'`). Rungs that are cooling down after failing go last (see
- * `health.ts`). The first rung that yields a playable URL wins.
+ * **The ladder.** The config's rungs that are on and can run here, in its order: VISIONOS (Opus
+ * 251, AAC 140 and the smaller formats), then the ANDROID client's itag 18, a 360p video whose
+ * AAC track plays (`media: 'muxed-video'`), the last resort. Rungs that are cooling down after
+ * failing go last (see `health.ts`). The first rung that yields a playable URL wins.
  *
- * - **Probing.** Where the bytes can be read (`ctx.capabilities.mediaBytes`), every URL is
- *   probed at the end of its file, and a rung whose URLs are all capped counts as failed.
- *   Elsewhere (Lite) the URLs are returned `unverified`, and the player's first request is the
- *   probe: report a failure with `reportPlaybackFailure`, then resolve again.
+ * - **Probing.** Where the bytes can be read (`ctx.capabilities.mediaBytes`), the best URL of
+ *   each codec and media is probed at the end of its file (see {@link ProbeMode}), and a rung
+ *   whose URLs are all capped counts as failed. Elsewhere (Lite) the URLs are returned
+ *   `unverified`, and the player's first request is the probe: report its outcome with
+ *   `reportPlaybackSuccess` or `reportPlaybackFailure`, and resolve the failed item again,
+ *   e.g. with `rungs: 'fallback'`.
  * - **Bot checks.** A `LOGIN_REQUIRED` bot check is reported to the budget; the visitorData is
- *   refreshed once per resolution, and the ladder moves on.
+ *   refreshed once per resolution, and the ladder moves on. One answered to a call sent without
+ *   a visitorData is FXM's own doing, not a sign of a flagged IP address: the rung is tried
+ *   again once with the visitorData YouTube issued with it, and nothing is reported.
  * - **Unavailable states.** An age gate, a video made for kids, a live stream or a premiere
  *   stops the ladder, except for later rungs that opt in to that state (`tries`); the bundled
  *   config lets itag 18 try videos made for kids. Then it fails with a labelled
@@ -191,61 +283,61 @@ export function createYouTubeAudioSource(
 ): YouTubeAudioSource {
   const session = options.session ?? createYouTubeSession(options)
   const budget = options.budget ?? UNMETERED_STREAM_BUDGET
-  const { advanced } = options
   const now = options.now ?? Date.now
   const playerTimeoutMs = options.playerTimeoutMs ?? 20_000
   const probeTimeoutMs = options.probeTimeoutMs ?? 10_000
   const source = options.streamConfig ?? BUNDLED_STREAM_CONFIG
   const configOf = typeof source === 'function' ? source : () => source
+  const kinds = new Map<string, StreamRungKind>([[DIRECT_RUNGS.kind, DIRECT_RUNGS]])
+  for (const kind of options.rungKinds ?? []) kinds.set(kind.kind, kind)
   const book = new RungHealthBook({
     now,
+    rungs: () => configOf().rungs.map((rung) => rung.id),
     ...(options.healthStore === undefined ? {} : { store: options.healthStore }),
     ...(options.cooldownMs === undefined ? {} : { cooldownMs: options.cooldownMs }),
     ...(options.maxCooldownMs === undefined ? {} : { maxCooldownMs: options.maxCooldownMs }),
   })
-  /** Rungs whose URLs failed to play, per videoId, with when to forget it. */
-  const playbackFailures = new Map<string, Map<string, number>>()
 
-  function failedRungs(videoId: string): Set<string> {
-    const failures = playbackFailures.get(videoId)
-    const time = now()
-    for (const [rung, until] of failures ?? []) if (until <= time) failures?.delete(rung)
-    if (failures?.size === 0) playbackFailures.delete(videoId)
-    return new Set(failures?.keys())
+  /** Whether `rung` can run in `ctx`: its kind is one this source runs, and it may run here. */
+  function canRun(rung: StreamRungConfig, ctx: ProviderContext): boolean {
+    const kind = kinds.get(rung.kind)
+    const { platforms, fullAccess, mediaBytes } = rung.requires
+    return (
+      kind !== undefined &&
+      (platforms === undefined || platforms.includes(ctx.platform)) &&
+      (!fullAccess || ctx.capabilities.youtube === 'full') &&
+      (!mediaBytes || ctx.capabilities.mediaBytes) &&
+      (kind.canRun?.(rung, ctx) ?? true)
+    )
+  }
+
+  /** The rungs to try, in order: the healthy ones first, the cooling ones after. */
+  function ladderFor(
+    config: StreamConfig,
+    ctx: ProviderContext,
+    rungs: 'all' | 'fallback',
+  ): StreamRungConfig[] {
+    const usable = config.rungs.filter((rung) => rung.enabled && canRun(rung, ctx))
+    if (rungs === 'fallback') {
+      const fallback = usable.find((rung) => rung.fallback)
+      if (fallback === undefined) {
+        throw new FxmError('Unsupported', 'No last-resort YouTube stream rung is on that runs here')
+      }
+      return [fallback]
+    }
+    if (usable.length === 0) {
+      throw new FxmError('Unsupported', 'No YouTube stream rung is on that runs here')
+    }
+    const scope = scopeOf(ctx)
+    const cooling = (rung: StreamRungConfig) => book.coolingUntil(scope, rung.id) !== undefined
+    return [...usable.filter((rung) => !cooling(rung)), ...usable.filter(cooling)]
   }
 
   /**
-   * The rungs to try, in order: the healthy ones first, the cooling ones after. A rung whose kind
-   * is not `direct` is tried only when the advanced hook can run it here (`canRun`).
+   * The options, best first: by `compareStreams`, which within a tier ranks the higher average
+   * bitrate first. Only at exactly equal ranks (rare with real bitrates) do the tie-breakers
+   * apply: the codec `prefs.download.format` needs no conversion for, then the rung's own order.
    */
-  function ladderFor(
-    config: StreamConfig,
-    scope: string,
-    videoId: string,
-    skip: ReadonlySet<string>,
-    ctx: ProviderContext,
-  ): StreamRungConfig[] {
-    const enabled = config.rungs.filter(
-      (rung) => rung.enabled && (rung.kind === 'direct' || advanced?.canRun(rung, ctx) === true),
-    )
-    if (enabled.length === 0) {
-      throw new FxmError('Unsupported', 'Every YouTube stream rung is switched off in the config')
-    }
-    const failed = failedRungs(videoId)
-    let left = enabled.filter((rung) => !skip.has(rung.id) && !failed.has(rung.id))
-    if (left.length === 0 && failed.size > 0) {
-      // Every rung left failed to play this video: resolve it again from the top.
-      playbackFailures.delete(videoId)
-      left = enabled.filter((rung) => !skip.has(rung.id))
-    }
-    if (left.length === 0) {
-      throw new FxmError('Unavailable', `No YouTube stream rung is left to try for ${videoId}`)
-    }
-    const cooling = (rung: StreamRungConfig) => book.coolingUntil(scope, rung.id) !== undefined
-    return [...left.filter((rung) => !cooling(rung)), ...left.filter(cooling)]
-  }
-
-  /** The options, best first: `compareStreams`, then `prefs`, then the config's preference. */
   function ordered(
     found: readonly YouTubeStreamOption[],
     config: StreamConfig,
@@ -266,26 +358,46 @@ export function createYouTubeAudioSource(
     )
   }
 
+  /** `found`, with the end of its progressive URLs probed where the bytes are readable. */
   async function probed(
     ctx: ProviderContext,
     found: readonly YouTubeStreamOption[],
+    mode: ProbeMode,
   ): Promise<YouTubeStreamOption[]> {
-    if (!ctx.capabilities.mediaBytes) return [...found]
-    return Promise.all(
-      found.map(async (option) => {
-        // Only a file can be probed at its end; a SABR session has no file.
-        if (option.protocol !== 'progressive') return option
-        const result = await probeEndOfFile(ctx, option.url, {
-          timeoutMs: probeTimeoutMs,
-          ...(option.contentLength === undefined ? {} : { contentLength: option.contentLength }),
-        })
-        return {
-          ...option,
-          fullLength: result.fullLength,
-          ...(result.contentLength === undefined ? {} : { contentLength: result.contentLength }),
-        }
+    const result = [...found]
+    if (!ctx.capabilities.mediaBytes || mode === 'none') return result
+    const probe = async (index: number) => {
+      const option = result[index] as YouTubeStreamOption
+      const checked = await probeEndOfFile(ctx, option.url, {
+        timeoutMs: probeTimeoutMs,
+        ...(option.contentLength === undefined ? {} : { contentLength: option.contentLength }),
+      })
+      result[index] = {
+        ...option,
+        fullLength: checked.fullLength,
+        ...(checked.contentLength === undefined ? {} : { contentLength: checked.contentLength }),
+      }
+      return checked.fullLength
+    }
+    const best = [...found.keys()]
+      .filter((index) => found[index]?.protocol === 'progressive')
+      .sort((a, b) => compareStreams(found[a] as StreamOption, found[b] as StreamOption))
+    if (mode === 'all') {
+      await Promise.all(best.map(probe))
+      return result
+    }
+    // Per codec and media, best first, until one URL is not capped.
+    const groups = new Map<string, number[]>()
+    for (const index of best) {
+      const { codec, media } = found[index] as YouTubeStreamOption
+      groups.set(`${codec}/${media}`, [...(groups.get(`${codec}/${media}`) ?? []), index])
+    }
+    await Promise.all(
+      [...groups.values()].map(async (indices) => {
+        for (const index of indices) if ((await probe(index)) !== 'capped') break
       }),
     )
+    return result
   }
 
   /**
@@ -296,71 +408,66 @@ export function createYouTubeAudioSource(
     ctx: ProviderContext,
     rung: StreamRungConfig,
     videoId: string,
-    config: StreamConfig,
-    priority: StreamRequestPriority,
+    tools: RungTools,
     attempt: Attempt,
+    mode: ProbeMode,
   ): Promise<YouTubeStreamOption[] | undefined> {
+    const kind = kinds.get(rung.kind) as StreamRungKind
     const scope = scopeOf(ctx)
     const fail = (why: RungFailure, error: FxmError) => {
       book.fail(scope, rung.id, why)
       attempt.errors.push(error)
       return undefined
     }
-    const botCheck = (sentVisitorData: boolean, reason: string) => {
-      budget.reportBotCheck('login-required')
-      if (sentVisitorData && !attempt.refreshed) {
-        session.visitorData.invalidate()
-        attempt.refreshed = true
-      }
-      return fail(
-        'bot-check',
-        new FxmError(
-          'BotCheck',
-          `YouTube answered the ${rung.id} call with a bot check: ${reason}`,
-        ),
-      )
-    }
-
-    // An experimental rung's own steps (the player script, BotGuard, the evaluator) failing
-    // counts against the rung, like an unreadable answer; the ladder goes on.
-    const advancedFailure = (error: unknown) => {
-      if (ctx.signal?.aborted || isFxmError(error, 'RateLimited')) throw error
-      return fail(
-        'error',
-        isFxmError(error)
-          ? error
-          : new FxmError('Parse', `The ${rung.id} rung failed`, { cause: error }),
-      )
-    }
-    let call: AdvancedPlayerCall = {}
-    if (rung.kind !== 'direct') {
-      try {
-        call = (await advanced?.prepare(ctx, rung, videoId)) ?? {}
-      } catch (error) {
-        return advancedFailure(error)
-      }
-    }
-
-    let answer: Awaited<ReturnType<typeof callPlayer>>
-    try {
-      answer = await callPlayer(ctx, rung.client, videoId, {
-        session,
-        budget,
-        priority,
-        timeoutMs: playerTimeoutMs,
-        ...(call.payload === undefined ? {} : { payload: call.payload }),
-        ...(call.headers === undefined ? {} : { headers: call.headers }),
-      })
-    } catch (error) {
+    /** A `Parse` failure counts against the rung and lets the next one try; others stop. */
+    const failed = (error: unknown) => {
       if (isFxmError(error, 'Parse')) return fail('error', error)
       throw error
     }
-    if ('botCheck' in answer) return botCheck(answer.sentVisitorData, answer.botCheck)
 
-    const playability = classifyPlayability(answer.json, videoId)
+    let answer: PlayerAnswer
+    let playability: Playability
+    let retried = false
+    for (;;) {
+      try {
+        answer = await kind.call(ctx, rung, videoId, tools)
+      } catch (error) {
+        return failed(error)
+      }
+      playability =
+        'botCheck' in answer
+          ? { kind: 'bot-check', reason: answer.botCheck }
+          : classifyPlayability(answer.json, videoId)
+      if (playability.kind !== 'bot-check' || answer.sentVisitorData) break
+      // Sent without a visitorData: VISIONOS refuses every such call (CLEAN-ROOM.md), so the
+      // answer says nothing about the IP address or the rung. Try once more with the
+      // visitorData YouTube issued with it, if it issued one.
+      if (retried || session.visitorData.current === undefined) {
+        attempt.errors.push(
+          new FxmError(
+            'BotCheck',
+            `YouTube answered the ${rung.id} call for ${videoId}, sent without a visitorData, with a bot check: ${playability.reason}`,
+          ),
+        )
+        return undefined
+      }
+      retried = true
+    }
+
     switch (playability.kind) {
       case 'bot-check':
-        return botCheck(answer.sentVisitorData, playability.reason)
+        budget.reportBotCheck('login-required')
+        if (!attempt.refreshed) {
+          session.visitorData.invalidate()
+          attempt.refreshed = true
+        }
+        return fail(
+          'bot-check',
+          new FxmError(
+            'BotCheck',
+            `YouTube answered the ${rung.id} call with a bot check: ${playability.reason}`,
+          ),
+        )
       case 'mismatch':
         return fail(
           'mismatch',
@@ -379,27 +486,23 @@ export function createYouTubeAudioSource(
         throw new YouTubeUnplayableError(
           'GeoBlocked',
           `${videoId} can't play in this region: ${playability.reason}`,
-          playability,
+          { videoId, status: playability.status, reason: playability.reason },
         )
       case 'gone':
         throw new YouTubeUnplayableError(
-          'NotFound',
+          playability.status === 'ERROR' ? 'NotFound' : 'Unavailable',
           `${videoId} is gone: ${playability.reason || playability.status}`,
-          playability,
+          { videoId, status: playability.status, reason: playability.reason },
         )
       case 'ok':
         break
     }
 
     let found: YouTubeStreamOption[]
-    if (rung.kind === 'direct') {
-      found = streamOptionsOf(answer.json, videoId, rung, config, now())
-    } else {
-      try {
-        found = (await advanced?.streamOptions(ctx, rung, answer.json, videoId, config)) ?? []
-      } catch (error) {
-        return advancedFailure(error)
-      }
+    try {
+      found = await kind.options(ctx, rung, videoId, (answer as { json: JsonRecord }).json, tools)
+    } catch (error) {
+      return failed(error)
     }
     if (found.length === 0) {
       return fail(
@@ -407,7 +510,7 @@ export function createYouTubeAudioSource(
         new FxmError('Parse', `YouTube's ${rung.id} answer for ${videoId} has no direct audio`),
       )
     }
-    const checked = await probed(ctx, found)
+    const checked = await probed(ctx, found, mode)
     if (checked.every((option) => option.fullLength === 'capped')) {
       attempt.capped.push(...checked)
       return fail(
@@ -415,7 +518,9 @@ export function createYouTubeAudioSource(
         new FxmError('Parse', `Every ${rung.id} URL for ${videoId} stops early (capped)`),
       )
     }
-    book.succeed(scope, rung.id)
+    // Only a URL known to play makes the rung count as working: here, one that passed the
+    // probe. Where nothing was probed, the player says so (`reportPlaybackSuccess`).
+    if (checked.some((option) => option.fullLength === 'verified')) book.succeed(scope, rung.id)
     return [...checked, ...attempt.capped]
   }
 
@@ -427,23 +532,33 @@ export function createYouTubeAudioSource(
       throw new YouTubeUnplayableError(
         'Unavailable',
         `${videoId} is unavailable (${state.state}): ${state.reason || state.status}`,
-        state,
+        { videoId, state: state.state, status: state.status, reason: state.reason },
       )
     }
     if (unplayable !== undefined) {
       throw new YouTubeUnplayableError(
         'Unavailable',
         `${videoId} can't play: ${unplayable.reason || unplayable.status}`,
-        unplayable,
+        { videoId, status: unplayable.status, reason: unplayable.reason },
       )
     }
     const error = attempt.errors.find((entry) => entry.code === 'BotCheck') ?? attempt.errors[0]
     throw error ?? new FxmError('Parse', `No YouTube stream rung yielded a URL for ${videoId}`)
   }
 
+  /** `option` when the ladder resolved it: a rung the config lists, and a sound videoId. */
+  function ownOption(option: StreamOption): YouTubeStreamOption | undefined {
+    if (!isYouTubeStreamOption(option) || !VIDEO_ID.test(option.videoId)) return undefined
+    return configOf().rungs.some((rung) => rung.id === option.rung) ? option : undefined
+  }
+
   return {
     id: 'ytm',
     session,
+
+    get hasFallback() {
+      return configOf().rungs.some((rung) => rung.fallback && rung.enabled && kinds.has(rung.kind))
+    },
 
     async match(track, ctx) {
       const parts = parseId(track.id as unknown)
@@ -487,9 +602,23 @@ export function createYouTubeAudioSource(
       ctx.signal?.throwIfAborted()
       await book.ready()
       const config = configOf()
-      const skip = new Set(resolveOptions.skipRungs)
-      const ladder = ladderFor(config, scopeOf(ctx), videoId, skip, ctx)
-      const priority = resolveOptions.priority ?? 'current-track'
+      const ladder = ladderFor(
+        config,
+        ctx,
+        resolveOptions.rungs === 'fallback' ? 'fallback' : 'all',
+      )
+      const mode =
+        resolveOptions.probe === 'all' || resolveOptions.probe === 'none'
+          ? resolveOptions.probe
+          : 'best'
+      const tools: RungTools = {
+        session,
+        budget,
+        priority: resolveOptions.priority ?? 'current-track',
+        timeoutMs: playerTimeoutMs,
+        config,
+        now: now(),
+      }
       const attempt: Attempt = {
         refreshed: false,
         state: undefined,
@@ -501,24 +630,27 @@ export function createYouTubeAudioSource(
         // Once the video is in a labelled state, only rungs that opt in to it may try it.
         if (attempt.state !== undefined && !rung.tries.includes(attempt.state.state)) continue
         ctx.signal?.throwIfAborted()
-        const found = await tryRung(ctx, rung, videoId, config, priority, attempt)
+        const found = await tryRung(ctx, rung, videoId, tools, attempt, mode)
         if (found !== undefined) return ordered(found, config, prefs)
       }
       return ordered(outcome(attempt, videoId), config, prefs)
     },
 
-    reportPlaybackFailure(option, ctx) {
-      if (!isYouTubeStreamOption(option)) return
-      book.fail(scopeOf(ctx), option.rung, 'playback')
-      const failures = playbackFailures.get(option.videoId) ?? new Map<string, number>()
-      failures.set(option.rung, now() + PLAYBACK_MEMORY_MS)
-      playbackFailures.delete(option.videoId)
-      playbackFailures.set(option.videoId, failures)
-      while (playbackFailures.size > MAX_REMEMBERED_VIDEOS) {
-        const oldest = playbackFailures.keys().next().value
-        if (oldest === undefined) break
-        playbackFailures.delete(oldest)
-      }
+    reportPlaybackSuccess(option, ctx) {
+      const own = ownOption(option)
+      if (own?.fullLength === 'unverified') book.succeed(scopeOf(ctx), own.rung)
+    },
+
+    reportPlaybackFailure(option, ctx, reason) {
+      if (!RUNG_AT_FAULT.has(reason)) return
+      const own = ownOption(option)
+      if (own !== undefined) book.fail(scopeOf(ctx), own.rung, 'playback')
+    },
+
+    async checkStatus(option, ctx) {
+      if (!ctx.capabilities.mediaBytes || !isYouTubeStreamOption(option)) return undefined
+      if (parseStreamUrl(option.url) === undefined) return undefined
+      return statusOf(ctx, option.url, probeTimeoutMs)
     },
 
     async health(ctx) {

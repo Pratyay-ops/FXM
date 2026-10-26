@@ -32,7 +32,7 @@ describe('createFakeSandbox', () => {
       await expect(sandbox.innerTube(simple(path))).resolves.toBeInstanceOf(Response)
     }
     expect(sandbox.requests).toHaveLength(SANDBOX_INNERTUBE_PATHS.length)
-    await expect(sandbox.selfTest()).resolves.toBe(true)
+    await expect(sandbox.selfTest()).resolves.toBe('pass')
     expect(sandbox.selfTests).toBe(1)
     expect(sandbox.userHost).toBeUndefined()
   })
@@ -60,13 +60,22 @@ describe('createFakeSandbox', () => {
   })
 
   it('answers from the handlers it is given', async () => {
+    const seen: (AbortSignal | undefined)[] = []
     const sandbox = createFakeSandbox({
-      selfTest: async () => false,
+      selfTest: async (options) => {
+        seen.push(options?.signal)
+        return 'refused' as const
+      },
       respond: () => Response.json({ handled: true }),
       userHost: () => new Response('user'),
       paths: ['/youtubei/v1/search'],
     })
-    await expect(sandbox.selfTest()).resolves.toBe(false)
+    const signal = new AbortController().signal
+    await expect(sandbox.selfTest({ signal })).resolves.toBe('refused')
+    expect(seen).toEqual([signal])
+    await expect(createFakeSandbox({ selfTest: 'unreachable' }).selfTest()).resolves.toBe(
+      'unreachable',
+    )
     await expect((await sandbox.innerTube(simple('/youtubei/v1/search'))).json()).resolves.toEqual({
       handled: true,
     })

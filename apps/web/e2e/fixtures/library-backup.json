@@ -1,0 +1,547 @@
+{
+  "format": "fxm-library-backup",
+  "version": 1,
+  "exportedAt": "2025-10-24T12:00:00.000Z",
+  "app": {
+    "name": "FXM",
+    "version": "0.0.0"
+  },
+  "schemaVersion": 2,
+  "tables": {
+    "tracks": [
+      {
+        "id": "ytm:track:fxnh01xxxxx",
+        "track": {
+          "id": "ytm:track:fxnh01xxxxx",
+          "source": "ytm",
+          "title": "Midnight Drive",
+          "artists": [
+            {
+              "name": "Neon Harbor"
+            }
+          ],
+          "album": {
+            "name": "Coastline"
+          },
+          "durationMs": 214000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000000
+      },
+      {
+        "id": "ytm:track:fxnh02xxxxx",
+        "track": {
+          "id": "ytm:track:fxnh02xxxxx",
+          "source": "ytm",
+          "title": "Static Bloom",
+          "artists": [
+            {
+              "name": "Neon Harbor"
+            }
+          ],
+          "album": {
+            "name": "Coastline"
+          },
+          "durationMs": 189000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000001
+      },
+      {
+        "id": "ytm:track:fxvr01xxxxx",
+        "track": {
+          "id": "ytm:track:fxvr01xxxxx",
+          "source": "ytm",
+          "title": "Paper Satellites",
+          "artists": [
+            {
+              "name": "Vela Rose"
+            }
+          ],
+          "album": {
+            "name": "Low Orbit"
+          },
+          "durationMs": 241000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000002
+      },
+      {
+        "id": "ytm:track:fxvr02xxxxx",
+        "track": {
+          "id": "ytm:track:fxvr02xxxxx",
+          "source": "ytm",
+          "title": "Gravity Letters",
+          "artists": [
+            {
+              "name": "Vela Rose"
+            }
+          ],
+          "album": {
+            "name": "Low Orbit"
+          },
+          "durationMs": 202000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000003
+      },
+      {
+        "id": "ytm:track:fxko01xxxxx",
+        "track": {
+          "id": "ytm:track:fxko01xxxxx",
+          "source": "ytm",
+          "title": "Copper Sun",
+          "artists": [
+            {
+              "name": "Kofi Odum"
+            }
+          ],
+          "album": {
+            "name": "Harmattan"
+          },
+          "durationMs": 257000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000004
+      },
+      {
+        "id": "ytm:track:fxko02xxxxx",
+        "track": {
+          "id": "ytm:track:fxko02xxxxx",
+          "source": "ytm",
+          "title": "Dust and Gold",
+          "artists": [
+            {
+              "name": "Kofi Odum"
+            }
+          ],
+          "album": {
+            "name": "Harmattan"
+          },
+          "durationMs": 233000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000005
+      },
+      {
+        "id": "ytm:track:fxlm01xxxxx",
+        "track": {
+          "id": "ytm:track:fxlm01xxxxx",
+          "source": "ytm",
+          "title": "Glass Rivers",
+          "artists": [
+            {
+              "name": "Lumen & Moss"
+            }
+          ],
+          "album": {
+            "name": "Fernlight"
+          },
+          "durationMs": 276000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000006
+      },
+      {
+        "id": "ytm:track:fxlm02xxxxx",
+        "track": {
+          "id": "ytm:track:fxlm02xxxxx",
+          "source": "ytm",
+          "title": "Slow Thunder",
+          "artists": [
+            {
+              "name": "Lumen & Moss"
+            }
+          ],
+          "album": {
+            "name": "Fernlight"
+          },
+          "durationMs": 198000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000007
+      },
+      {
+        "id": "ytm:track:fxts01xxxxx",
+        "track": {
+          "id": "ytm:track:fxts01xxxxx",
+          "source": "ytm",
+          "title": "Northern Lights (Live)",
+          "artists": [
+            {
+              "name": "The Small Hours"
+            }
+          ],
+          "album": {
+            "name": "Night Shift"
+          },
+          "durationMs": 312000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000008
+      },
+      {
+        "id": "ytm:track:fxts02xxxxx",
+        "track": {
+          "id": "ytm:track:fxts02xxxxx",
+          "source": "ytm",
+          "title": "Tidal",
+          "artists": [
+            {
+              "name": "The Small Hours"
+            }
+          ],
+          "album": {
+            "name": "Night Shift"
+          },
+          "durationMs": 224000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000009
+      },
+      {
+        "id": "ytm:track:fxaa01xxxxx",
+        "track": {
+          "id": "ytm:track:fxaa01xxxxx",
+          "source": "ytm",
+          "title": "Afterglow",
+          "artists": [
+            {
+              "name": "Aria Ankara"
+            }
+          ],
+          "album": {
+            "name": "Sundial"
+          },
+          "durationMs": 187000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000010
+      },
+      {
+        "id": "ytm:track:fxaa02xxxxx",
+        "track": {
+          "id": "ytm:track:fxaa02xxxxx",
+          "source": "ytm",
+          "title": "Monsoon Letters",
+          "artists": [
+            {
+              "name": "Aria Ankara"
+            }
+          ],
+          "album": {
+            "name": "Sundial"
+          },
+          "durationMs": 265000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000011
+      },
+      {
+        "id": "ytm:track:fxpq01xxxxx",
+        "track": {
+          "id": "ytm:track:fxpq01xxxxx",
+          "source": "ytm",
+          "title": "Quiet Machines",
+          "artists": [
+            {
+              "name": "Pixel Quartet"
+            }
+          ],
+          "album": {
+            "name": "Circuit Garden"
+          },
+          "durationMs": 171000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000012
+      },
+      {
+        "id": "ytm:track:fxpq02xxxxx",
+        "track": {
+          "id": "ytm:track:fxpq02xxxxx",
+          "source": "ytm",
+          "title": "Lantern Code",
+          "artists": [
+            {
+              "name": "Pixel Quartet"
+            }
+          ],
+          "album": {
+            "name": "Circuit Garden"
+          },
+          "durationMs": 208000,
+          "artwork": [],
+          "kind": "song"
+        },
+        "updatedAt": 1761300000013
+      }
+    ],
+    "likes": [
+      {
+        "key": "youtube:track:fxvr01xxxxx",
+        "trackId": "ytm:track:fxvr01xxxxx",
+        "likedAt": 1761386400000
+      },
+      {
+        "key": "youtube:track:fxnh01xxxxx",
+        "trackId": "ytm:track:fxnh01xxxxx",
+        "likedAt": 1761472800000
+      },
+      {
+        "key": "youtube:track:fxko01xxxxx",
+        "trackId": "ytm:track:fxko01xxxxx",
+        "likedAt": 1761559200000
+      },
+      {
+        "key": "youtube:track:fxlm01xxxxx",
+        "trackId": "ytm:track:fxlm01xxxxx",
+        "likedAt": 1761645600000
+      },
+      {
+        "key": "youtube:track:fxaa01xxxxx",
+        "trackId": "ytm:track:fxaa01xxxxx",
+        "likedAt": 1761732000000
+      },
+      {
+        "key": "youtube:track:fxts02xxxxx",
+        "trackId": "ytm:track:fxts02xxxxx",
+        "likedAt": 1761818400000
+      }
+    ],
+    "playlists": [
+      {
+        "id": "local:playlist:liked",
+        "system": "liked",
+        "name": "Liked songs",
+        "createdAt": 1761300000000,
+        "updatedAt": 1761300000000,
+        "trackIds": [
+          "ytm:track:fxko01xxxxx",
+          "ytm:track:fxvr01xxxxx",
+          "ytm:track:fxnh01xxxxx",
+          "ytm:track:fxlm01xxxxx",
+          "ytm:track:fxaa01xxxxx",
+          "ytm:track:fxts02xxxxx"
+        ],
+        "addedAt": {}
+      },
+      {
+        "id": "local:playlist:downloads",
+        "system": "downloads",
+        "name": "Downloads",
+        "createdAt": 1761300000000,
+        "updatedAt": 1761300000000,
+        "trackIds": [],
+        "addedAt": {}
+      },
+      {
+        "id": "local:playlist:6f1c2d3e-0000-4000-8000-000000000001",
+        "name": "Road trip",
+        "createdAt": 1761300001000,
+        "updatedAt": 1761300006000,
+        "trackIds": [
+          "ytm:track:fxnh01xxxxx",
+          "ytm:track:fxko01xxxxx",
+          "ytm:track:fxvr02xxxxx",
+          "ytm:track:fxts01xxxxx",
+          "ytm:track:fxaa02xxxxx",
+          "ytm:track:fxlm02xxxxx",
+          "ytm:track:fxnh02xxxxx",
+          "ytm:track:fxpq01xxxxx"
+        ],
+        "addedAt": {
+          "ytm:track:fxnh01xxxxx": 1761300061000,
+          "ytm:track:fxko01xxxxx": 1761300121000,
+          "ytm:track:fxvr02xxxxx": 1761300181000,
+          "ytm:track:fxts01xxxxx": 1761300241000,
+          "ytm:track:fxaa02xxxxx": 1761300301000,
+          "ytm:track:fxlm02xxxxx": 1761300361000,
+          "ytm:track:fxnh02xxxxx": 1761300421000,
+          "ytm:track:fxpq01xxxxx": 1761300481000
+        },
+        "description": "Windows down, volume up."
+      },
+      {
+        "id": "local:playlist:6f1c2d3e-0000-4000-8000-000000000002",
+        "name": "Focus flow",
+        "createdAt": 1761300002000,
+        "updatedAt": 1761300007000,
+        "trackIds": [
+          "ytm:track:fxlm01xxxxx",
+          "ytm:track:fxpq02xxxxx",
+          "ytm:track:fxvr01xxxxx",
+          "ytm:track:fxaa01xxxxx",
+          "ytm:track:fxpq01xxxxx"
+        ],
+        "addedAt": {
+          "ytm:track:fxlm01xxxxx": 1761300062000,
+          "ytm:track:fxpq02xxxxx": 1761300122000,
+          "ytm:track:fxvr01xxxxx": 1761300182000,
+          "ytm:track:fxaa01xxxxx": 1761300242000,
+          "ytm:track:fxpq01xxxxx": 1761300302000
+        },
+        "undo": {
+          "action": "shuffle",
+          "order": [
+            "ytm:track:fxpq01xxxxx",
+            "ytm:track:fxaa01xxxxx",
+            "ytm:track:fxvr01xxxxx",
+            "ytm:track:fxpq02xxxxx",
+            "ytm:track:fxlm01xxxxx"
+          ]
+        }
+      },
+      {
+        "id": "local:playlist:6f1c2d3e-0000-4000-8000-000000000003",
+        "name": "Late night",
+        "createdAt": 1761300003000,
+        "updatedAt": 1761300008000,
+        "trackIds": [
+          "ytm:track:fxts02xxxxx",
+          "ytm:track:fxlm02xxxxx",
+          "ytm:track:fxvr02xxxxx",
+          "ytm:track:fxnh02xxxxx"
+        ],
+        "addedAt": {
+          "ytm:track:fxts02xxxxx": 1761300063000,
+          "ytm:track:fxlm02xxxxx": 1761300123000,
+          "ytm:track:fxvr02xxxxx": 1761300183000,
+          "ytm:track:fxnh02xxxxx": 1761300243000
+        },
+        "description": "For the last bus home."
+      }
+    ],
+    "orders": [
+      {
+        "id": "playlists",
+        "order": [
+          "local:playlist:6f1c2d3e-0000-4000-8000-000000000001",
+          "local:playlist:liked",
+          "local:playlist:6f1c2d3e-0000-4000-8000-000000000002",
+          "local:playlist:6f1c2d3e-0000-4000-8000-000000000003",
+          "local:playlist:downloads"
+        ],
+        "updatedAt": 1761300004000
+      }
+    ],
+    "follows": [
+      {
+        "key": "youtube:artist:UCneonharbor",
+        "id": "ytm:artist:UCneonharbor",
+        "kind": "artist",
+        "name": "Neon Harbor",
+        "artwork": [],
+        "followedAt": 1761300000010
+      },
+      {
+        "key": "youtube:artist:UCvelarose",
+        "id": "ytm:artist:UCvelarose",
+        "kind": "artist",
+        "name": "Vela Rose",
+        "artwork": [],
+        "followedAt": 1761300000020
+      },
+      {
+        "key": "youtube:artist:UCkofiodum",
+        "id": "ytm:artist:UCkofiodum",
+        "kind": "artist",
+        "name": "Kofi Odum",
+        "artwork": [],
+        "followedAt": 1761300000030
+      },
+      {
+        "key": "youtube:album:MPREb_coastline",
+        "id": "ytm:album:MPREb_coastline",
+        "kind": "album",
+        "name": "Coastline",
+        "artists": [
+          {
+            "name": "Neon Harbor"
+          }
+        ],
+        "artwork": [],
+        "followedAt": 1761300000040
+      },
+      {
+        "key": "youtube:album:MPREb_fernlight",
+        "id": "ytm:album:MPREb_fernlight",
+        "kind": "album",
+        "name": "Fernlight",
+        "artists": [
+          {
+            "name": "Lumen & Moss"
+          }
+        ],
+        "artwork": [],
+        "followedAt": 1761300000050
+      }
+    ],
+    "history": [
+      {
+        "id": 1,
+        "trackId": "ytm:track:fxaa02xxxxx",
+        "playedAt": 1761303600000,
+        "playedMs": 120000,
+        "completed": true,
+        "skipped": false
+      },
+      {
+        "id": 2,
+        "trackId": "ytm:track:fxnh01xxxxx",
+        "playedAt": 1761307200000,
+        "playedMs": 120000,
+        "completed": false,
+        "skipped": true
+      },
+      {
+        "id": 3,
+        "trackId": "ytm:track:fxlm01xxxxx",
+        "playedAt": 1761310800000,
+        "playedMs": 120000,
+        "completed": true,
+        "skipped": false
+      },
+      {
+        "id": 4,
+        "trackId": "ytm:track:fxko02xxxxx",
+        "playedAt": 1761314400000,
+        "playedMs": 120000,
+        "completed": false,
+        "skipped": true
+      },
+      {
+        "id": 5,
+        "trackId": "ytm:track:fxpq02xxxxx",
+        "playedAt": 1761318000000,
+        "playedMs": 120000,
+        "completed": true,
+        "skipped": false
+      },
+      {
+        "id": 6,
+        "trackId": "ytm:track:fxvr01xxxxx",
+        "playedAt": 1761321600000,
+        "playedMs": 120000,
+        "completed": false,
+        "skipped": true
+      }
+    ],
+    "settings": [],
+    "matchCache": [],
+    "importProgress": []
+  }
+}

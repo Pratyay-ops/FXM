@@ -9,8 +9,8 @@
  * albums and years whenever YouTube added or dropped a field.
  *
  * Only when no run links to an artist do the remaining unlinked words become the artists, minus
- * the item type labels of the config (`Song`, `Video`, `Single`, …), so that an artist without a
- * channel page still has a name.
+ * the item type labels of the call's language (`Song`, `Video`, `Single`, …), so that an artist
+ * without a channel page still has a name.
  *
  * @module
  */

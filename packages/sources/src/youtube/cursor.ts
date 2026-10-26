@@ -33,14 +33,24 @@ export interface PlaylistCursor {
   readonly o?: number
 }
 
-/** The cursor of a radio page. */
+/**
+ * The cursor of a radio page. It belongs to its seed and catalog mode: the provider refuses it
+ * for another seed, and in Music mode an official video's radio starts from its linked song.
+ */
 export interface RadioCursor {
   readonly k: 'radio'
   /** What the radio started from: `track:<videoId>` or `artist:<channelId>`. */
   readonly s: string
-  /** The continuation token of the next YouTube page. */
-  readonly c: string
-  /** The videoIds already returned (the seed included), newest last, joined without separators. */
+  /**
+   * The continuation token of the YouTube page to read; absent for the seed's first page. When a
+   * `limit` split a page, the next cursor names the same page again, whose tracks not yet
+   * returned come next.
+   */
+  readonly c?: string
+  /**
+   * The videoIds the radio's pages returned, the newest {@link RADIO_MEMORY} of them, newest
+   * last, joined without separators.
+   */
   readonly seen: string
 }
 
@@ -142,7 +152,8 @@ function check(value: unknown): Cursor {
       ) {
         bad('seen')
       }
-      return { k: 'radio', s: raw.s, c: token(raw.c, true) as string, seen }
+      const c = token(raw.c, false)
+      return { k: 'radio', s: raw.s, ...(c === undefined ? {} : { c }), seen }
     }
     default:
       return bad('kind')

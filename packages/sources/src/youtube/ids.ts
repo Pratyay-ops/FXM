@@ -51,18 +51,18 @@ export function playlistIdOf(id: string): string {
  * The YouTube native ID inside an entity ID of `kind`, from either YouTube source (they share
  * one ID space). A playlist ID may carry the `VL` browse prefix, which is dropped.
  *
- * @throws FxmError `NotFound` when the ID is not a YouTube ID of that kind, so it cannot exist.
+ * @throws FxmError `Unsupported` for an ID of another source or kind, which this provider cannot
+ * read: a routing mistake, not a missing entity. `NotFound` for a YouTube ID of that kind whose
+ * native ID is malformed, so that it cannot exist.
  */
 export function nativeYouTubeId(id: EntityId, kind: EntityKind): string {
   const parts = parseId(id as unknown)
-  const native = kind === 'playlist' && parts ? playlistIdOf(parts.nativeId) : parts?.nativeId
-  if (
-    parts === null ||
-    (parts.source !== 'ytm' && parts.source !== 'yt') ||
-    parts.kind !== kind ||
-    !isYouTubeId(kind, native)
-  ) {
-    throw new FxmError('NotFound', `Not a YouTube ${kind} ID: ${String(id)}`)
+  if (parts === null || (parts.source !== 'ytm' && parts.source !== 'yt') || parts.kind !== kind) {
+    throw new FxmError('Unsupported', `Not a YouTube ${kind} ID: ${String(id)}`)
+  }
+  const native = kind === 'playlist' ? playlistIdOf(parts.nativeId) : parts.nativeId
+  if (!isYouTubeId(kind, native)) {
+    throw new FxmError('NotFound', `YouTube has no ${kind} ${native}: the ID is malformed`)
   }
   return native
 }

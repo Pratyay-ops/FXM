@@ -1,9 +1,11 @@
-import { type FxmError, isFxmError } from '@fxm/core'
+import { FxmError, isFxmError } from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import {
   BUDGET_DEFAULTS,
+  BudgetError,
   type BudgetSnapshot,
   createRequestBudget,
+  isBudgetError,
   type RequestBudgetOptions,
   type RequestPriority,
 } from './budget'
@@ -72,6 +74,8 @@ describe('the hourly cap and the reserves', () => {
     await spend(budget, clock, 570, 'interactive')
     const refused = await rejection(budget.acquire('interactive'))
     expect(isFxmError(refused, 'RateLimited')).toBe(true)
+    expect(refused).toBeInstanceOf(BudgetError)
+    expect(isBudgetError(refused, 'reserve')).toBe(true)
     await spend(budget, clock, 20, 'prefetch')
     expect(isFxmError(await rejection(budget.acquire('prefetch')), 'RateLimited')).toBe(true)
     await spend(budget, clock, 10, 'current-track')
@@ -167,6 +171,149 @@ describe('bulk work', () => {
     await flushPromises()
     expect(waiting.error).toBeDefined()
     expect(clock.pendingTimers).toBe(0)
+  })
+})
+
+describe('bulk calls with a wait limit, as the transports make them', () => {
+  it('get their slot when their turn comes within the limit', async () => {
+    const { budget, clock } = setup()
+    await budget.acquire('bulk', { maxWaitMs: 6 * SECOND })
+    const next = track(budget.acquire('bulk', { maxWaitMs: 6 * SECOND }))
+    await clock.advanceAsync(5 * SECOND)
+    expect(next.done).toBe(true)
+  })
+
+  it('are turned away at once during a bot-check pause, taking no slot', async () => {
+    const { budget, clock } = setup()
+    budget.reportBotCheck('login-required')
+    clock.advance(10 * MINUTE)
+    const error = await rejection(budget.acquire('bulk', { maxWaitMs: 6 * SECOND }))
+    expect(isBudgetError(error, 'paused')).toBe(true)
+    expect((error as FxmError).retryAfterMs).toBe(20 * MINUTE)
+    expect((error as Error).message).toContain(new Date(START + 30 * MINUTE).toISOString())
+    expect(budget.snapshot()).toMatchObject({ used: 0, waitingBulk: 0 })
+    expect(clock.pendingTimers).toBe(0)
+  })
+
+  it('are turned away when other bulk calls go first', async () => {
+    const { budget } = setup()
+    await budget.acquire('bulk')
+    const queued = track(budget.acquire('bulk', { maxWaitMs: 6 * SECOND }))
+    const error = await rejection(budget.acquire('bulk', { maxWaitMs: 6 * SECOND }))
+    expect(isBudgetError(error, 'spacing')).toBe(true)
+    expect((error as FxmError).retryAfterMs).toBe(10 * SECOND)
+    expect(queued.error).toBeUndefined()
+  })
+
+  it('are turned away when the hour’s bulk budget is used up', async () => {
+    const { budget, clock } = setup({ bulkSpacingMs: 0 })
+    await spend(budget, clock, 500, 'interactive')
+    const error = await rejection(budget.acquire('bulk', { maxWaitMs: 6 * SECOND }))
+    expect(isBudgetError(error, 'reserve')).toBe(true)
+    expect((error as FxmError).retryAfterMs).toBe(START + HOUR - clock.now())
+  })
+
+  it('stop waiting the moment a pause puts their turn out of reach', async () => {
+    const { budget, clock } = setup()
+    await budget.acquire('bulk')
+    const bounded = track(budget.acquire('bulk', { maxWaitMs: 6 * SECOND }))
+    const unbounded = track(budget.acquire('bulk'))
+    await flushPromises()
+    clock.advance(SECOND)
+    budget.reportBotCheck('rate-limited')
+    await flushPromises()
+    expect(isBudgetError(bounded.error, 'paused')).toBe(true)
+    expect(unbounded.error).toBeUndefined()
+    expect(budget.snapshot().waitingBulk).toBe(1)
+    await clock.advanceAsync(30 * MINUTE)
+    expect(unbounded.done).toBe(true)
+  })
+
+  it('give up when another budget on the storage pauses bulk work', async () => {
+    const { budget, clock, storage } = setup()
+    const other = createRequestBudget({ clock, storage })
+    await budget.acquire('bulk')
+    const waiting = track(budget.acquire('bulk', { maxWaitMs: 6 * SECOND }))
+    clock.advance(4 * SECOND)
+    // Another tab sees a bot check just before this call's turn; this budget learns of it then.
+    other.reportBotCheck('rate-limited')
+    await clock.advanceAsync(SECOND)
+    expect(isBudgetError(waiting.error, 'paused')).toBe(true)
+  })
+})
+
+describe('job runners', () => {
+  it('wait for a free bulk slot without taking it', async () => {
+    const { budget, clock } = setup()
+    await budget.whenAvailable('bulk')
+    await budget.acquire('bulk')
+    expect(budget.nextSlotAt('bulk')).toBe(START + 5 * SECOND)
+    const ready = track(budget.whenAvailable('bulk'))
+    await clock.advanceAsync(5 * SECOND - 1)
+    expect(ready.done).toBe(false)
+    await clock.advanceAsync(1)
+    expect(ready.done).toBe(true)
+    expect(budget.snapshot().used).toBe(1)
+  })
+
+  it('wait through a pause that starts while they wait, and behind queued calls', async () => {
+    const { budget, clock } = setup()
+    await budget.acquire('bulk')
+    const queued = track(budget.acquire('bulk'))
+    expect(budget.nextSlotAt('bulk')).toBe(START + 10 * SECOND)
+    const ready = track(budget.whenAvailable('bulk'))
+    await clock.advanceAsync(5 * SECOND)
+    expect(queued.done).toBe(true)
+    budget.reportBotCheck('login-required')
+    await clock.advanceAsync(30 * MINUTE - 1)
+    expect(ready.done).toBe(false)
+    await clock.advanceAsync(1)
+    expect(ready.done).toBe(true)
+  })
+
+  it('know when the other priorities get their next slot', async () => {
+    const { budget, clock } = setup()
+    expect(budget.nextSlotAt('interactive')).toBe(START)
+    await spend(budget, clock, 570, 'interactive')
+    expect(budget.nextSlotAt('interactive')).toBe(START + HOUR)
+    expect(budget.nextSlotAt('current-track')).toBe(clock.now())
+    const ready = track(budget.whenAvailable('interactive'))
+    await clock.advanceAsync(START + HOUR - clock.now())
+    expect(ready.done).toBe(true)
+  })
+
+  it('stop waiting when their signal aborts', async () => {
+    const { budget, clock } = setup()
+    budget.reportBotCheck('login-required')
+    const controller = new AbortController()
+    const waiting = track(budget.whenAvailable('bulk', { signal: controller.signal }))
+    await flushPromises()
+    controller.abort(new Error('import cancelled'))
+    await flushPromises()
+    expect((waiting.error as Error).message).toBe('import cancelled')
+    expect(clock.pendingTimers).toBe(0)
+    const signal = AbortSignal.abort(new Error('already'))
+    expect(((await rejection(budget.whenAvailable('bulk', { signal }))) as Error).message).toBe(
+      'already',
+    )
+  })
+})
+
+describe('BudgetError', () => {
+  it('is a RateLimited FxmError that names its limit', () => {
+    const error = new BudgetError('spacing', 'wait', 5_000)
+    expect(error).toBeInstanceOf(FxmError)
+    expect(error).toMatchObject({ code: 'RateLimited', reason: 'spacing', retryAfterMs: 5_000 })
+    expect(isBudgetError(error)).toBe(true)
+    expect(isBudgetError(error, 'paused')).toBe(false)
+    expect(isBudgetError(new FxmError('RateLimited', 'Spotify said slow down'))).toBe(false)
+    expect(isBudgetError(new Error('x'))).toBe(false)
+    const copy = Object.assign(new Error('from another bundle'), {
+      name: 'FxmError',
+      code: 'RateLimited',
+      reason: 'paused',
+    })
+    expect(isBudgetError(copy, 'paused')).toBe(true)
   })
 })
 
@@ -312,6 +459,18 @@ describe('persistence', () => {
 })
 
 describe('options and listeners', () => {
+  it('reports the limits it was created with', () => {
+    const { budget } = setup({ hourlyLimit: 300, reserves: { bulk: 50 }, bulkSpacingMs: 2_000 })
+    expect(budget.settings).toEqual({
+      hourlyLimit: 300,
+      reserves: { 'current-track': 0, prefetch: 10, interactive: 30, bulk: 50 },
+      bulkSpacingMs: 2_000,
+      pauseMs: 30 * MINUTE,
+      maxPauseMs: 4 * HOUR,
+    })
+    expect(Object.isFrozen(budget.settings)).toBe(true)
+  })
+
   it('refuses settings that make no sense', () => {
     expect(() => createRequestBudget({ hourlyLimit: 0 })).toThrow(RangeError)
     expect(() => createRequestBudget({ reserves: { bulk: 600 } })).toThrow(RangeError)
@@ -323,9 +482,14 @@ describe('options and listeners', () => {
     expect(() => createRequestBudget({ reserves: { interactive: 2.5 } })).toThrow(RangeError)
   })
 
-  it('refuses unknown priorities with Unsupported', async () => {
+  it('refuses unknown priorities and wait limits with a RangeError', async () => {
     const { budget } = setup()
-    expect(isFxmError(await rejection(budget.acquire('urgent' as never)), 'Unsupported')).toBe(true)
+    expect(await rejection(budget.acquire('urgent' as never))).toBeInstanceOf(RangeError)
+    expect(await rejection(budget.whenAvailable('urgent' as never))).toBeInstanceOf(RangeError)
+    expect(() => budget.nextSlotAt('urgent' as never)).toThrow(RangeError)
+    for (const maxWaitMs of [-1, Number.NaN, '5' as never]) {
+      expect(await rejection(budget.acquire('bulk', { maxWaitMs }))).toBeInstanceOf(RangeError)
+    }
   })
 
   it('tells listeners about every change, and survives a failing one', async () => {

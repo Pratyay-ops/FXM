@@ -108,7 +108,8 @@ describe('tauri.conf.json', () => {
       'img-src': ["'self'", 'https:', 'data:', 'blob:'],
       'media-src': ["'self'", 'https:', 'blob:'],
       'connect-src': ['ipc:', 'http://ipc.localhost', "'self'", 'https:'],
-      'script-src': ["'self'", "'wasm-unsafe-eval'"],
+      // blob: loads the signed YouTube module (stage 1.13) from a URL made of its verified bytes.
+      'script-src': ["'self'", "'wasm-unsafe-eval'", 'blob:'],
       'style-src': ["'self'", "'unsafe-inline'"],
     })
   })

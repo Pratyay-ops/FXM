@@ -1,14 +1,15 @@
 /**
- * Plain YouTube's search results (the `WEB` client): videos (`videoRenderer`), channels
- * (`channelRenderer`) and playlists (`lockupViewModel`). Every video is a `video`, whatever it
- * is: plain YouTube does not classify its results.
+ * Plain YouTube's answers (the `WEB` client): search results, which are videos
+ * (`videoRenderer`), channels (`channelRenderer`) and playlists (`lockupViewModel`), and the
+ * description of a video's watch page. Every video is a `video`, whatever it is: plain YouTube
+ * does not classify its results.
  *
  * @module
  */
 
 import { FxmError, type Track } from '@fxm/core'
 import { youTubeEntityId } from '../ids'
-import { arrayAt, asString, at, type JsonRecord, stringAt, unwrap } from '../json'
+import { arrayAt, asString, at, type JsonRecord, recordAt, stringAt, unwrap } from '../json'
 import { artworkOf } from './artwork'
 import { parseByline } from './byline'
 import { browseTarget, isArtistPage } from './endpoints'
@@ -20,7 +21,7 @@ function videoItem(renderer: JsonRecord, options: MapOptions): Item | undefined 
   const id = youTubeEntityId('yt', 'track', renderer.videoId)
   const title = textOf(renderer.title)
   if (id === undefined || title === undefined) return undefined
-  const { itemTypes } = options.config.labels
+  const { itemTypes } = options.labels
   const owner = runsOf(renderer.ownerText)
   const byline = parseByline(
     owner.length > 0 ? owner : runsOf(renderer.longBylineText),
@@ -81,7 +82,7 @@ function playlistItem(model: JsonRecord, options: MapOptions): Item | undefined 
         ? [{ text: content, endpoint: endpoint as JsonRecord }]
         : [{ text: content }]
     })
-  const owner = ownerOf(parseByline(byline, 'yt', options.config.labels.itemTypes))
+  const owner = ownerOf(parseByline(byline, 'yt', options.labels.itemTypes))
   const thumbnail = at(
     model,
     'contentImage',
@@ -92,9 +93,7 @@ function playlistItem(model: JsonRecord, options: MapOptions): Item | undefined 
   const trackCount = arrayAt(thumbnail, 'overlays')
     .flatMap((overlay) => arrayAt(overlay, 'thumbnailOverlayBadgeViewModel', 'thumbnailBadges'))
     .map((badge) => asString(at(badge, 'thumbnailBadgeViewModel', 'text')))
-    .map((text) =>
-      text === undefined ? undefined : parseCount(text, options.config.labels.trackCounts),
-    )
+    .map((text) => (text === undefined ? undefined : parseCount(text, options.labels.trackCounts)))
     .find((count) => count !== undefined)
   return {
     type: 'playlist',
@@ -145,4 +144,28 @@ export function parseWebSearch(json: unknown, options: MapOptions): ListPage {
     }
   }
   return listPage(items, continuationOf(sections))
+}
+
+/**
+ * The description under a video on plain YouTube's watch page (`next` with the `WEB` client),
+ * e.g. the auto-generated "Provided to YouTube by …" text of a song with its label, ℗ line and
+ * release date. `undefined` when the page shows none, as for an unknown video.
+ */
+export function parseDescription(json: unknown): string | undefined {
+  const results = arrayAt(
+    json,
+    'contents',
+    'twoColumnWatchNextResults',
+    'results',
+    'results',
+    'contents',
+  )
+  for (const item of results) {
+    const info = recordAt(item, 'videoSecondaryInfoRenderer')
+    if (info === undefined) continue
+    const text = stringAt(info, 'attributedDescription', 'content') ?? textOf(info.description)
+    const trimmed = text?.trim()
+    return trimmed === undefined || trimmed === '' ? undefined : trimmed
+  }
+  return undefined
 }

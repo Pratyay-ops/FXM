@@ -213,6 +213,66 @@ describe('the visitorData of a session', () => {
     expect(music.session.visitorData.current).toBe('CgtGcmVzaFZpc2l0b3IoAQ')
   })
 
+  it('goes on without a stored visitorData when the store does not answer', async () => {
+    const silent: VisitorDataStore = {
+      load: () => new Promise<string | undefined>(() => {}),
+      save: () => {},
+      clear: () => {},
+    }
+    const url = BUNDLED_YOUTUBE_CONFIG.visitorData.swJsDataUrl
+    const visitorData = new VisitorData(url, silent, 1000, 10)
+    const ctx = context(fakeInnerTube().fetch, { capabilities: SIMPLE })
+    const lease = await visitorData.lease(ctx)
+    expect(lease.visitorData).toBeUndefined()
+    lease.end(ISSUED)
+    expect((await visitorData.lease(ctx)).visitorData).toBe(ISSUED)
+  })
+
+  it('stops waiting for a first answer that never comes after one request timeout', async () => {
+    const url = BUNDLED_YOUTUBE_CONFIG.visitorData.swJsDataUrl
+    const visitorData = new VisitorData(url, undefined, 20)
+    const ctx = context(fakeInnerTube().fetch, { capabilities: SIMPLE })
+    const stuck = await visitorData.lease(ctx)
+    expect(stuck.visitorData).toBeUndefined()
+    const next = await visitorData.lease(ctx)
+    expect(next.visitorData).toBeUndefined()
+    next.end(ISSUED)
+    stuck.end('CgtMYXRlQW5zd2VyKAE')
+    expect(visitorData.current).toBe(ISSUED)
+    expect((await visitorData.lease(ctx)).visitorData).toBe(ISSUED)
+  })
+
+  it('lets other requests go on when the first hangs on a transport that ignores aborts', async () => {
+    const youtube = fakeInnerTube(issuing(ISSUED))
+    let first = true
+    const deafOnce: typeof fetch = (input, init) => {
+      if (!first) return youtube.fetch(input, init)
+      first = false
+      return new Promise<Response>(() => {})
+    }
+    const music = createYouTubeMusicProvider({ timeoutMs: 30 })
+    const ctx = context(deafOnce, { capabilities: SIMPLE })
+    const results = await Promise.allSettled([
+      music.search('a', { types: ['track'] }, ctx),
+      music.search('b', { types: ['track'] }, ctx),
+    ])
+    expect(results.map((result) => result.status)).toEqual(['rejected', 'fulfilled'])
+    expect(music.session.visitorData.current).toBe(ISSUED)
+  })
+
+  it('keeps a newer visitorData when a request that went with an older one meets a bot check', async () => {
+    const store = memoryStore(ISSUED)
+    const url = BUNDLED_YOUTUBE_CONFIG.visitorData.swJsDataUrl
+    const visitorData = new VisitorData(url, store)
+    await visitorData.lease(context(fakeInnerTube().fetch, { capabilities: SIMPLE }))
+    visitorData.invalidate('CgtPbGRlclZpc2l0b3IoAQ')
+    expect(visitorData.current).toBe(ISSUED)
+    expect(store.log).not.toContain('clear')
+    visitorData.invalidate(ISSUED)
+    expect(visitorData.current).toBeUndefined()
+    expect(store.log).toContain('clear')
+  })
+
   it('stops waiting for the first answer when the caller cancels', async () => {
     let answer: (() => void) | undefined
     const youtube = fakeInnerTube()

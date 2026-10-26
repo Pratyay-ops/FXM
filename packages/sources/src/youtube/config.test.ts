@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   BUNDLED_YOUTUBE_CONFIG,
   INNERTUBE_HOSTS,
+  labelsFor,
   parseYouTubeConfig,
   pickYouTubeConfig,
   type YouTubeConfig,
@@ -49,7 +50,8 @@ describe('the YouTube config', () => {
     expect(new URL(config.visitorData.swJsDataUrl).hostname).toBe('www.youtube.com')
     expect(Object.isFrozen(config)).toBe(true)
     expect(Object.isFrozen(config.clients.music)).toBe(true)
-    expect(Object.isFrozen(config.labels.itemTypes)).toBe(true)
+    expect(Object.isFrozen(config.labels.en?.itemTypes)).toBe(true)
+    expect(config.killSwitches).toEqual({ lite: false })
     expect(() => {
       ;(config.clients.music as { host: string }).host = 'evil.example'
     }).toThrow(TypeError)
@@ -87,10 +89,18 @@ describe('the YouTube config', () => {
     expect(parseError(variant(['search.music.songs', undefined]))).toContain('search.music.songs')
     expect(parseError(variant(['search.web.videos', 'a b']))).toContain('search.web.videos')
     expect(parseError(variant(['radio.params', '']))).toContain('radio.params')
-    expect(parseError(variant(['labels.albumTypes.single', 'mixtape']))).toContain(
-      'labels.albumTypes.single',
+    expect(parseError(variant(['labels.en.albumTypes.single', 'mixtape']))).toContain(
+      'labels.en.albumTypes.single',
     )
-    expect(parseError(variant(['labels.itemTypes', ['song', 3]]))).toContain('labels.itemTypes[1]')
+    expect(parseError(variant(['labels.en.itemTypes', ['song', 3]]))).toContain(
+      'labels.en.itemTypes[1]',
+    )
+    expect(parseError(variant(['labels.en', undefined]))).toContain('labels.en is required')
+    expect(
+      parseError(variant(['labels.English', { albumTypes: {}, itemTypes: [], trackCounts: [] }])),
+    ).toContain('labels.English needs a language tag')
+    expect(parseError(variant(['killSwitches.lite', 'yes']))).toContain('killSwitches.lite')
+    expect(parseError(variant(['killSwitches', []]))).toContain('killSwitches must be an object')
     expect(parseError(null)).toContain('config must be an object')
     expect(parseError([])).toContain('config must be an object')
   })
@@ -106,12 +116,37 @@ describe('the YouTube config', () => {
   it('normalizes labels to lower case', () => {
     const config = parseYouTubeConfig(
       variant(
-        ['labels.albumTypes', { Single: 'single', ' EP ': 'ep' }],
-        ['labels.itemTypes', ['Song', 'VIDEO']],
+        ['labels.en.albumTypes', { Single: 'single', ' EP ': 'ep' }],
+        ['labels.en.itemTypes', ['Song', 'VIDEO']],
       ),
     )
-    expect(config.labels.albumTypes).toEqual({ single: 'single', ep: 'ep' })
-    expect(config.labels.itemTypes).toEqual(['song', 'video'])
+    expect(config.labels.en?.albumTypes).toEqual({ single: 'single', ep: 'ep' })
+    expect(config.labels.en?.itemTypes).toEqual(['song', 'video'])
+  })
+
+  it('keeps labels by language, for the language YouTube answers in', () => {
+    const hindi = { albumTypes: { एल्बम: 'album' }, itemTypes: ['गाना'], trackCounts: ['गाने'] }
+    const brazil = { albumTypes: { álbum: 'album' }, itemTypes: ['música'], trackCounts: [] }
+    const config = parseYouTubeConfig(variant(['labels.hi', hindi], ['labels.pt-BR', brazil]))
+    expect(labelsFor(config, 'hi').itemTypes).toEqual(['गाना'])
+    expect(labelsFor(config, 'hi-IN').albumTypes).toEqual({ एल्बम: 'album' })
+    expect(labelsFor(config, 'pt-BR').itemTypes).toEqual(['música'])
+    // A language without labels of its own reads with the English ones, which many share.
+    expect(labelsFor(config, 'pt-PT')).toBe(config.labels.en)
+    expect(labelsFor(config, 'de')).toBe(config.labels.en)
+    expect(labelsFor(BUNDLED_YOUTUBE_CONFIG, 'en-GB')).toBe(BUNDLED_YOUTUBE_CONFIG.labels.en)
+  })
+
+  it('turns the Lite tier off with its kill switch, which is off without one', () => {
+    expect(parseYouTubeConfig(variant(['killSwitches.lite', true])).killSwitches).toEqual({
+      lite: true,
+    })
+    expect(parseYouTubeConfig(variant(['killSwitches', undefined])).killSwitches).toEqual({
+      lite: false,
+    })
+    expect(
+      parseYouTubeConfig(variant(['killSwitches', { lite: false, later: true }])).killSwitches,
+    ).toEqual({ lite: false })
   })
 })
 

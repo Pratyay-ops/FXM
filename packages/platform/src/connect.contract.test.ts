@@ -27,7 +27,7 @@ import {
 } from './connect'
 import { memoryStorage } from './storage'
 
-const ORIGIN = 'https://fxm-music.pages.dev'
+const ORIGIN = 'https://fxmusic.pages.dev'
 const windows: { happyDOM: { close(): Promise<void> } }[] = []
 
 afterEach(async () => {

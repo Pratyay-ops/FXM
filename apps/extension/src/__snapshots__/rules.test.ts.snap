@@ -24,7 +24,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -62,7 +62,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "options",
       ],
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "www.youtube.com",
@@ -97,7 +97,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -132,7 +132,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "www.youtube.com",
@@ -170,7 +170,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -208,7 +208,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "options",
       ],
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "music.youtube.com",
@@ -243,7 +243,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -278,7 +278,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "music.youtube.com",
@@ -316,7 +316,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -354,7 +354,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "options",
       ],
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "youtubei.googleapis.com",
@@ -389,7 +389,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -424,7 +424,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "youtubei.googleapis.com",
@@ -452,7 +452,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-expose-headers",
@@ -475,7 +475,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "options",
       ],
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "googlevideo.com",
@@ -505,7 +505,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-expose-headers",
@@ -525,7 +525,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "googlevideo.com",
@@ -563,7 +563,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -593,7 +593,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "resourceTypes": [
         "xmlhttprequest",
@@ -626,7 +626,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -656,7 +656,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "resourceTypes": [
         "xmlhttprequest",
@@ -689,7 +689,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -719,7 +719,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "clienttoken.spotify.com",
@@ -744,7 +744,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -774,7 +774,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "api-partner.spotify.com",
@@ -799,7 +799,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-methods",
@@ -829,7 +829,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "requestDomains": [
         "spclient.wg.spotify.com",
@@ -854,7 +854,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         {
           "header": "access-control-allow-origin",
           "operation": "set",
-          "value": "https://fxm-music.pages.dev",
+          "value": "https://fxmusic.pages.dev",
         },
         {
           "header": "access-control-allow-credentials",
@@ -869,7 +869,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     },
     "condition": {
       "initiatorDomains": [
-        "fxm-music.pages.dev",
+        "fxmusic.pages.dev",
       ],
       "resourceTypes": [
         "xmlhttprequest",
