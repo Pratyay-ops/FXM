@@ -13,9 +13,14 @@
  * - a load the player still waits for is loaded on the direct audio engine, where it had got to,
  *   and plays if the player had asked it to play; a load the native engine failed or ended is the
  *   player's to handle, and it retries or moves on through the direct audio engine;
- * - the volume, the mute and what was preloaded carry over;
+ * - the volume, the mute, the audio effects, the speed and what was preloaded carry over;
  * - the native engine's events stop counting, and it is destroyed;
  * - {@link AndroidEngine.network} goes from Android's callbacks to the WebView's events.
+ *
+ * The audio effects' optional members (stage 8.1) are those of the engine it plays through, as
+ * the player asks which ones there are: Media3 runs the equalizer, loudness normalization, the
+ * speed and the sleep timer, which keeps time there with the screen off; the direct audio engine
+ * also crossfades and fades, and leaves the sleep timer to the player.
  *
  * @module
  */
@@ -26,8 +31,10 @@ import {
   DirectAudioEngine,
   type DisposableNetworkMonitor,
   type Engine,
+  type EngineEffects,
   type EngineEventMap,
   type EngineEventType,
+  type EngineSleepTimer,
   type NativeConnection,
   type NativeConnectOptions,
   type NativeEngine,
@@ -128,12 +135,25 @@ export class AndroidEngine implements Engine {
   #preloaded: PlaybackSource | null = null
   #volume = 1
   #muted = false
+  /** The audio effects the player set last, for the engine it falls back to. */
+  #effects: EngineEffects | undefined
+  /** The speed the player set last, for the engine it falls back to. */
+  #playbackRate: number | undefined
   #destroyed = false
+
+  // The engine's own when it has them, else left out (see the module documentation and #follow).
+  declare setEffects?: (effects: EngineEffects) => void
+  declare setPlaybackRate?: (rate: number) => void
+  declare crossfade?: (source: PlaybackSource, durationMs: number) => boolean
+  declare canSetVolume?: () => boolean
+  declare fadeOutput?: (gain: number, durationMs: number) => void
+  declare setSleepTimer?: (timer: EngineSleepTimer | null) => void
 
   /** Plays through `native` until {@link fallBack}. */
   constructor(native: NativeEngine, options: AndroidEngineOptions = {}) {
     this.#native = native
     this.#engine = native
+    this.#follow(native)
     this.#createFallback = options.createFallback ?? (() => new DirectAudioEngine())
     this.#createNetwork = options.createNetwork ?? (() => createBrowserNetworkMonitor())
     this.#network = new FollowingNetwork(native.network)
@@ -206,6 +226,7 @@ export class AndroidEngine implements Engine {
     this.#native = undefined
     const engine = this.#createFallback()
     this.#engine = engine
+    this.#follow(engine)
     for (const registration of this.#registrations) {
       registration.off()
       registration.off = engine.on(registration.type, registration.listener)
@@ -214,6 +235,10 @@ export class AndroidEngine implements Engine {
     this.#network.replace(this.#createNetwork())
     engine.setVolume(this.#volume)
     engine.setMuted(this.#muted)
+    // The player doesn't set them again. A sleep timer Media3 kept goes with it: the player's
+    // own deadline pauses then, without the fade.
+    if (this.#effects !== undefined) engine.setEffects?.(this.#effects)
+    if (this.#playbackRate !== undefined) engine.setPlaybackRate?.(this.#playbackRate)
     const pending = this.#pending
     if (pending !== undefined) {
       const { source, positionMs, playing } = pending
@@ -298,5 +323,34 @@ export class AndroidEngine implements Engine {
 
   #setPlaying(playing: boolean): void {
     if (this.#pending !== undefined) this.#pending.playing = playing
+  }
+
+  /**
+   * Takes on the audio effects' optional members of `engine`, which it plays through from now
+   * on: each passes the call on, and what the engine leaves out is left out here too.
+   */
+  #follow(engine: Engine): void {
+    if (engine.setEffects === undefined) delete this.setEffects
+    else {
+      this.setEffects = (effects) => {
+        this.#effects = effects
+        engine.setEffects?.(effects)
+      }
+    }
+    if (engine.setPlaybackRate === undefined) delete this.setPlaybackRate
+    else {
+      this.setPlaybackRate = (rate) => {
+        this.#playbackRate = rate
+        engine.setPlaybackRate?.(rate)
+      }
+    }
+    if (engine.crossfade === undefined) delete this.crossfade
+    else this.crossfade = (source, durationMs) => engine.crossfade?.(source, durationMs) ?? false
+    if (engine.canSetVolume === undefined) delete this.canSetVolume
+    else this.canSetVolume = () => engine.canSetVolume?.() ?? true
+    if (engine.fadeOutput === undefined) delete this.fadeOutput
+    else this.fadeOutput = (gain, durationMs) => engine.fadeOutput?.(gain, durationMs)
+    if (engine.setSleepTimer === undefined) delete this.setSleepTimer
+    else this.setSleepTimer = (timer) => engine.setSleepTimer?.(timer)
   }
 }

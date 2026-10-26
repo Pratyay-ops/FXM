@@ -1,4 +1,9 @@
-import { currentQueueItem } from '@fxm/core'
+import {
+  type AudioEffectsSettings,
+  currentQueueItem,
+  DEFAULT_AUDIO_EFFECTS,
+  equalizerPreset,
+} from '@fxm/core'
 import { type DisposableNetworkMonitor, type Engine, NativeEngine, Player } from '@fxm/player'
 import {
   createFakeFxmPlayer,
@@ -104,6 +109,15 @@ function source(title: string, uid: number) {
 
 const titleOf = (player: Player) => currentQueueItem(player.getState().queue)?.track.title
 
+const ROCK = equalizerPreset('rock').gainsDb
+
+/** Audio effects the user chose (stage 8.1): the rock preset, a little faster. */
+const ROCK_FASTER: AudioEffectsSettings = {
+  ...DEFAULT_AUDIO_EFFECTS,
+  equalizer: { enabled: true, gainsDb: ROCK, preset: 'rock' },
+  playbackRate: 1.25,
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -171,6 +185,59 @@ describe('AndroidEngine', () => {
     player.destroy()
     expect(fallback.destroyed).toBe(true)
     expect(network.destroyed).toBe(true)
+  })
+
+  it('hands the audio effects and the sleep timer to Media3 while its service is there', async () => {
+    const plugin = createFakeFxmPlayer()
+    const { engine, player, resolver } = androidPlayer(plugin)
+    const connection = await engine.connect({ player, resolver })
+    player.setAudioEffects(ROCK_FASTER)
+    player.setSleepTimer({ endOfTrack: true })
+    await settle()
+    expect(plugin.calls.filter((call) => call.startsWith('setEffects')).at(-1)).toBe(
+      `setEffects:eq=${ROCK.join(',')} loudness=-14 speed=1.25`,
+    )
+    // Media3 keeps the sleep timer's time, also while the page doesn't run.
+    expect(plugin.calls).toContain('setSleepTimer:end')
+    expect(player.getState().playbackRate).toBe(1.25)
+    // No crossfade there: the player crosses tracks gapless.
+    expect(player.effectsSupport()).toEqual({
+      effects: true,
+      playbackRate: true,
+      crossfade: false,
+      volume: true,
+    })
+    connection.disconnect()
+    player.destroy()
+  })
+
+  it('carries the audio effects over to the direct audio engine, which crossfades', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { plugin } = unboundPlugin()
+    const { engine, fallback, player, resolver } = androidPlayer(plugin)
+    player.setAudioEffects(ROCK_FASTER)
+    await expect(engine.connect({ player, resolver })).rejects.toMatchObject({
+      code: 'Unavailable',
+    })
+
+    // The player set them on Media3, once: the WebView's engine has them too.
+    expect(fallback.effects).toEqual({
+      equalizer: ROCK_FASTER.equalizer,
+      loudness: ROCK_FASTER.loudness,
+    })
+    expect(fallback.playbackRate).toBe(1.25)
+    expect(player.getState().effects.equalizer).toBe('on')
+    // It crossfades and fades, and leaves the sleep timer's time to the player.
+    expect(player.effectsSupport()).toEqual({
+      effects: true,
+      playbackRate: true,
+      crossfade: true,
+      volume: true,
+    })
+    expect(engine.setSleepTimer).toBeUndefined()
+    engine.fadeOutput?.(0.5, 0)
+    expect(fallback.outputGain).toBe(0.5)
+    player.destroy()
   })
 
   it('loads what the player waits for where it had got to, and plays it if it played', async () => {

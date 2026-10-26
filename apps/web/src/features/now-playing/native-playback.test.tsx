@@ -1,3 +1,4 @@
+import { equalizerPreset } from '@fxm/core'
 import { NativeEngine } from '@fxm/player'
 import {
   createFakeFxmPlayer,
@@ -6,6 +7,7 @@ import {
   testTracks,
 } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useAudioEffectsStore } from '../audio-effects/effects-store'
 import { configurePlayback, getPlayback, resetPlayback } from './playback'
 import { FakePolicy, setupTestPlayback } from './testing'
 
@@ -145,6 +147,19 @@ describe('the app’s playback in the Android app', () => {
     plugin.changeNetwork(true)
     stop?.()
     expect(changes).toEqual([true])
+  })
+
+  it('applies the audio effects the user sets through Media3 (stage 8.1)', async () => {
+    const plugin = createFakeFxmPlayer()
+    const playback = nativePlayback(plugin)
+    await playback.ready
+    useAudioEffectsStore.getState().applyEqualizerPreset('rock')
+    useAudioEffectsStore.getState().setPlaybackRate(1.25)
+    await settle()
+    expect(plugin.calls.filter((call) => call.startsWith('setEffects')).at(-1)).toBe(
+      `setEffects:eq=${equalizerPreset('rock').gainsDb.join(',')} loudness=-14 speed=1.25`,
+    )
+    expect(playback.player.getState().playbackRate).toBe(1.25)
   })
 
   it('plays in the WebView when Media3’s service can’t be bound', async () => {
