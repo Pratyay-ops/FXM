@@ -26,8 +26,8 @@ const PLAN_APP_POLICY =
 
 /** That policy with the hosts of the stages that shipped after it: 8.4's library sync. */
 const APP_POLICY = PLAN_APP_POLICY.replace(
-  'https://lrclib.net;',
-  'https://lrclib.net https://api.github.com;',
+  'https://sponsor.ajay.app;',
+  'https://sponsor.ajay.app https://api.github.com;',
 )
 
 describe('csp helpers', () => {
@@ -78,15 +78,12 @@ describe('the web app policy', () => {
     const policy = parsePolicy(
       serializePolicy(
         appPolicy([HASH], {
-          services: [
-            ...APP_SERVICES,
-            { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
-          ],
+          services: [...APP_SERVICES, { privacyName: 'Later', connect: ['https://later.example'] }],
           scriptExtras: [WASM_UNSAFE_EVAL],
         }),
       ),
     )
-    expect(policy.get('connect-src')?.at(-1)).toBe('https://sponsor.ajay.app')
+    expect(policy.get('connect-src')?.at(-1)).toBe('https://later.example')
     expect(policy.get('script-src')).toEqual(["'self'", HASH, WASM_UNSAFE_EVAL])
   })
 
