@@ -2,12 +2,23 @@ import { fileURLToPath } from 'node:url'
 
 // What the browser tests run against. playwright.config.ts builds apps/web and serves it with
 // `vite preview`; flows/playwright.config.ts serves `make dist`'s dist/pages the way Cloudflare
-// Pages does, with its real `_headers`, and sets FXM_E2E_TARGET=pages. The specs both configs
-// run read this, rather than guess from the URL.
+// Pages does, with its real `_headers`, and sets FXM_E2E_TARGET=pages. With FXM_E2E_BASE_URL,
+// playwright.config.ts tests a server that is up already, which is `make dist`'s folder served by
+// the Pages stand-in (`scripts/run.sh pnpm --filter @fxm/deploy preview`) unless
+// FXM_E2E_TARGET=preview says it is a `vite preview`. The specs read this, rather than guess from
+// the URL.
 
 /** `pages` for `make dist` served like Cloudflare Pages, `preview` for `vite preview`. */
-export const TARGET: 'pages' | 'preview' =
-  process.env.FXM_E2E_TARGET === 'pages' ? 'pages' : 'preview'
+export const TARGET: 'pages' | 'preview' = target(process.env)
+
+/** The target the environment names: FXM_E2E_TARGET, else `pages` for a server that is up. */
+export function target(env: Readonly<Record<string, string | undefined>>): 'pages' | 'preview' {
+  if (env.FXM_E2E_TARGET === 'pages' || env.FXM_E2E_TARGET === 'preview') return env.FXM_E2E_TARGET
+  if (env.FXM_E2E_TARGET !== undefined && env.FXM_E2E_TARGET !== '') {
+    throw new Error(`FXM_E2E_TARGET is ${env.FXM_E2E_TARGET}: use pages or preview`)
+  }
+  return env.FXM_E2E_BASE_URL === undefined || env.FXM_E2E_BASE_URL === '' ? 'preview' : 'pages'
+}
 
 /** The repository root. */
 export const REPOSITORY_ROOT = fileURLToPath(new URL('../../../', import.meta.url))

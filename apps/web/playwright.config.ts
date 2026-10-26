@@ -6,7 +6,10 @@ import { defineConfig, devices } from '@playwright/test'
 // testing that server. Set FXM_E2E_PORT to pick a free port. FXM_E2E_BASE_URL runs them
 // against a server that is up already instead, such as make dist's folder served like
 // Cloudflare Pages, with its real headers (scripts/build-dist, `preview`):
-// FXM_E2E_BASE_URL=http://127.0.0.1:5800/app/.
+// FXM_E2E_BASE_URL=http://127.0.0.1:5800/app/. The specs then take it for make dist's
+// dist/pages (or FXM_PAGES_DIR): it serves the sandbox documents, and the PWA tests publish
+// new versions of its app/sw.js. FXM_E2E_TARGET=preview says it is a `vite preview` instead
+// (e2e/target.ts).
 const port = Number(process.env.FXM_E2E_PORT ?? 4173)
 const external = process.env.FXM_E2E_BASE_URL
 const baseURL = external ?? `http://localhost:${port}/app/`

@@ -21,6 +21,9 @@ import { FIXTURES, stubNetwork } from './fake-services'
 //   FXM_PREVIEW_PORT=5800 scripts/run.sh pnpm --filter @fxm/deploy preview   # in another terminal
 //   FXM_E2E_BASE_URL=http://127.0.0.1:5800/app/ \
 //     scripts/run.sh pnpm --filter @fxm/web exec playwright test save
+//
+// It is a critical flow (tagged @flow), so the E2E workflow runs it on every push against make
+// dist with the core that deploys (e2e/flows/), and so does `make e2e` once a core is built.
 
 /** The Internet Archive item without its FLAC and Ogg files: the download is then an MP3. */
 function mp3Only(fixtures: FakeNetworkFixtures): FakeNetworkFixtures {
@@ -88,9 +91,9 @@ function streamInfo(bytes: Uint8Array): { sampleRate: number; samples: number } 
   return { sampleRate, samples }
 }
 
-test('saves a downloaded song as FLAC, converted on the device by the ffmpeg core', async ({
-  page,
-}) => {
+test('saves a downloaded song as FLAC, converted on the device by the ffmpeg core', {
+  tag: '@flow',
+}, async ({ page }) => {
   test.setTimeout(120_000)
   const core = await page.request.get('ffmpeg/ffmpeg-core.json')
   test.skip(!core.ok(), 'no ffmpeg core is served here: build one with make ffmpeg-wasm')

@@ -4,11 +4,13 @@ Playwright tests of the web app in Chromium, headless and muted. None of them is
 
 | What | Against | Run with | In CI |
 |---|---|---|---|
-| The specs in this folder (`*.spec.ts`): smoke, Now playing, the tiers, playback, downloads, local files, SponsorBlock, the PWA, screenshots | `vite preview` of this checkout, built with the development fakes (`playwright.config.ts`) | `scripts/run.sh pnpm --filter @fxm/web e2e` ([apps/web/README.md](../README.md#run-it)) | no |
+| The specs in this folder (`*.spec.ts`): smoke, Now playing, the tiers, playback, downloads, saving in another format, local files, SponsorBlock, the PWA, screenshots | `vite preview` of this checkout, built with the development fakes (`playwright.config.ts`); with `FXM_E2E_BASE_URL`, a server that is up already instead (below) | `scripts/run.sh pnpm --filter @fxm/web e2e` ([apps/web/README.md](../README.md#run-it)) | no |
 | **The critical flows** (`flows/*.e2e.ts`, plus the specs' tests tagged `@flow`) | `make dist`'s `dist/pages`, served the way Cloudflare Pages serves it, with its real `_headers` (`flows/playwright.config.ts`) | `make e2e` | the E2E workflow |
 | **The performance budgets** (`budgets/*.budget.ts`) | the same `make dist` output, and the bundle inventory it keeps in `dist/inventory/` | `make budgets` | the E2E workflow |
 
-The embeddable player has its own browser tests in `embed/` (`e2e:embed`, [src/embed/README.md](../src/embed/README.md#tests)).
+The embeddable player has its own browser tests in `embed/` (`e2e:embed`, [src/embed/README.md](../src/embed/README.md#tests)), and the Spotify account in `spotify-account/` (`e2e:spotify-account`, [its README](../src/features/spotify-account/README.md#tests)).
+
+`e2e/target.ts` tells a spec which server it runs against: `vite preview`, or `make dist`'s `dist/pages` served like Cloudflare Pages, which serves the sandbox documents itself and whose `app/sw.js` the PWA tests publish new versions of. The flows' config says `pages`. So does `FXM_E2E_BASE_URL`, which points the specs at a server that is up already, such as `scripts/run.sh pnpm --filter @fxm/deploy preview` serving `make dist` on port 5800 (`FXM_PAGES_DIR` when it serves another folder); `FXM_E2E_TARGET=preview` says that server is a `vite preview` instead.
 
 Every run is offline but for this machine: Chromium resolves no other host (`--host-resolver-rules`), and every request that leaves the app's origin is answered by the test, from the providers' recorded fixtures (`fake-services.ts` and the composition root's fake network, `src/app/services/testing/fake-network.ts`), so a request no test answers fails instead of reaching a music service. Nothing makes a sound: Chromium runs with `--mute-audio`, and the media elements the app plays are muted too (`trackMediaElements` in `playing.ts`). Playback is proven by the media element, never by ear: a `playing` event, a position past the start, and time in its `played` ranges, which only real playback adds.
 
@@ -19,7 +21,7 @@ Every run is offline but for this machine: Chromium resolves no other host (`--h
 ```sh
 make e2e                                                                    # make dist, then every flow
 scripts/run.sh pnpm --filter @fxm/web e2e:flows                             # the flows only, against the last make dist
-scripts/run.sh pnpm --filter @fxm/web e2e:flows -- library                  # one file
+scripts/run.sh pnpm --filter @fxm/web e2e:flows library                     # one file
 scripts/run.sh pnpm --filter @fxm/web exec playwright show-trace test-results/flows/<test>/trace.zip
 ```
 
@@ -28,7 +30,7 @@ Against `make dist` the app runs under its deployed policies, the Lite tier fram
 | Flow | Test | What it proves |
 |---|---|---|
 | First visit and onboarding, each tier | `connect.spec.ts`, "the tiers" | Full (a fake FXM Connect): no Lite check, no notice. Lite (the real sandbox document; InnerTube answers its opaque origin): one CORS-simple check, marked experimental, the onboarding page and Home's intro. Free (YouTube refuses the sandbox): what is missing and how to add FXM Connect |
-| | `playback.spec.ts`, Full and Lite | The shell paints at once and never offers the install while FXM Connect, or a slow Lite check, answers late |
+| | `playback.spec.ts`, Full and Lite | The shell paints at once and never offers the install while FXM Connect answers late, also where Lite's check passes before it does, or while a slow Lite check answers |
 | Search and play, YouTube Music through the stream ladder | `playback.spec.ts` | Full: VISIONOS after the end-of-file probes, Next, and the next song when one ends. Lite: every InnerTube call from the sandbox document, no probe |
 | | `flows/ladder.e2e.ts` | The top rung capped: Full's probe meets the cap and itag 18 (ANDROID) plays after its own probe; in Lite the media element's refused request is the probe, and itag 18 plays |
 | Search and play, Internet Archive | `playback.spec.ts`, Free | A phone in the Free tier plays Internet Archive's tracks, then the next one, and never contacts YouTube beyond the refused Lite check |
@@ -41,29 +43,30 @@ Against `make dist` the app runs under its deployed policies, the Lite tier fram
 | Home's shelves | `flows/home.e2e.ts` | A first visit picks artists, Home builds Quick picks and the other shelves from the recommendation sources' recorded answers, and a song plays from a shelf |
 | A download in its original format | `flows/downloads.e2e.ts` | Internet Archive's FLAC lands in the Origin Private File System byte for byte, labelled FLAC, and plays from there while Internet Archive no longer answers |
 | | `downloads.spec.ts` | A YouTube download left unfinished continues when FXM Connect answers late |
-| An M3U import | `flows/import.e2e.ts` | The playlist exists at once, its songs are matched on YouTube Music in the background, the sure match is confirmed in one tap and the unknown song skipped |
+| | `save.spec.ts` | Not a flow of the brief, but the check behind the site's offer of conversions (stage 4.2): a downloaded MP3 saved as FLAC from its "Save to device…", converted on the device by the ffmpeg core that deploys, under the deployed policies. Skipped where no core is served, as by a `make dist` without `make ffmpeg-wasm`; CI always has one |
+| An M3U import | `flows/import.e2e.ts` | The playlist exists at once, its songs are matched on YouTube Music in the background, the sure match is confirmed in one tap, and the song nothing matches is skipped, which the report counts |
 | Settings across a reload | `smoke.spec.ts` | The catalog mode and the theme |
 | The PWA's update toast | `pwa.spec.ts` | The service worker controls `/app/` and the shell opens offline; a new version waits for the user, and Reload brings it in |
 | The embed on another site | `flows/embed.e2e.ts` | The deployed embed, with the real providers, inside a page on another origin: it plays a YouTube Music song in Lite through the sandbox document nested in it, says so to the page, and violates none of the `/embed/*` policy |
 
 A test in a spec is a critical flow when it is tagged `@flow` (`test('…', { tag: '@flow' }, …)`); the flows config runs those tests too (project `specs`), and `e2e/target.ts` tells a spec which server it runs against. Add a flow by tagging a spec's test when that test already covers it, or with a file in `flows/` when none does.
 
-**Found and fixed by the flows (2026-10-26):** against `make dist`, which serves the sandbox document, Lite's check can pass before FXM Connect answers, so for a moment the tier is Lite. The search page then showed the Lite note's "Get FXM Connect" to a browser that has it (`playback.spec.ts`, "paints the shell at once, and never offers the install, when FXM Connect answers late"). The note now waits while the sources say `detecting` (`features/search/catalog/lite-note.tsx`).
+**Found and fixed by the flows (2026-10-26):** against `make dist`, which serves the sandbox document, Lite's check can pass before FXM Connect answers, so for a moment the tier is Lite. The search page then showed the Lite note's "Get FXM Connect" to a browser that has it. The note now waits while the sources say `detecting` (`features/search/catalog/lite-note.tsx`), and `playback.spec.ts` keeps that race as a test of its own on both servers ("never offers the install when Lite's check passes before FXM Connect answers"; without the fix it fails every time). The test of the shell's first paint with a late FXM Connect refuses Lite's check instead, so that its tier can only come from FXM Connect on either server.
 
 ## Performance budgets
 
-`make budgets` runs `make dist`, then measures its app and fails when a number is over its budget (`budgets/budgets.ts`). Each run prints a table, attaches the numbers to the test as JSON, and in CI adds the tables to the job summary.
+`make budgets` runs `make dist`, then measures its app and fails when a number is over its budget (`budgets/budgets.ts`). Each run prints a table, writes the numbers with every file and path they count as JSON (`test-results/budgets/<test>/chunks.json` and `first-visit.json`, attached to the tests too), and in CI adds the tables to the job summary. One file: `scripts/run.sh pnpm --filter @fxm/web budgets chunks` (or `visit`), against the last `make dist`.
 
 | Budget | What is measured | How |
 |---|---|---|
 | `entry` | The entry chunk, the script `index.html` starts | The file, compressed as Cloudflare serves it |
 | `initial` | Everything `index.html` loads before the app runs: the entry chunk, the chunks it imports (transitively) and the stylesheet | make dist's bundle inventory, which lists each chunk's modules and imports |
-| `youtube` | What the YouTube provider adds to the first load: its chunk, the stream resolver's module host and youtubei.js, which the provider loads with `import()`, with the chunks they import that the first load doesn't | The same, from the modules that start each feature (`GROUPS`); a feature whose root moves into the entry chunk fails the run, so it can't stop loading lazily unnoticed |
+| `youtube` | What the YouTube provider adds to the first load: its chunk, the stream resolver's module host and youtubei.js, which the provider loads with `import()`, with the chunks they import that the first load doesn't | The same, from the modules that start each feature (`GROUPS`). A root in the first load fails the run, whether in the entry chunk or in a chunk the entry imports (as when the shell imports a lazy page's module: Rolldown then gives it a chunk of its own), so a feature can't stop loading lazily unnoticed |
 | `home` | Home's shelves and onboarding, which the Home page loads after the shell | The same |
-| `downloads` | The download queue, its database and the worker that writes the files | The same. Today the queue's code is in the first load (`features/downloads/hooks.ts` and `menu.ts` import it into the shell), so it counts in `initial` too |
+| `downloads` | The download queue, its database and the worker that writes the files | The same. Today the queue's code is in the first load (`features/downloads/hooks.ts`, `menu.ts` and the library's track lists import it into the shell), so it counts in `initial` too. The group lists those two roots in `inFirstLoad`, the one exception to the rule above; the worker must stay lazy, and once the queue loads lazily, the run fails until they come off the list, so it can't come back unnoticed |
 | `firstLoad` | A first visit of `/app/` until the network is idle, without the service worker | The bytes the server sent, in Chromium |
 | `firstVisit` | The same visit with the service worker, whose install downloads the whole app shell for offline use | The same |
-| `lcp`, `cls`, `inp` | Largest Contentful Paint of that visit, Cumulative Layout Shift and Interaction to Next Paint of it and of a few taps and some typing after it (Search, the search box, Settings, the theme twice, Library, Home) | The browser's own performance entries, computed as web-vitals does (`budgets/vitals.ts`); the median of five visits |
+| `lcp`, `cls`, `inp` | Largest Contentful Paint of that visit, Cumulative Layout Shift and Interaction to Next Paint of it and of a few taps and some typing after it (Search, the search box, Settings, the theme twice, Library, Home) | The browser's own performance entries, computed as web-vitals does (`budgets/vitals.ts`); the median of seven visits |
 
 **Sizes are bytes on the wire.** Cloudflare Pages compresses on the fly: on 2026-10-26 the app's 442,397-byte entry chunk came from `develop.fxmusic.pages.dev` as 137,475 bytes of brotli, which brotli at quality 4 matches (137,452 bytes; quality 5 gives 129,199, gzip -9 138,391). So the budgets count brotli at quality 4.
 
@@ -92,8 +95,8 @@ The largest paint is the intro of Home's first-visit content in the Free tier (`
 
 ### When a budget fails
 
-Look at what grew: the table names the files of each budget, and the JSON attached to the test lists every one. Keep code out of the first load with `import()`, and out of a feature's chunk if it doesn't need it. If the growth is worth it, raise the budget in `budgets/budgets.ts` and the baseline above in the same change, and say why in the commit. When a feature's root module moves or is renamed, update `GROUPS`.
+Look at what grew: the table names the files of each budget, and its JSON (above; in CI, in the `playwright-results` artifact of the failed run) lists every file and path with its size, the largest first. Keep code out of the first load with `import()`, and out of a feature's chunk if it doesn't need it. If the growth is worth it, raise the budget in `budgets/budgets.ts` and the baseline above in the same change, and say why in the commit. When a feature's root module moves or is renamed, update `GROUPS`.
 
 ## In CI
 
-`.github/workflows/e2e.yml` runs on every push and pull request, apart from `make check` (`ci.yml`), so that stays fast: `make dist`, Playwright's Chromium (the runner has the libraries it needs), the flows, then the budgets, which run even when a flow failed so both report. Its time budget: 15 minutes for the flows and 12 for the budgets as step limits, Playwright's own limits of 12 and 10 minutes inside them, and 30 for the job. Each failed test is retried once, in CI only; a test that needs the retry is reported as flaky. On a failure the job uploads `apps/web/test-results/`, with the traces of the flows.
+`.github/workflows/e2e.yml` runs on every push and pull request, apart from `make check` (`ci.yml`), so that stays fast. Its first job gets stage 4.2's ffmpeg core the way `deploy.yml` does (`ffmpeg-wasm.yml`, from the cache while its recipe is unchanged), so `make dist` composes the app that deploys, core included; then the second runs `make dist`, installs Playwright's Chromium (the runner has the libraries it needs), and runs the flows, then the budgets, which run even when a flow failed so both report. Its time budget: 15 minutes for the flows and 12 for the budgets as step limits, Playwright's own limits of 12 and 10 minutes inside them, and 30 for the job. A failed flow is retried once, in CI only, and one that needs the retry is reported as flaky; a budget is never retried, so a number over its budget fails the job. On a failure the job uploads `apps/web/test-results/`, with the traces of the flows and the budgets' JSON.

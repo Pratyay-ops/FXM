@@ -55,8 +55,15 @@ test('imports an M3U playlist, matches its songs and keeps what the user confirm
   await confirm.click()
   await expect(page.getByText('Confirmed 1 likely match.')).toBeVisible()
 
-  // Nothing matches the other song: it is skipped.
+  // Nothing matches the other song: it is skipped, and the report counts it so.
   await page.getByRole('button', { name: 'Skip A Song Nobody Ever Wrote' }).click()
+  await expect(page.getByText('Skipped “A Song Nobody Ever Wrote”')).toBeVisible()
+  await expect(
+    page.getByRole('listitem').filter({
+      has: page.getByRole('button', { name: 'Undo: A Song Nobody Ever Wrote' }),
+    }),
+  ).toContainText('A Song Nobody Ever Wrote · Skipped')
+  await expect(page.getByText(/\b1 song skipped\b/u)).toBeVisible()
 
   // YouTube Music was searched for both songs, and the playlist holds the confirmed one.
   const searches = network.requests.filter((request) => request.url.includes('/youtubei/v1/search'))

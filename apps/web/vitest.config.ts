@@ -2,15 +2,16 @@ import react from '@vitejs/plugin-react'
 import { defineProject } from 'vitest/config'
 
 // Picked up by the root vitest.config.ts (`projects: ['apps/*', …]`), so `make test`
-// runs these tests. Playwright specs in e2e/ are deliberately outside `include`; the unit tests
-// of the performance budgets' arithmetic (e2e/budgets/*.test.ts) are in it.
+// runs these tests. Playwright's tests in e2e/ (*.spec.ts, *.e2e.ts, *.budget.ts) are deliberately
+// outside `include`; the unit tests of their helpers and of the performance budgets' arithmetic
+// (e2e/**/*.test.ts) are in it.
 export default defineProject({
   plugins: [react()],
   test: {
     name: 'web',
     environment: 'happy-dom',
     // pwa/ holds the build-time PWA config (manifest, service worker options, icons).
-    include: ['src/**/*.test.{ts,tsx}', 'pwa/**/*.test.ts', 'e2e/budgets/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'pwa/**/*.test.ts', 'e2e/**/*.test.ts'],
     setupFiles: ['./src/test/setup.ts'],
     // The build without Jamendo's public client_id, as deployed until the owner sets one
     // (src/lib/free-sources.ts): a test that wants Jamendo stubs the variable.

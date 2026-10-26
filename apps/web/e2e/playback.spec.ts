@@ -24,7 +24,8 @@ import {
 // The Lite tier runs the real sandbox document of stage 1.10 (apps/web/sandbox/innertube.html),
 // which the deploy serves at /sandbox/ and `vite preview` doesn't, so its test serves it there.
 // The shell never waits for the services: with an FXM Connect that answers late, it paints at once
-// and says it is connecting, rather than offering the install.
+// and says it is connecting, rather than offering the install, even where Lite's check passes
+// before FXM Connect answers.
 //
 // These are critical flows (tagged @flow), so they also run against `make dist` served like
 // Cloudflare Pages (e2e/flows/), where the deployed sandbox document comes with its own policy.
@@ -104,6 +105,10 @@ test.describe('the Full tier (FXM Connect)', { tag: '@flow' }, () => {
   }) => {
     const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(TRACK_SECONDS) })
     await stubNetwork(page, network)
+    // Only FXM Connect can make this the Full tier. Where the server serves the sandbox document
+    // (make dist), Lite's check would otherwise pass first and the search run through it, before
+    // FXM Connect answered.
+    await refuseLite(page)
     await watchShell(page)
     // Later than the platform's 800 ms wait for the answer.
     await installFakeConnect(page, { pongDelayMs: 1500 })
@@ -115,6 +120,10 @@ test.describe('the Full tier (FXM Connect)', { tag: '@flow' }, () => {
     await expect(songs.getByRole('button', { name: /^Play / }).first()).toBeVisible({
       timeout: 10_000,
     })
+    // The results came from the Full tier, so FXM Connect has answered by now.
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as PageRecord).fxmPongAt))
+      .toBeDefined()
     const record = await page.evaluate(() => {
       const { fxmFirstRender, fxmSawInstallPitch, fxmPongAt } = window as unknown as PageRecord
       const [navigation] = performance.getEntriesByType('navigation')
@@ -129,6 +138,41 @@ test.describe('the Full tier (FXM Connect)', { tag: '@flow' }, () => {
     expect(record.fxmPongAt).toBeDefined()
     expect((record.fxmFirstRender ?? 0) - (record.ready ?? 0)).toBeLessThan(600)
     expect(record.fxmFirstRender ?? 0).toBeLessThan(record.fxmPongAt ?? 0)
+  })
+
+  test("never offers the install when Lite's check passes before FXM Connect answers", async ({
+    page,
+  }) => {
+    const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(TRACK_SECONDS) })
+    await stubNetwork(page, network)
+    // The sandbox document answers at once, FXM Connect after 1.5 s: Lite's check usually passes
+    // first, and the tier is Lite for a moment while the sources still wait for FXM Connect.
+    await serveSandbox(page)
+    await watchShell(page)
+    await installFakeConnect(page, { pongDelayMs: 1500 })
+
+    await page.goto('search?q=radiohead%20creep')
+    const songs = page.getByRole('list', { name: 'Songs' })
+    await expect(songs.getByRole('button', { name: /^Play / }).first()).toBeVisible({
+      timeout: 15_000,
+    })
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as PageRecord).fxmPongAt))
+      .toBeDefined()
+    // Then the Full tier: a YouTube song can be downloaded, which Lite can't offer.
+    await expect(async () => {
+      await page.keyboard.press('Escape')
+      await songs
+        .getByRole('button', { name: /^More options for / })
+        .first()
+        .click()
+      await expect(page.getByRole('menuitem', { name: 'Download' })).toBeVisible({ timeout: 1000 })
+    }).toPass({ timeout: 15_000 })
+    await page.keyboard.press('Escape')
+    // The Lite note's "Get FXM Connect" never showed to this browser, which has it.
+    expect(await page.evaluate(() => (window as unknown as PageRecord).fxmSawInstallPitch)).toBe(
+      false,
+    )
   })
 
   test('Home never offers the install while FXM Connect answers late', async ({ page }) => {

@@ -8,8 +8,9 @@ import { type MediaRecord, nowPlaying, trackMediaElements } from '../playing'
 // A download in its original format (stage 4.1), in the Free tier, where Internet Archive's files
 // can be downloaded: the item's FLAC file (served as a real FLAC stream of silence) lands in the
 // Origin Private File System byte for byte, its record says FLAC, and the song then plays from
-// that copy while Internet Archive no longer answers. Stage 4.2's conversions aren't released, so
-// the original is the only format offered.
+// that copy while Internet Archive no longer answers. Download always keeps the original; stage
+// 4.2's conversions make a copy in another format afterwards, from the downloaded song's "Save to
+// device…" (e2e/save.spec.ts).
 
 const FLAC = flacFile({ tags: { title: '1 Ghosts I', artists: ['Nine Inch Nails'] }, frames: 80 })
 const SONG = '1 Ghosts I'
