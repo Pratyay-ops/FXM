@@ -6,9 +6,9 @@
 
 - **Play practically any song** from YouTube Music, ad-free, streamed straight to your device. There are two modes:
   - **Music:** songs only, from any source: YouTube Music's clean album audio, free music from Internet Archive (Jamendo coming soon), and your own files.
-  - **Music + Video:** also any YouTube video (covers, live sets, remixes), played as music.
+  - **Music + Video:** also any YouTube video (covers, live sets, remixes), played as music, with opt-in SponsorBlock to skip the parts of music videos that aren't music.
 - **Spotify built in, switchable.** Search Spotify's catalog, see related artists, and get its recommendations on your home feed and in endless radio. Connect your account for a read-only sync of your recommendations, liked songs and playlists (coming soon): FXM never changes your Spotify account. Turn Spotify off any time.
-- **Your library, on your device.** Likes, playlists in an order you choose, your listening history and backups, plus your own music files, synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account. If you turn on sync, a copy also goes to a secret gist on your own GitHub account, so your other devices can read it.
+- **Your library, on your device.** Likes, playlists in an order you choose, your listening history and backups, plus your own music files, synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account. Import playlists, liked songs and listening history from Spotify's data download, CSV and M3U files, and Spotify or YouTube links. If you turn on sync, a copy also goes to a secret gist on your own GitHub account, so your other devices can read it.
 - **Made for you.** A home feed with quick picks and daily mixes, computed on your device from YouTube Music radio, Spotify, Last.fm and ListenBrainz, and endless radio: when your queue runs low, FXM adds songs like the ones you just played, until you switch it off.
 - **Download any track** for offline listening, as the file its source has: real lossless FLAC where the source has it (Internet Archive), Opus or AAC from YouTube Music (with FXM Connect in the browser). Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags, cover art and honest labels (coming soon).
 - **No servers, no accounts, no tracking.** Everything runs on your device. In the browser, the small **FXM Connect** extension lets the web app reach YouTube Music and Spotify from your own browser; without it, the web app plays free music from Internet Archive, your own files, and YouTube Music in the experimental Lite tier where the browser allows it. The desktop app (macOS, Windows and Linux) and the Android app (both coming soon) won't need the extension.
@@ -22,6 +22,7 @@ Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube]
 | Web page | `https://fxmusic.pages.dev/` |
 | Web app, installable from the browser (with the FXM Connect extension for YouTube Music and Spotify) | `https://fxmusic.pages.dev/app/` |
 | FXM Connect for Chrome, Edge, Brave and other Chromium browsers | GitHub Releases (zip) |
+| FXM Connect for Firefox 140 or later, as a temporary add-on until the signed one is out | GitHub Releases (zip) |
 | FXM Connect for Firefox, signed by Mozilla (coming soon) | GitHub Releases (`.xpi`), and Firefox Add-ons once it is listed |
 | Desktop app for macOS, Windows and Linux (coming soon) | GitHub Releases |
 | Android app (coming soon) | GitHub Releases (APK) |

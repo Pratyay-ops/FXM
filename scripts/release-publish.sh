@@ -115,8 +115,9 @@ fxm_release_fit "$body" 115000 \
   echo "  --deny-self-hosted-runners"
   echo '```'
   echo
-  echo "The first compares the file with its checksum. The second checks that FXM's release"
-  echo "workflow, run for \`main\` on GitHub's own runners, built it."
+  # One echo per paragraph: GitHub keeps the line breaks of a release's notes.
+  echo "The first compares the file with its checksum. The second checks that FXM's release" \
+    "workflow, run for \`main\` on GitHub's own runners, built it."
 } >>"$body"
 
 gh release create "$tag" --repo "$repo" --verify-tag --title "FXM $tag" --notes-file "$body" \

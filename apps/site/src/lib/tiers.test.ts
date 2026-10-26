@@ -146,7 +146,7 @@ describe('before Lite is out (AVAILABLE.lite off)', () => {
       'On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive. FXM Connect needs a desktop browser, and the Android app is coming soon.',
     )
     expect(iPhoneAnswer(false, false)).toBe(
-      "FXM Connect isn't available there, so the web app plays from free sources such as Internet Archive.",
+      "FXM Connect isn't available there, so the web app plays free music from Internet Archive.",
     )
     expect(extensionFaq(false, false).question).toBe('Why does the web app need an extension?')
   })
@@ -250,6 +250,13 @@ describe('Jamendo (AVAILABLE.jamendo, set by the deploy with FXM’s public clie
     for (const sentence of [...freeMusicLines(false), ...allCopy(false), ...allCopy(true)]) {
       expect(sentence).not.toMatch(/Jamendo/)
     }
+    // Internet Archive is then the one free source, not an example of several.
+    for (const sentence of freeMusicLines(false)) {
+      expect(sentence).not.toMatch(/such as Internet Archive/)
+    }
+    expect(iPhoneAnswer(true, false)).toContain(
+      'The web app plays free music from Internet Archive, and YouTube Music in the experimental Lite tier if Safari allows it',
+    )
     expect(howItWorksStep(false, false)).toContain('FXM asks YouTube Music, Internet Archive and')
   })
 
