@@ -10,8 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use rfd::{AsyncMessageDialog, MessageButtons, MessageLevel};
 use tauri::{AppHandle, Manager, RunEvent, Runtime, Window, WindowEvent};
-use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 use crate::{MAIN_WINDOW, tray};
 
@@ -174,6 +174,9 @@ pub fn first_time(marker: &Path) -> bool {
 /// running there and how to bring it back or quit it: a new app's notification-area icon often
 /// lands in the overflow on Windows, so the music would play on with nothing in sight.
 /// Remembered in [`TRAY_NOTICE_FILE`]; shown at most once per run when that can't be written.
+///
+/// The notice comes from rfd directly, built on the main thread as tauri-plugin-dialog builds it:
+/// the app leaves that plugin out (see Cargo.toml). Nothing waits for the answer.
 fn tell_about_the_tray_once<R: Runtime>(app: &AppHandle<R>) {
     static TOLD: AtomicBool = AtomicBool::new(false);
     if TOLD.swap(true, Ordering::AcqRel) {
@@ -185,11 +188,17 @@ fn tell_about_the_tray_once<R: Runtime>(app: &AppHandle<R>) {
     if !first_time(&folder.join(TRAY_NOTICE_FILE)) {
         return;
     }
-    app.dialog()
-        .message(tray_notice(std::env::consts::OS))
-        .title("FXM is still running")
-        .kind(MessageDialogKind::Info)
-        .show(|_| {});
+    let text = tray_notice(std::env::consts::OS);
+    // Best effort: the window is already hidden, and FXM keeps running without the notice.
+    let _ = app.run_on_main_thread(move || {
+        let answer = AsyncMessageDialog::new()
+            .set_level(MessageLevel::Info)
+            .set_title("FXM is still running")
+            .set_description(text)
+            .set_buttons(MessageButtons::Ok)
+            .show();
+        tauri::async_runtime::spawn(answer);
+    });
 }
 
 /// The id of Window > FXM in the macOS app menu.
