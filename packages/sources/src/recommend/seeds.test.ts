@@ -9,6 +9,7 @@ import {
   seedRef,
   seedTitle,
   youtubeRadioSeed,
+  youtubeRadioStart,
 } from './seeds'
 import {
   fakeSongForVideo,
@@ -177,5 +178,38 @@ describe('youtubeRadioSeed', () => {
     ).toBeNull()
     expect(await youtubeRadioSeed(spotify, music)).toBeNull()
     expect(await youtubeRadioSeed({ name: 'Radiohead' }, music)).toBeNull()
+  })
+})
+
+describe('youtubeRadioStart', () => {
+  const spotify = spotifyTrack('70LcF31zb1H0PyJoS1Sx1r', 'Creep', 'Radiohead')
+  const song = ytmTrack('XFkzRNyygfk', 'Creep', 'Radiohead')
+  const channel = { id: formatId('ytm', 'artist', 'UCq19-LqvG35A-30oyAiPiqA'), name: 'Radiohead' }
+
+  it('says when the seed is the song found for a track of another source', async () => {
+    const finder = fakeYouTubeSeed(() => song)
+    expect(await youtubeRadioStart(spotify, music, { youtubeSeed: finder })).toEqual({
+      seed: song,
+      matchedFrom: spotify,
+    })
+  })
+
+  it('has no match for seeds YouTube Music starts from as they are, or an artist found', async () => {
+    const linked = ytmTrack('omvOMVomvOM', 'Creep', 'Radiohead', 'music-video', {
+      songId: formatId('ytm', 'track', 'atvATVatvAT'),
+    })
+    const finder = fakeYouTubeSeed(() => channel)
+    for (const seed of [song, linked, channel, { name: 'Radiohead' }]) {
+      const start = await youtubeRadioStart(seed, music, { youtubeSeed: finder })
+      expect(start?.matchedFrom).toBeUndefined()
+      expect(start?.seed).toBeDefined()
+    }
+    // Only the artist went to the adapter.
+    expect(finder.seeds).toEqual([{ name: 'Radiohead' }])
+  })
+
+  it('takes nothing but a track for a track', async () => {
+    const finder = fakeYouTubeSeed(() => channel)
+    expect(await youtubeRadioStart(spotify, music, { youtubeSeed: finder })).toBeNull()
   })
 })
