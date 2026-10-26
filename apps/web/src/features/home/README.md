@@ -75,6 +75,8 @@ appHomeServices.set({ sources: appSources, recommendations: collector, catalog, 
 
 Album, artist and playlist cards (in Spotify's sections) link to `/<kind>/<source>:<native ID>`, the form of 2.4's pages (`entityPath` in `shelves.tsx`).
 
+**Autoplay** (stage 3.4, [`features/autoplay`](../autoplay/README.md)) uses the same seam: the `sources` and `recommendations` wired in here serve its radio too. It asks `sources.context` for the request budget's `prefetch` priority (Home's calls leave `priority` out, which is `interactive`), gives `collect` a `deadlineMs`, and keeps its radios in Home's collection cache (`collectionsOf`, `collectionKey`), so a recent play's radio is fetched once for both.
+
 ## Development
 
 In `make dev`, `?fake-home=lite` or `?fake-home=full` plugs fake services into Home (`dev-fakes.ts`: an invented catalog, no network, no artwork); the tab keeps the choice until `?fake-home=off`. Restore `e2e/fixtures/library-backup.json` from the Library page to see the user's own shelves too. Builds with `VITE_FXM_FAKE_CATALOG=on` (2.4's screenshot builds) include the fakes; production builds leave them out. The end-to-end checks of Home with recommendations, and its onboarding's forced-colors screenshot, need such a build: `VITE_FXM_FAKE_CATALOG=on pnpm --filter @fxm/web e2e`.

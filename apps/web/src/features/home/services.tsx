@@ -44,6 +44,12 @@ export interface HomeSourcesSnapshot {
 }
 
 /**
+ * What a provider call is for, highest first: its YouTube requests draw on the shared request
+ * budget at this priority (stage 1.2). 2.4's `SourcePriority`.
+ */
+export type HomeCallPriority = 'current-track' | 'prefetch' | 'interactive' | 'bulk'
+
+/**
  * What the platform reaches and the user's Spotify switch, kept current, and a context for
  * each provider call. Stage 2.4's `Sources` (`appSources`) has this shape.
  */
@@ -52,8 +58,15 @@ export interface HomeSources {
   getSnapshot(): HomeSourcesSnapshot
   /** Calls `listener` after every change; returns the unsubscribe function. */
   subscribe(listener: () => void): () => void
-  /** A context for one provider call. */
-  context(options: { mode: CatalogMode; signal?: AbortSignal }): ProviderContext
+  /**
+   * A context for one provider call. Home's calls leave `priority` out (`interactive`); the
+   * autoplay radio (stage 3.4) asks at `prefetch`, as the player does for what plays next.
+   */
+  context(options: {
+    mode: CatalogMode
+    signal?: AbortSignal
+    priority?: HomeCallPriority
+  }): ProviderContext
 }
 
 /** A service's home-feed section, with the service it came from. */
@@ -71,12 +84,14 @@ export interface HomeSourceShelf {
 export interface HomeRecommendations {
   /**
    * Candidates for one seed, from every source that can run, and what each source did (a
-   * collection with a `failed` source isn't cached). Fails only when cancelled.
+   * collection with a `failed` source isn't cached). Fails only when cancelled. With
+   * `deadlineMs`, it answers by then with what the sources found, the ones still running
+   * `timed-out`.
    */
   collect(
     seed: RadioSeed,
     ctx: ProviderContext,
-    options?: { parts?: readonly string[]; limit?: number },
+    options?: { parts?: readonly string[]; limit?: number; deadlineMs?: number },
   ): Promise<{
     readonly candidates: readonly RecCandidate[]
     readonly outcomes?: readonly { readonly status: string }[]

@@ -264,7 +264,11 @@ export function createCollectionCache(ttlMs = COLLECTION_TTL_MS, size = 64): Col
  */
 const appCollections = new WeakMap<HomeRecommendations, CollectionCache>()
 
-function collectionsOf(recommendations: HomeRecommendations): CollectionCache {
+/**
+ * The app's cache of the collections of `recommendations`: Home's, which the autoplay radio
+ * (stage 3.4) shares, so a recent play's radio is fetched once for both.
+ */
+export function collectionsOf(recommendations: HomeRecommendations): CollectionCache {
   let cache = appCollections.get(recommendations)
   if (cache === undefined) {
     cache = createCollectionCache()
@@ -444,7 +448,11 @@ async function mapLimit<T, R>(
  * The cache key of a seed's collection: the seed (with the artist found for it, if any), its
  * parts and what the sources could reach.
  */
-function collectionKey(seed: PlannedSeed, mode: CatalogMode, reach: HomeSourcesSnapshot): string {
+export function collectionKey(
+  seed: PlannedSeed,
+  mode: CatalogMode,
+  reach: HomeSourcesSnapshot,
+): string {
   const { youtube, spotify, mediaBytes } = reach.capabilities
   const artistId = isTrackSeed(seed.seed) ? '' : (seed.seed.id ?? '')
   const parts = seed.parts.join('+')

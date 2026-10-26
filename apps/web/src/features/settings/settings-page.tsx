@@ -5,6 +5,7 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { AutoplaySetting } from '../autoplay/autoplay-setting'
 import { DiagnosticsSection } from '../connect/diagnostics'
 import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
@@ -56,6 +57,7 @@ export function SettingsPage() {
             className="w-full md:w-auto"
           />
         </SettingRow>
+        <AutoplaySetting />
         <SponsorBlockSetting />
       </SettingsSection>
 

@@ -18,6 +18,7 @@ import { buttonClasses } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
 import { iconButtonClasses } from '../../components/ui/icon-button'
 import { cn } from '../../lib/cn'
+import { AutoplayMark, AutoplaySwitch, useIsAutoplayItem } from '../autoplay/autoplay-setting'
 import { entityPath, searchPath } from '../now-playing/browse-links'
 import { getPlayer, usePlayerState } from '../now-playing/playback'
 import { KIND_LABELS } from '../now-playing/stream-label'
@@ -166,6 +167,7 @@ function CurrentRow({
 }) {
   const playing = usePlayerState((state) => state.status === 'playing')
   const failed = usePlayerState((state) => state.error !== undefined)
+  const autoplay = useIsAutoplayItem(item)
   const { track } = item
   const label = reviewLabel(item, bestGuess, playBestGuesses)
   return (
@@ -181,6 +183,7 @@ function CurrentRow({
         <p className="truncate font-semibold text-accent">{track.title}</p>
         <p className="truncate text-sm text-text-muted">{byline(track)}</p>
         {failed ? <FailedMark /> : label !== undefined && <ReviewMark label={label} />}
+        {autoplay && <AutoplayMark />}
       </div>
       {playing && (
         <AudioLines role="img" aria-label="Playing" className="mr-1 size-5 shrink-0 text-accent" />
@@ -273,6 +276,7 @@ function QueueRow({
 }: RowProps) {
   const { track, uid } = item
   const toolbarId = useId()
+  const autoplay = useIsAutoplayItem(item)
   const label = reviewLabel(item, bestGuess, playBestGuesses)
   const length = duration(track)
   const play = () => {
@@ -328,6 +332,7 @@ function QueueRow({
             <span className="block truncate font-semibold">{track.title}</span>
             <span className="block truncate text-sm text-text-muted">{byline(track)}</span>
             {label !== undefined && <ReviewMark label={label} />}
+            {autoplay && <AutoplayMark />}
           </span>
         </button>
         {length !== undefined && (
@@ -528,6 +533,7 @@ function UpNext({
           Show all {items.length} songs
         </button>
       )}
+      <AutoplaySwitch className="mt-4 border-t border-border pt-4" />
     </section>
   )
 }

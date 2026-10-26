@@ -9,7 +9,9 @@
  * - keeps its queue, position and volume across reloads (`features/queue/queue-storage.ts`);
  * - keeps the queue's review list (`features/queue/review-store.ts`) in step with the policy;
  * - records each play as a listening signal (stage 3.1, `features/signals/play-recorder.ts`);
- * - skips the non-music parts of videos when SponsorBlock is on (`features/sponsorblock/`).
+ * - skips the non-music parts of videos when SponsorBlock is on (`features/sponsorblock/`);
+ * - keeps the queue going with songs like the last plays when autoplay is on
+ *   (stage 3.4, `features/autoplay/`).
  *
  * Components read it with {@link usePlayerState} and call the player's methods straight from
  * event handlers, so playback starts inside the user's gesture (see the player's README).
@@ -28,6 +30,8 @@ import {
   type PlayerState,
 } from '@fxm/player'
 import { useEffect, useEffectEvent, useSyncExternalStore } from 'react'
+import { connectAutoplay } from '../autoplay/autoplay'
+import { autoplayContextOf } from '../autoplay/autoplay-marks'
 import {
   loadSavedPlayback,
   type PersistOptions,
@@ -119,7 +123,9 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
   const disconnects = [
     player.subscribe(notify),
     options.mediaSession === false ? () => {} : connectMediaSession(player),
-    options.recordPlays === false ? () => {} : connectPlayRecorder(player),
+    options.recordPlays === false
+      ? () => {}
+      : connectPlayRecorder(player, { contextOf: autoplayContextOf }),
     persistPlayback(player, storage, options.persist),
     connectReview(player, policy),
     useSettingsStore.subscribe((state, previous) => {
@@ -129,6 +135,7 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
       player.setCatalogMode(state.catalogMode)
     }),
     connectSponsorBlock(player),
+    connectAutoplay(player),
   ]
   return {
     player,
