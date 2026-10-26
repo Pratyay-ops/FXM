@@ -194,6 +194,7 @@ describe('sendsBrowserAgent', () => {
     'api-partner.spotify.com',
     'spclient.wg.spotify.com',
     'i.scdn.co',
+    'www.google.com',
     'www.last.fm',
   ]
   const APP_HOSTS = [

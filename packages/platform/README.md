@@ -250,7 +250,7 @@ It enforces the header policy once more at the last step, whatever the caller se
 
   | Hosts | User-Agent |
   |---|---|
-  | Every host YouTube (Google) or Spotify runs: InnerTube, googlevideo, Spotify's API hosts and their image servers `i.ytimg.com`, `*.ggpht.com` and `i.scdn.co`; Last.fm's web player | A browser's (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS), as on the web, so FXM's traffic doesn't stand out from the same address's other requests |
+  | Every host YouTube (Google) or Spotify runs: InnerTube, googlevideo, Spotify's API hosts and their image servers `i.ytimg.com`, `*.ggpht.com` and `i.scdn.co`, and BotGuard's `www.google.com`; Last.fm's web player | A browser's (`desktopBrowserUserAgent`: the webview's own, completed to Safari's on macOS), as on the web, so FXM's traffic doesn't stand out from the same address's other requests |
   | Services that ask apps to name themselves: MusicBrainz, Cover Art Archive, ListenBrainz, the Last.fm API, LRCLIB, Internet Archive, Jamendo, iTunes Search, SponsorBlock | FXM's own (`fxmUserAgent`) |
 
 - headers go only in `init.headers`, as a plain object; `Cookie` and `Host` are never sent, and `Set-Cookie` never reaches the caller.
