@@ -39,13 +39,13 @@ export interface MatchingConfig {
 
 /**
  * The matching config FXM ships with. **Auto is off:** the labelled set holds only the
- * recorder's proof run so far, far below the held-out gate's 200 groups and 150 Auto plays, and
- * the owner has not reviewed the ambiguous labels. So M1 is Suggest-only.
+ * recorder's proof run so far, far below the held-out gate's 200 groups and 150 tracks with an
+ * Auto play, and the owner has not reviewed its labels. So M1 is Suggest-only.
  */
 export const MATCHING_CONFIG: MatchingConfig = Object.freeze({
   auto: false,
   autoReason:
-    'Matches are suggestions until the matching evaluation (stage 1.12) passes on the full held-out set and the owner has reviewed its ambiguous labels.',
+    'Matches are suggestions until the matching evaluation (stage 1.12) passes on the full held-out set and the owner has reviewed its labels.',
   thresholds: Object.freeze({}),
   requireReleaseAgreement: false,
   matcherVersion: 1,

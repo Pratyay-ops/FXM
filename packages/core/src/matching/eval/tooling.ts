@@ -21,19 +21,28 @@ export {
   DEFAULT_EVAL_CONFIG,
   type EvalConfig,
   type EvalOutcome,
+  evalConfigOf,
   evaluateCase,
+  isRight,
   optionsOf,
 } from './evaluate'
 export {
   type DraftLabel,
   draftLabel,
   draftLabels,
+  isOverturned,
   labelTargets,
+  parseCsv,
+  pickKey,
   REVIEW_COLUMNS,
+  REVIEW_MINUTES,
+  type ReviewKind,
   type ReviewPlan,
   type ReviewRow,
   referenceSource,
   renderReviewCsv,
+  reviewCell,
+  reviewMinutes,
   reviewPlan,
   reviewRows,
   trustedIsrcs,
@@ -57,6 +66,7 @@ export {
 } from './recording'
 export { type EvalReplay, replayMatch } from './replay'
 export {
+  autoPicksOf,
   buildReport,
   EVAL_GATE,
   type EvalCategoryStats,
@@ -66,12 +76,14 @@ export {
   type EvalReport,
   type EvalReviewStatus,
   type EvalSplitReport,
+  heldOutAutoPicks,
   renderReport,
 } from './report'
 export { TUNING_GRID, type TuningResult, tuneThresholds } from './tune'
 export {
   casesOf,
   EVAL_CATEGORIES,
+  EVAL_LABEL_AUTHORS,
   EVAL_LABELS,
   EVAL_SLICES,
   EVAL_SPLITS,

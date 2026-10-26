@@ -18,7 +18,26 @@ const valid = group({
     'description/a': { facts: { label: 'L' }, excerpt: 'Provided to YouTube by L' },
     'songs/broken': { error: 'Network' },
   },
-  labels: { a: label('exact', { ambiguous: true, by: 'owner', reviewed: '2026-10-30' }) },
+  labels: {
+    a: label('exact', {
+      ambiguous: true,
+      by: 'owner',
+      reviewed: '2026-10-30',
+      draft: { label: 'wrong', by: 'agent' },
+    }),
+  },
+  spotify: { id: '0VjIjW4GlUZAMYd2vXMi3b', popularity: 80, albumType: 'single' },
+  musicBrainz: {
+    exact: {
+      recording: 'mbid',
+      title: 'Song',
+      artists: ['Artist'],
+      lengthMs: 200_000,
+      isrcs: ['X'],
+      firstReleaseDate: '2020-01-01',
+    },
+    fuzzy: null,
+  },
 })
 
 function broken(change: (value: Record<string, unknown>) => void): unknown {
@@ -75,6 +94,77 @@ describe('parseEvalGroup', () => {
       'labels.a.label',
       (g: Record<string, unknown>) =>
         Object.assign(g, { labels: { a: { ...label('exact'), label: 'right' } } }),
+    ],
+    [
+      'labels.a.draft',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, {
+          labels: { a: { ...label('exact'), draft: { label: 'exact', by: 'rule' } } },
+        }),
+    ],
+    [
+      'categories',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, { categories: ['mainstream', 'cross-script'] }),
+    ],
+    [
+      'variants[1].slice (a second main input)',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, {
+          variants: [valid.variants[0], { slice: 'csv', source: source('S', 'A', 1) }],
+        }),
+    ],
+    [
+      'variants[0].source.albumType',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, {
+          variants: [{ slice: 'spotify', source: { ...source('S', 'A', 1), albumType: 'LP' } }],
+        }),
+    ],
+    ['spotify.id', (g: Record<string, unknown>) => Object.assign(g, { spotify: { id: 7 } })],
+    [
+      'spotify.popularity',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, { spotify: { id: 'x', popularity: 101, albumType: 'single' } }),
+    ],
+    [
+      'spotify.albumType',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, { spotify: { id: 'x', albumType: 'mixtape' } }),
+    ],
+    [
+      'musicBrainz.exact.title, musicBrainz.exact.artists, musicBrainz.exact.isrcs',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, { musicBrainz: { exact: { recording: 'x' } } }),
+    ],
+    [
+      'musicBrainz.exact.lengthMs',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, {
+          musicBrainz: {
+            exact: { recording: 'x', title: 'T', artists: [], isrcs: [], lengthMs: '1' },
+          },
+        }),
+    ],
+    [
+      'musicBrainz.fuzzy.isrcs',
+      (g: Record<string, unknown>) =>
+        Object.assign(g, { musicBrainz: { exact: null, fuzzy: { recording: 'x', isrcs: 'X' } } }),
+    ],
+    ['musicBrainz', (g: Record<string, unknown>) => Object.assign(g, { musicBrainz: [] })],
+    [
+      'recording.pages.description/a.facts.releaseYear',
+      (g: Record<string, unknown>) => {
+        const recording = g.recording as { pages: Record<string, unknown> }
+        recording.pages['description/a'] = { facts: { releaseYear: '2020' } }
+      },
+    ],
+    [
+      'recording.pages.description/a.excerpt',
+      (g: Record<string, unknown>) => {
+        const recording = g.recording as { pages: Record<string, unknown> }
+        recording.pages['description/a'] = { facts: {}, excerpt: ['Provided to YouTube by L'] }
+      },
     ],
   ])('names a malformed %s', (path, change) => {
     expect(() => parseEvalGroup(broken(change))).toThrow(EvalFixtureError)

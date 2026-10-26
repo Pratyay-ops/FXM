@@ -78,13 +78,24 @@ describe('categoriesOfInput', () => {
     ])
   })
 
-  it('marks non-Latin titles and artists as regional and cross-script', () => {
+  it('marks non-Latin titles and artists as regional, and leaves cross-script to the labels', () => {
     expect(categoriesOfInput({ title: 'しわあわせ', artists: ['Vaundy'], popularity: 74 })).toEqual(
-      ['mainstream', 'regional', 'cross-script'],
+      ['mainstream', 'regional'],
     )
+    expect(categoriesOfInput({ title: 'Love Wins All', artists: ['아이유'] })).toEqual(['regional'])
     expect(
       categoriesOfInput({ title: 'Song', artists: ['A'], sourceCategories: ['regional'] }),
     ).toEqual(['regional'])
+  })
+
+  it('marks only the inputs a source names as ISRC squatters', () => {
+    expect(
+      categoriesOfInput({
+        title: 'Live-LongLive-Strong',
+        artists: ['Waw*Mart'],
+        sourceCategories: ['isrc-squatter'],
+      }),
+    ).toEqual(['isrc-squatter'])
   })
 })
 
@@ -102,12 +113,31 @@ describe('caseCategories', () => {
   })
   const [spotify, dataExport, musicBrainz] = casesOf([base])
 
-  it('adds cross-script and ISRC squatter from the labels to primary inputs', () => {
-    expect(spotify && caseCategories(spotify)).toEqual([
-      'mainstream',
-      'cross-script',
-      'isrc-squatter',
-    ])
+  it('adds cross-script from the labels to primary inputs, but no ISRC squatter', () => {
+    // The ISRC search led with another recording (labelled wrong): an ISRC miss, which the
+    // report counts in its ISRC columns, not a squatter.
+    expect(spotify && caseCategories(spotify)).toEqual(['mainstream', 'cross-script'])
+  })
+
+  it('keeps cross-script out when YouTube Music titles the recording in the input script', () => {
+    const same = group({
+      categories: ['mainstream', 'regional'],
+      variants: [{ slice: 'spotify', source: source('アイドル', 'YOASOBI', 213) }],
+      items: { a: item('アイドル', 'YOASOBI', 213) },
+      labels: { a: label('exact') },
+    })
+    const [evalCase] = casesOf([same])
+    expect(evalCase && caseCategories(evalCase)).toEqual(['mainstream', 'regional'])
+  })
+
+  it('keeps the stored ISRC squatter category of a known squatter input', () => {
+    const squatter = group({
+      id: 'fx:squatter-gbaye0601696',
+      categories: ['isrc-squatter'],
+      variants: [{ slice: 'fixed', source: source('Live-LongLive-Strong', 'Waw*Mart', 193) }],
+    })
+    const [evalCase] = casesOf([squatter])
+    expect(evalCase && caseCategories(evalCase)).toEqual(['isrc-squatter'])
   })
 
   it('keeps data-export rows apart, and MusicBrainz inputs out of the categories', () => {

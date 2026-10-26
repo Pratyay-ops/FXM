@@ -12,11 +12,18 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { MATCHER_VERSION } from '../types'
 import { splitOf } from './categories'
 import { isAutoMatchAvailable, MATCHING_CONFIG } from './config'
-import { optionsOf } from './evaluate'
-import { labelTargets } from './labels'
+import { evalConfigOf, optionsOf } from './evaluate'
+import {
+  labelTargets,
+  parseCsv,
+  REVIEW_COLUMNS,
+  renderReviewCsv,
+  reviewCell,
+  reviewRows,
+} from './labels'
 import { withoutIsrcCap } from './recording'
 import { replayMatch } from './replay'
-import { buildReport, type EvalReport, renderReport } from './report'
+import { autoPicksOf, buildReport, type EvalReport, renderReport } from './report'
 import { casesOf, type EvalGroup, parseEvalGroup } from './types'
 
 declare global {
@@ -24,7 +31,7 @@ declare global {
     /** Vite's glob import, as Vitest runs it. */
     glob<T = unknown>(
       pattern: string,
-      options: { eager: true; import: 'default' },
+      options: { eager: true; import: 'default'; query?: '?raw' },
     ): Record<string, T>
   }
 }
@@ -34,17 +41,22 @@ const groups: EvalGroup[] = Object.entries(files)
   .sort(([a], [b]) => (a < b ? -1 : 1))
   .map(([, value]) => parseEvalGroup(value))
 
+/** The committed review checklist. */
+const reviewCsv = Object.values(
+  import.meta.glob<string>('./REVIEW.csv', { eager: true, import: 'default', query: '?raw' }),
+)[0]
+
 /** The configuration the matching config ships: what the report evaluates. */
-const shipped = {
-  thresholds: MATCHING_CONFIG.thresholds,
-  requireReleaseAgreement: MATCHING_CONFIG.requireReleaseAgreement,
-}
+const shipped = evalConfigOf()
 
 /**
- * Replaying the whole set takes a while: every input is matched once (about 1,200 for the full
- * set), and the matcher is costly. The replays are shared between the tests below.
+ * Replaying the whole set takes a while: every input is matched once with the shipped settings
+ * (about 1,600 replays for the full set, the uncapped ones included), at about 10 to 120 ms each
+ * depending on the machine's load, and calibration replays its split for each of the grid's 24
+ * settings when the defaults make a wrong Auto play there. The replays are shared between the
+ * tests below.
  */
-const REPLAY_TIMEOUT_MS = 15 * 60_000
+const REPLAY_TIMEOUT_MS = 30 * 60_000
 
 describe('the labelled set', { timeout: REPLAY_TIMEOUT_MS }, () => {
   it('has a file per group, named after its ID', () => {
@@ -103,6 +115,31 @@ describe('the report', { timeout: REPLAY_TIMEOUT_MS }, () => {
 
   it("ships the calibration split's thresholds", () => {
     expect(shipped).toEqual(report.tuning.config)
+  })
+
+  it("has the review checklist of the set's labels (REVIEW.csv, decisions aside)", () => {
+    expect(reviewCsv, 'REVIEW.csv next to this file').toBeDefined()
+    // Compared as text after the checklist's escapes, whatever order or quoting a spreadsheet
+    // left, and without the owner's decisions and notes, so a review in progress passes.
+    const rows = (csv: string) => {
+      const [header = [], ...body] = parseCsv(csv).map((fields) => fields.map(reviewCell))
+      const blank = new Set([header.indexOf('decision'), header.indexOf('notes')])
+      return {
+        header,
+        body: body
+          .map((fields) => JSON.stringify(fields.map((value, at) => (blank.has(at) ? '' : value))))
+          .sort(),
+      }
+    }
+    const expected = rows(
+      renderReviewCsv(reviewRows(groups, () => autoPicksOf(report.heldOut.outcomes))),
+    )
+    const committed = rows(reviewCsv ?? '')
+    expect(committed.header).toEqual([...REVIEW_COLUMNS])
+    expect(
+      committed.body,
+      "REVIEW.csv is out of date: run the recorder's label command (packages/sources/src/eval/README.md)",
+    ).toEqual(expected.body)
   })
 
   it('turns Auto on only when the held-out gate passed and the owner finished the review', () => {

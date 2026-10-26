@@ -257,10 +257,11 @@ export function draftLabel(group: EvalGroup, videoId: string): DraftLabel | unde
 }
 
 /**
- * The candidates of a group that need a label: every input's pick (the best candidate) under
- * each option set (by default the recorder's, which cover the calibration grid's corners), with
- * the ISRC cap and without, and the first item of each ISRC search for a trusted ISRC (which
- * decides the `isrc-squatter` category).
+ * The candidates of a group that need a label, most important first: every input's pick (the
+ * best candidate) under each option set (by default the recorder's, which cover the calibration
+ * grid's corners), the main input first and the defaults first; then the picks with the ISRC
+ * cap lifted; then the first item of each ISRC search for a trusted ISRC (which the report's
+ * ISRC columns read). The recorder fetches descriptions for the first ambiguous ones.
  */
 export function labelTargets(
   group: EvalGroup,
@@ -269,14 +270,17 @@ export function labelTargets(
   const recording = group.recording
   if (recording === undefined) return []
   const targets = new Set<string>()
-  for (const variant of group.variants) {
-    const uncapped = withoutIsrcCap(variant.source)
-    const inputs = uncapped === undefined ? [variant.source] : [variant.source, uncapped]
-    for (const [source, options] of inputs.flatMap((input) =>
-      optionSets.map((set) => [input, set] as const),
-    )) {
-      const best = replayMatch(source, recording, options).result.best
-      if (best !== undefined && best.source === 'ytm') targets.add(best.ref)
+  const variants = [...group.variants].sort(
+    (a, b) => Number(!PRIMARY_SLICES.includes(a.slice)) - Number(!PRIMARY_SLICES.includes(b.slice)),
+  )
+  for (const capped of [true, false]) {
+    for (const options of optionSets) {
+      for (const variant of variants) {
+        const source = capped ? variant.source : withoutIsrcCap(variant.source)
+        if (source === undefined) continue
+        const best = replayMatch(source, recording, options).result.best
+        if (best !== undefined && best.source === 'ytm') targets.add(best.ref)
+      }
     }
   }
   for (const isrc of trustedIsrcs(group)) {
@@ -285,7 +289,7 @@ export function labelTargets(
     const first = page !== undefined && 'items' in page ? page.items[0] : undefined
     if (first !== undefined) targets.add(first)
   }
-  return [...targets].sort()
+  return [...targets]
 }
 
 /**
@@ -322,11 +326,25 @@ export const REVIEW_COLUMNS = [
   'notes',
 ] as const
 
+/**
+ * Why a row is in the checklist: an `ambiguous` label to decide, a `spot-check` of the 10 %
+ * sample of certain labels, or, once a spot check was overturned, an `auto-play`: a certain
+ * label that a held-out Auto play rests on.
+ */
+export type ReviewKind = 'ambiguous' | 'spot-check' | 'auto-play'
+
 /** One row of the review checklist. */
-export type ReviewRow = Record<(typeof REVIEW_COLUMNS)[number], string>
+export type ReviewRow = Record<(typeof REVIEW_COLUMNS)[number], string> & { kind: ReviewKind }
 
 /** The share of the certain labels the owner spot-checks. */
 const SPOT_CHECK_SHARE = 0.1
+
+/** Minutes the owner needs per row: listening for an ambiguous label, checking a certain one. */
+export const REVIEW_MINUTES: Readonly<Record<ReviewKind, number>> = Object.freeze({
+  ambiguous: 3,
+  'spot-check': 1.5,
+  'auto-play': 1.5,
+})
 
 /** "m:ss" for people. */
 function clock(ms: number | undefined): string {
@@ -353,13 +371,14 @@ function reviewRow(
   group: EvalGroup,
   videoId: string,
   entry: EvalLabelEntry,
+  kind: ReviewKind,
 ): ReviewRow | undefined {
   const reference = referenceSource(group)
   const item = group.recording?.items[videoId]
   if (reference === undefined || item === undefined) return undefined
   const description = group.recording?.pages[`description/${videoId}`]
   return {
-    kind: entry.ambiguous === true ? 'ambiguous' : 'spot-check',
+    kind,
     group: group.id,
     video: videoId,
     link: `https://music.youtube.com/watch?v=${videoId}`,
@@ -377,13 +396,35 @@ function reviewRow(
   }
 }
 
+/** The key of a group's candidate in {@link reviewPlan}'s `autoPicks`: `<group id>/<videoId>`. */
+export function pickKey(groupId: string, videoId: string): string {
+  return `${groupId}/${videoId}`
+}
+
+/** Whether the owner's label differs from the draft they reviewed. */
+export function isOverturned(entry: EvalLabelEntry): boolean {
+  return entry.by === 'owner' && entry.draft !== undefined && entry.draft.label !== entry.label
+}
+
 /** What the owner's review covers, and how far it got. */
 export interface ReviewPlan {
   /** Ambiguous labels, and how many of them the owner decided. */
   ambiguous: { total: number; decided: number }
-  /** Certain labels, how many the spot check needs (10 %), and how many it checked. */
-  spotCheck: { labels: number; required: number; checked: number }
-  /** The rows still to review: undecided ambiguous labels, then the spot checks still needed. */
+  /**
+   * Certain labels, how many the spot check needs (10 %), how many it checked, and how many of
+   * those the owner overturned.
+   */
+  spotCheck: { labels: number; required: number; checked: number; overturned: number }
+  /**
+   * Set once a spot check was overturned, which shows that the rules' certain labels can be
+   * wrong: the certain labels that held-out Auto plays rest on, which then all need the owner's
+   * check, and how many the owner checked.
+   */
+  autoPlays?: { labels: number; checked: number }
+  /**
+   * The rows still to review: undecided ambiguous labels, the spot checks still needed, then
+   * the unchecked labels of held-out Auto plays (only after an overturned spot check).
+   */
   pending: ReviewRow[]
 }
 
@@ -391,60 +432,150 @@ export interface ReviewPlan {
  * What the owner reviews, of the labels in the set: every ambiguous one, and a spot check of 10 %
  * of the certain ones (drafted by the rules or an agent). The spot-check rows are a fixed sample
  * (by a hash of group and video), so every run lists the same ones until enough are checked.
+ *
+ * A spot check the owner overturned shows that certain labels can be wrong, so from then on
+ * every certain label that a held-out Auto play rests on needs the owner's check too:
+ * `autoPicks` names those candidates (see {@link pickKey}); it is called only then.
  */
-export function reviewPlan(groups: readonly EvalGroup[]): ReviewPlan {
+export function reviewPlan(
+  groups: readonly EvalGroup[],
+  autoPicks: () => ReadonlySet<string> = () => new Set(),
+): ReviewPlan {
   const ambiguous: ReviewRow[] = []
   let ambiguousTotal = 0
   let decided = 0
-  const certain: Array<{ row: ReviewRow; checked: boolean }> = []
+  let overturned = 0
+  const certain: Array<{ key: string; group: EvalGroup; videoId: string; entry: EvalLabelEntry }> =
+    []
   for (const group of groups) {
     for (const [videoId, entry] of Object.entries(group.labels ?? {})) {
-      const row = reviewRow(group, videoId, entry)
+      const row = reviewRow(group, videoId, entry, 'ambiguous')
       if (row === undefined) continue
       if (entry.ambiguous === true) {
         ambiguousTotal += 1
         if (entry.by === 'owner') decided += 1
         else ambiguous.push(row)
       } else {
-        certain.push({ row, checked: entry.reviewed !== undefined })
+        certain.push({ key: pickKey(group.id, videoId), group, videoId, entry })
+        if (isOverturned(entry)) overturned += 1
       }
     }
   }
+  const isChecked = (label: { entry: EvalLabelEntry }) => label.entry.reviewed !== undefined
   const required = Math.ceil(certain.length * SPOT_CHECK_SHARE)
-  const checked = certain.filter((entry) => entry.checked).length
-  const spot = certain
-    .filter((entry) => !entry.checked)
-    .map((entry) => entry.row)
+  const checked = certain.filter(isChecked).length
+  const sample = certain
+    .filter((label) => !isChecked(label))
     .sort(
       (a, b) =>
-        stableHash(`${a.group}/${a.video}`) - stableHash(`${b.group}/${b.video}`) ||
-        (a.group + a.video < b.group + b.video ? -1 : 1),
+        stableHash(a.key) - stableHash(b.key) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
     )
     .slice(0, Math.max(0, required - checked))
-  return {
+  const rows = (labels: typeof certain, kind: ReviewKind) =>
+    labels.flatMap(({ group, videoId, entry }) => reviewRow(group, videoId, entry, kind) ?? [])
+  const plan: ReviewPlan = {
     ambiguous: { total: ambiguousTotal, decided },
-    spotCheck: { labels: certain.length, required, checked },
-    pending: [...ambiguous, ...spot],
+    spotCheck: { labels: certain.length, required, checked, overturned },
+    pending: [...ambiguous, ...rows(sample, 'spot-check')],
   }
+  if (overturned > 0) {
+    const picks = autoPicks()
+    const backing = certain.filter((label) => picks.has(label.key))
+    const listed = new Set(sample.map((label) => label.key))
+    plan.autoPlays = { labels: backing.length, checked: backing.filter(isChecked).length }
+    plan.pending.push(
+      ...rows(
+        backing.filter((label) => !isChecked(label) && !listed.has(label.key)),
+        'auto-play',
+      ),
+    )
+  }
+  return plan
 }
 
 /**
  * The review checklist's rows (see {@link reviewPlan}). The owner fills in `decision` (`exact`,
- * `equivalent` or `wrong`; `ok` confirms a spot-checked label) and, optionally, `notes`.
+ * `equivalent` or `wrong`; `ok` confirms the draft the row shows) and, optionally, `notes`.
  */
-export function reviewRows(groups: readonly EvalGroup[]): ReviewRow[] {
-  return reviewPlan(groups).pending
+export function reviewRows(
+  groups: readonly EvalGroup[],
+  autoPicks?: () => ReadonlySet<string>,
+): ReviewRow[] {
+  return reviewPlan(groups, autoPicks).pending
 }
 
-/** One CSV field, quoted when it needs to be (RFC 4180). */
+/** Minutes the owner needs for the rows still to review (see {@link REVIEW_MINUTES}). */
+export function reviewMinutes(rows: readonly ReviewRow[]): number {
+  return Math.round(rows.reduce((sum, row) => sum + REVIEW_MINUTES[row.kind], 0))
+}
+
+/**
+ * What a spreadsheet would read as a formula: a cell starting with `=`, `+`, `-`, `@`, a tab or
+ * a carriage return. The checklist writes such a cell with a leading `'`, which spreadsheets
+ * take as "text"; {@link reviewCell} takes it off again.
+ */
+const FORMULA_START = /^[=+\-@\t\r]/u
+
+/** One CSV field: protected from spreadsheets, and quoted when it needs to be (RFC 4180). */
 function csvField(value: string): string {
-  return /[",\n\r]/u.test(value) ? `"${value.replace(/"/gu, '""')}"` : value
+  const safe = FORMULA_START.test(value) ? `'${value}` : value
+  return /[",\n\r]/u.test(safe) ? `"${safe.replace(/"/gu, '""')}"` : safe
 }
 
-/** The review checklist as CSV, with a header row and CRLF line ends (RFC 4180). */
+/** A checklist cell as it was before {@link renderReviewCsv} protected it from spreadsheets. */
+export function reviewCell(cell: string): string {
+  return cell.startsWith("'") && FORMULA_START.test(cell.slice(1)) ? cell.slice(1) : cell
+}
+
+/**
+ * The review checklist as CSV, with a header row and CRLF line ends (RFC 4180). A cell that
+ * starts like a formula (a videoId such as `-FosatJWWas`, a title such as "=)") gets a leading
+ * `'`, so that a spreadsheet shows it as text instead of evaluating it.
+ */
 export function renderReviewCsv(rows: readonly ReviewRow[]): string {
   const lines = [REVIEW_COLUMNS.join(',')]
-  for (const row of rows)
+  for (const row of rows) {
     lines.push(REVIEW_COLUMNS.map((column) => csvField(row[column])).join(','))
+  }
   return `${lines.join('\r\n')}\r\n`
+}
+
+/** Reads CSV text (RFC 4180: quoted fields, doubled quotes, CRLF or LF) into rows of fields. */
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+  for (let index = 0; index < text.length; index++) {
+    const char = text[index]
+    if (quoted) {
+      if (char === '"' && text[index + 1] === '"') {
+        field += '"'
+        index += 1
+      } else if (char === '"') {
+        quoted = false
+      } else {
+        field += char
+      }
+      continue
+    }
+    if (char === '"' && field === '') quoted = true
+    else if (char === ',') {
+      row.push(field)
+      field = ''
+    } else if (char === '\n' || char === '\r') {
+      if (char === '\r' && text[index + 1] === '\n') index += 1
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ''
+    } else {
+      field += char
+    }
+  }
+  if (field !== '' || row.length > 0) {
+    row.push(field)
+    rows.push(row)
+  }
+  return rows.filter((fields) => fields.some((value) => value.trim() !== ''))
 }

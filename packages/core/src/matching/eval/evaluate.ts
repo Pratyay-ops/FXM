@@ -5,12 +5,14 @@
  * @module
  */
 
+import { normalizeIsrc } from '../../ids'
 import { isrcTrust } from '../isrc'
 import type { AutoBlocker, IsrcStatus, MatchBand, MatchOptions, MatchThresholds } from '../types'
 import { caseCategories } from './categories'
+import { MATCHING_CONFIG, type MatchingConfig } from './config'
 import { withoutIsrcCap } from './recording'
 import { replayMatch } from './replay'
-import type { EvalCase, EvalCategory, EvalLabel, EvalSlice, EvalSplit } from './types'
+import type { EvalCase, EvalCategory, EvalGroup, EvalLabel, EvalSlice, EvalSplit } from './types'
 
 /** The settings the matcher is evaluated with: the matching config's. */
 export interface EvalConfig {
@@ -25,6 +27,14 @@ export const DEFAULT_EVAL_CONFIG: Readonly<EvalConfig> = Object.freeze({
   thresholds: Object.freeze({}),
   requireReleaseAgreement: false,
 })
+
+/** The settings a matching config ships (by default `MATCHING_CONFIG`'s): what the report evaluates. */
+export function evalConfigOf(config: MatchingConfig = MATCHING_CONFIG): EvalConfig {
+  return {
+    thresholds: { ...config.thresholds },
+    requireReleaseAgreement: config.requireReleaseAgreement,
+  }
+}
 
 /**
  * The match options of a configuration, with the Auto setting on: the band Auto would give. The
@@ -70,6 +80,13 @@ export interface EvalOutcome {
   blockers: AutoBlocker[]
   /** Whether a page the plan asked for was missing or had failed. */
   incomplete: boolean
+  /** The pages the replay lacked: never recorded, or recorded as a failure (`error`). */
+  gaps: string[]
+  /**
+   * Whether the songs search for the input's ISRC put a recording labelled `wrong` first: filler
+   * when YouTube Music lacks the ISRC, or a recording that claims it.
+   */
+  isrcLedByOther: boolean
   /**
    * For a trusted ISRC that missed: the band and pick with the ISRC-miss cap lifted (see
    * `withoutIsrcCap`), and the pick's label.
@@ -80,6 +97,14 @@ export interface EvalOutcome {
 /** Whether a label marks the recording. */
 export function isRight(label: EvalLabel | undefined): boolean {
   return label === 'exact' || label === 'equivalent'
+}
+
+/** Whether the first item of the songs search for `isrc` is labelled `wrong` (see {@link EvalOutcome}). */
+function ledByOther(group: EvalGroup, isrc: string | undefined): boolean {
+  const canonical = normalizeIsrc(isrc)
+  const page = canonical === null ? undefined : group.recording?.pages[`isrc-songs/1/${canonical}`]
+  const first = page !== undefined && 'items' in page ? page.items[0] : undefined
+  return first !== undefined && group.labels?.[first]?.label === 'wrong'
 }
 
 /**
@@ -101,6 +126,7 @@ export function evaluateCase(
     slice: variant.slice,
     categories,
     trustedIsrc,
+    isrcLedByOther: ledByOther(group, variant.source.isrc),
   }
   const recording = group.recording
   if (recording === undefined) {
@@ -112,10 +138,12 @@ export function evaluateCase(
       isrc: 'not-run',
       blockers: ['no-candidates'],
       incomplete: true,
+      gaps: [],
     }
   }
   const options = optionsOf(config)
-  const { result } = replayMatch(variant.source, recording, options)
+  const replay = replayMatch(variant.source, recording, options)
+  const { result } = replay
   const pick = result.best?.source === 'ytm' ? result.best.ref : undefined
   const entry = pick === undefined ? undefined : group.labels?.[pick]
   const outcome: EvalOutcome = {
@@ -126,6 +154,7 @@ export function evaluateCase(
     isrc: result.isrc.status,
     blockers: result.autoBlockers,
     incomplete: result.incomplete,
+    gaps: [...replay.unrecorded, ...replay.failed],
   }
   if (pick !== undefined) outcome.pick = pick
   if (entry !== undefined) outcome.label = entry.label

@@ -4,8 +4,13 @@ import {
   draftLabel,
   draftLabels,
   labelTargets,
+  parseCsv,
+  pickKey,
   REVIEW_COLUMNS,
+  type ReviewRow,
   renderReviewCsv,
+  reviewCell,
+  reviewMinutes,
   reviewPlan,
   trustedIsrcs,
 } from './labels'
@@ -223,8 +228,31 @@ describe('draftLabels and labelTargets', () => {
     },
   })
 
-  it("targets every input's pick and the ISRC search's first item", () => {
-    expect(labelTargets(recorded)).toEqual(['filler', 'hit'])
+  it("targets every input's pick and the ISRC search's first item, most important first", () => {
+    // The main input's pick with the default options leads, so the recorder fetches the
+    // descriptions that settle it first; the ISRC search's first item comes last.
+    expect(labelTargets(recorded)).toEqual(['hit', 'filler'])
+  })
+
+  it('puts the main input before the others, and the uncapped picks after them', () => {
+    const ordered = group({
+      variants: [
+        { slice: 'data-export', source: source('Song Title', 'The Artist', undefined) },
+        { slice: 'spotify', source: { ...INPUT, isrc: 'USMIS2000001' } },
+      ],
+      items: {
+        row: item('Song Title', 'The Artist', 200, { album: 'Elsewhere' }),
+        main: item('Song Title', 'The Artist', 200, { album: 'The Album' }),
+      },
+      pages: {
+        'isrc-songs/1/USMIS2000001': { items: [] },
+        'isrc-top-card/USMIS2000001': { item: null },
+        'isrc-songs/2/USMIS2000001': { items: [] },
+        'songs/The Artist Song Title': { items: ['row', 'main'] },
+        'songs/The Artist Song Title The Album': { items: ['main', 'row'] },
+      },
+    })
+    expect(labelTargets(ordered)[0]).toBe('main')
   })
 
   it("drafts the rules' labels and keeps the owner's and the old ones", () => {
@@ -260,7 +288,8 @@ describe('the review', () => {
   it('lists the undecided ambiguous labels, then a 10 % spot check of the others', () => {
     const plan = reviewPlan(groups)
     expect(plan.ambiguous).toEqual({ total: 2, decided: 1 })
-    expect(plan.spotCheck).toEqual({ labels: 10, required: 1, checked: 0 })
+    expect(plan.spotCheck).toEqual({ labels: 10, required: 1, checked: 0, overturned: 0 })
+    expect(plan.autoPlays).toBeUndefined()
     expect(plan.pending.map((row) => row.kind)).toEqual(['ambiguous', 'spot-check'])
     expect(plan.pending[0]).toMatchObject({
       group: 'sp:one',
@@ -280,14 +309,72 @@ describe('the review', () => {
     expect(reviewPlan(checked).pending.map((row) => row.kind)).toEqual(['ambiguous'])
   })
 
+  it('asks for every certain label of a held-out Auto play once a spot check was overturned', () => {
+    const overturned = JSON.parse(JSON.stringify(groups)) as typeof groups
+    const labels = overturned[0]?.labels
+    if (labels?.v3 === undefined) throw new Error('no label')
+    labels.v3 = {
+      label: 'wrong',
+      by: 'owner',
+      evidence: ['test', 'draft was exact (rule)'],
+      reviewed: '2026-10-30',
+      draft: { label: 'exact', by: 'rule' },
+    }
+    let asked = 0
+    const autoPicks = () => {
+      asked += 1
+      return new Set([pickKey('sp:one', 'v1'), pickKey('sp:one', 'v2'), pickKey('sp:one', 'v3')])
+    }
+    const plan = reviewPlan(overturned, autoPicks)
+    expect(asked).toBe(1)
+    expect(plan.spotCheck).toMatchObject({ checked: 1, overturned: 1 })
+    expect(plan.autoPlays).toEqual({ labels: 3, checked: 1 })
+    expect(plan.pending.map((row) => `${row.kind} ${row.video}`)).toEqual([
+      'ambiguous v10',
+      'auto-play v1',
+      'auto-play v2',
+    ])
+    expect(reviewMinutes(plan.pending)).toBe(6)
+    // Without an overturned spot check the Auto plays are never asked for.
+    expect(reviewPlan(groups, autoPicks).pending).toHaveLength(2)
+    expect(asked).toBe(1)
+  })
+
   it('writes RFC 4180 CSV', () => {
     const csv = renderReviewCsv([
       {
         ...Object.fromEntries(REVIEW_COLUMNS.map((column) => [column, ''])),
         input: 'A, "B"\nC',
         kind: 'ambiguous',
-      } as never,
+      } as ReviewRow,
     ])
     expect(csv).toBe(`${REVIEW_COLUMNS.join(',')}\r\nambiguous,,,,"A, ""B""\nC",,,,,,,\r\n`)
+  })
+
+  it('keeps spreadsheets from reading a cell as a formula, and reads it back', () => {
+    const row = {
+      ...Object.fromEntries(REVIEW_COLUMNS.map((column) => [column, ''])),
+      kind: 'spot-check',
+      video: '-FosatJWWas',
+      candidate: '=HYPERLINK("x")',
+      evidence: '@risk',
+      notes: "'Tis fine",
+    } as ReviewRow
+    const [, fields] = parseCsv(renderReviewCsv([row]))
+    expect(fields?.[2]).toBe("'-FosatJWWas")
+    expect(fields?.[5]).toBe(`'=HYPERLINK("x")`)
+    expect(fields?.map(reviewCell)).toEqual(REVIEW_COLUMNS.map((column) => row[column]))
+    expect(reviewCell("'Tis fine")).toBe("'Tis fine")
+  })
+})
+
+describe('parseCsv', () => {
+  it('reads quoted fields, doubled quotes, line breaks in quotes and both line ends', () => {
+    expect(parseCsv('a,"b, ""c""",d\r\n"e\nf",,g\nlast')).toEqual([
+      ['a', 'b, "c"', 'd'],
+      ['e\nf', '', 'g'],
+      ['last'],
+    ])
+    expect(parseCsv('\n\n')).toEqual([])
   })
 })

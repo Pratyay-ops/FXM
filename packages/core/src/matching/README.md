@@ -7,10 +7,12 @@ The engine is pure: no network, no clock, no storage. A provider fetches the pag
 ## Using it from a provider
 
 ```ts
-import { runMatch } from '@fxm/core'
+import { matchingOptions, runMatch } from '@fxm/core'
 
-// In AudioSource.match(track, ctx): no user settings needed.
-const result = await runMatch(track, (request) => fetchPage(request, ctx), { mode: ctx.mode })
+// In AudioSource.match(track, ctx): no user settings needed, only the matching config's
+// thresholds and fallback, so the verdict is decided as the evaluation measured it (stage 1.12).
+const options = matchingOptions({ mode: ctx.mode })
+const result = await runMatch(track, (request) => fetchPage(request, ctx), options)
 return result.candidates // best first; the best carries the verdict
 ```
 
@@ -52,10 +54,11 @@ Official videos in Music mode go through `matchVideoToSong(video, songs, options
 The engine never needs the user's settings. The best candidate carries a `verdict` (`AudioCandidate.verdict`, a `MatchVerdict`): the band it reaches with the Auto setting on, the blockers, and the `MATCHER_VERSION` that decided. The app applies the setting at play time:
 
 ```ts
-const band = effectiveMatchBand(candidate.verdict, settings.autoMatch) // 'auto' | 'suggest' | 'none'
+const auto = matchingOptions(settings).auto === true // the user's setting, while the config allows Auto
+const band = effectiveMatchBand(candidate.verdict, auto) // 'auto' | 'suggest' | 'none'
 ```
 
-`effectiveMatchBand` gives `auto` only for an `auto` verdict of this matcher version while the setting is on, and `suggest` for a missing or malformed verdict. `MatchOptions.auto` (only `true` turns it on) changes `MatchResult.band` alone, never the verdict, so a stored candidate follows the setting as it changes.
+`effectiveMatchBand` gives `auto` only for an `auto` verdict of this matcher version while the setting is on, and `suggest` for a missing or malformed verdict. Never pass the user's setting to it directly: `matchingOptions` passes it only while the matching config makes the Auto band available (`isAutoMatchAvailable()`), and the app shows its Auto setting only then (see [the evaluation](#evaluation-and-the-auto-switch-stage-112)). Today the config keeps Auto off, so every match is a suggestion. `MatchOptions.auto` (only `true` turns it on) changes `MatchResult.band` alone, never the verdict, so a stored candidate follows the setting as it changes.
 
 Stage 2.6's match cache stores the verdict, the evidence and the signals, never a band with the setting applied. It drops entries whose `matcherVersion` differs from `MATCHER_VERSION` (bumped whenever the scoring, a guard or a default threshold changes), never keeps an `incomplete` result as final, and keys entries by the thresholds too if the app overrides them. Options read from storage or a config go through `sanitizeMatchOptions`; invalid thresholds (not a finite number in range) keep their defaults.
 
@@ -167,4 +170,4 @@ To add a case, record the pages with the research tooling of stage 1.12 (or copy
 
 ## Evaluation and the Auto switch (stage 1.12)
 
-Whether the Auto band may be used at all is the matching config's call, `MATCHING_CONFIG`, which the held-out report of the matching evaluation decides; today it is off, so every match is a suggestion. Apply it with `isAutoMatchAvailable()` and `matchingOptions(settings)` rather than passing the user's Auto setting straight to the engine. The labelled set, the offline replay, the report and the config are in [`eval/`](eval/README.md); the recorder that fetches the set's pages is in [`@fxm/sources/eval`](../../../sources/src/eval/README.md).
+Whether the Auto band may be used at all is the matching config's call, `MATCHING_CONFIG`, which the held-out report of the matching evaluation decides; today it is off, so every match is a suggestion. Apply it with `isAutoMatchAvailable()` and `matchingOptions(settings)` rather than passing the user's Auto setting straight to the engine or to `effectiveMatchBand`, and match with `matchingOptions({ mode })` in providers, so that verdicts use the thresholds and the fallback the evaluation tuned. The labelled set, the offline replay, the report and the config are in [`eval/`](eval/README.md); the recorder that fetches the set's pages is in [`@fxm/sources/eval`](../../../sources/src/eval/README.md).

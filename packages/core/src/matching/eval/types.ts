@@ -25,9 +25,11 @@ export const EVAL_CATEGORIES = [
 
 /**
  * What kind of track a case is, for the report's per-category tables. A case can be in several
- * (a Bollywood hit is `mainstream` and `regional`). Most come from the inputs (see
- * `inputCategories`); `cross-script` and `isrc-squatter` may also follow from the labels (see
- * `caseCategories`). `data-export` holds the data-export rows, and only them.
+ * (a Bollywood hit is `mainstream` and `regional`). All but one come from the inputs and are
+ * stored with the group (see `categoriesOfInput`): `isrc-squatter` marks the inputs known to
+ * carry another recording's ISRC. `cross-script` follows from the labels alone, since it says
+ * how YouTube Music titles the recording (see `caseCategories`), so a group never stores it.
+ * `data-export` holds the data-export rows, and only them.
  */
 export type EvalCategory = (typeof EVAL_CATEGORIES)[number]
 
@@ -67,7 +69,10 @@ export const EVAL_SLICES = [
  */
 export type EvalSlice = (typeof EVAL_SLICES)[number]
 
-/** The slices whose cases count in the per-category tables (the others have a table of their own). */
+/**
+ * The slices of a group's main input, which the labels are about: a group has at most one of
+ * them. Their cases count in the per-category tables (the others have a table of their own).
+ */
 export const PRIMARY_SLICES: readonly EvalSlice[] = ['spotify', 'csv', 'fixed']
 
 /**
@@ -139,6 +144,13 @@ export const EVAL_LABELS = ['exact', 'equivalent', 'wrong'] as const satisfies r
 /** Who decided a label: the drafting rules, an agent, or the owner. */
 export type EvalLabelAuthor = 'rule' | 'agent' | 'owner'
 
+/** Every {@link EvalLabelAuthor}. */
+export const EVAL_LABEL_AUTHORS = [
+  'rule',
+  'agent',
+  'owner',
+] as const satisfies readonly EvalLabelAuthor[]
+
 /** One candidate's label, with why. */
 export interface EvalLabelEntry {
   /** The label. */
@@ -154,6 +166,11 @@ export interface EvalLabelEntry {
   ambiguous?: true
   /** When the owner reviewed it (a date), for an ambiguous label or a spot check. */
   reviewed?: string
+  /**
+   * For a label the owner decided: the draft they reviewed, which their decision replaced or
+   * confirmed. A spot check whose draft differs from the owner's label was overturned.
+   */
+  draft?: { label: EvalLabel; by: Exclude<EvalLabelAuthor, 'owner'> }
 }
 
 /** What the MusicBrainz exact path found for the group's Spotify track. */
@@ -172,7 +189,7 @@ export interface EvalMusicBrainzExact {
   firstReleaseDate?: string
 }
 
-/** What the MusicBrainz fuzzy path (a recording search) found. */
+/** What the MusicBrainz fuzzy path (a recording search) found: a hint, not the recording. */
 export interface EvalMusicBrainzFuzzy {
   /** The recording's MBID. */
   recording: string
@@ -194,7 +211,10 @@ export interface EvalGroup {
   id: string
   /** Its split, from the ID (`splitOf`). */
   split: EvalSplit
-  /** The categories its inputs fall in (see {@link EvalCategory}). */
+  /**
+   * The categories its inputs fall in (see {@link EvalCategory}); never `cross-script` or
+   * `data-export`, which follow from the labels and the slice.
+   */
   categories: EvalCategory[]
   /** Where the inputs come from and when they were read. */
   provenance: string[]
@@ -254,7 +274,21 @@ function isDuration(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0
 }
 
+/** Whether an optional field is absent or passes `check`. */
+function optional(value: unknown, check: (value: unknown) => boolean): boolean {
+  return value === undefined || check(value)
+}
+
+const isString = (value: unknown): value is string => typeof value === 'string'
+
 const ITEM_KINDS = ['song', 'music-video', 'video', 'episode'] as const
+
+const ALBUM_TYPES = ['album', 'single', 'ep', 'compilation'] as const satisfies readonly AlbumType[]
+
+/** The categories a group may store: the ones that follow from its inputs. */
+const STORED_CATEGORIES = EVAL_CATEGORIES.filter(
+  (category) => category !== 'cross-script' && category !== 'data-export',
+)
 
 /** The problems of an item, as paths; empty when it is well formed. */
 function itemProblems(item: unknown, path: string): string[] {
@@ -264,13 +298,25 @@ function itemProblems(item: unknown, path: string): string[] {
   if (typeof item.title !== 'string') problems.push(`${path}.title`)
   if (!isStringArray(item.artists)) problems.push(`${path}.artists`)
   for (const key of ['album', 'albumId', 'releaseDate', 'songId'] as const) {
-    if (item[key] !== undefined && typeof item[key] !== 'string') problems.push(`${path}.${key}`)
+    if (!optional(item[key], isString)) problems.push(`${path}.${key}`)
   }
-  if (item.durationMs !== undefined && !isDuration(item.durationMs)) {
-    problems.push(`${path}.durationMs`)
-  }
+  if (!optional(item.durationMs, isDuration)) problems.push(`${path}.durationMs`)
   if (item.explicit !== undefined && item.explicit !== true) problems.push(`${path}.explicit`)
   if (item.source !== undefined && item.source !== 'yt') problems.push(`${path}.source`)
+  return problems
+}
+
+/** The problems of a description's release facts (see `ReleaseFacts`), as paths. */
+function factsProblems(facts: unknown, path: string): string[] {
+  if (!isRecord(facts)) return [path]
+  const problems: string[] = []
+  for (const key of ['label', 'providedBy'] as const) {
+    if (!optional(facts[key], isString)) problems.push(`${path}.${key}`)
+  }
+  const year = facts.releaseYear
+  if (!optional(year, (value) => typeof value === 'number' && Number.isInteger(value))) {
+    problems.push(`${path}.releaseYear`)
+  }
   return problems
 }
 
@@ -285,7 +331,12 @@ function pageProblems(page: unknown, path: string, items: Record<string, unknown
     if (page.item === null) return []
     return typeof page.item === 'string' && page.item in items ? [] : [`${path}.item`]
   }
-  if ('facts' in page) return isRecord(page.facts) ? [] : [`${path}.facts`]
+  if ('facts' in page) {
+    return [
+      ...factsProblems(page.facts, `${path}.facts`),
+      ...(optional(page.excerpt, isString) ? [] : [`${path}.excerpt`]),
+    ]
+  }
   if ('error' in page) return typeof page.error === 'string' ? [] : [`${path}.error`]
   return [path]
 }
@@ -307,17 +358,15 @@ function sourceProblems(source: unknown, path: string): string[] {
   ) {
     problems.push(`${path}.album`)
   }
-  if (source.durationMs !== undefined && !isDuration(source.durationMs)) {
-    problems.push(`${path}.durationMs`)
+  if (!optional(source.durationMs, isDuration)) problems.push(`${path}.durationMs`)
+  for (const key of ['isrc', 'releaseDate', 'label'] as const) {
+    if (!optional(source[key], isString)) problems.push(`${path}.${key}`)
   }
-  for (const key of ['isrc', 'releaseDate', 'label', 'albumType'] as const) {
-    if (source[key] !== undefined && typeof source[key] !== 'string')
-      problems.push(`${path}.${key}`)
+  if (!optional(source.albumType, (value) => isOneOf(ALBUM_TYPES, value))) {
+    problems.push(`${path}.albumType`)
   }
-  if (source.isrcOrigin !== undefined && !isIsrcOrigin(source.isrcOrigin)) {
-    problems.push(`${path}.isrcOrigin`)
-  }
-  if (source.explicit !== undefined && typeof source.explicit !== 'boolean') {
+  if (!optional(source.isrcOrigin, isIsrcOrigin)) problems.push(`${path}.isrcOrigin`)
+  if (!optional(source.explicit, (value) => typeof value === 'boolean')) {
     problems.push(`${path}.explicit`)
   }
   return problems
@@ -328,11 +377,69 @@ function labelProblems(entry: unknown, path: string): string[] {
   if (!isRecord(entry)) return [path]
   const problems: string[] = []
   if (!isOneOf(EVAL_LABELS, entry.label)) problems.push(`${path}.label`)
-  if (!isOneOf(['rule', 'agent', 'owner'] as const, entry.by)) problems.push(`${path}.by`)
+  if (!isOneOf(EVAL_LABEL_AUTHORS, entry.by)) problems.push(`${path}.by`)
   if (!isStringArray(entry.evidence)) problems.push(`${path}.evidence`)
   if (entry.ambiguous !== undefined && entry.ambiguous !== true) problems.push(`${path}.ambiguous`)
-  if (entry.reviewed !== undefined && typeof entry.reviewed !== 'string') {
-    problems.push(`${path}.reviewed`)
+  if (!optional(entry.reviewed, isString)) problems.push(`${path}.reviewed`)
+  if (entry.draft !== undefined) {
+    const draft = entry.draft
+    if (
+      entry.by !== 'owner' ||
+      !isRecord(draft) ||
+      !isOneOf(EVAL_LABELS, draft.label) ||
+      !isOneOf(['rule', 'agent'] as const, draft.by)
+    ) {
+      problems.push(`${path}.draft`)
+    }
+  }
+  return problems
+}
+
+/** The problems of what the group keeps of Spotify's facts, as paths. */
+function spotifyProblems(spotify: unknown): string[] {
+  if (!isRecord(spotify)) return ['spotify']
+  const problems: string[] = []
+  if (typeof spotify.id !== 'string' || spotify.id === '') problems.push('spotify.id')
+  const { popularity } = spotify
+  if (
+    !optional(
+      popularity,
+      (value) => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100,
+    )
+  ) {
+    problems.push('spotify.popularity')
+  }
+  if (!optional(spotify.albumType, (value) => isOneOf(ALBUM_TYPES, value))) {
+    problems.push('spotify.albumType')
+  }
+  return problems
+}
+
+/** The problems of what MusicBrainz found, as paths. */
+function musicBrainzProblems(found: unknown): string[] {
+  if (!isRecord(found)) return ['musicBrainz']
+  const problems: string[] = []
+  const { exact, fuzzy } = found
+  if (exact !== undefined && exact !== null) {
+    if (!isRecord(exact)) problems.push('musicBrainz.exact')
+    else {
+      for (const key of ['recording', 'title'] as const) {
+        if (typeof exact[key] !== 'string') problems.push(`musicBrainz.exact.${key}`)
+      }
+      if (!isStringArray(exact.artists)) problems.push('musicBrainz.exact.artists')
+      if (!isStringArray(exact.isrcs)) problems.push('musicBrainz.exact.isrcs')
+      if (!optional(exact.lengthMs, isDuration)) problems.push('musicBrainz.exact.lengthMs')
+      if (!optional(exact.firstReleaseDate, isString)) {
+        problems.push('musicBrainz.exact.firstReleaseDate')
+      }
+    }
+  }
+  if (fuzzy !== undefined && fuzzy !== null) {
+    if (!isRecord(fuzzy)) problems.push('musicBrainz.fuzzy')
+    else {
+      if (typeof fuzzy.recording !== 'string') problems.push('musicBrainz.fuzzy.recording')
+      if (!isStringArray(fuzzy.isrcs)) problems.push('musicBrainz.fuzzy.isrcs')
+    }
   }
   return problems
 }
@@ -352,11 +459,13 @@ export function parseEvalGroup(value: unknown): EvalGroup {
   if (!isOneOf(EVAL_SPLITS, value.split)) problems.push('split')
   if (
     !Array.isArray(value.categories) ||
-    !value.categories.every((category) => isOneOf(EVAL_CATEGORIES, category))
+    !value.categories.every((category) => isOneOf(STORED_CATEGORIES, category))
   ) {
     problems.push('categories')
   }
   if (!isStringArray(value.provenance) || value.provenance.length === 0) problems.push('provenance')
+  if (value.spotify !== undefined) problems.push(...spotifyProblems(value.spotify))
+  if (value.musicBrainz !== undefined) problems.push(...musicBrainzProblems(value.musicBrainz))
   if (!Array.isArray(value.variants) || value.variants.length === 0) {
     problems.push('variants')
   } else {
@@ -368,6 +477,12 @@ export function parseEvalGroup(value: unknown): EvalGroup {
         return
       }
       if (slices.has(variant.slice)) problems.push(`${path}.slice (twice)`)
+      else if (
+        PRIMARY_SLICES.includes(variant.slice) &&
+        PRIMARY_SLICES.some((slice) => slices.has(slice))
+      ) {
+        problems.push(`${path}.slice (a second main input)`)
+      }
       slices.add(variant.slice)
       problems.push(...sourceProblems(variant.source, `${path}.source`))
     })

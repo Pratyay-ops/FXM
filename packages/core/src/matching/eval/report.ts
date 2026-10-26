@@ -9,8 +9,8 @@
 
 import { DEFAULT_MATCH_THRESHOLDS, MATCHER_VERSION, type MatchThresholds } from '../types'
 import { caseCategories } from './categories'
-import { type EvalConfig, type EvalOutcome, evaluateCase, isRight } from './evaluate'
-import { reviewPlan } from './labels'
+import { type EvalConfig, type EvalOutcome, evalConfigOf, evaluateCase, isRight } from './evaluate'
+import { pickKey, reviewMinutes, reviewPlan } from './labels'
 import { type TuningResult, tuneThresholds } from './tune'
 import {
   casesOf,
@@ -64,7 +64,7 @@ export interface EvalCoverageStats {
 
 /** What the ISRC-miss cap costs, for a set of cases. */
 export interface EvalIsrcCapStats {
-  /** The category. */
+  /** The category or slice. */
   name: string
   /** Cases. */
   cases: number
@@ -72,6 +72,11 @@ export interface EvalIsrcCapStats {
   trusted: number
   /** Of those, the ones whose ISRC missed, so the cap applies. */
   misses: number
+  /**
+   * Of the trusted ones, those whose ISRC search put a recording labelled `wrong` first: filler
+   * when YouTube Music lacks the ISRC, or a recording that claims it.
+   */
+  ledByOther: number
   /** Auto plays with the cap. */
   auto: number
   /** Auto plays with the cap lifted. */
@@ -157,13 +162,17 @@ function capStatsOf(name: string, outcomes: readonly EvalOutcome[]): EvalIsrcCap
     cases: 0,
     trusted: 0,
     misses: 0,
+    ledByOther: 0,
     auto: 0,
     autoUncapped: 0,
     wrongPrevented: 0,
   }
   for (const outcome of outcomes) {
     stats.cases += 1
-    if (outcome.trustedIsrc) stats.trusted += 1
+    if (outcome.trustedIsrc) {
+      stats.trusted += 1
+      if (outcome.isrcLedByOther) stats.ledByOther += 1
+    }
     if (outcome.band === 'auto') stats.auto += 1
     const uncapped = outcome.uncapped
     if (uncapped === undefined) {
@@ -179,18 +188,38 @@ function capStatsOf(name: string, outcomes: readonly EvalOutcome[]): EvalIsrcCap
   return stats
 }
 
+function capStatsBy(
+  outcomes: readonly EvalOutcome[],
+  names: readonly string[],
+  keysOf: (outcome: EvalOutcome) => readonly string[],
+): EvalIsrcCapStats[] {
+  return [
+    ...names.map((name) =>
+      capStatsOf(
+        name,
+        outcomes.filter((outcome) => keysOf(outcome).includes(name)),
+      ),
+    ),
+    capStatsOf('all', outcomes),
+  ]
+}
+
 // --- The gate --------------------------------------------------------------------------------
 
 /**
  * What the held-out report must show before the matching config may turn the Auto band on
- * (PLAN.md 1.12): at least 200 held-out groups, at least 150 Auto plays (so that zero wrong
- * bounds the wrong-Auto rate below about 2 % at 95 % confidence), no wrong and no unlabelled Auto
- * play, and at least 85 % Auto on at least 40 mainstream cases.
+ * (PLAN.md 1.12): at least 200 held-out groups, at least 150 of them (tracks) with an Auto play,
+ * no wrong, unlabelled or incomplete Auto play on any input, at least 85 % Auto on at least 40
+ * mainstream tracks, and a calibration that found a safe setting.
+ *
+ * Auto plays count once per track: a track's inputs (Spotify, data-export, MusicBrainz) replay
+ * the same recorded pages and mostly pick the same video, so they are not independent trials.
+ * Zero wrong in 150 tracks bounds the wrong-Auto rate per track below 2 % at 95 % confidence.
  */
 export const EVAL_GATE = Object.freeze({
   minHeldOutGroups: 200,
-  minAutoPlays: 150,
-  minMainstreamCases: 40,
+  minAutoGroups: 150,
+  minMainstreamGroups: 40,
   minMainstreamAutoRate: 0.85,
 })
 
@@ -202,28 +231,39 @@ export interface EvalGateResult {
   failures: string[]
   /** Held-out groups with a recording. */
   groups: number
-  /** Auto plays, all held-out cases. */
+  /** Held-out groups (tracks) with an Auto play on any input: the gate's trials. */
+  autoGroups: number
+  /** Auto plays over every held-out case (every input of every track), for information. */
   autoPlays: number
-  /** Wrong and unlabelled Auto plays. */
+  /** Wrong and unlabelled Auto plays, every held-out case. */
   wrongAuto: number
   unlabeledAuto: number
   /** Auto plays whose label the owner has not decided. */
   pendingAuto: number
-  /** Mainstream cases, and the share that reaches Auto. */
-  mainstreamCases: number
+  /** Auto plays whose replay lacked a page (missing, or recorded as failed). */
+  incompleteAuto: number
+  /** Mainstream tracks (their main input), and the share that reaches Auto. */
+  mainstreamGroups: number
   mainstreamAutoRate: number
   /**
-   * The one-sided 95 % upper bound of the wrong-Auto rate when no Auto play is wrong:
-   * 1 − 0.05^(1/n), about 3/n. `undefined` when an Auto play is wrong or there are none.
+   * The one-sided 95 % upper bound of the wrong-Auto rate per track when no Auto play is wrong
+   * or unlabelled: 1 − 0.05^(1/n) over the n tracks with an Auto play, about 3/n. `undefined`
+   * otherwise.
    */
   upperBound?: number
 }
 
-function gateOf(outcomes: readonly EvalOutcome[], groups: number): EvalGateResult {
+function gateOf(
+  outcomes: readonly EvalOutcome[],
+  groups: number,
+  tuning: TuningResult,
+): EvalGateResult {
   const auto = outcomes.filter((outcome) => outcome.band === 'auto')
+  const autoGroups = new Set(auto.map((outcome) => outcome.groupId)).size
   const wrongAuto = auto.filter((outcome) => outcome.label === 'wrong').length
   const unlabeledAuto = auto.filter((outcome) => outcome.label === undefined).length
   const pendingAuto = auto.filter((outcome) => outcome.labelPending).length
+  const incompleteAuto = auto.filter((outcome) => outcome.incomplete).length
   const mainstream = outcomes.filter(
     (outcome) =>
       PRIMARY_SLICES.includes(outcome.slice) && outcome.categories.includes('mainstream'),
@@ -234,14 +274,17 @@ function gateOf(outcomes: readonly EvalOutcome[], groups: number): EvalGateResul
   if (groups < EVAL_GATE.minHeldOutGroups) {
     failures.push(`${groups} held-out groups, fewer than ${EVAL_GATE.minHeldOutGroups}`)
   }
-  if (auto.length < EVAL_GATE.minAutoPlays) {
-    failures.push(`${auto.length} Auto plays, fewer than ${EVAL_GATE.minAutoPlays}`)
+  if (autoGroups < EVAL_GATE.minAutoGroups) {
+    failures.push(`${autoGroups} tracks with an Auto play, fewer than ${EVAL_GATE.minAutoGroups}`)
   }
   if (wrongAuto > 0) failures.push(`${wrongAuto} wrong Auto plays`)
   if (unlabeledAuto > 0) failures.push(`${unlabeledAuto} unlabelled Auto plays`)
-  if (mainstream.length < EVAL_GATE.minMainstreamCases) {
+  if (incompleteAuto > 0) {
+    failures.push(`${incompleteAuto} Auto plays whose replay lacked a page`)
+  }
+  if (mainstream.length < EVAL_GATE.minMainstreamGroups) {
     failures.push(
-      `${mainstream.length} mainstream cases, fewer than ${EVAL_GATE.minMainstreamCases}`,
+      `${mainstream.length} mainstream tracks, fewer than ${EVAL_GATE.minMainstreamGroups}`,
     )
   }
   if (rate < EVAL_GATE.minMainstreamAutoRate) {
@@ -249,18 +292,27 @@ function gateOf(outcomes: readonly EvalOutcome[], groups: number): EvalGateResul
       `${percent(rate)} Auto on mainstream tracks, below ${percent(EVAL_GATE.minMainstreamAutoRate)}`,
     )
   }
+  if (tuning.safe === 0) {
+    failures.push(
+      `calibration found no setting without a wrong Auto play (of ${tuning.tried} tried)`,
+    )
+  }
   const result: EvalGateResult = {
     passed: failures.length === 0,
     failures,
     groups,
+    autoGroups,
     autoPlays: auto.length,
     wrongAuto,
     unlabeledAuto,
     pendingAuto,
-    mainstreamCases: mainstream.length,
+    incompleteAuto,
+    mainstreamGroups: mainstream.length,
     mainstreamAutoRate: rate,
   }
-  if (auto.length > 0 && wrongAuto === 0) result.upperBound = 1 - 0.05 ** (1 / auto.length)
+  if (autoGroups > 0 && wrongAuto === 0 && unlabeledAuto === 0) {
+    result.upperBound = 1 - 0.05 ** (1 / autoGroups)
+  }
   return result
 }
 
@@ -275,11 +327,21 @@ export interface EvalReviewStatus {
   certain: number
   spotChecksRequired: number
   spotChecked: number
+  /** Spot checks whose draft the owner overturned. */
+  overturned: number
+  /**
+   * After an overturned spot check: the certain labels held-out Auto plays rest on, which all
+   * need the owner's check, and how many the owner checked.
+   */
+  autoPlayLabels?: { labels: number; checked: number }
   /** Rows still in the checklist. */
   pending: number
-  /** Whether the review is done: every ambiguous label decided and the spot check complete. */
+  /**
+   * Whether the review is done: every ambiguous label decided, the spot check complete, and,
+   * after an overturned spot check, every certain label of a held-out Auto play checked.
+   */
   complete: boolean
-  /** About how long the rest takes, in minutes: 3 per ambiguous row, 1.5 per spot check. */
+  /** About how long the rest takes, in minutes: 3 per ambiguous row, 1.5 per other row. */
   minutesLeft: number
 }
 
@@ -295,10 +357,14 @@ export interface EvalSplitReport {
   slices: EvalCategoryStats[]
   /** The MusicBrainz exact path's coverage per category, then `all`. */
   coverage: EvalCoverageStats[]
-  /** What the ISRC-miss cap costs per category, then `all`. */
+  /** What the ISRC-miss cap costs per category (primary inputs and data-export rows), then `all`. */
   isrcCap: EvalIsrcCapStats[]
+  /** What the ISRC-miss cap costs per input slice, then `all`. */
+  isrcCapBySlice: EvalIsrcCapStats[]
   /** Every Auto play whose pick is not labelled as the recording. */
   badAuto: EvalOutcome[]
+  /** Every case whose replay lacked a page. */
+  incomplete: EvalOutcome[]
   /** Every case's outcome. */
   outcomes: EvalOutcome[]
 }
@@ -331,14 +397,14 @@ function splitReport(groups: readonly EvalGroup[], config: EvalConfig): EvalSpli
   const recorded = groups.filter((group) => group.recording !== undefined)
   const cases = casesOf(recorded)
   const outcomes = cases.map((evalCase) => evaluateCase(evalCase, config))
-  // The category table counts the primary inputs and the data-export rows; the MusicBrainz
-  // inputs have only the slice table, so its `all` row is every case.
+  // The category tables count the primary inputs and the data-export rows; the MusicBrainz
+  // inputs have only the slice tables, whose `all` row is every case.
   const categorized = outcomes.filter(
     (outcome) => PRIMARY_SLICES.includes(outcome.slice) || outcome.slice === 'data-export',
   )
   const categoryNames = EVAL_CATEGORIES as readonly string[]
-  const categories = statsBy(categorized, categoryNames, (outcome) => outcome.categories)
-  const slices = statsBy(outcomes, EVAL_SLICES, (outcome) => [outcome.slice])
+  const categoriesOf = (outcome: EvalOutcome) => outcome.categories
+  const sliceOf = (outcome: EvalOutcome) => [outcome.slice]
   const primaryCategories = (group: EvalGroup): EvalCategory[] => {
     const primary = cases.find(
       (evalCase) => evalCase.group === group && PRIMARY_SLICES.includes(evalCase.variant.slice),
@@ -358,43 +424,64 @@ function splitReport(groups: readonly EvalGroup[], config: EvalConfig): EvalSpli
     ),
     coverageOf('all', recorded),
   ]
-  const primaryOutcomes = outcomes.filter((outcome) => PRIMARY_SLICES.includes(outcome.slice))
-  const isrcCap = [
-    ...EVAL_CATEGORIES.filter((name) => name !== 'data-export').map((name) =>
-      capStatsOf(
-        name,
-        primaryOutcomes.filter((outcome) => outcome.categories.includes(name)),
-      ),
-    ),
-    capStatsOf('all', primaryOutcomes),
-  ]
-  const badAuto = outcomes.filter((outcome) => outcome.band === 'auto' && !isRight(outcome.label))
   return {
     groups: recorded.length,
     cases: cases.length,
-    categories,
-    slices,
+    categories: statsBy(categorized, categoryNames, categoriesOf),
+    slices: statsBy(outcomes, EVAL_SLICES, sliceOf),
     coverage,
-    isrcCap,
-    badAuto,
+    isrcCap: capStatsBy(categorized, categoryNames, categoriesOf),
+    isrcCapBySlice: capStatsBy(outcomes, EVAL_SLICES, sliceOf),
+    badAuto: outcomes.filter((outcome) => outcome.band === 'auto' && !isRight(outcome.label)),
+    incomplete: outcomes.filter((outcome) => outcome.incomplete),
     outcomes,
   }
 }
 
-function reviewStatus(groups: readonly EvalGroup[]): EvalReviewStatus {
-  const plan = reviewPlan(groups)
-  const pendingAmbiguous = plan.ambiguous.total - plan.ambiguous.decided
-  const pendingSpot = Math.max(0, plan.spotCheck.required - plan.spotCheck.checked)
-  return {
+/** The candidates outcomes play without asking, as `reviewPlan`'s `autoPicks` names them. */
+export function autoPicksOf(outcomes: readonly EvalOutcome[]): Set<string> {
+  return new Set(
+    outcomes.flatMap((outcome) =>
+      outcome.band === 'auto' && outcome.pick !== undefined
+        ? [pickKey(outcome.groupId, outcome.pick)]
+        : [],
+    ),
+  )
+}
+
+/**
+ * The candidates held-out cases play without asking, replayed with a configuration (by default
+ * the matching config's): what `reviewPlan` asks the owner to check after an overturned spot
+ * check.
+ */
+export function heldOutAutoPicks(
+  groups: readonly EvalGroup[],
+  config: EvalConfig = evalConfigOf(),
+): Set<string> {
+  const recorded = groups.filter(
+    (group) => group.split === 'held-out' && group.recording !== undefined,
+  )
+  return autoPicksOf(casesOf(recorded).map((evalCase) => evaluateCase(evalCase, config)))
+}
+
+function reviewStatus(
+  groups: readonly EvalGroup[],
+  autoPicks: () => ReadonlySet<string>,
+): EvalReviewStatus {
+  const plan = reviewPlan(groups, autoPicks)
+  const status: EvalReviewStatus = {
     ambiguous: plan.ambiguous.total,
     decided: plan.ambiguous.decided,
     certain: plan.spotCheck.labels,
     spotChecksRequired: plan.spotCheck.required,
     spotChecked: plan.spotCheck.checked,
+    overturned: plan.spotCheck.overturned,
     pending: plan.pending.length,
-    complete: pendingAmbiguous === 0 && pendingSpot === 0,
-    minutesLeft: Math.round(pendingAmbiguous * 3 + pendingSpot * 1.5),
+    complete: plan.pending.length === 0,
+    minutesLeft: reviewMinutes(plan.pending),
   }
+  if (plan.autoPlays !== undefined) status.autoPlayLabels = { ...plan.autoPlays }
+  return status
 }
 
 /**
@@ -407,8 +494,8 @@ export function buildReport(groups: readonly EvalGroup[], config?: EvalConfig): 
   const dates = groups.flatMap((group) => group.recording?.recordedAt ?? []).sort()
   const heldOutGroups = groups.filter((group) => group.split === 'held-out')
   const heldOut = splitReport(heldOutGroups, evaluated)
-  const gate = gateOf(heldOut.outcomes, heldOut.groups)
-  const review = reviewStatus(groups)
+  const gate = gateOf(heldOut.outcomes, heldOut.groups, tuning)
+  const review = reviewStatus(groups, () => autoPicksOf(heldOut.outcomes))
   const recordedAt: EvalReport['recordedAt'] = {}
   const [first] = dates
   const last = dates.at(-1)
@@ -453,21 +540,23 @@ function table(header: readonly string[], rows: readonly (readonly string[])[]):
   ]
 }
 
+function rowName(name: string): string {
+  return name === 'all' ? '**all**' : name
+}
+
 function bandTable(stats: readonly EvalCategoryStats[]): string[] {
   return table(
     ['', 'Cases', 'Auto', 'Wrong Auto', 'Suggest', 'Right suggestion', 'None', 'Incomplete'],
-    stats
-      .filter((row) => row.cases > 0 || row.name === 'all')
-      .map((row) => [
-        row.name === 'all' ? '**all**' : row.name,
-        String(row.cases),
-        share(row.auto, row.cases),
-        `${row.wrongAuto + row.unlabeledAuto}${row.unlabeledAuto > 0 ? ` (${row.unlabeledAuto} unlabelled)` : ''}${row.pendingAuto > 0 ? `, ${row.pendingAuto} on draft labels` : ''}`,
-        share(row.suggest, row.cases),
-        share(row.suggestRight, row.suggest),
-        share(row.none, row.cases),
-        String(row.incomplete),
-      ]),
+    stats.map((row) => [
+      rowName(row.name),
+      String(row.cases),
+      share(row.auto, row.cases),
+      `${row.wrongAuto + row.unlabeledAuto}${row.unlabeledAuto > 0 ? ` (${row.unlabeledAuto} unlabelled)` : ''}${row.pendingAuto > 0 ? `, ${row.pendingAuto} on draft labels` : ''}`,
+      share(row.suggest, row.cases),
+      share(row.suggestRight, row.suggest),
+      share(row.none, row.cases),
+      String(row.incomplete),
+    ]),
   )
 }
 
@@ -481,16 +570,14 @@ function coverageTable(stats: readonly EvalCoverageStats[]): string[] {
       'Several ISRCs',
       "Includes Spotify's ISRC",
     ],
-    stats
-      .filter((row) => row.tracks > 0 || row.name === 'all')
-      .map((row) => [
-        row.name === 'all' ? '**all**' : row.name,
-        String(row.tracks),
-        share(row.linked, row.tracks),
-        share(row.oneIsrc, row.tracks),
-        share(row.severalIsrcs, row.tracks),
-        share(row.agrees, row.tracks),
-      ]),
+    stats.map((row) => [
+      rowName(row.name),
+      String(row.tracks),
+      share(row.linked, row.tracks),
+      share(row.oneIsrc, row.tracks),
+      share(row.severalIsrcs, row.tracks),
+      share(row.agrees, row.tracks),
+    ]),
   )
 }
 
@@ -501,23 +588,23 @@ function capTable(stats: readonly EvalIsrcCapStats[]): string[] {
       'Cases',
       'Trusted ISRC',
       'ISRC missed',
+      'Another recording first',
       'Auto with the cap',
       'Auto without it',
       'Cost (points of Auto rate)',
       'Wrong Auto prevented',
     ],
-    stats
-      .filter((row) => row.trusted > 0 || row.name === 'all')
-      .map((row) => [
-        row.name === 'all' ? '**all**' : row.name,
-        String(row.cases),
-        String(row.trusted),
-        String(row.misses),
-        share(row.auto, row.cases),
-        share(row.autoUncapped, row.cases),
-        row.cases === 0 ? '–' : points((row.autoUncapped - row.auto) / row.cases),
-        String(row.wrongPrevented),
-      ]),
+    stats.map((row) => [
+      rowName(row.name),
+      String(row.cases),
+      String(row.trusted),
+      String(row.misses),
+      String(row.ledByOther),
+      share(row.auto, row.cases),
+      share(row.autoUncapped, row.cases),
+      row.cases === 0 ? '–' : points((row.autoUncapped - row.auto) / row.cases),
+      String(row.wrongPrevented),
+    ]),
   )
 }
 
@@ -529,7 +616,7 @@ function tuningText(tuning: TuningResult): string {
   }
   return tuning.safe > 0
     ? `Calibration found wrong Auto plays with the defaults and chose the setting above from ${tuning.tried} stricter ones, ${tuning.safe} of them safe there (${numbers}).`
-    : `Calibration found no setting of the ${tuning.tried} it tried without a wrong Auto play there, and fell back to the strictest (${numbers}).`
+    : `Calibration found no setting of the ${tuning.tried} it tried without a wrong Auto play there, and fell back to the strictest (${numbers}); the gate fails until one is safe.`
 }
 
 function configText(config: EvalConfig): string {
@@ -541,6 +628,28 @@ function configText(config: EvalConfig): string {
           .map(([key, value]) => `${key} ${value} (default ${DEFAULT_MATCH_THRESHOLDS[key]})`)
           .join(', ')
   return `${thresholds}; measured fallback ${config.requireReleaseAgreement ? 'on' : 'off'}`
+}
+
+function wrongAutoText(gate: EvalGateResult): string {
+  const plays = `${gate.wrongAuto} of ${gate.autoPlays} Auto plays, on ${gate.autoGroups} tracks${gate.unlabeledAuto > 0 ? `, plus ${gate.unlabeledAuto} unlabelled` : ''}`
+  const bound =
+    gate.upperBound === undefined
+      ? ''
+      : `; with none wrong, the wrong-Auto rate per track is below ${percent(gate.upperBound)} at 95 % confidence (one trial per track: a track's inputs share its pages and mostly its pick)`
+  return `- Wrong Auto plays on the held-out split: ${plays}${bound}.`
+}
+
+function reviewText(review: EvalReviewStatus): string[] {
+  const lines = [
+    `- Owner review: ${review.complete ? 'complete' : 'pending'}: ${review.decided} of ${review.ambiguous} ambiguous labels decided, ${review.spotChecked} of ${review.spotChecksRequired} spot checks done; about ${review.minutesLeft} minutes left (\`REVIEW.csv\`, ${review.pending} rows).`,
+  ]
+  if (review.overturned > 0) {
+    const autoPlays = review.autoPlayLabels ?? { labels: 0, checked: 0 }
+    lines.push(
+      `- **${review.overturned} spot checks overturned:** the rules drafted certain labels the owner corrected, so every certain label a held-out Auto play rests on needs the owner's check (${autoPlays.checked} of ${autoPlays.labels} done) before Auto may be on.`,
+    )
+  }
+  return lines
 }
 
 /**
@@ -564,16 +673,17 @@ export function renderReport(report: EvalReport): string {
     '',
     `- **Auto setting: ${report.autoAllowed ? 'may be ON' : 'OFF'}.** ${
       report.autoAllowed
-        ? 'The held-out gate passed and the owner reviewed every ambiguous label.'
-        : `It stays off until the held-out gate passes and the owner has reviewed the ambiguous labels; until then M1 is Suggest-only.`
+        ? 'The held-out gate passed and the owner finished the review.'
+        : `It stays off until the held-out gate passes and the owner has finished the review of the labels; until then M1 is Suggest-only.`
     }`,
     `- Held-out gate: **${gate.passed ? 'passed' : 'not passed'}**${gate.failures.length > 0 ? `: ${gate.failures.join('; ')}` : ''}.`,
-    `- Wrong Auto plays on the held-out split: ${gate.wrongAuto} of ${gate.autoPlays}${gate.unlabeledAuto > 0 ? `, plus ${gate.unlabeledAuto} unlabelled` : ''}${gate.upperBound === undefined ? '' : `; with none wrong, the wrong-Auto rate is below ${percent(gate.upperBound)} at 95 % confidence`}.`,
-    `- Mainstream Auto rate (held-out): ${percent(gate.mainstreamAutoRate)} of ${gate.mainstreamCases} cases (needed: ${percent(EVAL_GATE.minMainstreamAutoRate)} of at least ${EVAL_GATE.minMainstreamCases}).`,
-    `- Owner review: ${review.complete ? 'complete' : 'pending'}: ${review.decided} of ${review.ambiguous} ambiguous labels decided, ${review.spotChecked} of ${review.spotChecksRequired} spot checks done; about ${review.minutesLeft} minutes left (\`REVIEW.csv\`, ${review.pending} rows).`,
+    wrongAutoText(gate),
+    `- Mainstream Auto rate (held-out): ${percent(gate.mainstreamAutoRate)} of ${gate.mainstreamGroups} tracks (needed: ${percent(EVAL_GATE.minMainstreamAutoRate)} of at least ${EVAL_GATE.minMainstreamGroups}).`,
+    ...reviewText(review),
     gate.pendingAuto > 0
       ? `- ${gate.pendingAuto} held-out Auto plays rest on draft labels the owner has not reviewed.`
       : '- No held-out Auto play rests on a draft label.',
+    `- Held-out cases whose replay lacked a page: ${report.heldOut.incomplete.length}${gate.incompleteAuto > 0 ? `, ${gate.incompleteAuto} of them Auto plays` : ''}.`,
     '',
     '## Set',
     '',
@@ -602,15 +712,27 @@ export function renderReport(report: EvalReport): string {
       '',
       ...coverageTable(split.coverage),
       '',
-      'What the ISRC-miss cap costs: Auto plays with the cap and without it (a missed trusted ISRC then caps nothing), and the wrong or unlabelled Auto plays the cap prevents:',
+      'What the ISRC-miss cap costs: Auto plays with the cap and without it (a missed trusted ISRC then caps nothing), and the wrong or unlabelled Auto plays the cap prevents. "Another recording first" counts the trusted ISRCs whose songs search put a recording labelled wrong first (filler when YouTube Music lacks the ISRC). Per category:',
       '',
       ...capTable(split.isrcCap),
+      '',
+      'Per input slice:',
+      '',
+      ...capTable(split.isrcCapBySlice),
       '',
     )
     if (split.badAuto.length > 0) {
       lines.push('Auto plays that are wrong or unlabelled:', '')
       for (const outcome of split.badAuto) {
         lines.push(`- ${outcome.caseId}: ${outcome.pick ?? '?'} (${outcome.label ?? 'unlabelled'})`)
+      }
+      lines.push('')
+    }
+    if (split.incomplete.length > 0) {
+      lines.push('Cases whose replay lacked a page (never recorded, or failed for good):', '')
+      for (const outcome of split.incomplete) {
+        const gaps = outcome.gaps.length > 0 ? outcome.gaps.join(', ') : 'no page recorded'
+        lines.push(`- ${outcome.caseId} (${outcome.band}): ${gaps}`)
       }
       lines.push('')
     }

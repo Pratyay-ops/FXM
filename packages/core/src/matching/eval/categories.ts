@@ -1,13 +1,12 @@
 /**
  * Which split a group falls in, and which categories a case counts in. Categories come from the
- * inputs (popularity, album type, title words, the source the input was drawn from) and, for
- * `cross-script` and `isrc-squatter`, from the labels too: both describe what YouTube Music
- * holds, which the inputs cannot tell. The matcher's own decisions never decide a category.
+ * inputs (popularity, album type, title words, the source the input was drawn from), except
+ * `cross-script`, which comes from the labels: it describes how YouTube Music titles the
+ * recording, which the inputs cannot tell. The matcher's own decisions never decide a category.
  *
  * @module
  */
 
-import { normalizeIsrc } from '../../ids'
 import type { AlbumType } from '../../model'
 import { isClassicalTitle } from '../prepare'
 import { isGenericAlbum } from '../release'
@@ -86,9 +85,11 @@ function hasNonLatin(text: string): boolean {
  *   Spotify Single
  * - `regional`: a national chart or regional source, or a title or main artist in a non-Latin
  *   script
- * - `cross-script`: a title or main artist in a non-Latin script (the labels may add more, see
- *   {@link caseCategories})
- * - `isrc-squatter`: the known squatter inputs
+ * - `isrc-squatter`: the known squatter inputs, whose ISRC another catalogue gives to another
+ *   recording
+ *
+ * Never `cross-script`: a title in a non-Latin script says nothing about how YouTube Music
+ * titles the recording, so that category follows from the labels (see {@link caseCategories}).
  */
 export function categoriesOfInput(facts: InputFacts): EvalCategory[] {
   const from = new Set(facts.sourceCategories ?? [])
@@ -113,9 +114,9 @@ export function categoriesOfInput(facts: InputFacts): EvalCategory[] {
   if (popularity !== undefined && popularity >= MAINSTREAM_POPULARITY && !classical && !singles) {
     found.add('mainstream')
   }
-  const nonLatin = hasNonLatin(facts.title) || hasNonLatin(mainArtist)
-  if (from.has('regional') || nonLatin) found.add('regional')
-  if (nonLatin) found.add('cross-script')
+  if (from.has('regional') || hasNonLatin(facts.title) || hasNonLatin(mainArtist)) {
+    found.add('regional')
+  }
   if (from.has('isrc-squatter')) found.add('isrc-squatter')
   // A track can't be both: popularity decides, and a long-tail source alone yields to it.
   if (found.has('mainstream')) found.delete('long-tail')
@@ -150,9 +151,8 @@ function rightVideos(evalCase: EvalCase): string[] {
  * The categories a case counts in:
  *
  * - inputs of the primary slices (`spotify`, `csv`, `fixed`): the group's categories, plus
- *   `cross-script` when YouTube Music titles the recording in another script than the input
- *   ("Idol" and "アイドル"), and `isrc-squatter` when the ISRC search put another recording
- *   first (a label says `wrong` for its first item)
+ *   `cross-script` when YouTube Music titles the recording (an item labelled `exact` or
+ *   `equivalent`) in another script than the input ("Idol" and "アイドル")
  * - data-export rows: `data-export` only, so their no-duration matches never mix with the
  *   mainstream rate
  * - MusicBrainz inputs: none; the report has a table per slice for them
@@ -168,12 +168,6 @@ export function caseCategories(evalCase: EvalCase): EvalCategory[] {
     if (item !== undefined && inDifferentScripts(variant.source.title, item.title)) {
       found.add('cross-script')
     }
-  }
-  const isrc = normalizeIsrc(variant.source.isrc)
-  const first = isrc === null ? undefined : group.recording?.pages[`isrc-songs/1/${isrc}`]
-  const firstItem = first !== undefined && 'items' in first ? first.items[0] : undefined
-  if (firstItem !== undefined && group.labels?.[firstItem]?.label === 'wrong') {
-    found.add('isrc-squatter')
   }
   return [...found].sort((a, b) => order(a) - order(b))
 }
