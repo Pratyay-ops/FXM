@@ -1,6 +1,7 @@
 ---
 import { AVAILABLE, ISSUES_URL } from '../config'
 import {
+  embedCardText,
   losslessSources,
   musicMode,
   noExtensionHighlight,
@@ -70,7 +71,10 @@ const extras = [
   {
     icon: 'embed',
     title: 'Embeddable mini-player',
-    text: 'Put a small FXM player for a song or a playlist on your own website.',
+    // Where its code comes from once it is out (AVAILABLE.embed): the app's Share entry.
+    text: AVAILABLE.embed
+      ? embedCardText(AVAILABLE.lite)
+      : 'Put a small FXM player for an album or a playlist on your own website.',
     available: AVAILABLE.embed,
   },
   {

@@ -108,8 +108,15 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   conversions: true,
   /** Installing the web app as a PWA: 5.1 (M4) */
   pwa: true,
-  /** The embeddable mini-player: 5.2 (M4) */
-  embed: false,
+  /**
+   * The embeddable mini-player: 5.2 (M4), whose code the app's Share entry hands out (the app's
+   * `RELEASED.embed` turns that on with this flag). On since the production embed played a song in
+   * the Lite tier inside a page on another site, in Chromium, on 2026-10-26
+   * (scripts/build-dist/README.md, "The embed on the deployed site", which says how to check
+   * again). The sentences it changes are the embed's card in Features.astro (`embedCardText` in
+   * src/lib/tiers.ts) and the privacy page's section on players on other websites.
+   */
+  embed: true,
   /** The Android APK on GitHub Releases: 6.6 (M5) */
   android: false,
   /** The desktop app for macOS, Windows and Linux: 7.5 (M6) */

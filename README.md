@@ -11,6 +11,7 @@
 - **Your library, on your device.** Likes, playlists in an order you choose, your listening history and backups, plus your own music files, synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account. Import playlists, liked songs and listening history from Spotify's data download, CSV and M3U files, and Spotify or YouTube links. If you turn on sync, a copy also goes to a secret gist on your own GitHub account, so your other devices can read it.
 - **Made for you.** A home feed with quick picks and daily mixes, computed on your device from YouTube Music radio, Spotify, Last.fm and ListenBrainz, and endless radio: when your queue runs low, FXM adds songs like the ones you just played, until you switch it off.
 - **Download any track** for offline listening, as the file its source has: real lossless FLAC where the source has it (Internet Archive), Opus or AAC from YouTube Music (with FXM Connect in the browser). Then save it to your device as it is, or converted on your device to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags, cover art, lyrics and honest labels: YouTube Music's audio is never called lossless.
+- **Put a player on your website.** On an album's or a playlist's page in the web app, Share gives you the code of a small FXM player for your own site. It plays in your visitors' browsers: Internet Archive's music, and YouTube Music in the experimental Lite tier where the browser allows it.
 - **No servers, no accounts, no tracking.** Everything runs on your device. In the browser, the small **FXM Connect** extension lets the web app reach YouTube Music and Spotify from your own browser; without it, the web app plays free music from Internet Archive, your own files, and YouTube Music in the experimental Lite tier where the browser allows it. The desktop app (macOS, Windows and Linux) and the Android app (both coming soon) won't need the extension.
 
 Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube](https://github.com/KRTirtho/spotube). FXM is not affiliated with YouTube, Google or Spotify.
@@ -26,7 +27,7 @@ Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube]
 | FXM Connect for Firefox, signed by Mozilla (coming soon) | GitHub Releases (`.xpi`), and Firefox Add-ons once it is listed |
 | Desktop app for macOS, Windows and Linux (coming soon) | GitHub Releases |
 | Android app (coming soon) | GitHub Releases (APK) |
-| Embeddable mini-player (coming soon) | `https://fxmusic.pages.dev/embed/…` |
+| Embeddable mini-player, on any website (its code comes from Share in the web app) | `https://fxmusic.pages.dev/embed/…` |
 
 ## Docs
 

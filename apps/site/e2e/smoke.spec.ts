@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, type Page, test } from '@playwright/test'
 import { AVAILABLE, NOTICES_PATH } from '../src/config'
-import { freeSources, heroNote } from '../src/lib/tiers'
+import { embedCardText, freeSources, heroNote, SPOTIFY_ACCOUNT } from '../src/lib/tiers'
 
 // Browser checks on the production build: `pnpm --filter @fxm/site e2e`. They need
 // Chromium from .tools/playwright, so `make test` does not run them.
@@ -111,6 +111,26 @@ test('says what the web app plays without FXM Connect, as the build’s flags sa
   await expect(page.locator('#features')).toContainText(
     `free music from ${freeSources(AVAILABLE.jamendo)}`,
   )
+})
+
+test('marks the embed and the Spotify account sync as the build’s flags say', async ({ page }) => {
+  await page.goto('/')
+  const features = page.locator('#features')
+  // The embed's card: out (no Coming soon badge) with how to get its code, as AVAILABLE.embed says.
+  const embed = features.locator('.extra', {
+    has: page.getByRole('heading', { name: /Embeddable mini-player/ }),
+  })
+  await expect(embed.locator('.soon')).toHaveCount(AVAILABLE.embed ? 0 : 1)
+  if (AVAILABLE.embed) await expect(embed).toContainText(embedCardText(AVAILABLE.lite))
+  // The account sync is out, and experimental: tested only with a stand-in for Spotify.
+  const account = features.locator('.checklist li', { hasText: SPOTIFY_ACCOUNT })
+  await expect(account.locator('.experimental')).toHaveCount(AVAILABLE.spotifyAccount ? 1 : 0)
+  await expect(account.locator('.soon')).toHaveCount(AVAILABLE.spotifyAccount ? 0 : 1)
+  if (AVAILABLE.spotifyAccount) {
+    await expect(features).toContainText('It has been tested with a stand-in for Spotify')
+  }
+  // No song radio and no radio station: autoplay is what the app has.
+  await expect(features).not.toContainText(/song radio|endless radio/i)
 })
 
 test('links the open-source licences from the footer', async ({ page }) => {

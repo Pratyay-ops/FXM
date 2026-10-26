@@ -154,6 +154,19 @@ export function noExtensionHighlight(
       }
 }
 
+/**
+ * The embeddable mini-player's card, once it is out (`AVAILABLE.embed`): where its code comes
+ * from, and how YouTube Music plays in it on other sites. The app's Share entry, in the "More
+ * options" menu of an album's or a playlist's page, writes the code; inside another site's page
+ * the player never sees FXM Connect, so YouTube Music plays there in Lite or not at all
+ * (apps/web/src/embed/README.md).
+ */
+export function embedCardText(lite: boolean): string {
+  const start =
+    'Put a small FXM player for an album or a playlist on your own website: choose Share on its page in the app and copy the code.'
+  return lite ? `${start} It plays YouTube Music in ${LITE}, where the browser allows it.` : start
+}
+
 /** The first sentences of the "Get FXM" web card. */
 export function webCardIntro(lite: boolean): string {
   return lite

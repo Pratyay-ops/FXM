@@ -8,6 +8,7 @@ import {
   CONNECT_DOES,
   connectNeededFor,
   diagramLabel,
+  embedCardText,
   extensionFaq,
   freeSources,
   heroNote,
@@ -113,6 +114,7 @@ function allCopy(lite: boolean, jamendo = false, apps: Apps = NO_APPS): string[]
     highlight.title,
     highlight.text,
     webCardIntro(lite),
+    embedCardText(lite),
     ...noExtensionNotes(lite, jamendo),
     howItWorksStep(lite, jamendo, apps),
     diagramLabel(lite, apps),
@@ -196,6 +198,7 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
       heroNote(true),
       noExtensionHighlight(true, false).text,
       webCardIntro(true),
+      embedCardText(true),
       ...noExtensionNotes(true),
       howItWorksStep(true, false, NO_APPS),
       ...phonesAnswers(true),
@@ -244,6 +247,20 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
     expect(diagramLabel(true, ALL_APPS)).toBe('Web app, desktop or Android')
     expect(diagramLabel(true, NO_APPS)).toBe('Web app (desktop and Android coming soon)')
     expect(noExtensionHighlight(true, false).title).toBe('No extension needed to start')
+  })
+})
+
+describe('the embeddable mini-player (AVAILABLE.embed)', () => {
+  it("says where its code comes from: Share, on an album's or a playlist's page in the app", () => {
+    for (const lite of BOTH) {
+      expect(embedCardText(lite)).toMatch(
+        /^Put a small FXM player for an album or a playlist on your own website: choose Share on its page in the app and copy the code\./,
+      )
+    }
+    // Inside another site's page the player never sees FXM Connect: YouTube plays there in Lite.
+    expect(embedCardText(true)).toContain(
+      'It plays YouTube Music in the experimental Lite tier, where the browser allows it.',
+    )
   })
 })
 
@@ -395,6 +412,7 @@ describe('the pages', () => {
     expect(source('../components/Hero.astro')).toContain('heroNote(AVAILABLE.lite)')
     const features = source('../components/Features.astro')
     expect(features).toContain('noExtensionHighlight(AVAILABLE.lite, AVAILABLE.jamendo)')
+    expect(features).toContain('embedCardText(AVAILABLE.lite)')
     const getFxm = source('../components/GetFxm.astro')
     expect(getFxm).toContain('webCardIntro(AVAILABLE.lite)')
     expect(getFxm).toMatch(
