@@ -1,13 +1,18 @@
 /**
  * The hosts FXM contacts, and how each is reached. Every transport classifies a URL here first
- * and refuses anything else with an `Unsupported` `FxmError`, so the table doubles as the
- * network allow-list: a provider can never reach a host that is not listed (or that the user
- * did not add in Settings, see the transports' `userHosts`).
+ * and refuses anything else with a `TransportError` (`unknown-host`), so the table doubles as
+ * the network allow-list: providers cannot send a request to a host that is not listed (or that
+ * the user did not add in Settings, see the transports' `userHosts`).
+ *
+ * Redirects are checked too. Desktop, Android and Node follow them in the transport, hop by hop,
+ * so no request ever leaves the table. In a browser the browser follows them itself, so the
+ * transport refuses a response that ended outside the table; the web app's content security
+ * policy (`connect-src`) is what keeps the page from contacting such a host in the first place.
  *
  * @module
  */
 
-import { FxmError } from '@fxm/core'
+import { TransportError } from './errors'
 
 /** Every {@link HostClass}. */
 export const HOST_CLASSES = ['open', 'innertube', 'googlevideo', 'spotify', 'lastfm-web'] as const
@@ -104,8 +109,8 @@ export function findHostRule(url: URL): HostRule | undefined {
 }
 
 /**
- * The {@link HostClass} of a URL. Rejects with an `Unsupported` `FxmError` when the URL is not
- * an absolute URL that FXM contacts.
+ * The {@link HostClass} of a URL. Throws a `TransportError` (an `Unsupported` `FxmError`) when the
+ * URL is not an absolute URL that FXM contacts.
  */
 export function classifyUrl(input: string | URL): HostClass {
   const url = parseUrl(input)
@@ -127,19 +132,19 @@ export function isInnerTubeApiUrl(input: string | URL): boolean {
   )
 }
 
-/** Parses an absolute URL, rejecting anything else with an `Unsupported` `FxmError`. */
+/** Parses an absolute URL, rejecting anything else with a `TransportError` (`bad-request`). */
 export function parseUrl(input: string | URL): URL {
   try {
     return new URL(input)
   } catch (cause) {
-    throw new FxmError('Unsupported', `Not an absolute URL: ${String(input)}`, { cause })
+    throw new TransportError('bad-request', `Not an absolute URL: ${String(input)}`, { cause })
   }
 }
 
-/** The error for a URL that FXM does not contact. */
-export function unknownHost(url: URL): FxmError {
-  return new FxmError(
-    'Unsupported',
+/** The error for a URL that FXM does not contact: a `TransportError` (`unknown-host`). */
+export function unknownHost(url: URL): TransportError {
+  return new TransportError(
+    'unknown-host',
     `FXM does not contact ${url.protocol}//${url.host}${url.pathname}: it is not on the list of known services`,
   )
 }

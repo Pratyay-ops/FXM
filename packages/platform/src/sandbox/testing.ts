@@ -21,7 +21,7 @@ import {
 import type { SandboxHostWindow } from './transport'
 
 /** The FXM origin the fake page is on by default. */
-export const FAKE_FXM_ORIGIN = 'https://fxm-music.pages.dev'
+export const FAKE_FXM_ORIGIN = 'https://fxmusic.pages.dev'
 
 /** A request a fake document sent. */
 export interface FakeNetworkRequest {
@@ -52,6 +52,8 @@ export interface FakePageOptions {
   readonly documents?: (url: URL) => FakeDocumentBehaviour
   /** The documents' timers. Default: the real ones. */
   readonly timers?: Pick<SandboxScope, 'setTimeout' | 'clearTimeout'>
+  /** `navigator.onLine` of the page. Default `true`. */
+  readonly online?: boolean
 }
 
 /** Who a hand-made window message comes from. */
@@ -68,7 +70,7 @@ export interface FakeSender {
 export interface FakeFrame {
   /** Its attributes. */
   readonly attributes: ReadonlyMap<string, string>
-  /** Its `src`. */
+  /** Its `src`, with the token the page put in its fragment. */
   readonly src: string
   /** Its `hidden` property. */
   readonly hidden: boolean
@@ -150,6 +152,7 @@ export function createFakePage(options: FakePageOptions = {}): FakePage {
 
   const pageWindow = {
     location: { origin, href: `${origin}/app/` },
+    navigator: { onLine: options.online ?? true },
     document: {} as Record<string, unknown>,
     addEventListener(type: string, listener: Listener) {
       if (type === 'message') pageListeners.add(listener)

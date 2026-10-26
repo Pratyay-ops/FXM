@@ -8,17 +8,28 @@
  * POSTs (measured 2026-10-25), and FXM Connect's rules, scoped to the FXM origin, never match
  * them.
  *
- * The protocol:
+ * The protocol (version {@link SANDBOX_PROTOCOL}):
  *
- * 1. The document posts `hello` to its parent, addressed to the FXM origin only: the origin of
- *    the document's own URL, which is where FXM serves it.
- * 2. The page answers with `connect` and a `MessagePort`. The document accepts it only when the
+ * 1. The page frames the document at its URL with a fresh random token as the fragment
+ *    (`innertube.html#<token>`). Only a document loaded at that URL can read the token.
+ * 2. The document posts `hello` with the token to its parent, addressed to the FXM origin only:
+ *    the origin of the document's own URL, which is where FXM serves it.
+ * 3. The page accepts a `hello` only from its own frame, from an opaque origin, with its token,
+ *    and answers with `connect` and a `MessagePort`. The document accepts it only when the
  *    message's `origin` is the FXM origin and its `source` is the parent, and only once.
- * 3. Requests, cancellations and replies then travel on that port, which only the page holds.
+ * 4. The document's first message on the port is `ready` with the token. The page sends nothing
+ *    on the port before that, so a document that was swapped into the frame after its `hello`,
+ *    and was handed the port in its place, never gets a request.
+ * 5. Requests, cancellations and replies then travel on that port, which only the page holds.
+ *
+ * The token travels only from the page to the document, in the URL, and back: never in a window
+ * message to the document, which another document in the frame could receive.
  *
  * Every request passes {@link checkSandboxRequest} against the document's policy (hosts, paths,
  * methods, headers and sizes) before it is sent, with `credentials: 'omit'`, no referrer and a
- * timeout, and its response body is read up to a size cap.
+ * timeout. Redirects are never followed (`redirect: 'manual'`): a redirect answer becomes a
+ * `redirect` error, so a request never reaches a second host. A response body is read up to a
+ * size cap.
  *
  * This file is self-contained on purpose: `tools/render.ts` strips its types and inlines it into
  * both documents, whose policy allows that one script by hash. It must not import anything but
@@ -29,14 +40,16 @@
  */
 
 /** The version of the protocol between the page and the documents. */
-export const SANDBOX_PROTOCOL = 1
+export const SANDBOX_PROTOCOL = 2
 
 /** The message types of the protocol. */
 export const SANDBOX_MESSAGE = {
-  /** Document to page, as a window message: the document is ready for its port. */
+  /** Document to page, as a window message with the token: the document is ready for its port. */
   hello: 'fxm-sandbox:hello',
   /** Page to document, as a window message carrying a `MessagePort`: requests follow on it. */
   connect: 'fxm-sandbox:connect',
+  /** Document to page, the first message on the port, with the token: requests may follow. */
+  ready: 'fxm-sandbox:ready',
   /** Page to document, on the port: send a request. */
   request: 'fxm-sandbox:request',
   /** Page to document, on the port: cancel a request. */
@@ -48,8 +61,15 @@ export const SANDBOX_MESSAGE = {
 } as const
 
 /**
- * Why a sandbox document refused or failed a request (`SANDBOX_ERROR_CODES` in `errors.ts`
- * lists them):
+ * The token the page puts in the fragment of a document's URL: 128 random bits as 32 lower-case
+ * hexadecimal digits.
+ */
+export const SANDBOX_TOKEN_PATTERN = /^[0-9a-f]{32}$/
+
+/**
+ * Why a sandbox document refused or failed a request (`errors.ts` maps each to an error).
+ *
+ * Refused before anything was sent:
  *
  * - `bad-request`: the request is malformed (no absolute URL, no string body for a POST, a body
  *   on a GET)
@@ -62,10 +82,15 @@ export const SANDBOX_MESSAGE = {
  * - `preflight`: the request would make the browser send a CORS preflight, which InnerTube
  *   refuses from an opaque origin: a header that is not CORS-safelisted, or a method other than
  *   `GET`, `HEAD` and `POST`
- * - `too-large`: the request or the response is larger than the document allows
+ * - `request-too-large`: the request body is larger than the document allows
+ *
+ * Failed once sent:
+ *
+ * - `redirect`: the host answered with a redirect, which the document does not follow
+ * - `too-large`: the response body is larger than the document allows
  * - `timeout`: no complete response in time
  * - `network`: the request failed: offline, refused by CORS or the document's policy, or a
- *   redirect where none is allowed
+ *   redirect the browser would not hand over (one without CORS headers)
  */
 export type SandboxErrorCode =
   | 'bad-request'
@@ -74,6 +99,8 @@ export type SandboxErrorCode =
   | 'forbidden-method'
   | 'forbidden-header'
   | 'preflight'
+  | 'request-too-large'
+  | 'redirect'
   | 'too-large'
   | 'timeout'
   | 'network'
@@ -97,7 +124,7 @@ export const SANDBOX_INNERTUBE_PATHS = [
   '/youtubei/v1/music/get_search_suggestions',
 ] as const
 
-/** What a sandbox document sends, and the limits it keeps. */
+/** What a sandbox document sends, and the limits it keeps. Neither document follows redirects. */
 export interface SandboxDocumentPolicy {
   /** Which document this is. */
   readonly kind: SandboxDocumentKind
@@ -122,8 +149,6 @@ export interface SandboxDocumentPolicy {
   readonly maxResponseBytes: number
   /** Longest a request may take, headers and body, in milliseconds. A request may ask for less. */
   readonly timeoutMs: number
-  /** Whether the document follows redirects or fails on them. */
-  readonly redirect: 'error' | 'follow'
 }
 
 const MIB = 1024 * 1024
@@ -144,13 +169,13 @@ export const INNERTUBE_DOCUMENT_POLICY: SandboxDocumentPolicy = Object.freeze({
   maxRequestBytes: MIB,
   maxResponseBytes: 8 * MIB,
   timeoutMs: 20_000,
-  redirect: 'error',
 })
 
 /**
  * `userhost.html`: GET and HEAD requests without any header to hosts the user added in Settings,
  * such as an Invidious instance or the Spotify secret source. The page decides which hosts those
- * are; the document's policy (`connect-src https:`) allows any HTTPS host.
+ * are; the document's policy (`connect-src https:`) allows any HTTPS host, so it never follows a
+ * redirect, which could lead anywhere.
  */
 export const USER_HOST_DOCUMENT_POLICY: SandboxDocumentPolicy = Object.freeze({
   kind: 'userhost',
@@ -163,13 +188,32 @@ export const USER_HOST_DOCUMENT_POLICY: SandboxDocumentPolicy = Object.freeze({
   maxRequestBytes: 0,
   maxResponseBytes: 4 * MIB,
   timeoutMs: 20_000,
-  redirect: 'follow',
 })
 
 /** The policy of each document. Each document's script starts with its entry. */
 export const SANDBOX_DOCUMENT_POLICIES: Readonly<
   Record<SandboxDocumentKind, SandboxDocumentPolicy>
 > = Object.freeze({ innertube: INNERTUBE_DOCUMENT_POLICY, userhost: USER_HOST_DOCUMENT_POLICY })
+
+/** A `hello` message. */
+export interface SandboxHelloMessage {
+  /** Always {@link SANDBOX_MESSAGE}`.hello`. */
+  readonly type: typeof SANDBOX_MESSAGE.hello
+  /** {@link SANDBOX_PROTOCOL}. */
+  readonly protocol: number
+  /** Which document this is. */
+  readonly document: SandboxDocumentKind
+  /** The token from the document's URL. */
+  readonly token: string
+}
+
+/** A `ready` message, the document's first message on the port. */
+export interface SandboxReadyMessage {
+  /** Always {@link SANDBOX_MESSAGE}`.ready`. */
+  readonly type: typeof SANDBOX_MESSAGE.ready
+  /** The token from the document's URL. */
+  readonly token: string
+}
 
 /** The fields of a request, as the page sends them in a `request` message. */
 export interface SandboxRequestFields {
@@ -207,6 +251,8 @@ export interface SandboxResponseMessage {
   readonly statusText: string
   /** The response's URL. */
   readonly url: string
+  /** Whether the response came after a redirect: never, as the documents follow none. */
+  readonly redirected: boolean
   /** The response headers the document could read (CORS hides the rest). */
   readonly headers: readonly (readonly [string, string])[]
   /** The body, transferred. */
@@ -254,6 +300,9 @@ const LANGUAGE_VALUE = /^[0-9A-Za-z *,\-.;=]*$/
 
 /** A single range with a start, such as `bytes=0-` (suffix ranges are not safelisted). */
 const SIMPLE_RANGE = /^bytes=(\d+)-(\d*)$/
+
+/** HTTP's redirect statuses. */
+const REDIRECT_STATUSES = [301, 302, 303, 307, 308]
 
 /** Whether a header value holds a CORS-unsafe request-header byte. */
 function hasUnsafeByte(value: string): boolean {
@@ -397,7 +446,10 @@ export function checkSandboxRequest(
     if (typeof body !== 'string')
       return refusal('bad-request', `A ${method} request needs a string body`)
     if (body.length > policy.maxRequestBytes || utf8Length(body) > policy.maxRequestBytes) {
-      return refusal('too-large', `Request bodies are at most ${policy.maxRequestBytes} bytes`)
+      return refusal(
+        'request-too-large',
+        `Request bodies are at most ${policy.maxRequestBytes} bytes`,
+      )
     }
   } else if (body !== undefined && body !== null) {
     return refusal('bad-request', `A ${method} request carries no body`)
@@ -423,6 +475,20 @@ export function fxmOriginOf(href: unknown): string | undefined {
   try {
     const { origin, protocol } = new URL(href)
     return origin !== 'null' && (protocol === 'https:' || protocol === 'http:') ? origin : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The token in the fragment of a document's URL (see {@link SANDBOX_TOKEN_PATTERN}), or
+ * `undefined` when there is none: a document loaded without one serves nobody.
+ */
+export function sandboxTokenOf(href: unknown): string | undefined {
+  if (typeof href !== 'string') return undefined
+  try {
+    const token = new URL(href).hash.slice(1)
+    return SANDBOX_TOKEN_PATTERN.test(token) ? token : undefined
   } catch {
     return undefined
   }
@@ -498,6 +564,14 @@ function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null
 }
 
+/**
+ * Whether a response is a redirect: the opaque one a browser hands over for `redirect: 'manual'`,
+ * or a redirect status where a runtime returns it as it is.
+ */
+function isRedirect(response: Response): boolean {
+  return response.type === 'opaqueredirect' || REDIRECT_STATUSES.includes(response.status)
+}
+
 /** Reads a response body, failing with {@link TOO_LARGE} once it passes `maxBytes`. */
 async function readBody(response: Response, maxBytes: number): Promise<ArrayBuffer> {
   if (response.body === null) return new ArrayBuffer(0)
@@ -524,22 +598,31 @@ async function readBody(response: Response, maxBytes: number): Promise<ArrayBuff
 }
 
 /**
- * Runs a sandbox document in `scope`: says `hello` to the parent at the FXM origin, takes the
- * port from the parent's `connect`, and serves the requests that arrive on it under `policy`.
- * Does nothing at top level, or when the document's URL has no origin to trust.
+ * Runs a sandbox document in `scope`: says `hello` with its token to the parent at the FXM
+ * origin, takes the port from the parent's `connect`, says `ready` on it, and serves the requests
+ * that arrive on it under `policy`. Does nothing at top level, when the document's URL has no
+ * origin to trust, or when it carries no token.
  */
 export function startSandboxDocument(
   scope: SandboxScope,
   policy: SandboxDocumentPolicy,
 ): SandboxDocumentHandle {
   const origin = fxmOriginOf(scope.location?.href)
+  const token = sandboxTokenOf(scope.location?.href)
   const parent = scope.parent
   // At top level `parent` is the window itself, and there is nobody to talk to.
-  if (origin === undefined || parent === undefined || parent === null || isSame(parent, scope)) {
+  if (
+    origin === undefined ||
+    token === undefined ||
+    parent === undefined ||
+    parent === null ||
+    isSame(parent, scope)
+  ) {
     return { listening: false, stop() {} }
   }
   const page: SandboxPeer = parent
   const fxmOrigin: string = origin
+  const documentToken: string = token
   const inflight = new Map<string, AbortController>()
   let port: MessagePort | undefined
   let stopped = false
@@ -579,12 +662,17 @@ export function startSandboxDocument(
         headers: (data.headers ?? {}) as Record<string, string>,
         credentials: 'omit',
         mode: 'cors',
-        redirect: policy.redirect,
+        redirect: 'manual',
         referrerPolicy: 'no-referrer',
         signal: controller.signal,
       }
       if (policy.body) init.body = data.body as string
       const response = await scope.fetch(data.url as string, init)
+      if (isRedirect(response)) {
+        response.body?.cancel().catch(() => undefined)
+        fail(id, 'redirect', 'The host answered with a redirect, which the sandbox does not follow')
+        return
+      }
       const declared = Number(response.headers.get('content-length') ?? Number.NaN)
       if (declared > maxBytes) {
         response.body?.cancel().catch(() => undefined)
@@ -597,6 +685,7 @@ export function startSandboxDocument(
         status: response.status,
         statusText: response.statusText,
         url: response.url,
+        redirected: response.redirected === true,
         headers: [...response.headers],
         body,
       })
@@ -638,14 +727,20 @@ export function startSandboxDocument(
     port = candidate
     port.addEventListener('message', onPortMessage)
     port.start()
+    // Tells the page this port reached the document it framed, not one swapped in since.
+    const ready: SandboxReadyMessage = { type: SANDBOX_MESSAGE.ready, token: documentToken }
+    port.postMessage(ready)
   }
 
   scope.addEventListener('message', onWindowMessage)
   scope.document?.documentElement?.setAttribute(SANDBOX_MARKER_ATTRIBUTE, 'listening')
-  page.postMessage(
-    { type: SANDBOX_MESSAGE.hello, protocol: SANDBOX_PROTOCOL, document: policy.kind },
-    fxmOrigin,
-  )
+  const hello: SandboxHelloMessage = {
+    type: SANDBOX_MESSAGE.hello,
+    protocol: SANDBOX_PROTOCOL,
+    document: policy.kind,
+    token: documentToken,
+  }
+  page.postMessage(hello, fxmOrigin)
 
   return {
     get listening() {

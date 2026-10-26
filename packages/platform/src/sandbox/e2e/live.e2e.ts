@@ -4,90 +4,36 @@
  * origin (the harness and the sandbox documents) from this checkout; every other host stays
  * refused.
  *
- * - `FXM_LIVE=1`: the self-test, a YouTube Music search, one call each to `next` and `browse`,
- *   and a VISIONOS `/player` call through the sandbox, then a few seconds of `<audio>`. About five
+ * Both tests play a song as the app will: stage 1.3's YouTube Music search, then stage 1.4's
+ * stream resolver (its VISIONOS `/player` request, its formats, and core's `pickStream`), all
+ * through the platform's `fetch` and so through the sandbox (`fxmHarness.playSong`).
+ *
+ * - `FXM_LIVE=1`: the self-test, the search, the resolver's calls (a search suggestion that
+ *   gets the session a visitorData, then `/player`), then a few seconds of `<audio>`: about four
  *   InnerTube calls per browser. Chromium must reach `playing`; the Firefox result is recorded.
- * - `FXM_LIVE=1 FXM_FULL_PLAYBACK=1`: one song played to its end in each browser (muted), the
+ * - `FXM_LIVE=1 FXM_FULL_PLAYBACK=1`: the same, played to its end in each browser (muted), the
  *   "manual test" whose results the README records.
  *
- * Each run attaches its findings as `lite-live.json` and prints them.
+ * Each run attaches its findings as `lite-live.json` and prints them. The record holds no URL,
+ * visitorData or host name: run output ends up in reports and issues.
  */
 
-import { expect, type Harness, test } from './fixtures.ts'
-import type { Rung, RungResult } from './harness/harness.ts'
+import { expect, test } from './fixtures.ts'
+import { INNERTUBE_HOSTS, type TestNetwork } from './network.ts'
 
 const LIVE = process.env.FXM_LIVE === '1'
 const FULL = process.env.FXM_FULL_PLAYBACK === '1'
 /** A short, well-known song, so the full-length run takes about two minutes per browser. */
 const QUERY = process.env.FXM_LIVE_QUERY ?? 'Ramones Blitzkrieg Bop'
 
-/** YouTube Music's web client, as stage 1.3's `youtube-config.json` has it (2026-10-25). */
-const WEB_REMIX = { clientName: 'WEB_REMIX', clientVersion: '1.20261020.10.00', hl: 'en' }
-/** The songs filter of a YouTube Music search (1.3's config). */
-const SONGS = 'EgWKAQIIAWoQEBAQCRAEEAMQBRAKEBUQEQ%3D%3D'
-/** VISIONOS, as youtubei.js 18.1.0 presents it (CLEAN-ROOM.md). */
-const VISIONOS: Rung = {
-  name: 'VISIONOS',
-  url: 'https://www.youtube.com/youtubei/v1/player',
-  client: {
-    clientName: 'VISIONOS',
-    clientVersion: '1.02',
-    deviceMake: 'Apple',
-    deviceModel: 'RealityDevice17,1',
-    osName: 'visionOS',
-    osVersion: '26.5.23O471',
-    hl: 'en',
-  },
-  pick: 'audio',
-}
-
-/** The first value of `key` anywhere in `value`, depth first. */
-function findFirst(value: unknown, key: string): unknown {
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      const found = findFirst(item, key)
-      if (found !== undefined) return found
-    }
-  } else if (typeof value === 'object' && value !== null) {
-    const record = value as Record<string, unknown>
-    if (key in record) return record[key]
-    for (const item of Object.values(record)) {
-      const found = findFirst(item, key)
-      if (found !== undefined) return found
-    }
-  }
-  return undefined
-}
-
-/** One InnerTube call through the sandbox, summed up for the record. */
-async function call(harness: Harness, url: string, fields: Record<string, unknown>) {
-  const result = await harness.fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ context: { client: WEB_REMIX }, ...fields }),
-  })
-  if (!result.ok) return { summary: `failed: ${result.error.message}`, json: undefined }
-  let json: unknown
-  try {
-    json = JSON.parse(result.text)
-  } catch {
-    json = undefined
-  }
-  return { summary: `${result.status}, ${result.text.length} characters`, json }
-}
-
-/** The song to play: the first song of a YouTube Music search, and the visitorData it issued. */
-async function searchSong(harness: Harness) {
-  const search = await call(harness, 'https://music.youtube.com/youtubei/v1/search', {
-    query: QUERY,
-    params: SONGS,
-  })
-  const videoId = findFirst(search.json, 'videoId')
-  const visitorData = findFirst(search.json, 'visitorData')
+/** How many connections the proxy tunnelled, per kind of host: counts, never host names. */
+function tunnelled(network: TestNetwork) {
+  const hosts = network.log
+    .filter((entry) => entry.decision === 'tunnelled')
+    .map((entry) => entry.host)
   return {
-    search: search.summary,
-    videoId: typeof videoId === 'string' ? videoId : undefined,
-    visitorData: typeof visitorData === 'string' ? visitorData : undefined,
+    innertube: hosts.filter((host) => INNERTUBE_HOSTS.includes(host)).length,
+    googlevideo: hosts.filter((host) => host.endsWith('.googlevideo.com')).length,
   }
 }
 
@@ -104,39 +50,16 @@ test.describe('live', () => {
     test.setTimeout(120_000)
     network.state.mode = 'live'
     const capabilities = await harness.start()
-    const song = await searchSong(harness)
-    const record: Record<string, unknown> = {
+    const song = await harness.playSong({ query: QUERY, stallMs: 20_000, playMs: 3000 })
+    const record = {
       date: new Date().toISOString(),
       browser: `${browserName} ${browser.version()}`,
       selfTest: capabilities.youtube,
       query: QUERY,
-      ...song,
+      song,
+      tunnelled: tunnelled(network),
+      budget: await harness.budget(),
     }
-    if (song.videoId !== undefined) {
-      const next = await call(harness, 'https://music.youtube.com/youtubei/v1/next', {
-        videoId: song.videoId,
-        playlistId: `RDAMVM${song.videoId}`,
-        params: 'wAEB',
-      })
-      const browse = await call(harness, 'https://music.youtube.com/youtubei/v1/browse', {
-        browseId: 'FEmusic_home',
-      })
-      record.next = next.summary
-      record.browse = browse.summary
-      record.rungs = await harness.resolveAndPlay({
-        videoId: song.videoId,
-        ...(song.visitorData === undefined ? {} : { visitorData: song.visitorData }),
-        ladder: [VISIONOS],
-        stallMs: 20_000,
-        playMs: 3000,
-      })
-    }
-    record.tunnelled = [
-      ...new Set(
-        network.log.filter((entry) => entry.decision === 'tunnelled').map((entry) => entry.host),
-      ),
-    ]
-    record.budget = await harness.budget()
     await testInfo.attach('lite-live.json', {
       body: JSON.stringify(record, null, 2),
       contentType: 'application/json',
@@ -144,9 +67,9 @@ test.describe('live', () => {
     console.log(`lite-live ${JSON.stringify(record)}`)
 
     expect(capabilities.youtube).toBe('simple')
-    expect(song.videoId).toBeDefined()
+    expect(song.songs).toBeGreaterThan(0)
     if (browserName === 'chromium') {
-      expect((record.rungs as RungResult[]).at(-1)?.outcome).toBe('playing')
+      expect(song).toMatchObject({ rung: 'visionos', outcome: 'playing' })
     }
   })
 
@@ -160,25 +83,17 @@ test.describe('live', () => {
     test.setTimeout(15 * 60_000)
     network.state.mode = 'live'
     const capabilities = await harness.start()
-    const song = await searchSong(harness)
-    expect(song.videoId).toBeDefined()
     const started = Date.now()
-    const rungs = await harness.resolveAndPlay({
-      videoId: song.videoId as string,
-      ...(song.visitorData === undefined ? {} : { visitorData: song.visitorData }),
-      ladder: [VISIONOS],
-      // A stall of a minute anywhere ends the run.
-      stallMs: 60_000,
-      playMs: 'end',
-    })
+    // A stall of a minute anywhere ends the run.
+    const song = await harness.playSong({ query: QUERY, stallMs: 60_000, playMs: 'end' })
     const record = {
       date: new Date().toISOString(),
       browser: `${browserName} ${browser.version()}`,
       selfTest: capabilities.youtube,
       query: QUERY,
-      videoId: song.videoId,
-      rungs,
+      song,
       wallSeconds: Math.round((Date.now() - started) / 1000),
+      tunnelled: tunnelled(network),
       budget: await harness.budget(),
     }
     await testInfo.attach('lite-live.json', {
@@ -186,6 +101,6 @@ test.describe('live', () => {
       contentType: 'application/json',
     })
     console.log(`lite-full ${JSON.stringify(record)}`)
-    if (browserName === 'chromium') expect(rungs.at(-1)?.outcome).toBe('ended')
+    if (browserName === 'chromium') expect(song.outcome).toBe('ended')
   })
 })

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { noExtensionNote, phonesAnswer } from './connect'
 import {
   CONNECT_DOES,
   connectNeededFor,
@@ -10,12 +11,22 @@ import {
   iPhoneAnswer,
   MUSIC_MODE,
   noExtensionHighlight,
-  noExtensionNote,
-  otherBrowsersAnswer,
   privacyLiteCheck,
   SPOTIFY_ACCOUNT,
   webCardIntro,
 } from './tiers'
+
+const BOTH = [false, true] as const
+
+/** The web card's no-extension note, before and after the signed Firefox add-on is out. */
+function noExtensionNotes(lite: boolean): string[] {
+  return BOTH.map((firefox) => noExtensionNote(firefox, { lite }))
+}
+
+/** The FAQ's answer for phones, for every value of AVAILABLE.firefox and AVAILABLE.android. */
+function phonesAnswers(lite: boolean): string[] {
+  return BOTH.flatMap((firefox) => BOTH.map((android) => phonesAnswer({ firefox, android, lite })))
+}
 
 /** Every sentence that depends on AVAILABLE.lite, for one value of it. */
 function allCopy(lite: boolean): string[] {
@@ -26,13 +37,13 @@ function allCopy(lite: boolean): string[] {
     highlight.title,
     highlight.text,
     webCardIntro(lite),
-    noExtensionNote(lite),
+    ...noExtensionNotes(lite),
     howItWorksStep(lite),
     diagramLabel(lite),
     faq.question,
     ...faq.answers,
     connectNeededFor(lite),
-    otherBrowsersAnswer(lite),
+    ...phonesAnswers(lite),
     iPhoneAnswer(lite),
     privacyLiteCheck(lite),
   ]
@@ -56,11 +67,11 @@ describe('before Lite is out (AVAILABLE.lite off)', () => {
       text: 'Without FXM Connect, the web app still plays free music from Internet Archive and Jamendo, and invites you to add the extension for YouTube Music and Spotify.',
       experimental: false,
     })
-    expect(noExtensionNote(false)).toBe(
+    expect(noExtensionNote(false, { lite: false })).toBe(
       'No extension, or on a phone or tablet? The web app still plays free music from Internet Archive and Jamendo.',
     )
-    expect(otherBrowsersAnswer(false)).toBe(
-      'On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive and Jamendo.',
+    expect(phonesAnswer({ firefox: false, android: false, lite: false })).toBe(
+      'On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive and Jamendo. FXM Connect needs a desktop browser, and the Android app is coming soon.',
     )
     expect(iPhoneAnswer(false)).toBe(
       "FXM Connect isn't available there, so the web app plays from free sources such as Internet Archive and Jamendo.",
@@ -79,9 +90,9 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
       heroNote(true),
       noExtensionHighlight(true).text,
       webCardIntro(true),
-      noExtensionNote(true),
+      ...noExtensionNotes(true),
       howItWorksStep(true),
-      otherBrowsersAnswer(true),
+      ...phonesAnswers(true),
     ]) {
       // A tier, as the web app calls it: the Features section's modes are Music and Music + Video.
       expect(sentence).toContain('the experimental Lite tier')
@@ -100,9 +111,26 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
   })
 
   it('says where Lite was tried, and that Safari and phones are untested', () => {
-    expect(otherBrowsersAnswer(true)).toContain('tried in Chrome and Firefox on a computer')
-    expect(otherBrowsersAnswer(true)).toContain("isn't tested in Safari or on phones yet")
+    for (const answer of phonesAnswers(true)) {
+      expect(answer).toContain('tried in Chrome and Firefox on a computer')
+      expect(answer).toContain("isn't tested in Safari or on phones yet")
+    }
     expect(iPhoneAnswer(true)).toContain("Lite isn't tested on iPhone and iPad yet")
+  })
+
+  it('keeps who can add FXM Connect, which the Firefox add-on changes', () => {
+    expect(noExtensionNote(false, { lite: true })).toBe(
+      'No extension, or on a phone or tablet? The web app plays free music from Internet Archive and Jamendo, and YouTube Music in the experimental Lite tier where the browser allows it.',
+    )
+    expect(noExtensionNote(true, { lite: true })).toBe(
+      'No extension, or on an iPhone, an iPad or a phone browser other than Firefox? The web app plays free music from Internet Archive and Jamendo, and YouTube Music in the experimental Lite tier where the browser allows it.',
+    )
+    expect(phonesAnswer({ firefox: false, android: false, lite: true })).toBe(
+      "On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive and Jamendo, and YouTube Music in the experimental Lite tier where the browser allows it. Lite has been tried in Chrome and Firefox on a computer; it isn't tested in Safari or on phones yet. FXM Connect needs a desktop browser, and the Android app is coming soon.",
+    )
+    expect(phonesAnswer({ firefox: true, android: true, lite: true })).toBe(
+      "On Android, Firefox 142 or later can add FXM Connect too. In other phone browsers, on iPhone and iPad, and in browsers such as Safari, the web app plays free music from Internet Archive and Jamendo, and YouTube Music in the experimental Lite tier where the browser allows it. Lite has been tried in Chrome and Firefox on a computer; it isn't tested in Safari or on phones yet. The Android app has everything built in.",
+    )
   })
 
   it('no longer says the extension is needed to listen', () => {
@@ -152,19 +180,16 @@ describe('the pages', () => {
     expect(source('../components/Features.astro')).toContain('noExtensionHighlight(AVAILABLE.lite)')
     const getFxm = source('../components/GetFxm.astro')
     expect(getFxm).toContain('webCardIntro(AVAILABLE.lite)')
-    expect(getFxm).toContain('noExtensionNote(AVAILABLE.lite)')
+    expect(getFxm).toContain('noExtensionNote(AVAILABLE.firefox, { lite: AVAILABLE.lite })')
     const how = source('../components/HowItWorks.astro')
     expect(how).toContain('howItWorksStep(AVAILABLE.lite)')
     expect(how).toContain('diagramLabel(AVAILABLE.lite)')
     const faq = source('../components/Faq.astro')
-    for (const helper of [
-      'extensionFaq',
-      'connectNeededFor',
-      'otherBrowsersAnswer',
-      'iPhoneAnswer',
-    ]) {
+    for (const helper of ['extensionFaq', 'connectNeededFor', 'iPhoneAnswer']) {
       expect(faq).toContain(`${helper}(AVAILABLE.lite)`)
     }
+    // phonesAnswer (src/lib/connect.ts) also reads AVAILABLE.firefox and AVAILABLE.android.
+    expect(faq).toMatch(/phonesAnswer\(\{[^}]*lite: AVAILABLE\.lite/)
     expect(source('../pages/privacy.astro')).toContain('privacyLiteCheck(AVAILABLE.lite)')
   })
 

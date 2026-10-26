@@ -2,7 +2,8 @@
  * What the current platform can reach, as the `NetworkCapabilities` every `ProviderContext`
  * carries: how far YouTube and Spotify go, whether media bytes are readable and whether files
  * can be written outside browser storage. The UI reads them to show the right tier, and they
- * update when FXM Connect appears or goes away.
+ * update when FXM Connect appears, changes or goes away, and when the Lite tier's state or its
+ * kill switch changes.
  *
  * @module
  */
@@ -73,7 +74,10 @@ export interface CapabilityOptions {
   readonly platform: Platform
   /** Web: the FXM Connect client. */
   readonly connect?: ConnectClient
-  /** Web: the Lite tier, whose self-test runs only when FXM Connect gives no full access. */
+  /**
+   * Web: the Lite tier, whose self-test runs only when FXM Connect gives no full access. Its
+   * changes (a self-test that ended, a kill switch set) update the capabilities by themselves.
+   */
   readonly lite?: LiteTier
   /** Desktop and Android: whether the native transport exists. */
   readonly nativeTransport?: boolean
@@ -94,27 +98,32 @@ function staticInputs(options: CapabilityOptions): CapabilityInputs {
   }
 }
 
-/** Capabilities from a known Connect status, running the Lite self-test only if it can help. */
+/**
+ * Capabilities from a known Connect status, starting the Lite self-test only if it can help.
+ * Without `waitForLite`, the Lite tier counts as it stands and the self-test goes on alone.
+ */
 async function capabilitiesWith(
   options: CapabilityOptions,
   connect: ConnectStatus | undefined,
+  waitForLite: boolean,
 ): Promise<NetworkCapabilities> {
   const inputs = { ...staticInputs(options), connect }
   const withoutLite = resolveCapabilities(inputs)
   if (withoutLite.youtube !== 'none' || options.platform !== 'web' || options.lite === undefined) {
     return withoutLite
   }
-  const lite = await options.lite.check().catch(() => false)
+  const check = options.lite.check().catch(() => false)
+  const lite = waitForLite ? await check : options.lite.ready
   return resolveCapabilities({ ...inputs, lite })
 }
 
 /**
  * Detects the capabilities once, in the order the architecture gives: FXM Connect first (marker
  * and ping), then, only when it gives no full YouTube access, the Lite tier's one-request
- * self-test, which honours the remote kill switch.
+ * self-test (at most its timeout, 10 s by default), which honours the remote kill switch.
  */
 export async function detectCapabilities(options: CapabilityOptions): Promise<NetworkCapabilities> {
-  return capabilitiesWith(options, await detectConnect(options))
+  return capabilitiesWith(options, await detectConnect(options), true)
 }
 
 /** FXM Connect's status on the web; `undefined` elsewhere or if detection fails. */
@@ -133,6 +142,16 @@ export function sameCapabilities(a: NetworkCapabilities, b: NetworkCapabilities)
   )
 }
 
+/** Options for {@link CapabilityMonitor.refresh}. */
+export interface RefreshOptions {
+  /**
+   * Whether to wait for the Lite self-test when it has to run (at most its timeout). Default
+   * `true`. With `false` the result counts the Lite tier as it stands, the self-test goes on in
+   * the background, and subscribers hear when it makes YouTube `simple`.
+   */
+  readonly waitForLite?: boolean
+}
+
 /** The current capabilities, kept up to date. */
 export interface CapabilityMonitor {
   /**
@@ -141,27 +160,29 @@ export interface CapabilityMonitor {
    */
   readonly current: NetworkCapabilities
   /**
-   * Detects again, e.g. after the remote kill switches changed or the user re-ran the Lite
-   * self-test, and resolves with the result. Concurrent calls share one detection.
+   * Detects again (FXM Connect, then the Lite tier if it can help) and resolves with the
+   * result, e.g. after the kill switches changed when they are read through a function.
+   * Concurrent calls with the same options share one detection.
    */
-  refresh(): Promise<NetworkCapabilities>
+  refresh(options?: RefreshOptions): Promise<NetworkCapabilities>
   /**
    * Calls `listener` whenever the capabilities change: after a refresh, and by itself when FXM
-   * Connect appears, changes or goes away. Returns a function that removes the listener.
+   * Connect appears, changes or goes away, and when the Lite tier's state changes. Returns a
+   * function that removes the listener.
    */
   subscribe(listener: (capabilities: NetworkCapabilities) => void): () => void
-  /** Stops following FXM Connect. */
+  /** Stops following FXM Connect and the Lite tier. */
   dispose(): void
 }
 
 /**
- * Creates a monitor and starts following FXM Connect. Call `refresh()` once at start-up (as
- * `createPlatform` does) for the first detection.
+ * Creates a monitor and starts following FXM Connect and the Lite tier. Call `refresh()` once at
+ * start-up (as `createPlatform` does) for the first detection.
  */
 export function createCapabilityMonitor(options: CapabilityOptions): CapabilityMonitor {
   const listeners = new Set<(capabilities: NetworkCapabilities) => void>()
   let current = resolveCapabilities(staticInputs(options))
-  let refreshing: Promise<NetworkCapabilities> | undefined
+  const refreshing = new Map<boolean, Promise<NetworkCapabilities>>()
   let newest: Promise<NetworkCapabilities> | undefined
   let generation = 0
   let disposed = false
@@ -186,13 +207,14 @@ export function createCapabilityMonitor(options: CapabilityOptions): CapabilityM
    */
   function evaluate(
     status: () => Promise<ConnectStatus | undefined>,
+    waitForLite = true,
   ): Promise<NetworkCapabilities> {
     generation += 1
     const mine = generation
     // Start on a later tick: detection can notify synchronously, which starts a newer
     // evaluation, and `newest` must already point at this one by then.
     const result = Promise.resolve().then(async (): Promise<NetworkCapabilities> => {
-      const next = await capabilitiesWith(options, await status())
+      const next = await capabilitiesWith(options, await status(), waitForLite)
       if (mine !== generation && newest !== undefined && newest !== result) return newest
       apply(next)
       return next
@@ -201,22 +223,34 @@ export function createCapabilityMonitor(options: CapabilityOptions): CapabilityM
     return result
   }
 
-  const unsubscribe =
-    options.platform === 'web'
-      ? options.connect?.subscribe((status) => {
-          void evaluate(async () => status)
-        })
-      : undefined
+  // Changes are worked out from the state as it is, without waiting for a Lite self-test: one
+  // that starts or ends is a change of its own and comes back here.
+  const web = options.platform === 'web'
+  const unsubscribeConnect = web
+    ? options.connect?.subscribe((status) => {
+        void evaluate(async () => status, false)
+      })
+    : undefined
+  const unsubscribeLite = web
+    ? options.lite?.subscribe(() => {
+        void evaluate(async () => options.connect?.status, false)
+      })
+    : undefined
 
   return {
     get current() {
       return current
     },
-    refresh() {
-      refreshing ??= evaluate(() => detectConnect(options)).finally(() => {
-        refreshing = undefined
-      })
-      return refreshing
+    refresh(refreshOptions = {}) {
+      const waitForLite = refreshOptions.waitForLite ?? true
+      let pending = refreshing.get(waitForLite)
+      if (pending === undefined) {
+        pending = evaluate(() => detectConnect(options), waitForLite).finally(() => {
+          refreshing.delete(waitForLite)
+        })
+        refreshing.set(waitForLite, pending)
+      }
+      return pending
     },
     subscribe(listener) {
       listeners.add(listener)
@@ -226,7 +260,8 @@ export function createCapabilityMonitor(options: CapabilityOptions): CapabilityM
     },
     dispose() {
       disposed = true
-      unsubscribe?.()
+      unsubscribeConnect?.()
+      unsubscribeLite?.()
       listeners.clear()
     },
   }

@@ -14,7 +14,7 @@ describe('installFakeConnect', () => {
   })
 
   function page() {
-    const window = new Window({ url: 'https://fxm-music.pages.dev/app/' })
+    const window = new Window({ url: 'https://fxmusic.pages.dev/app/' })
     pages.push(window)
     return window as unknown as ConnectWindow
   }
@@ -28,9 +28,9 @@ describe('installFakeConnect', () => {
     window.addEventListener('message', (event) => {
       if (REPLIES.includes((event.data as { type?: string }).type ?? '')) replies.push(event.data)
     })
-    window.postMessage({ type: 'fxm-connect:unknown' }, 'https://fxm-music.pages.dev')
-    window.postMessage('not an object', 'https://fxm-music.pages.dev')
-    window.postMessage({ type: 'fxm-connect:ping' }, 'https://fxm-music.pages.dev')
+    window.postMessage({ type: 'fxm-connect:unknown' }, 'https://fxmusic.pages.dev')
+    window.postMessage('not an object', 'https://fxmusic.pages.dev')
+    window.postMessage({ type: 'fxm-connect:ping' }, 'https://fxmusic.pages.dev')
     await vi.waitFor(() => expect(replies).toHaveLength(1), PATIENCE)
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(replies).toEqual([{ type: 'fxm-connect:pong', version: '0.3.0', features: ['youtube'] }])
@@ -47,7 +47,7 @@ describe('installFakeConnect', () => {
     })
     window.postMessage(
       { type: 'fxm-connect:spotify-server-time', id: 1 },
-      'https://fxm-music.pages.dev',
+      'https://fxmusic.pages.dev',
     )
     await vi.waitFor(() => expect(replies).toHaveLength(1), PATIENCE)
     expect(replies[0]).toEqual({ type: 'fxm-connect:error', id: 1, code: 'login-disabled' })
@@ -58,13 +58,13 @@ describe('installFakeConnect', () => {
     const window = page()
     const connect = installFakeConnect(window)
     connect.update({ features: ['spotify'], answerPings: false })
-    window.postMessage({ type: 'fxm-connect:ping' }, 'https://fxm-music.pages.dev')
+    window.postMessage({ type: 'fxm-connect:ping' }, 'https://fxmusic.pages.dev')
     await flushPromises()
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(connect.pings).toBe(1)
     connect.uninstall()
     expect(window.document.documentElement.getAttribute(CONNECT_MARKER_ATTRIBUTE)).toBeNull()
-    window.postMessage({ type: 'fxm-connect:ping' }, 'https://fxm-music.pages.dev')
+    window.postMessage({ type: 'fxm-connect:ping' }, 'https://fxmusic.pages.dev')
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(connect.pings).toBe(1)
   })

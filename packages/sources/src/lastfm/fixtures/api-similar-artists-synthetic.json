@@ -1,0 +1,179 @@
+{
+  "similarartists": {
+    "artist": [
+      {
+        "name": "Nirvana",
+        "mbid": "5b11f4ce-a62d-471e-81fc-a69a8278c7da",
+        "match": "1",
+        "url": "https://www.last.fm/music/Nirvana",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "Red Hot Chili Peppers",
+        "mbid": "8bfac288-ccc5-448d-9573-c33ea2aa5c30",
+        "match": "0.912845",
+        "url": "https://www.last.fm/music/Red+Hot+Chili+Peppers",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "Muse",
+        "mbid": "",
+        "match": "0.874512",
+        "url": "https://www.last.fm/music/Muse",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "Coldplay",
+        "mbid": "cc197bad-dc9c-440d-a5b5-d52ba2e14234",
+        "match": "0.81243",
+        "url": "https://www.last.fm/music/Coldplay",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "The Smashing Pumpkins",
+        "mbid": "ba0d6274-db14-4ef5-b28d-657ebde1a396",
+        "match": "0.79001",
+        "url": "https://www.last.fm/music/The+Smashing+Pumpkins",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "The Beatles",
+        "mbid": "b10bbbfc-cf9e-42e0-be17-e2c3e1d2600d",
+        "match": "0.735112",
+        "url": "https://www.last.fm/music/The+Beatles",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "Pink Floyd",
+        "mbid": "83d91898-7763-47d7-b03b-b92132375c47",
+        "match": "0.70215",
+        "url": "https://www.last.fm/music/Pink+Floyd",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "Pixies",
+        "mbid": "b6b2bb8d-54a9-491f-9607-7b546023b433",
+        "match": "0.66734",
+        "url": "https://www.last.fm/music/Pixies",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "David Bowie",
+        "mbid": "5441c29d-3602-4898-b1a1-b77fa23b8e50",
+        "match": "0.61209",
+        "url": "https://www.last.fm/music/David+Bowie",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "Foo Fighters",
+        "mbid": "67f66c07-6e61-4026-ade5-7e782fad3a5d",
+        "match": "0.58771",
+        "url": "https://www.last.fm/music/Foo+Fighters",
+        "image": [
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "small"
+          },
+          {
+            "#text": "https://lastfm.freetls.fastly.net/i/u/64s/2a96cbd8b46e442fc41c2b86b821562f.png",
+            "size": "medium"
+          }
+        ],
+        "streamable": "0"
+      }
+    ],
+    "@attr": {
+      "artist": "Radiohead"
+    }
+  }
+}

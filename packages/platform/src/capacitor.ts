@@ -1,26 +1,23 @@
 /**
  * The Android app's transport (Capacitor). Stage 6.2 supplies its native HTTP: an OkHttp-based
- * plugin with its own cookie jar, shared with the Media3 player. Never Capacitor's global
+ * plugin whose client keeps no cookies (`CookieJar.NO_COOKIES`; the Media3 player may use a
+ * client of its own) and follows no redirects (the transport does). User-added hosts
+ * (`route: 'user'`) are checked against the user's approved list there. Never Capacitor's global
  * `CapacitorHttp` patch or `CapacitorHttp.request`: the patch drops `Origin`, `Cookie` and
- * `Referer` and corrupts binary bodies, and both send WebView cookies through Capacitor's
- * process-wide cookie handler. Until 6.2 this is a stub that reaches only CORS-friendly hosts,
- * through the WebView's own, unpatched `fetch`.
+ * `Referer` and corrupts binary bodies, and both send and store WebView cookies through
+ * Capacitor's process-wide cookie handler. Until 6.2 this is a stub that reaches only
+ * CORS-friendly hosts, through the WebView's own, unpatched `fetch`.
  *
  * @module
  */
 
-import type { RequestBudget } from './budget'
 import { createNativeStub, createNativeTransport, type NativeHttp } from './native'
-import type { Transport } from './transport'
+import type { Transport, TransportOptions } from './transport'
 
 /** Options for {@link createCapacitorTransport}. */
-export interface CapacitorTransportOptions {
+export interface CapacitorTransportOptions extends TransportOptions {
   /** Stage 6.2's native HTTP (the OkHttp plugin). Without it, the transport is the stub. */
   http?: NativeHttp
-  /** The budget InnerTube calls draw from. */
-  budget?: RequestBudget
-  /** Hosts the user added in Settings (6.2 checks them against the approved list). */
-  userHosts?: () => Iterable<string>
   /** A browser `User-Agent` for YouTube and Spotify. */
   userAgent?: string
   /** The WebView's own `fetch`, for the stub. Default: {@link unpatchedFetch}. */
@@ -41,18 +38,18 @@ export function unpatchedFetch(global: object = globalThis): typeof fetch {
 }
 
 /** Creates the Android transport, or its stub while `http` is absent. */
-export function createCapacitorTransport(options: CapacitorTransportOptions = {}): Transport {
-  if (options.http !== undefined) {
+export function createCapacitorTransport(options: CapacitorTransportOptions): Transport {
+  const { http, userAgent, webFetch, ...shared } = options
+  if (http !== undefined) {
     return createNativeTransport({
-      http: options.http,
-      ...(options.budget === undefined ? {} : { budget: options.budget }),
-      ...(options.userHosts === undefined ? {} : { userHosts: options.userHosts }),
-      ...(options.userAgent === undefined ? {} : { userAgent: options.userAgent }),
+      ...shared,
+      http,
+      ...(userAgent === undefined ? {} : { userAgent }),
     })
   }
   return createNativeStub({
+    ...shared,
     needs: 'the Android app’s native networking (stage 6.2)',
-    webFetch: options.webFetch ?? unpatchedFetch(),
-    ...(options.budget === undefined ? {} : { budget: options.budget }),
+    webFetch: webFetch ?? unpatchedFetch(),
   })
 }

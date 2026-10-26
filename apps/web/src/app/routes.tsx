@@ -56,12 +56,10 @@ export const routes: RouteObject[] = [
               import('../features/artist/artist-page').then((m) => ({ Component: m.ArtistPage })),
           },
           {
+            // Local playlists (the library, 2.6) and other sources' playlists (2.4).
             path: 'playlist/:id',
             handle: page('Playlist'),
-            lazy: () =>
-              import('../features/playlist/playlist-page').then((m) => ({
-                Component: m.PlaylistPage,
-              })),
+            lazy: () => import('./playlist-route').then((m) => ({ Component: m.PlaylistRoute })),
           },
           {
             path: 'now-playing',

@@ -6,7 +6,7 @@
 
 import type { Frame, Page } from '@playwright/test'
 import { sandboxDocumentHeader } from '../csp.ts'
-import { SANDBOX_INNERTUBE_HOSTS, SANDBOX_INNERTUBE_PATHS } from '../document.ts'
+import { SANDBOX_INNERTUBE_HOSTS, SANDBOX_INNERTUBE_PATHS, SANDBOX_PROTOCOL } from '../document.ts'
 import { expect, test } from './fixtures.ts'
 import type { Rung } from './harness/harness.ts'
 import {
@@ -17,6 +17,7 @@ import {
   GOOGLEVIDEO_HOST,
   INNERTUBE_HOSTS,
   OTHER_HOST,
+  PAGE_TOKEN,
   USER_HOST,
 } from './network.ts'
 
@@ -50,13 +51,21 @@ const LADDER: Rung[] = [
   },
 ]
 
-/** The frame of a sandbox document in the page. */
-async function sandboxFrame(page: Page, kind: 'innertube' | 'userhost'): Promise<Frame> {
-  const url = `${FXM}/sandbox/${kind}.html`
-  await expect.poll(() => page.frames().some((frame) => frame.url() === url)).toBe(true)
-  const frame = page.frames().find((candidate) => candidate.url() === url) as Frame
+/** A frame's URL without its fragment, where the sandbox documents get their token. */
+const withoutFragment = (url: string) => url.split('#')[0]
+
+/** The frame at `url` (fragment aside) in the page, once it has loaded. */
+async function frameAt(page: Page, url: string): Promise<Frame> {
+  const find = () => page.frames().find((frame) => withoutFragment(frame.url()) === url)
+  await expect.poll(() => find() !== undefined).toBe(true)
+  const frame = find() as Frame
   await frame.waitForLoadState()
   return frame
+}
+
+/** The frame of a sandbox document in the page. */
+function sandboxFrame(page: Page, kind: 'innertube' | 'userhost'): Promise<Frame> {
+  return frameAt(page, `${FXM}/sandbox/${kind}.html`)
 }
 
 /** Fetches from inside a frame, past every check of the document's script. */
@@ -82,14 +91,18 @@ test.describe('the sandbox documents', () => {
     page,
   }) => {
     for (const kind of ['innertube', 'userhost'] as const) {
-      const response = await page.goto(`${FXM}/sandbox/${kind}.html`)
-      const policy = response?.headers()['content-security-policy'] ?? ''
-      expect(policy).toMatch(/^sandbox allow-scripts; default-src 'none'; script-src 'sha256-/)
-      expect(policy).toBe(await sandboxDocumentHeader(kind, (await response?.text()) ?? ''))
-      expect(response?.headers()['referrer-policy']).toBe('no-referrer')
-      expect(await page.evaluate(() => self.origin)).toBe('null')
-      // At top level the script finds no parent to talk to, and waits for nothing.
-      expect(await page.evaluate(marker)).toBeNull()
+      for (const suffix of ['', `#${PAGE_TOKEN}`]) {
+        // From another page, so that adding the fragment loads the document again.
+        await page.goto('about:blank')
+        const response = await page.goto(`${FXM}/sandbox/${kind}.html${suffix}`)
+        const policy = response?.headers()['content-security-policy'] ?? ''
+        expect(policy).toMatch(/^sandbox allow-scripts; default-src 'none'; script-src 'sha256-/)
+        expect(policy).toBe(await sandboxDocumentHeader(kind, (await response?.text()) ?? ''))
+        expect(response?.headers()['referrer-policy']).toBe('no-referrer')
+        expect(await page.evaluate(() => self.origin)).toBe('null')
+        // At top level the script finds no parent to talk to, token or not, and waits for nothing.
+        expect(await page.evaluate(marker)).toBeNull()
+      }
     }
   })
 
@@ -99,7 +112,7 @@ test.describe('the sandbox documents', () => {
   }) => {
     expect(await harness.start()).toMatchObject({ youtube: 'simple', mediaBytes: false })
     expect(await harness.frames()).toEqual([
-      { src: `${FXM}/sandbox/innertube.html`, sandbox: 'allow-scripts', hidden: true },
+      { src: `${FXM}/sandbox/innertube.html`, token: true, sandbox: 'allow-scripts', hidden: true },
     ])
     for (const host of SANDBOX_INNERTUBE_HOSTS) {
       for (const path of SANDBOX_INNERTUBE_PATHS) {
@@ -145,9 +158,10 @@ test.describe('the sandbox documents', () => {
     // The page's own check.
     const elsewhere = await harness.innerTube(`https://${BLOCKED_HOST}/youtubei/v1/search`, post)
     const otherPath = await harness.innerTube('https://www.youtube.com/youtubei/v1/att/get', post)
+    const refused = { code: 'Unsupported', reason: 'bad-request' }
     expect([elsewhere, otherPath]).toMatchObject([
-      { ok: false, error: { code: 'Unsupported', sandboxCode: 'forbidden-host' } },
-      { ok: false, error: { code: 'Unsupported', sandboxCode: 'forbidden-path' } },
+      { ok: false, error: { ...refused, sandboxCode: 'forbidden-host' } },
+      { ok: false, error: { ...refused, sandboxCode: 'forbidden-path' } },
     ])
     // The document's own check, with messages the page would never send.
     const raw = await harness.raw('/sandbox/innertube.html', [
@@ -158,8 +172,14 @@ test.describe('the sandbox documents', () => {
     ])
     expect(raw.hello).toEqual({
       origin: 'null',
-      data: { type: 'fxm-sandbox:hello', protocol: 1, document: 'innertube' },
+      data: {
+        type: 'fxm-sandbox:hello',
+        protocol: SANDBOX_PROTOCOL,
+        document: 'innertube',
+        token: raw.token,
+      },
     })
+    expect(raw.ready).toEqual({ type: 'fxm-sandbox:ready', token: raw.token })
     expect(raw.replies.map((reply) => (reply as { code?: string }).code)).toEqual([
       'forbidden-host',
       'forbidden-path',
@@ -201,7 +221,12 @@ test.describe('the sandbox documents', () => {
     for (const shape of shapes) {
       expect(await harness.innerTube(SEARCH, shape)).toMatchObject({
         ok: false,
-        error: { name: 'FxmError', code: 'Unsupported', sandboxCode: 'preflight' },
+        error: {
+          name: 'FxmError',
+          code: 'Unsupported',
+          reason: 'bad-request',
+          sandboxCode: 'preflight',
+        },
       })
     }
     const raw = await harness.raw(
@@ -257,7 +282,7 @@ test.describe('the sandbox documents', () => {
       await page.goto(`https://${OTHER_HOST}/frame.html?document=${kind}`)
       const frame = await sandboxFrame(page, kind)
       expect(await frame.evaluate(() => self.origin)).toBe('null')
-      // The script runs and listens: the silence below comes from its checks.
+      // The script runs and listens, as it has a token: the silence below comes from its checks.
       expect(await frame.evaluate(marker)).toBe('listening')
       const request = {
         type: 'fxm-sandbox:request',
@@ -281,6 +306,7 @@ test.describe('the sandbox documents', () => {
           ).probe([message]),
         request,
       )
+      // No hello (it is addressed to the FXM origin), no ready, no answer.
       expect(result).toEqual({ windowMessages: [], portReplies: [] })
       expect(network.requests('music.youtube.com')).toEqual([])
       expect(network.requests(USER_HOST)).toEqual([])
@@ -293,8 +319,7 @@ test.describe('the sandbox documents', () => {
   }) => {
     await page.goto(`${FXM}/sibling.html`)
     await sandboxFrame(page, 'innertube')
-    const helper = page.frames().find((frame) => frame.url() === `${FXM}/helper.html`) as Frame
-    await helper.waitForLoadState()
+    const helper = await frameAt(page, `${FXM}/helper.html`)
     const request = {
       type: 'fxm-sandbox:request',
       id: 'sibling',
@@ -307,10 +332,52 @@ test.describe('the sandbox documents', () => {
       (window as unknown as { probe(m: unknown): Promise<unknown[]> }).probe(message)
     expect(await helper.evaluate(probe, request)).toEqual([])
     expect(network.requests('music.youtube.com')).toEqual([])
-    // The same request from the document's real parent is answered.
+    // The same request from the document's real parent is answered, after the document's ready.
     expect(await page.evaluate(probe, request)).toMatchObject([
+      { type: 'fxm-sandbox:ready', token: PAGE_TOKEN },
       { type: 'fxm-sandbox:response', id: 'sibling', status: 200 },
     ])
+    expect(network.requests('music.youtube.com')).toMatchObject([{ origin: 'null', status: 200 }])
+  })
+
+  test('keep a framed FXM page’s requests when the framing site swaps the sandbox document', async ({
+    page,
+    network,
+  }) => {
+    // Another site frames an FXM page that sets no policy (as the dev server serves the app), so
+    // nothing stops it from sending the page's sandbox frame to a document of its own.
+    network.reset()
+    await page.goto(`https://${OTHER_HOST}/swap.html`)
+    const fxm = await frameAt(page, `${FXM}/embedded.html`)
+    await fxm.waitForFunction(() => window.fxmHarness !== undefined)
+    // The sandbox document is held back, so the swap lands before the handshake.
+    await fxm.evaluate(() =>
+      window.fxmHarness.sandboxOnly({ innerTube: { url: '/sandbox/innertube.html?delay=2000' } }),
+    )
+    await fxm.evaluate(
+      ([url, body]) => window.fxmHarness.innerTubeLater(url, { method: 'POST', body }),
+      [`${SEARCH}?prettyPrint=false`, payload({ query: 'private' })] as const,
+    )
+    expect(
+      await page.evaluate(() => (window as unknown as { swap(): Promise<boolean> }).swap()),
+    ).toBe(true)
+    const outcome = await fxm.evaluate(() => window.fxmHarness.settled())
+    // The impostor's hello lacked the frame's token: the request failed, and went nowhere.
+    expect(outcome).toMatchObject({
+      ok: false,
+      error: { code: 'Network', sandboxCode: 'network' },
+    })
+    const reports = await page.evaluate(
+      () => (window as unknown as { reports: { what: string; data: unknown }[] }).reports,
+    )
+    expect(reports).toEqual([{ impostor: true, what: 'loaded', data: 'null' }])
+    expect(network.requests('music.youtube.com')).toEqual([])
+    // The FXM page frames a fresh document for the next request, which works.
+    const next = await fxm.evaluate(
+      ([url, body]) => window.fxmHarness.innerTube(url, { method: 'POST', body }),
+      [`${SEARCH}?prettyPrint=false`, payload({ query: 'private' })] as const,
+    )
+    expect(next).toMatchObject({ ok: true, status: 200 })
     expect(network.requests('music.youtube.com')).toMatchObject([{ origin: 'null', status: 200 }])
   })
 
@@ -320,6 +387,9 @@ test.describe('the sandbox documents', () => {
   }) => {
     network.state.refuseOpaque = true
     expect(await harness.start()).toMatchObject({ youtube: 'none' })
+    // InnerTube's refusal (a 403 without CORS headers, so a network error to the document) is a
+    // definite answer, kept for the session.
+    expect(await harness.liteState()).toBe('refused')
     network.state.refuseOpaque = false
     expect(await harness.retest()).toMatchObject({ youtube: 'simple' })
 
@@ -375,6 +445,7 @@ test.describe('the sandbox documents', () => {
     ]).toEqual([undefined, undefined])
     expect(await harness.frames()).toContainEqual({
       src: `${FXM}/sandbox/userhost.html`,
+      token: true,
       sandbox: 'allow-scripts',
       hidden: true,
     })
@@ -388,6 +459,25 @@ test.describe('the sandbox documents', () => {
     const notAdded = await harness.fetch(`https://${BLOCKED_HOST}/api/v1/stats`)
     expect(notAdded).toMatchObject({ ok: false, error: { code: 'Unsupported' } })
     expect(network.requests(USER_HOST)).toHaveLength(2)
+  })
+
+  test('never follow a user host’s redirect to another host', async ({ harness, network }) => {
+    await harness.start({ userHosts: [USER_HOST] })
+    // With CORS headers on the redirect, the document sees it and refuses it by name.
+    const redirect = await harness.fetch(`https://${USER_HOST}/redirect`)
+    expect(redirect).toMatchObject({
+      ok: false,
+      error: { code: 'Unsupported', reason: 'redirect', sandboxCode: 'redirect' },
+    })
+    // Without them, the redirect fails the CORS check: a network error, typed all the same.
+    const bare = await harness.fetch(`https://${USER_HOST}/redirect-no-cors`)
+    expect(bare).toMatchObject({ ok: false, error: { code: 'Network', sandboxCode: 'network' } })
+    expect(network.requests(USER_HOST).map((entry) => [entry.path, entry.status])).toEqual([
+      ['/redirect', 302],
+      ['/redirect-no-cors', 302],
+    ])
+    // The second host never heard of either: not even a connection attempt.
+    expect(network.log.filter((entry) => entry.host === BLOCKED_HOST)).toEqual([])
   })
 })
 

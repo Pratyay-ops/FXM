@@ -13,21 +13,22 @@
  * @module
  */
 
-import { createRequestBudget, type RequestBudget } from './budget'
 import { type ConnectFeature, type ConnectStatus, hasConnectFeature } from './connect'
+import type { RouteNeed } from './errors'
 import type { LiteTier } from './lite'
-import { browserStorage, memoryStorage } from './storage'
 import {
   createTransport,
   type RequestSender,
   type Router,
+  routeClosedError,
   type Target,
   type Transport,
-  unreachable,
+  type TransportOptions,
+  transportOptions,
 } from './transport'
 
 /** Options for {@link createWebTransport}. */
-export interface WebTransportOptions {
+export interface WebTransportOptions extends TransportOptions {
   /** The page's `fetch`. Default: the global one. */
   fetch?: typeof fetch
   /**
@@ -35,15 +36,11 @@ export interface WebTransportOptions {
    * current status and features on every request.
    */
   connect?: { readonly status: ConnectStatus | undefined }
-  /** The Lite tier, usually from `createLiteTier`. InnerTube uses it only while it is `ready`. */
-  lite?: Pick<LiteTier, 'ready' | 'sandbox'>
   /**
-   * The budget InnerTube calls draw from. Default: one kept in `localStorage`, which every
-   * budget on this device that uses the same storage shares.
+   * The Lite tier, usually from `createLiteTier`. InnerTube uses it only while it is `ready`.
+   * User-added hosts go through its sandbox's user-host document.
    */
-  budget?: RequestBudget
-  /** Hosts the user added in Settings, reached through the sandbox's user-host document. */
-  userHosts?: () => Iterable<string>
+  lite?: Pick<LiteTier, 'ready' | 'state' | 'sandbox'>
 }
 
 /** Which FXM Connect feature opens each route. */
@@ -55,8 +52,8 @@ const CONNECT_ROUTES = {
 } as const satisfies Partial<Record<Target['kind'], ConnectFeature>>
 
 /**
- * Creates the browser transport. Routing is decided per request from FXM Connect's status and
- * the Lite tier's readiness at that moment:
+ * Creates the browser transport. Routing is decided per request, at send time, from FXM
+ * Connect's status and the Lite tier's readiness at that moment:
  *
  * | Request | Route |
  * |---|---|
@@ -68,30 +65,33 @@ const CONNECT_ROUTES = {
  * | Last.fm station JSON | FXM Connect only |
  * | A host the user added | The sandbox's user-host document, GET only |
  *
- * Anything else, and any route that is closed, rejects with an `Unsupported` `FxmError`. An
- * `outdated` FXM Connect opens no routes.
+ * A closed route rejects with a `RouteUnavailableError` that says what would open it, and an
+ * unknown host with a `TransportError`. An `outdated` FXM Connect opens no routes. The browser
+ * follows redirects itself; a response that ended outside the host table is refused.
  */
-export function createWebTransport(options: WebTransportOptions = {}): Transport {
+export function createWebTransport(options: WebTransportOptions): Transport {
   const pageFetch = options.fetch ?? globalThis.fetch.bind(globalThis)
-  const budget =
-    options.budget ?? createRequestBudget({ storage: browserStorage() ?? memoryStorage() })
   const { connect, lite } = options
   const direct: RequestSender = (request) => pageFetch(request.url, request.init)
   const has = (feature: ConnectFeature) => hasConnectFeature(connect?.status, feature)
+  /** Whether the Lite tier could still open InnerTube: it exists and is not refused or killed. */
+  const liteMayOpen = () =>
+    lite !== undefined && lite.state !== 'refused' && lite.state !== 'killed'
 
   const router: Router = {
     innerTube(target) {
       if (has('youtube')) return (request) => pageFetch(request.url, request.init)
       if (lite?.ready === true) return (request) => lite.sandbox.innerTube(request)
-      throw unreachable(target, 'FXM Connect, the Lite tier or the desktop or Android app')
+      const needs: RouteNeed[] = liteMayOpen()
+        ? ['connect', 'lite', 'native']
+        : ['connect', 'native']
+      throw routeClosedError(target, needs, { connectFeature: 'youtube' })
     },
     other(target) {
       if (target.kind === 'open') return direct
       if (target.kind === 'user') {
         const userHost = lite?.sandbox.userHost?.bind(lite.sandbox)
-        if (userHost === undefined) {
-          throw unreachable(target, 'the sandbox documents of the web app')
-        }
+        if (userHost === undefined) throw routeClosedError(target, ['sandbox'])
         return (request) =>
           userHost(request.url, {
             method: request.init.method === 'HEAD' ? 'HEAD' : 'GET',
@@ -100,13 +100,13 @@ export function createWebTransport(options: WebTransportOptions = {}): Transport
       }
       const feature = target.kind === 'innertube' ? 'youtube' : CONNECT_ROUTES[target.kind]
       if (has(feature)) return direct
-      throw unreachable(target, 'FXM Connect or the desktop or Android app')
+      throw routeClosedError(target, ['connect', 'native'], { connectFeature: feature })
     },
   }
 
   return createTransport(router, {
-    budget,
-    ...(options.userHosts === undefined ? {} : { userHosts: options.userHosts }),
+    ...transportOptions(options),
+    redirects: 'browser',
     dropHeaders: ['user-agent'],
   })
 }

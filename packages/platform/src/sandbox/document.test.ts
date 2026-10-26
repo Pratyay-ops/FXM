@@ -13,12 +13,16 @@ import {
   SANDBOX_MARKER_ATTRIBUTE,
   SANDBOX_MESSAGE,
   SANDBOX_PROTOCOL,
+  SANDBOX_TOKEN_PATTERN,
   type SandboxScope,
+  sandboxTokenOf,
   startSandboxDocument,
   USER_HOST_DOCUMENT_POLICY,
 } from './document'
 
-const FXM = 'https://fxm-music.pages.dev'
+const FXM = 'https://fxmusic.pages.dev'
+/** The token the page put in the document's URL. */
+const TOKEN = '0123456789abcdef0123456789abcdef'
 const SEARCH = 'https://music.youtube.com/youtubei/v1/search?prettyPrint=false'
 const BODY = '{"context":{"client":{"clientName":"WEB_REMIX"}},"query":"creep"}'
 const TEXT = { 'content-type': 'text/plain;charset=UTF-8' }
@@ -120,8 +124,8 @@ describe('checkSandboxRequest for innertube.html', () => {
 
   it('caps request bodies at 1 MiB, in UTF-8 bytes', () => {
     expect(check({ body: 'a'.repeat(1024 * 1024) })).toBeUndefined()
-    expect(check({ body: 'a'.repeat(1024 * 1024 + 1) })).toBe('too-large')
-    expect(check({ body: 'é'.repeat(600 * 1024) })).toBe('too-large')
+    expect(check({ body: 'a'.repeat(1024 * 1024 + 1) })).toBe('request-too-large')
+    expect(check({ body: 'é'.repeat(600 * 1024) })).toBe('request-too-large')
   })
 })
 
@@ -182,7 +186,7 @@ describe('isSafelistedHeader', () => {
       ['x-goog-visitor-id', 'v'],
       ['authorization', 'Bearer x'],
       ['user-agent', 'Mozilla/5.0'],
-      ['origin', 'https://fxm-music.pages.dev'],
+      ['origin', 'https://fxmusic.pages.dev'],
     ]
     for (const [name, value] of cases) {
       expect([name, value, isSafelistedHeader(name, value)]).toEqual([
@@ -196,9 +200,9 @@ describe('isSafelistedHeader', () => {
 
 describe('fxmOriginOf', () => {
   it('is the origin of the document’s own URL', () => {
-    expect(fxmOriginOf(`${FXM}/sandbox/innertube.html`)).toBe(FXM)
-    expect(fxmOriginOf('https://develop.fxm-music.pages.dev/sandbox/innertube')).toBe(
-      'https://develop.fxm-music.pages.dev',
+    expect(fxmOriginOf(`${FXM}/sandbox/innertube.html#${TOKEN}`)).toBe(FXM)
+    expect(fxmOriginOf('https://develop.fxmusic.pages.dev/sandbox/innertube')).toBe(
+      'https://develop.fxmusic.pages.dev',
     )
     expect(fxmOriginOf('http://localhost:5173/sandbox/innertube.html')).toBe(
       'http://localhost:5173',
@@ -208,6 +212,29 @@ describe('fxmOriginOf', () => {
   it('is undefined for URLs without a usable origin', () => {
     for (const href of ['about:srcdoc', 'about:blank', 'data:text/html,x', 'file:///x', 'x', 1]) {
       expect(fxmOriginOf(href)).toBeUndefined()
+    }
+  })
+})
+
+describe('sandboxTokenOf', () => {
+  it('is the 128-bit token in the fragment of the document’s URL', () => {
+    expect(sandboxTokenOf(`${FXM}/sandbox/innertube.html#${TOKEN}`)).toBe(TOKEN)
+    expect(sandboxTokenOf(`${FXM}/sandbox/innertube.html?delay=1#${TOKEN}`)).toBe(TOKEN)
+    expect(SANDBOX_TOKEN_PATTERN.test(TOKEN)).toBe(true)
+  })
+
+  it('is undefined without one, or for anything else in the fragment', () => {
+    for (const href of [
+      `${FXM}/sandbox/innertube.html`,
+      `${FXM}/sandbox/innertube.html#`,
+      `${FXM}/sandbox/innertube.html#${TOKEN.toUpperCase()}`,
+      `${FXM}/sandbox/innertube.html#${TOKEN}0`,
+      `${FXM}/sandbox/innertube.html#${TOKEN.slice(1)}`,
+      `${FXM}/sandbox/innertube.html#token=${TOKEN}`,
+      'x',
+      7,
+    ]) {
+      expect([href, sandboxTokenOf(href)]).toEqual([href, undefined])
     }
   })
 })
@@ -233,7 +260,7 @@ function documentScope(
   )
   const attributes = new Map<string, string>()
   const scope: SandboxScope = {
-    location: { href: options.href ?? `${FXM}/sandbox/innertube.html` },
+    location: { href: options.href ?? `${FXM}/sandbox/innertube.html#${TOKEN}` },
     document: {
       documentElement: {
         setAttribute: (name, value) => attributes.set(name, value),
@@ -267,6 +294,21 @@ function nextMessage(port: MessagePort): Promise<Record<string, unknown>> {
   })
 }
 
+/**
+ * Connects to a document as its page does, checks that its first message on the port is `ready`
+ * with the token, and returns the page's end of the port.
+ */
+async function connectTo(
+  deliver: (data: unknown, origin: string, source: unknown, ports?: MessagePort[]) => void,
+  parent: unknown,
+): Promise<MessagePort> {
+  const { port1, port2 } = new MessageChannel()
+  const ready = nextMessage(port1)
+  deliver({ type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL }, FXM, parent, [port2])
+  expect(await ready).toEqual({ type: SANDBOX_MESSAGE.ready, token: TOKEN })
+  return port1
+}
+
 const request = (id: string, fields: Record<string, unknown> = {}) => ({
   type: SANDBOX_MESSAGE.request,
   id,
@@ -278,13 +320,18 @@ const request = (id: string, fields: Record<string, unknown> = {}) => ({
 })
 
 describe('startSandboxDocument', () => {
-  it('says hello to its parent, addressed to the origin it is served from only', () => {
+  it('says hello with its token to its parent, addressed to the origin it is served from only', () => {
     const { scope, posted, attributes } = documentScope()
     const document = startSandboxDocument(scope, INNERTUBE_DOCUMENT_POLICY)
     expect(document.listening).toBe(true)
     expect(posted).toEqual([
       {
-        message: { type: SANDBOX_MESSAGE.hello, protocol: SANDBOX_PROTOCOL, document: 'innertube' },
+        message: {
+          type: SANDBOX_MESSAGE.hello,
+          protocol: SANDBOX_PROTOCOL,
+          document: 'innertube',
+          token: TOKEN,
+        },
         targetOrigin: FXM,
       },
     ])
@@ -302,8 +349,13 @@ describe('startSandboxDocument', () => {
     unmarked.stop()
   })
 
-  it('does nothing at top level, or without an origin to trust', () => {
-    for (const options of [{ topLevel: true }, { href: 'about:srcdoc' }]) {
+  it('does nothing at top level, without an origin to trust, or without a token', () => {
+    for (const options of [
+      { topLevel: true },
+      { href: 'about:srcdoc' },
+      { href: `${FXM}/sandbox/innertube.html` },
+      { href: `${FXM}/sandbox/innertube.html#not-a-token` },
+    ]) {
       const { scope, posted, listeners, attributes } = documentScope(options)
       const document = startSandboxDocument(scope, INNERTUBE_DOCUMENT_POLICY)
       expect(document.listening).toBe(false)
@@ -318,14 +370,17 @@ describe('startSandboxDocument', () => {
     ).toBe(false)
   })
 
-  it('takes a port only from its parent at the FXM origin, once, and serves requests on it', async () => {
+  it('takes a port only from its parent at the FXM origin, once, says ready on it and serves it', async () => {
     const { scope, parent, deliver, fetch } = documentScope()
     const document = startSandboxDocument(scope, INNERTUBE_DOCUMENT_POLICY)
     const connect = { type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL }
     const strangers: MessageChannel[] = []
+    const heard: unknown[] = []
     const offer = (origin: string, source: unknown, data: unknown = connect) => {
       const channel = new MessageChannel()
       strangers.push(channel)
+      channel.port1.addEventListener('message', (event) => heard.push(event.data))
+      channel.port1.start()
       deliver(data, origin, source, [channel.port2])
       channel.port1.postMessage(request('stranger'))
     }
@@ -333,28 +388,31 @@ describe('startSandboxDocument', () => {
     offer('null', parent)
     offer(FXM, {})
     offer(FXM, scope)
-    offer(FXM, parent, { ...connect, protocol: 2 })
+    offer(FXM, parent, { ...connect, protocol: 1 })
     offer(FXM, parent, { type: 'fxm-sandbox:other', protocol: SANDBOX_PROTOCOL })
     offer(FXM, parent, 'connect')
     deliver(connect, FXM, parent, [])
 
-    const page = new MessageChannel()
-    deliver(connect, FXM, parent, [page.port2])
+    const port = await connectTo(deliver, parent)
     const second = new MessageChannel()
+    second.port1.addEventListener('message', (event) => heard.push(event.data))
+    second.port1.start()
     deliver(connect, FXM, parent, [second.port2])
     second.port1.postMessage(request('second'))
 
-    const reply = nextMessage(page.port1)
-    page.port1.postMessage(request('mine'))
+    const reply = nextMessage(port)
+    port.postMessage(request('mine'))
     expect(await reply).toMatchObject({ type: SANDBOX_MESSAGE.response, id: 'mine', status: 200 })
     expect(fetch).toHaveBeenCalledOnce()
+    // Neither the token nor an answer went to any other port.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(heard).toEqual([])
     document.stop()
-    for (const channel of [...strangers, page, second]) {
-      channel.port1.close()
-    }
+    for (const channel of [...strangers, second]) channel.port1.close()
+    port.close()
   })
 
-  it('sends the request as given, without credentials or a referrer, and transfers the body', async () => {
+  it('sends the request as given, without credentials, a referrer or redirects, and transfers the body', async () => {
     const { scope, parent, deliver, fetch } = documentScope({
       fetch: async () =>
         new Response('{"ok":true}', {
@@ -364,16 +422,16 @@ describe('startSandboxDocument', () => {
         }),
     })
     const document = startSandboxDocument(scope, INNERTUBE_DOCUMENT_POLICY)
-    const { port1, port2 } = new MessageChannel()
-    deliver({ type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL }, FXM, parent, [port2])
-    const reply = nextMessage(port1)
-    port1.postMessage(request('a'))
+    const port = await connectTo(deliver, parent)
+    const reply = nextMessage(port)
+    port.postMessage(request('a'))
     const response = await reply
     expect(response).toMatchObject({
       type: SANDBOX_MESSAGE.response,
       id: 'a',
       status: 201,
       statusText: 'Created',
+      redirected: false,
       headers: [['content-type', 'application/json']],
     })
     expect(new TextDecoder().decode(response.body as ArrayBuffer)).toBe('{"ok":true}')
@@ -385,22 +443,63 @@ describe('startSandboxDocument', () => {
       body: BODY,
       credentials: 'omit',
       mode: 'cors',
-      redirect: 'error',
+      redirect: 'manual',
       referrerPolicy: 'no-referrer',
     })
     expect(init.signal).toBeInstanceOf(AbortSignal)
     document.stop()
-    port1.close()
+    port.close()
+  })
+
+  it('never follows a redirect: it fails the request with `redirect`', async () => {
+    const answers: (() => Response)[] = [
+      // What a browser hands over for `redirect: 'manual'`: an opaque redirect.
+      () =>
+        Object.defineProperty(new Response(null, { status: 200 }), 'type', {
+          value: 'opaqueredirect',
+        }),
+      // A runtime that returns the redirect as it is.
+      () =>
+        new Response(null, { status: 302, headers: { location: 'https://elsewhere.example/' } }),
+      () => new Response(null, { status: 304 }),
+    ]
+    const { scope, parent, deliver, fetch } = documentScope({
+      fetch: async () => (answers.shift() as () => Response)(),
+    })
+    const document = startSandboxDocument(scope, USER_HOST_DOCUMENT_POLICY)
+    const port = await connectTo(deliver, parent)
+    const replies: Record<string, unknown>[] = []
+    for (const id of ['opaque', 'plain', 'not-modified']) {
+      const reply = nextMessage(port)
+      port.postMessage({
+        type: SANDBOX_MESSAGE.request,
+        id,
+        url: 'https://invidious.example/api/v1/stats',
+        method: 'GET',
+      })
+      replies.push(await reply)
+    }
+    expect(replies.map(({ id, code, status }) => ({ id, code, status }))).toEqual([
+      { id: 'opaque', code: 'redirect', status: undefined },
+      { id: 'plain', code: 'redirect', status: undefined },
+      { id: 'not-modified', code: undefined, status: 304 },
+    ])
+    expect(fetch.mock.calls.map(([, init]) => init.redirect)).toEqual([
+      'manual',
+      'manual',
+      'manual',
+    ])
+    document.stop()
+    port.close()
   })
 
   it('refuses requests outside its policy, with the reason', async () => {
     const { scope, parent, deliver, fetch } = documentScope()
     const document = startSandboxDocument(scope, INNERTUBE_DOCUMENT_POLICY)
-    const { port1, port2 } = new MessageChannel()
-    deliver({ type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL }, FXM, parent, [port2])
+    const port = await connectTo(deliver, parent)
     const ask = async (fields: Record<string, unknown>) => {
-      const reply = nextMessage(port1)
-      port1.postMessage(request('r', fields))
+      const reply = nextMessage(port)
+      port.postMessage(request('r', fields))
       return reply
     }
     expect(await ask({ url: 'https://example.com/' })).toMatchObject({
@@ -417,9 +516,12 @@ describe('startSandboxDocument', () => {
     expect(await ask({ method: 'GET', body: undefined })).toMatchObject({
       code: 'forbidden-method',
     })
+    expect(await ask({ body: 'x'.repeat(1024 * 1024 + 1) })).toMatchObject({
+      code: 'request-too-large',
+    })
     expect(fetch).not.toHaveBeenCalled()
     document.stop()
-    port1.close()
+    port.close()
   })
 
   it('ignores messages it cannot answer, and repeated IDs', async () => {
@@ -431,11 +533,9 @@ describe('startSandboxDocument', () => {
         }),
     })
     const document = startSandboxDocument(scope, INNERTUBE_DOCUMENT_POLICY)
-    const { port1, port2 } = new MessageChannel()
-    deliver({ type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL }, FXM, parent, [port2])
+    const port = await connectTo(deliver, parent)
     const replies: unknown[] = []
-    port1.addEventListener('message', (event) => replies.push(event.data))
-    port1.start()
+    port.addEventListener('message', (event) => replies.push(event.data))
     for (const message of [
       'request',
       { type: 'fxm-sandbox:unknown', id: 'u' },
@@ -444,16 +544,16 @@ describe('startSandboxDocument', () => {
       { ...request('n'), id: 7 },
       { type: SANDBOX_MESSAGE.abort, id: 9 },
     ]) {
-      port1.postMessage(message)
+      port.postMessage(message)
     }
-    port1.postMessage(request('same'))
-    port1.postMessage(request('same'))
+    port.postMessage(request('same'))
+    port.postMessage(request('same'))
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce())
     release()
     await vi.waitFor(() => expect(replies).toHaveLength(1))
     expect(replies[0]).toMatchObject({ id: 'same', status: 200 })
     document.stop()
-    port1.close()
+    port.close()
   })
 
   it('caps response bodies, by Content-Length or as they stream', async () => {
@@ -473,11 +573,10 @@ describe('startSandboxDocument', () => {
             ),
     })
     const document = startSandboxDocument(scope, USER_HOST_DOCUMENT_POLICY)
-    const { port1, port2 } = new MessageChannel()
-    deliver({ type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL }, FXM, parent, [port2])
+    const port = await connectTo(deliver, parent)
     const ask = async (url: string, maxResponseBytes?: number) => {
-      const reply = nextMessage(port1)
-      port1.postMessage({
+      const reply = nextMessage(port)
+      port.postMessage({
         type: SANDBOX_MESSAGE.request,
         id: url,
         url,
@@ -494,7 +593,7 @@ describe('startSandboxDocument', () => {
     const capped = await ask('https://a.example/streamed', 10 * 1024 * 1024)
     expect(capped).toMatchObject({ status: 200 })
     document.stop()
-    port1.close()
+    port.close()
   })
 
   it('times out, fails on network errors and stops on cancellation', async () => {
@@ -510,21 +609,19 @@ describe('startSandboxDocument', () => {
         }),
     })
     const document = startSandboxDocument(scope, USER_HOST_DOCUMENT_POLICY)
-    const { port1, port2 } = new MessageChannel()
-    deliver({ type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL }, FXM, parent, [port2])
+    const port = await connectTo(deliver, parent)
     const replies: Record<string, unknown>[] = []
-    port1.addEventListener('message', (event) => replies.push(event.data))
-    port1.start()
+    port.addEventListener('message', (event) => replies.push(event.data))
     const get = (id: string, url: string, extra: Record<string, unknown> = {}) =>
-      port1.postMessage({ type: SANDBOX_MESSAGE.request, id, url, method: 'GET', ...extra })
+      port.postMessage({ type: SANDBOX_MESSAGE.request, id, url, method: 'GET', ...extra })
     const signal = (index: number) => fetch.mock.calls[index]?.[1].signal
 
     get('slow', 'https://a.example/slow', { timeoutMs: 1000 })
     get('cancelled', 'https://a.example/cancelled')
     get('fails', 'https://a.example/fails')
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3))
-    port1.postMessage({ type: SANDBOX_MESSAGE.abort, id: 'cancelled' })
-    port1.postMessage({ type: SANDBOX_MESSAGE.abort, id: 'unknown' })
+    port.postMessage({ type: SANDBOX_MESSAGE.abort, id: 'cancelled' })
+    port.postMessage({ type: SANDBOX_MESSAGE.abort, id: 'unknown' })
     await vi.waitFor(() => expect(signal(1)?.aborted).toBe(true))
     await vi.waitFor(() => expect(replies).toHaveLength(1))
     expect(replies[0]).toMatchObject({ id: 'fails', code: 'network' })
@@ -553,7 +650,7 @@ describe('startSandboxDocument', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(fetch).toHaveBeenCalledTimes(5)
     expect(replies).toHaveLength(3)
-    port1.close()
+    port.close()
   })
 
   it('describes failures from any realm, and odd values', async () => {
@@ -564,12 +661,11 @@ describe('startSandboxDocument', () => {
       },
     })
     const document = startSandboxDocument(scope, USER_HOST_DOCUMENT_POLICY)
-    const { port1, port2 } = new MessageChannel()
-    deliver({ type: SANDBOX_MESSAGE.connect, protocol: SANDBOX_PROTOCOL }, FXM, parent, [port2])
+    const port = await connectTo(deliver, parent)
     const messages: unknown[] = []
     for (const id of ['a', 'b', 'c']) {
-      const reply = nextMessage(port1)
-      port1.postMessage({
+      const reply = nextMessage(port)
+      port.postMessage({
         type: SANDBOX_MESSAGE.request,
         id,
         url: 'https://a.example/',
@@ -583,6 +679,6 @@ describe('startSandboxDocument', () => {
       'The request failed',
     ])
     document.stop()
-    port1.close()
+    port.close()
   })
 })

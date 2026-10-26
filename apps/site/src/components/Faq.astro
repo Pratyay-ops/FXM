@@ -1,14 +1,16 @@
 ---
 import { AVAILABLE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../config'
-import { connectNeededFor, extensionFaq, iPhoneAnswer, otherBrowsersAnswer } from '../lib/tiers'
+import { phonesAnswer } from '../lib/connect'
+import { connectNeededFor, extensionFaq, iPhoneAnswer } from '../lib/tiers'
 
 // Answers that change as features ship (AVAILABLE in src/config.ts)
 const extension = extensionFaq(AVAILABLE.lite)
-const browsers = `The web app works in any modern browser. FXM Connect, which it needs for ${connectNeededFor(AVAILABLE.lite)}, is for Chrome, Edge and Brave (version 120 or later) on a computer.`
-const firefox = AVAILABLE.firefox ? '' : 'A Firefox add-on is coming.'
-const phones = AVAILABLE.android
-  ? 'FXM Connect needs a desktop browser; the Android app has everything built in.'
-  : 'FXM Connect needs a desktop browser, and the Android app is coming soon.'
+const needs = connectNeededFor(AVAILABLE.lite)
+const phones = phonesAnswer({
+  firefox: AVAILABLE.firefox,
+  android: AVAILABLE.android,
+  lite: AVAILABLE.lite,
+})
 const iphone = `On iPhone and iPad you can use the web app in Safari${
   AVAILABLE.pwa ? ' and add it to your Home Screen' : ''
 }.`
@@ -50,17 +52,24 @@ const downloads = AVAILABLE.downloads
       <details>
         <summary>Which browsers does it work in?</summary>
         <div class="answer">
-          <p>
-            {browsers}
-            You install it from the zip on the GitHub release with
-            <strong>Load unpacked</strong>
-            (<a href="#get-web">see the steps</a>).
-            {firefox}
-          </p>
-          <p>
-            {otherBrowsersAnswer(AVAILABLE.lite)}
-            {phones}
-          </p>
+          {AVAILABLE.firefox ? (
+            <p>
+              The web app works in any modern browser. FXM Connect, which it needs for {needs}, is
+              for Firefox (version 140 or later), and for Chrome, Edge and Brave (version 120 or
+              later) on a computer. Firefox adds it as an add-on signed by Mozilla; in Chrome, Edge
+              and Brave you install the zip from the GitHub release with
+              <strong>Load unpacked</strong> (<a href="#get-web">see the steps</a>).
+            </p>
+          ) : (
+            <p>
+              The web app works in any modern browser. FXM Connect, which it needs for {needs}, is
+              for Chrome, Edge and Brave (version 120 or later) on a computer. You install it from
+              the zip on the GitHub release with
+              <strong>Load unpacked</strong> (<a href="#get-web">see the steps</a>). A Firefox
+              add-on is coming.
+            </p>
+          )}
+          <p>{phones}</p>
         </div>
       </details>
 

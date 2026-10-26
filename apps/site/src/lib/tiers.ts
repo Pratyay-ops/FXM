@@ -9,6 +9,10 @@
  * - **Lite on:** without FXM Connect, the web app also plays YouTube Music in the experimental
  *   Lite tier, where the browser allows it (docs/ARCHITECTURE.md §8); Spotify still needs the
  *   extension.
+ *
+ * The web card's no-extension note and the FAQ's answer for phones also change once the signed
+ * Firefox add-on is out (`AVAILABLE.firefox`). src/lib/connect.ts writes who those sentences are
+ * for and takes what the web app plays from `noExtensionPlays` and `otherBrowsersPlays` here.
  */
 
 /**
@@ -66,11 +70,14 @@ export function webCardIntro(lite: boolean): string {
     : 'Runs in your browser. Add the free FXM Connect extension to use YouTube Music and Spotify.'
 }
 
-/** The web card's note for visitors without the extension. */
-export function noExtensionNote(lite: boolean): string {
+/**
+ * What the web card's note for visitors without the extension says the web app plays, after the
+ * question of who the note is for (`noExtensionNote` in src/lib/connect.ts).
+ */
+export function noExtensionPlays(lite: boolean): string {
   return lite
-    ? `No extension, or on a phone or tablet? The web app plays free music from Internet Archive and Jamendo, and YouTube Music in ${LITE} where the browser allows it.`
-    : 'No extension, or on a phone or tablet? The web app still plays free music from Internet Archive and Jamendo.'
+    ? `The web app plays free music from Internet Archive and Jamendo, and YouTube Music in ${LITE} where the browser allows it.`
+    : 'The web app still plays free music from Internet Archive and Jamendo.'
 }
 
 /** Step 2 of "How it works": how the device reaches the music services. */
@@ -116,11 +123,15 @@ export function connectNeededFor(lite: boolean): string {
     : 'YouTube Music and Spotify'
 }
 
-/** The FAQ's sentence on phones, tablets and other browsers, before the one about the apps. */
-export function otherBrowsersAnswer(lite: boolean): string {
+/**
+ * What the FAQ's answer for phones, tablets and other browsers says the web app plays there: after
+ * where FXM Connect can't be added and before the sentence about the apps (`phonesAnswer` in
+ * src/lib/connect.ts).
+ */
+export function otherBrowsersPlays(lite: boolean): string {
   return lite
-    ? `On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive and Jamendo, and YouTube Music in ${LITE} where the browser allows it. Lite has been tried in Chrome and Firefox on a computer; it isn't tested in Safari or on phones yet.`
-    : 'On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive and Jamendo.'
+    ? `the web app plays free music from Internet Archive and Jamendo, and YouTube Music in ${LITE} where the browser allows it. Lite has been tried in Chrome and Firefox on a computer; it isn't tested in Safari or on phones yet.`
+    : 'the web app plays free music from Internet Archive and Jamendo.'
 }
 
 /** The end of the FAQ's iPhone answer: what plays there. */
