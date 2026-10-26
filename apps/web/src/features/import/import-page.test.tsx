@@ -95,7 +95,12 @@ describe('ImportPage', () => {
     expect(await screen.findByText('Importing 1 playlist')).toBeInTheDocument()
     const list = await screen.findByRole('region', { name: 'Your imports' })
     expect(await within(list).findByText('Done')).toBeInTheDocument()
-    expect(within(list).getByText(/5 songs: 4 matched · 1 to review/u)).toBeInTheDocument()
+    const counts = within(list).getByText(/5 songs: 4 matched · 1 to review/u)
+    expect(counts).toBeInTheDocument()
+    // Screen readers hear the date and the counts apart: nothing between them is hidden from them.
+    const line = counts.closest('p') as HTMLElement
+    expect(line.textContent).toMatch(/today · 5 songs: 4 matched · 1 to review$/u)
+    expect(line.querySelector('[aria-hidden="true"]')).toBeNull()
     expect(within(list).getByRole('link', { name: 'Review 1 song of Road trip' })).toHaveAttribute(
       'href',
       expect.stringMatching(/^\/import\//u),
