@@ -1,6 +1,6 @@
 # @fxm/desktop
 
-The FXM desktop app for macOS, Windows and Linux: the web app (`apps/web`) in a [Tauri 2](https://v2.tauri.app) shell. This is FXM's installable "applet". It reaches YouTube, Spotify and every other service through native networking in Rust (tauri-plugin-http), so it needs no FXM Connect extension. Stage 7.1 built the shell, stage 7.2 its networking, stage 7.3 its playback and OS integration (a tray menu, a close button that keeps the music playing, playback in a hidden window and the system media controls), stage 7.5 its [releases](#releases) and [updates](#updates), and stage 7.6 the [readable audio path](#the-readable-audio-path) that lets Web Audio, and so the equalizer, read YouTube audio, and the Windows code signing of its releases ([docs/CODE-SIGNING.md](../../docs/CODE-SIGNING.md)). How users install it is in [INSTALL.md](INSTALL.md).
+The FXM desktop app for macOS, Windows and Linux: the web app (`apps/web`) in a [Tauri 2](https://v2.tauri.app) shell. This is FXM's installable "applet". It reaches YouTube, Spotify and every other service through native networking in Rust (tauri-plugin-http), so it needs no FXM Connect extension. Stage 7.1 built the shell, stage 7.2 its networking, stage 7.3 its playback and OS integration (a tray menu, a close button that keeps the music playing, playback in a hidden window and the system media controls), stage 7.4 its [downloads](#downloads) to disk and its [Spotify login window](#spotify-login), stage 7.5 its [releases](#releases) and [updates](#updates), and stage 7.6 the [readable audio path](#the-readable-audio-path) that lets Web Audio, and so the equalizer, read YouTube audio, and the Windows code signing of its releases ([docs/CODE-SIGNING.md](../../docs/CODE-SIGNING.md)). How users install it is in [INSTALL.md](INSTALL.md).
 
 Setup, prerequisites per OS, commands and disk usage are in [DEVELOPMENT.md → Desktop app](../../docs/DEVELOPMENT.md#desktop-app). In short:
 
@@ -23,9 +23,11 @@ assets/tray-template.svg  the FXM bars alone: the macOS menu bar icon (the "tray
 assets/tray-color.svg     the tray icon on Windows and Linux, drawn for 16 px (the "tray-icon" script)
 scripts/prune-icons.mjs   keeps only the icons tauri.conf.json lists (run by the "icons" script)
 bridge/                   @fxm/desktop/bridge: the web app's side of playback and OS integration,
-                          and the readable audio path's URLs (media.ts), with tests next to the code
+                          the readable audio path's URLs (media.ts), downloads (downloads.ts) and the
+                          Spotify login (spotify-login.ts), with tests next to the code
 test/                     Vitest checks of the Tauri config, the isolation hook, desktop.yml and
-                          desktop-release.yml, the bridge's contract with the Rust side and the smoke
+                          desktop-release.yml, the bridge's contract with the Rust side
+                          (downloads-spotify-contract.test.ts for stage 7.4's plugins) and the smoke
                           test's steps; part of `make test`, no Rust needed. fixtures/updater holds
                           a test key's signature that the Rust tests check too
 isolation/                the isolation hook that IPC messages pass through (see Network)
@@ -57,6 +59,9 @@ src-tauri/
                           (`third_party_notices`)
   src/network.rs          native network change notifications
   src/media.rs            the readable audio path: googlevideo streams on the `fxm-media:` scheme
+  src/downloads.rs        downloads on disk: the fxm-downloads plugin and the fxm-download: scheme
+                          (stage 7.4)
+  src/spotify_login.rs    the Spotify login window and its tokens: the fxm-spotify plugin (stage 7.4)
   src/smoke.rs            prints the smoke test's report and exits (with `--features smoke` only)
   tauri.conf.json         app identity, window, CSP, the isolation pattern, the http plugin's
                           settings, build commands and bundle settings
@@ -78,6 +83,8 @@ src-tauri/
 - **Links.** tauri-plugin-opener opens `target="_blank"` links in the default browser.
 - **Network.** Every request the web app makes through `ctx.fetch` goes through Rust, and IPC messages pass the isolation hook first: see [Network](#network) below, which also says where they don't.
 - **Playback.** `<audio>` in the webview, as on the web, with the desktop app's rules, a tray menu and background playback: see [Playback and OS integration](#playback-and-os-integration). For Web Audio, Rust serves YouTube's streams under the app's own `fxm-media:` scheme: see [The readable audio path](#the-readable-audio-path).
+- **Downloads** go to a folder the user picks, `Music/FXM` by default, as audio files with human names, and play offline from there: see [Downloads](#downloads).
+- **Spotify login.** A window of its own on Spotify's login page; Rust keeps the login's cookie in the operating system's credential store and gives the web app tokens only: see [Spotify login](#spotify-login).
 - **Version.** The app's version is `apps/desktop/package.json`'s (`"version": "../package.json"` in `tauri.conf.json`), which `make release-pr` sets with every other package's.
 - **Releases and updates.** Every release builds the installers for each platform, the updater's files and `latest.json`, and the app installs newer versions after asking: see [Releases](#releases) and [Updates](#updates).
 - **The isolated evaluator** (stage 1.11, `src/evaluator.rs`). The app's `fxm-evaluator` plugin opens a hidden webview window on its own URI scheme, `fxm-eval://localhost/eval.html` (`http://fxm-eval.localhost/` on Windows), and serves `apps/web/sandbox/eval.html` from it with that document's own policy: its inline script by hash, `'unsafe-eval'`, and no connections. The main window drives it through the plugin's `open` (a new window each time), `eval` (`eval_with_callback`) and `close` commands, which `fxm-evaluator:default` in `capabilities/default.json` grants to the main window only. YouTube's player script runs there, never in the main window ([packages/platform/src/evaluator/README.md](../../packages/platform/src/evaluator/README.md)). What its page can't do:
@@ -88,7 +95,7 @@ src-tauri/
 - **The evaluator and the isolation hook.** The main window's calls to the plugin pass the isolation hook like any other IPC message, and reach Rust unchanged (`test/isolation.test.ts`). The evaluator's page needs no IPC, since the main window reads it with `eval`, and its policy keeps out the isolation frame that Tauri adds to every page.
 - **Still to check in a running app** (stage 1.11): that Tauri serves the `fxm-eval:` responses as the plugin writes them, policy included; that the navigation guard holds; that the evaluator document runs although its policy blocks the isolation frame, and keeps answering while FXM is hidden (WebView2 and WebKitGTK may throttle it, which the main window's Web Lock doesn't cover); and that FXM quits with the evaluator window open, through Quit on macOS, Windows and Linux, and through the close button where it closes the main window (Linux without a tray icon).
 
-The tests in `test/` pin the CSP, the isolation pattern and its hook, the http plugin's scope and settings, the permissions around them, `default.json` as the only capability file, the app's commands, the plugins `src/lib.rs` registers, the app's own evaluator plugin included, the tray feature, the window's background throttling, and the updater's endpoint and settings, so widening any of them is always a deliberate change.
+The tests in `test/` pin the CSP, the isolation pattern and its hook, the http plugin's scope and settings, the permissions around them, `default.json` as the only capability file, the app's commands, the plugins `src/lib.rs` registers, the app's own plugins included (the evaluator, and stage 7.4's downloads and Spotify login, whose commands `test/downloads-spotify-contract.test.ts` keeps in step with the bridge), the tray feature, the window's background throttling, and the updater's endpoint and settings, so widening any of them is always a deliberate change.
 
 ## Network
 
@@ -113,7 +120,7 @@ The web app never uses the webview's own `fetch` here. In the desktop app, `crea
 
 **Scope.** `capabilities/default.json` lets the plugin reach exactly the hosts in the platform's host table (`HOST_RULES` in [`packages/platform/src/hosts.ts`](../../packages/platform/src/hosts.ts)), HTTPS only, and Last.fm only under `/player/station/`. The test builds the expected list from the table, so a host added there fails it until it is added here too. One row stays out on purpose, and the test names it: BotGuard's interpreter (`www.google.com/js/th/`, stage 1.11). Only the PO-token rungs fetch it, and they need an evaluator document at YouTube's origin, which this app's isn't, so the app never asks for it. `createDesktopFetch()` asks the plugin to follow no redirect (`maxRedirections: 0`): the transport follows each hop itself and checks it against the host table first, so a redirect out of the table, or to a host of another class, fails (a `TransportError`, `redirect`). googlevideo's redirects to other `*.googlevideo.com` hosts and Internet Archive's to its storage hosts, such as `dn710102.ca.archive.org`, stay inside. `scopeRedirects` in `tauri.conf.json` still checks every redirect the plugin follows against its scope, for page script that calls the plugin through the IPC itself. FXM's own site is not in the table yet, so `createDesktopFetch()` sends it to `user_host_fetch`, which refuses it: the signed updates of stage 1.13 (`https://fxmusic.pages.dev/updates/`, see [packages/platform/src/updates](../../packages/platform/src/updates/README.md)) need that folder in the scope, and `createDesktopFetch()` sending it through the plugin, before the updater is wired into the app.
 
-**No cookie jar.** The plugin's default `cookies` feature is off. It would save every response cookie in plain text in `.cookies` in the app's cache folder and send it back with later requests. FXM never sends a `Cookie` header from the web app, and `Set-Cookie` never reaches page JavaScript. Stage 7.4 decides how Spotify credentials are stored.
+**No cookie jar.** The plugin's default `cookies` feature is off. It would save every response cookie in plain text in `.cookies` in the app's cache folder and send it back with later requests. FXM never sends a `Cookie` header from the web app, and `Set-Cookie` never reaches page JavaScript. The one cookie FXM keeps, Spotify's login, stays in the operating system's credential store and goes on Rust's own token request only ([Spotify login](#spotify-login)).
 
 **The isolation hook.** `createDesktopFetch()` binds only the requests made through it, but page script can call the HTTP plugin through Tauri's IPC directly. So the app uses Tauri's [isolation pattern](https://v2.tauri.app/concept/inter-process-communication/isolation/) (`app.security.pattern` in `tauri.conf.json`, and the `isolation` feature of `tauri` and `tauri-build`). Tauri's IPC hands each message from a page to [`isolation/hook.js`](isolation/hook.js), in a sandboxed iframe of its own origin, which encrypts the payload the hook returns with a key only that frame has. Rust decrypts every payload with that key and refuses one it can't, so each payload Rust reads has passed the hook, with the two exceptions below.
 
@@ -149,7 +156,7 @@ FXM's own messages reach Rust byte for byte as they would without the hook. The 
 - The list lives in `user-hosts.json` in the app's config folder (on macOS, `~/Library/Application Support/io.github.pratyayops.fxm/`).
 - In the web app, `createDesktopUserHosts()` from `@fxm/platform` wraps the commands. Pass `userHosts: () => hosts.current()` to `createPlatform()`, so the transport routes those hosts; Rust checks them again on every request.
 
-**App commands and permissions.** `build.rs` lists the app's commands in an app manifest, which gives each an `allow-…` permission and makes Tauri check app commands against the capabilities, as it does plugin commands. Without one, any local webview could call them, even one granted no capability, such as stage 1.11's hidden evaluator. `default.json` grants them, with the HTTP plugin and its scope and the evaluator plugin (`fxm-evaluator:default`), to the main window's own webview (`"webviews": ["main"]`; a window's webview has the window's label), not to the main window: a capability that matches a window applies to every webview in it, so a child webview, such as an evaluator built inside the main window, would get all of it. Any other webview needs a capability of its own. The app registers no dialog plugin: only Rust opens dialogs.
+**App commands and permissions.** `build.rs` lists the app's commands in an app manifest, which gives each an `allow-…` permission and makes Tauri check app commands against the capabilities, as it does plugin commands. Without one, any local webview could call them, even one granted no capability, such as stage 1.11's hidden evaluator. `default.json` grants them, with the HTTP plugin and its scope and the app's own plugins (`fxm-evaluator:default`, and stage 7.4's `fxm-downloads:default` and `fxm-spotify:default`), to the main window's own webview (`"webviews": ["main"]`; a window's webview has the window's label), not to the main window: a capability that matches a window applies to every webview in it, so a child webview, such as an evaluator built inside the main window, would get all of it. Any other webview needs a capability of its own. The app registers no dialog plugin: only Rust opens dialogs.
 
 **Dropping `unsafe-headers`.** `unsafe-headers` lets page script send forbidden headers to every host in the scope: the isolation hook drops `Cookie`, `Host` and `Proxy-*` and keeps `Origin` to a real site's, but others, such as `Referer`, still pass. [plugins-workspace PR #3703](https://github.com/tauri-apps/plugins-workspace/pull/3703) (open on 2026-10-26, last updated 2026-10-14) lets the app's config set or remove headers per URL instead (`requestHeaders`), and set the default User-Agent (`userAgent`). `request-headers.json` already holds FXM's rules in that shape: no `Origin` for any host, Spotify's own for Spotify; a test keeps them in step with `NATIVE_ORIGINS`. Once a plugin release with the PR is 14 days old:
 
@@ -167,6 +174,8 @@ Page script is anything that runs in the main webview: the web app, a module sta
 |---|---|
 | `plugin:http\|fetch`, through Tauri's IPC | Send any method, body and header to the hosts in the scope. Whatever the message's shape or command, the isolation hook drops a proxy, TLS exceptions, `Cookie`, `Host` and `Proxy-*`, and keeps `Origin` to a real site's, except for a message that slips through its start-up gap (above): that one keeps all of them, the proxy included. `unsafe-headers` still lets page script set other forbidden headers, such as `Referer`, until it is dropped (above) |
 | `user_host_fetch` | `GET` and `HEAD` to hosts the user approved, at public addresses only |
+| `plugin:fxm-downloads\|…` | Write, read, name and delete FXM's own download files, by their opaque names, inside the downloads folder; save copies there under names Rust makes safe. No path, and no other file of the folder: see [Downloads](#downloads) |
+| `plugin:fxm-spotify\|token` | A Spotify token for the user's login, at most ten a minute: the token's fields only, never the cookie (see [Spotify login](#spotify-login)) |
 | `img-src https:` and `media-src https:` in the CSP | Load an image or a media file from any HTTPS host and port, the user's own network included, through the webview's own networking: a `GET` whose URL can carry data, and whose success or failure the page sees |
 | The `fxm-media:` scheme (stage 7.6) | `GET` a googlevideo stream URL (`https://*.googlevideo.com/videoplayback`), with a `Range`, as media whose bytes the page may read: the scheme answers the app's own origins with CORS headers, and the main window's webview only. Those hosts are in the HTTP plugin's scope already, so it reaches nothing new; only `Range` and the webview's `User-Agent` go on to googlevideo. The CSP lets media elements load it, not `fetch()` |
 | `opener:default` | Open an `http(s):`, `mailto:` or `tel:` URL in the user's default browser or app, and show a file in the file manager |
@@ -317,11 +326,108 @@ context.createMediaElementSource(audio).connect(equalizer)
 
 Still to check: Windows (WebView2, whose custom schemes go through `http://fxm-media.localhost`) and Linux (WebKitGTK and GStreamer), on those machines, with the smoke test.
 
+## Downloads
+
+Stage 7.4 gives the web app's download manager (`@fxm/downloads`, stage 4.1) the desktop app's disk. The manager runs in the webview as in a browser: it resolves through the playback policy, downloads YouTube audio only from URLs that passed the end-of-file probe, fetches through the app's native HTTP and recovers from failures as 4.1 describes. Only where its bytes go differs: the folder the user picks, `Music/FXM` by default, through the `fxm-downloads` plugin (`src/downloads.rs`), which `@fxm/desktop/bridge` wraps.
+
+| Piece | What it is |
+|---|---|
+| `createDesktopDownloadStorage({ rows })` | The manager's `DownloadStorage` over the plugin. `probe()` says whether there is a downloads folder; `name(record)` gives a completed download its human name |
+| `connectDesktopDownloads(manager, storage)` | Names each download as it completes, and at once those that completed while FXM was away: the files still in `.fxm-partial` (`storage.pending()`), from one listing, one after another |
+| `createDesktopDownloadNetwork({ shell })` | The manager's network: the webview's `online`, and a change on every native route change (`fxm-network-change`), so a queue waiting for the network tries again at once |
+| `createDesktopDownloadsFolder()` | For Settings: where the folder is, and the system's folder picker to choose another |
+| `createDesktopDeviceSaver()` | Stage 4.2's "Save to device" (`DeviceSaver`): a converted copy goes into the downloads folder, with no dialog |
+
+**Where files go.**
+
+- While a file downloads, it waits in the folder's hidden `.fxm-partial` folder under the manager's opaque name (1 to 64 letters, digits, `-` and `_`). The folder is hidden on macOS and Linux; Windows shows it.
+- Once complete, it gets its human name, "Artist - Title" and its container's extension (`.webm` for YouTube's Opus, `.m4a` for AAC, `.flac`, `.mp3`…, and `.mp4` for YouTube's itag 18, which is a video file), and Rust moves it into the folder. A name another file has, FXM's or the user's, gets a number: `Creep (2).webm`. No file is ever replaced: Rust creates the name only if nothing has it yet, then renames onto it. A long title is cut to 150 characters, and short enough that the name with any number fits the file systems' limit (255 bytes of UTF-8 on Linux, 255 UTF-16 units on APFS and NTFS), whatever the script.
+- A download is the stream's original bytes, as 4.1 downloads them. Converting and tagging are stage 4.2's "Save to device", which saves a copy next to it.
+- The index, `downloads.json` in the app's config folder (on macOS `~/Library/Application Support/io.github.pratyayops.fxm/`), maps each opaque name to its file and keeps the folder the user chose. Rust writes it to a temporary file, flushes it to disk, then renames it over the old one. One that can't be read is moved aside as `downloads.json.damaged` rather than overwritten, and FXM starts with an empty index. An entry naming a file FXM wouldn't write (anything but `<folder>/.fxm-partial/<its name>` or a file with an audio extension) is dropped.
+
+**What page script can and can't do.** It passes the manager's opaque names, refused before anything touches the disk unless they are such names, and file names, which Rust makes safe as one name inside the folder (no separators, control characters, leading dots, trailing dots or spaces or device names, and an audio extension). It never passes a path: Rust alone decides where a file goes, and the commands act on FXM's own files only.
+
+- They write inside the downloads folder only.
+- They list, read, name and delete only the files the index names, never another file of the folder. A file in `.fxm-partial` that the index doesn't know belongs to another FXM sharing the folder (with an index of its own), or lost its entry with a damaged index: a download of that name continues it, and a start deletes it once it has stood still for a week.
+- Never through a link. `.fxm-partial` must be a real folder, not a link or a Windows junction put in its place: otherwise nothing is written there (`open` and `save_begin` refuse with `storage`), nothing is listed, read or deleted through it, and the start's tidy-up leaves it alone. Files open without following a link at their name (`O_NOFOLLOW` on macOS and Linux; on Windows Rust checks the name once the file is open), and a copy's temporary file has a random name, created only if nothing has it yet.
+- A chosen folder that is gone (a disconnected drive) is never created again: downloads fail as `storage` until the drive is back or another folder is chosen. Only the default `Music/FXM` is created.
+
+**A page that loads again** finds its files free. Rust's open files belong to the page that opened them, and the main window's page can load again in a release build: F5 in WebView2, the web app's Reload button, or Tauri's own reload after WebKit's content process crashed. As the new page commits, Rust closes the files the last one left open (flushing them first) and deletes its copies half saved, so the new page's manager continues its downloads instead of finding their files busy. An `open` that Rust answers only after the bridge gave up on it (a minute) is closed at once, for the same reason.
+
+**The tidy-up never deletes the user's music.** When 4.1's manager starts, it deletes every file that no record names: right for files on their way, wrong for a named file in the user's Music folder whose record is gone, say after the webview's storage was cleared. So `list` reports a named file only while a record names it (`rows`, the download store's rows): such a file stays in the folder, and only FXM forgets it.
+
+**Choosing another folder** (`choose_folder`: the system's folder picker, only while FXM's window is in front, one at a time) applies to the downloads that start from then on. Downloads made before stay where they are and keep playing, and removing one deletes its file where it is.
+
+**Offline playback** loads a complete file from the `fxm-download:` scheme: `fxm-download://localhost/<opaque name>?type=<media type>` (`http://fxm-download.localhost/…` on Windows). Rust serves it by its opaque name to the main window only (403 for the evaluator and the login window), with byte ranges of at most 1 MiB an answer (a media element asks again for the rest), the `Content-Type` that `type` names when it is an audio, MP4 or WebM type (else plain bytes), rebuilt from the parts Rust checked so nothing else in `type` reaches the header, and `nosniff`. The same file keeps its URL.
+
+**Bytes as base64.** The isolation hook refuses byte payloads (see [The isolation hook](#network)), so a write carries its bytes as a base64 string, at most 4 MiB of them a call.
+
+| Command (`plugin:fxm-downloads\|…`) | What it does | Errors |
+|---|---|---|
+| `open`, `write`, `truncate`, `flush`, `close` | One writer per file | `bad-request`, `busy`, `not-open`, `too-large` (2 GiB, 4.1's limit), `storage-full`, `folder-missing`, `no-folder`, `denied`, `storage` |
+| `remove`, `list`, `size`, `read` | FXM's files only | the same, and `not-found` |
+| `name` | The human name, numbered when taken | the same |
+| `folder`, `choose_folder` | Where the folder is; the folder picker | `no-folder`, `not-focused`, `busy`, `dialog` |
+| `save_begin`, `save_write`, `save_end` | A copy saved in the folder under its own name, which the index never keeps | as `open` |
+
+The bridge turns the errors into the storage errors 4.1 acts on: `storage-full` pauses the queue (`QuotaExceededError`); `folder-missing`, `no-folder` and a command the IPC refused fail a download as `storage` (`NotSupportedError`); `busy` is `NoModificationAllowedError` and `not-found` `NotFoundError`, as the Origin Private File System says them. Every call settles: one the plugin doesn't answer within a minute fails as `storage`. The bridge checks what the plugin answers: `read`'s bytes however the IPC delivers them (an `ArrayBuffer`, a view, or an array of bytes from Tauri's `postMessage` fallback), and a malformed `list` throws, so the manager's tidy-up is skipped rather than marking every completed download missing.
+
+## Spotify login
+
+The user's own Spotify account in the desktop app (stage 7.4), for the account sync of stage 3.5, without the login's cookie ever reaching page JavaScript: the `fxm-spotify` plugin (`src/spotify_login.rs`) and `createDesktopSpotifyLogin()` (`bridge/spotify-login.ts`).
+
+```ts
+import { createDesktopSpotifyLogin } from '@fxm/desktop/bridge'
+
+const spotifyLogin = createDesktopSpotifyLogin()
+const platform = await createPlatform({ spotifySession: spotifyLogin.session }) // Spotify: 'account'
+await spotifyLogin.login() // from a click: the login window; true once the user is logged in
+await spotifyLogin.logout()
+```
+
+- **Logging in** opens a window of its own on Spotify's login page (`accounts.spotify.com/login`, which goes on to the web player). The user types their password into Spotify's page: FXM never sees it. The window is private (`incognito`): its cookies live in memory, apart from the main window's, and go with the window. Every half second Rust looks in its cookie store for Spotify's login cookie, `sp_dc` for `spotify.com`. Once it is there, Rust keeps it in the operating system's credential store, answers `login()`, closes the window and tells the main window (`fxm-spotify-login`, with `{ loggedIn }`). Closing the window answers `false`. When the credential store refuses to keep the cookie (a denied keychain prompt, no Secret Service), `login()` rejects with `keychain` and the store's reason.
+- **Tokens.** The session's `requestToken` asks Rust (`token`), which sends `GET open.spotify.com/api/token` with the Spotify provider's TOTP parameters (checked in the forms FXM Connect's bridge accepts), `Cookie: sp_dc=…` and a browser User-Agent. It follows no redirect, reads at most 64 KiB within 10 s, and answers the status and only the token's fields: `accessToken`, `accessTokenExpirationTimestampMs`, `isAnonymous` and `totpVerExpired`. The cookie goes on this one request only, never through the HTTP plugin, so Spotify needs no `unsafe-headers` for it, and a cookie Spotify sets on the way is dropped. At most ten requests a minute, as FXM Connect's bridge allows, counted before the credential store is read. Errors become the `FxmError`s the provider reads: no login is `AuthRequired`, the limit `RateLimited`, a credential store that fails or is missing `Unsupported`.
+- **Logging out** deletes the cookie from the credential store and from Rust's memory, and clears and closes the login window if it is open. The provider keeps its token in its memory until it is told to forget it (3.5's Disconnect does).
+- **Where the cookie is kept:** an entry named after the app's identifier (`io.github.pratyayops.fxm`, account `spotify-login`), through the keyring crate: Keychain Services on macOS, the Credential Manager on Windows, the Secret Service (GNOME Keyring, KWallet) on Linux. The smoke build's identifier is another, so it never touches the entry. Rust reads it once a run and keeps it in memory, zeroed when dropped. A read that failed is remembered for the run too, so `status` and `token` calls don't bring a keychain prompt the user denied back again and again; logging in or out tries the store again. The cookie is never logged, and no message carries it or a token.
+- **The login window** gets no capability, so its pages can call no command, and it goes with the main window. Its frames load only `https:` pages and the `about:` and `blob:` frames pages make (never FXM's own schemes, files, plain `http:` or `data:`). The page itself may only be Spotify's (`spotify.com` and its hosts) or one of the sign-ins Spotify's login offers (`accounts.google.com`, `facebook.com` and its hosts, `appleid.apple.com`): another site goes back to the login page as it commits, and after three such returns the window closes. It opens no other window, downloads nothing (WebView2 and WebKitGTK would otherwise save a page's file to the Downloads folder) and grants no permission a page asks for (camera, microphone, notifications). Its title names the site it shows, as an address bar would ("Log in to Spotify – accounts.spotify.com"), from the moment each page commits, so a page that never finishes loading can't show itself under the last page's title. Its pages see the browser agent the token request sends: the webview's, completed to Safari's on macOS.
+
+Known limits:
+
+- Google's sign-in refuses embedded webviews, so "Continue with Google" is expected to fail, and sign-ins that open a popup fail (the window opens no other window). Spotify's login sends its Google, Facebook and Apple sign-ins to their pages in the same window (Spotify's clean-room log), which the window may show; a sign-in that goes on to another of their hosts (Google's `accounts.youtube.com`, say) goes back to the login page. The window is meant for Spotify's own email and password, or its emailed codes. No real login was tried while the stage was built (the tests use a credential store in memory and local servers): the owner's [manual check](#downloads-and-the-spotify-login-stage-74) is the first.
+- macOS: the app is signed ad hoc (Decision 3), so each build has another code signature, and macOS ties a keychain entry to the signature of the app that made it: expect it to ask once after an update whether FXM may use its entry, where "Always Allow" keeps the login.
+- Linux without a running Secret Service (GNOME Keyring or KWallet) can't keep the login: `login`, `status` and `token` fail with `keychain`.
+
+| Command (`plugin:fxm-spotify\|…`) | What it does | Errors |
+|---|---|---|
+| `status` | Whether a login is kept | `keychain` |
+| `login` | Opens the login window, or brings it forward, and answers once it ends; only while FXM's window is in front | `not-focused`, `window`, `keychain` |
+| `logout` | Forgets the login and closes the window | `keychain` |
+| `token` | A token for the kept login | `logged-out`, `rate-limited`, `bad-request`, `network`, `too-large`, `keychain` |
+
+The protocol facts the login relies on (the login page, the `sp_dc` cookie, the token call with it) are in Spotify's clean-room log (`packages/sources/src/spotify/CLEAN-ROOM.md`).
+
+## Wiring into the web app
+
+Stages 2.9b (the desktop bridge in the web app) and 4.2 (conversion and "Save to device") had not merged when 7.4 was built, and stage 3.5's Settings section, on whose branch 7.4 was built, has no desktop login yet. Until the integration below, the desktop app's downloads go to the webview's storage (the Origin Private File System), as in a browser, and Settings says the desktop's Spotify login comes later. The pieces above are tested against the real download manager, offline store, platform and Spotify provider (`bridge/downloads.test.ts`, `bridge/spotify-login.test.ts`).
+
+1. **Downloads,** in `apps/web/src/features/downloads/runtime.ts`, inside Tauri:
+
+   ```ts
+   const storage = createDesktopDownloadStorage({ rows: () => store.rows() })
+   // DownloadsConfig: { storage, supported: storage.probe(), network: createDesktopDownloadNetwork({ shell }) }
+   ```
+
+   and in `startDownloads`, right after `manager.start()`: `connectDesktopDownloads(manager, storage)`.
+2. **Settings → Downloads:** the folder from `createDesktopDownloadsFolder().current()`, with a button that calls `choose()` from its click.
+3. **Save to device** (stage 4.2): `setDeviceSaver(createDesktopDeviceSaver())` inside Tauri.
+4. **Spotify:** `getAppPlatform()` (`apps/web/src/features/connect/app-platform.ts`) passes `spotifySession: spotifyLogin.session` inside Tauri. Settings → Spotify account, on desktop: in the `logged-out` phase a "Log in to Spotify" button that calls `spotifyLogin.login()` from its click and then checks again; Disconnect also calls `spotifyLogin.logout()`; `spotifyLogin.onChange` checks again. Stage 6.5 has since given Settings that flow for the Android app's login window: the account sync's `services.loginWindow`, a `SpotifyLoginWindow` from `@fxm/platform` (`loginState`, `openLogin`, `logout`). An adapter from `spotifyLogin` to that interface lets the desktop app use the same flow instead ([the account sync's README](../web/src/features/spotify-account/README.md)).
+5. **Site:** the privacy page's sentence about the desktop and Android logins ("once they can connect an account") once the desktop login is wired in.
+
 ## Content security policy
 
 ```
 default-src 'self'; img-src 'self' https: data: blob:;
-media-src 'self' https: blob: fxm-media: http://fxm-media.localhost;
+media-src 'self' https: blob: fxm-media: http://fxm-media.localhost fxm-download: http://fxm-download.localhost;
 connect-src ipc: http://ipc.localhost 'self'; script-src 'self' 'wasm-unsafe-eval' blob:;
 style-src 'self' 'unsafe-inline'
 ```
@@ -329,6 +435,7 @@ style-src 'self' 'unsafe-inline'
 - `connect-src` has no `https:`: `fetch()`, `XMLHttpRequest`, `WebSocket` and `EventSource` reach only Tauri's IPC (`ipc:` on macOS and Linux, `http://ipc.localhost` on Windows), so every request FXM makes goes through Rust, with its scope and header policy. A stray `fetch()` from page script is blocked instead of going out with the webview's origin and cookies. It doesn't keep page script off the network: see [What page script can reach](#what-page-script-can-reach).
 - `media-src https:` lets `<audio>` play googlevideo URLs directly, as well as Internet Archive's and Jamendo's media hosts and a user's Invidious instance, whose hosts can't be listed at build time. The page can't read those responses. `img-src https:` does the same for artwork.
 - `fxm-media:` and `http://fxm-media.localhost` (its form on Windows) let `<audio>` load the [readable audio path](#the-readable-audio-path) (stage 7.6). `connect-src` doesn't list it: page script can't `fetch()` from it.
+- `media-src fxm-download: http://fxm-download.localhost` lets `<audio>` play downloads from the downloads folder (stage 7.4): the scheme as macOS and Linux name it, and as Windows does. `connect-src` stays without it: page script reads files only through the plugin's commands.
 - At build time Tauri adds the isolation hook's own origin to `default-src`, for its iframe.
 - At build time Tauri adds the SHA-256 hash of every inline script to `script-src`, so the theme script in `apps/web/index.html` keeps running.
 - `blob:` in `script-src` lets the app run the signed YouTube resolver module it downloads from FXM's site (stage 1.13): the module's bytes are checked against their Ed25519 signature first, then loaded from a `blob:` URL made from exactly those bytes, which is revoked once loaded. It also lets the page run its other `blob:` URLs (artwork, audio) as scripts, which would matter only together with an injected `<script>` element naming one. The web app's own policy has no `blob:` there: it gets new code by redeploy. See [packages/platform/src/updates](../../packages/platform/src/updates/README.md).
@@ -402,6 +509,33 @@ Build the app (`make desktop-build`) and open `FXM.app`:
    - Turn the network off and play a queue of a few songs until the player gives up: the menu's first line says "Can't play: open FXM to see why", the tooltip names the song (Windows), and choosing the line shows the window.
    - Media keys and the system's controls: on Windows the media flyout shows the song and its artwork, names the app "Unknown app" (WebView2Feedback#2236) and its buttons work; on Linux, `playerctl -l` lists a player if WebKitGTK provides MPRIS, and `playerctl play-pause` works.
 
+### Downloads and the Spotify login (stage 7.4)
+
+Once they are wired into the web app ([above](#wiring-into-the-web-app)), on each OS, with a build of the app:
+
+**Downloads**
+
+- Settings shows the downloads folder, `Music/FXM` in your user folder. Download an album of three songs: each appears there as "Artist - Title.webm" (or `.m4a`), plays in a media player that reads its format (VLC reads both), and plays in FXM with the network off.
+- While a song downloads, `Music/FXM/.fxm-partial` holds a file named like a UUID, which leaves it when the song is complete (macOS shows hidden files in Finder with ⌘⇧.).
+- Put a file of your own with a song's name in the folder ("Artist - Title.webm"), then download that song: FXM's file gets "(2)", and yours is untouched.
+- Remove a download in FXM: its file leaves the folder, and your own files stay.
+- Reload the window while a song downloads (F5 on Windows; on macOS and Linux, the Reload button of the web app's error page, if it shows): the download continues after the reload, rather than failing with a storage error a minute later.
+- Choose another folder in Settings: the system's folder picker opens over FXM. Download a song: it goes to the new folder, and the earlier ones still play.
+- Choose a folder on a USB drive, eject the drive and download: the download fails and says the folder is missing, and nothing appears on the system disk.
+- Save a download in another format (stage 4.2): the copy appears in the folder next to the download.
+
+**Spotify login**
+
+- Settings → Spotify account → Connect, then log in: a window titled "Log in to Spotify – accounts.spotify.com" opens. Log in with your email and password: the window closes by itself, Settings says connected, and the sync runs.
+- The credential store has an entry `io.github.pratyayops.fxm` with the account `spotify-login`: Keychain Access on macOS, Credential Manager on Windows, Seahorse or KWalletManager on Linux.
+- Quit FXM and open it again: still connected, without logging in again.
+- In a debug build's Web Inspector, local storage, IndexedDB and the console hold no `sp_dc` and no token (Spotify's tokens start with `B`).
+- Disconnect: the credential store's entry is gone, and a login window that was open closes.
+- Close the login window without logging in: Settings says you aren't logged in.
+- In the login window, follow a link to a site that isn't Spotify's, if the page has one: the window goes back to the login page, and its title never names that site for long.
+- macOS, after an update: when asked whether FXM may use its keychain entry, click Deny. Settings says the keychain refused, and opening Settings again doesn't ask again until you log in or out.
+- "Continue with Google" fails, as Google refuses embedded webviews: note what the window shows.
+
 ### Results of the manual check
 
 | Date | OS and version | Webview | Result |
@@ -409,6 +543,9 @@ Build the app (`make desktop-build`) and open `FXM.app`:
 | | macOS | | Not run yet |
 | | Windows | | Not run yet |
 | | Linux | | Not run yet |
+| | macOS: downloads and the Spotify login (stage 7.4) | | Not run yet: needs the web app's wiring |
+| | Windows: downloads and the Spotify login (stage 7.4) | | Not run yet: needs the web app's wiring |
+| | Linux: downloads and the Spotify login (stage 7.4) | | Not run yet: needs the web app's wiring |
 
 ## Releases
 
@@ -459,7 +596,7 @@ The second, also on 2026-10-26 ([run 40274843619](https://github.com/Pratyay-ops
 
 Every installer carries `third-party-notices.txt` among the app's resources (`bundle > resources` in `tauri.release.conf.json`): in `FXM.app/Contents/Resources` on macOS, next to `fxm.exe` on Windows, and in `/usr/lib/FXM` in the `.deb` and the AppImage. Settings → About → Third-party notices shows it in the app: the web app's composition root connects it inside Tauri (`connectDesktopNotices` in `apps/web/src/app/services/desktop.ts`), and opening it reads the file through the bridge (`readThirdPartyNotices`) and `src/notices.rs`. Local and development builds carry none: About then says so, and links the notices on FXM's site. The command takes no arguments and reads that one file only, behind its `allow-third-party-notices` permission, which `default.json` grants to the main window's own webview, like the app's other commands. The release workflow's notices job writes the file once for all five targets (`release.ts notices`, `release/notices.ts`):
 
-- **Part 1, the Rust crates**, from `cargo metadata --filter-platform` for each target, followed from the app's crate along normal dependencies: build and dev dependencies, and proc macros with what only they use, run while the app compiles and none of their code ends up in it. Each crate is listed with its licence, its repository and the targets that include it, then come the licence, copying, copyright and notice files from each crate's source code as crates.io publishes it, deeper ones included (ring's once_cell polyfill, regex-syntax's Unicode tables), every text once with the crates it comes with. The crates that FXM may ship only under the MPL-2.0 are listed with crates.io's download of their source code, as the MPL asks of an executable (section 3.2). Every crate must come from crates.io. On 2026-10-26: 373 crates, 237 distinct licence texts, about 760 KB, with cssparser, dtoa-short, option-ext and selectors under the MPL-2.0.
+- **Part 1, the Rust crates**, from `cargo metadata --filter-platform` for each target, followed from the app's crate along normal dependencies: build and dev dependencies, and proc macros with what only they use, run while the app compiles and none of their code ends up in it. Each crate is listed with its licence, its repository and the targets that include it, then come the licence, copying, copyright and notice files from each crate's source code as crates.io publishes it, deeper ones included (ring's once_cell polyfill, regex-syntax's Unicode tables), every text once with the crates it comes with. The crates that FXM may ship only under the MPL-2.0 are listed with crates.io's download of their source code, as the MPL asks of an executable (section 3.2). Every crate must come from crates.io. On 2026-10-26, with stage 7.4's crates: 400 crates, 254 distinct licence texts, about 790 KB, with cssparser, dtoa-short, option-ext and selectors under the MPL-2.0.
 - **Part 2, the web app**: make dist's `third-party-notices.txt`, as the notices job's `make dist` writes it ([scripts/build-dist/README.md](../../scripts/build-dist/README.md)), which holds the web app's packages with the rest of FXM's site. It composes without stage 4.2's ffmpeg core (from an empty `FXM_FFMPEG_CORE_DIR`, with `CI: false`, as outside CI, where make dist doesn't require the core), since the desktop app's web build doesn't include it.
 
 The licence policy is make dist's (`ACCEPTED_LICENCES` in `scripts/build-dist/src/licenses.ts`: GPL and AGPL never), and the notices job stops the release on anything it can't cover:

@@ -10,6 +10,11 @@
 //! script from giving the HTTP plugin a proxy of its own or a forbidden header, except in a
 //! start-up gap that the app's README describes.
 //!
+//! Downloads and the Spotify login (stage 7.4): the web app's downloads go to the folder the user
+//! picks, `Music/FXM` by default, through the commands of [`downloads`], which write inside that
+//! folder only; [`spotify_login`] opens Spotify's login in a window of its own, keeps its cookie
+//! in the operating system's credential store and answers the web app with tokens only.
+//!
 //! Playback and OS integration (stage 7.3): the [`tray`] icon controls playback while the window
 //! is hidden, the close button keeps music playing in the background ([`window`]), the
 //! [`network`] watcher tells the web app when stream URLs need resolving again, and
@@ -26,6 +31,7 @@
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
 
+pub mod downloads;
 pub mod environment;
 mod evaluator;
 #[cfg(target_os = "macos")]
@@ -38,6 +44,7 @@ pub mod playback;
 // started in the smoke build (`--features smoke`, apps/desktop/smoke).
 #[cfg_attr(not(feature = "smoke"), allow(dead_code))]
 mod smoke;
+pub mod spotify_login;
 pub mod tray;
 pub mod updater;
 pub mod user_hosts;
@@ -68,6 +75,10 @@ pub fn run() {
         // Requests are limited to the hosts in capabilities/default.json, and so are redirects
         // (`scopeRedirects` in tauri.conf.json).
         .plugin(tauri_plugin_http::init())
+        // Downloads on disk and their offline playback (stage 7.4, src/downloads.rs).
+        .plugin(downloads::init())
+        // The Spotify login window and its tokens (stage 7.4, src/spotify_login.rs).
+        .plugin(spotify_login::init())
         // Opens links with target="_blank" in the default browser.
         .plugin(tauri_plugin_opener::init())
         // The isolated evaluator in a hidden webview of its own (stage 1.11, src/evaluator.rs).

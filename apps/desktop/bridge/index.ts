@@ -19,6 +19,11 @@
  * The Media Session stays the web app's (`connectMediaSession` from `@fxm/player`): the
  * webviews hand it to each system's media controls. See `apps/desktop/README.md`.
  *
+ * Stage 7.4 adds the downloads (`createDesktopDownloadStorage`, `createDesktopDownloadNetwork`,
+ * `connectDesktopDownloads`, `createDesktopDownloadsFolder`, `createDesktopDeviceSaver`) and the
+ * Spotify login window (`createDesktopSpotifyLogin`), whose `session` is the platform's
+ * `spotifySession`.
+ *
  * Settings → About reads the third-party notices that the app carries with
  * `readThirdPartyNotices` (stage 7.5).
  *
@@ -37,13 +42,16 @@ import { DESKTOP_PLAYER_OPTIONS, DESKTOP_URL_REFRESH_MARGIN_MS } from './options
 import { createDesktopShell, type DesktopEnvironment, type DesktopShell } from './shell'
 import { connectTray, type TrayPlayer } from './tray'
 
+export * from './downloads'
 export * from './engine'
 export * from './keep-awake'
+export { DesktopCommandError } from './load-once'
 export * from './media'
 export * from './network'
 export * from './notices'
 export * from './options'
 export * from './shell'
+export * from './spotify-login'
 export * from './tray'
 
 /** The parts of the player the desktop app connects to. */

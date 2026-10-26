@@ -82,6 +82,13 @@ const CORE_PERMISSIONS = [
 const EVALUATOR_PLUGIN = 'fxm-evaluator'
 const EVALUATOR_COMMANDS = ['open', 'eval', 'close']
 
+/**
+ * The app's other own plugins (stage 7.4): downloads on disk (src/downloads.rs) and the Spotify
+ * login window (src/spotify_login.rs). test/downloads-spotify-contract.test.ts checks their
+ * commands against the bridge.
+ */
+const STAGE_7_4_PLUGINS = ['fxm-downloads', 'fxm-spotify']
+
 /** The scope entry of a host in the platform's host table, which is FXM's network allow-list. */
 const scopeEntry = (rule: HostRule) => `https://${rule.host}${rule.pathPrefix ?? '/'}*`
 
@@ -206,8 +213,17 @@ describe('tauri.conf.json', () => {
     expect(parseCsp(config.app.security.csp)).toEqual({
       'default-src': ["'self'"],
       'img-src': ["'self'", 'https:', 'data:', 'blob:'],
-      // fxm-media: the readable audio path (stage 7.6), in its macOS/Linux and Windows forms.
-      'media-src': ["'self'", 'https:', 'blob:', 'fxm-media:', 'http://fxm-media.localhost'],
+      // fxm-media: the readable audio path (stage 7.6); fxm-download: plays downloads from the
+      // downloads folder (stage 7.4, src/downloads.rs). Each in its macOS/Linux and Windows forms.
+      'media-src': [
+        "'self'",
+        'https:',
+        'blob:',
+        'fxm-media:',
+        'http://fxm-media.localhost',
+        'fxm-download:',
+        'http://fxm-download.localhost',
+      ],
       'connect-src': ['ipc:', 'http://ipc.localhost', "'self'"],
       // blob: loads the signed YouTube module (stage 1.13) from a URL made of its verified bytes.
       'script-src': ["'self'", "'wasm-unsafe-eval'", 'blob:'],
@@ -226,12 +242,14 @@ describe('tauri.conf.json', () => {
     expect(config.app.security.csp).not.toContain("'unsafe-eval'")
   })
 
-  it('lets <audio> play googlevideo, Internet Archive and Jamendo URLs', () => {
+  it('lets <audio> play googlevideo, Internet Archive and Jamendo URLs, and downloads', () => {
     const media = parseCsp(config.app.security.csp)['media-src'] ?? []
     for (const url of [
       'https://rr3---sn-ab5l6nrz.googlevideo.com/videoplayback?itag=251',
       'https://ia800300.us.archive.org/1/items/x/x.flac',
       'https://prod-1.storage.jamendo.com/?trackid=1&format=flac',
+      'fxm-download://localhost/0b6f9e1c?type=audio%2Fwebm',
+      'http://fxm-download.localhost/0b6f9e1c?type=audio%2Fwebm',
     ]) {
       expect(cspAllows(media, url), url).toBe(true)
     }
@@ -387,11 +405,12 @@ describe('capabilities', () => {
     expect(capability.windows).toBeUndefined()
   })
 
-  it('grants core, opener, the evaluator, the app’s commands and http, and nothing else', () => {
+  it('grants core, opener, the app’s plugins, its commands and http, and nothing else', () => {
     expect(capability.permissions).toEqual([
       ...CORE_PERMISSIONS,
       'opener:default',
       `${EVALUATOR_PLUGIN}:default`,
+      ...STAGE_7_4_PLUGINS.map((plugin) => `${plugin}:default`),
       ...COMMANDS.map((command) => `allow-${command.replaceAll('_', '-')}`),
       { identifier: 'http:default', allow: expect.any(Array) },
     ])
@@ -574,10 +593,10 @@ describe('src/lib.rs', () => {
     }
   })
 
-  it('registers exactly those plugins and the app’s own evaluator', () => {
+  it('registers exactly those plugins and the app’s own: the evaluator, downloads, Spotify', () => {
     const registered = [...libRs.matchAll(/\.plugin\(\s*(\w+)::/g)].map(([, module]) => module)
     const crates = PLUGINS.map((plugin) => `tauri_plugin_${plugin.replaceAll('-', '_')}`)
-    expect(registered.sort()).toEqual([...crates, 'evaluator'].sort())
+    expect(registered.sort()).toEqual([...crates, 'evaluator', 'downloads', 'spotify_login'].sort())
   })
 
   it('registers the evaluator plugin that build.rs declares, with its commands', () => {
