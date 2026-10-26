@@ -9,6 +9,7 @@ import {
   scoreSongs,
   scoreTerms,
   weighTerms,
+  welcomeSongs,
 } from './score'
 import { indexTaste } from './taste'
 import { DAY, HOUR, like, NOW, play, profileOf, radio, reorder, ytm } from './test-fixtures'
@@ -110,6 +111,31 @@ describe('scoreSongs', () => {
     expect(again).toEqual(first)
     const plain = scoreSongs(pool.songs, taste)
     expect(first.map(([, score]) => score)).not.toEqual(plain.map((one) => one.score))
+  })
+})
+
+describe('welcomeSongs', () => {
+  it("keeps songs with a positive score that the user doesn't mostly skip, in order", () => {
+    const scored = scoreSongs(pool.songs, taste, { weights: SCORE_PRESETS.radio })
+    const kept = welcomeSongs(scored, taste)
+    // Low Tide, skipped twice, goes.
+    expect(kept.map((one) => one.song.title)).toEqual(
+      scored.map((one) => one.song.title).filter((title) => title !== 'Low Tide'),
+    )
+    expect(
+      welcomeSongs(
+        scored.map((one) => ({ ...one, score: 0 })),
+        taste,
+      ),
+    ).toEqual([])
+  })
+
+  it('leaves out every song by an artist the user mostly skips', () => {
+    const other = poolCandidates(radio(seed, [ytm('k2', 'High Tide', 'Ember Fold')]), {
+      mode: 'music',
+    })
+    const scored = other.songs.map((song) => ({ song, score: 1 }))
+    expect(welcomeSongs(scored, taste)).toEqual([])
   })
 })
 

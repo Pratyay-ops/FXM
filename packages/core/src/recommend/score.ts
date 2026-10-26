@@ -20,7 +20,7 @@
 
 import type { RandomSource } from '../queue/random'
 import { compareKeys, type PooledSong } from './pool'
-import type { TasteIndex } from './taste'
+import { mostlySkipped, type TasteIndex } from './taste'
 
 /** How much each term of the score counts. */
 export interface ScoreWeights {
@@ -199,6 +199,22 @@ export function weighTerms(terms: ScoreTerms, weights: ScoreWeights): number {
     weights.novelty * terms.novelty -
     weights.skip * terms.skip -
     weights.recent * terms.recent
+  )
+}
+
+/**
+ * The scored songs a list of recommendations may hold, in order: a positive score, and neither
+ * the track nor its main artist one the user mostly skips (`mostlySkipped`).
+ */
+export function welcomeSongs<T extends { readonly song: PooledSong; readonly score: number }>(
+  items: readonly T[],
+  taste: TasteIndex,
+): T[] {
+  return items.filter(
+    ({ song, score }) =>
+      score > 0 &&
+      !mostlySkipped(taste.track(song.keys)) &&
+      !mostlySkipped(taste.artist(song.artistKeys[0])),
   )
 }
 
