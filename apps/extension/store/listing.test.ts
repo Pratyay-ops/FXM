@@ -105,7 +105,7 @@ describe('store description', () => {
 
   it('calls the account sync that uses the login experimental, as the web app does', () => {
     // Tested only against a stand-in for Spotify, never a real account (the owner shipped it
-    // labelled so in v0.4.0: apps/web/src/features/spotify-account/README.md).
+    // labelled so in v0.2.0: apps/web/src/features/spotify-account/README.md).
     const untested = 'it has been tested with a stand-in for Spotify, not yet with real accounts'
     expect(description).toContain(
       "The web app's Spotify account sync, which uses the bridge, is experimental and off until " +
