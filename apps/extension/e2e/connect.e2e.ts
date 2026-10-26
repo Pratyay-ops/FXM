@@ -4,7 +4,7 @@
  * measured behaviour of InnerTube, googlevideo, Spotify and Last.fm.
  *
  * DNR rules match real host names, so --host-resolver-rules points every host used here
- * (fxm-music.pages.dev included) at the mock and everything else nowhere: the test never
+ * (fxmusic.pages.dev included) at the mock and everything else nowhere: the test never
  * touches the network. The mock uses a throwaway self-signed certificate, which
  * --ignore-certificate-errors accepts.
  */

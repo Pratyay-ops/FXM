@@ -10,21 +10,21 @@ import {
   sharesHost,
 } from './origins.ts'
 
-const FXM = 'https://fxm-music.pages.dev'
+const FXM = 'https://fxmusic.pages.dev'
 const DEV = fxmOrigins(true)
 
 describe('parseOrigin', () => {
   it('accepts HTTPS origins and http://localhost', () => {
-    expect(parseOrigin(FXM).hostname).toBe('fxm-music.pages.dev')
+    expect(parseOrigin(FXM).hostname).toBe('fxmusic.pages.dev')
     expect(parseOrigin('http://localhost:5173').port).toBe('5173')
   })
 
   it.each([
-    'http://fxm-music.pages.dev',
-    'https://fxm-music.pages.dev/',
-    'https://fxm-music.pages.dev/app/',
-    'HTTPS://FXM-MUSIC.PAGES.DEV',
-    'fxm-music.pages.dev',
+    'http://fxmusic.pages.dev',
+    'https://fxmusic.pages.dev/',
+    'https://fxmusic.pages.dev/app/',
+    'HTTPS://FXMUSIC.PAGES.DEV',
+    'fxmusic.pages.dev',
     'ftp://localhost',
     '',
   ])('rejects %j', (origin) => {
@@ -34,11 +34,11 @@ describe('parseOrigin', () => {
 
 describe('origin helpers', () => {
   it('derives hosts, match patterns and ruleset IDs', () => {
-    expect(originHost(FXM)).toBe('fxm-music.pages.dev')
+    expect(originHost(FXM)).toBe('fxmusic.pages.dev')
     expect(originHost('http://localhost:4173')).toBe('localhost')
-    expect(originMatchPattern(FXM)).toBe('https://fxm-music.pages.dev/*')
+    expect(originMatchPattern(FXM)).toBe('https://fxmusic.pages.dev/*')
     expect(originMatchPattern('http://localhost:4173')).toBe('http://localhost/*')
-    expect(rulesetId(FXM)).toBe('fxm_music_pages_dev')
+    expect(rulesetId(FXM)).toBe('fxmusic_pages_dev')
     expect(rulesetId('http://localhost:4173')).toBe('localhost_4173')
   })
 

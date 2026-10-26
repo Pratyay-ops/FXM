@@ -1,6 +1,6 @@
 # @fxm/site
 
-The FXM landing page, served at `https://fxm-music.pages.dev/`. It explains what FXM is and sends people to the web app at `/app/` and to the downloads on GitHub Releases. It is a static [Astro](https://astro.build) site with no client-side framework.
+The FXM landing page, served at `https://fxmusic.pages.dev/`. It explains what FXM is and sends people to the web app at `/app/` and to the downloads on GitHub Releases. It is a static [Astro](https://astro.build) site with no client-side framework.
 
 ## Commands
 
@@ -50,7 +50,7 @@ Content rules:
 
 ## Deploying with the web app
 
-The site and the web app (`apps/web`) are deployed together to the Cloudflare Pages project `fxm-music`. Stage 2.8 (static deploy) composes one `dist/` folder:
+The site and the web app (`apps/web`) are deployed together to the Cloudflare Pages project `fxmusic`. Stage 2.8 (static deploy) composes one `dist/` folder:
 
 ```
 dist/

@@ -1,7 +1,8 @@
 /**
  * JSON backups of the whole library: every table, custom orders included, plus the app's own
  * settings (catalog mode, theme) when the caller passes them. The listening affinity is left
- * out: it is derived from the history, the likes and the playlists, and rebuilt on import.
+ * out, with the version of the model that built it: it is derived from the history, the likes,
+ * the playlists and the track cache, and rebuilt on import.
  *
  * - **Export** reads every table in one transaction, so the file is a consistent snapshot.
  * - **Import** parses and validates first: anything that isn't an FXM backup, or comes from a
@@ -15,7 +16,7 @@
  */
 
 import { APP_NAME, APP_VERSION, type EntityId, entityKey, type JsonObject } from '@fxm/core'
-import { rebuildAffinity } from './affinity'
+import { AFFINITY_MODEL_SETTING, rebuildAffinity } from './affinity'
 import {
   ensureSystemRecords,
   type FxmDatabase,
@@ -118,7 +119,7 @@ export async function exportLibrary(
         orders: await read<OrderRecord>('orders'),
         follows: await read<FollowRecord>('follows'),
         history: await read<HistoryRecord>('history'),
-        settings: await read<SettingRecord>('settings'),
+        settings: (await read<SettingRecord>('settings')).filter(isPortableSetting),
         matchCache: await read<MatchCacheRecord>('matchCache'),
         importProgress: await read<ImportProgressRecord>('importProgress'),
       }
@@ -374,6 +375,27 @@ async function writeReplaced(db: FxmDatabase, tables: BackupTables): Promise<voi
   await db.importProgress.bulkPut(tables.importProgress)
 }
 
+/** Whether a setting belongs in a backup: all but the affinity's own, which is rebuilt. */
+function isPortableSetting(row: SettingRecord): boolean {
+  return row.key !== AFFINITY_MODEL_SETTING
+}
+
+/**
+ * The backup's tables as they may enter the library at `now`: without plays that start after
+ * `now`, and without the affinity's model version, which the rebuild writes. The listening
+ * affinity must never hold a time after the library's clock, and a play moved to now would be a
+ * new play every time the same backup is merged again, so such plays stay out. Likes and
+ * playlist entries dated after `now` count from now (the rebuild after the import brings them
+ * back).
+ */
+function importable(tables: BackupTables, now: number): BackupTables {
+  return {
+    ...tables,
+    history: tables.history.filter((entry) => entry.playedAt <= now),
+    settings: tables.settings.filter(isPortableSetting),
+  }
+}
+
 /**
  * Writes a parsed backup into the library, in one transaction.
  *
@@ -384,7 +406,8 @@ async function writeReplaced(db: FxmDatabase, tables: BackupTables): Promise<voi
  *   backup's playlists that it lacks follow at the end. In the match cache a pin wins.
  *
  * The built-in playlists exist afterwards in both modes, and the listening affinity is
- * recomputed from the library that results.
+ * recomputed from the library that results. No time after the library's clock gets in: plays
+ * that start later are left out, and likes and playlist entries dated later count from now.
  */
 export async function importLibrary(
   repo: LibraryRepo,
@@ -392,14 +415,16 @@ export async function importLibrary(
   mode: ImportMode,
 ): Promise<void> {
   const { db } = repo
+  const now = repo.now()
+  const tables = importable(parsed.backup.tables, now)
   await db.transaction(
     'rw',
     TABLE_NAMES.map((name) => db.table(name)),
     async () => {
-      if (mode === 'replace') await writeReplaced(db, parsed.backup.tables)
-      else await writeMerged(db, parsed.backup.tables)
-      await ensureSystemRecords(db)
-      await rebuildAffinity(db)
+      if (mode === 'replace') await writeReplaced(db, tables)
+      else await writeMerged(db, tables)
+      await ensureSystemRecords(db, now)
+      await rebuildAffinity(db, now)
     },
   )
 }

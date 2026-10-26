@@ -6,6 +6,7 @@ import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
 import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
+import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { CatalogModeControl } from './catalog-mode-control'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { SettingRow, SettingsSection } from './settings-layout'
@@ -20,6 +21,8 @@ export function SettingsPage() {
   const modeLabelId = useId()
   const modeHelpId = useId()
   const themeLabelId = useId()
+  const spotifyLabelId = useId()
+  const spotifyHelpId = useId()
 
   return (
     <div className="max-w-3xl space-y-8 pt-2 md:pt-4">
@@ -38,6 +41,20 @@ export function SettingsPage() {
           <CatalogModeControl
             labelledBy={modeLabelId}
             describedBy={modeHelpId}
+            className="w-full md:w-auto"
+          />
+        </SettingRow>
+      </SettingsSection>
+
+      <SettingsSection title="Sources">
+        <SettingRow
+          label="Spotify"
+          labelId={spotifyLabelId}
+          help={<SpotifySwitchHelp id={spotifyHelpId} />}
+        >
+          <SpotifySwitchControl
+            labelledBy={spotifyLabelId}
+            describedBy={spotifyHelpId}
             className="w-full md:w-auto"
           />
         </SettingRow>

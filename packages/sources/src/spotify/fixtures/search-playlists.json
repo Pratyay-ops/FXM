@@ -1,0 +1,104 @@
+{
+  "data": {
+    "searchV2": {
+      "playlists": {
+        "items": [
+          {
+            "__typename": "PlaylistResponseWrapper",
+            "data": {
+              "__typename": "Playlist",
+              "description": "",
+              "format": "",
+              "images": {
+                "items": [
+                  {
+                    "sources": [
+                      {
+                        "height": 640,
+                        "url": "https://mosaic.scdn.co/640/ab67616d00001e024b88d5c1b3358cca2c94ec0bab67616d00001e029293c743fa542094336c5e12ab67616d00001e02a9be6a9b8b5831a4c431ab9fab67616d00001e02c8b444df094279e70d0ed856",
+                        "width": 640
+                      },
+                      {
+                        "height": 300,
+                        "url": "https://mosaic.scdn.co/300/ab67616d00001e024b88d5c1b3358cca2c94ec0bab67616d00001e029293c743fa542094336c5e12ab67616d00001e02a9be6a9b8b5831a4c431ab9fab67616d00001e02c8b444df094279e70d0ed856",
+                        "width": 300
+                      },
+                      {
+                        "height": 60,
+                        "url": "https://mosaic.scdn.co/60/ab67616d00001e024b88d5c1b3358cca2c94ec0bab67616d00001e029293c743fa542094336c5e12ab67616d00001e02a9be6a9b8b5831a4c431ab9fab67616d00001e02c8b444df094279e70d0ed856",
+                        "width": 60
+                      }
+                    ]
+                  }
+                ]
+              },
+              "name": "THE BEST OF RADIOHEAD",
+              "ownerV2": {
+                "__typename": "UserResponseWrapper",
+                "data": {
+                  "__typename": "User",
+                  "name": "Fixture User",
+                  "uri": "spotify:user:fixture-user",
+                  "username": "fixture-user"
+                }
+              },
+              "uri": "spotify:playlist:28nxGp2hLho3BA0dX3cb5P"
+            }
+          },
+          {
+            "__typename": "PlaylistResponseWrapper",
+            "data": {
+              "__typename": "Playlist",
+              "description": "This is Radiohead. The essential tracks, all in one playlist.",
+              "format": "artistsets",
+              "images": {
+                "items": [
+                  {
+                    "sources": [
+                      {
+                        "height": null,
+                        "url": "https://pickasso.spotifycdn.com/image/ab67c0de0000deef/dt/v1/img/thisisv3/4Z8W4fKeB5YxbusRsdQVPb/en",
+                        "width": null
+                      }
+                    ]
+                  }
+                ]
+              },
+              "name": "This Is Radiohead",
+              "ownerV2": {
+                "__typename": "UserResponseWrapper",
+                "data": {
+                  "__typename": "User",
+                  "avatar": {
+                    "sources": [
+                      {
+                        "height": 64,
+                        "url": "https://i.scdn.co/image/ab67757000003b8255c25988a6ac314394d3fbf5",
+                        "width": 64
+                      },
+                      {
+                        "height": 300,
+                        "url": "https://i.scdn.co/image/ab6775700000ee8555c25988a6ac314394d3fbf5",
+                        "width": 300
+                      }
+                    ]
+                  },
+                  "name": "Spotify",
+                  "socialHandle": null,
+                  "uri": "spotify:user:spotify",
+                  "username": "spotify"
+                }
+              },
+              "uri": "spotify:playlist:37i9dQZF1DZ06evO2VxlyE"
+            }
+          }
+        ],
+        "pagingInfo": {
+          "limit": 3,
+          "nextOffset": 3
+        },
+        "totalCount": 5
+      }
+    }
+  }
+}

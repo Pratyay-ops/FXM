@@ -1,0 +1,33 @@
+{
+  "headers": {
+    "status": "success",
+    "code": 0,
+    "error_message": "",
+    "warnings": "",
+    "results_count": 1
+  },
+  "results": [
+    {
+      "id": "368084",
+      "name": "mañana será tarde",
+      "releasedate": "2021-04-11",
+      "artist_id": "421168",
+      "artist_name": "fankel",
+      "image": "https://usercontent.jamendo.com?type=album&id=368084&width=300&trackid=1848357",
+      "zip": "https://prod-1.storage.jamendo.com/download/a368084/mp32/",
+      "zip_allowed": true,
+      "tracks": [
+        {
+          "id": "1848357",
+          "position": 1,
+          "name": "mañana será tarde",
+          "duration": 272,
+          "license_ccurl": "http://creativecommons.org/licenses/by-nc-nd/3.0/",
+          "audio": "https://prod-1.storage.jamendo.com/?trackid=1848357&format=flac&from=app-devsite",
+          "audiodownload": "https://prod-1.storage.jamendo.com/download/track/1848357/flac/",
+          "audiodownload_allowed": true
+        }
+      ]
+    }
+  ]
+}
