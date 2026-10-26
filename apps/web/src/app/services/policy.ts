@@ -10,8 +10,8 @@
  * - `pin`: the lifecycle's `pinMatch`, which files the pin in the match cache (stage 2.6);
  * - `setPlayBestGuesses`: the lifecycle's "Play best guesses" setting.
  *
- * The interface is declared here too, with the same members, so that 2.5's
- * `createAppPolicy()` can return {@link AppPlaybackPolicy} as it is once both are on `develop`.
+ * The interface is declared here too, with the same members: `index.ts` connects this policy,
+ * as it is, to the app's player (`connectAppPolicy` in `features/now-playing/playback-policy.ts`).
  *
  * @module
  */

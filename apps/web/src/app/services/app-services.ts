@@ -18,8 +18,8 @@
  * | Library seams | 2.6 | `library.ts`, over the repository passed in (`getLibrary()`) |
  * | Audio quality | 4.3 | the lifecycle's `qualityPrefs` and `streaming`, from Settings |
  *
- * **Tiers.** The platform decides: Full with FXM Connect (or the desktop and Android apps once
- * their native HTTP exists), Lite with the sandbox documents of stage 1.10 (`sandbox`), Free
+ * **Tiers.** The platform decides: Full with FXM Connect (or in the desktop and Android apps,
+ * through their native HTTP), Lite with the sandbox documents of stage 1.10 (`sandbox`), Free
  * only otherwise. The pages read the tier from the sources registry, and every provider call gets
  * a context with the current capabilities, so nothing here branches on it. The one exception is
  * Spotify, which is registered only where its secret can be fetched (see `canReadSpotify`).
@@ -86,8 +86,8 @@ import {
 export interface AppServicesOptions {
   /**
    * Creates the platform (stage 1.2) from the app's options. Default: `createPlatform`, which
-   * detects the environment. Tests pass one over a fake network, desktop and Android their
-   * native HTTP (stages 7.2 and 6.2).
+   * detects the environment and, in the desktop and Android apps, picks their native HTTP
+   * (stages 7.2 and 6.2). Tests pass one over a fake network.
    */
   readonly createPlatform?: (options: PlatformOptions) => Promise<FxmPlatform>
   /** The sources registry the pages read. Default: the app's (`appSources`). */
