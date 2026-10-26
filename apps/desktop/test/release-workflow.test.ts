@@ -191,7 +191,7 @@ describe('desktop-release.yml', () => {
       'apps/desktop/release/release.ts notices --version "$VERSION"\n          --web dist/pages/third-party-notices.txt --out apps/desktop/dist/third-party-notices.txt',
     )
     expect(notices).toMatch(
-      /name: desktop-notices\n\s+path: apps\/desktop\/dist\/third-party-notices\.txt\n/,
+      /name: third-party-notices\n\s+path: apps\/desktop\/dist\/third-party-notices\.txt\n/,
     )
     // No key reaches it.
     expect(notices).not.toContain('secrets.')
@@ -204,7 +204,7 @@ describe('desktop-release.yml', () => {
       expect(found).toBeGreaterThanOrEqual(0)
       return found
     }
-    const download = index((step) => step.includes('name: desktop-notices'))
+    const download = index((step) => step.includes('name: third-party-notices'))
     const tauri = index((step) => step.includes('tauri-apps/tauri-action@'))
     const check = index((step) => step.includes('carry the third-party notices'))
     const collect = index((step) => step.includes('release.ts collect'))
@@ -232,6 +232,20 @@ describe('desktop-release.yml', () => {
     expect(read('../../../.github/workflows/deploy.yml')).toContain(
       `VITE_FXM_JAMENDO_CLIENT_ID: ${expression('vars.FXM_JAMENDO_CLIENT_ID')}`,
     )
+  })
+
+  it('names only the build jobs’ artifacts desktop-*, which the sign job gathers', () => {
+    // The sign job downloads every desktop-* artifact, and release.ts sign refuses any folder
+    // that isn't a target's: an artifact of another job by such a name would stop every release.
+    expect(job(workflow, 'sign')).toMatch(/pattern: desktop-\*\n/)
+    const uploads = [
+      ...workflow.matchAll(/uses: actions\/upload-artifact@\S+.*\n\s+with:\n\s+name: (.+)/g),
+    ]
+    expect(uploads.map(([, name]) => name)).toEqual([
+      'third-party-notices',
+      `desktop-${expression('matrix.target')}`,
+      'release-desktop',
+    ])
   })
 
   it('uploads release-desktop, the artifact release.yml publishes', () => {

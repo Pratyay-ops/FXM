@@ -135,7 +135,7 @@ jobs:
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: desktop-notices
+          name: third-party-notices
           path: apps/desktop/dist/third-party-notices.txt
           if-no-files-found: error
           retention-days: 7
@@ -239,7 +239,7 @@ jobs:
       - name: Get the third-party notices
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: desktop-notices
+          name: third-party-notices
           path: apps/desktop/dist
 
       # tauri build makes the updater's files only with a key, and signs them with it. That is a
@@ -383,6 +383,7 @@ jobs:
           node-version-file: .nvmrc
 
       # Each build's artifact into a folder of its own: merged, one could overwrite another's file.
+      # Only the build jobs' artifacts are called desktop-*: release.ts sign refuses anything else.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: desktop-*
