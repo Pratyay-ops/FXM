@@ -41,6 +41,13 @@ export const RELEASED = {
   spotifyAccount: false,
   /** Playing music files from the device: stage 4.4, in the Library's Local files tab. */
   localFiles: true,
+  /**
+   * The embeddable mini-player (stage 5.2), and with it the app's Share entry, which hands out
+   * its code. Turn it on with the landing page's `AVAILABLE.embed`, once a browser test shows the
+   * production embed playing in the Lite tier inside a page on another origin: until then nobody
+   * is invited to publish a player that may not play.
+   */
+  embed: false,
 } as const
 
 /** A flag of {@link RELEASED}. */
