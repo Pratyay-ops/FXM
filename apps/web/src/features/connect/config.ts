@@ -17,9 +17,13 @@ export const RELEASES_URL = `${REPOSITORY_URL}/releases/latest`
  * its flag here too, and the "Coming soon" badges and the guides follow.
  */
 export const RELEASED = {
-  /** FXM Connect as a Firefox add-on signed by Mozilla: stage R.2. */
+  /**
+   * FXM Connect as a Firefox add-on signed by Mozilla: stage R.2. Turn it on with the landing
+   * page's `AVAILABLE.firefox`, once a release carries the signed `.xpi` (apps/extension/README.md,
+   * "Store channels"): the Firefox guide then installs it instead of the temporary add-on.
+   */
   firefoxAddon: false,
-  /** FXM Connect listed on Edge Add-ons: stage R.2. */
+  /** FXM Connect listed on Edge Add-ons: stage R.2, once its first version is published there. */
   edgeAddon: false,
   /** The desktop app for macOS, Windows and Linux on GitHub Releases: stage 7.5. */
   desktop: false,
@@ -29,8 +33,8 @@ export const RELEASED = {
   downloads: false,
   /** Connecting a Spotify account for a read-only sync: stage 3.5. */
   spotifyAccount: false,
-  /** Playing music files from the device: stage 4.4. */
-  localFiles: false,
+  /** Playing music files from the device: stage 4.4, in the Library's Local files tab. */
+  localFiles: true,
 } as const
 
 /** A flag of {@link RELEASED}. */

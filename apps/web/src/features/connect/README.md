@@ -8,7 +8,7 @@ The tier follows from the platform's `NetworkCapabilities` alone (`tierOf` in `t
 
 | Tier | `youtube` | Where | Adds |
 |---|---|---|---|
-| **Free only** | `none` | Any browser | Internet Archive and Jamendo (FLAC where offered), the library, lyrics, local files (coming soon) |
+| **Free only** | `none` | Any browser | Internet Archive and Jamendo (FLAC where offered), the library, lyrics, local files |
 | **Lite** (experimental) | `simple` | A browser without FXM Connect that passes the Lite self-test, while the kill switch is off | YouTube Music: search, browse and ad-free audio |
 | **Full** | `full` | FXM Connect, the desktop app, the Android app | Spotify (switchable), and later the Spotify account sync and downloads |
 

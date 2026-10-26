@@ -39,15 +39,16 @@ describe('the tiers', () => {
     for (const feature of TIER_FEATURES) expect(hasFeature('full', feature)).toBe(true)
   })
 
-  it('gives Free only the free sources, the library and lyrics, and local files later', () => {
+  it('gives Free only the free sources, the library, lyrics and local files', () => {
     expect(featuresAddedBy('free').map((feature) => feature.id)).toEqual([
       'free-sources',
       'library',
       'lyrics',
       'local-files',
     ])
+    // Stage 4.4 plays them in every browser: a folder in Chromium, picked files elsewhere.
     expect(featuresAddedBy('free').find((feature) => feature.id === 'local-files')?.released).toBe(
-      false,
+      true,
     )
   })
 
