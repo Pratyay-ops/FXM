@@ -110,6 +110,7 @@ describe('store description', () => {
     expect(description).toContain('Spotify knows that the web app')
     expect(description).toContain('private windows and container tabs')
     expect(description).toContain("asks for Firefox's consent to share authentication information")
+    expect(description).toContain('It never changes anything in your Spotify account.')
   })
 
   it("repeats its sentence on Spotify's terms on the options page, by the login toggle", () => {
@@ -122,10 +123,9 @@ describe('store description', () => {
     const onlyWhenConnected = 'only after you also connect your Spotify account in FXM.'
     expect(description).toContain(`The web app asks for one ${onlyWhenConnected}`)
     expect(loginHelp()).toContain(`The app asks for one ${onlyWhenConnected}`)
-    // Connecting an account is stage 3.5, as the notes for reviewers say too.
-    expect(loginHelp()).toContain(
-      `${onlyWhenConnected} Connecting comes in a later version of FXM: until then, this setting changes nothing.`,
-    )
+    // Connecting an account shipped with stage 3.5: the help no longer says that the toggle
+    // changes nothing, as the notes for reviewers no longer do.
+    expect(loginHelp()).not.toMatch(/changes nothing|later version/)
   })
 
   it("says that the bridge's token is the only personal data FXM Connect handles", () => {
@@ -224,9 +224,12 @@ describe('notes for reviewers', () => {
     expect(EDGE_SINGLE_PURPOSE).toContain("relays Spotify's public server time without cookies")
   })
 
-  it("say that the web app doesn't use the login bridge yet", () => {
-    expect(notes).toContain(
-      'comes in a later FXM release: until then, turning the toggle on changes nothing visible',
+  it('say what the web app does with the login bridge, and how to try it', () => {
+    expect(notes).toContain("The web app's Settings, Spotify account section, uses this bridge")
+    expect(notes).toContain('read-only')
+    expect(notes).not.toContain('changes nothing visible')
+    expect(notes).toMatch(
+      /^5\. Optional, with a Spotify account: sign in at https:\/\/open\.spotify\.com/m,
     )
   })
 

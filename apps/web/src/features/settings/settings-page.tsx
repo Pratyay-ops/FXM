@@ -16,6 +16,7 @@ import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
 import { useSourcesSnapshot } from '../search/sources-context'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
+import { SpotifyAccountSettings } from '../spotify-account/spotify-account-settings'
 import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
 import { AutoMatchSetting } from './matching-setting'
@@ -96,6 +97,8 @@ export function SettingsPage() {
           />
         </SettingRow>
       </SettingsSection>
+
+      <SpotifyAccountSettings />
 
       <QualitySection capabilities={capabilities} />
 

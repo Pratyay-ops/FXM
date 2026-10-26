@@ -600,7 +600,7 @@ async function expansions(
 /** Whether Spotify's personal sections may be asked for: switched on, reachable, wired in. */
 function asksSpotify(services: HomeServices, reach: HomeSourcesSnapshot): boolean {
   return (
-    services.recommendations !== undefined &&
+    (services.recommendations !== undefined || services.spotifyAccount?.sections !== undefined) &&
     services.spotifyAccount !== undefined &&
     reach.spotifyEnabled &&
     reach.capabilities.spotify !== 'unreachable'
@@ -609,18 +609,15 @@ function asksSpotify(services: HomeServices, reach: HomeSourcesSnapshot): boolea
 
 /**
  * Spotify's personal sections: only when Spotify is switched on and reachable and the account
- * is connected. Anything that fails or comes too late means none; `answered` says whether
- * Spotify did answer.
+ * is connected. They come from the account's sync (`spotifyAccount.sections`, stage 3.5) when it
+ * is wired in, else from the recommendation sources' home feeds. Anything that fails or comes
+ * too late means none; `answered` says whether Spotify did answer.
  */
 async function spotifySections(
   run: Run,
 ): Promise<{ connected: boolean; shelves: readonly HomeSourceShelf[]; answered: boolean }> {
   const { recommendations, spotifyAccount } = run.request.services
-  if (
-    recommendations === undefined ||
-    spotifyAccount === undefined ||
-    !asksSpotify(run.request.services, run.reach)
-  ) {
+  if (spotifyAccount === undefined || !asksSpotify(run.request.services, run.reach)) {
     return { connected: false, shelves: [], answered: true }
   }
   const status = await step(
@@ -629,9 +626,16 @@ async function spotifySections(
     async () => (await spotifyAccount.status(run.ctx)).connected === true,
   )
   if (!status.value) return { connected: false, shelves: [], answered: status.ok }
-  const home = await step(run, [] as readonly HomeSourceShelf[], async () =>
-    (await recommendations.home(run.ctx)).shelves.filter((shelf) => shelf.source === 'spotify'),
-  )
+  const home = await step(run, [] as readonly HomeSourceShelf[], async () => {
+    if (spotifyAccount.sections !== undefined) {
+      const shelves = await spotifyAccount.sections(run.ctx)
+      return shelves.map((shelf) => ({ source: 'spotify', shelf }))
+    }
+    if (recommendations === undefined) return []
+    return (await recommendations.home(run.ctx)).shelves.filter(
+      (shelf) => shelf.source === 'spotify',
+    )
+  })
   return { connected: true, shelves: home.value, answered: home.ok }
 }
 

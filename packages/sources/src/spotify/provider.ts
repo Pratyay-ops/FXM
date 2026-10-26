@@ -60,14 +60,19 @@ import {
   mapLibraryPlaylists,
   mapLibraryTracks,
   mapPlaylist,
-  mapProfileName,
+  mapPlaylistContent,
+  mapProfile,
   mapRelatedArtists,
   mapSearch,
   mapTrack,
   mapTrackDetails,
   radioPlaylistId,
+  revisionOf,
+  type SpotifyAccountProfile,
   type SpotifyHomeSectionPage,
+  type SpotifyLibraryPlaylist,
   type SpotifyLikedTrack,
+  type SpotifyPlaylistPage,
   type SpotifySearchPages,
   type SpotifyTrackDetails,
   unionOf,
@@ -770,31 +775,47 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
    */
   async home(ctx: ProviderContext): Promise<Shelf[]> {
     this.#gate(ctx)
-    const shelves = await this.#withHomeToken(ctx, (kind) =>
-      this.#cache.getOrLoad(
-        `home:${kind}`,
-        this.#ttl.home,
-        async () => {
-          const data = await this.#client.query(
-            'home',
-            {
-              includeHomeChapterVideoCards: false,
-              homeEndUserIntegration: 'INTEGRATION_WEB_PLAYER',
-              timeZone: this.#timeZone(),
-              sp_t: '',
-              facet: '',
-              sectionItemsLimit: 10,
-              includeEpisodeContentRatingsV2: false,
-            },
-            ctx,
-            kind,
-          )
-          return mapHome(this.#expectRecord(data.home, 'home'))
-        },
-        ctx.signal,
-      ),
-    )
+    const shelves = await this.#withHomeToken(ctx, (kind) => this.#loadHome(kind, ctx))
     return shelves.map((shelf) => filterShelf(shelf, ctx.mode))
+  }
+
+  /**
+   * The connected account's personal home feed, never the generic one: unlike
+   * {@link SpotifyProvider.home}, it fails like the other account calls when the account can't
+   * be used (`account-unsupported`, `account-disabled`, `login-required`). A sync stores it as
+   * the user's own. Cached like the home feed, with the personal answers.
+   */
+  async getAccountHome(ctx: ProviderContext): Promise<Shelf[]> {
+    this.#gate(ctx)
+    // The token first: a new account token drops the personal answers, a load in flight too.
+    await this.#tokens.get('account', ctx)
+    const shelves = await this.#loadHome('account', ctx)
+    return shelves.map((shelf) => filterShelf(shelf, ctx.mode))
+  }
+
+  #loadHome(kind: TokenKind, ctx: ProviderContext): Promise<Shelf[]> {
+    return this.#cache.getOrLoad(
+      `home:${kind}`,
+      this.#ttl.home,
+      async () => {
+        const data = await this.#client.query(
+          'home',
+          {
+            includeHomeChapterVideoCards: false,
+            homeEndUserIntegration: 'INTEGRATION_WEB_PLAYER',
+            timeZone: this.#timeZone(),
+            sp_t: '',
+            facet: '',
+            sectionItemsLimit: 10,
+            includeEpisodeContentRatingsV2: false,
+          },
+          ctx,
+          kind,
+        )
+        return mapHome(this.#expectRecord(data.home, 'home'))
+      },
+      ctx.signal,
+    )
   }
 
   /**
@@ -871,27 +892,49 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
 
   async #displayName(ctx: ProviderContext): Promise<string | undefined> {
     try {
-      return await this.#cache.getOrLoad(
-        'profile',
-        this.#ttl.entity,
-        async () =>
-          mapProfileName(await this.#client.query('profileAttributes', {}, ctx, 'account')),
-        ctx.signal,
-      )
+      return (await this.getAccountProfile(ctx)).displayName
     } catch (error) {
       if (ctx.signal?.aborted) throw error
       return undefined
     }
   }
 
+  /**
+   * Who is logged in: the account's user name, which never changes, and its display name. Needs
+   * a connected account; without one it fails before any request. Cached like an entity, and
+   * forgotten whenever the account token changes, so another account never gets this one's.
+   *
+   * @throws SpotifyError `bad-response` when Spotify sends no profile.
+   */
+  async getAccountProfile(ctx: ProviderContext): Promise<SpotifyAccountProfile> {
+    this.#gate(ctx)
+    // The token first: a new account token drops the personal answers, a profile load in flight
+    // included, which would then be asked for twice.
+    await this.#tokens.get('account', ctx)
+    return this.#cache.getOrLoad(
+      'profile',
+      this.#ttl.entity,
+      async () => {
+        const profile = mapProfile(
+          await this.#client.query('profileAttributes', {}, ctx, 'account'),
+        )
+        if (!profile) throw new SpotifyError('bad-response', 'profileAttributes sent no profile')
+        return profile
+      },
+      ctx.signal,
+    )
+  }
+
   // --- Library (logged in) --------------------------------------------------------------
 
   /**
    * One page of the user's liked songs (at most 50), newest first, each with when it was liked.
-   * Needs a connected account; without one it fails before any request.
+   * Needs a connected account; without one it fails before any request. Never cached: a sync
+   * wants what Spotify holds now. An answer without a list of items fails as `bad-response`,
+   * never as an empty page.
    *
-   * @experimental Built from the request and field paths of Spotify's own web player, but not
-   * yet checked against a live logged-in session. Stage 3.5 confirms it and may change it.
+   * @experimental The request and field paths follow Spotify's own web player, rechecked on
+   * 2026-10-26 (see the clean-room log), but no live logged-in session has confirmed them yet.
    */
   async getLibraryTracks(
     options: PageOptions,
@@ -908,13 +951,18 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
   }
 
   /**
-   * One page of the playlists in the user's library (at most 50), folders flattened. Needs a
-   * connected account; without one it fails before any request.
+   * One page of the playlists in the user's library (at most 50), folders flattened, each with
+   * its revision, which tells a sync whether the playlist changed since it last read it.
+   * Playlists Spotify's own player can't show (no revision, or not viewable) are left out.
+   * Needs a connected account; without one it fails before any request. Never cached. An answer
+   * without a list of items fails as `bad-response`, never as an empty page.
    *
-   * @experimental Like {@link SpotifyProvider.getLibraryTracks}, not yet checked against a live
-   * logged-in session.
+   * @experimental Like {@link SpotifyProvider.getLibraryTracks}.
    */
-  async getLibraryPlaylists(options: PageOptions, ctx: ProviderContext): Promise<Page<Playlist>> {
+  async getLibraryPlaylists(
+    options: PageOptions,
+    ctx: ProviderContext,
+  ): Promise<Page<SpotifyLibraryPlaylist>> {
     this.#gate(ctx)
     const limit = clampLimit(options.limit, 50, 50)
     const offset = offsetOf(options.cursor)
@@ -937,6 +985,51 @@ export class SpotifyProvider implements MetadataProvider, RecommendationProvider
     const page = mapLibraryPlaylists(data, offset, limit)
     if (!page) throw new SpotifyError('bad-response', 'libraryV3 sent no library page')
     return page
+  }
+
+  /**
+   * One page of a playlist's tracks (up to 100 per page; default 100), read with the user's
+   * account, so the user's private, collaborative and personal ("Made for you") playlists can be
+   * read too, with the playlist's revision. Needs a connected account; without one it fails
+   * before any request. Never cached. Unlike {@link SpotifyProvider.getPlaylistTracks}, it keeps
+   * every track, whatever the catalog mode: Spotify's tracks are all songs. An answer without a
+   * list of tracks fails as `bad-response`, never as an empty page, so a sync never takes it for
+   * a playlist that Spotify emptied.
+   *
+   * @experimental Like {@link SpotifyProvider.getLibraryTracks}; `fetchPlaylist` itself is
+   * confirmed anonymously.
+   */
+  async getLibraryPlaylistTracks(
+    id: EntityId<'playlist'>,
+    options: PageOptions,
+    ctx: ProviderContext,
+  ): Promise<SpotifyPlaylistPage> {
+    this.#gate(ctx)
+    const nativeId = spotifyIdOf(id, 'playlist')
+    const limit = clampLimit(options.limit, 100, 100)
+    const offset = offsetOf(options.cursor)
+    const data = await this.#client.query(
+      'fetchPlaylist',
+      {
+        uri: spotifyUri('playlist', nativeId),
+        offset,
+        limit,
+        enableWatchFeedEntrypoint: false,
+        includeEpisodeContentRatingsV2: false,
+      },
+      ctx,
+      'account',
+    )
+    this.#entity(data.playlistV2, 'Playlist', (value) => mapPlaylist(value), `playlist ${nativeId}`)
+    const tracks = mapPlaylistContent(data.playlistV2, offset, limit)
+    if (!tracks) {
+      throw new SpotifyError(
+        'bad-response',
+        `fetchPlaylist sent no tracks for playlist ${nativeId}`,
+      )
+    }
+    const revisionId = revisionOf((data.playlistV2 as JsonRecord).revisionId)
+    return revisionId === undefined ? { tracks } : { tracks, revisionId }
   }
 
   // --- Track details (ISRC, label, release date) ----------------------------------------

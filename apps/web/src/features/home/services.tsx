@@ -12,7 +12,7 @@
  * | `sources` | 2.4's `appSources` (1.2's platform inside) | `sources: appSources` |
  * | `recommendations` | 3.2's `createRecommendationCollector`, with 1.3's and 1.5's providers | `recommendations: collector` |
  * | `catalog` | 1.3's artist search and pages, 1.7's matching | `catalog: { findArtist, artistTracks, findSong }` |
- * | `spotifyAccount` | 1.5's Spotify provider (`status`), connected by 3.5 | `spotifyAccount: spotify` |
+ * | `spotifyAccount` | 3.5's account (`status`, and `sections` from its sync) | `spotifyAccount: spotifyAccountForHome` |
  * | `playback` | 2.2's player (2.4's `PlaybackActions`) | `playback: appActions.get().playback` |
  *
  * @module
@@ -125,8 +125,16 @@ export interface HomeCatalog {
   findSong?(song: SongQuery, ctx: ProviderContext): Promise<Track | null>
 }
 
-/** The user's Spotify account: the Spotify provider's `status` (stages 1.5 and 3.5). */
-export type HomeSpotifyAccount = Pick<AccountProvider, 'status'>
+/**
+ * The user's Spotify account (stages 1.5 and 3.5): whether it is connected (the Spotify
+ * provider's `status`) and, from stage 3.5's sync, the account's personal home sections
+ * (`sections`). Without `sections`, Home takes Spotify's sections from the recommendation
+ * sources' home feeds.
+ */
+export interface HomeSpotifyAccount extends Pick<AccountProvider, 'status'> {
+  /** The account's personal home sections, filtered to the context's catalog mode. */
+  sections?(ctx: ProviderContext): Promise<readonly Shelf[]>
+}
 
 /** Playback: 2.4's `PlaybackActions`. Call it straight from the click that asked for it. */
 export interface HomePlayback {

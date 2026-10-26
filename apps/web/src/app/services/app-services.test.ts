@@ -256,6 +256,46 @@ describe('the Full tier (FXM Connect)', () => {
     expect(setup.network.requests.filter((request) => request.url.includes('github'))).toEqual([])
   })
 
+  it("offers Spotify with the platform's own user-host document, as the app's platform has it", async () => {
+    // The app hands in stage 2.7's platform, which brings the sandbox documents itself: the
+    // services get no sandbox of their own, and must still find the user-host document.
+    const setup = setUp('full', { userHost: missingSecret, sandboxOnPlatformOnly: true })
+    await setup.ready()
+    expect(setup.platformOptions()?.sandbox).toBeUndefined()
+    expect(searchSourceIds(setup.sources.getSnapshot())).toEqual(['ytm', 'spotify', 'archive'])
+
+    await provider(setup, 'spotify')
+      .search('creep', { types: ['track'] }, setup.sources.context({ mode: 'music' }))
+      .catch(() => {})
+
+    const hosts = setup.sandbox?.userHostRequests.map((request) => new URL(request.url).host)
+    expect(hosts).toContain('raw.githubusercontent.com')
+    expect(setup.network.requests.filter((request) => request.url.includes('github'))).toEqual([])
+  })
+
+  it('hands the account feature its Spotify provider, with the account opt-in (stage 3.5)', async () => {
+    const off = setUp('full')
+    await off.ready()
+    // No user-host document: Spotify can't be read in this browser, so it isn't registered, and
+    // the account feature has no provider of the app's to take (`loadAppSpotifyAccountServices`).
+    expect(off.sources.getSnapshot().providers.has('spotify')).toBe(false)
+
+    for (const optedIn of [false, true]) {
+      const setup = setUp('full', { userHost: missingSecret, spotifyAccount: () => optedIn })
+      await setup.ready()
+      expect(setup.sources.getSnapshot().providers.has('spotify')).toBe(true)
+      const spotify = await setup.services.spotify.load()
+      expect(spotify.id).toBe('spotify')
+      // As if FXM Connect's Spotify login were on: whether the account may be used follows the
+      // opt-in, before any request.
+      const ctx = setup.sources.context({ mode: 'music' })
+      const failure = await spotify
+        .getLibraryTracks({}, { ...ctx, capabilities: { ...ctx.capabilities, spotify: 'account' } })
+        .catch((error: unknown) => error)
+      expect((failure as { reason?: string }).reason === 'account-disabled').toBe(!optedIn)
+    }
+  })
+
   it('plays a Spotify track as its matched song after a tap, and marks it for review', async () => {
     const setup = setUp('full')
     await setup.ready()

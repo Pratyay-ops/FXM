@@ -13,6 +13,7 @@ import { listenForInstallPrompt } from './features/pwa/install'
 import { registerServiceWorker } from './features/pwa/service-worker'
 import { startScrobbling } from './features/scrobble/start-scrobbling'
 import { appSources } from './features/search/sources-context'
+import { startSpotifyAccount } from './features/spotify-account/start'
 import { canonicalAppPath } from './lib/canonical-path'
 
 const root = document.getElementById('root')
@@ -28,6 +29,8 @@ async function start(): Promise<void> {
   startConnect()
   // Opt-in: it loads, opens and sends nothing until the user connects an account.
   startScrobbling()
+  // Opt-in too: nothing loads or contacts Spotify until the user connects their account.
+  startSpotifyAccount()
   // "Equalizer" in the track menus opens the Sound dialog (stage 8.1).
   wireEqualizerActions()
 

@@ -207,7 +207,7 @@ export interface MissingLine {
   readonly tier: Tier
   /** What it adds today, as a phrase. */
   readonly adds: string
-  /** What it adds later, as a sentence ("… are coming soon."), if anything. */
+  /** What it adds later, as a sentence ("Coming soon: …."), if anything. */
   readonly later?: string
 }
 
@@ -225,11 +225,7 @@ export function missingSummary(tier: Tier): MissingLine[] {
         ? joinList(["YouTube Music without Lite's experimental route", ...out])
         : joinList(out)
     if (later.length === 0) return { tier: other, adds }
-    const sentence = joinList(later)
-    return {
-      tier: other,
-      adds,
-      later: `${sentence.charAt(0).toUpperCase()}${sentence.slice(1)} ${later.length === 1 ? 'is' : 'are'} coming soon.`,
-    }
+    // "Coming soon: …" reads right for one feature and for several, whatever their names.
+    return { tier: other, adds, later: `Coming soon: ${joinList(later)}.` }
   })
 }

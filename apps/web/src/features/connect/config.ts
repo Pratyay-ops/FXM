@@ -43,8 +43,8 @@ export const RELEASED = {
    * to device offer the original alone.
    */
   conversions: true,
-  /** Connecting a Spotify account for a read-only sync: stage 3.5. */
-  spotifyAccount: false,
+  /** Connecting a Spotify account for a read-only sync: stage 3.5 (the web app with FXM Connect). */
+  spotifyAccount: true,
   /** Playing music files from the device: stage 4.4, in the Library's Local files tab. */
   localFiles: true,
   /**
