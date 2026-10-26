@@ -62,7 +62,6 @@ export {
   TAURI_EVALUATOR_ORIGIN,
   TAURI_EVALUATOR_PLUGIN,
   type TauriEvaluatorOptions,
-  type TauriInvoke,
 } from './tauri'
 export {
   createSandboxEvaluator,

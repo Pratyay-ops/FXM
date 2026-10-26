@@ -16,6 +16,7 @@
  * @module
  */
 
+import type { TauriInvoke } from '../desktop'
 import { type CreateEvaluatorOptions, createEvaluator, type Evaluator } from './evaluator'
 import { createMailboxPort, type MailboxPortOptions } from './mailbox'
 
@@ -28,14 +29,11 @@ export const TAURI_EVALUATOR_PLUGIN = 'fxm-evaluator'
  */
 export const TAURI_EVALUATOR_ORIGIN = 'fxm-eval://localhost'
 
-/** Tauri's `invoke` from `@tauri-apps/api/core`, injected so this package needs no Tauri code. */
-export type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
-
 /** Options for {@link createTauriEvaluator}. */
 export interface TauriEvaluatorOptions
   extends CreateEvaluatorOptions,
     Pick<MailboxPortOptions, 'pollMs' | 'maxPollMs'> {
-  /** Tauri's `invoke`. */
+  /** Tauri's `invoke`, as `loadTauriBindings()` gives it. */
   invoke: TauriInvoke
 }
 
@@ -45,7 +43,7 @@ export function createTauriEvaluator(options: TauriEvaluatorOptions): Evaluator 
   const command = (name: string) => `plugin:${TAURI_EVALUATOR_PLUGIN}|${name}`
   const port = createMailboxPort({
     async run(script) {
-      const result = await invoke(command('eval'), { script })
+      const result = await invoke<unknown>(command('eval'), { script })
       return typeof result === 'string' ? result : 'null'
     },
     async start() {

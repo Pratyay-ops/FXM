@@ -230,15 +230,18 @@ describe('the desktop evaluator', () => {
   it('drives the hidden webview through the plugin commands', async () => {
     const webview = fakeWebview()
     const calls: string[] = []
+    const answer = (command: string, args?: Record<string, unknown>): unknown => {
+      calls.push(command)
+      if (command === 'plugin:fxm-evaluator|open') return webview.start()
+      if (command === 'plugin:fxm-evaluator|close') return webview.stop()
+      if (command === 'plugin:fxm-evaluator|eval') return webview.run(String(args?.script))
+      throw new Error(`unexpected ${command}`)
+    }
     const evaluator = createTauriEvaluator({
       pollMs: 1,
-      async invoke(command, args) {
-        calls.push(command)
-        if (command === 'plugin:fxm-evaluator|open') return webview.start()
-        if (command === 'plugin:fxm-evaluator|close') return webview.stop()
-        if (command === 'plugin:fxm-evaluator|eval') return webview.run(String(args?.script))
-        throw new Error(`unexpected ${command}`)
-      },
+      // Tauri's `invoke`, as the desktop fetch's bindings type it.
+      invoke: async <T>(command: string, args?: Record<string, unknown>): Promise<T> =>
+        (await answer(command, args)) as T,
     })
     expect(await evaluator.ready()).toEqual({
       kind: 'desktop',
