@@ -6,14 +6,15 @@
  */
 import { copyFileSync, existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { INVENTORY_VARIABLE } from './bundle-inventory.ts'
 import type { Part } from './parts.ts'
 
 /**
- * 5.2, the embeddable mini-player at `/embed/`: a single-page app built for base `/embed/`,
- * with the app's policy minus `frame-ancestors`. 5.2 hasn't specified its build yet, so this
- * part doesn't exist. To wire it in, build the embed into outDir the way appPart builds the
- * app: hidden source maps, and the bundle inventory plugin (src/bundle-inventory.ts) with
- * `{ [INVENTORY_VARIABLE]: inventoryFile }` in the build's environment. Then return true.
+ * 5.2, the embeddable mini-player at `/embed/`: a single-page app built for base `/embed/`
+ * (apps/web/vite.embed.config.ts), with the app's policy minus `frame-ancestors`, and the
+ * headers every response gets, `Cross-Origin-Opener-Policy: same-origin` among them
+ * (COMMON_HEADERS in policies.ts). Built the way appPart builds the app: hidden source maps and
+ * the bundle inventory (embed.vite.config.ts).
  */
 export const embedPart: Part = {
   name: 'embed',
@@ -21,8 +22,27 @@ export const embedPart: Part = {
   required: false,
   spa: true,
   sourceMaps: true,
-  build() {
-    return false
+  build(outDir, { root, run, inventoryFile }) {
+    if (!existsSync(join(root, 'apps/web/vite.embed.config.ts'))) return false
+    run(
+      'pnpm',
+      [
+        '--filter',
+        '@fxm/web',
+        'exec',
+        'vite',
+        'build',
+        '--config',
+        join(root, 'scripts/build-dist/embed.vite.config.ts'),
+        '--sourcemap',
+        'hidden',
+        '--outDir',
+        outDir,
+        '--emptyOutDir',
+      ],
+      { [INVENTORY_VARIABLE]: inventoryFile },
+    )
+    return true
   },
 }
 

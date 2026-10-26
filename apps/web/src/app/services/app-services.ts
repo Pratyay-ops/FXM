@@ -17,6 +17,9 @@
  * | Search and browse seams | 2.4 | the sources registry and the actions store |
  * | Library seams | 2.6 | `library.ts`, over the repository passed in (`getLibrary()`) |
  * | Audio quality | 4.3 | the lifecycle's `qualityPrefs` and `streaming`, from Settings |
+ * | Matching options | 1.12 | `matchOptions`: `matchingOptions` with Settings' Auto setting |
+ * | Offline copies | 4.1, 4.4 | the lifecycle's `offline`: downloads, then local files by ISRC |
+ * | Signed YouTube config (and module) | 1.13 | `updates`, once YouTube's code has loaded |
  *
  * **Tiers.** The platform decides: Full with FXM Connect (or in the desktop and Android apps,
  * through their native HTTP), Lite with the sandbox documents of stage 1.10 (`sandbox`), Free
@@ -35,6 +38,8 @@ import {
   type CatalogMode,
   DEFAULT_PLAYBACK_SETTINGS,
   type LyricsProvider,
+  type MatchOptions,
+  type MetadataProvider,
   type PlaybackSettings,
   type ProviderContext,
   type SourceId,
@@ -53,6 +58,7 @@ import {
   createMemoryMatchStore,
   type MatchStore,
   type NetworkMonitor,
+  type OfflineStore,
   type Player,
   StreamLifecycle,
   type StreamLifecycleOptions,
@@ -60,7 +66,11 @@ import {
   type StreamSource,
   type TrackMatcher,
 } from '@fxm/player'
+import type { MusicBrainzLookups } from '@fxm/sources/musicbrainz'
 import type { SpotifyProvider } from '@fxm/sources/spotify'
+import { liveQuery } from 'dexie'
+import { getLocalFiles } from '../../features/local-files/local-files'
+import { createLocalMetadataProvider } from '../../features/local-files/provider'
 import {
   appActions,
   type MediaActions,
@@ -69,18 +79,27 @@ import {
 } from '../../features/search/actions'
 import type { Sources } from '../../features/search/sources'
 import { appSources } from '../../features/search/sources-context'
+import { appMatchOptions } from '../../features/settings/matching-store'
 import { lifecycleQualityOptions } from '../../features/settings/quality-store'
 import { useSettingsStore } from '../../features/settings/settings-store'
-import { secretFetchFor, userHostOf } from '../../features/spotify-account/secret-fetch'
+import { secretFetchFor } from '../../features/spotify-account/secret-fetch'
 import { spotifyAccountOptedIn } from '../../features/spotify-account/start'
 import { createIndexedDbStore, type DeviceStore } from './device-store'
 import { createLoader, type Loader, lazyProvider } from './lazy-provider'
-import { type LibraryRepository, libraryActionsFrom, matchStoreFrom } from './library'
+import {
+  type LibraryRepository,
+  libraryActionsFrom,
+  matchStoreFrom,
+  withEffectiveBands,
+} from './library'
+import { appOfflineStore } from './offline'
 import { type AppPlaybackPolicy, createAppPlaybackPolicy } from './policy'
 import {
   createYouTubeLoader,
+  keepYouTubeCurrentLater,
   platformStreamBudget,
   type YouTube,
+  type YouTubeHostModule,
   type YouTubeModule,
   youtubeStreamSource,
 } from './youtube'
@@ -111,8 +130,51 @@ export interface AppServicesOptions {
    * Jamendo is not offered: its API refuses every call.
    */
   readonly jamendoClientId?: string | undefined
-  /** The Auto setting of the matching engine, which stage 1.12's report turns on. Default: off. */
-  readonly autoMatch?: () => boolean
+  /**
+   * The options a match in `mode` runs with (stage 1.12): `matchingOptions` with the matching
+   * config's thresholds and measured fallback, and the user's Auto setting where the config makes
+   * the band available. Default: the app's (`appMatchOptions`, from Settings).
+   */
+  readonly matchOptions?: (mode: CatalogMode) => MatchOptions
+  /**
+   * Where offline copies come from, which play before anything is resolved: the downloads of
+   * stage 4.1, then the user's own files tagged with the track's ISRC (stage 4.4). Default: the
+   * app's (`appOfflineStore()`, which loads the downloads with the first resolution);
+   * `undefined` for none.
+   */
+  readonly offline?: OfflineStore | undefined
+  /**
+   * How long before a URL expires it is resolved again: the desktop app keeps an hour (stage
+   * 7.3, `DESKTOP_URL_REFRESH_MARGIN_MS`). Default: the lifecycle's 10 minutes.
+   */
+  readonly refreshBeforeExpiryMs?: number
+  /**
+   * Whether the platform reaches hosts the user added (the Spotify secret's) in a browser: the
+   * app's platform does, through the sandbox's user-host document (stage 1.10). Spotify is
+   * registered in a browser only then. Default: whether `sandbox` has that document.
+   */
+  readonly reachesUserHosts?: boolean
+  /**
+   * The user's own music files as a catalog (stage 4.4, source `local`, "This device"): search
+   * and its album and artist pages read it like any other source, while the user has added any
+   * ({@link AppServicesOptions.watchLocalFiles}). Default: the app's
+   * (`createLocalMetadataProvider()`); `undefined` for none.
+   */
+  readonly localProvider?: MetadataProvider | undefined
+  /**
+   * Calls `listener` with whether the user has added music files (a folder, or files chosen),
+   * now and whenever that changes; returns a function that stops it. The local catalog is
+   * registered only meanwhile, so search offers "This device" only to users with music on it.
+   * Default: a live query of the local files' folders (`watchLocalFiles`).
+   */
+  readonly watchLocalFiles?: (listener: (present: boolean) => void) => () => void
+  /**
+   * Keeps the YouTube config current from FXM's site, and in the desktop and Android apps the
+   * resolver module too (stage 1.13), once YouTube's code has loaded: the config's kill switches
+   * follow. Default: `keepYouTubeCurrent` (`updates.ts`), loaded only then
+   * ({@link keepYouTubeCurrentLater}); `false` for none (tests).
+   */
+  readonly updates?: ((youtube: YouTube) => void) | false
   /** The catalog mode. Default: the settings'. */
   readonly catalogMode?: () => CatalogMode
   /**
@@ -132,6 +194,8 @@ export interface AppServicesOptions {
   readonly spotifyAccount?: () => boolean
   /** Imports `@fxm/sources/youtube`. Default: `import()`; tests pass one they control. */
   readonly importYouTube?: () => Promise<YouTubeModule>
+  /** Imports `@fxm/sources/youtube/module`. Default: `import()`; tests pass one they control. */
+  readonly importYouTubeHost?: () => Promise<YouTubeHostModule>
   /**
    * Called once YouTube's code has loaded, with its session, config and stream ladder: the app
    * shares them with stage 2.7 (the config's kill switches, the Diagnostics self-test).
@@ -164,6 +228,34 @@ export interface AppServices {
   readonly policy: AppPlaybackPolicy
   /** YouTube, loaded on first use. */
   readonly youtube: Loader<YouTube>
+  /**
+   * Spotify (stage 1.5), loaded on first use: the one provider of the app, which follows the
+   * Spotify switch. Ask {@link AppServices.spotifyAvailable} before using it. Stage 3.5's account
+   * feature uses it too, where it is registered, so its `isAccountEnabled` is the account's opt-in.
+   */
+  readonly spotify: Loader<SpotifyProvider>
+  /** MusicBrainz (stage 1.6), loaded on first use. */
+  readonly musicBrainz: Loader<MusicBrainzLookups>
+  /**
+   * Whether Spotify may be asked in a call with `ctx`: registered here (its secret can be
+   * fetched), switched on and reachable. Its code isn't downloaded to find out.
+   */
+  spotifyAvailable(ctx: Pick<ProviderContext, 'capabilities'>): boolean
+  /**
+   * The stream sources the lifecycle resolves with: the YouTube ladder (`ytm`), Internet Archive
+   * and, where set up, Jamendo. Downloads resolve with the same ones (stage 4.1).
+   */
+  readonly streamSources: readonly StreamSource[]
+  /** The matching engine with its searches (stage 1.7). */
+  readonly matcher: TrackMatcher
+  /** The match cache (stage 2.6), with the Auto setting applied to what it reads. */
+  readonly matches: MatchStore
+  /** The playback settings the lifecycle reads: "prefer lossless", "Play best guesses". */
+  playbackSettings(): PlaybackSettings
+  /** The options a match in `mode` runs with (see {@link AppServicesOptions.matchOptions}). */
+  matchOptions(mode: CatalogMode): MatchOptions
+  /** The current catalog mode. */
+  catalogMode(): CatalogMode
   /** The platform, once {@link AppServices.start} created it. */
   readonly platform: FxmPlatform | undefined
   /**
@@ -174,12 +266,6 @@ export interface AppServices {
   context(options: AppContextOptions): ProviderContext
   /** The lyrics provider (stage 1.8), loaded on first use. Call it with {@link context}. */
   lyrics(): Promise<LyricsProvider>
-  /**
-   * The Spotify provider, loaded on first use, once the platform is ready: `undefined` where
-   * Spotify can't be read (see `canReadSpotify`). Stage 3.5's account feature uses it, so the app
-   * has one Spotify provider, whose `isAccountEnabled` is the account's opt-in.
-   */
-  spotify(): Promise<SpotifyProvider | undefined>
   /**
    * Connects the app's player: the lifecycle follows it (prefetching, Smart Replace), the ladder
    * learns which URLs started playing, and the catalog pages' play buttons drive it. Returns a
@@ -194,6 +280,17 @@ export interface AppServices {
   start(): Promise<FxmPlatform | undefined>
   /** Stops everything: the lifecycle, the platform's watchers and the registrations. */
   dispose(): void
+}
+
+/**
+ * Whether the user has added music files (stage 4.4: a folder, or files chosen), as a live query
+ * of the local files' folders, kept current across tabs. A database the browser blocks has none.
+ */
+export function watchLocalFiles(listener: (present: boolean) => void): () => void {
+  const subscription = liveQuery(
+    async () => (await getLocalFiles().repo.listRoots()).length > 0,
+  ).subscribe({ next: listener, error: () => listener(false) })
+  return () => subscription.unsubscribe()
 }
 
 /** A stream source for a plain audio source that loads on first use (2.3's `fromAudioSource`). */
@@ -215,18 +312,35 @@ function withoutLibrary({ library: _library, ...rest }: MediaActions): MediaActi
   return rest
 }
 
+/** A loader of what `loader` loads, passed through `map`. */
+function mapLoader<T, U>(loader: Loader<T>, map: (value: T) => U): Loader<U> {
+  return {
+    load: async () => map(await loader.load()),
+    get current() {
+      const value = loader.current
+      return value === undefined ? undefined : map(value)
+    },
+  }
+}
+
 /** Creates the app's services. Nothing is fetched or imported until they are used. */
 export function createAppServices(options: AppServicesOptions = {}): AppServices {
   const sources = options.sources ?? appSources
   const actions = options.actions ?? appActions
   const store = options.deviceStore ?? createIndexedDbStore()
   const catalogMode = options.catalogMode ?? (() => useSettingsStore.getState().catalogMode)
+  const matchOptions = options.matchOptions ?? ((mode: CatalogMode) => appMatchOptions(mode))
   const ownNetwork = options.network === undefined ? createBrowserNetworkMonitor() : undefined
   const network = options.network ?? (ownNetwork as NetworkMonitor)
   const jamendoClientId =
     'jamendoClientId' in options
       ? options.jamendoClientId
       : (import.meta.env.VITE_FXM_JAMENDO_CLIENT_ID as string | undefined) || undefined
+  const offline = 'offline' in options ? options.offline : appOfflineStore()
+  const localProvider =
+    'localProvider' in options ? options.localProvider : createLocalMetadataProvider()
+  const updates = options.updates === undefined ? keepYouTubeCurrentLater : options.updates
+  const reachesUserHosts = options.reachesUserHosts ?? options.sandbox?.userHost !== undefined
   // With a Lite tier, its self-test is a request to YouTube that the YouTube config's kill
   // switch may forbid: the tier waits, switched off, until that config has loaded.
   const killSwitches = createKillSwitchStore(options.sandbox === undefined ? {} : { lite: true })
@@ -249,10 +363,14 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
     store,
     budget: platformStreamBudget(() => platform?.budget),
     ...(options.importYouTube === undefined ? {} : { importModule: options.importYouTube }),
-    // The config's kill switches, the Lite tier's included (stage 1.10).
+    ...(options.importYouTubeHost === undefined ? {} : { importHost: options.importYouTubeHost }),
+    // The config's kill switches, the Lite tier's included (stage 1.10), from the config in use:
+    // the bundled one, or a newer signed one from FXM's site (stage 1.13).
     onLoad: (loaded) => {
-      killSwitches.set(loaded.session.config.killSwitches)
+      killSwitches.set(loaded.killSwitches())
+      unregister.push(loaded.subscribe(() => killSwitches.set(loaded.killSwitches())))
       options.onYouTube?.(loaded)
+      if (updates !== false && !disposed) updates(loaded)
     },
   })
   /** Hosts outside the platform's table that FXM may fetch from: the Spotify secret's. */
@@ -307,10 +425,10 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
   )
 
   /**
-   * Whether the matching engine may ask Spotify about a track in this call: Spotify is
-   * registered here, switched on and reachable. Otherwise its code isn't even downloaded.
+   * Whether Spotify may be asked in this call: Spotify is registered here, switched on and
+   * reachable. Otherwise its code isn't even downloaded.
    */
-  function spotifyMayBeAsked(ctx: ProviderContext): boolean {
+  function spotifyMayBeAsked(ctx: Pick<ProviderContext, 'capabilities'>): boolean {
     return (
       spotifyRegistered &&
       sources.getSnapshot().spotifyEnabled &&
@@ -339,27 +457,36 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
           },
           report,
         }),
-        ...(options.autoMatch === undefined ? {} : { autoMatch: options.autoMatch }),
+        matchOptions,
         report,
       }),
   )
   const matcher: TrackMatcher = {
     match: async (track, request) => (await engine.load()).match(track, request),
   }
-  const matches: MatchStore =
-    options.library === undefined ? createMemoryMatchStore() : matchStoreFrom(options.library)
+  // What the cache reads follows the Auto setting as it is now (core's `MatchVerdict`): a guess
+  // the engine was sure of plays unasked only while the setting is on.
+  const matches: MatchStore = withEffectiveBands(
+    options.library === undefined ? createMemoryMatchStore() : matchStoreFrom(options.library),
+    () => matchOptions(catalogMode()).auto === true,
+  )
+  const streamSources: readonly StreamSource[] = [
+    youtubeStreamSource(youtube),
+    lazyStreamSource('archive', archive),
+    ...(jamendo === undefined ? [] : [lazyStreamSource('jamendo', jamendo)]),
+  ]
   const lifecycle = new StreamLifecycle({
-    sources: [
-      youtubeStreamSource(youtube),
-      lazyStreamSource('archive', archive),
-      ...(jamendo === undefined ? [] : [lazyStreamSource('jamendo', jamendo)]),
-    ],
+    sources: [...streamSources],
     matcher,
     matches,
     context: (priority) => context({ priority }),
     ...(options.quality ?? lifecycleQualityOptions()),
     settings: () => playback,
     network,
+    ...(offline === undefined ? {} : { offline }),
+    ...(options.refreshBeforeExpiryMs === undefined
+      ? {}
+      : { refreshBeforeExpiryMs: options.refreshBeforeExpiryMs }),
   })
 
   function start(): Promise<FxmPlatform | undefined> {
@@ -420,7 +547,7 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
    */
   function canReadSpotify(current: FxmPlatform | undefined): boolean {
     if (current === undefined) return false
-    return current.environment !== 'browser' || userHostOf(current, options.sandbox) !== undefined
+    return current.environment !== 'browser' || reachesUserHosts
   }
 
   /** Registers the providers with the registry, each loading its code on first use. */
@@ -446,6 +573,22 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
       ),
       sources.register(lazyProvider({ id: 'archive', load: () => archive.load() })),
     )
+    if (localProvider !== undefined) {
+      // Only while there is music on the device: "This device" with nothing on it finds nothing.
+      let unregisterLocal: (() => void) | undefined
+      const watch = options.watchLocalFiles ?? watchLocalFiles
+      unregister.push(
+        watch((present) => {
+          if (present && unregisterLocal === undefined) {
+            unregisterLocal = sources.register(localProvider)
+          } else if (!present && unregisterLocal !== undefined) {
+            unregisterLocal()
+            unregisterLocal = undefined
+          }
+        }),
+        () => unregisterLocal?.(),
+      )
+    }
     if (canReadSpotify(platform)) {
       spotifyRegistered = true
       unregister.push(
@@ -570,15 +713,20 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
     resolver,
     policy,
     youtube,
+    spotify,
+    musicBrainz: mapLoader(musicBrainz, ({ client }) => client),
+    spotifyAvailable: spotifyMayBeAsked,
+    streamSources,
+    matcher,
+    matches,
+    playbackSettings: () => playback,
+    matchOptions,
+    catalogMode,
     get platform() {
       return platform
     },
     context,
     lyrics: () => lrclib.load(),
-    async spotify() {
-      await start()
-      return spotifyRegistered ? spotify.load() : undefined
-    },
     connectPlayer(player) {
       const own = playbackFromPlayer(player)
       const stops = [lifecycle.attach(player), reportPlaybackStarts(player)]

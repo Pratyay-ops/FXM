@@ -31,6 +31,8 @@ Every song plays its shelf from that song, with the shelf as the queue's context
 
 New music comes only where YouTube Music is reachable, because its songs are what plays (`canRecommend`). The collector applies the other rules of each source (stage 3.2).
 
+**While the tier is unknown** (FXM Connect waking up, the first Lite check: the sources' `detecting`), Home shows the user's own shelves and a placeholder, never the welcome card or the note that say what the browser lacks: that pitch would most likely be wrong. Both say how this device gets YouTube Music: FXM Connect where its browser can add it, else what it can do instead (another browser on a Mac, nothing on iPhone and iPad), with "See your options" in place of "Get FXM Connect" where nothing can be installed.
+
 ### Keyboard, screen readers and small screens
 
 - Focus never drops to the page: after "Not now" it moves to the reminder's *Pick artists*, after *Pick artists* to the onboarding's heading, and once Home is built from the picks to its first shelf (the button says *Building your Home…* meanwhile). *Change*, *Save*, *Cancel* and *Clear picks* work the same way.
@@ -59,25 +61,21 @@ The network steps get eight seconds in all (`FEED_LIMITS.deadlineMs`); Home is t
 
 ## Wiring in the other stages
 
-Home reaches everything through one seam, `services.tsx` (`appHomeServices`, a store like 2.4's `appActions`). Until the parts are wired in, Home is the Free-only tier with no recommendation sources: the user's own shelves and the note.
+Home reaches everything through one seam, `services.tsx` (`appHomeServices`, a store like 2.4's `appActions`). The app's composition root (`src/app/services/home.ts`, stage 2.9b) sets the sources and playback at once, the tier unknown until the platform's first detection ends (`homeSourcesUntil`), and the recommendations and the catalog once the platform is ready; where the services don't run, Home is the Free-only tier with no recommendation sources: the user's own shelves and the note. Home's development fakes (below) keep Home to themselves: the composition root leaves it alone while they are on.
 
-| Part | From | Wire in (e.g. in `main.tsx`) |
+| Part | From | In the app |
 |---|---|---|
-| `sources` | 2.4's `appSources`, which holds 1.2's platform and the Spotify switch | `sources: appSources` |
-| `recommendations` | 3.2's `createRecommendationCollector({ youtube, youtubeLookup, spotify, spotifyMetadata, spotifyEnabled, lastfmStations, listenbrainz, … })` with 1.3's and 1.5's providers | `recommendations: collector` (it fits the seam as it is; `feed.collector.test.ts` checks) |
-| `catalog` | 1.3: artist search (`findArtist`), artist pages' top songs (`artistTracks`); 1.7: song search (`findSong`) | `catalog: { findArtist, artistTracks, findSong }` |
-| `spotifyAccount` | 3.5's account: `status`, and `sections` from its sync (`features/spotify-account`); `main.tsx` wires it in already | `spotifyAccount: spotifyAccountForHome` |
-| `playback` | 2.2's player, as 2.4's `PlaybackActions` | `playback: appActions.get().playback` |
+| `sources` | 2.4's `appSources`, which holds 1.2's platform and the Spotify switch | `appSources`, saying `detecting` until the platform's first detection ends |
+| `recommendations` | 3.2's `createRecommendationCollector` | Over the app's providers: YouTube Music radio, Spotify (while switched on and reachable), Last.fm's stations (where the platform reaches them), ListenBrainz's similar artists, with covers from the Cover Art Archive for the few candidate tracks without one; loaded with Home's first build |
+| `catalog` | 1.3: artist search (`findArtist`), artist pages' top songs (`artistTracks`); 1.7: song search (`findSong`) | YouTube Music's artist search (the same name only), its artist pages, and the matching engine over its song searches |
+| `spotifyAccount` | 3.5's account: `status`, and `sections` from its sync (`features/spotify-account`) | Its view of the account (`spotifyAccountForHome`, which `main.tsx` also sets at start), where Spotify is registered |
+| `playback` | 2.2's player, as 2.4's `PlaybackActions` | `appActions.get().playback` |
 
-```ts
-appHomeServices.set({ sources: appSources, recommendations: collector, catalog, spotifyAccount: spotifyAccountForHome, playback })
-```
-
-Album, artist and playlist cards (in Spotify's sections) link to `/<kind>/<source>:<native ID>`, the form of 2.4's pages (`entityPath` in `shelves.tsx`).
+Album, artist and playlist cards (in Spotify's sections) link to their pages with 2.4's link helpers (`albumPath`, `artistPath`) and the library's `playlistPath` (`entityPath` in `shelves.tsx`).
 
 ## Development
 
-In `make dev`, `?fake-home=lite` or `?fake-home=full` plugs fake services into Home (`dev-fakes.ts`: an invented catalog, no network, no artwork); the tab keeps the choice until `?fake-home=off`. Restore `e2e/fixtures/library-backup.json` from the Library page to see the user's own shelves too. Builds with `VITE_FXM_FAKE_CATALOG=on` (2.4's screenshot builds) include the fakes; production builds leave them out. The end-to-end checks of Home with recommendations, and its onboarding's forced-colors screenshot, need such a build: `VITE_FXM_FAKE_CATALOG=on pnpm --filter @fxm/web e2e`.
+In `make dev`, `?fake-home=lite` or `?fake-home=full` plugs fake services into Home (`dev-fakes.ts`: an invented catalog, no network, no artwork); the tab keeps the choice until `?fake-home=off`. The screenshot run (`pnpm --filter @fxm/web screenshots`) captures Home that way, with `?fake-home=full`. Restore `e2e/fixtures/library-backup.json` from the Library page to see the user's own shelves too. Builds with `VITE_FXM_FAKE_CATALOG=on` (2.4's screenshot builds) include the fakes; production builds leave them out. The end-to-end checks of Home with recommendations, and its onboarding's forced-colors screenshot, need such a build: `VITE_FXM_FAKE_CATALOG=on pnpm --filter @fxm/web e2e`.
 
 ## Files
 

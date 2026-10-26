@@ -18,7 +18,8 @@ export const CATALOG_MODE_LABELS: Readonly<Record<CatalogMode, string>> = {
 }
 
 export const CATALOG_MODE_DESCRIPTIONS: Readonly<Record<CatalogMode, string>> = {
-  music: 'Music: only songs from the YouTube Music catalog – clean album audio.',
+  music:
+    'Music: songs only, from any source – YouTube Music’s album audio, Internet Archive, Jamendo and your own files.',
   all: 'Music + Video: also any YouTube video – covers, live sets, remixes – played as music.',
 }
 

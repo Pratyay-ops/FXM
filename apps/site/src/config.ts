@@ -29,6 +29,7 @@ export type Feature =
   | 'radio'
   | 'spotifyAccount'
   | 'downloads'
+  | 'conversions'
   | 'pwa'
   | 'embed'
   | 'android'
@@ -40,7 +41,8 @@ export type Feature =
  * M1 (docs/PLAN.md); everything still false here is marked "Coming soon": the badges, the
  * download cards and their buttons, the device suggestion and a few sentences read these
  * flags. When a stage ships a feature, flip its flag, then search the site for
- * `AVAILABLE.<name>` to review the copy around it.
+ * `AVAILABLE.<name>` to review the copy around it, and update the feature list in the
+ * repository's README.md, which marks the same features "(coming soon)".
  */
 export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   /**
@@ -50,14 +52,23 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
    * src/lib/tiers.ts.
    */
   lite: false,
-  /** Home feed with quick picks, daily mixes and endless radio: stages 3.3 and 3.4 (M2) */
-  homeFeed: false,
+  /**
+   * The home feed with quick picks and daily mixes, made on the device from YouTube Music radio,
+   * Spotify, Last.fm and ListenBrainz: stage 3.3, wired into the app by 2.9b. Endless radio is
+   * `radio` (3.4).
+   */
+  homeFeed: true,
   /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */
   radio: false,
   /** A read-only sync of a Spotify account's recommendations, likes and playlists: 3.5 (M2) */
   spotifyAccount: true,
-  /** Downloads in any format, with tags and cover art: 4.1 and 4.2 (M3) */
-  downloads: false,
+  /**
+   * Downloads for offline listening, in the format the source has (the original file): 4.1,
+   * wired into the app by 2.9b. Converting to other formats is `conversions`.
+   */
+  downloads: true,
+  /** Converting downloads to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art: 4.2 */
+  conversions: false,
   /** Installing the web app as a PWA: 5.1 (M4) */
   pwa: true,
   /** The embeddable mini-player: 5.2 (M4) */

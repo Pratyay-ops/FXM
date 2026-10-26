@@ -14,6 +14,7 @@ import {
   type Track,
 } from '@fxm/core'
 import { createLrclibProvider } from '@fxm/sources/lrclib'
+import { appContext } from '../../lib/app-context'
 import { isMatched } from '../now-playing/stream-label'
 
 let provider: LyricsProvider | undefined
@@ -33,21 +34,13 @@ export function setLyricsProvider(next: LyricsProvider | undefined): void {
 }
 
 /**
- * The provider context for lyrics requests: the page's own `fetch`, without cookies. LRCLIB is
- * CORS-friendly, so this reaches it on every tier, and it is the only service lyrics contact,
- * so the capabilities stay at their most limited.
- *
- * Integration with stage 1.2 (platform transports): use the platform's context instead, so the
- * desktop and Android apps send lyrics requests through their native HTTP clients.
+ * The provider context for lyrics requests: the app platform's (`appContext`, which the
+ * composition root connects), so the desktop and Android apps send them through their native
+ * HTTP; the page's own `fetch` without cookies until then. LRCLIB is CORS-friendly, so either
+ * reaches it on every tier.
  */
 export function lyricsContext(mode: CatalogMode, signal: AbortSignal): ProviderContext {
-  return {
-    fetch: (input, init) => fetch(input, { ...init, credentials: 'omit' }),
-    platform: 'web',
-    capabilities: { youtube: 'none', spotify: 'unreachable', mediaBytes: false, fileSystem: false },
-    mode,
-    signal,
-  }
+  return appContext(mode, signal)
 }
 
 /**

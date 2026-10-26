@@ -88,9 +88,13 @@ describe('share entry points', () => {
     expect(shareMenuItems(formatId('spotify', 'album', '4aawyAB9vmqN3uQ7FjRGTy'), info)).toEqual([])
   })
 
-  it('are offered in production builds only for what the embed can play', () => {
+  it('are offered in production builds only once the embed is out, for what it can play', () => {
     expect(canShare(ALBUM, { PROD: false })).toBe(true)
-    expect(canShare(ALBUM, { PROD: true })).toBe(WIRED_SOURCES.has('ytm'))
+    // Until the embed is released (RELEASED.embed, with the site's AVAILABLE.embed), nothing.
+    expect(canShare(ALBUM, { PROD: true })).toBe(false)
+    expect(canShare(ALBUM, { PROD: true }, true)).toBe(WIRED_SOURCES.has('ytm'))
+    const archive = { kind: 'album', id: formatId('jamendo', 'album', '123') } as const
+    expect(canShare(archive, { PROD: true }, true)).toBe(WIRED_SOURCES.has('jamendo'))
     // The tests run as a development build: the dialog can be tried.
     expect(canShare(ALBUM)).toBe(true)
   })

@@ -39,17 +39,25 @@ describe('the tiers', () => {
     for (const feature of TIER_FEATURES) expect(hasFeature('full', feature)).toBe(true)
   })
 
-  it('gives Free only the free sources, the library, lyrics and local files', () => {
+  it('gives Free only the free sources, the library, lyrics, local files and their downloads', () => {
     expect(featuresAddedBy('free').map((feature) => feature.id)).toEqual([
       'free-sources',
       'library',
       'lyrics',
       'local-files',
+      'free-downloads',
     ])
     // Stage 4.4 plays them in every browser: a folder in Chromium, picked files elsewhere.
     expect(featuresAddedBy('free').find((feature) => feature.id === 'local-files')?.released).toBe(
       true,
     )
+    // Internet Archive and Jamendo download in every browser, as their files come (stage 4.1).
+    expect(
+      featuresAddedBy('free').find((feature) => feature.id === 'free-downloads'),
+    ).toMatchObject({
+      released: true,
+      label: 'Downloads of free music for offline listening, in their original format',
+    })
   })
 
   it('gives Lite YouTube Music and Full Spotify, never Spotify in Lite', () => {
@@ -68,11 +76,16 @@ describe('the tiers', () => {
     )
   })
 
-  it('keeps downloads and the Spotify account to Full, downloads marked unreleased for now', () => {
+  it('keeps downloads and the Spotify account to Full, both released', () => {
     const feature = (id: string) => TIER_FEATURES.find((candidate) => candidate.id === id)
-    expect(feature('downloads')).toMatchObject({ from: 'full', released: false })
     // Stage 3.5: the web app with FXM Connect connects a Spotify account.
     expect(feature('spotify-account')).toMatchObject({ from: 'full', released: true })
+    // Downloads are out, in the original format; conversions come with stage 4.2.
+    expect(feature('downloads')).toMatchObject({
+      from: 'full',
+      released: true,
+      label: 'Downloads of YouTube Music songs, in their original format (conversions coming soon)',
+    })
   })
 })
 
@@ -91,13 +104,12 @@ describe('missingFeatures', () => {
 })
 
 describe('missingSummary', () => {
-  it('sums up what Lite and Full would add to Free only, with what comes later', () => {
+  it('sums up what Lite and Full would add to Free only, with nothing left to come', () => {
     expect(missingSummary('free')).toEqual([
       { tier: 'lite', adds: 'YouTube Music and its ad-free audio' },
       {
         tier: 'full',
-        adds: "YouTube Music without Lite's experimental route, and Spotify search and related artists and a read-only sync of your Spotify account",
-        later: 'Coming soon: downloads.',
+        adds: "YouTube Music without Lite's experimental route, YouTube Music downloads, Spotify search and related artists and a read-only sync of your Spotify account",
       },
     ])
   })

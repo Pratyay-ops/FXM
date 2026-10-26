@@ -40,12 +40,13 @@ export const INNERTUBE_HOSTS = [
  * policy. Only what shipped stages use (docs/PLAN.md, the notes on the `/app/*` rule). Stages
  * add theirs when they ship:
  *
- * - 1.11: the BotGuard hosts, once one of its rungs is on;
- * - 3.2's recommendation providers, once the app calls them: the hosts in the table in
- *   packages/sources/src/recommend/README.md. It leaves out the plan's `api.listenbrainz.org`
- *   and `lastfm.freetls.fastly.net`, which its providers don't contact (8.2's scrobbling, below,
- *   sends to `api.listenbrainz.org`), and adds Internet Archive's hosts, already here, for the
- *   Cover Art Archive's redirects.
+ * - 1.11: the BotGuard hosts, once one of its rungs is on.
+ *
+ * 3.2's recommendation providers, which Home calls since stage 2.9b wired it, added their hosts
+ * from the table in packages/sources/src/recommend/README.md: ListenBrainz's labs API, Last.fm's
+ * stations (FXM Connect only) and the Cover Art Archive (whose redirects go to Internet
+ * Archive's hosts, already here). Not iTunes Search, which the app doesn't call, nor the plan's
+ * `lastfm.freetls.fastly.net`, which no provider contacts.
  *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
  * storage hosts and a user's Invidious proxy, and page script can't read media responses.
@@ -77,11 +78,21 @@ export const APP_SERVICES: readonly Service[] = [
   { privacyName: 'LRCLIB', connect: ['https://lrclib.net'] },
   // 8.7: opt-in, and only for videos in Music + Video mode.
   { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
-  // 8.2: scrobbling, once the user connects an account in Settings. Only the write APIs.
-  { privacyName: 'ListenBrainz', connect: ['https://api.listenbrainz.org'] },
-  { privacyName: 'Last.fm', connect: ['https://ws.audioscrobbler.com'] },
+  // 8.2: scrobbling, once the user connects an account in Settings (the write APIs); 3.2:
+  // Home's recommendations (ListenBrainz's similar artists, Last.fm's stations).
+  {
+    privacyName: 'ListenBrainz',
+    connect: ['https://api.listenbrainz.org', 'https://labs.api.listenbrainz.org'],
+  },
+  { privacyName: 'Last.fm', connect: ['https://ws.audioscrobbler.com', 'https://www.last.fm'] },
   // 8.4: library sync, only once the user turns it on, with a secret gist on their account.
   { privacyName: 'GitHub', connect: ['https://api.github.com'] },
+  // 3.2: covers for Home's songs that come without one.
+  {
+    privacyName: 'Cover Art Archive',
+    connect: ['https://coverartarchive.org'],
+    img: ['https://coverartarchive.org'],
+  },
 ]
 
 /**
@@ -278,9 +289,64 @@ export function policyProblems(rulePath: string, value: string): string[] {
   return problems
 }
 
+/**
+ * The features the Permissions-Policy turns off: only ones FXM never uses. It turns off none
+ * that a player may use ({@link PLAYER_FEATURES}).
+ */
+export const UNUSED_FEATURES = [
+  'camera',
+  'microphone',
+  'geolocation',
+  'payment',
+  'usb',
+  'serial',
+  'bluetooth',
+  'hid',
+  'midi',
+] as const
+
+/**
+ * Features the player may use, which the Permissions-Policy must never turn off. The media keys
+ * go through the Media Session API, which no policy controls.
+ */
+export const PLAYER_FEATURES: readonly string[] = [
+  'autoplay',
+  'fullscreen',
+  'picture-in-picture',
+  'screen-wake-lock',
+]
+
+/** `camera=(), microphone=(), …`: each unused feature allowed to no origin. */
+export const PERMISSIONS_POLICY = UNUSED_FEATURES.map((feature) => `${feature}=()`).join(', ')
+
+/**
+ * Why a Permissions-Policy breaks FXM's promise (an empty list when it doesn't): it may only turn
+ * off features FXM never uses, and never one the player may use.
+ */
+export function permissionsPolicyProblems(value: string): string[] {
+  const problems: string[] = []
+  for (const item of value.split(',')) {
+    const feature = /^\s*([a-z-]+)=\(\s*\)\s*$/.exec(item)?.[1]
+    if (feature === undefined) {
+      problems.push(`"${item.trim()}" doesn't turn a feature off (feature=())`)
+    } else if (PLAYER_FEATURES.includes(feature)) {
+      problems.push(`it turns off ${feature}, which the player may use`)
+    } else if (!(UNUSED_FEATURES as readonly string[]).includes(feature)) {
+      problems.push(`it turns off ${feature}, which isn't one of the features FXM never uses`)
+    }
+  }
+  return problems
+}
+
 /** Sent with every response, next to its policy (docs/PLAN.md, header rules). */
 export const COMMON_HEADERS: readonly (readonly [name: string, value: string])[] = [
   // googlevideo requests from the page would otherwise carry Referer: https://fxmusic.pages.dev/
   ['Referrer-Policy', 'no-referrer'],
   ['X-Content-Type-Options', 'nosniff'],
+  // A page opened at top level keeps no tie to a page of another site that opened it, or that it
+  // opens: neither can reach the other's window. Browsers ignore it in frames, so the embed and
+  // the sandbox documents work inside other pages as before; the embed counts on it when a page
+  // opens a player in a new window (apps/web/src/embed/README.md).
+  ['Cross-Origin-Opener-Policy', 'same-origin'],
+  ['Permissions-Policy', PERMISSIONS_POLICY],
 ]
