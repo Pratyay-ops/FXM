@@ -972,7 +972,7 @@ export function renderNotices(packages: Iterable<BundledPackage>, options: Notic
     lines.push('', RULE, `${pkg.name} ${pkg.version}`, `Licence: ${pkg.license ?? 'unknown'}`)
     lines.push(`Used in: ${[...pkg.usedIn].sort().join(', ')}`)
     if (pkg.homepage) lines.push(pkg.homepage)
-    const { licenceFiles, fileNotices } = packageNotices(pkg.dir, pkg.files)
+    const { licenceFiles, fileNotices } = packageNotices(pkg.dir, pkg.files, pkg.license)
     const review = reviewed[`${pkg.name}@${pkg.version}`]
     if (licenceFiles.length === 0) {
       if (review?.license === 'Apache-2.0') {

@@ -96,9 +96,11 @@ function bundledPackages(moduleIds) {
  *
  * @param {string} root
  * @param {readonly string[]} files
+ * @param {unknown} license package.json's `license`: the SPDX expression the notices compare with
  */
-function noticesOf(root, files) {
-  const { licenceFiles, fileNotices } = packageNotices(root, files)
+function noticesOf(root, files, license) {
+  const expression = typeof license === 'string' ? license : undefined
+  const { licenceFiles, fileNotices } = packageNotices(root, files, expression)
   const texts = [...licenceFiles.map((file) => file.text), ...fileNotices]
   if (texts.length === 0) throw new Error(`No licence notice found for the bundled ${root}`)
   return texts.join('\n\n')
@@ -119,7 +121,9 @@ async function licenseBanner(moduleIds, version) {
       version: packageVersion,
       license,
     } = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
-    sections.push(`== ${name} ${packageVersion}: ${license} ==\n\n${noticesOf(root, files)}`)
+    sections.push(
+      `== ${name} ${packageVersion}: ${license} ==\n\n${noticesOf(root, files, license)}`,
+    )
   }
   sections.sort()
   const text = [
