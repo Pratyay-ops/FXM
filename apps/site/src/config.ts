@@ -55,7 +55,7 @@ export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
   /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */
   radio: false,
   /** A read-only sync of a Spotify account's recommendations, likes and playlists: 3.5 (M2) */
-  spotifyAccount: false,
+  spotifyAccount: true,
   /** Downloads in any format, with tags and cover art: 4.1 and 4.2 (M3) */
   downloads: false,
   /** Installing the web app as a PWA: 5.1 (M4) */

@@ -163,13 +163,21 @@ const webAppUpdates =
       request. FXM Connect never reads or stores them.
     </li>
     <li>
-      In the desktop and Android apps, you sign in on Spotify's own login page, in a window of the
-      app. Your login stays on your device, in protected storage.
+      In the desktop and Android apps, once they can connect an account, you sign in on Spotify's
+      own login page, in a window of the app. Your login stays on your device, in protected storage.
     </li>
   </ul>
   <p>
-    Spotify then knows that these requests come from your account. Disconnecting in Settings removes
-    the token from FXM.
+    The token stays in FXM's memory and is never saved. FXM uses it only to read your liked songs,
+    your playlists and your Spotify home, and never changes anything in your Spotify account. Copies
+    of your liked songs and playlists go into your library on your device, like your own playlists,
+    and FXM keeps your Spotify home there for its Home page. Spotify then knows that these requests
+    come from your account.
+  </p>
+  <p>
+    Disconnecting in Settings removes the token from FXM at once and stops the sync. The copies stay
+    in your library unless you choose to remove them. To stop FXM Connect from using your login at
+    all, also turn its option off.
   </p>
 
   <h2 id="fxm-connect">FXM Connect</h2>
