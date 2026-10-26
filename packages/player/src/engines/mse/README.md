@@ -11,7 +11,7 @@ await engine.load({ stream }, startAtMs)
 await engine.play()
 ```
 
-It implements stage 2.2's engine contract, so the player facade drives it like the direct audio engine: `load`, `play`, `pause`, `seek`, `setVolume`, `setMuted`, `canPlay`, `unlock`, `on` and `destroy`, with the same events and `EngineError` types. 2.2 is merged on `develop` but not in this branch's base, so `engine-contract.ts` mirrors the contract; once the branches meet it becomes a re-export of `../../engine` (the file says how).
+It implements stage 2.2's engine contract, so the player facade drives it like the direct audio engine: `load`, `play`, `pause`, `seek`, `setVolume`, `setMuted`, `canPlay`, `unlock`, `on` and `destroy`, with the same events and `EngineError` class (`engine-contract.ts` re-exports the contract of `../../engine`).
 
 ## Where it runs
 
