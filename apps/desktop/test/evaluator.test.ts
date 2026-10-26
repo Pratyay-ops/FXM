@@ -42,6 +42,11 @@ describe('the desktop evaluator host', () => {
     expect(platformHost).toContain("TAURI_EVALUATOR_ORIGIN = 'fxm-eval://localhost'")
   })
 
+  it('keeps its hidden window running, as the main window does since stage 7.3', () => {
+    expect(evaluatorRs).toMatch(/\.visible\(false\)/)
+    expect(evaluatorRs).toMatch(/\.background_throttling\(BackgroundThrottlingPolicy::Disabled\)/)
+  })
+
   it('keeps each window on its document: no navigation, no new windows', () => {
     expect(evaluatorRs).toMatch(/\.on_navigation\(is_document_url\)/)
     expect(evaluatorRs).toMatch(/\.on_new_window\(\|_, _\| NewWindowResponse::Deny\)/)

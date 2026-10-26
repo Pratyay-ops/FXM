@@ -35,6 +35,7 @@ use std::time::Duration;
 
 use tauri::http::{Method, Request, Response, StatusCode, header};
 use tauri::plugin::{Builder, TauriPlugin};
+use tauri::utils::config::BackgroundThrottlingPolicy;
 use tauri::webview::NewWindowResponse;
 use tauri::{
     AppHandle, Manager, RunEvent, Runtime, State, Url, WebviewUrl, WebviewWindow,
@@ -182,6 +183,10 @@ async fn open<R: Runtime>(app: AppHandle<R>, current: State<'_, Current>) -> Res
         .focused(false)
         .skip_taskbar(true)
         .inner_size(320.0, 240.0)
+        // A hidden page that WebKit suspends stops answering, as the smoke test's hidden window
+        // did (stages 7.2 and 7.3), and the player resolves its next track while FXM is hidden.
+        // macOS 14 and later; Windows and Linux have no such switch.
+        .background_throttling(BackgroundThrottlingPolicy::Disabled)
         // Its document stays its document: no navigation away from it, and no new windows. (Its
         // policy's sandbox already refuses popups.)
         .on_navigation(is_document_url)
