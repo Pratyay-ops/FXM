@@ -1,0 +1,67 @@
+name: Audit
+
+# make audit: checks the lockfiles of both pnpm roots, the repository and the deploy's wrangler
+# (scripts/build-dist-wrangler), against the npm registry's advisories. It fails on a high or
+# critical advisory that auditConfig.ignoreGhsas in that root's pnpm-workspace.yaml doesn't list
+# (docs/DEVELOPMENT.md, "Security alerts"). GitHub's own alerts see none of the root workspace's
+# transitive dependencies. It needs the network, so make check leaves it out.
+#
+# It runs whenever a lockfile or the audit settings change, and every Monday for main, which
+# users run, and develop, since advisories come out whatever the code does. GitHub runs the
+# schedule from main's copy of this file, and tells whoever last edited the cron line when a
+# scheduled run fails.
+on:
+  push:
+    paths:
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/build-dist-wrangler/pnpm-lock.yaml
+      - scripts/build-dist-wrangler/pnpm-workspace.yaml
+      - Makefile
+      - .github/workflows/audit.yml
+  pull_request:
+    paths:
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/build-dist-wrangler/pnpm-lock.yaml
+      - scripts/build-dist-wrangler/pnpm-workspace.yaml
+      - Makefile
+      - .github/workflows/audit.yml
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: ${{ matrix.ref && format('make audit ({0})', matrix.ref) || 'make audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # A scheduled run checks main and develop; any other run, the commit it ran for ('').
+        ref: ${{ github.event_name == 'schedule' && fromJSON('["main", "develop"]') || fromJSON('[""]') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ matrix.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # Only pnpm, hash-checked by install-pnpm.sh: the audit reads the lockfiles and installs
+      # nothing.
+      - name: Install pnpm
+        run: scripts/install-pnpm.sh
+
+      - name: Audit both pnpm roots
+        run: make audit
