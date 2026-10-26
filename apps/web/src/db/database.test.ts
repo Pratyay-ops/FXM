@@ -1,4 +1,4 @@
-import { type AudioCandidate, entityKey, formatId } from '@fxm/core'
+import { AFFINITY_MODEL_VERSION, type AudioCandidate, entityKey, formatId } from '@fxm/core'
 import { Dexie } from 'dexie'
 import { describe, expect, it } from 'vitest'
 import { track } from '../test/library-fixtures'
@@ -256,6 +256,19 @@ describe('library database', () => {
     expect(byId['track|youtube:track:video0003']?.skips).toBeCloseTo(0.9, 12)
     expect(byId['artist|artist 3']).toMatchObject({ label: 'Artist 3', plays: 2 })
     expect(Object.keys(byId)).toHaveLength(6)
+    // Plays keep the length the track had when the library upgraded.
+    expect((await db.history.toArray()).map((entry) => entry.durationMs)).toEqual([
+      183_000, 183_000,
+    ])
+    expect(await db.settings.get('affinity.model')).toMatchObject({ value: AFFINITY_MODEL_VERSION })
+    // The new indexes find a play by track and start, and an import's plays.
+    expect(
+      await db.history
+        .where('[trackId+playedAt]')
+        .equals([track(3).id, at])
+        .count(),
+    ).toBe(2)
+    expect(await db.history.where('importId').equals('none').count()).toBe(0)
     db.close()
   })
 

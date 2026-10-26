@@ -117,8 +117,8 @@ describe('library backup', () => {
     }
     const file = JSON.stringify(before)
 
-    // A different device, or this one after its site data was cleared.
-    const restored = testRepo()
+    // A different device, or this one after its site data was cleared, a day later.
+    const restored = testRepo({ now: () => Date.UTC(2026, 9, 26, 12) })
     const parsed = parseBackup(file)
     expect(parsed.skipped).toBe(0)
     await importLibrary(restored, parsed, 'replace')

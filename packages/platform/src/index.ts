@@ -83,6 +83,25 @@ export {
   MIN_CONNECT_VERSION,
 } from './connect'
 export { corsUnsafeRequestHeaderNames, isCorsSimpleRequest } from './cors'
+export type {
+  DesktopFetchOptions,
+  DesktopUserHosts,
+  DesktopUserHostsOptions,
+  PluginFetch,
+  PluginFetchInit,
+  TauriBindings,
+  TauriBindingsSource,
+  TauriInvoke,
+} from './desktop'
+export {
+  createDesktopFetch,
+  createDesktopUserHosts,
+  desktopBrowserUserAgent,
+  fxmUserAgent,
+  isTauriRuntime,
+  loadTauriBindings,
+  siteOrigin,
+} from './desktop'
 export type { RouteNeed, TransportErrorReason } from './errors'
 export {
   isRouteUnavailable,
@@ -122,7 +141,7 @@ export {
   SELF_TEST_RESULTS,
 } from './lite'
 export type { NativeHttp, NativeRequestInit, NativeTransportOptions } from './native'
-export { createNativeTransport } from './native'
+export { createNativeTransport, NATIVE_ORIGINS } from './native'
 export type { NodeTransportOptions } from './node'
 export { createNodeTransport } from './node'
 export type {
