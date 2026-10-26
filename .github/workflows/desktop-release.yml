@@ -5,26 +5,35 @@ name: Desktop release
 # which tells installed apps about the version. Two workflows call it:
 #
 #   release.yml, for every release (release: true), on the commit it releases, with the updater
-#   key. It publishes the artifact release-desktop that this uploads.
+#   key and the Windows code-signing certificate. It publishes the artifact release-desktop that
+#   this uploads.
 #   desktop.yml, as a dry run when someone starts it by hand with release-dry-run: the same builds,
-#   signed with a throwaway key and kept as workflow artifacts. No release, no tag.
+#   signed with throwaway keys and certificates, and kept as workflow artifacts. No release, no
+#   tag.
 #
 #   check   the version (apps/desktop/package.json, which must equal the version input) and, for a
 #           release, the updater's public key in tauri.conf.json: while it is the placeholder,
 #           every release stops here
-#   build   tauri-action, one job per target (apps/desktop/release/targets.ts lists the same five,
-#           test/release-workflow.test.ts checks it), with src-tauri/tauri.release.conf.json, which
-#           turns on the updater's files. tauri build signs those with a throwaway key of each
-#           job's own, never with the updater key: these jobs run the code of hundreds of crates
-#           and packages. macOS builds are signed ad hoc (bundle > macOS > signingIdentity "-") and
-#           not notarized. The macOS Intel build is cross-compiled on Apple silicon. Windows
-#           builds are code-signed (stage 7.6, docs/CODE-SIGNING.md): a release with the
-#           certificate in the windows-signing environment's secrets WINDOWS_CERTIFICATE and
-#           WINDOWS_CERTIFICATE_PASSWORD, and unsigned without them (apps/desktop/INSTALL.md says
-#           what that means for users); a dry run with a throwaway certificate made on the runner.
-#           Tauri signs fxm.exe, the NSIS installer and its uninstaller, and the MSI, and the job
-#           checks the installers' signatures and those of the fxm.exe inside each
-#           (apps/desktop/release/windows-signing.ts)
+#   build   tauri-action, one job for each macOS and Linux target (apps/desktop/release/targets.ts
+#           lists these and Windows; test/release-workflow.test.ts checks it), with
+#           src-tauri/tauri.release.conf.json, which turns on the updater's files. tauri build
+#           signs those with a throwaway key of each job's own, never with the updater key: these
+#           jobs run the code of hundreds of crates and packages. macOS builds are signed ad hoc
+#           (bundle > macOS > signingIdentity "-") and not notarized. The macOS Intel build is
+#           cross-compiled on Apple silicon
+#   windows-build, windows-sign-app, windows-bundle, windows-sign-installers, windows-check
+#           Windows x64, in five jobs, so that the code-signing certificate's key never meets the
+#           build's code (stage 7.6, docs/CODE-SIGNING.md, release/windows-signing.ts). The first
+#           compiles fxm.exe and makes both installers, unsigned, with Tauri's signing hooked to
+#           collect the files it would sign; the second signs those; the third makes the
+#           installers again around the signed files; the fourth signs the installers; the last
+#           reads every signature and hands the installers on. Only the two signing jobs name the
+#           windows-signing environment, whose secrets WINDOWS_CERTIFICATE and
+#           WINDOWS_CERTIFICATE_PASSWORD hold a release's certificate, and they install and build
+#           nothing: GitHub's own actions, PowerShell, the Windows SDK's signtool and this
+#           repository's scripts. A release without a certificate ships the first job's unsigned
+#           installers (apps/desktop/INSTALL.md says what that means for users); a dry run signs
+#           with throwaway certificates made on the runners
 #   sign    signs the files the updater installs with the updater key, writes latest.json and
 #           checks every signature against the public key the apps carry
 #           (apps/desktop/release/release.ts). It installs nothing, so no third-party code ever
@@ -56,8 +65,9 @@ on:
         required: false
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
         required: false
-      # Windows code signing (stage 7.6). Only the windows-signing environment should hold them:
-      # release.yml passes none, so they reach only the Windows build of a release run.
+      # Windows code signing (stage 7.6): the windows-signing environment's. release.yml passes
+      # them on by name, as GitHub needs for an environment's secret to reach a called workflow's
+      # job; only windows-sign-app and windows-sign-installers name that environment and read them.
       WINDOWS_CERTIFICATE:
         required: false
       WINDOWS_CERTIFICATE_PASSWORD:
@@ -101,9 +111,6 @@ jobs:
     needs: check
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
-    # For a release's Windows build, the code-signing certificate's environment: give it only the
-    # main branch (and, if wanted, the owner as reviewer), and no other run can read it.
-    environment: ${{ inputs.release && matrix.target == 'windows-x64' && 'windows-signing' || '' }}
     permissions:
       contents: read
     strategy:
@@ -121,11 +128,6 @@ jobs:
             os: macos-latest
             triple: x86_64-apple-darwin
             bundles: app,dmg
-          - name: Windows (x64)
-            target: windows-x64
-            os: windows-latest
-            triple: x86_64-pc-windows-msvc
-            bundles: nsis,msi
           - name: Linux (x64)
             target: linux-x64
             os: ubuntu-22.04
@@ -165,34 +167,12 @@ jobs:
             gstreamer1.0-plugins-bad
           apps/desktop/release/gstreamer-check.sh
 
-      # macOS and Linux use the repo's own toolchain scripts, as desktop.yml does.
+      # The repo's own toolchain scripts, as desktop.yml uses.
       - name: Set up pnpm, dependencies and Rust (frozen lockfile)
-        if: runner.os != 'Windows'
         run: |
           make ci-setup
           make rust-setup
           cd apps/desktop/src-tauri && ../../../scripts/run.sh rustup target add "$TRIPLE"
-
-      - name: Set up pnpm (Windows)
-        if: runner.os == 'Windows'
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      # The toolchain and components of apps/desktop/src-tauri/rust-toolchain.toml (a test in
-      # apps/desktop/test keeps them equal).
-      - name: Install Rust (Windows)
-        if: runner.os == 'Windows'
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
-        with:
-          toolchain: 1.98.1
-          targets: x86_64-pc-windows-msvc
-          components: clippy, rustfmt
-
-      - name: Install dependencies (Windows, frozen lockfile)
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          pnpm_config_store_dir: ${{ github.workspace }}/.tools/pnpm/store
-        run: pnpm install --frozen-lockfile
 
       # tauri build makes the updater's files only with a key, and signs them with it. That is a
       # throwaway key: the sign job signs the files again with the updater key. A dry run also
@@ -208,68 +188,9 @@ jobs:
           node --experimental-strip-types --disable-warning=ExperimentalWarning \
             apps/desktop/release/release.ts "${args[@]}"
 
-      # Windows code signing (stage 7.6, docs/CODE-SIGNING.md). This step learns only whether the
-      # windows-signing environment holds a certificate; only the next step gets its value.
-      - name: Choose how to sign the Windows files
-        id: windows-signing
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          MODE: ${{ inputs.release && 'release' || 'dry-run' }}
-          HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' && 'yes' || '' }}
-        run: >-
-          node --experimental-strip-types --disable-warning=ExperimentalWarning
-          apps/desktop/release/release.ts windows-signing --mode "$MODE"
-          --certificate "$HAS_CERTIFICATE"
-
-      # Into the store of the runner's account, where Tauri's signtool finds it by thumbprint: a
-      # throwaway certificate for a dry run, or the release certificate, imported with a key that
-      # can't be exported again. The PKCS #12 file is deleted at once.
-      - name: Put the signing certificate in the runner's store (Windows)
-        id: windows-certificate
-        if: runner.os == 'Windows' && steps.windows-signing.outputs.signing != 'none'
-        shell: pwsh
-        env:
-          SIGNING: ${{ steps.windows-signing.outputs.signing }}
-          WINDOWS_CERTIFICATE: ${{ steps.windows-signing.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE || '' }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ steps.windows-signing.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if ($env:SIGNING -eq 'throwaway') {
-            $certificate = New-SelfSignedCertificate -Type CodeSigningCert `
-              -Subject 'CN=FXM release dry run (throwaway, untrusted)' `
-              -CertStoreLocation Cert:\CurrentUser\My -KeyAlgorithm RSA -KeyLength 3072 `
-              -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(2)
-          } else {
-            $pfx = Join-Path $env:RUNNER_TEMP 'windows-signing.pfx'
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-            try {
-              $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-              $certificate = Import-PfxCertificate -FilePath $pfx -Password $password `
-                -CertStoreLocation Cert:\CurrentUser\My |
-                Where-Object { $_.HasPrivateKey } | Select-Object -First 1
-            } finally {
-              Remove-Item -LiteralPath $pfx -Force
-            }
-            if (-not $certificate) { throw 'WINDOWS_CERTIFICATE holds no certificate with its private key' }
-          }
-          "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
-
-      - name: Sign with that certificate (Windows)
-        id: windows-config
-        if: runner.os == 'Windows' && steps.windows-signing.outputs.signing != 'none'
-        shell: bash
-        env:
-          THUMBPRINT: ${{ steps.windows-certificate.outputs.thumbprint }}
-          TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
-        run: >-
-          node --experimental-strip-types --disable-warning=ExperimentalWarning
-          apps/desktop/release/release.ts windows-signing-config --thumbprint "$THUMBPRINT"
-          --timestamp-url "$TIMESTAMP_URL" --out "$RUNNER_TEMP/windows-signing"
-
       # Without tagName or releaseId, tauri-action only builds: it uploads nothing and creates no
-      # release. On macOS and Linux it runs the Tauri CLI through scripts/run.sh, so pnpm and Rust
-      # come from .tools/: without a pnpm it can find, it would install the latest CLI globally.
+      # release. It runs the Tauri CLI through scripts/run.sh, so pnpm and Rust come from .tools/:
+      # without a pnpm it can find, it would install the latest CLI globally.
       - name: Build the installers
         id: tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -278,11 +199,11 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
         with:
           projectPath: apps/desktop
-          tauriScript: ${{ runner.os == 'Windows' && 'pnpm tauri' || format('{0}/scripts/run.sh pnpm tauri', github.workspace) }}
+          tauriScript: ${{ format('{0}/scripts/run.sh pnpm tauri', github.workspace) }}
           args: >-
             --target ${{ matrix.triple }} --bundles ${{ matrix.bundles }}
             --config src-tauri/tauri.release.conf.json ${{ steps.build-key.outputs.config-args }}
-            ${{ steps.windows-config.outputs.config-args }} -- --locked
+            -- --locked
 
       - name: Collect the release files
         shell: bash
@@ -292,53 +213,6 @@ jobs:
           node --experimental-strip-types --disable-warning=ExperimentalWarning
           apps/desktop/release/release.ts collect --target "$TARGET" --version "$VERSION"
           --bundle-dir "apps/desktop/src-tauri/target/$TRIPLE/release/bundle" --out dist/desktop
-
-      # The two installers and the fxm.exe each of them holds: signed by the certificate of this
-      # run and timestamped, or, for a release without one, not signed at all. Tauri signs a copy
-      # of fxm.exe for each installer and puts the unsigned one back in target/, so the check reads
-      # the copies: the MSI's through an administrative install (it only unpacks), the NSIS
-      # installer's with 7-Zip.
-      - name: Check the Windows signatures
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          SIGNING: ${{ steps.windows-signing.outputs.signing }}
-          THUMBPRINT: ${{ steps.windows-certificate.outputs.thumbprint }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $msi = Get-Item -Path dist/desktop/*.msi
-          $setup = Get-Item -Path dist/desktop/*-setup.exe
-          $fromMsi = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'msi-contents')
-          $unpack = Start-Process msiexec.exe -Wait -PassThru -NoNewWindow -ArgumentList @(
-            '/a', "`"$($msi.FullName)`"", '/qn', "TARGETDIR=`"$($fromMsi.FullName)`"")
-          if ($unpack.ExitCode -ne 0) { throw "msiexec /a exited with $($unpack.ExitCode)" }
-          $fromNsis = Join-Path $env:RUNNER_TEMP 'nsis-contents'
-          7z x $setup.FullName "-o$fromNsis" -y | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "7z exited with $LASTEXITCODE" }
-          $inside = { param($folder) Get-ChildItem -LiteralPath $folder -Recurse -Filter fxm.exe |
-            Select-Object -First 1 -ExpandProperty FullName }
-          $files = @(
-            @{ name = $msi.Name; path = $msi.FullName },
-            @{ name = $setup.Name; path = $setup.FullName },
-            @{ name = "fxm.exe in $($msi.Name)"; path = & $inside $fromMsi.FullName },
-            @{ name = "fxm.exe in $($setup.Name)"; path = & $inside $fromNsis }
-          )
-          $report = foreach ($file in $files) {
-            if (-not $file.path) { throw "$($file.name) not found" }
-            $signature = Get-AuthenticodeSignature -LiteralPath $file.path
-            [pscustomobject]@{
-              file = $file.name
-              status = "$($signature.Status)"
-              signer = $signature.SignerCertificate.Thumbprint
-              timestamped = $null -ne $signature.TimeStamperCertificate
-            }
-          }
-          $path = Join-Path $env:RUNNER_TEMP 'windows-signatures.json'
-          ConvertTo-Json -InputObject @($report) | Set-Content -LiteralPath $path
-          node --experimental-strip-types --disable-warning=ExperimentalWarning `
-            apps/desktop/release/release.ts windows-signatures --signing $env:SIGNING `
-            --thumbprint "$env:THUMBPRINT" --report $path
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # The ad-hoc signature is what lets macOS offer "Open Anyway" for an app from the internet:
       # Apple silicon refuses unsigned code as damaged.
@@ -368,9 +242,475 @@ jobs:
           # The installers are compressed already.
           compression-level: 0
 
+  # Windows (stage 7.6): the code-signing certificate's key never meets the build's code. This
+  # job and windows-bundle run that code (Vite and its plugins, cargo and the build scripts of
+  # hundreds of crates, the Tauri CLI, NSIS and WiX) and have no access to the key: neither names
+  # the windows-signing environment nor reads its secrets. Tauri's own signing runs this
+  # repository's hook instead of signtool, which copies each file Tauri would sign before packing
+  # it (fxm.exe, patched for each installer, and the NSIS plugins) and signs nothing
+  # (apps/desktop/release/windows-signing.ts). The installers it makes are unsigned, which a
+  # release without a certificate ships.
+  windows-build:
+    name: Windows (x64)
+    needs: check
+    runs-on: windows-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      TARGET: windows-x64
+      TRIPLE: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      # The toolchain and components of apps/desktop/src-tauri/rust-toolchain.toml (a test in
+      # apps/desktop/test keeps them equal).
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-pc-windows-msvc
+          components: clippy, rustfmt
+
+      - name: Install dependencies (frozen lockfile)
+        shell: bash
+        env:
+          pnpm_config_store_dir: ${{ github.workspace }}/.tools/pnpm/store
+        run: pnpm install --frozen-lockfile
+
+      # As in the build job: the updater key never reaches a job that builds.
+      - name: Make a throwaway key for tauri build
+        id: build-key
+        shell: bash
+        env:
+          DRY_RUN: ${{ !inputs.release }}
+        run: |
+          args=(build-key --out "$RUNNER_TEMP/build-key")
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          node --experimental-strip-types --disable-warning=ExperimentalWarning \
+            apps/desktop/release/release.ts "${args[@]}"
+
+      - name: Hook Tauri's signing to collect the files to sign
+        id: hook
+        shell: bash
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-hook-config --mode collect
+          --dir "$RUNNER_TEMP/to-sign" --out "$RUNNER_TEMP/hook"
+
+      # Without tagName or releaseId, tauri-action only builds: it uploads nothing and creates no
+      # release.
+      - name: Build the installers
+        id: tauri
+        uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.build-key.outputs.key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          args: >-
+            --target x86_64-pc-windows-msvc --bundles nsis,msi
+            --config src-tauri/tauri.release.conf.json ${{ steps.build-key.outputs.config-args }}
+            ${{ steps.hook.outputs.config-args }} -- --locked
+
+      - name: Check the files to sign
+        shell: bash
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-collected --dir "$RUNNER_TEMP/to-sign"
+
+      - name: Collect the release files (unsigned)
+        shell: bash
+        env:
+          ARTIFACT_PATHS: ${{ steps.tauri.outputs.artifactPaths }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts collect --target "$TARGET" --version "$VERSION"
+          --bundle-dir "apps/desktop/src-tauri/target/$TRIPLE/release/bundle"
+          --out dist/windows-unsigned
+
+      # fxm.exe as built, for windows-bundle, which makes the installers around it again.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-app
+          path: apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release/fxm.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-to-sign
+          path: ${{ runner.temp }}/to-sign/
+          if-no-files-found: error
+          retention-days: 1
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-unsigned
+          path: dist/windows-unsigned/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  # Signs fxm.exe, both copies, and the NSIS plugins, after checking that they are what Tauri
+  # would sign: the copies of fxm.exe differ in their bundle type alone, the plugins are the ones
+  # Tauri downloads. With a release's certificate, from the windows-signing environment, which
+  # only runs on main can use. It installs and builds nothing: GitHub's own actions, PowerShell
+  # (windows-certificate.ps1), the Windows SDK's signtool and this repository's scripts.
+  windows-sign-app:
+    name: Windows (x64), sign the app
+    needs: [check, windows-build]
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.release && 'windows-signing' || '' }}
+    permissions:
+      contents: read
+    outputs:
+      signing: ${{ steps.choose.outputs.signing }}
+      thumbprint: ${{ steps.certificate.outputs.thumbprint }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      # This step learns only whether the environment holds a certificate; only the next one
+      # gets its value.
+      - name: Choose how to sign
+        id: choose
+        shell: bash
+        env:
+          MODE: ${{ inputs.release && 'release' || 'dry-run' }}
+          HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' && 'yes' || '' }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-signing --mode "$MODE"
+          --certificate "$HAS_CERTIFICATE"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.choose.outputs.signing != 'none'
+        with:
+          name: windows-to-sign
+          path: ${{ runner.temp }}/to-sign
+
+      - name: Put the certificate in the runner's store
+        id: certificate
+        if: steps.choose.outputs.signing != 'none'
+        shell: pwsh
+        env:
+          SIGNING: ${{ steps.choose.outputs.signing }}
+          WINDOWS_CERTIFICATE: ${{ steps.choose.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ steps.choose.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+        run: '& ./apps/desktop/release/windows-certificate.ps1 -Signing $env:SIGNING'
+
+      - name: Sign the app and the NSIS plugins
+        if: steps.choose.outputs.signing != 'none'
+        shell: bash
+        env:
+          THUMBPRINT: ${{ steps.certificate.outputs.thumbprint }}
+          TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-sign --phase app --dir "$RUNNER_TEMP/to-sign"
+          --out "$RUNNER_TEMP/signed-app" --thumbprint "$THUMBPRINT"
+          --timestamp-url "$TIMESTAMP_URL"
+
+      - name: Take the certificate out of the store
+        if: always() && steps.certificate.outputs.thumbprint != ''
+        shell: pwsh
+        env:
+          THUMBPRINT: ${{ steps.certificate.outputs.thumbprint }}
+        run: Remove-Item -LiteralPath "Cert:\CurrentUser\My\$env:THUMBPRINT" -DeleteKey
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.choose.outputs.signing != 'none'
+        with:
+          name: windows-signed-app
+          path: ${{ runner.temp }}/signed-app/
+          if-no-files-found: error
+          retention-days: 1
+
+  # Makes the installers again around the same fxm.exe, with Tauri's signing hooked to put the
+  # signed copy of each file in its place as Tauri packs it. Like windows-build, it runs the
+  # build's code and has no access to the key.
+  windows-bundle:
+    name: Windows (x64), installers
+    needs: [check, windows-sign-app]
+    if: needs.windows-sign-app.outputs.signing != 'none'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      TARGET: windows-x64
+      TRIPLE: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      # The Tauri CLI asks cargo about the project, under rust-toolchain.toml.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
+        with:
+          toolchain: 1.98.1
+          targets: x86_64-pc-windows-msvc
+          components: clippy, rustfmt
+
+      - name: Install dependencies (frozen lockfile)
+        shell: bash
+        env:
+          pnpm_config_store_dir: ${{ github.workspace }}/.tools/pnpm/store
+        run: pnpm install --frozen-lockfile
+
+      - name: Make a throwaway key for tauri bundle
+        id: build-key
+        shell: bash
+        env:
+          DRY_RUN: ${{ !inputs.release }}
+        run: |
+          args=(build-key --out "$RUNNER_TEMP/build-key")
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          node --experimental-strip-types --disable-warning=ExperimentalWarning \
+            apps/desktop/release/release.ts "${args[@]}"
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-app
+          path: apps/desktop/src-tauri/target/x86_64-pc-windows-msvc/release
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-signed-app
+          path: ${{ runner.temp }}/signed-app
+
+      - name: Hook Tauri's signing to put the signed files in place
+        id: hook
+        shell: bash
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-hook-config --mode swap
+          --dir "$RUNNER_TEMP/signed-app" --out "$RUNNER_TEMP/hook"
+
+      # bundle, not build: it packs the fxm.exe that windows-build compiled.
+      - name: Make the installers around the signed app
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.build-key.outputs.key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''
+          BUILD_KEY_ARGS: ${{ steps.build-key.outputs.config-args }}
+          HOOK_ARGS: ${{ steps.hook.outputs.config-args }}
+        run: >-
+          pnpm tauri bundle --target "$TRIPLE" --bundles nsis,msi
+          --config src-tauri/tauri.release.conf.json $BUILD_KEY_ARGS $HOOK_ARGS
+
+      - name: Check that the signed files went in
+        shell: bash
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-swapped --dir "$RUNNER_TEMP/signed-app"
+
+      - name: Collect the release files
+        shell: bash
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts collect --target "$TARGET" --version "$VERSION"
+          --bundle-dir "apps/desktop/src-tauri/target/$TRIPLE/release/bundle"
+          --out dist/windows-installers
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-installers
+          path: dist/windows-installers/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  # Signs the two installers, as windows-sign-app signed the app: the same environment, and
+  # nothing of the build's code.
+  windows-sign-installers:
+    name: Windows (x64), sign the installers
+    needs: [check, windows-sign-app, windows-bundle]
+    if: needs.windows-sign-app.outputs.signing != 'none'
+    runs-on: windows-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.release && 'windows-signing' || '' }}
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+    outputs:
+      thumbprint: ${{ steps.certificate.outputs.thumbprint }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: windows-installers
+          path: ${{ runner.temp }}/installers
+
+      # How windows-sign-app signed: a release's certificate, or a throwaway one of this job's own.
+      - name: Put the certificate in the runner's store
+        id: certificate
+        shell: pwsh
+        env:
+          SIGNING: ${{ needs.windows-sign-app.outputs.signing }}
+          WINDOWS_CERTIFICATE: ${{ needs.windows-sign-app.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ needs.windows-sign-app.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+        run: '& ./apps/desktop/release/windows-certificate.ps1 -Signing $env:SIGNING'
+
+      - name: Sign the installers
+        shell: bash
+        env:
+          THUMBPRINT: ${{ steps.certificate.outputs.thumbprint }}
+          TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-sign --phase installers
+          --dir "$RUNNER_TEMP/installers" --version "$VERSION" --thumbprint "$THUMBPRINT"
+          --timestamp-url "$TIMESTAMP_URL"
+
+      - name: Take the certificate out of the store
+        if: always() && steps.certificate.outputs.thumbprint != ''
+        shell: pwsh
+        env:
+          THUMBPRINT: ${{ steps.certificate.outputs.thumbprint }}
+        run: Remove-Item -LiteralPath "Cert:\CurrentUser\My\$env:THUMBPRINT" -DeleteKey
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-signed-installers
+          path: ${{ runner.temp }}/installers/
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  # Reads the signature of both installers, of the fxm.exe inside each and of the NSIS plugins:
+  # signed by the certificates of the two signing jobs and timestamped, or, for a release without
+  # a certificate, not signed at all. It unpacks the installers here, with no key around: the
+  # MSI through an administrative install (it only unpacks), the NSIS installer with 7-Zip. Then
+  # it hands the installers on to the sign job, as the build job does for the other targets.
+  windows-check:
+    name: Windows (x64), check the signatures
+    needs: [check, windows-build, windows-sign-app, windows-sign-installers]
+    if: >-
+      ${{ !cancelled() && needs.windows-build.result == 'success'
+      && needs.windows-sign-app.result == 'success'
+      && (needs.windows-sign-installers.result == 'success'
+      || (needs.windows-sign-app.outputs.signing == 'none'
+      && needs.windows-sign-installers.result == 'skipped')) }}
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ needs.windows-sign-app.outputs.signing == 'none' && 'windows-unsigned' || 'windows-signed-installers' }}
+          path: dist/desktop
+
+      - name: Check the Windows signatures
+        shell: pwsh
+        env:
+          SIGNING: ${{ needs.windows-sign-app.outputs.signing }}
+          APP_THUMBPRINT: ${{ needs.windows-sign-app.outputs.thumbprint }}
+          THUMBPRINT: ${{ needs.windows-sign-installers.outputs.thumbprint }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-Item -Path dist/desktop/*.msi
+          $setup = Get-Item -Path dist/desktop/*-setup.exe
+          $fromMsi = New-Item -ItemType Directory -Force -Path (Join-Path $env:RUNNER_TEMP 'msi-contents')
+          $unpack = Start-Process msiexec.exe -Wait -PassThru -NoNewWindow -ArgumentList @(
+            '/a', "`"$($msi.FullName)`"", '/qn', "TARGETDIR=`"$($fromMsi.FullName)`"")
+          if ($unpack.ExitCode -ne 0) { throw "msiexec /a exited with $($unpack.ExitCode)" }
+          $fromNsis = Join-Path $env:RUNNER_TEMP 'nsis-contents'
+          7z x $setup.FullName "-o$fromNsis" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "7z exited with $LASTEXITCODE" }
+          $inside = { param($folder) Get-ChildItem -LiteralPath $folder -Recurse -Filter fxm.exe |
+            Select-Object -First 1 -ExpandProperty FullName }
+          $files = @(
+            @{ name = $msi.Name; role = 'installer'; path = $msi.FullName },
+            @{ name = $setup.Name; role = 'installer'; path = $setup.FullName },
+            @{ name = "fxm.exe in $($msi.Name)"; role = 'app'; path = & $inside $fromMsi.FullName },
+            @{ name = "fxm.exe in $($setup.Name)"; role = 'app'; path = & $inside $fromNsis }
+          )
+          # Every library in the NSIS installer is one of its plugins.
+          foreach ($plugin in Get-ChildItem -LiteralPath $fromNsis -Recurse -Filter *.dll) {
+            $files += @{
+              name = "$($plugin.Name) in $($setup.Name)"; role = 'plugin'; path = $plugin.FullName
+            }
+          }
+          $report = foreach ($file in $files) {
+            if (-not $file.path) { throw "$($file.name) not found" }
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.path
+            [pscustomobject]@{
+              file = $file.name
+              role = $file.role
+              status = "$($signature.Status)"
+              signer = $signature.SignerCertificate.Thumbprint
+              timestamped = $null -ne $signature.TimeStamperCertificate
+            }
+          }
+          $path = Join-Path $env:RUNNER_TEMP 'windows-signatures.json'
+          ConvertTo-Json -InputObject @($report) | Set-Content -LiteralPath $path
+          node --experimental-strip-types --disable-warning=ExperimentalWarning `
+            apps/desktop/release/release.ts windows-signatures --signing $env:SIGNING `
+            --thumbprint "$env:THUMBPRINT" --app-thumbprint "$env:APP_THUMBPRINT" --report $path
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-windows-x64
+          path: dist/desktop/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
   sign:
     name: Updater signatures
-    needs: [check, build]
+    needs: [check, build, windows-check]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # For a release, the updater key's environment: give it only the main branch, and no other

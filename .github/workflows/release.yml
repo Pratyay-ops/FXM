@@ -23,7 +23,11 @@ name: Release
 # The desktop job signs with the updater key, the secrets TAURI_SIGNING_PRIVATE_KEY and
 # TAURI_SIGNING_PRIVATE_KEY_PASSWORD, from the repository or from the desktop-updater environment
 # (apps/desktop/README.md, "Updates"). Without them, or while tauri.conf.json carries the
-# placeholder instead of the updater's public key, it fails, and nothing is published.
+# placeholder instead of the updater's public key, it fails, and nothing is published. It signs
+# the Windows files with the certificate in the windows-signing environment's secrets
+# WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD, which this job passes on by name, as
+# GitHub needs for an environment's secret to reach a called workflow's job; without them the
+# Windows files are unsigned (docs/CODE-SIGNING.md).
 #
 # The store jobs (firefox, firefox-listed and edge) use secrets that the owner adds to the
 # `stores` environment, which only runs on main can use (apps/extension/README.md, "Store
@@ -214,6 +218,8 @@ jobs:
     secrets:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
   publish:
     name: Publish ${{ needs.plan.outputs.tag }}

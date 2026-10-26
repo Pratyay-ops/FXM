@@ -903,7 +903,7 @@ GitHub Packages isn't needed, because FXM has no server images.
 
 - the Android keystore;
 - the Tauri updater key;
-- the Windows code-signing certificate, once there is one, in an environment that only release runs on `main` can use ([CODE-SIGNING.md](CODE-SIGNING.md));
+- the Windows code-signing certificate, once there is one, in an environment that only release runs on `main` can use, read only by the two jobs that sign, which run no code of the build ([CODE-SIGNING.md](CODE-SIGNING.md));
 - the AMO API keys;
 - the Cloudflare API token.
 
