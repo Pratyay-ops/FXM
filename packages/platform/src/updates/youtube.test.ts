@@ -217,6 +217,8 @@ describe('a signed YouTube module update', () => {
       baseUrls: [BASE],
       store: memoryUpdateStore(),
       state: memoryStorage(),
+      // A key file that holds only the placeholder parses to no trusted keys.
+      keys: [],
     }).start()
     expect(report.artifacts.map((artifact) => artifact.outcome)).toEqual(['skipped', 'skipped'])
     expect(site.requests).toEqual([])
