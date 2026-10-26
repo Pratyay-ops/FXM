@@ -17,7 +17,7 @@ import {
   unavailableResolver,
 } from '../../features/connect/resolver'
 import { withLocalFilesFirst } from '../../features/local-files/player'
-import { getPlayer } from '../../features/now-playing/playback'
+import { getPlayback, getPlayer } from '../../features/now-playing/playback'
 import {
   connectAppPolicy,
   createPendingPolicy,
@@ -56,14 +56,19 @@ function shareYouTube(youtube: YouTube): void {
  * The app's services, created on first use: on the app's one platform, which stage 2.7's
  * connection store follows too (`getAppPlatform()`: FXM Connect, the Lite tier's sandbox
  * documents in a browser, the kill switches), with the library of stage 2.6 ("Add to playlist"
- * and the match cache), whose database opens on first use.
+ * and the match cache), whose database opens on first use. In the Android app the stream
+ * lifecycle follows the native player's network, Android's own callbacks (stage 6.3).
  */
 export function getAppServices(): AppServices {
-  services ??= createAppServices({
-    createPlatform: () => getAppPlatform(),
-    library: lazyLibrary(getLibrary),
-    onYouTube: shareYouTube,
-  })
+  if (services === undefined) {
+    const { network } = getPlayback()
+    services = createAppServices({
+      createPlatform: () => getAppPlatform(),
+      library: lazyLibrary(getLibrary),
+      onYouTube: shareYouTube,
+      ...(network === undefined ? {} : { network }),
+    })
+  }
   return services
 }
 

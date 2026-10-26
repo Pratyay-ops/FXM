@@ -2,7 +2,9 @@
  * The web app's player: one `Player` facade from `@fxm/player` for the whole app, created on
  * first use. It
  *
- * - plays through the direct audio engine, two `<audio>` elements;
+ * - plays through the direct audio engine, two `<audio>` elements, or in the Android app through
+ *   the native engine, Media3 in a foreground service (stage 6.3), connected before the saved
+ *   queue is restored (see {@link AppPlayback.ready});
  * - gets its streams from the playback policy (stage 2.3, see `playback-policy.ts`);
  * - follows the catalog mode setting;
  * - shows the current track in the system media controls (Media Session);
@@ -22,6 +24,9 @@ import {
   connectMediaSession,
   DirectAudioEngine,
   type Engine,
+  type NativeConnection,
+  NativeEngine,
+  type NetworkMonitor,
   Player,
   type PlayerEventMap,
   type PlayerOptions,
@@ -42,7 +47,11 @@ import { createAppPolicy, type PlaybackPolicy } from './playback-policy'
 
 /** How the app's playback is put together. Every field has a default; tests pass fakes. */
 export interface PlaybackOptions {
-  /** Creates the engine. Default: a `DirectAudioEngine`. */
+  /**
+   * Creates the engine. Default: in the Android app the native engine on its `FxmPlayer`
+   * plugin, else (or when it can't attach) a `DirectAudioEngine`. A `NativeEngine` is connected
+   * to the player before the saved queue is restored.
+   */
   createEngine?: () => Engine
   /** The playback policy. Default: {@link createAppPolicy}. */
   policy?: PlaybackPolicy
@@ -62,6 +71,19 @@ export interface PlaybackOptions {
 export interface AppPlayback {
   readonly player: Player
   readonly policy: PlaybackPolicy
+  /**
+   * Resolves once the player plays for the app, with the saved queue back. At once with the
+   * direct audio engine; in the Android app once the native engine connected: when the page was
+   * recreated while Media3 played on, the player has Media3's queue and position then, and the
+   * saved one is not restored. Never rejects.
+   */
+  readonly ready: Promise<void>
+  /**
+   * In the Android app, the native engine's network: Android's own callbacks, which keep
+   * arriving with the screen off. The stream lifecycle follows it (the composition root passes
+   * it on); elsewhere `undefined`, and the lifecycle follows the browser's events.
+   */
+  readonly network: NetworkMonitor | undefined
 }
 
 interface Connected extends AppPlayback {
@@ -99,26 +121,72 @@ function connectReview(player: Player, policy: PlaybackPolicy): () => void {
   }
 }
 
+/**
+ * The engine the app plays through: the Android app's native engine (Media3), else two
+ * `<audio>` elements. `NativeEngine.ifAvailable()` attaches to Media3 in the background, so the
+ * player is made at once; `connect` then waits for it.
+ */
+function defaultEngine(): Engine {
+  try {
+    const native = NativeEngine.ifAvailable()
+    if (native !== undefined) return native
+  } catch (error) {
+    // Another engine plays on the plugin: a bug, but the app still plays, in the WebView.
+    console.error(error)
+  }
+  return new DirectAudioEngine()
+}
+
 function createPlayback(options: PlaybackOptions, notify: () => void): Connected {
+  const engine = options.createEngine?.() ?? defaultEngine()
+  const native = engine instanceof NativeEngine ? engine : undefined
   const policy = options.policy ?? createAppPolicy()
   const storage = options.storage
   const saved = loadSavedPlayback(storage)
   const player = new Player({
     ...options.player,
-    engine: options.createEngine?.() ?? new DirectAudioEngine(),
-    resolver: policy.resolver,
+    engine,
+    // Taking over what Media3 already plays makes no request (the native engine's README).
+    resolver: native?.wrapResolver(policy.resolver) ?? policy.resolver,
     queue: { mode: useSettingsStore.getState().catalogMode },
     ...(saved.volume === undefined ? {} : { volume: saved.volume }),
     ...(saved.muted === undefined ? {} : { muted: saved.muted }),
   })
-  if (saved.queue !== undefined && player.restore(saved.queue)) {
-    // Nothing listens yet: the seek only puts the restored item where it was.
+  const restoreSaved = () => {
+    if (saved.queue === undefined || !player.restore(saved.queue)) return
+    // Nothing plays yet: the seek only puts the restored item where it was.
     const positionMs = restoredPosition(saved, currentQueueItem(player.getState().queue))
     if (positionMs > 0) player.seek(positionMs)
   }
+  let disposed = false
+  let connection: NativeConnection | undefined
+  let ready: Promise<void>
+  if (native === undefined) {
+    restoreSaved()
+    ready = Promise.resolve()
+  } else {
+    // Connect first: when the page was recreated while Media3 played on (its renderer died),
+    // connect picks up Media3's queue, and the saved one must not replace it. A queue the user
+    // started meanwhile stays too.
+    ready = native
+      .connect({ player, resolver: policy.resolver })
+      .then((connected) => {
+        if (disposed) {
+          connected.disconnect()
+          return
+        }
+        connection = connected
+        if (!connected.resumed && player.getState().queue.items.length === 0) restoreSaved()
+      })
+      .catch((error: unknown) => {
+        console.error(error)
+        if (!disposed && player.getState().queue.items.length === 0) restoreSaved()
+      })
+  }
   const disconnects = [
     player.subscribe(notify),
-    options.mediaSession === false ? () => {} : connectMediaSession(player),
+    // Media3's own session drives the notification and the lock screen in the Android app.
+    options.mediaSession === false || native !== undefined ? () => {} : connectMediaSession(player),
     options.recordPlays === false ? () => {} : connectPlayRecorder(player),
     persistPlayback(player, storage, options.persist),
     connectReview(player, policy),
@@ -129,11 +197,15 @@ function createPlayback(options: PlaybackOptions, notify: () => void): Connected
       player.setCatalogMode(state.catalogMode)
     }),
     connectSponsorBlock(player),
+    () => connection?.disconnect(),
   ]
   return {
     player,
     policy,
+    ready,
+    network: native?.network,
     dispose() {
+      disposed = true
       for (const disconnect of disconnects) disconnect()
       player.destroy()
     },
