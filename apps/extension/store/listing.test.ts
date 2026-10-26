@@ -123,10 +123,9 @@ describe('store description', () => {
     const onlyWhenConnected = 'only after you also connect your Spotify account in FXM.'
     expect(description).toContain(`The web app asks for one ${onlyWhenConnected}`)
     expect(loginHelp()).toContain(`The app asks for one ${onlyWhenConnected}`)
-    // Connecting an account is stage 3.5, as the notes for reviewers say too.
-    expect(loginHelp()).toContain(
-      `${onlyWhenConnected} Connecting comes in a later version of FXM: until then, this setting changes nothing.`,
-    )
+    // Connecting an account shipped with stage 3.5: the help no longer says that the toggle
+    // changes nothing, as the notes for reviewers no longer do.
+    expect(loginHelp()).not.toMatch(/changes nothing|later version/)
   })
 
   it("says that the bridge's token is the only personal data FXM Connect handles", () => {
