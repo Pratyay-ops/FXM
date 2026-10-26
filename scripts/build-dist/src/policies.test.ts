@@ -4,6 +4,7 @@ import { EMBED_HEADERS } from '../../../apps/web/embed/headers.ts'
 import { pwaCspProblems } from '../../../apps/web/pwa/host.ts'
 import { EMBED_SOURCES } from '../../../apps/web/src/embed/target.ts'
 import { WIRED_SOURCES } from '../../../apps/web/src/embed/wired.ts'
+import { HOST_RULES } from '../../../packages/platform/src/hosts.ts'
 import { parsePolicy, serializePolicy, sha256Source, UNSAFE_EVAL, WASM_UNSAFE_EVAL } from './csp.ts'
 import {
   APP_SCRIPT_EXTRAS,
@@ -395,6 +396,61 @@ describe('the embed policy', () => {
     const embed = parsePolicy(serializePolicy(appPolicy([HASH], { embeddable: true })))
     expect(embed.get('worker-src')).toEqual(["'none'"])
     expect(parsePolicy(serializePolicy(appPolicy([HASH]))).get('worker-src')).toEqual(["'self'"])
+  })
+})
+
+/**
+ * Hosts the platform's host table lists that the web app's page never contacts, with why. The
+ * browser transport refuses them before the policy would.
+ */
+const NOT_FROM_THE_PAGE: Readonly<Record<string, string>> = {
+  'www.google.com':
+    "BotGuard's interpreter (1.11) sends no CORS headers: only the desktop and Android apps read it",
+  'itunes.apple.com': 'iTunes Search, which no web client calls',
+}
+
+/**
+ * Host-table rows wider than what the app reads by name. The app reads YouTube's covers from
+ * `yt3.ggpht.com`, the ggpht host measured to allow it (`appConnect`), while the table lets the
+ * page send any `*.ggpht.com` host; the table is to list `yt3.ggpht.com` instead
+ * (packages/platform/src/hosts.ts), and this entry then goes.
+ */
+const NARROWER_IN_THE_POLICY: Readonly<Record<string, readonly string[]>> = {
+  '*.ggpht.com': ['https://yt3.ggpht.com'],
+}
+
+/** Whether a policy source such as `https://*.example.com` allows a host-table row's hosts. */
+function allowsRow(sources: readonly string[], host: string): boolean {
+  return sources.some((source) => {
+    const allowed = source.replace(/^https:\/\//, '')
+    if (allowed === host) return true
+    return allowed.startsWith('*.') && !host.startsWith('*.') && host.endsWith(allowed.slice(1))
+  })
+}
+
+describe('the app policy and the platform’s host table', () => {
+  it('lets the page reach every host the browser transport sends to from the page', () => {
+    // A build with every service, as the table lists every host the app may contact.
+    const connect = parsePolicy(serializePolicy(appPolicy([HASH], ALL))).get('connect-src') ?? []
+    for (const rule of HOST_RULES) {
+      if (Object.hasOwn(NOT_FROM_THE_PAGE, rule.host)) {
+        expect(allowsRow(connect, rule.host), rule.host).toBe(false)
+        continue
+      }
+      const narrower = NARROWER_IN_THE_POLICY[rule.host]
+      if (narrower !== undefined) {
+        for (const host of narrower) expect(connect, rule.host).toContain(host)
+        continue
+      }
+      expect(allowsRow(connect, rule.host), `${rule.host} (${rule.hostClass})`).toBe(true)
+    }
+  })
+
+  it('reads the table by host and wildcard, as CSP does', () => {
+    expect(allowsRow(['https://*.archive.org'], '*.archive.org')).toBe(true)
+    expect(allowsRow(['https://*.archive.org'], 'ia800.us.archive.org')).toBe(true)
+    expect(allowsRow(['https://*.archive.org'], 'archive.org')).toBe(false)
+    expect(allowsRow(['https://yt3.ggpht.com'], '*.ggpht.com')).toBe(false)
   })
 })
 
