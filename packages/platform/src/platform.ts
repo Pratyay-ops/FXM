@@ -19,6 +19,7 @@ import { type CapabilityMonitor, createCapabilityMonitor } from './capabilities'
 import { createCapacitorTransport } from './capacitor'
 import type { Clock } from './clock'
 import { type ConnectClient, type ConnectWindow, createConnectClient } from './connect'
+import { createDesktopFetch, isTauriRuntime } from './desktop'
 import {
   createLiteTier,
   type KillSwitches,
@@ -109,7 +110,8 @@ export interface PlatformOptions {
   killSwitches?: (() => KillSwitches) | KillSwitchSource
   /**
    * Desktop and Android: the native HTTP of stage 7.2 or 6.2. Without it, the stub transport,
-   * except on Android when the app has its FxmHttp plugin ({@link androidHttpIfAvailable}).
+   * except in the desktop app, whose runtime brings `createDesktopFetch()`, and on Android when
+   * the app has its FxmHttp plugin ({@link androidHttpIfAvailable}).
    */
   nativeHttp?: NativeHttp
   /**
@@ -240,9 +242,15 @@ function browserPieces(options: PlatformOptions): Pieces {
 }
 
 function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptions): Pieces {
-  // On Android, the app's FxmHttp plugin (stage 6.2) when the caller passes no native HTTP.
+  // When the caller passes no native HTTP: on Android, the app's FxmHttp plugin (stage 6.2); in
+  // the desktop app, its own over Tauri's HTTP plugin (stage 7.2).
   const nativeHttp =
-    options.nativeHttp ?? (environment === 'capacitor' ? androidHttpIfAvailable() : undefined)
+    options.nativeHttp ??
+    (environment === 'capacitor'
+      ? androidHttpIfAvailable()
+      : isTauriRuntime()
+        ? createDesktopFetch()
+        : undefined)
   const storage = options.storage ?? browserStorage() ?? memoryStorage()
   const budget = createRequestBudget({
     storage,
@@ -306,8 +314,9 @@ function nodePieces(options: PlatformOptions): Pieces {
  * Creates the platform for the environment FXM runs in (or `options.environment`):
  *
  * - **browser:** the web transport with FXM Connect and, given `sandbox`, the Lite tier;
- * - **tauri** and **capacitor:** the native transport given `nativeHttp` (on Android, by default
- *   the app's FxmHttp plugin), else the stub that reaches only CORS-friendly hosts;
+ * - **tauri** and **capacitor:** the native transport given `nativeHttp` (by default, in the
+ *   desktop app `createDesktopFetch()` and on Android the app's FxmHttp plugin), else the stub
+ *   that reaches only CORS-friendly hosts;
  * - **node:** the Node transport, with full access.
  *
  * It resolves once FXM Connect detection is done (at most its 800 ms ping), so

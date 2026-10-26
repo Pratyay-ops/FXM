@@ -76,6 +76,8 @@ const updates = `The desktop and Android apps${soon(AVAILABLE.desktop || AVAILAB
 const embeds = `Other websites can show an FXM player for a song, an album or a playlist${soon(AVAILABLE.embed)}. The player runs in your browser, like the web app. As soon as the page shows it, even before you press play, your browser loads what it shows from its source: the details and cover art, and for YouTube a check that it can reach YouTube Music. So that source, such as YouTube, receives your IP address and which song, album or playlist the player shows, even if you have never used FXM. FXM doesn't see it. The website that shows the player can start or pause it and learns what it plays, as with any embedded player.`
 const connectInstall = privacyInstall(AVAILABLE.firefox)
 const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
+const webAppUpdates =
+  'The web app keeps a copy of its own files on your device, so it opens without a connection: never your music, or anything the music services send. While it is open, it checks this website about once an hour for a new version of itself.'
 ---
 
 <Document
@@ -187,6 +189,7 @@ const connectUpdates = privacyUpdateCheck(AVAILABLE.firefox)
     add analytics or tracking to either.
     {connectUpdates}
   </p>
+  <p>{webAppUpdates}</p>
   <p>{updates}</p>
 
   <h2 id="players-on-other-websites">FXM players on other websites</h2>

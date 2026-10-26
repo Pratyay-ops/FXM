@@ -1,0 +1,496 @@
+{
+  "id": "sp:3zvzQBIjjVRTdYmsdiBvNm",
+  "split": "held-out",
+  "categories": ["spotify-singles"],
+  "provenance": ["Spotify search \"Spotify Singles\" #1 (search:Spotify Singles), read 2026-10-25"],
+  "spotify": {
+    "id": "3zvzQBIjjVRTdYmsdiBvNm",
+    "popularity": 58,
+    "albumType": "single"
+  },
+  "variants": [
+    {
+      "slice": "spotify",
+      "source": {
+        "title": "Challa - Spotify Singles",
+        "artists": [
+          {
+            "name": "Gurdas Maan"
+          },
+          {
+            "name": "Diljit Dosanjh"
+          },
+          {
+            "name": "Ikky"
+          }
+        ],
+        "album": {
+          "name": "Challa - Spotify Singles"
+        },
+        "durationMs": 283902,
+        "isrc": "INW262300319",
+        "isrcOrigin": "catalog",
+        "explicit": false,
+        "releaseDate": "2023-03-18",
+        "label": "Sai Productions & Diljit D.",
+        "albumType": "single"
+      }
+    },
+    {
+      "slice": "data-export",
+      "source": {
+        "title": "Challa - Spotify Singles",
+        "artists": [
+          {
+            "name": "Gurdas Maan"
+          }
+        ],
+        "album": {
+          "name": "Challa - Spotify Singles"
+        }
+      }
+    }
+  ],
+  "musicBrainz": {
+    "exact": null,
+    "fuzzy": null
+  },
+  "recording": {
+    "recordedAt": ["2026-10-25"],
+    "items": {
+      "MkVmFOAzejE": {
+        "kind": "song",
+        "title": "دورت مكنتي بمنفلا",
+        "artists": ["Fares Sokar - فارس سكر"],
+        "album": "دورت مكنتي بمنفلا",
+        "albumId": "MPREb_MNdqLN4QHaJ",
+        "durationMs": 189000
+      },
+      "WaURUkHtCJ0": {
+        "kind": "song",
+        "title": "WA WA WA FUNK (Remix SLOWED)",
+        "artists": ["ZAYLO"],
+        "album": "WA WA WA FUNK",
+        "albumId": "MPREb_wxZbdPsvgwP",
+        "durationMs": 109000
+      },
+      "oyDLDo9Cd-M": {
+        "kind": "song",
+        "title": "BLUE HORIZON FUNK - SLOWED",
+        "artists": ["NXGHT!", "DJ ZAP"],
+        "album": "BLUE HORIZON FUNK",
+        "albumId": "MPREb_6WmZLqb0fvG",
+        "durationMs": 86000
+      },
+      "NmyNFaLKQJc": {
+        "kind": "song",
+        "title": "i miss your warm hands",
+        "artists": ["i don't like mirrors"],
+        "album": "Not How it's Supposed to be",
+        "albumId": "MPREb_z5MDPHquXhl",
+        "durationMs": 132000
+      },
+      "nAriYh1YvqU": {
+        "kind": "song",
+        "title": "El Seka Shemal Fe Shemal",
+        "artists": ["Cairokee"],
+        "album": "Noaata Beida",
+        "albumId": "MPREb_eEogA7pnkds",
+        "durationMs": 252000
+      },
+      "SGRmY6b-P0U": {
+        "kind": "song",
+        "title": "Kan Lak Maaya",
+        "artists": ["Cairokee"],
+        "album": "The Ugly Ducklings",
+        "albumId": "MPREb_bw6L8jLotJ1",
+        "durationMs": 227000
+      },
+      "Nv_RW9yZNAU": {
+        "kind": "song",
+        "title": "8 Pa",
+        "artists": ["Grin Department"],
+        "album": "2NAH Ahgen",
+        "albumId": "MPREb_qm1kY6ms4gO",
+        "durationMs": 287000
+      },
+      "V54GQBlkhV4": {
+        "kind": "song",
+        "title": "Torete",
+        "artists": ["Popcorn"],
+        "album": "Popcorn",
+        "albumId": "MPREb_2NIkfqOWVoE",
+        "durationMs": 265000
+      },
+      "YEnY-Uh_vQI": {
+        "kind": "song",
+        "title": "Si Es Chileno Es Weno",
+        "artists": ["ESNOU"],
+        "album": "Si Es Chileno Es Weno",
+        "albumId": "MPREb_jIvqPq6xYcl",
+        "durationMs": 154000
+      },
+      "fsM-eXNNSSo": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Gurdas Maan", "Diljit Dosanjh", "Ikky"],
+        "album": "Challa",
+        "albumId": "MPREb_PcRsTNAUoJN",
+        "durationMs": 284000
+      },
+      "oWceG6AACyI": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Gurdas Maan"],
+        "album": "Laung Da Lishkara Long Da Laskara",
+        "albumId": "MPREb_gpvNY6Vnmn4",
+        "durationMs": 407000
+      },
+      "3sM8hWZEiX4": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Gurdas Maan"],
+        "album": "Dil Da Mamla Hai",
+        "albumId": "MPREb_PeCOFJ1ExUK",
+        "durationMs": 388000
+      },
+      "S2VUGhSseDo": {
+        "kind": "song",
+        "title": "Vekhin Kite Yaar Na Hove",
+        "artists": ["Gurdas Maan"],
+        "album": "Vekhin Kite Yaar Na Hove",
+        "albumId": "MPREb_JBEIb68u4WS",
+        "durationMs": 390000
+      },
+      "hhssZ5bDa8E": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Rabbi"],
+        "album": "Jab Tak Hai Jaan",
+        "albumId": "MPREb_5tZn1UsFXVH",
+        "durationMs": 321000
+      },
+      "9PNdhU2wHls": {
+        "kind": "song",
+        "title": "Kismat",
+        "artists": ["Diljit Dosanjh", "Veet Baljit"],
+        "album": "Punjab 1984 (Original Motion Picture Soundtrack)",
+        "albumId": "MPREb_WSula48ZHqY",
+        "durationMs": 218000
+      },
+      "9UL_oxR3CNU": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Kanwar Grewal"],
+        "album": "Mela Almast Bapu Lal Badshah, Vol. 2",
+        "albumId": "MPREb_4f4PbN84hmQ",
+        "durationMs": 1586000
+      },
+      "tkPeXP_fg1o": {
+        "kind": "song",
+        "title": "Chill Mardi",
+        "artists": ["Diljit Dosanjh", "Bunny"],
+        "album": "Sardaar Ji 3 (Orignal Motion Picture Soundtrack)",
+        "albumId": "MPREb_S8DtQwgnxaF",
+        "durationMs": 171000
+      },
+      "-FosatJWWas": {
+        "kind": "song",
+        "title": "Chhalla",
+        "artists": ["Kavita Krishnamurti", "Gurdas Maan", "Arvinder"],
+        "album": "Des Hoyaa Pardes",
+        "albumId": "MPREb_sBYKHUVDTm5",
+        "durationMs": 258000
+      },
+      "Va_2jo0XHKA": {
+        "kind": "song",
+        "title": "Takue Chalaon Vi Main Janda",
+        "artists": ["Diljit Dosanjh", "Nimrat Khaira", "Tru-Skool"],
+        "album": "Jodi (Original Motion Picture Soundtrack)",
+        "albumId": "MPREb_nKE5UcjAUOf",
+        "durationMs": 273000
+      },
+      "0X5JF65mVXg": {
+        "kind": "song",
+        "title": "Banda",
+        "artists": ["Diljit Dosanjh"],
+        "album": "Dunki",
+        "albumId": "MPREb_flhIQLh6cWj",
+        "durationMs": 169000
+      },
+      "QlwdTI0N4nQ": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Afterall", "Mitika Kanwar"],
+        "album": "Challa",
+        "albumId": "MPREb_HJ8PUJ6lSkv",
+        "durationMs": 123000
+      },
+      "Rv3jRchEdEc": {
+        "kind": "song",
+        "title": "O Chhalla",
+        "artists": ["Gurdas Maan"],
+        "album": "Gurdas Maan Hits",
+        "albumId": "MPREb_dg1npcNAJVk",
+        "durationMs": 582000
+      },
+      "7GQNJj__Amk": {
+        "kind": "song",
+        "title": "Main Hi Jhoothi",
+        "artists": ["Gurdas Maan", "Jatinder Shah"],
+        "album": "Main Hi Jhoothi",
+        "albumId": "MPREb_611HneY0TOD",
+        "durationMs": 228000
+      },
+      "iw7RcVTEcn0": {
+        "kind": "song",
+        "title": "Chhalla",
+        "artists": ["Rabbi Shergill"],
+        "album": "Avengi Ja Nahin",
+        "albumId": "MPREb_c9kbnz8GWhm",
+        "durationMs": 224000
+      },
+      "WApyXpAEw5I": {
+        "kind": "song",
+        "title": "Sajda",
+        "artists": ["Diljit"],
+        "album": "Sajda",
+        "albumId": "MPREb_huRBDtYrtDB",
+        "durationMs": 457000
+      },
+      "oyO2f-03rJA": {
+        "kind": "song",
+        "title": "Nazarey",
+        "artists": ["Diljit Dosanjh"],
+        "album": "Nazarey (From \"Babe Bhangra Paunde Ne\")",
+        "albumId": "MPREb_xLPrPffFE8X",
+        "durationMs": 146000
+      },
+      "vJOaXhFW07k": {
+        "kind": "song",
+        "title": "Punjabi Boliyan",
+        "artists": ["Annamika"],
+        "album": "Annamika - The Very Best So Far",
+        "albumId": "MPREb_LCK75rJaLGs",
+        "durationMs": 285000
+      },
+      "MM1aGIXLTgs": {
+        "kind": "song",
+        "title": "Panjeb",
+        "artists": ["Gurdas Maan"],
+        "album": "Panjeb",
+        "albumId": "MPREb_ASthWiUYAbr",
+        "durationMs": 278000
+      },
+      "MmRYNUdJF7U": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Dippa Sat-Rang"],
+        "album": "Maximum Respect",
+        "albumId": "MPREb_1Ym3PHAObOk",
+        "durationMs": 410000
+      },
+      "sA0yu_nSLR0": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Pritam", "Babbu Mann", "Suzanne D'Mello"],
+        "album": "Crook (Original Motion Picture Soundtrack)",
+        "albumId": "MPREb_4ARwjJHdGfP",
+        "durationMs": 226000
+      },
+      "Jo91qRX9taM": {
+        "kind": "song",
+        "title": "Collaborations",
+        "artists": ["Sukshinder Shinda", "Gurdas Maan", "Abrar Ul Haq"],
+        "album": "Collaborations",
+        "albumId": "MPREb_3DyGE1UyE3S",
+        "durationMs": 398000
+      },
+      "x0_neVzQq4I": {
+        "kind": "song",
+        "title": "Sajna Ve Sajna",
+        "artists": ["Gurdas Maan"],
+        "album": "Ibbadat Gurdas Maan",
+        "albumId": "MPREb_rHXLgtPrTi2",
+        "durationMs": 382000
+      },
+      "7deDlPYWObs": {
+        "kind": "song",
+        "title": "Pind Di Hawa",
+        "artists": ["Gurdas Maan"],
+        "album": "Roti",
+        "albumId": "MPREb_LDrmXRecFap",
+        "durationMs": 403000
+      },
+      "NSSKSbOGqg0": {
+        "kind": "song",
+        "title": "Pind Grammar Challa",
+        "artists": ["DJ Aps"],
+        "album": "Bhangra Hiphop Street Remixes, Vol. 2",
+        "albumId": "MPREb_05FshhC3goI",
+        "durationMs": 214000
+      },
+      "IEoW3Nz6Lu0": {
+        "kind": "song",
+        "title": "Chhala",
+        "artists": ["Gurdas Maan"],
+        "album": "Punjabi Non - Film Hits Vol - 8",
+        "albumId": "MPREb_n4PZFUztwEZ",
+        "durationMs": 404000
+      },
+      "_cFdRfKQLZY": {
+        "kind": "song",
+        "title": "Tera Challa",
+        "artists": ["Gurdas Sandhu", "Kunwar Brar"],
+        "album": "Tera Challa",
+        "albumId": "MPREb_s0YQtFkHxj2",
+        "durationMs": 175000
+      },
+      "F-yr0j0D9X4": {
+        "kind": "song",
+        "title": "MAGICIAN (feat. Gurdas Maan)",
+        "artists": ["DJ SLYR"],
+        "album": "MAGICIAN",
+        "albumId": "MPREb_15F48SDMMtG",
+        "durationMs": 214000
+      },
+      "SDY-PGmtrRA": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Dilshaan"],
+        "album": "Nishaniyan",
+        "albumId": "MPREb_ae9CfpTEwe1",
+        "durationMs": 386000
+      },
+      "RrhwbcfEsLQ": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Surinder Shinda", "GURLEZ AKHTAR"],
+        "album": "Challa",
+        "albumId": "MPREb_CrHUDjx4cpe",
+        "durationMs": 324000
+      },
+      "N8KtCA46cBo": {
+        "kind": "song",
+        "title": "Challa",
+        "artists": ["Bushra Sadiq"],
+        "album": "Best Of Bushra Sadiq",
+        "albumId": "MPREb_IulETQ4oYY5",
+        "durationMs": 424000
+      },
+      "QlADc6Oyl98": {
+        "kind": "song",
+        "title": "Balle O Chalaak Sajna",
+        "artists": ["Gurdas Maan"],
+        "album": "Ghar Bhulgi Morh Te Aake",
+        "albumId": "MPREb_N0o7Smqke2z",
+        "durationMs": 304000
+      }
+    },
+    "pages": {
+      "isrc-songs/1/INW262300319": {
+        "items": [
+          "MkVmFOAzejE",
+          "WaURUkHtCJ0",
+          "oyDLDo9Cd-M",
+          "NmyNFaLKQJc",
+          "nAriYh1YvqU",
+          "SGRmY6b-P0U",
+          "Nv_RW9yZNAU",
+          "V54GQBlkhV4",
+          "YEnY-Uh_vQI"
+        ]
+      },
+      "isrc-top-card/INW262300319": {
+        "item": null
+      },
+      "isrc-songs/2/INW262300319": {
+        "items": [
+          "MkVmFOAzejE",
+          "WaURUkHtCJ0",
+          "oyDLDo9Cd-M",
+          "NmyNFaLKQJc",
+          "nAriYh1YvqU",
+          "SGRmY6b-P0U",
+          "Nv_RW9yZNAU",
+          "V54GQBlkhV4",
+          "YEnY-Uh_vQI"
+        ]
+      },
+      "songs/Gurdas Maan Diljit Dosanjh Ikky Challa - Spotify Singles": {
+        "items": [
+          "fsM-eXNNSSo",
+          "oWceG6AACyI",
+          "3sM8hWZEiX4",
+          "S2VUGhSseDo",
+          "hhssZ5bDa8E",
+          "9PNdhU2wHls",
+          "9UL_oxR3CNU",
+          "tkPeXP_fg1o",
+          "-FosatJWWas",
+          "Va_2jo0XHKA",
+          "0X5JF65mVXg",
+          "QlwdTI0N4nQ",
+          "Rv3jRchEdEc",
+          "7GQNJj__Amk",
+          "iw7RcVTEcn0",
+          "WApyXpAEw5I",
+          "oyO2f-03rJA",
+          "vJOaXhFW07k",
+          "MM1aGIXLTgs",
+          "MmRYNUdJF7U"
+        ]
+      },
+      "description/fsM-eXNNSSo": {
+        "facts": {
+          "providedBy": "Sai Productions & Diljit D.",
+          "label": "Sai Productions & Diljit Dosanjh",
+          "releaseYear": 2023
+        },
+        "excerpt": "Provided to YouTube by Sai Productions & Diljit D.\nChalla · Gurdas Maan · Diljit Dosanjh · Ikky\nChalla\n℗ 2023 Sai Productions & Diljit Dosanjh\nVocals: Diljit Dosanjh\nVocals: Gurdas Maan"
+      },
+      "songs/Gurdas Maan Challa - Spotify Singles": {
+        "items": [
+          "fsM-eXNNSSo",
+          "3sM8hWZEiX4",
+          "oWceG6AACyI",
+          "sA0yu_nSLR0",
+          "S2VUGhSseDo",
+          "Jo91qRX9taM",
+          "x0_neVzQq4I",
+          "Rv3jRchEdEc",
+          "7deDlPYWObs",
+          "NSSKSbOGqg0",
+          "IEoW3Nz6Lu0",
+          "_cFdRfKQLZY",
+          "-FosatJWWas",
+          "F-yr0j0D9X4",
+          "SDY-PGmtrRA",
+          "hhssZ5bDa8E",
+          "RrhwbcfEsLQ",
+          "N8KtCA46cBo",
+          "iw7RcVTEcn0",
+          "QlADc6Oyl98"
+        ]
+      }
+    }
+  },
+  "labels": {
+    "MkVmFOAzejE": {
+      "label": "wrong",
+      "by": "rule",
+      "evidence": ["length -94.9 s", "more than 10 s apart: another edit or recording"]
+    },
+    "fsM-eXNNSSo": {
+      "label": "exact",
+      "by": "agent",
+      "ambiguous": true,
+      "evidence": [
+        "length +0.1 s",
+        "the same three credits (Gurdas Maan, Diljit Dosanjh, Ikky) and the same label and year: provided by Sai Productions & Diljit D., ℗ 2023 Sai Productions & Diljit Dosanjh, as Spotify lists it",
+        "title \"Challa\" without Spotify's \" - Spotify Singles\" suffix",
+        "the Spotify ISRC (INW262300319) does not find it, so YouTube Music lists it under another ISRC: probably the Spotify Singles recording released outside Spotify; confirm by ear"
+      ]
+    }
+  }
+}

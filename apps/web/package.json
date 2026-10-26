@@ -14,10 +14,11 @@
     "preview": "vite preview",
     "dev:embed": "vite -c vite.embed.config.ts",
     "preview:embed": "vite preview -c vite.embed.config.ts",
-    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p e2e && tsc --noEmit -p pwa",
     "test": "vitest run",
     "e2e": "playwright test",
-    "screenshots": "FXM_SCREENSHOTS=1 VITE_FXM_FAKE_CATALOG=on playwright test screenshots",
+    "screenshots": "FXM_SCREENSHOTS=1 VITE_FXM_FAKE_CATALOG=on playwright test screenshots pwa.spec",
+    "icons": "node scripts/render-icons.ts",
     "e2e:embed": "playwright install --no-shell chromium firefox && vite build -c vite.embed.config.ts --mode e2e --outDir ../dist-embed-e2e && playwright test -c e2e/embed/playwright.config.ts"
   },
   "dependencies": {
@@ -38,6 +39,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-router": "^7.18.4",
+    "workbox-window": "^7.4.1",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
@@ -55,6 +57,7 @@
     "happy-dom": "^20.14.6",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.4",
+    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.0.3"
   }
 }
