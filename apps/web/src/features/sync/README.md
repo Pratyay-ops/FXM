@@ -20,10 +20,11 @@ Records are the library backup's (`db/backup.ts`), and every one goes through th
 | Playlists and their custom order, Liked songs and its order, the order of the playlists list | **Downloads**: it lists files stored on this device only |
 | Likes, follows | Undo orders: Undo applies to this device's last shuffle or saved sort |
 | Reserved settings whose key starts with `sync.` | Every other reserved setting: credentials, secret sources, network endpoints and per-device privacy switches must never use `sync.` |
-| Plays of the last 90 days | Older plays: sync never reads, sends or deletes them. The query of a search a play started from |
+| Plays of the last 90 days, with what a backup holds of them: time played, the track's length, completed or skipped, where they started, what streamed, the import they came from | Older plays: sync never reads, sends or deletes them. The query of a search a play started from |
 | Pins ("Not the right version?") | The matching engine's own decisions: a cache each device rebuilds |
 | The track metadata the above use | The rest of the track cache. The covers of local files (stage 4.4), `data:` URLs the backup's guards drop: a track that comes without artwork keeps its cover here (`library-io.ts`) |
 | App settings: catalog mode and theme | Import progress: an import resumes on the device that runs it |
+| | The listening affinity (stage 3.1) and its model version: derived from the plays, likes, playlists and track metadata that sync, so each device rebuilds its own, as after a backup's import |
 
 The app settings (`appSettingsIO` in `controller.ts`) and the `sync.` settings apply on every device, from a gist anyone with its link can read. Only settings that should be the same everywhere belong there: never a credential, a secret source, a network endpoint, or a per-device switch such as turning a service off on one device.
 
@@ -34,7 +35,7 @@ GitHub sends the whole gist back after every update (the API returns gist object
 `engine.ts`, `syncLibrary`:
 
 1. **Read.** A conditional read with the gist's ETag; GitHub answers 304 when nothing changed, which doesn't count against its rate limit. A gist that is public, or belongs to another account, stops sync (`public`, `not-owner`).
-2. **Merge** the gist into the library, in **one transaction** that reads this device's library and writes only what changed (`library-io.ts`). A like made in another tab meanwhile waits for the transaction and is carried by the next sync, never overwritten. If the merge would remove a lot here (more than one playlist with songs, or more than a tenth of the likes, follows or plays; `exceedsRemovalLimits` in `merge.ts`), it stops before writing anything (`removals`), and Settings asks: **Remove them here too**, or **Keep them**, which puts them back in the gist, so the other devices get them back too.
+2. **Merge** the gist into the library, in **one transaction** that reads this device's library and writes only what changed (`library-io.ts`). A like made in another tab meanwhile waits for the transaction and is carried by the next sync, never overwritten. When the merge changed plays, likes, the songs of a playlist (or when they were added) or track metadata, the repository rebuilds the listening affinity in the same transaction (`syncTransaction`), as a backup's import does; renames, new orders, follows, settings and pins leave it alone. If the merge would remove a lot here (more than one playlist with songs, or more than a tenth of the likes, follows or plays; `exceedsRemovalLimits` in `merge.ts`), it stops before writing anything (`removals`), and Settings asks: **Remove them here too**, or **Keep them**, which puts them back in the gist, so the other devices get them back too.
 3. **Push**, when the gist lacks part of the merged library: only parts whose content changed, and a new manifest, as one revision. Right before, a conditional read checks the gist is still the one this round merged; if another device pushed meanwhile, the round merges again. Every answer GitHub sends is checked: a gist that turned public stops the push.
 4. **Save the base**: the library both sides agreed on, with the gist's revision, its parts and files, and its ETag. It lives in its own IndexedDB database, `fxm-sync` (`base-store.ts`), never in backups, and only while sync is on: turning sync off deletes it. A base that can't be read (damaged, or of another version) is dropped, and the next sync is a first sync.
 
@@ -48,6 +49,7 @@ GitHub sends the whole gist back after every update (the API returns gist object
 - A playlist **deleted on one side and changed on the other** is kept, and the device that kept it shows a notice with "Delete it". Only its content counts as a change: saving it unchanged, which moves only its `updatedAt`, doesn't.
 - **The first sync** on a device, without a base, is the backup import's merge: everything in either library stays (plus the copies when a playlist differs). A setting still at its default takes the synced value.
 - **Lineage.** Each push has a random revision ID and lists the revisions it was merged from (at most 1,000). Deletions on the gist's side count only when the gist descends from this device's base. If another device overwrote a push (a race the pre-push check can't fully close: GitHub supports no conditional writes for gists), or the gist was rewritten, what it lacks is kept and pushed back. Nothing is lost; at worst a deletion comes back. A gist older than the base is GitHub serving an old read for up to 10 minutes after this device's push (`STALE_READ_GRACE_MS`); after that, its history really went back, and it is merged the same way.
+- **Clocks.** The library never stores a time after its clock (stage 3.1): the affinity would hold every later play at next to nothing. So when another device's clock runs ahead of this one's, what it saved later than this device's now (a like, a song added, a play started) counts from now here, which the rebuild after the merge settles, and the next sync carries those times back. A play moved that way goes from the other devices and comes back at its new time. Devices that take their time from the network rarely differ by more than the seconds a change takes to sync.
 - **Plays.** The manifest says where its writer's 90-day window started (`historySince`). A play the gist lacks counts as deleted only if it started after that: older ones fell out of the writer's window. So clearing the history on one device clears the synced plays on the others, near the start of the window too, while a device whose clock runs ahead never deletes plays it merely cut off. A gist without `historySince` gets a 7-day margin instead.
 
 **Conflicts are visible on every device.** A copy's ID is the original's plus a hash of the version it keeps (`conflictCopyOf`), so the copy syncs like any playlist, a retried sync never makes a second one, and Settings finds every pair (`listConflicts`). The choices (`settleConflict`) are plain library edits that sync like others:
@@ -73,12 +75,12 @@ GitHub sends the whole gist back after every update (the API returns gist object
 |---|---|
 | The app starts | Sync |
 | The user comes back (focus, visible), the device is back online, every 15 minutes while visible | Sync, at most once a minute. These pull; new plays alone wait for a push |
-| Playlists, likes, follows, reserved settings, the theme or the catalog mode change | Sync 5 s after the last change, at most 30 s after the first |
+| Playlists, likes, follows, `sync.` settings, the theme or the catalog mode change | Sync 5 s after the last change, at most 30 s after the first |
 | Plays, track metadata or pins change | Sync after 10 quiet minutes, at most an hour after the first |
 | A failure | Retry after 30 s, doubling up to 30 minutes, or when GitHub's `Retry-After` or rate-limit reset says, whether or not anything else asks for a sync |
 | A failure only the user can fix (a revoked token, a deleted, public or foreign gist, a newer format, a damaged gist, a library too large, much removed by another device) | Stop until the user acts; a toast says so, and Settings says what to do |
 
-One sync runs at a time across tabs (Web Locks; a lock within the tab where they are missing). Automatic syncs skip one another tab is running; Sync now waits for it. When a sync keeps two versions of a playlist or a deleted one, a toast says so, with a link to Settings. Every tab follows the others' sync settings: when one turns sync off or clears a problem, the others drop it too (`syncConfigAcrossTabs`).
+One sync runs at a time across tabs (Web Locks; a lock within the tab where they are missing). Automatic syncs skip one another tab is running; Sync now waits for it. When a sync keeps two versions of a playlist or a deleted one, a toast says so, with a link to Settings. Changes that have nothing to sync start none: a write that changed no row, the library's own settings (such as the affinity's model version) and the affinity itself (`changeKindOf`). Every tab follows the others' sync settings: when one turns sync off or clears a problem, the others drop it too (`syncConfigAcrossTabs`).
 
 ## Privacy
 
@@ -105,7 +107,7 @@ One sync runs at a time across tabs (Web Locks; a lock within the tab where they
 | `controller.ts` | The app's wiring: environment, locks, setup, sync now, conflicts, turning off |
 | `scheduler.ts`, `auto-sync.ts`, `agent.tsx` | Automatic sync and its toasts |
 | `sync-settings.tsx`, `connect-dialog.tsx`, `messages.ts` | Settings › Sync, the setup, token and turn-off dialogs, the words |
-| `testing/` | A fake GitHub and snapshot builders, for tests only |
+| `testing/` | A fake GitHub, snapshot builders and a check that the affinity is what a rebuild gives, for tests only |
 | `CLEAN-ROOM.md` | GitHub's API facts this code relies on, with sources and dates |
 
 ## Tests
@@ -114,7 +116,7 @@ One sync runs at a time across tabs (Web Locks; a lock within the tab where they
 scripts/run.sh pnpm vitest run apps/web/src/features/sync
 ```
 
-They run offline against `testing/fake-github.ts`, which answers like the real API (status codes, error bodies, ETags and 304, scopes, pagination, truncation) and can simulate failures, races and a gist turned public: two simulated devices sync through it in `engine.test.ts`. The live test needs a token of a test account with the Gists permission; it creates one secret gist and deletes it:
+They run offline against `testing/fake-github.ts`, which answers like the real API (status codes, error bodies, ETags and 304, scopes, pagination, truncation) and can simulate failures, races and a gist turned public: two simulated devices sync through it in `engine.test.ts`, on one library clock as devices that take their time from the network are, or with one clock ahead of the other. The live test needs a token of a test account with the Gists permission; it creates one secret gist and deletes it:
 
 ```sh
 FXM_LIVE=1 FXM_GITHUB_TOKEN=github_pat_… scripts/run.sh pnpm vitest run apps/web/src/features/sync/live.test.ts

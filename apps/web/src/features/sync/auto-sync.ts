@@ -6,7 +6,7 @@
  * @module
  */
 
-import { Dexie, type ObservabilitySet } from 'dexie'
+import { Dexie, type IntervalTree, type ObservabilitySet, RangeSet, rangesOverlap } from 'dexie'
 import { DB_NAME } from '../../db/types'
 import { useSettingsStore } from '../settings/settings-store'
 import { runResult, runSync, schedulerOptions } from './controller'
@@ -14,6 +14,7 @@ import type { SyncReport } from './engine'
 import { nameBeforeCopy } from './merge'
 import { stoppedMessage } from './messages'
 import { type ChangeKind, createSyncScheduler } from './scheduler'
+import { SYNCED_SETTING_PREFIX } from './snapshot'
 import { needsUser } from './sync-store'
 
 /** How often a visible app checks the gist for changes from other devices. */
@@ -24,13 +25,36 @@ const EDIT_TABLES = new Set(['likes', 'playlists', 'orders', 'follows', 'setting
 /** Library tables that change in the background (plays, metadata, pins), which sync later. */
 const BACKGROUND_TABLES = new Set(['history', 'tracks', 'matchCache'])
 
+/**
+ * The keys of the reserved settings that sync. The library keeps its own settings in the same
+ * table, such as the model version every rebuild of the listening affinity writes, and those
+ * stay on the device: changing them has nothing to sync.
+ */
+const SYNCED_SETTING_KEYS = new RangeSet(SYNCED_SETTING_PREFIX, `${SYNCED_SETTING_PREFIX}\uffff`)
+
+/**
+ * Whether a change of a table touched nothing that syncs: no row at all (a write that changed
+ * nothing still names its table, as a rebuild of the affinity does with the likes and plays
+ * when no time lies after now), or in `settings` no reserved setting that syncs. `keys` is
+ * Dexie's range of the keys `index` changed; anything else counts as a change.
+ */
+function touchesNothingSynced(table: string, index: string | undefined, keys: unknown): boolean {
+  if (typeof keys !== 'object' || keys === null) return false
+  const range = keys as IntervalTree
+  if (!('from' in range)) return true
+  // The table's primary keys: `''` for the rows written, `:dels` for the rows deleted.
+  if (table !== 'settings' || (index !== '' && index !== ':dels')) return false
+  return !rangesOverlap(range, SYNCED_SETTING_KEYS)
+}
+
 /** Which kind of synced change a database change is, if any. */
 export function changeKindOf(parts: ObservabilitySet): ChangeKind | undefined {
   let kind: ChangeKind | undefined
-  for (const part of Object.keys(parts)) {
+  for (const [part, keys] of Object.entries(parts)) {
     // `idb://<database>/<table>/<index>`
-    const [database, table] = part.replace(/^idb:\/\//, '').split('/')
+    const [database, table, index] = part.replace(/^idb:\/\//, '').split('/')
     if (database !== DB_NAME || table === undefined) continue
+    if (touchesNothingSynced(table, index, keys)) continue
     if (EDIT_TABLES.has(table)) return 'edit'
     if (BACKGROUND_TABLES.has(table)) kind = 'background'
   }

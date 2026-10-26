@@ -1,5 +1,6 @@
 import { formatId } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
+import { AFFINITY_MODEL_SETTING } from '../../db/affinity'
 import { DOWNLOADS_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from '../../db/types'
 import { testRepo, track, tracks } from '../../test/library-fixtures'
 import {
@@ -10,6 +11,8 @@ import {
   readLibrarySnapshot,
 } from './library-io'
 import { conflictCopyOf } from './merge'
+import { expectAffinityOfLibrary } from './testing/affinity'
+import { follow, pin } from './testing/snapshots'
 
 const settings = { catalogMode: 'music', theme: 'dark' }
 const spotify = formatId('spotify', 'track', '4uLU6hMCjMI75M1A2tKUQC')
@@ -188,6 +191,61 @@ describe('mergeIntoLibrary', () => {
     expect(await repo.isLiked(track(2).id)).toBe(true)
   })
 
+  it('rebuilds the affinity from what it wrote, as a restore does', async () => {
+    let clock = Date.UTC(2026, 9, 25, 12)
+    const now = () => (clock += 1000)
+    const repo = testRepo({ now })
+    await repo.like(track(1))
+    const other = testRepo({ now })
+    await other.like(track(2))
+    await other.createPlaylist({ name: 'Theirs', tracks: [track(3)] })
+    await other.recordPlay({ track: track(4), playedMs: 1000, completed: true, skipped: false })
+    const remote = await readLibrarySnapshot(other, settings)
+
+    await mergeIntoLibrary(repo, { remote, remoteFromBase: false, appSettings: settings })
+
+    const scored = await repo.getAffinity(
+      'track',
+      [1, 2, 3, 4].map((n) => track(n).id),
+    )
+    expect(scored.map((score) => (score?.score ?? 0) > 0)).toEqual([true, true, true, true])
+    await expectAffinityOfLibrary(repo)
+  })
+
+  it('leaves the affinity alone when it changes nothing the affinity scores', async () => {
+    const repo = testRepo()
+    await repo.like(track(1))
+    const mix = await repo.createPlaylist({ name: 'Mix', tracks: tracks(3) })
+    const base = await readLibrarySnapshot(repo, settings)
+    const affinity = await repo.db.affinity.toArray()
+    // The other device renamed and reordered Mix, followed an artist, pinned a match and changed
+    // a reserved setting.
+    const remote = structuredClone({
+      ...base,
+      follows: [follow('Band')],
+      pins: [pin('4uLU6hMCjMI75M1A2tKUQC', 'song')],
+      settings: [{ key: 'sync.shared', value: 1, updatedAt: 5 }],
+    })
+    const remoteMix = remote.playlists.find((item) => item.id === mix)
+    if (remoteMix === undefined) throw new Error('missing')
+    remoteMix.name = 'Mix 2'
+    remoteMix.trackIds.reverse()
+    remoteMix.updatedAt += 10_000
+
+    const merged = await mergeIntoLibrary(repo, {
+      base,
+      remote,
+      remoteFromBase: true,
+      appSettings: settings,
+    })
+
+    expect(merged.changed).toBe(4)
+    expect((await repo.getPlaylistView(mix))?.playlist.name).toBe('Mix 2')
+    expect(await repo.db.affinity.toArray()).toEqual(affinity)
+    // No rebuild ran: a rebuild records the model it was built with.
+    expect(await repo.db.settings.get(AFFINITY_MODEL_SETTING)).toBeUndefined()
+  })
+
   it('removes a pin removed on the other side, but never the engine’s own decision', async () => {
     const repo = testRepo()
     await repo.pinMatch(spotify, 'music', candidate)
@@ -239,6 +297,12 @@ describe('settling a conflict', () => {
   it('keeps the other version in the original playlist', async () => {
     const { repo, mix, copy } = await withConflict()
     expect(await keepOtherVersion(repo, copy.id, 99)).toBe(mix)
+    // The original's own songs went, with what their adds gave the affinity.
+    expect(await repo.getAffinity('track', [track(1).id, track(3).id])).toEqual([
+      undefined,
+      expect.objectContaining({ score: expect.any(Number) }),
+    ])
+    await expectAffinityOfLibrary(repo)
     const view = await repo.getPlaylistView(mix)
     expect(view?.playlist).toMatchObject({
       name: 'Party',

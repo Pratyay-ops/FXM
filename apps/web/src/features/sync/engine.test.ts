@@ -1,5 +1,6 @@
 import { formatId, type JsonObject, type QueueContext } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
+import { AFFINITY_MODEL_SETTING } from '../../db/affinity'
 import type { LibraryRepo } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID } from '../../db/types'
 import { testRepo, track, tracks } from '../../test/library-fixtures'
@@ -20,13 +21,39 @@ import {
 import { MANIFEST_FILE, parseManifest, SYNC_FORMAT_VERSION } from './gist-format'
 import { createGitHubClient } from './github'
 import { keepOtherVersion, listConflicts } from './library-io'
+import { expectAffinityOfLibrary } from './testing/affinity'
 import { createFakeGitHub, type FakeGitHub } from './testing/fake-github'
 
 const TOKEN = 'github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz'
 
+const libraryClocks = new WeakMap<FakeGitHub, () => number>()
+
+/**
+ * The library clock of the devices on one fake GitHub, which ticks a second with every reading.
+ * They share it, like devices that take their time from the network: with a clock each, what one
+ * device saves would often lie after another's clock, which a library never stores (see "a
+ * device whose clock runs ahead" below).
+ */
+function libraryClock(github: FakeGitHub): () => number {
+  let clock = libraryClocks.get(github)
+  if (clock === undefined) {
+    let time = Date.UTC(2026, 9, 25, 12)
+    clock = () => {
+      time += 1000
+      return time
+    }
+    libraryClocks.set(github, clock)
+  }
+  return clock
+}
+
 /** One device: its own library, base store and app settings, on the shared fake GitHub. */
-function device(github: FakeGitHub, overrides: Partial<SyncDeps> = {}) {
-  const repo = testRepo()
+function device(
+  github: FakeGitHub,
+  overrides: Partial<SyncDeps> = {},
+  clock: () => number = libraryClock(github),
+) {
+  const repo = testRepo({ now: clock })
   const bases = createMemoryBaseStore()
   let settings: JsonObject = { catalogMode: 'music', theme: 'dark' }
   const deps: SyncDeps = {
@@ -754,6 +781,9 @@ describe('what sync carries', () => {
     const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
     const a = clocked(github, () => NOW)
     const b = clocked(github, () => NOW)
+    await a.repo.like(track(1))
+    // The library's own setting, the version of the affinity's model, stays on the device.
+    await a.repo.rebuildAffinity()
     await a.repo.db.settings.bulkPut([
       { key: 'scrobble.lastfm.sessionKey', value: 'SESSION-SECRET-123', updatedAt: 1 },
       { key: 'sync.shared', value: 'for every device', updatedAt: 1 },
@@ -761,12 +791,92 @@ describe('what sync carries', () => {
     const { gistId } = await createSyncGist(a.deps)
     const everything = [...(github.gists.get(gistId)?.files.values() ?? [])].join('\n')
     expect(everything).not.toContain('SESSION-SECRET-123')
+    expect(everything).not.toContain(AFFINITY_MODEL_SETTING)
     await b.repo.db.settings.put({ key: 'device.only', value: true, updatedAt: 1 })
     await sync(b.deps, gistId)
-    expect((await b.repo.db.settings.toArray()).map((row) => row.key).sort()).toEqual([
-      'device.only',
-      'sync.shared',
+    // B wrote its own model version when it rebuilt its affinity with the like.
+    expect((await b.repo.db.settings.toArray()).map((row) => row.key).sort()).toEqual(
+      [AFFINITY_MODEL_SETTING, 'device.only', 'sync.shared'].sort(),
+    )
+  })
+
+  it('carries what a backup holds of plays and tracks, and never the affinity', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    const a = clocked(github, () => NOW)
+    const b = clocked(github, () => NOW)
+    const song = track(1, { tags: ['shoegaze', 'dream pop'], durationMs: 240_000 })
+    const job = await a.repo.startImport({ kind: 'lastfm', label: 'Last.fm', total: 1 })
+    await a.repo.recordPlays([
+      {
+        track: song,
+        playedMs: 200_000,
+        durationMs: 250_000,
+        completed: true,
+        skipped: false,
+        importId: job.id,
+      },
     ])
+    await a.repo.like(track(2))
+    await a.repo.createPlaylist({ name: 'Mix', tracks: [track(3)] })
+    expect(await a.repo.db.affinity.count()).toBeGreaterThan(0)
+
+    const { gistId } = await createSyncGist(a.deps)
+    const files = github.gists.get(gistId)?.files
+    const manifest = parseManifest(files?.get(MANIFEST_FILE))
+    expect(manifest.parts.map((part) => part.table)).not.toContain('affinity')
+    const everything = [...(files?.values() ?? [])].join('\n')
+    expect(everything).not.toContain(AFFINITY_MODEL_SETTING)
+    expect(everything).not.toContain('"rank"')
+
+    await sync(b.deps, gistId)
+    const [played] = await b.repo.history()
+    expect(played).toMatchObject({
+      trackId: song.id,
+      playedMs: 200_000,
+      durationMs: 250_000,
+      importId: job.id,
+    })
+    expect(await b.repo.getTrack(song.id)).toMatchObject({ tags: ['shoegaze', 'dream pop'] })
+    // B scored the play, the like and the add itself, as a rebuild of its library does.
+    const top = await b.repo.topAffinity('track', 10)
+    expect(top.map((score) => score.entry.key).sort()).toEqual(
+      [song.id, track(2).id, track(3).id].map((id) => id.replace(/^ytm:/, 'youtube:')).sort(),
+    )
+    expect(await expectAffinityOfLibrary(b.repo)).toBeGreaterThan(3)
+    const tag = await b.repo.getAffinity('tag', ['shoegaze'])
+    expect(tag[0]?.score).toBeGreaterThan(0)
+  })
+
+  it('brings what a device whose clock runs ahead saved later than now back to now', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    const HOUR = 60 * 60 * 1000
+    const behind = libraryClock(github)
+    const a = device(github, { now: () => NOW }, () => behind() + HOUR)
+    const b = device(github, { now: () => NOW }, behind)
+    await a.repo.like(track(1))
+    await a.repo.createPlaylist({ name: 'Mix', tracks: [track(2)] })
+    await a.repo.recordPlay({ track: track(3), playedMs: 1000, completed: true, skipped: false })
+    const { gistId } = await createSyncGist(a.deps)
+
+    await sync(b.deps, gistId)
+    // B's library never holds a time after its clock, so its affinity can count everything.
+    const now = b.repo.now()
+    expect((await b.repo.db.likes.toArray()).map((like) => like.likedAt <= now)).toEqual([true])
+    expect((await b.repo.history()).map((play) => play.playedAt <= now)).toEqual([true])
+    const mix = await playlistByName(b.repo, 'Mix')
+    expect(Object.values(mix?.playlist.addedAt ?? {}).every((at) => at <= now)).toBe(true)
+    await expectAffinityOfLibrary(b.repo)
+
+    // The next syncs carry those times to A: both agree, with nothing lost or doubled.
+    await sync(b.deps, gistId)
+    await sync(a.deps, gistId)
+    const plays = async (repo: LibraryRepo) =>
+      (await repo.history()).map(({ id: _id, ...play }) => play)
+    expect(await plays(a.repo)).toEqual(await plays(b.repo))
+    expect(await plays(a.repo)).toHaveLength(1)
+    expect(await a.repo.db.likes.toArray()).toEqual(await b.repo.db.likes.toArray())
+    expect((await playlistByName(a.repo, 'Mix'))?.playlist.addedAt).toEqual(mix?.playlist.addedAt)
+    expect(await sync(b.deps, gistId)).toMatchObject({ pushed: false, pulled: 0 })
   })
 
   it('never carries the query of a search a play started from', async () => {

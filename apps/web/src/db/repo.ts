@@ -1558,10 +1558,16 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
      * device's library, merges the other devices' changes and writes what changed in that one
      * transaction, so a change made meanwhile, in another tab too, waits for it and is never
      * overwritten. Everything else reads and writes through the methods above.
+     *
+     * Sync writes those tables directly, so the listening affinity can't follow it change by
+     * change: `work` calls `affinityChanged()` when it changed what the affinity is derived from
+     * (the track cache, the likes, the playlists or the plays), and the affinity is rebuilt from
+     * the result before the transaction ends, as after a backup's restore. The affinity itself
+     * never syncs: every device derives its own.
      */
     async syncTransaction<T>(
       mode: 'r' | 'rw',
-      work: (tables: SyncedTables) => Promise<T>,
+      work: (tables: SyncedTables, affinityChanged: () => void) => Promise<T>,
     ): Promise<T> {
       const tables: SyncedTables = {
         tracks: db.tracks,
@@ -1573,7 +1579,18 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
         settings: db.settings,
         matchCache: db.matchCache,
       }
-      return db.transaction(mode, Object.values(tables), () => work(tables))
+      // A read changes nothing, so it leaves the affinity out of its scope.
+      if (mode === 'r') {
+        return db.transaction('r', Object.values(tables), async () => work(tables, () => {}))
+      }
+      return db.transaction('rw', [...Object.values(tables), db.affinity], async () => {
+        let rebuild = false
+        const result = await work(tables, () => {
+          rebuild = true
+        })
+        if (rebuild) await rebuildAffinity(affinityTables, now())
+        return result
+      })
     },
 
     /** Empties every table, then recreates the built-in playlists. */

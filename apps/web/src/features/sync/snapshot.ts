@@ -18,6 +18,7 @@
  * | | Undo orders: Undo applies to this device's last shuffle or saved sort |
  * | Plays of the last {@link HISTORY_WINDOW_MS} (90 days), without the query of a search they started from | Older plays: sync never touches them. Search queries |
  * | Track metadata that the carried playlists, likes, plays and pins use | The rest of the track cache. Local files' covers: `data:` URLs, which the guards drop |
+ * | | The listening affinity and its model version (stage 3.1): derived from what syncs, so each device rebuilds its own |
  *
  * Every update of a gist sends the whole gist back, so sync carries what other devices need and
  * no more. Anyone with the gist's link can read it, so it carries nothing private to one device.

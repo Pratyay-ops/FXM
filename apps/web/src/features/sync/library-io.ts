@@ -9,10 +9,15 @@
  * written, and nothing sync doesn't carry is touched (Downloads, import progress, the matching
  * engine's own decisions, undo orders that still apply).
  *
+ * Also like a restore, a write that changes what the listening affinity (stage 3.1) is derived
+ * from, the track cache, the likes, the playlists or the plays, has the repository rebuild the
+ * affinity in that transaction. The affinity never syncs: every device derives its own.
+ *
  * @module
  */
 
 import { type EntityId, formatId, type JsonObject, type QueueContext } from '@fxm/core'
+import { addedAtOf } from '../../db/affinity'
 import { sameOrder } from '../../db/ordering'
 import { LibraryError, type LibraryRepo, randomUuid, type SyncedTables } from '../../db/repo'
 import {
@@ -108,7 +113,7 @@ export async function mergeIntoLibrary(
     checkRemovals?: (removed: RemovalCounts, local: SyncSnapshot) => void
   },
 ): Promise<LibraryMerge> {
-  return repo.syncTransaction('rw', async (db) => {
+  return repo.syncTransaction('rw', async (db, affinityChanged) => {
     const local = await readLibrarySnapshot(repo, input.appSettings, {
       ...(input.historySince === undefined ? {} : { historySince: input.historySince }),
       // So that the merge compares the gist's tracks with those cached here.
@@ -123,7 +128,10 @@ export async function mergeIntoLibrary(
       historyDeletionsSince: input.historyDeletionsSince,
     })
     input.checkRemovals?.(countRemovals(local, result.snapshot), local)
-    const changed = await writeChanges(db, local, result.snapshot, input.historySince)
+    const changed = await writeChanges(db, local, result.snapshot, {
+      historySince: input.historySince,
+      affinityChanged,
+    })
     return { ...result, local, changed }
   })
 }
@@ -147,16 +155,34 @@ function diff<T>(
 }
 
 /**
+ * The playlist adds a playlist stands for in the listening affinity, as `librarySignals` in
+ * `db/affinity.ts` reads them: each track with when it was added, in no particular order.
+ * Liked songs stands for none: its tracks count by their likes.
+ */
+function playlistAdds(record: PlaylistRecord | undefined): string {
+  if (record === undefined || record.system === 'liked') return '[]'
+  return canonicalJson(record.trackIds.map((id) => [id, addedAtOf(record, id)]).sort())
+}
+
+/**
  * Writes what changed from `local` to `merged`. Returns how many records changed. Plays that
- * started before `historySince` weren't merged and stay as they are.
+ * started before `historySince` weren't merged and stay as they are. Calls `affinityChanged`
+ * when it changed what the listening affinity is derived from.
  */
 async function writeChanges(
   db: SyncedTables,
   local: SyncSnapshot,
   merged: SyncSnapshot,
-  historySince: number | undefined,
+  {
+    historySince,
+    affinityChanged,
+  }: { historySince: number | undefined; affinityChanged: () => void },
 ): Promise<number> {
   let changed = 0
+  // Whether it changed what the listening affinity scores: plays, likes and playlist adds, each
+  // with its track's cached metadata. A playlist renamed or reordered, the order of the playlists
+  // list, follows, settings and pins don't count.
+  let scored = false
 
   // Tracks are a cache: the merge never removes one. `local` holds the cached versions of the
   // gist's tracks too, so only what is new or newer is written.
@@ -168,8 +194,10 @@ async function writeChanges(
   await db.likes.bulkPut(likes.puts)
   await db.likes.bulkDelete(likes.deletes)
   changed += likes.puts.length + likes.deletes.length
+  scored ||= tracks.puts.length + likes.puts.length + likes.deletes.length > 0
 
   const playlists = diff(local.playlists, merged.playlists, (row) => row.id)
+  const playlistsHere = new Map(local.playlists.map((row) => [row.id, row]))
   for (const record of playlists.puts) {
     // Undo still applies when the merge left this playlist's order as it was here.
     const current = await db.playlists.get(record.id)
@@ -178,11 +206,15 @@ async function writeChanges(
         ? { ...record, undo: current.undo }
         : record
     await db.playlists.put(next)
+    scored ||= playlistAdds(playlistsHere.get(record.id)) !== playlistAdds(record)
   }
   const removable = playlists.deletes.filter(
-    (id) => local.playlists.find((row) => row.id === id)?.system === undefined,
+    (id) => playlistsHere.get(id as EntityId<'playlist'>)?.system === undefined,
   )
   await db.playlists.bulkDelete(removable as EntityId<'playlist'>[])
+  scored ||= removable.some(
+    (id) => playlistAdds(playlistsHere.get(id as EntityId<'playlist'>)) !== '[]',
+  )
   changed += playlists.puts.length + removable.length
 
   if (
@@ -236,6 +268,9 @@ async function writeChanges(
     }),
   )
   changed += history.puts.length + history.deletes.length
+  scored ||= history.puts.length + history.deletes.length > 0
+  // The repository rebuilds the affinity from the result when the transaction ends.
+  if (scored) affinityChanged()
 
   const settings = diff(local.settings, merged.settings, (row) => row.key)
   await db.settings.bulkPut(settings.puts)
@@ -306,7 +341,7 @@ export async function keepOtherVersion(
   now = Date.now(),
 ): Promise<EntityId<'playlist'>> {
   const originalId = conflictOriginalOf(copyId)
-  return repo.syncTransaction('rw', async (db) => {
+  return repo.syncTransaction('rw', async (db, affinityChanged) => {
     const copy = await requireCopy(db, copyId)
     const original = originalId === undefined ? undefined : await db.playlists.get(originalId)
     if (originalId === undefined || original === undefined) return copyId
@@ -323,13 +358,16 @@ export async function keepOtherVersion(
     await db.playlists.put(next)
     await db.playlists.delete(copyId)
     await replaceInOrder(db, copyId, undefined, now)
+    // The original's own songs went, with what their adds gave the affinity.
+    affinityChanged()
     return original.id
   })
 }
 
 /**
  * "Keep both": the copy becomes a playlist of its own, with a new ID in its place in the list,
- * so it no longer reads as a conflict on any device.
+ * so it no longer reads as a conflict on any device. Its songs and when they were added stay as
+ * they were, and so does the listening affinity.
  */
 export async function keepBothVersions(
   repo: LibraryRepo,

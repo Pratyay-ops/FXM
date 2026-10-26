@@ -1,5 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
+import { Dexie, type ObservabilitySet, RangeSet } from 'dexie'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { AFFINITY_MODEL_SETTING } from '../../db/affinity'
 import { getLibrary } from '../../db/repo'
 import { testRepo, track } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
@@ -133,14 +135,50 @@ describe('SyncAgent', { timeout: 30_000 }, () => {
 })
 
 describe('changeKindOf', () => {
+  /** Changed keys, as Dexie reports them. */
+  const keys = () => new RangeSet('youtube:track:video0001')
+
   it('tells edits from background changes of the library', () => {
-    expect(changeKindOf({ 'idb://fxm/likes/': true } as never)).toBe('edit')
-    expect(changeKindOf({ 'idb://fxm/history/playedAt': true } as never)).toBe('background')
+    expect(changeKindOf({ 'idb://fxm/likes/': keys() })).toBe('edit')
+    expect(changeKindOf({ 'idb://fxm/history/playedAt': new RangeSet(1000) })).toBe('background')
     expect(
-      changeKindOf({ 'idb://fxm/history/': true, 'idb://fxm/playlists/': true } as never),
+      changeKindOf({ 'idb://fxm/history/': new RangeSet(7), 'idb://fxm/playlists/': keys() }),
     ).toBe('edit')
-    expect(changeKindOf({ 'idb://fxm/importProgress/': true } as never)).toBeUndefined()
-    expect(changeKindOf({ 'idb://fxm-sync/bases/': true } as never)).toBeUndefined()
+    expect(changeKindOf({ 'idb://fxm/importProgress/': keys() })).toBeUndefined()
+    expect(changeKindOf({ 'idb://fxm-sync/bases/': keys() })).toBeUndefined()
+    // A write that changed nothing, such as a modify that matched no row, names no keys.
+    expect(changeKindOf({ 'idb://fxm/likes/': new RangeSet() })).toBeUndefined()
+  })
+
+  it('counts only the reserved settings that sync', () => {
+    expect(changeKindOf({ 'idb://fxm/settings/': new RangeSet('sync.shared') })).toBe('edit')
+    expect(changeKindOf({ 'idb://fxm/settings/:dels': new RangeSet('sync.shared') })).toBe('edit')
+    // The library's own settings stay on the device, like the affinity it rebuilds.
+    expect(
+      changeKindOf({
+        'idb://fxm/settings/': new RangeSet(AFFINITY_MODEL_SETTING),
+        'idb://fxm/affinity/': new RangeSet('artist|band'),
+      }),
+    ).toBeUndefined()
+    // Clearing the table removes the synced ones too.
+    expect(changeKindOf({ 'idb://fxm/settings/': new RangeSet(-Infinity, [[]]) })).toBe('edit')
+  })
+
+  it('finds nothing to sync when the library rebuilds the affinity', async () => {
+    const library = getLibrary()
+    await library.like(track(1))
+    const parts: ObservabilitySet[] = []
+    const listen = (changed: ObservabilitySet) => {
+      parts.push(changed)
+    }
+    Dexie.on('storagemutated', listen)
+    try {
+      expect(await library.rebuildAffinity()).toBeGreaterThan(0)
+      await waitFor(() => expect(parts.length).toBeGreaterThan(0))
+      expect(parts.map((changed) => changeKindOf(changed))).toEqual(parts.map(() => undefined))
+    } finally {
+      Dexie.on.storagemutated.unsubscribe(listen)
+    }
   })
 })
 
