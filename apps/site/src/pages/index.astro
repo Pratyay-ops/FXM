@@ -5,13 +5,23 @@ import GetFxm from '../components/GetFxm.astro'
 import Hero from '../components/Hero.astro'
 import HowItWorks from '../components/HowItWorks.astro'
 import OpenSource from '../components/OpenSource.astro'
+import { AVAILABLE } from '../config'
 import Base from '../layouts/Base.astro'
+import { joinList, unreleased } from '../lib/copy'
+
+// Search results and social cards show the description on its own, so it says which apps are
+// still to come (AVAILABLE in src/config.ts), as Hero's note does, in at most 160 characters.
+const apps = unreleased([
+  [AVAILABLE.desktop, 'desktop'],
+  [AVAILABLE.android, 'Android'],
+])
+const description =
+  apps.length === 0
+    ? 'Play practically any song with FXM, a free, open-source music player for the web, desktop and Android. No ads from FXM, no accounts, no tracking.'
+    : `Play practically any song with FXM, a free, open-source music player for the web. The ${joinList(apps)} ${apps.length === 1 ? 'app is' : 'apps are'} coming soon. No ads from FXM, no accounts.`
 ---
 
-<Base
-  title="FXM: free and open-source music player"
-  description="Play practically any song with FXM, a free, open-source music player for the web, desktop and Android. No ads from FXM, no accounts, no tracking."
->
+<Base title="FXM: free and open-source music player" description={description}>
   <Hero />
   <Features />
   <HowItWorks />

@@ -1,12 +1,13 @@
 /**
  * Turns the composed folder into `_headers` rules: one Content-Security-Policy per path, plus
- * Referrer-Policy and X-Content-Type-Options, with no two rules matching the same path
+ * the headers every response gets (COMMON_HEADERS: Referrer-Policy, X-Content-Type-Options,
+ * Cross-Origin-Opener-Policy and Permissions-Policy), with no two rules matching the same path
  * (docs/PLAN.md, stage 2.8).
  *
  * | Files                     | Rule                                   | Policy                         |
  * |---------------------------|----------------------------------------|--------------------------------|
  * | app/**                    | /app/*                                 | appPolicy()                    |
- * | embed/**                  | /embed/*                               | appPolicy({ embeddable }), COOP |
+ * | embed/**                  | /embed/*                               | appPolicy({ embeddable })      |
  * | sandbox/<doc>.html        | /sandbox/<doc> and /sandbox/<doc>.html | SANDBOX_DOCUMENTS[<doc>.html]  |
  * | _astro/**, .well-known/** | /_astro/*, /.well-known/*              | STATIC_FILE_POLICY             |
  * | other .html files         | each page's path and its .html path    | sitePagePolicy() for that page |
@@ -40,6 +41,7 @@ import {
   appPolicy,
   COMMON_HEADERS,
   isSandboxDocument,
+  permissionsPolicyProblems,
   policyProblems,
   SANDBOX_DOCUMENTS,
   STATIC_FILE_POLICY,
@@ -224,26 +226,12 @@ export function metaPolicyProblems(file: string, scan: PageScan, headerPolicy: s
 const OPAQUE_ORIGIN_TEST =
   /\bself\.origin\s*[!=]==?\s*(['"])null\1|(['"])null\2\s*[!=]==?\s*self\.origin\b/
 
-function rule(
-  path: string,
-  policy: Policy,
-  extra: readonly (readonly [name: string, value: string])[] = [],
-): HeaderRule {
+function rule(path: string, policy: Policy): HeaderRule {
   return {
     path,
-    headers: [['Content-Security-Policy', serializePolicy(policy)], ...COMMON_HEADERS, ...extra],
+    headers: [['Content-Security-Policy', serializePolicy(policy)], ...COMMON_HEADERS],
   }
 }
-
-/**
- * The embed's extra header (apps/web/src/embed/README.md, "Headers"):
- * `Cross-Origin-Opener-Policy: same-origin` cuts a player opened at top level off from the page
- * that opened it, which could otherwise count the player's frames and so tell whether the
- * visitor has FXM Connect. Browsers ignore it in frames, so embedding works as before.
- */
-export const EMBED_EXTRA_HEADERS: readonly (readonly [name: string, value: string])[] = [
-  ['Cross-Origin-Opener-Policy', 'same-origin'],
-]
 
 /** The `_headers` rules for a composed folder. Throws when a file can't get a correct policy. */
 export function generateRules(pagesDir: string): HeaderRule[] {
@@ -286,14 +274,7 @@ export function generateRules(pagesDir: string): HeaderRule[] {
       }
       hashes.push(...scan.inlineScripts.map(sha256Source))
     }
-    const embeddable = family === 'embed'
-    splatRules.push(
-      rule(
-        `/${folder}/*`,
-        appPolicy(hashes, { embeddable }),
-        embeddable ? EMBED_EXTRA_HEADERS : [],
-      ),
-    )
+    splatRules.push(rule(`/${folder}/*`, appPolicy(hashes, { embeddable: family === 'embed' })))
   }
 
   for (const file of files.filter((name) => !inSplatFolder(name))) {
@@ -427,6 +408,16 @@ export function validateRules(rules: readonly HeaderRule[], files: readonly stri
     }
     if (values('x-content-type-options').join() !== 'nosniff') {
       errors.push(`${path}: X-Content-Type-Options must be nosniff, once`)
+    }
+    if (values('cross-origin-opener-policy').join() !== 'same-origin') {
+      errors.push(`${path}: Cross-Origin-Opener-Policy must be same-origin, once`)
+    }
+    const permissions = values('permissions-policy')
+    if (permissions.length !== 1) {
+      errors.push(`${path}: ${permissions.length} Permissions-Policy headers`)
+    }
+    for (const problem of permissions.flatMap(permissionsPolicyProblems)) {
+      errors.push(`${path}: Permissions-Policy: ${problem}`)
     }
   }
   for (let i = 0; i < rules.length; i++) {

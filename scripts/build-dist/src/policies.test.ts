@@ -1,11 +1,17 @@
 import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { EMBED_HEADERS } from '../../../apps/web/embed/headers.ts'
+import { pwaCspProblems } from '../../../apps/web/pwa/host.ts'
 import { parsePolicy, serializePolicy, sha256Source, UNSAFE_EVAL, WASM_UNSAFE_EVAL } from './csp.ts'
 import {
   APP_SCRIPT_EXTRAS,
   APP_SERVICES,
   appPolicy,
+  COMMON_HEADERS,
   isSandboxDocument,
+  PERMISSIONS_POLICY,
+  PLAYER_FEATURES,
+  permissionsPolicyProblems,
   policyProblems,
   ruleFamily,
   SANDBOX_DOCUMENTS,
@@ -251,5 +257,53 @@ describe('the site policies', () => {
     expect(serializePolicy(STATIC_FILE_POLICY)).toBe(
       "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     )
+  })
+})
+
+describe('the app policy and the installable web app', () => {
+  it('allows what the PWA needs: its service worker, manifest, icons and shell download', () => {
+    expect(pwaCspProblems(serializePolicy(appPolicy([HASH])))).toEqual([])
+    expect(pwaCspProblems(serializePolicy(appPolicy([HASH], { embeddable: true })))).toEqual([])
+  })
+})
+
+describe('the headers of every response', () => {
+  it('cut a page off from a cross-site opener and turn off features FXM never uses', () => {
+    expect(COMMON_HEADERS).toEqual([
+      ['Referrer-Policy', 'no-referrer'],
+      ['X-Content-Type-Options', 'nosniff'],
+      ['Cross-Origin-Opener-Policy', 'same-origin'],
+      [
+        'Permissions-Policy',
+        'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=()',
+      ],
+    ])
+  })
+
+  it('never turn off what the player may use', () => {
+    expect(PLAYER_FEATURES).toEqual([
+      'autoplay',
+      'fullscreen',
+      'picture-in-picture',
+      'screen-wake-lock',
+    ])
+    expect(permissionsPolicyProblems(PERMISSIONS_POLICY)).toEqual([])
+    for (const feature of PLAYER_FEATURES) expect(PERMISSIONS_POLICY).not.toContain(feature)
+  })
+
+  it("match the copy of the embed's rule that its browser tests send", () => {
+    for (const [name, value] of COMMON_HEADERS) {
+      expect(EMBED_HEADERS[name.toLowerCase()], name).toBe(value)
+    }
+  })
+
+  it('find a Permissions-Policy that turns off more, or allows something', () => {
+    expect(
+      permissionsPolicyProblems('camera=(), screen-wake-lock=(), clipboard-read=(), usb=*'),
+    ).toEqual([
+      'it turns off screen-wake-lock, which the player may use',
+      "it turns off clipboard-read, which isn't one of the features FXM never uses",
+      '"usb=*" doesn\'t turn a feature off (feature=())',
+    ])
   })
 })

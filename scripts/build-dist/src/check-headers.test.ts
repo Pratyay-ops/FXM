@@ -182,6 +182,23 @@ describe('responseProblems', () => {
     ])
   })
 
+  it('expects the opener policy, and a Permissions-Policy that leaves the player alone', () => {
+    const response = headers
+      .filter(([name]) => name !== 'cross-origin-opener-policy')
+      .map(([name, value]) =>
+        name === 'permissions-policy' ? [name, 'autoplay=()'] : [name, value],
+      ) as [string, string][]
+    const fake = { ...probe, rule: { ...ruleOf(probe), headers: new Map(response) } }
+    expect(responseProblems(fake, { status: 200, headers: response, body }, base)).toEqual([
+      '/sandbox/innertube: Permissions-Policy: it turns off autoplay, which the player may use',
+    ])
+    expect(responseProblems(probe, { status: 200, headers: response, body }, base)).toEqual([
+      '/sandbox/innertube: 0 cross-origin-opener-policy headers, expected exactly one',
+      `/sandbox/innertube: permissions-policy is\n      autoplay=()\n    expected\n      ${ruleOf(probe).headers.get('permissions-policy')}`,
+      '/sandbox/innertube: Permissions-Policy: it turns off autoplay, which the player may use',
+    ])
+  })
+
   it('checks where a redirect points', () => {
     const redirect = probes.find((candidate) => candidate.path === '/privacy.html')
     const response = {

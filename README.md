@@ -2,27 +2,30 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/Pratyay-ops/FXM)
 
-**FXM (Free Cross-platform Media)** is a free, open-source music player for the web, desktop and Android. It is in early development.
+**FXM (Free Cross-platform Media)** is a free, open-source music player that runs in your browser, with desktop and Android apps on the way. FXM is in early development: anything marked (coming soon) is on its way.
 
 - **Play practically any song** from YouTube Music, ad-free, streamed straight to your device. There are two modes:
-  - **Music:** only songs (from the YouTube Music catalog, Internet Archive, Jamendo and your own files), with clean album audio.
+  - **Music:** songs only, from any source: YouTube Music's clean album audio, free music from Internet Archive (Jamendo coming soon), and your own files.
   - **Music + Video:** also any YouTube video (covers, live sets, remixes), played as music.
-- **Spotify built in, switchable.** Search and related artists from Spotify's catalog, and its recommendations on your home feed. Song radio, and connecting your account to sync your recommendations, liked songs and playlists (read-only: FXM never changes your Spotify account), are coming soon. Turn it off any time.
-- **Made for you.** A home feed with quick picks and daily mixes, computed on your device from YouTube Music radio, Spotify, Last.fm and ListenBrainz. Endless radio is coming soon.
-- **Download any track** for offline listening, as the file its source has: real lossless FLAC where the source has it (Internet Archive, Jamendo), Opus or AAC from YouTube Music. Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art and honest labels, is coming soon.
-- **No servers, no accounts, no tracking.** Everything runs on your device. The web app uses the small **FXM Connect** browser extension to reach music services from your own browser. Without it, an experimental no-install tier (Lite) can search and play YouTube Music in some browsers, for as long as YouTube allows it (no Spotify there, and no downloads of its songs), alongside free music from Internet Archive and Jamendo. The desktop app (macOS, Windows and Linux) and the Android app don't need the extension.
+- **Spotify built in, switchable.** Search Spotify's catalog, see related artists, and get its recommendations on your home feed. Song radio from Spotify's catalog (coming soon). Connect your account for a read-only sync of your recommendations, liked songs and playlists (coming soon): FXM never changes your Spotify account. Turn Spotify off any time.
+- **Your library, on your device.** Likes, playlists in an order you choose, your listening history and backups, plus your own music files, synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account. If you turn on sync, a copy also goes to a secret gist on your own GitHub account, so your other devices can read it.
+- **Made for you.** A home feed with quick picks and daily mixes, computed on your device from YouTube Music radio, Spotify, Last.fm and ListenBrainz, and endless radio (coming soon).
+- **Download any track** for offline listening, as the file its source has: real lossless FLAC where the source has it (Internet Archive), Opus or AAC from YouTube Music (with FXM Connect in the browser). Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags, cover art and honest labels (coming soon).
+- **No servers, no accounts, no tracking.** Everything runs on your device. In the browser, the small **FXM Connect** extension lets the web app reach YouTube Music and Spotify from your own browser; without it, the web app plays free music from Internet Archive, and your own files. YouTube Music without the extension, in the experimental Lite tier where the browser allows it, is coming soon. The desktop app (macOS, Windows and Linux) and the Android app (both coming soon) won't need the extension.
 
 Inspired by [Bloomee](https://github.com/HemantKArya/BloomeeTunes) and [Spotube](https://github.com/KRTirtho/spotube). FXM is not affiliated with YouTube, Google or Spotify.
 
-## Where it will run
+## Where it runs
 
 | | |
 |---|---|
 | Web page | `https://fxmusic.pages.dev/` |
-| Web app (installable PWA), with the FXM Connect extension or in the experimental Lite tier | `https://fxmusic.pages.dev/app/` |
-| Desktop app (macOS, Windows, Linux) | GitHub Releases |
-| Android app (APK) | GitHub Releases |
-| Embeddable mini-player | `https://fxmusic.pages.dev/embed/…` |
+| Web app, installable from the browser (with the FXM Connect extension for YouTube Music and Spotify) | `https://fxmusic.pages.dev/app/` |
+| FXM Connect for Chrome, Edge, Brave and other Chromium browsers | GitHub Releases (zip) |
+| FXM Connect for Firefox, signed by Mozilla (coming soon) | GitHub Releases (`.xpi`), and Firefox Add-ons once it is listed |
+| Desktop app for macOS, Windows and Linux (coming soon) | GitHub Releases |
+| Android app (coming soon) | GitHub Releases (APK) |
+| Embeddable mini-player (coming soon) | `https://fxmusic.pages.dev/embed/…` |
 
 ## Docs
 

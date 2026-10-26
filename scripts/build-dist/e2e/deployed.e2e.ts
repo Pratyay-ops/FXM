@@ -3,6 +3,8 @@
  * deploy workflow, or against `make dist` served like Cloudflare Pages on 127.0.0.1.
  *
  * - The pages and the app start under their policies, with no violation reported.
+ * - A page opened at top level by another site keeps no tie to it (Cross-Origin-Opener-Policy),
+ *   and the Permissions-Policy turns off the features FXM never uses, and none the player uses.
  * - googlevideo requests from the app and the embed carry no Referer, also at a percent-encoded
  *   path, where no `_headers` rule applies (src/headers-file.ts); there the app moves to its own
  *   path before it starts.
@@ -133,8 +135,8 @@ const INNERTUBE_HOSTS = [
 ]
 
 /**
- * Opens a page on another origin that frames `path` without the sandbox attribute, and returns
- * the frame and a function that closes what it started.
+ * Opens a page with the given HTML on another origin, and returns a function that closes what
+ * it started.
  *
  * Against a deployment, the page is a made-up public site the test answers itself. Locally it
  * must be a real server: Chrome treats a page the test answers as public, and blocks a public
@@ -142,13 +144,12 @@ const INNERTUBE_HOSTS = [
  * free port above the preview's (5801 and up, one per test worker) serves it as `localhost`,
  * another origin than `127.0.0.1`.
  */
-async function frameFromElsewhere(
+async function openElsewhere(
   page: Page,
   baseURL: string,
-  path: string,
-): Promise<{ frame: Frame; close: () => Promise<void> }> {
+  html: string,
+): Promise<{ close: () => Promise<void> }> {
   const base = new URL(baseURL)
-  const html = `<!doctype html><title>elsewhere</title><iframe src="${new URL(path, base)}"></iframe>`
   let close = async () => {}
   let other = `${base.protocol}//fxm-check.example/`
   if (['127.0.0.1', 'localhost'].includes(base.hostname)) {
@@ -166,6 +167,20 @@ async function frameFromElsewhere(
     await page.route(other, (route) => route.fulfill({ contentType: 'text/html', body: html }))
   }
   await page.goto(other)
+  return { close }
+}
+
+/**
+ * Opens a page on another origin that frames `path` without the sandbox attribute (see
+ * openElsewhere), and returns the frame and a function that closes what it started.
+ */
+async function frameFromElsewhere(
+  page: Page,
+  baseURL: string,
+  path: string,
+): Promise<{ frame: Frame; close: () => Promise<void> }> {
+  const html = `<!doctype html><title>elsewhere</title><iframe src="${new URL(path, baseURL)}"></iframe>`
+  const { close } = await openElsewhere(page, baseURL, html)
   const frame = page.frames().find((candidate) => candidate !== page.mainFrame())
   if (!frame) throw new Error('the page has no frame')
   await frame.waitForLoadState()
@@ -190,6 +205,70 @@ async function repliesTo(page: Page, messages: readonly unknown[]): Promise<unkn
     return received
   }, messages)
 }
+
+test('a page opened by another site keeps no tie to it', async ({ page, baseURL }) => {
+  const opener = '<!doctype html><title>elsewhere</title><button id="open">Open FXM</button>'
+  const { close } = await openElsewhere(page, baseURL as string, opener)
+  try {
+    await page.evaluate((url) => {
+      document.getElementById('open')?.addEventListener('click', () => {
+        ;(window as unknown as { opened: Window | null }).opened = window.open(url, 'fxm', 'popup')
+      })
+    }, new URL('/app/', baseURL).href)
+    const [popup] = await Promise.all([
+      page.context().waitForEvent('page'),
+      page.locator('#open').click(),
+    ])
+    await popup.waitForLoadState()
+    // Cross-Origin-Opener-Policy put the app in a group of its own: the opener's handle on it
+    // reads as a closed window, and the app has no opener.
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as { opened: Window }).opened.closed))
+      .toBe(true)
+    expect(await popup.evaluate(() => window.opener)).toBeNull()
+    await popup.close()
+  } finally {
+    await close()
+  }
+})
+
+test('the pages turn off the features FXM never uses, and none the player uses', async ({
+  page,
+}) => {
+  for (const path of ['/', '/app/']) {
+    await page.goto(path)
+    const allowed = await page.evaluate(() => {
+      // Chromium's view of the page's Permissions-Policy.
+      const policy = (document as { featurePolicy?: { allowsFeature(name: string): boolean } })
+        .featurePolicy
+      if (!policy) return undefined
+      const features = ['camera', 'microphone', 'geolocation', 'payment', 'usb', 'serial']
+      const player = ['autoplay', 'fullscreen', 'picture-in-picture', 'screen-wake-lock']
+      return Object.fromEntries(
+        [...features, 'bluetooth', 'hid', 'midi', ...player].map((name) => [
+          name,
+          policy.allowsFeature(name),
+        ]),
+      )
+    })
+    test.skip(allowed === undefined, 'this browser does not report its permissions policy')
+    expect(allowed, path).toEqual({
+      camera: false,
+      microphone: false,
+      geolocation: false,
+      payment: false,
+      usb: false,
+      serial: false,
+      bluetooth: false,
+      hid: false,
+      midi: false,
+      autoplay: true,
+      fullscreen: true,
+      'picture-in-picture': true,
+      'screen-wake-lock': true,
+    })
+  }
+})
 
 test.describe('sandbox documents', () => {
   test('innertube.html is opaque and only its policy keeps it to its three hosts', async ({
