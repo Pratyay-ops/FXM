@@ -409,6 +409,64 @@ describe('when the page comes back', () => {
     expect(second.native()[0]).toBe('c')
   })
 
+  /**
+   * A page in Music + Video mode that played three videos until Media3 moved on to v2 at 30 s,
+   * and then died; with `switchToMusic`, the user switched to Music mode while v2 played, which
+   * keeps v2 and drops the other videos (`setQueueMode`).
+   */
+  async function diedOnVideo(switchToMusic: boolean) {
+    const first = nativeSetup({ player: { queue: { mode: 'all' } } })
+    await first.connect()
+    await first.player.setQueue(
+      ['v1', 'v2', 'v3'].map((name) => testTrack(name, { kind: 'video' })),
+    )
+    await settle()
+    first.plugin.ready()
+    first.plugin.advance()
+    await settle()
+    if (switchToMusic) first.player.setCatalogMode('music')
+    await settle()
+    first.plugin.progress(30_000, 200_000)
+    const session = await first.plugin.attach()
+    first.plugin.detach()
+    return session
+  }
+
+  it.each([
+    ['restored into Music mode', false],
+    ['after a switch to Music mode while one played', true],
+  ])(
+    'lets Media3 go when the catalog mode hides every stored item: videos %s',
+    async (_name, switchToMusic) => {
+      const session = await diedOnVideo(switchToMusic)
+      expect(session).toMatchObject({ playWhenReady: true, positionMs: 30_000 })
+      expect(session.entries[0]?.metadata.title).toBe('v2')
+      const stored = JSON.parse(session.snapshot ?? 'null') as { queue: QueueState }
+      expect(stored.queue.mode).toBe(switchToMusic ? 'music' : 'all')
+      // The page comes back in Music mode, which hides every video.
+      const second = nativeSetup({ fake: { session } })
+      const before = second.player.getState()
+      const connection = await second.connect()
+      expect(connection.resumed).toBe(false)
+      await settle()
+      // The player is as it was, ready for the app's own restore, and Media3 let go of the video
+      // the player could neither show nor stop.
+      expect(second.player.getState()).toBe(before)
+      expect(second.plugin.calls).toContain('release')
+      expect(second.plugin.state.playWhenReady).toBe(false)
+      expect(second.plugin.entries).toEqual([])
+      // The app restores its own queue: playing and pausing in the app drive Media3.
+      await second.player.setQueue(testTracks('x', 'y'))
+      second.plugin.ready()
+      await settle()
+      expect(second.native()[0]).toBe('x')
+      expect(second.plugin.state.playWhenReady).toBe(true)
+      second.player.pause()
+      await settle()
+      expect(second.plugin.state.playWhenReady).toBe(false)
+    },
+  )
+
   it('takes Media3’s entry over when the app restored the same queue first', async () => {
     const session = await diedOnB()
     const snapshot = JSON.parse(session.snapshot ?? 'null') as { v: 1; queue: QueueState }

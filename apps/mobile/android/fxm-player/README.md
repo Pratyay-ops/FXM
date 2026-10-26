@@ -119,3 +119,4 @@ The JVM tests cover the logic, `make apk` the build. What only a device shows, f
 5. **A network change.** Switch between Wi-Fi and mobile data while playing: the current track plays on (it is buffered), and the next one starts with a fresh URL.
 6. **An expired or refused URL.** Pause for over 6 hours, then play: playback resumes with a fresh URL at the same position.
 7. **A paused app in the background.** Pause from the notification, wait 15 minutes, press play on a Bluetooth headset. Whether Android lets Media3 return to the foreground from the background is device-dependent; Media3 reports a refusal through `onForegroundServiceStartNotAllowedException`.
+8. **A queue the catalog mode hides.** In Music + Video mode, play a few videos, switch to Music while one plays, then repeat 2. The reloaded page has nothing Music mode may play: playback stops and the notification goes away, so no audio plays that the app does not show.

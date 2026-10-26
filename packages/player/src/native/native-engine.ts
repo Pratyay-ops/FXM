@@ -23,6 +23,7 @@ import {
   nextQueueItem,
   type QueueItem,
   type QueueState,
+  restoreQueue,
   type StreamOption,
   URL_REFRESH_MARGIN_MS,
   upcomingQueueItems,
@@ -88,7 +89,8 @@ export interface NativeConnection {
   /**
    * Whether connecting picked up a native session: the page was recreated (its WebView renderer
    * died) while Media3 kept playing, and the player now has Media3's queue and position,
-   * restored from the snapshot. The app skips restoring its own saved queue then.
+   * restored from the snapshot in the player's catalog mode. The app skips restoring its own
+   * saved queue then. Otherwise connecting left the player as it was.
    */
   readonly resumed: boolean
   /**
@@ -316,6 +318,7 @@ function upcomingInOrder(queue: QueueState): readonly QueueItem[] {
  * const player = new Player({
  *   engine: engine ?? new DirectAudioEngine(),
  *   resolver: engine?.wrapResolver(lifecycle) ?? lifecycle,
+ *   queue: { mode: settings.catalogMode }, // connect restores Media3's queue in this mode
  * })
  * lifecycle.attach(player)
  * const native = await engine?.connect({ player, resolver: lifecycle })
@@ -648,7 +651,9 @@ export class NativeEngine implements Engine {
    * hands the system's next and previous buttons to the player, makes Media3 follow the player
    * when it moves without loading or stops, and stores its queue natively. When the page was
    * recreated while the native player kept playing (its WebView renderer was killed), it restores
-   * the queue there and adopts what plays ({@link NativeConnection.resumed}).
+   * the queue there and adopts what plays ({@link NativeConnection.resumed}). The queue is
+   * restored in the player's catalog mode: when that mode hides every stored item, the player
+   * stays as it was and the engine releases Media3.
    *
    * Connect before the app restores or starts a queue of its own. If the player already has a
    * queue, the engine takes Media3's entry over only when it plays the player's current item,
@@ -699,8 +704,8 @@ export class NativeEngine implements Engine {
 
   /**
    * Picks up where the native player is, after the page was recreated. Returns whether the
-   * player has Media3's queue now. Never awaits the player: taking the entry over may need it to
-   * resolve, and connecting does not wait for that.
+   * player has Media3's queue now; when not, the player is left as it was. Never awaits the
+   * player: taking the entry over may need it to resolve, and connecting does not wait for that.
    */
   #resync(session: FxmPlayerSession, player: NativePlaybackPlayer): boolean {
     const current = session.entries.find((entry) => entry.id === session.id)
@@ -722,11 +727,20 @@ export class NativeEngine implements Engine {
       ? items.findIndex((item: unknown) => (item as { uid?: unknown } | null)?.uid === current.uid)
       : -1
     const saved = index >= 0 ? { ...snapshot.queue, index } : snapshot.queue
-    if (!player.restore(saved, positionMs)) return false
-    const queue = player.getState().queue
-    this.#learnSession(session, tracks, queue)
-    const item = currentQueueItem(queue)
-    if (item === undefined) return true
+    // Restored here first, in the player's catalog mode as `Player.restore` does it, so that the
+    // player is left as it was when that mode hides every stored item.
+    const restored = restoreQueue(saved, player.getState().queue.mode)
+    if (restored === null) return false
+    const item = currentQueueItem(restored)
+    if (item === undefined) {
+      // Videos restored into Music mode, say: the player could neither show nor stop what Media3
+      // plays, so Media3 lets go of it, and the app restores its own queue.
+      this.#release()
+      return false
+    }
+    // A clean queue in the player's mode, which the player restores exactly as it is.
+    if (!player.restore(restored, positionMs)) return false
+    this.#learnSession(session, tracks, restored)
     if (!this.#isFor(current.id, item)) {
       // The restored queue lost Media3's item (the catalog mode hides it now): the player's own
       // item takes over, playing if Media3 played.
@@ -737,7 +751,7 @@ export class NativeEngine implements Engine {
     if (ended) {
       // Media3 played everything it had: the queue goes on with its next item, as the player
       // sees it (shuffle, repeat all).
-      const next = nextQueueItem(queue)
+      const next = nextQueueItem(restored)
       if (next !== undefined && next.uid !== item.uid) {
         void player.next().then(() => player.play())
       }
