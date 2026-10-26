@@ -6,7 +6,7 @@ Stage 2.1 built the **shell**: routing, layout, design system, settings and plac
 
 Search and the album, artist and playlist pages (stage 2.4), with the app's single place for music sources (providers, tier and the Spotify switch) and the fake catalog for development and tests, are described in [src/features/search/README.md](src/features/search/README.md).
 
-Stage 2.9 makes it play: the composition root in `src/app/services` builds the real platform, providers, stream lifecycle and player and plugs them into those pages (see [Playing music](#playing-music) and [its README](src/app/services/README.md)).
+Stage 2.9 makes it play: the composition root in `src/app/services` builds the real providers and stream lifecycle on the app's one platform (stage 2.7's), connects them to the app's player and plugs them into those pages (see [Playing music](#playing-music) and [its README](src/app/services/README.md)).
 
 ## Run it
 
@@ -233,7 +233,7 @@ Stage 8.7, in `features/sponsorblock/`. Opt-in and off by default.
 
 ## Playing music
 
-`main.tsx` renders the shell at once and starts the app's services (`src/app/services`, stage 2.9) beside it, from a chunk of their own: first the app's player (stage 2.5) gets their playback policy and becomes the player behind the catalog pages' play buttons, then the platform of stage 1.2 starts (FXM Connect's answer takes a few milliseconds), then the providers join the sources registry, and "Add to playlist" lists the library's playlists. While FXM Connect's marker is on the page but it hasn't answered yet, the pages say "Connecting to FXM Connect…" rather than offering to install it. Provider code loads on first use; YouTube's starts loading as soon as the platform can reach it. What each tier gets and where the stages still to merge plug in are in [the services README](src/app/services/README.md). The development-only fake catalog (`?fake=full` and the like) still replaces all of it for its tab, where the app's player plays local files only.
+`main.tsx` renders the shell at once and starts the app's services (`src/app/services`, stage 2.9) beside it, from a chunk of their own: first the app's player (stage 2.5) gets their playback policy and becomes the player behind the catalog pages' play buttons, then they wait for the app's one platform, which stage 2.7's `startConnect()` creates beside the first render (FXM Connect's answer takes a few milliseconds; without it, the Lite tier's self-test a moment longer), then the providers join the sources registry, and "Add to playlist" lists the library's playlists. While FXM Connect's marker is on the page but it hasn't answered yet, the pages say "Connecting to FXM Connect…" rather than offering to install it. Provider code loads on first use; YouTube's starts loading as soon as the platform can reach it. What each tier gets and where the stages still to merge plug in are in [the services README](src/app/services/README.md). The development-only fake catalog (`?fake=full` and the like) still replaces all of it for its tab, where the app's player plays local files only.
 
 The player bar, the mini player, Now playing, the queue panel and the system media controls all show that one player, local files included, and the stream lifecycle follows the audio quality chosen in Settings.
 
