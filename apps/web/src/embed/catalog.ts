@@ -54,6 +54,8 @@ export interface EmbedAttribution {
 
 /** Loads what an embed shows. */
 export interface EmbedCatalog {
+  /** Whether a provider for `source` is wired in. */
+  supports(source: SourceId): boolean
   /**
    * Loads `target`. Rejects with an `FxmError`: `NotFound` when it doesn't exist, `Unsupported`
    * when no provider for its source is wired in or the tier can't reach it, `BotCheck`,
@@ -87,6 +89,7 @@ export function createProviderCatalog(
   }
   const { attribution } = options
   return {
+    supports: (source) => bySource.has(source),
     async load(target, ctx) {
       const { source } = parseId(target.id)
       const provider = bySource.get(source)

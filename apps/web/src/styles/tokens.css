@@ -4,8 +4,11 @@
  * Colors are semantic only: Tailwind's palette is reset, so components say
  * `bg-surface` or `text-text-muted`, never `bg-zinc-900`. The dark theme is the
  * default; [data-theme="light"] on <html> overrides the same variables, so no
- * component needs a `dark:` variant. tokens.test.ts checks the AA contrast pairs
- * of both themes, so keep color values as 6-digit hex.
+ * component needs a `dark:` variant. Either attribute also themes just the
+ * element it is on and what is inside, e.g. the share dialog's preview of a
+ * light player in the dark app. tokens.test.ts checks the AA contrast pairs of
+ * both themes, and that the dark block repeats the defaults, so keep color
+ * values as 6-digit hex.
  *
  * `static` emits every variable even when no utility uses it: the theme code
  * reads --color-background at runtime for <meta name="theme-color">.
@@ -110,7 +113,8 @@
     --shadow-color: rgb(0 0 0 / 0.5);
   }
 
-  :root[data-theme="light"] {
+  :root[data-theme="light"],
+  [data-theme="light"] {
     color-scheme: light;
     --shadow-color: rgb(17 17 26 / 0.14);
 
@@ -129,5 +133,27 @@
     --color-danger: #c81e1e;
     --color-skeleton: #e6e6ec;
     --color-skeleton-highlight: #f3f3f7;
+  }
+
+  /* The dark defaults again, for an element inside a light page (see the top). */
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --shadow-color: rgb(0 0 0 / 0.5);
+
+    --color-background: #0b0b0f;
+    --color-surface: #141419;
+    --color-elevated: #1f1f27;
+    --color-elevated-hover: #2a2a34;
+    --color-text: #f5f5f7;
+    --color-text-muted: #a5a5b2;
+    --color-accent: #a78bfa;
+    --color-accent-hover: #c4b5fd;
+    --color-on-accent: #0b0b0f;
+    --color-border: #26262f;
+    --color-border-strong: #6b6b78;
+    --color-focus: #c4b5fd;
+    --color-danger: #f87171;
+    --color-skeleton: #1c1c24;
+    --color-skeleton-highlight: #2a2a35;
   }
 }

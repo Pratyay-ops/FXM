@@ -44,8 +44,26 @@ export interface EmbedMessage {
   readonly kind: EmbedMessageKind
   /** One or two sentences for the visitor. */
   readonly text: string
+  /**
+   * The same in a few words, for where room is short: the compact layout, and the card's
+   * controls row next to the play button. Two lines at about 130 px.
+   */
+  readonly short: string
   /** The action that helps: get FXM (the install hint), open FXM, or try again. */
   readonly action?: 'install' | 'open' | 'retry'
+}
+
+/**
+ * Credits as the embed shows them. The links are there only when they lead to the source's
+ * own site or to the licence (see {@link creditLink}); the provider's name always shows.
+ */
+export interface EmbedCredit {
+  /** Who to credit as the source, e.g. `Internet Archive`. */
+  readonly provider: string
+  /** The track's page at the source. */
+  readonly pageUrl?: string
+  /** The licence, e.g. a Creative Commons deed. */
+  readonly licenseUrl?: string
 }
 
 /** The view model of one embed. */
@@ -91,7 +109,7 @@ export interface EmbedView {
   /** Where "Open in FXM" and the install hint lead, on the embed's own origin. */
   readonly links: { readonly open: string; readonly install: string }
   /** Credits for the current track, when its source asks for them. */
-  readonly attribution?: EmbedAttribution
+  readonly attribution?: EmbedCredit
 }
 
 const KIND_NAMES: Readonly<Record<EmbedKind, string>> = {
@@ -123,6 +141,11 @@ export function placeholderTitle(target: EmbedTarget): string {
   return isEmbedSource(source) ? `${noun} from ${SOURCE_NAMES[source]}` : noun
 }
 
+/** What the kind is called: "Song", "Album", "Playlist". */
+export function kindNameOf(kind: EmbedKind): string {
+  return KIND_NAMES[kind]
+}
+
 /** "1 song", "12 songs". */
 export function songCount(count: number): string {
   return `${count} ${count === 1 ? 'song' : 'songs'}`
@@ -135,7 +158,7 @@ export function joinArtists(artists: readonly ArtistRef[]): string {
   return `${names.slice(0, -1).join(', ')} & ${names.at(-1)}`
 }
 
-/** The text and action for each message. */
+/** The texts and action for each message. */
 export function messageFor(kind: EmbedMessageKind, target: EmbedKind): EmbedMessage {
   const what = target === 'track' ? 'song' : target
   switch (kind) {
@@ -143,37 +166,110 @@ export function messageFor(kind: EmbedMessageKind, target: EmbedKind): EmbedMess
       return {
         kind,
         text: "FXM can't reach YouTube Music in this browser. Add the free FXM Connect extension, or get the FXM app.",
+        short: 'Needs FXM Connect or the FXM app to play here.',
         action: 'install',
       }
     case 'not-found':
-      return { kind, text: `This ${what} isn't available.`, action: 'open' }
+      return {
+        kind,
+        text: `This ${what} isn't available.`,
+        short: "It isn't available.",
+        action: 'open',
+      }
     case 'hidden-by-mode':
-      return { kind, text: 'This is a video, and this player plays songs only.', action: 'open' }
+      return {
+        kind,
+        text: 'This is a video, and this player plays songs only.',
+        short: 'A video: this player plays songs only.',
+        action: 'open',
+      }
     case 'empty':
-      return { kind, text: `This ${what} has nothing this player can play.`, action: 'open' }
+      return {
+        kind,
+        text: `This ${what} has nothing this player can play.`,
+        short: 'Nothing here this player can play.',
+        action: 'open',
+      }
     case 'unsupported':
-      return { kind, text: `This player can't play this ${what} here.`, action: 'open' }
+      return {
+        kind,
+        text: `This player can't play this ${what} here.`,
+        short: "This player can't play it here.",
+        action: 'open',
+      }
     case 'failed':
       return {
         kind,
         text: "Couldn't load this. Check your connection and try again.",
+        short: "Couldn't load this. Try again.",
         action: 'retry',
       }
     case 'bot-check':
       return {
         kind,
         text: 'YouTube wants to check this browser. Try again later, or open it in FXM.',
+        short: 'YouTube wants to check this browser.',
         action: 'open',
       }
     case 'unavailable':
-      return { kind, text: "This song isn't available here.", action: 'open' }
+      return {
+        kind,
+        text: "This song isn't available here.",
+        short: "This song isn't available here.",
+        action: 'open',
+      }
   }
 }
 
 /** The playback notices' texts differ from the load problems' where both exist. */
 function noticeMessage(notice: PlaybackNotice, target: EmbedKind): EmbedMessage {
-  if (notice === 'failed') return { kind: notice, text: "Couldn't play this. Try again." }
+  if (notice === 'failed') {
+    const text = "Couldn't play this. Try again."
+    return { kind: notice, text, short: text }
+  }
   return messageFor(notice, target)
+}
+
+/**
+ * The sites credits may link to, each with its subdomains: the free sources and the licences
+ * they use.
+ */
+export const CREDIT_HOSTS: readonly string[] = ['archive.org', 'jamendo.com', 'creativecommons.org']
+
+/**
+ * `url` as a credit's link, or `undefined` when a credit may not link to it. A source's URLs
+ * come from whoever uploaded the item (an Internet Archive item's licence URL, say), so only
+ * HTTPS links without a user name, a password or a port, to one of the {@link CREDIT_HOSTS},
+ * count; plain HTTP to them is upgraded, as each of them serves HTTPS. Anything else, such as
+ * another site, `javascript:` or an app's own scheme, gets no link.
+ */
+export function creditLink(url: string | undefined): string | undefined {
+  if (url === undefined || url.length > 2048) return undefined
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return undefined
+  }
+  if (parsed.protocol === 'http:') parsed.protocol = 'https:'
+  if (parsed.protocol !== 'https:' || parsed.username !== '' || parsed.password !== '') {
+    return undefined
+  }
+  if (parsed.port !== '') return undefined
+  const host = parsed.hostname
+  const known = CREDIT_HOSTS.some((site) => host === site || host.endsWith(`.${site}`))
+  return known ? parsed.href : undefined
+}
+
+/** The credits as the embed shows them: the provider's name, with only links it may follow. */
+export function creditOf(attribution: EmbedAttribution): EmbedCredit {
+  const pageUrl = creditLink(attribution.pageUrl)
+  const licenseUrl = creditLink(attribution.licenseUrl)
+  return {
+    provider: attribution.provider,
+    ...(pageUrl === undefined ? {} : { pageUrl }),
+    ...(licenseUrl === undefined ? {} : { licenseUrl }),
+  }
 }
 
 /** Rows for a list of tracks. */
@@ -225,8 +321,13 @@ export function embedView(state: EmbedState, options: EmbedViewOptions): EmbedVi
       : state.notice === undefined
         ? undefined
         : noticeMessage(state.notice, target.kind)
-  const attribution = current === undefined ? undefined : options.attribution?.(current)
+  const credits = current === undefined ? undefined : options.attribution?.(current)
+  const attribution = credits === undefined ? undefined : creditOf(credits)
   const durationMs = player?.durationMs ?? current?.durationMs ?? items[index]?.track.durationMs
+  // A track has no app page: its link searches the app for it, once its title is known.
+  const artist = entity?.artists[0]?.name
+  const hint =
+    entity === undefined ? {} : { title: entity.title, ...(artist === undefined ? {} : { artist }) }
   return {
     layout,
     kind: target.kind,
@@ -251,7 +352,7 @@ export function embedView(state: EmbedState, options: EmbedViewOptions): EmbedVi
     canSkip: items.length > 1,
     canPlay: state.phase === 'ready',
     ...(message === undefined ? {} : { message }),
-    links: { open: appUrlFor(origin, target), install: installUrlFor(origin) },
+    links: { open: appUrlFor(origin, target, hint), install: installUrlFor(origin) },
     ...(attribution === undefined ? {} : { attribution }),
   }
 }
@@ -283,6 +384,8 @@ export function previewView(
   const tracks = info.tracks ?? []
   const count = info.trackCount ?? (tracks.length > 0 ? tracks.length : undefined)
   const first = tracks[0]
+  const artist = first?.artists[0]?.name ?? (info.subtitle || undefined)
+  const hint = { title: info.title, ...(artist === undefined ? {} : { artist }) }
   return {
     layout,
     kind: target.kind,
@@ -304,7 +407,7 @@ export function previewView(
     ...(first?.durationMs === undefined ? {} : { durationMs: first.durationMs }),
     canSkip: tracks.length > 1,
     canPlay: true,
-    links: { open: appUrlFor(origin, target), install: installUrlFor(origin) },
+    links: { open: appUrlFor(origin, target, hint), install: installUrlFor(origin) },
   }
 }
 

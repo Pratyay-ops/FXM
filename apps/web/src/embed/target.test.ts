@@ -118,6 +118,24 @@ describe('embed targets', () => {
     expect(installUrlFor(FXM_PUBLIC_ORIGIN)).toBe('https://fxmusic.pages.dev/#get')
   })
 
+  it("send a track to the app's search for its title and artist, once known", () => {
+    expect(appUrlFor(FXM_PUBLIC_ORIGIN, ARCHIVE, { title: 'Side A', artist: 'A & B' })).toBe(
+      'https://fxmusic.pages.dev/app/search?q=Side+A+A+%26+B',
+    )
+    expect(appUrlFor(FXM_PUBLIC_ORIGIN, ARCHIVE, { title: 'Side A' })).toBe(
+      'https://fxmusic.pages.dev/app/search?q=Side+A',
+    )
+    expect(appUrlFor(FXM_PUBLIC_ORIGIN, ARCHIVE, { title: '  ', artist: 'Band' })).toBe(
+      'https://fxmusic.pages.dev/app/',
+    )
+    const long = appUrlFor(FXM_PUBLIC_ORIGIN, ARCHIVE, { title: 'x'.repeat(500) })
+    expect(new URL(long).searchParams.get('q')).toHaveLength(200)
+    // Albums and playlists have pages of their own.
+    expect(appUrlFor(FXM_PUBLIC_ORIGIN, ALBUM, { title: 'Pablo Honey' })).toBe(
+      'https://fxmusic.pages.dev/app/album/ytm:MPREb_abc',
+    )
+  })
+
   it('have a height for every layout and kind', () => {
     for (const layout of ['compact', 'card'] as const) {
       for (const kind of ['track', 'album', 'playlist'] as const) {

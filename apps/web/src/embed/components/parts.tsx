@@ -1,17 +1,19 @@
 import { formatTime } from '@fxm/player'
 import {
+  Download,
   ExternalLink,
   LoaderCircle,
   Pause,
   Play,
   RotateCcw,
+  ScrollText,
   SkipBack,
   SkipForward,
 } from 'lucide-react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { Artwork } from '../../components/ui/artwork'
 import { buttonClasses } from '../../components/ui/button'
-import { IconButton } from '../../components/ui/icon-button'
+import { IconButton, iconButtonClasses } from '../../components/ui/icon-button'
 import { LogoMark } from '../../components/ui/logo'
 import { RangeSlider } from '../../components/ui/range-slider'
 import { cn } from '../../lib/cn'
@@ -35,6 +37,9 @@ export interface EmbedActions {
 
 /** Links leave the embed: they open a new tab, and the embedding page learns nothing. */
 const EXTERNAL = { target: '_blank', rel: 'noopener noreferrer' } as const
+
+/** Said after the name of a link that opens a new tab. */
+const NEW_TAB = ' (opens a new tab)'
 
 const RADII = { md: 'rounded-md', lg: 'rounded-lg' } as const
 
@@ -204,13 +209,68 @@ export function ProgressLine({ view }: { view: EmbedView }) {
   )
 }
 
-/** Why something doesn't play here, or why the last track didn't. */
-export function MessageText({ view, compact = false }: { view: EmbedView; compact?: boolean }) {
+/**
+ * Why something doesn't play here, or why the last track didn't: the full text, or with `short`
+ * the few words for where room is short.
+ */
+export function MessageText({
+  view,
+  short = false,
+  className,
+}: {
+  view: EmbedView
+  short?: boolean
+  className?: string
+}) {
   if (view.message === undefined) return null
   return (
-    <p className={cn('min-w-0 text-text-muted', compact ? 'line-clamp-2 text-xs' : 'text-sm')}>
-      {view.message.text}
+    <p className={cn('min-w-0 text-text-muted', className)}>
+      {short ? view.message.short : view.message.text}
     </p>
+  )
+}
+
+/**
+ * Where a message's action has room for its words: from 25rem in a card, from 30rem in the
+ * compact layout, measured on the player itself (a container query), so the share dialog's
+ * preview matches the iframe. Below that it is a 44 px icon button. Each shape sits in a
+ * wrapper that only switches it on or off (`display: contents`), so the design system's
+ * button classes stay as they are.
+ */
+const ACTION_SHAPES = {
+  card: { narrow: 'contents @min-[25rem]:hidden', wide: 'hidden @min-[25rem]:contents' },
+  compact: { narrow: 'contents @min-[30rem]:hidden', wide: 'hidden @min-[30rem]:contents' },
+} as const
+
+/** One action in both shapes: an icon button, and a button with words. */
+function ActionShapes({
+  layout,
+  name,
+  icon,
+  wide,
+  render,
+}: {
+  layout: keyof typeof ACTION_SHAPES
+  /** The accessible name, the same in both shapes. */
+  name: string
+  /** The icon of the narrow shape. */
+  icon: ReactNode
+  /** The content of the wide shape: words and an icon. */
+  wide: ReactNode
+  /** Renders the link or button with its class names and content. */
+  render: (className: string, content: ReactNode, label?: string) => ReactNode
+}) {
+  const shapes = ACTION_SHAPES[layout]
+  const narrow = iconButtonClasses({
+    size: 'custom',
+    variant: 'solid',
+    className: 'size-touch [&_svg]:size-5',
+  })
+  return (
+    <>
+      <span className={shapes.narrow}>{render(narrow, icon, name)}</span>
+      <span className={shapes.wide}>{render(buttonClasses({ variant: 'secondary' }), wide)}</span>
+    </>
   )
 }
 
@@ -218,58 +278,134 @@ export function MessageText({ view, compact = false }: { view: EmbedView; compac
 export function MessageAction({
   view,
   actions,
+  layout,
 }: {
   view: EmbedView
   actions: EmbedActions | undefined
+  layout: 'card' | 'compact'
 }) {
   const action = view.message?.action
-  const className = buttonClasses({ variant: 'secondary' })
-  switch (action) {
-    case 'install':
-      return (
-        <a href={view.links.install} {...EXTERNAL} className={className}>
-          Get FXM
-          <ExternalLink aria-hidden="true" />
-        </a>
-      )
-    case 'open':
-      return (
-        <a href={view.links.open} {...EXTERNAL} className={className}>
-          Open in FXM
-          <ExternalLink aria-hidden="true" />
-        </a>
-      )
-    case 'retry':
-      return (
-        <button type="button" onClick={() => actions?.retry()} className={className}>
-          <RotateCcw aria-hidden="true" />
-          Try again
-        </button>
-      )
-    default:
-      return null
+  if (action === undefined) return null
+  if (action === 'retry') {
+    return (
+      <ActionShapes
+        layout={layout}
+        name="Try again"
+        icon={<RotateCcw aria-hidden="true" />}
+        wide={
+          <>
+            <RotateCcw aria-hidden="true" />
+            Try again
+          </>
+        }
+        render={(className, content, label) => (
+          <button
+            type="button"
+            aria-label={label}
+            onClick={() => actions?.retry()}
+            className={className}
+          >
+            {content}
+          </button>
+        )}
+      />
+    )
   }
+  const words = action === 'install' ? 'Get FXM' : 'Open in FXM'
+  const href = action === 'install' ? view.links.install : view.links.open
+  return (
+    <ActionShapes
+      layout={layout}
+      name={`${words}${NEW_TAB}`}
+      icon={
+        action === 'install' ? <Download aria-hidden="true" /> : <ExternalLink aria-hidden="true" />
+      }
+      wide={
+        <>
+          {words}
+          <ExternalLink aria-hidden="true" />
+          <span className="sr-only">{NEW_TAB}</span>
+        </>
+      }
+      render={(className, content, label) => (
+        <a href={href} {...EXTERNAL} aria-label={label} className={className}>
+          {content}
+        </a>
+      )}
+    />
+  )
 }
 
-/** Credits for a free-source track: who provides it, and its licence. */
+/**
+ * A credit's link. Its focus ring sits inside it and its padding makes the target taller, so
+ * a line that clips its overflow sideways never cuts the ring.
+ */
+const CREDIT_LINK =
+  'rounded-sm py-1 underline underline-offset-2 focus-visible:-outline-offset-1 hover:text-text'
+
+/** Credits for a free-source track in the card: who provides it, and its licence. */
 export function AttributionLine({ view }: { view: EmbedView }) {
   const { attribution } = view
   if (attribution === undefined) return null
   return (
-    <p className="truncate text-2xs text-text-muted">
+    // Clipped sideways only, so the links' focus rings show above and below the line.
+    <p className="shrink-0 overflow-x-clip text-xs text-ellipsis whitespace-nowrap text-text-muted">
       From{' '}
-      <a href={attribution.pageUrl} {...EXTERNAL} className="underline underline-offset-2">
-        {attribution.provider}
-      </a>
+      {attribution.pageUrl === undefined ? (
+        attribution.provider
+      ) : (
+        <a href={attribution.pageUrl} {...EXTERNAL} className={CREDIT_LINK}>
+          {attribution.provider}
+          <span className="sr-only">{NEW_TAB}</span>
+        </a>
+      )}
       {attribution.licenseUrl !== undefined && (
         <>
           {' · '}
-          <a href={attribution.licenseUrl} {...EXTERNAL} className="underline underline-offset-2">
+          <a href={attribution.licenseUrl} {...EXTERNAL} className={CREDIT_LINK}>
             Licence
+            <span className="sr-only">{NEW_TAB}</span>
           </a>
         </>
       )}
     </p>
+  )
+}
+
+/**
+ * The compact layout's credits, after the artists on its second line: the provider, which
+ * shortens with an ellipsis when room is short (clipped sideways only, so its focus ring
+ * shows), and the licence as a small icon that never shrinks.
+ */
+export function CompactCredits({ view }: { view: EmbedView }) {
+  const { attribution } = view
+  if (attribution === undefined) return null
+  return (
+    <>
+      <span className="min-w-0 overflow-x-clip text-ellipsis">
+        <span className="sr-only">From </span>
+        {attribution.pageUrl === undefined ? (
+          attribution.provider
+        ) : (
+          <a href={attribution.pageUrl} {...EXTERNAL} className={CREDIT_LINK}>
+            {attribution.provider}
+            <span className="sr-only">{NEW_TAB}</span>
+          </a>
+        )}
+      </span>
+      {attribution.licenseUrl !== undefined && (
+        <a
+          href={attribution.licenseUrl}
+          {...EXTERNAL}
+          aria-label={`Licence${NEW_TAB}`}
+          title="Licence"
+          // A 24 px target around the 14 px icon.
+          className="-my-1 inline-flex shrink-0 rounded-sm p-[5px] hover:text-text focus-visible:-outline-offset-1"
+        >
+          <ScrollText aria-hidden="true" className="size-3.5" />
+        </a>
+      )}
+    </>
   )
 }
 

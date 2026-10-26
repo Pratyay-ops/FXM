@@ -28,4 +28,15 @@
     padding: 0;
     background-color: var(--color-surface);
   }
+
+  /* Opened as a page of its own (a shared player link): the player sits centred on the page's
+     background, and the page scrolls when the window is shorter than the player. */
+  html[data-standalone],
+  html[data-standalone] body {
+    background-color: var(--color-background);
+  }
+
+  html[data-standalone] body {
+    overflow: auto;
+  }
 }

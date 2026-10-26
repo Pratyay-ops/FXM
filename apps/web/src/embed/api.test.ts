@@ -240,6 +240,7 @@ function setup(
   }
   if (options.topLevel) Object.assign(window, { parent: window })
   let state: EmbedState = options.state ?? readyState()
+  let visible = true
   const changes = new Set<() => void>()
   const controller = {
     target: TARGET,
@@ -261,6 +262,7 @@ function setup(
   const stop = connectEmbedApi({
     window,
     controller,
+    visibility: { visible: () => visible },
     now: () => now,
     ...(options.controllerOrigin === undefined
       ? {}
@@ -285,6 +287,10 @@ function setup(
     },
     advance(ms: number) {
       now += ms
+    },
+    /** Shows or hides the player, as its visibility gate would see it. */
+    setVisible(next: boolean) {
+      visible = next
     },
     types: () => posted.map(({ message }) => message.type),
   }
@@ -455,6 +461,48 @@ describe('connectEmbedApi', () => {
     api.send(command({ command: 'play' }))
     expect(api.controller.toggle).toHaveBeenCalledTimes(RATE_LIMIT.max)
     expect(api.controller.play).not.toHaveBeenCalled()
+  })
+
+  it('starts or skips playback only while the player is visible', () => {
+    const api = setup({ state: readyState({ status: 'paused' }, true) })
+    api.send(hello)
+    api.setVisible(false)
+    api.send(command({ command: 'play', id: 'p' }))
+    api.send(command({ command: 'play', index: 1, id: 'p1' }))
+    api.send(command({ command: 'toggle', id: 't' }))
+    api.send(command({ command: 'next', id: 'n' }))
+    api.send(command({ command: 'previous', id: 'b' }))
+    expect(api.controller.play).not.toHaveBeenCalled()
+    expect(api.controller.toggle).not.toHaveBeenCalled()
+    expect(api.controller.next).not.toHaveBeenCalled()
+    expect(api.controller.previous).not.toHaveBeenCalled()
+    expect(
+      api.posted
+        .filter(({ message }) => message.type === 'fxm-embed:error')
+        .map(({ message }) => [message.id, message.code, message.command]),
+    ).toEqual([
+      ['p', 'not-visible', 'play'],
+      ['p1', 'not-visible', 'play'],
+      ['t', 'not-visible', 'toggle'],
+      ['n', 'not-visible', 'next'],
+      ['b', 'not-visible', 'previous'],
+    ])
+
+    // Pausing, seeking and the volume work hidden too, and so does toggle when it pauses.
+    api.send(command({ command: 'pause' }))
+    api.send(command({ command: 'seek', positionMs: 1000 }))
+    api.send(command({ command: 'setVolume', volume: 0.5 }))
+    expect(api.controller.pause).toHaveBeenCalled()
+    expect(api.controller.seek).toHaveBeenCalledWith(1000)
+    expect(api.controller.setVolume).toHaveBeenCalledWith(0.5)
+    api.setState(readyState({ status: 'playing' }, true))
+    api.send(command({ command: 'toggle' }))
+    expect(api.controller.toggle).toHaveBeenCalledTimes(1)
+
+    // Refusals cost no slot of the rate limit: once shown, all ten are there.
+    api.setVisible(true)
+    for (let count = 0; count < RATE_LIMIT.max; count++) api.send(command({ command: 'next' }))
+    expect(api.controller.next).toHaveBeenCalledTimes(RATE_LIMIT.max)
   })
 
   it('reports changes, and the position at most once a second while playing', () => {

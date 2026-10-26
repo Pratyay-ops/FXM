@@ -6,7 +6,9 @@ import { SegmentedControl, type SegmentedOption } from '../../components/ui/segm
 import { EmbedPlayerView } from '../../embed/components/layouts'
 import type { EmbedLayout, EmbedTheme } from '../../embed/target'
 import { previewView } from '../../embed/view'
+import { useMediaQuery } from '../../lib/use-media-query'
 import { useSettingsStore } from '../settings/settings-store'
+import { PREFERS_LIGHT_QUERY } from '../settings/theme'
 import { embedCode, shareOrigin } from './embed-code'
 import { type ShareRequest, useShareStore } from './share-store'
 
@@ -38,8 +40,8 @@ async function copyText(text: string): Promise<boolean> {
 
 /**
  * The share dialog: the embed code of a track, album or playlist, with its layout and theme,
- * a preview of the player, and buttons that copy the code or the player's link. The player
- * plays in the app's catalog mode.
+ * a preview of the player in that layout and theme, and buttons that copy the code or the
+ * player's link, which stay in view at the bottom. The player plays in the app's catalog mode.
  */
 export function ShareDialog({ request, onClose }: { request: ShareRequest; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
@@ -49,6 +51,9 @@ export function ShareDialog({ request, onClose }: { request: ShareRequest; onClo
   const [layout, setLayout] = useState<EmbedLayout>('card')
   const [theme, setTheme] = useState<EmbedTheme>('auto')
   const [copied, setCopied] = useState<CopyState>(undefined)
+  // `auto` follows each visitor's setting: the preview shows what this device's setting gives.
+  const prefersLight = useMediaQuery(PREFERS_LIGHT_QUERY)
+  const previewTheme = theme === 'auto' ? (prefersLight ? 'light' : 'dark') : theme
   // What the copy buttons said goes away with the code it was about.
   const changeLayout = (next: EmbedLayout) => {
     setLayout(next)
@@ -71,13 +76,12 @@ export function ShareDialog({ request, onClose }: { request: ShareRequest; onClo
   const noun = NOUNS[target.kind]
 
   useEffect(() => {
+    // Modal: focus moves in, the rest of the app is inert, and Escape closes it. There is no
+    // close() on cleanup: React's StrictMode runs the cleanup and the effect again at once, and
+    // the close event a close() queues would end the dialog it had just reopened. Unmounting
+    // takes the dialog out of the top layer without one.
     const element = dialog.current
-    if (element === null) return
-    // Modal: focus moves in, the rest of the app is inert, and Escape closes it.
-    if (!element.open) element.showModal()
-    return () => {
-      if (element.open) element.close()
-    }
+    if (element !== null && !element.open) element.showModal()
   }, [])
 
   async function copy(what: 'code' | 'link') {
@@ -91,7 +95,10 @@ export function ShareDialog({ request, onClose }: { request: ShareRequest; onClo
       ref={dialog}
       aria-labelledby={ids.title}
       aria-describedby={ids.help}
-      onClose={onClose}
+      // Only a dialog that is closed now: never a close event left over from an earlier close.
+      onClose={(event) => {
+        if (!event.currentTarget.open) onClose()
+      }}
       className="m-auto w-[min(40rem,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-border bg-surface p-0 text-text shadow-xl backdrop:bg-black/60"
     >
       <div className="space-y-5 p-5 sm:p-6">
@@ -141,6 +148,7 @@ export function ShareDialog({ request, onClose }: { request: ShareRequest; onClo
           aria-hidden="true"
           inert
           data-testid="embed-preview"
+          data-theme={previewTheme}
           className="overflow-hidden rounded-xl border border-border"
           style={{ height: code.height }}
         >
@@ -166,8 +174,16 @@ export function ShareDialog({ request, onClose }: { request: ShareRequest; onClo
             Visitors without FXM Connect can play YouTube Music in its experimental no-install mode
             where their browser allows it.
           </p>
+          <p className="text-xs text-text-muted">
+            Once your page shows the player, each visitor's browser loads the {noun}'s details and
+            cover art from its source, such as YouTube, even before they press play. That source
+            then sees their IP address, so mention it in your site's privacy notice.
+          </p>
         </div>
+      </div>
 
+      {/* The copy buttons stay in view while the rest scrolls. */}
+      <div className="sticky bottom-0 border-t border-border bg-surface px-5 py-3 sm:px-6">
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={() => void copy('code')} className={buttonClasses()}>
             {copied?.what === 'code' && copied.ok ? (

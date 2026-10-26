@@ -85,6 +85,13 @@ describe('createProviderCatalog', () => {
     youtube.errors.clear()
   })
 
+  it('says which sources it has providers for', () => {
+    expect(catalog.supports('ytm')).toBe(true)
+    expect(catalog.supports('archive')).toBe(true)
+    expect(catalog.supports('jamendo')).toBe(false)
+    expect(createProviderCatalog([]).supports('ytm')).toBe(false)
+  })
+
   it('refuses a source it has no provider for', async () => {
     await expect(
       createProviderCatalog([archive]).load(targetOf(SONG_A), ctx),

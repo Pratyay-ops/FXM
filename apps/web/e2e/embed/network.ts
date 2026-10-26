@@ -6,9 +6,11 @@
  * - **FXM's site** (`fxmusic.pages.dev`, port 6330): the embed's test build under `/embed/`, the
  *   sandbox documents under `/sandbox/`, and a stand-in for the app under `/app/`, each with the
  *   header rules of stage 2.8 (docs/PLAN.md): the app's policy with `frame-ancestors 'none'`,
- *   the same policy without it for `/embed/*`, and the sandbox documents' own policies.
+ *   the `/embed/*` rule (`embed/headers.ts`: that policy without it, and
+ *   `Cross-Origin-Opener-Policy: same-origin`), and the sandbox documents' own policies.
  * - **Another site** (`music-blog.example`, port 6331): a page that embeds the player in an
- *   iframe and drives its postMessage API, plus a frame from a third site next to it.
+ *   iframe and drives its postMessage API, plus a frame from a third site next to it, and a
+ *   document that pretends to be FXM's InnerTube sandbox.
  * - **The services** (port 6332): InnerTube, googlevideo and Internet Archive mocks.
  *
  * Every other host is refused, and logged, so nothing reaches the internet. The ports are
@@ -36,7 +38,10 @@ import { tmpdir } from 'node:os'
 import { extname, join, normalize } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sandboxDocumentHeader } from '@fxm/platform'
+import { APP_POLICY, EMBED_HEADERS, EMBED_POLICY } from '../../embed/headers'
 import { E2E_ARCHIVE_HOST, E2E_MEDIA_HOST } from '../../src/embed/testing/e2e-fixtures'
+
+export { APP_POLICY, EMBED_POLICY }
 
 /** The first of the four ports: the site, the other site, the services, the proxy. */
 export const BASE_PORT = Number(process.env.FXM_EMBED_E2E_PORT ?? 6330)
@@ -71,26 +76,14 @@ const SANDBOX_DIR = join(WEB_DIR, 'sandbox')
 const COMMON_HEADERS = { 'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff' }
 
 /**
- * The `/app/*` policy of docs/PLAN.md (stage 2.8), with `script-src 'self'`: the stand-in pages
- * here have no inline script, so the theme script's hash isn't needed.
+ * The `/embed/*` policy with `frame-src` relaxed to the embedding site: what the player would
+ * be without the one directive that keeps that site out of its sandbox frame. Only a test that
+ * shows the directive matters serves it (`NetworkState.relaxFrameSrc`).
  */
-export const APP_POLICY = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "worker-src 'self' blob:",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com https://*.scdn.co https://*.spotifycdn.com https://archive.org https://*.archive.org https://*.jamendo.com",
-  "media-src 'self' blob: https:",
-  "connect-src 'self' https://www.youtube.com https://music.youtube.com https://youtubei.googleapis.com https://*.googlevideo.com https://open.spotify.com https://api-partner.spotify.com https://spclient.wg.spotify.com https://musicbrainz.org https://archive.org https://*.archive.org https://*.jamendo.com https://lrclib.net",
+const RELAXED_EMBED_POLICY = EMBED_POLICY.replace(
   "frame-src 'self'",
-  "frame-ancestors 'none'",
-  "base-uri 'none'",
-  "form-action 'none'",
-  "object-src 'none'",
-].join('; ')
-
-/** The `/embed/*` policy: as `/app/*`, without `frame-ancestors`, so any site may frame it. */
-export const EMBED_POLICY = APP_POLICY.replace("; frame-ancestors 'none'", '')
+  "frame-src 'self' https://music-blog.example",
+)
 
 /** A WAV file of silence, 16-bit mono at 22,050 Hz: about 44 kB a second. */
 function silentWav(bytes: number): Buffer {
@@ -135,6 +128,15 @@ export interface LogEntry {
 export interface NetworkState {
   /** InnerTube stops answering opaque origins, as if YouTube closed the Lite tier's path. */
   refuseOpaque: boolean
+  /** InnerTube's `/player` says every video is unplayable, as for a removed one. */
+  unplayable: boolean
+  /** FXM's site serves `/embed/*` with `frame-src` relaxed to the embedding site (a control). */
+  relaxFrameSrc: boolean
+  /**
+   * FXM's site answers for the sandbox documents a second late, so a test that navigates the
+   * player's sandbox frame always does so before the handshake, however busy the machine is.
+   */
+  slowSandbox: boolean
 }
 
 /** The running network. */
@@ -152,7 +154,13 @@ export interface TestNetwork {
   close(): Promise<void>
 }
 
-type Reply = { status: number; headers?: Record<string, string>; body?: string | Buffer }
+type Reply = {
+  status: number
+  headers?: Record<string, string>
+  body?: string | Buffer
+  /** Answers this much later, in milliseconds. */
+  delayMs?: number
+}
 
 const json = (value: unknown, headers: Record<string, string> = {}): Reply => ({
   status: 200,
@@ -179,30 +187,44 @@ const APP_STAND_IN = `<!doctype html>
 <body><p id="app">The FXM app</p></body></html>
 `
 
+/** `text` for an HTML attribute value in double quotes, in the test pages. */
+function attribute(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;')
+}
+
 /**
  * The page on another site. It frames the player (`?embed=<path and query>`), with the
- * attributes the share dialog's code has, and a frame of a third site next to it. Its script
- * keeps every message from the player, posts what a test asks to it, and says hello when the
- * player's frame has loaded (unless `?hello=0`).
+ * attributes the share dialog's code has (`width`, `height`, more inline `style` and `loading`
+ * can change), and a frame of a third site next to it. Its script keeps every message from the
+ * player, posts what a test asks to it, and says hello when the player's frame has loaded
+ * (unless `?hello=0`). With `?hijack=1` it also tries to put its own document in the player's
+ * sandbox frame, the moment that frame exists, and keeps what that document reports.
  */
 function embedderPage(url: URL): string {
   const embed = url.searchParams.get('embed') ?? '/embed/track/ytm:none'
   const frameUrl = new URL(embed, FXM).href
+  const width = url.searchParams.get('width') ?? '100%'
   const height = url.searchParams.get('height') ?? '232'
+  const style = `border:0;border-radius:12px;${url.searchParams.get('style') ?? ''}`
+  const loading = url.searchParams.get('loading') === 'eager' ? 'eager' : 'lazy'
   const hello = url.searchParams.get('hello') !== '0'
+  const hijack = url.searchParams.get('hijack') === '1'
   return `<!doctype html>
 <html lang="en">
   <head><meta charset="utf-8" /><title>A music blog</title>
   <style>body { font-family: sans-serif; margin: 16px; background: #fafafa; } iframe { display: block; margin-bottom: 12px; }</style></head>
   <body>
     <h1>A post with a song</h1>
-    <iframe id="player" title="FXM player" src="${frameUrl}" width="100%" height="${height}"
-      style="border:0;border-radius:12px" allow="autoplay" loading="lazy"></iframe>
+    <iframe id="player" title="FXM player" src="${attribute(frameUrl)}" width="${attribute(width)}"
+      height="${attribute(height)}" style="${attribute(style)}" allow="autoplay"
+      loading="${loading}"></iframe>
     <iframe id="sibling" title="Widget" src="${SIBLING}/sibling.html" width="300" height="40" style="border:0"></iframe>
     <button id="page-button" type="button">A button on the blog</button>
     <script>
       window.received = []
+      window.hijacked = []
       addEventListener('message', (event) => {
+        if (event.data && event.data.hijack) window.hijacked.push(event.data)
         if (event.origin !== ${JSON.stringify(FXM)}) return
         window.received.push(event.data)
       })
@@ -211,11 +233,43 @@ function embedderPage(url: URL): string {
         player.contentWindow.postMessage(message, targetOrigin)
       window.hello = () => window.sendToPlayer({ type: 'fxm-embed:hello', protocol: 1 })
       ${hello ? "player.addEventListener('load', () => window.hello())" : ''}
+      ${
+        hijack
+          ? `;(function navigateSandbox() {
+        const frames = player.contentWindow && player.contentWindow.frames
+        if (frames && frames.length > 0) {
+          window.hijackTried = true
+          frames[0].location.replace(${JSON.stringify(`${EMBEDDER}/fake-sandbox.html`)})
+          return
+        }
+        setTimeout(navigateSandbox, 1)
+      })()`
+          : ''
+      }
     </script>
   </body>
 </html>
 `
 }
+
+/**
+ * A document of the embedding site that pretends to be FXM's InnerTube sandbox: it says hello
+ * as the real one does, and tells the page if the player hands it the port and requests.
+ */
+const FAKE_SANDBOX_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8" /><title>Not a sandbox</title></head>
+<body>
+  <script>
+    parent.postMessage({ type: 'fxm-sandbox:hello', protocol: 1, document: 'innertube' }, '*')
+    addEventListener('message', (event) => {
+      const port = event.ports && event.ports[0]
+      if (!port) return
+      top.postMessage({ hijack: 'port' }, '*')
+      port.onmessage = (message) => top.postMessage({ hijack: 'request', url: String(message.data && message.data.url) }, '*')
+    })
+  </script>
+</body></html>
+`
 
 /** The third site's frame: it posts whatever a test asks to the player next to it. */
 const SIBLING_PAGE = `<!doctype html>
@@ -237,6 +291,23 @@ function innerTube(req: IncomingMessage, url: URL, body: string, state: NetworkS
   }
   if (req.method === 'OPTIONS') return forbidden
   if (origin === 'null' && state.refuseOpaque) return forbidden
+  if (url.pathname === '/youtubei/v1/player' && state.unplayable && req.method === 'POST') {
+    const videoId = (() => {
+      try {
+        const parsed = JSON.parse(body) as { videoId?: unknown }
+        return typeof parsed.videoId === 'string' ? parsed.videoId : ''
+      } catch {
+        return ''
+      }
+    })()
+    return json(
+      {
+        playabilityStatus: { status: 'UNPLAYABLE', reason: 'This video is unavailable' },
+        videoDetails: { videoId },
+      },
+      { 'access-control-allow-origin': origin ?? '*', vary: 'Origin' },
+    )
+  }
   const youtube = origin === 'https://www.youtube.com' || origin === 'https://music.youtube.com'
   if (origin !== undefined && origin !== 'null' && !youtube) return forbidden
   if (req.method !== 'POST') return { status: 405 }
@@ -324,7 +395,12 @@ export async function startTestNetwork(): Promise<TestNetwork> {
     throw new Error(`No embed build in ${BUILD_DIR}: run \`pnpm --filter @fxm/web e2e:embed\``)
   }
   const log: LogEntry[] = []
-  const state: NetworkState = { refuseOpaque: false }
+  const state: NetworkState = {
+    refuseOpaque: false,
+    unplayable: false,
+    relaxFrameSrc: false,
+    slowSandbox: false,
+  }
   const embedIndex = readFileSync(join(BUILD_DIR, 'index.html'))
   const documents = new Map<string, { html: string; policy: string }>()
   for (const kind of ['innertube', 'userhost'] as const) {
@@ -339,10 +415,16 @@ export async function startTestNetwork(): Promise<TestNetwork> {
   function site(url: URL): Reply {
     const document = documents.get(url.pathname)
     if (document !== undefined) {
-      return html(document.html, { 'content-security-policy': document.policy, ...COMMON_HEADERS })
+      return {
+        ...html(document.html, { 'content-security-policy': document.policy, ...COMMON_HEADERS }),
+        ...(state.slowSandbox ? { delayMs: 1000 } : {}),
+      }
     }
     if (url.pathname.startsWith('/embed/')) {
-      const headers = { 'content-security-policy': EMBED_POLICY, ...COMMON_HEADERS }
+      const headers = {
+        ...EMBED_HEADERS,
+        ...(state.relaxFrameSrc ? { 'content-security-policy': RELAXED_EMBED_POLICY } : {}),
+      }
       if (url.pathname.startsWith('/embed/assets/')) {
         const file = buildFile(url.pathname.slice('/embed/'.length))
         if (file === undefined) return { status: 404, headers }
@@ -362,6 +444,7 @@ export async function startTestNetwork(): Promise<TestNetwork> {
     if (host === SIBLING_HOST) {
       return url.pathname === '/sibling.html' ? html(SIBLING_PAGE) : { status: 404 }
     }
+    if (url.pathname === '/fake-sandbox.html') return html(FAKE_SANDBOX_PAGE)
     return url.pathname === '/' ? html(embedderPage(url)) : { status: 404 }
   }
 
@@ -401,8 +484,12 @@ export async function startTestNetwork(): Promise<TestNetwork> {
           ...(header('content-type') === undefined ? {} : { contentType: header('content-type') }),
           ...(body === '' ? {} : { body: body.slice(0, 2000) }),
         } as LogEntry)
-        res.writeHead(reply.status, reply.headers ?? {})
-        res.end(reply.body)
+        const send = () => {
+          res.writeHead(reply.status, reply.headers ?? {})
+          res.end(reply.body)
+        }
+        if (reply.delayMs === undefined) send()
+        else setTimeout(send, reply.delayMs)
       })
     }
 
@@ -486,6 +573,9 @@ export async function startTestNetwork(): Promise<TestNetwork> {
     reset() {
       log.length = 0
       state.refuseOpaque = false
+      state.unplayable = false
+      state.relaxFrameSrc = false
+      state.slowSandbox = false
     },
     close: () =>
       new Promise<void>((resolve) => {

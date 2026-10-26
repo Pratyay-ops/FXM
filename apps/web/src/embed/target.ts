@@ -276,13 +276,32 @@ function hasControlCharacter(text: string): boolean {
 /** The kinds of entity an app page exists for, as the app's routes spell them. */
 const APP_PAGE_KINDS: ReadonlySet<EntityKind> = new Set(['album', 'playlist'])
 
+/** The longest search a track's link asks the app for: titles come from the source. */
+const MAX_SEARCH_LENGTH = 200
+
+/** What the embed knows about a track, to find it in the app. */
+export interface AppLinkHint {
+  /** The track's title, once loaded. */
+  readonly title?: string
+  /** Its first artist, when known. */
+  readonly artist?: string
+}
+
 /**
  * Where "Open in FXM" goes for a target, on `origin`: the album or playlist page of the web app
- * (`/app/album/ytm:MPREb_…`, the form the app's pages use), or the app's home for a track,
- * which has no page of its own.
+ * (`/app/album/ytm:MPREb_…`, the form the app's pages use). A track has no page of its own, so
+ * it goes to the app's search for its title and artist (`/app/search?q=…`), or to the app's
+ * home while its title isn't known.
  */
-export function appUrlFor(origin: string, target: EmbedTarget): string {
-  if (!APP_PAGE_KINDS.has(target.kind)) return new URL('/app/', origin).href
+export function appUrlFor(origin: string, target: EmbedTarget, hint: AppLinkHint = {}): string {
+  if (!APP_PAGE_KINDS.has(target.kind)) {
+    const title = hint.title?.trim()
+    if (!title) return new URL('/app/', origin).href
+    const url = new URL('/app/search', origin)
+    const query = [title, hint.artist?.trim()].filter(Boolean).join(' ')
+    url.searchParams.set('q', query.slice(0, MAX_SEARCH_LENGTH))
+    return url.href
+  }
   const { source, nativeId } = parseId(target.id)
   return new URL(`/app/${target.kind}/${source}:${encodeURIComponent(nativeId)}`, origin).href
 }

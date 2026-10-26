@@ -1,5 +1,5 @@
 import { FxmError } from '@fxm/core'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { EmbedPlayerView } from './components/layouts'
@@ -20,11 +20,18 @@ import { previewView } from './view'
 
 const ORIGIN = 'https://fxmusic.pages.dev'
 
-async function renderEmbed(options: HarnessOptions & { layout?: EmbedLayout }) {
+async function renderEmbed(
+  options: HarnessOptions & { layout?: EmbedLayout; standalone?: boolean },
+) {
   const harness = createHarness(options)
   const user = userEvent.setup()
   render(
-    <EmbedApp controller={harness.controller} layout={options.layout ?? 'card'} origin={ORIGIN} />,
+    <EmbedApp
+      controller={harness.controller}
+      layout={options.layout ?? 'card'}
+      origin={ORIGIN}
+      standalone={options.standalone ?? false}
+    />,
   )
   await act(() => harness.controller.start())
   return { ...harness, user }
@@ -47,9 +54,10 @@ describe('EmbedApp', () => {
     expect(screen.getByText('Song')).toBeVisible()
     expect(screen.getByText('The Testers')).toBeVisible()
     expect(document.title).toBe(`${SONG_A.title} · FXM player`)
+    // A track has no app page: the mark searches the app for it.
     expect(screen.getByRole('link', { name: 'Open in FXM (opens a new tab)' })).toHaveAttribute(
       'href',
-      `${ORIGIN}/app/`,
+      `${ORIGIN}/app/search?q=Song+A+The+Testers`,
     )
     expect(screen.queryByRole('list', { name: 'Tracks' })).not.toBeInTheDocument()
 
@@ -112,11 +120,44 @@ describe('EmbedApp', () => {
     expect(screen.getByText('A song from YouTube Music')).toBeVisible()
     const status = screen.getByRole('status')
     expect(within(status).getByText(/Add the free FXM Connect extension/)).toBeVisible()
-    const link = within(status).getByRole('link', { name: 'Get FXM' })
-    expect(link).toHaveAttribute('href', `${ORIGIN}/#get`)
-    expect(link).toHaveAttribute('target', '_blank')
-    expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    // An icon button on narrow players, words from 25rem: one shows at a time, by CSS.
+    const links = screen.getAllByRole('link', { name: 'Get FXM (opens a new tab)' })
+    expect(links).toHaveLength(2)
+    for (const link of links) {
+      expect(link).toHaveAttribute('href', `${ORIGIN}/#get`)
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    }
     expect(screen.queryByRole('button', { name: /^Play/ })).not.toBeInTheDocument()
+  })
+
+  it("tells why a track didn't play in few words, next to the play button", async () => {
+    const { user, ladder } = await renderEmbed({ target: targetOf(SONG_A) })
+    ladder.errors.set('songA', new FxmError('BotCheck', 'Sign in to confirm'))
+    await user.click(screen.getByRole('button', { name: `Play ${SONG_A.title}` }))
+    await act(() => settle())
+
+    expect(screen.getByRole('status')).toHaveTextContent('YouTube wants to check this browser.')
+    expect(screen.getByRole('button', { name: `Play ${SONG_A.title}` })).toBeVisible()
+    expect(screen.queryByRole('slider', { name: 'Seek' })).not.toBeInTheDocument()
+    const open = screen.getAllByRole('link', { name: 'Open in FXM (opens a new tab)' })
+    // The mark, and the message's action in its two shapes.
+    expect(open).toHaveLength(3)
+  })
+
+  it('fits a message in the compact layout without the FXM mark', async () => {
+    await renderEmbed({
+      target: targetOf(SONG_A),
+      capabilities: CAPABILITIES.free,
+      layout: 'compact',
+    })
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Needs FXM Connect or the FXM app to play here.',
+    )
+    expect(screen.getAllByRole('link', { name: 'Get FXM (opens a new tab)' })).toHaveLength(2)
+    expect(
+      screen.queryByRole('link', { name: 'Open in FXM (opens a new tab)' }),
+    ).not.toBeInTheDocument()
   })
 
   it('offers to try again after a passing failure', async () => {
@@ -128,20 +169,38 @@ describe('EmbedApp', () => {
     expect(screen.getByText(/Couldn't load this/)).toBeVisible()
 
     harness.youtubeProvider.errors.clear()
-    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    const [tryAgain] = screen.getAllByRole('button', { name: 'Try again' })
+    if (tryAgain === undefined) throw new Error('No "Try again" button')
+    await user.click(tryAgain)
     await act(() => settle())
     expect(screen.getByRole('button', { name: `Play ${SONG_A.title}` })).toBeVisible()
   })
 
-  it('credits a free-source track while it plays', async () => {
-    const { user } = await renderEmbed({ target: targetOf(ARCHIVE_TRACK) })
-    await user.click(screen.getByRole('button', { name: `Play ${ARCHIVE_TRACK.title}` }))
-    await act(() => settle())
-    expect(screen.getByRole('link', { name: 'Internet Archive' })).toHaveAttribute(
-      'href',
-      'https://archive.org/details/item',
-    )
-    expect(screen.getByRole('link', { name: 'Licence' })).toHaveAttribute('target', '_blank')
+  it.each(['card', 'compact'] as const)(
+    'credits a free-source track while it plays, in the %s layout',
+    async (layout) => {
+      const { user } = await renderEmbed({ target: targetOf(ARCHIVE_TRACK), layout })
+      await user.click(screen.getByRole('button', { name: `Play ${ARCHIVE_TRACK.title}` }))
+      await act(() => settle())
+      expect(
+        screen.getByRole('link', { name: 'Internet Archive (opens a new tab)' }),
+      ).toHaveAttribute('href', 'https://archive.org/details/item')
+      const licence = screen.getByRole('link', { name: 'Licence (opens a new tab)' })
+      expect(licence).toHaveAttribute('href', 'https://creativecommons.org/licenses/by/4.0/')
+      expect(licence).toHaveAttribute('target', '_blank')
+    },
+  )
+
+  it('draws its own edge in a frame, and sits centred at its size as a page of its own', async () => {
+    const framed = await renderEmbed({ target: targetOf(SONG_A) })
+    expect(screen.getByRole('main')).toHaveClass('ring-1', 'ring-inset')
+    expect(screen.queryByTestId('embed-box')).not.toBeInTheDocument()
+    framed.controller.destroy()
+    cleanup()
+
+    await renderEmbed({ target: targetOf(SONG_A), standalone: true })
+    expect(screen.getByTestId('embed-box')).toHaveStyle({ height: '232px' })
+    expect(screen.getByRole('main')).not.toHaveClass('ring-1')
   })
 })
 

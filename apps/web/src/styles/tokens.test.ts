@@ -14,7 +14,7 @@ function colorTokens(section: string): Record<string, string> {
 }
 
 const darkSection = tokensCss.slice(tokensCss.indexOf('@theme'), tokensCss.indexOf('@layer base'))
-const lightStart = tokensCss.search(/:root\[data-theme=["']light["']\]\s*\{/)
+const lightStart = tokensCss.search(/\[data-theme=["']light["']\]\s*\{/)
 const lightSection =
   lightStart === -1 ? '' : tokensCss.slice(lightStart, tokensCss.indexOf('}', lightStart))
 
@@ -75,4 +75,13 @@ describe('design tokens', () => {
       expect(contrast(fg ?? '', bg ?? '')).toBeGreaterThanOrEqual(minimum)
     })
   }
+})
+
+describe('themed subtrees', () => {
+  it('repeat the dark defaults for an element inside a light page', () => {
+    const start = tokensCss.search(/\[data-theme=["']dark["']\]\s*\{/)
+    const block = start === -1 ? '' : tokensCss.slice(start, tokensCss.indexOf('}', start))
+    const { white: _white, black: _black, ...defaults } = themes.dark
+    expect(colorTokens(block)).toEqual(defaults)
+  })
 })

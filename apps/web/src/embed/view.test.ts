@@ -14,6 +14,9 @@ import {
   targetOf,
 } from './testing/harness'
 import {
+  CREDIT_HOSTS,
+  creditLink,
+  creditOf,
   embedView,
   joinArtists,
   messageFor,
@@ -139,7 +142,38 @@ describe('embedView', () => {
       target,
     )
     expect(after.attribution).toEqual(ARCHIVE_ATTRIBUTION)
-    expect(after.links.open).toBe(`${ORIGIN}/app/`)
+    // A track has no page in the app: "Open in FXM" searches for it.
+    expect(after.links.open).toBe(`${ORIGIN}/app/search?q=Side+A+Archive+Band`)
+  })
+
+  it('links credits only to the source and the licence', () => {
+    const target = targetOf(ARCHIVE_TRACK)
+    const entity: EmbedEntity = {
+      target,
+      title: ARCHIVE_TRACK.title,
+      artists: ARCHIVE_TRACK.artists,
+      artwork: [],
+      tracks: [ARCHIVE_TRACK],
+      trackCount: 1,
+    }
+    const credited = embedView(
+      { phase: 'ready', entity, started: true, player: player([ARCHIVE_TRACK]) },
+      {
+        layout: 'card',
+        target,
+        origin: ORIGIN,
+        attribution: () => ({
+          provider: 'Internet Archive',
+          pageUrl: 'https://archive.org/details/item',
+          // An uploader's licence field, pointing somewhere else entirely.
+          licenseUrl: 'ms-msdt:/id PCWDiagnostic',
+        }),
+      },
+    )
+    expect(credited.attribution).toEqual({
+      provider: 'Internet Archive',
+      pageUrl: 'https://archive.org/details/item',
+    })
   })
 
   it("names unloaded content by its source and explains why it can't play", () => {
@@ -162,8 +196,33 @@ describe('embedView', () => {
       player: player(albumEntity.tracks),
       notice: 'failed',
     }
-    expect(view(state).message).toEqual({ kind: 'failed', text: "Couldn't play this. Try again." })
+    expect(view(state).message).toEqual({
+      kind: 'failed',
+      text: "Couldn't play this. Try again.",
+      short: "Couldn't play this. Try again.",
+    })
     expect(view({ ...state, notice: 'bot-check' }).message?.action).toBe('open')
+  })
+
+  it("searches the app for a track once its title is known, and opens the app's home before", () => {
+    const target = { kind: 'track', id: SONG_A.id } as const
+    expect(view({ phase: 'unavailable', problem: 'needs-youtube' }, target).links.open).toBe(
+      `${ORIGIN}/app/`,
+    )
+    const entity: EmbedEntity = {
+      target,
+      title: SONG_A.title,
+      artists: SONG_A.artists,
+      artwork: [],
+      tracks: [SONG_A],
+      trackCount: 1,
+    }
+    expect(view({ phase: 'unavailable', problem: 'hidden-by-mode', entity }, target).links).toEqual(
+      {
+        open: `${ORIGIN}/app/search?q=Song+A+The+Testers`,
+        install: `${ORIGIN}/#get`,
+      },
+    )
   })
 })
 
@@ -236,10 +295,47 @@ describe('helpers', () => {
       const message = messageFor(kind, 'playlist')
       expect(message.kind).toBe(kind)
       expect(message.text.length).toBeGreaterThan(10)
+      // Two lines at about 130 px in the compact layout.
+      expect(message.short.length).toBeLessThanOrEqual(46)
       expect(['install', 'open', 'retry']).toContain(message.action)
     }
     expect(messageFor('not-found', 'track').text).toBe("This song isn't available.")
     expect(messageFor('empty', 'album').text).toBe('This album has nothing this player can play.')
+  })
+
+  it.each([
+    [
+      'an Internet Archive page',
+      'https://archive.org/details/item',
+      'https://archive.org/details/item',
+    ],
+    ['a subdomain', 'https://ia800.us.archive.org/x', 'https://ia800.us.archive.org/x'],
+    [
+      'a deed over plain HTTP, upgraded',
+      'http://creativecommons.org/licenses/by-nc-sa/3.0/',
+      'https://creativecommons.org/licenses/by-nc-sa/3.0/',
+    ],
+    ['a Jamendo page', 'https://www.jamendo.com/track/1', 'https://www.jamendo.com/track/1'],
+    ['javascript:', 'javascript:alert(1)', undefined],
+    ['an app scheme', 'search-ms:query=x', undefined],
+    ['an intent', 'intent://scan/#Intent;scheme=zxing;end', undefined],
+    ['another site', 'https://evil.example/licence', undefined],
+    ['a look-alike host', 'https://archive.org.evil.example/x', undefined],
+    ['a host that only ends the same', 'https://notarchive.org/x', undefined],
+    ['credentials', 'https://user:pass@archive.org/x', undefined],
+    ['a port', 'https://archive.org:8443/x', undefined],
+    ['plain HTTP elsewhere', 'http://evil.example/x', undefined],
+    ['nothing', undefined, undefined],
+    ['not a URL', 'licence', undefined],
+  ])('links credits to %s only when it is the source or the licence', (_name, url, link) => {
+    expect(creditLink(url)).toBe(link)
+  })
+
+  it('keeps the provider as text when its link is dropped', () => {
+    expect(CREDIT_HOSTS).toEqual(['archive.org', 'jamendo.com', 'creativecommons.org'])
+    expect(
+      creditOf({ provider: 'Jamendo', pageUrl: 'javascript:alert(1)', licenseUrl: 'x:y' }),
+    ).toEqual({ provider: 'Jamendo' })
   })
 
   it('picks the smallest artwork that fills the space, over HTTPS only', () => {

@@ -1,7 +1,8 @@
 /**
- * The embed's logic, apart from its looks. It creates the platform for whatever the visitor's
- * browser offers (FXM Connect, then the Lite tier, then free sources only), loads what the
- * address names, and plays it with the player and the stream lifecycle of stages 2.2 and 2.3.
+ * The embed's logic, apart from its looks. When its providers can load what the address names,
+ * it creates the platform for whatever the visitor's browser offers (FXM Connect, then the Lite
+ * tier, then free sources only), loads the content, and plays it with the player and the stream
+ * lifecycle of stages 2.2 and 2.3.
  * The view (`embed-app.tsx`) and the postMessage API (`api.ts`) both read its state and call
  * its actions.
  *
@@ -134,6 +135,12 @@ export interface EmbedControllerOptions {
   /** The catalog mode from the address. */
   mode: CatalogMode
   /**
+   * Whether the providers can load the target's source at all (`isWired` from `wired.ts`). The
+   * controller asks first, so a player for content it can't play creates no platform: it
+   * contacts no service, runs no Lite self-test and looks for no FXM Connect. Default: yes.
+   */
+  canLoad?: (target: EmbedTarget) => boolean | Promise<boolean>
+  /**
    * Creates the platform. `youtube` says whether the target comes from YouTube: only then is
    * the Lite tier worth its self-test.
    */
@@ -250,6 +257,21 @@ export class EmbedController {
     const generation = this.#generation
     const current = () => generation === this.#generation && !this.#destroyed
     this.#update({ phase: 'loading', problem: undefined, notice: undefined })
+
+    const { canLoad } = this.#options
+    if (canLoad !== undefined) {
+      let loadable: boolean
+      try {
+        loadable = await canLoad(this.target)
+      } catch {
+        loadable = false
+      }
+      if (!current()) return
+      if (!loadable) {
+        this.#update({ phase: 'unavailable', problem: 'unsupported' })
+        return
+      }
+    }
 
     let platform: EmbedPlatform
     try {

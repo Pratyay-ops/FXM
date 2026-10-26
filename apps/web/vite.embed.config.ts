@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { type Connect, defineConfig, type Plugin } from 'vite'
+import { EMBED_HEADERS } from './embed/headers'
 
 // The embeddable mini-player (stage 5.2): a page of its own, served from /embed/ next to the
 // app at /app/, so it can carry its own header rule (the app's policy without
@@ -23,26 +24,35 @@ const SANDBOX_DOCUMENT = /^\/sandbox\/(innertube|userhost)\.html(?:[?#].*)?$/
  * and the sandbox documents at /sandbox/, so the Lite tier works on the dev and preview servers.
  * The documents go out without their sandbox header here; their own `<meta>` policy still
  * limits what they can fetch, and the embed frames them with `sandbox="allow-scripts"`.
+ *
+ * The preview server also sends the deploy's `/embed/*` header rule (`embed/headers.ts`), so a
+ * policy violation shows there before it ships. The dev server can't: React's refresh preamble
+ * is an inline script.
  */
 function embedServer(): Plugin {
-  const handle: Connect.NextHandleFunction = (req, res: ServerResponse, next) => {
-    const url = req.url ?? ''
-    const document = SANDBOX_DOCUMENT.exec(url)
-    if (document) {
-      res.setHeader('content-type', 'text/html; charset=utf-8')
-      res.end(readFileSync(`${SANDBOX_DIR}${document[1]}.html`))
-      return
+  const handle =
+    (headers: Readonly<Record<string, string>>): Connect.NextHandleFunction =>
+    (req, res: ServerResponse, next) => {
+      const url = req.url ?? ''
+      const document = SANDBOX_DOCUMENT.exec(url)
+      if (document) {
+        res.setHeader('content-type', 'text/html; charset=utf-8')
+        res.end(readFileSync(`${SANDBOX_DIR}${document[1]}.html`))
+        return
+      }
+      if (url.startsWith('/embed/')) {
+        for (const [name, value] of Object.entries(headers)) res.setHeader(name, value)
+      }
+      if (EMBED_ROUTE.test(url)) req.url = '/embed/'
+      next()
     }
-    if (EMBED_ROUTE.test(url)) req.url = '/embed/'
-    next()
-  }
   return {
     name: 'fxm-embed-server',
     configureServer(server) {
-      server.middlewares.use(handle)
+      server.middlewares.use(handle({}))
     },
     configurePreviewServer(server) {
-      server.middlewares.use(handle)
+      server.middlewares.use(handle(EMBED_HEADERS))
     },
   }
 }

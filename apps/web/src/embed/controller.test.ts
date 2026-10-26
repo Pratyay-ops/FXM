@@ -206,6 +206,41 @@ describe('EmbedController', () => {
     expect(controller.getState().entity?.title).toBe(ALBUM.name)
   })
 
+  it('contacts nothing for content its providers can not load', async () => {
+    const platform = createFakePlatform()
+    let platforms = 0
+    let services = 0
+    const controller = new EmbedController({
+      target: { kind: 'track', id: SONG.id },
+      mode: 'music',
+      canLoad: () => false,
+      createPlatform: async () => {
+        platforms += 1
+        return platform
+      },
+      createServices: () => {
+        services += 1
+        return { catalog: createProviderCatalog([]), sources: [] }
+      },
+      mediaSession: false,
+    })
+    await controller.start()
+    // No platform: no FXM Connect check and no Lite self-test, so no request at all.
+    expect(controller.getState()).toEqual({ phase: 'unavailable', problem: 'unsupported' })
+    expect([platforms, services]).toEqual([0, 0])
+
+    const failing = new EmbedController({
+      target: { kind: 'track', id: SONG.id },
+      mode: 'music',
+      canLoad: () => Promise.reject(new Error('No chunk')),
+      createPlatform: async () => platform,
+      createServices: () => ({ catalog: createProviderCatalog([]), sources: [] }),
+      mediaSession: false,
+    })
+    await failing.start()
+    expect(failing.getState()).toMatchObject({ phase: 'unavailable', problem: 'unsupported' })
+  })
+
   it('says it cannot play a source it has no provider for', async () => {
     const { controller } = createHarness({ target: { kind: 'track', id: SONG.id }, providers: [] })
     await controller.start()
@@ -310,20 +345,47 @@ describe('EmbedController', () => {
   it('disposes a platform that arrives after it was destroyed', async () => {
     const platform = createFakePlatform()
     let release: () => void = () => {}
+    let asked: () => void = () => {}
+    const requested = new Promise<void>((resolve) => {
+      asked = resolve
+    })
     const controller = new EmbedController({
       target: { kind: 'track', id: SONG.id },
       mode: 'music',
-      createPlatform: () =>
-        new Promise((resolve) => {
+      canLoad: async () => true,
+      createPlatform: () => {
+        asked()
+        return new Promise((resolve) => {
           release = () => resolve(platform)
-        }),
+        })
+      },
+      createServices: () => ({ catalog: createProviderCatalog([]), sources: [] }),
+      mediaSession: false,
+    })
+    const started = controller.start()
+    await requested
+    controller.destroy()
+    release()
+    await started
+    expect(platform.disposed).toBe(true)
+  })
+
+  it('creates no platform when destroyed before it knew it could load', async () => {
+    let platforms = 0
+    const controller = new EmbedController({
+      target: { kind: 'track', id: SONG.id },
+      mode: 'music',
+      canLoad: async () => true,
+      createPlatform: async () => {
+        platforms += 1
+        return createFakePlatform()
+      },
       createServices: () => ({ catalog: createProviderCatalog([]), sources: [] }),
       mediaSession: false,
     })
     const started = controller.start()
     controller.destroy()
-    release()
     await started
-    expect(platform.disposed).toBe(true)
+    expect(platforms).toBe(0)
   })
 })

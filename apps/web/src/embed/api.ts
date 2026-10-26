@@ -12,8 +12,13 @@
  *   value is checked for its type and range. A bad message gets an `fxm-embed:error` reply; a
  *   message that isn't an FXM embed message gets nothing.
  * - **What it says:** only what the player itself shows: the status, the position and the
- *   current track's ID, title and artists. Never the tier, so a site can't use an embed to find
- *   out whether its visitor has FXM Connect.
+ *   current track's ID, title and artists. Its messages never name the tier. (What a page can
+ *   see of the player otherwise, such as how many frames it has, is the README's "What a page
+ *   can't learn or do".)
+ * - **Only while visible:** commands that start or skip playback (`play`, `toggle` from a
+ *   player that isn't playing, `next`, `previous`) run only while the player is visible
+ *   (`visibility.ts`), so a page can't use it as a hidden engine behind its own buttons. The
+ *   visitor's clicks in the player always work, and so do pausing, seeking and the volume.
  * - **Rate limit:** commands that start resolving a track (play an index, next, previous, and
  *   play from a stopped player) are limited to 10 a minute, so a page can't use an embed to
  *   spend its visitor's YouTube request budget.
@@ -23,6 +28,7 @@
 
 import type { PlayerStatus } from '@fxm/player'
 import type { EmbedController, EmbedState } from './controller'
+import type { VisibilityGate } from './visibility'
 
 /** The protocol version both sides send. */
 export const EMBED_PROTOCOL = 1
@@ -82,8 +88,15 @@ export type RequestId = string | number
  * - `unsupported`: an unknown command, message type or protocol version
  * - `rate-limited`: too many commands that start a track, see {@link RATE_LIMIT}
  * - `not-ready`: the player is still loading, or can't play its content here
+ * - `not-visible`: a command that starts or skips playback while the player isn't visible
+ *   enough (`visibility.ts`)
  */
-export type EmbedErrorCode = 'bad-request' | 'unsupported' | 'rate-limited' | 'not-ready'
+export type EmbedErrorCode =
+  | 'bad-request'
+  | 'unsupported'
+  | 'rate-limited'
+  | 'not-ready'
+  | 'not-visible'
 
 /** What reading one message from the page gives. */
 export type ReadMessage =
@@ -309,6 +322,8 @@ export interface EmbedApiOptions {
    * player announces itself to it unprompted once it has loaded.
    */
   readonly controllerOrigin?: string
+  /** Whether the player is visible enough to start playback (`watchVisibility`). */
+  readonly visibility: Pick<VisibilityGate, 'visible'>
   /** The clock, in milliseconds, for the rate limit and position updates. Default `Date.now`. */
   readonly now?: () => number
 }
@@ -316,12 +331,15 @@ export interface EmbedApiOptions {
 /** Player statuses from which `play` or `toggle` starts resolving the track again. */
 const STOPPED: ReadonlySet<EmbedApiStatus> = new Set(['idle', 'ended', 'error'])
 
+/** Player statuses in which `toggle` pauses rather than plays. */
+const ACTIVE: ReadonlySet<EmbedApiStatus> = new Set(['playing', 'loading'])
+
 /**
  * Starts the API on the player's window. Returns a function that stops it. Does nothing at top
  * level, where there is no embedding page.
  */
 export function connectEmbedApi(options: EmbedApiOptions): () => void {
-  const { window, controller, controllerOrigin } = options
+  const { window, controller, controllerOrigin, visibility } = options
   const now = options.now ?? Date.now
   const parent = window.parent
   if (parent === null || parent === (window as unknown)) return () => {}
@@ -423,19 +441,24 @@ export function connectEmbedApi(options: EmbedApiOptions): () => void {
       case 'play': {
         const { index } = command
         if (index !== undefined && index >= api.trackCount) return 'bad-request'
+        if (!visibility.visible()) return 'not-visible'
         if ((index !== undefined || STOPPED.has(api.status)) && !takeStart()) return 'rate-limited'
         controller.play(index)
         return undefined
       }
       case 'toggle':
+        // Pausing always works; playing needs the player to be seen.
+        if (!ACTIVE.has(api.status) && !visibility.visible()) return 'not-visible'
         if (STOPPED.has(api.status) && !takeStart()) return 'rate-limited'
         controller.toggle()
         return undefined
       case 'next':
+        if (!visibility.visible()) return 'not-visible'
         if (!takeStart()) return 'rate-limited'
         controller.next()
         return undefined
       case 'previous':
+        if (!visibility.visible()) return 'not-visible'
         if (!takeStart()) return 'rate-limited'
         controller.previous()
         return undefined

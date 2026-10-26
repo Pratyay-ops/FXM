@@ -205,6 +205,9 @@ function attribution(track: Track): EmbedAttribution | undefined {
   }
 }
 
+/** The sources the test doubles load and play (the browser tests' `WIRED_SOURCES`). */
+export const E2E_SOURCES: ReadonlySet<string> = new Set(['ytm', 'archive'])
+
 /** The test doubles, on the real platform. */
 export function createE2eServices(_platform: EmbedPlatform): EmbedServices {
   const { youtube, archive } = fixtures()

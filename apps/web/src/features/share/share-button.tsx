@@ -3,7 +3,7 @@ import { Share2 } from 'lucide-react'
 import { IconButton } from '../../components/ui/icon-button'
 import { type EmbedKind, embedTargetOf, parseEmbedAddress } from '../../embed/target'
 import type { PreviewInfo } from '../../embed/view'
-import { useShareStore } from './share-store'
+import { canShare, useShareStore } from './share-store'
 
 /**
  * The entity an app page's route parameter names, `<source>:<native ID>` as in
@@ -17,7 +17,8 @@ export function pageEntityId(kind: EmbedKind, param: string | undefined): Entity
 
 /**
  * Opens the share dialog for a track, album or playlist. Renders nothing for an entity no embed
- * can show (an artist, a Spotify track, a local file).
+ * can show (an artist, a Spotify track, a local file), or that the app doesn't offer to share
+ * yet (`canShare`: in production builds, until the embed can play its source).
  */
 export function ShareButton({
   id,
@@ -30,7 +31,7 @@ export function ShareButton({
 }) {
   const open = useShareStore((state) => state.open)
   const target = id === undefined ? undefined : embedTargetOf(id)
-  if (target === undefined) return null
+  if (target === undefined || !canShare(target)) return null
   return (
     <IconButton
       label={`Share ${info.title}`}

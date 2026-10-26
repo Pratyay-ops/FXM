@@ -2,6 +2,19 @@ import type { EntityId } from '@fxm/core'
 import { create } from 'zustand'
 import { type EmbedTarget, embedTargetOf } from '../../embed/target'
 import type { PreviewInfo } from '../../embed/view'
+import { isWired } from '../../embed/wired'
+
+/**
+ * Whether the app offers to share a player for `target`. A production build offers it only for
+ * sources the embed can play (`WIRED_SOURCES`), so nobody publishes a player that can only say
+ * it can't play; development builds and the tests always do, so the dialog can be tried.
+ */
+export function canShare(
+  target: EmbedTarget,
+  env: { readonly PROD: boolean } = import.meta.env,
+): boolean {
+  return !env.PROD || isWired(target)
+}
 
 /** What the share dialog shares: the entity, and what the app knows about it for the preview. */
 export interface ShareRequest {
@@ -27,11 +40,12 @@ export const useShareStore = create<ShareState>()((set) => ({
 
 /**
  * Opens the share dialog for an entity, e.g. from a menu. Returns `false`, and opens nothing,
- * when no embed can show it (an artist, a Spotify track, a local file).
+ * when no embed can show it (an artist, a Spotify track, a local file) or the app doesn't offer
+ * to share it yet ({@link canShare}).
  */
 export function openShareDialog(id: EntityId, info: PreviewInfo): boolean {
   const target = embedTargetOf(id)
-  if (target === undefined) return false
+  if (target === undefined || !canShare(target)) return false
   useShareStore.getState().open({ target, info })
   return true
 }

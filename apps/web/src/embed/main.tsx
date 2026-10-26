@@ -6,8 +6,10 @@ import { connectEmbedApi } from './api'
 import { EmbedController, type EmbedPlatform, type EmbedServices } from './controller'
 import { EmbedApp, InvalidEmbed } from './embed-app'
 import { createEmbedServices, embedPlatformOptions, embedSandboxOptions } from './integration'
-import { parseEmbedAddress } from './target'
+import { type EmbedTarget, parseEmbedAddress } from './target'
 import { applyEmbedTheme } from './theme'
+import { watchVisibility } from './visibility'
+import { isWired } from './wired'
 
 /**
  * The platform for the visitor's browser: FXM Connect when it applies, else the Lite tier's
@@ -36,10 +38,20 @@ async function openPlatform({ youtube }: { youtube: boolean }): Promise<EmbedPla
 }
 
 /**
- * The providers. The browser tests build the embed with `--mode e2e`, which swaps in test
- * doubles that resolve through the real platform and sandbox (see `e2e/embed`); every other
- * build drops that branch, so no test code ships.
+ * Whether the providers can load what the address names: a source `integration.ts` wires in.
+ * The browser tests build the embed with `--mode e2e`, which swaps in test doubles that resolve
+ * through the real platform and sandbox (see `e2e/embed`); every other build drops that branch,
+ * so no test code ships.
  */
+async function canLoad(target: EmbedTarget): Promise<boolean> {
+  if (import.meta.env.MODE === 'e2e') {
+    const { E2E_SOURCES } = await import('./testing/e2e-services')
+    return isWired(target, E2E_SOURCES)
+  }
+  return isWired(target)
+}
+
+/** The providers, or in the browser tests' build their test doubles (see {@link canLoad}). */
 async function loadServices(platform: EmbedPlatform): Promise<EmbedServices> {
   if (import.meta.env.MODE === 'e2e') {
     const { createE2eServices } = await import('./testing/e2e-services')
@@ -50,6 +62,9 @@ async function loadServices(platform: EmbedPlatform): Promise<EmbedServices> {
 
 const address = parseEmbedAddress(location.pathname, location.search)
 applyEmbedTheme(address.ok ? address.options.theme : 'auto')
+// Opened as a page of its own (a shared player link) rather than in another site's frame.
+const standalone = window.self === window.top
+if (standalone) document.documentElement.dataset.standalone = ''
 
 const container = document.getElementById('root')
 if (!container) throw new Error('embed/index.html is missing the #root element')
@@ -65,18 +80,28 @@ if (!address.ok) {
   const controller = new EmbedController({
     target: address.target,
     mode: address.options.mode,
+    canLoad,
     createPlatform: openPlatform,
     createServices: loadServices,
   })
   root.render(
     <StrictMode>
-      <EmbedApp controller={controller} layout={address.options.layout} origin={location.origin} />
+      <EmbedApp
+        controller={controller}
+        layout={address.options.layout}
+        origin={location.origin}
+        standalone={standalone}
+      />
     </StrictMode>,
   )
-  connectEmbedApi({
-    window,
-    controller,
-    ...(address.controller === undefined ? {} : { controllerOrigin: address.controller }),
-  })
+  // At top level there is no embedding page, so no API (and nothing to watch for it).
+  if (!standalone) {
+    connectEmbedApi({
+      window,
+      controller,
+      visibility: watchVisibility(document.documentElement, window),
+      ...(address.controller === undefined ? {} : { controllerOrigin: address.controller }),
+    })
+  }
   void controller.start()
 }

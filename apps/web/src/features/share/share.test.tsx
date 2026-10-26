@@ -1,11 +1,15 @@
 import { formatId } from '@fxm/core'
-import { act, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
+import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { WIRED_SOURCES } from '../../embed/wired'
 import { renderApp } from '../../test/render'
 import { useSettingsStore } from '../settings/settings-store'
+import { PREFERS_LIGHT_QUERY } from '../settings/theme'
 import { embedCode, escapeAttribute, shareOrigin } from './embed-code'
 import { pageEntityId } from './share-button'
-import { openShareDialog, useShareStore } from './share-store'
+import { ShareDialogHost } from './share-dialog'
+import { canShare, openShareDialog, useShareStore } from './share-store'
 
 const ALBUM = { kind: 'album', id: formatId('ytm', 'album', 'MPREb_abc') } as const
 
@@ -76,6 +80,13 @@ describe('share entry points', () => {
     expect(pageEntityId('playlist', 'liked')).toBeUndefined()
     expect(pageEntityId('album', 'spotify:4aawyAB9vmqN3uQ7FjRGTy')).toBeUndefined()
     expect(pageEntityId('album', undefined)).toBeUndefined()
+  })
+
+  it('are offered in production builds only for what the embed can play', () => {
+    expect(canShare(ALBUM, { PROD: false })).toBe(true)
+    expect(canShare(ALBUM, { PROD: true })).toBe(WIRED_SOURCES.has('ytm'))
+    // The tests run as a development build: the dialog can be tried.
+    expect(canShare(ALBUM)).toBe(true)
   })
 
   it('open the dialog only for what an embed can show', () => {
@@ -171,6 +182,38 @@ describe('Share dialog', () => {
 
     expect(select).toHaveBeenCalled()
     expect(within(dialog).getByRole('status')).toHaveTextContent(/Copying was blocked/)
+  })
+
+  it('previews the player in the chosen theme', async () => {
+    const { user, dialog } = await openFromAlbumPage()
+    const preview = within(dialog).getByTestId('embed-preview')
+    // Auto shows what this device's own setting gives.
+    const system = window.matchMedia(PREFERS_LIGHT_QUERY).matches ? 'light' : 'dark'
+    expect(preview).toHaveAttribute('data-theme', system)
+    await user.click(within(dialog).getByRole('radio', { name: 'Light' }))
+    expect(preview).toHaveAttribute('data-theme', 'light')
+    await user.click(within(dialog).getByRole('radio', { name: 'Dark' }))
+    expect(preview).toHaveAttribute('data-theme', 'dark')
+  })
+
+  it('says what a player on a page loads before anyone presses play', async () => {
+    const { dialog } = await openFromAlbumPage()
+    expect(
+      within(dialog).getByText(/loads the album's details and cover art from its source/),
+    ).toHaveTextContent(/privacy notice/)
+  })
+
+  it('stays open under StrictMode, which runs its effect twice', async () => {
+    act(() => useShareStore.getState().open({ target: ALBUM, info: { title: 'Pablo Honey' } }))
+    render(
+      <StrictMode>
+        <ShareDialogHost />
+      </StrictMode>,
+    )
+    // A close event queued by the first cleanup would arrive now.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)))
+    expect(screen.getByRole('dialog', { name: 'Share this album' })).toHaveAttribute('open')
+    expect(useShareStore.getState().request?.target).toEqual(ALBUM)
   })
 
   it('closes from its button', async () => {

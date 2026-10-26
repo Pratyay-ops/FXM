@@ -67,8 +67,13 @@ interface PlayerMessage {
 declare global {
   interface Window {
     received: PlayerMessage[]
+    /** What a document of the embedding site reported from the player's sandbox frame. */
+    hijacked: { hijack: string; url?: string }[]
+    hijackTried?: boolean
     sendToPlayer(message: unknown, targetOrigin?: string): void
     hello(): void
+    /** The player a test opened as a popup. */
+    opened?: Window | null
     __cspViolations?: string[]
   }
 }
@@ -107,18 +112,47 @@ test.beforeEach(({ hosts }) => {
   expect(hosts.size).toBe(0)
 })
 
+/** How the other site's page frames the player. */
+interface FrameOptions {
+  width?: number
+  height?: number
+  /** More inline CSS for the iframe. */
+  style?: string
+  /** Load the iframe at once, even off-screen. */
+  eager?: boolean
+  hello?: boolean
+  /** Try to put the page's own document in the player's sandbox frame. */
+  hijack?: boolean
+}
+
 /** Opens the other site's page with the player at `embed` (a path and query on FXM's site). */
 async function openEmbedder(
   page: Page,
   embed: string,
-  options: { height?: number; hello?: boolean } = {},
+  options: FrameOptions = {},
 ): Promise<FrameLocator> {
   const url = new URL(EMBEDDER)
   url.searchParams.set('embed', embed)
+  if (options.width !== undefined) url.searchParams.set('width', String(options.width))
   if (options.height !== undefined) url.searchParams.set('height', String(options.height))
+  if (options.style !== undefined) url.searchParams.set('style', options.style)
+  if (options.eager) url.searchParams.set('loading', 'eager')
   if (options.hello === false) url.searchParams.set('hello', '0')
+  if (options.hijack) url.searchParams.set('hijack', '1')
   await page.goto(url.href)
   return page.frameLocator('#player')
+}
+
+/** Whether everything in the player's `main` fits it, without anything cut off. */
+function fits(frame: FrameLocator): Promise<boolean> {
+  return frame.locator('main').evaluate((main) => main.scrollHeight <= main.clientHeight)
+}
+
+/** The refusals the player sent, as `{ code, id, command }`. */
+async function errors(page: Page) {
+  return (await received(page))
+    .filter((message) => message.type === 'fxm-embed:error')
+    .map(({ code, id, command: name }) => ({ code, id, command: name }))
 }
 
 /** The policy violations the player's frame saw. */
@@ -305,7 +339,10 @@ test('plays free sources and shows the install hint without Lite', async ({ page
   const frame = await openEmbedder(page, TRACK_PATH)
   await waitForMessage(page, hasStatus('unavailable'))
   await expect(frame.getByText(/FXM can't reach YouTube Music in this browser/)).toBeVisible()
-  await expect(frame.getByRole('link', { name: 'Get FXM' })).toHaveAttribute('href', `${FXM}/#get`)
+  await expect(frame.getByRole('link', { name: 'Get FXM (opens a new tab)' })).toHaveAttribute(
+    'href',
+    `${FXM}/#get`,
+  )
   await screenshot(frame, 'card-install-hint')
   // The self-test was the only InnerTube call; nothing else was tried.
   const innerTube = INNERTUBE_HOSTS.flatMap((host) => network.requests(host))
@@ -320,7 +357,9 @@ test('plays free sources and shows the install hint without Lite', async ({ page
   await waitForMessage(page, (message) => message.type === 'fxm-embed:ready')
   await archive.getByRole('button', { name: `Play ${E2E_ARCHIVE_TRACK.title}` }).click()
   await waitForMessage(page, hasStatus('playing'))
-  await expect(archive.getByRole('link', { name: 'Internet Archive' })).toBeVisible()
+  await expect(
+    archive.getByRole('link', { name: 'Internet Archive (opens a new tab)' }),
+  ).toBeVisible()
   expect(network.requests(ARCHIVE_HOST, '/download/').length).toBeGreaterThan(0)
   expect(INNERTUBE_HOSTS.flatMap((host) => network.requests(host))).toEqual([])
   expect(network.requests(FXM_HOST, '/sandbox/')).toEqual([])
@@ -380,17 +419,154 @@ test('comes in a compact layout, light or dark', async ({ page }) => {
   }
 })
 
-test('fits the install hint in the compact layout', async ({ page, network }) => {
-  network.state.refuseOpaque = true
-  const frame = await openEmbedder(page, `${TRACK_PATH}?layout=compact`, { height: 80 })
-  await waitForMessage(page, hasStatus('unavailable'))
-  await expect(frame.getByRole('heading', { name: 'A song from YouTube Music' })).toBeAttached()
-  await expect(frame.locator('p', { hasText: 'A song from YouTube Music' })).toBeVisible()
-  await expect(frame.getByRole('status')).toContainText("FXM can't reach YouTube Music")
-  await expect(frame.getByRole('link', { name: 'Get FXM' })).toBeVisible()
-  const box = await frame.locator('main').boundingBox()
-  expect(box?.height).toBeLessThanOrEqual(80)
-  await screenshot(frame, 'compact-install-hint')
+test('fits the install hint in the compact layout, also on phones', async ({ page, network }) => {
+  for (const width of [320, 375, undefined]) {
+    network.reset()
+    network.state.refuseOpaque = true
+    const frame = await openEmbedder(page, `${TRACK_PATH}?layout=compact`, {
+      height: 80,
+      ...(width === undefined ? {} : { width }),
+    })
+    await waitForMessage(page, hasStatus('unavailable'))
+    await expect(frame.getByRole('heading', { name: 'A song from YouTube Music' })).toBeAttached()
+    await expect(frame.locator('p', { hasText: 'A song from YouTube Music' })).toBeVisible()
+    const message = frame.getByRole('status').locator('p')
+    await expect(message).toHaveText('Needs FXM Connect or the FXM app to play here.')
+    // Two lines at most, nothing clamped, and the action (an icon on phones) in reach.
+    expect(await message.evaluate((text) => text.scrollHeight <= text.clientHeight)).toBe(true)
+    await expect(frame.getByRole('link', { name: 'Get FXM (opens a new tab)' })).toBeVisible()
+    expect(await fits(frame)).toBe(true)
+    await screenshot(frame, `compact-install-hint-${width ?? 'wide'}`)
+  }
+})
+
+test('fits every message in the track card at phone widths', async ({ page, network }) => {
+  // The install hint, the longest message, in a phone's blog column.
+  for (const width of [320, 343]) {
+    network.reset()
+    network.state.refuseOpaque = true
+    const frame = await openEmbedder(page, TRACK_PATH, { width })
+    await waitForMessage(page, hasStatus('unavailable'))
+    await expect(frame.getByRole('link', { name: 'Get FXM (opens a new tab)' })).toBeVisible()
+    expect(await fits(frame)).toBe(true)
+    await screenshot(frame, `card-install-hint-${width}`)
+  }
+  // A notice with an action, next to the play button: YouTube says the video is unplayable.
+  for (const width of [320, 768]) {
+    network.reset()
+    network.state.unplayable = true
+    const frame = await openEmbedder(page, TRACK_PATH, { width })
+    await waitForMessage(page, (message) => message.type === 'fxm-embed:ready')
+    await frame.getByRole('button', { name: `Play ${SONG.title}` }).click()
+    await expect(frame.getByRole('status')).toHaveText("This song isn't available here.")
+    await expect(
+      frame.getByRole('link', { name: 'Open in FXM (opens a new tab)' }).last(),
+    ).toBeVisible()
+    expect(await fits(frame)).toBe(true)
+    await screenshot(frame, `card-notice-${width}`)
+  }
+})
+
+test('keeps a page that opens the player from seeing its frames', async ({ page }) => {
+  // Opened at top level, the player frames the sandbox only without FXM Connect, so its frame
+  // count would tell an opener whether the visitor has Connect. COOP cuts the opener off.
+  await openEmbedder(page, '/embed/none', { hello: false })
+  await page.evaluate((url) => {
+    document.getElementById('page-button')?.addEventListener('click', () => {
+      window.opened = window.open(url, 'probe', 'popup')
+    })
+  }, `${FXM}${TRACK_PATH}`)
+  const [popup] = await Promise.all([
+    page.context().waitForEvent('page'),
+    page.locator('#page-button').click(),
+  ])
+  // The player did frame its sandbox document...
+  await popup.waitForFunction(() => window.length === 1, undefined, { timeout: 20_000 })
+  // ...and the page that opened it sees a closed window with no frames.
+  expect(
+    await page.evaluate(() => ({ closed: window.opened?.closed, length: window.opened?.length })),
+  ).toEqual({ closed: true, length: 0 })
+  await popup.close()
+})
+
+test('keeps the embedding page out of its sandbox frame', async ({ page, network }) => {
+  // The control: with `frame-src` relaxed to the page's site, the page's own document takes
+  // the sandbox's place before the handshake and gets the player's port and requests. The
+  // sandbox document comes late, so the page always gets there first.
+  network.state.relaxFrameSrc = true
+  network.state.slowSandbox = true
+  await openEmbedder(page, TRACK_PATH, { hijack: true })
+  await expect
+    .poll(() => page.evaluate(() => window.hijacked.map((message) => message.hijack)), {
+      timeout: 20_000,
+    })
+    .toContain('port')
+
+  // Under the /embed/* rule (`frame-src 'self'`) the browser refuses that navigation.
+  network.reset()
+  network.state.slowSandbox = true
+  await openEmbedder(page, TRACK_PATH, { hijack: true })
+  await expect.poll(() => page.evaluate(() => window.hijackTried === true)).toBe(true)
+  await expect
+    .poll(async () => (await playerViolations(page))?.some((v) => v.startsWith('frame-src')))
+    .toBe(true)
+  await page.waitForTimeout(1000)
+  expect(await page.evaluate(() => window.hijacked)).toEqual([])
+  expect(network.requests(EMBEDDER_HOST, '/fake-sandbox.html')).toEqual([])
+})
+
+test('starts playback from the page only while the player is visible', async ({
+  page,
+  browserName,
+}) => {
+  const hidden: [string, FrameOptions][] = [
+    ['tiny', { width: 1, height: 1 }],
+    ['off-screen', { style: 'position:absolute;top:-2000px', eager: true }],
+  ]
+  // Only Chromium can tell a transparent frame (IntersectionObserver v2).
+  if (browserName === 'chromium') hidden.push(['transparent', { style: 'opacity:0' }])
+  for (const [name, options] of hidden) {
+    await openEmbedder(page, TRACK_PATH, options)
+    await waitForMessage(page, (message) => message.type === 'fxm-embed:ready')
+    await page.locator('#page-button').click() // The page's own user activation.
+    await command(page, { command: 'play', id: name })
+    await expect
+      .poll(() => errors(page))
+      .toEqual([{ code: 'not-visible', id: name, command: 'play' }])
+    expect((await lastState(page))?.status).toBe('idle')
+  }
+
+  // Shown in full, the same command plays.
+  await page.evaluate(() => {
+    const player = document.getElementById('player') as HTMLIFrameElement
+    player.style.cssText = 'border:0;border-radius:12px'
+    player.width = '100%'
+    player.height = '232'
+  })
+  await expect
+    .poll(
+      async () => {
+        await command(page, { command: 'play' })
+        return (await lastState(page))?.status
+      },
+      { timeout: 20_000, intervals: [500] },
+    )
+    .toMatch(/^(loading|playing)$/)
+})
+
+test('shows a shared player link as a page of its own', async ({ page }) => {
+  await page.goto(`${FXM}${TRACK_PATH}`)
+  await expect(page.getByRole('heading', { name: SONG.title })).toBeVisible()
+  const box = await page.getByTestId('embed-box').boundingBox()
+  const viewport = page.viewportSize()
+  // Centred, at the height the track card is designed for, not stretched over the window.
+  expect(box?.height).toBe(232)
+  expect(Math.abs((box?.x ?? 0) + (box?.width ?? 0) / 2 - (viewport?.width ?? 0) / 2)).toBeLessThan(
+    2,
+  )
+  expect(box?.width).toBeLessThanOrEqual(576)
+  await page.getByRole('button', { name: `Play ${SONG.title}` }).click()
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible()
 })
 
 test('frames the player on any site but never the app', async ({ page }) => {
