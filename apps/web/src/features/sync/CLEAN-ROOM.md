@@ -14,12 +14,20 @@ Source: [REST API endpoints for gists](https://docs.github.com/en/rest/gists/gis
 | `POST /gists` with `description`, `files` (each `{ content }`) and `public` | Creating the secret sync gist (`public: false`) | 201, 304, 403, 404, 422 |
 | `GET /gists/{gist_id}` | Reading the gist | 200, 304, 403, 404 |
 | `PATCH /gists/{gist_id}` with `files` | Adding and replacing files (`{ content }`) and deleting them (`null`), as one revision. It returns the updated gist | 200, 404, 422 |
-| `DELETE /gists/{gist_id}` | Removing a half-made gist after a failed upload | 204, 304, 403, 404 |
+| `DELETE /gists/{gist_id}` | Removing a half-made gist after a failed upload, or one that came out public; deleting the sync gist when the user turns sync off and asks for it | 204, 304, 403, 404 |
 | `GET /user` | Checking a token and getting its login | — |
 
 - **Truncation.** The API returns at most one megabyte of each file's content; a larger file has `truncated: true`, and its whole content is at `raw_url`, or only through `git_pull_url` above ten megabytes. The list of files is cut at 300 files, with a top-level `truncated: true`. FXM keeps every file under 900 KB and the files well under 300, so it never needs `raw_url` (whose host, `gist.githubusercontent.com`, the app's content security policy doesn't allow).
 - The [2014 change notice](https://developer.github.com/changes/2014-05-06-gist-api-now-truncating-large-files) applies the truncation to gist objects the API returns. FXM assumes this includes the gist an update returns, so every push downloads the gist (up to 1 MB per file). This is why sync carries 90 days of plays and only the track metadata it uses.
 - Don't name files `gistfile` followed by a number (the docs warn against it). FXM's names start with `fxm-`.
+
+## Secret gists and their history
+
+Source: [Creating gists](https://docs.github.com/en/get-started/writing-on-github/editing-and-sharing-content-with-gists/creating-gists), read 2026-10-26.
+
+- "Secret gists don't show up in Discover and are not searchable unless you are logged in and are the author of the secret gist." But "Secret gists aren't private": "If you send the URL of a secret gist to a friend, they'll be able to see it. However, if someone you don't know discovers the URL, they'll also be able to see your gist."
+- "After creating a gist, you cannot convert it from public to secret. However, a secret gist can be made public by editing the gist and updating the visibility to public." The gist object's `public` field says which it is, so FXM checks it on every read and write, and stops syncing with a public gist.
+- "Every gist is a Git repository, which means that it can be forked and cloned." "Since gists are Git repositories, you can view their full commit history, complete with diffs." So every push stays readable, by anyone with the link, until the gist is deleted. The privacy texts say so, and turning sync off offers to delete the gist.
 
 ## Tokens and permissions
 
@@ -59,5 +67,6 @@ Measured (2026-10-25):
 
 ## Not yet known
 
+- Whether GitHub's ETag for `GET /gists/{gist_id}` changes when only the gist's visibility does. FXM assumes it does (a weak ETag of the response, which holds `public`), so a conditional read answered 304 means the gist is as secret as at the last full read. A push checks every gist GitHub returns as well, and stops after its first request when the gist turned public.
 - Whether `PATCH /gists/{gist_id}` refuses (422) or ignores the deletion of a file the gist doesn't hold. FXM handles both: a refused upload makes the sync read the gist and merge again.
 - Whether GitHub limits the size of a request body to the gist endpoints. FXM sends at most 4 MB per request.

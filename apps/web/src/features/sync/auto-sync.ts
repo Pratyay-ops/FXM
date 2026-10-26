@@ -8,10 +8,13 @@
 
 import { Dexie, type ObservabilitySet } from 'dexie'
 import { DB_NAME } from '../../db/types'
+import { useSettingsStore } from '../settings/settings-store'
 import { runResult, runSync, schedulerOptions } from './controller'
 import type { SyncReport } from './engine'
 import { nameBeforeCopy } from './merge'
+import { stoppedMessage } from './messages'
 import { type ChangeKind, createSyncScheduler } from './scheduler'
+import { needsUser } from './sync-store'
 
 /** How often a visible app checks the gist for changes from other devices. */
 export const SYNC_INTERVAL_MS = 15 * 60_000
@@ -47,8 +50,9 @@ export function reportMessage(report: SyncReport): string | undefined {
 
 /**
  * Starts automatic sync: at once, when the user comes back, when the device is back online,
- * after library changes and periodically while the app is visible. `onMessage` hears what a
- * sync kept for the user to review. Returns the function that stops it.
+ * after changes to the library or the synced app settings, and periodically while the app is
+ * visible. `onMessage` hears what a sync kept for the user to review, and why it stopped when
+ * only the user can fix it. Returns the function that stops it.
  */
 export function startAutoSync(onMessage: (text: string) => void): () => void {
   const options = schedulerOptions()
@@ -59,6 +63,8 @@ export function startAutoSync(onMessage: (text: string) => void): () => void {
       if (run.kind === 'synced') {
         const text = reportMessage(run.report)
         if (text !== undefined) onMessage(text)
+      } else if (run.kind === 'failed' && needsUser(run.error.code)) {
+        onMessage(stoppedMessage(run.error))
       }
       return runResult(run)
     },
@@ -77,6 +83,13 @@ export function startAutoSync(onMessage: (text: string) => void): () => void {
   window.addEventListener('online', onOnline)
   document.addEventListener('visibilitychange', onVisibility)
   Dexie.on('storagemutated', onMutated)
+  // The app settings sync carries live in their own store, not in the library database. A
+  // change a sync applied syncs nothing more: the library then still matches the gist.
+  const stopSettings = useSettingsStore.subscribe((state, previous) => {
+    if (state.catalogMode !== previous.catalogMode || state.theme !== previous.theme) {
+      scheduler.changed('edit')
+    }
+  })
   const interval = setInterval(() => {
     if (visible()) scheduler.trigger('interval')
   }, options.intervalMs ?? SYNC_INTERVAL_MS)
@@ -87,6 +100,7 @@ export function startAutoSync(onMessage: (text: string) => void): () => void {
     window.removeEventListener('online', onOnline)
     document.removeEventListener('visibilitychange', onVisibility)
     Dexie.on.storagemutated.unsubscribe(onMutated)
+    stopSettings()
     clearInterval(interval)
   }
 }

@@ -3,13 +3,15 @@
  *
  * - **The manifest**, `fxm-library-sync.json`, says what the gist is (`format`, `version`), which
  *   FXM wrote it, the app settings, the **revision** (a random ID per push) and its
- *   **ancestors** (the revisions it was merged from, newest first), and every part with its
- *   table, size and hash. Readers trust only what the manifest lists.
+ *   **ancestors** (the revisions it was merged from, newest first), the start of the writer's
+ *   history window, and every part with its table, size and hash, plus the parts of the
+ *   manifest it replaced that the gist still holds. Readers trust only what the manifest lists.
  * - **Parts** hold the rows of one table, in the record shapes of a library backup. GitHub's API
  *   returns at most about 1 MB of each file (larger ones come back truncated), so parts stay
  *   well under that. Rows are spread over hash buckets that double as a table grows, so a
  *   change rewrites one small part. Plays are cut into runs of whole days, and the newest day
- *   has a part of its own: a new play rewrites only that small part.
+ *   has a part of its own: a new play rewrites only that small part. A long playlist goes in
+ *   pieces, so a playlist of any length fits.
  * - **Part names include a hash of their content.** A push uploads only parts whose content
  *   changed, and a part is never rewritten in place: a reader always finds the parts its
  *   manifest names, even while a large push is still uploading in several requests.
@@ -17,9 +19,10 @@
  * @module
  */
 
-import { APP_NAME, APP_VERSION, type JsonObject } from '@fxm/core'
+import { APP_NAME, APP_VERSION, type EntityId, type JsonObject } from '@fxm/core'
 import { BACKUP_VERSION } from '../../db/backup'
 import { SCHEMA_VERSION } from '../../db/database'
+import type { PlaylistRecord } from '../../db/types'
 import { canonicalJson, hash53, hashHex, utf8Length } from './canonical'
 import {
   cleanJsonObject,
@@ -59,6 +62,12 @@ export const TARGET_HISTORY_BYTES = 768 * 1024
 /** The largest part, safely under the 1 MB GitHub returns of each file. */
 export const MAX_PART_BYTES = 900_000
 
+/**
+ * Playlists whose record is larger than this, in bytes, go into the gist in pieces of about
+ * this size (a few hundred songs each).
+ */
+export const PLAYLIST_PIECE_BYTES = 32 * 1024
+
 /** Most hash buckets one table is spread over. */
 export const MAX_BUCKETS = 32
 
@@ -92,6 +101,12 @@ export interface SyncManifest {
   ancestors: string[]
   /** When it was pushed, as an ISO 8601 date. */
   savedAt: string
+  /**
+   * The start of the writer's history window, as epoch milliseconds: the gist lacks older plays
+   * because they fell out of that window, not because anyone deleted them. Absent from gists of
+   * an earlier FXM.
+   */
+  historySince?: number
   /** The app that pushed it. */
   app: { name: string; version: string }
   /** The library database schema of the app that pushed it. */
@@ -102,6 +117,11 @@ export interface SyncManifest {
   appSettings: JsonObject
   /** Every part, sorted by file name. */
   parts: PartRef[]
+  /**
+   * Parts of the manifest this one replaced that it doesn't list, which the gist still holds for
+   * devices that were reading or pushing at the same time. The next push deletes them.
+   */
+  previous: string[]
 }
 
 /** Why a gist can't be read or written as a sync gist. */
@@ -119,7 +139,7 @@ export type SyncFormatErrorCode =
 export class SyncFormatError extends Error {
   override readonly name = 'SyncFormatError'
   readonly code: SyncFormatErrorCode
-  /** For `too-large`: what doesn't fit, for people, e.g. a playlist's name. */
+  /** For `too-large`: what doesn't fit, for people, e.g. "an item of settings". */
   readonly detail: string | undefined
 
   constructor(code: SyncFormatErrorCode, message: string, detail?: string) {
@@ -149,6 +169,14 @@ interface Row {
 interface Part {
   ref: PartRef
   content: string
+}
+
+/** The names part files have: `fxm-<table>-<label>-<hash>.json`. */
+const FILE = /^fxm-[A-Za-z]+-[A-Za-z0-9.-]+\.json$/
+
+/** Whether `name` can be an FXM part file (the manifest isn't one). */
+export function isPartFile(name: string): boolean {
+  return name !== MANIFEST_FILE && FILE.test(name)
 }
 
 /** A part file's content: canonical JSON, built from rows that already are. */
@@ -258,12 +286,64 @@ function historyParts(rows: readonly Row[]): Part[] {
   return parts
 }
 
-/** What a too-large row is, for people. */
-function describeRow(table: SyncTable, value: unknown): string {
-  if (table === 'playlists' && typeof value === 'object' && value !== null) {
-    const name = (value as { name?: unknown }).name
-    if (typeof name === 'string') return `the playlist “${name}”`
+/** One row of a table as it goes into a part, before it is sized. */
+interface Value {
+  key: string
+  value: unknown
+}
+
+/**
+ * A playlist as rows of a part. A long one (its record larger than {@link PLAYLIST_PIECE_BYTES})
+ * goes in pieces: the record with the first run of its songs and `pieces`, the number of rows,
+ * then a row `{ id, piece, trackIds, addedAt }` for each further run, `piece` counting from 1.
+ * The pieces spread over parts like any rows, so a playlist of any length fits a gist, and
+ * {@link decodeSnapshot} joins them again.
+ */
+function playlistValues(record: PlaylistRecord): Value[] {
+  const whole = [{ key: record.id, value: record }]
+  if (utf8Length(canonicalJson(record)) <= PLAYLIST_PIECE_BYTES) return whole
+  const runs: EntityId<'track'>[][] = []
+  let run: EntityId<'track'>[] = []
+  let bytes = 0
+  for (const id of record.trackIds) {
+    // The ID in `trackIds`, and with its date in `addedAt`.
+    const idBytes = utf8Length(JSON.stringify(id)) + 1
+    const at = Object.hasOwn(record.addedAt, id) ? record.addedAt[id] : undefined
+    const size = idBytes + (at === undefined ? 0 : idBytes + String(at).length + 1)
+    if (run.length > 0 && bytes + size > PLAYLIST_PIECE_BYTES) {
+      runs.push(run)
+      run = []
+      bytes = 0
+    }
+    run.push(id)
+    bytes += size
   }
+  if (run.length > 0) runs.push(run)
+  // Large for another reason (a long description, much artwork): it stays whole.
+  if (runs.length < 2) return whole
+  const datesOf = (ids: readonly EntityId<'track'>[]) => {
+    const dates: Record<string, number> = {}
+    for (const id of ids) {
+      const at = Object.hasOwn(record.addedAt, id) ? record.addedAt[id] : undefined
+      if (at !== undefined) dates[id] = at
+    }
+    return dates
+  }
+  const [first = [], ...rest] = runs
+  return [
+    {
+      key: record.id,
+      value: { ...record, trackIds: first, addedAt: datesOf(first), pieces: runs.length },
+    },
+    ...rest.map((ids, index) => ({
+      key: `${record.id}#${index + 1}`,
+      value: { id: record.id, piece: index + 1, trackIds: ids, addedAt: datesOf(ids) },
+    })),
+  ]
+}
+
+/** What a too-large row is, for people. */
+function describeRow(table: SyncTable): string {
   return `an item of ${table}`
 }
 
@@ -278,20 +358,32 @@ const KEYS: Readonly<Record<SyncTable, (row: never) => string>> = {
   matchCache: (row: { key: string }) => row.key,
 }
 
+/** What a manifest says besides the library. */
+export interface ManifestMeta {
+  revision: string
+  ancestors: readonly string[]
+  savedAt: Date
+  /** The start of this device's history window (see {@link SyncManifest.historySince}). */
+  historySince?: number
+  /** The parts of the manifest this push replaces (see {@link SyncManifest.previous}). */
+  previous?: readonly string[]
+}
+
 /** Encodes a snapshot as a manifest and parts. Throws `too-large` when it can't fit a gist. */
-export function encodeSnapshot(
-  snapshot: SyncSnapshot,
-  meta: { revision: string; ancestors: readonly string[]; savedAt: Date },
-): EncodedSnapshot {
+export function encodeSnapshot(snapshot: SyncSnapshot, meta: ManifestMeta): EncodedSnapshot {
   const rows = snapshotRows(snapshot)
   const parts: Part[] = []
   for (const table of SYNC_TABLES) {
     const keyOf = KEYS[table] as (row: unknown) => string
-    const sized = rows[table].map((value): Row => {
+    const values: Value[] =
+      table === 'playlists'
+        ? (rows.playlists as readonly PlaylistRecord[]).flatMap((record) => playlistValues(record))
+        : rows[table].map((value) => ({ key: keyOf(value), value }))
+    const sized = values.map(({ key, value }): Row => {
       const json = canonicalJson(value)
-      const row: Row = { key: keyOf(value), json, bytes: utf8Length(json) + 1 }
+      const row: Row = { key, json, bytes: utf8Length(json) + 1 }
       if (row.bytes > MAX_PART_BYTES - 200) {
-        const what = describeRow(table, value)
+        const what = describeRow(table)
         throw new SyncFormatError('too-large', `${what} is too large to sync`, what)
       }
       if (table === 'history') row.playedAt = (value as { playedAt: number }).playedAt
@@ -303,6 +395,7 @@ export function encodeSnapshot(
     throw new SyncFormatError('too-large', 'The library has too many items to sync', 'the library')
   }
   parts.sort((a, b) => (a.ref.file < b.ref.file ? -1 : 1))
+  const files = new Set(parts.map((part) => part.ref.file))
   const manifest: SyncManifest = {
     format: SYNC_FORMAT,
     version: SYNC_FORMAT_VERSION,
@@ -316,6 +409,12 @@ export function encodeSnapshot(
     backupVersion: BACKUP_VERSION,
     appSettings: snapshot.appSettings,
     parts: parts.map((part) => part.ref),
+    previous: [...new Set(meta.previous ?? [])]
+      .filter((file) => isPartFile(file) && !files.has(file))
+      .sort(),
+  }
+  if (meta.historySince !== undefined) {
+    manifest.historySince = Math.max(0, Math.floor(meta.historySince))
   }
   return {
     manifest,
@@ -330,7 +429,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const REVISION = /^[0-9a-f]{8,64}$/
 const HASH = /^[0-9a-f]{14}$/
-const FILE = /^fxm-[A-Za-z]+-[A-Za-z0-9.-]+\.json$/
 
 /** A new random revision ID: 16 hex digits. */
 export function newRevision(): string {
@@ -382,7 +480,7 @@ export function parseManifest(text: string | undefined): SyncManifest {
     if (
       !isRecord(part) ||
       typeof part.file !== 'string' ||
-      !FILE.test(part.file) ||
+      !isPartFile(part.file) ||
       files.has(part.file) ||
       !isSyncTable(part.table) ||
       typeof part.hash !== 'string' ||
@@ -404,8 +502,18 @@ export function parseManifest(text: string | undefined): SyncManifest {
         .filter((id): id is string => typeof id === 'string' && REVISION.test(id))
         .slice(0, MAX_ANCESTORS)
     : []
+  const previous = Array.isArray(data.previous)
+    ? [
+        ...new Set(
+          data.previous.filter(
+            (file): file is string =>
+              typeof file === 'string' && isPartFile(file) && !files.has(file),
+          ),
+        ),
+      ].slice(0, MAX_PARTS)
+    : []
   const app = isRecord(data.app) ? data.app : {}
-  return {
+  const manifest: SyncManifest = {
     format: SYNC_FORMAT,
     version,
     revision: data.revision,
@@ -419,7 +527,11 @@ export function parseManifest(text: string | undefined): SyncManifest {
     backupVersion,
     appSettings: cleanJsonObject(data.appSettings),
     parts,
+    previous,
   }
+  const historySince = count(data.historySince)
+  if (historySince !== undefined) manifest.historySince = historySince
+  return manifest
 }
 
 /** A file of the gist as the decoder needs it. */
@@ -427,6 +539,61 @@ export interface GistFileContent {
   content?: string | undefined
   /** GitHub returned only the start of the file. */
   truncated?: boolean | undefined
+}
+
+/**
+ * The playlists of a gist with the pieces of long ones joined (see `playlistValues`). Throws
+ * `corrupt` when a piece is missing, doubled or without its playlist.
+ */
+function joinPlaylistPieces(rows: readonly unknown[]): unknown[] {
+  const pieces = new Map<string, Map<number, Record<string, unknown>>>()
+  const records: unknown[] = []
+  for (const row of rows) {
+    if (!isRecord(row) || !Object.hasOwn(row, 'piece')) {
+      records.push(row)
+      continue
+    }
+    const index = count(row.piece)
+    if (typeof row.id !== 'string' || index === undefined || index < 1) {
+      throw corrupt('A piece of a playlist is damaged')
+    }
+    const byIndex = pieces.get(row.id) ?? new Map<number, Record<string, unknown>>()
+    if (byIndex.has(index)) throw corrupt('A piece of a playlist is there twice')
+    byIndex.set(index, row)
+    pieces.set(row.id, byIndex)
+  }
+  const joined = records.map((row) => {
+    if (!isRecord(row) || !Object.hasOwn(row, 'pieces')) return row
+    const total = count(row.pieces)
+    if (typeof row.id !== 'string' || total === undefined || total < 2) {
+      throw corrupt('A long playlist is damaged')
+    }
+    const byIndex = pieces.get(row.id)
+    pieces.delete(row.id)
+    if (byIndex?.size !== total - 1 || !Array.isArray(row.trackIds)) {
+      throw corrupt('The gist lacks part of a long playlist')
+    }
+    const trackIds: unknown[] = [...row.trackIds]
+    // Without a prototype: these keys come from the gist.
+    const addedAt: Record<string, unknown> = Object.create(null)
+    const addDates = (dates: unknown) => {
+      if (!isRecord(dates)) return
+      for (const [id, at] of Object.entries(dates)) addedAt[id] = at
+    }
+    addDates(row.addedAt)
+    for (let index = 1; index < total; index++) {
+      const piece = byIndex.get(index)
+      if (piece === undefined || !Array.isArray(piece.trackIds)) {
+        throw corrupt('The gist lacks part of a long playlist')
+      }
+      for (const id of piece.trackIds) trackIds.push(id)
+      addDates(piece.addedAt)
+    }
+    const { pieces: _pieces, ...record } = row
+    return { ...record, trackIds, addedAt }
+  })
+  if (pieces.size > 0) throw corrupt('The gist holds a piece of a playlist it lacks')
+  return joined
 }
 
 /**
@@ -473,5 +640,6 @@ export function decodeSnapshot(
     const target = rows[part.table]
     for (const row of data.rows as unknown[]) target.push(row)
   }
+  rows.playlists = joinPlaylistPieces(rows.playlists)
   return snapshotFromRows(rows, manifest.appSettings)
 }

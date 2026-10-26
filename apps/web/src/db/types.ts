@@ -228,7 +228,14 @@ export interface HistoryRecord {
   stream?: StreamInfo
 }
 
-/** Reserved for settings that outgrow `localStorage`. Nothing uses it yet. */
+/**
+ * Reserved for settings that outgrow `localStorage`. Nothing uses it yet.
+ *
+ * Rows whose key starts with `sync.` sync to the user's other devices through their sync gist
+ * (stage 8.4), which anyone with its link can read; every other row stays on this device.
+ * Credentials, secret sources, network endpoints and per-device privacy switches must never use
+ * a `sync.` key.
+ */
 export interface SettingRecord {
   /** Setting name. */
   key: string

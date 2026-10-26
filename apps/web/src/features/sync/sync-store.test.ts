@@ -11,6 +11,7 @@ import {
 } from './sync-store'
 
 const TOKEN = 'github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz'
+const NEW_TOKEN = 'github_pat_22ABCDEFG0123456789_zyxwvutsrqponmlkjihgfedcba'
 const GIST = 'aa5a315d61ae9438b18d0123456789ab'
 const connection = {
   token: TOKEN,
@@ -131,7 +132,7 @@ describe('the sync store', () => {
 
   it('follows another tab’s change', async () => {
     const store = createSyncStore()
-    syncConfigAcrossTabs(store)
+    const stop = syncConfigAcrossTabs(store)
     localStorage.setItem(
       SYNC_STORAGE_KEY,
       JSON.stringify({ state: { ...connection, auto: true, notices: [] }, version: 1 }),
@@ -139,6 +140,57 @@ describe('the sync store', () => {
     window.dispatchEvent(new StorageEvent('storage', { key: SYNC_STORAGE_KEY }))
     await Promise.resolve()
     expect(store.getState().login).toBe('octo')
+    stop()
+  })
+
+  /** Two tabs of the app on one localStorage. */
+  async function twoTabs() {
+    const storage = memoryStorage()
+    const a = createSyncStore({ storage: () => storage })
+    const b = createSyncStore({ storage: () => storage })
+    a.getState().connect(connection)
+    await b.persist.rehydrate()
+    return { storage, a, b }
+  }
+
+  it('follows another tab turning sync off, and never brings the token back', async () => {
+    const { storage, a, b } = await twoTabs()
+    expect(b.getState().token).toBe(TOKEN)
+    a.getState().disconnect()
+    await b.persist.rehydrate()
+    expect(b.getState()).toMatchObject({ token: undefined, login: undefined, gistId: undefined })
+    expect(isConnected(b.getState())).toBe(false)
+    // The other tab's next write keeps it off.
+    b.getState().started()
+    expect(storage.getItem(SYNC_STORAGE_KEY) ?? '').not.toContain(TOKEN)
+  })
+
+  it('follows another tab clearing a problem', async () => {
+    const { a, b } = await twoTabs()
+    a.getState().failed({ code: 'unauthorized', at: 1 })
+    await b.persist.rehydrate()
+    expect(b.getState().problem?.code).toBe('unauthorized')
+    a.getState().replaceToken(NEW_TOKEN)
+    await b.persist.rehydrate()
+    expect(b.getState().problem).toBeUndefined()
+    expect(b.getState().token).toBe(NEW_TOKEN)
+    b.getState().idle()
+    expect(a.getState().problem).toBeUndefined()
+  })
+
+  it('keeps what a sync would remove with its problem', () => {
+    const store = createSyncStore({ storage: () => memoryStorage() })
+    const removed = { playlists: 3, likes: 0, follows: 0, plays: 0 }
+    store.getState().failed({ code: 'removals', at: 1, removed })
+    expect(sanitizeSyncConfig(JSON.parse(JSON.stringify(store.getState()))).problem).toEqual({
+      code: 'removals',
+      at: 1,
+      removed,
+    })
+    expect(
+      sanitizeSyncConfig({ problem: { code: 'removals', at: 1, removed: { playlists: -1 } } })
+        .problem,
+    ).toEqual({ code: 'removals', at: 1 })
   })
 })
 
@@ -146,6 +198,8 @@ describe('needsUser', () => {
   it('stops automatic sync only for what the user must fix', () => {
     expect(needsUser('unauthorized')).toBe(true)
     expect(needsUser('gone')).toBe(true)
+    expect(needsUser('public')).toBe(true)
+    expect(needsUser('removals')).toBe(true)
     expect(needsUser('network')).toBe(false)
     expect(needsUser('rate-limited')).toBe(false)
   })

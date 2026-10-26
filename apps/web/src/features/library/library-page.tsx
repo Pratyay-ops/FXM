@@ -35,6 +35,7 @@ import {
   type FollowRecord,
   LIKED_PLAYLIST_ID,
 } from '../../db/types'
+import { isConnected, useSyncStore } from '../sync/sync-store'
 import { BackupDialog } from './backup-dialog'
 import { CoverArt } from './cover-art'
 import { artistNames, artworkUrl, countLabel, playedLabel, totalDuration } from './format'
@@ -313,11 +314,15 @@ function RecentRowItem({ row, onAdd }: { row: RecentRow; onAdd: (track: Track) =
   )
 }
 
+const CLEAR_HISTORY_HELP =
+  'Recently played starts over, and recommendations forget what you played. Your playlists and likes stay.'
+
 function RecentPanel() {
   const live = useRecentlyPlayed(50)
   const repo = useLibrary()
   const [adding, setAdding] = useState<Track[] | null>(null)
   const [clearing, setClearing] = useState(false)
+  const syncOn = useSyncStore(isConnected)
   if (live.status !== 'ready') return <LiveState live={live} />
   if (live.data.length === 0) {
     return (
@@ -352,7 +357,11 @@ function RecentPanel() {
         open={clearing}
         onClose={() => setClearing(false)}
         title="Clear listening history?"
-        description="Recently played starts over, and recommendations forget what you played. Your playlists and likes stay."
+        description={
+          syncOn
+            ? `${CLEAR_HISTORY_HELP} Sync clears the plays of the last 90 days on your other devices too, asking there first when there are many. Earlier versions of your sync gist keep them until you delete the gist on GitHub.`
+            : CLEAR_HISTORY_HELP
+        }
       >
         <DialogActions>
           <button

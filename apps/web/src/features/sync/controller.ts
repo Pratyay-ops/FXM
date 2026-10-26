@@ -17,9 +17,11 @@ import {
 import { type BaseStore, createIndexedDbBaseStore } from './base-store'
 import {
   createSyncGist,
+  deleteSyncGist,
   findSyncGists,
   gistPageUrl,
   isAbort,
+  type RemovalChoice,
   readSyncGist,
   rewriteSyncGist,
   SyncError,
@@ -41,7 +43,12 @@ import {
   readLibrarySnapshot,
 } from './library-io'
 import type { RunResult, SchedulerOptions, SyncTrigger } from './scheduler'
-import { hasLibraryData, type SnapshotSummary, summarizeSnapshot } from './snapshot'
+import {
+  HISTORY_WINDOW_MS,
+  hasLibraryData,
+  type SnapshotSummary,
+  summarizeSnapshot,
+} from './snapshot'
 import { needsUser, useSyncStore } from './sync-store'
 
 /** What the controller takes from its surroundings, so tests can replace it. */
@@ -172,11 +179,23 @@ export function runResult(run: SyncRun): RunResult {
   return result
 }
 
+/** How a sync run goes. */
+export interface RunOptions {
+  signal?: AbortSignal
+  /**
+   * The user's answer when the gist lacked much of this device's library (a `removals`
+   * problem): remove it here too, or keep it and put it back. Without it, such a sync stops
+   * and asks.
+   */
+  removals?: Exclude<RemovalChoice, 'ask'>
+}
+
 /**
  * Syncs now, if sync is set up. Automatic syncs skip a sync another tab is running; a manual
  * one waits for it. Records the outcome in the sync store.
  */
-export async function runSync(trigger: SyncTrigger, signal?: AbortSignal): Promise<SyncRun> {
+export async function runSync(trigger: SyncTrigger, options: RunOptions = {}): Promise<SyncRun> {
+  const { signal, removals = 'ask' } = options
   const { token, login, gistId } = useSyncStore.getState()
   if (token === undefined || login === undefined || gistId === undefined) return { kind: 'off' }
   const outcome = await environment.lock(async (): Promise<SyncRun> => {
@@ -189,6 +208,7 @@ export async function runSync(trigger: SyncTrigger, signal?: AbortSignal): Promi
         skipIfUnchanged: trigger === 'change',
         // Coming back to the app or the periodic check pull; new plays wait for a push.
         pushBackground: trigger !== 'focus' && trigger !== 'interval' && trigger !== 'online',
+        removals,
         ...(signal === undefined ? {} : { signal }),
       })
       const after = useSyncStore.getState()
@@ -213,6 +233,7 @@ export async function runSync(trigger: SyncTrigger, signal?: AbortSignal): Promi
           at,
           ...(error.detail === undefined ? {} : { detail: error.detail }),
           ...(error.retryAfterMs === undefined ? {} : { retryAt: at + error.retryAfterMs }),
+          ...(error.removed === undefined ? {} : { removed: error.removed }),
         })
       } else {
         after.idle()
@@ -256,11 +277,22 @@ export interface ConnectPlan {
   login: string
   /** The account's sync gist, when one was found or pasted. */
   gist?: { id: string; url: string; savedAt: string; summary: SnapshotSummary }
-  /** What this device's library holds. */
+  /**
+   * The account's sync gist when it can't be read: changed outside FXM (`corrupt`), which this
+   * device can rewrite, or saved by a newer FXM (`too-new`).
+   */
+  unreadable?: { id: string; url: string; code: 'corrupt' | 'too-new' }
+  /** What this device's library holds, with the plays sync carries. */
   local: SnapshotSummary
   /** Whether this device's library holds anything of the user's. */
   localHasData: boolean
 }
+
+/**
+ * How setting sync up goes on: `join` the plan's gist, `create` a new one, or `rewrite` the
+ * plan's unreadable gist from this device.
+ */
+export type ConnectAction = 'join' | 'create' | 'rewrite'
 
 async function checkToken(input: string, signal?: AbortSignal) {
   const token = normalizeToken(input)
@@ -297,7 +329,10 @@ export async function prepareConnect(
   } else {
     gistId = (await findSyncGists(github, signal === undefined ? {} : { signal }))[0]?.id
   }
-  const local = await readLibrarySnapshot(environment.repo(), appSettingsIO.read())
+  // The plays sync carries, as the gist's summary counts them.
+  const local = await readLibrarySnapshot(environment.repo(), appSettingsIO.read(), {
+    historySince: environment.now() - HISTORY_WINDOW_MS,
+  })
   const plan: ConnectPlan = {
     token,
     login,
@@ -305,34 +340,56 @@ export async function prepareConnect(
     localHasData: hasLibraryData(local),
   }
   if (gistId !== undefined) {
-    const found = await readSyncGist(github, gistId, login, {
-      signal,
-      now: environment.now(),
-    })
-    plan.gist = {
-      id: found.gist.id,
-      url: gistPageUrl(login, found.gist.id),
-      savedAt: found.manifest.savedAt,
-      summary: summarizeSnapshot(found.snapshot),
+    try {
+      const found = await readSyncGist(github, gistId, login, {
+        signal,
+        now: environment.now(),
+      })
+      plan.gist = {
+        id: found.gist.id,
+        url: gistPageUrl(login, found.gist.id),
+        savedAt: found.manifest.savedAt,
+        summary: summarizeSnapshot(found.snapshot),
+      }
+    } catch (error) {
+      // The account's own secret gist, which can't be read: the user decides what happens.
+      if (!(error instanceof SyncError) || (error.code !== 'corrupt' && error.code !== 'too-new')) {
+        throw error
+      }
+      plan.unreadable = { id: gistId, url: gistPageUrl(login, gistId), code: error.code }
     }
   }
   return plan
 }
 
 /**
- * Turns sync on as planned: joins the sync gist (merging, so nothing here is lost) or creates
- * one with this device's library. Sync is saved as on only once that first sync worked.
+ * Turns sync on as planned: joins the sync gist (merging, so nothing here is lost), creates one
+ * with this device's library, or rewrites an unreadable one from this device. Sync is saved as
+ * on only once that first sync worked.
  */
-export async function confirmConnect(plan: ConnectPlan, signal?: AbortSignal): Promise<SyncReport> {
+export async function confirmConnect(
+  plan: ConnectPlan,
+  {
+    signal,
+    action = plan.gist === undefined ? 'create' : 'join',
+  }: { signal?: AbortSignal; action?: ConnectAction } = {},
+): Promise<SyncReport> {
   const run = await environment.lock(async () => {
-    const report =
-      plan.gist === undefined
-        ? await createSyncGist(deps(plan.token, plan.login), signal)
-        : await syncLibrary(
-            deps(plan.token, plan.login),
-            plan.gist.id,
-            signal === undefined ? {} : { signal },
-          )
+    const syncDeps = deps(plan.token, plan.login)
+    let report: SyncReport | null
+    if (action === 'join' && plan.gist !== undefined) {
+      // A first sync, whatever this device remembers of the gist: the user confirmed a merge
+      // that keeps everything on both sides, and a remembered base would carry deletions made
+      // elsewhere since.
+      await syncDeps.bases.delete(plan.gist.id)
+      report = await syncLibrary(syncDeps, plan.gist.id, signal === undefined ? {} : { signal })
+    } else if (action === 'rewrite' && plan.unreadable?.code === 'corrupt') {
+      report = await rewriteSyncGist(syncDeps, plan.unreadable.id, signal)
+    } else if (action === 'create') {
+      report = await createSyncGist(syncDeps, signal)
+    } else {
+      throw new SyncError('failed', 'Nothing to set up')
+    }
     if (report === null) throw new SyncError('failed', 'The first sync did nothing')
     const store = useSyncStore.getState()
     store.connect({
@@ -376,9 +433,30 @@ export async function rewriteGist(signal?: AbortSignal): Promise<SyncReport> {
   return run
 }
 
-/** Turns sync off on this device. The library and the gist stay as they are. */
-export function disconnectSync(): void {
-  useSyncStore.getState().disconnect()
+/**
+ * Turns sync off on this device: forgets the token and everything this device knew of the gist
+ * (its bases), so nothing synced stays behind where the user can't see it. The library stays.
+ *
+ * With `deleteGist`, it first deletes the gist from GitHub, every earlier version included; if
+ * that fails, sync stays on and the error says why. Otherwise the gist stays on GitHub.
+ */
+export async function disconnectSync({
+  deleteGist = false,
+  signal,
+}: {
+  deleteGist?: boolean
+  signal?: AbortSignal
+} = {}): Promise<void> {
+  // After any sync another tab is running, so none writes a base after this.
+  const run = await environment.lock(async () => {
+    const { token, login, gistId } = useSyncStore.getState()
+    if (deleteGist && token !== undefined && login !== undefined && gistId !== undefined) {
+      await deleteSyncGist(client(token), gistId, login, signal)
+    }
+    useSyncStore.getState().disconnect()
+    await environment.bases().clear()
+  }, true)
+  if (run === 'busy') throw new SyncError('busy', 'Another tab is syncing')
 }
 
 // --- Conflicts -------------------------------------------------------------------------------

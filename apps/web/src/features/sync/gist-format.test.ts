@@ -53,7 +53,7 @@ function rich(): SyncSnapshot {
     order: order([P('Mix')]),
     follows: [follow('Band')],
     history: [play(1, Date.UTC(2026, 9, 1)), play(2, Date.UTC(2026, 9, 2))],
-    settings: [{ key: 'volume', value: 0.5, updatedAt: 5 }],
+    settings: [{ key: 'sync.volume', value: 0.5, updatedAt: 5 }],
     pins: [pin('a', 'x')],
     appSettings: { catalogMode: 'all', theme: 'light' },
   })
@@ -145,14 +145,64 @@ describe('encodeSnapshot and decodeSnapshot', () => {
     expect(fresh).toEqual([expect.stringMatching(/^fxm-history-d20260110-/)])
   })
 
-  it('refuse a playlist too large for one file, naming it', () => {
+  it('carry a playlist too long for one file in pieces, and join them again', () => {
+    const songs = Array.from({ length: 20_000 }, (_, index) => index + 1)
+    const huge = playlist('Everything', songs, { description: 'All of it' })
+    const many = liked(songs.slice(0, 30_000))
+    const snapshot = snap({ playlists: [many, huge, playlist('Small', [1, 2])] })
+    const encoded = encodeSnapshot(snapshot, meta)
+    for (const part of encoded.manifest.parts) {
+      expect(part.bytes).toBeLessThanOrEqual(MAX_PART_BYTES)
+    }
+    const rows = encoded.manifest.parts
+      .filter((part) => part.table === 'playlists')
+      .flatMap((part) => JSON.parse(encoded.parts.get(part.file) ?? '{}').rows)
+    // The record with its first songs, then pieces with the next ones.
+    expect(rows.filter((row) => row.id === P('Everything')).length).toBeGreaterThan(5)
+    expect(rows.find((row) => row.name === 'Small')).not.toHaveProperty('pieces')
+    expect(decode(encoded).snapshot).toEqual(snapshot)
+
+    // A song added at the end changes only some of the pieces.
+    const longer = encodeSnapshot(
+      snap({
+        playlists: [many, playlist('Everything', [...songs, 20_001], { description: 'All of it' })],
+      }),
+      meta,
+    )
+    const before = new Set(encoded.parts.keys())
+    const fresh = [...longer.parts.keys()].filter((name) => !before.has(name))
+    expect(fresh.length).toBeLessThan(encoded.manifest.parts.length / 2)
+  })
+
+  it('refuse a gist that lacks a piece of a long playlist', () => {
     const huge = playlist(
       'Everything',
-      Array.from({ length: 20_000 }, (_, index) => index + 1),
+      Array.from({ length: 2000 }, (_, index) => index + 1),
     )
-    const error = failure(() => encodeSnapshot(snap({ playlists: [huge] }), meta))
+    const encoded = encodeSnapshot(snap({ playlists: [huge] }), meta)
+    const map = files(encoded)
+    const manifest = JSON.parse(map.get(MANIFEST_FILE) ?? '{}')
+    // Every playlists part loses its pieces, with the hashes updated so the parts check out.
+    for (const entry of manifest.parts.filter(
+      (part: { table: string }) => part.table === 'playlists',
+    )) {
+      const data = JSON.parse(map.get(entry.file) ?? '{}')
+      data.rows = data.rows.filter((row: { piece?: number }) => row.piece !== 2)
+      const text = canonicalJson(data)
+      map.set(entry.file, text)
+      entry.hash = hashHex(text)
+    }
+    map.set(MANIFEST_FILE, JSON.stringify(manifest))
+    expect(failure(() => decode(encoded, map)).code).toBe('corrupt')
+  })
+
+  it('refuse a record too large for one file, naming its kind', () => {
+    const value = 'x'.repeat(MAX_PART_BYTES)
+    const error = failure(() =>
+      encodeSnapshot(snap({ settings: [{ key: 'sync.big', value, updatedAt: 1 }] }), meta),
+    )
     expect(error.code).toBe('too-large')
-    expect(error.detail).toBe('the playlist “Everything”')
+    expect(error.detail).toBe('an item of settings')
   })
 
   it('never carry Downloads, undo orders, unpinned decisions or invalid records', () => {
@@ -174,11 +224,16 @@ describe('encodeSnapshot and decodeSnapshot', () => {
       { id: 'not an id' },
     ])
     add('matchCache', [{ ...pin('b', 'y'), userPinned: false }])
+    // A setting that stays on its device, and a play with the query of its search.
+    add('settings', [{ key: 'scrobble.sessionKey', value: 'SECRET', updatedAt: 1 }])
+    add('history', [{ ...play(3, 99), context: { type: 'search', id: 'q', title: 'q' } }])
     map.set(MANIFEST_FILE, JSON.stringify(manifest))
     const { snapshot, skipped } = decode(encoded, map)
     expect(snapshot.playlists.map((item) => item.id)).not.toContain(DOWNLOADS_PLAYLIST_ID)
     expect(snapshot.playlists.find((item) => item.name === 'Undo')).not.toHaveProperty('undo')
     expect(snapshot.pins).toEqual(rich().pins)
+    expect(snapshot.settings).toEqual(rich().settings)
+    expect(snapshot.history.find((entry) => entry.playedAt === 99)).toEqual(play(3, 99))
     expect(skipped).toBe(1)
   })
 })
@@ -216,6 +271,24 @@ describe('parseManifest', () => {
     const twice = good()
     twice.parts.push(twice.parts[0])
     expect(failure(() => parseManifest(JSON.stringify(twice))).code).toBe('corrupt')
+  })
+
+  it('reads the writer’s history window and the parts it kept, and drops invalid ones', () => {
+    const encoded = encodeSnapshot(rich(), {
+      ...meta,
+      historySince: 1_700_000_000_000,
+      previous: ['fxm-likes-0of1-00000000000001.json', 'notes.md'],
+    })
+    expect(encoded.manifest).toMatchObject({
+      historySince: 1_700_000_000_000,
+      previous: ['fxm-likes-0of1-00000000000001.json'],
+    })
+    expect(parseManifest(encoded.manifestText)).toEqual(encoded.manifest)
+    const odd = parseManifest(
+      JSON.stringify({ ...good(), historySince: -5, previous: ['../x', 7, MANIFEST_FILE] }),
+    )
+    expect(odd).not.toHaveProperty('historySince')
+    expect(odd.previous).toEqual([])
   })
 
   it('drops invalid ancestors and settings', () => {

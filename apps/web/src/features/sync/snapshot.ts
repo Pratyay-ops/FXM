@@ -11,15 +11,16 @@
  *
  * | Carried | Stays on the device |
  * |---|---|
- * | Tracks (the metadata lists show), likes, playlists with their custom order, Liked songs' order, the order of the playlists list, follows, listening history, reserved settings, the app settings (catalog mode, theme) | Downloads: it lists files stored on this device only |
+ * | Tracks (the metadata lists show), likes, playlists with their custom order, Liked songs' order, the order of the playlists list, follows, listening history, the app settings (catalog mode, theme) | Downloads: it lists files stored on this device only |
+ * | Reserved settings whose key starts with {@link SYNCED_SETTING_PREFIX} | Every other reserved setting: credentials, secret sources, network endpoints, per-device switches |
  * | The user's pins in the match cache ("Not the right version?") | The matching engine's own decisions: a cache each device rebuilds |
  * | | Import progress: an import resumes on the device that runs it |
  * | | Undo orders: Undo applies to this device's last shuffle or saved sort |
- * | Plays of the last {@link HISTORY_WINDOW_MS} (90 days) | Older plays: sync never touches them |
+ * | Plays of the last {@link HISTORY_WINDOW_MS} (90 days), without the query of a search they started from | Older plays: sync never touches them. Search queries |
  * | Track metadata that the carried playlists, likes, plays and pins use | The rest of the track cache |
  *
  * Every update of a gist sends the whole gist back, so sync carries what other devices need and
- * no more.
+ * no more. Anyone with the gist's link can read it, so it carries nothing private to one device.
  *
  * @module
  */
@@ -31,6 +32,7 @@ import {
   type LikeRecord,
   type MatchCacheRecord,
   type OrderRecord,
+  type PlayContext,
   type PlaylistRecord,
   type SettingRecord,
   type TrackRecord,
@@ -77,6 +79,34 @@ export type SyncTable = (typeof SYNC_TABLES)[number]
 /** Whether `value` names one of the {@link SYNC_TABLES}. */
 export function isSyncTable(value: unknown): value is SyncTable {
   return typeof value === 'string' && (SYNC_TABLES as readonly string[]).includes(value)
+}
+
+/**
+ * The prefix of the reserved settings (the library's `settings` table) that sync. Every other
+ * row stays on its device: the gist is readable by anyone with its link, and a setting synced
+ * from it applies on every device. Credentials, secret sources, network endpoints and
+ * per-device privacy switches must never use it.
+ */
+export const SYNCED_SETTING_PREFIX = 'sync.'
+
+/** Whether the reserved setting `key` syncs (see {@link SYNCED_SETTING_PREFIX}). */
+export function isSyncedSettingKey(key: string): boolean {
+  return key.startsWith(SYNCED_SETTING_PREFIX)
+}
+
+/**
+ * Whether a play's context stays on its device: a search's holds the query, which other devices
+ * don't need and the gist must not carry.
+ */
+export function isPrivatePlayContext(context: PlayContext | undefined): boolean {
+  return context?.type === 'search'
+}
+
+/** A play as sync carries it: without a context that stays on the device. */
+function syncedPlay(entry: HistoryEntry): HistoryEntry {
+  if (!isPrivatePlayContext(entry.context)) return entry
+  const { context: _context, ...rest } = entry
+  return rest
 }
 
 /**
@@ -211,15 +241,17 @@ export function snapshotFromRows(
   ).map(withoutUndo)
   const [order] = take(clean(rows.orders, sanitizeOrderRecord, (row) => row.id)).map(withoutUndo)
   const follows = take(clean(rows.follows, sanitizeFollowRecord, (row) => row.key))
-  const history = take(
+  const history = take(clean(rows.history, sanitizeHistoryRecord, (row) => historyKey(row))).map(
+    ({ id: _id, ...entry }) => syncedPlay(entry),
+  )
+  const settings = take(
     clean(
-      rows.history,
-      sanitizeHistoryRecord,
-      (row) => historyKey(row),
-      () => true,
+      rows.settings,
+      sanitizeSettingRecord,
+      (row) => row.key,
+      (row) => isSyncedSettingKey(row.key),
     ),
-  ).map(({ id: _id, ...entry }) => entry)
-  const settings = take(clean(rows.settings, sanitizeSettingRecord, (row) => row.key))
+  )
   const pins = take(
     clean(
       rows.matchCache,

@@ -16,6 +16,7 @@ import {
 import { useLibrary } from '../../db/hooks'
 import { cn } from '../../lib/cn'
 import { sanitizeSettings, useSettingsStore } from '../settings/settings-store'
+import { isConnected, useSyncStore } from '../sync/sync-store'
 import { addedLabel, countLabel } from './format'
 import { failureText } from './playlist-dialogs'
 import { showStatus } from './status'
@@ -60,7 +61,13 @@ function saveFile(blob: Blob, name: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }
 
-const MODES: readonly { value: ImportMode; label: string; help: string }[] = [
+const MODES: readonly {
+  value: ImportMode
+  label: string
+  help: string
+  /** Added to the help while sync is on. */
+  syncHelp?: string
+}[] = [
   {
     value: 'merge',
     label: 'Merge',
@@ -70,6 +77,8 @@ const MODES: readonly { value: ImportMode; label: string; help: string }[] = [
     value: 'replace',
     label: 'Replace',
     help: 'Make this library exactly the backup, settings included. What is here now is removed.',
+    syncHelp:
+      'Sync removes it from your other devices too, and they ask you first when it’s a lot.',
   },
 ]
 
@@ -79,6 +88,7 @@ function Restore({ onDone }: { onDone: () => void }) {
   const [mode, setMode] = useState<ImportMode>('merge')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const syncOn = useSyncStore(isConnected)
   const groupId = useId()
 
   const choose = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -168,7 +178,11 @@ function Restore({ onDone }: { onDone: () => void }) {
                 />
                 <span className="text-sm">
                   <span className="block font-semibold">{option.label}</span>
-                  <span className="block text-text-muted">{option.help}</span>
+                  <span className="block text-text-muted">
+                    {syncOn && option.syncHelp !== undefined
+                      ? `${option.help} ${option.syncHelp}`
+                      : option.help}
+                  </span>
                 </span>
               </label>
             ))}

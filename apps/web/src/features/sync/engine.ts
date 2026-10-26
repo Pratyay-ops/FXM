@@ -13,6 +13,14 @@
  * gist no longer descends from its base, so the next merge treats nothing it lacks as deleted,
  * and pushes it back.
  *
+ * Sync works only with a **secret** gist of the token's account. GitHub lets the owner make a
+ * secret gist public (and never secret again), so every read and write checks: a public gist
+ * stops sync with `public` until the user sets it up again with a new secret gist.
+ *
+ * When the gist lacks so much of this device's library that the merge would remove a lot here
+ * (see `exceedsRemovalLimits`), the sync stops with `removals` before it changes anything, and
+ * the user decides: remove it here too, or keep it and put it back in the gist.
+ *
  * Plays sync for {@link HISTORY_WINDOW_MS} (90 days), and the gist carries only the track
  * metadata the rest uses (see `snapshot.ts`): GitHub sends the whole gist back after every
  * update, so it stays as small as it can.
@@ -22,12 +30,13 @@
 
 import type { JsonObject } from '@fxm/core'
 import type { LibraryRepo } from '../../db/repo'
-import type { BaseStore, SyncBase } from './base-store'
+import { BASE_VERSION, type BaseStore, type SyncBase } from './base-store'
 import { utf8Length } from './canonical'
 import {
   decodeSnapshot,
   type EncodedSnapshot,
   encodeSnapshot,
+  isPartFile,
   MANIFEST_FILE,
   MAX_ANCESTORS,
   newRevision,
@@ -38,7 +47,12 @@ import {
 } from './gist-format'
 import { type Gist, type GistApi, GitHubError } from './github'
 import { mergeIntoLibrary, readLibrarySnapshot } from './library-io'
-import type { ConflictCopy, MergeNotice } from './merge'
+import {
+  type ConflictCopy,
+  exceedsRemovalLimits,
+  type MergeNotice,
+  type RemovalCounts,
+} from './merge'
 import {
   differOnlyInBackground,
   HISTORY_EDGE_MS,
@@ -56,6 +70,19 @@ export const GIST_DESCRIPTION =
 /** The largest request body FXM sends, in bytes: a larger push goes up in several requests. */
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024
 
+/**
+ * How long after its push a device takes a read of an older revision for GitHub's delay. Later,
+ * the gist really went back (a revert of its Git history): the sync merges it like a gist that
+ * doesn't descend from the base, and pushes again.
+ */
+export const STALE_READ_GRACE_MS = 10 * 60_000
+
+/**
+ * How long a part file that no manifest lists stays in the gist: another device's push may
+ * still be uploading it. After that it is what a failed push left behind, and a push deletes it.
+ */
+export const STRAY_AGE_MS = 60 * 60_000
+
 /** Why a sync failed. */
 export type SyncErrorCode =
   /** GitHub refused the token: it is wrong, expired or revoked. */
@@ -68,12 +95,16 @@ export type SyncErrorCode =
   | 'not-owner'
   /** The gist isn't an FXM sync gist. */
   | 'not-sync-gist'
+  /** The gist is public: listed on the profile and found by search engines. */
+  | 'public'
   /** The gist was written by a newer FXM. */
   | 'too-new'
   /** The gist was changed outside FXM and can't be read. */
   | 'corrupt'
   /** The library doesn't fit in a gist. */
   | 'too-large'
+  /** The gist lacks much of this device's library: the user decides (see `removed`). */
+  | 'removals'
   /** GitHub asked to slow down. */
   | 'rate-limited'
   /** GitHub couldn't be reached. */
@@ -91,6 +122,8 @@ export class SyncError extends Error {
   readonly retryAfterMs: number | undefined
   /** For `too-large`: what doesn't fit, for people. */
   readonly detail: string | undefined
+  /** For `removals`: what the merge would remove here. */
+  readonly removed: RemovalCounts | undefined
 
   constructor(
     code: SyncErrorCode,
@@ -98,6 +131,7 @@ export class SyncError extends Error {
     options: {
       retryAfterMs?: number | undefined
       detail?: string | undefined
+      removed?: RemovalCounts | undefined
       cause?: unknown
     } = {},
   ) {
@@ -105,6 +139,7 @@ export class SyncError extends Error {
     this.code = code
     this.retryAfterMs = options.retryAfterMs
     this.detail = options.detail
+    this.removed = options.removed
   }
 }
 
@@ -207,6 +242,14 @@ function checkOwner(gist: Gist, login: string): void {
   }
 }
 
+/**
+ * Refuses a public gist. GitHub lets its owner make a secret gist public with one edit, and
+ * never secret again; sync then stops rather than publish the library and its history.
+ */
+function checkSecret(gist: Gist): void {
+  if (gist.public) throw new SyncError('public', 'The gist is public')
+}
+
 function readManifest(gist: Gist): SyncManifest {
   if (gist.truncated) throw new SyncError('corrupt', 'The gist has too many files')
   const file = gist.files[MANIFEST_FILE]
@@ -254,42 +297,80 @@ function partsBytes(parts: readonly PartRef[]): number {
 }
 
 /**
- * Uploads an encoded snapshot over a gist that holds `existing` files and the manifest
- * `replaced`: new parts first (in several requests if they are large), then the manifest, as
- * the last request. Until then, readers keep reading the old manifest's parts.
+ * The part files in `files` that neither list of a manifest names, with when this device first
+ * saw each: as `seen` says, 0 for one a manifest this device knew listed (`known`: nobody waits
+ * for it), and `now` for a new one.
+ */
+function straysOf(
+  files: readonly string[],
+  listed: { parts: readonly PartRef[]; previous: readonly string[] },
+  seen: Readonly<Record<string, number>>,
+  known: ReadonlySet<string>,
+  now: number,
+): Record<string, number> {
+  const named = new Set([...listed.parts.map((part) => part.file), ...listed.previous])
+  const strays: Record<string, number> = {}
+  for (const file of files) {
+    if (!isPartFile(file) || named.has(file)) continue
+    strays[file] = known.has(file) ? 0 : (seen[file] ?? now)
+  }
+  return strays
+}
+
+/** What an upload may do to the files of the gist. */
+interface UploadPlan {
+  /** Every file the gist holds. */
+  existing: ReadonlySet<string>
+  /**
+   * The parts of the manifest this push replaces. They stay, one push longer, and aren't
+   * uploaded again: only they are sure to stay while another device pushes too.
+   */
+  kept: ReadonlySet<string>
+  /** Files the push may delete, unless its manifest lists them. */
+  deletable: ReadonlySet<string>
+}
+
+/**
+ * Uploads an encoded snapshot: new parts first (in several requests if they are large), then
+ * the manifest, as the last request. Until then, readers keep reading the old manifest's parts.
  *
- * The parts of the replaced manifest stay too, one push longer: if another device's push lands
- * between this device's last check and its upload, either manifest that ends up in the gist
- * still finds all its parts. Older FXM files go with the manifest's request.
+ * - The parts of the manifest it replaces stay, one push longer: if another device's push lands
+ *   between this device's last check and its upload, either manifest that ends up in the gist
+ *   still finds all its parts. Every other part goes up, even if the gist holds a file of that
+ *   name already: it may be about to go.
+ * - It deletes only `deletable` files: parts of manifests before, and files no manifest lists
+ *   that have been there for {@link STRAY_AGE_MS}. A file no manifest lists may be another
+ *   device's push still going up, so it stays until then. The deletions go with the manifest.
  */
 async function upload(
   github: GistApi,
   gistId: string,
   encoded: EncodedSnapshot,
-  existing: ReadonlySet<string>,
-  replaced: readonly PartRef[],
+  plan: UploadPlan,
   maxRequestBytes: number,
   pause: (ms: number) => Promise<void>,
   signal: AbortSignal | undefined,
 ): Promise<{ gist: Gist; etag?: string }> {
-  const uploads = [...encoded.parts].filter(([file]) => !existing.has(file))
-  const kept = new Set(replaced.map((part) => part.file))
-  const deletions = [...existing].filter(
+  const uploads = [...encoded.parts].filter(([file]) => !plan.kept.has(file))
+  const deletions = [...plan.deletable].filter(
     (file) =>
-      file !== MANIFEST_FILE &&
-      /^fxm-.*\.json$/.test(file) &&
+      plan.existing.has(file) &&
+      isPartFile(file) &&
       !encoded.parts.has(file) &&
-      !kept.has(file),
+      !plan.kept.has(file),
   )
   const groups = batches(uploads, maxRequestBytes - utf8Length(encoded.manifestText))
   for (const group of groups.slice(0, -1)) {
-    await write(() => github.updateGist(gistId, Object.fromEntries(group), signal))
+    const result = await write(() => github.updateGist(gistId, Object.fromEntries(group), signal))
+    checkSecret(result.gist)
     await pause(WRITE_SPACING_MS)
   }
   const last: Record<string, string | null> = Object.fromEntries(groups.at(-1) ?? [])
   for (const file of deletions) last[file] = null
   last[MANIFEST_FILE] = encoded.manifestText
-  return write(() => github.updateGist(gistId, last, signal))
+  const result = await write(() => github.updateGist(gistId, last, signal))
+  checkSecret(result.gist)
+  return result
 }
 
 /** The gist as one sync round sees it. */
@@ -299,8 +380,14 @@ interface RemoteState {
   revision: string
   ancestors: string[]
   parts: PartRef[]
+  /** The parts of the manifest it replaced that the gist still holds. */
+  previous: string[]
   /** Every file name in the gist. */
   files: string[]
+  /** Part files neither list names, with when this device first saw each. */
+  strays: Record<string, number>
+  /** The start of its writer's history window, when the manifest says. */
+  historySince: number | undefined
   etag: string | undefined
   url: string | undefined
   /** Whether the gist descends from this device's base. */
@@ -315,6 +402,7 @@ async function readRemote(
   gistId: string,
   base: SyncBase | undefined,
   historySince: number,
+  now: number,
   signal: AbortSignal | undefined,
 ): Promise<RemoteState> {
   const read = await deps.github.getGist(gistId, {
@@ -330,7 +418,10 @@ async function readRemote(
       revision: base.revision,
       ancestors: base.ancestors,
       parts: base.parts,
+      previous: base.previous,
       files: base.files,
+      strays: base.strays,
+      historySince: undefined,
       etag: read.etag ?? base.etag,
       url: undefined,
       fromBase: true,
@@ -340,12 +431,20 @@ async function readRemote(
   }
   const { gist } = read
   checkOwner(gist, deps.login)
+  checkSecret(gist)
   const manifest = readManifest(gist)
+  const files = Object.keys(gist.files)
+  const known = new Set(
+    base === undefined ? [] : [...base.parts.map((part) => part.file), ...base.previous],
+  )
   const shared = {
     revision: manifest.revision,
     ancestors: manifest.ancestors,
     parts: manifest.parts,
-    files: Object.keys(gist.files),
+    previous: manifest.previous,
+    files,
+    strays: straysOf(files, manifest, base?.strays ?? {}, known, now),
+    historySince: manifest.historySince,
     etag: read.etag,
     url: pageOf(gist),
   }
@@ -354,9 +453,11 @@ async function readRemote(
     const snapshot = withHistorySince(base.snapshot, historySince)
     return { ...shared, snapshot, fromBase: true, stale: false, skipped: 0 }
   }
-  if (base?.ancestors.includes(manifest.revision)) {
+  if (base?.ancestors.includes(manifest.revision) && now - base.savedAt < STALE_READ_GRACE_MS) {
     return { ...shared, snapshot: base.snapshot, fromBase: true, stale: true, skipped: 0 }
   }
+  // A gist that went back to a revision before the base, long after this device's push, is
+  // merged like one that doesn't descend from the base: nothing it lacks counts as deleted.
   const decoded = decodeSnapshot(manifest, (name) => gist.files[name])
   const snapshot = withHistorySince(decoded.snapshot, historySince)
   const fromBase = base !== undefined && manifest.ancestors.includes(base.revision)
@@ -370,22 +471,35 @@ function lineage(remote: RemoteState, base: SyncBase | undefined): string[] {
   return [...new Set(ids)].slice(0, MAX_ANCESTORS)
 }
 
-/** The base after writing `snapshot` (already in its gist form) as `revision`. */
+/** What a base says about the gist besides its library. */
+interface GistState {
+  revision: string
+  ancestors: string[]
+  parts: PartRef[]
+  previous: string[]
+  files: string[]
+  strays: Record<string, number>
+}
+
+/** The base after writing `snapshot` (already in its gist form) as `written`. */
 function newBase(
   gistId: string,
   snapshot: SyncSnapshot,
-  written: { revision: string; ancestors: string[]; parts: PartRef[]; files: string[] },
+  written: GistState,
   etag: string | undefined,
   now: number,
 ): SyncBase {
   const base: SyncBase = {
+    version: BASE_VERSION,
     gistId,
     revision: written.revision,
     ancestors: written.ancestors,
     snapshot,
     fingerprint: snapshotFingerprint(snapshot),
     parts: written.parts,
+    previous: written.previous,
     files: written.files,
+    strays: written.strays,
     savedAt: now,
   }
   if (etag !== undefined) base.etag = etag
@@ -403,12 +517,17 @@ async function localForGist(deps: SyncDeps, historySince: number): Promise<SyncS
 export async function createSyncGist(deps: SyncDeps, signal?: AbortSignal): Promise<SyncReport> {
   const now = deps.now ?? Date.now
   try {
-    const snapshot = await localForGist(deps, now() - HISTORY_WINDOW_MS)
+    const historySince = now() - HISTORY_WINDOW_MS
+    const snapshot = await localForGist(deps, historySince)
     const revision = (deps.revision ?? newRevision)()
-    const encoded = encodeSnapshot(snapshot, { revision, ancestors: [], savedAt: new Date(now()) })
-    const files = [...encoded.parts]
+    const encoded = encodeSnapshot(snapshot, {
+      revision,
+      ancestors: [],
+      savedAt: new Date(now()),
+      historySince,
+    })
     const budget = deps.maxRequestBytes ?? MAX_REQUEST_BYTES
-    const groups = batches(files, budget - utf8Length(encoded.manifestText))
+    const groups = batches([...encoded.parts], budget - utf8Length(encoded.manifestText))
     const first: Record<string, string> = Object.fromEntries(groups[0] ?? [])
     if (groups.length <= 1) first[MANIFEST_FILE] = encoded.manifestText
     let result = await write(() =>
@@ -416,24 +535,35 @@ export async function createSyncGist(deps: SyncDeps, signal?: AbortSignal): Prom
     )
     const gistId = result.gist.id
     try {
+      checkSecret(result.gist)
       for (const [index, group] of groups.slice(1).entries()) {
         await (deps.pause ?? sleep)(WRITE_SPACING_MS)
         const body: Record<string, string> = Object.fromEntries(group)
         if (index === groups.length - 2) body[MANIFEST_FILE] = encoded.manifestText
         result = await write(() => deps.github.updateGist(gistId, body, signal))
+        checkSecret(result.gist)
       }
     } catch (error) {
       // A large library goes up in several requests, the manifest last. Don't leave a gist
-      // without one behind: nothing could find or use it.
+      // without one behind: nothing could find or use it. And a gist that came out public
+      // goes at once.
       await deps.github.deleteGist(gistId).catch(() => {})
       throw error
     }
     const parts = encoded.manifest.parts
+    const files = Object.keys(result.gist.files)
     await deps.bases.put(
       newBase(
         gistId,
         snapshot,
-        { revision, ancestors: [], parts, files: Object.keys(result.gist.files) },
+        {
+          revision,
+          ancestors: [],
+          parts,
+          previous: [],
+          files,
+          strays: straysOf(files, encoded.manifest, {}, new Set(), now()),
+        },
         result.etag,
         now(),
       ),
@@ -455,6 +585,15 @@ export async function createSyncGist(deps: SyncDeps, signal?: AbortSignal): Prom
   }
 }
 
+/** What a sync does when the gist lacks much of this device's library. */
+export type RemovalChoice =
+  /** Stop with `removals`, before changing anything, so the user decides. */
+  | 'ask'
+  /** Remove it here too. */
+  | 'apply'
+  /** Keep it, and put it back in the gist, so the other devices get it back too. */
+  | 'keep'
+
 /** How a sync runs. */
 export interface SyncOptions {
   signal?: AbortSignal
@@ -469,6 +608,19 @@ export interface SyncOptions {
    * push every few minutes. Default: true.
    */
   pushBackground?: boolean
+  /**
+   * What to do when the merge would remove much of this device's library (see
+   * `exceedsRemovalLimits`). Default: `ask`. `keep` keeps everything the gist lacks, small
+   * removals included.
+   */
+  removals?: RemovalChoice
+}
+
+/** Stops a merge that would remove much of this device's library, before it writes anything. */
+function askBeforeRemoving(removed: RemovalCounts, local: SyncSnapshot): void {
+  if (exceedsRemovalLimits(removed, local)) {
+    throw new SyncError('removals', 'The gist lacks much of this device’s library', { removed })
+  }
 }
 
 /** Syncs the library with its gist (see the module documentation). */
@@ -477,7 +629,7 @@ export async function syncLibrary(
   gistId: string,
   options: SyncOptions = {},
 ): Promise<SyncReport | null> {
-  const { signal, pushBackground = true } = options
+  const { signal, pushBackground = true, removals = 'ask' } = options
   const now = deps.now ?? Date.now
   const historySince = now() - HISTORY_WINDOW_MS
   try {
@@ -486,9 +638,11 @@ export async function syncLibrary(
       stored === undefined
         ? undefined
         : { ...stored, snapshot: withHistorySince(stored.snapshot, historySince) }
-    if (options.skipIfUnchanged && base !== undefined) {
+    if (options.skipIfUnchanged && stored !== undefined && base !== undefined) {
       const local = await localForGist(deps, historySince)
-      if (snapshotFingerprint(local) === snapshotFingerprint(base.snapshot)) return null
+      const agreed =
+        base.snapshot === stored.snapshot ? stored.fingerprint : snapshotFingerprint(base.snapshot)
+      if (snapshotFingerprint(local) === agreed) return null
     }
     const report: SyncReport = {
       gistId,
@@ -504,7 +658,7 @@ export async function syncLibrary(
     }
     let refused: unknown
     for (let attempt = 0; attempt < 3; attempt++) {
-      const remote = await readRemote(deps, gistId, base, historySince, signal)
+      const remote = await readRemote(deps, gistId, base, historySince, now(), signal)
       if (remote.url !== undefined) report.gistUrl = remote.url
       report.skipped = remote.skipped
       report.bytes = partsBytes(remote.parts)
@@ -516,11 +670,15 @@ export async function syncLibrary(
       const merge = await mergeIntoLibrary(deps.repo, {
         base: base?.snapshot,
         remote: remote.snapshot,
-        remoteFromBase: remote.fromBase,
+        // To keep what the gist lacks, nothing it lacks may count as deleted.
+        remoteFromBase: remote.fromBase && removals !== 'keep',
         appSettings: deps.appSettings.read(),
         appSettingsDefaults: deps.appSettings.defaults,
         historySince,
-        historyDeletionsSince: historySince + HISTORY_EDGE_MS,
+        // A play the gist lacks counts as deleted only inside its writer's window: older ones
+        // fell out of it. Gists of an earlier FXM don't say, so near the window's start none do.
+        historyDeletionsSince: remote.historySince ?? historySince + HISTORY_EDGE_MS,
+        ...(removals === 'ask' ? { checkRemovals: askBeforeRemoving } : {}),
       })
       report.pulled += merge.changed
       report.copies.push(...merge.copies)
@@ -541,10 +699,13 @@ export async function syncLibrary(
         return report
       }
       const revision = (deps.revision ?? newRevision)()
+      const kept = new Set(remote.parts.map((part) => part.file))
       const encoded = encodeSnapshot(merged, {
         revision,
         ancestors: lineage(remote, base),
         savedAt: new Date(now()),
+        historySince,
+        previous: [...kept],
       })
       if (remote.etag !== undefined) {
         // Is the gist still the one this round merged? GitHub doesn't count a 304 against its
@@ -556,14 +717,21 @@ export async function syncLibrary(
         })
         if (!check.notModified) continue
       }
+      const time = now()
+      const expired = Object.entries(remote.strays).filter(
+        ([, since]) => time - since >= STRAY_AGE_MS,
+      )
       let pushed: { gist: Gist; etag?: string }
       try {
         pushed = await upload(
           deps.github,
           gistId,
           encoded,
-          new Set(remote.files),
-          remote.parts,
+          {
+            existing: new Set(remote.files),
+            kept,
+            deletable: new Set([...remote.previous, ...expired.map(([file]) => file)]),
+          },
           deps.maxRequestBytes ?? MAX_REQUEST_BYTES,
           deps.pause ?? sleep,
           signal,
@@ -575,11 +743,14 @@ export async function syncLibrary(
         refused = error
         continue
       }
-      const written = {
+      const files = Object.keys(pushed.gist.files)
+      const written: GistState = {
         revision,
         ancestors: encoded.manifest.ancestors,
         parts: encoded.manifest.parts,
-        files: Object.keys(pushed.gist.files),
+        previous: encoded.manifest.previous,
+        files,
+        strays: straysOf(files, encoded.manifest, remote.strays, new Set(), time),
       }
       await deps.bases.put(newBase(gistId, merged, written, pushed.etag, now()))
       report.gistUrl = pageOf(pushed.gist) ?? report.gistUrl
@@ -609,15 +780,23 @@ export async function rewriteSyncGist(
     const read = await deps.github.getGist(gistId, signal === undefined ? {} : { signal })
     if (read.notModified) throw new SyncError('failed', 'GitHub answered “not modified”')
     checkOwner(read.gist, deps.login)
-    const snapshot = await localForGist(deps, now() - HISTORY_WINDOW_MS)
+    checkSecret(read.gist)
+    const historySince = now() - HISTORY_WINDOW_MS
+    const snapshot = await localForGist(deps, historySince)
     const revision = (deps.revision ?? newRevision)()
-    const encoded = encodeSnapshot(snapshot, { revision, ancestors: [], savedAt: new Date(now()) })
+    const encoded = encodeSnapshot(snapshot, {
+      revision,
+      ancestors: [],
+      savedAt: new Date(now()),
+      historySince,
+    })
+    const existing = new Set(Object.keys(read.gist.files))
     const pushed = await upload(
       deps.github,
       gistId,
       encoded,
-      new Set(Object.keys(read.gist.files)),
-      [],
+      // The gist can't be read: every part goes up again, and every other part file goes.
+      { existing, kept: new Set(), deletable: existing },
       deps.maxRequestBytes ?? MAX_REQUEST_BYTES,
       deps.pause ?? sleep,
       signal,
@@ -625,7 +804,20 @@ export async function rewriteSyncGist(
     const parts = encoded.manifest.parts
     const files = Object.keys(pushed.gist.files)
     await deps.bases.put(
-      newBase(gistId, snapshot, { revision, ancestors: [], parts, files }, pushed.etag, now()),
+      newBase(
+        gistId,
+        snapshot,
+        {
+          revision,
+          ancestors: [],
+          parts,
+          previous: [],
+          files,
+          strays: straysOf(files, encoded.manifest, {}, new Set(), now()),
+        },
+        pushed.etag,
+        now(),
+      ),
     )
     return {
       gistId,
@@ -644,6 +836,31 @@ export async function rewriteSyncGist(
   }
 }
 
+/**
+ * Deletes the sync gist from GitHub, with every earlier version of it. A gist that is gone
+ * already counts as deleted; one of another account is refused (`not-owner`).
+ */
+export async function deleteSyncGist(
+  github: GistApi,
+  gistId: string,
+  login: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  try {
+    let read: Awaited<ReturnType<GistApi['getGist']>>
+    try {
+      read = await github.getGist(gistId, signal === undefined ? {} : { signal })
+    } catch (error) {
+      if (error instanceof GitHubError && error.code === 'not-found') return
+      throw error
+    }
+    if (!read.notModified) checkOwner(read.gist, login)
+    await write(() => github.deleteGist(gistId, signal))
+  } catch (error) {
+    throw toSyncError(error)
+  }
+}
+
 // --- Setting sync up -------------------------------------------------------------------------
 
 /** A sync gist found for an account, with what it holds. */
@@ -654,8 +871,9 @@ export interface FoundGist {
 }
 
 /**
- * The account's sync gists, most recently updated first, from up to `maxPages` pages of its
- * gists. A fine-grained token may not list secret gists; then the user pastes the gist's link.
+ * The account's secret sync gists, most recently updated first, from up to `maxPages` pages of
+ * its gists. Public ones are left out: sync never uses one. A fine-grained token may not list
+ * secret gists; then the user pastes the gist's link.
  */
 export async function findSyncGists(
   github: GistApi,
@@ -665,7 +883,9 @@ export async function findSyncGists(
     const found: Gist[] = []
     for (let page = 1; page <= maxPages; page++) {
       const { gists, hasMore } = await github.listGists(page, signal)
-      found.push(...gists.filter((gist) => Object.hasOwn(gist.files, MANIFEST_FILE)))
+      found.push(
+        ...gists.filter((gist) => !gist.public && Object.hasOwn(gist.files, MANIFEST_FILE)),
+      )
       if (!hasMore) break
     }
     return found.sort((a, b) =>
@@ -676,7 +896,7 @@ export async function findSyncGists(
   }
 }
 
-/** Reads a sync gist of `login`'s, to show what it holds before joining it. */
+/** Reads a secret sync gist of `login`'s, to show what it holds before joining it. */
 export async function readSyncGist(
   github: GistApi,
   gistId: string,
@@ -687,6 +907,7 @@ export async function readSyncGist(
     const read = await github.getGist(gistId, signal === undefined ? {} : { signal })
     if (read.notModified) throw new SyncError('failed', 'GitHub answered “not modified”')
     checkOwner(read.gist, login)
+    checkSecret(read.gist)
     const manifest = readManifest(read.gist)
     const { snapshot } = decodeSnapshot(manifest, (name) => read.gist.files[name])
     return {

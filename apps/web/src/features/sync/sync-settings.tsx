@@ -126,12 +126,15 @@ function Problem({
   onToken,
   onSetup,
   onRewrite,
+  onRemovals,
 }: {
   onToken: () => void
   onSetup: () => void
   onRewrite: () => void
+  onRemovals: (choice: 'apply' | 'keep') => void
 }) {
   const problem = useSyncStore((state) => state.problem)
+  const syncing = useSyncStore((state) => state.syncing)
   if (problem === undefined) return null
   const { text, action } = problemMessage(problem)
   return (
@@ -153,6 +156,26 @@ function Problem({
           <button type="button" className={buttonClasses()} onClick={onRewrite}>
             Rewrite the gist from this device
           </button>
+        )}
+        {action === 'removals' && (
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              className={buttonClasses({ variant: 'danger' })}
+              disabled={syncing}
+              onClick={() => onRemovals('apply')}
+            >
+              Remove them here too
+            </button>
+            <button
+              type="button"
+              className={buttonClasses()}
+              disabled={syncing}
+              onClick={() => onRemovals('keep')}
+            >
+              Keep them
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -298,6 +321,85 @@ function CopyLink({ url }: { url: string }) {
   )
 }
 
+/** GitHub's list of the user's fine-grained tokens, where a token can be deleted. */
+const TOKENS_URL = 'https://github.com/settings/personal-access-tokens'
+
+function TurnOffPanel({ gistUrl, onDone }: { gistUrl: string | undefined; onDone: () => void }) {
+  const [deleteGist, setDeleteGist] = useState(false)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const turnOff = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await disconnectSync({ deleteGist })
+      onDone()
+    } catch (failure) {
+      setError(setupErrorText(failure))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4 text-sm">
+      <label className="flex cursor-pointer gap-3 rounded-lg border border-border p-3 has-[:checked]:border-accent">
+        <input
+          type="checkbox"
+          checked={deleteGist}
+          onChange={(event) => setDeleteGist(event.currentTarget.checked)}
+          className="mt-0.5 size-4 shrink-0 accent-accent"
+        />
+        <span>
+          <span className="block font-semibold">Also delete the gist from GitHub</span>
+          <span className="block text-text-muted">
+            Removes your synced library and every earlier version of it, which GitHub keeps. Your
+            other devices stop syncing.
+          </span>
+        </span>
+      </label>
+      <p className="text-text-muted">
+        Otherwise the gist stays on GitHub
+        {gistUrl === undefined ? (
+          '.'
+        ) : (
+          <>
+            {' '}
+            (
+            <a href={gistUrl} target="_blank" rel="noreferrer" className="underline">
+              open it<span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            ).
+          </>
+        )}{' '}
+        Your token works on GitHub until it expires:{' '}
+        <a href={TOKENS_URL} target="_blank" rel="noreferrer" className="underline">
+          delete the token on GitHub<span className="sr-only"> (opens in a new tab)</span>
+        </a>{' '}
+        too.
+      </p>
+      {error && (
+        <p role="alert" className="font-semibold text-danger">
+          {error}
+        </p>
+      )}
+      <DialogActions>
+        <button type="button" className={buttonClasses({ variant: 'secondary' })} onClick={onDone}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={buttonClasses({ variant: 'danger' })}
+          disabled={busy}
+          onClick={turnOff}
+        >
+          {busy ? 'Turning off…' : deleteGist ? 'Delete the gist and turn off' : 'Turn off sync'}
+        </button>
+      </DialogActions>
+    </div>
+  )
+}
+
 function Connected() {
   const login = useSyncStore((state) => state.login)
   const token = useSyncStore((state) => state.token)
@@ -340,6 +442,7 @@ function Connected() {
         onToken={() => setDialog('token')}
         onSetup={() => setDialog('setup')}
         onRewrite={() => setDialog('rewrite')}
+        onRemovals={(choice) => void runSync('manual', { removals: choice })}
       />
       <Row
         label="Sync with GitHub"
@@ -377,12 +480,18 @@ function Connected() {
         labelId={gistLabel}
         stacked
         help={
-          <p>
-            {gistBytes !== undefined &&
-              `It holds ${sizeLabel(gistBytes)}, which GitHub sends back after each change. `}
-            To sync another device, set sync up there with a token of the same account. If it
-            doesn’t find this gist, paste its link.
-          </p>
+          <>
+            <p>
+              {gistBytes !== undefined &&
+                `It holds ${sizeLabel(gistBytes)}, which GitHub sends back after each change. `}
+              To sync another device, set sync up there with a token of the same account. If it
+              doesn’t find this gist, paste its link.
+            </p>
+            <p className="mt-2">
+              Keep the link to yourself: anyone who has it can read your library, your listening
+              history and every earlier version of them, which GitHub keeps.
+            </p>
+          </>
         }
       >
         {gistUrl !== undefined && (
@@ -444,27 +553,9 @@ function Connected() {
         open={dialog === 'off'}
         onClose={() => setDialog(null)}
         title="Turn off sync on this device?"
-        description="FXM forgets your token on this device. Your library stays here, and the gist stays on GitHub: delete it there if you no longer need it."
+        description="FXM forgets your token and what it knew of your sync gist on this device. Your library stays here."
       >
-        <DialogActions>
-          <button
-            type="button"
-            className={buttonClasses({ variant: 'secondary' })}
-            onClick={() => setDialog(null)}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className={buttonClasses({ variant: 'danger' })}
-            onClick={() => {
-              disconnectSync()
-              setDialog(null)
-            }}
-          >
-            Turn off sync
-          </button>
-        </DialogActions>
+        <TurnOffPanel gistUrl={gistUrl} onDone={() => setDialog(null)} />
       </Dialog>
     </>
   )

@@ -73,6 +73,8 @@ export interface FakeGitHub {
    * document which it does.
    */
   ignoresMissingDeletes: boolean
+  /** Whether new gists come out public whatever the request asks: a broken API, for tests. */
+  makesGistsPublic: boolean
   /** Creates a gist directly, as another device or app would. */
   putGist(
     owner: string,
@@ -113,7 +115,9 @@ export function createFakeGitHub(
   let nextId = 1
 
   const newId = () => hashHex(`gist-${nextId++}`).padEnd(32, '0').slice(0, 32)
-  const etagOf = (gist: FakeGist) => `W/"${hashHex(`${gist.id}:${gist.version}`)}"`
+  // Derived from what a read returns, as GitHub's are: making a gist public changes it.
+  const etagOf = (gist: FakeGist) =>
+    `W/"${hashHex(`${gist.id}:${gist.version}:${gist.public}:${gist.description}`)}"`
 
   function view(gist: FakeGist, withContent: boolean) {
     const files: Record<string, unknown> = {}
@@ -228,7 +232,12 @@ export function createFakeGitHub(
         files[name] = file.content
       }
       if (Object.keys(files).length === 0) return error(422, 'Validation Failed')
-      const gist = create(token.login, files, body.public === true, body.description ?? '')
+      const gist = create(
+        token.login,
+        files,
+        body.public === true || fake.makesGistsPublic,
+        body.description ?? '',
+      )
       return json(201, view(gist, true), { etag: etagOf(gist) })
     }
 
@@ -298,6 +307,7 @@ export function createFakeGitHub(
     requests,
     listsSecretGists: true,
     ignoresMissingDeletes: false,
+    makesGistsPublic: false,
     writes: () => requests.filter((request) => request.method !== 'GET'),
     hook(hook) {
       hooks.push(hook)

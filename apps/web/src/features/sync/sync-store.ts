@@ -15,6 +15,7 @@ import { persist } from 'zustand/middleware'
 import { createSafeStorage } from '../../lib/safe-storage'
 import type { SyncErrorCode, SyncReport } from './engine'
 import { normalizeToken } from './github'
+import type { RemovalCounts } from './merge'
 
 /** localStorage key. Bump the suffix (and add a migration) on incompatible changes. */
 export const SYNC_STORAGE_KEY = 'fxm.sync.v1'
@@ -32,6 +33,8 @@ export interface SyncProblem {
   at: number
   /** For `rate-limited`: when GitHub allows the next try. */
   retryAt?: number
+  /** For `removals`: what the sync would remove here. */
+  removed?: RemovalCounts
 }
 
 /** A playlist a sync kept although one side had deleted it (see `MergeNotice`). */
@@ -92,9 +95,11 @@ const ERROR_CODES: readonly SyncErrorCode[] = [
   'gone',
   'not-owner',
   'not-sync-gist',
+  'public',
   'too-new',
   'corrupt',
   'too-large',
+  'removals',
   'rate-limited',
   'network',
   'busy',
@@ -105,6 +110,17 @@ function isTime(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
+function sanitizeRemovals(value: unknown): RemovalCounts | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const stored = value as Partial<Record<keyof RemovalCounts, unknown>>
+  const counts = [stored.playlists, stored.likes, stored.follows, stored.plays]
+  if (!counts.every((count) => Number.isSafeInteger(count) && (count as number) >= 0)) {
+    return undefined
+  }
+  const [playlists, likes, follows, plays] = counts as number[]
+  return { playlists: playlists ?? 0, likes: likes ?? 0, follows: follows ?? 0, plays: plays ?? 0 }
+}
+
 function sanitizeProblem(value: unknown): SyncProblem | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const stored = value as Partial<Record<keyof SyncProblem, unknown>>
@@ -113,6 +129,8 @@ function sanitizeProblem(value: unknown): SyncProblem | undefined {
   const problem: SyncProblem = { code, at: stored.at }
   if (typeof stored.detail === 'string') problem.detail = stored.detail.slice(0, 200)
   if (isTime(stored.retryAt)) problem.retryAt = stored.retryAt
+  const removed = sanitizeRemovals(stored.removed)
+  if (removed !== undefined) problem.removed = removed
   return problem
 }
 
@@ -254,7 +272,20 @@ export function createSyncStore({ storage }: { storage?: () => Storage | undefin
         storage: createSafeStorage<SyncConfig>(storage),
         partialize: (state) => persisted(state),
         migrate: (stored) => sanitizeSyncConfig(stored),
-        merge: (stored, current) => ({ ...current, ...sanitizeSyncConfig(stored) }),
+        // The stored config replaces the persisted fields whole, also those it lacks: when
+        // another tab turned sync off or cleared a problem, this tab drops them too, so its next
+        // write can't bring them back.
+        merge: (stored, current) => ({
+          ...current,
+          token: undefined,
+          login: undefined,
+          gistId: undefined,
+          gistUrl: undefined,
+          lastSyncAt: undefined,
+          gistBytes: undefined,
+          problem: undefined,
+          ...sanitizeSyncConfig(stored),
+        }),
       },
     ),
   )
@@ -271,9 +302,11 @@ const NEEDS_USER: ReadonlySet<SyncErrorCode> = new Set([
   'gone',
   'not-owner',
   'not-sync-gist',
+  'public',
   'too-new',
   'corrupt',
   'too-large',
+  'removals',
 ])
 
 /** Whether only the user can fix a failure with this code. */

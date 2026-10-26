@@ -6,9 +6,13 @@ import { testRepo, track, tracks } from '../../test/library-fixtures'
 import { createMemoryBaseStore } from './base-store'
 import {
   createSyncGist,
+  deleteSyncGist,
   findSyncGists,
   GIST_DESCRIPTION,
   readSyncGist,
+  rewriteSyncGist,
+  STALE_READ_GRACE_MS,
+  STRAY_AGE_MS,
   type SyncDeps,
   SyncError,
   syncLibrary,
@@ -139,6 +143,81 @@ describe('createSyncGist', () => {
   it('says so when the token may not create gists', async () => {
     const github = createFakeGitHub({ [TOKEN]: { login: 'octo', canWriteGists: false } })
     expect((await failure(createSyncGist(device(github).deps))).code).toBe('forbidden')
+  })
+
+  it('deletes a new gist at once if GitHub made it public', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    github.makesGistsPublic = true
+    const a = device(github)
+    await a.repo.like(track(1))
+    expect((await failure(createSyncGist(a.deps))).code).toBe('public')
+    expect(github.gists.size).toBe(0)
+    expect(a.bases.bases.size).toBe(0)
+  })
+})
+
+describe('a public gist', () => {
+  function makePublic(github: FakeGitHub, gistId: string) {
+    const gist = github.gists.get(gistId)
+    if (gist === undefined) throw new Error('missing')
+    gist.public = true
+  }
+
+  it('stops sync before it pushes anything there', async () => {
+    const { github, a, b } = setup()
+    await a.repo.like(track(1))
+    const { gistId } = await createSyncGist(a.deps)
+    await sync(b.deps, gistId)
+    makePublic(github, gistId)
+    await a.repo.like(track(2))
+    const writes = github.writes().length
+    expect((await failure(syncLibrary(a.deps, gistId))).code).toBe('public')
+    expect((await failure(syncLibrary(b.deps, gistId))).code).toBe('public')
+    expect(github.writes().length).toBe(writes)
+    expect(await likedIds(b.repo)).toEqual([track(1).id])
+  })
+
+  it('stops a push in several requests as soon as GitHub answers that the gist is public', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    const a = device(github, { maxRequestBytes: 20_000 })
+    const { gistId } = await createSyncGist(a.deps)
+    const manifest = github.gists.get(gistId)?.files.get(MANIFEST_FILE)
+    await a.repo.createPlaylist({ name: 'Big', tracks: tracks(400) })
+    // Someone makes it public on GitHub while the push goes up.
+    const remove = github.hook((request) => {
+      if (request.method !== 'PATCH') return undefined
+      remove()
+      makePublic(github, gistId)
+      return undefined
+    })
+    const writes = github.writes().length
+    expect((await failure(syncLibrary(a.deps, gistId))).code).toBe('public')
+    expect(github.writes().length).toBe(writes + 1)
+    expect(github.gists.get(gistId)?.files.get(MANIFEST_FILE)).toBe(manifest)
+  })
+
+  it('is never found, joined or rewritten', async () => {
+    const { github, a } = setup()
+    await a.repo.like(track(1))
+    const { gistId } = await createSyncGist(a.deps)
+    makePublic(github, gistId)
+    expect(await findSyncGists(a.deps.github)).toEqual([])
+    github.listsSecretGists = false
+    expect(await findSyncGists(a.deps.github)).toEqual([])
+    expect((await failure(readSyncGist(a.deps.github, gistId, 'octo'))).code).toBe('public')
+    expect((await failure(rewriteSyncGist(a.deps, gistId))).code).toBe('public')
+  })
+})
+
+describe('deleteSyncGist', () => {
+  it('deletes the gist, counts one gone already as deleted, and refuses another account’s', async () => {
+    const { github, a } = setup()
+    const { gistId } = await createSyncGist(a.deps)
+    const theirs = github.putGist('someone', { [MANIFEST_FILE]: '{}' })
+    expect((await failure(deleteSyncGist(a.deps.github, theirs.id, 'octo'))).code).toBe('not-owner')
+    await deleteSyncGist(a.deps.github, gistId, 'octo')
+    expect(github.gists.has(gistId)).toBe(false)
+    await deleteSyncGist(a.deps.github, gistId, 'octo')
   })
 })
 
@@ -448,6 +527,116 @@ describe('syncLibrary', () => {
     expect((await likedIds(a.repo)).sort()).toEqual([track(1).id, track(2).id].sort())
   })
 
+  it('asks before removing much of this device’s library, and changes nothing meanwhile', async () => {
+    const { a, b } = setup()
+    for (let n = 1; n <= 20; n++) await a.repo.like(track(n))
+    const { gistId } = await createSyncGist(a.deps)
+    await sync(b.deps, gistId)
+    for (let n = 1; n <= 20; n++) await a.repo.unlike(track(n).id)
+    // The device that removed them pushes as usual.
+    expect(await sync(a.deps, gistId)).toMatchObject({ pushed: true })
+
+    const asked = await failure(syncLibrary(b.deps, gistId))
+    expect(asked.code).toBe('removals')
+    expect(asked.removed).toEqual({ playlists: 0, likes: 20, follows: 0, plays: 0 })
+    expect(await likedIds(b.repo)).toHaveLength(20)
+
+    // Keeping them puts them back, on the other device too.
+    expect(await syncLibrary(b.deps, gistId, { removals: 'keep' })).toMatchObject({ pushed: true })
+    await sync(a.deps, gistId)
+    expect(await likedIds(a.repo)).toHaveLength(20)
+  })
+
+  it('removes them when the user says so', async () => {
+    const { a, b } = setup()
+    for (let n = 1; n <= 20; n++) await a.repo.like(track(n))
+    const { gistId } = await createSyncGist(a.deps)
+    await sync(b.deps, gistId)
+    for (let n = 1; n <= 20; n++) await a.repo.unlike(track(n).id)
+    await sync(a.deps, gistId)
+    await syncLibrary(b.deps, gistId, { removals: 'apply' })
+    expect(await likedIds(b.repo)).toEqual([])
+    // And the next sync doesn't ask again.
+    expect(await sync(b.deps, gistId)).toMatchObject({ pushed: false, pulled: 0 })
+  })
+
+  it('merges a gist that went back to an earlier revision, once that can’t be GitHub’s delay', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    let now = Date.UTC(2026, 9, 26, 12)
+    const a = device(github, { now: () => now })
+    await a.repo.like(track(1))
+    const { gistId } = await createSyncGist(a.deps)
+    const old = new Map(github.gists.get(gistId)?.files)
+    await a.repo.like(track(2))
+    await sync(a.deps, gistId)
+    // The gist's history is reverted to the first revision.
+    const current = [...(github.gists.get(gistId)?.files.keys() ?? [])]
+    github.editGist(gistId, {
+      ...Object.fromEntries(current.map((name) => [name, null])),
+      ...Object.fromEntries(old),
+    })
+    await a.repo.like(track(3))
+    // Right after the push, it could be GitHub's delay: nothing happens.
+    expect(await sync(a.deps, gistId)).toMatchObject({ pushed: false })
+    now += STALE_READ_GRACE_MS
+    expect(await sync(a.deps, gistId)).toMatchObject({ pushed: true })
+    const read = await readSyncGist(a.deps.github, gistId, 'octo', { now })
+    expect(read.snapshot.likes.map((row) => row.trackId).sort()).toEqual(
+      [track(1).id, track(2).id, track(3).id].sort(),
+    )
+  })
+
+  it('never deletes another device’s parts while its push is still going up', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    github.ignoresMissingDeletes = true
+    const a = device(github, { maxRequestBytes: 20_000 })
+    const b = device(github)
+    const { gistId } = await createSyncGist(a.deps)
+    await sync(b.deps, gistId)
+    await a.repo.createPlaylist({ name: 'Big', tracks: tracks(300) })
+    await b.repo.like(track(500))
+    // B syncs and pushes after A's first request, before A's manifest.
+    let patches = 0
+    const remove = github.hook(async (request) => {
+      if (request.method !== 'PATCH') return undefined
+      patches++
+      if (patches !== 2) return undefined
+      remove()
+      await sync(b.deps, gistId)
+      return undefined
+    })
+    await sync(a.deps, gistId)
+    // B's push landed between two of A's requests…
+    expect(patches).toBe(2)
+    // …and the gist is readable: every part A's manifest lists is there.
+    expect((await readSyncGist(a.deps.github, gistId, 'octo')).snapshot.playlists).toHaveLength(2)
+    await sync(b.deps, gistId)
+    await sync(a.deps, gistId)
+    for (const repo of [a.repo, b.repo]) {
+      expect(await names(repo)).toContain('Big')
+      expect(await likedIds(repo)).toEqual([track(500).id])
+    }
+  })
+
+  it('deletes part files no manifest lists once they are an hour old', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    let now = Date.UTC(2026, 9, 26, 12)
+    const a = device(github, { now: () => now })
+    const { gistId } = await createSyncGist(a.deps)
+    // What a push that failed half-way left behind.
+    const stray = 'fxm-likes-0of1-0123456789abcd.json'
+    github.editGist(gistId, { [stray]: '{"format":"fxm-library-sync-part","rows":[]}' })
+    await sync(a.deps, gistId)
+    now += STRAY_AGE_MS / 2
+    await a.repo.like(track(1))
+    await sync(a.deps, gistId)
+    expect(github.gists.get(gistId)?.files.has(stray)).toBe(true)
+    now += STRAY_AGE_MS / 2
+    await a.repo.like(track(2))
+    await sync(a.deps, gistId)
+    expect(github.gists.get(gistId)?.files.has(stray)).toBe(false)
+  })
+
   it('refuses gists it must not touch, leaving the library as it is', async () => {
     const { github, a } = setup()
     await a.repo.like(track(1))
@@ -530,6 +719,86 @@ describe('what sync carries', () => {
     await sync(a.deps, gistId)
     await sync(b.deps, gistId)
     expect((await b.repo.history()).map((entry) => entry.trackId)).toEqual([track(3).id])
+  })
+
+  it('carries a cleared history, plays near the start of the window included', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    const a = clocked(github, () => NOW)
+    const b = clocked(github, () => NOW)
+    for (const [n, at] of [
+      [1, NOW - 85 * DAY],
+      [2, NOW - DAY],
+    ] as const) {
+      await a.repo.recordPlay({
+        track: track(n),
+        playedAt: at,
+        playedMs: 1,
+        completed: true,
+        skipped: false,
+      })
+    }
+    const { gistId } = await createSyncGist(a.deps)
+    await sync(b.deps, gistId)
+    expect(await b.repo.history()).toHaveLength(2)
+
+    await b.repo.clearHistory()
+    await sync(b.deps, gistId)
+    await sync(a.deps, gistId)
+    await sync(b.deps, gistId)
+    await sync(a.deps, gistId)
+    expect(await a.repo.history()).toEqual([])
+    expect(await b.repo.history()).toEqual([])
+  })
+
+  it('carries only the reserved settings meant for every device', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    const a = clocked(github, () => NOW)
+    const b = clocked(github, () => NOW)
+    await a.repo.db.settings.bulkPut([
+      { key: 'scrobble.lastfm.sessionKey', value: 'SESSION-SECRET-123', updatedAt: 1 },
+      { key: 'sync.shared', value: 'for every device', updatedAt: 1 },
+    ])
+    const { gistId } = await createSyncGist(a.deps)
+    const everything = [...(github.gists.get(gistId)?.files.values() ?? [])].join('\n')
+    expect(everything).not.toContain('SESSION-SECRET-123')
+    await b.repo.db.settings.put({ key: 'device.only', value: true, updatedAt: 1 })
+    await sync(b.deps, gistId)
+    expect((await b.repo.db.settings.toArray()).map((row) => row.key).sort()).toEqual([
+      'device.only',
+      'sync.shared',
+    ])
+  })
+
+  it('never carries the query of a search a play started from', async () => {
+    const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
+    const a = clocked(github, () => NOW)
+    const b = clocked(github, () => NOW)
+    const context = {
+      type: 'search',
+      id: 'my very private search',
+      title: 'my very private search',
+    }
+    await a.repo.recordPlay({
+      track: track(1),
+      playedAt: NOW - 1000,
+      playedMs: 1000,
+      completed: false,
+      skipped: false,
+      context,
+    })
+    const { gistId } = await createSyncGist(a.deps)
+    const everything = [...(github.gists.get(gistId)?.files.values() ?? [])].join('\n')
+    expect(everything).not.toContain('my very private search')
+    await sync(b.deps, gistId)
+    const [played] = await b.repo.history()
+    expect(played).toMatchObject({ trackId: track(1).id })
+    expect(played).not.toHaveProperty('context')
+
+    // When the other device changes the play, this one keeps its query.
+    await b.repo.db.history.toCollection().modify({ playedMs: 9000, completed: true })
+    await sync(b.deps, gistId)
+    await sync(a.deps, gistId)
+    expect((await a.repo.history())[0]).toMatchObject({ playedMs: 9000, context })
   })
 
   it('never takes a play near the start of the window for a deletion', async () => {

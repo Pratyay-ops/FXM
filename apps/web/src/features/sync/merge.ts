@@ -15,7 +15,8 @@
  *   and a reorder on the other), and **kept twice** when they do (two renames, two reorders):
  *   this device's version stays and the other becomes a copy, "… (other version)", so nothing
  *   is lost and the user decides which to keep.
- * - A playlist deleted on one side and changed on the other is kept, with a notice.
+ * - A playlist deleted on one side and changed on the other is kept, with a notice. Only its
+ *   content counts as a change: saving it unchanged, which only moves `updatedAt`, doesn't.
  *
  * Without a base (the first sync on a device) every record in both libraries counts as changed
  * on both sides, which is exactly a backup import's merge, plus the copies.
@@ -23,6 +24,9 @@
  * Deletions on the gist's side count only when the gist was made from this device's base
  * (`remoteFromBase`). After a race in which another device overwrote a push, or after the gist
  * was rewritten, what the gist lacks may never have been deleted on purpose, so it is kept.
+ *
+ * What a merge removes from this device can be counted ({@link countRemovals}); the engine asks
+ * the user before it removes a lot ({@link exceedsRemovalLimits}).
  *
  * @module
  */
@@ -414,6 +418,16 @@ function combinePlaylist(
   return record
 }
 
+/**
+ * What a playlist holds, without when it was saved: what tells whether it changed since the
+ * base when the other side deleted it. Renaming a playlist to the same name still moves its
+ * `updatedAt`, and that alone mustn't keep a playlist another device deleted.
+ */
+function contentOf(record: PlaylistRecord): string {
+  const { updatedAt: _updatedAt, ...content } = record
+  return canonicalJson(content)
+}
+
 /** Matches a conflict copy's native ID: the original's, `~`, and 10 hex digits. */
 const COPY_ID = /^(local:playlist:.+)~[0-9a-f]{10}$/
 
@@ -463,7 +477,7 @@ function mergePlaylists(input: MergeInput): {
     if (there === undefined) {
       if (before !== undefined && input.remoteFromBase && here.row.system === undefined) {
         // Deleted on the other side: gone too, unless it changed here meanwhile.
-        if (here.json === before.json) continue
+        if (contentOf(here.row) === contentOf(before.row)) continue
         notices.push({ kind: 'kept-here', playlistId: here.row.id, name: here.row.name })
       }
       result.set(id, here.row)
@@ -493,7 +507,7 @@ function mergePlaylists(input: MergeInput): {
     const before = base.get(id)
     if (before !== undefined && there.row.system === undefined) {
       // Deleted here: it stays deleted, unless the other side changed it meanwhile.
-      if (there.json === before.json) continue
+      if (contentOf(there.row) === contentOf(before.row)) continue
       notices.push({ kind: 'restored', playlistId: there.row.id, name: there.row.name })
     }
     result.set(id, there.row)
@@ -548,6 +562,75 @@ function mergeOrders(input: MergeInput, copies: readonly ConflictCopy[]): OrderR
     order,
     updatedAt: Math.max(here?.updatedAt ?? 0, there?.updatedAt ?? 0),
   }
+}
+
+// --- What a merge removes --------------------------------------------------------------------
+
+/** How many of this device's records a merge removes, because the gist's side deleted them. */
+export interface RemovalCounts {
+  /** The user's playlists that held songs. */
+  playlists: number
+  likes: number
+  follows: number
+  plays: number
+}
+
+/** The records of `local` that `merged` lacks: what the merge removes from this device. */
+export function countRemovals(local: SyncSnapshot, merged: SyncSnapshot): RemovalCounts {
+  const gone = <T>(
+    before: readonly T[],
+    after: readonly T[],
+    keyOf: (row: T) => string,
+    counts: (row: T) => boolean = () => true,
+  ) => {
+    const kept = new Set(after.map(keyOf))
+    return before.filter((row) => !kept.has(keyOf(row)) && counts(row)).length
+  }
+  return {
+    playlists: gone(
+      local.playlists,
+      merged.playlists,
+      (row) => row.id,
+      (row) => row.system === undefined && row.trackIds.length > 0,
+    ),
+    likes: gone(local.likes, merged.likes, (row) => row.key),
+    follows: gone(local.follows, merged.follows, (row) => row.key),
+    plays: gone(local.history, merged.history, historyKey),
+  }
+}
+
+/**
+ * How many records of a kind a merge may remove without asking: a tenth of what this device
+ * holds, but at least `least` and at most `most`.
+ */
+const REMOVAL_LIMITS: Readonly<Record<keyof RemovalCounts, { least: number; most: number }>> = {
+  playlists: { least: 1, most: 5 },
+  likes: { least: 5, most: 100 },
+  follows: { least: 5, most: 100 },
+  plays: { least: 25, most: 500 },
+}
+
+/**
+ * Whether a merge removes so much of this device's library that the user should decide first:
+ * more than one playlist with songs (or a tenth of them, up to 5), or more than a tenth of the
+ * likes, follows or plays (at least 5 likes or follows, 25 plays; at most 100 likes or follows,
+ * 500 plays). Deleting a playlist or unliking songs on one device then syncs as usual, but a
+ * device wiped by mistake, an old backup restored with Replace, or a gist changed outside FXM
+ * can't empty every device's library unnoticed.
+ */
+export function exceedsRemovalLimits(removed: RemovalCounts, local: SyncSnapshot): boolean {
+  const held: RemovalCounts = {
+    playlists: local.playlists.filter((row) => row.system === undefined && row.trackIds.length > 0)
+      .length,
+    likes: local.likes.length,
+    follows: local.follows.length,
+    plays: local.history.length,
+  }
+  return (Object.keys(REMOVAL_LIMITS) as (keyof RemovalCounts)[]).some((kind) => {
+    const { least, most } = REMOVAL_LIMITS[kind]
+    const limit = Math.min(most, Math.max(least, Math.floor(held[kind] / 10)))
+    return removed[kind] > limit
+  })
 }
 
 // --- App settings ----------------------------------------------------------------------------

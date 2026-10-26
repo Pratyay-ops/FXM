@@ -4,6 +4,8 @@ import {
   COPY_SUFFIX,
   conflictCopyOf,
   conflictOriginalOf,
+  countRemovals,
+  exceedsRemovalLimits,
   type MergeInput,
   mergeSnapshots,
   nameBeforeCopy,
@@ -249,6 +251,19 @@ describe('mergeSnapshots: playlists', () => {
     expect(named(merge(base, base, snap(), false).snapshot, 'Mix')).toBeDefined()
   })
 
+  it('deletes a playlist deleted on the other side that was only saved again here', () => {
+    const base = snap({ playlists: [playlist('Mix', [1])] })
+    // Renamed to the same name: only its `updatedAt` moved.
+    const touched = snap({ playlists: [playlist('Mix', [1], { updatedAt: 9000 })] })
+    const result = merge(base, touched, snap())
+    expect(named(result.snapshot, 'Mix')).toBeUndefined()
+    expect(result.notices).toEqual([])
+    // Nor does a touch on the other side bring back one deleted here.
+    const back = merge(base, snap(), touched)
+    expect(named(back.snapshot, 'Mix')).toBeUndefined()
+    expect(back.notices).toEqual([])
+  })
+
   it('never deletes Liked songs', () => {
     const base = snap({ playlists: [liked([1])] })
     const remote = { ...snap(), playlists: [] }
@@ -373,5 +388,38 @@ describe('conflict copies', () => {
     expect(long.name.endsWith(COPY_SUFFIX)).toBe(true)
     expect(nameBeforeCopy('Mix (other version)')).toBe('Mix')
     expect(nameBeforeCopy('Mix')).toBe('Mix')
+  })
+})
+
+describe('removals', () => {
+  it('counts what a merge removes here: playlists with songs, likes, follows and plays', () => {
+    const local = snap({
+      playlists: [playlist('Mix', [1]), playlist('Empty', [])],
+      likes: [like(1), like(2)],
+      follows: [follow('Band')],
+      history: [play(1, 10), play(2, 20)],
+    })
+    const merged = snap({ likes: [like(1)], history: [play(2, 20)] })
+    const removed = countRemovals(local, merged)
+    expect(removed).toEqual({ playlists: 1, likes: 1, follows: 1, plays: 1 })
+    expect(countRemovals(local, local)).toEqual({ playlists: 0, likes: 0, follows: 0, plays: 0 })
+  })
+
+  it('asks only about a lot: more than a tenth, and more than a few', () => {
+    const library = (playlists: number, likes: number) =>
+      snap({
+        playlists: Array.from({ length: playlists }, (_, index) => playlist(`P${index}`, [1])),
+        likes: Array.from({ length: likes }, (_, index) => like(index + 1)),
+      })
+    const none = { playlists: 0, likes: 0, follows: 0, plays: 0 }
+    // One playlist, or a handful of likes, goes without asking…
+    expect(exceedsRemovalLimits({ ...none, playlists: 1 }, library(3, 0))).toBe(false)
+    expect(exceedsRemovalLimits({ ...none, likes: 5 }, library(0, 8))).toBe(false)
+    expect(exceedsRemovalLimits({ ...none, likes: 50 }, library(0, 1000))).toBe(false)
+    // …more doesn't.
+    expect(exceedsRemovalLimits({ ...none, playlists: 2 }, library(3, 0))).toBe(true)
+    expect(exceedsRemovalLimits({ ...none, likes: 6 }, library(0, 8))).toBe(true)
+    expect(exceedsRemovalLimits({ ...none, likes: 101 }, library(0, 1000))).toBe(true)
+    expect(exceedsRemovalLimits({ ...none, playlists: 6 }, library(100, 0))).toBe(true)
   })
 })

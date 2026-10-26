@@ -5,6 +5,7 @@ import { addedLabel } from '../library/format'
 import { Dialog, DialogActions } from '../library/ui/dialog'
 import { TextField } from '../library/ui/field'
 import {
+  type ConnectAction,
   type ConnectPlan,
   confirmConnect,
   prepareConnect,
@@ -64,41 +65,62 @@ function Summary({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function Confirm({
-  plan,
-  busy,
-  error,
-  onBack,
-  onConfirm,
-}: {
-  plan: ConnectPlan
-  busy: boolean
-  error: string
-  onBack: () => void
-  onConfirm: () => void
-}) {
-  const { gist } = plan
-  let action: string
-  let body: ReactNode
-  if (gist === undefined) {
-    action = 'Create the gist and turn on sync'
-    body = (
-      <>
+/** What the confirmation shows for a plan, and the action it offers, if any. */
+function confirmStep(plan: ConnectPlan): {
+  action?: { kind: ConnectAction; label: string }
+  body: ReactNode
+} {
+  const { gist, unreadable, login } = plan
+  if (unreadable?.code === 'too-new') {
+    return {
+      body: (
         <p>
-          There’s no sync gist on this account yet. FXM creates a secret one with this device’s
-          library.
+          Your sync gist was saved by a newer version of FXM, so this one can’t read it. Update FXM
+          on this device, then set up sync again.
         </p>
-        <Summary title="On this device">{summaryText(plan.local)}</Summary>
-        <p className="text-text-muted">
-          Already syncing on another device? Go back and paste the gist’s link from that device’s
-          settings, or this device gets a separate gist of its own.
-        </p>
-      </>
-    )
-  } else {
-    const saved = Date.parse(gist.savedAt)
-    action = plan.localHasData ? 'Merge and turn on sync' : 'Turn on sync'
-    body = (
+      ),
+    }
+  }
+  if (unreadable !== undefined) {
+    return {
+      action: { kind: 'rewrite', label: `Rewrite @${login}’s gist` },
+      body: (
+        <>
+          <Summary title="Your sync gist">Changed outside FXM: it can’t be read.</Summary>
+          <p>
+            FXM can rewrite it with this device’s library. Your other devices keep their libraries
+            and add back what this one lacks at their next sync.
+          </p>
+          <Summary title="On this device">{summaryText(plan.local)}</Summary>
+        </>
+      ),
+    }
+  }
+  if (gist === undefined) {
+    return {
+      action: { kind: 'create', label: `Create a gist on @${login}` },
+      body: (
+        <>
+          <p>
+            There’s no sync gist on this account yet. FXM creates a secret one with this device’s
+            library.
+          </p>
+          <Summary title="On this device">{summaryText(plan.local)}</Summary>
+          <p className="text-text-muted">
+            Already syncing on another device? Go back and paste the gist’s link from that device’s
+            settings, or this device gets a separate gist of its own.
+          </p>
+        </>
+      ),
+    }
+  }
+  const saved = Date.parse(gist.savedAt)
+  return {
+    action: {
+      kind: 'join',
+      label: plan.localHasData ? `Merge with @${login}’s gist` : `Sync with @${login}’s gist`,
+    },
+    body: (
       <>
         <Summary title="Your sync gist">
           {summaryText(gist.summary)}
@@ -116,22 +138,56 @@ function Confirm({
           <p>Your synced library comes to this device.</p>
         )}
       </>
-    )
+    ),
   }
+}
+
+function Confirm({
+  plan,
+  busy,
+  error,
+  onBack,
+  onConfirm,
+}: {
+  plan: ConnectPlan
+  busy: boolean
+  error: string
+  onBack: () => void
+  onConfirm: (action: ConnectAction) => void
+}) {
+  const { login } = plan
+  const { action, body } = confirmStep(plan)
+  const account = `@${login}`
   return (
     <div className="space-y-4 text-sm">
       <p>
-        Signed in to GitHub as <strong>@{plan.login}</strong>.
+        Signed in to GitHub as <strong>{account}</strong>.
       </p>
       {body}
+      {action !== undefined && (
+        // On whose account: a token of someone else's account would hand them this library, and
+        // let them change it from then on.
+        <p>
+          FXM copies this device’s library, listening history and settings to the gist of{' '}
+          <strong>{account}</strong>, and keeps them in step with it from then on. Continue only if{' '}
+          {account} is your own GitHub account.
+        </p>
+      )}
       {error && <ErrorText>{error}</ErrorText>}
       <DialogActions>
         <button type="button" className={buttonClasses({ variant: 'secondary' })} onClick={onBack}>
           Back
         </button>
-        <button type="button" className={buttonClasses()} disabled={busy} onClick={onConfirm}>
-          {busy ? 'Syncing…' : action}
-        </button>
+        {action !== undefined && (
+          <button
+            type="button"
+            className={buttonClasses()}
+            disabled={busy}
+            onClick={() => onConfirm(action.kind)}
+          >
+            {busy ? 'Syncing…' : action.label}
+          </button>
+        )}
       </DialogActions>
     </div>
   )
@@ -159,12 +215,12 @@ function ConnectPanel({ onDone, initialToken }: { onDone: () => void; initialTok
     }
   }
 
-  const confirm = async () => {
+  const confirm = async (action: ConnectAction) => {
     if (plan === null) return
     setError('')
     setBusy(true)
     try {
-      await confirmConnect(plan, newSignal())
+      await confirmConnect(plan, { signal: newSignal(), action })
       onDone()
     } catch (failure) {
       if (failure instanceof Error && failure.name === 'AbortError') return
@@ -223,7 +279,8 @@ function ConnectPanel({ onDone, initialToken }: { onDone: () => void; initialTok
       <p className="text-xs text-text-muted">
         Your playlists, likes, follows, listening history and settings go to a secret gist on your
         GitHub account. GitHub doesn’t list or search secret gists, but anyone with the link can
-        open one.
+        open one, and every earlier version of it, which GitHub keeps. Removing something in FXM
+        doesn’t remove it from those versions: delete the gist to remove everything.
       </p>
       {error && <ErrorText>{error}</ErrorText>}
       <DialogActions>

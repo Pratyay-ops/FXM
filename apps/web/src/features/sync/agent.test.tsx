@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { testRepo, track } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
+import { useSettingsStore } from '../settings/settings-store'
 import { changeKindOf, reportMessage } from './auto-sync'
 import { createMemoryBaseStore } from './base-store'
 import {
@@ -67,15 +68,42 @@ describe('SyncAgent', { timeout: 30_000 }, () => {
     expect(useSyncStore.getState().problem).toBeUndefined()
   })
 
-  it('stops by itself after a failure only the user can fix', async () => {
+  it('syncs a change of the synced app settings like an edit', async () => {
+    await confirmConnect(await prepareConnect({ token: TOKEN }))
+    const reads = gistReads().length
+    renderApp('/library')
+    await waitFor(() => expect(gistReads().length).toBeGreaterThan(reads))
+    await waitFor(() => expect(useSyncStore.getState().syncing).toBe(false))
+
+    const writes = github.writes().length
+    useSettingsStore.getState().setTheme('light')
+    await waitFor(() => expect(github.writes().length).toBe(writes + 1))
+    const gist = github.gists.get(useSyncStore.getState().gistId ?? '')
+    expect(gist?.files.get('fxm-library-sync.json')).toContain('"theme":"light"')
+  })
+
+  it('stops by itself after a failure only the user can fix, and says so', async () => {
     await confirmConnect(await prepareConnect({ token: TOKEN }))
     github.failNext('GET', '/gists/', 401, { message: 'Bad credentials' })
     renderApp('/library')
     await waitFor(() => expect(useSyncStore.getState().problem?.code).toBe('unauthorized'))
+    expect(await screen.findByText(/Sync stopped until you check it/)).toBeInTheDocument()
     const requests = github.requests.length
     await getLibrary().like(track(3))
     await new Promise((resolve) => setTimeout(resolve, 150))
     expect(github.requests.length).toBe(requests)
+  })
+
+  it('stops at once when the gist was made public', async () => {
+    await confirmConnect(await prepareConnect({ token: TOKEN }))
+    const gist = github.gists.get(useSyncStore.getState().gistId ?? '')
+    if (gist !== undefined) gist.public = true
+    const writes = github.writes().length
+    renderApp('/library')
+    expect(await screen.findByText(/Your sync gist is public, so sync stopped/)).toBeInTheDocument()
+    await getLibrary().like(track(3))
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    expect(github.writes().length).toBe(writes)
   })
 
   it('says so when a sync kept two versions of a playlist', async () => {

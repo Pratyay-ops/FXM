@@ -40,6 +40,34 @@ describe('readLibrarySnapshot', () => {
     expect(snapshot.pins.map((item) => item.mode)).toEqual(['all'])
     expect(snapshot.appSettings).toEqual(settings)
   })
+
+  it('reads only the plays since a time, and only the tracks the rest uses', async () => {
+    const repo = testRepo()
+    await repo.like(track(1))
+    await repo.saveTracks([track(2), track(3)])
+    await repo.addDownload(track(4))
+    for (const [n, playedAt] of [
+      [5, 1000],
+      [6, 5000],
+    ] as const) {
+      await repo.recordPlay({
+        track: track(n),
+        playedAt,
+        playedMs: 1,
+        completed: true,
+        skipped: false,
+      })
+    }
+    const snapshot = await readLibrarySnapshot(repo, settings, {
+      historySince: 2000,
+      tracks: [track(3).id],
+    })
+    expect(snapshot.history.map((entry) => entry.trackId)).toEqual([track(6).id])
+    // The like's and the play's tracks, and the one asked for; not the rest of the cache.
+    expect(snapshot.tracks.map((row) => row.id).sort()).toEqual(
+      [track(1).id, track(3).id, track(6).id].sort(),
+    )
+  })
 })
 
 describe('mergeIntoLibrary', () => {
@@ -112,6 +140,28 @@ describe('mergeIntoLibrary', () => {
     const history = await repo.history()
     expect(history).toHaveLength(1)
     expect(history[0]).toMatchObject({ playedMs: 180_000, completed: true })
+  })
+
+  it('writes nothing when what it would remove is refused', async () => {
+    const repo = testRepo()
+    await repo.like(track(1))
+    await repo.like(track(2))
+    const base = await readLibrarySnapshot(repo, settings)
+    const remote = { ...base, likes: [] }
+    await expect(
+      mergeIntoLibrary(repo, {
+        base,
+        remote,
+        remoteFromBase: true,
+        appSettings: settings,
+        checkRemovals: (removed) => {
+          expect(removed).toMatchObject({ likes: 2 })
+          throw new Error('Ask first')
+        },
+      }),
+    ).rejects.toThrow('Ask first')
+    expect(await repo.isLiked(track(1).id)).toBe(true)
+    expect(await repo.isLiked(track(2).id)).toBe(true)
   })
 
   it('removes a pin removed on the other side, but never the engine’s own decision', async () => {
