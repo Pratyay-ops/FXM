@@ -17,13 +17,14 @@
  *   swapped in, so playback stays on one that is.
  * - **Typed failures.** `play()` refusals from the autoplay policy and `MediaError` codes are
  *   reported as `EngineError`s; an error after the stream's `expiresAt` is `expired`.
- * - **Audio effects (stage 8.1).** Speed (`playbackRate`, pitch kept) and crossfades work on
- *   every stream. Loudness normalization turns tracks down through the element's volume, on
- *   every stream. The equalizer, and turning quiet tracks up, need Web Audio, which processes
- *   only media whose bytes the page can read: such streams (see `isReadable`) play on a second
- *   pair of elements with `crossorigin="anonymous"`, routed through the effects graph
- *   (`effects/web-audio.ts`), only while an effect needs it. A routed stream that fails before
- *   it plays (CORS, e.g. after a googlevideo redirect) plays again at once without effects.
+ * - **Audio effects (stage 8.1).** Speed (`playbackRate`, pitch kept) works on every stream, and
+ *   so do crossfades where the page can set the volume (not on iOS, see `canSetVolume`).
+ *   Loudness normalization turns tracks down through the element's volume, on every stream. The
+ *   equalizer, and turning quiet tracks up, need Web Audio, which processes only media whose
+ *   bytes the page can read: such streams (see `isReadable`) play on a second pair of elements
+ *   with `crossorigin="anonymous"`, routed through the effects graph (`effects/web-audio.ts`),
+ *   only while an effect needs it. A routed stream that fails before it plays (CORS, e.g. after a
+ *   googlevideo redirect) plays again at once without effects.
  *
  * Events are checked against the element's state when they arrive, so events of a replaced
  * source never leak through, even in a browser that delivers them late.
@@ -31,7 +32,14 @@
  * @module
  */
 
-import { crossfadeGains, dbToGain, loudnessGainDb, type StreamOption } from '@fxm/core'
+import {
+  crossfadeGains,
+  dbToGain,
+  type EqualizerSettings,
+  isFlatEqualizer,
+  loudnessGainDb,
+  type StreamOption,
+} from '@fxm/core'
 import { isLocalMediaUrl } from './effects/readable'
 import { type EffectsContext, EffectsGraph, type ElementChain, setParam } from './effects/web-audio'
 import { Emitter } from './emitter'
@@ -151,6 +159,14 @@ function defaultAudioContext(): (() => EffectsContext) | undefined {
   const Context = (globalThis as { AudioContext?: new (options?: object) => EffectsContext })
     .AudioContext
   return typeof Context === 'function' ? () => new Context({ latencyHint: 'playback' }) : undefined
+}
+
+/**
+ * Whether the equalizer has something to do: it is on and a band is off 0 dB. A flat one leaves
+ * the sound as it is, so no stream moves onto Web Audio for it.
+ */
+function shapesSound(equalizer: EqualizerSettings): boolean {
+  return equalizer.enabled && !isFlatEqualizer(equalizer.gainsDb)
 }
 
 /** Whether pages may set a media element's volume: iOS keeps it at 1, whatever a page sets. */
@@ -400,9 +416,10 @@ export class DirectAudioEngine implements Engine {
 
   /**
    * Applies the equalizer and loudness normalization. Loudness changes the level of what plays
-   * and is preloaded at once. Switching the equalizer on moves a readable stream that plays onto
-   * a routed element, at the same position; switching it off leaves it there, flat, so nothing
-   * restarts. Reports what they do with `effects`.
+   * and is preloaded at once. An equalizer that shapes the sound (on, with a band off 0 dB) moves
+   * a readable stream that plays onto a routed element, at the same position; switching it off or
+   * flattening it leaves the stream there, flat, so nothing restarts. Reports what they do with
+   * `effects`.
    */
   setEffects(effects: EngineEffects): void {
     if (this.#destroyed) return
@@ -433,10 +450,13 @@ export class DirectAudioEngine implements Engine {
   /**
    * Starts the preloaded `source` now and crossfades into it over `durationMs`, with equal-power
    * curves: see {@link Engine.crossfade}. Only while the current source plays, and only when the
-   * preloaded element has enough buffered to play on.
+   * preloaded element has enough buffered to play on. Where pages can't set the volume (iOS),
+   * only between two routed elements, whose levels Web Audio sets: a plain element would play at
+   * full level throughout.
    */
   crossfade(source: PlaybackSource, durationMs: number): boolean {
     const standby = this.#standby
+    const outgoing = this.#active
     if (
       this.#destroyed ||
       standby === undefined ||
@@ -446,15 +466,16 @@ export class DirectAudioEngine implements Engine {
       standby.element.readyState < HAVE_FUTURE_DATA ||
       standby.routed !== this.#wantsRouting(source.stream) ||
       !this.#playing ||
-      this.#active.element.paused ||
+      outgoing.element.paused ||
       !Number.isFinite(durationMs) ||
-      durationMs <= 0
+      durationMs <= 0 ||
+      (!this.#volumeControl && (outgoing.chain === undefined || standby.chain === undefined))
     ) {
       return false
     }
     this.#finishCrossfade()
-    const outgoing = this.#active
     this.#generation += 1
+    const generation = this.#generation
     this.#source = source
     this.#pendingSeekMs = undefined
     this.#playing = false
@@ -470,12 +491,22 @@ export class DirectAudioEngine implements Engine {
     const timer = setInterval(() => this.#stepCrossfade(), FADE_STEP_MS)
     this.#crossfade = { slot: outgoing, startedAt, durationMs, timer }
     this.#start(standby.element)
-    const { duration } = standby.element
-    if (Number.isFinite(duration) && duration > 0) {
-      this.#events.emit('durationchange', duration * 1000)
-    }
+    // Its element knew its duration from preloading and won't say it again. Said once the call
+    // has returned, when the player has taken the new source as its own.
+    queueMicrotask(() => {
+      if (this.#destroyed || generation !== this.#generation || this.#active !== standby) return
+      const { duration } = standby.element
+      if (Number.isFinite(duration) && duration > 0) {
+        this.#events.emit('durationchange', duration * 1000)
+      }
+    })
     this.#report()
     return true
+  }
+
+  /** Whether pages may set the volume here: not on iOS, where only Web Audio's gains fade. */
+  canSetVolume(): boolean {
+    return this.#volumeControl
   }
 
   /** Fades the whole output to `gain` over `durationMs` (see {@link Engine.fadeOutput}). */
@@ -730,10 +761,12 @@ export class DirectAudioEngine implements Engine {
   // --- Web Audio -----------------------------------------------------------------------------
 
   /**
-   * Whether `stream` should play through Web Audio: an effect needs it (the equalizer is on, or
-   * the track should be turned up), its bytes are readable, and the context runs. Where pages
-   * can't set the volume (iOS), only the equalizer the user switched on routes a stream: WebKit
-   * there suspends Web Audio when the screen locks, which a plain element plays through.
+   * Whether `stream` should play through Web Audio: an effect needs it (the equalizer shapes the
+   * sound, or the track should be turned up), its bytes are readable, and the context runs. A
+   * flat equalizer, as it is when first switched on, needs nothing: moving the stream would only
+   * restart its download. Where pages can't set the volume (iOS), only the equalizer routes a
+   * stream: WebKit there suspends Web Audio when the screen locks, which a plain element plays
+   * through.
    */
   #wantsRouting(stream: StreamOption): boolean {
     const effects = this.#effects
@@ -746,7 +779,7 @@ export class DirectAudioEngine implements Engine {
     if (this.#unreadable.has(stream.url) || !this.#isReadable(stream)) return false
     const boost =
       this.#volumeControl && loudnessGainDb(stream.loudness, effects.loudness, { boost: true }) > 0
-    if (!effects.equalizer.enabled && !boost) return false
+    if (!shapesSound(effects.equalizer) && !boost) return false
     return this.#ensureContext()?.state === 'running'
   }
 
@@ -841,7 +874,9 @@ export class DirectAudioEngine implements Engine {
     const loaded = stream !== undefined && slot.element.hasAttribute('src')
     let equalizer: AudioEffectsStatus['equalizer'] = 'off'
     if (effects.equalizer.enabled) {
-      equalizer = !loaded || slot.chain !== undefined ? 'on' : 'unavailable'
+      // A flat equalizer has nothing to process, wherever the stream plays.
+      const processes = !loaded || slot.chain !== undefined || !shapesSound(effects.equalizer)
+      equalizer = processes ? 'on' : 'unavailable'
     }
     let loudness: AudioEffectsStatus['loudness'] = 'off'
     let loudnessGainDb = 0

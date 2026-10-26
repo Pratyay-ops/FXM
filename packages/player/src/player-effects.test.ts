@@ -112,6 +112,7 @@ describe('Player: audio effects', () => {
       effects: false,
       playbackRate: false,
       crossfade: false,
+      volume: true,
     })
   })
 
@@ -122,7 +123,24 @@ describe('Player: audio effects', () => {
     expect(engine.playbackRate).toBe(1.25)
     expect(player.getState().playbackRate).toBe(1.25)
     expect(player.getAudioEffects().playbackRate).toBe(1.25)
-    expect(player.effectsSupport()).toEqual({ effects: true, playbackRate: true, crossfade: true })
+    expect(player.effectsSupport()).toEqual({
+      effects: true,
+      playbackRate: true,
+      crossfade: true,
+      volume: true,
+    })
+  })
+
+  it('offers no crossfade where the engine can’t set the volume (iOS)', () => {
+    const engine = new FakeEngine()
+    Object.assign(engine, { canSetVolume: () => false })
+    const { player } = setup({}, engine)
+    expect(player.effectsSupport()).toEqual({
+      effects: true,
+      playbackRate: true,
+      crossfade: false,
+      volume: false,
+    })
   })
 })
 
@@ -165,6 +183,26 @@ describe('Player: crossfade', () => {
     engine.progress(175_000)
     expect(current(player)).toBe('c')
     expect(engine.count('load')).toBe(1)
+  })
+
+  it('gives the faded-in track the duration the engine reports, and fades out of it at its end', async () => {
+    const { player, engine } = await playing(6000)
+    // b's stream runs 200 s, 20 s longer than its catalog entry (180 s), and says so at once.
+    engine.crossfadeDurationMs = 200_000
+    engine.progress(174_500)
+    expect(current(player)).toBe('b')
+    expect(player.getState().durationMs).toBe(200_000)
+    await settle()
+    // Prepared 30 s before b's real end, and faded out of only in its last 6 s.
+    engine.progress(170_000)
+    await settle()
+    engine.progress(176_000)
+    expect(current(player)).toBe('b')
+    player.seek(190_000)
+    expect(player.getState().positionMs).toBe(190_000)
+    engine.progress(194_500)
+    expect(current(player)).toBe('c')
+    expect(engine.crossfades.map((fade) => fade.durationMs)).toEqual([5500, 5500])
   })
 
   it('counts the time left at the playback speed', async () => {
@@ -415,6 +453,20 @@ describe('Player: sleep timer', () => {
     expect(given.at(-1)).toEqual({ endOfTrack: true })
     player.setSleepTimer(null)
     expect(given.at(-1)).toBeNull()
+  })
+
+  it('says nothing when an engine’s own timer ends while nothing plays', async () => {
+    const engine = new FakeEngine()
+    Object.assign(engine, { setSleepTimer: () => {} })
+    const { player } = setup({}, engine)
+    const seen = sleeps(player)
+    await player.setQueue(abc)
+    player.setSleepTimer({ afterMs: 60_000 })
+    player.pause()
+    await settle(60_000)
+    engine.emit('sleep', { reason: 'timer' })
+    expect(player.getState()).toMatchObject({ status: 'paused', sleepTimer: undefined })
+    expect(seen).toEqual([])
   })
 
   it('pauses itself when an engine with its own timer did not', async () => {

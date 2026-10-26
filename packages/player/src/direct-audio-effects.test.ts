@@ -1,5 +1,6 @@
 import {
   type AudioEffectsSettings,
+  currentQueueItem,
   DEFAULT_AUDIO_EFFECTS,
   dbToGain,
   equalizerHeadroomDb,
@@ -11,7 +12,8 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DirectAudioEngine, type DirectAudioEngineOptions } from './direct-audio-engine'
 import type { AudioEffectsStatus, EngineEffects, PlaybackSource } from './engine'
-import { testStream } from './testing'
+import { Player } from './player'
+import { FakeResolver, testStream, testTracks } from './testing'
 import { FakeAudioContext } from './testing/fake-audio-context'
 
 const RATE = 48_000
@@ -24,6 +26,10 @@ function effects(patch: Partial<AudioEffectsSettings> = {}): EngineEffects {
 
 const EQ_ON = effects({ equalizer: { enabled: true, gainsDb: ROCK, preset: 'rock' } })
 const EQ_OFF = effects()
+/** Switched on, every band at 0 dB: what the switch gives the first time. */
+const EQ_FLAT = effects({
+  equalizer: { enabled: true, gainsDb: equalizerPreset('flat').gainsDb, preset: 'flat' },
+})
 
 /** YouTube's "3.89 dB above -14 LUFS". */
 const LOUD: StreamLoudness = { trackLufs: -10.11, source: 'youtube' }
@@ -95,6 +101,21 @@ function fire(element: HTMLAudioElement, type: string): void {
 function failWith(element: HTMLAudioElement, code: number): void {
   set(element, 'error', { code, message: '' } as MediaError)
   fire(element, 'error')
+}
+
+/** Like {@link setup}, with elements whose volume pages can't set, as on iOS. */
+function setupWithoutVolume(options: Partial<DirectAudioEngineOptions> = {}) {
+  const elements: HTMLAudioElement[] = []
+  const context = setup({
+    createAudio: () => {
+      const element = document.createElement('audio')
+      Object.defineProperty(element, 'volume', { get: () => 1, set: () => {} })
+      elements.push(element)
+      return element
+    },
+    ...options,
+  })
+  return { ...context, elements }
 }
 
 /** Half a second of a sine at `frequency` Hz. */
@@ -219,6 +240,31 @@ describe('DirectAudioEngine: routing through Web Audio', () => {
     expect(routedA.currentTime).toBe(42)
   })
 
+  it('leaves a stream where it plays while the equalizer is flat', async () => {
+    const { engine, plainA, routedA, statuses } = setup()
+    engine.setEffects(EQ_FLAT)
+    await engine.load(source('a'))
+    await engine.play()
+    // Switched on, nothing to do: no new download, no gap.
+    expect(plainA.getAttribute('src')).toBe('https://media.test/a')
+    expect(routedA.hasAttribute('src')).toBe(false)
+    expect(statuses.at(-1)?.equalizer).toBe('on')
+    // A band moved: now the stream moves onto Web Audio.
+    engine.setEffects(EQ_ON)
+    expect(routedA.getAttribute('src')).toBe('https://media.test/a')
+    expect(routedA.paused).toBe(false)
+    expect(statuses.at(-1)?.equalizer).toBe('on')
+  })
+
+  it('says a flat equalizer is on, even for a stream it cannot read', async () => {
+    const { engine, statuses } = setup()
+    engine.setEffects(EQ_FLAT)
+    await engine.load(source('opaque-a'))
+    expect(statuses.at(-1)?.equalizer).toBe('on')
+    engine.setEffects(EQ_ON)
+    expect(statuses.at(-1)?.equalizer).toBe('unavailable')
+  })
+
   it('stays on the routed element, flat, when the equalizer is switched off', async () => {
     const { engine, context, routedA, statuses } = setup()
     engine.setEffects(EQ_ON)
@@ -337,13 +383,9 @@ describe('DirectAudioEngine: loudness', () => {
   })
 
   it('says loudness is unavailable where pages cannot set the volume (iOS)', async () => {
-    const { engine, statuses } = setup({
-      createAudio: () => {
-        const element = document.createElement('audio')
-        Object.defineProperty(element, 'volume', { get: () => 1, set: () => {} })
-        return element
-      },
-    })
+    const { engine, statuses } = setupWithoutVolume()
+    expect(engine.canSetVolume()).toBe(false)
+    expect(setup().engine.canSetVolume()).toBe(true)
     engine.setEffects(EQ_OFF)
     await engine.load(source('opaque-a', { loudness: LOUD }))
     expect(statuses.at(-1)).toEqual({
@@ -354,15 +396,7 @@ describe('DirectAudioEngine: loudness', () => {
   })
 
   it('turns nothing up through Web Audio where pages cannot set the volume (iOS)', async () => {
-    const elements: HTMLAudioElement[] = []
-    const { engine, statuses } = setup({
-      createAudio: () => {
-        const element = document.createElement('audio')
-        Object.defineProperty(element, 'volume', { get: () => 1, set: () => {} })
-        elements.push(element)
-        return element
-      },
-    })
+    const { engine, statuses, elements } = setupWithoutVolume()
     engine.setEffects(EQ_OFF)
     await engine.load(source('a', { loudness: QUIET }))
     expect(elements[0]?.getAttribute('src')).toBe('https://media.test/a')
@@ -431,6 +465,45 @@ describe('DirectAudioEngine: crossfade', () => {
     await vi.advanceTimersByTimeAsync(1000)
     expect(plainA.hasAttribute('src')).toBe(false)
     expect(plainB.volume).toBe(1)
+  })
+
+  it('reports the new track’s duration once the call has returned', async () => {
+    const { engine, plainB } = await playingWithNext()
+    // Known from preloading: the element won't say it again.
+    set(plainB, 'duration', 200)
+    const durations: number[] = []
+    engine.on('durationchange', (durationMs) => durations.push(durationMs))
+    expect(engine.crossfade(source('opaque-b'), 2000)).toBe(true)
+    expect(durations).toEqual([])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(durations).toEqual([200_000])
+  })
+
+  it('fades only through Web Audio where pages cannot set the volume (iOS)', async () => {
+    // Two plain elements would both play at full level until the old one stops.
+    const plain = setupWithoutVolume()
+    plain.engine.setEffects(EQ_OFF)
+    plain.engine.unlock()
+    await plain.engine.load(source('opaque-a'))
+    await plain.engine.play()
+    plain.engine.preload(source('opaque-b'))
+    const [plainA, plainB] = plain.elements as [HTMLAudioElement, HTMLAudioElement]
+    expect(plainB.getAttribute('src')).toBe('https://media.test/opaque-b')
+    set(plainB, 'readyState', 4)
+    expect(plain.engine.crossfade(source('opaque-b'), 2000)).toBe(false)
+    expect(plainA.paused).toBe(false)
+    expect(plainB.paused).toBe(true)
+    // Routed ones fade on the graph's gains.
+    const routed = setupWithoutVolume()
+    routed.engine.setEffects(EQ_ON)
+    routed.engine.unlock()
+    await routed.engine.load(source('a'))
+    await routed.engine.play()
+    routed.engine.preload(source('b'))
+    const routedB = routed.elements[3] as HTMLAudioElement
+    expect(routedB.getAttribute('src')).toBe('https://media.test/b')
+    set(routedB, 'readyState', 4)
+    expect(routed.engine.crossfade(source('b'), 2000)).toBe(true)
   })
 
   it('ends the fade when the old track reaches its end', async () => {
@@ -502,6 +575,79 @@ describe('DirectAudioEngine: crossfade', () => {
     const outgoing = levelDb(context.render(new Map([[routedA, input]])))
     const incoming = levelDb(context.render(new Map([[routedB, input]])))
     expect(outgoing).toBeCloseTo(incoming, 0)
+  })
+})
+
+describe('Player on DirectAudioEngine: crossfade', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  /** Makes `element.play()` start a moment later, as in a browser: not during the call. */
+  function playLater(element: HTMLAudioElement): void {
+    const play = element.play.bind(element)
+    vi.spyOn(element, 'play').mockImplementation(() => Promise.resolve().then(play))
+  }
+
+  /** Plays `element` on to `seconds`, as the browser reports it. */
+  function reach(element: HTMLAudioElement, seconds: number): void {
+    element.currentTime = seconds
+    fire(element, 'timeupdate')
+  }
+
+  it('gives the faded-in track its stream’s duration, and fades out of it at its real end', async () => {
+    const elements: HTMLAudioElement[] = []
+    const engine = new DirectAudioEngine({
+      createAudio: () => {
+        const element = document.createElement('audio')
+        // happy-dom knows no audio format.
+        element.canPlayType = () => 'probably'
+        elements.push(element)
+        return element
+      },
+      createAudioContext: null,
+      clock: () => Date.now(),
+    })
+    const player = new Player({
+      engine,
+      resolver: new FakeResolver(),
+      effects: { ...DEFAULT_AUDIO_EFFECTS, crossfade: { durationMs: 6000, sameAlbum: false } },
+    })
+    const [first, second] = elements as [HTMLAudioElement, HTMLAudioElement]
+    const current = () => currentQueueItem(player.getState().queue)?.track.title
+    // The catalog says 180 s; the streams run 200 s.
+    await player.setQueue(testTracks('a', 'b', 'c'))
+    expect(player.getState().status).toBe('playing')
+    playLater(first)
+    playLater(second)
+    set(first, 'readyState', 4)
+    set(first, 'duration', 200)
+    fire(first, 'durationchange')
+    expect(player.getState().durationMs).toBe(200_000)
+    reach(first, 175)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(second.getAttribute('src')).toBe('https://media.test/b')
+    set(second, 'readyState', 4)
+    set(second, 'duration', 200)
+
+    reach(first, 194.5)
+    expect(current()).toBe('b')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(player.getState()).toMatchObject({ status: 'playing', durationMs: 200_000 })
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(first.hasAttribute('src')).toBe(false)
+
+    // c is prepared 30 s before b's real end, and fades in only in its last 6 s.
+    reach(second, 175)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(first.getAttribute('src')).toBe('https://media.test/c')
+    reach(second, 176)
+    expect(current()).toBe('b')
+    player.seek(190_000)
+    expect(second.currentTime).toBe(190)
+    reach(second, 194.5)
+    expect(current()).toBe('c')
+    player.destroy()
   })
 })
 

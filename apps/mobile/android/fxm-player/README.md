@@ -90,7 +90,7 @@ An entry is `{ id, uid, source: { kind?, url, headers?, expiresAt?, ipBound?, ne
 | `request` | `id`, `reason` (`expiring`, `network`) |
 | `command` | `command` (`next`, `previous`) |
 | `network` | `id` (counts the changes), `cellular` |
-| `sleep` | `reason` (`timer`, `end-of-track`): the sleep timer paused playback |
+| `sleep` | `reason` (`timer`, `end-of-track`): the sleep timer ended, pausing playback if it played (the web app says so only then) |
 
 ## Audio effects
 

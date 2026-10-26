@@ -11,7 +11,7 @@ The facade has no DOM code of its own, so the same facade can drive the direct a
 | Piece | What it is | Stage |
 |---|---|---|
 | `Player` | The facade: queue actions, transport, retries, skipping, the circuit breaker, preloading, state and events | 2.2 |
-| `Engine` | The engine contract: `load`, `play`, `pause`, `seek`, `setVolume`, `setMuted`, `destroy`, optional `preload`, `canPlay` and `unlock`, and typed events; from 8.1 also the optional `setEffects`, `setPlaybackRate`, `crossfade`, `fadeOutput` and `setSleepTimer`, and the `effects` and `sleep` events | 2.2 |
+| `Engine` | The engine contract: `load`, `play`, `pause`, `seek`, `setVolume`, `setMuted`, `destroy`, optional `preload`, `canPlay` and `unlock`, and typed events; from 8.1 also the optional `setEffects`, `setPlaybackRate`, `crossfade`, `canSetVolume`, `fadeOutput` and `setSleepTimer`, and the `effects` and `sleep` events | 2.2 |
 | `DirectAudioEngine` | The engine for web and desktop, on two `HTMLAudioElement`s | 2.2 |
 | `connectMediaSession` | Lock screen, notification and media keys | 2.2 |
 | `StreamResolver` | The resolver contract | 2.2 |
@@ -66,7 +66,7 @@ Every method is safe to call at any time and never throws. The async methods (`s
 | `setAudioEffects(settings)`, `getAudioEffects()` | The equalizer, loudness normalization, crossfade and speed, as `@fxm/core`'s `AudioEffectsSettings` (validated with `sanitizeAudioEffects`): see [Audio effects](#audio-effects) |
 | `setPlaybackRate(rate)` | The speed, 0.5 to 2, keeping the other effects; the pitch stays |
 | `setSleepTimer({ afterMs } \| { endOfTrack: true } \| null)` | Pauses after a time (fading out over the last 12 s) or at the end of the current track; `null` cancels |
-| `effectsSupport()` | What the engine supports: `{ effects, playbackRate, crossfade }` |
+| `effectsSupport()` | What the engine supports: `{ effects, playbackRate, crossfade, volume }`; `volume` is false where pages can't set a media element's volume (iOS), and `crossfade` with it |
 | `restore(saved, positionMs)` | Puts back a saved queue, paused at that position. `saved` is untrusted (say JSON from storage): it goes through `restoreQueue` in the player's mode. Returns whether it was a queue |
 | `getState()`, `subscribe(listener)`, `on(event, listener)` | Reading |
 | `destroy()` | Stops everything and destroys the engine |
@@ -101,7 +101,7 @@ A play/pause button shows "pause" while the status is `loading` or `playing`. A 
 | `queueend` | none | The last track ended and nothing follows |
 | `autoplayblocked` | none | The browser wants a user gesture: show a play button |
 | `preload` | `{ next, upcoming }` | The current track is 30 s from its end: prepare `next`, prefetch more of `upcoming`, top up a radio (see Preloading) |
-| `sleep` | `{ reason }` | The sleep timer paused playback: `timer` or `end-of-track` |
+| `sleep` | `{ reason }` | The sleep timer paused playback: `timer` or `end-of-track`. Not when it ended while nothing played |
 
 The causes let listening signals tell a completed track (`ended`, or a seek with `repeat`) from a skip (`next`, `jump`) or a failure.
 
@@ -256,12 +256,12 @@ Stage 8.1. The pure parts (the equalizer's bands, presets and curve, the loudnes
 
 - A routed stream that fails before it plays is most likely a refused CORS read (a googlevideo redirect to another host, say): the engine plays it again at once on a plain element, at the same position, without effects, remembers the URL, and reports nothing to the player.
 - The `AudioContext` is created in a user action while the equalizer is on (`unlock()`, which every play, skip and seek from the user calls, or the switch's click while something is loaded), never from the settings read at startup, and resumed there too; a quiet readable track that needs turning up creates it when it loads. A stream that wants effects while the context doesn't run plays on a plain element, and moves onto a routed one when the context starts; one that plays routed when the browser stops the context moves back to a plain one.
-- Switching the equalizer on moves a readable stream that plays onto a routed element at the same position; switching it off leaves it there, flat, so nothing restarts.
-- Where pages can't set the volume (iOS), only the equalizer the user switched on routes a stream: WebKit there suspends Web Audio when the screen locks. Loudness is then `unavailable` on plain elements.
+- An equalizer that shapes the sound (switched on, with a band off 0 dB) moves a readable stream that plays onto a routed element at the same position; switching it off or flattening it leaves the stream there, flat, so nothing restarts. A flat equalizer, as the switch gives it the first time, moves nothing (that would only restart the download) and counts as `on` for every stream, readable or not: it has nothing to do.
+- Where pages can't set the volume (iOS, `canSetVolume()` false), only the equalizer routes a stream: WebKit there suspends Web Audio when the screen locks. Loudness is then `unavailable` on plain elements, and crossfades run only between two routed elements, whose levels the graph sets: two plain ones would both play at full level. `effectsSupport().crossfade` is false there, so Settings offers none.
 
-**Crossfade.** With a crossfade set, the player starts the next item that long before the current track ends (in real time, so at the playback speed): only for the item that follows by itself (not on repeat one, nor at the end of the queue), when its stream is resolved and prepared in the engine, never while a sleep timer waits for the end of the track, and not between consecutive tracks of one album unless `crossfade.sameAlbum` is on (albums that run from one track into the next stay gapless). It asks `engine.crossfade(source, durationMs)`, which starts the preloaded element and fades the two with equal-power curves (`crossfadeGains`), on the element volumes or the graph's fade gains; the player then moves its queue on (cause `ended`, so the old track counts as played) and takes the new stream as loaded without a load. A crossfade the engine can't do yet is tried again on the next position report, down to the last second. A pause, a seek or a load ends a fade at once; a preload asked for during one waits for its end.
+**Crossfade.** With a crossfade set, the player starts the next item that long before the current track ends (in real time, so at the playback speed): only for the item that follows by itself (not on repeat one, nor at the end of the queue), when its stream is resolved and prepared in the engine, never while a sleep timer waits for the end of the track, and not between consecutive tracks of one album unless `crossfade.sameAlbum` is on (albums that run from one track into the next stay gapless). It asks `engine.crossfade(source, durationMs)`, which starts the preloaded element and fades the two with equal-power curves (`crossfadeGains`), on the element volumes or the graph's fade gains; the player then moves its queue on (cause `ended`, so the old track counts as played) and takes the new stream as loaded without a load. What the engine reports during the call is about the new track already: a duration then is the new track's, which the player keeps for it once it is current (the direct audio engine reports it just after the call, from the element that preloaded it), so a stream longer or shorter than its catalog entry fades out at its own end. A crossfade the engine can't do yet is tried again on the next position report, down to the last second. A pause, a seek or a load ends a fade at once; a preload asked for during one waits for its end.
 
-**Sleep timer.** `setSleepTimer({ afterMs })` fades the output out over the last `sleepFadeMs` (12 s, through the engine's `fadeOutput`) and pauses, then puts the output back for later; pausing or playing meanwhile doesn't stop it, and it announces `sleep` only when it paused something. `{ endOfTrack: true }` pauses when the current track ends, on the next item, ready to play (with repeat one, at the start of the same track). An engine that runs its own timer (`engine.setSleepTimer`, Android's) gets it too, and whichever comes first pauses; the player's own deadline then waits 2 s more.
+**Sleep timer.** `setSleepTimer({ afterMs })` fades the output out over the last `sleepFadeMs` (12 s, through the engine's `fadeOutput`) and pauses, then puts the output back for later; pausing or playing meanwhile doesn't stop it, and it announces `sleep` only when it paused something. `{ endOfTrack: true }` pauses when the current track ends, on the next item, ready to play (with repeat one, at the start of the same track). An engine that runs its own timer (`engine.setSleepTimer`, Android's) gets it too, and whichever comes first pauses; the player's own deadline then waits 2 s more. The engine's `sleep` counts like the player's own timer: `sleep` is announced only when something was playing.
 
 ### Checks in a browser (2026-10-26)
 
@@ -275,7 +275,7 @@ Real Web Audio, without sound: headless Chromium 156 with `--mute-audio` and a t
 
 `@fxm/player/testing` has the fakes the tests use. Later stages can use them too:
 
-- **`FakeEngine`:** records calls, and lets a test drive `progress`, `end`, `fail` and `emit`. `playError` and `startOnPlay` simulate a blocked or silent start, `canPlayStream` what `canPlay` answers. `loadedUrls` and `loadStarts` list what was loaded and where. It has the effects members too: `effects`, `playbackRate`, `crossfadeResult` and `crossfades`, `outputGain`.
+- **`FakeEngine`:** records calls, and lets a test drive `progress`, `end`, `fail` and `emit`. `playError` and `startOnPlay` simulate a blocked or silent start, `canPlayStream` what `canPlay` answers. `loadedUrls` and `loadStarts` list what was loaded and where. It has the effects members too: `effects`, `playbackRate`, `crossfadeResult` and `crossfades`, `crossfadeDurationMs` (the duration a crossfade reports during the call), `outputGain`.
 - **`FakeAudioContext`** (8.1): the parts of an `AudioContext` the effects graph uses, computing like an `OfflineAudioContext` what reaches the speakers when connected elements play a signal (`render`): gains multiply, filters run `BiquadFilterNode`'s formulas, nodes add up; `setState` plays the browser suspending or resuming it.
 - **`FakeResolver`:** answers from a handler and records requests, with `requestsFor(title)` and a compact `log` (`a:retry#1`).
 - **`testTrack`, `testTracks`, `testStream`:** fixtures. Their URLs use the reserved `.test` domain.
@@ -291,7 +291,7 @@ The tests run offline in happy-dom (`vitest.config.ts`) with fake timers, and no
 - the direct audio engine's element handling, including unlocking;
 - the Media Session calls;
 - the segment skipper: skips at load, on reports and by timer (also after a pause or a wait for data), the user's seeks, undo and when it expires, restarts and repeats, restored queues, the end of the track, asking again and ahead, failures and disconnecting (`segment-skipper.test.ts`);
-- the audio effects (8.1): the player's crossfade conditions, speed and sleep timer (`player-effects.test.ts`); the engine's routing, readability, CORS fallback, context states, loudness on volume and graph, crossfades and fades (`direct-audio-effects.test.ts`); the graph on the fake context (`effects/web-audio.test.ts`); the readability rule (`effects/readable.test.ts`); and the native engine's effects and sleep timer (`native/native-effects.test.ts`).
+- the audio effects (8.1): the player's crossfade conditions, speed and sleep timer (`player-effects.test.ts`); the engine's routing (not for a flat equalizer), readability, CORS fallback, context states, loudness on volume and graph, crossfades (also on iOS) and fades, and the player on the real engine through a crossfade into a stream longer than its catalog entry (`direct-audio-effects.test.ts`); the graph on the fake context (`effects/web-audio.test.ts`); the readability rule (`effects/readable.test.ts`); and the native engine's effects and sleep timer (`native/native-effects.test.ts`).
 
 Coverage of the facade is about 99 % of lines, and of the queue 100 %.
 

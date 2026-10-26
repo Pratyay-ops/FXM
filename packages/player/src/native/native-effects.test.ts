@@ -34,7 +34,12 @@ describe('NativeEngine: audio effects', () => {
       `setEffects:eq=${ROCK.join(',')} loudness=-14 speed=1.25`,
     )
     expect(player.getState().playbackRate).toBe(1.25)
-    expect(player.effectsSupport()).toEqual({ effects: true, playbackRate: true, crossfade: false })
+    expect(player.effectsSupport()).toEqual({
+      effects: true,
+      playbackRate: true,
+      crossfade: false,
+      volume: true,
+    })
   })
 
   it('reports each loaded track’s loudness gain, turning down only', async () => {

@@ -138,8 +138,13 @@ export interface EffectsSupport {
   readonly effects: boolean
   /** Playback speed. */
   readonly playbackRate: boolean
-  /** Crossfade. */
+  /** Crossfade: the engine has it, and it can fade on this device (`volume`). */
   readonly crossfade: boolean
+  /**
+   * Whether the engine can change the level of what plays: not where pages can't set a media
+   * element's volume (iOS), which crossfades need (see `Engine.canSetVolume`).
+   */
+  readonly volume: boolean
 }
 
 /**
@@ -463,6 +468,10 @@ export class Player {
   #effects: AudioEffectsSettings = DEFAULT_AUDIO_EFFECTS
   /** Set while a crossfade hands playback to the next item: the engine must not pause then. */
   #handover = false
+  /** Set during `engine.crossfade()`: a duration reported then is the incoming track's. */
+  #crossfading = false
+  /** The incoming track's duration, as the engine reported it during `engine.crossfade()`. */
+  #incomingDurationMs: number | undefined
   /** The sleep timer's deadline. */
   #sleepTimer: ReturnType<typeof setTimeout> | undefined
   /** When the sleep timer's fade starts. */
@@ -845,10 +854,12 @@ export class Player {
   /** What the engine supports of the audio effects. */
   effectsSupport(): EffectsSupport {
     const engine = this.#engine
+    const volume = engine.canSetVolume?.() ?? true
     return {
       effects: engine.setEffects !== undefined,
       playbackRate: engine.setPlaybackRate !== undefined,
-      crossfade: engine.crossfade !== undefined,
+      crossfade: engine.crossfade !== undefined && volume,
+      volume,
     }
   }
 
@@ -1417,16 +1428,28 @@ export class Player {
     }
     const remainingMs = (durationMs - positionMs) / playbackRate
     if (remainingMs > crossfadeMs || remainingMs < MIN_CROSSFADE_MS) return
-    if (!engine.crossfade({ stream: resolved.stream, item: next }, remainingMs)) return
-    this.#adoptCrossfade(next, resolved)
+    // What the engine reports during the call is about `next` already (see `Engine.crossfade`),
+    // while the state still shows the current track: its duration waits for the hand-over.
+    this.#crossfading = true
+    this.#incomingDurationMs = undefined
+    let started = false
+    try {
+      started = engine.crossfade({ stream: resolved.stream, item: next }, remainingMs)
+    } finally {
+      this.#crossfading = false
+    }
+    const incomingDurationMs = this.#incomingDurationMs
+    this.#incomingDurationMs = undefined
+    if (started) this.#adoptCrossfade(next, resolved, incomingDurationMs)
   }
 
   /**
    * The engine started `next` in a crossfade: the current track counts as played to its end
    * (cause `ended`), and `next` becomes current with the stream the engine plays, without a new
-   * load. Its `play` event comes from the engine.
+   * load, and with the duration the engine reported during the call, if it did. Its `play` event
+   * comes from the engine.
    */
-  #adoptCrossfade(next: QueueItem, resolved: ResolvedStream): void {
+  #adoptCrossfade(next: QueueItem, resolved: ResolvedStream, durationMs: number | undefined): void {
     // The preparation is taken: its stream plays.
     this.#preload = undefined
     this.#markHealthy()
@@ -1445,13 +1468,14 @@ export class Player {
     const { stream } = resolved
     this.#loaded = { uid: next.uid, stream, played: false }
     this.#healthyAtMs = HEALTHY_AFTER_MS
+    const duration = durationMs === undefined ? {} : { durationMs }
     if (!this.#wantsPlayback()) {
       // A listener paused meanwhile.
       this.#engine.pause()
-      this.#commit({ stream })
+      this.#commit({ stream, ...duration })
       return
     }
-    this.#commit({ status: 'playing', buffering: true, stream, error: undefined })
+    this.#commit({ status: 'playing', buffering: true, stream, error: undefined, ...duration })
     this.#armStallTimer()
   }
 
@@ -1500,14 +1524,17 @@ export class Player {
     this.#commit({ effects: { ...status } })
   }
 
-  /** The engine's own sleep timer paused playback. */
+  /**
+   * The engine's own sleep timer ended, pausing playback if something played: like the player's
+   * own timer, it announces `sleep` only then.
+   */
   #onEngineSleep(reason: SleepReason): void {
     if (this.#state.sleepTimer === undefined) return
     const playing = this.#wantsPlayback()
     this.#clearSleepTimers(false)
     if (playing) this.pause()
     this.#commit({ sleepTimer: undefined })
-    this.#events.emit('sleep', { reason })
+    if (playing) this.#events.emit('sleep', { reason })
   }
 
   /** Stops the sleep timer's timers; `restore` brings the output back if it was fading. */
@@ -1544,7 +1571,12 @@ export class Player {
   }
 
   #onDurationChange(durationMs: number): void {
-    if (this.#loaded === undefined || !Number.isFinite(durationMs) || durationMs <= 0) return
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return
+    if (this.#crossfading) {
+      this.#incomingDurationMs = durationMs
+      return
+    }
+    if (this.#loaded === undefined) return
     this.#commit({ durationMs })
     this.#maybePreload()
   }

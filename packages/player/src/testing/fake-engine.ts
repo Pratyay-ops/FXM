@@ -74,6 +74,12 @@ export class FakeEngine implements Engine {
   playbackRate = 1
   /** What `crossfade()` answers: whether the crossfade starts. Default: true. */
   crossfadeResult = true
+  /**
+   * The duration of the source a crossfade starts, in milliseconds, which `crossfade()` reports
+   * with `durationchange` during the call, as an engine may (see `Engine.crossfade`). Default:
+   * none, so the player keeps the track's own duration.
+   */
+  crossfadeDurationMs: number | undefined
   /** Every crossfade that started: the source faded in, and over how long. */
   readonly crossfades: { source: PlaybackSource; durationMs: number }[] = []
   /** The output's fade factor, from `fadeOutput()`. */
@@ -148,7 +154,8 @@ export class FakeEngine implements Engine {
 
   /**
    * Starts `source` when {@link crossfadeResult} says so: it becomes the loaded source, at 0,
-   * playing, reported (like a real engine, once the call has returned) as `play()` reports it.
+   * playing. Its duration ({@link crossfadeDurationMs}) is reported during the call, its `play`
+   * (like a real engine's, once the call has returned) as `play()` reports it.
    */
   crossfade(source: PlaybackSource, durationMs: number): boolean {
     this.#record('crossfade', source, durationMs)
@@ -157,6 +164,8 @@ export class FakeEngine implements Engine {
     this.source = source
     this.positionMs = 0
     this.paused = false
+    const duration = this.crossfadeDurationMs
+    if (duration !== undefined) this.emit('durationchange', duration)
     queueMicrotask(() => {
       if (this.source !== source || this.destroyed) return
       if (this.effects !== undefined) this.emit('effects', this.effectsStatus())

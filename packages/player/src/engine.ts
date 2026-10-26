@@ -155,8 +155,9 @@ export interface EngineEventMap {
    */
   effects: AudioEffectsStatus
   /**
-   * The engine's own sleep timer ({@link Engine.setSleepTimer}) paused playback: at its time, or
-   * at the end of the track. A `pause` event comes too.
+   * The engine's own sleep timer ({@link Engine.setSleepTimer}) ended: at its time, or at the end
+   * of the track. It paused playback if something played, and a `pause` event comes too; the
+   * player announces its own `sleep` only then.
    */
   sleep: { readonly reason: 'timer' | 'end-of-track' }
 }
@@ -215,12 +216,19 @@ export interface Engine {
   /**
    * Starts `source`, which {@link preload} prepared, at once and fades the current source out over
    * `durationMs` while the new one fades in: a crossfade. From then on the engine reports the new
-   * source's events, as after a {@link load} (its `play` once the call has returned), and the old
-   * one stops by itself once it has faded. Returns `false`, changing nothing, when it can't:
-   * `source` isn't prepared and ready to play, or nothing plays now. Engines without crossfade
-   * leave it out.
+   * source's events, as after a {@link load}: what it reports during the call (its duration, say)
+   * is about the new source already, and its `play` comes once the call has returned. The old one
+   * stops by itself once it has faded. Returns `false`, changing nothing, when it can't: `source`
+   * isn't prepared and ready to play, nothing plays now, or the device doesn't let it fade the two
+   * (see {@link canSetVolume}). Engines without crossfade leave it out.
    */
   crossfade?(source: PlaybackSource, durationMs: number): boolean
+  /**
+   * Whether the engine can change the level of what plays on this device: not where pages can't
+   * set a media element's volume (iOS). Crossfades need it, and so do the sleep timer's fade and
+   * turning loud tracks down. Engines that always can leave it out.
+   */
+  canSetVolume?(): boolean
   /**
    * Fades the output to `gain` (0 to 1, a factor on the volume) over `durationMs`, at once for 0,
    * whatever plays meanwhile; the sleep timer fades out with it. The volume stays what
