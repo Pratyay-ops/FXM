@@ -48,6 +48,10 @@ if [ -x "$FXM_TOOLS/bin/pnpm" ]; then
     "$FXM_TOOLS"/*) ok pnpm "$(pnpm --version), store $(short "$store")" ;;
     *) bad pnpm "store is outside .tools/: $store" ;;
   esac
+  # env.sh turns it on, and pnpm-workspace.yaml must not (docs/DEVELOPMENT.md, "Node version").
+  if [ "$(cd "$FXM_ROOT" && pnpm config get engine-strict 2>/dev/null)" != true ]; then
+    bad pnpm "engine-strict is off: scripts/env.sh must export pnpm_config_engine_strict=true"
+  fi
 else
   bad pnpm "not set up: run 'make setup'"
 fi

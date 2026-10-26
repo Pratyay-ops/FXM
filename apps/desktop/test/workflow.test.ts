@@ -48,6 +48,19 @@ describe('desktop.yml', () => {
     )
   })
 
+  it('turns on engine-strict where it installs without scripts/env.sh', () => {
+    // docs/DEVELOPMENT.md, "Node version": env.sh turns it on for make and scripts/run.sh, and
+    // pnpm-workspace.yaml leaves it out, where it would fail every Dependabot update.
+    expect(read('../../../scripts/env.sh')).toMatch(/^export pnpm_config_engine_strict=true$/m)
+    expect(read('../../../pnpm-workspace.yaml')).not.toMatch(/^engineStrict:/m)
+    const steps = workflow.slice(workflow.indexOf('\n    steps:\n')).split(/^(?= {6}- )/m)
+    const installs = steps.filter((step) => /^\s+(?:run: )?pnpm install\b/m.test(step))
+    expect(installs).not.toHaveLength(0)
+    for (const step of installs) {
+      expect(step).toMatch(/^ {10}pnpm_config_engine_strict: true$/m)
+    }
+  })
+
   it('installs the Rust release and components of rust-toolchain.toml on Windows', () => {
     // macOS and Linux install from rust-toolchain.toml itself, through make rust-setup.
     const channel = /^channel = "([^"]+)"$/m.exec(toolchainToml)?.[1]
