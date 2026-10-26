@@ -10,6 +10,12 @@
  * | The desktop app | The module and the config | `DEFAULT_UPDATE_BASE_URLS` (the site's `/updates/`), through its native HTTP (stage 7.2) |
  * | The Android app | The module and the config | The same, through the `FxmHttp` plugin (stage 6.2), where the app has it |
  *
+ * **F-Droid builds** (`BUILD_DISTRIBUTION` of `lib/distribution.ts`, stage R.3) take the module
+ * only once the user has opted in, in Settings → Sources (`features/youtube-updates`), as
+ * F-Droid's inclusion policy requires for downloaded code; the config is data and always comes.
+ * The answer applies at once: turning it on downloads the module, turning it off goes back to the
+ * one the app came with.
+ *
  * A browser on its own origin matters because the app may run from a cached service worker
  * after a deploy: the signed config still reaches it, so a kill switch the owner sets applies
  * without waiting for the app to update. Before the owner publishes the first signed config,
@@ -26,6 +32,7 @@ import {
   createDesktopFetch,
   createUpdater,
   DEFAULT_UPDATE_BASE_URLS,
+  type Distribution,
   detectEnvironment,
   type Environment,
   indexedDbUpdateStore,
@@ -41,6 +48,11 @@ import {
   updateFetchFromNative,
 } from '@fxm/platform'
 import type { YouTubeModuleHost } from '@fxm/sources/youtube/module'
+import {
+  useYouTubeUpdatesStore,
+  type YouTubeUpdatesStore,
+} from '../../features/youtube-updates/youtube-updates-store'
+import { BUILD_DISTRIBUTION } from '../../lib/distribution'
 
 /** Options for {@link startYouTubeUpdates}. Everything but `host` has a default for the app. */
 export interface YouTubeUpdatesOptions {
@@ -62,6 +74,13 @@ export interface YouTubeUpdatesOptions {
   readonly state?: KeyValueStorage
   /** The trusted keys. Default: the build's (`update-keys.json`). Tests pass their own. */
   readonly keys?: readonly TrustedKey[]
+  /** The build's distribution. Default: {@link BUILD_DISTRIBUTION}. */
+  readonly distribution?: Distribution
+  /**
+   * Whether the module may be downloaded and loaded, read at every restore and check. Default:
+   * in F-Droid builds the user's opt-in (`features/youtube-updates`), elsewhere always.
+   */
+  readonly allowCode?: () => boolean
 }
 
 /** The updater at work, and the report of its first restore and check. */
@@ -121,6 +140,11 @@ export function startYouTubeUpdates(options: YouTubeUpdatesOptions): YouTubeUpda
     ...(code ? [codeArtifact(options.host.updates.module) as UpdateArtifact] : []),
     jsonArtifact(options.host.updates.config) as UpdateArtifact,
   ]
+  const distribution = options.distribution ?? BUILD_DISTRIBUTION
+  // F-Droid builds ask the user first (the setting in features/youtube-updates).
+  const allowCode =
+    options.allowCode ??
+    (distribution === 'fdroid' ? () => useYouTubeUpdatesStore.getState().optedIn : undefined)
   let updater: Updater
   try {
     updater = createUpdater({
@@ -129,6 +153,8 @@ export function startYouTubeUpdates(options: YouTubeUpdatesOptions): YouTubeUpda
       baseUrls,
       store: options.store ?? indexedDbUpdateStore(),
       state: options.state ?? browserStorage() ?? memoryStorage(),
+      distribution,
+      ...(allowCode === undefined ? {} : { allowCode }),
       ...(options.keys === undefined ? {} : { keys: options.keys }),
     })
   } catch (error) {
@@ -139,12 +165,32 @@ export function startYouTubeUpdates(options: YouTubeUpdatesOptions): YouTubeUpda
   return { updater, done: updater.start() }
 }
 
+const warnFailedCheck = (error: unknown) => {
+  console.warn('FXM: could not check for signed YouTube updates', error)
+}
+
+/**
+ * Applies the F-Droid opt-in as soon as the user changes it: `start()` restores, which goes back
+ * to the module the app came with once the user turns the updates off, then checks, which
+ * downloads the module once they turn them on. Returns the unsubscribe function.
+ */
+export function followYouTubeUpdatesOptIn(
+  updater: Pick<Updater, 'start'>,
+  store: YouTubeUpdatesStore = useYouTubeUpdatesStore,
+): () => void {
+  return store.subscribe((state, previous) => {
+    if (state.optedIn !== previous.optedIn) updater.start().catch(warnFailedCheck)
+  })
+}
+
 /**
  * The app's default for `AppServicesOptions.updates`: {@link startYouTubeUpdates} on the loaded
  * YouTube's host, in the background. What it finds applies as it arrives.
  */
 export function keepYouTubeCurrent(youtube: { readonly host: Pick<YouTubeModuleHost, 'updates'> }) {
-  startYouTubeUpdates({ host: youtube.host })?.done.catch((error: unknown) => {
-    console.warn('FXM: could not check for signed YouTube updates', error)
-  })
+  const updates = startYouTubeUpdates({ host: youtube.host })
+  updates?.done.catch(warnFailedCheck)
+  if (updates !== undefined && BUILD_DISTRIBUTION === 'fdroid') {
+    followYouTubeUpdatesOptIn(updates.updater)
+  }
 }

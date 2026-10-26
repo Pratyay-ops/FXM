@@ -8,7 +8,11 @@ import {
   youtubeModule,
 } from '@fxm/sources/youtube/module'
 import { describe, expect, it, vi } from 'vitest'
-import { startYouTubeUpdates } from './updates'
+import {
+  createYouTubeUpdatesStore,
+  useYouTubeUpdatesStore,
+} from '../../features/youtube-updates/youtube-updates-store'
+import { followYouTubeUpdatesOptIn, startYouTubeUpdates } from './updates'
 
 const ORIGIN = 'https://fxmusic.pages.dev'
 const BASE = `${ORIGIN}/updates/`
@@ -120,5 +124,64 @@ describe('startYouTubeUpdates', () => {
     const host = createYouTubeModuleHost()
     expect(startYouTubeUpdates({ host, environment: 'node' })).toBeUndefined()
     expect(startYouTubeUpdates({ host, environment: 'browser', origin: 'null' })).toBeUndefined()
+  })
+})
+
+describe('F-Droid builds', () => {
+  /** The reasons in a report, each once. */
+  const reasons = (report: { problems: readonly { reason: string }[] } | undefined) => [
+    ...new Set(report?.problems.map((problem) => problem.reason)),
+  ]
+
+  /** What the updater reported for the module. */
+  async function moduleReport(options: { allowCode?: () => boolean }) {
+    const site = fakeUpdateSite()
+    const signer = await createTestSigner()
+    const report = await startYouTubeUpdates({
+      host: createYouTubeModuleHost(),
+      environment: 'capacitor',
+      fetch: site.fetch,
+      baseUrls: [BASE],
+      store: memoryUpdateStore(),
+      state: memoryStorage(),
+      keys: [signer.trusted],
+      distribution: 'fdroid',
+      ...options,
+    })?.done
+    return {
+      site,
+      module: report?.artifacts.find((artifact) => artifact.kind === 'youtube-module'),
+    }
+  }
+
+  it('leave the module alone until the user opts in, and still take the config', async () => {
+    // The app's own setting, off by default.
+    expect(useYouTubeUpdatesStore.getState().optedIn).toBe(false)
+    const { site, module } = await moduleReport({})
+    expect(module?.outcome).toBe('skipped')
+    // The restore and the check both report it.
+    expect(reasons(module)).toEqual(['needs-opt-in'])
+    expect(site.requests.some((url) => url.includes('youtube-module'))).toBe(false)
+    expect(site.requests).toContain(`${BASE}${YOUTUBE_CONFIG_FILE}.sig`)
+  })
+
+  it('go on to the module once the user has opted in', async () => {
+    // Node can't load code from blob:, so the updater stops at that, past the opt-in.
+    const { module } = await moduleReport({ allowCode: () => true })
+    expect(reasons(module)).toEqual(['code-unsupported'])
+  })
+
+  it('apply a change of the opt-in at once, and nothing else', () => {
+    const store = createYouTubeUpdatesStore({ storage: () => undefined })
+    const updater = { start: vi.fn(async () => ({ artifacts: [] })) }
+    const unsubscribe = followYouTubeUpdatesOptIn(updater, store)
+    store.getState().setOptedIn(true)
+    store.getState().setOptedIn(true)
+    expect(updater.start).toHaveBeenCalledOnce()
+    store.getState().setOptedIn(false)
+    expect(updater.start).toHaveBeenCalledTimes(2)
+    unsubscribe()
+    store.getState().setOptedIn(true)
+    expect(updater.start).toHaveBeenCalledTimes(2)
   })
 })

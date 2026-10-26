@@ -20,6 +20,7 @@ import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setti
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { SpotifyAccountSettings } from '../spotify-account/spotify-account-settings'
 import { SyncSettings } from '../sync/sync-settings'
+import { YouTubeUpdatesSetting } from '../youtube-updates/youtube-updates-setting'
 import { CatalogModeControl } from './catalog-mode-control'
 import { AutoMatchSetting } from './matching-setting'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
@@ -99,6 +100,8 @@ export function SettingsPage() {
             className="w-full md:w-auto"
           />
         </SettingRow>
+        {/* F-Droid builds only: the opt-in for YouTube fixes from FXM's website (stage R.3). */}
+        <YouTubeUpdatesSetting />
       </SettingsSection>
 
       <SpotifyAccountSettings />
