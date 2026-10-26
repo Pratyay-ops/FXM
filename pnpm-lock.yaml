@@ -407,6 +407,8 @@ importers:
         specifier: workspace:*
         version: link:../player
 
+  packages/i18n: {}
+
   packages/platform:
     dependencies:
       '@fxm/core':

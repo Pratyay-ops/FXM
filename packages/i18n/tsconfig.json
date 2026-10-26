@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // The DOM for navigator and the document's attributes; no Node types, so the runtime can't lean
+    // on Node by accident.
+    "lib": ["es2023", "dom", "dom.iterable"]
+  },
+  "include": ["src"]
+}
