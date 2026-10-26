@@ -1,8 +1,22 @@
 ---
-import { APP_PATH, ISSUES_URL, LICENSE_URL, NOTICES_PATH, RELEASES_URL, REPO_URL } from '../config'
+import {
+  APP_PATH,
+  AVAILABLE,
+  ISSUES_URL,
+  LICENSE_URL,
+  NOTICES_PATH,
+  RELEASES_URL,
+  REPO_URL,
+} from '../config'
+import { platforms } from '../lib/copy'
 import Logo from './Logo.astro'
 
 const year = new Date().getFullYear()
+
+// Every page shows the footer, and the privacy, disclaimer and 404 pages have no hero note next
+// to it, so it says which apps are still to come (AVAILABLE in src/config.ts), as the home
+// page's description does.
+const about = `Free Cross-platform Media: a free, open-source music player ${platforms(AVAILABLE.desktop, AVAILABLE.android)}.`
 
 const columns = [
   {
@@ -41,10 +55,7 @@ const columns = [
           <Logo id="footer" size={28} />
           <span class="wordmark" aria-hidden="true">FXM</span>
         </a>
-        <p>
-          Free Cross-platform Media: a free, open-source music player for the web, desktop and
-          Android.
-        </p>
+        <p>{about}</p>
       </div>
       <nav class="columns" aria-label="Footer">
         {columns.map((column) => (

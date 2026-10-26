@@ -78,7 +78,7 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     "YouTube's API (search, video details): the rules set YouTube's Origin and add CORS " +
     'headers, so the FXM web app can read the answers.',
   'https://music.youtube.com/*':
-    "YouTube Music's API (search and song details, and radio in a later FXM version): the " +
+    "YouTube Music's API (search, song details, and radio for the web app's home feed): the " +
     "rules set YouTube Music's Origin and add CORS headers, so the FXM web app can read the " +
     'answers.',
   'https://youtubei.googleapis.com/*':
@@ -92,14 +92,14 @@ export const PERMISSION_JUSTIFICATIONS: Readonly<Record<string, string>> = {
     'endpoints only. The background relays the public server time, without cookies, and the ' +
     'optional login bridge requests the token from there.',
   'https://api-partner.spotify.com/*':
-    "Spotify's web-player API (search and details, and radio in a later FXM version): the " +
-    'rules add CORS headers, so the FXM web app can read the answers.',
+    "Spotify's web-player API (search, details, and radio and recommendations for the home " +
+    'feed): the rules add CORS headers, so the FXM web app can read the answers.',
   'https://spclient.wg.spotify.com/*':
-    "Spotify's web-player API (track details, and radio in a later FXM version): the rules " +
+    "Spotify's web-player API (track details, and radio for the home feed): the rules " +
     'add CORS headers, so the FXM web app can read the answers.',
   'https://www.last.fm/*':
-    "Last.fm's radio stations, for recommendations in a later FXM version: the rule adds CORS " +
-    'headers to the station JSON only.',
+    "Last.fm's radio stations, which the web app's home feed uses for recommendations: the rule " +
+    'adds CORS headers to the station JSON only.',
 }
 
 /**
