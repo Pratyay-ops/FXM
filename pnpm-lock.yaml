@@ -286,6 +286,9 @@ importers:
       '@fxm/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@fxm/desktop':
+        specifier: workspace:*
+        version: link:../desktop
       '@fxm/downloads':
         specifier: workspace:*
         version: link:../../packages/downloads

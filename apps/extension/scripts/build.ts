@@ -6,11 +6,14 @@
  *
  * FXM_EXTENSION_DEV=1 builds the development variant, which also allows the localhost FXM
  * origins, into dist/dev/ instead (dist/dev/chromium/, dist/dev/fxm-connect-chromium-<version>
- * -dev.zip and so on), apart from the release files.
+ * -dev.zip and so on), apart from the release files. Only it keeps the options page's
+ * development parts (scripts/options-page.ts). Every build carries the repository's LICENSE and
+ * FXM Connect's NOTICE.
  *
  * Run with `pnpm --filter @fxm/extension build` or `make extension`. Node runs this file
  * directly (type stripping), which is why the imports spell out `.ts`.
  */
+import { realpathSync } from 'node:fs'
 import { cp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -19,10 +22,12 @@ import { fxmOrigins } from '../src/config.ts'
 import { type Browser, buildManifest, ICON_SIZES, packageVersion } from '../src/manifest.ts'
 import { buildRulesets } from '../src/rules.ts'
 import { iconPng, iconSvg } from './icons.ts'
+import { optionsPage } from './options-page.ts'
 import { isDevVariant, outputNames, stagingFolder } from './variant.ts'
-import { createZip } from './zip.ts'
+import { createZip, type ZipEntry } from './zip.ts'
 
 const PACKAGE_DIR = fileURLToPath(new URL('..', import.meta.url))
+const REPOSITORY_DIR = join(PACKAGE_DIR, '..', '..')
 const DIST = join(PACKAGE_DIR, 'dist')
 const BROWSERS: readonly Browser[] = ['chromium', 'firefox']
 
@@ -33,10 +38,31 @@ const ENTRIES = {
   options: 'src/options/options.ts',
 } as const
 
-const STATIC_FILES = ['src/options/options.html', 'src/options/options.css']
-
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`
+}
+
+function text(name: string, value: string): ZipEntry {
+  return { name, data: new TextEncoder().encode(value) }
+}
+
+/**
+ * The files both browsers' builds ship besides the bundled scripts and the manifest: the
+ * options page and its stylesheet, the icons, the rulesets, and the repository's LICENSE with
+ * FXM Connect's NOTICE, which say under which licence it ships and that it bundles no
+ * third-party code.
+ */
+export async function staticFiles(dev: boolean): Promise<ZipEntry[]> {
+  const html = await readFile(join(PACKAGE_DIR, 'src/options/options.html'), 'utf8')
+  return [
+    text('options.html', optionsPage(html, dev)),
+    { name: 'options.css', data: await readFile(join(PACKAGE_DIR, 'src/options/options.css')) },
+    ...ICON_SIZES.map((size) => ({ name: `icons/icon-${size}.png`, data: iconPng(size) })),
+    text('icons/icon.svg', iconSvg()),
+    ...buildRulesets(fxmOrigins(dev)).map((ruleset) => text(ruleset.path, json(ruleset.rules))),
+    { name: 'LICENSE', data: await readFile(join(REPOSITORY_DIR, 'LICENSE')) },
+    { name: 'NOTICE', data: await readFile(join(PACKAGE_DIR, 'NOTICE')) },
+  ]
 }
 
 async function bundle(outDir: string, define: Record<string, string>): Promise<void> {
@@ -74,55 +100,66 @@ async function listFiles(dir: string): Promise<string[]> {
     .sort()
 }
 
-async function main(): Promise<void> {
-  const dev = isDevVariant(process.env.FXM_EXTENSION_DEV)
+export interface BuildOptions {
+  /** The development build, which also allows the localhost FXM origins. */
+  readonly dev: boolean
+  /** Where the builds go: dist/ in this package unless a test builds elsewhere. */
+  readonly dist?: string
+  readonly log?: (message: string) => void
+}
+
+/** Builds both browsers' extensions and their zips into `dist` (see the top of this file). */
+export async function buildExtension({
+  dev,
+  dist = DIST,
+  log = console.log,
+}: BuildOptions): Promise<void> {
   const version = packageVersion(
     JSON.parse(await readFile(join(PACKAGE_DIR, 'package.json'), 'utf8')),
   )
   const origins = fxmOrigins(dev)
-  const staging = join(DIST, stagingFolder(dev))
+  const staging = join(dist, stagingFolder(dev))
 
   await rm(staging, { recursive: true, force: true })
   for (const browser of BROWSERS) {
     const names = outputNames(browser, version, dev)
-    await rm(join(DIST, names.folder), { recursive: true, force: true })
-    await rm(join(DIST, names.zip), { force: true })
+    await rm(join(dist, names.folder), { recursive: true, force: true })
+    await rm(join(dist, names.zip), { force: true })
   }
 
-  // Shared by both browsers: scripts, options page, icons and rulesets.
+  // Shared by both browsers: scripts, options page, icons, rulesets and the licence files.
   await bundle(staging, {
     __FXM_VERSION__: JSON.stringify(version),
     __FXM_DEV__: JSON.stringify(dev),
     __FXM_ORIGINS__: JSON.stringify(origins),
   })
-  for (const file of STATIC_FILES) {
-    await cp(join(PACKAGE_DIR, file), join(staging, file.split('/').at(-1) ?? file))
-  }
-  await mkdir(join(staging, 'icons'), { recursive: true })
-  for (const size of ICON_SIZES) {
-    await writeFile(join(staging, 'icons', `icon-${size}.png`), iconPng(size))
-  }
-  await writeFile(join(staging, 'icons', 'icon.svg'), iconSvg())
-  for (const ruleset of buildRulesets(origins)) {
-    await writeFile(join(staging, ruleset.path), json(ruleset.rules))
+  for (const file of await staticFiles(dev)) {
+    await mkdir(dirname(join(staging, file.name)), { recursive: true })
+    await writeFile(join(staging, file.name), file.data)
   }
 
   for (const browser of BROWSERS) {
     const names = outputNames(browser, version, dev)
-    const folder = join(DIST, names.folder)
+    const folder = join(dist, names.folder)
     await cp(staging, folder, { recursive: true })
     await writeFile(join(folder, 'manifest.json'), json(buildManifest({ browser, version, dev })))
     const files = await listFiles(folder)
     const entries = await Promise.all(
       files.map(async (name) => ({ name, data: await readFile(join(folder, name)) })),
     )
-    await mkdir(dirname(join(DIST, names.zip)), { recursive: true })
-    await writeFile(join(DIST, names.zip), createZip(entries))
-    console.log(
-      `FXM Connect ${version}${dev ? ' (dev)' : ''}: dist/${names.folder}, dist/${names.zip}`,
-    )
+    await mkdir(dirname(join(dist, names.zip)), { recursive: true })
+    await writeFile(join(dist, names.zip), createZip(entries))
+    log(`FXM Connect ${version}${dev ? ' (dev)' : ''}: dist/${names.folder}, dist/${names.zip}`)
   }
   await rm(staging, { recursive: true, force: true })
 }
 
-await main()
+/** True when Node runs this file (`node scripts/build.ts`), not when a test imports it. */
+function isMain(): boolean {
+  const script = process.argv[1]
+  return (
+    script !== undefined && realpathSync(script) === realpathSync(fileURLToPath(import.meta.url))
+  )
+}
+
+if (isMain()) await buildExtension({ dev: isDevVariant(process.env.FXM_EXTENSION_DEV) })

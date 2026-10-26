@@ -59,7 +59,7 @@ function fakeYouTube() {
     unavailableStateOf: (error: unknown) =>
       error instanceof Error && error.message === 'kids' ? 'made-for-kids' : undefined,
   }
-  const youtube = { audio, module, fallbackRung: 'android-muxed' } as unknown as YouTube
+  const youtube = { audio, module, fallbackRung: () => 'android-muxed' } as unknown as YouTube
   let current: YouTube | undefined
   const loader: Loader<YouTube> = {
     get current() {
@@ -186,13 +186,18 @@ describe('youtubeStreamSource', () => {
 })
 
 describe('createYouTubeLoader', () => {
+  /** The session of a provider, which the providers' objects carry under the live host. */
+  const sessionOf = (provider: object) => (provider as { session?: unknown }).session
+
   it('loads the providers and the ladder on one session, once', async () => {
     const importModule = vi.fn(() => import('@fxm/sources/youtube'))
+    const importHost = vi.fn(() => import('@fxm/sources/youtube/module'))
     const onLoad = vi.fn()
     const loader = createYouTubeLoader({
       store: createMemoryStore(),
       budget: platformStreamBudget(() => undefined),
       importModule,
+      importHost,
       onLoad,
     })
 
@@ -201,13 +206,39 @@ describe('createYouTubeLoader', () => {
     await loader.load()
 
     expect(importModule).toHaveBeenCalledOnce()
-    expect(youtube.music.session).toBe(youtube.session)
-    expect(youtube.video.session).toBe(youtube.session)
-    expect(youtube.audio.session).toBe(youtube.session)
-    expect(youtube.fallbackRung).toBe('android-muxed')
+    expect(importHost).toHaveBeenCalledOnce()
+    const session = sessionOf(youtube.music)
+    expect(session).toBeDefined()
+    expect(sessionOf(youtube.video)).toBe(session)
+    expect(sessionOf(youtube.audio)).toBe(session)
+    expect(youtube.fallbackRung()).toBe('android-muxed')
+    expect(youtube.killSwitches()).toEqual({ lite: false })
     expect(onLoad).toHaveBeenCalledWith(youtube)
     expect((youtube.module satisfies YouTubeModule).BUNDLED_STREAM_CONFIG.rungs[0]?.id).toBe(
       'visionos',
     )
+  })
+
+  it('follows a newer signed config: its kill switches, and new providers on the same stores', async () => {
+    const store = createMemoryStore()
+    const loader = createYouTubeLoader({ store, budget: platformStreamBudget(() => undefined) })
+    const youtube = await loader.load()
+    const changed = vi.fn()
+    youtube.subscribe(changed)
+    const before = sessionOf(youtube.music)
+    const { youtubeModule } = await import('@fxm/sources/youtube/module')
+    const bundled = youtubeModule.config as { revision: number; killSwitches: object }
+    const next = { ...bundled, revision: bundled.revision + 1, killSwitches: { lite: true } }
+
+    // What the updater does with a verified config from FXM's site (stage 1.13).
+    const spec = youtube.host.updates.config
+    const value = spec.accept(next, { version: next.revision })
+    spec.activate(value, { origin: 'fetched', version: next.revision })
+
+    expect(changed).toHaveBeenCalledOnce()
+    expect(youtube.killSwitches()).toEqual({ lite: true })
+    expect(youtube.host.current().configRevision).toBe(next.revision)
+    // The live providers moved to the new config's instances.
+    expect(sessionOf(youtube.music)).not.toBe(before)
   })
 })

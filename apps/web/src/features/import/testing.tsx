@@ -6,7 +6,7 @@
  */
 
 import type { NetworkCapabilities } from '@fxm/core'
-import { fakeYouTube, testContext } from '@fxm/sources/import/testing'
+import { AUTO_AVAILABLE, fakeYouTube, testContext } from '@fxm/sources/import/testing'
 import { render } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter } from 'react-router'
@@ -107,6 +107,8 @@ export function fakeServices(
     spotify: undefined,
     musicBrainz: undefined,
     autoMatch: () => true,
+    // The Auto band available, so that the setting counts (FXM's own config keeps it off).
+    matchingConfig: AUTO_AVAILABLE,
     ...overrides,
   }
   return services

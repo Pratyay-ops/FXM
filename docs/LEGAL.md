@@ -10,7 +10,7 @@ FXM hosts no music and has no servers of its own. Its apps run on the user's dev
 
 Users are responsible for how they use FXM, including following the terms of the services they use with it and the laws where they live. FXM is provided as is, without warranties or conditions of any kind, under the [Apache License 2.0](../LICENSE).
 
-The same notice is in the [README](../README.md#legal) and on the site's [disclaimer page](https://fxmusic.pages.dev/disclaimer) (source: [`apps/site/src/pages/disclaimer.astro`](../apps/site/src/pages/disclaimer.astro)). Change all three together.
+The same notice is in the [README](../README.md#legal), on the site's [disclaimer page](https://fxmusic.pages.dev/disclaimer) (source: [`apps/site/src/pages/disclaimer.astro`](../apps/site/src/pages/disclaimer.astro)) and, shorter, under "Legal" in every release's notes, which [`scripts/release-notes.sh`](../scripts/release-notes.sh) adds after the release's summary. Change them all together.
 
 ## Contacts
 
@@ -39,9 +39,10 @@ These rules are a review item for every stage that writes public text, and the [
 | FXM Connect's name, descriptions and options page | 1.9, R.2 |
 | The desktop app's bundle descriptions in `apps/desktop/src-tauri/tauri.conf.json` | 7.1 |
 | Store listings | R.2, R.3 |
-| The web app's strings and web app manifest (5.1 adds the manifest), and the Android app's name and strings | Every stage that changes them |
+| The release notes: each release's summary in `docs/releases/`, which heads the release pull request and the GitHub Release | Every release |
+| The web app's strings and web app manifest (5.1 added the manifest), and the Android app's name and strings | Every stage that changes them |
 
-**Audit on 2026-10-26:** no logos, brand colours or lookalike names in the site's pages, metadata, icons and social image; FXM Connect's manifest, README, options page and icons; the desktop app's bundle descriptions and icon; the web app's `index.html` (it has no web app manifest yet); or the Android app's name, strings and icons.
+**Audit on 2026-10-26:** no logos, brand colours or lookalike names in the site's pages, metadata, icons and social image; FXM Connect's manifest, README, options page and icons; the desktop app's bundle descriptions and icon; the web app's `index.html` and its web app manifest (`app/manifest.webmanifest`, from 5.1: the name and short name "FXM", the description "A free, open-source music player: search and play practically any song.", the shortcuts "Search" and "Your library", FXM's own theme colour and icons drawn from FXM's violet mark); or the Android app's name, strings and icons.
 
 ## Clean-room rule
 
@@ -118,11 +119,12 @@ Every link in this playbook was checked on 2026-10-26.
   - The site build copies it to `apps/site/dist/.well-known/`. The deploy (2.8) must keep that folder when it puts the site together, as the [site's README](../apps/site/README.md#deploying-with-the-web-app) notes: a shell glob such as `dist/*` skips folders whose names start with a dot.
   - Cloudflare Pages serves `/.well-known/` files: other `pages.dev` projects serve theirs as `text/plain; charset=utf-8`, and `wrangler pages deploy` doesn't skip dot-folders (checked on 2026-10-26).
 - **Secret scanning and push protection:** checked and found enabled on 2026-10-25 through the GitHub API (`secret_scanning` and `secret_scanning_push_protection` in the repository's `security_and_analysis` settings).
+- **Private vulnerability reporting:** turned on 2026-10-26, and checked through the GitHub API the same day (`GET repos/Pratyay-ops/FXM/private-vulnerability-reporting` answers `"enabled": true`).
 
 ## Owner actions
 
 | Action | Status |
 |---|---|
 | Turn on secret scanning and push protection | Done: found enabled on 2026-10-25 |
-| Turn on private vulnerability reporting: in the repository's Settings, Advanced Security, then Enable next to "Private vulnerability reporting" (or `gh api -X PUT repos/Pratyay-ops/FXM/private-vulnerability-reporting`). The README, the disclaimer page, the security policy and `security.txt` all send security reports to it | Open. Do it as soon as possible, and at the latest before the first release to `main` (M1, `v0.1.0`), which puts the policy on the default branch and the site, with `security.txt`, in production |
+| Turn on private vulnerability reporting, where the README, the disclaimer page, the security policy and `security.txt` all send security reports | Done: turned on 2026-10-26, before the first release (see [Security](#security)) |
 | A short legal consult before the public launch, with a lawyer in the owner's jurisdiction. SFLC.in is one option in India | Optional, the owner's call: FXM is mostly for personal use (owner, 2026-10-25) |

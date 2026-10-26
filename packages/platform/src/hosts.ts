@@ -82,7 +82,6 @@ export const HOST_RULES: readonly HostRule[] = [
   { host: 'youtubei.googleapis.com', hostClass: 'innertube', service: 'YouTube' },
   { host: '*.googlevideo.com', hostClass: 'googlevideo', service: 'YouTube media' },
   { host: 'open.spotify.com', hostClass: 'spotify', service: 'Spotify' },
-  { host: 'clienttoken.spotify.com', hostClass: 'spotify', service: 'Spotify' },
   { host: 'api-partner.spotify.com', hostClass: 'spotify', service: 'Spotify' },
   { host: 'spclient.wg.spotify.com', hostClass: 'spotify', service: 'Spotify' },
   {

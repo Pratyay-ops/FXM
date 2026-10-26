@@ -4,11 +4,14 @@
  * src/config.ts, which stage 2.8 turns on) takes the flag, so both versions stay side by side and
  * tested:
  *
- * - **Lite off:** without FXM Connect, the web app plays only free sources (Internet Archive and
- *   Jamendo), and YouTube Music and Spotify need the extension.
+ * - **Lite off:** without FXM Connect, the web app plays only free sources, and YouTube Music and
+ *   Spotify need the extension.
  * - **Lite on:** without FXM Connect, the web app also plays YouTube Music in the experimental
  *   Lite tier, where the browser allows it (docs/ARCHITECTURE.md §8); Spotify still needs the
  *   extension.
+ *
+ * The sentences that name the free sources also take `AVAILABLE.jamendo`: Internet Archive always,
+ * Jamendo only in a build that has FXM's public Jamendo client_id.
  *
  * The web card's no-extension note and the FAQ's answer for phones also change once the signed
  * Firefox add-on is out (`AVAILABLE.firefox`). src/lib/connect.ts writes who those sentences are
@@ -23,9 +26,30 @@
 export const CONNECT_DOES =
   "it adjusts a few headers on FXM's own requests and fetches Spotify's public server time when the web app asks; its option to use your Spotify login is off unless you turn it on"
 
+/**
+ * The free sources the web app plays everywhere: Internet Archive, and Jamendo in a build that
+ * offers it (`AVAILABLE.jamendo`).
+ */
+export function freeSources(jamendo: boolean): string {
+  return jamendo ? 'Internet Archive and Jamendo' : 'Internet Archive'
+}
+
 /** What Music mode plays (an owner decision, 2026-10-25): songs, from any source. */
-export const MUSIC_MODE =
-  "Songs only, from any source: YouTube Music's clean album audio, and free music from Internet Archive and Jamendo."
+export function musicMode(jamendo: boolean): string {
+  return `Songs only, from any source: YouTube Music's clean album audio, and free music from ${freeSources(jamendo)}.`
+}
+
+/** The lossless sources, after "where the source has it" in the downloads feature. */
+export function losslessSources(jamendo: boolean): string {
+  return jamendo ? '(Internet Archive, Jamendo)' : '(Internet Archive; Jamendo is coming soon)'
+}
+
+/** The FAQ's answer on lossless audio: who offers it. */
+export function losslessAnswer(jamendo: boolean): string {
+  return jamendo
+    ? 'Yes, where the source has it. Internet Archive and Jamendo offer real lossless FLAC, which FXM can play.'
+    : 'Yes, where the source has it. Internet Archive offers real lossless FLAC, which FXM can play, and so will Jamendo (coming soon).'
+}
 
 /** The Spotify account item: the sync only reads. */
 export const SPOTIFY_ACCOUNT =
@@ -45,7 +69,10 @@ export function heroNote(lite: boolean): string {
 }
 
 /** The features section's highlight about using the web app without the extension. */
-export function noExtensionHighlight(lite: boolean): {
+export function noExtensionHighlight(
+  lite: boolean,
+  jamendo: boolean,
+): {
   readonly title: string
   readonly text: string
   readonly experimental: boolean
@@ -53,12 +80,12 @@ export function noExtensionHighlight(lite: boolean): {
   return lite
     ? {
         title: 'No extension needed to start',
-        text: `Without FXM Connect, the web app plays free music from Internet Archive and Jamendo, and YouTube Music in ${LITE} where the browser allows it. Add the extension for Spotify.`,
+        text: `Without FXM Connect, the web app plays free music from ${freeSources(jamendo)}, and YouTube Music in ${LITE} where the browser allows it. Add the extension for Spotify.`,
         experimental: true,
       }
     : {
         title: 'Free music, no extension needed',
-        text: 'Without FXM Connect, the web app still plays free music from Internet Archive and Jamendo, and invites you to add the extension for YouTube Music and Spotify.',
+        text: `Without FXM Connect, the web app still plays free music from ${freeSources(jamendo)}, and invites you to add the extension for YouTube Music and Spotify.`,
         experimental: false,
       }
 }
@@ -74,15 +101,15 @@ export function webCardIntro(lite: boolean): string {
  * What the web card's note for visitors without the extension says the web app plays, after the
  * question of who the note is for (`noExtensionNote` in src/lib/connect.ts).
  */
-export function noExtensionPlays(lite: boolean): string {
+export function noExtensionPlays(lite: boolean, jamendo: boolean): string {
   return lite
-    ? `The web app plays free music from Internet Archive and Jamendo, and YouTube Music in ${LITE} where the browser allows it.`
-    : 'The web app still plays free music from Internet Archive and Jamendo.'
+    ? `The web app plays free music from ${freeSources(jamendo)}, and YouTube Music in ${LITE} where the browser allows it.`
+    : `The web app still plays free music from ${freeSources(jamendo)}.`
 }
 
 /** Step 2 of "How it works": how the device reaches the music services. */
-export function howItWorksStep(lite: boolean): string {
-  const start = `When you search or press play, FXM asks YouTube Music, Internet Archive, Jamendo and the other services directly from your device. Some of them, like YouTube Music, don't answer other websites. In a browser, the FXM Connect extension lets the web app reach them: ${CONNECT_DOES}.`
+export function howItWorksStep(lite: boolean, jamendo: boolean): string {
+  const start = `When you search or press play, FXM asks YouTube Music, Internet Archive${jamendo ? ', Jamendo' : ''} and the other services directly from your device. Some of them, like YouTube Music, don't answer other websites. In a browser, the FXM Connect extension lets the web app reach them: ${CONNECT_DOES}.`
   return lite
     ? `${start} Without it, ${LITE} reaches YouTube Music where the browser allows it. The desktop and Android apps need neither.`
     : `${start} The desktop and Android apps don't need it.`
@@ -94,7 +121,10 @@ export function diagramLabel(lite: boolean): string {
 }
 
 /** The FAQ's question and answer about the extension. */
-export function extensionFaq(lite: boolean): {
+export function extensionFaq(
+  lite: boolean,
+  jamendo: boolean,
+): {
   readonly question: string
   readonly answers: readonly string[]
 } {
@@ -103,7 +133,7 @@ export function extensionFaq(lite: boolean): {
     ? {
         question: 'Do I need an extension?',
         answers: [
-          `Not to start. Without one, the web app plays free music from Internet Archive and Jamendo, and YouTube Music in ${LITE}, where the browser allows it. Lite relies on a way of reaching YouTube Music that YouTube doesn't document, so it may stop working at any time.`,
+          `Not to start. Without one, the web app plays free music from ${freeSources(jamendo)}, and YouTube Music in ${LITE}, where the browser allows it. Lite relies on a way of reaching YouTube Music that YouTube doesn't document, so it may stop working at any time.`,
           `For Spotify, add FXM Connect. ${why} The desktop and Android apps don't need it.`,
         ],
       }
@@ -111,7 +141,7 @@ export function extensionFaq(lite: boolean): {
         question: 'Why does the web app need an extension?',
         answers: [
           why,
-          "Without the extension, the web app still works with free sources (Internet Archive and Jamendo) and invites you to add FXM Connect for YouTube Music and Spotify. The desktop and Android apps don't need it.",
+          `Without the extension, the web app still works with free sources (${freeSources(jamendo)}) and invites you to add FXM Connect for YouTube Music and Spotify. The desktop and Android apps don't need it.`,
         ],
       }
 }
@@ -128,17 +158,17 @@ export function connectNeededFor(lite: boolean): string {
  * where FXM Connect can't be added and before the sentence about the apps (`phonesAnswer` in
  * src/lib/connect.ts).
  */
-export function otherBrowsersPlays(lite: boolean): string {
+export function otherBrowsersPlays(lite: boolean, jamendo: boolean): string {
   return lite
-    ? `the web app plays free music from Internet Archive and Jamendo, and YouTube Music in ${LITE} where the browser allows it. Lite has been tried in Chrome and Firefox on a computer; it isn't tested in Safari or on phones yet.`
-    : 'the web app plays free music from Internet Archive and Jamendo.'
+    ? `the web app plays free music from ${freeSources(jamendo)}, and YouTube Music in ${LITE} where the browser allows it. Lite has been tried in Chrome and Firefox on a computer; it isn't tested in Safari or on phones yet.`
+    : `the web app plays free music from ${freeSources(jamendo)}.`
 }
 
 /** The end of the FAQ's iPhone answer: what plays there. */
-export function iPhoneAnswer(lite: boolean): string {
+export function iPhoneAnswer(lite: boolean, jamendo: boolean): string {
   return lite
-    ? `FXM Connect isn't available there. The web app plays free sources such as Internet Archive and Jamendo, and YouTube Music in ${LITE} if Safari allows it: Lite isn't tested on iPhone and iPad yet.`
-    : "FXM Connect isn't available there, so the web app plays from free sources such as Internet Archive and Jamendo."
+    ? `FXM Connect isn't available there. The web app plays free sources such as ${freeSources(jamendo)}, and YouTube Music in ${LITE} if Safari allows it: Lite isn't tested on iPhone and iPad yet.`
+    : `FXM Connect isn't available there, so the web app plays from free sources such as ${freeSources(jamendo)}.`
 }
 
 /**

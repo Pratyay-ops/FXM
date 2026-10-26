@@ -29,7 +29,6 @@
         { "url": "https://i.ytimg.com/*" },
         { "url": "https://*.ggpht.com/*" },
         { "url": "https://open.spotify.com/*" },
-        { "url": "https://clienttoken.spotify.com/*" },
         { "url": "https://api-partner.spotify.com/*" },
         { "url": "https://spclient.wg.spotify.com/*" },
         { "url": "https://i.scdn.co/*" },

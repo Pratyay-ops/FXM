@@ -339,6 +339,7 @@ function environmentOf(services: ImportServices, mode: CatalogMode): ImportEnvir
     spotify: services.spotify,
     musicBrainz: services.musicBrainz,
     autoMatch: services.autoMatch(),
+    ...(services.matchingConfig === undefined ? {} : { matchingConfig: services.matchingConfig }),
     isOnline: () => services.isOnline(),
   }
 }

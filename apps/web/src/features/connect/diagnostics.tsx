@@ -27,7 +27,7 @@ import {
   isDetecting,
 } from './explain'
 import { createPlaybackProbe, type ProbeFailure, type ProbeResult } from './playback-probe'
-import { getSongResolver, SELF_TEST_SONG, unavailableResolver } from './resolver'
+import { SELF_TEST_SONG, unavailableResolver, useSongResolver } from './resolver'
 import {
   runSongSelfTest,
   type SelfTestAttempt,
@@ -235,7 +235,8 @@ function SongSelfTest({ state }: { state: ConnectionState }) {
   const controller = useRef<AbortController | undefined>(undefined)
   useEffect(() => () => controller.current?.abort(), [])
 
-  const resolver = getSongResolver()
+  // The ladder arrives with YouTube's code, which may load after this renders.
+  const resolver = useSongResolver()
   const tier = connectionTier(state)
   const ready = state.phase === 'ready'
   // How to get YouTube Music is the Tier row's to say, for this device.

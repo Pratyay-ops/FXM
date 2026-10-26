@@ -1,10 +1,17 @@
 import type { Track } from '@fxm/core'
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { getLibrary } from '../../db/repo'
+import { asBrowser, USER_AGENTS } from '../connect/testing'
 import { GET_FXM_URL } from './home-content'
 import { greetingFor } from './home-page'
-import type { HomeRecommendations, HomeSourceShelf } from './services'
+import {
+  type HomeRecommendations,
+  type HomeSourceShelf,
+  type HomeSources,
+  type HomeSourcesSnapshot,
+  staticSources,
+} from './services'
 import { useTasteStore } from './taste-store'
 import {
   fakePlayback,
@@ -14,6 +21,7 @@ import {
   renderHome,
   resetTaste,
   song,
+  TIERS,
   variedSongs,
   ytmArtist,
 } from './testing'
@@ -46,6 +54,29 @@ async function listen() {
 }
 
 const shelfNamed = (name: string) => screen.findByRole('region', { name })
+
+/** Sources whose state a test changes, as the platform's detection does. */
+function changingSources(initial: HomeSourcesSnapshot) {
+  let snapshot = initial
+  const listeners = new Set<() => void>()
+  const sources: HomeSources = {
+    getSnapshot: () => snapshot,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    context: (options) => staticSources(snapshot.capabilities).context(options),
+  }
+  return {
+    sources,
+    set(next: HomeSourcesSnapshot) {
+      snapshot = next
+      for (const listener of [...listeners]) listener()
+    },
+  }
+}
 
 describe('the greeting', () => {
   it('says good morning, afternoon or evening', () => {
@@ -94,6 +125,59 @@ describe('Home', () => {
     expect(within(welcome).getByRole('link', { name: 'Search music' })).toBeInTheDocument()
     expect(welcome).not.toHaveTextContent('Clean album audio')
     expect(screen.queryByRole('region', { name: 'Recommendations need YouTube Music' })).toBeNull()
+  })
+
+  it("doesn't say what the browser lacks while the tier is still worked out", async () => {
+    await listen()
+    const tier = changingSources({
+      capabilities: TIERS.free,
+      spotifyEnabled: true,
+      detecting: true,
+    })
+    renderHome({ sources: tier.sources })
+
+    // The user's own music shows at once; the note about recommendations waits for the tier.
+    expect(await shelfNamed('On repeat')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Recommendations need YouTube Music' })).toBeNull()
+    expect(screen.queryByRole('link', { name: /Get FXM Connect/ })).toBeNull()
+
+    // The Free tier it is, after all.
+    act(() => tier.set({ capabilities: TIERS.free, spotifyEnabled: true, detecting: false }))
+    expect(
+      await screen.findByRole('region', { name: 'Recommendations need YouTube Music' }),
+    ).toBeInTheDocument()
+  })
+
+  it('holds a new user’s welcome while the tier is still worked out', async () => {
+    const tier = changingSources({
+      capabilities: TIERS.free,
+      spotifyEnabled: true,
+      detecting: true,
+    })
+    renderHome({ sources: tier.sources })
+    // Home is built (from an empty library) while the tier is unknown: a placeholder stays.
+    expect((await screen.findAllByText('Loading your Home…')).length).toBeGreaterThan(0)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(screen.getAllByText('Loading your Home…').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('region', { name: 'Play practically any song' })).toBeNull()
+
+    act(() => tier.set({ capabilities: TIERS.free, spotifyEnabled: true, detecting: false }))
+    expect(await shelfNamed('Play practically any song')).toBeInTheDocument()
+  })
+
+  it('offers no install where FXM Connect can’t be added, such as on an iPhone', async () => {
+    asBrowser(USER_AGENTS.iphone)
+    renderHome(homeServices('free'))
+    const welcome = await shelfNamed('Play practically any song')
+    expect(welcome).toHaveTextContent(
+      "YouTube Music needs FXM Connect, which isn't available on iPhone and iPad. Here, Home shows what you play.",
+    )
+    expect(within(welcome).queryByRole('link', { name: /Get FXM Connect/ })).toBeNull()
+    expect(within(welcome).getByRole('link', { name: 'Search music' })).toBeInTheDocument()
+    expect(within(welcome).getByRole('link', { name: 'See your options' })).toHaveAttribute(
+      'href',
+      GET_FXM_URL,
+    )
   })
 
   it('shows the user their own shelves at once, while the sources are still asked', async () => {
