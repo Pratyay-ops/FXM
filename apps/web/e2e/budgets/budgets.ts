@@ -77,8 +77,11 @@ export const BUDGETS = {
   lcp: 6_500,
   /** Cumulative Layout Shift of the visit and the interactions after it. */
   cls: 0.02,
-  /** Interaction to Next Paint of a few taps and some typing after it, in milliseconds. */
-  inp: 150,
+  /**
+   * Interaction to Next Paint of a few taps and some typing after it, in milliseconds: the line
+   * web-vitals calls good, as CI's runners differ by half (80 and 120 ms on two of them).
+   */
+  inp: 200,
 } as const
 
 /** A budget's name. */

@@ -73,9 +73,9 @@ These are lab numbers on a stand-in, for catching regressions: real phones and n
 
 ### Baseline (2026-10-26)
 
-Measured on `develop` at 33c1f23 with this stage's changes, in Playwright 1.64.0's Chromium 156.0.8078.4, headless. Sizes are the same everywhere: CI's build had the same files, byte for byte. Timings depend on the machine, so the timing budgets come from CI's runner, where they gate: E2E run 40316662161, on GitHub's `ubuntu-latest`.
+Measured on `develop` at 33c1f23 with this stage's changes, in Playwright 1.64.0's Chromium 156.0.8078.4, headless. Sizes are the same everywhere: CI's builds had the same files, byte for byte. Timings depend on the machine, so the timing budgets come from CI's runners, where they gate: E2E runs 40316662161 and 40318166801 on GitHub's `ubuntu-latest`, which landed on different machines.
 
-| Budget | CI (`ubuntu-latest`) | macOS 15.5, Apple silicon, busy with other work | Budget |
+| Budget | CI (`ubuntu-latest`), two runs | macOS 15.5, Apple silicon, busy with other work | Budget |
 |---|---|---|---|
 | `entry` | 137.5 kB (442.4 kB on disk) | the same | 150 kB |
 | `initial` | 307.2 kB, 39 files (959.4 kB on disk) | the same | 335 kB |
@@ -84,11 +84,11 @@ Measured on `develop` at 33c1f23 with this stage's changes, in Playwright 1.64.0
 | `downloads` | 13.0 kB, 3 files (35.1 kB on disk), 2 of them in the first load | the same | 14.5 kB |
 | `firstLoad` | 411.6 kB, 67 requests | the same | 455 kB |
 | `firstVisit` | 1,502.1 kB, 222 requests | the same | 1,650 kB |
-| `lcp` | 5,424 ms (5,412 to 5,500 ms) | 5,804 ms (5,784 to 5,876 ms) | 6,500 ms |
-| `cls` | 0.000 | 0.000 | 0.02 |
-| `inp` | 80 ms (72 to 80 ms) | 144 ms (136 to 152 ms) | 150 ms |
+| `lcp` | 5,424 ms (5,412 to 5,500 ms); 5,628 ms (5,576 to 5,652 ms) | 5,804 ms (5,784 to 5,876 ms) | 6,500 ms |
+| `cls` | 0.000; 0.000 | 0.000 | 0.02 |
+| `inp` | 80 ms (72 to 80 ms); 120 ms (112 to 128 ms) | 144 ms (136 to 152 ms) | 200 ms |
 
-The largest paint is the intro of Home's first-visit content in the Free tier (`p.mt-2.text-text-muted`, "FXM plays the YouTube Music catalog, and…"), which loads with the lazy Home chunk. The size budgets leave about 10 % of headroom, LCP about 20 %. INP's budget stays under 200 ms, the line web-vitals calls good, and above what a busy Mac measures, so a local run doesn't fail on the machine's load; CLS's allows a small shift where there is none today.
+The largest paint is the intro of Home's first-visit content in the Free tier (`p.mt-2.text-text-muted`, "FXM plays the YouTube Music catalog, and…"), which loads with the lazy Home chunk. The size budgets leave about 10 % of headroom, and LCP's about 15 % over the slower run: it is mostly the network's, so it varied by 4 % between the two runners. INP is all the CPU's, and the runners differed by half, so its budget is 200 ms, the line web-vitals calls good. CLS's allows a small shift where there is none today.
 
 ### When a budget fails
 
