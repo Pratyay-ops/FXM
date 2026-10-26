@@ -9,7 +9,7 @@
  * |---|---|---|
  * | `catalog`: YouTube Music and YouTube metadata | 1.3 | `createYouTubeProviders()`'s `music` and `video` (`@fxm/sources/youtube`), in `createProviderCatalog([...])`; add `ytm` and `yt` to `WIRED_SOURCES` |
  * | `catalog`: Internet Archive and Jamendo metadata, and their credits | 1.6 | `createArchiveSource()` and `createJamendoSource()`, plus their attribution, in `createProviderCatalog([...], { attribution })`; add `archive` and `jamendo` to `WIRED_SOURCES` |
- * | `sources`: YouTube streams | 1.4 | The resolution ladder as a `StreamSource` for `ytm` (`hasFallback: true`); the controller adds the budget priority itself |
+ * | `sources`: YouTube streams | 1.4 | The resolution ladder as a `StreamSource` for `ytm` (`hasFallback: true`); the stream lifecycle gives its calls their budget priority |
  * | `sources`: free-source streams | 1.6 | `fromAudioSource(archive)`, `fromAudioSource(jamendo)` from `@fxm/player` |
  * | `matcher`: songs for official videos in Music mode | 1.7 with 1.3's searches | A `TrackMatcher`; optional, without it only linked songs play |
  * | `killSwitches`: the Lite tier's remote kill switch | 1.3's config | `() => ({ lite: youtubeConfig.killSwitches.lite })`; until then Lite is off outside the browser tests' build |

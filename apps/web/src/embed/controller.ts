@@ -158,36 +158,6 @@ export interface EmbedControllerOptions {
 }
 
 /**
- * Wraps a stream source so that its InnerTube calls draw on the request budget at the priority
- * the lifecycle asks for: the track about to play, or prefetching the next ones. The lifecycle
- * passes the priority in the request; the provider context it builds has one `fetch` only.
- */
-export function withBudgetPriority(source: StreamSource, platform: EmbedPlatform): StreamSource {
-  const contextFor = (ctx: ProviderContext, priority: 'playback' | 'prefetch'): ProviderContext => {
-    const { fetch } = platform.context({
-      mode: ctx.mode,
-      priority: priority === 'prefetch' ? 'prefetch' : 'current-track',
-    })
-    return { ...ctx, fetch }
-  }
-  return {
-    id: source.id,
-    ...(source.hasFallback === undefined ? {} : { hasFallback: source.hasFallback }),
-    resolve: (candidate, request) =>
-      source.resolve(candidate, { ...request, ctx: contextFor(request.ctx, request.priority) }),
-    ...(source.checkStatus === undefined
-      ? {}
-      : {
-          checkStatus: (stream, request) =>
-            source.checkStatus?.(stream, {
-              ...request,
-              ctx: contextFor(request.ctx, 'playback'),
-            }) ?? Promise.resolve(undefined),
-        }),
-  }
-}
-
-/**
  * Whether the embed can play `track` in `mode`: a song, or in Music mode an official video
  * through the song it links. One without a link needs the matching engine to find its song, so
  * it plays only with a `matcher`; anything the mode hides never does.
@@ -431,9 +401,11 @@ export class EmbedController {
       network = this.#network
     }
     const lifecycle = new StreamLifecycle({
-      sources: services.sources.map((source) => withBudgetPriority(source, platform)),
+      sources: services.sources,
       ...(services.matcher === undefined ? {} : { matcher: services.matcher }),
-      context: () => platform.context({ mode: this.mode, priority: 'current-track' }),
+      // The lifecycle asks at the priority of the work: the track that plays, or prefetching
+      // the next ones; a prefetch the visitor then plays rises to `current-track`.
+      context: (priority) => platform.context({ mode: this.mode, priority }),
       network,
     })
     const player = new Player({

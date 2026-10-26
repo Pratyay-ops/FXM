@@ -23,6 +23,10 @@ async function openPlatform({ youtube }: { youtube: boolean }): Promise<EmbedPla
       ...embedPlatformOptions(),
       ...(sandbox === undefined ? {} : { sandbox }),
     })
+    // The platform runs the Lite self-test in the background. The player decides from the tier
+    // what it can play, so it waits for the test (at most its timeout): otherwise it would show
+    // the install hint first, and tell the page it can't play, wherever Lite works.
+    if (sandbox !== undefined) await platform.capabilities.refresh().catch(() => undefined)
     return {
       capabilities: platform.capabilities,
       context: (options) => platform.context(options),

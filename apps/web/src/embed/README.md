@@ -144,7 +144,7 @@ Stage 5.2 started before 1.3, 1.4 and 1.6 were in its base (an early start). Eve
 |---|---|---|
 | YouTube Music and YouTube metadata | 1.3 | `createYouTubeProviders()`'s `music` and `video` in `createProviderCatalog([…])`, and `ytm` and `yt` in `WIRED_SOURCES` |
 | Internet Archive and Jamendo metadata and credits | 1.6 | `createArchiveSource()`, `createJamendoSource()` and their attribution, and `archive` and `jamendo` in `WIRED_SOURCES` |
-| YouTube streams | 1.4 | The ladder as the `ytm` `StreamSource`; `withBudgetPriority` (in `controller.ts`) gives it the budget priority the lifecycle asks for |
+| YouTube streams | 1.4 | The ladder as the `ytm` `StreamSource`; the stream lifecycle gives its calls their budget priority (`context(priority)` in `controller.ts`) |
 | Free-source streams | 1.6 | `fromAudioSource(archive)`, `fromAudioSource(jamendo)` |
 | Songs for unlinked official videos | 1.7 | A `TrackMatcher` (optional) |
 | Lite's kill switch and self-test request | 1.3's config | `embedPlatformOptions()` (until then Lite is off outside the browser tests' build), `embedSandboxOptions()` |

@@ -19,6 +19,8 @@ describe('the integration touch-points', () => {
 
   it('keep the Lite tier off until the remote kill switch is wired in', () => {
     // Vitest runs in the `test` mode; only the browser tests' build (`--mode e2e`) turns it on.
-    expect(embedPlatformOptions().killSwitches?.()).toEqual({ lite: true })
+    const { killSwitches } = embedPlatformOptions()
+    const switches = typeof killSwitches === 'function' ? killSwitches() : killSwitches?.get()
+    expect(switches).toEqual({ lite: true })
   })
 })

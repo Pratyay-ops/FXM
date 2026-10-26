@@ -14,7 +14,10 @@ import {
   VIDEO,
 } from './testing/harness'
 
-const ctx = createFakePlatform(CAPABILITIES.lite).context({ mode: 'music' })
+const ctx = createFakePlatform(CAPABILITIES.lite).context({
+  mode: 'music',
+  priority: 'interactive',
+})
 
 describe('createProviderCatalog', () => {
   const youtube = new FakeMetadataProvider('ytm', {

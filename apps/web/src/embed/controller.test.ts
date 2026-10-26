@@ -1,10 +1,15 @@
 import { FxmError, formatId } from '@fxm/core'
 import { createStaticNetworkMonitor } from '@fxm/player'
-import { FakeMatcher } from '@fxm/player/testing'
+import { FakeMatcher, type FakeStreamSourceCall } from '@fxm/player/testing'
 import { describe, expect, it } from 'vitest'
 import { createProviderCatalog } from './catalog'
 import { EmbedController, needsYouTube, playsIn, tierOf } from './controller'
-import { CAPABILITIES, createFakePlatform, priorityOf } from './testing/fake-platform'
+import {
+  CAPABILITIES,
+  createFakePlatform,
+  type FakeEmbedPlatform,
+  priorityOf,
+} from './testing/fake-platform'
 import { FakeMetadataProvider } from './testing/fake-provider'
 import {
   ALBUM,
@@ -18,6 +23,18 @@ import {
   UPLOAD,
   VIDEO,
 } from './testing/harness'
+
+/**
+ * The request-budget priority a stream resolution's InnerTube calls draw on: calls its `fetch`
+ * once (the fake platform reaches nothing) and reads the priority the platform saw.
+ */
+async function fetchPriorityOf(
+  platform: FakeEmbedPlatform,
+  call: FakeStreamSourceCall | undefined,
+) {
+  await call?.request.ctx.fetch('https://www.youtube.com/youtubei/v1/player').catch(() => {})
+  return platform.fetched.at(-1)
+}
 
 describe('tierOf and needsYouTube', () => {
   it('name the tier and say which content needs YouTube', () => {
@@ -40,9 +57,8 @@ describe('tierOf and needsYouTube', () => {
 
 describe('EmbedController', () => {
   it('loads a YouTube Music song in the Lite tier and plays it on request', async () => {
-    const { controller, platformRequests, youtubeProvider, ladder, engine } = createHarness({
-      target: { kind: 'track', id: SONG.id },
-    })
+    const { controller, platform, platformRequests, youtubeProvider, ladder, engine } =
+      createHarness({ target: { kind: 'track', id: SONG.id } })
     expect(controller.getState().phase).toBe('loading')
 
     await controller.start()
@@ -64,7 +80,9 @@ describe('EmbedController', () => {
 
     expect(controller.getState()).toMatchObject({ started: true, player: { status: 'playing' } })
     expect(ladder.log).toEqual(['songA:top'])
-    expect(priorityOf(ladder.calls[0]?.request.ctx ?? ({} as never))).toBe('current-track')
+    // Its InnerTube calls draw on the request budget for the track that plays.
+    expect(ladder.calls[0]?.request.priority).toBe('current-track')
+    expect(await fetchPriorityOf(platform, ladder.calls[0])).toBe('current-track')
     // Lite can't read media bytes, so the URL is unverified and plays as it is.
     expect(engine.loadedUrls).toEqual(['https://media.test/songA/251?n=1'])
   })
@@ -269,7 +287,7 @@ describe('EmbedController', () => {
   })
 
   it('prefetches the next track at the prefetch priority', async () => {
-    const { controller, ladder, engine } = createHarness({ target: targetOf(ALBUM) })
+    const { controller, platform, ladder, engine } = createHarness({ target: targetOf(ALBUM) })
     await controller.start()
     controller.play()
     await settle()
@@ -279,8 +297,8 @@ describe('EmbedController', () => {
     await settle()
 
     const next = ladder.calls.find((call) => call.candidate.ref === 'songB')
-    expect(next).toBeDefined()
-    expect(priorityOf(next?.request.ctx ?? ({} as never))).toBe('prefetch')
+    expect(next?.request.priority).toBe('prefetch')
+    expect(await fetchPriorityOf(platform, next)).toBe('prefetch')
   })
 
   it('creates the providers once when loads overlap, and again after they failed', async () => {

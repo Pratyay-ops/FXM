@@ -1,6 +1,7 @@
 /**
  * A platform for the embed's unit tests: capabilities a test sets and changes, and a provider
- * context whose `fetch` records which budget priority it was built for and reaches nothing.
+ * context whose `fetch` says which budget priority it was built for, records each call's
+ * priority and reaches nothing.
  *
  * @module
  */
@@ -28,6 +29,8 @@ export interface FakeEmbedPlatform extends EmbedPlatform {
   setCapabilities(capabilities: NetworkCapabilities): void
   /** Every context built, with the options it was built with. */
   readonly contexts: ContextOptions[]
+  /** The budget priority of every `fetch` call, in order. */
+  readonly fetched: RequestPriority[]
   /** Whether `dispose` was called. */
   readonly disposed: boolean
 }
@@ -40,11 +43,13 @@ export function createFakePlatform(
   let disposed = false
   const listeners = new Set<(capabilities: NetworkCapabilities) => void>()
   const contexts: ContextOptions[] = []
+  const fetched: RequestPriority[] = []
   const fetches = new Map<RequestPriority, FakeFetch>()
   const fetchFor = (priority: RequestPriority): FakeFetch => {
     let fetch = fetches.get(priority)
     if (fetch === undefined) {
       const reject = async () => {
+        fetched.push(priority)
         throw new Error('The embed tests never reach the network')
       }
       fetch = Object.assign(reject, { priority }) as unknown as FakeFetch
@@ -67,7 +72,7 @@ export function createFakePlatform(
     context(options): ProviderContext {
       contexts.push(options)
       return {
-        fetch: fetchFor(options.priority ?? 'interactive'),
+        fetch: fetchFor(options.priority),
         platform: 'web',
         capabilities: current,
         mode: options.mode,
@@ -81,6 +86,7 @@ export function createFakePlatform(
       for (const listener of [...listeners]) listener(next)
     },
     contexts,
+    fetched,
     get disposed() {
       return disposed
     },
