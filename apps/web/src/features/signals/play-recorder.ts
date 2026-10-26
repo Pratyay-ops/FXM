@@ -24,9 +24,8 @@
 
 import {
   currentQueueItem,
-  type PlayContext,
-  playContextOf,
   playStreamOf,
+  type QueueContext,
   type QueueItem,
   type StreamOption,
 } from '@fxm/core'
@@ -91,8 +90,8 @@ interface Session {
   item: QueueItem
   /** When it started playing. */
   startedAt: number
-  /** Where its queue was started from. */
-  context: PlayContext | undefined
+  /** Where its queue was started from: the queue's context, as the library stores it. */
+  context: QueueContext | undefined
   /** Listening time so far, in milliseconds. */
   heardMs: number
   /** The clock at the last mark: the last position update, or the last start or stop. */
@@ -165,7 +164,7 @@ export function connectPlayRecorder(
       session = {
         item,
         startedAt: at,
-        context: playContextOf(state.queue.context),
+        context: state.queue.context,
         heardMs: 0,
         markAt: at,
         markPositionMs: state.positionMs,

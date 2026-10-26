@@ -24,6 +24,7 @@ import {
   isEmptyAffinity,
   type ListeningSignal,
   mergeAffinity,
+  playContextOf,
   type SignalTrack,
   signalContributions,
   type Track,
@@ -154,13 +155,15 @@ function cachedSignalTrack(tracks: ReadonlyMap<string, Track>, id: EntityId<'tra
 
 /**
  * The play signal of a history entry. An entry recorded without the track's length (before
- * stage 3.1) is measured against the cached track's.
+ * stage 3.1) is measured against the cached track's. The signal keeps the stored form of the
+ * queue's context (`playContextOf`).
  */
 export function playSignalOf(
   entry: Omit<HistoryRecord, 'id'>,
   tracks: ReadonlyMap<string, Track>,
 ): ListeningSignal {
   const durationMs = entry.durationMs ?? tracks.get(entry.trackId)?.durationMs
+  const context = playContextOf(entry.context)
   return {
     type: 'play',
     at: entry.playedAt,
@@ -169,7 +172,7 @@ export function playSignalOf(
     ...(durationMs === undefined ? {} : { durationMs }),
     completed: entry.completed,
     skipped: entry.skipped,
-    ...(entry.context === undefined ? {} : { context: entry.context }),
+    ...(context === undefined ? {} : { context }),
     ...(entry.stream === undefined ? {} : { stream: entry.stream }),
   }
 }

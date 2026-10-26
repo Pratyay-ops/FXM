@@ -236,6 +236,9 @@ describe('likes', () => {
     expect((await repo.getPlaylistView(id))?.rows.map((row) => row.liked)).toEqual([false, true])
   })
 
+  // Every like is also scored in the listening affinity (stage 3.1), and every unlike takes its
+  // score back: thousands of affinity records, which fake-indexeddb, unlike a browser, deletes
+  // and rewrites in time that grows with the table. Hence more than the usual time.
   it('likes and unlikes 2,000 songs at once with one write of Liked songs each', async () => {
     const repo = testRepo()
     await repo.like(track(5000))
@@ -266,7 +269,7 @@ describe('likes', () => {
     ])
     expect(await repo.isLiked(track(1).id)).toBe(false)
     expect(await repo.isLiked(track(2).id)).toBe(true)
-  })
+  }, 120_000)
 
   it('skips songs already liked when adding several to Liked songs', async () => {
     const repo = testRepo()

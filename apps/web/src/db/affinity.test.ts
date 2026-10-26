@@ -18,6 +18,9 @@ const DAY = 24 * 60 * 60 * 1000
 const T0 = Date.UTC(2026, 9, 1, 12)
 const { like: LIKE, playlistAdd: ADD } = DEFAULT_AFFINITY_WEIGHTS
 
+/** A test repository, which also hands out its database (`db`). */
+type TestRepo = ReturnType<typeof testRepo>
+
 /** A repository whose clock stands still until the test moves it. */
 function setup(start = T0) {
   let clock = start
@@ -32,7 +35,7 @@ function setup(start = T0) {
 }
 
 /** Every stored entry's affinity at `now`, by record ID. */
-async function scores(repo: LibraryRepo, now: number) {
+async function scores(repo: TestRepo, now: number) {
   const records = await repo.db.affinity.toArray()
   return Object.fromEntries(
     records.map((record) => {
@@ -43,7 +46,7 @@ async function scores(repo: LibraryRepo, now: number) {
 }
 
 /** The stored entry with `id`. */
-async function stored(repo: LibraryRepo, id: string): Promise<AffinityEntry | undefined> {
+async function stored(repo: TestRepo, id: string): Promise<AffinityEntry | undefined> {
   return repo.db.affinity.get(id)
 }
 
@@ -132,6 +135,16 @@ describe('the listening affinity in the library', () => {
     expect((await stored(repo, trackId(1)))?.score).toBe(ADD)
     await repo.removeDownload(track(1).id)
     expect(await stored(repo, trackId(1))).toBeUndefined()
+  })
+
+  it('forgets the downloads deleted in one batch, and only those', async () => {
+    const { repo } = setup()
+    for (const n of [1, 2, 3]) await repo.addDownload(track(n))
+    expect(await repo.removeDownloads([track(1).id, track(2).id, track(9).id])).toBe(2)
+    expect(await stored(repo, trackId(1))).toBeUndefined()
+    expect(await stored(repo, artistId(2))).toBeUndefined()
+    expect((await stored(repo, trackId(3)))?.score).toBe(ADD)
+    expect(await repo.removeDownloads([])).toBe(0)
   })
 
   it('scores plays by the share played, and skips by the share left', async () => {
