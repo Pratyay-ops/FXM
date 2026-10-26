@@ -8,20 +8,38 @@
  *   it, which makes the element ask for a range far into the file;
  * - an `AnalyserNode` reads the samples Web Audio gets, and the graph ends in a gain of 0. Media
  *   that failed the CORS check doesn't play at all in a `crossorigin` element, and Web Audio
- *   reads opaque media as zeros. The element stays muted all the same: WebKit plays WebM past
- *   the graph (WebKit bug 276813), so its gain would silence nothing;
+ *   reads opaque media as zeros. Where the path should work, Web Audio must read samples, or the
+ *   run fails: every stream on Windows, and MP4 on macOS, whose WebKit plays WebM past the graph
+ *   (WebKit bug 276813), so silence from WebM is what it should read there. Where nobody has
+ *   checked what to expect (WebKitGTK, so far), silence makes the run inconclusive
+ *   ({@link runVerdict});
  * - for comparison, the stream's own googlevideo URL in a `crossorigin` element, which googlevideo
  *   should refuse for want of CORS headers, and in a plain element, as the app plays it today:
  *   how long it takes to start, and the duration the webview reads.
  *
- * Everything stays muted: the test runs unattended, often at night.
+ * Every stream is checked and reported before the step fails, so one that fails hides no other.
+ *
+ * Nothing is heard: the test runs unattended, often at night. The comparison elements are muted,
+ * and so is the routed element, except on Windows ({@link samplePlan}): Chromium, and so WebView2,
+ * scales what an element hands Web Audio by its volume, which is 0 while it is muted
+ * (`HTMLMediaElement::EffectiveMediaVolume` and `WebAudioSourceProviderImpl::ProvideInput`, read
+ * 2026-10-26), so Web Audio would read silence. A routed element is heard only through the graph,
+ * whose gain is 0, so unmuted it stays silent. WebKit on macOS hands Web Audio a muted MP4
+ * element's samples all the same (measured), and plays WebM past the graph, where only `muted`
+ * keeps it silent.
  *
  * @module
  */
 
 import type { StreamOption } from '@fxm/core'
 import { isStreamUrl, readableStreamUrl } from '../bridge'
-import type { ReadablePath } from './steps'
+import { Inconclusive, type ReadablePath } from './steps'
+
+/** What Web Audio should read from a stream where the app runs ({@link samplePlan}). */
+export type SampleExpectation = 'samples' | 'silence' | 'unknown'
+
+/** How one stream's run went: see {@link runVerdict}. */
+export type RunVerdict = 'passed' | 'failed' | 'inconclusive'
 
 /** What one stream's check found. */
 export interface ReadableRun {
@@ -39,6 +57,10 @@ export interface ReadableRun {
   readonly peak: number
   /** The audio context's state while it played: `running` unless the webview held it back. */
   readonly contextState: string
+  /** What Web Audio should have read, where the app runs. */
+  readonly expected: SampleExpectation
+  /** Whether the routed element was muted. */
+  readonly muted: boolean
   /** What the stream's own URL did in a `crossorigin` element. */
   readonly direct: 'refused' | 'played' | 'no answer'
   /** The stream's own URL in a plain element: how long it took to start, in milliseconds. */
@@ -76,13 +98,70 @@ export function readableCandidates(options: readonly StreamOption[]): StreamOpti
   return [...picked.values()]
 }
 
-/** Whether a run shows the readable path working: it started, played and ended. */
-export function runPassed(run: ReadableRun, listenS: number): boolean {
-  return run.playedS >= listenS && run.ended
+/** How to play a stream where the app runs: what Web Audio should read, and whether to mute. */
+export interface SamplePlan {
+  readonly expected: SampleExpectation
+  /** Whether the routed element stays muted (see the module documentation). */
+  readonly muted: boolean
+}
+
+/**
+ * How to play `stream` on `os` (`desktop_environment`'s `macos`, `windows` or `linux`):
+ *
+ * - Windows (WebView2): samples from every stream, from an unmuted element, since a muted one
+ *   hands Web Audio silence;
+ * - macOS (WebKit): samples from MP4, silence from WebM, which WebKit plays past the graph; muted;
+ * - anything else, WebKitGTK included: unknown, and muted, since WebKitGTK might play WebM past
+ *   the graph too, and nobody has checked whether it hands Web Audio a muted element's samples.
+ */
+export function samplePlan(
+  os: string | undefined,
+  stream: Pick<StreamOption, 'container'>,
+): SamplePlan {
+  if (os === 'windows') return { expected: 'samples', muted: false }
+  if (os === 'macos')
+    return { expected: stream.container === 'webm' ? 'silence' : 'samples', muted: true }
+  return { expected: 'unknown', muted: true }
+}
+
+/**
+ * Whether a run shows the readable path working. It fails unless the element played from the
+ * scheme to its end. Then Web Audio's samples pass it, and so does silence where silence is what
+ * it should read. Silence fails it where Web Audio should read samples, and leaves it
+ * inconclusive where nobody knows, or where the audio context never ran.
+ */
+export function runVerdict(
+  run: ReadableRun,
+  listenS: number,
+): { readonly verdict: RunVerdict; readonly why: string } {
+  if (run.playedS < listenS || !run.ended) {
+    return { verdict: 'failed', why: 'it didn’t play from the scheme to its end' }
+  }
+  if (run.peak > 0) return { verdict: 'passed', why: 'Web Audio read its samples' }
+  if (run.contextState !== 'running') {
+    return {
+      verdict: 'inconclusive',
+      why: `Web Audio heard nothing: its context was ${run.contextState}`,
+    }
+  }
+  switch (run.expected) {
+    case 'samples':
+      return { verdict: 'failed', why: 'Web Audio read only silence where it should read samples' }
+    case 'silence':
+      return { verdict: 'passed', why: 'silence, as expected: WebKit plays WebM past Web Audio' }
+    default:
+      return {
+        verdict: 'inconclusive',
+        why: run.muted
+          ? 'silence from a muted element, which this webview may hand Web Audio as silence'
+          : 'silence, where nobody knows what to expect',
+      }
+  }
 }
 
 /** One run, for the report. */
-export function describeRun(run: ReadableRun): string {
+export function describeRun(run: ReadableRun, listenS = LISTEN_S): string {
+  const { verdict, why } = runVerdict(run, listenS)
   const samples =
     run.peak > 0
       ? `Web Audio read samples up to ${run.peak.toFixed(2)}`
@@ -98,26 +177,42 @@ export function describeRun(run: ReadableRun): string {
       : `in a plain element it started ${Math.round(run.plainStartedMs)} ms after loading` +
         (run.plainDurationS === undefined ? '' : ` (${run.plainDurationS.toFixed(1)} s in all)`)
   return (
-    `${run.label}: started ${Math.round(run.startedMs)} ms after loading, played ` +
-    `${run.playedS.toFixed(1)} s, ${run.ended ? 'then its end' : 'but not its end'} after a seek ` +
-    `(${run.durationS.toFixed(1)} s in all); ${samples} (context ${run.contextState}); ${direct}; ` +
-    plain
+    `${run.label}: ${verdict} (${why}): started ${Math.round(run.startedMs)} ms after loading, ` +
+    `played ${run.playedS.toFixed(1)} s, ${run.ended ? 'then its end' : 'but not its end'} after a ` +
+    `seek (${run.durationS.toFixed(1)} s in all); ${samples} (context ${run.contextState}, ` +
+    `element ${run.muted ? 'muted' : 'unmuted'}); ${direct}; ${plain}`
   )
+}
+
+function message(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 /**
  * The readable path's step: runs `probe` on each stream {@link readableCandidates} picks, one
- * after another. It fails when none can be checked, or when one didn't play from the scheme.
+ * after another, and reports every one. It fails when none can be checked or one failed, and is
+ * inconclusive when one was and none failed ({@link runVerdict}).
  */
 export function readablePath(probe: ReadableProbe, listenS = LISTEN_S): ReadablePath {
   return {
     async check(options) {
       const candidates = readableCandidates(options)
       if (candidates.length === 0) throw new Error('no verified googlevideo stream to play')
-      const runs: ReadableRun[] = []
-      for (const stream of candidates) runs.push(await probe(stream))
-      const detail = runs.map(describeRun).join('. ')
-      if (!runs.every((run) => runPassed(run, listenS))) throw new Error(detail)
+      const verdicts: RunVerdict[] = []
+      const details: string[] = []
+      for (const stream of candidates) {
+        try {
+          const run = await probe(stream)
+          verdicts.push(runVerdict(run, listenS).verdict)
+          details.push(describeRun(run, listenS))
+        } catch (error) {
+          verdicts.push('failed')
+          details.push(`${streamLabel(stream)}: failed (${message(error)})`)
+        }
+      }
+      const detail = details.join('. ')
+      if (verdicts.includes('failed')) throw new Error(detail)
+      if (verdicts.includes('inconclusive')) throw new Inconclusive(detail)
       return detail
     },
   }
@@ -138,6 +233,11 @@ export interface WebAudioProbeOptions {
   readonly listenS?: number
   /** How long each part (starting, playing, ending) may take. Default: 60 s. */
   readonly timeoutMs?: number
+  /**
+   * The operating system the app runs on, as the shell reports it (`macos`, `windows` or
+   * `linux`), which decides what to expect ({@link samplePlan}). Unknown without it.
+   */
+  readonly os?: () => Promise<string | undefined>
 }
 
 /** Resolves after `ms` milliseconds. */
@@ -209,6 +309,8 @@ export function webAudioProbe(options: WebAudioProbeOptions = {}): ReadableProbe
   return async (stream) => {
     const url = readableStreamUrl(stream)
     if (url === undefined) throw new Error('not a googlevideo stream')
+    const os = options.os === undefined ? undefined : await options.os().catch(() => undefined)
+    const plan = samplePlan(os, stream)
     const direct = await directOutcome(stream.url)
     const plain = await plainStart(stream.url)
     const audio = new Audio()
@@ -221,6 +323,9 @@ export function webAudioProbe(options: WebAudioProbeOptions = {}): ReadableProbe
     silence.gain.value = 0
     context.createMediaElementSource(audio).connect(analyser)
     analyser.connect(silence).connect(context.destination)
+    // Routed, the element is heard only through the graph and its gain of 0, so it may play
+    // unmuted where muting would also silence what it hands Web Audio.
+    audio.muted = plan.muted
     const samples = new Float32Array(analyser.fftSize)
     let peak = 0
     let failure: string | undefined
@@ -274,10 +379,13 @@ export function webAudioProbe(options: WebAudioProbeOptions = {}): ReadableProbe
         ended,
         peak,
         contextState: context.state,
+        expected: plan.expected,
+        muted: plan.muted,
         direct,
         ...plain,
       }
     } finally {
+      audio.muted = true
       release(audio)
       await context.close().catch(() => {})
     }

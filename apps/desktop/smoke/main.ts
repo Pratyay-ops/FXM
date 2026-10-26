@@ -79,8 +79,9 @@ async function smoke(): Promise<SmokeReport> {
       context: () => platform.context({ mode: 'music', priority: 'interactive' }),
       capabilities: platform.capabilities.current,
       youtube: smokeYouTube(),
-      // Stage 7.6: the verified streams through fxm-media and Web Audio.
-      readable: readablePath(webAudioProbe()),
+      // Stage 7.6: the verified streams through fxm-media and Web Audio, with what to expect on
+      // this system.
+      readable: readablePath(webAudioProbe({ os: async () => (await desktop.ready)?.os })),
       player: htmlAudioPlayer(),
       query: 'Radiohead Creep',
       freeTrack: FREE_TRACK,

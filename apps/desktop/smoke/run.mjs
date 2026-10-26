@@ -10,7 +10,7 @@ const PREFIX = 'FXM_SMOKE_REPORT '
 // Long enough for every step: the free playlist alone plays for 9 minutes, and once stage 1.4
 // has merged, the YouTube Music songs and the VISIONOS track play for about 15 more.
 const TIMEOUT_MS = Number(process.env.FXM_SMOKE_TIMEOUT_MS ?? 45 * 60_000)
-const LABELS = { passed: 'PASS', failed: 'FAIL', pending: 'WAIT' }
+const LABELS = { passed: 'PASS', failed: 'FAIL', pending: 'WAIT', inconclusive: '????' }
 
 const executable = process.platform === 'win32' ? 'fxm.exe' : 'fxm'
 const binary = fileURLToPath(new URL(`../src-tauri/target/debug/${executable}`, import.meta.url))
@@ -46,7 +46,11 @@ child.on('exit', (code, signal) => {
     const label = LABELS[step.status] ?? step.status
     console.log(`${label}  ${step.name} (${Math.round(step.ms)} ms): ${step.detail}`)
   }
-  const waiting = report.steps.filter((step) => step.status === 'pending').length
-  console.log(report.ok ? `Passed${waiting ? `, ${waiting} step(s) waiting` : ''}` : 'Failed')
+  const count = (status) => report.steps.filter((step) => step.status === status).length
+  const notes = [
+    count('pending') && `${count('pending')} step(s) waiting`,
+    count('inconclusive') && `${count('inconclusive')} inconclusive`,
+  ].filter(Boolean)
+  console.log(report.ok ? ['Passed', ...notes].join(', ') : 'Failed')
   process.exit(report.ok ? 0 : 1)
 })

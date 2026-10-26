@@ -8,7 +8,8 @@
  * after the probe, on the streams it verified.
  *
  * A step that needs a stage which hasn't merged yet throws {@link Pending}, and the report says
- * so instead of failing.
+ * so instead of failing. A step whose result shows neither a pass nor a failure throws
+ * {@link Inconclusive}, which doesn't fail the run either.
  *
  * @module
  */
@@ -16,8 +17,11 @@
 import type { NetworkCapabilities, ProviderContext, StreamOption } from '@fxm/core'
 import { fxmUserAgent } from '@fxm/platform'
 
-/** How a step ended. */
-export type StepStatus = 'passed' | 'failed' | 'pending'
+/**
+ * How a step ended. `inconclusive`: it ran, but what it found shows neither that it works nor
+ * that it doesn't (stage 7.6's readable path, where nobody has checked what to expect).
+ */
+export type StepStatus = 'passed' | 'failed' | 'pending' | 'inconclusive'
 
 /** One step of the report. */
 export interface StepResult {
@@ -33,7 +37,7 @@ export interface StepResult {
 
 /** What the hidden window reports to the app, which prints it and exits. */
 export interface SmokeReport {
-  /** Whether no step failed. Pending steps don't count against it. */
+  /** Whether no step failed. Pending and inconclusive steps don't count against it. */
   readonly ok: boolean
   /** Every step, in order. */
   readonly steps: readonly StepResult[]
@@ -42,6 +46,11 @@ export interface SmokeReport {
 /** Thrown by a step whose stage hasn't merged yet. */
 export class Pending extends Error {
   override readonly name = 'Pending'
+}
+
+/** Thrown by a step whose result is neither a pass nor a failure: see {@link StepStatus}. */
+export class Inconclusive extends Error {
+  override readonly name = 'Inconclusive'
 }
 
 /**
@@ -199,7 +208,12 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
       record({ name, status: 'passed', detail, ms: now() - started })
       return value
     } catch (error) {
-      const status = error instanceof Pending ? 'pending' : 'failed'
+      const status =
+        error instanceof Pending
+          ? 'pending'
+          : error instanceof Inconclusive
+            ? 'inconclusive'
+            : 'failed'
       record({ name, status, detail: message(error), ms: now() - started })
       return undefined
     }

@@ -14,11 +14,13 @@ import {
   type ReadableRun,
   readableCandidates,
   readablePath,
-  runPassed,
+  runVerdict,
+  samplePlan,
   streamLabel,
 } from '../smoke/readable'
 import {
   DEAD_PROXY,
+  Inconclusive,
   type MediaPlayer,
   Pending,
   PROBE_BYTES,
@@ -403,6 +405,8 @@ describe('the readable audio path (stage 7.6)', () => {
     ended: true,
     peak: 0.62,
     contextState: 'running',
+    expected: 'samples',
+    muted: false,
     direct: 'refused',
     plainStartedMs: 640.2,
     plainDurationS: 238.6,
@@ -431,35 +435,99 @@ describe('the readable audio path (stage 7.6)', () => {
     expect(streamLabel(muxed)).toBe('AAC in MP4 video')
   })
 
-  it('passes a stream that played from the start and to its end', () => {
-    expect(runPassed(run(), 6)).toBe(true)
-    expect(runPassed(run({ playedS: 2 }), 6)).toBe(false)
-    expect(runPassed(run({ ended: false }), 6)).toBe(false)
+  it('expects samples where the path should work, and unmutes only where muting silences them', () => {
+    // WebView2 hands Web Audio a muted element's samples scaled by 0: unmuted, and samples.
+    expect(samplePlan('windows', stream('verified'))).toEqual({ expected: 'samples', muted: false })
+    expect(samplePlan('windows', aac)).toEqual({ expected: 'samples', muted: false })
+    // WebKit reads muted MP4, and plays WebM past the graph: muted, and silence from WebM.
+    expect(samplePlan('macos', aac)).toEqual({ expected: 'samples', muted: true })
+    expect(samplePlan('macos', muxed)).toEqual({ expected: 'samples', muted: true })
+    expect(samplePlan('macos', stream('verified'))).toEqual({ expected: 'silence', muted: true })
+    // Nobody has checked WebKitGTK, nor a system the shell didn't name: muted, and unknown.
+    for (const os of ['linux', undefined]) {
+      expect(samplePlan(os, aac)).toEqual({ expected: 'unknown', muted: true })
+      expect(samplePlan(os, stream('verified'))).toEqual({ expected: 'unknown', muted: true })
+    }
+  })
+
+  it('passes a run whose samples Web Audio read, or whose silence is what it should read', () => {
+    expect(runVerdict(run(), 6).verdict).toBe('passed')
+    expect(runVerdict(run({ expected: 'unknown', muted: true }), 6).verdict).toBe('passed')
+    const webmOnMac = run({ peak: 0, expected: 'silence', muted: true })
+    expect(runVerdict(webmOnMac, 6)).toEqual({
+      verdict: 'passed',
+      why: 'silence, as expected: WebKit plays WebM past Web Audio',
+    })
+  })
+
+  it('fails a run that didn’t play to its end, or whose samples Web Audio didn’t read', () => {
+    expect(runVerdict(run({ playedS: 2 }), 6).verdict).toBe('failed')
+    expect(runVerdict(run({ ended: false }), 6).verdict).toBe('failed')
+    // Silence from MP4 on macOS, or from anything on Windows: the path doesn't work there.
+    expect(runVerdict(run({ peak: 0 }), 6)).toEqual({
+      verdict: 'failed',
+      why: 'Web Audio read only silence where it should read samples',
+    })
+  })
+
+  it('leaves silence inconclusive where nobody knows what to expect, or the context never ran', () => {
+    expect(runVerdict(run({ peak: 0, expected: 'unknown', muted: true }), 6)).toEqual({
+      verdict: 'inconclusive',
+      why: 'silence from a muted element, which this webview may hand Web Audio as silence',
+    })
+    expect(runVerdict(run({ peak: 0, contextState: 'suspended' }), 6)).toEqual({
+      verdict: 'inconclusive',
+      why: 'Web Audio heard nothing: its context was suspended',
+    })
+  })
+
+  it('describes a run with its verdict', () => {
     expect(describeRun(run())).toBe(
-      'Opus in WebM: started 812 ms after loading, played 6.2 s, then its end after a seek ' +
-        '(238.6 s in all); Web Audio read samples up to 0.62 (context running); its own URL in ' +
-        'such an element: refused, as googlevideo sends no CORS headers; in a plain element it ' +
-        'started 640 ms after loading (238.6 s in all)',
+      'Opus in WebM: passed (Web Audio read its samples): started 812 ms after loading, played ' +
+        '6.2 s, then its end after a seek (238.6 s in all); Web Audio read samples up to 0.62 ' +
+        '(context running, element unmuted); its own URL in such an element: refused, as ' +
+        'googlevideo sends no CORS headers; in a plain element it started 640 ms after loading ' +
+        '(238.6 s in all)',
     )
     const { plainStartedMs: _, ...neverStarted } = run()
     expect(describeRun(neverStarted)).toContain('in a plain element it didn’t start')
-    expect(describeRun(run({ peak: 0, direct: 'played' }))).toContain('Web Audio read only silence')
+    expect(describeRun(run({ peak: 0, direct: 'played', muted: true }))).toContain(
+      'Web Audio read only silence (context running, element muted)',
+    )
   })
 
-  it('checks each stream in turn, and fails when one didn’t play from the scheme', async () => {
+  it('checks every stream in turn, and reports each before it fails', async () => {
     const probe = vi.fn(async (option: StreamOption) => run({ label: streamLabel(option) }))
     const detail = await readablePath(probe).check([stream('verified'), aac])
     expect(probe.mock.calls.map(([option]) => option.url)).toEqual([
       stream('verified').url,
       aac.url,
     ])
-    expect(detail).toContain('Opus in WebM: started')
-    expect(detail).toContain('. AAC in M4A: started')
-    const failing = readablePath(async () => run({ ended: false }))
-    await expect(failing.check([aac])).rejects.toThrow('but not its end')
+    expect(detail).toContain('Opus in WebM: passed')
+    expect(detail).toContain('. AAC in M4A: passed')
+    // A WebM failure hides nothing of the AAC run after it.
+    const webmFails = readablePath(async (option) => {
+      if (option.container === 'webm') throw new Error('starting: media error 4: ')
+      return run({ label: streamLabel(option) })
+    })
+    const failure = webmFails.check([stream('verified'), aac])
+    await expect(failure).rejects.toThrow(
+      'Opus in WebM: failed (starting: media error 4: ). AAC in M4A: passed',
+    )
+    const silent = readablePath(async () => run({ peak: 0 }))
+    await expect(silent.check([aac])).rejects.toThrow('failed (Web Audio read only silence')
     await expect(readablePath(probe).check([stream('unverified')])).rejects.toThrow(
       'no verified googlevideo stream',
     )
+  })
+
+  it('is inconclusive when a stream was and none failed', async () => {
+    const unknown = readablePath(async (option) =>
+      run({ label: streamLabel(option), peak: 0, expected: 'unknown', muted: true }),
+    )
+    const outcome = unknown.check([stream('verified'), aac])
+    await expect(outcome).rejects.toBeInstanceOf(Inconclusive)
+    await expect(outcome).rejects.toThrow('Opus in WebM: inconclusive')
   })
 
   it('runs right after the probe, on everything the resolve found', async () => {
@@ -493,6 +561,20 @@ describe('the readable audio path (stage 7.6)', () => {
     expect(stepNamed(waiting, 'Web Audio reads it through fxm-media')).toMatchObject({
       status: 'pending',
       detail: 'waits for a verified stream',
+    })
+  })
+
+  it('reports an inconclusive check as such, without failing the run', async () => {
+    const readable: ReadablePath = {
+      check: async () => {
+        throw new Inconclusive('Opus in WebM: inconclusive (silence from a muted element …)')
+      },
+    }
+    const report = await runSmoke(options({ readable }))
+    expect(report.ok).toBe(true)
+    expect(stepNamed(report, 'Web Audio reads it through fxm-media')).toMatchObject({
+      status: 'inconclusive',
+      detail: 'Opus in WebM: inconclusive (silence from a muted element …)',
     })
   })
 })
