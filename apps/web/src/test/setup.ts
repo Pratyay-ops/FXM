@@ -1,19 +1,46 @@
 import '@testing-library/jest-dom/vitest'
+// An in-memory IndexedDB for the library database (Dexie), one per test file.
+import 'fake-indexeddb/auto'
 import { cleanup, configure } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
+import { resetLibrary } from '../db/repo'
+import { resetDownloads } from '../features/downloads/runtime'
+import { useLibraryViewStore } from '../features/library/view-store'
+import { setLyricsProvider } from '../features/lyrics/lyrics-source'
+import { resetPlayback } from '../features/now-playing/playback'
 import { usePlayerStore } from '../features/player/player-store'
+import { useQueueReviewStore } from '../features/queue/review-store'
+import { useFeedbackStore } from '../features/search/feedback'
+import { useQualityStore } from '../features/settings/quality-store'
 import { useSettingsStore } from '../features/settings/settings-store'
+import { setSponsorBlockClient } from '../features/sponsorblock/sponsorblock-source'
+import { useSponsorBlockStore } from '../features/sponsorblock/sponsorblock-store'
 
 // findBy* and waitFor give up after 1 s by default, shorter than a lazy page's import on a
 // busy machine. Waiting longer only delays real failures.
 configure({ asyncUtilTimeout: 5_000 })
 
-afterEach(() => {
+afterEach(async () => {
   cleanup()
   vi.restoreAllMocks()
   // The stores are app-wide singletons: give every test a fresh start.
   useSettingsStore.setState(useSettingsStore.getInitialState(), true)
-  usePlayerStore.setState(usePlayerStore.getInitialState(), true)
+  useQualityStore.setState(useQualityStore.getInitialState(), true)
+  useQueueReviewStore.setState(useQueueReviewStore.getInitialState(), true)
+  useSponsorBlockStore.setState(useSponsorBlockStore.getInitialState(), true)
+  useLibraryViewStore.setState(useLibraryViewStore.getInitialState(), true)
+  // The shell's toast: no confirmation carries over into the next test.
+  useFeedbackStore.setState(useFeedbackStore.getInitialState(), true)
   localStorage.clear()
+  sessionStorage.clear()
+  // After clearing storage, so the next player restores nothing.
+  resetPlayback()
+  setLyricsProvider(undefined)
+  setSponsorBlockClient(undefined)
+  usePlayerStore.setState(usePlayerStore.getInitialState(), true)
   delete document.documentElement.dataset.theme
+  // After cleanup(), so no live query still watches the database being deleted. Downloads
+  // first: their manager writes to the library.
+  await resetDownloads()
+  await resetLibrary()
 })

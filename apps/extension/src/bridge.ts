@@ -6,8 +6,10 @@
  * The bridge makes exactly two requests, both to fixed URLs:
  * - GET https://open.spotify.com/api/token with allow-listed query parameters and the browser's
  *   own open.spotify.com cookies (`credentials: 'include'`), only while the user has enabled
- *   "Use my Spotify login from this browser" on the options page (settings.ts);
- * - GET https://open.spotify.com/api/server-time without credentials.
+ *   "Use my Spotify login from this browser" on the options page (settings.ts) and, in Firefox,
+ *   consents to handing on authentication information (consent.ts);
+ * - GET https://open.spotify.com/api/server-time without credentials, always: it needs no
+ *   setting and is served in private tabs too.
  * It returns only the HTTP status and the JSON body. It never reads, stores or returns cookies
  * or response headers.
  *
@@ -16,6 +18,8 @@
  * The token relay therefore refuses tabs with cookies of their own: private windows and Firefox
  * container tabs. Otherwise a page there would get the account signed in elsewhere.
  */
+
+import type { LoginConsent } from './consent.ts'
 import {
   type BridgeReply,
   type BridgeRequest,
@@ -51,6 +55,8 @@ export interface BridgeOptions {
   origins: readonly string[]
   /** The user's settings. Only the options page writes them; content scripts cannot reach them. */
   settings: Pick<SettingsStore, 'read'>
+  /** Firefox's consent for the login bridge (consent.ts); without it, only the setting counts. */
+  consent?: Pick<LoginConsent, 'granted'> | undefined
   /** storage.session, where the rate limiter's window survives the background being stopped. */
   session?: StorageArea | undefined
   dnr?: WebExtApi['declarativeNetRequest']
@@ -214,6 +220,8 @@ export function createBridge(options: BridgeOptions): Bridge {
     if (!settings.spotifyLogin) return 'login-disabled'
     // Dev build: any app on the localhost ports counts as FXM, so they need their own opt-in.
     if (isLocalhost(sender.origin) && !settings.spotifyLoginLocalhost) return 'login-disabled'
+    // Firefox: the user can withdraw the consent in the add-on's settings at any time.
+    if (options.consent && !(await options.consent.granted())) return 'login-disabled'
     return sender.privateTab ? 'private-tab' : null
   }
 

@@ -61,6 +61,11 @@ FXM talks to YouTube and Spotify through APIs they don't document. Code that rel
 |---|---|---|
 | YouTube and YouTube Music | [`packages/sources/src/youtube/CLEAN-ROOM.md`](../packages/sources/src/youtube/CLEAN-ROOM.md) | 1.3 |
 | Spotify | [`packages/sources/src/spotify/CLEAN-ROOM.md`](../packages/sources/src/spotify/CLEAN-ROOM.md) | 1.5 |
+| Last.fm (stations and API) | [`packages/sources/src/lastfm/CLEAN-ROOM.md`](../packages/sources/src/lastfm/CLEAN-ROOM.md) | 3.2 |
+| ListenBrainz | [`packages/sources/src/listenbrainz/CLEAN-ROOM.md`](../packages/sources/src/listenbrainz/CLEAN-ROOM.md) | 3.2 |
+| Cover Art Archive | [`packages/sources/src/coverart/CLEAN-ROOM.md`](../packages/sources/src/coverart/CLEAN-ROOM.md) | 3.2 |
+| iTunes Search | [`packages/sources/src/itunes/CLEAN-ROOM.md`](../packages/sources/src/itunes/CLEAN-ROOM.md) | 3.2 |
+| SponsorBlock | [`packages/sources/src/sponsorblock/CLEAN-ROOM.md`](../packages/sources/src/sponsorblock/CLEAN-ROOM.md) | 8.7 |
 
 When FXM starts using another service's undocumented API, start a log for that service in its provider's folder (`packages/sources/src/<service>/CLEAN-ROOM.md`) and add a row here. FXM Connect was written before these logs: the service behaviour it relies on, measured against the live services in October 2026, is described in the header of [`apps/extension/src/rules.ts`](../apps/extension/src/rules.ts) and in the [extension's README](../apps/extension/README.md). New facts go into the logs.
 

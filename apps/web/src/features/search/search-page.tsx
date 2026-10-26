@@ -1,5 +1,14 @@
 import type { SourceId } from '@fxm/core'
-import { type CSSProperties, type RefObject, useEffect, useId, useRef, useState } from 'react'
+import {
+  type CSSProperties,
+  lazy,
+  type RefObject,
+  Suspense,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
 import { Link, useNavigationType, useSearchParams } from 'react-router'
 import { SearchField } from '../../components/layout/search-field'
 import { Artwork } from '../../components/ui/artwork'
@@ -16,6 +25,11 @@ import { searchTiming, useSearchView } from './search-view'
 import { isYouTubeSource, sourceLabel } from './sources'
 import { useSourcesSnapshot } from './sources-context'
 import { useDebouncedValue } from './use-debounced-value'
+
+// Local files (stage 4.4) bring their database: loaded after the page, not with the shell.
+const LocalSearchSection = lazy(() =>
+  import('../local-files/search-section').then((m) => ({ default: m.LocalSearchSection })),
+)
 
 const MODE_HINTS: Readonly<Record<CatalogMode, string>> = {
   music: 'Songs only, from every source.',
@@ -232,6 +246,11 @@ export function SearchPage() {
       {/* From 768px the search box lives in the top bar. */}
       <SearchField className="md:hidden" />
       <SearchFilters />
+      {query && (
+        <Suspense fallback={null}>
+          <LocalSearchSection query={query} />
+        </Suspense>
+      )}
       {query ? (
         <SearchResults query={query} typed={typed} searched={searched} />
       ) : (

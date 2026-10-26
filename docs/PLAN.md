@@ -109,34 +109,34 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **1.7** | Matching engine | `feat/1.7-matching` | 1.1b | ✅ |
 | **1.8** | Lyrics: LRCLIB + LRC parser | `feat/1.8-lyrics` | 1.1 | ✅ |
 | **1.9** | FXM Connect browser extension | `feat/1.9-connect-extension` | 0.4 | ✅ |
-| **1.10** | Opaque-origin transport (Lite tier) | `feat/1.10-sandbox-transport` | 1.2 | 🟡 |
+| **1.10** | Opaque-origin transport (Lite tier) | `feat/1.10-sandbox-transport` | 1.2 | ✅ |
 | **1.11** | YouTube resolver: deciphered, attested and SABR rungs (experimental) | `feat/1.11-youtube-advanced-rungs` | 1.2, 1.4, 1.9, 2.2, 6.1, 7.1 | 🟡 |
 | **1.12** | Matching evaluation: labelled set, report and Auto switch | `test/1.12-matching-eval` | 1.2, 1.3, 1.5, 1.6, 1.7 | 🟡 |
-| **1.13** | Signed config and resolver module | `feat/1.13-signed-updates` | 1.2, 1.3, 1.4, 7.1 | 🟡 |
+| **1.13** | Signed config and resolver module | `feat/1.13-signed-updates` | 1.2, 1.3, 1.4, 7.1 | ✅ |
 | **2.1** | Web app shell and settings | `feat/2.1-web-shell` | 0.4 | ✅ |
 | **2.2** | Player core: queue, direct audio, Media Session | `feat/2.2-player-core` | 1.1b | ✅ |
-| **2.3** | Playback policy and stream lifecycle | `feat/2.3-playback-policy` | 2.2, 1.4, 1.7 | 🟡 |
-| **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | 🟡 |
-| **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | 🟡 |
-| **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | 🟡 |
+| **2.3** | Playback policy and stream lifecycle | `feat/2.3-playback-policy` | 2.2, 1.4, 1.7 | ✅ |
+| **2.4** | Search and browse UI | `feat/2.4-search-browse` | 2.1, 1.2, 1.3, 1.5 | ✅ |
+| **2.5** | Now playing, queue panel, synced lyrics | `feat/2.5-now-playing` | 2.1, 2.3, 1.8 | ✅ |
+| **2.6** | Library: likes, playlists, history, backup | `feat/2.6-library` | 2.1, 1.1b | ✅ |
 | **2.7** | Tiers, onboarding and install guides | `feat/2.7-connect-onboarding` | 2.1, 1.2, 1.6, 1.9, 1.10 | 🟡 |
-| **2.8** | Static deploy to `fxmusic.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 2.9, 5.3, R.1, R.4, 1.10, 1.12 | 🟡 |
-| **2.9** | App composition: real providers, resolver and player | `feat/2.9-app-wiring` | 1.4, 2.3, 2.4, 2.6 | ⬜ |
+| **2.8** | Static deploy to `fxmusic.pages.dev` | `ci/2.8-deploy` | 2.4, 2.5, 2.6, 2.7, 2.9, 5.3, R.1, R.4, 1.10 | ✅ |
+| **2.9** | App composition: real providers, resolver and player | `feat/2.9-app-wiring` | 1.4, 2.3, 2.4, 2.6 | 🟡 |
 | **3.1** | Listening signals and affinity | `feat/3.1-signals` | 2.2, 2.6 | 🟡 |
-| **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | 🟡 |
+| **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | ✅ |
 | **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | 🟡 |
 | **3.4** | Endless autoplay radio | `feat/3.4-autoplay` | 3.3 | ⬜ |
 | **3.5** | Spotify account connect and sync (web) | `feat/3.5-spotify-sync` | 1.5, 2.6, 2.7 | ⬜ |
 | **3.6** | Imports: Spotify, YouTube playlists, CSV/M3U, data export | `feat/3.6-imports` | 1.5, 1.7, 2.6, 3.1 | 🟡 |
-| **4.1** | Download manager + offline playback | `feat/4.1-downloads` | 2.3, 2.6 | 🟡 |
+| **4.1** | Download manager + offline playback | `feat/4.1-downloads` | 2.3, 2.6 | ✅ |
 | **4.2** | Conversion and tagging (custom LGPL ffmpeg.wasm build, mp4box.js) | `feat/4.2-convert` | 4.1 | ⬜ |
-| **4.3** | Quality settings | `feat/4.3-quality` | 2.3 | 🟡 |
-| **4.4** | Local music files (web) | `feat/4.4-local-files` | 2.2, 2.6 | 🟡 |
+| **4.3** | Quality settings | `feat/4.3-quality` | 2.3 | ✅ |
+| **4.4** | Local music files (web) | `feat/4.4-local-files` | 2.2, 2.6 | ✅ |
 | **5.1** | PWA "web applet" | `feat/5.1-pwa` | 2.5 | 🟡 |
 | **5.2** | Embeddable mini-player | `feat/5.2-embed` | 2.3, 1.10 | 🟡 |
 | **5.3** | Landing page | `feat/5.3-site` | 0.4 | ✅ |
 | **6.1** | Android toolchain + Capacitor shell + debug APK | `feat/6.1-android-shell` | 2.1 | ✅ |
-| **6.2** | Android native fetch (OkHttp plugin; YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | 🟡 |
+| **6.2** | Android native fetch (OkHttp plugin; YouTube and Spotify on the device) | `feat/6.2-android-fetch` | 6.1, 1.2, 1.4, 1.5 | ✅ |
 | **6.3** | Native player (Media3) | `feat/6.3-native-player` | 6.1, 2.3 | 🟡 |
 | **6.4** | Native downloads + device music | `feat/6.4-native-downloads` | 6.3, 4.1 | ⬜ |
 | **6.5** | Spotify login on Android | `feat/6.5-android-spotify-login` | 6.2, 3.5 | ⬜ |
@@ -148,7 +148,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **7.5** | Desktop release: installers and auto-update | `ci/7.5-desktop-release` | 7.3, R.1 | ⬜ |
 | **7.6** | Desktop trust: signing and EQ path | `chore/7.6-desktop-trust` | 7.5, 1.11 | ⬜ |
 | **R.1** | Release pipeline (release PR, tags, notes, checksums, attestations) | `ci/r1-release-pipeline` | 0.4, 1.9 | ✅ |
-| **R.2** | Extension store channels: Firefox Add-ons and Edge Add-ons | `ci/r2-extension-stores` | R.1 | 🟡 |
+| **R.2** | Extension store channels: Firefox Add-ons and Edge Add-ons | `ci/r2-extension-stores` | R.1 | ✅ |
 | **R.3** | More channels: F-Droid/IzzyOnDroid/Obtainium, Flathub, winget (Homebrew only if notarized) | `chore/r3-channels` | 6.6, 7.5 | ⬜ |
 | **R.4** | Legal notices and clean-room log | `docs/r4-legal-notices` | 0.4, 5.3 | ✅ |
 | **8.1** | Audio effects: EQ, crossfade, sleep timer, speed, loudness | `feat/8.1-audio-fx` | 2.3, 6.3, 7.3 | ⬜ |
@@ -156,7 +156,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **8.3** | Plugin system for sources and resolvers | `feat/8.3-plugins` | 1.4, 1.5, 1.11 | ⬜ |
 | **8.4** | Backup sync (GitHub Gist) | `feat/8.4-sync` | 2.6 | 🟡 |
 | **8.5** | i18n, accessibility, e2e tests, performance | `chore/8.5-quality-pass` | 5.1 | ⬜ |
-| **8.7** | SponsorBlock in Music + Video (opt-in) | `feat/8.7-sponsorblock` | 2.3, 2.5 | 🟡 |
+| **8.7** | SponsorBlock in Music + Video (opt-in) | `feat/8.7-sponsorblock` | 2.3, 2.5 | ✅ |
 
 Removed in revision 3:
 
@@ -426,7 +426,7 @@ Built in and switchable (Decision 1, option A). A clean-room implementation from
 
 Revision 3 changes nothing here: Connect keeps its Spotify parts (Decision 1, option A), and no second origin is needed while there is no mirror.
 
-### 1.10 Opaque-origin transport (Lite tier)
+### 1.10 Opaque-origin transport (Lite tier) ✅
 
 **Branch** `feat/1.10-sandbox-transport` · **Depends on** 1.2 · **Scope** `packages/platform/src/sandbox/**`, `apps/web/sandbox/innertube.html`, `apps/web/sandbox/userhost.html`
 
@@ -508,7 +508,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - The labelled set and the report are committed, and CI replays them offline from fixtures.
 - The Auto band is a setting that the matching config turns on only if the held-out report shows zero wrong Auto plays and at least 85 % Auto on mainstream tracks, with thresholds tuned on the calibration split only. Otherwise the setting ships off and M1 is Suggest-only. (Zero wrong out of about 150 Auto plays bounds the wrong-Auto rate below about 2 % at 95 % confidence.)
 
-### 1.13 Signed config and resolver module
+### 1.13 Signed config and resolver module ✅
 
 **Branch** `feat/1.13-signed-updates` · **Depends on** 1.2, 1.3, 1.4, 7.1 · **Scope** `packages/platform/src/updates/**`, `packages/sources/src/youtube/module/**`, `scripts/sign-*`, a `live-smoke` Makefile target, the update sentence in `apps/site/src/pages/privacy.astro`
 
@@ -561,7 +561,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - Media Session: metadata, actions, position state.
 - Tests use a fake engine.
 
-### 2.3 Playback policy and stream lifecycle
+### 2.3 Playback policy and stream lifecycle ✅
 
 **Branch** `feat/2.3-playback-policy` · **Depends on** 2.2, 1.4, 1.7 · **Scope** `packages/core/src/playback-policy/**`, `packages/player/src/lifecycle/**`
 
@@ -595,7 +595,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - the Smart Replace triggers and the protection of pins;
 - queues skipping Suggest items.
 
-### 2.4 Search and browse UI
+### 2.4 Search and browse UI ✅
 
 **Branch** `feat/2.4-search-browse` · **Depends on** 2.1, 1.2, 1.3, 1.5 · **Scope** `apps/web/src/features/{search,album,artist,playlist}/**`
 
@@ -612,7 +612,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 
 **Done when** component tests cover the three tiers, and the Spotify switch on and off.
 
-### 2.5 Now playing, queue panel, synced lyrics
+### 2.5 Now playing, queue panel, synced lyrics ✅
 
 **Branch** `feat/2.5-now-playing` · **Depends on** 2.1, 2.3, 1.8 · **Scope** `apps/web/src/features/{now-playing,queue,lyrics}/**`
 
@@ -621,7 +621,7 @@ Measured on 2026-10-25: InnerTube answers CORS-simple POSTs from an opaque origi
 - Synced lyrics with tap-to-seek.
 - A mini player.
 
-### 2.6 Library
+### 2.6 Library ✅
 
 **Branch** `feat/2.6-library` · **Depends on** 2.1, 1.1b · **Scope** `apps/web/src/features/library/**`, `apps/web/src/db/**`
 
@@ -706,9 +706,9 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
 - An end-to-end test with fakes at the network layer covers search, play and the next track on each tier.
 - A manual run with FXM Connect plays a YouTube Music song and an Internet Archive track locally, recorded with the date in `apps/web/README.md`.
 
-### 2.8 Static deploy
+### 2.8 Static deploy ✅
 
-**Branch** `ci/2.8-deploy` · **Depends on** 2.4, 2.5, 2.6, 2.7, 5.3, R.1, R.4, 1.10, 1.12 (the report committed, not a pass) · **Scope** `.github/workflows/deploy.yml`, `scripts/build-dist*`, and in `apps/site/src/` the `lite` flag and any service missing from the privacy page
+**Branch** `ci/2.8-deploy` · **Depends on** 2.4, 2.5, 2.6, 2.7, 2.9, 5.3, R.1, R.4, 1.10. Not 1.12: the owner decided on 2026-10-26 that v0.1.0 ships without waiting for the matching evaluation's 3-hour recording, with Auto off, so matches play when tapped · **Scope** `.github/workflows/deploy.yml`, `scripts/build-dist*`, and in `apps/site/src/` the `lite` flag and any service missing from the privacy page
 
 - `make dist` composes one folder, with **no Functions**:
   - the site at `/`;
@@ -773,7 +773,7 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
   - append to `CHANGELOG.md`.
 - Each platform stage (6.6, 7.5, R.2) adds its artifacts to this workflow.
 
-### R.2 Extension store channels
+### R.2 Extension store channels ✅
 
 **Branch** `ci/r2-extension-stores` · **Depends on** R.1 · **Scope** the extension jobs in `.github/workflows/release.yml`, `apps/extension/store/**`, the install and store sections of `apps/extension/README.md`, and on the site the `firefox` flag in `apps/site/src/config.ts` and the sentences below
 

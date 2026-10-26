@@ -13,6 +13,7 @@ import {
   type Platform,
   type ProviderContext,
 } from '@fxm/core'
+import { androidHttpIfAvailable } from './android-http'
 import { createRequestBudget, type RequestBudget, type RequestPriority } from './budget'
 import { type CapabilityMonitor, createCapabilityMonitor } from './capabilities'
 import { createCapacitorTransport } from './capacitor'
@@ -106,7 +107,10 @@ export interface PlatformOptions {
    * (such as `createKillSwitchStore()`), whose changes update the capabilities at once.
    */
   killSwitches?: (() => KillSwitches) | KillSwitchSource
-  /** Desktop and Android: the native HTTP of stage 7.2 or 6.2. Without it, the stub transport. */
+  /**
+   * Desktop and Android: the native HTTP of stage 7.2 or 6.2. Without it, the stub transport,
+   * except on Android when the app has its FxmHttp plugin ({@link androidHttpIfAvailable}).
+   */
   nativeHttp?: NativeHttp
   /**
    * Desktop, Android and Node: the token source of the user's Spotify login (the login window's
@@ -236,6 +240,9 @@ function browserPieces(options: PlatformOptions): Pieces {
 }
 
 function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptions): Pieces {
+  // On Android, the app's FxmHttp plugin (stage 6.2) when the caller passes no native HTTP.
+  const nativeHttp =
+    options.nativeHttp ?? (environment === 'capacitor' ? androidHttpIfAvailable() : undefined)
   const storage = options.storage ?? browserStorage() ?? memoryStorage()
   const budget = createRequestBudget({
     storage,
@@ -243,7 +250,7 @@ function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptio
   })
   const transportOptions = {
     budget,
-    ...(options.nativeHttp === undefined ? {} : { http: options.nativeHttp }),
+    ...(nativeHttp === undefined ? {} : { http: nativeHttp }),
     ...(options.userHosts === undefined ? {} : { userHosts: options.userHosts }),
     ...(options.userAgent === undefined ? {} : { userAgent: options.userAgent }),
     ...(options.fetch === undefined ? {} : { webFetch: options.fetch }),
@@ -257,7 +264,7 @@ function nativePieces(environment: 'tauri' | 'capacitor', options: PlatformOptio
       : createCapacitorTransport(transportOptions)
   const capabilities = createCapabilityMonitor({
     platform: ENVIRONMENT_PLATFORMS[environment],
-    nativeTransport: options.nativeHttp !== undefined,
+    nativeTransport: nativeHttp !== undefined,
     nativeSpotifyLogin: options.spotifySession !== undefined,
   })
   return {
@@ -299,8 +306,8 @@ function nodePieces(options: PlatformOptions): Pieces {
  * Creates the platform for the environment FXM runs in (or `options.environment`):
  *
  * - **browser:** the web transport with FXM Connect and, given `sandbox`, the Lite tier;
- * - **tauri** and **capacitor:** the native transport given `nativeHttp`, else the stub that
- *   reaches only CORS-friendly hosts;
+ * - **tauri** and **capacitor:** the native transport given `nativeHttp` (on Android, by default
+ *   the app's FxmHttp plugin), else the stub that reaches only CORS-friendly hosts;
  * - **node:** the Node transport, with full access.
  *
  * It resolves once FXM Connect detection is done (at most its 800 ms ping), so

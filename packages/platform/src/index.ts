@@ -9,6 +9,22 @@
  * @module
  */
 
+export {
+  type AndroidHttp,
+  type AndroidHttpOptions,
+  androidHttpIfAvailable,
+  createAndroidHttp,
+  FXM_HTTP_ERROR_CODES,
+  FXM_HTTP_MAX_READ_BYTES,
+  FXM_HTTP_PLUGIN,
+  FXM_HTTP_READ_BYTES,
+  type FxmHttpChunk,
+  type FxmHttpErrorCode,
+  type FxmHttpPlugin,
+  type FxmHttpRequest,
+  type FxmHttpResponseHead,
+  fxmHttpErrorCode,
+} from './android-http'
 export type {
   AcquireOptions,
   BotCheckCause,
@@ -118,6 +134,22 @@ export type {
 } from './platform'
 export { createPlatform, detectEnvironment, ENVIRONMENT_PLATFORMS } from './platform'
 export type {
+  BrowserSandboxTransport,
+  SandboxDocumentOptions,
+  SandboxError,
+  SandboxErrorCode,
+  SandboxHostWindow,
+  SandboxTransportOptions,
+} from './sandbox'
+export {
+  createSandboxTransport,
+  isSandboxError,
+  SandboxFailedError,
+  SandboxRefusedError,
+  sandboxDocumentHeader,
+  sandboxDocumentPolicy,
+} from './sandbox'
+export type {
   SessionTokenOptions,
   SessionTokenSource,
   TokenEndpointResponse,
@@ -128,5 +160,6 @@ export { browserStorage, memoryStorage } from './storage'
 export type { TauriTransportOptions } from './tauri'
 export { createTauriTransport } from './tauri'
 export type { RouteKind, Transport, TransportOptions } from './transport'
+export * from './updates'
 export type { WebTransportOptions } from './web'
 export { createWebTransport } from './web'
