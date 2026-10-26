@@ -101,7 +101,7 @@ describe('explainConnection', () => {
     )
   })
 
-  it('mentions the Spotify login when FXM Connect offers it', () => {
+  it('mentions the Spotify login when FXM Connect offers it, for the account connection to come', () => {
     const lines = explainConnection(
       readyConnection({
         connect: { ...CONNECT_STATUS.present, features: ['youtube', 'spotify', 'spotify-login'] },
@@ -109,7 +109,12 @@ describe('explainConnection', () => {
         lite: 'not-needed',
       }),
     )
-    expect(lines).toContain('FXM Connect lets FXM use your Spotify login from this browser.')
+    // The app uses the login only for a connected account, which isn't released yet.
+    expect(RELEASED.spotifyAccount).toBe(false)
+    expect(lines).toContain(
+      'FXM Connect allows your Spotify login from this browser, for when you connect your Spotify account (coming soon).',
+    )
+    expect(lines.join(' ')).not.toMatch(/lets FXM use your Spotify login/)
   })
 
   it('speaks of the app on desktop and Android', () => {
@@ -140,6 +145,10 @@ describe('the short descriptions', () => {
     expect(describeYouTube(TIER_CAPABILITIES.free)).toBe('Not reachable')
     expect(describeSpotify(TIER_CAPABILITIES.full)).toBe('Reachable')
     expect(describeSpotify(TIER_CAPABILITIES.lite)).toBe('Not reachable')
+    // With FXM Connect's login option on: allowed, but unused until an account is connected.
+    expect(describeSpotify({ ...TIER_CAPABILITIES.full, spotify: 'account' })).toBe(
+      'Reachable. Your Spotify login is allowed, for when you connect your Spotify account (coming soon)',
+    )
   })
 })
 

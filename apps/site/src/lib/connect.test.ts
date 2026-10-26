@@ -10,9 +10,11 @@ import {
 } from './connect'
 
 describe('before the signed Firefox add-on is out', () => {
-  it('keeps FXM Connect to Chromium browsers on a computer and says the add-on is coming', () => {
+  it('keeps the zip to Chromium browsers on a computer, and offers Firefox the temporary add-on', () => {
+    // Each release has a Firefox zip, which the web app's install guide loads as a temporary
+    // add-on in Firefox 140 or later.
     expect(installFinePrint(false)).toBe(
-      'For Chrome, Edge and Brave 120 or later, on a computer. A Firefox add-on is coming.',
+      'For Chrome, Edge and Brave 120 or later, on a computer. Until the signed Firefox add-on is out, Firefox 140 or later can load the Firefox zip from the same release as a temporary add-on, which it removes when it restarts.',
     )
   })
 

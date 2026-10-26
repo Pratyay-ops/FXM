@@ -59,6 +59,13 @@ describe('ImportPage', () => {
     expect(
       await screen.findByRole('heading', { level: 1, name: 'Import music' }),
     ).toBeInTheDocument()
+    // Matches are best guesses to review, so the intro promises no more than a search.
+    expect(
+      screen.getByText(
+        /FXM looks for every song on YouTube Music, lists the ones it isn’t sure of/u,
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/finds every song/u)).not.toBeInTheDocument()
   })
 
   it('imports a CSV file: preview, start, then the match runs in the background', async () => {
