@@ -110,3 +110,19 @@ The YouTube Music and YouTube providers in this folder talk to InnerTube, an API
 | Fact | Source | Date |
 |---|---|---|
 | Thumbnails are `{ url, width, height }` lists; Google image URLs on `*.googleusercontent.com` and `*.ggpht.com` end in a size suffix (`=w120-h120-l90-rj`, `=s88-c-k-…`) and render other sizes on request, up to the 544 px that album pages list | Rec-25 (thumbnail URLs in every fixture); Rec-26 (a 544 px size in a `player` answer's `videoDetails`) | 2026-10-26 |
+
+## The Lite tier: opaque origins (stage 1.10)
+
+The facts the Lite tier's sandbox documents (`packages/platform/src/sandbox/`) rely on; the browser behaviour they rely on is in that folder's own `CLEAN-ROOM.md`. Two more sources:
+
+- **Lite-26a**: stage 1.10's live browser test (`packages/platform/src/sandbox/e2e/live.e2e.ts`, `FXM_LIVE=1`) on 2026-10-26 at 02:40 IST (21:10 UTC the day before), from a residential connection in India, in Playwright's Chromium 156.0.8078.4 and Firefox 157.0 on macOS: the self-test, a YouTube Music search, `next`, `browse` and a hand-built VISIONOS `player` call from the sandbox document, then the same with `FXM_FULL_PLAYBACK=1`, one run each per browser. The answers were read and summarised, not kept
+- **Lite-26b**: the same test at 04:06–04:13 IST (22:36–22:43 UTC the day before), with 1.3's search and 1.4's stream resolver sending their requests through the sandbox, one run each per browser
+
+| Fact | Source | Date |
+|---|---|---|
+| InnerTube answers CORS-simple `POST`s sent with `Origin: null` with 200 and `Access-Control-Allow-Origin: null`, on `search`, `next`, `browse` and `player`; it answers preflights from `null` with 403, and named foreign origins with 403 and no CORS headers | Memo §2.4 and §3 (five verification runs; in browsers only `search` and `player`) | 2026-10-25 |
+| From a document served with `sandbox allow-scripts` and framed with `sandbox="allow-scripts"`, in Chromium 156 and Firefox 157, `music/get_search_suggestions`, `search`, `next` and `browse` on `music.youtube.com` and `player` on `www.youtube.com` answered 200 to CORS-simple `POST`s, and the document could read every answer, so each allowed the `null` origin | Lite-26a; Lite-26b (`music/get_search_suggestions`, `search` and `player`) | 2026-10-26 |
+| `youtubei.googleapis.com` was not called from a browser by stage 1.10; the memo's curl and Node runs are the evidence for it | Memo §2.4 | 2026-10-25 |
+| A search sent from the sandbox without visitorData is answered with a server-issued one, and with it VISIONOS answers `player` from the sandbox with `OK` and direct URLs: Opus 251 among `adaptiveFormats` with no `signatureCipher` (a hand-built call), and five options of the `visionos` rung through 1.4's resolver | Lite-26a; Lite-26b | 2026-10-26 |
+| `<audio src>` on the FXM page played a VISIONOS URL resolved through the sandbox: `playing` after 0.7 s (Opus 251) and 0.8 s (AAC 140) in Chromium, and 0.1 s and 0.7 s in Firefox | Lite-26a; Lite-26b | 2026-10-26 |
+| VISIONOS URLs resolved through the sandbox are served in full to `<audio>`: "Blitzkrieg Bop (2016 Remaster)" (Opus 251, 134.481 s) and "Blitzkrieg Bop" (AAC 140, 134.467 s) played to `ended` in both browsers, without a stall, in 135–136 s of wall time | Lite-26a; Lite-26b | 2026-10-26 |

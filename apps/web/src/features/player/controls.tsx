@@ -13,11 +13,17 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { IconButton, type IconButtonSize } from '../../components/ui/icon-button'
 import { RangeSlider } from '../../components/ui/range-slider'
 import { cn } from '../../lib/cn'
+import { useCurrentItem } from '../now-playing/playback'
 import { type RepeatMode, usePlayerStore } from './player-store'
+
+// The library (IndexedDB) loads after the shell's first render, not with it.
+const LibraryLikeButton = lazy(() =>
+  import('../library/like-button').then((module) => ({ default: module.LibraryLikeButton })),
+)
 
 const REPEAT_LABELS: Readonly<Record<RepeatMode, string>> = {
   off: 'Enable repeat',
@@ -201,20 +207,18 @@ export function SeekBar({ className }: { className?: string }) {
   )
 }
 
-/** Likes the current track (a placeholder until the library, stage 2.6); off while none. */
+/**
+ * Likes the current track: it goes to the top of Liked songs in the library. Off while nothing
+ * plays, and until the library has loaded.
+ */
 export function LikeButton({ size = 'sm' }: { size?: IconButtonSize }) {
-  const hasTrack = usePlayerStore((state) => state.hasTrack)
-  const liked = usePlayerStore((state) => state.liked)
-  const toggleLiked = usePlayerStore((state) => state.toggleLiked)
+  const track = useCurrentItem()?.track
+  const off = <IconButton label="Like" icon={<Heart />} size={size} pressed={false} disabled />
+  if (track === undefined) return off
   return (
-    <IconButton
-      label="Like"
-      icon={<Heart fill={liked ? 'currentColor' : 'none'} />}
-      size={size}
-      pressed={liked}
-      disabled={!hasTrack}
-      onClick={toggleLiked}
-    />
+    <Suspense fallback={off}>
+      <LibraryLikeButton track={track} size={size} />
+    </Suspense>
   )
 }
 

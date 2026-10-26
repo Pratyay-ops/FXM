@@ -11,7 +11,7 @@ FXM has no servers: all of this runs on the user's device. Providers only ever u
 ## Quick start
 
 ```ts
-import { createKillSwitchStore, createPlatform } from '@fxm/platform'
+import { createKillSwitchStore, createPlatform, createSandboxTransport } from '@fxm/platform'
 
 const killSwitches = createKillSwitchStore() // set it whenever the remote config changes
 
@@ -19,7 +19,7 @@ const killSwitches = createKillSwitchStore() // set it whenever the remote confi
 // Resolves once FXM Connect detection is done (at most 800 ms); the Lite self-test, a round
 // trip to YouTube, goes on in the background.
 const platform = await createPlatform({
-  sandbox, // the Lite tier's sandbox documents (stage 1.10); leave out for no Lite tier
+  sandbox: createSandboxTransport(), // the Lite tier's sandbox documents; leave out for no Lite tier
   killSwitches, // or a function: () => remoteConfig.killSwitches
 })
 
@@ -53,7 +53,7 @@ On the web, what FXM reaches depends on the tier:
 | Last.fm station JSON | — | — | ✅ |
 | Capabilities | `youtube: 'none'` | `youtube: 'simple'` | `youtube: 'full'`, `mediaBytes: true` |
 
-`<audio src>` plays googlevideo URLs on every tier: playback needs no `fetch`. The desktop and Android apps reach everything once their native HTTP exists (stages 7.2 and 6.2), and Node always does.
+`<audio src>` plays googlevideo URLs on every tier: playback needs no `fetch`. The Android app reaches everything through its native HTTP (stage 6.2), the desktop app once its own exists (stage 7.2), and Node always does.
 
 Routes are decided when a request is sent, from FXM Connect's status and the Lite tier's readiness at that moment. A request that draws from the budget asks twice: before it takes a slot, so a closed route costs nothing, and right before it is sent, so a route that closed while the call waited (FXM Connect disabled, the Lite kill switch set) is never used. `transport.canReach(url)` asks the same question without sending anything, e.g. to skip Last.fm stations without FXM Connect.
 
@@ -72,8 +72,10 @@ A request a transport refuses rejects before anything is sent, with an `FxmError
 | `BudgetError` | `RateLimited` | The budget refused the call: `reason` is `paused`, `reserve` or `spacing`, and `retryAfterMs` says when a slot is expected |
 | `ConnectBridgeError` | per code | FXM Connect's bridge refused (see below) |
 | `FxmError` | `BotCheck` | A YouTube request was sent to Google's "unusual traffic" page |
+| `SandboxRefusedError`, a `TransportError` with `reason: 'bad-request'` or `'redirect'` | `Unsupported` | Lite: a sandbox document refused the request before sending it, or did not follow a redirect. `sandboxCode` says why, e.g. `preflight` ([the sandbox's errors](src/sandbox/README.md#errors)) |
+| `SandboxFailedError` | `Network`, `Parse` | Lite: a sandbox request failed once sent: no complete response in time (`timeout`), a network or CORS failure (`network`), or a response over the cap (`too-large`, `Parse`) |
 
-`isTransportError(error, reason?)`, `isRouteUnavailable(error)` and `isBudgetError(error, reason?)` also recognize errors from a second copy of the package. Programming errors (an unknown priority, a negative wait limit) throw a `RangeError`.
+`isTransportError(error, reason?)`, `isRouteUnavailable(error)`, `isBudgetError(error, reason?)` and `isSandboxError(error, sandboxCode?)` also recognize errors from a second copy of the package. Programming errors (an unknown priority, a negative wait limit) throw a `RangeError`.
 
 ## Hosts
 
@@ -183,7 +185,7 @@ Anonymous tokens need no bridge: with FXM Connect the page fetches `open.spotify
 `resolveCapabilities(inputs)` is the pure rule, `detectCapabilities(options)` runs it once, and `createCapabilityMonitor(options)` keeps the result current and has `subscribe`:
 
 - **Web:** FXM Connect `present` with feature `youtube` gives `youtube: 'full'`, plus `mediaBytes` with `googlevideo`. Otherwise `'simple'` once the Lite self-test passed and no kill switch is set, else `'none'`. Spotify is `anonymous` with feature `spotify` and `account` with `spotify-login` as well, otherwise `unreachable`.
-- **Desktop and Android:** `full`, media bytes, and Spotify `anonymous` (or `account` with a login token source) once their native HTTP exists. Until stages 7.2 and 6.2 supply it, their transports are stubs and they honestly report `youtube: 'none'` and Spotify `unreachable`.
+- **Desktop and Android:** `full`, media bytes, and Spotify `anonymous` (or `account` with a login token source) once their native HTTP exists: on Android the `FxmHttp` plugin (stage 6.2). Without it, as on the desktop until stage 7.2, their transports are stubs and they honestly report `youtube: 'none'` and Spotify `unreachable`.
 - `mediaBytes` is only ever `true` with `youtube: 'full'`, as `NetworkCapabilities` requires.
 
 Detection follows the architecture's order: FXM Connect first, and the Lite self-test only when it gives no full access. The monitor follows FXM Connect and the Lite tier by itself: a self-test that ended, a kill switch set or lifted through a `KillSwitchSource`, FXM Connect appearing or going away. `capabilities.refresh()` detects again and waits for a self-test it starts; `refresh({ waitForLite: false })`, which `createPlatform` uses, does not, and the subscribers hear the outcome. With kill switches read through a function, call `refresh()` after they change.
@@ -199,6 +201,8 @@ Detection follows the architecture's order: FXM Connect first, and the Lite self
 `createLiteTier({ sandbox, killSwitches, budget })` is the gate the transport and the capabilities share. `ready` is true while the self-test passed and the kill switch is off, so flipping the switch closes the route at once; `state` (`unchecked`, `checking`, `passed`, `refused`, `unreachable`, `killed`) is for Settings → Diagnostics, and `subscribe` reports its changes. The self-test draws one `interactive` slot and the gate waits for it at most 10 s (`selfTestTimeoutMs`), then aborts it. Only a definite answer is kept for the session: after an `unreachable` one the tier tries again by itself after 15 s, then twice as long each time up to 5 minutes, for 8 attempts, and whenever the browser comes back online, so a PWA opened offline reaches Lite without a reload. `check({ force: true })` runs the self-test again; the tier stays ready while a forced re-run after a pass is under way.
 
 `killSwitches` is a function or a `KillSwitchSource` (`get()` and `subscribe()`); `createKillSwitchStore()` is one the app sets whenever a new remote config arrives.
+
+`createSandboxTransport()` (`src/sandbox/`) is the implementation: it frames each document on first use, hidden, with `sandbox="allow-scripts"` and a random token in the URL's fragment that the document must send back, and talks to it over a private `MessagePort`. Refused requests reject with a `SandboxRefusedError` (a `TransportError`), failed ones with a `SandboxFailedError` (`Network` or `Parse`). Both documents are generated from `src/sandbox/document.ts` into `apps/web/sandbox/`. How they stay opaque, what each sends, their errors and protocol, the browser tests, and the 2026-10-26 test record (Chromium 156 and Firefox 157 played a song to its end through the sandbox, with stage 1.3's search and 1.4's resolver; Safari not tested) are in [src/sandbox/README.md](src/sandbox/README.md).
 
 ## Native transports
 
@@ -216,7 +220,13 @@ Desktop and Android reach every host directly through a `NativeHttp` function: `
 The native HTTP must resolve with a `Response` for every HTTP status and reject only when no response arrives. Its client keeps no cookie jar at all: OkHttp with `CookieJar.NO_COOKIES` (Media3 may keep a client of its own), plugin-http built without its `cookies` feature. The user's Spotify login cookies are only ever used by the token commands of stages 7.4 and 6.5, through `spotifySession`, never through `NativeHttp`. With `userAgent`, YouTube and Spotify requests that carry no `User-Agent` get that browser one: Spotify refuses non-browser agents.
 
 - **Tauri (stage 7.2):** `createTauriTransport({ budget, http })`, where `http` wraps `@tauri-apps/plugin-http` built with `unsafe-headers`: it passes `''` for `origin: null` (the plugin then removes the header), `maxRedirections: 0`, and sends `user` routes through a Rust command that checks the approved list, since plugin-http's scopes cannot change at run time.
-- **Capacitor (stage 6.2):** `createCapacitorTransport({ budget, http })`, where `http` wraps FXM's OkHttp plugin (`followRedirects(false)`, no cookie jar). Never Capacitor's global `CapacitorHttp` patch or `CapacitorHttp.request`: the patch drops headers and corrupts binary bodies, and both send and store WebView cookies.
+- **Capacitor (stage 6.2):** `createCapacitorTransport({ budget, http: createAndroidHttp() })`. `createAndroidHttp` (`src/android-http.ts`) is the `NativeHttp` over `FxmHttp`, FXM's OkHttp plugin in [`apps/mobile/android/fxm-http`](../../apps/mobile/android/fxm-http/README.md), whose client has no cookie jar (`CookieJar.NO_COOKIES`) and is shared with the Media3 player. `createPlatform` uses it by itself on Android when the app has the plugin (`androidHttpIfAvailable`). Never Capacitor's global `CapacitorHttp` patch or `CapacitorHttp.request`: the patch drops headers and corrupts binary bodies, and both send and store WebView cookies. The app replaces Capacitor's built-in `CapacitorHttp` plugin with one that refuses every call.
+
+  The adapter sends `init.origin` as the plugin's `origin` header (`''` for `null`, which the plugin sends as no `Origin`) and every request with `redirect: 'manual'`. The response resolves once its headers are in, and its body streams: JavaScript pulls base64 chunks of up to 256 KiB from the plugin, so any byte survives the bridge. Aborting cancels the native call. Failures are as in `fetch` (`TypeError`), except that refusals by the plugin's own copy of FXM's rules are `TransportError`s with the reason the transports give for the same refusal (`unknown-host`, `bad-request`, `redirect`). On Android leave `userAgent` unset: the plugin gives every request without one a reduced Chrome agent, without the device model, Android build and WebView marker that `navigator.userAgent` carries there.
+
+  **Read or cancel every body.** The plugin holds each open response in one of 64 slots until its body is read to the end or cancelled (`response.body?.cancel()`). A body dropped unread is released when the page collects it (a `FinalizationRegistry`), and the plugin frees a slot nobody reads after a minute, or after five seconds when every slot is taken; until then it holds memory and a connection.
+
+  **User hosts.** A `user` route whose own host the user has not approved shows a system dialog, once per host at a time, and is retried if they allow it. After "Don't allow", requests to that host fail at once (`unknown-host`) for the rest of the session; only `approveHosts`, which Settings calls, asks again. No dialog ever names a host of FXM's own services or the target of a redirect: the adapter asks only about the request's own host, and the plugin refuses to approve a host on the table. `approveHosts`, `approvedHosts` and `revokeHosts` on the returned function serve Settings; every `createAndroidHttp` over the same plugin shares the questions and refusals. The bridge protocol and the native rules are in the module's [README](../../apps/mobile/android/fxm-http/README.md).
 
 Without `http`, both are stubs: CORS-friendly hosts through the webview's own `fetch` (on Android the unpatched one, `unpatchedFetch()`), and a `RouteUnavailableError` (needs `native`) naming the missing stage for everything else.
 
@@ -229,6 +239,7 @@ Without `http`, both are stubs: CORS-friendly hosts through the webview's own `f
 - `createFakeClock()`: a `Clock` whose time only the test moves; `advanceAsync` lets promises settle between timers.
 - `createFakeSandbox()`: a `SandboxTransport` that refuses requests the real sandbox could not send (not CORS-simple, or not one of the allowed InnerTube paths) and records the rest. `selfTest` answers `'pass'` unless told otherwise.
 - `installFakeConnect(window)`: marks a page and answers pings and bridge requests the way FXM Connect's content script does.
+- `createFakeFxmHttp(options)`: the Android app's `FxmHttp` plugin, answering from a handler that returns a `Response`. It streams bodies in chunks, honours aborts, hands redirects back as they are, and refuses hosts as the native plugin does (`HOST_NOT_APPROVED` with `data.host`, which `answer` can then approve). `fxmHttpError(code)` makes the errors the plugin rejects with.
 
 Tests that need a page create their own happy-dom `Window` at the FXM origin: in Vitest's global happy-dom environment, a message's `event.source` is not the page's `window`. happy-dom delivers `postMessage` on real timers, so the clients take an injectable `clock` for their timeouts.
 
@@ -236,6 +247,7 @@ Tests that need a page create their own happy-dom `Window` at the FXM origin: in
 scripts/run.sh pnpm vitest run packages/platform                      # this package's tests
 scripts/run.sh pnpm vitest run --coverage --coverage.include='packages/platform/src/**' packages/platform
 scripts/run.sh pnpm --filter @fxm/platform typecheck
+scripts/run.sh pnpm --filter @fxm/platform test:e2e                 # the sandbox documents in Chromium and Firefox
 ```
 
 ## Layout
@@ -246,6 +258,7 @@ scripts/run.sh pnpm --filter @fxm/platform typecheck
 | `src/platform.ts` | `detectEnvironment`, `createPlatform`, `FxmPlatform.context` and `report` |
 | `src/transport.ts` | The shared transport core: classification, request forms, budget draws, redirects, bot-check reports |
 | `src/web.ts`, `src/node.ts`, `src/native.ts`, `src/tauri.ts`, `src/capacitor.ts` | One transport per environment, and the native contract |
+| `src/android-http.ts` | The Android app's native HTTP over the `FxmHttp` plugin (stage 6.2) |
 | `src/errors.ts` | `TransportError` and `RouteUnavailableError` |
 | `src/hosts.ts`, `src/cors.ts`, `src/innertube.ts` | The host table, the CORS safelist and the InnerTube request shape |
 | `src/budget.ts` | The shared request budget and `BudgetError` |
@@ -255,7 +268,8 @@ scripts/run.sh pnpm --filter @fxm/platform typecheck
 | `src/capabilities.ts` | Capability rules, detection and the monitor |
 | `src/clock.ts`, `src/storage.ts` | Injectable time and key-value storage |
 | `src/testing/` | The test helpers |
+| `src/sandbox/` | The Lite tier's sandbox documents and `createSandboxTransport` (stage 1.10, [its README](src/sandbox/README.md)) |
 
-`src/sandbox/` (stage 1.10), `src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
+`src/updates/` (1.13, signed config and resolver module) and `src/evaluator/` (1.11) belong to later stages.
 
 See [ARCHITECTURE.md §8](../../docs/ARCHITECTURE.md#8-platforms-and-network-transports).
