@@ -21,6 +21,24 @@ function nextUp() {
   return within(section).queryAllByRole('listitem')
 }
 
+/**
+ * The "now playing" marker of the current song's row: how its bars stand, and what it says in
+ * visually hidden text. No song up next has one.
+ */
+function currentMarker() {
+  const markers = screen
+    .getByRole('region', { name: 'Now playing' })
+    .querySelectorAll('svg[data-now-playing]')
+  expect(markers).toHaveLength(1)
+  for (const row of nextUp()) expect(row.querySelector('svg[data-now-playing]')).toBeNull()
+  const bars = markers[0] as SVGElement
+  return {
+    status: bars.getAttribute('data-now-playing'),
+    moving: bars.hasAttribute('data-moving'),
+    words: bars.parentElement?.querySelector('.sr-only')?.textContent ?? null,
+  }
+}
+
 /** Gives every row of "Next up" a layout: 60 px tall, one under the other. */
 function layOutRows() {
   nextUp().forEach((row, index) => {
@@ -57,6 +75,33 @@ describe('queue panel', () => {
       screen.getByRole('button', { name: 'Play c c artist' }),
     ])
     expect(screen.getByText('An album')).toBeInTheDocument()
+  })
+
+  it('marks the current song as the track lists do, and follows the player', async () => {
+    const { player, resolver } = setupTestPlayback()
+    await player.setQueue(testTracks('a', 'b'), { autoplay: false })
+    await renderQueue()
+    const current = within(screen.getByRole('region', { name: 'Now playing' }))
+
+    expect(currentMarker()).toEqual({ status: 'paused', moving: false, words: 'Paused' })
+    await act(() => player.play())
+    expect(currentMarker()).toEqual({ status: 'playing', moving: true, words: 'Now playing' })
+    // The marker goes with the current song; no song up next has one.
+    await act(() => player.next())
+    expect(current.getByText('b')).toBeInTheDocument()
+    expect(currentMarker()).toEqual({ status: 'playing', moving: true, words: 'Now playing' })
+    act(() => player.pause())
+    expect(currentMarker()).toEqual({ status: 'paused', moving: false, words: 'Paused' })
+
+    // A song that couldn't play: still bars, and "Couldn’t play" said once, under its title.
+    resolver.handler = () => {
+      throw new FxmError('NotFound', 'Gone')
+    }
+    await act(() => player.setQueue(testTracks('c')))
+    expect(player.getState().status).toBe('error')
+    expect(current.getByText('c')).toBeInTheDocument()
+    expect(currentMarker()).toEqual({ status: 'error', moving: false, words: null })
+    expect(current.getAllByText('Couldn’t play')).toHaveLength(1)
   })
 
   it('plays a song when it is selected', async () => {
