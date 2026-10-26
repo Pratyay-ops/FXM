@@ -14,6 +14,9 @@
 //! is hidden, the close button keeps music playing in the background ([`window`]), the
 //! [`network`] watcher tells the web app when stream URLs need resolving again, and
 //! [`environment`] tells it which macOS it runs on.
+//!
+//! Updates (stage 7.5): release builds look for a newer version on GitHub Releases and offer it
+//! ([`updater`]), through tauri-plugin-updater, which only Rust uses.
 
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
@@ -29,6 +32,7 @@ pub mod playback;
 #[cfg_attr(not(feature = "smoke"), allow(dead_code))]
 mod smoke;
 pub mod tray;
+pub mod updater;
 pub mod user_hosts;
 pub mod window;
 
@@ -60,7 +64,10 @@ pub fn run() {
         // Opens links with target="_blank" in the default browser.
         .plugin(tauri_plugin_opener::init())
         // The isolated evaluator in a hidden webview of its own (stage 1.11, src/evaluator.rs).
-        .plugin(evaluator::init());
+        .plugin(evaluator::init())
+        // Updates (src/updater.rs). Only Rust calls it: the web app's capability grants none of
+        // its commands.
+        .plugin(tauri_plugin_updater::Builder::new().build());
     // macOS: Tauri's default app menu, with Window > FXM (⌘0) to bring a hidden window back.
     #[cfg(target_os = "macos")]
     let builder = builder
@@ -79,6 +86,10 @@ pub fn run() {
                 eprintln!("FXM runs without a tray icon: {error}");
             }
             network::watch(app.handle().clone());
+            // Release builds with FXM's updater key only; never the smoke build, which runs
+            // unattended.
+            #[cfg(not(feature = "smoke"))]
+            updater::start(app.handle());
             // The live smoke test's build only (apps/desktop/smoke).
             #[cfg(feature = "smoke")]
             smoke::listen(app.handle());
@@ -144,6 +155,44 @@ mod tests {
             main.background_throttling,
             Some(BackgroundThrottlingPolicy::Disabled)
         ));
+    }
+
+    #[test]
+    fn the_app_has_the_version_of_its_package() {
+        // tauri.conf.json reads it from ../package.json, which `make release-pr` sets with every
+        // other package's: the updater compares it with the latest release's.
+        let context = context();
+        let package: serde_json::Value =
+            serde_json::from_str(include_str!("../../package.json")).expect("package.json");
+        assert_eq!(
+            context.package_info().version.to_string(),
+            package["version"]
+                .as_str()
+                .expect("package.json has a version")
+        );
+    }
+
+    #[test]
+    fn updates_come_from_the_latest_release_and_must_name_their_version() {
+        let context = context();
+        let updater = &context.config().plugins.0["updater"];
+        assert_eq!(
+            updater["endpoints"],
+            serde_json::json!([
+                "https://github.com/Pratyay-ops/FXM/releases/latest/download/latest.json"
+            ])
+        );
+        // A signature must name the version latest.json announces, so an older release can't
+        // pass for a newer one.
+        assert_eq!(updater["requireSignedVersion"], true);
+        for setting in [
+            "dangerousInsecureTransportProtocol",
+            "dangerousAcceptInvalidCerts",
+            "dangerousAcceptInvalidHostnames",
+            "allowDowngrades",
+        ] {
+            assert!(updater.get(setting).is_none(), "{setting} must stay off");
+        }
     }
 
     #[test]

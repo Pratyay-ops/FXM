@@ -47,6 +47,8 @@ use tauri_plugin_http::reqwest::{
     redirect::Policy,
 };
 
+use crate::window::in_front;
+
 /// The file in the app's config folder that keeps the approved hosts.
 pub const FILE_NAME: &str = "user-hosts.json";
 
@@ -460,13 +462,6 @@ pub async fn approve_user_host<R: Runtime>(
     }
     hosts.insert(host.clone())?;
     Ok(Some(host))
-}
-
-/// Whether `window` is visible, not minimized, and has the focus.
-fn in_front<R: Runtime>(window: &WebviewWindow<R>) -> bool {
-    window.is_visible().unwrap_or(false)
-        && !window.is_minimized().unwrap_or(true)
-        && window.is_focused().unwrap_or(false)
 }
 
 /// The dialog's buttons. "Don't Allow" comes first where the first button is the one Return

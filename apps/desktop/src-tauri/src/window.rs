@@ -11,7 +11,7 @@ use std::{
 };
 
 use rfd::{AsyncMessageDialog, MessageButtons, MessageLevel};
-use tauri::{AppHandle, Manager, RunEvent, Runtime, Window, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, Runtime, WebviewWindow, Window, WindowEvent};
 
 use crate::{MAIN_WINDOW, tray};
 
@@ -245,6 +245,15 @@ pub fn on_run_event<R: Runtime>(app: &AppHandle<R>, event: &RunEvent) {
     }
     #[cfg(not(target_os = "macos"))]
     let _ = (app, event);
+}
+
+/// Whether `window` is visible, not minimized, and has the focus: the only time FXM asks the user
+/// anything on its own, the approval of a new host ([`crate::user_hosts`]) and an update
+/// ([`crate::updater`]). So no question pops up over another app, or while FXM sits in the tray.
+pub fn in_front<R: Runtime>(window: &WebviewWindow<R>) -> bool {
+    window.is_visible().unwrap_or(false)
+        && !window.is_minimized().unwrap_or(true)
+        && window.is_focused().unwrap_or(false)
 }
 
 /// Shows the main window, restores it if minimized and focuses it. A hide still waiting for the
