@@ -134,7 +134,7 @@ So progress happens without anyone polling.
 
 ## 8. Releases
 
-FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs one secret, the desktop updater's key (`TAURI_SIGNING_PRIVATE_KEY` and its password), and stops without it, as it does while `apps/desktop/src-tauri/tauri.conf.json` carries the placeholder instead of the key's public half ([apps/desktop/README.md](../apps/desktop/README.md#the-updater-key)). Only its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, which only runs on `main` can use, and they skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)).
+FXM has one product version, SemVer `x.y.z`, in `version` of the root `package.json`. A release publishes what `develop` holds as `vX.Y.Z`: it reaches `main` through a pull request, and `.github/workflows/release.yml` tags and publishes it. Everything it uses is free: git-cliff, GitHub Actions, artifact attestations and GitHub Releases. It needs one secret, the desktop updater's key (`TAURI_SIGNING_PRIVATE_KEY` and its password), and stops without it, as it does while `apps/desktop/src-tauri/tauri.conf.json` carries the placeholder instead of the key's public half ([apps/desktop/README.md](../apps/desktop/README.md#the-updater-key)). A Windows code-signing certificate is optional: without one in the `windows-signing` environment, the Windows installers are unsigned ([CODE-SIGNING.md](CODE-SIGNING.md)). Only its optional store jobs use the keys that the owner adds for Firefox Add-ons and Edge Add-ons to the `stores` environment, which only runs on `main` can use, and they skip their work without them ([apps/extension/README.md](../apps/extension/README.md#store-channels)).
 
 ```mermaid
 flowchart LR
@@ -170,7 +170,7 @@ flowchart LR
 | `fxm-web-x.y.z.zip` | The web app for self-hosting, in `app/` because it is served from `/app/` |
 | `fxm-site-x.y.z.zip` | The landing page, served from `/`. Unzipped into one folder with the web app, it gives the site's layout |
 | `fxm-desktop-x.y.z-macos-arm64.dmg`, `-macos-x64.dmg` | The desktop app for Macs with Apple silicon and with Intel, signed ad hoc, not notarized |
-| `fxm-desktop-x.y.z-windows-x64-setup.exe`, `-windows-x64.msi` | The desktop app for Windows, unsigned: the installer for one account, and the MSI package for every user |
+| `fxm-desktop-x.y.z-windows-x64-setup.exe`, `-windows-x64.msi` | The desktop app for Windows: the installer for one account, and the MSI package for every user. Code-signed once the `windows-signing` environment holds a certificate ([CODE-SIGNING.md](CODE-SIGNING.md)), unsigned until then |
 | `fxm-desktop-x.y.z-linux-x64.deb`, `-linux-arm64.deb`, `-linux-x64.AppImage`, `-linux-arm64.AppImage` | The desktop app for Linux |
 | `fxm-desktop-x.y.z-macos-arm64.app.tar.gz`, `-macos-x64.app.tar.gz`, `latest.json` | For the desktop app's updater: the Mac apps, and the manifest that installed apps read from the latest release, with each platform's file and signature. `latest.json` is the one file without the version in its name |
 | `SHA256SUMS` | The SHA-256 checksum of every other file |

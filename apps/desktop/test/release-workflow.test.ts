@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { MANIFEST_NAME, releaseFiles, TARGETS } from '../release/targets.ts'
+import { THROWAWAY_SUBJECT } from '../release/windows-signing.ts'
 
 // Checks the desktop app's release workflow (.github/workflows/desktop-release.yml), how
 // release.yml and desktop.yml call it, and R.1's release catalog against release/targets.ts. The
@@ -150,6 +151,76 @@ describe('desktop-release.yml', () => {
 
   it('builds without caches, as release.yml does', () => {
     expect(workflow).not.toContain('actions/cache@')
+  })
+
+  it('signs the Windows files with the windows-signing environment’s certificate, or a throwaway one', () => {
+    const build = job(workflow, 'build')
+    // Only a release's Windows build gets the environment, and so its secrets.
+    expect(build).toContain(
+      `environment: ${expression("inputs.release && matrix.target == 'windows-x64' && 'windows-signing' || ''")}`,
+    )
+    const buildSteps = steps(build)
+    const choose = buildSteps.find((step) => step.includes('release.ts windows-signing --mode'))
+    expect(choose).toMatch(/if: runner\.os == 'Windows'\n/)
+    expect(choose).toContain(`MODE: ${expression("inputs.release && 'release' || 'dry-run'")}`)
+    // That step learns only whether the certificate is there, never its value.
+    expect(choose).toContain(
+      `HAS_CERTIFICATE: ${expression("secrets.WINDOWS_CERTIFICATE != '' && 'yes' || ''")}`,
+    )
+    // The values reach one step, which runs PowerShell and nothing else, only for a release
+    // signed with the certificate, and deletes the file it writes.
+    const holding = buildSteps.filter((step) =>
+      /secrets\.WINDOWS_CERTIFICATE(?:_PASSWORD)?\b(?! != '')/.test(step),
+    )
+    expect(holding).toHaveLength(1)
+    const certificate = holding[0] ?? ''
+    expect(certificate).toMatch(/shell: pwsh\n/)
+    expect(certificate).not.toMatch(/\buses: /)
+    expect(certificate).toContain(
+      `WINDOWS_CERTIFICATE: ${expression("steps.windows-signing.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE || ''")}`,
+    )
+    expect(certificate).toContain('Import-PfxCertificate')
+    expect(certificate).not.toContain('-Exportable')
+    expect(certificate).toContain('Remove-Item -LiteralPath $pfx -Force')
+    // A dry run's certificate is made on the runner, and says what it is.
+    expect(certificate).toContain('New-SelfSignedCertificate -Type CodeSigningCert')
+    expect(certificate).toContain(`-Subject '${THROWAWAY_SUBJECT}'`)
+    // Tauri signs with it while it builds, through the config the next step writes.
+    const tauri = buildSteps.find((step) => step.includes('tauri-apps/tauri-action@'))
+    expect(tauri).toContain(expression('steps.windows-config.outputs.config-args'))
+    expect(tauri).not.toContain('WINDOWS_CERTIFICATE')
+    const config = buildSteps.find((step) => step.includes('release.ts windows-signing-config'))
+    expect(config).toContain(`TIMESTAMP_URL: ${expression('vars.WINDOWS_TIMESTAMP_URL')}`)
+    expect(config).toContain(
+      `THUMBPRINT: ${expression('steps.windows-certificate.outputs.thumbprint')}`,
+    )
+  })
+
+  it('checks every Windows file’s signature, which a release without a certificate must lack', () => {
+    const check = steps(job(workflow, 'build')).find((step) =>
+      step.includes('release.ts windows-signatures'),
+    )
+    expect(check).toMatch(/if: runner\.os == 'Windows'\n/)
+    expect(check).toContain('Get-AuthenticodeSignature')
+    expect(check).toContain('apps/desktop/src-tauri/target/$env:TRIPLE/release/fxm.exe')
+    expect(check).toContain('Get-ChildItem -LiteralPath dist/desktop -File')
+    expect(check).toContain('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }')
+    // After the files were collected under their release names.
+    const names = steps(job(workflow, 'build')).map((step) => /name: (.+)/.exec(step)?.[1])
+    expect(names.indexOf('Check the Windows signatures')).toBeGreaterThan(
+      names.indexOf('Collect the release files'),
+    )
+  })
+
+  it('takes the Windows certificate from the environment, and release.yml passes none', () => {
+    const declared = /^ {4}secrets:\n((?: {6}.*\n)+)/m.exec(workflow)?.[1] ?? ''
+    expect([...declared.matchAll(/^ {6}(\w+):$/gm)].map(([, name]) => name)).toEqual([
+      'TAURI_SIGNING_PRIVATE_KEY',
+      'TAURI_SIGNING_PRIVATE_KEY_PASSWORD',
+      'WINDOWS_CERTIFICATE',
+      'WINDOWS_CERTIFICATE_PASSWORD',
+    ])
+    expect(release).not.toContain('WINDOWS_CERTIFICATE')
   })
 
   it('checks the macOS signature is ad hoc and the .deb asks for GStreamer', () => {

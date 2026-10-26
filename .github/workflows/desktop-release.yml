@@ -17,8 +17,13 @@ name: Desktop release
 #           turns on the updater's files. tauri build signs those with a throwaway key of each
 #           job's own, never with the updater key: these jobs run the code of hundreds of crates
 #           and packages. macOS builds are signed ad hoc (bundle > macOS > signingIdentity "-") and
-#           not notarized; Windows builds are unsigned (apps/desktop/INSTALL.md says what that
-#           means for users). The macOS Intel build is cross-compiled on Apple silicon
+#           not notarized. The macOS Intel build is cross-compiled on Apple silicon. Windows
+#           builds are code-signed (stage 7.6, docs/CODE-SIGNING.md): a release with the
+#           certificate in the windows-signing environment's secrets WINDOWS_CERTIFICATE and
+#           WINDOWS_CERTIFICATE_PASSWORD, and unsigned without them (apps/desktop/INSTALL.md says
+#           what that means for users); a dry run with a throwaway certificate made on the runner.
+#           Tauri signs fxm.exe, the NSIS installer and its uninstaller, and the MSI, and the job
+#           checks every signature (apps/desktop/release/windows-signing.ts)
 #   sign    signs the files the updater installs with the updater key, writes latest.json and
 #           checks every signature against the public key the apps carry
 #           (apps/desktop/release/release.ts). It installs nothing, so no third-party code ever
@@ -49,6 +54,12 @@ on:
       TAURI_SIGNING_PRIVATE_KEY:
         required: false
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
+        required: false
+      # Windows code signing (stage 7.6). Only the windows-signing environment should hold them:
+      # release.yml passes none, so they reach only the Windows build of a release run.
+      WINDOWS_CERTIFICATE:
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
         required: false
 
 permissions: {}
@@ -89,6 +100,9 @@ jobs:
     needs: check
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    # For a release's Windows build, the code-signing certificate's environment: give it only the
+    # main branch (and, if wanted, the owner as reviewer), and no other run can read it.
+    environment: ${{ inputs.release && matrix.target == 'windows-x64' && 'windows-signing' || '' }}
     permissions:
       contents: read
     strategy:
@@ -193,6 +207,65 @@ jobs:
           node --experimental-strip-types --disable-warning=ExperimentalWarning \
             apps/desktop/release/release.ts "${args[@]}"
 
+      # Windows code signing (stage 7.6, docs/CODE-SIGNING.md). This step learns only whether the
+      # windows-signing environment holds a certificate; only the next step gets its value.
+      - name: Choose how to sign the Windows files
+        id: windows-signing
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          MODE: ${{ inputs.release && 'release' || 'dry-run' }}
+          HAS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE != '' && 'yes' || '' }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-signing --mode "$MODE"
+          --certificate "$HAS_CERTIFICATE"
+
+      # Into the store of the runner's account, where Tauri's signtool finds it by thumbprint: a
+      # throwaway certificate for a dry run, or the release certificate, imported with a key that
+      # can't be exported again. The PKCS #12 file is deleted at once.
+      - name: Put the signing certificate in the runner's store (Windows)
+        id: windows-certificate
+        if: runner.os == 'Windows' && steps.windows-signing.outputs.signing != 'none'
+        shell: pwsh
+        env:
+          SIGNING: ${{ steps.windows-signing.outputs.signing }}
+          WINDOWS_CERTIFICATE: ${{ steps.windows-signing.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE || '' }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ steps.windows-signing.outputs.signing == 'certificate' && secrets.WINDOWS_CERTIFICATE_PASSWORD || '' }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:SIGNING -eq 'throwaway') {
+            $certificate = New-SelfSignedCertificate -Type CodeSigningCert `
+              -Subject 'CN=FXM release dry run (throwaway, untrusted)' `
+              -CertStoreLocation Cert:\CurrentUser\My -KeyAlgorithm RSA -KeyLength 3072 `
+              -HashAlgorithm SHA256 -NotAfter (Get-Date).AddDays(2)
+          } else {
+            $pfx = Join-Path $env:RUNNER_TEMP 'windows-signing.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+            try {
+              $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+              $certificate = Import-PfxCertificate -FilePath $pfx -Password $password `
+                -CertStoreLocation Cert:\CurrentUser\My |
+                Where-Object { $_.HasPrivateKey } | Select-Object -First 1
+            } finally {
+              Remove-Item -LiteralPath $pfx -Force
+            }
+            if (-not $certificate) { throw 'WINDOWS_CERTIFICATE holds no certificate with its private key' }
+          }
+          "thumbprint=$($certificate.Thumbprint)" >> $env:GITHUB_OUTPUT
+
+      - name: Sign with that certificate (Windows)
+        id: windows-config
+        if: runner.os == 'Windows' && steps.windows-signing.outputs.signing != 'none'
+        shell: bash
+        env:
+          THUMBPRINT: ${{ steps.windows-certificate.outputs.thumbprint }}
+          TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+        run: >-
+          node --experimental-strip-types --disable-warning=ExperimentalWarning
+          apps/desktop/release/release.ts windows-signing-config --thumbprint "$THUMBPRINT"
+          --timestamp-url "$TIMESTAMP_URL" --out "$RUNNER_TEMP/windows-signing"
+
       # Without tagName or releaseId, tauri-action only builds: it uploads nothing and creates no
       # release. On macOS and Linux it runs the Tauri CLI through scripts/run.sh, so pnpm and Rust
       # come from .tools/: without a pnpm it can find, it would install the latest CLI globally.
@@ -208,7 +281,7 @@ jobs:
           args: >-
             --target ${{ matrix.triple }} --bundles ${{ matrix.bundles }}
             --config src-tauri/tauri.release.conf.json ${{ steps.build-key.outputs.config-args }}
-            -- --locked
+            ${{ steps.windows-config.outputs.config-args }} -- --locked
 
       - name: Collect the release files
         shell: bash
@@ -218,6 +291,34 @@ jobs:
           node --experimental-strip-types --disable-warning=ExperimentalWarning
           apps/desktop/release/release.ts collect --target "$TARGET" --version "$VERSION"
           --bundle-dir "apps/desktop/src-tauri/target/$TRIPLE/release/bundle" --out dist/desktop
+
+      # fxm.exe (which the installers hold) and the two installers: signed by the certificate of
+      # this run and timestamped, or, for a release without one, not signed at all.
+      - name: Check the Windows signatures
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          SIGNING: ${{ steps.windows-signing.outputs.signing }}
+          THUMBPRINT: ${{ steps.windows-certificate.outputs.thumbprint }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(Get-Item -LiteralPath "apps/desktop/src-tauri/target/$env:TRIPLE/release/fxm.exe") +
+            @(Get-ChildItem -LiteralPath dist/desktop -File)
+          $report = foreach ($file in $files) {
+            $signature = Get-AuthenticodeSignature -LiteralPath $file.FullName
+            [pscustomobject]@{
+              file = $file.Name
+              status = "$($signature.Status)"
+              signer = $signature.SignerCertificate.Thumbprint
+              timestamped = $null -ne $signature.TimeStamperCertificate
+            }
+          }
+          $path = Join-Path $env:RUNNER_TEMP 'windows-signatures.json'
+          ConvertTo-Json -InputObject @($report) | Set-Content -LiteralPath $path
+          node --experimental-strip-types --disable-warning=ExperimentalWarning `
+            apps/desktop/release/release.ts windows-signatures --signing $env:SIGNING `
+            --thumbprint "$env:THUMBPRINT" --report $path
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # The ad-hoc signature is what lets macOS offer "Open Anyway" for an app from the internet:
       # Apple silicon refuses unsigned code as damaged.

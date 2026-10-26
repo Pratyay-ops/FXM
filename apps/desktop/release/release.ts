@@ -23,6 +23,17 @@
  *       TAURI_SIGNING_PRIVATE_KEY_PASSWORD), writes latest.json and checks it as each platform's
  *       updater will. The key must be the one whose public key tauri.conf.json holds, which the
  *       release's apps carry. A dry run signs with a throwaway key instead (--throwaway-key).
+ *   release.ts windows-signing --mode <release|dry-run> [--certificate yes]
+ *       the Windows build job (stage 7.6): how to sign the Windows files, given whether the
+ *       windows-signing environment holds a certificate: `throwaway` for a dry run, `certificate`
+ *       or `none` for a release (windows-signing.ts). Outputs signing.
+ *   release.ts windows-signing-config --thumbprint <sha1> [--timestamp-url <url>] --out <dir>
+ *       the Windows build job: the Tauri config that signs with the certificate of that
+ *       thumbprint in the runner's store, and timestamps. Outputs config-args.
+ *   release.ts windows-signatures --signing <how> [--thumbprint <sha1>] --report <file>
+ *       the Windows build job: checks the signatures that PowerShell read from the built files
+ *       (Get-AuthenticodeSignature, as JSON): signed by that certificate and timestamped, or
+ *       not signed at all for `none`.
  *
  * The sign job installs nothing: it runs Node and this repository's own files, so no third-party
  * code ever sees the updater key (`minisign.ts` signs with Node's crypto).
@@ -56,6 +67,13 @@ import {
   trustedComment,
 } from './minisign.ts'
 import { MANIFEST_NAME, type ReleaseTarget, TARGETS, targetById } from './targets.ts'
+import {
+  checkWindowsSignatures,
+  chooseWindowsSigning,
+  parseSignatureReport,
+  parseWindowsSigning,
+  writeWindowsSigningConfig,
+} from './windows-signing.ts'
 
 /** apps/desktop. */
 export const APP_DIR = fileURLToPath(new URL('..', import.meta.url))
@@ -351,8 +369,61 @@ export function main(argv: readonly string[], env: NodeJS.ProcessEnv, reporter: 
       )
       return
     }
+    case 'windows-signing': {
+      const signing = chooseWindowsSigning(
+        parseMode(requireOption(options, 'mode')),
+        options.get('certificate') === 'yes',
+      )
+      reporter.output('signing', signing)
+      if (signing === 'none') {
+        reporter.notice(
+          'Windows signing',
+          'The windows-signing environment holds no certificate (WINDOWS_CERTIFICATE), so this ' +
+            "release's Windows files are unsigned (docs/CODE-SIGNING.md).",
+        )
+      } else {
+        reporter.info(
+          `Windows files: signed with ${signing === 'throwaway' ? 'a throwaway' : 'the release'} certificate`,
+        )
+      }
+      return
+    }
+    case 'windows-signing-config': {
+      const configArgs = writeWindowsSigningConfig(
+        requireOption(options, 'out'),
+        requireOption(options, 'thumbprint'),
+        options.get('timestamp-url') ?? '',
+      )
+      reporter.output('config-args', configArgs)
+      return
+    }
+    case 'windows-signatures': {
+      const signing = parseWindowsSigning(requireOption(options, 'signing'))
+      const signatures = parseSignatureReport(
+        readFileSync(requireOption(options, 'report'), 'utf8'),
+      )
+      const problems = checkWindowsSignatures(signatures, signing, options.get('thumbprint'))
+      reporter.summary(
+        [
+          `### Windows signatures (${signing})`,
+          '',
+          '| File | Status | Signer | Timestamp |',
+          '|---|---|---|---|',
+          ...signatures.map(
+            (s) =>
+              `| \`${s.file}\` | ${s.status} | ${s.signer ?? ''} | ${s.timestamped ? 'yes' : 'no'} |`,
+          ),
+        ].join('\n'),
+      )
+      if (problems.length > 0)
+        throw new Error(`The Windows signatures don't hold:\n${problems.join('\n')}`)
+      reporter.info(`Windows signatures: ${signatures.length} files, as expected (${signing})`)
+      return
+    }
     default:
-      throw new Error('usage: release.ts <check|build-key|collect|sign> [options]')
+      throw new Error(
+        'usage: release.ts <check|build-key|collect|sign|windows-signing|windows-signing-config|windows-signatures> [options]',
+      )
   }
 }
 
