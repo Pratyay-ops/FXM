@@ -18,6 +18,29 @@ describe('the native queue', () => {
     expect(resolver.log).toEqual(['a:play#0', 'b:preload#0', 'c:preload#0', 'd:preload#0'])
   })
 
+  it('resolves ahead as the player’s preloads do: not asked for, in the queue’s mode', async () => {
+    const { plugin, player, resolver, connect } = nativeSetup({
+      player: { queue: { mode: 'all' } },
+    })
+    await connect({ depth: 2 })
+    await player.setQueue(testTracks('a', 'b', 'c', 'd'))
+    await settle()
+    expect(titles(plugin.entries)).toEqual(['a', 'b', 'c'])
+    for (const title of ['b', 'c']) {
+      expect(resolver.requestsFor(title), title).toEqual([
+        expect.objectContaining({ reason: 'preload', explicit: false, mode: 'all' }),
+      ])
+    }
+    // The queue's mode when the item is resolved, not when the engine connected.
+    player.setCatalogMode('music')
+    plugin.ready()
+    plugin.advance()
+    await settle()
+    expect(resolver.requestsFor('d')).toEqual([
+      expect.objectContaining({ reason: 'preload', explicit: false, mode: 'music' }),
+    ])
+  })
+
   it('stops at the audio it may queue ahead', async () => {
     const { plugin, player, connect } = nativeSetup()
     await connect({ depth: 10, aheadMs: 300_000 })

@@ -1320,7 +1320,8 @@ export class NativeEngine implements Engine {
   /** Resolves `item` ahead, at the prefetch priority, then feeds the native queue again. */
   #resolveAhead(item: QueueItem): void {
     const resolver = this.#resolver
-    if (resolver === undefined) return
+    const player = this.#player
+    if (resolver === undefined || player === undefined) return
     if (this.#resolving !== undefined) {
       if (this.#resolving.uid === item.uid) return
       this.#resolving.abort.abort()
@@ -1332,6 +1333,10 @@ export class NativeEngine implements Engine {
     const request: ResolveRequest = {
       reason: 'preload',
       attempt: 0,
+      // As the player's own preloads: nobody asked for the item, and it resolves in the queue's
+      // catalog mode (without one, the stream lifecycle would take its provider context's).
+      explicit: false,
+      mode: player.getState().queue.mode,
       signal: abort.signal,
       canPlay: (stream) => this.canPlay(stream),
       ...(expiring === undefined
