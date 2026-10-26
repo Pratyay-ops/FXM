@@ -37,7 +37,7 @@ The Settings page and the stores behind it. Each store is a Zustand store persis
 
 ## Playback and About
 
-- **Catalog mode** says what each mode plays (`CATALOG_MODE_DESCRIPTIONS`): Music is songs only, from any source (YouTube Music's album audio, Internet Archive, Jamendo and the user's own files); Music + Video also any YouTube video, played as music.
+- **Catalog mode** says what each mode plays (`CATALOG_MODE_DESCRIPTIONS`): Music is songs only, from any source: YouTube Music's album audio, free music from Internet Archive (and Jamendo, in a build with its `client_id`: `freeSources()`) and the user's own files; Music + Video also any YouTube video, played as music.
 - **About** has the version, the source link, the one-line non-affiliation notice (`NON_AFFILIATION`, as in R.4's notices) and links to the site's privacy page, disclaimer and third-party notices (`LEGAL_LINKS`), and SponsorBlock's credit.
 
 ## Who reads it
