@@ -3,8 +3,10 @@
 #
 #   release-version.sh 0.2.0            sets it in the root package.json, in every workspace
 #                                       package.json (FXM Connect builds its manifest version from
-#                                       apps/extension/package.json) and in APP_VERSION of
+#                                       apps/extension/package.json), in APP_VERSION of
 #                                       packages/core/src/index.ts (shown in Settings → About)
+#                                       and, with the Android version code, in
+#                                       packaging/fdroid/version.txt (F-Droid's update check)
 #   release-version.sh --dry-run 0.2.0  prints what would change and changes nothing
 #   release-version.sh --check          fails unless all of them equal the root package.json
 #
@@ -142,6 +144,17 @@ if (mode === 'check') {
 JS
 
 node -e "$program" "$mode" "$version" "$FXM_ROOT"
+# F-Droid's update check reads the Android version from packaging/fdroid/version.txt at each
+# release tag (packaging/fdroid/README.md), so it changes, and is checked, with the others.
+if [ -f "$FXM_ROOT/packaging/cli.ts" ]; then
+  channels=(node --experimental-strip-types --disable-warning=ExperimentalWarning
+    "$FXM_ROOT/packaging/cli.ts" version)
+  case $mode in
+    check) "${channels[@]}" --check ;;
+    dry-run) "${channels[@]}" "$version" --dry-run ;;
+    *) "${channels[@]}" "$version" ;;
+  esac
+fi
 if [ "$mode" = apply ]; then
   fxm_info "Version $version set"
 fi

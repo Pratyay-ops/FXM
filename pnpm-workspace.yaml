@@ -3,6 +3,8 @@ packages:
   - packages/*
   # make dist and the deploy checks (stage 2.8)
   - scripts/build-dist
+  # Metadata for more channels: F-Droid, Obtainium, Flatpak, winget (stage R.3)
+  - packaging
 
 # Supply-chain safety: only install versions that have been public for at
 # least 14 days (in minutes). Applies to transitive dependencies too.

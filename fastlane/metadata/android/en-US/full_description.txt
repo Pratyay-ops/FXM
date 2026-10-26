@@ -1,0 +1,14 @@
+FXM is a free, open-source music player. Search YouTube Music, Spotify’s catalog and free music from Internet Archive in one place, and play practically any song.
+
+• Two modes: Music plays songs only, from YouTube Music’s album audio and free music from Internet Archive; Music + Video also plays any YouTube video, such as covers and live sets, as music.
+• Spotify built in, and switchable: search Spotify’s catalog and get its recommendations on your home feed.
+• A home feed made on your device, with quick picks and daily mixes.
+• Your library: likes, playlists in the order you choose, your listening history and backups.
+• Synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account.
+• Music keeps playing with the screen off, with controls in the notification and on the lock screen.
+
+No servers, no accounts and no ads or tracking from FXM. FXM runs on your device and connects it directly to the services it works with. Your library stays on your device; sync to a secret gist on your own GitHub account is optional.
+
+F-Droid’s build never checks for new versions of itself: F-Droid updates it. Between app releases, FXM keeps YouTube working with signed settings and code from its website. F-Droid’s build takes the settings, which are data, but downloads the code only after you turn that on in Settings → Sources, because the code doesn’t come from F-Droid.
+
+FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google or Spotify, and it hosts no music. You are responsible for following the terms of the services you use with FXM and the laws where you live.

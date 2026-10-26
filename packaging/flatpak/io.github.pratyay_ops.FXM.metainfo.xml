@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by `channels sync` from packaging/listing.ts: edit that. -->
+<component type="desktop-application">
+  <id>io.github.pratyay_ops.FXM</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <name>FXM</name>
+  <summary>Play practically any song</summary>
+  <developer id="io.github.pratyay_ops">
+    <name>FXM contributors</name>
+  </developer>
+  <description>
+    <p>FXM is a free, open-source music player. Search YouTube Music, Spotify’s catalog and free music from Internet Archive in one place, and play practically any song.</p>
+    <ul>
+      <li>Two modes: Music plays songs only, from YouTube Music’s album audio and free music from Internet Archive; Music + Video also plays any YouTube video, such as covers and live sets, as music.</li>
+      <li>Spotify built in, and switchable: search Spotify’s catalog and get its recommendations on your home feed.</li>
+      <li>A home feed made on your device, with quick picks and daily mixes.</li>
+      <li>Your library: likes, playlists in the order you choose, your listening history and backups.</li>
+      <li>Synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account.</li>
+      <li>Music keeps playing from the tray with the window closed, and the system’s media controls and keys work.</li>
+    </ul>
+    <p>No servers, no accounts and no ads or tracking from FXM. FXM runs on your device and connects it directly to the services it works with. Your library stays on your device; sync to a secret gist on your own GitHub account is optional.</p>
+    <p>FXM is an independent open-source project, not affiliated with or endorsed by YouTube, Google or Spotify, and it hosts no music. You are responsible for following the terms of the services you use with FXM and the laws where you live.</p>
+  </description>
+  <launchable type="desktop-id">io.github.pratyay_ops.FXM.desktop</launchable>
+  <provides>
+    <binary>fxm</binary>
+  </provides>
+  <url type="homepage">https://fxmusic.pages.dev</url>
+  <url type="bugtracker">https://github.com/Pratyay-ops/FXM/issues</url>
+  <url type="vcs-browser">https://github.com/Pratyay-ops/FXM</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+  <keywords>
+    <keyword>music</keyword>
+    <keyword>player</keyword>
+    <keyword>audio</keyword>
+    <keyword>lyrics</keyword>
+    <keyword>playlist</keyword>
+    <keyword>streaming</keyword>
+  </keywords>
+  <branding>
+    <color type="primary" scheme_preference="light">#ddd6fe</color>
+    <color type="primary" scheme_preference="dark">#0b0b0f</color>
+  </branding>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+</component>

@@ -1,0 +1,4 @@
+# FXM’s Android version, for F-Droid’s update check (UpdateCheckData in its recipe,
+# packaging/fdroid/README.md). scripts/release-version.sh sets it with every other version.
+versionName=0.1.0
+versionCode=1000

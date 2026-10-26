@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=FXM
+GenericName=Music Player
+Comment=Play practically any song
+Exec=fxm
+Icon=io.github.pratyay_ops.FXM
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=music;player;audio;lyrics;playlist;streaming;
+StartupNotify=true
+SingleMainWindow=true
