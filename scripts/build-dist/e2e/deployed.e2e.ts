@@ -5,8 +5,9 @@
  * - The pages and the app start under their policies, with no violation reported.
  * - A page opened at top level by another site keeps no tie to it (Cross-Origin-Opener-Policy),
  *   and the Permissions-Policy turns off the features FXM never uses, and none the player uses.
- * - googlevideo requests from the app (and the embed, once 5.2 ships it) carry no Referer, also
- *   at a percent-encoded path, where no `_headers` rule applies (src/headers-file.ts).
+ * - googlevideo requests from the app and the embed carry no Referer, also at a percent-encoded
+ *   path, where no `_headers` rule applies (src/headers-file.ts); there the app moves to its own
+ *   path before it starts.
  * - The sandbox documents (1.10) are opaque at their own paths, reach only their hosts, and
  *   ignore a page on another origin that frames them without the sandbox attribute. At a
  *   percent-encoded path, which their sandbox policy can't reach, they stay inert.
@@ -82,6 +83,19 @@ for (const path of ['/app/', '/embed/', '/%61pp/']) {
     }
   })
 }
+
+test('the web app at a percent-encoded path moves to its own path before it starts', async ({
+  page,
+}) => {
+  // No `_headers` rule reaches `/%61pp/…` (src/headers-file.ts), so the app replaces the
+  // address with its decoded path first (apps/web/src/main.tsx), and runs only under the rule
+  // of `/app/*`, keeping the query and the fragment.
+  const violations = await watchViolations(page)
+  await page.goto('/%61pp/settings?fxm-check=1#about')
+  await expect(page).toHaveURL(/\/app\/settings\?fxm-check=1#about$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible()
+  expect(await violations()).toEqual([])
+})
 
 /**
  * The attribute 1.10's documents set on their `<html>` once their script listens for the page

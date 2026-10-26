@@ -1,4 +1,5 @@
 import { SegmentedControl, type SegmentedOption } from '../../components/ui/segmented-control'
+import { connectOrApps } from '../connect/explain'
 import { useSources, useSourcesSnapshot } from './sources-context'
 
 type OnOff = 'on' | 'off'
@@ -43,7 +44,7 @@ export function SpotifySwitchHelp({ id }: { id?: string }) {
   const text = !spotifyEnabled
     ? "Off: FXM doesn't contact Spotify."
     : !reachable
-      ? "On wherever FXM can reach Spotify: with FXM Connect, the desktop app or the Android app. It can't from here."
+      ? `On wherever FXM can reach Spotify: with ${connectOrApps()}. It can't from here.`
       : providers.has('spotify')
         ? 'Search and browse Spotify too. Its tracks play from matching songs on other sources, never from Spotify.'
         : "On, but this version of FXM can't read Spotify in a browser yet. That comes in a later update."

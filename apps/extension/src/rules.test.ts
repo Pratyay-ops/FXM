@@ -116,7 +116,6 @@ describe('CORS rules for the production origin', () => {
         'youtubei.googleapis.com',
         'googlevideo.com',
         'open.spotify.com',
-        'clienttoken.spotify.com',
         'api-partner.spotify.com',
         'spclient.wg.spotify.com',
         'www.last.fm',
@@ -128,7 +127,6 @@ describe('CORS rules for the production origin', () => {
       'https://youtubei.googleapis.com/*',
       'https://*.googlevideo.com/*',
       'https://open.spotify.com/*',
-      'https://clienttoken.spotify.com/*',
       'https://api-partner.spotify.com/*',
       'https://spclient.wg.spotify.com/*',
       'https://www.last.fm/*',
@@ -252,7 +250,7 @@ describe('CORS rules for the production origin', () => {
   })
 
   it('makes Spotify token requests look like open.spotify.com and allows the Spotify headers', () => {
-    for (const name of ['spotify-token', 'spotify-server-time', 'spotify-clienttoken']) {
+    for (const name of ['spotify-token', 'spotify-server-time']) {
       const rule = ruleNamed(name)
       expect(setValue(rule.action.requestHeaders, 'origin')).toBe('https://open.spotify.com')
       expect(setValue(rule.action.requestHeaders, 'referer')).toBe('https://open.spotify.com/')

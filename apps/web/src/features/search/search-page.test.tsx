@@ -8,10 +8,12 @@ import {
 } from '@fxm/core'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { setupDownloads } from '../downloads/testing'
 import { useSettingsStore } from '../settings/settings-store'
 import { createFakeCatalog } from './fake-catalog'
 import { FEEDBACK_MS } from './feedback'
 import { ONBOARDING_URL } from './onboarding'
+import { scrollIntoRow } from './search-page'
 import { searchTiming } from './search-view'
 import { createStaticPlatform, TIER_CAPABILITIES } from './sources'
 import { renderCatalog, resetCatalogState } from './testing'
@@ -70,7 +72,7 @@ describe('Search: tiers', () => {
   it('offers download and the equalizer on YouTube items in the full tier', async () => {
     const { user } = renderCatalog('/search?q=harbor lights nova', { tier: 'full' })
     await findList('Songs')
-    expect(screen.queryByText(/Lite mode, experimental/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Lite tier, experimental/)).not.toBeInTheDocument()
     const items = await menuItemsOf(user, 'More options for Harbor Lights')
     expect(items).toEqual(
       expect.arrayContaining([
@@ -87,7 +89,7 @@ describe('Search: tiers', () => {
     const { user, ytm } = renderCatalog('/search?q=harbor lights nova', { tier: 'lite' })
     await findList('Songs')
     expect(ytm.calls.some((call) => call.method === 'search')).toBe(true)
-    expect(screen.getByText(/Lite mode, experimental/)).toBeInTheDocument()
+    expect(screen.getByText(/Lite tier, experimental/)).toBeInTheDocument()
 
     const items = await menuItemsOf(user, 'More options for Harbor Lights')
     expect(items).toEqual(expect.arrayContaining(['Play next', 'Add to queue', 'Add to playlist…']))
@@ -146,6 +148,47 @@ describe('Search: tiers', () => {
     expect(
       screen.queryByRole('heading', { name: 'Search needs YouTube Music access' }),
     ).not.toBeInTheDocument()
+  })
+
+  it("offers to cancel a song's download on its way, and to remove one that is done", async () => {
+    const { downloads } = await setupDownloads({ run: false })
+    const ctx = createStaticPlatform(TIER_CAPABILITIES.full).context({
+      mode: 'music',
+      priority: 'interactive',
+    })
+    const found = await createFakeCatalog('ytm').search(
+      'harbor lights nova',
+      { types: ['track'] },
+      ctx,
+    )
+    const harbor = found.tracks?.items.find((track) => track.title === 'Harbor Lights')
+    if (harbor === undefined) throw new Error('No Harbor Lights in the fake catalog')
+    await downloads.manager.enqueueAll([harbor])
+    const { user } = renderCatalog('/search?q=harbor lights nova', { tier: 'full' })
+    await findList('Songs')
+
+    // Queued: the menu follows the download, as the library's menus do.
+    await user.click(
+      screen.getAllByRole('button', { name: 'More options for Harbor Lights' })[0] as HTMLElement,
+    )
+    let menu = await screen.findByRole('menu')
+    expect(await within(menu).findByRole('menuitem', { name: 'Cancel download' })).toBeVisible()
+    expect(within(menu).queryByRole('menuitem', { name: 'Download' })).toBeNull()
+    await user.keyboard('{Escape}')
+
+    // Done: "Remove download".
+    await downloads.manager.start()
+    await waitFor(async () =>
+      expect((await downloads.manager.list()).map((record) => record.status)).toEqual([
+        'completed',
+      ]),
+    )
+    await user.click(
+      screen.getAllByRole('button', { name: 'More options for Harbor Lights' })[0] as HTMLElement,
+    )
+    menu = await screen.findByRole('menu')
+    expect(await within(menu).findByRole('menuitem', { name: 'Remove download' })).toBeVisible()
+    expect(within(menu).queryByRole('menuitem', { name: 'Download' })).toBeNull()
   })
 
   it('offers the free sources in every tier, with download even without FXM Connect', async () => {
@@ -562,5 +605,35 @@ describe('Search: actions', () => {
     expect(
       within(songs).getAllByRole('button', { name: /^More options for/ }).length,
     ).toBeGreaterThan(0)
+  })
+})
+
+describe('scrollIntoRow', () => {
+  /** A box at `left`–`right` on screen, with a scroll position the function may change. */
+  function box(left: number, right: number) {
+    return {
+      scrollLeft: 100,
+      getBoundingClientRect: () => ({ left, right }) as DOMRect,
+    } as unknown as HTMLElement
+  }
+
+  it('scrolls the row just enough to show the chip clear of the faded edges', () => {
+    // A 390 px row; the checked chip ends at 511 px, off its right edge.
+    const row = box(0, 390)
+    scrollIntoRow(row, box(400, 511), 40)
+    expect(row.scrollLeft).toBe(100 + 511 - 350)
+    // Off the left edge.
+    const back = box(0, 390)
+    scrollIntoRow(back, box(-80, 20), 40)
+    expect(back.scrollLeft).toBe(100 - 120)
+  })
+
+  it('leaves a chip already in view alone, and never pushes a wide chip off the start', () => {
+    const row = box(0, 390)
+    scrollIntoRow(row, box(60, 300), 40)
+    expect(row.scrollLeft).toBe(100)
+    const narrow = box(0, 200)
+    scrollIntoRow(narrow, box(50, 260), 40)
+    expect(narrow.scrollLeft).toBe(100 + 10)
   })
 })

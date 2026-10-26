@@ -1,20 +1,30 @@
 ---
+import { AVAILABLE } from '../../config'
 import Icon from '../Icon.astro'
 
 const formats = ['Original', 'FLAC', 'ALAC', 'WAV', 'MP3', 'AAC', 'Opus']
+
+// Until conversions ship (stage 4.2), downloads keep the source's own file: Original is the only
+// choice, and the other formats are shown as coming soon.
+const conversions = AVAILABLE.conversions
+const chosen = conversions ? 'FLAC' : 'Original'
+const label = conversions
+  ? 'Download options: Original, FLAC, ALAC, WAV, MP3, AAC and Opus. A FLAC from Internet Archive is labelled lossless. A FLAC made from a lossy YouTube Music stream is labelled converted from lossy.'
+  : 'Download options: Original, as the file comes from its source; FLAC, ALAC, WAV, MP3, AAC and Opus are coming soon. A song from Internet Archive downloads as lossless FLAC, one from YouTube Music as Opus, each as the original file.'
 ---
 
-<div
-  class="demo"
-  role="img"
-  aria-label="Download options: Original, FLAC, ALAC, WAV, MP3, AAC and Opus. A FLAC from Internet Archive is labelled lossless. A FLAC made from a lossy YouTube Music stream is labelled converted from lossy."
->
+<div class="demo" role="img" aria-label={label}>
   <div class="label">Download as</div>
   <div class="formats">
     {formats.map((format) => (
-      <span class:list={['format', { on: format === 'FLAC' }]}>{format}</span>
+      <span
+        class:list={['format', { on: format === chosen, soon: format !== chosen && !conversions }]}
+      >
+        {format}
+      </span>
     ))}
   </div>
+  {!conversions && <div class="soon-note">Other formats coming soon</div>}
   <div class="items">
     <div class="item">
       <span class="art art-4"></span>
@@ -24,7 +34,7 @@ const formats = ['Original', 'FLAC', 'ALAC', 'WAV', 'MP3', 'AAC', 'Opus']
       </span>
       <span class="quality lossless">
         <Icon name="check" size={14} />
-        FLAC · Lossless
+        {conversions ? 'FLAC · Lossless' : 'FLAC · Lossless (original)'}
       </span>
     </div>
     <div class="item">
@@ -33,13 +43,15 @@ const formats = ['Original', 'FLAC', 'ALAC', 'WAV', 'MP3', 'AAC', 'Opus']
         <span class="title">Paper Lanterns</span>
         <span class="artist">Quiet Harbor · from YouTube Music</span>
       </span>
-      <span class="quality">FLAC · Converted from lossy</span>
+      <span class="quality">{conversions ? 'FLAC · Converted from lossy' : 'Opus · Original'}</span>
     </div>
   </div>
-  <div class="foot">
-    <Icon name="music" size={16} />
-    Tags and cover art included
-  </div>
+  {conversions && (
+    <div class="foot">
+      <Icon name="music" size={16} />
+      Tags and cover art included
+    </div>
+  )}
 </div>
 
 <style>
@@ -70,6 +82,16 @@ const formats = ['Original', 'FLAC', 'ALAC', 'WAV', 'MP3', 'AAC', 'Opus']
   border-color: var(--color-accent);
   background: var(--color-accent);
   color: var(--color-on-accent);
+}
+
+.format.soon {
+  border-style: dashed;
+}
+
+.soon-note {
+  margin-top: calc(-1 * var(--space-2));
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
 }
 
 .items {

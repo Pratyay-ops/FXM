@@ -68,8 +68,14 @@ export interface TierSetup {
    */
   readonly userHost?: (url: string) => Response
   /**
+   * The user's music files as a catalog (stage 4.4), and whether there are any
+   * (`AppServicesOptions.localProvider`, `watchLocalFiles`). Default: none.
+   */
+  readonly local?: Pick<AppServicesOptions, 'localProvider' | 'watchLocalFiles'>
+  /**
    * Gives the sandbox to the platform only, as the app does: it hands in stage 2.7's platform,
-   * which brings its own sandbox, and passes the services no `sandbox` option.
+   * which brings its own sandbox, passes the services no `sandbox` option, and tells them that
+   * this platform reaches the user's hosts (`reachesUserHosts`, `APP_PLATFORM_REACHES_USER_HOSTS`).
    */
   readonly sandboxOnPlatformOnly?: boolean
   /** Whether the user connected their Spotify account (`AppServicesOptions.spotifyAccount`). */
@@ -171,8 +177,14 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
     deviceStore: store,
     network: createStaticNetworkMonitor(),
     jamendoClientId: undefined,
+    // Nothing of the device's own: no downloads or music files, and no update checks.
+    offline: undefined,
+    localProvider: undefined,
+    ...setup.local,
+    updates: false,
     catalogMode: () => mode,
     ...(sandbox === undefined || setup.sandboxOnPlatformOnly ? {} : { sandbox }),
+    ...(setup.sandboxOnPlatformOnly ? { reachesUserHosts: true } : {}),
     ...(setup.spotifyAccount === undefined ? {} : { spotifyAccount: setup.spotifyAccount }),
     ...(setup.library === undefined ? {} : { library: setup.library }),
     ...(setup.importYouTube === undefined ? {} : { importYouTube: setup.importYouTube }),

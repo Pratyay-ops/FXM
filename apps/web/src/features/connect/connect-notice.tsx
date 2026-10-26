@@ -5,7 +5,8 @@
  *
  * It floats above the bottom bars (above the mini player on phones, in the corner above the
  * player bar from 768 px), so it never pushes the page down when detection finishes after the
- * page painted; a spacer of its height at the end of the page keeps the last of it reachable.
+ * page painted; the page keeps room for it at its end and in its scroll padding, so the last of
+ * the page stays reachable and keyboard focus never lands behind it.
  * The introduction shows on the tab pages (Home, Search, Library), the warnings on every page
  * except Now playing and the onboarding page, which says the same in place.
  *
@@ -21,6 +22,7 @@ import { type RouteHandle, useRouteHandle } from '../../components/layout/route-
 import { buttonClasses } from '../../components/ui/button'
 import { IconButton } from '../../components/ui/icon-button'
 import { cn } from '../../lib/cn'
+import { freeSources } from '../../lib/free-sources'
 import { type ConnectionState, useConnection } from './connection'
 import { currentDevice, type DeviceInfo } from './device'
 import { howToGetMore } from './explain'
@@ -44,6 +46,8 @@ interface NoticeCopy {
 export function noticeCopy(notice: Notice, state: NoticeInputs, device: DeviceInfo): NoticeCopy {
   const meanwhile =
     state.lite === 'passed' ? ' Meanwhile, FXM uses the experimental Lite tier.' : ''
+  // Internet Archive, and Jamendo in a build that offers it (lib/free-sources.ts).
+  const free = freeSources()
   switch (notice.kind) {
     case 'outdated':
       return {
@@ -69,7 +73,7 @@ export function noticeCopy(notice: Notice, state: NoticeInputs, device: DeviceIn
           }
         : {
             title: 'This browser plays free music',
-            body: `Internet Archive and Jamendo work here. ${howToGetMore(device, 'youtube-and-spotify')}`,
+            body: `${free.and} ${free.several ? 'work' : 'works'} here. ${howToGetMore(device, 'youtube-and-spotify')}`,
             action: { label: 'See your options', to: '/connect' },
             tone: 'info',
           }
@@ -98,18 +102,17 @@ function focusPage(): void {
  * The CSS variable with the room the notice takes above the bottom bars (`0px` without one), so
  * other floating layers, such as the app's toasts (`FeedbackToast`, and the installable app's
  * `UpdateToast`), can sit above it:
- * `bottom: calc(var(--shell-bottom) + var(--connect-notice-space, 0px) + 0.75rem)`. The notice
- * itself sits above the cards SponsorBlock stacks over the bars (`--shell-cards`).
+ * `bottom: calc(var(--shell-bottom) + var(--connect-notice-space, 0px) + 0.75rem)`. The page
+ * keeps that much room at its end (`pb-shell`) and in its `scroll-padding-bottom`, so its last
+ * part scrolls clear of the notice and keyboard focus never lands behind it (styles/index.css).
+ * The notice itself sits above the cards SponsorBlock stacks over the bars (`--shell-cards`).
  */
 export const NOTICE_SPACE_VARIABLE = '--connect-notice-space'
 
 /** The room between the notice and the page's end, or a layer above it, in pixels. */
 const NOTICE_GAP = 16
 
-/**
- * The notice's height while it shows, for the spacer at the end of the page, kept in
- * {@link NOTICE_SPACE_VARIABLE} too.
- */
+/** Keeps the notice's height while it shows, plus a gap, in {@link NOTICE_SPACE_VARIABLE}. */
 function useHeight(element: HTMLElement | null): number {
   const [height, setHeight] = useState(0)
   useEffect(() => {
@@ -153,7 +156,7 @@ export function ConnectNotice() {
   const device = useMemo(currentDevice, [])
   const titleId = useId()
   const [box, setBox] = useState<HTMLElement | null>(null)
-  const height = useHeight(box)
+  useHeight(box)
 
   const notice = noticeFor(state)
   const shown =
@@ -165,8 +168,6 @@ export function ConnectNotice() {
 
   return (
     <>
-      {/* Room at the end of the page, so the floating notice never hides the last of it. */}
-      {copy !== undefined && <div aria-hidden="true" style={{ height: height + NOTICE_GAP }} />}
       {/* Always in the page, so screen readers announce a notice when it appears. */}
       <div
         aria-live="polite"

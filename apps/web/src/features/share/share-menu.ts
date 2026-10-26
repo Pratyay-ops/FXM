@@ -8,8 +8,8 @@ import { canShare, useShareStore } from './share-store'
 /**
  * The "Share" entry of a "More options" menu, which opens the share dialog with `info` for its
  * preview. None for an entity no embed can show (an artist, a Spotify album, a local file), or
- * that the app doesn't offer to share yet (`canShare`: in production builds, until the embed
- * can play its source).
+ * that the app doesn't offer to share yet (`canShare`: in production builds, until the embed is
+ * released, and then for the sources it can play).
  */
 export function shareMenuItems(id: EntityId, info: PreviewInfo): MenuAction[] {
   const target = embedTargetOf(id)

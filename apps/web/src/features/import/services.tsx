@@ -1,18 +1,17 @@
 /**
  * What imports need from the rest of the app: the platform (stage 1.2: provider contexts, the
  * request budget, bot-check reports), the Spotify provider (1.5), MusicBrainz (1.6), the YouTube
- * adapter (1.3, a stand-in until it merges) and the Auto setting (1.12).
+ * adapter (1.3) and the Auto setting (1.12).
  *
  * Pages get them from {@link useImportServices}: tests pass fakes through
- * {@link ImportServicesProvider}, and the app builds its own on first use
- * ({@link loadAppImportServices}). The app's platform and providers should be shared by every
- * feature; until a stage wires them app-wide, the import feature creates its own here, in this
- * one module, so the switch is a few lines.
+ * {@link ImportServicesProvider}, and the app's come from its composition root (stage 2.9,
+ * `src/app/services/imports.ts`), which connects them with {@link connectAppImportServices}: the
+ * app's one platform and providers, shared with search and playback.
  *
  * @module
  */
 
-import type { CatalogMode, NetworkCapabilities, ProviderContext } from '@fxm/core'
+import type { CatalogMode, MatchingConfig, NetworkCapabilities, ProviderContext } from '@fxm/core'
 import type { FxmPlatform, RequestPriority } from '@fxm/platform'
 import {
   type ImportMusicBrainz,
@@ -20,8 +19,6 @@ import {
   type ImportYouTube,
   YOUTUBE_IMPORT_UNAVAILABLE,
 } from '@fxm/sources/import'
-import { createMusicBrainzClient } from '@fxm/sources/musicbrainz'
-import { createSpotifyProvider } from '@fxm/sources/spotify'
 import { createContext, type ReactNode, useContext, useMemo } from 'react'
 
 /**
@@ -30,8 +27,8 @@ import { createContext, type ReactNode, useContext, useMemo } from 'react'
  * - `ready`: YouTube Music can be reached
  * - `needs-connect`: this browser cannot reach YouTube Music; FXM Connect (or the desktop or
  *   Android app) would
- * - `unavailable`: this version of FXM cannot search YouTube Music for imports yet (the YouTube
- *   providers of stage 1.3 are not wired in)
+ * - `unavailable`: this version of FXM cannot search YouTube Music for imports (services built
+ *   without the YouTube providers of stage 1.3, as some tests build them)
  */
 export type MatchingAvailability = 'ready' | 'needs-connect' | 'unavailable'
 
@@ -64,6 +61,12 @@ export interface ImportServices {
   musicBrainz: ImportMusicBrainz | undefined
   /** The Auto setting: whether matches may play without asking. Off until stage 1.12 turns it on. */
   autoMatch(): boolean
+  /**
+   * The matching config imports match with (stage 1.12): its thresholds and measured fallback,
+   * and whether the Auto band is available at all. Default: the one FXM ships with, which keeps
+   * Auto off. Tests pass one that makes it available.
+   */
+  matchingConfig?: MatchingConfig
 }
 
 /** Whether the device is online, as the browser says; `true` where it cannot say. */
@@ -112,30 +115,72 @@ export function createImportServices(parts: ImportServiceParts): ImportServices 
 
 let appServices: Promise<ImportServices> | undefined
 let loadedAppServices: ImportServices | undefined
+/** Where the app's import services come from, once the composition root connected them. */
+let appSource: (() => Promise<ImportServices>) | undefined
+/** The source {@link appServices} was built from, `undefined` while it waits for one. */
+let appServicesSource: (() => Promise<ImportServices>) | undefined
+/** Loads waiting for {@link appSource}. */
+const waitingForSource = new Set<() => void>()
 
 /**
- * The app's import services, created on first use and shared: the platform, the Spotify
- * provider (on, as the owner decided; the Settings switch arrives with the search stage) and a
- * MusicBrainz client. The YouTube adapter is the stand-in until the YouTube providers merge.
- * Nothing is created until an import needs it, so opening the Import page contacts nothing.
+ * Makes the app's import services come from `source`: the composition root's (stage 2.9), on
+ * the app's one platform and providers. Imports that asked before it was connected get them
+ * then. Returns a function that disconnects it, which leaves a source connected after it alone.
+ */
+export function connectAppImportServices(source: () => Promise<ImportServices>): () => void {
+  appSource = source
+  // Services built from another source are that source's; a load still waiting takes this one.
+  if (appServices !== undefined && appServicesSource !== undefined) {
+    appServices = undefined
+    loadedAppServices = undefined
+  }
+  for (const wake of [...waitingForSource]) wake()
+  return () => {
+    if (appSource !== source) return
+    appSource = undefined
+    appServices = undefined
+    appServicesSource = undefined
+    loadedAppServices = undefined
+  }
+}
+
+/** The connected source, or the next one to be connected. */
+function connectedSource(): Promise<() => Promise<ImportServices>> {
+  if (appSource !== undefined) return Promise.resolve(appSource)
+  return new Promise((resolve) => {
+    const wake = () => {
+      if (appSource === undefined) return
+      waitingForSource.delete(wake)
+      resolve(appSource)
+    }
+    waitingForSource.add(wake)
+  })
+}
+
+/**
+ * The app's import services, created on first use and shared: the composition root's, on the
+ * app's one platform with its YouTube, Spotify and MusicBrainz providers. Until the composition
+ * root has connected them (it loads beside the first render), this waits. Nothing reaches the
+ * network until an import runs or a link loads, so opening the Import page contacts nothing.
  */
 export function loadAppImportServices(): Promise<ImportServices> {
-  appServices ??= (async () => {
-    // The platform loads only once an import needs it; the rest is in this chunk anyway.
-    const { createPlatform } = await import('@fxm/platform')
-    const platform = await createPlatform()
-    loadedAppServices = createImportServices({
-      platform,
-      youtube: YOUTUBE_IMPORT_UNAVAILABLE,
-      spotify: createSpotifyProvider(),
-      musicBrainz: createMusicBrainzClient(),
+  if (appServices !== undefined) return appServices
+  appServicesSource = appSource
+  const loading: Promise<ImportServices> = connectedSource()
+    .then((source) => {
+      appServicesSource = source
+      return source()
     })
-    return loadedAppServices
-  })().catch((error: unknown) => {
-    appServices = undefined
-    throw error
-  })
-  return appServices
+    .then((services) => {
+      if (appServices === loading) loadedAppServices = services
+      return services
+    })
+    .catch((error: unknown) => {
+      if (appServices === loading) appServices = undefined
+      throw error
+    })
+  appServices = loading
+  return loading
 }
 
 const ImportServicesContext = createContext<ImportServices | null>(null)

@@ -171,15 +171,24 @@ export function fakeHomeServices(tier: 'lite' | 'full'): HomeServices {
   }
 }
 
-/** Plugs the fakes in when the URL (or this tab, earlier) asks for them. */
-export function installHomeDevFakes(store: HomeServicesStore): void {
-  let choice: string | null
+/**
+ * The fakes' tier this tab asked for: `?fake-home=lite` or `full` sets it (`off` clears it), and
+ * otherwise the one set earlier in this tab, if any. The app's composition root asks too, and
+ * leaves Home to the fakes then.
+ */
+export function readHomeFakeTier(): 'lite' | 'full' | undefined {
   try {
     const asked = new URLSearchParams(globalThis.location?.search ?? '').get('fake-home')
     if (asked !== null) sessionStorage.setItem(SESSION_KEY, asked)
-    choice = sessionStorage.getItem(SESSION_KEY)
+    const choice = sessionStorage.getItem(SESSION_KEY)
+    return choice === 'lite' || choice === 'full' ? choice : undefined
   } catch {
-    return
+    return undefined
   }
-  if (choice === 'lite' || choice === 'full') store.set(fakeHomeServices(choice))
+}
+
+/** Plugs the fakes in when the URL (or this tab, earlier) asks for them. */
+export function installHomeDevFakes(store: HomeServicesStore): void {
+  const tier = readHomeFakeTier()
+  if (tier !== undefined) store.set(fakeHomeServices(tier))
 }
