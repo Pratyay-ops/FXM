@@ -24,6 +24,7 @@ export const ISSUES_URL = `${REPO_URL}/issues`
 export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`
 
 export type Feature =
+  | 'lite'
   | 'homeFeed'
   | 'radio'
   | 'spotifyAccount'
@@ -42,22 +43,32 @@ export type Feature =
  * `AVAILABLE.<name>` to review the copy around it.
  */
 export const AVAILABLE: Readonly<Record<Feature, boolean>> = {
+  /**
+   * The experimental Lite tier: YouTube Music in the web app without FXM Connect, in browsers that
+   * pass its check (stage 1.10). Stage 2.8 turns it on once Lite plays a song on the deployed site,
+   * and leaves it off while Lite's kill switch is on. The sentences it changes are in
+   * src/lib/tiers.ts.
+   */
+  lite: false,
   /** Home feed with quick picks, daily mixes and endless radio: stages 3.3 and 3.4 (M2) */
   homeFeed: false,
-  /** Song radio from YouTube Music and Spotify: stage 3.2 (M2) */
+  /** Song radio from YouTube Music and Spotify, in the app: stages 3.3 and 3.4 (M2) */
   radio: false,
-  /** Connecting a Spotify account to sync recommendations, likes and playlists: 3.5 (M2) */
+  /** A read-only sync of a Spotify account's recommendations, likes and playlists: 3.5 (M2) */
   spotifyAccount: false,
   /** Downloads in any format, with tags and cover art: 4.1 and 4.2 (M3) */
   downloads: false,
   /** Installing the web app as a PWA: 5.1 (M4) */
-  pwa: false,
+  pwa: true,
   /** The embeddable mini-player: 5.2 (M4) */
   embed: false,
   /** The Android APK on GitHub Releases: 6.6 (M5) */
   android: false,
   /** The desktop app for macOS, Windows and Linux: 7.5 (M6) */
   desktop: false,
-  /** FXM Connect as a signed Firefox add-on: R.2 */
+  /**
+   * FXM Connect as a Firefox add-on signed by Mozilla, the .xpi on GitHub Releases: R.2. Turn it
+   * on once a release carries the signed file (apps/extension/README.md, "Store channels").
+   */
   firefox: false,
 }

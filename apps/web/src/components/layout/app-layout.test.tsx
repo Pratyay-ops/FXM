@@ -1,5 +1,8 @@
+import { FxmError } from '@fxm/core'
+import { testTrack } from '@fxm/player/testing'
 import { act, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
+import { setupTestPlayback } from '../../features/now-playing/testing'
 import { renderApp } from '../../test/render'
 
 // Both navigations render; CSS shows the sidebar from 768px and the tab bar below.
@@ -50,35 +53,96 @@ describe('app layout', () => {
     expect(screen.getByRole('link', { name: 'Settings' })).toBeInTheDocument()
   })
 
-  it('has player controls that respond but play nothing yet', async () => {
+  it('has player controls that wait for something to play', async () => {
     const { user } = renderApp('/')
     const player = within(screen.getAllByRole('region', { name: 'Player' })[0] as HTMLElement)
-    expect(player.getByText('0:00')).toBeInTheDocument()
-    expect(player.getByText('3:33')).toBeInTheDocument()
+    expect(player.getByRole('link', { name: 'Open now playing' })).toHaveTextContent('Not playing')
+    expect(player.getByRole('button', { name: 'Play' })).toBeDisabled()
+    expect(player.getByRole('slider', { name: 'Seek' })).toBeDisabled()
 
-    await user.click(player.getByRole('button', { name: 'Play' }))
-    expect(player.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
-
+    // Shuffle and repeat are settings of the queue, so they work without one.
     await user.click(player.getByRole('button', { name: 'Shuffle' }))
     expect(player.getByRole('button', { name: 'Shuffle' })).toHaveAttribute('aria-pressed', 'true')
 
     await user.click(player.getByRole('button', { name: 'Enable repeat' }))
     expect(player.getByRole('button', { name: 'Enable repeat one' })).toBeInTheDocument()
 
-    expect(player.getByRole('slider', { name: 'Seek' })).toHaveAttribute(
-      'aria-valuetext',
-      '0:00 of 3:33',
-    )
     expect(player.getByRole('link', { name: /Catalog mode: Music\./ })).toHaveAttribute(
       'href',
       '/settings',
     )
   })
 
-  it('hides the mini player on Now Playing, which has its own controls', async () => {
+  it('shows the playing track in the player bar and the mini player', async () => {
+    const { player } = setupTestPlayback()
+    await player.setQueue([testTrack('Creep', { artists: [{ name: 'Radiohead' }] })])
+    const { user } = renderApp('/')
+
+    for (const region of screen.getAllByRole('region', { name: 'Player' })) {
+      const bar = within(region)
+      expect(
+        bar.getByRole('link', { name: 'Open now playing: Creep by Radiohead' }),
+      ).toBeInTheDocument()
+      expect(bar.getByRole('button', { name: 'Pause' })).toBeEnabled()
+    }
+    const bar = within(screen.getAllByRole('region', { name: 'Player' })[0] as HTMLElement)
+    expect(bar.getByRole('slider', { name: 'Seek' })).toHaveAttribute(
+      'aria-valuetext',
+      '0:00 of 3:00',
+    )
+
+    await user.click(bar.getByRole('button', { name: 'Pause' }))
+
+    expect(player.getState().status).toBe('paused')
+    expect(bar.getByRole('button', { name: 'Play' })).toBeEnabled()
+  })
+
+  it('shows Now Playing full screen on phones: no mini player, no tab bar', async () => {
     renderApp('/now-playing')
     await screen.findByRole('heading', { level: 1, name: 'Now playing' })
+    // The player bar (768px+) and the sidebar stay.
     expect(screen.getAllByRole('region', { name: 'Player' })).toHaveLength(1)
+    expect(mainNavs()).toHaveLength(1)
+    expect(screen.getByRole('main')).toHaveAttribute('data-full-screen', 'true')
+    // The top bar's back arrow leaves it.
+    expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument()
+  })
+
+  it('says in the player bar and the mini player that a song couldn’t play', async () => {
+    const { player, resolver } = setupTestPlayback()
+    resolver.handler = () => {
+      throw new FxmError('NotFound', 'Gone')
+    }
+    await player.setQueue([testTrack('Creep', { artists: [{ name: 'Radiohead' }] })])
+    renderApp('/')
+
+    for (const region of screen.getAllByRole('region', { name: 'Player' })) {
+      const bar = within(region)
+      expect(
+        bar.getByRole('link', { name: 'Open now playing: Creep by Radiohead. Couldn’t play' }),
+      ).toBeInTheDocument()
+      expect(bar.getByText('Couldn’t play')).toBeInTheDocument()
+      expect(bar.queryByText('Radiohead')).not.toBeInTheDocument()
+    }
+    // Screen readers hear why, on any page.
+    expect(screen.getByText(/^Couldn’t play “Creep”\. It may be unavailable/)).toHaveAttribute(
+      'aria-live',
+      'polite',
+    )
+  })
+
+  it('keeps the play buttons of collection pages apart from the queue', async () => {
+    const { player } = setupTestPlayback()
+    await player.setQueue([testTrack('Creep')])
+    // The library's playlist pages keep this placeholder until they play their playlist.
+    const { user } = renderApp('/playlist/local:playlist:liked')
+    await screen.findByRole('heading', { level: 1, name: 'Liked songs' })
+    const main = within(screen.getByRole('main'))
+
+    await user.click(main.getByRole('button', { name: 'Play' }))
+
+    expect(main.getByRole('button', { name: 'Pause' })).toBeInTheDocument()
+    expect(player.getState().status).toBe('playing')
   })
 
   it('announces new pages to screen readers, but not the first page or query changes', async () => {
@@ -96,10 +160,10 @@ describe('app layout', () => {
 
     // Album to album has the same title: the text still changes, so it is read again.
     await act(() => router.navigate('/album/one'))
-    await screen.findByRole('heading', { level: 1, name: 'Album one' })
+    await screen.findByRole('heading', { level: 1, name: 'Album not found' })
     expect(announcer.textContent).toBe('Navigated to Album')
     await act(() => router.navigate('/album/two'))
-    await screen.findByRole('heading', { level: 1, name: 'Album two' })
+    await screen.findByRole('heading', { level: 1, name: 'Album not found' })
     expect(announcer.textContent).toBe('Navigated to Album ')
   })
 })

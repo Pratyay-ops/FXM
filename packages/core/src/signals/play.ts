@@ -17,22 +17,29 @@ import type { PlayContext, PlaySignal, PlayStream } from './signals'
 export const ASSUMED_TRACK_MS = 210_000
 
 /**
+ * The share of a track's known length a play that reached the end must have played to count as
+ * a full listen. Less means it was sought towards the end: Last.fm's rule for a scrobble.
+ */
+export const COMPLETED_PLAY_SHARE = 0.5
+
+/**
  * The share of the track that a play played, from 0 to 1: `playedMs` over the track's length,
- * or over `assumedDurationMs` when the length is unknown. A completed play counts as all of it,
- * also after a seek towards the end. Bad numbers count as nothing.
+ * or over `assumedDurationMs` when the length is unknown. A completed play counts as all of it
+ * (it may have skipped an outro or a gap), unless the track's known length shows it played less
+ * than half ({@link COMPLETED_PLAY_SHARE}): seeking to the end is no listen. Bad numbers count
+ * as nothing.
  */
 export function playedShare(
   play: Pick<PlaySignal, 'playedMs' | 'durationMs' | 'completed'>,
   assumedDurationMs: number = ASSUMED_TRACK_MS,
 ): number {
-  if (play.completed === true) return 1
-  const playedMs = play.playedMs
-  if (typeof playedMs !== 'number' || !(playedMs > 0)) return 0
+  const playedMs = typeof play.playedMs === 'number' && play.playedMs > 0 ? play.playedMs : 0
   const durationMs = play.durationMs
-  const length =
-    typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0
-      ? durationMs
-      : assumedDurationMs
+  const known = typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0
+  if (play.completed === true && (!known || playedMs >= durationMs * COMPLETED_PLAY_SHARE)) {
+    return 1
+  }
+  const length = known ? durationMs : assumedDurationMs
   if (!(length > 0)) return 0
   return Math.min(1, playedMs / length)
 }

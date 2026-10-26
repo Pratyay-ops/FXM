@@ -9,6 +9,22 @@
  * @module
  */
 
+export {
+  type AndroidHttp,
+  type AndroidHttpOptions,
+  androidHttpIfAvailable,
+  createAndroidHttp,
+  FXM_HTTP_ERROR_CODES,
+  FXM_HTTP_MAX_READ_BYTES,
+  FXM_HTTP_PLUGIN,
+  FXM_HTTP_READ_BYTES,
+  type FxmHttpChunk,
+  type FxmHttpErrorCode,
+  type FxmHttpPlugin,
+  type FxmHttpRequest,
+  type FxmHttpResponseHead,
+  fxmHttpErrorCode,
+} from './android-http'
 export type {
   AcquireOptions,
   BotCheckCause,
@@ -67,6 +83,25 @@ export {
   MIN_CONNECT_VERSION,
 } from './connect'
 export { corsUnsafeRequestHeaderNames, isCorsSimpleRequest } from './cors'
+export type {
+  DesktopFetchOptions,
+  DesktopUserHosts,
+  DesktopUserHostsOptions,
+  PluginFetch,
+  PluginFetchInit,
+  TauriBindings,
+  TauriBindingsSource,
+  TauriInvoke,
+} from './desktop'
+export {
+  createDesktopFetch,
+  createDesktopUserHosts,
+  desktopBrowserUserAgent,
+  fxmUserAgent,
+  isTauriRuntime,
+  loadTauriBindings,
+  siteOrigin,
+} from './desktop'
 export type { RouteNeed, TransportErrorReason } from './errors'
 export {
   isRouteUnavailable,
@@ -106,7 +141,7 @@ export {
   SELF_TEST_RESULTS,
 } from './lite'
 export type { NativeHttp, NativeRequestInit, NativeTransportOptions } from './native'
-export { createNativeTransport } from './native'
+export { createNativeTransport, NATIVE_ORIGINS } from './native'
 export type { NodeTransportOptions } from './node'
 export { createNodeTransport } from './node'
 export type {
@@ -118,6 +153,22 @@ export type {
 } from './platform'
 export { createPlatform, detectEnvironment, ENVIRONMENT_PLATFORMS } from './platform'
 export type {
+  BrowserSandboxTransport,
+  SandboxDocumentOptions,
+  SandboxError,
+  SandboxErrorCode,
+  SandboxHostWindow,
+  SandboxTransportOptions,
+} from './sandbox'
+export {
+  createSandboxTransport,
+  isSandboxError,
+  SandboxFailedError,
+  SandboxRefusedError,
+  sandboxDocumentHeader,
+  sandboxDocumentPolicy,
+} from './sandbox'
+export type {
   SessionTokenOptions,
   SessionTokenSource,
   TokenEndpointResponse,
@@ -128,5 +179,6 @@ export { browserStorage, memoryStorage } from './storage'
 export type { TauriTransportOptions } from './tauri'
 export { createTauriTransport } from './tauri'
 export type { RouteKind, Transport, TransportOptions } from './transport'
+export * from './updates'
 export type { WebTransportOptions } from './web'
 export { createWebTransport } from './web'

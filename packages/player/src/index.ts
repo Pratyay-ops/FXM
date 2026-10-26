@@ -12,6 +12,7 @@ export {
   type PlaySupport,
 } from './engine'
 export { formatTime } from './format-time'
+export * from './lifecycle'
 export {
   connectMediaSession,
   type FxmMediaSessionAction,
@@ -23,6 +24,7 @@ export {
   mediaMetadataInit,
 } from './media-session'
 export { mimeTypeOf } from './mime'
+export * from './native'
 export {
   classifyFailure,
   type FailureClass,
@@ -46,3 +48,4 @@ export type {
   StreamFailure,
   StreamResolver,
 } from './resolver'
+export * from './segment-skipper'

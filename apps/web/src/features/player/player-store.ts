@@ -1,38 +1,27 @@
-import { formatId, type Track } from '@fxm/core'
+import type { RepeatMode } from '@fxm/core'
+import type { PlayerState } from '@fxm/player'
 import { create } from 'zustand'
+import { getPlayer, subscribePlayer } from '../now-playing/playback'
 
-export type RepeatMode = 'off' | 'all' | 'one'
-
-/** What the player shows until real playback arrives (stages 2.2 and 2.5). */
-export const PLACEHOLDER_TRACK = {
-  title: 'Track title',
-  artist: 'Artist name',
-  seed: 'fxm-now-playing',
-} as const
+export type { RepeatMode } from '@fxm/core'
 
 /**
- * The placeholder as a core track, so the like button can already save it to the library
- * (stage 2.6). The real player hands the like button its current track instead.
- */
-export const PLACEHOLDER_NOW_PLAYING: Track = {
-  id: formatId('local', 'track', 'fxm-placeholder'),
-  source: 'local',
-  title: PLACEHOLDER_TRACK.title,
-  artists: [{ name: PLACEHOLDER_TRACK.artist }],
-  durationMs: 213_000,
-  artwork: [],
-  kind: 'song',
-}
-
-/**
- * Placeholder player UI state: every control works, nothing plays. The real
- * player facade (@fxm/player, stage 2.2) replaces the actions, not the shape.
+ * The player bar's view of the app's player (`features/now-playing/playback.ts`): what the
+ * controls show, in the units they show it, and actions that drive the player. The player is
+ * the source of truth; this store follows every change it makes. Call the actions straight from
+ * event handlers, so playback starts inside the user's gesture. Likes live in the library (stage
+ * 2.6): the like button reads and saves the current track's there.
  */
 export interface PlayerUiState {
+  /** Whether a track is playing or selected; the controls are disabled without one. */
+  hasTrack: boolean
+  /** Playing, or getting ready to: the button shows "Pause". */
   isPlaying: boolean
+  /** Waiting for the stream or for data. */
+  busy: boolean
   /** Seconds into the track. */
   position: number
-  /** Track length in seconds. */
+  /** Track length in seconds, 0 when unknown. */
   duration: number
   /** 0 to 1, kept while muted so unmuting restores it. */
   volume: number
@@ -52,32 +41,52 @@ export interface PlayerUiState {
 
 const NEXT_REPEAT: Readonly<Record<RepeatMode, RepeatMode>> = { off: 'all', all: 'one', one: 'off' }
 
-const clamp = (value: number, min: number, max: number) =>
-  Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : min
+/** The fields of {@link PlayerUiState} that follow the player. */
+function view(state: PlayerState) {
+  return {
+    hasTrack: state.queue.index >= 0,
+    isPlaying: state.status === 'playing' || state.status === 'loading',
+    busy: state.status === 'loading' || state.buffering,
+    position: state.positionMs / 1000,
+    duration: (state.durationMs ?? 0) / 1000,
+    volume: state.volume,
+    muted: state.muted,
+    shuffle: state.queue.shuffle,
+    repeat: state.queue.repeat,
+  }
+}
 
-export const usePlayerStore = create<PlayerUiState>()((set) => ({
-  isPlaying: false,
-  position: 0,
-  duration: 213,
-  volume: 0.8,
-  muted: false,
-  shuffle: false,
-  repeat: 'off',
-  togglePlay: () => set((state) => ({ isPlaying: !state.isPlaying })),
-  play: () => set({ isPlaying: true }),
-  seek: (seconds) => set((state) => ({ position: clamp(seconds, 0, state.duration) })),
-  previous: () => set({ position: 0 }),
-  next: () => set({ position: 0 }),
+export const usePlayerStore = create<PlayerUiState>()(() => ({
+  ...view(getPlayer().getState()),
+  togglePlay: () => void getPlayer().toggle(),
+  play: () => void getPlayer().play(),
+  seek: (seconds) => getPlayer().seek(seconds * 1000),
+  previous: () => void getPlayer().previous(),
+  next: () => void getPlayer().next(),
   setVolume: (volume) => {
-    const next = clamp(volume, 0, 1)
-    set({ volume: next, muted: next === 0 })
+    const player = getPlayer()
+    player.setVolume(volume)
+    player.setMuted(player.getState().volume === 0)
   },
-  toggleMute: () =>
-    set((state) =>
-      state.muted || state.volume === 0
-        ? { muted: false, volume: state.volume === 0 ? 0.5 : state.volume }
-        : { muted: true },
-    ),
-  toggleShuffle: () => set((state) => ({ shuffle: !state.shuffle })),
-  cycleRepeat: () => set((state) => ({ repeat: NEXT_REPEAT[state.repeat] })),
+  toggleMute: () => {
+    const player = getPlayer()
+    const { muted, volume } = player.getState()
+    if (!muted && volume > 0) {
+      player.setMuted(true)
+      return
+    }
+    // Unmuting at volume zero would stay silent: come back at half volume.
+    if (volume === 0) player.setVolume(0.5)
+    player.setMuted(false)
+  },
+  toggleShuffle: () => {
+    const player = getPlayer()
+    player.setShuffle(!player.getState().queue.shuffle)
+  },
+  cycleRepeat: () => {
+    const player = getPlayer()
+    player.setRepeat(NEXT_REPEAT[player.getState().queue.repeat])
+  },
 }))
+
+subscribePlayer(() => usePlayerStore.setState(view(getPlayer().getState())))

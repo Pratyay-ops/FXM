@@ -2,8 +2,9 @@ name: Android
 
 # Builds the debug APK with the same repo-local toolchain as on your machine (make
 # android-setup, make apk) and keeps it as a workflow artifact. It runs when the app or anything
-# its build uses changes: the web app and the packages it bundles, the toolchain scripts and the
-# Makefile, Node and the dependencies. Keep both lists the same.
+# its build uses changes: the web app and the packages it bundles, the toolchain scripts (not
+# make dist's and the deploy job's, stage 2.8) and the Makefile, Node and the dependencies. Keep
+# both lists the same.
 on:
   push:
     paths:
@@ -11,6 +12,8 @@ on:
       - apps/web/**
       - packages/**
       - scripts/**
+      - '!scripts/build-dist/**'
+      - '!scripts/build-dist-wrangler/**'
       - Makefile
       - .nvmrc
       - package.json
@@ -24,6 +27,8 @@ on:
       - apps/web/**
       - packages/**
       - scripts/**
+      - '!scripts/build-dist/**'
+      - '!scripts/build-dist-wrangler/**'
       - Makefile
       - .nvmrc
       - package.json
@@ -89,6 +94,11 @@ jobs:
 
       - name: Build the debug APK
         run: make apk
+
+      # The JVM tests of FXM's OkHttp plugin and native player (apps/mobile/android/fxm-http and
+      # fxm-player), offline.
+      - name: Run the native unit tests
+        run: make android-test
 
       # cap sync rewrites capacitor.settings.gradle with a path into pnpm's store that names the
       # Capacitor version, so after an upgrade the committed file is stale until it is regenerated.

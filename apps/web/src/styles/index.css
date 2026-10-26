@@ -13,6 +13,18 @@
     --shell-top: calc(3.5rem + var(--safe-top));
     /* Height covered by the fixed bottom bars: tab bar + mini player on phones. */
     --shell-bottom: calc(var(--spacing-tabbar) + var(--spacing-mini) + 1rem + var(--safe-bottom));
+    /*
+     * Where overlays at the top of the screen (the skip link) start: below a notch, and in a
+     * Window Controls Overlay window below the title bar (see the end of this file).
+     */
+    --overlay-top: var(--safe-top);
+  }
+
+  /* Phones: a full-screen page (Now playing) has neither the tab bar nor the mini player. */
+  @media (width < 48rem) {
+    :root:has(main[data-full-screen]) {
+      --shell-bottom: var(--safe-bottom);
+    }
   }
 
   @media (width >= 48rem) {
@@ -270,4 +282,71 @@
 /* Room at the end of the page for whatever fixed bars cover it (see --shell-bottom). */
 @utility pb-shell {
   padding-bottom: calc(var(--shell-bottom) + 2rem);
+}
+
+/* --- Window Controls Overlay ---------------------------------------------------- */
+
+/*
+ * An installed desktop window that leaves its title bar to the page (features/pwa/title-bar.ts
+ * sets data-titlebar and the --titlebar-left/right insets on <html> while it does). The top bar
+ * and the sidebar's logo row are the title bar: their empty parts drag the window, their links,
+ * buttons and search box don't, and their content keeps clear of the window buttons (on the
+ * left on macOS, on the right elsewhere). Unlayered, like the reduced-motion rule above, so it
+ * beats the utilities on the same elements.
+ */
+:root[data-titlebar] {
+  /* Where the page column starts: after the icon rail from 768px, the sidebar from 1024px. */
+  --column-left: var(--safe-left);
+  /* Below the title bar: the skip link must not land under the window buttons or a drag area. */
+  --overlay-top: var(--shell-top);
+}
+
+@media (width >= 48rem) {
+  :root[data-titlebar] {
+    --column-left: calc(var(--safe-left) + var(--spacing-rail));
+  }
+}
+
+@media (width >= 64rem) {
+  :root[data-titlebar] {
+    --column-left: calc(var(--safe-left) + var(--spacing-sidebar));
+  }
+}
+
+:root[data-titlebar] .titlebar-drag {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+:root[data-titlebar] .titlebar-drag :is(a, button, input, search, [tabindex]) {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/*
+ * The top bar's row (centred, at most max-w-page wide, inside the gutters): padding for the
+ * part of the window buttons that reaches past the gutter and the centring margin, plus 0.5rem.
+ * Padding percentages are of the containing block, the gutters' content box.
+ */
+:root[data-titlebar] .titlebar-row {
+  --row-inset: calc(var(--spacing-gutter) + max(0px, (100% - var(--container-page)) / 2));
+  padding-left: max(
+    0px,
+    calc(var(--titlebar-left, 0px) + 0.5rem - var(--column-left) - var(--row-inset))
+  );
+  padding-right: max(0px, calc(var(--titlebar-right, 0px) + 0.5rem - var(--row-inset)));
+}
+
+/* The sidebar's logo moves right of window buttons on the left (macOS). */
+@media (width >= 64rem) {
+  :root[data-titlebar~="left"] .titlebar-logo {
+    padding-left: max(1.5rem, calc(var(--titlebar-left, 0px) - var(--safe-left) + 0.5rem));
+  }
+}
+
+/* The 72px icon rail has no room beside them: its logo makes way (Home is in the rail too). */
+@media (48rem <= width < 64rem) {
+  :root[data-titlebar~="left"] .titlebar-logo > * {
+    visibility: hidden;
+  }
 }

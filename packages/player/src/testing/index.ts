@@ -5,6 +5,8 @@
  * @module
  */
 
+export * from '../lifecycle/testing'
 export { FakeEngine, type FakeEngineCall } from './fake-engine'
+export { createFakeFxmPlayer, type FakeFxmPlayer } from './fake-fxm-player'
 export { FakeResolver, type FakeResolverRequest, type ResolveHandler } from './fake-resolver'
 export { testStream, testTrack, testTracks } from './fixtures'

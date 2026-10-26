@@ -7,7 +7,6 @@ describe('the guards for the listening signals’ fields', () => {
     const tags = [
       '  Hip-Hop ',
       '',
-      7,
       'x'.repeat(101),
       ...Array.from({ length: 30 }, (_, n) => `t${n}`),
     ]
@@ -17,6 +16,8 @@ describe('the guards for the listening signals’ fields', () => {
     expect(clean?.tags).not.toContain('')
     expect(sanitizeTrack({ ...track(1), tags: 'rock' })).not.toHaveProperty('tags')
     expect(sanitizeTrack({ ...track(1), tags: [' '] })).not.toHaveProperty('tags')
+    // Anything but text drops the whole list, as `cleanTrack` does for a restored queue.
+    expect(sanitizeTrack({ ...track(1), tags: ['rock', 7] })).not.toHaveProperty('tags')
   })
 
   it('keeps a play’s length and import, when they are usable', () => {

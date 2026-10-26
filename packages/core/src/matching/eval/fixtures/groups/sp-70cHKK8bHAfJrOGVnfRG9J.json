@@ -1,0 +1,491 @@
+{
+  "id": "sp:70cHKK8bHAfJrOGVnfRG9J",
+  "split": "held-out",
+  "categories": ["mainstream"],
+  "provenance": ["Top 50 - Global #3 (playlist:37i9dQZEVXbMDoHDwVN2tF), read 2026-10-25"],
+  "spotify": {
+    "id": "70cHKK8bHAfJrOGVnfRG9J",
+    "popularity": 98,
+    "albumType": "album"
+  },
+  "variants": [
+    {
+      "slice": "spotify",
+      "source": {
+        "title": "Nicole Kidman",
+        "artists": [
+          {
+            "name": "ADÉLA"
+          }
+        ],
+        "album": {
+          "name": "PRIMA"
+        },
+        "durationMs": 181270,
+        "isrc": "USUM72606032",
+        "isrcOrigin": "catalog",
+        "explicit": true,
+        "releaseDate": "2026-09-04",
+        "label": "Capitol Records",
+        "albumType": "album"
+      }
+    },
+    {
+      "slice": "data-export",
+      "source": {
+        "title": "Nicole Kidman",
+        "artists": [
+          {
+            "name": "ADÉLA"
+          }
+        ],
+        "album": {
+          "name": "PRIMA"
+        },
+        "isrc": "USUM72606032",
+        "isrcOrigin": "musicbrainz-exact",
+        "durationMs": 181000
+      }
+    },
+    {
+      "slice": "musicbrainz-exact",
+      "source": {
+        "title": "Nicole Kidman",
+        "artists": [
+          {
+            "name": "ADÉLA"
+          }
+        ],
+        "durationMs": 181000,
+        "isrc": "USUM72606032",
+        "isrcOrigin": "musicbrainz-exact",
+        "releaseDate": "2026-09-04"
+      }
+    },
+    {
+      "slice": "musicbrainz-fuzzy",
+      "source": {
+        "title": "Nicole Kidman",
+        "artists": [
+          {
+            "name": "ADÉLA"
+          }
+        ],
+        "album": {
+          "name": "PRIMA"
+        },
+        "durationMs": 181270,
+        "explicit": true,
+        "isrc": "USUM72606032",
+        "isrcOrigin": "musicbrainz-fuzzy"
+      }
+    }
+  ],
+  "musicBrainz": {
+    "exact": {
+      "recording": "e57859ec-f484-42f4-978a-65e262a60c68",
+      "title": "Nicole Kidman",
+      "artists": ["ADÉLA"],
+      "lengthMs": 181000,
+      "isrcs": ["USUM72606032"],
+      "firstReleaseDate": "2026-09-04"
+    },
+    "fuzzy": {
+      "recording": "c1550a9e-156b-499c-99f5-c4c3a28b3ee6",
+      "isrcs": ["USUM72606032"]
+    }
+  },
+  "recording": {
+    "recordedAt": ["2026-10-25"],
+    "items": {
+      "h-zuG75Ds-w": {
+        "kind": "song",
+        "title": "Nicole Kidman",
+        "artists": ["ADÉLA"],
+        "album": "PRIMA",
+        "albumId": "MPREb_BtXfAQVI3yJ",
+        "durationMs": 182000,
+        "explicit": true
+      },
+      "6snDsbwxRUI": {
+        "kind": "song",
+        "title": "MONTAGEM ALQUIMIA (SLOWED)",
+        "artists": ["h6itam", "n7san7os", "Mc Menor Do Alvorada"],
+        "album": "MONTAGEM ALQUIMIA",
+        "albumId": "MPREb_hFZBMSZCnF4",
+        "durationMs": 114000,
+        "explicit": true
+      },
+      "gduh1ZDogco": {
+        "kind": "song",
+        "title": "What U Gon' Do (feat. Lil Scrappy)",
+        "artists": ["Lil Jon & The East Side Boyz"],
+        "album": "Crunk Juice",
+        "albumId": "MPREb_AaOw6YzyOre",
+        "durationMs": 321000,
+        "explicit": true
+      },
+      "wS4O1iIVVcs": {
+        "kind": "song",
+        "title": "El Youm El Helw Dah",
+        "artists": ["Ahmed Saad"],
+        "album": "El Youm El Helw Dah",
+        "albumId": "MPREb_YjsZhnNSfOi",
+        "durationMs": 173000
+      },
+      "cxp3k-BJS-M": {
+        "kind": "song",
+        "title": "Kaseh Elgadara",
+        "artists": ["حمو المرشدي"],
+        "album": "Kaseh Elgadara",
+        "albumId": "MPREb_ceyPuvK0dsd",
+        "durationMs": 209000
+      },
+      "uCJXG5pIZ3U": {
+        "kind": "song",
+        "title": "Throw It Up (feat. Pastor Troy)",
+        "artists": ["Lil Jon & The East Side Boyz"],
+        "album": "Kings Of Crunk",
+        "albumId": "MPREb_pFWvKJKNrQZ",
+        "durationMs": 373000,
+        "explicit": true
+      },
+      "L-j0dPp-9wA": {
+        "kind": "song",
+        "title": "Beretta (De Los Cerros La Escuela)",
+        "artists": ["El De Las R's"],
+        "album": "Beretta (De Los Cerros La Escuela)",
+        "albumId": "MPREb_ik707JkJPfH",
+        "durationMs": 134000
+      },
+      "HwFa3IKSLOo": {
+        "kind": "song",
+        "title": "五月雨 - Early Summer Rain",
+        "artists": ["Yasuharu Takanashi", "YAIBA"],
+        "album": "NARUTO SHIPPUDEN ORIGINAL SOUNDTRACK 2",
+        "albumId": "MPREb_DKGpXhloJ6R",
+        "durationMs": 208000
+      },
+      "Q36xagpcrKw": {
+        "kind": "song",
+        "title": "MUTILATOR (SLOWED)",
+        "artists": ["ZMAJOR", "Lurk"],
+        "album": "MUTILATOR",
+        "albumId": "MPREb_GS1uOH2lAjk",
+        "durationMs": 110000
+      },
+      "GhtgUc8gdvU": {
+        "kind": "song",
+        "title": "Shar W Khair",
+        "artists": ["Al Remas Production"],
+        "album": "Shar W Khair",
+        "albumId": "MPREb_cXLzrCGTBqW",
+        "durationMs": 289000
+      },
+      "Uz2CUU3AZZY": {
+        "kind": "song",
+        "title": "百花繚乱 - Emergence of Talents",
+        "artists": ["Yasuharu Takanashi"],
+        "album": "NARUTO SHIPPUDEN ORIGINAL SOUNDTRACK",
+        "albumId": "MPREb_HPHsUTjugcj",
+        "durationMs": 134000
+      },
+      "rmA62C4F5bk": {
+        "kind": "song",
+        "title": "オビトのテーマ - Obito's Theme",
+        "artists": ["Yasuharu Takanashi", "YAIBA"],
+        "album": "NARUTO SHIPPUDEN ORIGINAL SOUNDTRACK 3",
+        "albumId": "MPREb_xdKRYyZEydr",
+        "durationMs": 161000
+      },
+      "5wtbV8mbymY": {
+        "kind": "song",
+        "title": "疾風伝 - Shippuden",
+        "artists": ["Yasuharu Takanashi"],
+        "album": "NARUTO SHIPPUDEN ORIGINAL SOUNDTRACK",
+        "albumId": "MPREb_HPHsUTjugcj",
+        "durationMs": 126000
+      },
+      "nb5Q3cmxbAM": {
+        "kind": "song",
+        "title": "Neva Eva (feat. Lil' Scrappy & Lil' Jon)",
+        "artists": ["Trillville"],
+        "album": "Neva Eva",
+        "albumId": "MPREb_tbgLm0APzOW",
+        "durationMs": 277000,
+        "explicit": true
+      },
+      "_rb5EFoJ5Dw": {
+        "kind": "song",
+        "title": "Laffy Taffy",
+        "artists": ["D4L"],
+        "album": "Down for Life",
+        "albumId": "MPREb_is7UsHZPIUT",
+        "durationMs": 225000,
+        "explicit": true
+      },
+      "37angcuEJMQ": {
+        "kind": "song",
+        "title": "ايه يا حلوة",
+        "artists": ["Coolpix", "Muslim"],
+        "album": "ايه يا حلوة",
+        "albumId": "MPREb_x0eVHe4i2ai",
+        "durationMs": 137000
+      },
+      "v41hcsVUbV0": {
+        "kind": "song",
+        "title": "We Akhyran",
+        "artists": ["Mahmoud El Esseily", "Sabren Elnegily"],
+        "album": "We Akhyran",
+        "albumId": "MPREb_phAcrZ8V8Kw",
+        "durationMs": 186000
+      },
+      "s6cdjJvGM2o": {
+        "kind": "song",
+        "title": "La Diabla",
+        "artists": ["Xavi"],
+        "album": "La Diabla",
+        "albumId": "MPREb_uxXohsgZ4gp",
+        "durationMs": 173000
+      },
+      "zMQ0Nh7rPvk": {
+        "kind": "song",
+        "title": "de los cuentos",
+        "artists": ["CORRIDOS DE LA VIDA REAL", "GREGORIO CRUZ MENDOZA"],
+        "album": "EN EL OLVIDO",
+        "albumId": "MPREb_bGrpKeZXVDb",
+        "durationMs": 179000
+      },
+      "5-CtpqKr6Es": {
+        "kind": "song",
+        "title": "La Víctima",
+        "artists": ["Xavi"],
+        "album": "La Víctima",
+        "albumId": "MPREb_ijTaOo0CgJz",
+        "durationMs": 157000,
+        "explicit": true
+      },
+      "BLFGsxijRHg": {
+        "kind": "song",
+        "title": "Under The Influence",
+        "artists": ["Chris Brown"],
+        "album": "Indigo (Extended)",
+        "albumId": "MPREb_2UBRpewr9ad",
+        "durationMs": 185000,
+        "explicit": true
+      },
+      "axRMZqUNVEw": {
+        "kind": "song",
+        "title": "Get Free",
+        "artists": ["Lana Del Rey"],
+        "album": "Lust For Life",
+        "albumId": "MPREb_MvKp5ic0oqt",
+        "durationMs": 335000
+      },
+      "BO7FQnegW1o": {
+        "kind": "song",
+        "title": "Promiscuous (feat. Timbaland)",
+        "artists": ["Nelly Furtado"],
+        "album": "Loose",
+        "albumId": "MPREb_QVynDp5KU5c",
+        "durationMs": 243000
+      },
+      "LJzp_mDxaT0": {
+        "kind": "song",
+        "title": "Skyfall",
+        "artists": ["Adele"],
+        "album": "Skyfall",
+        "albumId": "MPREb_iO6eynkmwmk",
+        "durationMs": 287000
+      },
+      "nyNm-dVBMoo": {
+        "kind": "song",
+        "title": "Ain't In LA",
+        "artists": ["ADÉLA"],
+        "album": "PRIMA",
+        "albumId": "MPREb_BtXfAQVI3yJ",
+        "durationMs": 185000,
+        "explicit": true
+      },
+      "KMZYqDKsKIc": {
+        "kind": "song",
+        "title": "Popular (From The Idol Vol. 1 (Music from the HBO Original Series)) (feat. Playboi Carti)",
+        "artists": ["The Weeknd", "Madonna"],
+        "album": "Popular (From The Idol Vol. 1 (Music from the HBO Original Series))",
+        "albumId": "MPREb_gA7w9fT3hRU",
+        "durationMs": 216000,
+        "explicit": true
+      },
+      "MmnkGZz4lIY": {
+        "kind": "song",
+        "title": "Lights Camera Action",
+        "artists": ["AdELA"],
+        "album": "Hip Hop Heat",
+        "albumId": "MPREb_JRwNrK3uhbC",
+        "durationMs": 105000
+      },
+      "BEdwaSwsbzw": {
+        "kind": "song",
+        "title": "Adela",
+        "artists": ["Weathergirl"],
+        "album": "Adela",
+        "albumId": "MPREb_UFp0Z5ujHf1",
+        "durationMs": 265000
+      },
+      "hUaSI92Jrb4": {
+        "kind": "song",
+        "title": "ADÉLA - NICOLE KIDMAN - (español)",
+        "artists": ["Andersen-Tek"],
+        "album": "ADÉLA - NICOLE KIDMAN - (español)",
+        "albumId": "MPREb_3ZIU8GRioYX",
+        "durationMs": 217000,
+        "explicit": true
+      },
+      "lqBWQFcJDl4": {
+        "kind": "song",
+        "title": "Come What May (Film Version)",
+        "artists": ["Nicole Kidman", "Ewan McGregor", "John Leguizamo", "Anthony Weigh"],
+        "album": "Come What May (From \"Moulin Rouge\" Soundtrack)",
+        "albumId": "MPREb_pVEl4COO3U2",
+        "durationMs": 219000
+      },
+      "BTBnkqNeyUQ": {
+        "kind": "song",
+        "title": "Run It (feat. Ms Madli)",
+        "artists": ["AdELA"],
+        "album": "Run It",
+        "albumId": "MPREb_kTAiAcpDSGX",
+        "durationMs": 116000
+      },
+      "QFVDsiLfcyw": {
+        "kind": "song",
+        "title": "Ain't In LA x Close To Me",
+        "artists": ["skyemane", "nimphia", "klyron"],
+        "album": "Ain't In LA x Close To Me",
+        "albumId": "MPREb_kLnQULcm6I0",
+        "durationMs": 129000,
+        "explicit": true
+      },
+      "I638MaXXIYA": {
+        "kind": "song",
+        "title": "Adela",
+        "artists": ["Nikki M. James", "Saundra Santiago", "Judith Blazer", "Daphne Rubin-Vega"],
+        "album": "Bernarda Alba (World Premiere Recording)",
+        "albumId": "MPREb_1dZE7WusFfP",
+        "durationMs": 256000
+      },
+      "T4qEhV2fPR4": {
+        "kind": "song",
+        "title": "Like It Loud",
+        "artists": ["AdELA"],
+        "album": "Pop Fire",
+        "albumId": "MPREb_UQFCvSFaakW",
+        "durationMs": 131000
+      },
+      "1873S8_RrPM": {
+        "kind": "song",
+        "title": "DeathByDevotion",
+        "artists": ["ADÉLA"],
+        "album": "DeathByDevotion",
+        "albumId": "MPREb_G35kmQJHvYF",
+        "durationMs": 197000
+      },
+      "vIgVc5S7jfc": {
+        "kind": "song",
+        "title": "KGB",
+        "artists": ["ADÉLA"],
+        "album": "PRIMA",
+        "albumId": "MPREb_BtXfAQVI3yJ",
+        "durationMs": 159000,
+        "explicit": true
+      },
+      "l0h13wbBPhs": {
+        "kind": "song",
+        "title": "Adela",
+        "artists": [
+          "Aleksander Dębicz",
+          "Łukasz Kuropaczewski",
+          "Jakub Józef Orliński",
+          "Joaquín Rodrigo"
+        ],
+        "album": "Adela",
+        "albumId": "MPREb_Jd4WebH1hY3",
+        "durationMs": 339000
+      },
+      "FhJM56ml_UM": {
+        "kind": "song",
+        "title": "Main Attraction (feat. Kool G Rap)",
+        "artists": ["AdELA"],
+        "album": "Main Attraction",
+        "albumId": "MPREb_cuGvOdqzGKy",
+        "durationMs": 200000,
+        "explicit": true
+      },
+      "bX9E5nMgi-k": {
+        "kind": "song",
+        "title": "Layup",
+        "artists": ["AdELA"],
+        "album": "Run, Baby Run",
+        "albumId": "MPREb_RrbEocV7zNq",
+        "durationMs": 162000
+      }
+    },
+    "pages": {
+      "isrc-songs/1/USUM72606032": {
+        "items": [
+          "h-zuG75Ds-w",
+          "6snDsbwxRUI",
+          "gduh1ZDogco",
+          "wS4O1iIVVcs",
+          "cxp3k-BJS-M",
+          "uCJXG5pIZ3U",
+          "L-j0dPp-9wA",
+          "HwFa3IKSLOo",
+          "Q36xagpcrKw",
+          "GhtgUc8gdvU",
+          "Uz2CUU3AZZY",
+          "rmA62C4F5bk",
+          "5wtbV8mbymY",
+          "nb5Q3cmxbAM",
+          "_rb5EFoJ5Dw",
+          "37angcuEJMQ",
+          "v41hcsVUbV0",
+          "s6cdjJvGM2o",
+          "zMQ0Nh7rPvk",
+          "5-CtpqKr6Es"
+        ]
+      },
+      "songs/ADÉLA Nicole Kidman": {
+        "items": [
+          "h-zuG75Ds-w",
+          "BLFGsxijRHg",
+          "axRMZqUNVEw",
+          "BO7FQnegW1o",
+          "LJzp_mDxaT0",
+          "nyNm-dVBMoo",
+          "KMZYqDKsKIc",
+          "MmnkGZz4lIY",
+          "BEdwaSwsbzw",
+          "hUaSI92Jrb4",
+          "lqBWQFcJDl4",
+          "BTBnkqNeyUQ",
+          "QFVDsiLfcyw",
+          "I638MaXXIYA",
+          "T4qEhV2fPR4",
+          "1873S8_RrPM",
+          "vIgVc5S7jfc",
+          "l0h13wbBPhs",
+          "FhJM56ml_UM",
+          "bX9E5nMgi-k"
+        ]
+      }
+    }
+  },
+  "labels": {
+    "h-zuG75Ds-w": {
+      "label": "exact",
+      "by": "rule",
+      "evidence": ["length +0.7 s", "found by the ISRC search for USUM72606032 (#1, attempt 1)"]
+    }
+  }
+}

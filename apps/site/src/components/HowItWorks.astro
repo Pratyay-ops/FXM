@@ -1,5 +1,6 @@
 ---
 import { AVAILABLE } from '../config'
+import { diagramLabel, howItWorksStep } from '../lib/tiers'
 import Icon from './Icon.astro'
 import Logo from './Logo.astro'
 
@@ -48,13 +49,7 @@ const services = [
           <span class="num">2</span>
           <div>
             <h3>Your device asks the music services</h3>
-            <p>
-              When you search or press play, FXM asks YouTube Music, Internet Archive, Jamendo and
-              the other services directly from your device. Some of them, like YouTube Music, don't
-              answer other websites. In a browser, the FXM Connect extension lets the web app reach
-              them: it only adjusts a few headers on FXM's own requests and contains no
-              music-service code. The desktop and Android apps don't need it.
-            </p>
+            <p>{howItWorksStep(AVAILABLE.lite)}</p>
           </div>
         </li>
         <li>
@@ -80,7 +75,7 @@ const services = [
             <Logo id="diagram" size={36} />
             <span class="app-text">
               <span class="app-name">FXM</span>
-              <span class="app-where">Web app with FXM Connect, desktop or Android</span>
+              <span class="app-where">{diagramLabel(AVAILABLE.lite)}</span>
             </span>
           </div>
           <div class="local">

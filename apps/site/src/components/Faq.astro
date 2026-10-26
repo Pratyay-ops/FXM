@@ -1,11 +1,16 @@
 ---
 import { AVAILABLE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../config'
+import { phonesAnswer } from '../lib/connect'
+import { connectNeededFor, extensionFaq, iPhoneAnswer } from '../lib/tiers'
 
 // Answers that change as features ship (AVAILABLE in src/config.ts)
-const firefox = AVAILABLE.firefox ? '' : 'A Firefox add-on is coming.'
-const phones = AVAILABLE.android
-  ? 'FXM Connect needs a desktop browser; the Android app has everything built in.'
-  : 'FXM Connect needs a desktop browser, and the Android app is coming soon.'
+const extension = extensionFaq(AVAILABLE.lite)
+const needs = connectNeededFor(AVAILABLE.lite)
+const phones = phonesAnswer({
+  firefox: AVAILABLE.firefox,
+  android: AVAILABLE.android,
+  lite: AVAILABLE.lite,
+})
 const iphone = `On iPhone and iPad you can use the web app in Safari${
   AVAILABLE.pwa ? ' and add it to your Home Screen' : ''
 }.`
@@ -38,38 +43,33 @@ const downloads = AVAILABLE.downloads
       </details>
 
       <details>
-        <summary>Why does the web app need an extension?</summary>
+        <summary>{extension.question}</summary>
         <div class="answer">
-          <p>
-            For your safety, browsers don't let one website read data from another unless that site
-            allows it. Music services such as YouTube Music don't, so a regular website can't search
-            or stream from them. The free FXM Connect extension lets the web app reach them from
-            your own browser: it only adjusts a few headers on FXM's own requests and contains no
-            music-service code. Nothing goes through FXM servers, because there aren't any.
-          </p>
-          <p>
-            Without the extension, the web app still works with free sources (Internet Archive and
-            Jamendo) and invites you to add FXM Connect for YouTube Music and Spotify. The desktop
-            and Android apps don't need it.
-          </p>
+          {extension.answers.map((answer) => <p>{answer}</p>)}
         </div>
       </details>
 
       <details>
         <summary>Which browsers does it work in?</summary>
         <div class="answer">
-          <p>
-            The web app works in any modern browser. FXM Connect, which it needs for YouTube Music
-            and Spotify, is for Chrome, Edge and Brave (version 120 or later) on a computer. You
-            install it from the zip on the GitHub release with <strong>Load unpacked</strong>
-            (<a href="#get-web">see the steps</a>).
-            {firefox}
-          </p>
-          <p>
-            On phones and tablets, and in other browsers such as Safari, the web app plays free
-            music from Internet Archive and Jamendo.
-            {phones}
-          </p>
+          {AVAILABLE.firefox ? (
+            <p>
+              The web app works in any modern browser. FXM Connect, which it needs for {needs}, is
+              for Firefox (version 140 or later), and for Chrome, Edge and Brave (version 120 or
+              later) on a computer. Firefox adds it as an add-on signed by Mozilla; in Chrome, Edge
+              and Brave you install the zip from the GitHub release with
+              <strong>Load unpacked</strong> (<a href="#get-web">see the steps</a>).
+            </p>
+          ) : (
+            <p>
+              The web app works in any modern browser. FXM Connect, which it needs for {needs}, is
+              for Chrome, Edge and Brave (version 120 or later) on a computer. You install it from
+              the zip on the GitHub release with
+              <strong>Load unpacked</strong> (<a href="#get-web">see the steps</a>). A Firefox
+              add-on is coming.
+            </p>
+          )}
+          <p>{phones}</p>
         </div>
       </details>
 
@@ -79,8 +79,7 @@ const downloads = AVAILABLE.downloads
           <p>
             No, and none is planned for now.
             {iphone}
-            FXM Connect isn't available there, so the web app plays from free sources such as
-            Internet Archive and Jamendo.
+            {iPhoneAnswer(AVAILABLE.lite)}
           </p>
         </div>
       </details>
@@ -93,8 +92,8 @@ const downloads = AVAILABLE.downloads
             collect. Your library, history and settings stay in your browser or in the app.
           </p>
           <p>
-            When you search or play, your device talks directly to the services you use, and they
-            see those requests as if you visited them yourself. The
+            When you open the app, search or play, your device talks directly to the services you
+            use, and they see those requests as if you visited them yourself. The
             <a href="/privacy">privacy page</a>
             lists the services FXM uses, what each one is for and what FXM Connect can access.
           </p>

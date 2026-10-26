@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>FXM</title>
+  <!--
+    The tray icon on Windows and Linux: the FXM tile edge to edge, with three bold bars instead
+    of the mark's five (assets/icon.svg). Every edge sits on a 2 px grid, so the icon halves to
+    a sharp 16 px, the notification area's size at 100% scaling; the bars are 2 px wide there,
+    with 2 px between them. The package's "tray-icon" script turns it into
+    src-tauri/tray/color/32x32.png (see apps/desktop/README.md).
+  -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#5b21b6"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="6" fill="url(#g)"/>
+  <g fill="#fff">
+    <rect x="6" y="14" width="4" height="12" rx="2"/>
+    <rect x="14" y="6" width="4" height="20" rx="2"/>
+    <rect x="22" y="12" width="4" height="14" rx="2"/>
+  </g>
+</svg>

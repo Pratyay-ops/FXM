@@ -101,9 +101,11 @@ export interface Track {
    */
   externalIds?: Partial<Record<SourceId, string>>
   /**
-   * Genre and style tags as the source spells them, when it has any, e.g. Jamendo's genres, an
-   * Internet Archive item's subjects, a local file's genre or Last.fm's tags: `['Hip-Hop',
-   * 'lo-fi']`. The listening signals score each tag (see `tagAffinityKey`).
+   * Descriptive tags as the source spells them, when it has any: genres, styles and moods, e.g.
+   * Jamendo's genres, an Internet Archive item's subjects, a local file's genre or Last.fm's
+   * tags: `['Hip-Hop', 'lo-fi']`. Never what sets one recording of a song apart ("Live",
+   * "Remix", "Acoustic"): those are version tags, which `extractVersionTags` reads from titles.
+   * The listening affinity scores each tag (see `tagAffinityKey`).
    */
   tags?: string[]
 }
@@ -197,11 +199,17 @@ export interface Playlist {
   tracks?: Page<Track>
 }
 
-/** One page of a longer list. */
+/**
+ * One page of a longer list.
+ *
+ * A page may hold fewer items than the `limit` asked for, or none, and still have a
+ * `nextCursor`, e.g. when its provider filters it by the catalog mode after cutting it to the
+ * limit. Only a missing `nextCursor` ends the list: an empty page is not the end.
+ */
 export interface Page<T> {
   /** The items on this page, in order. */
   items: T[]
-  /** Opaque cursor for the next page. Absent on the last page. */
+  /** Opaque cursor for the next page. Absent on the last page, and only there. */
   nextCursor?: string
   /** Total number of items across all pages, when the source says. */
   total?: number

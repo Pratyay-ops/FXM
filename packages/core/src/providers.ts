@@ -286,6 +286,17 @@ export interface RecommendationProvider {
    * seeds from other sources.
    */
   radio(seed: RadioSeed, ctx: ProviderContext): Promise<Track[]>
+  /**
+   * The same radio one page at a time, for sources whose stations go on, such as YouTube Music's:
+   * the first page without a cursor, then each page's `nextCursor`, with the same seed in the
+   * same catalog mode. Without a `limit`, the first page holds what `radio` returns; with one, a
+   * page holds at most `limit` tracks, and the pages after it go on with the rest.
+   *
+   * A page does not repeat the seed, nor a track that one of the recent pages returned: a cursor
+   * remembers only so many (YouTube Music's the last 200), so a consumer that must never repeat
+   * a track over a long session also de-duplicates with `entityKey`.
+   */
+  radioPage?(seed: RadioSeed, options: PageOptions, ctx: ProviderContext): Promise<Page<Track>>
   /** A home feed, e.g. Spotify's personal shelves when the user is logged in. */
   home?(ctx: ProviderContext): Promise<Shelf[]>
 }
@@ -414,7 +425,11 @@ export interface StreamOption {
   bitDepth?: number
   /**
    * Quality tier of the audio, usually from `tierOf`. Only a lossless codec is `lossless`, so
-   * YouTube audio (Opus or AAC) never is.
+   * YouTube audio (Opus or AAC) never is. A source whose formats are encoded to a stated
+   * bitrate may tier variable-bitrate audio by that nominal (peak) bitrate rather than by the
+   * average in `bitrateKbps`: YouTube's Opus 251 is `high` even when a quiet song averages
+   * below 120 kbps (ARCHITECTURE.md §7.3). Read the tier from here rather than computing it
+   * again from `bitrateKbps`.
    */
   tier: QualityTier
   /** How the stream is delivered. */

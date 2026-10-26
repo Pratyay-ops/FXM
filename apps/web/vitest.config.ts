@@ -8,7 +8,8 @@ export default defineProject({
   test: {
     name: 'web',
     environment: 'happy-dom',
-    include: ['src/**/*.test.{ts,tsx}'],
+    // pwa/ holds the build-time PWA config (manifest, service worker options, icons).
+    include: ['src/**/*.test.{ts,tsx}', 'pwa/**/*.test.ts'],
     setupFiles: ['./src/test/setup.ts'],
     // Pages load lazily, and a dynamic import can take seconds when other checks share the
     // machine. A real failure still fails, only later (see also asyncUtilTimeout in setup.ts).

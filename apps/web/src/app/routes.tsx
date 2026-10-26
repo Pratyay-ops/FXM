@@ -92,6 +92,14 @@ export const routes: RouteObject[] = [
                 Component: m.SettingsPage,
               })),
           },
+          {
+            path: 'connect',
+            handle: page('FXM Connect'),
+            lazy: () =>
+              import('../features/connect/connect-page').then((m) => ({
+                Component: m.ConnectPage,
+              })),
+          },
           { path: '*', handle: page('Page not found'), element: <NotFoundPage /> },
         ],
       },

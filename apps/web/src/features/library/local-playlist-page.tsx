@@ -1,5 +1,15 @@
 import type { EntityId } from '@fxm/core'
-import { Copy, Download, Ellipsis, Heart, LibraryBig, ListMusic, Pencil, Trash } from 'lucide-react'
+import {
+  ArrowDownToLine,
+  Copy,
+  Download,
+  Ellipsis,
+  Heart,
+  LibraryBig,
+  ListMusic,
+  Pencil,
+  Trash,
+} from 'lucide-react'
 import { Link, useNavigate } from 'react-router'
 import { PageWash, seedWash } from '../../components/media/collection-header'
 import { TrackListSkeleton } from '../../components/media/placeholders'
@@ -11,12 +21,13 @@ import { Skeleton } from '../../components/ui/skeleton'
 import { usePlaylistView } from '../../db/hooks'
 import type { PlaylistView } from '../../db/repo'
 import type { PlaylistRecord } from '../../db/types'
+import { downloadTracks } from '../downloads/actions'
+import { useCanDownload } from '../downloads/hooks'
 import { PlayPauseButton } from '../player/controls'
 import { CoverArt } from './cover-art'
 import { artworkUrl, countLabel, totalDuration } from './format'
 import { playlistIcon } from './paths'
 import { duplicatePlaylist, usePlaylistDialogs } from './playlist-dialogs'
-import { StatusToast } from './status'
 import { TrackList, type TrackListKind } from './track-list'
 import { Menu, type MenuItem } from './ui/menu'
 
@@ -46,7 +57,7 @@ export function EmptyList({ kind }: { kind: TrackListKind }) {
       <EmptyState
         icon={Download}
         title="No downloads yet"
-        description="Songs you download to play offline will appear here, in an order you choose. Downloading comes in a later version of FXM."
+        description="Songs you download play without a connection and show up here, in an order you choose. Use Download in the menu of a song, or Download all on a playlist."
         headingLevel={3}
         className={frame}
       />
@@ -103,6 +114,7 @@ export function LocalPlaylistPage({ id }: { id: EntityId<'playlist'> }) {
   const live = usePlaylistView(id)
   const navigate = useNavigate()
   const dialogs = usePlaylistDialogs({ onDeleted: () => navigate('/library') })
+  const canDownload = useCanDownload()
 
   if (live.status === 'loading') {
     return (
@@ -157,6 +169,17 @@ export function LocalPlaylistPage({ id }: { id: EntityId<'playlist'> }) {
     icon: Copy,
     onSelect: () => duplicatePlaylist(ref),
   })
+  const downloadable = rows.flatMap((row) =>
+    row.track && canDownload(row.track) ? [row.track] : [],
+  )
+  if (kind !== 'downloads' && downloadable.length > 0) {
+    actions.push({
+      id: 'download-all',
+      label: 'Download all',
+      icon: ArrowDownToLine,
+      onSelect: () => void downloadTracks(downloadable),
+    })
+  }
   if (!playlist.system) {
     actions.push({
       id: 'delete',
@@ -191,7 +214,6 @@ export function LocalPlaylistPage({ id }: { id: EntityId<'playlist'> }) {
         name={playlist.name}
         empty={<EmptyList kind={kind} />}
       />
-      <StatusToast />
       {dialogs.dialogs}
     </div>
   )

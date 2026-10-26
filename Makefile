@@ -9,7 +9,7 @@ RUN := scripts/run.sh
 
 .DEFAULT_GOAL := help
 .PHONY: help setup install doctor py-setup gh-setup dev lint format typecheck test coverage build check \
-	extension ci-setup ci wt-new wt-list wt-remove clean nuke
+	extension dist ci-setup ci wt-new wt-list wt-remove clean nuke
 
 help: ## List available commands
 	@echo "FXM commands (docs/DEVELOPMENT.md has the details):"
@@ -62,8 +62,17 @@ build: ## Build every app
 
 check: lint typecheck test build ## Everything a stage must pass before merging
 
+# Run from a residential connection: datacenter IPs get YouTube's bot checks, so CI's live runs
+# are only advisory. docs/DEVELOPMENT.md has a daily schedule for the owner's Mac.
+.PHONY: live-smoke
+live-smoke: ## Live smoke tests against the real services (FXM_LIVE=1, a few requests each)
+	@FXM_LIVE=1 $(RUN) pnpm exec vitest run live.test --no-file-parallelism
+
 extension: ## Build the FXM Connect extension and its zips (FXM_EXTENSION_DEV=1: dev build)
 	@$(RUN) pnpm --filter @fxm/extension build
+
+dist: ## Compose what Cloudflare Pages serves (site, app, headers, notices) into dist/pages
+	@$(RUN) pnpm --silent --filter @fxm/deploy dist
 
 ci-setup: ## CI only: setup with a frozen lockfile
 	@scripts/setup.sh --frozen-lockfile
@@ -72,13 +81,16 @@ ci: ci-setup check ## What CI runs: frozen setup, then check
 
 # --- Android app (docs/DEVELOPMENT.md, "Android app") ---------------------------
 
-.PHONY: android-setup apk android-clean
+.PHONY: android-setup apk android-test android-clean
 
 android-setup: ## Install the JDK and Android SDK into .tools (accepts the SDK licenses)
 	@scripts/android-setup.sh
 
 apk: ## Build the Android debug APK (run make android-setup once first)
 	@apps/mobile/scripts/build-apk.sh
+
+android-test: ## Run the Android app's native unit tests (offline, no device needed)
+	@apps/mobile/scripts/test-native.sh
 
 android-clean: ## Remove this checkout's Android build output
 	@scripts/clean.sh android
