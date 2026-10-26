@@ -16,7 +16,55 @@
  * The web card's no-extension note and the FAQ's answer for phones also change once the signed
  * Firefox add-on is out (`AVAILABLE.firefox`). src/lib/connect.ts writes who those sentences are
  * for and takes what the web app plays from `noExtensionPlays` and `otherBrowsersPlays` here.
+ *
+ * The sentences that mention the desktop and Android apps take which of them are out (`Apps`:
+ * `AVAILABLE` itself, or any object with its `desktop` and `android` flags), so an app that isn't
+ * out is described as coming soon, never in the present tense.
  */
+
+import { joinList } from './copy'
+
+/** Which of FXM's apps are out: `AVAILABLE.desktop` and `AVAILABLE.android`. */
+export interface Apps {
+  readonly desktop: boolean
+  readonly android: boolean
+}
+
+const APP_NAMES = [
+  ['desktop', 'desktop'],
+  ['android', 'Android'],
+] as const
+
+/** The names of the apps that are out (`released`), or of those that aren't, in a fixed order. */
+function appNames(apps: Apps, released: boolean): string[] {
+  return APP_NAMES.filter(([key]) => apps[key] === released).map(([, name]) => name)
+}
+
+/**
+ * That the apps need neither FXM Connect nor Lite (`either`), or not FXM Connect (`it`): in the
+ * present tense for the apps that are out, in the future tense, coming soon, for the others.
+ */
+function appsNeedNo(apps: Apps, what: 'it' | 'either'): string {
+  const out = appNames(apps, true)
+  const soon = appNames(apps, false)
+  const sentences: string[] = []
+  if (out.length > 0) {
+    const one = out.length === 1
+    sentences.push(
+      what === 'it'
+        ? `The ${joinList(out)} ${one ? "app doesn't" : "apps don't"} need it.`
+        : `The ${joinList(out)} ${one ? 'app needs' : 'apps need'} neither.`,
+    )
+  }
+  if (soon.length > 0) {
+    const noun = soon.length === 1 ? 'app' : 'apps'
+    sentences.push(`The ${joinList(soon)} ${noun}, coming soon, won't need ${what}.`)
+  }
+  return sentences.join(' ')
+}
+
+/** "A, B or C", as the diagram's label lists where FXM runs. */
+const disjunction = new Intl.ListFormat('en-GB', { style: 'long', type: 'disjunction' })
 
 /**
  * What FXM Connect does, in a sentence that is true of every version of it. Besides the headers,
@@ -107,23 +155,49 @@ export function noExtensionPlays(lite: boolean, jamendo: boolean): string {
     : `The web app still plays free music from ${freeSources(jamendo)}.`
 }
 
-/** Step 2 of "How it works": how the device reaches the music services. */
-export function howItWorksStep(lite: boolean, jamendo: boolean): string {
-  const start = `When you search or press play, FXM asks YouTube Music, Internet Archive${jamendo ? ', Jamendo' : ''} and the other services directly from your device. Some of them, like YouTube Music, don't answer other websites. In a browser, the FXM Connect extension lets the web app reach them: ${CONNECT_DOES}.`
-  return lite
-    ? `${start} Without it, ${LITE} reaches YouTube Music where the browser allows it. The desktop and Android apps need neither.`
-    : `${start} The desktop and Android apps don't need it.`
+/**
+ * Step 1 of "How it works": how FXM opens, in the browser and in the apps, which are coming soon
+ * until they are out.
+ */
+export function openingStep(apps: Apps): string {
+  const out = appNames(apps, true)
+  const soon = appNames(apps, false)
+  const sentences = ['On the web, your browser loads the app like any other page, then runs it.']
+  if (out.length > 0) sentences.push(`On ${joinList(out)}, it's an app you install.`)
+  if (soon.length > 0) {
+    sentences.push(
+      out.length > 0
+        ? `On ${joinList(soon)}, it will be one too (coming soon).`
+        : `On ${joinList(soon)}, it will be an app you install (coming soon).`,
+    )
+  }
+  return sentences.join(' ')
 }
 
-/** The label of the app box in the "How it works" diagram. */
-export function diagramLabel(lite: boolean): string {
-  return lite ? 'Web app, desktop or Android' : 'Web app with FXM Connect, desktop or Android'
+/** Step 2 of "How it works": how the device reaches the music services. */
+export function howItWorksStep(lite: boolean, jamendo: boolean, apps: Apps): string {
+  const start = `When you search or press play, FXM asks YouTube Music, Internet Archive${jamendo ? ', Jamendo' : ''} and the other services directly from your device. Some of them, like YouTube Music, don't answer other websites. In a browser, the FXM Connect extension lets the web app reach them: ${CONNECT_DOES}.`
+  return lite
+    ? `${start} Without it, ${LITE} reaches YouTube Music where the browser allows it. ${appsNeedNo(apps, 'either')}`
+    : `${start} ${appsNeedNo(apps, 'it')}`
+}
+
+/**
+ * The label of the app box in the "How it works" diagram: where FXM runs today, then the apps
+ * that are coming soon.
+ */
+export function diagramLabel(lite: boolean, apps: Apps): string {
+  const web = lite ? 'Web app' : 'Web app with FXM Connect'
+  const where = disjunction.format([web, ...appNames(apps, true)])
+  const soon = appNames(apps, false)
+  return soon.length === 0 ? where : `${where} (${joinList(soon)} coming soon)`
 }
 
 /** The FAQ's question and answer about the extension. */
 export function extensionFaq(
   lite: boolean,
   jamendo: boolean,
+  apps: Apps,
 ): {
   readonly question: string
   readonly answers: readonly string[]
@@ -134,14 +208,14 @@ export function extensionFaq(
         question: 'Do I need an extension?',
         answers: [
           `Not to start. Without one, the web app plays free music from ${freeSources(jamendo)}, and YouTube Music in ${LITE}, where the browser allows it. Lite relies on a way of reaching YouTube Music that YouTube doesn't document, so it may stop working at any time.`,
-          `For Spotify, add FXM Connect. ${why} The desktop and Android apps don't need it.`,
+          `For Spotify, add FXM Connect. ${why} ${appsNeedNo(apps, 'it')}`,
         ],
       }
     : {
         question: 'Why does the web app need an extension?',
         answers: [
           why,
-          `Without the extension, the web app still works with free sources (${freeSources(jamendo)}) and invites you to add FXM Connect for YouTube Music and Spotify. The desktop and Android apps don't need it.`,
+          `Without the extension, the web app still works with free sources (${freeSources(jamendo)}) and invites you to add FXM Connect for YouTube Music and Spotify. ${appsNeedNo(apps, 'it')}`,
         ],
       }
 }

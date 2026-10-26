@@ -1,6 +1,6 @@
 ---
 import { AVAILABLE } from '../config'
-import { diagramLabel, howItWorksStep } from '../lib/tiers'
+import { diagramLabel, howItWorksStep, openingStep } from '../lib/tiers'
 import Icon from './Icon.astro'
 import Logo from './Logo.astro'
 
@@ -42,17 +42,14 @@ const services = [
           <span class="num">1</span>
           <div>
             <h3>You open FXM</h3>
-            <p>
-              On the web, your browser loads the app like any other page, then runs it. On desktop
-              and Android, it's an app you install.
-            </p>
+            <p>{openingStep(AVAILABLE)}</p>
           </div>
         </li>
         <li>
           <span class="num">2</span>
           <div>
             <h3>Your device asks the music services</h3>
-            <p>{howItWorksStep(AVAILABLE.lite, AVAILABLE.jamendo)}</p>
+            <p>{howItWorksStep(AVAILABLE.lite, AVAILABLE.jamendo, AVAILABLE)}</p>
           </div>
         </li>
         <li>
@@ -78,7 +75,7 @@ const services = [
             <Logo id="diagram" size={36} />
             <span class="app-text">
               <span class="app-name">FXM</span>
-              <span class="app-where">{diagramLabel(AVAILABLE.lite)}</span>
+              <span class="app-where">{diagramLabel(AVAILABLE.lite, AVAILABLE)}</span>
             </span>
           </div>
           <div class="local">

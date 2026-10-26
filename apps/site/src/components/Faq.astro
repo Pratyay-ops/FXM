@@ -4,7 +4,7 @@ import { FIREFOX_TEMPORARY, phonesAnswer } from '../lib/connect'
 import { connectNeededFor, extensionFaq, iPhoneAnswer, losslessAnswer } from '../lib/tiers'
 
 // Answers that change as features ship (AVAILABLE in src/config.ts)
-const extension = extensionFaq(AVAILABLE.lite, AVAILABLE.jamendo)
+const extension = extensionFaq(AVAILABLE.lite, AVAILABLE.jamendo, AVAILABLE)
 const needs = connectNeededFor(AVAILABLE.lite)
 const phones = phonesAnswer({
   firefox: AVAILABLE.firefox,

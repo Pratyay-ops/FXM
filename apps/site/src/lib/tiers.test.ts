@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { noExtensionNote, phonesAnswer } from './connect'
 import {
+  type Apps,
   CONNECT_DOES,
   connectNeededFor,
   diagramLabel,
@@ -17,6 +18,7 @@ import {
   musicMode,
   noExtensionHighlight,
   noExtensionPlays,
+  openingStep,
   otherBrowsersPlays,
   privacyLiteCheck,
   SPOTIFY_ACCOUNT,
@@ -24,6 +26,15 @@ import {
 } from './tiers'
 
 const BOTH = [false, true] as const
+
+/** Neither app out, as today: the sentences that mention them say they are coming soon. */
+const NO_APPS: Apps = { desktop: false, android: false }
+/** Both apps out. */
+const ALL_APPS: Apps = { desktop: true, android: true }
+/** Every combination of the apps being out. */
+const EVERY_APPS: readonly Apps[] = BOTH.flatMap((desktop) =>
+  BOTH.map((android) => ({ desktop, android })),
+)
 
 /** The site's sources: src/, with these tests in src/lib/. */
 const SRC = fileURLToPath(new URL('..', import.meta.url))
@@ -89,18 +100,21 @@ function phonesAnswers(lite: boolean, jamendo = false): string[] {
   )
 }
 
-/** Every sentence that depends on AVAILABLE.lite, for one value of it (and of AVAILABLE.jamendo). */
-function allCopy(lite: boolean, jamendo = false): string[] {
+/**
+ * Every sentence that depends on AVAILABLE.lite, for one value of it (and of AVAILABLE.jamendo),
+ * with the apps out as `apps` says.
+ */
+function allCopy(lite: boolean, jamendo = false, apps: Apps = NO_APPS): string[] {
   const highlight = noExtensionHighlight(lite, jamendo)
-  const faq = extensionFaq(lite, jamendo)
+  const faq = extensionFaq(lite, jamendo, apps)
   return [
     heroNote(lite),
     highlight.title,
     highlight.text,
     webCardIntro(lite),
     ...noExtensionNotes(lite, jamendo),
-    howItWorksStep(lite, jamendo),
-    diagramLabel(lite),
+    howItWorksStep(lite, jamendo, apps),
+    diagramLabel(lite, apps),
     faq.question,
     ...faq.answers,
     connectNeededFor(lite),
@@ -117,8 +131,20 @@ function freeMusicLines(jamendo: boolean): string[] {
     noExtensionPlays(lite, jamendo),
     otherBrowsersPlays(lite, jamendo),
     iPhoneAnswer(lite, jamendo),
-    ...extensionFaq(lite, jamendo).answers.filter((answer) => /free (music|sources)/.test(answer)),
+    ...extensionFaq(lite, jamendo, NO_APPS).answers.filter((answer) =>
+      /free (music|sources)/.test(answer),
+    ),
   ]).concat(musicMode(jamendo))
+}
+
+/** The sentences that mention the desktop and Android apps, for one value of AVAILABLE.lite. */
+function appsCopy(lite: boolean, apps: Apps): string[] {
+  return [
+    openingStep(apps),
+    howItWorksStep(lite, false, apps),
+    diagramLabel(lite, apps),
+    ...extensionFaq(lite, false, apps).answers,
+  ]
 }
 
 describe('before Lite is out (AVAILABLE.lite off)', () => {
@@ -130,7 +156,10 @@ describe('before Lite is out (AVAILABLE.lite off)', () => {
       'Runs in your browser. Add the free FXM Connect extension to use YouTube Music and Spotify.',
     )
     expect(connectNeededFor(false)).toBe('YouTube Music and Spotify')
-    expect(diagramLabel(false)).toBe('Web app with FXM Connect, desktop or Android')
+    expect(diagramLabel(false, ALL_APPS)).toBe('Web app with FXM Connect, desktop or Android')
+    expect(diagramLabel(false, NO_APPS)).toBe(
+      'Web app with FXM Connect (desktop and Android coming soon)',
+    )
   })
 
   it('promises only free sources without the extension', () => {
@@ -148,11 +177,15 @@ describe('before Lite is out (AVAILABLE.lite off)', () => {
     expect(iPhoneAnswer(false, false)).toBe(
       "FXM Connect isn't available there, so the web app plays free music from Internet Archive.",
     )
-    expect(extensionFaq(false, false).question).toBe('Why does the web app need an extension?')
+    expect(extensionFaq(false, false, NO_APPS).question).toBe(
+      'Why does the web app need an extension?',
+    )
   })
 
   it('never mentions Lite', () => {
-    for (const sentence of allCopy(false)) expect(sentence).not.toMatch(/\bLite\b/)
+    for (const apps of EVERY_APPS) {
+      for (const sentence of allCopy(false, false, apps)) expect(sentence).not.toMatch(/\bLite\b/)
+    }
   })
 })
 
@@ -163,7 +196,7 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
       noExtensionHighlight(true, false).text,
       webCardIntro(true),
       ...noExtensionNotes(true),
-      howItWorksStep(true, false),
+      howItWorksStep(true, false, NO_APPS),
       ...phonesAnswers(true),
     ]) {
       // A tier, as the web app calls it: the Features section's modes are Music and Music + Video.
@@ -172,13 +205,13 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
     }
     for (const sentence of allCopy(true)) expect(sentence).not.toMatch(/Lite mode/)
     expect(noExtensionHighlight(true, false).experimental).toBe(true)
-    expect(extensionFaq(true, false).answers[0]).toMatch(/may stop working at any time/)
+    expect(extensionFaq(true, false, NO_APPS).answers[0]).toMatch(/may stop working at any time/)
   })
 
   it('still sends Spotify to FXM Connect', () => {
     expect(heroNote(true)).toContain('Spotify needs the free FXM Connect extension')
     expect(noExtensionHighlight(true, false).text).toContain('Add the extension for Spotify')
-    expect(extensionFaq(true, false).answers[1]).toMatch(/^For Spotify, add FXM Connect\./)
+    expect(extensionFaq(true, false, NO_APPS).answers[1]).toMatch(/^For Spotify, add FXM Connect\./)
     expect(connectNeededFor(true)).toBe("Spotify (and for YouTube Music where Lite doesn't work)")
   })
 
@@ -206,9 +239,66 @@ describe('once Lite is out (AVAILABLE.lite on)', () => {
   })
 
   it('no longer says the extension is needed to listen', () => {
-    expect(extensionFaq(true, false).question).toBe('Do I need an extension?')
-    expect(diagramLabel(true)).toBe('Web app, desktop or Android')
+    expect(extensionFaq(true, false, NO_APPS).question).toBe('Do I need an extension?')
+    expect(diagramLabel(true, ALL_APPS)).toBe('Web app, desktop or Android')
+    expect(diagramLabel(true, NO_APPS)).toBe('Web app (desktop and Android coming soon)')
     expect(noExtensionHighlight(true, false).title).toBe('No extension needed to start')
+  })
+})
+
+describe('the desktop and Android apps (AVAILABLE.desktop and AVAILABLE.android)', () => {
+  it('are coming soon, never described in the present tense, while neither is out', () => {
+    expect(openingStep(NO_APPS)).toBe(
+      'On the web, your browser loads the app like any other page, then runs it. On desktop and Android, it will be an app you install (coming soon).',
+    )
+    expect(howItWorksStep(true, false, NO_APPS)).toMatch(
+      / The desktop and Android apps, coming soon, won't need either\.$/,
+    )
+    expect(howItWorksStep(false, false, NO_APPS)).toMatch(
+      / The desktop and Android apps, coming soon, won't need it\.$/,
+    )
+    for (const lite of BOTH) {
+      expect(extensionFaq(lite, false, NO_APPS).answers[1]).toMatch(
+        / The desktop and Android apps, coming soon, won't need it\.$/,
+      )
+      for (const sentence of appsCopy(lite, NO_APPS)) {
+        expect(sentence).not.toMatch(/apps? (need|needs|don't|doesn't)\b|it's an app you install/)
+        expect(sentence).not.toMatch(/, desktop or Android/)
+      }
+    }
+  })
+
+  it('are described as out once they are', () => {
+    expect(openingStep(ALL_APPS)).toBe(
+      "On the web, your browser loads the app like any other page, then runs it. On desktop and Android, it's an app you install.",
+    )
+    expect(howItWorksStep(true, false, ALL_APPS)).toMatch(
+      / The desktop and Android apps need neither\.$/,
+    )
+    expect(extensionFaq(false, false, ALL_APPS).answers[1]).toMatch(
+      / The desktop and Android apps don't need it\.$/,
+    )
+    for (const lite of BOTH) {
+      for (const sentence of appsCopy(lite, ALL_APPS)) expect(sentence).not.toContain('coming soon')
+    }
+  })
+
+  it('name each app as out or coming soon when only one is out', () => {
+    const desktop = { desktop: true, android: false }
+    expect(openingStep(desktop)).toBe(
+      "On the web, your browser loads the app like any other page, then runs it. On desktop, it's an app you install. On Android, it will be one too (coming soon).",
+    )
+    expect(howItWorksStep(true, false, desktop)).toMatch(
+      / The desktop app needs neither\. The Android app, coming soon, won't need either\.$/,
+    )
+    expect(diagramLabel(true, desktop)).toBe('Web app or desktop (Android coming soon)')
+    const android = { desktop: false, android: true }
+    expect(extensionFaq(true, false, android).answers[1]).toMatch(
+      / The Android app doesn't need it\. The desktop app, coming soon, won't need it\.$/,
+    )
+    expect(diagramLabel(false, android)).toBe(
+      'Web app with FXM Connect or Android (desktop coming soon)',
+    )
   })
 })
 
@@ -224,8 +314,8 @@ describe('in both versions', () => {
         expect(sentence).not.toMatch(/no music-service|only other part|one other part/)
       }
     }
-    expect(howItWorksStep(false, false)).toContain(CONNECT_DOES)
-    expect(extensionFaq(true, false).answers[1]).toContain(CONNECT_DOES)
+    expect(howItWorksStep(false, false, NO_APPS)).toContain(CONNECT_DOES)
+    expect(extensionFaq(true, false, NO_APPS).answers[1]).toContain(CONNECT_DOES)
   })
 
   it('tells the privacy page about the request that checks Lite at start-up', () => {
@@ -257,7 +347,9 @@ describe('Jamendo (AVAILABLE.jamendo, set by the deploy with FXM’s public clie
     expect(iPhoneAnswer(true, false)).toContain(
       'The web app plays free music from Internet Archive, and YouTube Music in the experimental Lite tier if Safari allows it',
     )
-    expect(howItWorksStep(false, false)).toContain('FXM asks YouTube Music, Internet Archive and')
+    expect(howItWorksStep(false, false, NO_APPS)).toContain(
+      'FXM asks YouTube Music, Internet Archive and',
+    )
   })
 
   it('says Jamendo is coming soon wherever the site names it before then', () => {
@@ -274,7 +366,7 @@ describe('Jamendo (AVAILABLE.jamendo, set by the deploy with FXM’s public clie
     for (const sentence of [...allCopy(false, true), ...allCopy(true, true)]) {
       expect(sentence).not.toMatch(/Jamendo \(coming soon\)|Jamendo is coming soon|will Jamendo/)
     }
-    expect(howItWorksStep(false, true)).toContain(
+    expect(howItWorksStep(false, true, NO_APPS)).toContain(
       'FXM asks YouTube Music, Internet Archive, Jamendo and',
     )
     expect(losslessSources(true)).toBe('(Internet Archive, Jamendo)')
@@ -297,13 +389,13 @@ describe('the pages', () => {
       /noExtensionNote\(AVAILABLE\.firefox, \{\s*lite: AVAILABLE\.lite,\s*jamendo: AVAILABLE\.jamendo,?\s*\}\)/,
     )
     const how = source('../components/HowItWorks.astro')
-    expect(how).toContain('howItWorksStep(AVAILABLE.lite, AVAILABLE.jamendo)')
-    expect(how).toContain('diagramLabel(AVAILABLE.lite)')
+    expect(how).toContain('openingStep(AVAILABLE)')
+    expect(how).toContain('howItWorksStep(AVAILABLE.lite, AVAILABLE.jamendo, AVAILABLE)')
+    expect(how).toContain('diagramLabel(AVAILABLE.lite, AVAILABLE)')
     const faq = source('../components/Faq.astro')
     expect(faq).toContain('connectNeededFor(AVAILABLE.lite)')
-    for (const helper of ['extensionFaq', 'iPhoneAnswer']) {
-      expect(faq).toContain(`${helper}(AVAILABLE.lite, AVAILABLE.jamendo)`)
-    }
+    expect(faq).toContain('extensionFaq(AVAILABLE.lite, AVAILABLE.jamendo, AVAILABLE)')
+    expect(faq).toContain('iPhoneAnswer(AVAILABLE.lite, AVAILABLE.jamendo)')
     // phonesAnswer (src/lib/connect.ts) also reads AVAILABLE.firefox and AVAILABLE.android.
     expect(faq).toMatch(/phonesAnswer\(\{[^}]*lite: AVAILABLE\.lite,\s*jamendo: AVAILABLE\.jamendo/)
     expect(source('../pages/privacy.astro')).toContain('privacyLiteCheck(AVAILABLE.lite)')
