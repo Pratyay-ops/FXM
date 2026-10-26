@@ -572,6 +572,8 @@ describe('the Android project', () => {
         'android/app/src/main/AndroidManifest.xml',
         'android/fxm-http/src/main/AndroidManifest.xml',
         'android/fxm-player/src/main/AndroidManifest.xml',
+        'android/fxm-downloads/src/main/AndroidManifest.xml',
+        'android/fxm-spotify/src/main/AndroidManifest.xml',
       ]
       for (const manifest of manifests) {
         expect(read(manifest), manifest).not.toMatch(
