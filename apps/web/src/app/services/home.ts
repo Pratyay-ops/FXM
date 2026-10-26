@@ -7,7 +7,7 @@
  * | `sources` | The sources registry (stage 2.4): the tier, the Spotify switch, a context per call; `detecting` until the platform's first detection ends (`homeSourcesUntil`) |
  * | `recommendations` | Stage 3.2's `createRecommendationCollector` over the app's providers: YouTube Music radio, Spotify when it is switched on and reachable, Last.fm's stations (where the platform reaches them: FXM Connect, the desktop and Android apps), ListenBrainz's similar artists, and the Cover Art Archive for tracks without a cover. Loaded with Home's first build |
  * | `catalog` | `findArtist` (a YouTube Music artist search, the same name only), `artistTracks` (an artist page's top songs) and `findSong` (the matching engine over YouTube Music's song searches, stage 1.7) |
- * | `spotifyAccount` | The app's Spotify provider's `status`, where Spotify is registered |
+ * | `spotifyAccount` | Where Spotify is registered: stage 3.5's view of the account (its `status`, and the sections its sync keeps), which `index.ts` passes; else the app's Spotify provider's `status` |
  * | `playback` | The app's player, as 2.4's `PlaybackActions` |
  *
  * Every YouTube call draws on the request budget through the context Home passes (the
@@ -344,13 +344,21 @@ export function createAppHomeServices(
     readonly sources?: HomeSources | undefined
     readonly playback?: HomePlayback | undefined
     readonly spotify: boolean
+    /**
+     * Home's view of the Spotify account where Spotify is registered: stage 3.5's
+     * (`spotifyAccountForHome`), with the sections its sync keeps. Default: the provider's
+     * `status` only (`appSpotifyAccount`).
+     */
+    readonly spotifyAccount?: HomeSpotifyAccount | undefined
   },
 ): HomeServices {
   return {
     sources: options.sources ?? app.sources,
     recommendations: appHomeRecommendations(recommendationLoader(app)),
     catalog: appHomeCatalog(app),
-    ...(options.spotify ? { spotifyAccount: appSpotifyAccount(app) } : {}),
+    ...(options.spotify
+      ? { spotifyAccount: options.spotifyAccount ?? appSpotifyAccount(app) }
+      : {}),
     ...(options.playback === undefined ? {} : { playback: options.playback }),
   }
 }

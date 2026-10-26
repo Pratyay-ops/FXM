@@ -231,7 +231,8 @@ export interface AppServices {
   readonly youtube: Loader<YouTube>
   /**
    * Spotify (stage 1.5), loaded on first use: the one provider of the app, which follows the
-   * Spotify switch. Ask {@link AppServices.spotifyAvailable} before using it.
+   * Spotify switch. Ask {@link AppServices.spotifyAvailable} before using it. Stage 3.5's account
+   * feature uses it too, where it is registered, so its `isAccountEnabled` is the account's opt-in.
    */
   readonly spotify: Loader<SpotifyProvider>
   /** MusicBrainz (stage 1.6), loaded on first use. */
@@ -266,12 +267,6 @@ export interface AppServices {
   context(options: AppContextOptions): ProviderContext
   /** The lyrics provider (stage 1.8), loaded on first use. Call it with {@link context}. */
   lyrics(): Promise<LyricsProvider>
-  /**
-   * The Spotify provider, loaded on first use, once the platform is ready: `undefined` where
-   * Spotify can't be read (see `canReadSpotify`). Stage 3.5's account feature uses it, so the app
-   * has one Spotify provider, whose `isAccountEnabled` is the account's opt-in.
-   */
-  spotify(): Promise<SpotifyProvider | undefined>
   /**
    * Connects the app's player: the lifecycle follows it (prefetching, Smart Replace), the ladder
    * learns which URLs started playing, and the catalog pages' play buttons drive it. Returns a
@@ -731,10 +726,6 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
     },
     context,
     lyrics: () => lrclib.load(),
-    async spotify() {
-      await start()
-      return spotifyRegistered ? spotify.load() : undefined
-    },
     connectPlayer(player) {
       const own = playbackFromPlayer(player)
       const stops = [lifecycle.attach(player), reportPlaybackStarts(player)]

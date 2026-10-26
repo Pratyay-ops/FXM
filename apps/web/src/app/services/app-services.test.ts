@@ -259,22 +259,21 @@ describe('the Full tier (FXM Connect)', () => {
   it('hands the account feature its Spotify provider, with the account opt-in (stage 3.5)', async () => {
     const off = setUp('full')
     await off.ready()
-    // No user-host document: Spotify can't be read in this browser, so there is no provider.
-    expect(await off.services.spotify()).toBeUndefined()
+    // No user-host document: Spotify can't be read in this browser, so it isn't registered, and
+    // the account feature has no provider of the app's to take (`loadAppSpotifyAccountServices`).
+    expect(off.sources.getSnapshot().providers.has('spotify')).toBe(false)
 
     for (const optedIn of [false, true]) {
       const setup = setUp('full', { userHost: missingSecret, spotifyAccount: () => optedIn })
       await setup.ready()
-      const spotify = await setup.services.spotify()
-      expect(spotify?.id).toBe('spotify')
+      expect(setup.sources.getSnapshot().providers.has('spotify')).toBe(true)
+      const spotify = await setup.services.spotify.load()
+      expect(spotify.id).toBe('spotify')
       // As if FXM Connect's Spotify login were on: whether the account may be used follows the
       // opt-in, before any request.
       const ctx = setup.sources.context({ mode: 'music' })
       const failure = await spotify
-        ?.getLibraryTracks(
-          {},
-          { ...ctx, capabilities: { ...ctx.capabilities, spotify: 'account' } },
-        )
+        .getLibraryTracks({}, { ...ctx, capabilities: { ...ctx.capabilities, spotify: 'account' } })
         .catch((error: unknown) => error)
       expect((failure as { reason?: string }).reason === 'account-disabled').toBe(!optedIn)
     }

@@ -68,18 +68,18 @@ export interface TierSetup {
    */
   readonly userHost?: (url: string) => Response
   /**
-   * The user's music files as a catalog (stage 4.4), and whether there are any
-   * (`AppServicesOptions.localProvider`, `watchLocalFiles`). Default: none.
-   */
-  readonly local?: Pick<AppServicesOptions, 'localProvider' | 'watchLocalFiles'>
-  /**
    * Gives the sandbox to the platform only, as the app does: it hands in stage 2.7's platform,
-   * which brings its own sandbox, passes the services no `sandbox` option, and tells them that
-   * this platform reaches the user's hosts (`reachesUserHosts`, `APP_PLATFORM_REACHES_USER_HOSTS`).
+   * which brings its own sandbox, and passes the services no `sandbox` option, only whether
+   * the platform reaches the user-host document (`reachesUserHosts`).
    */
   readonly sandboxOnPlatformOnly?: boolean
   /** Whether the user connected their Spotify account (`AppServicesOptions.spotifyAccount`). */
   readonly spotifyAccount?: AppServicesOptions['spotifyAccount']
+  /**
+   * The user's music files as a catalog (stage 4.4), and whether there are any
+   * (`AppServicesOptions.localProvider`, `watchLocalFiles`). Default: none.
+   */
+  readonly local?: Pick<AppServicesOptions, 'localProvider' | 'watchLocalFiles'>
 }
 
 /** The services on one tier, with what a test looks at. */
@@ -184,7 +184,9 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
     updates: false,
     catalogMode: () => mode,
     ...(sandbox === undefined || setup.sandboxOnPlatformOnly ? {} : { sandbox }),
-    ...(setup.sandboxOnPlatformOnly ? { reachesUserHosts: true } : {}),
+    // As the app says of its platform (`APP_PLATFORM_REACHES_USER_HOSTS`), which brings the
+    // user-host document itself.
+    ...(setup.sandboxOnPlatformOnly ? { reachesUserHosts: sandbox?.userHost !== undefined } : {}),
     ...(setup.spotifyAccount === undefined ? {} : { spotifyAccount: setup.spotifyAccount }),
     ...(setup.library === undefined ? {} : { library: setup.library }),
     ...(setup.importYouTube === undefined ? {} : { importYouTube: setup.importYouTube }),
