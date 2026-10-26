@@ -90,12 +90,12 @@ android-setup: ## Install the JDK and Android SDK into .tools (accepts the SDK l
 apk: ## Build the Android debug APK (run make android-setup once first)
 	@apps/mobile/scripts/build-apk.sh
 
-# The key comes from the environment (apps/mobile/RELEASING.md); DRY_RUN=1 accepts any key.
-apk-release: ## Build and sign the release APKs into dist/android/release (DRY_RUN=1: any key)
+# A dry run: signed with a key made for the run. FXM's key never leaves the release workflow, and
+# the build refuses to run while a signing variable is set (apps/mobile/RELEASING.md).
+apk-release: ## Build the release APKs, signed with a throwaway key, into dist/android/release
 	@rm -rf dist/android
 	@apps/mobile/scripts/release-apk.sh build dist/android/unsigned
-	@apps/mobile/scripts/release-apk.sh sign $(if $(filter 1 true yes,$(DRY_RUN)),--dry-run) \
-		dist/android/unsigned dist/android/release
+	@apps/mobile/scripts/release-apk.sh dry-run dist/android/unsigned dist/android/release
 
 apk-sign-test: ## Test the release signing and the keystore script offline, with a throwaway key
 	@apps/mobile/scripts/test-release.sh

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Offline tests of the release signing (make apk-release-test, which the Android workflow runs):
-# scripts/make-android-keystore.sh and `release-apk.sh sign`, with a throwaway key made in a
-# temporary folder and small APKs that aapt2 links from a bare manifest, so no Gradle build or
-# device is needed. Needs the JDK and the Android SDK in .tools (make android-setup) and zip.
+# Offline tests of the release signing (make apk-sign-test, which the Android workflow runs):
+# scripts/make-android-keystore.sh, `release-apk.sh sign` and `dry-run`, and the build's refusal of
+# signing variables, with a throwaway key made in a temporary folder and small APKs that aapt2
+# links from a bare manifest, so no Gradle build or device is needed. Needs the JDK and the
+# Android SDK in .tools (make android-setup) and zip.
 set -euo pipefail
 mobile=$(cd "$(dirname "$0")/.." && pwd)
 cd "$mobile"
@@ -127,6 +128,33 @@ git -C "$tmp/other-repo" init -q
 refused "or inside another git checkout" "inside a git checkout" \
   "$keystore_script" "$tmp/other-repo/keys"
 expect "and creates nothing there" test ! -e "$mobile/keys" -a ! -e "$tmp/other-repo/keys"
+# A home folder of its own, with the folders that cloud services sync.
+home=$tmp/home
+mkdir -p "$home/Library/Mobile Documents/com~apple~CloudDocs" "$home/Library/CloudStorage/Dropbox" \
+  "$home/Documents" "$home/Desktop" "$home/OneDrive - Example"
+refused "refuses iCloud Drive" "which a cloud service may sync" \
+  env HOME="$home" "$keystore_script" "$home/Library/Mobile Documents/com~apple~CloudDocs/keys"
+refused "and the other services' folders" "which a cloud service may sync" \
+  env HOME="$home" "$keystore_script" "$home/Library/CloudStorage/Dropbox/keys"
+refused "and OneDrive's" "which a cloud service may sync" \
+  env HOME="$home" "$keystore_script" "$home/OneDrive - Example/keys"
+refused "and Documents, which iCloud may sync" "which a cloud service may sync" \
+  env HOME="$home" "$keystore_script" "$home/Documents/keys"
+refused "and Desktop" "which a cloud service may sync" \
+  env HOME="$home" "$keystore_script" "$home/Desktop"
+synced_untouched() {
+  test -z "$(find "$home" -type f)" && test ! -e "$home/Documents/keys"
+}
+expect "and writes nothing there" synced_untouched
+if [ "$(uname -s)" = Darwin ]; then
+  backup_excluded() {
+    local file
+    for file in "$key/fxm-android.p12" "$key/fxm-android-password.txt" "$key/README.txt"; do
+      xattr -p com.apple.metadata:com_apple_backup_excludeItem "$file" >/dev/null 2>&1 || return 1
+    done
+  }
+  expect "keeps the files out of Time Machine's backups (macOS)" backup_excluded
+fi
 
 echo "release-apk.sh sign"
 export ANDROID_KEYSTORE_FILE=$key/fxm-android.p12 ANDROID_KEYSTORE_PASSWORD=$password
@@ -198,6 +226,29 @@ refused "refuses versions without a version code" "has no Android version code" 
 unsigned "$tmp/u-debug" 1.2.3 1002003 debuggable
 refused "refuses to sign a debuggable APK" "apksigner could not sign" \
   sign --dry-run "$tmp/u-debug" "$tmp/debug-out"
+
+echo "release-apk.sh build and dry-run"
+# The signing variables are still set from above: neither step may run with them.
+refused "the build refuses to run while a signing variable is set, naming them" \
+  "ANDROID_KEYSTORE_FILE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD are set, but the build runs third-party code" \
+  "$release_apk" build "$tmp/build-out"
+refused "even one of them" "ANDROID_KEY_PASSWORD is set, but the build runs third-party code" \
+  env -u ANDROID_KEYSTORE_FILE -u ANDROID_KEYSTORE_PASSWORD -u ANDROID_KEY_ALIAS \
+  "$release_apk" build "$tmp/build-out"
+expect "and builds nothing then" test ! -e "$tmp/build-out"
+refused "a dry run refuses them too" "a dry run signs with a throwaway key of its own" \
+  "$release_apk" dry-run --version 1.2.3 "$tmp/u-1.2.3" "$tmp/dry-refused"
+mkdir "$tmp/dry-tmp"
+run env -u ANDROID_KEYSTORE_FILE -u ANDROID_KEYSTORE_PASSWORD -u ANDROID_KEY_ALIAS \
+  -u ANDROID_KEY_PASSWORD TMPDIR="$tmp/dry-tmp" \
+  "$release_apk" dry-run --version 1.2.3 "$tmp/u-1.2.3" "$tmp/dry-run"
+expect "a dry run signs both APKs with a key of its own" test "$status" -eq 0 \
+  -a -f "$tmp/dry-run/fxm-android-arm64-v8a-1.2.3.apk" -a -f "$tmp/dry-run/fxm-android-universal-1.2.3.apk"
+expect "says never to publish them" says "Never publish these files"
+dry_certificate=$(sed -n 's/^  Certificate SHA-256: //p' <<<"$out")
+expect "with another certificate each time" \
+  test -n "$dry_certificate" -a "$dry_certificate" != "$fingerprint"
+expect "and deletes the key" test -z "$(ls -A "$tmp/dry-tmp")"
 unsigned "$tmp/u-native" 1.2.3 1002003
 with_native "$tmp/u-native/fxm-android-universal-1.2.3-unsigned.apk" x86_64
 with_native "$tmp/u-native/fxm-android-arm64-v8a-1.2.3-unsigned.apk" arm64-v8a

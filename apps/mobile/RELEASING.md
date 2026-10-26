@@ -13,11 +13,13 @@ Stage 6.6. Every FXM release on GitHub carries the Android app as two signed APK
 
 The publish job attaches `fxm-android-universal-<version>.apk` and `fxm-android-arm64-v8a-<version>.apk` to the release (they are listed for `release-android` in `fxm_release_catalog`, `scripts/release-lib.sh`), with their checksums and build provenance. The notes quote the signing certificate's SHA-256 fingerprint and link [INSTALL.md](INSTALL.md).
 
-**It fails closed.** Without the four secrets, with a key whose certificate isn't the one pinned in [`release-certificate.txt`](release-certificate.txt), or while that file holds no fingerprint, `android-sign` fails, and with it the whole release: nothing is tagged or published. A release never carries an APK signed with another key, which phones would refuse as an update, or no APK at all. Fix the cause and re-run the failed jobs (WORKFLOW.md, "When something fails").
+**It fails closed.** Without the four secrets, with a key whose certificate isn't the one pinned in [`release-certificate.txt`](release-certificate.txt), or while that file holds no fingerprint, `android-sign` fails, and with it the whole release: nothing is tagged or published. A release never carries an APK signed with another key, which phones would refuse as an update, or no APK at all. Fix the cause and re-run the failed jobs (WORKFLOW.md, "When something fails"): the unsigned APKs are kept for 30 days, like the other artifacts, so `android-sign` can sign them again. `make release-pr` checks the pin before it opens a release, so a missing one stops the release there, before anything reaches `main`.
 
 **What signing checks.** apksigner signs with APK Signature Scheme v2 and v3 (v1, the JAR scheme, isn't needed from Android 7, FXM's minimum, and v4 files aren't made) and refuses debuggable APKs. Then the script checks that each APK verifies with exactly one signer, that its certificate is the pinned one, that it is `io.github.pratyayops.fxm` with the release's version name and version code, and that the arm64-v8a APK holds no other processor's native code. The key goes into a temporary folder only for the two `apksigner sign` calls, and the passwords leave the environment before anything else runs.
 
-**Why two jobs.** The build runs hundreds of npm packages, Gradle and its plugins. None of them ever sees the key: it reaches only the signing job, which runs nothing but the pinned JDK, Google's SDK tools and FXM's own script.
+**Why two jobs.** The build runs hundreds of npm packages, Gradle and its plugins. None of them ever sees the key: it reaches only the signing job, on a fresh runner where nothing else ran, which runs nothing but the pinned JDK, Google's SDK tools and FXM's own script. `release-apk.sh build` refuses to run while a signing variable (`ANDROID_KEYSTORE_*`, `ANDROID_KEY_*`) is set.
+
+**FXM's key is for the `android-sign` job only.** Never put it into the environment of a shell on a computer that builds software, not even to sign by hand after a failed release: code that ran there before, such as an npm package or a Gradle plugin, could have changed the tools or the scripts that would read it, and could sign updates that every installed FXM accepts. Fix the cause and re-run the workflow instead. Locally, `make apk-release` signs with a throwaway key ([Dry runs](#dry-runs)).
 
 **Pull requests and `develop`** build only the debug APK (`.github/workflows/android.yml`), signed with each machine's own debug key.
 
@@ -29,17 +31,24 @@ Android installs an update only when its version code is at least the installed 
 
 ### Create it, once
 
+Best on an encrypted drive that you keep offline, such as an encrypted USB drive, which then holds the first offline copy, so the key never touches the computer's own disk:
+
 ```sh
-scripts/make-android-keystore.sh ~/fxm-android-key
+scripts/make-android-keystore.sh /Volumes/<encrypted drive>/fxm-android-key
 ```
 
-It runs keytool from the JDK in `.tools` (`make android-setup`) and writes, into a folder that must be outside every git checkout:
+It runs keytool from the JDK in `.tools` (`make android-setup`) and writes:
 
 - `fxm-android.p12`: a PKCS12 keystore with one RSA 4096 key under the alias `fxm`, and a self-signed certificate named only `CN=FXM`, valid for about 30 years;
 - `fxm-android-password.txt`: a random 48-digit password, the keystore's and the key's (PKCS12 keeps one password);
-- `README.txt`: what the files are and the certificate's fingerprint.
+- `README.txt`: what the files are, the certificate's fingerprint and how to keep them.
 
-Everything is readable by you alone, the password never appears on a command line, and the script never replaces a key. It prints the fingerprint, the secrets and the commands below.
+Everything is readable by you alone, the password is never printed and never appears on a command line, and the script never replaces a key. It prints the fingerprint, the secrets and the commands below.
+
+The folder must be outside every git checkout, where the key could be committed, and outside the folders that cloud services sync, which would copy the key off the computer at once: iCloud Drive and `~/Library/CloudStorage`, Desktop and Documents (which iCloud syncs when "Desktop & Documents Folders" is on), Dropbox, Google Drive and OneDrive. The script refuses those. Without an encrypted drive at hand, a folder in your home folder works, such as `~/fxm-android-key.noindex`:
+
+- **Time Machine.** On macOS, the script keeps the files out of Time Machine's backups (`tmutil addexclusion`), where they would outlive the folder for months, often on a drive that isn't encrypted. Time Machine's local snapshots of the startup disk can still hold them for up to 24 hours after you delete them.
+- **Spotlight** indexes the password file's text. It skips folders whose name ends in `.noindex`, hence the name above; a `.metadata_never_index` file in an ordinary folder doesn't keep it out (checked on macOS 15.5).
 
 ### Secrets
 
@@ -64,11 +73,11 @@ Then set the four secrets, as the script prints them:
 
 ### Pin the certificate
 
-Replace the placeholder line in [`release-certificate.txt`](release-certificate.txt) with the fingerprint the script printed (`AB:CD:…`, with or without colons), and commit it to `develop`. From then on a release signs only with that key, and the release notes quote it.
+Replace the placeholder line in [`release-certificate.txt`](release-certificate.txt) with the fingerprint the script printed (`AB:CD:…`, with or without colons, in either case), and commit it to `develop`. From then on a release signs only with that key, and the release notes quote it. Do it, with the secrets, before the next `make release-pr`: until then it refuses to open a release, because the release would stop before tagging.
 
-### Keep an offline copy
+### Keep offline copies
 
-Android never lets an update replace an app signed with another key. If the key is lost, no FXM update can ever install over the copies on people's phones. Keep `fxm-android.p12` and `fxm-android-password.txt` in two offline places that you control, such as an encrypted USB drive and a password manager entry, then delete the folder from the computer. Once a year, check that a copy still opens: `keytool -list -keystore fxm-android.p12 -storetype PKCS12` with the password.
+Android never lets an update replace an app signed with another key. If the key is lost, no FXM update can ever install over the copies on people's phones. Keep `fxm-android.p12` on two encrypted drives that you keep offline, and its password in a password manager, apart from them: a lost drive then gives nobody the key. Once the password is there and the secrets are set, delete `fxm-android-password.txt`, and the whole folder if you made it on the computer's own disk. Once a year, check that a copy still opens: `keytool -list -keystore fxm-android.p12 -storetype PKCS12` with the password.
 
 ### If the key is lost or leaks
 
@@ -77,23 +86,17 @@ Android never lets an update replace an app signed with another key. If the key 
 
 ### Dry runs
 
-- **On a branch:** `scripts/run.sh gh workflow run android.yml --ref <branch> -f release=true` builds the release APKs as the release job does and signs them with a throwaway key made in the run's temporary folder, then uploads them as the artifact `fxm-android-dry-run`. It never uses FXM's key, tags or publishes anything.
-- **Locally:** `make apk-release DRY_RUN=1` with a throwaway key in the environment:
+Both build the release APKs as the `android` job does, then sign them with `release-apk.sh dry-run`: `sign --dry-run` with a throwaway key that it makes for the run in a private temporary folder and deletes afterwards. They never use FXM's key, and never tag or publish anything.
 
-  ```sh
-  scripts/make-android-keystore.sh /tmp/fxm-throwaway-key
-  export ANDROID_KEYSTORE_FILE=/tmp/fxm-throwaway-key/fxm-android.p12 ANDROID_KEY_ALIAS=fxm
-  export ANDROID_KEYSTORE_PASSWORD="$(cat /tmp/fxm-throwaway-key/fxm-android-password.txt)"
-  export ANDROID_KEY_PASSWORD="$ANDROID_KEYSTORE_PASSWORD"
-  make apk-release DRY_RUN=1   # dist/android/release
-  ```
-
-  `ANDROID_KEYSTORE_FILE` takes the place of `ANDROID_KEYSTORE_BASE64` for local builds. Without `DRY_RUN=1` the pinned certificate is checked, as in a release.
-- **The signing scripts' tests:** `make apk-sign-test` (the Android workflow runs it) checks `make-android-keystore.sh` and `release-apk.sh sign` offline, with a throwaway key and small APKs that aapt2 links from a bare manifest.
+- **On a branch:** `scripts/run.sh gh workflow run android.yml --ref <branch> -f release=true` uploads the APKs as the artifact `fxm-android-dry-run`.
+- **Locally:** `make apk-release` writes them into `dist/android/release`. Like the release job's build, it refuses to run while a signing variable is set.
+- **The signing scripts' tests:** `make apk-sign-test` (the Android workflow runs it) checks `make-android-keystore.sh`, `release-apk.sh sign` and `dry-run`, and the build's refusal of signing variables, offline, with throwaway keys and small APKs that aapt2 links from a bare manifest.
 
 ## The in-app update check
 
-The APKs from GitHub Releases ask GitHub's API once a day for the latest release, compare its version with their own, and offer the APK's download link in a toast and in Settings → About → Updates. They never download or install anything themselves, and the app doesn't hold Android's permission to install apps: the browser downloads the APK, and Android's installer asks before it updates FXM. F-Droid builds (`FXM_DISTRIBUTION=fdroid`) don't check, as F-Droid's inclusion policy requires. Details: [apps/web/src/features/app-update/README.md](../web/src/features/app-update/README.md).
+The APKs from GitHub Releases ask GitHub's API once a day for the latest release, compare its version with their own, and offer the APK's download link in a toast and in Settings → About → Updates. Users can turn the daily check off there ("Check for new versions"); "Check now" still asks. The APKs never download or install anything themselves, and the app doesn't hold Android's permission to install apps: the browser downloads the APK, and Android's installer asks before it updates FXM.
+
+Only the build that says it is the one from GitHub Releases checks: `release-apk.sh build` builds the web app with `FXM_DISTRIBUTION=standard`. F-Droid builds (`FXM_DISTRIBUTION=fdroid`) don't check, as F-Droid's inclusion policy requires, and neither does a build without the flag, such as `make apk` or someone else's rebuild: signed with another key, it couldn't install the APK it would offer. Details: [apps/web/src/features/app-update/README.md](../web/src/features/app-update/README.md).
 
 Fewer APK updates are needed than YouTube changes suggest: the signed YouTube config and resolver module of stage 1.13 are built to reach the desktop and Android apps from FXM's website between app releases. That matters more from 2027, when each update of an unregistered app needs the advanced flow (below).
 
@@ -132,4 +135,4 @@ A repository that uses the Android Developer Console's API can register keys on 
 
 **The alternative: reproducible builds.** If F-Droid's build of FXM is byte-for-byte the same as FXM's own, apart from the signature, F-Droid publishes FXM's signed APK instead of signing its own (`Binaries` and `AllowedAPKSigningKeys` in F-Droid's metadata, checked with apksigcopier). There is then one key to register, and people can move between F-Droid and GitHub without reinstalling. F-Droid's [Reproducible Builds](https://f-droid.org/docs/Reproducible_Builds/) page (read 2026-10-26) warns that v2 and v3 signatures need identical APKs and that apksigner from build tools 34 is known to work with apksigcopier while newer versions may not; FXM signs with build tools 35.0.0, so R.3 checks this first.
 
-F-Droid builds set `FXM_DISTRIBUTION=fdroid` when they build the web app: FXM's own update check is then off, and stage 1.13's downloaded YouTube code waits for the user's opt-in.
+F-Droid builds set `FXM_DISTRIBUTION=fdroid` when they build the web app: FXM's own update check is then off, and stage 1.13's downloaded YouTube code waits for the user's opt-in. A recipe that forgets the flag still doesn't check for app updates, because only `standard` turns the check on.

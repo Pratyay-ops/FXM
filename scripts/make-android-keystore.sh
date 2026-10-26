@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
-# Creates the key that signs FXM's release APKs (stage 6.6). Run it once, as the owner:
+# Creates the key that signs FXM's release APKs (stage 6.6). Run it once, as the owner, best with
+# a folder on an encrypted drive that you keep offline, which then holds the first offline copy:
 #
-#   scripts/make-android-keystore.sh ~/fxm-android-key
+#   scripts/make-android-keystore.sh /Volumes/<encrypted drive>/fxm-android-key
 #
-# It writes three files into that folder, which must be outside every git checkout, and never
-# overwrites one:
+# It writes three files into that folder, and never overwrites one:
 #
 #   fxm-android.p12           the keystore: PKCS12 with one RSA 4096 key under the alias fxm and a
 #                             self-signed certificate (CN=FXM) valid for about 30 years
 #   fxm-android-password.txt  its password, which is also the key's: PKCS12 keeps one password
 #   README.txt                what the files are, the certificate's SHA-256 and how to keep them
 #
+# The folder must be outside every git checkout, where the key could be committed, and outside
+# the folders that cloud services sync, which would copy it off the computer at once: iCloud
+# Drive and ~/Library/CloudStorage, Desktop and Documents (which iCloud syncs when "Desktop &
+# Documents Folders" is on), Dropbox, Google Drive and OneDrive. On macOS, the files are kept out
+# of Time Machine's backups, where they would outlive the folder.
+#
 # Then it prints the GitHub Actions secrets that the release workflow signs with
 # (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD),
 # the gh commands that set them, and the fingerprint to pin in apps/mobile/release-certificate.txt.
-# keytool comes from the JDK that make android-setup puts into .tools, and the password never
-# appears on a command line. Android installs an update only when it is signed with the key of the
-# installed app, so keep an offline copy of the folder: without it, FXM can never be updated.
-# apps/mobile/RELEASING.md has the whole procedure.
+# keytool comes from the JDK that make android-setup puts into .tools, and the password is never
+# printed and never appears on a command line. Android installs an update only when it is signed
+# with the key of the installed app, so keep offline copies: without them, FXM can never be
+# updated. apps/mobile/RELEASING.md has the whole procedure.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 # The folder is relative to where you are; the toolchain is the checkout's, wherever you are.
@@ -84,15 +90,44 @@ if [ "$(env -u GIT_DIR -u GIT_WORK_TREE git -C "$existing" rev-parse --is-inside
     rev-parse --show-toplevel)), where the key could be committed: pick a folder outside it"
 fi
 
+# Never where a cloud service syncs files: iCloud Drive and the folders that macOS keeps for the
+# other services, the usual folders of their apps, and Desktop and Documents, which iCloud syncs
+# when "Desktop & Documents Folders" is on (nothing here can tell whether it is).
+if [ -n "${HOME:-}" ]; then
+  for synced in "$HOME/Library/Mobile Documents" "$HOME/Library/CloudStorage" "$HOME/Desktop" \
+    "$HOME/Documents" "$HOME/Dropbox" "$HOME/Google Drive" "$HOME"/OneDrive*; do
+    [ -d "$synced" ] || continue
+    case "$dir/" in
+      "$(cd "$synced" && pwd -P)"/*)
+        fxm_die "$dir is in $synced, which a cloud service may sync: pick a folder on an" \
+          "encrypted drive (apps/mobile/RELEASING.md, The signing key)"
+        ;;
+    esac
+  done
+fi
+
 for file in "$KEYSTORE" "$PASSWORD_FILE" "$README"; do
   [ ! -e "$dir/$file" ] || fxm_die "$dir/$file exists already: this script never replaces a key"
 done
+
+# backup_exclude <path...>: on macOS, keeps the paths out of Time Machine's backups, where the key
+# would outlive the folder for months, often on a drive that isn't encrypted. The exclusion is an
+# attribute of each file or folder, so it moves with it. Drives under /Volumes aren't backed up
+# unless you add them. Time Machine's local snapshots of the startup disk can still hold the
+# files for up to a day, which a folder on an encrypted drive avoids (RELEASING.md).
+backup_exclude() {
+  [ "$(uname -s)" = Darwin ] || return 0
+  case "$dir" in /Volumes/*) return 0 ;; esac
+  tmutil addexclusion "$@" >/dev/null 2>&1 ||
+    fxm_warn "Time Machine may back up the key in $dir: delete the folder once it is copied"
+}
 
 # Everything written from here on is readable by you alone.
 umask 077
 mkdir -p "$dir"
 work=$(mktemp -d "$dir/.fxm-android-key.XXXXXX")
 trap 'rm -rf "$work"' EXIT
+backup_exclude "$work"
 
 # 192 random bits as 48 hexadecimal digits: nothing to quote in a shell or a secret. keytool
 # reads it from the environment, so it never shows in a process list.
@@ -130,19 +165,23 @@ Certificate SHA-256:
 $fingerprint
 
 Every FXM release APK is signed with this key, and Android installs an update only when it is
-signed with the same key as the app on the phone. Without these two files nobody can publish an
-update of FXM: users would have to uninstall it, losing their library, and install a new app.
-With them, anyone can sign apps that phones accept as updates of FXM.
+signed with the same key as the app on the phone. Without the keystore and its password nobody
+can publish an update of FXM: users would have to uninstall it, losing their library, and install
+a new app. With both, anyone can sign apps that phones accept as updates of FXM.
 
-Keep them in two places only:
+Keep them in these places only:
 - the GitHub Actions secrets of the android-release environment, which the release workflow
   signs with (apps/mobile/RELEASING.md in the FXM repository);
-- offline storage that you control, such as an encrypted USB drive or a password manager entry,
-  better in two copies. Then delete this folder from the computer.
+- the keystore on two encrypted drives that you keep offline;
+- the password in a password manager, apart from the keystore, so that a lost drive gives
+  nobody the key. Once it is there and the secrets are set, delete $PASSWORD_FILE.
 
-Never commit them, send them by e-mail or store them in a cloud folder.
+Never commit them, send them by e-mail, keep them in a folder that a cloud service syncs, or put
+them into the environment of a shell on a computer that builds software. If this folder is on a
+computer's own disk, delete it once the copies exist.
 EOF
 
+backup_exclude "$work/$KEYSTORE" "$work/$PASSWORD_FILE" "$work/$README"
 mv "$work/$KEYSTORE" "$work/$PASSWORD_FILE" "$work/$README" "$dir/"
 
 fxm_info "Created FXM's Android signing key in $dir"
@@ -171,5 +210,7 @@ apps/mobile/release-certificate.txt with
 
   $fingerprint
 
-and commit it. Copy the folder to offline storage ($README says how), then delete it here.
+and commit it. Last, keep $KEYSTORE on two encrypted drives that you keep offline and the
+password in a password manager, apart from it; then delete $PASSWORD_FILE, and the whole folder
+if it is on this computer's own disk ($README says why).
 EOF

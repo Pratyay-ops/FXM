@@ -8,7 +8,7 @@ The FXM Android app: the web app (`apps/web`) in a [Capacitor](https://capacitor
 make android-setup   # once: JDK and Android SDK in .tools/
 make apk             # apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk
 make android-test    # the native unit tests (JVM, offline, no device)
-make apk-release     # the signed release APKs, with the key in the environment (RELEASING.md)
+make apk-release     # the release APKs, signed with a throwaway key: a dry run (RELEASING.md)
 make apk-sign-test   # the release signing's tests, offline, with a throwaway key
 ```
 
@@ -26,7 +26,7 @@ android/              the native project from `cap add android`, committed; buil
   variables.gradle    SDK levels and AndroidX versions from Capacitor's template, plus OkHttp's and Media3's
 scripts/
   build-apk.sh        make apk
-  release-apk.sh      make apk-release and the release workflow: build, then sign and check, the release APKs
+  release-apk.sh      the release workflow and make apk-release: build, then sign and check, the release APKs
   test-native.sh      make android-test: the JVM tests of fxm-http and fxm-player
   test-release.sh     make apk-sign-test: the keystore script and the release signing, offline
   native-tables.ts    writes fxm-http's PlatformTables.kt from @fxm/platform (host table, bridge codes)
@@ -59,7 +59,7 @@ scripts/run.sh pnpm --filter @fxm/mobile cap sync android
   - **Still to check on a device**: the profile, the blocked navigations, the app coming back after the evaluator's renderer dies, and the renderer's end.
 - **Backups.** `android:allowBackup="false"` plus `res/xml/data_extraction_rules.xml` keep app data out of cloud backups and device-to-device transfers, because the app will hold sign-in sessions (stage 6.5).
 - **Versions.** Capacitor's defaults: minSdk 24 (Android 7), compileSdk and targetSdk 36, Android Gradle plugin 8.13 and Gradle 8.14.3. `versionName` comes from this package's `version`, and `versionCode` from it too: major × 1,000,000 + minor × 1,000 + patch, so every release can update the one before ([RELEASING.md](RELEASING.md#version-codes)).
-- **Release builds.** `make apk-release` and the release workflow build an APK for arm64-v8a phones and a universal one (`-PfxmReleaseApks`), unsigned, and sign them with apksigner, so the key never reaches Gradle. Their certificate must be the one pinned in `release-certificate.txt`. They check GitHub for new versions once a day and only offer the download (`apps/web/src/features/app-update`); F-Droid builds don't. [RELEASING.md](RELEASING.md) has the details.
+- **Release builds.** The release workflow builds an APK for arm64-v8a phones and a universal one (`-PfxmReleaseApks`), unsigned, in one job, and signs them with apksigner in another, which runs no npm package or Gradle plugin: FXM's key reaches only that job, never Gradle, its plugins or the npm packages. The build refuses to run while a signing variable is set, and FXM's key is never put into a shell on a computer that builds, so `make apk-release` signs with a throwaway key it makes for the run. The release certificate must be the one pinned in `release-certificate.txt`. The APKs check GitHub for new versions once a day, unless the user turns that off, and only offer the download (`apps/web/src/features/app-update`); F-Droid builds and other builds don't check. [RELEASING.md](RELEASING.md) has the details.
 
 What differs from Capacitor's template:
 

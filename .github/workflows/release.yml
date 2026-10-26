@@ -233,13 +233,14 @@ jobs:
       - name: Build the unsigned release APKs
         run: apps/mobile/scripts/release-apk.sh build dist/android-unsigned
 
-      # Not a release-* artifact: only android-sign reads it, and nothing publishes it.
+      # Not a release-* artifact: only android-sign reads it, and nothing publishes it. Kept as
+      # long as the others, so "Re-run failed jobs" can still sign it after the secrets are fixed.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-unsigned
           path: dist/android-unsigned/
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
 
   android-sign:
     name: Signed Android APKs

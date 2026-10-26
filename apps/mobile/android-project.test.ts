@@ -258,12 +258,15 @@ describe('the Android project', () => {
     })
 
     it('pins the release certificate in a file the scripts read', () => {
+      // fxm_release_android_certificate's rule (scripts/release-lib.sh): the first line that is
+      // neither blank nor a # comment, a SHA-256 with or without colons, in either case.
       const pinned = read('release-certificate.txt')
         .split('\n')
-        .find((line) => line.trim() !== '' && !line.startsWith('#'))
+        .find((line) => !/^\s*(#|$)/.test(line))
+      const hex = (pinned ?? '').replace(/[\s:]/g, '')
       expect(
-        pinned === 'none yet: run scripts/make-android-keystore.sh' ||
-          /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/.test(pinned ?? ''),
+        pinned?.trim() === 'none yet: run scripts/make-android-keystore.sh' ||
+          /^[0-9a-f]{64}$/i.test(hex),
         `release-certificate.txt pins ${pinned}`,
       ).toBe(true)
     })

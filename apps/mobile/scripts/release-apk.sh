@@ -6,18 +6,28 @@
 #   release-apk.sh build <out dir>
 #       the web app with base '/', cap sync, then Gradle's assembleRelease with -PfxmReleaseApks:
 #       unsigned APKs for arm64-v8a phones and for every phone, copied into <out dir> as
-#       fxm-android-<arm64-v8a|universal>-<version>-unsigned.apk
+#       fxm-android-<arm64-v8a|universal>-<version>-unsigned.apk. It refuses to run while a
+#       signing variable (below) is set, because everything it runs would see it.
 #   release-apk.sh sign [--dry-run] [--version x.y.z] [--certificate <file>] <unsigned dir> <out dir>
 #       signs them with apksigner, checks them and writes fxm-android-arm64-v8a-<version>.apk and
 #       fxm-android-universal-<version>.apk into <out dir>
+#   release-apk.sh dry-run [--version x.y.z] <unsigned dir> <out dir>
+#       sign --dry-run with a throwaway key that it makes for the run in a private temporary
+#       folder (scripts/make-android-keystore.sh) and deletes: make apk-release and the Android
+#       workflow's dry run, which never see FXM's key
 #
 # The version is apps/mobile/package.json's, unless --version names it (which must then match the
 # APKs). The key comes from four variables, the release workflow's secrets (RELEASING.md):
-# ANDROID_KEYSTORE_BASE64 (or ANDROID_KEYSTORE_FILE, a path, for a local build),
+# ANDROID_KEYSTORE_BASE64 (or ANDROID_KEYSTORE_FILE, a path, which tests and dry runs use),
 # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD. Without them, sign fails:
 # a release APK is signed with FXM's key or not at all. Its certificate must be the one pinned in
 # apps/mobile/release-certificate.txt (or --certificate). --dry-run accepts any key and is for
-# tests and the Android workflow's dry run, never for files that get published.
+# tests and dry runs, never for files that get published.
+#
+# FXM's key itself is only ever used by the release workflow's android-sign job, on a fresh runner
+# where no build ran. Never put it into the environment of a shell on a computer that builds or
+# installs anything: code that ran there before (an npm package, a Gradle plugin) could have
+# changed the tools this script runs.
 #
 # Every signed APK must verify with apksigner (APK Signature Scheme v2 and v3, exactly one signer),
 # be the package io.github.pratyayops.fxm with the version and the version code of
@@ -34,11 +44,14 @@ source ../../scripts/release-lib.sh
 
 PACKAGE=io.github.pratyayops.fxm
 ABIS=(arm64-v8a universal)
-# sign's private folder for the key and the APKs it signs, deleted however the script ends.
+# sign's private folder for the key and the APKs it signs, and dry-run's for its throwaway key,
+# deleted however the script ends.
 work=
-trap '[ -z "$work" ] || rm -rf "$work"' EXIT
+throwaway=
+trap '[ -z "$work" ] || rm -rf "$work"; [ -z "$throwaway" ] || rm -rf "$throwaway"' EXIT
 usage="usage: release-apk.sh build <out dir>
-       release-apk.sh sign [--dry-run] [--version x.y.z] [--certificate <file>] <unsigned dir> <out dir>"
+       release-apk.sh sign [--dry-run] [--version x.y.z] [--certificate <file>] <unsigned dir> <out dir>
+       release-apk.sh dry-run [--version x.y.z] <unsigned dir> <out dir>"
 
 # A path the caller gave, relative to where they ran the script.
 from_caller() {
@@ -59,8 +72,8 @@ list() {
     1) printf '%s' "$1" ;;
     2) printf '%s and %s' "$1" "$2" ;;
     *)
-      printf '%s, ' "${@:1:$(($# - 1))}"
-      printf 'and %s' "${!#}"
+      printf '%s, ' "${@:1:$(($# - 2))}"
+      printf '%s and %s' "${@:$(($# - 1)):1}" "${!#}"
       ;;
   esac
 }
@@ -99,8 +112,27 @@ check_home_dirs() {
   done
 }
 
+# refuse_signing_variables <why...>: fails while a signing variable (ANDROID_KEYSTORE_* or
+# ANDROID_KEY_*) is set in the environment. Unsetting them for the child processes wouldn't do:
+# a child running as the same user can read its parent's environment (/proc/<pid>/environ).
+refuse_signing_variables() {
+  local name found=()
+  for name in $(compgen -e); do
+    case "$name" in
+      ANDROID_KEYSTORE_* | ANDROID_KEY_*) [ -z "${!name}" ] || found+=("$name") ;;
+    esac
+  done
+  [ ${#found[@]} -eq 0 ] && return 0
+  local verb=are pronoun=them
+  if [ ${#found[@]} -eq 1 ]; then verb=is pronoun=it; fi
+  fxm_die "$(list "${found[@]}") $verb set, but $*. Unset $pronoun: FXM's key belongs to the" \
+    "release workflow only (apps/mobile/RELEASING.md)."
+}
+
 build() {
   [ $# -eq 1 ] || fxm_die "$usage"
+  refuse_signing_variables "the build runs third-party code (npm packages, Gradle and its" \
+    "plugins) that would see them: the key is for the separate signing step only"
   local version out abi apk outputs=android/app/build/outputs/apk/release
   version=$(package_version)
   fxm_release_require_version "$version"
@@ -283,9 +315,33 @@ sign() {
   fi
 }
 
+# dry_run [--version x.y.z] <unsigned dir> <out dir>: sign --dry-run with a throwaway key made for
+# this run only.
+dry_run() {
+  local versions=()
+  if [ "${1:-}" = --version ]; then
+    [ $# -ge 2 ] || fxm_die "$usage"
+    versions=(--version "$2") && shift 2
+  fi
+  [ $# -eq 2 ] || fxm_die "$usage"
+  refuse_signing_variables "a dry run signs with a throwaway key of its own"
+  local unsigned out password
+  unsigned=$(from_caller "$1")
+  out=$(from_caller "$2")
+  throwaway=$(mktemp -d)
+  ../../scripts/make-android-keystore.sh "$throwaway/key" >/dev/null
+  password=$(cat "$throwaway/key/fxm-android-password.txt")
+  # In the environment of sign only, never on a command line.
+  ANDROID_KEYSTORE_FILE=$throwaway/key/fxm-android.p12 ANDROID_KEY_ALIAS=fxm \
+    ANDROID_KEYSTORE_PASSWORD=$password ANDROID_KEY_PASSWORD=$password \
+    "$mobile/scripts/release-apk.sh" sign --dry-run ${versions[@]+"${versions[@]}"} \
+    "$unsigned" "$out"
+}
+
 case "${1:-}" in
   build) shift && build "$@" ;;
   sign) shift && sign "$@" ;;
+  dry-run) shift && dry_run "$@" ;;
   -h | --help) echo "$usage" ;;
   *) fxm_die "$usage" ;;
 esac
