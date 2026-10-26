@@ -7,8 +7,9 @@
  *   Connect announces `spotify-login`. With FXM Connect but without the login it rejects with
  *   `AuthRequired`, and without FXM Connect with `Unsupported`.
  * - **Desktop and Android:** the login window's token command (stages 7.4 and 6.5), passed to
- *   `createPlatform` as `spotifySession`. It is the only place the login's cookies are used:
- *   never the transport's native HTTP.
+ *   `createPlatform` as `spotifySession`; on Android `createPlatform` picks up the app's own
+ *   (`androidSpotifyLoginIfAvailable`). It is the only place the login's cookies are used: never
+ *   the transport's native HTTP.
  *
  * `capabilities.spotify` is `account` exactly when the source can serve a token.
  *
