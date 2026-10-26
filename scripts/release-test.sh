@@ -381,6 +381,14 @@ commit "$work" "chore: pin a tool"
 commit "$work" "feat(tooling): add a make target"
 commit "$work" "fix(release): repair the release script"
 commit "$work" "fix(deploy): repair the deploy"
+# Integration and test work, whatever its type: what a merge broke, and the tests' fakes.
+commit "$work" "fix(web): follow the merged library's toast"
+commit "$work" "fix(platform): send update requests in develop's native HTTP shape"
+commit "$work" "fix(sources): drop a start time from fixtures"
+commit "$work" "fix(core): accept the platform fetch, with type tests"
+commit "$work" "fix(player): give test streams the fields core requires"
+commit "$work" "fix(web): keep the local files tests' plays out of the history"
+commit "$work" "feat(web): run the services on stage 2.7's app platform"
 # The same change twice, as when a stacked branch carries a copy of a commit.
 commit "$work" "fix(web): repair a thing"
 notes=$tmp/notes.md
@@ -406,6 +414,15 @@ leaves_out_internal_scopes() {
     lacks "$notes" "Repair the deploy"
 }
 expect "and the internal scopes, whatever their type" leaves_out_internal_scopes
+leaves_out_integration_work() {
+  local entry
+  for entry in "merged library's toast" "develop's native HTTP shape" "start time from fixtures" \
+    "with type tests" "test streams the fields" "tests' plays" "2.7's app platform"; do
+    lacks "$notes" "$entry" || return 1
+  done
+}
+expect "and integration and test work: merges, fixtures, type tests and the like" \
+  leaves_out_integration_work
 expect "skips docs(plan) bookkeeping" lacks "$notes" "Mark 1.1 done"
 expect "skips merge commits" lacks "$notes" "looks conventional"
 expect "skips the release commit" lacks "$notes" "0.0.9"
