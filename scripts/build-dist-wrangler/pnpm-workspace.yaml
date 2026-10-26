@@ -1,5 +1,10 @@
 # Makes this folder its own pnpm root, so the main workspace never installs wrangler.
 minimumReleaseAge: 20160
+# The code this root installs runs with the Cloudflare token, so pnpm also refuses a release with
+# weaker proof of origin (trusted publishing, then provenance) than the package's earlier
+# releases had, the usual sign of a stolen npm token. Like minimumReleaseAge, it checks every
+# lockfile entry on every install, frozen ones too (docs/DEVELOPMENT.md, "New dependencies").
+trustPolicy: no-downgrade
 # Advisories that make audit ignores (docs/DEVELOPMENT.md, "Security fixes"). Remove each entry
 # with its fix.
 auditConfig:
