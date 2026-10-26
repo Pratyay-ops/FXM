@@ -2,7 +2,8 @@
  * FXM's ffmpeg core, as built by recipe/build.sh: where a build lives, what its manifest
  * (ffmpeg-core.json) says, and the checks every build must pass before anything ships it: the
  * WebAssembly file is smaller than 25 MiB (Cloudflare Pages' limit per file), FFmpeg's
- * configure reported an LGPL licence, and the files are the ones the manifest names.
+ * configure reported an LGPL licence, the licence texts of its parts are there, and the files
+ * are the ones the manifest names. Also the core's entry in the third-party notices.
  *
  * Used by build.sh, by CI's ffmpeg-wasm job, by `make dist` (scripts/build-dist) and by the web
  * app's dev server. Plain Node with type stripping, no dependencies:
@@ -15,6 +16,7 @@
  *
  * @module
  */
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
@@ -32,6 +34,35 @@ export const CORE_FILES = {
   wasm: 'ffmpeg-core.wasm',
   manifest: 'ffmpeg-core.json',
 } as const
+
+/**
+ * The licence texts every core carries in its `licenses/` folder, which recipe/build.sh fills
+ * from the checked sources and emsdk, in the order the notice gives them in full: FFmpeg's and
+ * LAME's (the LGPL asks for a copy of itself with the library), Opus's (BSD-3-Clause asks that
+ * binaries reproduce its notice), and those of Emscripten's runtime and its C library (musl),
+ * which are linked in too.
+ */
+export const CORE_LICENSE_TEXTS: readonly { readonly file: string; readonly title: string }[] = [
+  { file: 'licenses/FFmpeg-LICENSE.md.txt', title: "FFmpeg's LICENSE.md" },
+  {
+    file: 'licenses/FFmpeg-COPYING.LGPLv2.1.txt',
+    title: "FFmpeg's COPYING.LGPLv2.1: the GNU Lesser General Public License, version 2.1",
+  },
+  { file: 'licenses/LAME-LICENSE.txt', title: "LAME's LICENSE" },
+  {
+    file: 'licenses/LAME-COPYING.txt',
+    title: "LAME's COPYING: the GNU Library General Public License, version 2",
+  },
+  { file: 'licenses/Opus-COPYING.txt', title: "Opus's COPYING" },
+  { file: 'licenses/Emscripten-LICENSE.txt', title: "Emscripten's LICENSE" },
+  { file: 'licenses/musl-COPYRIGHT.txt', title: "musl's COPYRIGHT (Emscripten's C library)" },
+]
+
+/** Every file of a built core, as make dist ships it: the three files and the licence texts. */
+export const CORE_DIST_FILES: readonly string[] = [
+  ...Object.values(CORE_FILES),
+  ...CORE_LICENSE_TEXTS.map((text) => text.file),
+]
 
 /** Cloudflare Pages refuses files of 25 MiB or more (ARCHITECTURE.md §3). */
 export const MAX_CORE_FILE_BYTES = 25 * 1024 * 1024
@@ -62,13 +93,20 @@ export interface CoreComponent {
   /** SPDX identifier. */
   readonly license: string
   readonly homepage: string
-  /** Where its source came from: a release tarball, or a file of this repository. */
+  /**
+   * Where its source came from: a release tarball, or for FXM's own file its path in this
+   * repository (the notice links it at the commit the site was built from).
+   */
   readonly source: string
   /** The tarball's SHA-256, checked by build.sh; absent for FXM's own file. */
   readonly sha256?: string
 }
 
-/** ffmpeg-core.json: what a build is, written by build.sh, read by every check. */
+/**
+ * ffmpeg-core.json: what a build is, written by build.sh, read by every check. The facts of the
+ * build itself; the notice takes each part's name, licence and homepage from the current recipe
+ * (`coreComponents()`), which `coreProblems` makes sure is the one the core was built from.
+ */
 export interface CoreManifest {
   readonly schema: 1
   /** The hash of the recipe it was built from (recipeHash()). */
@@ -79,10 +117,11 @@ export interface CoreManifest {
   readonly configure: string
   /** The emsdk version that compiled it. */
   readonly emscripten: string
+  /** The parts it was built from, as the recipe named them then. */
   readonly components: readonly CoreComponent[]
   /** Patches applied to the sources: none today. */
   readonly patches: readonly string[]
-  /** The script and the WebAssembly, by file name. */
+  /** The script, the WebAssembly and the licence texts, by path in the core's folder. */
   readonly files: Readonly<Record<string, { readonly bytes: number; readonly sha256: string }>>
 }
 
@@ -207,19 +246,19 @@ export function coreComponents(pins: Record<string, string> = readPins()): CoreC
       name: "FXM's converter",
       version: '',
       license: 'Apache-2.0',
-      homepage: 'https://github.com/Pratyay-ops/FXM/tree/main/tools/ffmpeg-wasm',
+      homepage: 'https://github.com/Pratyay-ops/FXM',
       source: 'tools/ffmpeg-wasm/recipe/fxm_convert.c',
     },
   ]
 }
 
-/** Writes ffmpeg-core.json for the files in `dir`. */
+/** Writes ffmpeg-core.json for the files in `dir` (CORE_DIST_FILES but the manifest). */
 export function writeCoreManifest(
   dir: string,
   details: { recipeHash: string; ffmpegLicense: string; configure: string; emscripten: string },
 ): CoreManifest {
   const files: Record<string, { bytes: number; sha256: string }> = {}
-  for (const name of [CORE_FILES.script, CORE_FILES.wasm]) {
+  for (const name of CORE_DIST_FILES.filter((file) => file !== CORE_FILES.manifest)) {
     const bytes = readFileSync(join(dir, name))
     files[name] = { bytes: bytes.length, sha256: sha256(bytes) }
   }
@@ -234,11 +273,42 @@ export function writeCoreManifest(
   return manifest
 }
 
+/** What a manifest must hold for the checks and the notice: its shape, field by field. */
+function manifestShapeProblems(manifest: Partial<Record<keyof CoreManifest, unknown>>): string[] {
+  const problems: string[] = []
+  for (const key of ['recipeHash', 'ffmpegLicense', 'configure', 'emscripten'] as const) {
+    const value = manifest[key]
+    if (typeof value !== 'string' || value === '') problems.push(`ffmpeg-core.json has no ${key}`)
+  }
+  const patches = manifest.patches
+  if (!Array.isArray(patches) || !patches.every((patch) => typeof patch === 'string')) {
+    problems.push('ffmpeg-core.json has no list of patches (an empty one when there are none)')
+  }
+  const components = manifest.components
+  if (!Array.isArray(components)) {
+    problems.push('ffmpeg-core.json lists no components')
+  } else {
+    const ffmpeg = (components as Partial<CoreComponent>[]).find((part) => part?.name === 'FFmpeg')
+    if (
+      typeof ffmpeg?.source !== 'string' ||
+      !/^https:\/\//.test(ffmpeg.source) ||
+      !/^[0-9a-f]{64}$/.test(ffmpeg.sha256 ?? '')
+    ) {
+      problems.push("ffmpeg-core.json doesn't name FFmpeg's source and its SHA-256")
+    }
+  }
+  if (typeof manifest.files !== 'object' || manifest.files === null) {
+    problems.push('ffmpeg-core.json lists no files')
+  }
+  return problems
+}
+
 /**
- * Why a built core may not ship (an empty list when it may): it must be complete, its files must
- * be the ones its manifest names, each under 25 MiB, built from the current recipe, with an LGPL
- * licence from FFmpeg's configure, no flag that brings in GPL or non-free code, and parts under
- * licences FXM accepts.
+ * Why a built core may not ship (an empty list when it may): its manifest must be complete, its
+ * files (the script, the WebAssembly and the licence texts of CORE_LICENSE_TEXTS) must be there
+ * and be the ones the manifest names, each under 25 MiB, built from the current recipe, with an
+ * LGPL licence from FFmpeg's configure, no flag that brings in GPL or non-free code, and parts
+ * under licences FXM accepts.
  */
 export function coreProblems(
   dir: string,
@@ -251,18 +321,25 @@ export function coreProblems(
   } catch (error) {
     return [(error as Error).message]
   }
+  const shape = manifestShapeProblems(manifest)
+  if (shape.length > 0) return shape
   const problems: string[] = []
-  for (const name of [CORE_FILES.script, CORE_FILES.wasm]) {
+  for (const name of CORE_DIST_FILES.filter((file) => file !== CORE_FILES.manifest)) {
     const file = join(dir, name)
-    const expected = manifest.files?.[name]
+    const expected = manifest.files[name]
     if (!existsSync(file)) {
-      problems.push(`${name} is missing`)
+      problems.push(
+        name.startsWith('licenses/')
+          ? `${name} is missing: the core must carry the licence texts of its parts (recipe/build.sh)`
+          : `${name} is missing`,
+      )
       continue
     }
     const bytes = readFileSync(file)
     if (!expected || expected.bytes !== bytes.length || expected.sha256 !== sha256(bytes)) {
       problems.push(`${name} is not the file ffmpeg-core.json describes`)
     }
+    if (name.startsWith('licenses/') && bytes.length === 0) problems.push(`${name} is empty`)
     if (statSync(file).size >= MAX_CORE_FILE_BYTES) {
       problems.push(
         `${name} is ${bytes.length} bytes: it must stay under 25 MiB (${MAX_CORE_FILE_BYTES} bytes), Cloudflare Pages' limit per file`,
@@ -274,12 +351,12 @@ export function coreProblems(
       `FFmpeg's configure reported the licence "${manifest.ffmpegLicense}": the core must be LGPL`,
     )
   }
-  const forbidden = FORBIDDEN_FLAGS.exec(manifest.configure ?? '')
+  const forbidden = FORBIDDEN_FLAGS.exec(manifest.configure)
   if (forbidden) problems.push(`FFmpeg was configured with ${forbidden[0]}`)
-  if (!/--disable-gpl\b/.test(manifest.configure ?? '')) {
+  if (!/--disable-gpl\b/.test(manifest.configure)) {
     problems.push('FFmpeg was configured without --disable-gpl')
   }
-  for (const component of manifest.components ?? []) {
+  for (const component of manifest.components) {
     if (!ALLOWED_COMPONENT_LICENCES.has(component.license)) {
       problems.push(`${component.name} is ${component.license}, which the core may not contain`)
     }
@@ -292,24 +369,85 @@ export function coreProblems(
   return problems
 }
 
-/** The core's entry in the third-party notices: what it contains, its sources and its build. */
-export function coreNotice(manifest: CoreManifest, repositoryUrl: string): string {
+/** A full commit hash, as git prints it. */
+const COMMIT = /^[0-9a-f]{40}$/
+
+/**
+ * The commit this checkout is at: GITHUB_SHA in CI, else what git says, or `undefined` outside a
+ * git checkout. The notice links the recipe at this commit, so the link always shows the recipe
+ * that built the core (`coreProblems` checks the recipe's hash), not whatever main holds later.
+ */
+export function currentCommit(
+  env: NodeJS.ProcessEnv = process.env,
+  cwd: string = TOOL_DIR,
+): string | undefined {
+  if (env.GITHUB_SHA !== undefined && COMMIT.test(env.GITHUB_SHA)) return env.GITHUB_SHA
+  try {
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    return COMMIT.test(head) ? head : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** `text` wrapped at 78 columns, for the notices file. */
+function wrap(text: string, width = 78): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    if (line && line.length + 1 + word.length > width) {
+      lines.push(line)
+      line = word
+    } else {
+      line = line ? `${line} ${word}` : word
+    }
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
+/** What {@link coreNotice} needs besides the core. */
+export interface CoreNoticeOptions {
+  /** The repository's address, e.g. `https://github.com/Pratyay-ops/FXM`. */
+  readonly repositoryUrl: string
+  /** The commit the site is built from ({@link currentCommit}). */
+  readonly commit: string
+  /** The core's parts: by default the current recipe's (`coreComponents()`). */
+  readonly components?: readonly CoreComponent[]
+}
+
+/**
+ * The core's entry in the third-party notices: what it contains, with each part's licence,
+ * source and SHA-256, the build (Emscripten, FFmpeg's configure line, the patches), how to
+ * replace it with the recipe at the site's own commit, and the licence texts in full.
+ *
+ * The parts' names, licences and homepages come from the current recipe, the build's facts and
+ * the licence texts from the core in `dir`, so a fix to this text reaches a deploy whose core
+ * came from CI's cache. Call it on a core `coreProblems` passed.
+ */
+export function coreNotice(dir: string, options: CoreNoticeOptions): string {
+  const manifest = readCoreManifest(dir)
+  const components = options.components ?? coreComponents()
+  const at = (kind: 'tree' | 'blob', path: string) =>
+    `${options.repositoryUrl}/${kind}/${options.commit}/${path}`
   const lines = [
     `FXM's ffmpeg core (app/ffmpeg/${CORE_FILES.script}, app/ffmpeg/${CORE_FILES.wasm})`,
     `Licence: LGPL-2.1-or-later (FFmpeg reports: ${manifest.ffmpegLicense})`,
     '',
-    'The audio converter of the web app: FFmpeg built to WebAssembly with Emscripten',
-    `${manifest.emscripten}, audio only, with no GPL or non-free part. It is a separate file that`,
-    'you may replace with your own build of the same or a modified FFmpeg: build one with the',
-    `recipe in ${repositoryUrl}/tree/main/tools/ffmpeg-wasm (its README says how) and put its`,
-    `three files, ${CORE_FILES.script}, ${CORE_FILES.wasm} and ${CORE_FILES.manifest}, in app/ffmpeg/.`,
+    ...wrap(
+      `The audio converter of the web app: FFmpeg built to WebAssembly with Emscripten ${manifest.emscripten}, audio only, with no GPL or non-free part. It is a separate file that you may replace with your own build of the same or a modified FFmpeg: build one with the recipe this site was built with, ${at('tree', 'tools/ffmpeg-wasm')} (its README says how), and put what it builds, ${CORE_FILES.script}, ${CORE_FILES.wasm}, ${CORE_FILES.manifest} and the licenses folder, in app/ffmpeg/.`,
+    ),
     '',
     'It contains:',
   ]
-  for (const component of manifest.components) {
+  for (const component of components) {
     if (component.sha256 === undefined) {
-      // FXM's own file, in this repository.
-      lines.push('', `${component.name} (${component.license}): ${component.source}`)
+      // FXM's own file, at the commit the site was built from.
+      lines.push('', `${component.name} (${component.license}): ${at('blob', component.source)}`)
       continue
     }
     lines.push(
@@ -321,16 +459,25 @@ export function coreNotice(manifest: CoreManifest, repositoryUrl: string): strin
   }
   lines.push(
     '',
+    ...wrap(
+      `Emscripten ${manifest.emscripten}'s runtime, linked in: its JavaScript glue and its C library, built from musl (MIT; Emscripten also offers the University of Illinois/NCSA Open Source License). Also linked in, and needing no notice: compiler-rt's builtins (Apache-2.0 WITH LLVM-exception) and dlmalloc (public domain).`,
+    ),
+    '',
     `FFmpeg's configure line: ${manifest.configure}`,
     `Patches: ${manifest.patches.length === 0 ? 'none' : manifest.patches.join(', ')}`,
-    '',
-    'This software uses code of FFmpeg (https://ffmpeg.org/), licensed under the LGPLv2.1, and',
-    'LAME (https://lame.sourceforge.io/), licensed under the LGPL. The LGPL is at',
-    'https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html. Opus is BSD-3-Clause:',
-    'https://opus-codec.org/license/.',
   )
-  for (const [name, file] of Object.entries(manifest.files)) {
-    lines.push(`${name}: ${file.bytes} bytes, SHA-256 ${file.sha256}`)
+  for (const name of [CORE_FILES.script, CORE_FILES.wasm]) {
+    const file = manifest.files[name]
+    if (file) lines.push(`${name}: ${file.bytes} bytes, SHA-256 ${file.sha256}`)
+  }
+  lines.push(
+    '',
+    ...wrap(
+      'This software uses code of FFmpeg (https://ffmpeg.org/) licensed under the LGPLv2.1, of LAME (https://lame.sourceforge.io/) licensed under the LGPL, and of Opus (https://opus-codec.org/) licensed under the BSD-3-Clause licence; their sources are linked above. Their licences, and those of Emscripten and musl, follow in full.',
+    ),
+  )
+  for (const text of CORE_LICENSE_TEXTS) {
+    lines.push('', `--- ${text.title}`, '', readFileSync(join(dir, text.file), 'utf8').trimEnd())
   }
   return lines.join('\n')
 }

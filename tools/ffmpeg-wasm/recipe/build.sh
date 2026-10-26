@@ -9,7 +9,8 @@
 #   .tools/emsdk/<version>/                    emsdk and the Emscripten toolchain
 #   .tools/ffmpeg-wasm/downloads/              the tarballs, each checked by its SHA-256
 #   .tools/ffmpeg-wasm/libs/<libs hash>/       Opus, LAME and FFmpeg, built (libs.sh)
-#   .tools/ffmpeg-wasm/builds/<recipe hash>/   the core; dist/ holds its three files
+#   .tools/ffmpeg-wasm/builds/<recipe hash>/   the core; dist/ holds its three files and
+#                                              licenses/, the licence texts of its parts
 #
 # A build is keyed by the hash of this folder (core-build.ts), so it is reused until the recipe
 # changes; the libraries are reused until versions.sh, libs.sh or pkg-config.sh changes, so a
@@ -131,7 +132,10 @@ configure_line=$(sed -n 's/^#define FFMPEG_CONFIGURATION "\(.*\)"$/\1/p' "$libs/
 # --- the core ----------------------------------------------------------------------------
 # Exported: FXM's entry points (fxm_convert.c) and what core.ts calls them with. No eval in
 # the glue (DYNAMIC_EXECUTION=0): the app's policy allows 'wasm-unsafe-eval', never
-# 'unsafe-eval'. WORKERFS lets the worker read the input from a Blob without copying it.
+# 'unsafe-eval'. WORKERFS lets the worker read the input from a Blob without copying it. The
+# glue reads only the module options core.ts passes (INCOMING_MODULE_JS_API): instantiateWasm,
+# through which core.ts instantiates the very bytes it checked against the manifest (the glue
+# never fetches the WebAssembly itself), and print and printErr.
 fxm_info "Linking the core"
 mkdir -p "$dist"
 cp "$recipe/fxm_convert.c" "$build/fxm_convert.c"
@@ -146,6 +150,7 @@ cp "$recipe/fxm_convert.c" "$build/fxm_convert.c"
       -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=32MB -sMAXIMUM_MEMORY=4GB -sSTACK_SIZE=4MB \
       -sABORTING_MALLOC=0 -sFORCE_FILESYSTEM=1 \
       -sNODEJS_CATCH_EXIT=0 -sNODEJS_CATCH_REJECTION=0 \
+      -sINCOMING_MODULE_JS_API=instantiateWasm,print,printErr \
       -sEXPORTED_FUNCTIONS=_fxm_convert,_fxm_probe,_fxm_version,_fxm_last_error,_fxm_log \
       -sEXPORTED_RUNTIME_METHODS=FS,ccall,UTF8ToString
 ) >>"$log" 2>&1 || fxm_die "Linking the core failed; see $log"
@@ -156,6 +161,33 @@ for file in "$dist/ffmpeg-core.js" "$dist/ffmpeg-core.wasm"; do
     fxm_die "$(basename "$file") contains a path of this machine"
   fi
 done
+
+# --- the licences ------------------------------------------------------------------------
+# The texts the core's notice must carry in full (core-build.ts, CORE_LICENSE_TEXTS): FFmpeg's,
+# LAME's and Opus's from their checked tarballs, and those of Emscripten's runtime and C library
+# (musl), which are linked in too, from the pinned emsdk. compiler-rt's builtins (Apache-2.0
+# with the LLVM exception, which asks nothing of compiled code) and dlmalloc (public domain) need
+# none.
+fxm_info "Collecting the licences"
+licenses="$dist/licenses"
+mkdir -p "$licenses"
+# license_from <archive> <member> <file in licenses/>
+license_from() {
+  if ! tar -xOf "$1" "$2" >"$licenses/$3" || [ ! -s "$licenses/$3" ]; then
+    fxm_die "no $2 in $(basename "$1")"
+  fi
+}
+archive=$(fetch "$FFMPEG_SHA256" "ffmpeg-$FFMPEG_VERSION.tar.xz" "$FFMPEG_URL" "$FFMPEG_MIRROR") || exit 1
+license_from "$archive" "ffmpeg-$FFMPEG_VERSION/LICENSE.md" FFmpeg-LICENSE.md.txt
+license_from "$archive" "ffmpeg-$FFMPEG_VERSION/COPYING.LGPLv2.1" FFmpeg-COPYING.LGPLv2.1.txt
+archive=$(fetch "$LAME_SHA256" "lame-$LAME_VERSION.tar.gz" "$LAME_URL" "$LAME_MIRROR") || exit 1
+license_from "$archive" "lame-$LAME_VERSION/LICENSE" LAME-LICENSE.txt
+license_from "$archive" "lame-$LAME_VERSION/COPYING" LAME-COPYING.txt
+archive=$(fetch "$OPUS_SHA256" "opus-$OPUS_VERSION.tar.gz" "$OPUS_URL") || exit 1
+license_from "$archive" "opus-$OPUS_VERSION/COPYING" Opus-COPYING.txt
+emscripten="$emsdk/upstream/emscripten"
+cp "$emscripten/LICENSE" "$licenses/Emscripten-LICENSE.txt"
+cp "$emscripten/system/lib/libc/musl/COPYRIGHT" "$licenses/musl-COPYRIGHT.txt"
 
 "${core_build[@]}" manifest "$dist" \
   --recipe-hash "$hash" \

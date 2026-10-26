@@ -5,8 +5,10 @@
  *
  * The core is built from a pinned recipe, not taken from npm, so the licence check can't read it
  * from a package: instead the files must be the ones the build's manifest names, built from the
- * current recipe, each under 25 MiB, with an LGPL licence from FFmpeg's configure
- * (`coreProblems`). Its notice names every part, its source and hash, and the configure line.
+ * current recipe, each under 25 MiB, with an LGPL licence from FFmpeg's configure and the
+ * licence texts of its parts (`coreProblems`). Its notice names every part, its source and hash,
+ * the configure line, the recipe at the commit being built, and carries those licence texts in
+ * full (`coreNotice`).
  *
  * Building the core takes minutes, so `make check` never does: CI's ffmpeg-wasm job builds it
  * (cached by the recipe's hash) and hands it to `make dist`, and `make ffmpeg-wasm` builds it
@@ -14,14 +16,14 @@
  * or with FXM_REQUIRE_FFMPEG_CORE=1, it fails instead.
  */
 import { copyFileSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
-  CORE_FILES,
+  CORE_DIST_FILES,
   coreDistDir,
   coreNotice,
   coreProblems,
+  currentCommit,
   hasCore,
-  readCoreManifest,
 } from '../../../tools/ffmpeg-wasm/core-build.ts'
 import type { Part } from './parts.ts'
 
@@ -35,12 +37,19 @@ export interface FfmpegCorePartOptions {
   readonly required?: boolean
   /** The recipe hash the core must be built from. Default: the current recipe's. */
   readonly expectedRecipeHash?: string
+  /**
+   * The commit the dist is built from, which the notice links the recipe at. Default:
+   * `currentCommit()` (GITHUB_SHA in CI, else git's HEAD).
+   */
+  readonly commit?: string | (() => string | undefined)
 }
 
 /** The part that puts the built core into the app. */
 export function createFfmpegCorePart(options: FfmpegCorePartOptions = {}): Part {
   const required =
     options.required ?? (process.env.CI === 'true' || process.env.FXM_REQUIRE_FFMPEG_CORE === '1')
+  const commit = () =>
+    typeof options.commit === 'function' ? options.commit() : (options.commit ?? currentCommit())
   return {
     name: 'ffmpeg-core',
     mount: 'app',
@@ -55,9 +64,16 @@ export function createFfmpegCorePart(options: FfmpegCorePartOptions = {}): Part 
         )
         return false
       }
-      mkdirSync(join(outDir, CORE_FOLDER), { recursive: true })
-      for (const name of Object.values(CORE_FILES)) {
-        copyFileSync(join(dir, name), join(outDir, CORE_FOLDER, name))
+      // Each file the core has; coreProblems reports any that is missing.
+      for (const name of CORE_DIST_FILES) {
+        const from = join(dir, name)
+        const to = join(outDir, CORE_FOLDER, name)
+        mkdirSync(dirname(to), { recursive: true })
+        try {
+          copyFileSync(from, to)
+        } catch {
+          // Missing: the checks below name it.
+        }
       }
       log(`ffmpeg-core: ${dir}`)
       return true
@@ -71,13 +87,26 @@ export function createFfmpegCorePart(options: FfmpegCorePartOptions = {}): Part 
           : { expectedRecipeHash: options.expectedRecipeHash },
       )
       let notice = ''
-      try {
-        notice = coreNotice(readCoreManifest(dir), repositoryUrl)
-      } catch {
-        // coreProblems reports the manifest it can't read.
+      if (problems.length === 0) {
+        const at = commit()
+        if (at === undefined) {
+          problems.push(
+            "can't tell which commit this dist is built from (no GITHUB_SHA, no git): the core's notice links its recipe at that commit",
+          )
+        } else {
+          try {
+            notice = coreNotice(dir, { repositoryUrl, commit: at })
+          } catch (error) {
+            problems.push(`the core's notice can't be written: ${(error as Error).message}`)
+          }
+          // The core never ships without its notice.
+          if (notice.trim() === '' && problems.length === 0) {
+            problems.push("the core's notice is empty")
+          }
+        }
       }
       return {
-        files: Object.values(CORE_FILES).map((name) => `${CORE_FOLDER}/${name}`),
+        files: CORE_DIST_FILES.map((name) => `${CORE_FOLDER}/${name}`),
         problems,
         notice,
       }
