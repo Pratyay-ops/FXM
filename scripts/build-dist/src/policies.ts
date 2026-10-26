@@ -34,7 +34,12 @@ export interface Service {
   readonly requires?: string
 }
 
-/** YouTube's API hosts (InnerTube): the app with FXM Connect, and the Lite sandbox document. */
+/**
+ * YouTube's API hosts (InnerTube): the app with FXM Connect, and the Lite sandbox document.
+ * `youtubei.googleapis.com` is reserved: no client in the bundled YouTube config uses it today,
+ * but the signed config that the apps fetch from the site (stage 1.13) can move a client there
+ * without an app release, so the policies, FXM Connect and the platform's host table keep it.
+ */
 export const INNERTUBE_HOSTS = [
   'https://www.youtube.com',
   'https://music.youtube.com',
@@ -147,6 +152,16 @@ const COMMON_DOCUMENT_DIRECTIVES: readonly Directive[] = [
 ]
 
 /**
+ * Where the web app's workers may come from: its own origin only. Every worker it starts is a
+ * file of its own build: the service worker (`/app/sw.js`), the downloads' storage worker and
+ * stage 4.2's conversion worker (`new Worker(new URL(…, import.meta.url))`). 4.2's ffmpeg core is
+ * built without threads (`--disable-pthreads`), so it starts no worker of its own, from a `blob:`
+ * URL or otherwise (checked on its branch, feat/4.2-convert, on 2026-10-26). docs/PLAN.md's policy
+ * row also allows `blob:`; a stage that needs a worker from a `blob:` URL adds it here, with why.
+ */
+export const WORKER_SOURCES: readonly string[] = [SELF]
+
+/**
  * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the same without
  * `frame-ancestors`, because any site may embed the player. Its hosts are those of the services
  * this build offers (offeredServices) unless `services` says otherwise.
@@ -171,7 +186,7 @@ export function appPolicy(
   return [
     ['default-src', [SELF]],
     ['script-src', unique([SELF, ...scriptHashes, ...extras])],
-    ['worker-src', [SELF, 'blob:']],
+    ['worker-src', [...WORKER_SOURCES]],
     ['style-src', [SELF, UNSAFE_INLINE]],
     ['img-src', [SELF, 'data:', 'blob:', ...img]],
     ['media-src', [SELF, 'blob:', 'https:']],

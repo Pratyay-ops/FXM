@@ -35,11 +35,14 @@ const LATER_CONNECT_HOSTS = [
   'https://api.github.com',
 ]
 
-/** The `/app/*` policy today: the plan's, with the hosts later stages added after its own. */
+/**
+ * The `/app/*` policy today: the plan's, with the hosts later stages added after its own, and
+ * workers from the app's own origin only (no `blob:`, which nothing uses: WORKER_SOURCES).
+ */
 const APP_POLICY = PLAN_APP_POLICY.replace(
   "; frame-src 'self';",
   ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
-)
+).replace("worker-src 'self' blob:;", "worker-src 'self';")
 
 describe('csp helpers', () => {
   it('hashes inline code as browsers do, after normalizing line endings', () => {

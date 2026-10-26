@@ -52,12 +52,17 @@ Cloudflare gives a request the headers of every `_headers` rule that matches it 
 
 | Files | Rule | Policy (`src/policies.ts`) |
 |---|---|---|
-| `app/**` | `/app/*` | `appPolicy()`: the policy in docs/PLAN.md, with the hash of the app's inline theme script |
+| `app/**` | `/app/*` | `appPolicy()`: the policy in docs/PLAN.md, with the hash of the app's inline theme script, the hosts of the services later stages added, and two differences: workers only from the app's own origin, and Jamendo's hosts only in a build with its client_id ([Jamendo](#jamendo)) |
 | `embed/**` | `/embed/*` | `appPolicy({ embeddable: true })`: the same without `frame-ancestors` |
 | `sandbox/<doc>.html` | `/sandbox/<doc>` and `/sandbox/<doc>.html` | `SANDBOX_DOCUMENTS`: `sandbox allow-scripts`, the document's inline script by hash, and its hosts |
 | each other `.html` page | its path and its `.html` path, such as `/privacy` and `/privacy.html` | `sitePagePolicy()`: that page's own inline scripts and styles by hash, its own files |
 | `_astro/**`, `.well-known/**` | `/_astro/*`, `/.well-known/*` | `STATIC_FILE_POLICY`: nothing allowed |
 | each other file | its path | `STATIC_FILE_POLICY` |
+
+Two notes on what the `/app/*` policy allows (`src/policies.ts`):
+
+- **`https://youtubei.googleapis.com` is reserved.** No client in the bundled YouTube config uses it today, but the signed YouTube config, which the desktop and Android apps fetch from the site and the web app gets by redeploy (stage 1.13), can move a client there without an app release. So `connect-src`, the `innertube.html` policy, FXM Connect and the platform's host table keep it (`INNERTUBE_HOSTS`).
+- **`worker-src 'self'`, without the plan's `blob:`.** Every worker the app starts is a file of its own build: the service worker, the downloads' storage worker, and stage 4.2's conversion worker. 4.2's ffmpeg core is built without threads (`--disable-pthreads`), so it starts no worker from a `blob:` URL (checked on its branch on 2026-10-26). A stage that needs one adds `blob:` to `WORKER_SOURCES`, with why.
 
 Things Cloudflare does that the rules account for (from wrangler 4.149's copy of the Pages asset server, read 2026-10-26, and confirmed on a real deployment the same day):
 
