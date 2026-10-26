@@ -2,7 +2,7 @@ import { Plug } from 'lucide-react'
 import { type ReactNode, useId } from 'react'
 import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
-import { appsReachSentence } from '../connect/explain'
+import { getMoreLabel, reachSentence } from '../connect/explain'
 
 /**
  * Where the onboarding entry point leads: the in-app onboarding of stage 2.7 (`/connect`), with
@@ -11,9 +11,12 @@ import { appsReachSentence } from '../connect/explain'
  */
 export const ONBOARDING_URL = '/connect'
 
-/** The onboarding entry point, as a button-styled link. */
+/**
+ * The onboarding entry point, as a button-styled link: "Get FXM Connect" where this device can
+ * get it, else "See your options" (iPhone and iPad, and Android until its app is out).
+ */
 export function OnboardingLink({
-  children = 'Get FXM Connect',
+  children = getMoreLabel(),
   variant = 'primary',
 }: {
   children?: ReactNode
@@ -43,7 +46,7 @@ export function OnboardingBanner({ name }: { name: string }) {
           <h2 id={headingId} className="text-sm font-semibold">
             Search needs {name} access
           </h2>
-          <p className="text-sm text-text-muted">{appsReachSentence(name)}</p>
+          <p className="text-sm text-text-muted">{reachSentence(name)}</p>
         </div>
       </div>
       <div className="pl-8 sm:pl-0">

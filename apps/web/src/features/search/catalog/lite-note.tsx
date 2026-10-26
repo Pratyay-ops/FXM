@@ -1,6 +1,7 @@
 import { FlaskConical } from 'lucide-react'
 import { Link } from 'react-router'
 import { cn } from '../../../lib/cn'
+import { getMoreLabel } from '../../connect/explain'
 import { ONBOARDING_URL } from '../onboarding'
 
 /**
@@ -19,7 +20,7 @@ export function LiteNote({ className }: { className?: string }) {
           to={ONBOARDING_URL}
           className="font-semibold whitespace-nowrap text-text underline underline-offset-2"
         >
-          Get FXM Connect
+          {getMoreLabel()}
         </Link>
       </span>
     </p>

@@ -12,8 +12,10 @@ import {
   describeSpotify,
   describeYouTube,
   explainConnection,
+  getMoreLabel,
   howToGetMore,
   isDetecting,
+  reachSentence,
 } from './explain'
 import {
   CONNECT_STATUS,
@@ -182,6 +184,43 @@ describe('how a device gets more', () => {
     expect(canGetMoreHere(macSafari)).toBe(true)
     expect(canGetMoreHere(iphone)).toBe(false)
     expect(canGetMoreHere(android)).toBe(false)
+  })
+
+  it('says the same about YouTube Music alone, and its downloads', () => {
+    expect(howToGetMore(chrome, 'youtube')).toBe(
+      'For YouTube Music, add the free FXM Connect extension.',
+    )
+    expect(howToGetMore(iphone, 'youtube')).toBe(
+      "YouTube Music needs FXM Connect, which isn't available on iPhone and iPad.",
+    )
+    expect(howToGetMore(chrome, 'youtube-downloads')).toBe(
+      'For downloads of YouTube Music songs, add the free FXM Connect extension.',
+    )
+    expect(howToGetMore(android, 'youtube-downloads')).toBe(
+      "Downloads of YouTube Music songs need FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
+    )
+  })
+
+  it('names the way forward on its buttons: what can be got here, else the options', () => {
+    expect(getMoreLabel(chrome)).toBe('Get FXM Connect')
+    expect(getMoreLabel(macSafari)).toBe('Get FXM Connect')
+    expect(getMoreLabel(iphone)).toBe('See your options')
+    expect(getMoreLabel(android)).toBe('See your options')
+  })
+
+  it('says how this device reaches a service', () => {
+    // Where a browser can add FXM Connect: the extension, and the apps that are out.
+    expect(reachSentence('YouTube Music', chrome)).toBe(appsReachSentence('YouTube Music'))
+    // Elsewhere, what this device can do instead, never an install it can't make.
+    expect(reachSentence('YouTube Music', iphone)).toBe(
+      "YouTube Music needs FXM Connect, which isn't available on iPhone and iPad.",
+    )
+    expect(reachSentence('Spotify', macSafari)).toBe(
+      "Spotify needs FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there.",
+    )
+    expect(reachSentence('YouTube Music', android)).toBe(
+      "YouTube Music needs FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
+    )
   })
 })
 

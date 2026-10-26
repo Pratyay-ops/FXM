@@ -119,6 +119,15 @@ export const TIER_FEATURES: readonly TierFeature[] = [
     released: RELEASED.localFiles,
   },
   {
+    id: 'free-downloads',
+    label: RELEASED.conversions
+      ? 'Downloads of free music for offline listening, in the format you want'
+      : 'Downloads of free music for offline listening, in their original format',
+    short: 'downloads of free music',
+    from: 'free',
+    released: RELEASED.downloads,
+  },
+  {
     id: 'youtube-music',
     label: 'YouTube Music: search, albums, artists and playlists',
     short: 'YouTube Music',

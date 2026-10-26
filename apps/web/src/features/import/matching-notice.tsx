@@ -2,7 +2,8 @@ import { Info } from 'lucide-react'
 import { Link } from 'react-router'
 import { cn } from '../../lib/cn'
 import { RELEASED } from '../connect/config'
-import { appsSentence } from '../connect/explain'
+import { canAddConnect, currentDevice } from '../connect/device'
+import { appsSentence, howToGetMore } from '../connect/explain'
 import { ONBOARDING_URL } from '../search/onboarding'
 import type { MatchingAvailability } from './services'
 
@@ -47,6 +48,7 @@ export function MatchingNotice({
   className?: string
 }) {
   if (matching === undefined || matching === 'ready') return null
+  const device = currentDevice()
   const kept =
     where === 'preview'
       ? 'You can start the import now: the playlists go into your library at once, with every song a link names, and the rest follow once FXM can find them.'
@@ -64,12 +66,20 @@ export function MatchingNotice({
         {matching === 'needs-connect' ? (
           <>
             <p className="font-semibold">This browser can’t reach YouTube Music on its own</p>
-            <p className="text-text-muted">
-              FXM finds each imported song on YouTube Music. To let it,{' '}
-              <ConnectLink>add FXM Connect</ConnectLink> to this browser{orTheApps()}, then resume.{' '}
-              {RELEASED.desktop && RELEASED.android ? '' : `${appsSentence()} `}
-              {kept}
-            </p>
+            {canAddConnect(device) ? (
+              <p className="text-text-muted">
+                FXM finds each imported song on YouTube Music. To let it,{' '}
+                <ConnectLink>add FXM Connect</ConnectLink> to this browser{orTheApps()}, then
+                resume. {RELEASED.desktop && RELEASED.android ? '' : `${appsSentence()} `}
+                {kept}
+              </p>
+            ) : (
+              // A browser that can't add FXM Connect: what this device can do instead.
+              <p className="text-text-muted">
+                FXM finds each imported song on YouTube Music. {howToGetMore(device, 'youtube')}{' '}
+                {kept}
+              </p>
+            )}
           </>
         ) : (
           <>

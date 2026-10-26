@@ -3,6 +3,7 @@ import { catalogScenario, fakeYouTube, song } from '@fxm/sources/import/testing'
 import { screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
+import { asBrowser, USER_AGENTS } from '../connect/testing'
 import { useSettingsStore } from '../settings/settings-store'
 import { resetImportRunner } from './runner'
 import { fakeServices, renderWithServices } from './testing'
@@ -316,6 +317,7 @@ describe('ImportPage', () => {
   })
 
   it('explains once that this browser needs FXM Connect, and pauses imports quietly', async () => {
+    asBrowser(USER_AGENTS.chromeWindows)
     const services = fakeServices({
       youtube: YOUTUBE_IMPORT_UNAVAILABLE,
       capabilities: () => ({
@@ -351,5 +353,30 @@ describe('ImportPage', () => {
     expect(
       within(list).getByRole('button', { name: 'Resume importing kitchen' }),
     ).toBeInTheDocument()
+  })
+
+  it("doesn't ask for FXM Connect where it can't be added, such as on an iPhone", async () => {
+    asBrowser(USER_AGENTS.iphone)
+    const services = fakeServices({
+      youtube: YOUTUBE_IMPORT_UNAVAILABLE,
+      capabilities: () => ({
+        youtube: 'none',
+        spotify: 'unreachable',
+        mediaBytes: false,
+        fileSystem: false,
+      }),
+    })
+    const { user } = renderWithServices('/import', services)
+    await screen.findByRole('heading', { level: 1, name: 'Import music' })
+    await user.click(screen.getByRole('tab', { name: 'Playlist file' }))
+    await user.upload(
+      screen.getByLabelText('Choose a CSV or M3U file'),
+      file('kitchen.csv', 'Title,Artist\nOne,Band', 'text/csv'),
+    )
+    const notice = await screen.findByRole('complementary', { name: 'Finding songs' })
+    expect(notice).toHaveTextContent(
+      "YouTube Music needs FXM Connect, which isn't available on iPhone and iPad.",
+    )
+    expect(within(notice).queryByRole('link', { name: 'add FXM Connect' })).toBeNull()
   })
 })

@@ -19,7 +19,8 @@ import { usePlaylistView } from '../../db/hooks'
 import type { TrackRow } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID } from '../../db/types'
 import { cn } from '../../lib/cn'
-import { connectOrApps } from '../connect/explain'
+import { canAddConnect, currentDevice } from '../connect/device'
+import { connectOrApps, howToGetMore } from '../connect/explain'
 import { CoverArt } from '../library/cover-art'
 import { artistNames, artworkUrl, countLabel } from '../library/format'
 import { chipClasses } from '../library/order-controls'
@@ -336,6 +337,19 @@ function MissingNotice({ rows }: { rows: readonly TrackRow[] }) {
 }
 
 /**
+ * Why YouTube Music songs can't be downloaded here, and how this device could: FXM Connect where
+ * this browser can add it, else what this device can do instead (another browser on a Mac,
+ * nothing on iPhone and iPad). Free music downloads anyway.
+ */
+function youTubeDownloadsNote(): string {
+  const device = currentDevice()
+  if (canAddConnect(device)) {
+    return `Downloading songs from YouTube Music takes ${connectOrApps()}. Songs from Internet Archive and Jamendo download in any browser.`
+  }
+  return `${howToGetMore(device, 'youtube-downloads')} Songs from Internet Archive and Jamendo download here.`
+}
+
+/**
  * The download manager in the library's Downloads tab: how much room the downloads take and
  * whether the browser keeps them, the downloads on their way with their progress and controls,
  * and songs in the playlist that aren't on this device. The playlist itself, in the order the
@@ -369,10 +383,7 @@ export function DownloadsPanel() {
         </Notice>
       )}
       {support === 'supported' && !ctx.capabilities.mediaBytes && (
-        <Notice icon={Info}>
-          Downloading songs from YouTube Music takes {connectOrApps()}. Songs from Internet Archive
-          and Jamendo download in any browser.
-        </Notice>
+        <Notice icon={Info}>{youTubeDownloadsNote()}</Notice>
       )}
       {records.length > 0 && <StorageCard records={records} />}
       {pending.length > 0 && <ActiveDownloads records={pending} />}

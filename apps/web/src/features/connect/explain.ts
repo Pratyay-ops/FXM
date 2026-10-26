@@ -88,21 +88,26 @@ export function describeLite(
 }
 
 /** What FXM Connect would add to this browser, as a sentence's subject. */
-export type Wanted = 'youtube-and-spotify' | 'spotify'
+export type Wanted = 'youtube-and-spotify' | 'spotify' | 'youtube' | 'youtube-downloads'
 
 const WANTED: Readonly<Record<Wanted, { what: string; need: string }>> = {
   'youtube-and-spotify': { what: 'YouTube Music and Spotify', need: 'need' },
   spotify: { what: 'Spotify', need: 'needs' },
+  youtube: { what: 'YouTube Music', need: 'needs' },
+  'youtube-downloads': { what: 'downloads of YouTube Music songs', need: 'need' },
+}
+
+/** `text` with its first letter capitalized, to start a sentence. */
+function capitalized(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 }
 
 /**
- * How this device gets what FXM Connect adds, in a sentence or two: add the extension (or the
- * desktop app, once it is out) on a computer, use another browser on a Mac, the Android app on
- * Android (coming soon until it is out), and on iPhone and iPad there is nothing to install.
+ * How this device gets `what` (a phrase such as "YouTube Music"), which `need` FXM Connect, in a
+ * sentence or two (see {@link howToGetMore}).
  */
-export function howToGetMore(device: DeviceInfo, wanted: Wanted): string {
-  const { what, need } = WANTED[wanted]
-  const Need = `${what} ${need} FXM Connect`
+function howToReach(device: DeviceInfo, what: string, need: string): string {
+  const Need = `${capitalized(what)} ${need} FXM Connect`
   const desktop = RELEASED.desktop ? ', or use the desktop app' : ''
   if (canAddConnect(device)) return `For ${what}, add the free FXM Connect extension${desktop}.`
   if (isMacSafari(device)) {
@@ -117,10 +122,30 @@ export function howToGetMore(device: DeviceInfo, wanted: Wanted): string {
   return `For ${what}, add the free FXM Connect extension to Chrome, Edge, Brave or Firefox${desktop}.`
 }
 
+/**
+ * How this device gets what FXM Connect adds, in a sentence or two: add the extension (or the
+ * desktop app, once it is out) on a computer, use another browser on a Mac, the Android app on
+ * Android (coming soon until it is out), and on iPhone and iPad there is nothing to install.
+ */
+export function howToGetMore(device: DeviceInfo, wanted: Wanted): string {
+  const { what, need } = WANTED[wanted]
+  return howToReach(device, what, need)
+}
+
 /** Whether this device can install something that adds YouTube Music and Spotify right now. */
 export function canGetMoreHere(device: DeviceInfo): boolean {
   if (device.os === 'android') return RELEASED.android
   return device.os !== 'ios'
+}
+
+/**
+ * What a button to the onboarding page (`/connect`) says on this device: "Get FXM Connect" on a
+ * computer, "Get the Android app" on Android once it is out, and "See your options" where
+ * nothing can be installed (iPhone and iPad, Android until then): the page says what works there.
+ */
+export function getMoreLabel(device: DeviceInfo = currentDevice()): string {
+  if (device.os === 'android' && RELEASED.android) return 'Get the Android app'
+  return canGetMoreHere(device) ? 'Get FXM Connect' : 'See your options'
 }
 
 /**
@@ -176,7 +201,8 @@ export function connectExtensionOrApps(): string {
 
 /**
  * How FXM reaches `what` (YouTube Music, Spotify), in a sentence or two: through FXM Connect,
- * and the apps that are out, with the others "coming soon" ({@link appsSentence}'s rule).
+ * and the apps that are out, with the others "coming soon" ({@link appsSentence}'s rule). For a
+ * device that may not add FXM Connect, use {@link reachSentence}.
  */
 export function appsReachSentence(what: string): string {
   const apps = releasedApps()
@@ -187,6 +213,15 @@ export function appsReachSentence(what: string): string {
     return `${through}, or through ${apps[0]}. ${missing} is coming soon.`
   }
   return `${through}. The desktop and Android apps are coming soon.`
+}
+
+/**
+ * How this device reaches `what` (YouTube Music, Spotify), in a sentence or two: where a browser
+ * can add FXM Connect, {@link appsReachSentence}; elsewhere what to do instead, as
+ * {@link howToGetMore} says it (another browser on a Mac, nothing to install on iPhone and iPad).
+ */
+export function reachSentence(what: string, device: DeviceInfo = currentDevice()): string {
+  return canAddConnect(device) ? appsReachSentence(what) : howToReach(device, what, 'needs')
 }
 
 /** The app's name on each platform. */

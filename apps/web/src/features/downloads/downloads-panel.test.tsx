@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getLibrary } from '../../db/repo'
 import { track } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
+import { asBrowser, USER_AGENTS } from '../connect/testing'
 import { playlistPath } from '../library/paths'
 import { createPendingEnvironment } from './environment'
 import { ERROR_TEXT } from './format'
@@ -193,10 +194,22 @@ describe('the Downloads tab', { timeout: 30_000 }, () => {
   })
 
   it('says why YouTube songs are not offered for download in the Lite tier', async () => {
+    asBrowser(USER_AGENTS.chromeWindows)
     await setupDownloads({ tier: 'lite' })
     renderApp('/library?tab=downloads')
     expect(
       await main().findByText(/Downloading songs from YouTube Music takes FXM Connect/),
+    ).toBeInTheDocument()
+  })
+
+  it("doesn't offer FXM Connect for YouTube's downloads where it can't be added", async () => {
+    asBrowser(USER_AGENTS.iphone)
+    await setupDownloads({ tier: 'lite' })
+    renderApp('/library?tab=downloads')
+    expect(
+      await main().findByText(
+        "Downloads of YouTube Music songs need FXM Connect, which isn't available on iPhone and iPad. Songs from Internet Archive and Jamendo download here.",
+      ),
     ).toBeInTheDocument()
   })
 

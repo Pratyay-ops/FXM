@@ -39,17 +39,25 @@ describe('the tiers', () => {
     for (const feature of TIER_FEATURES) expect(hasFeature('full', feature)).toBe(true)
   })
 
-  it('gives Free only the free sources, the library, lyrics and local files', () => {
+  it('gives Free only the free sources, the library, lyrics, local files and their downloads', () => {
     expect(featuresAddedBy('free').map((feature) => feature.id)).toEqual([
       'free-sources',
       'library',
       'lyrics',
       'local-files',
+      'free-downloads',
     ])
     // Stage 4.4 plays them in every browser: a folder in Chromium, picked files elsewhere.
     expect(featuresAddedBy('free').find((feature) => feature.id === 'local-files')?.released).toBe(
       true,
     )
+    // Internet Archive and Jamendo download in every browser, as their files come (stage 4.1).
+    expect(
+      featuresAddedBy('free').find((feature) => feature.id === 'free-downloads'),
+    ).toMatchObject({
+      released: true,
+      label: 'Downloads of free music for offline listening, in their original format',
+    })
   })
 
   it('gives Lite YouTube Music and Full Spotify, never Spotify in Lite', () => {

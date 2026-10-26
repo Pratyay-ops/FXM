@@ -15,7 +15,7 @@ import { buttonClasses } from '../../../components/ui/button'
 import { ErrorState } from '../../../components/ui/error-state'
 import { APP_UPDATED_MESSAGE, isAppUpdatedError, reloadApp } from '../../../lib/app-update'
 import { cn } from '../../../lib/cn'
-import { appsReachSentence } from '../../connect/explain'
+import { reachSentence } from '../../connect/explain'
 import { OnboardingLink } from '../onboarding'
 import { type SourceAvailability, sourceLabel } from '../sources'
 import { useSourcesSnapshot } from '../sources-context'
@@ -225,7 +225,7 @@ export function SourceUnavailable({
   const headingLevel = kind ? 1 : 2
   const onIt = kind ? `This ${kind} is on ${name}` : undefined
   const spacing = kind ? 'normal' : 'compact'
-  const reach = <p>{appsReachSentence(name)}</p>
+  const reach = <p>{reachSentence(name)}</p>
   if (
     detecting &&
     (availability.status === 'needs-youtube' || availability.status === 'spotify-unreachable')
