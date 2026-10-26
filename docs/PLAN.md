@@ -49,16 +49,16 @@ What changed:
 |---|---|---|---|---|
 | **M0** ✅ | Foundation | Phase 0 | — | Repo, isolated toolchain, monorepo, CI |
 | **M1** ✅ | Play anything on the web | Phases 1–2 except 1.11 and 1.13, plus 5.3, R.1, R.4 | `v0.1.0` | The web app plays YouTube Music songs in Music or Music + Video mode with FXM Connect, and without it in the experimental Lite tier (at least in Chromium, unless its kill switch is on). Free sources, Spotify metadata, lyrics and a library work too. Matches auto-play only if the 1.12 report passes; otherwise M1 is Suggest-only, as `v0.1.0` shipped. The landing page is live |
-| **M2** ✅ | Made for you | Phase 3 | `v0.4.0` | Home feed, daily mixes, autoplay (endless radio), Spotify account sync (experimental: see 3.5), imports (including Spotify's data export) |
-| **M3** ✅ | Offline and lossless | Phase 4 | `v0.4.0` | Downloads in any format, local files |
-| **M4** ✅ | Web applet and embed | 5.1, 5.2 | `v0.4.0` | Installable PWA window, embeddable mini-player (Lite inside other sites) |
-| **M5** | Android | Phase 6 | `v0.6.0` | Signed APK on GitHub Releases |
-| **M6** | Desktop | Phase 7, 1.11, 1.13 | `v0.6.0` | Tauri app for macOS, Windows and Linux with auto-update, the signed resolver module and the experimental YouTube rungs |
+| **M2** ✅ | Made for you | Phase 3 | `v0.2.0` | Home feed, daily mixes, autoplay (endless radio), Spotify account sync (experimental: see 3.5), imports (including Spotify's data export) |
+| **M3** ✅ | Offline and lossless | Phase 4 | `v0.2.0` | Downloads in any format, local files |
+| **M4** ✅ | Web applet and embed | 5.1, 5.2 | `v0.2.0` | Installable PWA window, embeddable mini-player (Lite inside other sites) |
+| **M5** | Android | Phase 6 | `v0.3.0` | Signed APK on GitHub Releases |
+| **M6** | Desktop | Phase 7, 1.11, 1.13 | `v0.3.0` | Tauri app for macOS, Windows and Linux with auto-update, the signed resolver module and the experimental YouTube rungs |
 | **M7** | 1.0 | Phase 8, R.2, R.3 | `v1.0.0` | Effects, scrobbling, plugins, sync, SponsorBlock, quality pass, more channels |
 
 Milestones are release points, not a strict order. A stage can finish before its milestone and ship in the next release: 1.11, 1.13 and R.2 run in the waves to M1, which doesn't wait for them. The Android (6.x) and desktop (7.x) lanes run alongside.
 
-M1 shipped as `v0.1.0`. M2, M3 and M4 ship together as `v0.4.0`, so there is no `v0.2.0` or `v0.3.0`, and Phase 8 stages ship early too: 8.2, 8.4 and 8.7 in `v0.1.0`, 8.1 and 8.3 in `v0.4.0`. The owner chose to release the web app first and then M5 and M6 together as `v0.6.0` (2026-10-26), because once the Android and desktop release stages are on `develop`, every release builds and signs their files.
+M1 shipped as `v0.1.0`. M2, M3 and M4 shipped together as `v0.2.0`, and Phase 8 stages ship early too: 8.2, 8.4 and 8.7 in `v0.1.0`, 8.1 and 8.3 in `v0.2.0`. The owner chose to release the web app first; M5 and M6 ship together as `v0.3.0` (2026-10-26), because once the Android and desktop release stages are on `develop`, every release builds and signs their files.
 
 ### Parallel waves to M1
 
@@ -128,7 +128,7 @@ The Android lane (6.1 ✅) and the desktop lane (7.1 ✅) continue in parallel.
 | **3.2** | Recommendation providers | `feat/3.2-rec-providers` | 1.2, 1.3, 1.5 | ✅ |
 | **3.3** | Recommendation engine + Home | `feat/3.3-home` | 3.1, 3.2 | ✅ |
 | **3.4** | Endless autoplay radio | `feat/3.4-autoplay` | 3.3 | ✅ |
-| **3.5** | Spotify account connect and sync (web), experimental in `v0.4.0` | `feat/3.5-spotify-sync` | 1.5, 2.6, 2.7 | ✅ |
+| **3.5** | Spotify account connect and sync (web), experimental in `v0.2.0` | `feat/3.5-spotify-sync` | 1.5, 2.6, 2.7 | ✅ |
 | **3.6** | Imports: Spotify, YouTube playlists, CSV/M3U, data export | `feat/3.6-imports` | 1.5, 1.7, 2.6, 3.1 | ✅ |
 | **4.1** | Download manager + offline playback | `feat/4.1-downloads` | 2.3, 2.6 | ✅ |
 | **4.2** | Conversion and tagging (custom LGPL ffmpeg.wasm build, mp4box.js) | `feat/4.2-convert` | 4.1 | ✅ |
@@ -740,7 +740,7 @@ Added on 2026-10-26: stages 2.3-2.6 were built in parallel against fakes behind 
   - It allows only what the shipped stages use. A stage that makes the app contact a new service adds the service to `APP_SERVICES`, with the hosts it needs, and names it on the site's privacy page (Definition of done); `make dist` fails when a host in a policy belongs to no service in that list, or the privacy page doesn't name the service.
   - Added since M1: 3.2's Last.fm, ListenBrainz and Cover Art Archive hosts (not iTunes Search, which the app doesn't call), 8.2's scrobbling APIs, 8.4's GitHub API, and 4.2's `'wasm-unsafe-eval'` and cover hosts. Still to come: 1.11's BotGuard hosts, once one of its rungs is on.
   - `worker-src 'self'`: every worker the app starts is a file of its own build (the service worker, the downloads' storage worker and the conversion worker). Plugins' workers start in `eval.html`, under its policy.
-  - The line is about 1,150 characters in v0.4.0, under the 2,000-character limit.
+  - The line is about 1,150 characters in v0.2.0, under the 2,000-character limit.
   - The `sha256-…` hashes, here and in the sandbox rules, are computed at build: for the app, the inline theme script in `apps/web/index.html`.
   - `media-src https:` covers googlevideo, Internet Archive's redirect hosts (`ia*.us.archive.org`), Jamendo's storage hosts and a user's Invidious proxy. Page script can't read media responses.
   - The Spotify hosts are there because Spotify is built in (Decision 1, option A). The secret source goes through `userhost.html`, and `clienttoken` is not needed today.
@@ -830,7 +830,7 @@ A light stage. There are no mirrors in this revision.
 | 3.2 | Recommendation providers ✅ | YouTube Music radio, seeded with the song in Music mode and still filtered to songs. Spotify radio, related artists and home when Spotify is on. Last.fm keyless station JSON (Full tier only; in Music mode each YouTube ID is classified before it is queued, within the budget, or stations serve only as artist-and-title seeds) and similar artists. ListenBrainz similar artists, which need no key (LB Radio needs a user token). All mode-aware. Cover Art Archive (by MusicBrainz release) and iTunes Search fill missing artwork for any track |
 | 3.3 | Recommendation engine + Home ✅ | Candidates, scoring, MMR diversity, per-artist cap, history dedup. Shelves: Quick picks, Daily Mixes, Discover, Because you listened, Rediscover, On repeat, plus Spotify sections when connected. Onboarding for a cold start. Deterministic tests |
 | 3.4 | Endless autoplay radio ✅ | Extend the queue from the last 5 plays when fewer than 3 tracks remain; likes and skips retune it; no repeats within N tracks; can be switched off |
-| 3.5 | Spotify account connect and sync (web) ✅ | "Connect your account" using the browser's Spotify session through the FXM Connect bridge, opt-in, with a notice that Spotify's User Guidelines forbid automated access (no public case of an account actioned for metadata use). Sync the personalized home, liked songs and playlists into the library, read-only. Disconnect clears tokens. Done when a manual live test in Chrome and Firefox, with third-party cookies allowed and blocked, is documented. Desktop is 7.4 and Android 6.5. **Merged, and shipped in `v0.4.0` labelled experimental** (the owner's decision): the manual test with a real account is still to come (`apps/web/src/features/spotify-account/README.md`), so until it passes every public text calls the sync experimental and says it was tested only with a stand-in for Spotify |
+| 3.5 | Spotify account connect and sync (web) ✅ | "Connect your account" using the browser's Spotify session through the FXM Connect bridge, opt-in, with a notice that Spotify's User Guidelines forbid automated access (no public case of an account actioned for metadata use). Sync the personalized home, liked songs and playlists into the library, read-only. Disconnect clears tokens. Done when a manual live test in Chrome and Firefox, with third-party cookies allowed and blocked, is documented. Desktop is 7.4 and Android 6.5. **Merged, and shipped in `v0.2.0` labelled experimental** (the owner's decision): the manual test with a real account is still to come (`apps/web/src/features/spotify-account/README.md`), so until it passes every public text calls the sync experimental and says it was tested only with a stand-in for Spotify |
 | 3.6 | Imports ✅ | Spotify's "Download your data" JSON is first-class and needs no Spotify provider: rows go through the MusicBrainz exact path, then no-duration mode (capped at Suggest), and its streaming history becomes 3.1 listening signals. Spotify playlist, album and track URLs through 1.5; YouTube and YouTube Music playlists; CSV (Exportify columns); M3U. Mode-aware matching with a review list; resumable; paced by the request budget. Done when a 100-track playlist imports with a match report |
 
 ## Phase 4: Offline and lossless (→ M3) ✅
@@ -847,7 +847,7 @@ A light stage. There are no mirrors in this revision.
 | ID | Stage | Notes |
 |---|---|---|
 | 5.1 | PWA "web applet" ✅ | `vite-plugin-pwa`: manifest, maskable icons, standalone plus window-controls-overlay, scope `/app/`, offline shell, update toast, install button, media keys |
-| 5.2 | Embeddable mini-player ✅ | `/embed/track\|album\|playlist/:id` in compact and card layouts, a share dialog that copies the iframe code, a postMessage API. Plays YouTube through FXM Connect when the visitor has it, otherwise through the Lite tier, otherwise free sources plus an install hint. Its CSP lets any site frame it. Done when it plays in Lite inside a test page on another origin. On in `v0.4.0`, after a live check showed the production embed playing in Lite inside a page on another site (`scripts/build-dist/README.md`, "The embed on the deployed site") |
+| 5.2 | Embeddable mini-player ✅ | `/embed/track\|album\|playlist/:id` in compact and card layouts, a share dialog that copies the iframe code, a postMessage API. Plays YouTube through FXM Connect when the visitor has it, otherwise through the Lite tier, otherwise free sources plus an install hint. Its CSP lets any site frame it. Done when it plays in Lite inside a test page on another origin. On in `v0.2.0`, after a live check showed the production embed playing in Lite inside a page on another site (`scripts/build-dist/README.md`, "The embed on the deployed site") |
 | 5.3 | Landing page ✅ | An Astro static site: features, how it works, Get FXM (web + Connect, desktop, Android), FAQ, privacy, disclaimer, SEO. Revision 3's copy changes ship with 2.7 |
 
 ## Phase 6: Android (→ M5)
