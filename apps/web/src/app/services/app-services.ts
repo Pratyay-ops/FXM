@@ -82,6 +82,7 @@ import { appSources } from '../../features/search/sources-context'
 import { appMatchOptions } from '../../features/settings/matching-store'
 import { lifecycleQualityOptions } from '../../features/settings/quality-store'
 import { useSettingsStore } from '../../features/settings/settings-store'
+import { buildJamendoClientId } from '../../lib/free-sources'
 import { createIndexedDbStore, type DeviceStore } from './device-store'
 import { createLoader, type Loader, lazyProvider } from './lazy-provider'
 import {
@@ -325,9 +326,7 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
   const ownNetwork = options.network === undefined ? createBrowserNetworkMonitor() : undefined
   const network = options.network ?? (ownNetwork as NetworkMonitor)
   const jamendoClientId =
-    'jamendoClientId' in options
-      ? options.jamendoClientId
-      : (import.meta.env.VITE_FXM_JAMENDO_CLIENT_ID as string | undefined) || undefined
+    'jamendoClientId' in options ? options.jamendoClientId : buildJamendoClientId()
   const offline = 'offline' in options ? options.offline : appOfflineStore()
   const localProvider =
     'localProvider' in options ? options.localProvider : createLocalMetadataProvider()

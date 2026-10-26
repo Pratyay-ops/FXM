@@ -118,6 +118,19 @@ describe('Settings → Diagnostics', { timeout: 30_000 }, () => {
     expect(section.getByRole('button', runButton)).toBeDisabled()
   })
 
+  it('lets the song self-test run as soon as the resolver arrives, without a reload', async () => {
+    await openTestPlatform({ connect: {} })
+    const { section } = await openDiagnostics()
+    await waitFor(() => expect(section.getByText('Full')).toBeInTheDocument())
+    expect(section.getByRole('button', runButton)).toBeDisabled()
+
+    // The app sets it once YouTube's code has loaded in the background, after Settings rendered.
+    act(() => setSongResolver(createFakeResolver('plays')))
+
+    expect(section.queryByText(/can't resolve YouTube songs yet/)).toBeNull()
+    expect(section.getByRole('button', runButton)).toBeEnabled()
+  })
+
   it("can't run it without YouTube access, and offers nothing this device can't get", async () => {
     setSongResolver(createFakeResolver('plays'))
     await openTestPlatform({ lite: false })

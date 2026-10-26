@@ -1,5 +1,5 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderApp } from '../../test/render'
 import { noticeCopy } from './connect-notice'
 import { resetConnection, useConnection } from './connection'
@@ -102,7 +102,7 @@ describe('the connection notice', { timeout: 30_000 }, () => {
     const free = within(await notice('This browser plays free music'))
     expect(
       free.getByText(
-        'Internet Archive and Jamendo work here. For YouTube Music and Spotify, add the free FXM Connect extension.',
+        'Internet Archive works here. For YouTube Music and Spotify, add the free FXM Connect extension.',
       ),
     ).toBeInTheDocument()
     expect(free.getByRole('link', { name: 'See your options' })).toHaveAttribute('href', '/connect')
@@ -190,19 +190,30 @@ describe('what the notice says on each device', () => {
 
   it('offers the extension where the browser can add it', () => {
     expect(body(USER_AGENTS.firefoxLinux)).toBe(
-      'Internet Archive and Jamendo work here. For YouTube Music and Spotify, add the free FXM Connect extension.',
+      'Internet Archive works here. For YouTube Music and Spotify, add the free FXM Connect extension.',
     )
+  })
+
+  it('names Jamendo only in a build that offers it', () => {
+    vi.stubEnv('VITE_FXM_JAMENDO_CLIENT_ID', 'public-id')
+    try {
+      expect(body(USER_AGENTS.firefoxLinux)).toBe(
+        'Internet Archive and Jamendo work here. For YouTube Music and Spotify, add the free FXM Connect extension.',
+      )
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
   it('sends Safari on a Mac to another browser on the same Mac', () => {
     expect(body(USER_AGENTS.safariMac)).toBe(
-      "Internet Archive and Jamendo work here. YouTube Music and Spotify need FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there.",
+      "Internet Archive works here. YouTube Music and Spotify need FXM Connect, which Safari can't add. On this Mac, open FXM in Chrome, Edge, Brave or Firefox and add it there.",
     )
   })
 
   it('offers nothing to install on iPhone and iPad', () => {
     expect(body(USER_AGENTS.iphone)).toBe(
-      "Internet Archive and Jamendo work here. YouTube Music and Spotify need FXM Connect, which isn't available on iPhone and iPad.",
+      "Internet Archive works here. YouTube Music and Spotify need FXM Connect, which isn't available on iPhone and iPad.",
     )
     expect(body(USER_AGENTS.iphone, lite)).toBe(
       "This browser passed Lite's check. Spotify needs FXM Connect, which isn't available on iPhone and iPad.",
@@ -211,7 +222,7 @@ describe('what the notice says on each device', () => {
 
   it('says the Android app is coming soon on Android, without offering it', () => {
     expect(body(USER_AGENTS.androidChrome)).toBe(
-      "Internet Archive and Jamendo work here. YouTube Music and Spotify need FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
+      "Internet Archive works here. YouTube Music and Spotify need FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
     )
   })
 

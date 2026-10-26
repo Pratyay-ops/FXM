@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { pageRevision } from '../../../apps/web/pwa/host.ts'
 import { compose, DistError, NOTICES_FILE } from './compose.ts'
@@ -194,7 +194,14 @@ describe('compose', () => {
       run(root, [
         fakeSitePart(root),
         fakeAppPart(root, {
-          packages: [{ name: 'copyleft', version: '2.0.0', license: 'GPL-3.0-only' }],
+          packages: [
+            {
+              name: 'copyleft',
+              version: '2.0.0',
+              license: 'GPL-3.0-only',
+              files: { COPYING: 'GNU GENERAL PUBLIC LICENSE' },
+            },
+          ],
         }),
       ]),
     )
@@ -276,8 +283,18 @@ describe('compose', () => {
 
   it('lists the packages a build takes stylesheets and assets from, from its inventory', () => {
     const root = tempDir()
-    const fonts = installPackage(root, { name: 'fonts', version: '1.0.0', license: 'OFL-1.1' })
-    const codec = installPackage(root, { name: 'codec', version: '2.0.0', license: 'GPL-2.0' })
+    const fonts = installPackage(root, {
+      name: 'fonts',
+      version: '1.0.0',
+      license: 'OFL-1.1',
+      files: { 'OFL.txt': 'SIL Open Font License', LICENSE: 'OFL' },
+    })
+    const codec = installPackage(root, {
+      name: 'codec',
+      version: '2.0.0',
+      license: 'GPL-2.0',
+      files: { COPYING: 'GPL' },
+    })
     const app = fakePart(
       { name: 'app', mount: 'app', spa: true, required: true },
       (outDir) => ({
@@ -306,6 +323,132 @@ describe('compose', () => {
     expect(problems[1]).toBe(
       'codec@2.0.0 (in app): GPL-2.0 is GPL or AGPL, which FXM must not ship (ARCHITECTURE.md §17)',
     )
+  })
+
+  it('refuses code that is neither FXM’s own nor a package’s, such as an unmapped virtual module', () => {
+    const root = tempDir()
+    writeFiles(root, { 'apps/web/src/app.ts': 'export {}\n' })
+    const app = fakePart({ name: 'app', mount: 'app', spa: true, required: true }, (outDir) => ({
+      'index.html': '<!doctype html><title>a</title><h1>a</h1>',
+      'assets/index.js': 'x',
+      'assets/index.js.map': JSON.stringify({
+        version: 3,
+        sources: [
+          relative(join(outDir, 'assets'), join(root, 'apps/web/src/app.ts')),
+          `${relative(join(outDir, 'assets'), '/')}/@x/virtual:client`,
+        ],
+        mappings: '',
+      }),
+    }))
+    expect(problemsOf(() => run(root, [fakeSitePart(root), app]))).toEqual([
+      expect.stringMatching(
+        /^app ships code from .*\/@x\/virtual:client, which is neither FXM's own file nor in node_modules: .*VIRTUAL_MODULES/,
+      ),
+    ])
+  })
+
+  it('refuses LGPL code that shares a chunk with other code, in the app or in a worker', () => {
+    const appWith = (root: string, workerModules: (lgpl: string) => readonly string[]) => {
+      writeFiles(root, {
+        'apps/web/src/app.ts': 'export {}\n',
+        'apps/web/src/worker.ts': 'export {}\n',
+      })
+      const lgpl = installPackage(root, {
+        name: 'lgpl-lib',
+        version: '1.0.0',
+        license: 'LGPL-3.0-only',
+        files: { COPYING: 'GNU Lesser General Public License' },
+      })
+      return fakePart(
+        { name: 'app', mount: 'app', spa: true, required: true },
+        (outDir) => ({
+          'index.html':
+            '<!doctype html><html><head><title>a</title></head><body><h1>a</h1></body></html>',
+          ...bundle(outDir, 'assets/index.js', [join(root, 'apps/web/src/app.ts')]),
+          ...bundle(outDir, 'assets/lgpl-lib.js', [lgpl]),
+          ...bundle(outDir, 'assets/worker.js', workerModules(lgpl)),
+        }),
+        () => [
+          {
+            environment: 'client',
+            modules: [],
+            assets: [],
+            chunks: [
+              { fileName: 'assets/index.js', modules: [join(root, 'apps/web/src/app.ts')] },
+              { fileName: 'assets/lgpl-lib.js', modules: [lgpl, '\0rolldown/runtime.js'] },
+            ],
+          },
+          // What bundle-inventory.ts records for the app's worker (dist-configs.ts).
+          {
+            environment: 'worker',
+            modules: [],
+            assets: [],
+            chunks: [{ fileName: 'assets/worker.js', modules: workerModules(lgpl) }],
+          },
+        ],
+      )
+    }
+    const root = tempDir()
+    const worker = join(root, 'apps/web/src/worker.ts')
+    expect(
+      problemsOf(() => run(root, [fakeSitePart(root), appWith(root, (lgpl) => [worker, lgpl])])),
+    ).toEqual([
+      `lgpl-lib@1.0.0 (in app) is under the LGPL, so it must sit in chunks of its own, but assets/worker.js also holds 1 other module(s), such as ${worker}: give it a chunk of its own (manualChunks)`,
+    ])
+
+    // A worker that holds the library alone, as its own chunk, passes.
+    const other = tempDir()
+    const { result } = run(other, [fakeSitePart(other), appWith(other, (lgpl) => [lgpl])])
+    expect(result.packages.map((pkg) => pkg.name)).toEqual(['lgpl-lib'])
+  })
+
+  it('attributes the packages the sandbox documents bundle, and names the parts holding them', () => {
+    const root = tempDir()
+    installPackage(root, {
+      name: 'bgutils-js',
+      version: '4.0.3',
+      license: 'MIT',
+      files: { LICENSE: 'MIT License\n\nCopyright (c) LuanRT', 'dist/core/BotGuardClient.js': '' },
+    })
+    const script = [
+      sandboxScript('eval.html'),
+      '//#region ../../node_modules/.pnpm/bgutils-js@4.0.3/node_modules/bgutils-js/dist/core/BotGuardClient.js',
+      '//#endregion',
+    ].join('\n')
+    const sandbox = fakePart({ name: 'sandbox', mount: 'sandbox', sourceMaps: false }, () => ({
+      'eval.html': sandboxDocument('eval.html', script),
+    }))
+    const { result, outDir } = run(root, [fakeSitePart(root), fakeAppPart(root), sandbox])
+    expect(result.packages.map((pkg) => [pkg.name, [...pkg.usedIn]])).toEqual([
+      ['bgutils-js', ['sandbox']],
+    ])
+    const notices = readFileSync(join(outDir, NOTICES_FILE), 'utf8')
+    expect(notices).toContain(
+      'Its sandbox documents include code from the open-source packages below',
+    )
+    expect(notices).toContain('bgutils-js 4.0.3\nLicence: MIT\nUsed in: sandbox')
+  })
+
+  it('refuses a package that ships no licence text, unless a review says what covers it', () => {
+    const root = tempDir()
+    const problems = problemsOf(() =>
+      run(root, [
+        fakeSitePart(root),
+        fakeAppPart(root, {
+          packages: [
+            {
+              name: 'spdx-only',
+              version: '1.0.0',
+              license: 'MIT OR Apache-2.0',
+              files: { 'LICENSE.spdx': 'PackageLicenseDeclared: MIT' },
+            },
+          ],
+        }),
+      ]),
+    )
+    expect(problems).toEqual([
+      'spdx-only@1.0.0 (in app) ships no licence text: check what covers it (its licence is MIT OR Apache-2.0) and record that in REVIEWED_LICENCE_TEXTS in src/licenses.ts',
+    ])
   })
 
   it('refuses a document without source maps whose inline code looks bundled', () => {

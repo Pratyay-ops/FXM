@@ -1,6 +1,6 @@
 ---
 import { AVAILABLE } from '../config'
-import { MUSIC_MODE, noExtensionHighlight, SPOTIFY_ACCOUNT } from '../lib/tiers'
+import { losslessSources, musicMode, noExtensionHighlight, SPOTIFY_ACCOUNT } from '../lib/tiers'
 import ComingSoon from './ComingSoon.astro'
 import DownloadsDemo from './demos/DownloadsDemo.astro'
 import FeedDemo from './demos/FeedDemo.astro'
@@ -16,7 +16,7 @@ const spotify = [
   { text: SPOTIFY_ACCOUNT, available: AVAILABLE.spotifyAccount },
 ]
 
-const noExtension = noExtensionHighlight(AVAILABLE.lite)
+const noExtension = noExtensionHighlight(AVAILABLE.lite, AVAILABLE.jamendo)
 
 // What the home feed holds today, and endless radio once it is out (stage 3.4).
 const feed = AVAILABLE.radio
@@ -30,9 +30,11 @@ const downloadTitle = AVAILABLE.conversions
 const downloadText = AVAILABLE.conversions
   ? 'Save any track for offline listening as Original, FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser.'
   : "Save any track for offline listening, as the file its source has: FLAC where it's lossless, Opus or AAC from YouTube Music. In the web app, downloading from YouTube Music takes FXM Connect; free sources download in any browser."
+// Jamendo is among the lossless sources only in a build that offers it (AVAILABLE.jamendo).
+const lossless = `You get real lossless FLAC where the source has it ${losslessSources(AVAILABLE.jamendo)}.`
 const formatsText = AVAILABLE.conversions
-  ? 'You get real lossless FLAC where the source has it (Internet Archive, Jamendo). Conversions from lossy sources are labelled honestly, so you always know what you have.'
-  : 'You get real lossless FLAC where the source has it (Internet Archive, Jamendo). Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon, and conversions from lossy sources will be labelled honestly.'
+  ? `${lossless} Conversions from lossy sources are labelled honestly, so you always know what you have.`
+  : `${lossless} Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon, and conversions from lossy sources will be labelled honestly.`
 
 const extras = [
   {
@@ -85,7 +87,7 @@ const extras = [
           <dl class="modes">
             <div>
               <dt>Music</dt>
-              <dd>{MUSIC_MODE}</dd>
+              <dd>{musicMode(AVAILABLE.jamendo)}</dd>
             </div>
             <div>
               <dt>Music + Video</dt>

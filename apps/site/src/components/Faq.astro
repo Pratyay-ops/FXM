@@ -1,15 +1,16 @@
 ---
 import { AVAILABLE, ISSUES_URL, LICENSE_URL, REPO_URL } from '../config'
 import { phonesAnswer } from '../lib/connect'
-import { connectNeededFor, extensionFaq, iPhoneAnswer } from '../lib/tiers'
+import { connectNeededFor, extensionFaq, iPhoneAnswer, losslessAnswer } from '../lib/tiers'
 
 // Answers that change as features ship (AVAILABLE in src/config.ts)
-const extension = extensionFaq(AVAILABLE.lite)
+const extension = extensionFaq(AVAILABLE.lite, AVAILABLE.jamendo)
 const needs = connectNeededFor(AVAILABLE.lite)
 const phones = phonesAnswer({
   firefox: AVAILABLE.firefox,
   android: AVAILABLE.android,
   lite: AVAILABLE.lite,
+  jamendo: AVAILABLE.jamendo,
 })
 const iphone = `On iPhone and iPad you can use the web app in Safari${
   AVAILABLE.pwa ? ' and add it to your Home Screen' : ''
@@ -81,7 +82,7 @@ const downloads = AVAILABLE.conversions
           <p>
             No, and none is planned for now.
             {iphone}
-            {iPhoneAnswer(AVAILABLE.lite)}
+            {iPhoneAnswer(AVAILABLE.lite, AVAILABLE.jamendo)}
           </p>
         </div>
       </details>
@@ -106,9 +107,8 @@ const downloads = AVAILABLE.conversions
         <summary>Can I get lossless audio?</summary>
         <div class="answer">
           <p>
-            Yes, where the source has it. Internet Archive and Jamendo offer real lossless FLAC,
-            which FXM can play. YouTube Music doesn't offer lossless audio: its best streams are
-            Opus and AAC.
+            {losslessAnswer(AVAILABLE.jamendo)}
+            YouTube Music doesn't offer lossless audio: its best streams are Opus and AAC.
           </p>
           <p>{downloads}</p>
         </div>

@@ -671,16 +671,6 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
     "action": {
       "requestHeaders": [
         {
-          "header": "origin",
-          "operation": "set",
-          "value": "https://open.spotify.com",
-        },
-        {
-          "header": "referer",
-          "operation": "set",
-          "value": "https://open.spotify.com/",
-        },
-        {
           "header": "cookie",
           "operation": "remove",
         },
@@ -722,7 +712,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "fxmusic.pages.dev",
       ],
       "requestDomains": [
-        "clienttoken.spotify.com",
+        "api-partner.spotify.com",
       ],
       "resourceTypes": [
         "xmlhttprequest",
@@ -777,61 +767,6 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "fxmusic.pages.dev",
       ],
       "requestDomains": [
-        "api-partner.spotify.com",
-      ],
-      "resourceTypes": [
-        "xmlhttprequest",
-        "other",
-      ],
-    },
-    "id": 12,
-    "priority": 1,
-  },
-  {
-    "action": {
-      "requestHeaders": [
-        {
-          "header": "cookie",
-          "operation": "remove",
-        },
-      ],
-      "responseHeaders": [
-        {
-          "header": "access-control-allow-origin",
-          "operation": "set",
-          "value": "https://fxmusic.pages.dev",
-        },
-        {
-          "header": "access-control-allow-methods",
-          "operation": "set",
-          "value": "GET, POST, OPTIONS",
-        },
-        {
-          "header": "access-control-allow-headers",
-          "operation": "set",
-          "value": "authorization, content-type, client-token, app-platform, spotify-app-version, accept",
-        },
-        {
-          "header": "access-control-max-age",
-          "operation": "set",
-          "value": "600",
-        },
-        {
-          "header": "access-control-allow-credentials",
-          "operation": "remove",
-        },
-        {
-          "header": "set-cookie",
-          "operation": "remove",
-        },
-      ],
-      "type": "modifyHeaders",
-    },
-    "condition": {
-      "initiatorDomains": [
-        "fxmusic.pages.dev",
-      ],
-      "requestDomains": [
         "spclient.wg.spotify.com",
       ],
       "resourceTypes": [
@@ -839,7 +774,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
         "other",
       ],
     },
-    "id": 13,
+    "id": 12,
     "priority": 1,
   },
   {
@@ -877,7 +812,7 @@ exports[`CORS rules for the production origin > matches the reviewed rules.json 
       ],
       "urlFilter": "|https://www.last.fm/player/station/",
     },
-    "id": 14,
+    "id": 13,
     "priority": 1,
   },
 ]

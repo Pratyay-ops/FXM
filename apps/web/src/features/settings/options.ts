@@ -1,4 +1,5 @@
 import { Clapperboard, type LucideIcon, Monitor, Moon, Music2, Sun } from 'lucide-react'
+import { freeSources } from '../../lib/free-sources'
 import type { CatalogMode, ThemePreference } from './settings-store'
 
 export interface SettingOption<V extends string> {
@@ -18,8 +19,10 @@ export const CATALOG_MODE_LABELS: Readonly<Record<CatalogMode, string>> = {
 }
 
 export const CATALOG_MODE_DESCRIPTIONS: Readonly<Record<CatalogMode, string>> = {
-  music:
-    'Music: songs only, from any source – YouTube Music’s album audio, Internet Archive, Jamendo and your own files.',
+  // The free sources this build offers: Jamendo only with its client_id (lib/free-sources.ts).
+  get music() {
+    return `Music: songs only, from any source – YouTube Music’s album audio, free music from ${freeSources().and}, and your own files.`
+  },
   all: 'Music + Video: also any YouTube video – covers, live sets, remixes – played as music.',
 }
 

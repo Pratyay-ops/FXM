@@ -13,8 +13,8 @@ import type { Part } from './parts.ts'
  * 5.2, the embeddable mini-player at `/embed/`: a single-page app built for base `/embed/`
  * (apps/web/vite.embed.config.ts), with the app's policy minus `frame-ancestors`, and the
  * headers every response gets, `Cross-Origin-Opener-Policy: same-origin` among them
- * (COMMON_HEADERS in policies.ts). Built the way appPart builds the app: hidden source maps and
- * the bundle inventory (embed.vite.config.ts).
+ * (COMMON_HEADERS in policies.ts). Built the way appPart builds the app: hidden source maps, the
+ * bundle inventory and no `.env` files (embed.vite.config.ts, src/dist-configs.ts).
  */
 export const embedPart: Part = {
   name: 'embed',
@@ -62,8 +62,9 @@ export const embedPart: Part = {
  *   and so no `sandbox` applies (headers-file.ts). make dist only checks that the test is
  *   there; the browser checks confirm on each deployment that the document stays inert;
  * - no inline code that looks bundled (a licence banner, or more than 64 KiB), because this
- *   part has no source maps for the licence check. A document that bundles npm packages must
- *   be built here instead, with source maps.
+ *   part has no source maps for the licence check. A document that bundles npm packages, such
+ *   as 1.11's `eval.html` with bgutils-js, keeps its script unminified with the bundler's
+ *   `//#region <path>` markers, from which make dist attributes those packages (licenses.ts).
  */
 export const sandboxPart: Part = {
   name: 'sandbox',

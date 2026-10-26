@@ -350,7 +350,7 @@ describe('Audio quality settings on other tiers and browsers', () => {
   it('say in Lite that downloads cover the free sources, and where YouTube songs download', () => {
     const { select } = renderSection(LITE)
     expect(select('Download format')).toHaveAccessibleDescription(
-      'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive and Jamendo. YouTube songs can be downloaded with FXM Connect. Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon.',
+      'Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from Internet Archive. YouTube songs can be downloaded with FXM Connect. Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon.',
     )
     // Lite still streams YouTube.
     expect(select('Streaming on Wi-Fi')).toHaveAccessibleDescription(/the best YouTube audio/)

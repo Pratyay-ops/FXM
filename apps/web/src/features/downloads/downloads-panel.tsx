@@ -19,6 +19,7 @@ import { usePlaylistView } from '../../db/hooks'
 import type { TrackRow } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID } from '../../db/types'
 import { cn } from '../../lib/cn'
+import { freeSources } from '../../lib/free-sources'
 import { canAddConnect, currentDevice } from '../connect/device'
 import { connectOrApps, howToGetMore } from '../connect/explain'
 import { CoverArt } from '../library/cover-art'
@@ -344,9 +345,9 @@ function MissingNotice({ rows }: { rows: readonly TrackRow[] }) {
 function youTubeDownloadsNote(): string {
   const device = currentDevice()
   if (canAddConnect(device)) {
-    return `Downloading songs from YouTube Music takes ${connectOrApps()}. Songs from Internet Archive and Jamendo download in any browser.`
+    return `Downloading songs from YouTube Music takes ${connectOrApps()}. Songs from ${freeSources().and} download in any browser.`
   }
-  return `${howToGetMore(device, 'youtube-downloads')} Songs from Internet Archive and Jamendo download here.`
+  return `${howToGetMore(device, 'youtube-downloads')} Songs from ${freeSources().and} download here.`
 }
 
 /**
