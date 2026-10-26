@@ -16,7 +16,10 @@ data class Exported(val uri: String, val path: String)
  * ([LegacyMusicFolder]). Every method may block; the plugin calls them on its worker thread.
  */
 interface MusicFolder {
-  /** A file of this app's named [displayName] and [size] bytes long, exported before. */
+  /**
+   * A file of [size] bytes this app exported before as [displayName], or under the numbered name
+   * it got when another song had taken that one (`Name (1).ext`, [ExportFormats.savedBefore]).
+   */
   fun find(displayName: String, size: Long): Exported?
 
   /** Creates a new item, hidden until [publish]. Its name may change to stay unique. */
@@ -38,24 +41,28 @@ interface MusicFolder {
 /**
  * Saves a copy of a finished download to Music/FXM, where every music app finds it
  * (stage 6.4). The download stays in the app's storage and keeps playing offline. A song saved
- * before, with the same name and size, is not saved twice; a copy that fails halfway is deleted,
- * so no broken file is left behind.
+ * before, with the same name (or the numbered one it got) and size, is not saved twice; a copy
+ * that fails halfway is deleted, so no broken file is left behind.
  */
 class MusicExporter(private val folder: MusicFolder) {
-  /** Copies [source], a download in [format], named after [song]. */
+  /**
+   * Copies [source], a download in [format], named after [song]. Every failure is a
+   * [DownloadFileException]: `NO_SPACE` when the shared storage is full, `IO` otherwise.
+   */
   fun export(source: File, format: ExportFormat, song: SongInfo): Exported {
     val name = ExportFormats.displayName(song.title, song.artists, format.extension)
-    val size = source.length()
-    folder.find(name, size)?.let { return it }
-    val item = folder.create(name, format, song)
+    var item: MusicFolder.Pending? = null
     try {
-      folder.write(item) { output -> source.inputStream().use { input -> input.copyTo(output, BUFFER_BYTES) } }
-      return folder.publish(item)
+      folder.find(name, source.length())?.let { return it }
+      val created = folder.create(name, format, song)
+      item = created
+      folder.write(created) { output -> source.inputStream().use { input -> input.copyTo(output, BUFFER_BYTES) } }
+      return folder.publish(created)
     } catch (e: IOException) {
-      folder.discard(item)
+      item?.let(folder::discard)
       throw DownloadFiles.failure("Couldn't save the song to Music", e)
     } catch (e: RuntimeException) {
-      folder.discard(item)
+      item?.let(folder::discard)
       throw DownloadFileException(DownloadFiles.IO, "Couldn't save the song to Music", e)
     }
   }

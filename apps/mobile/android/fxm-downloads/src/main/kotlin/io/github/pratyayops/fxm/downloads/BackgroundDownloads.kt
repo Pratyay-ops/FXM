@@ -23,9 +23,10 @@ data class Notice(val title: String, val text: String?, val downloading: Boolean
 interface DownloadServiceControl {
   /**
    * Starts the service in the foreground, showing [notice]. `false` when Android refused: from
-   * Android 12 on, an app in the background may not start one.
+   * Android 12 on, an app in the background may not start one. The service reports [generation]
+   * back when it stops ([BackgroundDownloads.serviceStopped]).
    */
-  fun start(notice: Notice): Boolean
+  fun start(notice: Notice, generation: Long): Boolean
 
   /** Shows [notice] in the running service's notification. */
   fun update(notice: Notice)
@@ -58,6 +59,9 @@ fun interface Timers {
  *   ([serviceStopped] with `timedOut`); the queue then runs while FXM is on screen, and the
  *   service starts again once the app has been on screen ([appVisible]), which resets the limit.
  *   A start Android refused (an app in the background) is tried again then too.
+ * - **Each start counts** (its generation). A service the controller stopped may only hear of it
+ *   (`onDestroy`) after the controller started it again for the next download: that end is old
+ *   news, and the service runs on.
  *
  * Every method runs on one thread (the main thread in the app).
  */
@@ -78,8 +82,11 @@ class BackgroundDownloads(
     val tickMs: Long = 2_000,
   )
 
+  /** The page's last report, while that page lives. */
   private var last: QueueReport? = null
   private var running = false
+  /** The latest start's number: only its end stops what runs. */
+  private var generation = 0L
   /** Android stopped the service at its time limit: don't start it again from the background. */
   private var blocked = false
   private var bytesAtStart = 0L
@@ -107,7 +114,8 @@ class BackgroundDownloads(
     if (!running) {
       if (blocked) return false
       bytesAtStart = bytesWritten()
-      running = control.start(notice(report))
+      generation += 1
+      running = control.start(notice(report), generation)
       if (!running) return false
       tick()
     } else {
@@ -117,8 +125,12 @@ class BackgroundDownloads(
     return true
   }
 
-  /** The page that reported went away: stop unless the next one reports soon. */
+  /**
+   * The page that reported went away: its report with it, so the app's return doesn't start the
+   * service for a queue nobody runs. Stops unless the next page reports soon.
+   */
   fun pageGone() {
+    last = null
     if (!running || orphanTimer != null) return
     orphanTimer =
       timers.schedule(config.orphanMs) {
@@ -127,10 +139,13 @@ class BackgroundDownloads(
       }
   }
 
-  /** Android stopped the service: at its time limit when [timedOut], or otherwise. */
-  fun serviceStopped(timedOut: Boolean) {
+  /**
+   * Android stopped the service started as [generation]: at its time limit when [timedOut], or
+   * otherwise. The end of an earlier start changes nothing for the one that runs now.
+   */
+  fun serviceStopped(timedOut: Boolean, generation: Long) {
     if (timedOut) blocked = true
-    if (!running) return
+    if (!running || generation != this.generation) return
     running = false
     clearTimers()
     control.keepAwake(false)

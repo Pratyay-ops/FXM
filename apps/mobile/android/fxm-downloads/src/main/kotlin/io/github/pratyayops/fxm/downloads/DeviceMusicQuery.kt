@@ -24,11 +24,18 @@ data class AlbumRef(val volume: String, val id: Long, val track: Long?)
 class Thumbnail(val jpeg: ByteArray, val width: Int, val height: Int)
 
 /**
- * The device's music, read from MediaStore's audio collection (stage 6.4): songs only
- * (`IS_MUSIC`, so no ringtones, notifications, alarms or recordings), on every external volume,
- * in pages by `_ID`, and the covers of their albums. Needs `READ_MEDIA_AUDIO` (Android 13+) or
- * `READ_EXTERNAL_STORAGE`, which the FxmDeviceMusic plugin asks for when the user opens device
- * music. It reads MediaStore's columns, never the files themselves.
+ * The device's music, read from MediaStore's audio collection (stage 6.4) on every external
+ * volume, in pages by `_ID`, and the covers of their albums. Needs `READ_MEDIA_AUDIO`
+ * (Android 13+) or `READ_EXTERNAL_STORAGE`, which the FxmDeviceMusic plugin asks for when the
+ * user opens device music. It reads MediaStore's columns, never the files themselves.
+ *
+ * **Songs only, as far as MediaStore can tell.** MediaStore sets `IS_MUSIC` from a file's folders
+ * alone: any audio outside a `Ringtones`, `Notifications`, `Alarms`, `Podcasts` or `Audiobooks`
+ * folder, and (Android 12 and later) a `Recordings` one, is music to it (CLEAN-ROOM.md). So the
+ * listing also leaves out apps' own media folders (`Android/media/<package>/`, which MediaStore
+ * indexes from Android 11), where messaging apps keep voice notes, and on Android 12 and later
+ * anything MediaStore marks as a recording. A recorder that writes elsewhere, before Android 12
+ * or into a folder of its own, still shows up.
  */
 class DeviceMusicQuery(private val resolver: ContentResolver) {
   /** One page of songs: their items, and the `_ID` to continue after, `null` at the end. */
@@ -44,6 +51,13 @@ class DeviceMusicQuery(private val resolver: ContentResolver) {
   private val selection: String =
     buildString {
       append("${MediaStore.Audio.AudioColumns.IS_MUSIC} != 0")
+      // Apps' own media folders: voice notes and the like, which IS_MUSIC can't tell from songs.
+      if (Build.VERSION.SDK_INT >= 29) {
+        append(" AND ${MediaStore.MediaColumns.RELATIVE_PATH} NOT LIKE '$APP_MEDIA%'")
+      } else {
+        append(" AND $DATA NOT LIKE '%/$APP_MEDIA%'")
+      }
+      if (Build.VERSION.SDK_INT >= 31) append(" AND $IS_RECORDING = 0")
       // Android 11 and later leave pending and trashed items out by themselves.
       if (Build.VERSION.SDK_INT == 29) append(" AND ${MediaStore.MediaColumns.IS_PENDING} = 0")
     }
@@ -179,6 +193,11 @@ class DeviceMusicQuery(private val resolver: ContentResolver) {
     const val COMPILATION = "compilation"
     const val SAMPLERATE = "samplerate"
     const val BITS_PER_SAMPLE = "bits_per_sample"
+    /** `AudioColumns.IS_RECORDING` (API 31). */
+    const val IS_RECORDING = "is_recording"
+
+    /** Apps' own media folders on the shared storage, as a path inside a volume starts. */
+    const val APP_MEDIA = "Android/media/"
 
     /** Android 9 and older keep album art here, by album id. */
     val LEGACY_ALBUM_ART: Uri = Uri.parse("content://media/external/audio/albumart")

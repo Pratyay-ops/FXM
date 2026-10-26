@@ -14,9 +14,12 @@ class BackgroundDownloadsTest {
     var running = false
     var awake = false
     var notice: Notice? = null
+    /** The generation of the latest start. */
+    var generation = 0L
 
-    override fun start(notice: Notice): Boolean {
+    override fun start(notice: Notice, generation: Long): Boolean {
       calls += "start"
+      this.generation = generation
       if (refuse) return false
       running = true
       this.notice = notice
@@ -68,6 +71,9 @@ class BackgroundDownloadsTest {
 
   private fun report(downloading: Int, queued: Int = 0, online: Boolean = true, title: String? = null) =
     background.report(QueueReport(downloading, queued, online, title))
+
+  /** Android stops the service of the latest start. */
+  private fun stopped(timedOut: Boolean = false) = background.serviceStopped(timedOut, service.generation)
 
   @Test
   fun `the service runs while the queue has work and stops a little after`() {
@@ -122,7 +128,7 @@ class BackgroundDownloadsTest {
     service.refuse = false
     assertTrue(report(1))
     assertEquals(listOf("start", "start"), service.calls)
-    background.serviceStopped(timedOut = false)
+    stopped()
     service.refuse = true
     assertFalse(report(1))
     service.refuse = false
@@ -156,7 +162,7 @@ class BackgroundDownloadsTest {
   @Test
   fun `after Android's time limit the service waits for the app to be on screen`() {
     report(1)
-    background.serviceStopped(timedOut = true)
+    stopped(timedOut = true)
     assertFalse(background.isRunning)
     assertFalse(service.awake)
     assertFalse(report(1))
@@ -169,12 +175,50 @@ class BackgroundDownloadsTest {
   @Test
   fun `a service Android stopped otherwise starts again with the next report`() {
     report(1)
-    background.serviceStopped(timedOut = false)
+    stopped()
     assertTrue(report(1))
     assertEquals(listOf("start", "start"), service.calls)
     // Nothing waits after a stop the controller didn't make.
-    background.serviceStopped(timedOut = false)
+    stopped()
     timers.advance(600_000)
     assertEquals(listOf("start", "start"), service.calls)
+  }
+
+  @Test
+  fun `the end of a service the controller stopped doesn't stop the one started after it`() {
+    report(1)
+    val first = service.generation
+    report(0)
+    timers.advance(5_000)
+    assertEquals(listOf("start", "stop"), service.calls)
+    // The next download starts the service again before Android destroyed the old one.
+    assertTrue(report(1))
+    background.serviceStopped(timedOut = false, generation = first)
+    assertTrue(background.isRunning)
+    assertTrue(service.awake)
+    // So the queue running dry still stops it.
+    report(0)
+    timers.advance(5_000)
+    assertEquals(listOf("start", "stop", "start", "stop"), service.calls)
+    assertFalse(background.isRunning)
+  }
+
+  @Test
+  fun `a page that went away leaves no report for the app's return`() {
+    report(1)
+    background.pageGone()
+    timers.advance(60_000)
+    assertEquals(listOf("start", "stop"), service.calls)
+    // Opened again: nothing starts until the new page reports a queue of its own.
+    background.appVisible()
+    assertFalse(background.isRunning)
+    assertEquals(listOf("start", "stop"), service.calls)
+    // Also when Android stopped the service at its limit while the old page was there.
+    report(1)
+    stopped(timedOut = true)
+    background.pageGone()
+    background.appVisible()
+    assertFalse(background.isRunning)
+    assertTrue(report(1))
   }
 }

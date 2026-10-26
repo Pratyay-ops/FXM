@@ -282,15 +282,17 @@ class FxmDownloadsPlugin : Plugin() {
     main.post { background.pageGone() }
   }
 
-  /** Runs [block] on the worker thread and resolves with what it returns, or rejects by code. */
+  /**
+   * Runs [block] on the worker thread and resolves with what it returns, or rejects by code
+   * ([DownloadFiles.codeOf]). Every failure settles the call: one that escaped the task would end
+   * the app (an uncaught exception on any thread does), and leave the call waiting.
+   */
   private fun io(call: PluginCall, block: () -> JSObject) {
     worker.execute {
       try {
         call.resolve(block())
-      } catch (e: DownloadFileException) {
-        call.reject(e.message ?: "The download storage failed", e.code)
-      } catch (e: RuntimeException) {
-        call.reject(e.message ?: "The download storage failed", DownloadFiles.IO)
+      } catch (e: Exception) {
+        call.reject(e.message ?: "The download storage failed", DownloadFiles.codeOf(e))
       }
     }
   }

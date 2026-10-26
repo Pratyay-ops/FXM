@@ -60,9 +60,7 @@ object ExportFormats {
    */
   fun unique(displayName: String, taken: (String) -> Boolean): String {
     if (!taken(displayName)) return displayName
-    val dot = displayName.lastIndexOf('.')
-    val base = if (dot > 0) displayName.substring(0, dot) else displayName
-    val extension = if (dot > 0) displayName.substring(dot) else ""
+    val (base, extension) = split(displayName)
     for (number in 1..MAX_COPIES) {
       val candidate = "$base ($number)$extension"
       if (!taken(candidate)) return candidate
@@ -70,8 +68,38 @@ object ExportFormats {
     throw DownloadFileException(DownloadFiles.IO, "Too many songs are named $displayName")
   }
 
-  /** The most numbered copies of one name [unique] tries. */
+  /**
+   * Which of [names], the files in Music/FXM as long as a song FXM would save as [displayName], is
+   * that song saved before: the name itself, else its lowest numbered copy (`Name (1).ext`), the
+   * name it got when another song had taken its own ([unique]). `null` when none is.
+   */
+  fun savedBefore(displayName: String, names: Collection<String>): String? {
+    if (displayName in names) return displayName
+    return names.mapNotNull { name -> copyNumber(name, displayName)?.let { number -> number to name } }.minByOrNull { it.first }?.second
+  }
+
+  /** The number of [name] as a numbered copy of [displayName] (`Name (3).ext`: 3), else `null`. */
+  fun copyNumber(name: String, displayName: String): Int? {
+    val (base, extension) = split(displayName)
+    val prefix = "$base ("
+    val suffix = ")$extension"
+    if (name.length <= prefix.length + suffix.length || !name.startsWith(prefix) || !name.endsWith(suffix)) return null
+    val digits = name.substring(prefix.length, name.length - suffix.length)
+    if (digits.length > COPY_DIGITS || digits.startsWith("0") || !digits.all { it in '0'..'9' }) return null
+    return digits.toInt()
+  }
+
+  /** The most numbered copies of one name [unique] tries (MediaStore stops at 31). */
   private const val MAX_COPIES = 999
+
+  /** The digits of the highest copy number [copyNumber] reads. */
+  private const val COPY_DIGITS = 4
+
+  /** [displayName]'s base and its extension with the dot (empty when it has none). */
+  private fun split(displayName: String): Pair<String, String> {
+    val dot = displayName.lastIndexOf('.')
+    return if (dot > 0) displayName.substring(0, dot) to displayName.substring(dot) else displayName to ""
+  }
 
   private val REFUSED = Regex("[/\\\\:*?\"<>|\\p{Cntrl}]")
   private val SPACES = Regex("\\s+")

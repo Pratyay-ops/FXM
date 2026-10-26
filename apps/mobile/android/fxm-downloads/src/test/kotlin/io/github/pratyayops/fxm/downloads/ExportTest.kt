@@ -1,6 +1,7 @@
 package io.github.pratyayops.fxm.downloads
 
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import org.junit.Assert.assertArrayEquals
@@ -79,18 +80,37 @@ class ExportTest {
     }
   }
 
-  /** Music/FXM in memory. */
-  private class FakeFolder(var failWrite: Boolean = false) : MusicFolder {
+  @Test
+  fun `a song saved before is found under its name or the number it got`() {
+    assertEquals("A - B.mp3", ExportFormats.savedBefore("A - B.mp3", listOf("A - B (1).mp3", "A - B.mp3")))
+    assertEquals("A - B (2).mp3", ExportFormats.savedBefore("A - B.mp3", listOf("A - B (12).mp3", "A - B (2).mp3")))
+    assertNull(ExportFormats.savedBefore("A - B.mp3", listOf("A - B (remix).mp3", "A - B (1).flac", "A - B ().mp3")))
+    assertNull(ExportFormats.savedBefore("A - B.mp3", emptyList()))
+    assertEquals(3, ExportFormats.copyNumber("A - B (3).mp3", "A - B.mp3"))
+    assertEquals(7, ExportFormats.copyNumber("noext (7)", "noext"))
+    for (name in listOf("A - B (03).mp3", "A - B (-1).mp3", "A - B (12345).mp3", "A - B(1).mp3", "A - B (1)mp3", "A - B.mp3")) {
+      assertNull(name, ExportFormats.copyNumber(name, "A - B.mp3"))
+    }
+    // Wildcards and brackets in a title are only characters.
+    assertEquals(1, ExportFormats.copyNumber("100% (Live) (1).m4a", "100% (Live).m4a"))
+  }
+
+  /** Music/FXM in memory, named as MediaStore names copies. */
+  private class FakeFolder(var failWrite: Boolean = false, var failCreate: Exception? = null) : MusicFolder {
     class Item(val name: String) : MusicFolder.Pending
 
     val files = linkedMapOf<String, ByteArray>()
     val pending = mutableSetOf<String>()
     val discarded = mutableListOf<String>()
 
-    override fun find(displayName: String, size: Long): Exported? =
-      files[displayName]?.takeIf { it.size.toLong() == size && displayName !in pending }?.let { Exported("content://media/x/$displayName", "Music/FXM/$displayName") }
+    override fun find(displayName: String, size: Long): Exported? {
+      val sameSize = files.filter { (name, bytes) -> bytes.size.toLong() == size && name !in pending }.keys
+      val name = ExportFormats.savedBefore(displayName, sameSize) ?: return null
+      return Exported("content://media/x/$name", "Music/FXM/$name")
+    }
 
     override fun create(displayName: String, format: ExportFormat, song: SongInfo): MusicFolder.Pending {
+      failCreate?.let { throw it }
       val name = ExportFormats.unique(displayName) { it in files }
       files[name] = ByteArray(0)
       pending += name
@@ -132,9 +152,59 @@ class ExportTest {
     // Saved again: the same file, no copy.
     assertEquals(first, MusicExporter(folder).export(source, webm, song))
     assertEquals(1, folder.files.size)
-    // Another song of the same name gets its own.
+    // Another song of the same name gets its own, and saving it again finds that one.
     val other = temp.newFile("1c2d").apply { writeBytes(byteArrayOf(9)) }
     assertEquals("Music/FXM/Radiohead - Creep (1).mka", MusicExporter(folder).export(other, webm, song).path)
+    assertEquals("Music/FXM/Radiohead - Creep (1).mka", MusicExporter(folder).export(other, webm, song).path)
+    assertEquals(listOf("Radiohead - Creep.mka", "Radiohead - Creep (1).mka"), folder.files.keys.toList())
+  }
+
+  @Test
+  fun `a copy that can't be made fails the save, with nothing to delete`() {
+    val source = temp.newFile("0b9f").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+    for ((error, code) in listOf(
+      IOException("Music/FXM can't be created: ENOSPC (No space left on device)") to DownloadFiles.NO_SPACE,
+      IOException("MediaStore made no item") to DownloadFiles.IO,
+      IllegalStateException("Failed to build unique file") to DownloadFiles.IO,
+    )) {
+      val folder = FakeFolder(failCreate = error)
+      try {
+        MusicExporter(folder).export(source, webm, song)
+        fail("expected a DownloadFileException")
+      } catch (e: DownloadFileException) {
+        assertEquals(error.message, code, e.code)
+      }
+      assertTrue(folder.discarded.isEmpty())
+    }
+  }
+
+  @Test
+  fun `on Android 9 and older the copy is a file of its own in Music, found again by its name`() {
+    val music = File(temp.root, "Music/FXM")
+    val scanned = mutableListOf<String?>()
+    val folder =
+      LegacyMusicFolder(music) { file, mimeType ->
+        scanned += mimeType
+        "content://media/external/audio/media/${file.name.length}"
+      }
+    val first = temp.newFile("0b9f").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+    val other = temp.newFile("1c2d").apply { writeBytes(byteArrayOf(9)) }
+    val exporter = MusicExporter(folder)
+    assertEquals(
+      Exported("content://media/external/audio/media/21", "Music/FXM/Radiohead - Creep.mka"),
+      exporter.export(first, webm, song),
+    )
+    assertEquals("Music/FXM/Radiohead - Creep (1).mka", exporter.export(other, webm, song).path)
+    // Saved again, each finds its own copy.
+    assertEquals("Music/FXM/Radiohead - Creep (1).mka", exporter.export(other, webm, song).path)
+    assertEquals("Music/FXM/Radiohead - Creep.mka", exporter.export(first, webm, song).path)
+    assertEquals(listOf("Radiohead - Creep (1).mka", "Radiohead - Creep.mka"), music.list()?.sorted())
+    assertArrayEquals(byteArrayOf(9), File(music, "Radiohead - Creep (1).mka").readBytes())
+    // New copies are scanned with their type, ones found again without.
+    assertEquals(listOf("audio/x-matroska", "audio/x-matroska", null, null), scanned)
+    // A scanner that doesn't answer leaves the file's own URI.
+    val unscanned = MusicExporter(LegacyMusicFolder(File(temp.root, "Other")) { _, _ -> null }).export(first, webm, song)
+    assertEquals(DeviceFiles.fileUri(File(temp.root, "Other/Radiohead - Creep.mka")), unscanned.uri)
   }
 
   @Test

@@ -146,13 +146,14 @@ class FxmDeviceMusicPlugin : Plugin() {
     return AlbumRef(volume, id, track)
   }
 
+  /** Runs [block] on the worker thread; every failure settles the call (see FxmDownloads' `io`). */
   private fun run(call: PluginCall, block: () -> JSObject) {
     worker.execute {
       try {
         call.resolve(block())
       } catch (e: SecurityException) {
         call.reject("FXM may not read the music on this device", DownloadFiles.DENIED)
-      } catch (e: RuntimeException) {
+      } catch (e: Exception) {
         call.reject(e.message ?: "The device's music can't be read", DownloadFiles.IO)
       }
     }

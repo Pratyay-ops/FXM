@@ -103,10 +103,18 @@ class DownloadFiles(
       } catch (e: IOException) {
         throw failure("Couldn't open $name", e)
       }
+    val size =
+      try {
+        access.length()
+      } catch (e: IOException) {
+        // Never registered: nothing else would close it.
+        runCatching { access.close() }
+        throw failure("Couldn't open $name", e)
+      }
     lastHandle += 1
     val handle = "w$lastHandle"
     writers[handle] = Writer(name, file, access, owner)
-    return Opened(handle, access.length())
+    return Opened(handle, size)
   }
 
   /** Writes [bytes] at [offset], growing the file as needed. Returns the file's size now. */
@@ -286,6 +294,17 @@ class DownloadFiles(
 
     /** The free space downloads leave on a storage of [total] bytes. */
     fun reserveBytes(total: Long): Long = minOf(total * RESERVE_PERCENT / 100, RESERVE_MAX_BYTES)
+
+    /**
+     * The code a plugin call that failed with [error] rejects with: a [DownloadFileException]'s
+     * own, [NO_SPACE] for a full disk, [IO] for anything else.
+     */
+    fun codeOf(error: Throwable): String =
+      when (error) {
+        is DownloadFileException -> error.code
+        is IOException -> failure("", error).code
+        else -> IO
+      }
 
     /** [error] as a [DownloadFileException]: a full disk is [NO_SPACE], anything else [IO]. */
     fun failure(message: String, error: IOException): DownloadFileException {

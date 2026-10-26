@@ -27,9 +27,13 @@ import androidx.core.content.ContextCompat
  * Its notification shows the downloads' progress and opens the app.
  */
 class DownloadService : Service() {
+  /** The start this instance runs for ([BackgroundDownloads] numbers them), told when it ends. */
+  private var generation = 0L
+
   override fun onBind(intent: Intent?): IBinder? = null
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    intent?.let { generation = it.getLongExtra(EXTRA_GENERATION, generation) }
     val notice = intent?.let(::noticeOf) ?: Notice("Downloading", null, true)
     val started =
       try {
@@ -40,7 +44,7 @@ class DownloadService : Service() {
         false
       }
     if (!started) {
-      controller?.serviceStopped(timedOut = false)
+      controller?.serviceStopped(timedOut = false, generation = generation)
       stopSelf(startId)
     }
     // Never restarted without the page: the queue lives in the web app.
@@ -49,12 +53,14 @@ class DownloadService : Service() {
 
   /** Android 15's daily time limit for `dataSync` services is reached: stop at once. */
   override fun onTimeout(startId: Int, fgsType: Int) {
-    controller?.serviceStopped(timedOut = true)
+    controller?.serviceStopped(timedOut = true, generation = generation)
     stopSelf()
   }
 
   override fun onDestroy() {
-    controller?.serviceStopped(timedOut = false)
+    // After a stop the controller made itself, this may come after its next start: the generation
+    // tells it apart.
+    controller?.serviceStopped(timedOut = false, generation = generation)
     super.onDestroy()
   }
 
@@ -66,6 +72,7 @@ class DownloadService : Service() {
     private const val EXTRA_TITLE = "title"
     private const val EXTRA_TEXT = "text"
     private const val EXTRA_DOWNLOADING = "downloading"
+    private const val EXTRA_GENERATION = "generation"
     private const val WAKE_LOCK_TAG = "fxm:downloads"
 
     /** How long the wake lock lasts unless renewed (at half that, while it is wanted). */
@@ -85,11 +92,12 @@ class DownloadService : Service() {
       return Notice(title, intent.getStringExtra(EXTRA_TEXT), intent.getBooleanExtra(EXTRA_DOWNLOADING, false))
     }
 
-    private fun intent(context: Context, notice: Notice): Intent =
+    private fun intent(context: Context, notice: Notice, generation: Long): Intent =
       Intent(context, DownloadService::class.java)
         .putExtra(EXTRA_TITLE, notice.title)
         .putExtra(EXTRA_TEXT, notice.text)
         .putExtra(EXTRA_DOWNLOADING, notice.downloading)
+        .putExtra(EXTRA_GENERATION, generation)
 
     private fun ensureChannel(context: Context) {
       if (Build.VERSION.SDK_INT < 26) return
@@ -130,9 +138,9 @@ class DownloadService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
-    override fun start(notice: Notice): Boolean =
+    override fun start(notice: Notice, generation: Long): Boolean =
       try {
-        ContextCompat.startForegroundService(context, intent(context, notice))
+        ContextCompat.startForegroundService(context, intent(context, notice, generation))
         true
       } catch (e: RuntimeException) {
         // ForegroundServiceStartNotAllowedException (Android 12+) from the background.

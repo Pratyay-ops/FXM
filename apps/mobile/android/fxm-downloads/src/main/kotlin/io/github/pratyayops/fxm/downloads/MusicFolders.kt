@@ -15,6 +15,7 @@ import java.io.IOException
 import java.io.OutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Music/FXM through MediaStore (Android 10 and later): the app adds its own files to the shared
@@ -28,17 +29,20 @@ class MediaStoreMusicFolder(private val resolver: ContentResolver) : MusicFolder
   private class Item(val uri: Uri) : MusicFolder.Pending
 
   override fun find(displayName: String, size: Long): Exported? {
-    val selection =
-      "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.DISPLAY_NAME} = ? " +
-        "AND ${MediaStore.MediaColumns.SIZE} = ?"
-    val args = arrayOf("${MusicExporter.RELATIVE_PATH}/", displayName, size.toString())
-    resolver.query(collection, arrayOf(MediaStore.MediaColumns._ID), selection, args, null)?.use { cursor ->
-      if (cursor.moveToFirst()) {
-        val uri = ContentUris.withAppendedId(collection, cursor.getLong(0))
-        return Exported(uri.toString(), "${MusicExporter.RELATIVE_PATH}/$displayName")
+    // The items of that size in Music/FXM, then the name: the song's own or a numbered copy.
+    val selection = "${MediaStore.MediaColumns.RELATIVE_PATH} = ? AND ${MediaStore.MediaColumns.SIZE} = ?"
+    val args = arrayOf("${MusicExporter.RELATIVE_PATH}/", size.toString())
+    val projection = arrayOf(MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME)
+    val ids = linkedMapOf<String, Long>()
+    resolver.query(collection, projection, selection, args, null)?.use { cursor ->
+      while (cursor.moveToNext()) {
+        val name = cursor.getString(1) ?: continue
+        ids.putIfAbsent(name, cursor.getLong(0))
       }
     }
-    return null
+    val name = ExportFormats.savedBefore(displayName, ids.keys) ?: return null
+    val id = ids[name] ?: return null
+    return Exported(ContentUris.withAppendedId(collection, id).toString(), "${MusicExporter.RELATIVE_PATH}/$name")
   }
 
   override fun create(displayName: String, format: ExportFormat, song: SongInfo): MusicFolder.Pending {
@@ -80,16 +84,25 @@ class MediaStoreMusicFolder(private val resolver: ContentResolver) : MusicFolder
  * `WRITE_EXTERNAL_STORAGE`, which the plugin asks for), then handed to the media scanner, which
  * adds them to MediaStore. FXM numbers a name that is taken itself.
  */
-class LegacyMusicFolder(private val context: Context) : MusicFolder {
-  @Suppress("DEPRECATION")
-  private val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "FXM")
+class LegacyMusicFolder(
+  /** Music/FXM on the shared storage. */
+  private val directory: File,
+  /**
+   * Hands a file, and its MIME type when known, to the media scanner, and returns its MediaStore
+   * URI once scanned; `null` when the scanner takes too long.
+   */
+  private val scan: (File, String?) -> String?,
+) : MusicFolder {
+  /** The device's Music/FXM, scanned by Android's media scanner. */
+  constructor(context: Context) : this(sharedMusicFolder(), mediaScanner(context.applicationContext))
 
   private class Item(val file: File, val mimeType: String) : MusicFolder.Pending
 
   override fun find(displayName: String, size: Long): Exported? {
-    val file = File(directory, displayName)
-    if (!file.isFile || file.length() != size) return null
-    return Exported(scan(file, null) ?: Uri.fromFile(file).toString(), "${MusicExporter.RELATIVE_PATH}/$displayName")
+    val sameSize = directory.listFiles()?.filter { it.isFile && it.length() == size }?.map { it.name } ?: return null
+    val name = ExportFormats.savedBefore(displayName, sameSize) ?: return null
+    val file = File(directory, name)
+    return Exported(scan(file, null) ?: DeviceFiles.fileUri(file), "${MusicExporter.RELATIVE_PATH}/$name")
   }
 
   override fun create(displayName: String, format: ExportFormat, song: SongInfo): MusicFolder.Pending {
@@ -110,26 +123,35 @@ class LegacyMusicFolder(private val context: Context) : MusicFolder {
 
   override fun publish(item: MusicFolder.Pending): Exported {
     val (file, mimeType) = (item as Item).let { it.file to it.mimeType }
-    return Exported(scan(file, mimeType) ?: Uri.fromFile(file).toString(), "${MusicExporter.RELATIVE_PATH}/${file.name}")
+    return Exported(scan(file, mimeType) ?: DeviceFiles.fileUri(file), "${MusicExporter.RELATIVE_PATH}/${file.name}")
   }
 
   override fun discard(item: MusicFolder.Pending) {
     runCatching { (item as Item).file.delete() }
   }
 
-  /** Hands [file] to the media scanner and waits a little for its MediaStore URI. */
-  private fun scan(file: File, mimeType: String?): String? {
-    val done = CountDownLatch(1)
-    var found: Uri? = null
-    MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), mimeType?.let { arrayOf(it) }) { _, uri ->
-      found = uri
-      done.countDown()
-    }
-    done.await(SCAN_WAIT_SECONDS, TimeUnit.SECONDS)
-    return found?.toString()
-  }
-
   private companion object {
     const val SCAN_WAIT_SECONDS = 10L
+
+    @Suppress("DEPRECATION")
+    fun sharedMusicFolder(): File = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "FXM")
+
+    /** Android's media scanner, waited for a little. */
+    fun mediaScanner(context: Context): (File, String?) -> String? =
+      { file, mimeType ->
+        val done = CountDownLatch(1)
+        val found = AtomicReference<Uri?>()
+        MediaScannerConnection.scanFile(context, arrayOf(file.absolutePath), mimeType?.let { arrayOf(it) }) { _, uri ->
+          found.set(uri)
+          done.countDown()
+        }
+        try {
+          done.await(SCAN_WAIT_SECONDS, TimeUnit.SECONDS)
+        } catch (e: InterruptedException) {
+          // Not waited for: the file is saved all the same, and its URI isn't known yet.
+          Thread.currentThread().interrupt()
+        }
+        found.get()?.toString()
+      }
   }
 }

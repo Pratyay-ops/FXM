@@ -186,4 +186,13 @@ class DownloadFilesTest {
     assertEquals(DownloadFiles.BAD_REQUEST, code { files.write(writer.handle, -1, bytes(1)) })
     assertEquals(DownloadFiles.BAD_REQUEST, code { files.truncate(writer.handle, -1) })
   }
+
+  @Test
+  fun `every failure has a code the web app knows`() {
+    assertEquals(DownloadFiles.BUSY, DownloadFiles.codeOf(DownloadFileException(DownloadFiles.BUSY, "a-1 is open")))
+    assertEquals(DownloadFiles.NO_SPACE, DownloadFiles.codeOf(IOException("write failed: ENOSPC (No space left on device)")))
+    assertEquals(DownloadFiles.IO, DownloadFiles.codeOf(IOException("Music/FXM can't be created")))
+    assertEquals(DownloadFiles.IO, DownloadFiles.codeOf(SecurityException("no")))
+    assertEquals(DownloadFiles.IO, DownloadFiles.codeOf(InterruptedException()))
+  }
 }

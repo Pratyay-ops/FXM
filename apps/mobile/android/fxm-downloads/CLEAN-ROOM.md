@@ -14,7 +14,7 @@ From `data/api-versions.xml` (when each API appeared) and the Javadoc in `androi
 | `ContentResolver.loadThumbnail` exists from API 29, `MediaStore.getExternalVolumeNames` from 29, `QUERY_ARG_LIMIT`/`QUERY_ARG_OFFSET` from 26 (FXM pages by `_ID` instead, which every version supports) | `api-versions.xml` |
 | `READ_MEDIA_AUDIO` and `POST_NOTIFICATIONS` exist from API 33, `FOREGROUND_SERVICE_DATA_SYNC` from 34, `ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC` and `Service.startForeground(int, Notification, int)` from 29, `ForegroundServiceStartNotAllowedException` from 31, `Service.onTimeout(int, int)` from 35. `WifiManager.WIFI_MODE_FULL_HIGH_PERF` is deprecated from 34 | `api-versions.xml` |
 | `android.R.drawable.stat_sys_download` and `stat_sys_download_done` are public framework drawables | `android.jar` |
-| `ServiceWorkerController` and `ServiceWorkerClient` exist from API 24, FXM's `minSdkVersion` | `api-versions.xml` |
+| `MediaStore.Audio.AudioColumns.IS_RECORDING` (`is_recording`) exists from API 31; `ServiceWorkerController` and `ServiceWorkerClient` from 24, FXM's `minSdkVersion` | `api-versions.xml` |
 
 ## Android documentation (read 2026-10-26)
 
@@ -25,6 +25,16 @@ From `data/api-versions.xml` (when each API appeared) and the Javadoc in `androi
 | An app targeting Android 13 or higher that reads media other apps created "must request one or more of the following granular media permissions instead of the `READ_EXTERNAL_STORAGE` permission", `READ_MEDIA_AUDIO` for audio; earlier versions need `READ_EXTERNAL_STORAGE` | [Android 13 behavior changes](https://developer.android.com/about/versions/13/behavior-changes-13), the page above |
 | Without the notification permission users "don't see notices related to foreground services in the notification drawer", but "still see notices related to foreground services in the Task Manager" | [Android 13 behavior changes](https://developer.android.com/about/versions/13/behavior-changes-13) |
 | From Android 14, cached processes are frozen; a foreground service keeps a process out of the cached state. A foreground service may not be started from the background from Android 12 on, except in listed cases | [fxm-player's log](../fxm-player/CLEAN-ROOM.md#android-documentation-read-2026-10-26) |
+
+## AOSP MediaProvider (`packages/providers/MediaProvider`, branch `main`, read 2026-10-26)
+
+Read on android.googlesource.com (Apache-2.0) for the facts below; no code was copied.
+
+| Fact | Source |
+|---|---|
+| MediaStore decides `IS_MUSIC` from a file's path alone: for each folder of `sAudioTypes` (`Ringtones` → `IS_RINGTONE`, `Notifications`, `Alarms`, `Podcasts`, `Audiobooks`, `Music` → `IS_MUSIC`, and `Recordings` → `IS_RECORDING`), the column is 1 when the lower-cased path contains `/<folder>/`; when none matches, `IS_MUSIC` is 1. So a voice note under `Android/media/<package>/…`, or a recording in a recorder's own folder, is music to MediaStore. On Android 12 and later the `Recordings` folder is `Environment.DIRECTORY_RECORDINGS`, before it the same name as FileUtils' own constant | `src/com/android/providers/media/util/FileUtils.java` (`computeAudioTypeValuesFromData`, `sAudioTypes`) |
+| `is_recording` is `INTEGER DEFAULT 0`, also when an upgrade adds it (`updateAddRecording`, which resets `date_modified` of the music rows so they are scanned again): no row has `NULL` there, so `is_recording = 0` keeps every song that isn't a recording | `src/com/android/providers/media/DatabaseHelper.java` |
+| A name that is taken gets a number: the name itself, then `name (1).ext` up to `name (31).ext` (`buildUniqueNameIterator`, a space before the parenthesis); after that the insert fails ("Failed to create unique file"). `ExportFormats.unique` numbers the same way on Android 9 and older, and `savedBefore` recognises both | `src/com/android/providers/media/util/FileUtils.java` (`buildUniqueNameIterator`, `buildUniqueFileWithExtension`) |
 
 ## Capacitor 8.5.3 (`@capacitor/android`, read 2026-10-26)
 
@@ -45,5 +55,7 @@ From `data/api-versions.xml` (when each API appeared) and the Javadoc in `androi
 | Downloads leave free the smaller of 5 % of the storage and 500 MiB | The level at which Android itself warns that storage runs low: AOSP's `StorageManager` defaults (`DEFAULT_THRESHOLD_PERCENTAGE` 5, `DEFAULT_THRESHOLD_MAX_BYTES` 500 MB), recalled from AOSP's source and not re-read for this stage; the numbers are FXM's to tune either way |
 | Opus and Vorbis in WebM are saved to Music/FXM as `.mka` (`audio/x-matroska`), never `.webm` | Android's media scanner types a file by its extension and files `.webm` as video; WebM is Matroska, and `.mka` is Matroska audio. Recalled, not re-read: [the on-device check](README.md#checks-on-a-device) confirms that the copy shows among the songs |
 | The device's music is read from MediaStore's columns, never from the files | Fast for a phone's whole library and needs no file access beyond the permission; ISRCs and the ALAC/AAC difference in M4A files are not in MediaStore, so device songs carry no ISRC and an M4A is AAC (never called lossless when it may not be) |
+| The listing leaves out `Android/media/` and, from Android 12, recordings | `IS_MUSIC` can't tell voice notes from songs (above), and a song that plays enters the listening history that later stages sync and scrobble. Music saved by a messaging app there is left out too; letting the user hide or show folders is a follow-up |
+| In "This device", an `.oga` in Music/FXM is FLAC and an `.mka` is Opus in WebM | What `ExportFormats` saves there under those extensions; elsewhere an `.oga` may be Vorbis and stays lossy, and an `.mka` whose codec MediaStore doesn't say is played as the Matroska it is |
 | The page reads no device file but its downloads and MediaStore's songs (`DeviceFileFilter`) | Capacitor's local server would serve it any file the app can read and any content URI (above); with the music permission that is the user's photos, videos and recordings too |
 | An `<audio>` element plays a device file through Capacitor's URLs | The WebView seeks within a stream it intercepts, as far as known; whether seeking works in a song played that way is [an on-device check](README.md#checks-on-a-device). Media3, which plays them in the app, reads the files themselves |
