@@ -9,6 +9,7 @@ import { type TabItem, TabPanel, Tabs } from '../../components/ui/tabs'
 import { LyricsPanel } from '../lyrics/lyrics-panel'
 import { LikeButton, PlayerControls, SeekBar } from '../player/controls'
 import { QueuePanel } from '../queue/queue-panel'
+import { InlineSkipNotice } from '../sponsorblock/sponsorblock-notices'
 import { entityPath } from './browse-links'
 import { useCurrentItem } from './playback'
 import { PlaybackProblem } from './playback-problem'
@@ -192,6 +193,9 @@ export function NowPlayingPage() {
             <SeekBar />
             <PlayerControls size="lg" className="mt-3" />
             <PanelShortcuts onShow={show} />
+            {/* SponsorBlock's skip notice (stage 8.7): here it covers none of the controls, and
+                coming after the shortcuts, it moves none of them when it appears. */}
+            <InlineSkipNotice />
           </div>
           <PlaybackProblem />
           {/* Keyed by item: a new track closes the details and the version switcher. */}
