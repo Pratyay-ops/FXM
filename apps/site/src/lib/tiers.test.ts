@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { noExtensionNote, phonesAnswer } from './connect'
 import {
@@ -22,6 +24,58 @@ import {
 } from './tiers'
 
 const BOTH = [false, true] as const
+
+/** The site's sources: src/, with these tests in src/lib/. */
+const SRC = fileURLToPath(new URL('..', import.meta.url))
+
+/** The helpers that take AVAILABLE.jamendo and name Jamendo only as it says (tested here). */
+const JAMENDO_HELPERS: readonly string[] = ['lib/tiers.ts', 'lib/connect.ts']
+
+/** A quoted string without interpolation: '…', "…" or `…`. */
+const QUOTED = String.raw`(?:'[^'\n]*'|"[^"\n]*"|\`[^\`$\n]*\`)`
+
+/** A choice on AVAILABLE.jamendo between two strings, the second one in a build without it. */
+const JAMENDO_CHOICE = new RegExp(
+  String.raw`AVAILABLE\.jamendo\s*\?\s*${QUOTED}\s*:\s*(${QUOTED})`,
+  'g',
+)
+
+/** The privacy page's entry for Jamendo, whose use the choice above gives. */
+const JAMENDO_SERVICE = /name: 'Jamendo',(?=\s*url: '[^']*',\s*use: AVAILABLE\.jamendo\b)/g
+
+/**
+ * Where a page's code names Jamendo outside a choice on AVAILABLE.jamendo whose other string says
+ * it is coming soon (or doesn't name it), and outside the privacy page's entry, comments aside.
+ */
+function jamendoOutsideChoices(code: string): string[] {
+  const found: string[] = []
+  const rest = code
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|\s)\/\/.*$/gm, '$1')
+    .replace(JAMENDO_SERVICE, '')
+    .replace(JAMENDO_CHOICE, (choice, otherwise: string) => {
+      if (otherwise.includes('Jamendo') && !otherwise.includes('coming soon')) found.push(choice)
+      return ''
+    })
+  for (const line of rest.split('\n')) if (line.includes('Jamendo')) found.push(line.trim())
+  return found
+}
+
+/** Every page, component, layout and module of the site that names Jamendo on its own. */
+function unconditionalJamendo(): string[] {
+  const files = readdirSync(SRC, { recursive: true, encoding: 'utf8' })
+    .map((file) => file.split(sep).join('/'))
+    .filter((file) => /\.(?:astro|ts)$/.test(file) && !file.endsWith('.test.ts'))
+  expect(files).toContain('components/Features.astro')
+  return files
+    .filter((file) => !JAMENDO_HELPERS.includes(file))
+    .flatMap((file) =>
+      jamendoOutsideChoices(readFileSync(join(SRC, file), 'utf8')).map(
+        (line) => `${file}: ${line}`,
+      ),
+    )
+}
 
 /** The web card's no-extension note, before and after the signed Firefox add-on is out. */
 function noExtensionNotes(lite: boolean, jamendo = false): string[] {
@@ -258,10 +312,22 @@ describe('the pages', () => {
     )
     const privacy = source('../pages/privacy.astro')
     expect(privacy).toMatch(/name: 'Jamendo',[\s\S]*?use: AVAILABLE\.jamendo/)
-    // Everywhere else, Jamendo comes only through the helpers above.
-    for (const page of ['../components/GetFxm.astro', '../components/Hero.astro']) {
-      expect(source(page)).not.toContain('Jamendo')
-    }
+    // Everywhere else, Jamendo comes only through the helpers above: whatever copy is added
+    // later, no page, component or layout names it on its own.
+    expect(unconditionalJamendo()).toEqual([])
+  })
+
+  it('catch a sentence that names Jamendo without AVAILABLE.jamendo', () => {
+    const page = [
+      "const a = AVAILABLE.jamendo ? 'Jamendo' : 'Jamendo (coming soon)'",
+      '<!-- Jamendo, in a comment -->',
+      "const b = AVAILABLE.jamendo ? 'Jamendo' : 'Jamendo'",
+      '<p>Free music from Internet Archive and Jamendo.</p>',
+    ].join('\n')
+    expect(jamendoOutsideChoices(page)).toEqual([
+      "AVAILABLE.jamendo ? 'Jamendo' : 'Jamendo'",
+      '<p>Free music from Internet Archive and Jamendo.</p>',
+    ])
   })
 
   it('drop the sentences revision 3 found untrue', () => {
