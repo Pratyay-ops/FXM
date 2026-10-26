@@ -32,9 +32,18 @@ export function isReadableHere(stream: Pick<StreamOption, 'url'>): boolean {
   return isMediaReadable(stream, { platform, capabilities })
 }
 
+/**
+ * What the app's engines take for the audio effects: the readability rule the equalizer needs
+ * ({@link isReadableHere}). The browser's engine gets it from {@link createAppEngine}; the desktop
+ * app's, `DesktopAudioEngine`, from the composition root (`src/app/services/desktop.ts`).
+ */
+export function appEngineOptions(): DirectAudioEngineOptions {
+  return { isReadable: isReadableHere }
+}
+
 /** The app's direct audio engine, with the readability rule the equalizer needs. */
 export function createAppEngine(options: DirectAudioEngineOptions = {}): DirectAudioEngine {
-  return new DirectAudioEngine({ isReadable: isReadableHere, ...options })
+  return new DirectAudioEngine({ ...appEngineOptions(), ...options })
 }
 
 /** The player's request for a sleep timer the user set, as of `now`. */
