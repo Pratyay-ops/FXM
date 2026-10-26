@@ -1,4 +1,9 @@
-import { memoryStorage, memoryUpdateStore } from '@fxm/platform'
+import {
+  memoryStorage,
+  memoryUpdateStore,
+  type UpdateCheckOptions,
+  type UpdateReport,
+} from '@fxm/platform'
 import { createTestSigner, fakeUpdateSite } from '@fxm/platform/testing'
 import {
   createYouTubeModuleHost,
@@ -183,5 +188,33 @@ describe('F-Droid builds', () => {
     unsubscribe()
     store.getState().setOptedIn(true)
     expect(updater.start).toHaveBeenCalledTimes(2)
+  })
+
+  it('cancel the start of an answer the user took back, from the app’s first start on', async () => {
+    const store = createYouTubeUpdatesStore({ storage: () => undefined })
+    const signals: AbortSignal[] = []
+    // Starts that never end, like one whose module download is still under way.
+    const updater = {
+      start: vi.fn((options?: UpdateCheckOptions) => {
+        if (options?.signal !== undefined) signals.push(options.signal)
+        return new Promise<UpdateReport>((_, reject) => {
+          options?.signal?.addEventListener('abort', () => reject(options.signal?.reason))
+        })
+      }),
+    }
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const first = new AbortController()
+    const unsubscribe = followYouTubeUpdatesOptIn(updater, store, first)
+
+    store.getState().setOptedIn(true)
+    expect(first.signal.aborted).toBe(true)
+    expect(signals.map((signal) => signal.aborted)).toEqual([false])
+    store.getState().setOptedIn(false)
+    expect(signals.map((signal) => signal.aborted)).toEqual([true, false])
+    unsubscribe()
+    expect(signals.map((signal) => signal.aborted)).toEqual([true, true])
+    // Cancelled on purpose: nothing to warn about.
+    await Promise.resolve()
+    expect(warn).not.toHaveBeenCalled()
   })
 })

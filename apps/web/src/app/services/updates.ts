@@ -14,7 +14,7 @@
  * only once the user has opted in, in Settings → Sources (`features/youtube-updates`), as
  * F-Droid's inclusion policy requires for downloaded code; the config is data and always comes.
  * The answer applies at once: turning it on downloads the module, turning it off goes back to the
- * one the app came with.
+ * one the app came with and stops a module still downloading, whose code then never runs.
  *
  * A browser on its own origin matters because the app may run from a cached service worker
  * after a deploy: the signed config still reaches it, so a kill switch the owner sets applies
@@ -81,6 +81,8 @@ export interface YouTubeUpdatesOptions {
    * in F-Droid builds the user's opt-in (`features/youtube-updates`), elsewhere always.
    */
   readonly allowCode?: () => boolean
+  /** Cancels the first start (`UpdateCheckOptions.signal` of `@fxm/platform`). */
+  readonly signal?: AbortSignal
 }
 
 /** The updater at work, and the report of its first restore and check. */
@@ -162,25 +164,48 @@ export function startYouTubeUpdates(options: YouTubeUpdatesOptions): YouTubeUpda
     console.warn('FXM: signed YouTube updates are off here', error)
     return undefined
   }
-  return { updater, done: updater.start() }
+  return {
+    updater,
+    done: updater.start(options.signal === undefined ? {} : { signal: options.signal }),
+  }
 }
 
 const warnFailedCheck = (error: unknown) => {
   console.warn('FXM: could not check for signed YouTube updates', error)
 }
 
+/** A start's failure, unless the start was cancelled on purpose. */
+const warnUnlessCancelled = (signal: AbortSignal) => (error: unknown) => {
+  if (!signal.aborted) warnFailedCheck(error)
+}
+
 /**
  * Applies the F-Droid opt-in as soon as the user changes it: `start()` restores, which goes back
  * to the module the app came with once the user turns the updates off, then checks, which
- * downloads the module once they turn them on. Returns the unsubscribe function.
+ * downloads the module once they turn them on.
+ *
+ * Each change cancels the start that the answer before began (to begin with `running`, the app's
+ * first start), so a module still downloading for an answer the user took back stops there. The
+ * updater also asks for the opt-in again right before downloaded code loads, so none runs once
+ * the user said no. Returns the unsubscribe function, which cancels the start under way too.
  */
 export function followYouTubeUpdatesOptIn(
   updater: Pick<Updater, 'start'>,
   store: YouTubeUpdatesStore = useYouTubeUpdatesStore,
+  running?: AbortController,
 ): () => void {
-  return store.subscribe((state, previous) => {
-    if (state.optedIn !== previous.optedIn) updater.start().catch(warnFailedCheck)
+  let current = running
+  const unsubscribe = store.subscribe((state, previous) => {
+    if (state.optedIn === previous.optedIn) return
+    current?.abort(new DOMException('The answer about YouTube updates changed', 'AbortError'))
+    const controller = new AbortController()
+    current = controller
+    updater.start({ signal: controller.signal }).catch(warnUnlessCancelled(controller.signal))
   })
+  return () => {
+    unsubscribe()
+    current?.abort(new DOMException('FXM no longer follows the answer', 'AbortError'))
+  }
 }
 
 /**
@@ -188,9 +213,10 @@ export function followYouTubeUpdatesOptIn(
  * YouTube's host, in the background. What it finds applies as it arrives.
  */
 export function keepYouTubeCurrent(youtube: { readonly host: Pick<YouTubeModuleHost, 'updates'> }) {
-  const updates = startYouTubeUpdates({ host: youtube.host })
-  updates?.done.catch(warnFailedCheck)
+  const first = new AbortController()
+  const updates = startYouTubeUpdates({ host: youtube.host, signal: first.signal })
+  updates?.done.catch(warnUnlessCancelled(first.signal))
   if (updates !== undefined && BUILD_DISTRIBUTION === 'fdroid') {
-    followYouTubeUpdatesOptIn(updates.updater)
+    followYouTubeUpdatesOptIn(updates.updater, useYouTubeUpdatesStore, first)
   }
 }
