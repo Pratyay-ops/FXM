@@ -35,7 +35,10 @@
 #      that Gradle resolves for the release build (fxmLibraryReport), joined by
 #      apps/mobile/scripts/write-notices.ts into assets/public/third-party-notices.txt. A
 #      checkout from before stage 6.6 has no such writer: the step is then skipped, with a
-#      warning, and F-Droid must not build that checkout.
+#      warning, and F-Droid must not build that checkout. make dist runs without stage 4.2's
+#      ffmpeg core, which the APK doesn't carry (only make dist puts it into the deployed app):
+#      from an empty core folder, and with CI=false, because make dist requires the core when
+#      CI=true, which fdroiddata's GitLab CI sets and fdroidserver passes on to build commands.
 #
 # Gradle runs from apps/mobile/android with the wrapper where the checkout has its JAR, else with
 # gradlew-fdroid, which F-Droid's build server provides after its scan removed the JAR. The
@@ -53,6 +56,8 @@ source scripts/lib.sh
 if [ ! -d "$ANDROID_HOME" ] && [ -n "$caller_sdk" ]; then
   export ANDROID_HOME=$caller_sdk ANDROID_SDK_ROOT=$caller_sdk
 fi
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
 
 # Node.js for the build, from https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt. Keep it a
 # 22.x release that has been out for two weeks, like every other pinned tool.
@@ -95,11 +100,9 @@ if ! node_ok; then
   dir="$FXM_TOOLS/node/node-v$NODE_VERSION-linux-$cpu"
   if [ ! -x "$dir/bin/node" ]; then
     mkdir -p "$FXM_TOOLS/node"
-    tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
     fxm_download "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-$cpu.tar.xz" \
-      "$tmp/node.tar.xz" "$sha"
-    tar -xJf "$tmp/node.tar.xz" -C "$FXM_TOOLS/node"
+      "$scratch/node.tar.xz" "$sha"
+    tar -xJf "$scratch/node.tar.xz" -C "$FXM_TOOLS/node"
   fi
   export PATH="$dir/bin:$PATH"
   node_ok || fxm_die "Node.js $NODE_VERSION in $dir doesn't run"
@@ -116,9 +119,11 @@ if [ -f "$NOTICES_WRITER" ]; then
 fi
 pnpm install --frozen-lockfile "${filters[@]}"
 
-# make dist first: its notices of the web code go into the APK's (step 6).
+# make dist first: its notices of the web code go into the APK's (step 6). Without the ffmpeg
+# core, which the APK doesn't carry, so that its notice stays out (see the header).
 if $notices; then
-  pnpm --silent --filter @fxm/deploy dist
+  mkdir "$scratch/no-ffmpeg-core"
+  CI=false FXM_FFMPEG_CORE_DIR="$scratch/no-ffmpeg-core" pnpm --silent --filter @fxm/deploy dist
 fi
 
 # An F-Droid build of the web app (see the header), with base '/' as the Android app serves it.

@@ -29,14 +29,27 @@ const NOTICES = 'apps/mobile/android/app/src/main/assets/public/third-party-noti
 const REPORT = 'apps/mobile/android/app/build/fxm/android-libraries.json'
 
 /**
- * A stand-in for pnpm that records each call with the distribution flags it saw, and makes the
- * files the real install, builds and `cap sync` would.
+ * The pnpm version that scripts/install-pnpm.sh pins. The fake below answers `--version` with it,
+ * so the installer always finds pnpm installed and never downloads it (the tests run offline).
+ */
+const PNPM_VERSION = /^PNPM_VERSION=(\S+)$/m.exec(
+  readFileSync(join(REPO_ROOT, 'scripts/install-pnpm.sh'), 'utf8'),
+)?.[1]
+if (PNPM_VERSION === undefined) throw new Error('scripts/install-pnpm.sh pins no PNPM_VERSION')
+
+/**
+ * A stand-in for pnpm that records each call with the distribution flags it saw (and for make
+ * dist, how it would treat the ffmpeg core), and makes the files the real install, builds and
+ * `cap sync` would.
  */
 const FAKE_PNPM = `#!/usr/bin/env bash
-if [ "\${1:-}" = --version ]; then echo 12.12.1; exit 0; fi
+if [ "\${1:-}" = --version ]; then echo ${PNPM_VERSION}; exit 0; fi
 printf '%s|FXM_DISTRIBUTION=%s|VITE_FXM_DISTRIBUTION=%s\\n' "$*" "\${FXM_DISTRIBUTION:-}" "\${VITE_FXM_DISTRIBUTION:-}" >>pnpm.log
 case "$*" in
-  *"@fxm/deploy dist"*) mkdir -p dist/pages && echo 'FXM third-party notices' >dist/pages/third-party-notices.txt ;;
+  *"@fxm/deploy dist"*)
+    core=\${FXM_FFMPEG_CORE_DIR:-}
+    printf 'CI=%s|core=%s|files=%s\\n' "\${CI-unset}" "$core" "$(ls -A "\${core:-/nonexistent}" 2>/dev/null | wc -l | tr -d ' ')" >>dist.log
+    mkdir -p dist/pages && echo 'FXM third-party notices' >dist/pages/third-party-notices.txt ;;
   *build:mobile*) mkdir -p apps/web/dist-mobile && echo '<!doctype html>' >apps/web/dist-mobile/index.html ;;
   *"cap sync android"*)
     mkdir -p apps/mobile/android/app/src/main/assets/public
@@ -132,7 +145,8 @@ const lines = (root: string, file: string) =>
 describe('the F-Droid build script', () => {
   it('builds the web app as an F-Droid build, syncs it and writes the APK’s notices', () => {
     const root = scratchRepository({ writer: true })
-    const result = build(root)
+    // As in fdroiddata's GitLab CI, which sets CI=true for the build (fdroidserver passes it on).
+    const result = build(root, { CI: 'true' })
     expect(result.status, result.stderr).toBe(0)
     expect(lines(root, 'pnpm.log')).toEqual([
       'install --frozen-lockfile --filter @fxm/mobile... --filter @fxm/web... --filter @fxm/deploy... --filter @fxm/site...|FXM_DISTRIBUTION=|VITE_FXM_DISTRIBUTION=',
@@ -140,6 +154,11 @@ describe('the F-Droid build script', () => {
       '--filter @fxm/web build:mobile|FXM_DISTRIBUTION=fdroid|VITE_FXM_DISTRIBUTION=fdroid',
       '--filter @fxm/mobile cap sync android|FXM_DISTRIBUTION=|VITE_FXM_DISTRIBUTION=',
     ])
+    // make dist without stage 4.2's ffmpeg core, which the APK doesn't carry: from an empty
+    // folder, and with CI=false, since make dist requires the core when CI=true.
+    const dist = lines(root, 'dist.log')
+    expect(dist).toEqual([expect.stringMatching(/^CI=false\|core=\/\S+\|files=0$/)])
+    expect(existsSync(dist[0]?.split('|')[1]?.replace('core=', '') ?? '')).toBe(false)
     expect(lines(root, 'gradle.log')[0]).toMatch(/^gradlew --no-daemon fxmLibraryReport\|/)
     // The writer gets the library report, make dist's notices and the APK's file, as stage
     // 6.6's release-apk.sh passes them.
@@ -152,6 +171,9 @@ describe('the F-Droid build script', () => {
       /^FXM for Android: third-party notices\n\{"libraries":\[\]\}\nFXM third-party notices/,
     )
     expect(result.stdout).toMatch(/Gradle's assembleRelease is next/)
+    // install-pnpm.sh found the pinned pnpm (the fake) and downloaded nothing.
+    expect(result.stdout).toMatch(new RegExp(`pnpm ${PNPM_VERSION} already installed`))
+    expect(readFileSync(join(root, '.tools/bin/pnpm'), 'utf8')).toBe(FAKE_PNPM)
   })
 
   it('uses F-Droid’s Gradle and Android SDK where the checkout has neither', () => {
