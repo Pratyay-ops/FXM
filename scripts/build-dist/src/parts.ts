@@ -7,6 +7,7 @@
 import { spawnSync } from 'node:child_process'
 import { join, relative } from 'node:path'
 import { INVENTORY_VARIABLE } from './bundle-inventory.ts'
+import { ffmpegCorePart } from './ffmpeg-core.ts'
 import { embedPart, sandboxPart } from './later-stages.ts'
 
 export interface BuildContext {
@@ -39,6 +40,23 @@ export interface Part {
   readonly sourceMaps: boolean
   /** Builds the part into outDir, an empty folder. Returns false when the part doesn't exist yet. */
   build(outDir: string, context: BuildContext): boolean
+  /**
+   * Files the part ships that FXM builds from a pinned recipe of its own rather than from npm
+   * packages, such as 4.2's ffmpeg core (tools/ffmpeg-wasm): which they are, what their own
+   * checks found, and their entry in the notices. make dist checks them this way instead of by
+   * source maps and package licences.
+   */
+  prebuilt?(outDir: string, repositoryUrl: string): PrebuiltFiles
+}
+
+/** What {@link Part.prebuilt} reports. */
+export interface PrebuiltFiles {
+  /** Their paths in the part's folder. */
+  readonly files: readonly string[]
+  /** Why they may not ship (an empty list when they may). */
+  readonly problems: readonly string[]
+  /** Their entry in the third-party notices file. */
+  readonly notice: string
 }
 
 /**
@@ -109,7 +127,7 @@ export const appPart: Part = {
 }
 
 /** Everything make dist composes, in the order it builds them. */
-export const PARTS: readonly Part[] = [sitePart, appPart, embedPart, sandboxPart]
+export const PARTS: readonly Part[] = [sitePart, appPart, ffmpegCorePart, embedPart, sandboxPart]
 
 /** Runs commands with the inherited terminal, the way make shows them. */
 export function spawnRunner(root: string): BuildContext['run'] {

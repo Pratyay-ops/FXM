@@ -187,8 +187,9 @@ export const DOWNLOAD_FORMAT_OPTIONS: readonly SelectOption<DownloadFormat>[] = 
 ).map((format) => ({ value: format, label: DOWNLOAD_FORMATS[format].label }))
 
 /**
- * The download formats this version offers: only Original until conversions ship (stage 4.2,
- * `RELEASED.conversions`), with the others listed as coming soon and not offered.
+ * The download formats this version offers: all of them since conversions ship (stage 4.2,
+ * `RELEASED.conversions`). With conversions off, only Original, the others listed as coming
+ * soon and not offered.
  */
 export function offeredDownloadFormats(
   conversions: boolean = RELEASED.conversions,
@@ -201,7 +202,10 @@ export function offeredDownloadFormats(
   )
 }
 
-/** The format downloads are saved in: the setting, while conversions ship, else Original. */
+/**
+ * The format a downloaded song's "Save to device…" starts at: the setting, with conversions on
+ * (stage 4.2), else Original. A download itself always stays the original file.
+ */
 export function effectiveDownloadFormat(
   format: DownloadFormat,
   conversions: boolean = RELEASED.conversions,
@@ -209,7 +213,7 @@ export function effectiveDownloadFormat(
   return conversions ? format : 'original'
 }
 
-/** What the download format help adds while only Original is offered. */
+/** What the download format help adds while only Original is offered (conversions off). */
 export const CONVERSIONS_COMING =
   'Converting to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art, is coming soon.'
 
@@ -217,11 +221,19 @@ export const CONVERSIONS_COMING =
 const youtubeDownloads = () => `YouTube songs can be downloaded with ${connectOrApps()}.`
 
 /**
+ * What the format is for since stage 4.2: a download stays the original file, which plays
+ * offline as it is, and the format is where a downloaded song's "Save to device…" starts.
+ */
+export const SAVE_TO_DEVICE_NOTE =
+  'Downloads keep the original file, which plays offline as it is. A downloaded song’s “Save to device…” starts at this format.'
+
+/**
  * What a download in `format` will be, in the conversion labels downloads show
  * (`describeConversion`), for a lossy and a lossless source. Where the platform can read
  * YouTube's bytes (`mediaBytes`), the lossy one is a YouTube song in Opus. Elsewhere downloads
  * cover the free sources only (Internet Archive, Jamendo), so it is an MP3 from one of them, and
- * the text says where YouTube songs can be downloaded.
+ * the text says where YouTube songs can be downloaded. The last line says that downloads stay
+ * the original and the format is where "Save to device…" starts ({@link SAVE_TO_DEVICE_NOTE}).
  */
 export function downloadFormatHelp(
   format: DownloadFormat,
@@ -232,10 +244,12 @@ export function downloadFormatHelp(
     return youTube
       ? [
           'Saves each file as its source has it, with no conversion and no quality loss: Opus or AAC for YouTube songs, FLAC where a source is lossless.',
+          SAVE_TO_DEVICE_NOTE,
         ]
       : [
           `Saves each file as its source has it, with no conversion and no quality loss: FLAC, MP3 or Ogg Vorbis from ${freeSources().and}.`,
           youtubeDownloads(),
+          SAVE_TO_DEVICE_NOTE,
         ]
   }
   const lines = [
@@ -252,6 +266,7 @@ export function downloadFormatHelp(
     )
   }
   if (!youTube) lines.push(youtubeDownloads())
+  lines.push(SAVE_TO_DEVICE_NOTE)
   return lines
 }
 

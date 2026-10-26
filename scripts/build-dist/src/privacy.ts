@@ -51,7 +51,11 @@ export function privacyProblems(
   const needed = new Set<string>()
   for (const [host, paths] of policyHosts(rules)) {
     const service = services.find((candidate) =>
-      [...(candidate.connect ?? []), ...(candidate.img ?? [])].includes(host),
+      [
+        ...(candidate.connect ?? []),
+        ...(candidate.img ?? []),
+        ...(candidate.appConnect ?? []),
+      ].includes(host),
     )
     if (!service) {
       problems.push(

@@ -30,6 +30,8 @@
         { "url": "https://*.googlevideo.com/*" },
         { "url": "https://i.ytimg.com/*" },
         { "url": "https://*.ggpht.com/*" },
+        { "url": "https://lh3.googleusercontent.com/*" },
+        { "url": "https://yt3.googleusercontent.com/*" },
         { "url": "https://open.spotify.com/*" },
         { "url": "https://api-partner.spotify.com/*" },
         { "url": "https://spclient.wg.spotify.com/*" },

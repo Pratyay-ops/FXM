@@ -55,12 +55,13 @@ describe('the tiers', () => {
     expect(featuresAddedBy('free').find((feature) => feature.id === 'local-files')?.released).toBe(
       true,
     )
-    // Internet Archive and Jamendo download in every browser, as their files come (stage 4.1).
+    // Internet Archive and Jamendo download in every browser, as their files come (stage 4.1),
+    // and Save to device converts a copy (stage 4.2).
     expect(
       featuresAddedBy('free').find((feature) => feature.id === 'free-downloads'),
     ).toMatchObject({
       released: true,
-      label: 'Downloads of free music for offline listening, in their original format',
+      label: 'Downloads of free music for offline listening, to save in the format you want',
     })
   })
 
@@ -97,11 +98,12 @@ describe('the tiers', () => {
     const feature = (id: string) => TIER_FEATURES.find((candidate) => candidate.id === id)
     // Stage 3.5: the web app with FXM Connect connects a Spotify account.
     expect(feature('spotify-account')).toMatchObject({ from: 'full', released: true })
-    // Downloads are out, in the original format; conversions come with stage 4.2.
+    // Downloads are out, and so are conversions (stage 4.2): a download stays the original file,
+    // and Save to device converts a copy.
     expect(feature('downloads')).toMatchObject({
       from: 'full',
       released: true,
-      label: 'Downloads of YouTube Music songs, in their original format (conversions coming soon)',
+      label: 'Downloads of YouTube Music songs, to save in the format you want',
     })
   })
 })

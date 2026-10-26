@@ -35,8 +35,14 @@ export const RELEASED = {
    * the desktop and Android apps), Internet Archive and Jamendo everywhere.
    */
   downloads: true,
-  /** Converting downloads to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags: stage 4.2. */
-  conversions: false,
+  /**
+   * Converting downloads to FLAC, ALAC, WAV, MP3, AAC or Opus, with tags, cover art and lyrics:
+   * stage 4.2. A download stays the original file, which plays offline; a downloaded song's
+   * "Save to device…" saves a copy in the format the user picks, converted on the device by
+   * FXM's ffmpeg core (the app's `ffmpeg/` folder, which make dist fills). Off, Settings and Save
+   * to device offer the original alone.
+   */
+  conversions: true,
   /** Connecting a Spotify account for a read-only sync: stage 3.5 (the web app with FXM Connect). */
   spotifyAccount: true,
   /** Playing music files from the device: stage 4.4, in the Library's Local files tab. */

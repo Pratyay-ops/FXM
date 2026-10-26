@@ -88,7 +88,7 @@ The web app never uses the webview's own `fetch` here. In the desktop app, `crea
 
 | Requests to | `Origin` | `User-Agent`, unless the request names one |
 |---|---|---|
-| YouTube: InnerTube, `sw.js_data`, the player JavaScript, googlevideo, and its image servers `i.ytimg.com` and `*.ggpht.com` | None | The webview's own, which is a browser's: WebView2's, WebKitGTK's, or on macOS WKWebView's completed to Safari's |
+| YouTube: InnerTube, `sw.js_data`, the player JavaScript, googlevideo, and its image servers `i.ytimg.com`, `*.ggpht.com`, `lh3.googleusercontent.com` and `yt3.googleusercontent.com` | None | The webview's own, which is a browser's: WebView2's, WebKitGTK's, or on macOS WKWebView's completed to Safari's |
 | Spotify's API hosts | `https://open.spotify.com` | The same browser agent |
 | Spotify's image server `i.scdn.co`, and Last.fm's web player (`www.last.fm/player/station/`) | None | The same browser agent |
 | Services that ask apps to name themselves: MusicBrainz, Cover Art Archive, ListenBrainz, the Last.fm API, LRCLIB, Internet Archive, Jamendo, iTunes Search, SponsorBlock | None | FXM's: `FXM ( https://github.com/Pratyay-ops/FXM )`, as MusicBrainz asks |
