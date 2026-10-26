@@ -28,7 +28,9 @@ export interface Service {
   readonly img?: readonly string[]
   /**
    * connect-src for the web app only, never the embed: hosts the app reads bytes from that the
-   * embed has no use for. 4.2: the artwork CDNs, whose covers go into saved files.
+   * embed has no use for. 4.2: the image hosts whose covers go into saved files, each by its
+   * exact name and only once measured to allow it (connect-src lets page script read what it
+   * fetches, so it stays narrower than img-src).
    */
   readonly appConnect?: readonly string[]
 }
@@ -40,15 +42,34 @@ export const INNERTUBE_HOSTS = [
   'https://youtubei.googleapis.com',
 ] as const
 
-/** Where YouTube's and YouTube Music's thumbnails and covers come from. */
+/** Where YouTube's and YouTube Music's thumbnails, covers and channel images come from. */
 const YOUTUBE_IMAGE_HOSTS = [
   'https://*.ytimg.com',
   'https://*.googleusercontent.com',
   'https://*.ggpht.com',
 ] as const
 
-/** Where Spotify's covers come from. */
+/** Where Spotify's covers and playlist images come from. */
 const SPOTIFY_IMAGE_HOSTS = ['https://*.scdn.co', 'https://*.spotifycdn.com'] as const
+
+/**
+ * The hosts YouTube's and YouTube Music's track covers come from, whose bytes the app reads to
+ * embed them in saved files (4.2). Each answers with `Access-Control-Allow-Origin: *`
+ * (packages/sources/src/youtube/CLEAN-ROOM.md, 2026-10-26). A cover elsewhere is left out.
+ */
+const YOUTUBE_COVER_HOSTS = [
+  'https://i.ytimg.com',
+  'https://lh3.googleusercontent.com',
+  'https://yt3.ggpht.com',
+  'https://yt3.googleusercontent.com',
+] as const
+
+/**
+ * Spotify's host for track covers, which answers with `Access-Control-Allow-Origin: *`
+ * (packages/sources/src/spotify/README.md, 2026-10-26). Its `*.spotifycdn.com` hosts serve only
+ * playlist and radio images, which no saved file needs.
+ */
+const SPOTIFY_COVER_HOSTS = ['https://i.scdn.co'] as const
 
 /**
  * Every service the web app and the embed contact, in the order their hosts appear in the
@@ -62,10 +83,10 @@ const SPOTIFY_IMAGE_HOSTS = ['https://*.scdn.co', 'https://*.spotifycdn.com'] as
  *   sends to `api.listenbrainz.org`), and adds Internet Archive's hosts, already here, for the
  *   Cover Art Archive's redirects.
  *
- * 4.2 lets the web app (not the embed) fetch the covers it already shows from YouTube's and
- * Spotify's image hosts (`appConnect`), to embed them in saved files; Internet Archive's and
- * Jamendo's covers come from hosts it reaches already. Those hosts send
- * `Access-Control-Allow-Origin: *` (checked 2026-10-26).
+ * 4.2 lets the web app (not the embed) fetch the track covers it already shows from YouTube's
+ * and Spotify's image hosts (`appConnect`: exact hosts, unlike img-src's wildcards), to embed
+ * them in saved files; Internet Archive's and Jamendo's covers come from hosts it reaches
+ * already. Those hosts send `Access-Control-Allow-Origin: *` (checked 2026-10-26).
  *
  * Audio needs no entry: `media-src https:` covers googlevideo, Internet Archive's and Jamendo's
  * storage hosts and a user's Invidious proxy, and page script can't read media responses.
@@ -75,7 +96,7 @@ export const APP_SERVICES: readonly Service[] = [
     privacyName: 'YouTube',
     connect: [...INNERTUBE_HOSTS, 'https://*.googlevideo.com'],
     img: YOUTUBE_IMAGE_HOSTS,
-    appConnect: YOUTUBE_IMAGE_HOSTS,
+    appConnect: YOUTUBE_COVER_HOSTS,
   },
   {
     // Built in and on by default (Decision 1, option A). The secret source goes through the
@@ -87,7 +108,7 @@ export const APP_SERVICES: readonly Service[] = [
       'https://spclient.wg.spotify.com',
     ],
     img: SPOTIFY_IMAGE_HOSTS,
-    appConnect: SPOTIFY_IMAGE_HOSTS,
+    appConnect: SPOTIFY_COVER_HOSTS,
   },
   { privacyName: 'MusicBrainz', connect: ['https://musicbrainz.org'] },
   {

@@ -40,10 +40,14 @@ const EMBED_POLICY = PLAN_APP_POLICY.replace(
   ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
 ).replace(" frame-ancestors 'none';", '')
 
-/** What 4.2 adds for the app alone: the image hosts it fetches covers from, after each service's. */
+/**
+ * What 4.2 adds for the app alone, after each service's hosts: the exact image hosts it fetches
+ * track covers from, each measured to allow it.
+ */
 const COVER_HOSTS = {
-  youtube: 'https://*.ytimg.com https://*.googleusercontent.com https://*.ggpht.com',
-  spotify: 'https://*.scdn.co https://*.spotifycdn.com',
+  youtube:
+    'https://i.ytimg.com https://lh3.googleusercontent.com https://yt3.ggpht.com https://yt3.googleusercontent.com',
+  spotify: 'https://i.scdn.co',
 }
 
 /**
@@ -111,12 +115,30 @@ describe('the web app policy', () => {
     expect(app.get('script-src')).toEqual(["'self'", HASH, WASM_UNSAFE_EVAL])
     expect(app.get('script-src')).not.toContain(UNSAFE_EVAL)
     expect(app.get('connect-src')).toEqual(
-      expect.arrayContaining(['https://*.ytimg.com', 'https://*.scdn.co']),
+      expect.arrayContaining(['https://i.ytimg.com', 'https://i.scdn.co']),
     )
     const embed = serializePolicy(appPolicy([HASH], { embeddable: true }))
     expect(embed).toBe(EMBED_POLICY)
     expect(embed).not.toContain(WASM_UNSAFE_EVAL)
-    expect(parsePolicy(embed).get('connect-src')).not.toContain('https://*.ytimg.com')
+    expect(parsePolicy(embed).get('connect-src')).not.toContain('https://i.ytimg.com')
+  })
+
+  it('reads covers only from exact image hosts, keeping the wildcards to img-src', () => {
+    const app = parsePolicy(serializePolicy(appPolicy([HASH])))
+    const connect = app.get('connect-src') ?? []
+    for (const wildcard of [
+      'https://*.ytimg.com',
+      'https://*.googleusercontent.com',
+      'https://*.ggpht.com',
+      'https://*.scdn.co',
+      'https://*.spotifycdn.com',
+    ]) {
+      expect(connect, wildcard).not.toContain(wildcard)
+      expect(app.get('img-src'), wildcard).toContain(wildcard)
+    }
+    for (const service of APP_SERVICES) {
+      for (const host of service.appConnect ?? []) expect(host, host).not.toContain('*')
+    }
   })
 
   it('takes later stages’ hosts and script sources from the lists', () => {
