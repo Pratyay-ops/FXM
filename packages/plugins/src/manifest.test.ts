@@ -1,3 +1,4 @@
+import { HOST_RULES } from '@fxm/platform'
 import { describe, expect, it } from 'vitest'
 import { isPluginError } from './errors'
 import {
@@ -123,6 +124,20 @@ describe('parseManifest', () => {
     expect(manifest.hosts).toEqual(['musicbrainz.org', 'ia800.us.archive.org'])
     expect(reservedServiceOf('musicbrainz.org')).toBeUndefined()
     expect(reservedServiceOf('music.youtube.com')?.service).toBe('YouTube Music')
+  })
+
+  it('follows the platform’s host table: privileged hosts refused, open ones allowed', () => {
+    for (const rule of HOST_RULES) {
+      const host = rule.host.startsWith('*.') ? `sample${rule.host.slice(1)}` : rule.host
+      if (rule.hostClass === 'open') {
+        expect(parseManifest(testPluginManifest({ hosts: [host] })).hosts, host).toEqual([host])
+        expect(reservedServiceOf(host), host).toBeUndefined()
+      } else {
+        const error = parseError(testPluginManifest({ hosts: [host] }))
+        expect(isPluginError(error, 'invalid-manifest'), host).toBe(true)
+        expect(reservedServiceOf(`${host}:8443`)?.service, host).toBe(rule.service)
+      }
+    }
   })
 })
 
