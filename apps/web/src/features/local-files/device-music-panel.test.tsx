@@ -41,6 +41,9 @@ describe('the device’s music in the Local files tab (Android)', () => {
       ),
     ).toBeVisible()
     expect(device.asked).toBe(0)
+    // Chosen files would play from object URLs, which the app's native player can't read.
+    expect(screen.queryByRole('button', { name: /^Choose/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /folder/ })).toBeNull()
     await user.click(screen.getByRole('button', { name: 'Music on this device' }))
     const [root] = await files.repo.listRoots()
     await files.whenScanned(root?.id ?? '')
@@ -56,9 +59,8 @@ describe('the device’s music in the Local files tab (Android)', () => {
     expect(
       await screen.findByText('Added 2 songs on this device. 1 file can’t be played here'),
     ).toBeVisible()
-    // Listed once: "Add music" doesn't offer it again.
-    await user.click(screen.getByRole('button', { name: 'Add music' }))
-    expect(screen.queryByRole('menuitem', { name: 'Music on this device' })).toBeNull()
+    // Listed once, nothing is left to add: no "Add music".
+    expect(screen.queryByRole('button', { name: 'Add music' })).toBeNull()
   })
 
   it('plays a song from the device', async () => {

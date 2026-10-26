@@ -54,7 +54,10 @@ export function localFileOf(item: QueueItem): string | undefined {
  * `fallback`, plus local files: an item whose track is a local track (or whose recorded audio
  * is a local file) resolves to its file's object URL. A format the engine says it can't play
  * (`canPlay` answers `no`, e.g. ALAC outside Safari) is refused as `Unavailable`, so the player
- * skips it at once instead of retrying.
+ * skips it at once instead of retrying. Only a resolution the user asked for (`explicit`, not a
+ * preload) may ask for the permission to read the device's music: Android shows its dialog
+ * whenever the app asks, also for the player's preloads, the queue moving on by itself and the
+ * native engine filling Media3's queue, with the screen off.
  */
 export function withLocalFiles(
   fallback: StreamResolver,
@@ -64,7 +67,9 @@ export function withLocalFiles(
     async resolve(item, request) {
       const nativeId = localFileOf(item)
       if (nativeId === undefined) return fallback.resolve(item, request)
-      const stream = await files().streamFor(nativeId)
+      const stream = await files().streamFor(nativeId, {
+        ask: request.explicit === true && request.reason !== 'preload',
+      })
       if (request.canPlay(stream) === 'no') {
         throw new FxmError('Unavailable', `This browser can’t play ${formatName(stream)} files`)
       }

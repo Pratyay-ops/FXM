@@ -169,16 +169,32 @@ export function usePickers(): Pickers {
   }
 }
 
-/** The ways this browser adds music, for the buttons and the menu. */
-function addOptions(files: LocalFiles, pickers: Pickers, deviceListed = false) {
+/** One way to add music: its label and what it does (call it from a click). */
+interface AddOption {
+  label: string
+  onClick: () => void
+}
+
+/** The ways to add music here, for the buttons and the menu: absent ones aren't offered. */
+interface AddOptions {
+  device?: AddOption | undefined
+  folder?: AddOption | undefined
+  files?: AddOption | undefined
+}
+
+/** The ways this browser adds music. */
+function addOptions(files: LocalFiles, pickers: Pickers, deviceListed = false): AddOptions {
+  // The Android app: the device's own music, once. Folders and chosen files play from object
+  // URLs, which its native player can't read, so it offers none.
+  const device =
+    files.canListDeviceMusic() && !deviceListed
+      ? { label: 'Music on this device', onClick: () => addDeviceMusic(files) }
+      : undefined
+  if (!files.canAddFiles()) return { device }
   const keep = files.canKeepFolders()
   const folders = keep || files.canChooseFolders()
   return {
-    // The Android app: the device's own music, once.
-    device:
-      files.canListDeviceMusic() && !deviceListed
-        ? { label: 'Music on this device', onClick: () => addDeviceMusic(files) }
-        : undefined,
+    device,
     folder: folders
       ? {
           label: keep ? 'Add a folder' : 'Choose a folder',
@@ -192,7 +208,7 @@ function addOptions(files: LocalFiles, pickers: Pickers, deviceListed = false) {
 /**
  * The buttons that add the first music: "Add a folder" where the browser can keep access to it
  * (Chromium), else "Choose a folder"; and "Choose files". Where a browser can't pick folders at
- * all, only "Choose music files". In the Android app, "Music on this device" comes first.
+ * all, only "Choose music files". In the Android app, only "Music on this device".
  */
 export function AddMusicActions({ pickers }: { pickers: Pickers }) {
   const files = useLocalFiles()
@@ -215,23 +231,26 @@ export function AddMusicActions({ pickers }: { pickers: Pickers }) {
           {options.folder.label}
         </button>
       )}
-      <button
-        type="button"
-        className={buttonClasses({
-          variant: options.folder || options.device ? 'secondary' : 'primary',
-        })}
-        onClick={options.files.onClick}
-      >
-        <FilePlus2 aria-hidden="true" />
-        {options.files.label}
-      </button>
+      {options.files && (
+        <button
+          type="button"
+          className={buttonClasses({
+            variant: options.folder || options.device ? 'secondary' : 'primary',
+          })}
+          onClick={options.files.onClick}
+        >
+          <FilePlus2 aria-hidden="true" />
+          {options.files.label}
+        </button>
+      )}
     </div>
   )
 }
 
 /**
  * "Add music": the same choices as {@link AddMusicActions}, as one menu button (icon only on
- * phones). `deviceListed`: the device's music is listed already, so it isn't offered again.
+ * phones). `deviceListed`: the device's music is listed already, so it isn't offered again. In
+ * the Android app that leaves nothing to add, and no button.
  */
 export function AddMusicMenu({
   pickers,
@@ -263,8 +282,18 @@ export function AddMusicMenu({
           },
         ]
       : []),
-    { id: 'files', label: options.files.label, icon: FilePlus2, onSelect: options.files.onClick },
+    ...(options.files
+      ? [
+          {
+            id: 'files',
+            label: options.files.label,
+            icon: FilePlus2,
+            onSelect: options.files.onClick,
+          },
+        ]
+      : []),
   ]
+  if (items.length === 0) return null
   return (
     <Menu
       label="Add music"

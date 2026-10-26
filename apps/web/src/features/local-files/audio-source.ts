@@ -81,6 +81,8 @@ export function createLocalAudioSource(files: () => LocalFiles = getLocalFiles):
       if (candidate.source !== 'local') {
         throw new FxmError('Unsupported', `Local files can’t play ${candidate.source} audio`)
       }
+      // Never asks for the device's music: an offline copy is tried for any play, preloads too,
+      // and the stream it stands in for plays without it.
       return [await files().streamFor(candidate.ref)]
     },
   }

@@ -44,6 +44,9 @@ export function rootAction(
 ): RootAction | undefined {
   const name = `“${root.name}”`
   if (root.kind === 'device') return deviceAction(root, status, files)
+  // Where folders and chosen files can't be added (the Android app), nothing brings one back: it
+  // can only be removed.
+  if (!files.canAddFiles()) return undefined
   switch (status.state) {
     case 'needs-access':
       return {

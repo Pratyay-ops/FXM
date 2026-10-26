@@ -1,6 +1,9 @@
 import { isFxmError } from '@fxm/core'
-import { webViewFileUrl } from '@fxm/player'
+import { NativeEngine, type ResolveRequest, webViewFileUrl } from '@fxm/player'
+import { createFakeFxmPlayer, testTrack } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { configurePlayback } from '../now-playing/playback'
+import { FakePolicy } from '../now-playing/testing'
 import { findFxmDeviceMusicPlugin } from './device-music'
 import {
   DEVICE_READER_VERSION,
@@ -11,7 +14,9 @@ import {
 } from './device-scanner'
 import { newTrackNativeId } from './ids'
 import { resetLocalFiles } from './local-files'
+import { withLocalFiles, withLocalFilesFirst } from './player'
 import { createFakeDeviceMusic, deviceSong, installTestLocalFiles } from './testing'
+import { toTrack } from './tracks'
 import { DEVICE_ROOT_NAME } from './types'
 
 afterEach(async () => {
@@ -185,7 +190,7 @@ describe('the device’s music (Android)', () => {
   it('plays a song from its MediaStore URI, asking for access from the click when needed', async () => {
     const { files, device } = await withDeviceMusic()
     const flac = (await files.repo.listFiles()).find((file) => file.tags.title === 'Night Drive')
-    const stream = await files.streamFor(flac?.id ?? '')
+    const stream = await files.streamFor(flac?.id ?? '', { ask: true })
     expect(stream).toMatchObject({
       url: webViewFileUrl('content://media/external_primary/audio/media/11'),
       codec: 'flac',
@@ -199,14 +204,45 @@ describe('the device’s music (Android)', () => {
     // Access taken back: playing asks again, and a refusal says what to do.
     device.access = 'prompt'
     device.answer = 'denied'
-    const refused = await files.streamFor(flac?.id ?? '').catch((error: unknown) => error)
+    const refused = await files.streamFor(flac?.id ?? '', { ask: true }).catch((error) => error)
     expect(isFxmError(refused, 'AuthRequired')).toBe(true)
     expect(device.asked).toBe(2)
+  })
+
+  it('asks for access only when the user asked for the song', async () => {
+    const { files, device, root } = await withDeviceMusic()
+    const flac = (await files.repo.listFiles()).find((file) => file.tags.title === 'Night Drive')
+    // Taken back in Android's settings, or reset after months unused.
+    device.access = 'prompt'
+    const error = await files.streamFor(flac?.id ?? '').catch((failure: unknown) => failure)
+    expect(isFxmError(error, 'AuthRequired')).toBe(true)
+    expect((error as Error).message).toBe(
+      'Allow FXM to see the music on this device to play this song',
+    )
+    expect(device.asked).toBe(1)
+    expect(files.statusOf(root.id)).toEqual({ state: 'needs-access' })
+    // Allowed meanwhile, it plays without asking.
+    device.access = 'granted'
+    expect((await files.streamFor(flac?.id ?? '')).codec).toBe('flac')
+    expect(device.asked).toBe(1)
+  })
+
+  it('adds no folders or chosen files in the Android app, whose player can’t play them', async () => {
+    const { files } = await installTestLocalFiles({ deviceMusic: createFakeDeviceMusic() })
+    expect(files.canAddFiles()).toBe(false)
+    const chosen = new File([new Uint8Array(4)], 'a.mp3', { type: 'audio/mpeg' })
+    await expect(files.addPicked([chosen])).rejects.toMatchObject({
+      code: 'Unsupported',
+      message: 'Songs you choose play in a browser. In the app, add the music on this device',
+    })
+    await expect(files.addFolder()).rejects.toMatchObject({ code: 'Unsupported' })
+    expect(await files.repo.listRoots()).toEqual([])
   })
 
   it('is not offered outside the Android app', async () => {
     const { files } = await installTestLocalFiles()
     expect(files.canListDeviceMusic()).toBe(false)
+    expect(files.canAddFiles()).toBe(true)
     await expect(files.addDeviceMusic()).rejects.toMatchObject({ code: 'Unsupported' })
     expect(findFxmDeviceMusicPlugin({})).toBeUndefined()
     const device = createFakeDeviceMusic()
@@ -223,10 +259,101 @@ describe('the device’s music (Android)', () => {
   })
 })
 
+/** Lets pending promises and zero-delay timers run. */
+async function settle(): Promise<void> {
+  for (let round = 0; round < 5; round += 1) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  }
+}
+
+describe('the device’s music in the player (Android)', () => {
+  /** "Slow Tide" from the phone, listed, as a track; FXM's access then taken back. */
+  async function revokedSong() {
+    const setup = await withDeviceMusic()
+    const file = (await setup.files.repo.listFiles()).find(
+      (song) => song.tags.title === 'Slow Tide',
+    )
+    if (file === undefined) throw new Error('Slow Tide is not listed')
+    // Taken back in Android's settings, or reset after months unused.
+    setup.device.access = 'prompt'
+    return { ...setup, track: toTrack(file) }
+  }
+
+  function request(overrides: Partial<ResolveRequest>): ResolveRequest {
+    return {
+      reason: 'play',
+      attempt: 0,
+      signal: new AbortController().signal,
+      canPlay: () => 'probably',
+      ...overrides,
+    }
+  }
+
+  it('asks for access for a song the user played, never for a preload or the queue moving on', async () => {
+    const { files, device, track } = await revokedSong()
+    const resolver = withLocalFiles({ resolve: vi.fn() }, () => files)
+    for (const quiet of [
+      { reason: 'preload', explicit: false },
+      { reason: 'play', explicit: false },
+      { reason: 'retry', explicit: false },
+      { reason: 'play' },
+      { reason: 'preload', explicit: true },
+    ] as const) {
+      const error = await resolver
+        .resolve({ uid: 1, track }, request(quiet))
+        .catch((failure: unknown) => failure)
+      expect(isFxmError(error, 'AuthRequired'), JSON.stringify(quiet)).toBe(true)
+    }
+    expect(device.asked).toBe(1)
+    const played = await resolver.resolve(
+      { uid: 1, track },
+      request({ reason: 'play', explicit: true }),
+    )
+    expect(device.asked).toBe(2)
+    expect(played.stream.url).toBe(
+      webViewFileUrl('content://media/external_primary/audio/media/12'),
+    )
+  })
+
+  it('never asks while Media3’s queue fills up or the queue moves on: Play does', async () => {
+    const { files, device, track } = await revokedSong()
+    const plugin = createFakeFxmPlayer()
+    const playback = configurePlayback({
+      createEngine: () => new NativeEngine({ plugin, origin: window.location.origin }),
+      policy: withLocalFilesFirst(new FakePolicy(), () => files),
+      mediaSession: false,
+      recordPlays: false,
+      player: { retryDelaysMs: [0], stallTimeoutMs: 0 },
+    })
+    await playback.ready
+    await playback.player.setQueue([testTrack('Remote'), track])
+    await vi.waitFor(() =>
+      expect(plugin.calls.some((call) => call.startsWith('load:Remote'))).toBe(true),
+    )
+    await settle()
+    // The native engine resolved the phone's song ahead, for Media3's queue: nothing asked.
+    expect(device.asked).toBe(1)
+    // Moving on to it stops the player with what to do, without asking either.
+    await playback.player.next()
+    await vi.waitFor(() => expect(playback.player.getState().status).toBe('error'))
+    expect(playback.player.getState().error?.error.message).toBe(
+      'Allow FXM to see the music on this device to play this song',
+    )
+    expect(device.asked).toBe(1)
+    // Play, the user's own action, asks; allowed, the song plays from the device.
+    await playback.player.play()
+    await vi.waitFor(() => expect(device.asked).toBe(2))
+    await vi.waitFor(() =>
+      expect(plugin.calls.some((call) => call.startsWith('load:Slow Tide'))).toBe(true),
+    )
+  })
+})
+
 describe('a song’s format, tags and ID from MediaStore', () => {
+  const song = (mimeType: string | undefined, path = 'Music/a.mp3') =>
+    deviceFormat({ ...deviceSong(1, path), ...(mimeType === undefined ? {} : { mimeType }) })
+
   it('maps the MIME types MediaStore gives, lossless only for FLAC and WAV', () => {
-    const song = (mimeType: string | undefined, path = 'Music/a.mp3') =>
-      deviceFormat({ ...deviceSong(1, path), ...(mimeType === undefined ? {} : { mimeType }) })
     expect(song('audio/mpeg')).toMatchObject({ codec: 'mp3', container: 'mp3' })
     expect(song('audio/flac', 'Music/a.flac')).toMatchObject({ codec: 'flac', tier: 'lossless' })
     expect(song('audio/x-wav', 'Music/a.wav')).toMatchObject({ codec: 'pcm', tier: 'lossless' })
@@ -242,9 +369,54 @@ describe('a song’s format, tags and ID from MediaStore', () => {
     ).toMatchObject({
       codec: 'flac',
     })
-    for (const unsupported of ['audio/amr', 'audio/aac', 'audio/midi', 'audio/x-ms-wma']) {
-      expect(song(unsupported)).toBeUndefined()
+    for (const [unsupported, path] of [
+      ['audio/amr', 'Recordings/memo.amr'],
+      ['audio/aac', 'Music/raw.aac'],
+      ['audio/midi', 'Music/tune.mid'],
+      ['audio/x-ms-wma', 'Music/old.wma'],
+      ['audio/3gpp', 'Music/clip.3gp'],
+    ] as const) {
+      expect(song(unsupported, path)).toBeUndefined()
     }
+  })
+
+  it('lists the copies FXM saved to Music/FXM, as Media3 plays them', () => {
+    // Opus from YouTube, saved as Matroska audio.
+    expect(song('audio/x-matroska', 'Music/FXM/Radiohead - Creep.mka')).toMatchObject({
+      codec: 'opus',
+      container: 'webm',
+    })
+    // FLAC in Ogg is lossless where FXM saved it; elsewhere an .oga may be Vorbis.
+    expect(song('audio/ogg', 'Music/FXM/Aria Vale - Night Drive.oga')).toMatchObject({
+      codec: 'flac',
+      container: 'ogg',
+      tier: 'lossless',
+    })
+    expect(
+      deviceFormat({
+        ...deviceSong(1, 'Music/FXM/a.oga'),
+        mimeType: 'audio/ogg',
+        volume: '1234-abcd',
+      }),
+    ).toMatchObject({ codec: 'vorbis' })
+    expect(song('audio/ogg', 'Music/Other/a.oga')?.tier).not.toBe('lossless')
+    expect(song('audio/ogg', 'Music/Other/a.oga')).toMatchObject({ codec: 'vorbis' })
+  })
+
+  it('goes by the extension when MediaStore gives a type FXM doesn’t know', () => {
+    expect(song('audio/x-unknown', 'Music/a.flac')).toMatchObject({
+      codec: 'flac',
+      tier: 'lossless',
+    })
+    expect(song('application/octet-stream', 'Music/b.mka')).toMatchObject({ codec: 'opus' })
+    expect(song('audio/x-unknown', 'Music/c.opus')).toMatchObject({
+      codec: 'opus',
+      container: 'ogg',
+    })
+    expect(song('audio/x-unknown', 'Music/d.xyz')).toBeUndefined()
+    // Names of Object's own members are no format.
+    expect(song('constructor', 'Music/e.constructor')).toBeUndefined()
+    expect(song('toString', 'Music/f.toString')).toBeUndefined()
   })
 
   it('takes the bitrate MediaStore knows, else the size over the length', () => {

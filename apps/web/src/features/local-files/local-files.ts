@@ -14,6 +14,11 @@
  * - **The device's music** (the Android app, stage 6.4): `addDeviceMusic()` asks the user to let
  *   FXM read it, from the click, and lists what MediaStore knows (`device-scanner.ts`); its songs
  *   play from their MediaStore URIs. It is scanned again once per visit while FXM may read it.
+ *   Android shows its permission dialog whenever the app asks, so FXM asks only from the user's
+ *   own actions: opening the device's music, "Allow access", or Play on one of its songs
+ *   (`streamFor` with `ask`), never from a preload or the queue moving on. There, folders and
+ *   chosen files aren't offered (`canAddFiles()`): the app's native player reads files from the
+ *   device, never the WebView's object URLs.
  * - **Scans** run one at a time (`lane.ts`): others wait their turn as `queued`. Covers no file
  *   uses any more are deleted when no scan runs or waits.
  *
@@ -153,9 +158,31 @@ export type AddDeviceResult =
    */
   | { status: 'denied'; forGood: boolean }
 
+/**
+ * Why folders and chosen files aren't added in the Android app: its native player can't play the
+ * WebView's object URLs of them (`canAddFiles`).
+ */
+function choosingUnsupported(): FxmError {
+  return new FxmError(
+    'Unsupported',
+    'Songs you choose play in a browser. In the app, add the music on this device',
+  )
+}
+
 /** The status of the device's music when FXM may not read it (yet). */
 function accessStatus(access: DeviceMusicAccess): RootStatus {
   return access === 'denied' ? { state: 'denied' } : { state: 'needs-access' }
+}
+
+/** How {@link LocalFiles.streamFor} may get to the file. */
+export interface StreamForOptions {
+  /**
+   * Whether the user asked for this song (a tap on it, or Play), so FXM may ask for the
+   * permission to read the device's music, which Android shows whenever the app asks: never for
+   * a preload, the queue moving on by itself or the native player's queue filling up. Default:
+   * false. Folders ask regardless, since the browser shows its prompt only within a click.
+   */
+  ask?: boolean
 }
 
 /** A local file opened for playing. */
@@ -404,13 +431,14 @@ export function createLocalFiles(deps: LocalFilesDeps) {
   async function deviceStream(
     record: LocalFileRecord,
     root: LocalRootRecord,
+    ask: boolean,
   ): Promise<StreamOption> {
     const plugin = deps.deviceMusic
     if (plugin === undefined || record.uri === undefined) {
       throw new FxmError('Unavailable', 'This song is on an Android device: play it in FXM there')
     }
     let { music } = await plugin.checkAccess()
-    if (music === 'prompt' || music === 'prompt-with-rationale') {
+    if (ask && (music === 'prompt' || music === 'prompt-with-rationale')) {
       music = (await plugin.requestAccess()).music
     }
     if (music !== 'granted') {
@@ -594,9 +622,11 @@ export function createLocalFiles(deps: LocalFilesDeps) {
      * their songs move into it with their IDs, unread.
      *
      * With `replace`, the folder picked becomes that root's folder, for a folder that was moved
-     * (or that FXM was refused): its songs keep their IDs where the paths inside match.
+     * (or that FXM was refused): its songs keep their IDs where the paths inside match. Refused
+     * like {@link addPicked} where a folder's songs can't play.
      */
     async addFolder({ replace }: { replace?: string } = {}): Promise<AddFolderResult> {
+      if (!facade.canAddFiles()) throw choosingUnsupported()
       const handle = await deps.pickDirectory()
       if (handle === null) return { status: 'cancelled' }
       const kept: { root: LocalRootRecord; handle: FileSystemDirectoryHandle }[] = []
@@ -639,9 +669,11 @@ export function createLocalFiles(deps: LocalFilesDeps) {
     /**
      * Adds files chosen through a file input: a folder (`webkitdirectory`) or single files. A
      * folder chosen again under the same name is the same root: its songs come back with their
-     * IDs, and files no longer in it go. Single files add up.
+     * IDs, and files no longer in it go. Single files add up. Refused (`Unsupported`) where
+     * chosen files can't play ({@link canAddFiles}).
      */
     async addPicked(files: readonly File[]): Promise<AddPickedResult> {
+      if (!facade.canAddFiles()) throw choosingUnsupported()
       const picked = groupPickedFiles(files)
       if (picked.files.size === 0) return { status: 'empty' }
       let root = await repo.findPickedRoot(picked.kind, picked.rootName)
@@ -817,14 +849,18 @@ export function createLocalFiles(deps: LocalFilesDeps) {
      * The stream to play a local track from: its file's object URL, with its codec, container
      * and tier (lossless for FLAC, ALAC and WAV only). Rejects like {@link openFile}. A song of
      * the device's own music plays from the WebView's URL of its MediaStore URI, which the
-     * native player reads from the device; without the permission it asks for it (from the
-     * click on Play) and rejects with `AuthRequired` when refused.
+     * native player reads from the device. Without the permission it rejects with
+     * `AuthRequired`, after asking for it only when the user asked for the song (`ask`, see
+     * {@link StreamForOptions}).
      */
-    async streamFor(nativeId: string): Promise<StreamOption> {
+    async streamFor(
+      nativeId: string,
+      { ask = false }: StreamForOptions = {},
+    ): Promise<StreamOption> {
       const listed = await repo.fileById(nativeId)
       const listedRoot = listed === undefined ? undefined : await repo.getRoot(listed.rootId)
       if (listed !== undefined && listedRoot?.kind === 'device') {
-        return deviceStream(listed, listedRoot)
+        return deviceStream(listed, listedRoot, ask)
       }
       const { file, record } = await facade.openFile(nativeId)
       const url = objectUrls.urlFor(`${record.key}|${file.size}|${file.lastModified}`, file)
@@ -834,6 +870,15 @@ export function createLocalFiles(deps: LocalFilesDeps) {
     /** Whether FXM can list the device's own music here: in the Android app. */
     canListDeviceMusic(): boolean {
       return deps.deviceMusic !== undefined
+    },
+
+    /**
+     * Whether music can be added from folders and chosen files here: everywhere but the Android
+     * app, whose native player reads files from the device and can't play the WebView's object
+     * URLs of them. "Music on this device" lists the same songs there.
+     */
+    canAddFiles(): boolean {
+      return deps.deviceMusic === undefined
     },
 
     /**

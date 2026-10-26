@@ -80,25 +80,57 @@ const MIME_FORMATS: Readonly<Record<string, readonly [Codec, Container]>> = {
   'audio/x-wav': ['pcm', 'wav'],
   'audio/vnd.wave': ['pcm', 'wav'],
   'audio/webm': ['opus', 'webm'],
+  // Matroska audio: how FXM saves Opus (and Vorbis) downloads to Music/FXM, as `.mka`. WebM is
+  // Matroska, and the app's player (Media3) reads both; MediaStore doesn't say the codec.
+  'audio/x-matroska': ['opus', 'webm'],
+}
+
+/** Ogg's MIME types: Opus, Vorbis or FLAC inside, which only the extension tells apart. */
+const OGG_TYPES: ReadonlySet<string> = new Set(['audio/ogg', 'application/ogg'])
+
+/** The extensions of the device's songs: the web's, plus Matroska audio, which Media3 plays. */
+const DEVICE_EXTENSIONS: Readonly<Record<string, string>> = {
+  ...AUDIO_EXTENSIONS,
+  mka: 'audio/x-matroska',
+}
+
+/** Where FXM saves downloads on the phone's own storage ("Save to Music folder", fxm-downloads). */
+const FXM_MUSIC_FOLDER = 'Music/FXM/'
+
+/**
+ * The codec in an Ogg file: Opus for `.opus`; FLAC for an `.oga` FXM saved itself (it saves FLAC
+ * in Ogg under that extension, and nothing else); Vorbis otherwise, since an `.oga` from elsewhere
+ * may hold Vorbis, and a song is never called lossless when it might not be.
+ */
+function oggFormat(item: FxmDeviceAudio, extension: string): readonly [Codec, Container] {
+  if (extension === 'opus') return ['opus', 'ogg']
+  const fxmCopy = item.volume === PRIMARY_VOLUME && item.path.startsWith(FXM_MUSIC_FOLDER)
+  return extension === 'oga' && fxmCopy ? ['flac', 'ogg'] : ['vorbis', 'ogg']
 }
 
 /**
- * The format of a song from what MediaStore says (its MIME type, else its extension), or
- * `undefined` for one FXM doesn't list (AMR, MIDI, WMA, raw AAC and the like). MediaStore can't
- * tell AAC from ALAC in an M4A file, so an M4A is AAC: never called lossless when it might not
- * be. FLAC and WAV are lossless.
+ * The MIME type to read a song's format from: MediaStore's when FXM knows it, else (no type, or
+ * one FXM doesn't know) its extension's, which is what MediaStore types most files by anyway.
+ */
+function typeOf(item: FxmDeviceAudio, extension: string): string | undefined {
+  const { mimeType } = item
+  if (mimeType !== undefined && (Object.hasOwn(MIME_FORMATS, mimeType) || OGG_TYPES.has(mimeType)))
+    return mimeType
+  return Object.hasOwn(DEVICE_EXTENSIONS, extension) ? DEVICE_EXTENSIONS[extension] : undefined
+}
+
+/**
+ * The format of a song from what MediaStore says (see `typeOf`), or `undefined` for a song FXM
+ * doesn't list (AMR, MIDI, WMA, raw AAC and the like). MediaStore can't tell AAC from ALAC in an
+ * M4A file, so an M4A is AAC: never called lossless when it might not be. FLAC and WAV are
+ * lossless.
  */
 export function deviceFormat(item: FxmDeviceAudio): LocalAudioFormat | undefined {
   const extension = extensionOf(item.path)
-  let pair = item.mimeType === undefined ? undefined : MIME_FORMATS[item.mimeType]
-  if (item.mimeType === 'audio/ogg' || item.mimeType === 'application/ogg') {
-    pair = extension === 'opus' ? ['opus', 'ogg'] : ['vorbis', 'ogg']
-  }
-  if (pair === undefined && item.mimeType === undefined) {
-    const type = AUDIO_EXTENSIONS[extension]
-    pair = type === undefined ? undefined : MIME_FORMATS[type]
-    if (type === 'audio/ogg') pair = extension === 'opus' ? ['opus', 'ogg'] : ['vorbis', 'ogg']
-  }
+  const type = typeOf(item, extension)
+  let pair: readonly [Codec, Container] | undefined
+  if (type !== undefined && OGG_TYPES.has(type)) pair = oggFormat(item, extension)
+  else if (type !== undefined && Object.hasOwn(MIME_FORMATS, type)) pair = MIME_FORMATS[type]
   if (pair === undefined) return undefined
   const [codec, container] = pair
   const bitrateKbps = bitrateOf(item)
