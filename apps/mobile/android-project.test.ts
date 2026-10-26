@@ -200,6 +200,38 @@ describe('the Android project', () => {
         expect(messages).toContain(`"${event}" to`)
       }
     })
+
+    it('runs the same audio effects as the web app (stage 8.1)', () => {
+      const ts = read('../../packages/player/src/native/plugin.ts')
+      const core = read('../../packages/core/src/effects/equalizer.ts')
+      const loudness = read('../../packages/core/src/effects/loudness.ts')
+      const effects = kotlin('Effects.kt')
+      const bands = (
+        /EQUALIZER_BANDS_HZ[^=]*=\s*Object\.freeze\(\[([^\]]+)\]/.exec(core)?.[1] ?? ''
+      )
+        .split(',')
+        .map((band) => Number(band.trim()))
+        .filter((band) => band > 0)
+      const kotlinBands = (/val HZ: List<Double> = listOf\(([^)]+)\)/.exec(effects)?.[1] ?? '')
+        .split(',')
+        .map((band) => Number(band.trim()))
+      expect(bands).toHaveLength(10)
+      expect(kotlinBands).toEqual(bands)
+      expect(effects).toContain(
+        `const val MAX_CUT_DB = ${/MAX_LOUDNESS_CUT_DB = (\d+)/.exec(loudness)?.[1]}.0`,
+      )
+      // The plugin's optional methods and event, on both sides.
+      for (const method of ['setEffects', 'setSleepTimer']) {
+        expect(ts).toContain(`${method}?(options`)
+        expect(kotlin('FxmPlayerPlugin.kt')).toContain(`fun ${method}(call: PluginCall)`)
+      }
+      expect(ts).toMatch(/sleep: \{ readonly reason: 'timer' \| 'end-of-track' \}/)
+      expect(kotlin('Events.kt')).toContain('("timer")')
+      expect(kotlin('Events.kt')).toContain('("end-of-track")')
+      expect(kotlin('PlayerMessages.kt')).toContain('"sleep" to')
+      // The equalizer runs in Media3's audio sink, on every stream.
+      expect(kotlin('PlaybackService.kt')).toContain('.setAudioProcessors(arrayOf(equalizer))')
+    })
   })
 
   it('never lets the web app’s code call CapacitorHttp', () => {

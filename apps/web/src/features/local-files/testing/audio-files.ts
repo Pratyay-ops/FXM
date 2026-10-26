@@ -24,6 +24,8 @@ export interface TestTags {
   date?: string
   isrc?: string
   compilation?: boolean
+  /** More Vorbis comments (FLAC and Ogg), e.g. `['REPLAYGAIN_TRACK_GAIN', '-7.89 dB']`. */
+  extra?: [string, string][]
 }
 
 /** A cover to embed. */
@@ -355,6 +357,7 @@ function vorbisComments(tags: TestTags): [string, string][] {
   if (tags.date !== undefined) comments.push(['DATE', tags.date])
   if (tags.isrc !== undefined) comments.push(['ISRC', tags.isrc])
   if (tags.compilation === true) comments.push(['COMPILATION', '1'])
+  comments.push(...(tags.extra ?? []))
   return comments
 }
 

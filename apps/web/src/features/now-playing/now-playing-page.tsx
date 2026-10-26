@@ -6,6 +6,7 @@ import { Artwork } from '../../components/ui/artwork'
 import { buttonClasses } from '../../components/ui/button'
 import { PageTitle } from '../../components/ui/page'
 import { type TabItem, TabPanel, Tabs } from '../../components/ui/tabs'
+import { SoundShortcut } from '../audio-effects/sound-button'
 import { DownloadButton } from '../downloads/download-button'
 import { LyricsPanel } from '../lyrics/lyrics-panel'
 import { LikeButton, PlayerControls, SeekBar } from '../player/controls'
@@ -118,24 +119,30 @@ function NothingPlaying() {
   )
 }
 
-/** Phones: Lyrics and Queue under the controls, each bringing its panel up from below. */
+/**
+ * Phones: Lyrics and Queue under the controls, each bringing its panel up from below, with the
+ * Sound dialog (sleep timer, speed, equalizer; stage 8.1) between them.
+ */
 function PanelShortcuts({ onShow }: { onShow: (panel: Panel) => void }) {
+  const [lyrics, queue] = PANELS.map(({ value, label }) => {
+    const Icon = PANEL_ICONS[value]
+    return (
+      <button
+        key={value}
+        type="button"
+        className={buttonClasses({ variant: 'ghost', className: 'px-3' })}
+        onClick={() => onShow(value)}
+      >
+        <Icon aria-hidden="true" />
+        {label}
+      </button>
+    )
+  })
   return (
     <div className="mt-2 flex justify-between">
-      {PANELS.map(({ value, label }) => {
-        const Icon = PANEL_ICONS[value]
-        return (
-          <button
-            key={value}
-            type="button"
-            className={buttonClasses({ variant: 'ghost', className: 'px-3' })}
-            onClick={() => onShow(value)}
-          >
-            <Icon aria-hidden="true" />
-            {label}
-          </button>
-        )
-      })}
+      {lyrics}
+      <SoundShortcut />
+      {queue}
     </div>
   )
 }

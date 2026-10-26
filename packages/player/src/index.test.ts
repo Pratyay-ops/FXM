@@ -9,6 +9,7 @@ describe('the @fxm/player entry point', () => {
     ['media session', ['connectMediaSession', 'MEDIA_SESSION_ACTIONS', 'mediaMetadataInit']],
     ['media session helpers', ['mediaImages', 'MEDIA_SESSION_SEEK_OFFSET_MS']],
     ['formats', ['mimeTypeOf', 'formatTime']],
+    ['audio effects', ['EffectsGraph', 'isMediaReadable', 'isLocalMediaUrl', 'setParam']],
   ])('exports the %s', (_group, names) => {
     for (const name of names) expect(player).toHaveProperty(name)
   })
@@ -18,7 +19,14 @@ describe('the @fxm/player entry point', () => {
   })
 
   it('offers fakes for tests under @fxm/player/testing', () => {
-    for (const name of ['FakeEngine', 'FakeResolver', 'testTrack', 'testTracks', 'testStream']) {
+    for (const name of [
+      'FakeEngine',
+      'FakeResolver',
+      'FakeAudioContext',
+      'testTrack',
+      'testTracks',
+      'testStream',
+    ]) {
       expect(testing).toHaveProperty(name)
     }
   })

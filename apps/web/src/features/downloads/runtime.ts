@@ -28,6 +28,7 @@ import type { OfflineStore } from '@fxm/player'
 import { Dexie } from 'dexie'
 import { getLibrary, type LibraryRepo } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID } from '../../db/types'
+import { attachFileLoudness } from '../audio-effects/download-loudness'
 import {
   createDexieDownloadStore,
   DOWNLOADS_DB_NAME,
@@ -226,6 +227,8 @@ function create(options: DownloadsConfig): Downloads & { readonly dispose: () =>
     getLibrary()
       .addDownload(record.track)
       .catch(() => {})
+    // Loudness normalization (stage 8.1): the file's own tags, where its stream said nothing.
+    void attachFileLoudness(record, { storage, store })
   })
   manager.on('removed', (record) => cleaner.add(record.track.id))
   return {

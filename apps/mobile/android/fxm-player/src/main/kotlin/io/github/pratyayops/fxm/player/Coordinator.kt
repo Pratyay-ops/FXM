@@ -1,6 +1,7 @@
 package io.github.pratyayops.fxm.player
 
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * The native player's logic, between the web app (through the FxmPlayer plugin), Media3 (through
@@ -35,6 +36,8 @@ class Coordinator(
     /** Ask for a fresh URL this long before an upcoming entry's URL expires (when it would
      * start), as the web app's stream lifecycle does. */
     val refreshMarginMs: Long = 10 * 60_000,
+    /** How often the sleep timer's fade moves the volume on. */
+    val sleepFadeStepMs: Long = 250,
   )
 
   private val slots = mutableListOf<Slot>()
@@ -53,6 +56,16 @@ class Coordinator(
   /** The URL each upcoming entry had when a fresh one was requested, so it is asked once. */
   private val requested = mutableMapOf<String, String>()
   private var stateQueued = false
+  /** The audio effects the web app set (stage 8.1); neutral until it does. */
+  private var effects = EffectsSettings()
+  /** The volume the web app set, before loudness normalization and the sleep timer's fade. */
+  private var userVolume = 1f
+  /** The sleep timer's fade factor, from 1 down to 0. */
+  private var sleepFade = 1f
+  /** The sleep timer's next step: the start of its fade, a fade step, or its end. */
+  private var sleepTask: Cancelable? = null
+  /** Whether the sleep timer waits for the end of the current entry. */
+  private var sleepAtEnd = false
 
   /** Called when what the system controls may do changes (see [canSkipForward]). */
   var onControlsChanged: () -> Unit = {}
@@ -143,6 +156,7 @@ class Coordinator(
     this.hasMore = hasMore
     setRepeat(repeat)
     requested.keys.retainAll(slots.map { it.entry.id }.toSet())
+    applyVolume()
     onControlsChanged()
     checkFreshness()
     queueState()
@@ -183,7 +197,47 @@ class Coordinator(
   }
 
   fun setVolume(volume: Float) {
-    port.setVolume(volume.coerceIn(0f, 1f))
+    userVolume = volume.coerceIn(0f, 1f)
+    applyVolume()
+  }
+
+  /**
+   * The audio effects (stage 8.1): the equalizer and the speed go to Media3, loudness
+   * normalization turns each entry down to the target through the volume, from the entry
+   * Media3 plays now and again at every boundary it crosses.
+   */
+  fun setEffects(settings: EffectsSettings) {
+    effects = settings
+    port.setEqualizer(settings.equalizer)
+    port.setSpeed(settings.speed.coerceIn(MIN_SPEED, MAX_SPEED))
+    applyVolume()
+  }
+
+  /**
+   * The sleep timer (stage 8.1), which keeps time here while the page may not run: at its time
+   * it pauses, having faded the volume out over the last `fadeMs`; for the end of the track,
+   * Media3 pauses when the current entry ends. Either way the web app hears [Event.Sleep].
+   * `null` cancels it and brings the volume back.
+   */
+  fun setSleepTimer(timer: SleepTimer?) {
+    cancelSleepTimer()
+    if (timer == null) return
+    if (timer.endOfTrack) {
+      sleepAtEnd = true
+      port.setPauseAtEndOfMediaItems(true)
+      return
+    }
+    val endsAt = timer.endsAt ?: return
+    sleepStep(endsAt, max(0L, timer.fadeMs))
+  }
+
+  /** Media3 paused at the end of an entry, as the sleep timer's "end of track" asked. */
+  fun onPausedAtEndOfItem() {
+    if (!sleepAtEnd) return
+    sleepAtEnd = false
+    port.setPauseAtEndOfMediaItems(false)
+    send(Event.Sleep(SleepReason.END_OF_TRACK))
+    queueState()
   }
 
   /** The web app took over a system control's next or previous. */
@@ -211,6 +265,7 @@ class Coordinator(
     error = null
     failures = 0
     requested.clear()
+    cancelSleepTimer()
     onControlsChanged()
     queueState()
   }
@@ -228,6 +283,8 @@ class Coordinator(
     } else {
       val from = slots.getOrNull(index - 1)?.entry?.id
       prune(index)
+      // The next entry plays at its own level from here (loudness normalization).
+      applyVolume()
       send(Event.Transition(from, slot.entry.id, TransitionReason.AUTO))
       checkFreshness()
       onControlsChanged()
@@ -315,6 +372,49 @@ class Coordinator(
   // --- Internals -------------------------------------------------------------------------------
 
   private fun currentSlot(): Slot? = slots.getOrNull(port.currentIndex)
+
+  /**
+   * Sets Media3's volume: the web app's, times the current entry's loudness gain (down only),
+   * times the sleep timer's fade.
+   */
+  private fun applyVolume() {
+    val loudness = currentSlot()?.entry?.source?.loudness
+    val gain = LoudnessGain.factor(LoudnessGain.gainDb(loudness, effects.loudness))
+    port.setVolume((userVolume * gain * sleepFade).coerceIn(0f, 1f))
+  }
+
+  /** The sleep timer's next step towards [endsAt]: wait for the fade, fade on, or pause. */
+  private fun sleepStep(endsAt: Long, fadeMs: Long) {
+    val left = endsAt - clock.now()
+    if (left <= 0) {
+      sleepTask = null
+      port.setPlayWhenReady(false)
+      sleepFade = 1f
+      applyVolume()
+      send(Event.Sleep(SleepReason.TIMER))
+      queueState()
+      return
+    }
+    if (left <= fadeMs) {
+      sleepFade = (left.toFloat() / fadeMs).coerceIn(0f, 1f)
+      applyVolume()
+    }
+    val delay = if (left > fadeMs) left - fadeMs else min(left, config.sleepFadeStepMs)
+    sleepTask = scheduler.schedule(delay) { sleepStep(endsAt, fadeMs) }
+  }
+
+  private fun cancelSleepTimer() {
+    sleepTask?.cancel()
+    sleepTask = null
+    if (sleepAtEnd) {
+      sleepAtEnd = false
+      port.setPauseAtEndOfMediaItems(false)
+    }
+    if (sleepFade != 1f) {
+      sleepFade = 1f
+      applyVolume()
+    }
+  }
 
   private fun networkOf(source: Source): Int = source.network ?: network
 
@@ -418,6 +518,7 @@ class Coordinator(
     port.seekTo(index + 1, 0)
     if (port.state == PlaybackState.IDLE) port.prepare()
     prune(index + 1)
+    applyVolume()
     send(Event.Transition(from, slots[0].entry.id, TransitionReason.SKIP))
     checkFreshness()
     onControlsChanged()
@@ -466,5 +567,11 @@ class Coordinator(
     if (requested[next.entry.id] == source.url) return
     requested[next.entry.id] = source.url
     send(Event.Request(next.entry.id, if (stale) RequestReason.NETWORK else RequestReason.EXPIRING))
+  }
+
+  private companion object {
+    /** The speeds the web app offers (`MIN_PLAYBACK_RATE`, `MAX_PLAYBACK_RATE`). */
+    const val MIN_SPEED = 0.5f
+    const val MAX_SPEED = 2f
   }
 }

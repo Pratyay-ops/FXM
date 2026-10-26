@@ -1,11 +1,27 @@
-import { type ReactNode, useId } from 'react'
+import { type ReactNode, type Ref, useId } from 'react'
 
-/** A titled group of settings: a heading over a card of {@link SettingRow}s. */
-export function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * A titled group of settings: a heading over a card of {@link SettingRow}s. With `headingRef`,
+ * the heading can take focus, for a link that leads to the section.
+ */
+export function SettingsSection({
+  title,
+  headingRef,
+  children,
+}: {
+  title: string
+  headingRef?: Ref<HTMLHeadingElement>
+  children: ReactNode
+}) {
   const headingId = useId()
   return (
     <section aria-labelledby={headingId} className="space-y-3">
-      <h2 id={headingId} className="px-1 text-lg font-bold tracking-tight">
+      <h2
+        id={headingId}
+        ref={headingRef}
+        tabIndex={headingRef === undefined ? undefined : -1}
+        className="rounded-md px-1 text-lg font-bold tracking-tight"
+      >
         {title}
       </h2>
       <div className="divide-y divide-border rounded-xl border border-border bg-surface">

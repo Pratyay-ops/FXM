@@ -6,6 +6,10 @@
  *
  * - `DesktopAudioEngine`: `<audio src>` only for URLs that passed the end-of-file probe, and the
  *   codec per `canPlayType` with the real macOS version (AAC before 15.4);
+ * - the equalizer's readability rule (stage 8.1, `appEngineOptions()` of
+ *   `features/audio-effects/connect.ts`), as the browser's engine has it: the engine routes the
+ *   user's files, downloads and the free sources through Web Audio, never googlevideo, which the
+ *   webview loads without CORS until stage 7.6;
  * - `DESKTOP_PLAYER_OPTIONS`: streams loaded about 5 hours ago are resolved again, and a song
  *   whose probe got no answer is retried rather than skipped;
  * - the lifecycle's `refreshBeforeExpiryMs` (an hour) and the native network monitor;
@@ -24,6 +28,7 @@
 
 import { isTauriRuntime } from '@fxm/platform'
 import type { NetworkMonitor } from '@fxm/player'
+import { appEngineOptions } from '../../features/audio-effects/connect'
 import { configurePlayback, getPlayer } from '../../features/now-playing/playback'
 import { connectBundledNotices } from '../../features/settings/bundled-notices'
 
@@ -61,7 +66,9 @@ export async function setUpDesktopPlayback(
   const { createDesktopPlayback } = await load()
   const desktop = createDesktopPlayback(options.playback)
   configurePlayback({
-    createEngine: () => desktop.createEngine(),
+    // Without the app's readability rule, the equalizer would process only the page's own URLs
+    // (`blob:`, `data:`, same-origin): not Internet Archive's, which send CORS headers.
+    createEngine: () => desktop.createEngine(appEngineOptions()),
     player: desktop.playerOptions,
   })
   desktop.connect(getPlayer())

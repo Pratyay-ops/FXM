@@ -19,7 +19,9 @@ import {
   type AudioCandidate,
   candidateKey,
   currentQueueItem,
+  EQUALIZER_BAND_COUNT,
   FxmError,
+  loudnessGainDb,
   nextQueueItem,
   type QueueItem,
   type QueueState,
@@ -30,10 +32,13 @@ import {
 } from '@fxm/core'
 import { Emitter, type Listener } from '../emitter'
 import {
+  type AudioEffectsStatus,
   type Engine,
+  type EngineEffects,
   EngineError,
   type EngineEventMap,
   type EngineEventType,
+  type EngineSleepTimer,
   type PlaybackSource,
   type PlaySupport,
 } from '../engine'
@@ -43,6 +48,7 @@ import type { ResolvedStream, ResolveRequest, StreamResolver } from '../resolver
 import { nativeEntry, nativeSource, nativeSupport, restoreStream } from './entries'
 import {
   FXM_PLAYER_MAX_UPCOMING,
+  type FxmPlayerEffects,
   type FxmPlayerEntry,
   type FxmPlayerEventMap,
   type FxmPlayerFailure,
@@ -50,6 +56,7 @@ import {
   type FxmPlayerPlugin,
   type FxmPlayerRepeat,
   type FxmPlayerSession,
+  type FxmPlayerSleepTimer,
   type FxmPlayerState,
   findFxmPlayerPlugin,
   fxmPlayerErrorCode,
@@ -353,6 +360,12 @@ export class NativeEngine implements Engine {
   #destroyed = false
   #volume = 1
   #muted = false
+  /** The effects set last; none until `setEffects`. */
+  #effects: EngineEffects | undefined
+  /** The playback speed. */
+  #rate = 1
+  /** The effects status reported last, so an unchanged one isn't reported again. */
+  #effectsReported: string | undefined
   /** Commands that change whether Media3 plays (load, play, pause, release) not answered yet. */
   #commands = 0
   /** Inside the engine's own `ended` event: the facade's pause there lets go of the item. */
@@ -467,6 +480,7 @@ export class NativeEngine implements Engine {
     if (this.#destroyed) return
     this.#repeating = false
     const { item, stream } = source
+    this.#reportEffects(stream)
     const at =
       item === undefined ? -1 : this.#trail.findIndex((passed) => this.#isFor(passed.entryId, item))
     if (at >= 0) {
@@ -560,6 +574,48 @@ export class NativeEngine implements Engine {
   setMuted(muted: boolean): void {
     this.#muted = muted
     this.#sendVolume()
+  }
+
+  /**
+   * Hands the equalizer and loudness normalization to Media3 (stage 8.1), which processes every
+   * stream: all ten bands, and loud tracks turned down to the target, each entry at its own level
+   * (`FxmPlayerSource.loudness`), also those Media3 moves on to by itself. Quiet tracks aren't
+   * turned up natively yet. Reports with `effects` what they do to the loaded stream.
+   */
+  setEffects(effects: EngineEffects): void {
+    if (this.#destroyed) return
+    this.#effects = effects
+    this.#sendEffects()
+    this.#reportEffects(this.#loadedStream())
+  }
+
+  /** Sets Media3's playback speed, keeping the pitch. */
+  setPlaybackRate(rate: number): void {
+    if (this.#destroyed || !Number.isFinite(rate) || rate <= 0) return
+    this.#rate = rate
+    this.#sendEffects()
+  }
+
+  /**
+   * Runs the sleep timer in the native player, which keeps time with the screen off: it fades out
+   * and pauses at the time, or pauses at the end of the current entry, and sends `sleep`, which
+   * the engine reports. `null` cancels it.
+   */
+  setSleepTimer(timer: EngineSleepTimer | null): void {
+    if (this.#destroyed || this.#plugin.setSleepTimer === undefined) return
+    const message: FxmPlayerSleepTimer =
+      timer === null
+        ? { endsAt: null, fadeMs: 0, endOfTrack: false }
+        : 'endOfTrack' in timer
+          ? { endsAt: null, fadeMs: 0, endOfTrack: true }
+          : {
+              endsAt: Math.max(0, Math.floor(timer.endsAt)),
+              fadeMs: Math.max(0, Math.floor(timer.fadeMs)),
+              endOfTrack: false,
+            }
+    void this.#call((plugin) => plugin.setSleepTimer?.(message) ?? Promise.resolve()).catch(
+      logFailure('setSleepTimer'),
+    )
   }
 
   /**
@@ -948,6 +1004,7 @@ export class NativeEngine implements Engine {
         this.#listen('request', (event) => this.#onRequest(event)),
         this.#listen('command', (event) => this.#onCommand(event)),
         this.#listen('network', (event) => this.#onNetwork(event)),
+        this.#listen('sleep', (event) => this.#emit('sleep', { reason: event.reason })),
       ])
       const session = await this.#plugin.attach()
       if (this.#destroyed) return undefined
@@ -1475,6 +1532,60 @@ export class NativeEngine implements Engine {
     if (this.#destroyed) return
     const volume = this.#muted ? 0 : this.#volume
     void this.#call((plugin) => plugin.setVolume({ volume })).catch(logFailure('setVolume'))
+  }
+
+  /** Sends the effects and the speed, where the native side has them. */
+  #sendEffects(): void {
+    if (this.#destroyed || this.#plugin.setEffects === undefined) return
+    const effects = this.#effects
+    const message: FxmPlayerEffects = {
+      equalizer: {
+        enabled: effects?.equalizer.enabled ?? false,
+        gainsDb:
+          effects?.equalizer.gainsDb.slice(0, EQUALIZER_BAND_COUNT) ??
+          Array.from({ length: EQUALIZER_BAND_COUNT }, () => 0),
+      },
+      loudness: {
+        enabled: effects?.loudness.enabled ?? false,
+        targetLufs: effects?.loudness.targetLufs ?? -14,
+        mode: effects?.loudness.mode ?? 'track',
+      },
+      speed: this.#rate,
+    }
+    void this.#call((plugin) => plugin.setEffects?.(message) ?? Promise.resolve()).catch(
+      logFailure('setEffects'),
+    )
+  }
+
+  /** The stream of the entry the facade loaded last, if the engine knows it. */
+  #loadedStream(): StreamOption | undefined {
+    return this.#loaded === undefined ? undefined : this.#known.get(this.#loaded)?.stream
+  }
+
+  /**
+   * Reports what the effects do to `stream`: Media3 runs the equalizer on everything, and turns
+   * a loud track down (never up); without the native effects, whatever is on is unavailable.
+   */
+  #reportEffects(stream: StreamOption | undefined): void {
+    const effects = this.#effects
+    if (effects === undefined || this.#destroyed) return
+    const native = this.#plugin.setEffects !== undefined
+    let equalizer: AudioEffectsStatus['equalizer'] = 'off'
+    if (effects.equalizer.enabled) equalizer = native ? 'on' : 'unavailable'
+    let loudness: AudioEffectsStatus['loudness'] = 'off'
+    let gainDb = 0
+    if (effects.loudness.enabled) {
+      if (!native) loudness = 'unavailable'
+      else if (stream?.loudness === undefined) loudness = 'no-data'
+      else {
+        loudness = 'on'
+        gainDb = loudnessGainDb(stream.loudness, effects.loudness, { boost: false })
+      }
+    }
+    const key = `${equalizer}|${loudness}|${gainDb}`
+    if (key === this.#effectsReported) return
+    this.#effectsReported = key
+    this.#emit('effects', { equalizer, loudness, loudnessGainDb: gainDb })
   }
 
   #teardown(): void {
