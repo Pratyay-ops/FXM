@@ -42,7 +42,7 @@ Each one is one small seam here, and the swap is a line or two:
 
 | Stage | Seam | Until it is wired in | To wire it in |
 |---|---|---|---|
-| 1.4 stream resolver (built in parallel) | `SongResolver` (`resolver.ts`) | `unavailableResolver` until YouTube's code has loaded | Wired by the composition root (stage 2.9, `src/app/services/index.ts`): `setSongResolver(fromAudioSource(youtube.audio))` once YouTube's code has loaded, unless the fake mode set a resolver |
+| 1.4 stream resolver (built in parallel) | `SongResolver` (`resolver.ts`) | `unavailableResolver` until YouTube's code has loaded | Wired by the composition root (stage 2.9, `src/app/services/index.ts`): `setSongResolver(fromAudioSource(youtube.audio))` once YouTube's code has loaded, unless the fake mode set a resolver. That can be after Settings rendered, so the resolver is a store: Diagnostics reads it with `useSongResolver()` and renders again when it arrives |
 | 1.3 / 1.13 remote config | `setKillSwitchSource()` (`kill-switches.ts`) | No kill switches until YouTube's code has loaded | Wired by the composition root (2.9): the YouTube config's `killSwitches`, and `recheckConnection()` when the Lite switch changed |
 | 2.4 search | `ONBOARDING_URL` in `features/search/onboarding.tsx` | The landing page's "Get FXM" section | Point it at `/connect` |
 | Every provider user (2.4 sources, the player) | `getAppPlatform()` (`app-platform.ts`) | — | Wired by the composition root (2.9), which creates its services on it and puts it in the sources registry: one platform for the whole app. It is created with `reportLoginRequired: false`, since the stream ladder reports the bot checks itself |
