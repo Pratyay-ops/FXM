@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { MANIFEST_NAME, releaseFiles, TARGETS } from '../release/targets.ts'
-import { THROWAWAY_SUBJECT } from '../release/windows-signing.ts'
+import { THROWAWAY_SUBJECT, type WindowsSigning } from '../release/windows-signing.ts'
 
 // Checks the desktop app's release workflow (.github/workflows/desktop-release.yml), how
 // release.yml and desktop.yml call it, and R.1's release catalog against release/targets.ts. The
@@ -57,6 +57,187 @@ const jobIds = (source: string): string[] =>
 /** The actions a job uses, without their versions. */
 const actionsOf = (jobText: string) =>
   [...code(jobText).matchAll(/uses: ([\w.-]+\/[\w.-]+)@/g)].map(([, action]) => action)
+
+// --- GitHub's rules for which jobs run ---------------------------------------------------------
+
+/** A value of a GitHub Actions expression. */
+type Value = string | number | boolean | null
+
+/** Whether GitHub takes a value as true: anything but false, 0, '', null and NaN. */
+const truthy = (value: Value) =>
+  value !== false && value !== null && value !== '' && value !== 0 && !Number.isNaN(value)
+
+/**
+ * Evaluates a GitHub Actions expression (GitHub's docs, "Evaluate expressions in workflows and
+ * actions"): literals, contexts, calls without arguments, `!`, `==`, `!=`, `&&`, `||` and
+ * parentheses, in that order of precedence. Strings compare without case, values of different
+ * types as numbers.
+ */
+function evaluate(
+  expression: string,
+  context: (path: string) => Value,
+  call: (name: string) => Value,
+): Value {
+  const tokens =
+    expression.match(/'(?:[^']|'')*'|&&|\|\||[!=]=|[!()]|[A-Za-z_][\w.-]*(?:\(\))?|\S+/g) ?? []
+  let at = 0
+  function take(expected?: string): string {
+    const token = tokens[at++]
+    if (token === undefined || (expected !== undefined && token !== expected)) {
+      throw new Error(`${expression}: expected ${expected ?? 'more'}, got ${token ?? 'the end'}`)
+    }
+    return token
+  }
+  const number = (value: Value) => (value === null ? 0 : Number(value))
+  function equal(a: Value, b: Value): boolean {
+    if (typeof a === 'string' && typeof b === 'string') return a.toLowerCase() === b.toLowerCase()
+    return typeof a === typeof b ? a === b : number(a) === number(b)
+  }
+  function primary(): Value {
+    const token = take()
+    if (token === '(') {
+      const value = or()
+      take(')')
+      return value
+    }
+    if (token === '!') return !truthy(primary())
+    if (token.startsWith("'")) return token.slice(1, -1).replaceAll("''", "'")
+    if (token === 'true' || token === 'false') return token === 'true'
+    if (token === 'null') return null
+    if (token.endsWith('()')) return call(token.slice(0, -2))
+    if (/^[A-Za-z_]/.test(token)) return context(token)
+    throw new Error(`${expression}: unexpected ${token}`)
+  }
+  function comparison(): Value {
+    let left = primary()
+    while (tokens[at] === '==' || tokens[at] === '!=') {
+      const differ = take() === '!='
+      left = equal(left, primary()) !== differ
+    }
+    return left
+  }
+  function and(): Value {
+    let left = comparison()
+    while (tokens[at] === '&&') {
+      take()
+      const right = comparison()
+      left = truthy(left) ? right : left
+    }
+    return left
+  }
+  function or(): Value {
+    let left = and()
+    while (tokens[at] === '||') {
+      take()
+      const right = and()
+      left = truthy(left) ? left : right
+    }
+    return left
+  }
+  const value = or()
+  if (at < tokens.length) throw new Error(`${expression}: unexpected ${tokens[at]}`)
+  return value
+}
+
+/** A job's `if`, its folded lines joined, without `${{ }}`; undefined without one. */
+function jobCondition(jobText: string): string | undefined {
+  const match = /^ {4}if: (?:>-\n((?: {6}.+\n)+)|(.+)\n)/m.exec(jobText)
+  if (!match) return undefined
+  const text =
+    match[1] === undefined
+      ? (match[2] ?? '')
+      : match[1]
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .join(' ')
+  return /^\$\{\{ (.*) \}\}$/s.exec(text)?.[1] ?? text
+}
+
+/** What decides whether a job runs: its needs and its `if`. */
+interface JobSpec {
+  readonly id: string
+  readonly needs: readonly string[]
+  readonly condition: string | undefined
+}
+
+/** A workflow's jobs, in order, with their needs and conditions. */
+function jobSpecs(source: string): JobSpec[] {
+  return jobIds(source).map((id) => {
+    const text = job(source, id)
+    const needs = /^ {4}needs: (.+)$/m.exec(text)?.[1] ?? ''
+    return {
+      id,
+      needs: needs
+        .replace(/^\[|\]$/g, '')
+        .split(',')
+        .map((need) => need.trim())
+        .filter(Boolean),
+      condition: jobCondition(text),
+    }
+  })
+}
+
+type JobResult = 'success' | 'failure' | 'skipped'
+
+/** How a simulated run goes. */
+interface Run {
+  /** The outputs of each job that succeeds. */
+  readonly outputs?: Readonly<Record<string, Readonly<Record<string, string>>>>
+  /** The jobs that fail if they run. */
+  readonly failing?: readonly string[]
+  readonly cancelled?: boolean
+}
+
+/**
+ * Which jobs of a workflow run, by GitHub's rules (GitHub's docs, "Using jobs in a workflow" and
+ * "Evaluate expressions in workflows and actions"): a job runs when its `if` holds, where an `if`
+ * that calls no status function means `success() && (if)`, and no `if` means `success()`. For a
+ * job, success() holds only when every job before it succeeded, the needs of its needs included,
+ * so a job skipped anywhere before skips it, even after a job that ran anyway
+ * (actions/runner#491). The `needs` context holds the job's own needs alone.
+ */
+function simulate(jobs: readonly JobSpec[], run: Run = {}): Record<string, JobResult> {
+  const results: Record<string, JobResult> = {}
+  const needsOf = new Map(jobs.map(({ id, needs }) => [id, needs]))
+  const before = (id: string): string[] => [
+    ...new Set((needsOf.get(id) ?? []).flatMap((need) => [need, ...before(need)])),
+  ]
+  for (const { id, needs, condition = 'success()' } of jobs) {
+    const earlier = before(id).map((other) => {
+      const result = results[other]
+      if (result === undefined) throw new Error(`${id} needs ${other}, which doesn't come first`)
+      return result
+    })
+    const status: Readonly<Record<string, boolean>> = {
+      always: true,
+      cancelled: run.cancelled === true,
+      success: run.cancelled !== true && earlier.every((result) => result === 'success'),
+      failure: earlier.includes('failure'),
+    }
+    const context = (path: string): Value => {
+      const [name, need = '', field, output] = path.split('.')
+      if (name === 'needs' && needs.includes(need)) {
+        if (field === 'result') return results[need] ?? null
+        if (field === 'outputs' && output !== undefined) {
+          return results[need] === 'success' ? (run.outputs?.[need]?.[output] ?? '') : ''
+        }
+      }
+      throw new Error(`${id}'s if reads ${path}, which this model doesn't know`)
+    }
+    const call = (name: string): Value => {
+      const value = status[name]
+      if (value === undefined) throw new Error(`${id}'s if calls ${name}()`)
+      return value
+    }
+    const explicit = /\b(?:success|failure|cancelled|always)\(\)/.test(condition)
+    const runs = truthy(
+      evaluate(explicit ? condition : `success() && (${condition})`, context, call),
+    )
+    results[id] = !runs ? 'skipped' : run.failing?.includes(id) ? 'failure' : 'success'
+  }
+  return results
+}
 
 /** The Windows jobs, in the order they run. */
 const WINDOWS_JOBS = [
@@ -227,6 +408,11 @@ describe('desktop-release.yml', () => {
       '[check, windows-build, windows-sign-app, windows-sign-installers]',
     )
     expect(needs('sign')).toBe('[check, build, windows-check]')
+    // A condition of its own, without which GitHub would skip it after the jobs that a release
+    // without a certificate skips (the simulated runs below).
+    expect(jobCondition(job(workflow, 'sign'))).toBe(
+      "!cancelled() && needs.check.result == 'success' && needs.build.result == 'success' && needs.windows-check.result == 'success'",
+    )
     // Without a certificate, a release skips bundling and signing again...
     for (const id of ['windows-bundle', 'windows-sign-installers']) {
       expect(job(workflow, id)).toContain("if: needs.windows-sign-app.outputs.signing != 'none'")
@@ -388,6 +574,66 @@ describe('desktop-release.yml', () => {
       'for package in gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav',
     )
     expect(workflow).toContain('apps/desktop/release/gstreamer-check.sh')
+  })
+})
+
+describe('which jobs of desktop-release.yml run, by GitHub’s rules for needs and if', () => {
+  const jobs = jobSpecs(workflow)
+  /** A run in which windows-sign-app chooses how to sign. */
+  const signing = (how: WindowsSigning): Run => ({
+    outputs: { 'windows-sign-app': { signing: how, thumbprint: '0'.repeat(40) } },
+  })
+
+  it('follows GitHub: a job skipped anywhere before skips a job whose if calls no status function', () => {
+    // actions/runner#491: b runs anyway, and c, which needs b alone, is skipped all the same.
+    const chain: JobSpec[] = [
+      { id: 'a', needs: [], condition: 'false' },
+      { id: 'b', needs: ['a'], condition: 'always()' },
+      { id: 'c', needs: ['b'], condition: undefined },
+      { id: 'd', needs: ['b'], condition: "!cancelled() && needs.b.result == 'success'" },
+    ]
+    expect(simulate(chain)).toEqual({ a: 'skipped', b: 'success', c: 'skipped', d: 'success' })
+  })
+
+  it('runs every job of a dry run, and of a release with a certificate', () => {
+    for (const how of ['throwaway', 'certificate'] as const) {
+      const results = simulate(jobs, signing(how))
+      expect(Object.keys(results)).toEqual(jobIds(workflow))
+      expect(new Set(Object.values(results)), how).toEqual(new Set(['success']))
+    }
+  })
+
+  it('signs the updates of a release without a Windows certificate, unsigned installers included', () => {
+    // So does a dry run with windows-unsigned, for which windows-sign-app chooses none too.
+    expect(simulate(jobs, signing('none'))).toEqual({
+      check: 'success',
+      build: 'success',
+      'windows-build': 'success',
+      'windows-sign-app': 'success',
+      'windows-bundle': 'skipped',
+      'windows-sign-installers': 'skipped',
+      'windows-check': 'success',
+      sign: 'success',
+    })
+    // Without its condition, GitHub would skip it there, and release.yml would publish nothing.
+    const implicit = jobs.map((spec) =>
+      spec.id === 'sign' ? { ...spec, condition: undefined } : spec,
+    )
+    expect(simulate(implicit, signing('none')).sign).toBe('skipped')
+  })
+
+  it('signs no update once a job before it fails, or the run is cancelled', () => {
+    for (const how of ['certificate', 'none'] as const) {
+      const ran = Object.entries(simulate(jobs, signing(how)))
+        .filter(([id, result]) => id !== 'sign' && result === 'success')
+        .map(([id]) => id)
+      expect(ran.length, how).toBeGreaterThan(4)
+      for (const failing of ran) {
+        const results = simulate(jobs, { ...signing(how), failing: [failing] })
+        expect(results.sign, `${failing} fails (${how})`).toBe('skipped')
+      }
+      expect(simulate(jobs, { ...signing(how), cancelled: true }).sign, how).toBe('skipped')
+    }
   })
 })
 
