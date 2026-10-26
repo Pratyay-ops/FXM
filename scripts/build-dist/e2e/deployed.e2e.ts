@@ -83,10 +83,33 @@ for (const path of ['/app/', '/embed/', '/%61pp/']) {
 
 /**
  * The attribute 1.10's documents set on their `<html>` once their script listens for the page
- * (SANDBOX_MARKER_ATTRIBUTE in packages/platform/src/sandbox). It tells a document that ignores
- * a message from one whose script never ran. 1.10's integration keeps the two in sync.
+ * (SANDBOX_MARKER_ATTRIBUTE in packages/platform/src/sandbox/document.ts). It tells a document
+ * that ignores a message from one whose script never ran. Keep it, and the protocol below, the
+ * same as there: the protocol stays inside @fxm/platform, so these checks don't import it.
  */
 const SANDBOX_MARKER = 'data-fxm-sandbox'
+
+/**
+ * A token as the app's transport puts one in a document's URL fragment (SANDBOX_TOKEN_PATTERN).
+ * Without one a document's script serves nobody, and the checks below would prove nothing.
+ */
+const SANDBOX_TOKEN = '00112233445566778899aabbccddeeff'
+
+/**
+ * What the app's transport sends a document (SANDBOX_MESSAGE and SANDBOX_PROTOCOL): `connect`,
+ * which carries a port, then requests. A document takes them only from FXM's page.
+ */
+const SANDBOX_MESSAGES = [
+  { type: 'fxm-sandbox:connect', protocol: 2 },
+  {
+    type: 'fxm-sandbox:request',
+    id: '1',
+    url: 'https://www.youtube.com/youtubei/v1/search?prettyPrint=false',
+    method: 'POST',
+    headers: {},
+    body: '{}',
+  },
+]
 
 /** The InnerTube hosts innertube.html may reach, each answered by the test. */
 const INNERTUBE_HOSTS = [
@@ -135,13 +158,20 @@ async function frameFromElsewhere(
   return { frame, close }
 }
 
-/** Posts messages to the page's frame and returns whatever comes back within 1.5 s. */
+/**
+ * Posts messages to the page's frame, each with a port as `connect` carries one, and returns
+ * whatever comes back within 1.5 s, to the page or on a port.
+ */
 async function repliesTo(page: Page, messages: readonly unknown[]): Promise<unknown[]> {
   return page.evaluate(async (messages) => {
     const target = document.querySelector('iframe')?.contentWindow
     const received: unknown[] = []
     addEventListener('message', (event) => received.push(event.data))
-    for (const message of messages) target?.postMessage(message, '*')
+    for (const message of messages) {
+      const { port1, port2 } = new MessageChannel()
+      port1.onmessage = (event) => received.push(event.data)
+      target?.postMessage(message, '*', [port2])
+    }
     await new Promise((wait) => setTimeout(wait, 1500))
     return received
   }, messages)
@@ -199,11 +229,11 @@ test.describe('sandbox documents', () => {
       const { frame, close } = await frameFromElsewhere(
         page,
         baseURL as string,
-        `/sandbox/${name}.html`,
+        `/sandbox/${name}.html#${SANDBOX_TOKEN}`,
       )
       try {
         // The document itself, after Pages' redirect to the extension-less path, not an error page.
-        expect(frame.url()).toBe(new URL(`/sandbox/${name}`, baseURL).href)
+        expect(frame.url()).toBe(new URL(`/sandbox/${name}#${SANDBOX_TOKEN}`, baseURL).href)
         expect(await frame.evaluate(() => self.origin)).toBe('null')
         expect(
           await frame.evaluate(
@@ -212,12 +242,7 @@ test.describe('sandbox documents', () => {
           ),
           'the document script ran',
         ).toBe(true)
-        // TODO(1.10 integration): post the transport's real request messages here.
-        const replies = await repliesTo(page, [
-          { type: 'ping' },
-          { id: 1, method: 'POST', url: 'https://www.youtube.com/' },
-        ])
-        expect(replies).toEqual([])
+        expect(await repliesTo(page, [{ type: 'ping' }, ...SANDBOX_MESSAGES])).toEqual([])
       } finally {
         await close()
       }
@@ -233,10 +258,13 @@ test.describe('sandbox documents', () => {
         !(await deployed(page, '/sandbox/innertube')),
         'no sandbox documents deployed yet (1.10)',
       )
-      const { frame, close } = await frameFromElsewhere(page, baseURL as string, path)
+      const url = `${path}#${SANDBOX_TOKEN}`
+      const { frame, close } = await frameFromElsewhere(page, baseURL as string, url)
       try {
-        expect(frame.url()).toBe(new URL(path, baseURL).href)
+        expect(frame.url()).toBe(new URL(url, baseURL).href)
         expect(await frame.title()).toMatch(/\S/)
+        // No rule, so no sandbox policy: the document runs with FXM's origin.
+        expect(await frame.evaluate(() => self.origin)).toBe(new URL(baseURL as string).origin)
         expect(
           await frame.evaluate(
             (marker) => document.documentElement.hasAttribute(marker),
@@ -244,7 +272,7 @@ test.describe('sandbox documents', () => {
           ),
           'the document script started listening',
         ).toBe(false)
-        expect(await repliesTo(page, [{ type: 'ping' }])).toEqual([])
+        expect(await repliesTo(page, [{ type: 'ping' }, ...SANDBOX_MESSAGES])).toEqual([])
       } finally {
         await close()
       }
