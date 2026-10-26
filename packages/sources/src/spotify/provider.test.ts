@@ -829,6 +829,166 @@ describe('library (logged in)', () => {
     })
   })
 
+  it('reads the user name and display name, with the account token, and caches them', async () => {
+    const clock = fakeClock()
+    const { provider, spotify } = setup({
+      spotify: {
+        clock,
+        graphql: {
+          profileAttributes: () =>
+            json({ data: { me: { profile: { name: 'Fixture User', username: 'fixture-user' } } } }),
+        },
+      },
+      provider: withAccount(loggedIn(clock)),
+    })
+    const ctx = accountContext(spotify)
+    expect(await provider.getAccountProfile(ctx)).toEqual({
+      username: 'fixture-user',
+      displayName: 'Fixture User',
+    })
+    expect(await provider.status(ctx)).toEqual({ connected: true, displayName: 'Fixture User' })
+    const calls = spotify.callsOf('graphql', 'profileAttributes')
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.token).toBe('account-token')
+    expect(calls[0]?.variables).toEqual({})
+    const missing = setup({
+      spotify: { clock, graphql: { profileAttributes: () => json({ data: { me: null } }) } },
+      provider: withAccount(loggedIn(clock)),
+    })
+    expectReason(
+      await failure(missing.provider.getAccountProfile(accountContext(missing.spotify))),
+      'bad-response',
+    )
+  })
+
+  it("lists saved playlists with their revision, and reads one's pages with the account", async () => {
+    const clock = fakeClock()
+    const uri = 'spotify:playlist:37i9dQZF1E8OvD4G5pVGhr'
+    const { provider, spotify } = setup({
+      spotify: {
+        clock,
+        graphql: {
+          libraryV3: () =>
+            json({
+              data: {
+                me: {
+                  libraryV3: {
+                    __typename: 'LibraryPage',
+                    totalCount: 51,
+                    items: [
+                      {
+                        item: {
+                          __typename: 'PlaylistResponseWrapper',
+                          _uri: uri,
+                          data: {
+                            ...fixtures.playlistRadio.data.playlistV2,
+                            revisionId: 'AAAAB2fixture-revision',
+                            content: undefined,
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            }),
+          fetchPlaylist: () =>
+            json({
+              data: {
+                playlistV2: {
+                  ...fixtures.playlistRadio.data.playlistV2,
+                  revisionId: 'AAAAB2fixture-revision',
+                },
+              },
+            }),
+        },
+      },
+      provider: withAccount(loggedIn(clock)),
+    })
+    const ctx = accountContext(spotify)
+    const saved = await provider.getLibraryPlaylists({}, ctx)
+    expect(saved.items.map(({ playlist, revisionId }) => [playlist.id, revisionId])).toEqual([
+      [creepRadio, 'AAAAB2fixture-revision'],
+    ])
+    expect(saved.nextCursor).toBe('50')
+    const page = await provider.getLibraryPlaylistTracks(creepRadio, { cursor: '100' }, ctx)
+    expect(page.revisionId).toBe('AAAAB2fixture-revision')
+    expect(page.tracks.items.map((track) => track.title)).toHaveLength(3)
+    expect(page.tracks.total).toBe(50)
+    const [call] = spotify.callsOf('graphql', 'fetchPlaylist')
+    expect(call?.token).toBe('account-token')
+    expect(call?.variables).toEqual({
+      uri,
+      offset: 100,
+      limit: 100,
+      enableWatchFeedEntrypoint: false,
+      includeEpisodeContentRatingsV2: false,
+    })
+    // Never cached: a sync wants what Spotify holds now.
+    await provider.getLibraryPlaylistTracks(creepRadio, { cursor: '100' }, ctx)
+    expect(spotify.callsOf('graphql', 'fetchPlaylist')).toHaveLength(2)
+  })
+
+  it("reads a playlist's pages only with a connected account", async () => {
+    const { provider, ctx } = setup()
+    expectReason(
+      await failure(provider.getLibraryPlaylistTracks(creepRadio, {}, ctx)),
+      'account-unsupported',
+    )
+    const clock = fakeClock()
+    const gone = setup({
+      spotify: {
+        clock,
+        graphql: {
+          fetchPlaylist: () => json({ data: { playlistV2: { __typename: 'NotFound' } } }),
+        },
+      },
+      provider: withAccount(loggedIn(clock)),
+    })
+    expectReason(
+      await failure(
+        gone.provider.getLibraryPlaylistTracks(creepRadio, {}, accountContext(gone.spotify)),
+      ),
+      'not-found',
+    )
+    expectReason(
+      await failure(
+        gone.provider.getLibraryPlaylistTracks(
+          'spotify:album:x' as unknown as EntityId<'playlist'>,
+          {},
+          accountContext(gone.spotify),
+        ),
+      ),
+      'foreign-id',
+    )
+  })
+
+  it('reads the personal home only with the account, never the generic one', async () => {
+    const clock = fakeClock()
+    const { provider, spotify } = setup({
+      spotify: { clock },
+      provider: withAccount(loggedIn(clock)),
+    })
+    const ctx = accountContext(spotify)
+    const shelves = await provider.getAccountHome(ctx)
+    expect(shelves.length).toBeGreaterThan(0)
+    expect(spotify.callsOf('graphql', 'home').map((c) => c.token)).toEqual(['account-token'])
+    // The same cache as the personal feed of home().
+    await provider.home(ctx)
+    expect(spotify.callsOf('graphql', 'home')).toHaveLength(1)
+    const loggedOut = setup({
+      spotify: { clock },
+      provider: withAccount({ requestToken: async () => ({ status: 401, json: null }) }),
+    })
+    expectReason(
+      await failure(loggedOut.provider.getAccountHome(accountContext(loggedOut.spotify))),
+      'login-required',
+    )
+    expect(loggedOut.spotify.callsOf('graphql', 'home')).toHaveLength(0)
+    const { provider: anonymous, ctx: anonymousCtx } = setup()
+    expectReason(await failure(anonymous.getAccountHome(anonymousCtx)), 'account-unsupported')
+  })
+
   it('needs a login source and a connected account', async () => {
     const { provider, ctx } = setup()
     expectReason(await failure(provider.getLibraryTracks({}, ctx)), 'account-unsupported')

@@ -55,6 +55,33 @@ export interface SpotifyLikedTrack {
   addedAt?: string
 }
 
+/** A playlist in the user's library, with what a sync needs to tell whether it changed. */
+export interface SpotifyLibraryPlaylist {
+  /** The playlist: name, owner, description, artwork and track count. */
+  playlist: Playlist
+  /**
+   * Spotify's revision of the playlist, an opaque string that changes whenever its tracks, their
+   * order or its details change. Absent when Spotify sends none.
+   */
+  revisionId?: string
+}
+
+/** One page of a playlist's tracks, read with the user's account. */
+export interface SpotifyPlaylistPage {
+  /** The page of tracks. */
+  tracks: Page<Track>
+  /** The playlist's revision when this page was read (see {@link SpotifyLibraryPlaylist}). */
+  revisionId?: string
+}
+
+/** Who is logged in, as `profileAttributes` says. */
+export interface SpotifyAccountProfile {
+  /** The account's user name: it never changes, unlike the display name. */
+  username?: string
+  /** The display name, when the account has one. */
+  displayName?: string
+}
+
 // --- Safe accessors ---------------------------------------------------------------------
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -572,11 +599,26 @@ export function mapLibraryTrack(item: unknown): SpotifyLikedTrack | undefined {
   })
 }
 
-/** A playlist from a `libraryV3` item: `{ item: { _uri, data: { __typename: 'Playlist' } } }`. */
-export function mapLibraryPlaylist(item: unknown): Playlist | undefined {
+/** A revision ID: a short opaque string, or `undefined`. */
+export function revisionOf(value: unknown): string | undefined {
+  const revision = text(value)
+  return revision !== undefined && revision.length <= 256 ? revision : undefined
+}
+
+/**
+ * A playlist from a `libraryV3` item: `{ item: { _uri, data: { __typename: 'Playlist',
+ * revisionId, currentUserCapabilities } } }`. Like Spotify's own player, it leaves out a
+ * playlist whose revision is `null` or that the user may not view: its tracks can't be read.
+ * Folders, albums, artists and the user's episodes are not playlists, so they are left out too.
+ */
+export function mapLibraryPlaylist(item: unknown): SpotifyLibraryPlaylist | undefined {
   const wrapper = at(item, 'item')
   const data = at(wrapper, 'data')
-  return isRecord(data) ? mapPlaylist({ uri: at(wrapper, '_uri'), ...data }) : undefined
+  if (!isRecord(data) || data.revisionId === null) return undefined
+  if (at(data, 'currentUserCapabilities', 'canView') === false) return undefined
+  const playlist = mapPlaylist({ uri: at(wrapper, '_uri'), ...data })
+  if (!playlist) return undefined
+  return defined<SpotifyLibraryPlaylist>({ playlist, revisionId: revisionOf(data.revisionId) })
 }
 
 /**
@@ -604,18 +646,27 @@ export function mapLibraryPlaylists(
   data: unknown,
   offset: number,
   limit: number,
-): Page<Playlist> | undefined {
+): Page<SpotifyLibraryPlaylist> | undefined {
   const page = at(data, 'me', 'libraryV3')
   if (text(at(page, '__typename')) !== 'LibraryPage') return undefined
   const items = list(at(page, 'items'))
     .map(mapLibraryPlaylist)
-    .filter((playlist): playlist is Playlist => playlist !== undefined)
+    .filter((playlist): playlist is SpotifyLibraryPlaylist => playlist !== undefined)
   return pageOf(items, offset, limit, count(at(page, 'totalCount')))
 }
 
-/** The display name in a `profileAttributes` answer (`me.profile.name`). */
-export function mapProfileName(data: unknown): string | undefined {
-  return text(at(data, 'me', 'profile', 'name'))
+/**
+ * Who is logged in, from a `profileAttributes` answer (`me.profile`: `username`, `name`), or
+ * `undefined` when the answer has no profile.
+ */
+export function mapProfile(data: unknown): SpotifyAccountProfile | undefined {
+  const profile = at(data, 'me', 'profile')
+  if (!isRecord(profile)) return undefined
+  const username = text(profile.username)
+  return defined<SpotifyAccountProfile>({
+    username: username !== undefined && username.length <= 256 ? username : undefined,
+    displayName: text(profile.name),
+  })
 }
 
 /**

@@ -10,7 +10,7 @@ import {
   mapLibraryPlaylists,
   mapLibraryTracks,
   mapPlaylist,
-  mapProfileName,
+  mapProfile,
   mapRelatedArtists,
   mapSearch,
   mapShelfItem,
@@ -19,6 +19,7 @@ import {
   pageOf,
   plainText,
   radioPlaylistId,
+  revisionOf,
   unionOf,
 } from './mapping'
 
@@ -378,28 +379,46 @@ describe('library answers (shaped after the web player, not recorded)', () => {
     )
   })
 
-  it('maps saved playlists and leaves out folders', () => {
+  it('maps saved playlists with their revision, and leaves out what can not be read', () => {
+    const playlist = (uri: string, data: Record<string, unknown>) => ({
+      item: {
+        __typename: 'PlaylistResponseWrapper',
+        _uri: uri,
+        data: {
+          __typename: 'Playlist',
+          uri,
+          images: { items: [] },
+          currentUserCapabilities: { canView: true, canEditItems: false },
+          ...data,
+        },
+      },
+    })
     const page = mapLibraryPlaylists(
       {
         me: {
           libraryV3: {
             __typename: 'LibraryPage',
-            totalCount: 2,
+            totalCount: 6,
             items: [
-              {
-                item: {
-                  __typename: 'PlaylistResponseWrapper',
-                  _uri: 'spotify:playlist:37i9dQZF1E8OvD4G5pVGhr',
-                  data: {
-                    __typename: 'Playlist',
-                    name: 'Mine',
-                    ownerV2: {
-                      data: { __typename: 'User', name: 'Fixture User', username: 'fixture-user' },
-                    },
-                    images: { items: [] },
-                  },
+              playlist('spotify:playlist:37i9dQZF1E8OvD4G5pVGhr', {
+                name: 'Mine',
+                revisionId: 'AAAAB2fixture-revision',
+                ownerV2: {
+                  data: { __typename: 'User', name: 'Fixture User', username: 'fixture-user' },
                 },
-              },
+              }),
+              // Spotify's own player leaves these two out: no revision, or not viewable.
+              playlist('spotify:playlist:0000000000000000000001', {
+                name: 'Gone',
+                revisionId: null,
+              }),
+              playlist('spotify:playlist:0000000000000000000002', {
+                name: 'Hidden',
+                revisionId: 'AAAA',
+                currentUserCapabilities: { canView: false },
+              }),
+              // An older shape without a revision still counts.
+              playlist('spotify:playlist:0000000000000000000003', { name: 'Older' }),
               {
                 item: {
                   __typename: 'FolderResponseWrapper',
@@ -407,6 +426,7 @@ describe('library answers (shaped after the web player, not recorded)', () => {
                   data: {},
                 },
               },
+              playlist('spotify:user:x:collection:your-episodes', { name: 'Your Episodes' }),
             ],
           },
         },
@@ -414,16 +434,35 @@ describe('library answers (shaped after the web player, not recorded)', () => {
       0,
       50,
     )
-    expect(page?.items.map((p) => [p.name, p.owner?.id])).toEqual([['Mine', 'fixture-user']])
-    expect(page?.total).toBe(2)
+    expect(
+      page?.items.map(({ playlist: p, revisionId }) => [p.name, p.owner?.id, revisionId]),
+    ).toEqual([
+      ['Mine', 'fixture-user', 'AAAAB2fixture-revision'],
+      ['Older', undefined, undefined],
+    ])
+    expect(page?.items[1]).not.toHaveProperty('revisionId')
+    expect(page?.total).toBe(6)
     expect(mapLibraryPlaylists({ me: { libraryV3: { __typename: 'NotFound' } } }, 0, 50)).toBe(
       undefined,
     )
   })
 
-  it('reads the display name of profileAttributes', () => {
-    expect(mapProfileName({ me: { profile: { name: 'Fixture User' } } })).toBe('Fixture User')
-    expect(mapProfileName({ me: null })).toBeUndefined()
+  it('reads revisions only as short strings', () => {
+    expect(revisionOf('AAAAB2')).toBe('AAAAB2')
+    expect(revisionOf('')).toBeUndefined()
+    expect(revisionOf(42)).toBeUndefined()
+    expect(revisionOf('x'.repeat(257))).toBeUndefined()
+  })
+
+  it('reads the user name and display name of profileAttributes', () => {
+    expect(
+      mapProfile({ me: { profile: { name: 'Fixture User', username: 'fixture-user' } } }),
+    ).toEqual({ username: 'fixture-user', displayName: 'Fixture User' })
+    expect(mapProfile({ me: { profile: { name: 'Fixture User' } } })).toEqual({
+      displayName: 'Fixture User',
+    })
+    expect(mapProfile({ me: { profile: { username: 'x'.repeat(257) } } })).toEqual({})
+    expect(mapProfile({ me: null })).toBeUndefined()
   })
 })
 

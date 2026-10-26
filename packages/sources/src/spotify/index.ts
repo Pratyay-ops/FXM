@@ -53,8 +53,11 @@ export {
   spotifyUri,
 } from './ids'
 export type {
+  SpotifyAccountProfile,
   SpotifyHomeSectionPage,
+  SpotifyLibraryPlaylist,
   SpotifyLikedTrack,
+  SpotifyPlaylistPage,
   SpotifyTrackDetails,
 } from './mapping'
 export {
