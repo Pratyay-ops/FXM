@@ -250,10 +250,11 @@ notes=$work/notes.md
 "$here/release-notes.sh" "$version" >"$notes"
 
 body=$work/pull-request.md
+# Each paragraph is one line: GitHub keeps the line breaks of a pull request body.
 {
-  echo "Merging this pull request with a merge commit releases FXM $tag: the release workflow"
-  echo "tags the merge commit, builds the release files and publishes the GitHub Release with"
-  echo "the notes below. Afterwards, merge main back into develop."
+  echo "Merging this pull request with a merge commit releases FXM $tag: the release workflow" \
+    "tags the merge commit, builds the release files and publishes the GitHub Release with" \
+    "the notes below. Afterwards, merge main back into develop."
   echo
   echo "---"
   echo

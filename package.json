@@ -1,6 +1,6 @@
 {
   "name": "fxm",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "FXM (Free Cross-platform Media): free, open-source music player for web, PWA and Android",
   "license": "Apache-2.0",
