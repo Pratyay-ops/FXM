@@ -116,6 +116,15 @@ export interface YouTubeSeedAdapters {
 }
 
 /**
+ * What YouTube Music's radio starts from (see {@link youtubeRadioStart}): `seed`, and for a track
+ * of another source (Spotify, Internet Archive, a music file...) `matchedFrom`, that track, of
+ * which `seed` is the YouTube Music song the `youtubeSeed` adapter found.
+ */
+export type YouTubeRadioStart =
+  | { readonly seed: RadioSeed; readonly matchedFrom?: undefined }
+  | { readonly seed: Track; readonly matchedFrom: Track }
+
+/**
  * What to seed YouTube Music's radio with, or `null` when there is nothing it can start from.
  *
  * - **Music mode** (and any unknown mode): radio from a video drifts into videos, so an official
@@ -125,13 +134,15 @@ export interface YouTubeSeedAdapters {
  *   song.
  * - A seed YouTube Music radio cannot start from as it is (see {@link isYouTubeRadioSeed}), such
  *   as a Spotify or Internet Archive track or a Last.fm artist, goes to `adapters.youtubeSeed`,
- *   and its answer is checked by the same rules.
+ *   and its answer is checked by the same rules. A track's answer must be a track, and comes
+ *   with `matchedFrom`: the collector keeps its radio only when it is the track's own song and
+ *   its radio follows the track.
  */
-export async function youtubeRadioSeed(
+export async function youtubeRadioStart(
   seed: RecommendationSeed,
   ctx: ProviderContext,
   adapters: YouTubeSeedAdapters = {},
-): Promise<RadioSeed | null> {
+): Promise<YouTubeRadioStart | null> {
   const music = isMusicMode(ctx.mode)
   let start: RecommendationSeed = seed
   if (isTrackSeed(seed)) {
@@ -150,8 +161,19 @@ export async function youtubeRadioSeed(
     }
   }
   const mode: CatalogMode = music ? 'music' : 'all'
-  if (isYouTubeRadioSeed(start, mode)) return start
+  if (isYouTubeRadioSeed(start, mode)) return { seed: start }
   if (adapters.youtubeSeed === undefined) return null
   const found = await adapters.youtubeSeed(start, ctx)
-  return found !== null && isYouTubeRadioSeed(found, mode) ? found : null
+  if (found === null || !isYouTubeRadioSeed(found, mode)) return null
+  if (!isTrackSeed(start)) return { seed: found }
+  return isTrackSeed(found) ? { seed: found, matchedFrom: start } : null
+}
+
+/** The seed of {@link youtubeRadioStart} alone, or `null` when there is nothing to start from. */
+export async function youtubeRadioSeed(
+  seed: RecommendationSeed,
+  ctx: ProviderContext,
+  adapters: YouTubeSeedAdapters = {},
+): Promise<RadioSeed | null> {
+  return (await youtubeRadioStart(seed, ctx, adapters))?.seed ?? null
 }
