@@ -409,16 +409,6 @@ const NOT_FROM_THE_PAGE: Readonly<Record<string, string>> = {
   'itunes.apple.com': 'iTunes Search, which no web client calls',
 }
 
-/**
- * Host-table rows wider than what the app reads by name. The app reads YouTube's covers from
- * `yt3.ggpht.com`, the ggpht host measured to allow it (`appConnect`), while the table lets the
- * page send any `*.ggpht.com` host; the table is to list `yt3.ggpht.com` instead
- * (packages/platform/src/hosts.ts), and this entry then goes.
- */
-const NARROWER_IN_THE_POLICY: Readonly<Record<string, readonly string[]>> = {
-  '*.ggpht.com': ['https://yt3.ggpht.com'],
-}
-
 /** Whether a policy source such as `https://*.example.com` allows a host-table row's hosts. */
 function allowsRow(sources: readonly string[], host: string): boolean {
   return sources.some((source) => {
@@ -435,11 +425,6 @@ describe('the app policy and the platform’s host table', () => {
     for (const rule of HOST_RULES) {
       if (Object.hasOwn(NOT_FROM_THE_PAGE, rule.host)) {
         expect(allowsRow(connect, rule.host), rule.host).toBe(false)
-        continue
-      }
-      const narrower = NARROWER_IN_THE_POLICY[rule.host]
-      if (narrower !== undefined) {
-        for (const host of narrower) expect(connect, rule.host).toContain(host)
         continue
       }
       expect(allowsRow(connect, rule.host), `${rule.host} (${rule.hostClass})`).toBe(true)

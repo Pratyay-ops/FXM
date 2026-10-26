@@ -63,6 +63,8 @@ describe('classifyUrl', () => {
     ['a domain that only starts like a listed one', 'https://googlevideo.com.evil.example/x'],
     ['an unlisted sub-domain', 'https://m.youtube.com/youtubei/v1/search'],
     ['other Google user content', 'https://doc-0s-docs.googleusercontent.com/docs/x'],
+    // Not in the web app's connect-src, which allows yt3.ggpht.com alone.
+    ['another ggpht host', 'https://yt4.ggpht.com/abc=s120'],
     ['a Spotify host FXM has no use for', 'https://clienttoken.spotify.com/v1/clienttoken'],
     ['an unlisted parent domain', 'https://youtube.com/youtubei/v1/search'],
     ['a trailing dot', 'https://music.youtube.com./youtubei/v1/search'],
@@ -104,7 +106,7 @@ describe('the host table', () => {
       'itunes.apple.com': 'open',
       'sponsor.ajay.app': 'open',
       'i.ytimg.com': 'open',
-      '*.ggpht.com': 'open',
+      'yt3.ggpht.com': 'open',
       'lh3.googleusercontent.com': 'open',
       'yt3.googleusercontent.com': 'open',
       'i.scdn.co': 'open',
