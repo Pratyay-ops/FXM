@@ -56,7 +56,7 @@ embed/                  the embeddable player's page and entry (stage 5.2), buil
 e2e/                    Playwright smoke test, Now playing and SponsorBlock tests (with now-playing-seed.ts), local files test (with local-files-fixture.ts) and screenshot capture; fixtures/ holds a library backup to restore, embed/ the embeddable player's browser tests
 ```
 
-`src/embed/` is the embeddable player (stage 5.2): its own page under `/embed/`, which any site may frame, with a postMessage API. `src/features/share/` is the share dialog that copies its code; album and playlist pages open it. Both are described in [src/embed/README.md](src/embed/README.md).
+`src/embed/` is the embeddable player (stage 5.2): its own page under `/embed/`, which any site may frame, with a postMessage API. `src/features/share/` is the share dialog that copies its code; the "Share" entry of the album and playlist pages' "More options" menus opens it. Both are described in [src/embed/README.md](src/embed/README.md).
 
 Later stages own their feature folders (`features/search`, `features/now-playing`, `features/library`, …, see [PLAN.md](../../docs/PLAN.md)), so the shell rarely needs to change.
 

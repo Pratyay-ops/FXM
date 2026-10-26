@@ -2,7 +2,7 @@
 
 An `<iframe>` player for a track, an album or a playlist, served from FXM's site at `/embed/…` so that any website can show it. It plays YouTube through FXM Connect when the visitor has it, otherwise through the experimental Lite tier, otherwise free sources, with an install hint for what needs YouTube. Like the rest of FXM it runs entirely in the visitor's browser: FXM hosts static files only.
 
-The app's share dialog (`src/features/share/`) writes the code:
+The app's share dialog (`src/features/share/`), which the "Share" entry of an album's or a playlist's "More options" menu opens, writes the code:
 
 ```html
 <iframe title="FXM player: Pablo Honey" src="https://fxmusic.pages.dev/embed/album/ytm:MPREb_…" width="100%" height="380" style="border:0;border-radius:12px" allow="autoplay" loading="lazy"></iframe>
@@ -138,7 +138,7 @@ The browser tests serve the player with exactly that rule and check that it repo
 
 ## Touch-points with other stages
 
-Stage 5.2 started before 1.3, 1.4 and 1.6 were in its base (an early start). Everything it needs from them comes through `integration.ts` and `wired.ts`, behind interfaces the tests already drive with fakes. Until they are wired in, a built player says it can't play its content here, without contacting any service, and production builds of the app show no Share button (`canShare` in `features/share/share-store.ts`; development builds and the tests always show it, so the dialog can be tried).
+Stage 5.2 started before 1.3, 1.4 and 1.6 were in its base (an early start). Everything it needs from them comes through `integration.ts` and `wired.ts`, behind interfaces the tests already drive with fakes. Until they are wired in, a built player says it can't play its content here, without contacting any service, and production builds of the app offer no Share entry (`canShare` in `features/share/share-store.ts`; development builds and the tests always offer it, so the dialog can be tried).
 
 | Touch-point | Stage | Wire in |
 |---|---|---|
@@ -184,4 +184,4 @@ FXM_SCREENSHOTS=1 scripts/run.sh pnpm --filter @fxm/web e2e:embed               
 - **Wiring the real providers** (above) once 1.3, 1.4 and 1.6 are in the player's base, and the build in 2.8's `embedPart`. youtubei.js loads lazily in its own chunk (about 800 KB, 1.3's README), which a YouTube player then loads too.
 - **Spotify** tracks, albums and playlists: they need FXM Connect, the Spotify provider (1.5) and the matching engine.
 - **Long playlists** play their first page.
-- **The site's `AVAILABLE.embed`** stays off until a deployed player plays real songs, and so does the app's Share button in production builds (`canShare`).
+- **The site's `AVAILABLE.embed`** stays off until a deployed player plays real songs, and so does the app's Share entry in production builds (`canShare`).

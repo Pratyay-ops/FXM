@@ -3,19 +3,25 @@ import { act, render, screen, within } from '@testing-library/react'
 import { StrictMode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WIRED_SOURCES } from '../../embed/wired'
-import { renderApp } from '../../test/render'
+import { renderCatalog, resetCatalogState } from '../search/testing'
 import { useSettingsStore } from '../settings/settings-store'
 import { PREFERS_LIGHT_QUERY } from '../settings/theme'
 import { embedCode, escapeAttribute, shareOrigin } from './embed-code'
-import { pageEntityId } from './share-button'
 import { ShareDialogHost } from './share-dialog'
+import { shareMenuItems } from './share-menu'
 import { canShare, openShareDialog, useShareStore } from './share-store'
 
 const ALBUM = { kind: 'album', id: formatId('ytm', 'album', 'MPREb_abc') } as const
+/** An album of the fake catalog, whose page opens the dialog. */
+const NEON_HARBOR = { kind: 'album', id: formatId('ytm', 'album', 'alb-neon-harbor') } as const
+
+// The pages are lazy chunks and the machine running the tests may be busy.
+const SLOW = { timeout: 5000 }
 
 const clipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
 
 afterEach(() => {
+  resetCatalogState()
   useShareStore.setState(useShareStore.getInitialState(), true)
   if (clipboard) Object.defineProperty(navigator, 'clipboard', clipboard)
   else Reflect.deleteProperty(navigator, 'clipboard')
@@ -74,12 +80,12 @@ describe('embed code', () => {
 })
 
 describe('share entry points', () => {
-  it('read the entity of an app page', () => {
-    expect(pageEntityId('album', 'ytm:MPREb_abc')).toBe(ALBUM.id)
-    expect(pageEntityId('playlist', 'archive:a/b')).toBe('archive:playlist:a/b')
-    expect(pageEntityId('playlist', 'liked')).toBeUndefined()
-    expect(pageEntityId('album', 'spotify:4aawyAB9vmqN3uQ7FjRGTy')).toBeUndefined()
-    expect(pageEntityId('album', undefined)).toBeUndefined()
+  it('are menu entries only for what an embed can show', () => {
+    const info = { title: 'Pablo Honey' }
+    expect(shareMenuItems(ALBUM.id, info)).toMatchObject([{ key: 'share', label: 'Share' }])
+    expect(shareMenuItems(formatId('archive', 'playlist', 'a/b'), info)).toHaveLength(1)
+    expect(shareMenuItems(formatId('ytm', 'artist', 'UC1'), info)).toEqual([])
+    expect(shareMenuItems(formatId('spotify', 'album', '4aawyAB9vmqN3uQ7FjRGTy'), info)).toEqual([])
   })
 
   it('are offered in production builds only for what the embed can play', () => {
@@ -101,22 +107,28 @@ describe('share entry points', () => {
 })
 
 describe('Share dialog', () => {
-  async function openFromAlbumPage() {
-    const app = renderApp('/album/ytm:MPREb_abc')
-    await app.user.click(await screen.findByRole('button', { name: 'Share Album' }))
-    const dialog = screen.getByRole('dialog', { name: 'Share this album' })
+  /** Opens a page of the fake catalog and its "More options" menu's Share entry. */
+  async function openFromPage(path: string, name: string, kind: 'album' | 'playlist') {
+    const app = renderCatalog(path)
+    await app.user.click(
+      await screen.findByRole('button', { name: `More options for ${name}` }, SLOW),
+    )
+    await app.user.click(await screen.findByRole('menuitem', { name: 'Share' }))
+    const dialog = screen.getByRole('dialog', { name: `Share this ${kind}` })
     const code = within(dialog).getByRole('textbox', { name: 'Embed code' }) as HTMLTextAreaElement
     return { ...app, dialog, code }
   }
 
+  const openFromAlbumPage = () => openFromPage('/album/ytm:alb-neon-harbor', 'Neon Harbor', 'album')
+
   it('opens from an album page with the code, a preview and the options', async () => {
     const { dialog, code } = await openFromAlbumPage()
-    expect(dialog).toHaveAccessibleDescription(/Put a player for "Album" on your website/)
+    expect(dialog).toHaveAccessibleDescription(/Put a player for "Neon Harbor" on your website/)
     expect(code.value).toBe(
       embedCode(
-        ALBUM,
+        NEON_HARBOR,
         { layout: 'card', theme: 'auto', mode: 'music' },
-        'Album',
+        'Neon Harbor',
         'https://fxmusic.pages.dev',
       ).html,
     )
@@ -124,6 +136,10 @@ describe('Share dialog', () => {
     const preview = within(dialog).getByTestId('embed-preview')
     expect(preview).toHaveAttribute('aria-hidden', 'true')
     expect(preview).toHaveStyle({ height: '380px' })
+    // The preview shows what the page shows: the album, its artist and its tracks.
+    expect(within(preview).getAllByText('Neon Harbor')[0]).toBeInTheDocument()
+    expect(within(preview).getAllByText('Nova Lane')[0]).toBeInTheDocument()
+    expect(within(preview).getAllByText('Night Ferry')[0]).toBeInTheDocument()
     expect(within(dialog).getByRole('radio', { name: 'Card' })).toBeChecked()
     expect(within(dialog).getByRole('radio', { name: 'Auto' })).toBeChecked()
   })
@@ -162,7 +178,7 @@ describe('Share dialog', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Copy player link' }))
     expect(writeText).toHaveBeenLastCalledWith(
-      'https://fxmusic.pages.dev/embed/album/ytm:MPREb_abc',
+      'https://fxmusic.pages.dev/embed/album/ytm:alb-neon-harbor',
     )
     expect(within(dialog).getByRole('status')).toHaveTextContent('Player link copied')
 
@@ -223,9 +239,29 @@ describe('Share dialog', () => {
     expect(useShareStore.getState().request).toBeUndefined()
   })
 
-  it('has no share button where no embed can show the page', async () => {
-    renderApp('/playlist/liked')
-    await screen.findByRole('heading', { level: 1 })
-    expect(screen.queryByRole('button', { name: /^Share/ })).not.toBeInTheDocument()
+  it('opens from a playlist page with what the page shows', async () => {
+    const { dialog, code } = await openFromPage(
+      '/playlist/ytm:pl-indie-sunrise',
+      'Indie Sunrise',
+      'playlist',
+    )
+    expect(dialog).toHaveAccessibleDescription(/Put a player for "Indie Sunrise" on your website/)
+    expect(code.value).toContain(
+      'src="https://fxmusic.pages.dev/embed/playlist/ytm:pl-indie-sunrise"',
+    )
+    // Its owner, and how many songs it has in all, not only those loaded so far.
+    const preview = within(dialog).getByTestId('embed-preview')
+    expect(within(preview).getAllByText('FXM Picks')[0]).toBeInTheDocument()
+    expect(within(preview).getByText(/120 songs/)).toBeInTheDocument()
+  })
+
+  it('is not offered where no embed can show the page', async () => {
+    // A Spotify playlist: the embed plays no Spotify content.
+    const { user } = renderCatalog('/playlist/spotify:pl-study-hours')
+    const name = 'More options for Lo-fi Study Hours'
+    await user.click(await screen.findByRole('button', { name }, SLOW))
+    const menu = await screen.findByRole('menu', { name })
+    expect(within(menu).getByRole('menuitem', { name: 'Add to queue' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Share' })).not.toBeInTheDocument()
   })
 })

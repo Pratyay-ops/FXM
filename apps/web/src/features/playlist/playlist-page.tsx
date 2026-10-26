@@ -32,6 +32,7 @@ import { usePlaylist } from '../search/queries'
 import { sourceAvailability } from '../search/sources'
 import { useSourcesSnapshot } from '../search/sources-context'
 import { useSettingsStore } from '../settings/settings-store'
+import { playlistShareItems } from '../share/share-menu'
 
 /** Says what Music mode leaves out of the playlist, with a way to see it. */
 function HiddenInMusicMode({ count }: { count?: number }) {
@@ -132,6 +133,7 @@ function PlaylistContent({
         source={playlist.source}
         tracks={tracks}
         context={context}
+        extraItems={playlistShareItems(playlist, tracks, total)}
       />
       <div ref={list} className="space-y-6">
         {tracks.length > 0 ? (

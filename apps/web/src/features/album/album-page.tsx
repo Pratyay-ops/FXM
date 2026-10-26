@@ -26,6 +26,7 @@ import { useAlbum } from '../search/queries'
 import { sourceAvailability } from '../search/sources'
 import { useSourcesSnapshot } from '../search/sources-context'
 import { useSettingsStore } from '../settings/settings-store'
+import { albumShareItems } from '../share/share-menu'
 
 function AlbumContent({ id, provider }: { id: EntityId<'album'>; provider: MetadataProvider }) {
   const album = useAlbum(id, provider)
@@ -81,11 +82,12 @@ function AlbumContent({ id, provider }: { id: EntityId<'album'>; provider: Metad
         source={data.source}
         tracks={tracks}
         context={context}
-        extraItems={
-          artist?.id
+        extraItems={[
+          ...(artist?.id
             ? [{ key: 'artist', label: 'Go to artist', icon: MicVocal, to: artistPath(artist.id) }]
-            : []
-        }
+            : []),
+          ...albumShareItems(data, tracks),
+        ]}
       />
       {tracks.length > 0 ? (
         <TrackList
