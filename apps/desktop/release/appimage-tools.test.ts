@@ -17,7 +17,9 @@ import {
   appImageArch,
   appImageTools,
   BUNDLER_FILES,
+  checkAfterBuild,
   checkTauriCli,
+  embedsRuntime,
   fetchAppImageTools,
   readTauriCliVersion,
   TAURI_CLI,
@@ -176,31 +178,98 @@ describe('fetching them', () => {
 })
 
 describe('after the build', () => {
-  const placeTools = (arch: AppImageArch) => {
-    for (const name of [...appImageTools(arch).map((tool) => tool.name), ...BUNDLER_FILES]) {
-      writeFileSync(join(folder, name), '')
+  /** A made-up runtime: 64 bytes, as its tool entry pins them. */
+  const RUNTIME = Uint8Array.from({ length: 64 }, (_, index) => (index * 37) % 251)
+  const runtimeTool: AppImageTool = {
+    name: 'rt',
+    url: 'https://example.org/rt',
+    sha256: createHash('sha256').update(RUNTIME).digest('hex'),
+    runtime: true,
+  }
+  const tools = [...madeUpTools().slice(0, 2), runtimeTool]
+  const out = () => join(folder, 'tools')
+  const bundleDir = () => join(folder, 'bundle')
+
+  /** The tools folder and the bundle folder after a build, with one AppImage of `head`. */
+  function placeBuild(head: Uint8Array) {
+    mkdirSync(out())
+    for (const name of [...tools.map((tool) => tool.name), ...BUNDLER_FILES]) {
+      writeFileSync(join(out(), name), name === 'rt' ? RUNTIME : '')
     }
+    mkdirSync(join(bundleDir(), 'appimage'), { recursive: true })
+    const squashfs = new TextEncoder().encode('hsqs and the rest of the image')
+    writeFileSync(
+      join(bundleDir(), 'appimage', 'FXM_1.0.0_amd64.AppImage'),
+      Buffer.concat([head, squashfs]),
+    )
   }
 
-  it('finds nothing but the pinned files and the bundler’s own scripts', async () => {
-    placeTools('aarch64')
-    expect(unexpectedTools(folder, appImageTools('aarch64'))).toEqual([])
-    const { lines, reporter } = recorder()
-    const args = ['appimage-tools', '--triple', 'aarch64-unknown-linux-gnu', '--out', folder]
-    await main([...args, '--after-build'], {}, reporter)
-    expect(lines).toEqual(['info The aarch64 AppImage was built with the checked tools only.'])
+  /** The runtime with the bytes from `start` up to `end` changed, as appimagetool's digest. */
+  function withDigest(start: number, end: number) {
+    const head = RUNTIME.slice()
+    for (let index = start; index < end; index++) head[index] = (head[index] ?? 0) ^ 0xff
+    return head
+  }
+
+  it('finds an AppImage that starts with the pinned runtime, but for its 16-byte digest', () => {
+    expect(embedsRuntime(RUNTIME, RUNTIME)).toBe(true)
+    expect(embedsRuntime(withDigest(40, 56), RUNTIME)).toBe(true)
+    // A changed byte outside one 16-byte run, or another runtime, is not the pinned one.
+    expect(embedsRuntime(withDigest(40, 57), RUNTIME)).toBe(false)
+    const other = withDigest(0, 1)
+    other.set(withDigest(40, 56).subarray(40, 56), 40)
+    expect(embedsRuntime(other, RUNTIME)).toBe(false)
+    expect(embedsRuntime(RUNTIME.subarray(0, 63), RUNTIME)).toBe(false)
   })
 
-  it('stops the job when the bundler fetched a tool itself', async () => {
-    placeTools('x86_64')
-    writeFileSync(join(folder, 'linuxdeploy-abcdef0-x86_64.AppImage'), '')
-    expect(unexpectedTools(folder, appImageTools('x86_64'))).toEqual([
-      'linuxdeploy-abcdef0-x86_64.AppImage',
+  it('passes a build that used the checked tools only, behind the pinned runtime', () => {
+    placeBuild(withDigest(8, 24))
+    expect(checkAfterBuild({ out: out(), tools, bundleDir: bundleDir() })).toEqual([
+      'FXM_1.0.0_amd64.AppImage',
     ])
-    const { reporter } = recorder()
-    const args = ['appimage-tools', '--triple', 'x86_64-unknown-linux-gnu', '--out', folder]
-    await expect(main([...args, '--after-build'], {}, reporter)).rejects.toThrow(
+  })
+
+  it('stops the job when the bundler fetched a tool itself', () => {
+    placeBuild(RUNTIME)
+    writeFileSync(join(out(), 'linuxdeploy-abcdef0-x86_64.AppImage'), '')
+    expect(unexpectedTools(out(), tools)).toEqual(['linuxdeploy-abcdef0-x86_64.AppImage'])
+    expect(() => checkAfterBuild({ out: out(), tools, bundleDir: bundleDir() })).toThrow(
       /fetched tools of its own, unchecked: linuxdeploy-abcdef0-x86_64\.AppImage/,
     )
+  })
+
+  it('stops the job when an AppImage starts with another runtime', () => {
+    placeBuild(withDigest(0, 64))
+    expect(() => checkAfterBuild({ out: out(), tools, bundleDir: bundleDir() })).toThrow(
+      /FXM_1\.0\.0_amd64\.AppImage doesn't start with the pinned AppImage runtime/,
+    )
+  })
+
+  it('stops the job when the runtime it compares with changed, or there is no AppImage', () => {
+    placeBuild(RUNTIME)
+    writeFileSync(join(out(), 'rt'), withDigest(0, 1))
+    expect(() => checkAfterBuild({ out: out(), tools, bundleDir: bundleDir() })).toThrow(
+      /rt in .* is no longer the pinned AppImage runtime/,
+    )
+    writeFileSync(join(out(), 'rt'), RUNTIME)
+    rmSync(join(bundleDir(), 'appimage'), { recursive: true })
+    expect(() => checkAfterBuild({ out: out(), tools, bundleDir: bundleDir() })).toThrow(
+      /holds no AppImage to check/,
+    )
+  })
+
+  it('runs as the workflow step, with the pinned tools and the build’s bundle folder', async () => {
+    const { reporter } = recorder()
+    mkdirSync(out())
+    for (const name of [...appImageTools('aarch64').map((tool) => tool.name), ...BUNDLER_FILES]) {
+      writeFileSync(join(out(), name), '')
+    }
+    const args = ['appimage-tools', '--triple', 'aarch64-unknown-linux-gnu', '--out', out()]
+    await expect(main([...args, '--after-build'], {}, reporter)).rejects.toThrow(
+      /--bundle-dir <value> is required/,
+    )
+    await expect(
+      main([...args, '--after-build', '--bundle-dir', bundleDir()], {}, reporter),
+    ).rejects.toThrow(/appimage-runtime-aarch64 in .* is no longer the pinned AppImage runtime/)
   })
 })

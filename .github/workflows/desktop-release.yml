@@ -229,12 +229,14 @@ jobs:
 
       # The bundler downloads a tool only when its file is missing: anything in the folder that the
       # step above didn't put there, after an update of the Tauri CLI say, it fetched unchecked.
-      - name: Check that the bundler fetched no tool itself (Linux)
+      # And every AppImage must start with the checked runtime, whatever appimagetool did.
+      - name: Check the AppImage's tools and runtime (Linux)
         if: runner.os == 'Linux'
         run: >-
           node --experimental-strip-types --disable-warning=ExperimentalWarning
           apps/desktop/release/release.ts appimage-tools --triple "$TRIPLE"
           --out apps/desktop/src-tauri/target/.tauri --after-build
+          --bundle-dir "apps/desktop/src-tauri/target/$TRIPLE/release/bundle"
 
       - name: Collect the release files
         shell: bash

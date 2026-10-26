@@ -22,9 +22,10 @@
  * one there first, from a release that is not rebuilt, checked against its SHA-256 below, and the
  * runtime next to them, which the build gets as `LDAI_RUNTIME_FILE` (`release.ts appimage-tools`).
  * A file that doesn't match stops the build before anything has run. After the build,
- * `release.ts appimage-tools --after-build` checks that the folder holds nothing else: a tool the
- * bundler fetched itself would be there too. The release signs these AppImages with the updater
- * key, so every installed AppImage takes whatever these tools put into them as an update.
+ * `release.ts appimage-tools --after-build` checks that the folder holds nothing else, as a tool
+ * the bundler fetched itself would be there too, and that every AppImage starts with the pinned
+ * runtime. The release signs these AppImages with the updater key, so every installed AppImage
+ * takes whatever these tools put into them as an update.
  *
  * The file names and releases are the Tauri CLI's: after updating it, compare its bundler's
  * `prepare_tools` with the list below (apps/desktop/README.md, "Maintenance"). Until then the
@@ -35,7 +36,17 @@
  * @module
  */
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  readSync,
+  writeFileSync,
+} from 'node:fs'
 import { join, resolve } from 'node:path'
 
 /** The Tauri CLI whose bundler (tauri-bundler 2.10.2) looks for these tools by these names. */
@@ -199,6 +210,83 @@ export function unexpectedTools(out: string, tools: readonly AppImageTool[]): st
   return readdirSync(out)
     .filter((name) => !expected.has(name))
     .sort()
+}
+
+/** The MD5 digest of the image that appimagetool writes into the runtime's `.digest_md5`. */
+const DIGEST_BYTES = 16
+
+/**
+ * Whether an AppImage, from its first bytes, starts with `runtime` as appimagetool embeds it:
+ * byte for byte, but for the 16-byte digest it fills in. On 2026-10-26 the dry run's x86_64
+ * AppImage matched type2-runtime 20251108 so, differing in one run of 16 bytes.
+ */
+export function embedsRuntime(head: Uint8Array, runtime: Uint8Array): boolean {
+  if (head.length < runtime.length) return false
+  let first = -1
+  let last = -1
+  for (let index = 0; index < runtime.length; index++) {
+    if (head[index] !== runtime[index]) {
+      if (first < 0) first = index
+      last = index
+    }
+  }
+  return first < 0 || last - first < DIGEST_BYTES
+}
+
+/** The first `length` bytes of a file, or all of it if it is shorter. */
+function readHead(path: string, length: number): Uint8Array {
+  const descriptor = openSync(path, 'r')
+  try {
+    const head = Buffer.alloc(length)
+    return head.subarray(0, readSync(descriptor, head, 0, length, 0))
+  } finally {
+    closeSync(descriptor)
+  }
+}
+
+export interface AfterBuildCheck {
+  /** The bundler's tools folder. */
+  readonly out: string
+  /** The pinned files for the build's CPU. */
+  readonly tools: readonly AppImageTool[]
+  /** The bundle folder of the build, `target/<triple>/release/bundle`. */
+  readonly bundleDir: string
+}
+
+/**
+ * Throws unless the build fetched no tool itself and every AppImage it made starts with the
+ * pinned runtime, so the file's first bytes are the checked ones, whatever appimagetool did.
+ * Returns the names of the AppImages it checked.
+ */
+export function checkAfterBuild({ out, tools, bundleDir }: AfterBuildCheck): string[] {
+  const fetched = unexpectedTools(out, tools)
+  if (fetched.length > 0) {
+    throw new Error(
+      `The bundler fetched tools of its own, unchecked: ${fetched.join(', ')} in ${out}. ` +
+        'Pin them in apps/desktop/release/appimage-tools.ts: this build must not be released.',
+    )
+  }
+  const runtime = tools.find((tool) => tool.runtime)
+  if (runtime === undefined) throw new Error('The AppImage tools need exactly one runtime')
+  const pinned = readFileSync(join(out, runtime.name))
+  if (sha256Of(pinned) !== runtime.sha256) {
+    throw new Error(`${runtime.name} in ${out} is no longer the pinned AppImage runtime`)
+  }
+  const folder = join(bundleDir, 'appimage')
+  const appImages = existsSync(folder)
+    ? readdirSync(folder).filter((name) => name.endsWith('.AppImage'))
+    : []
+  if (appImages.length === 0) throw new Error(`${folder} holds no AppImage to check`)
+  for (const name of appImages) {
+    if (!embedsRuntime(readHead(join(folder, name), pinned.length), pinned)) {
+      throw new Error(
+        `${name} doesn't start with the pinned AppImage runtime (${runtime.url}): appimagetool ` +
+          'took another one, so this build must not be released. Check that it still reads ' +
+          'LDAI_RUNTIME_FILE (apps/desktop/README.md, "Maintenance").',
+      )
+    }
+  }
+  return appImages.sort()
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

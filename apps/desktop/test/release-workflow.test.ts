@@ -129,6 +129,10 @@ describe('desktop-release.yml', () => {
       expect(step).toContain(toolsFolder)
     }
     expect(build[fetch]).toMatch(/\n\s+id: appimage-tools\n/)
+    // The AppImages the build made, which must start with the checked runtime.
+    expect(build[check]).toContain(
+      '--bundle-dir "apps/desktop/src-tauri/target/$TRIPLE/release/bundle"',
+    )
     // appimagetool takes the checked runtime instead of downloading one.
     expect(build[tauri]).toContain(
       `LDAI_RUNTIME_FILE: ${expression('steps.appimage-tools.outputs.runtime-file')}`,

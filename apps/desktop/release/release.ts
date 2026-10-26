@@ -12,12 +12,13 @@
  *       never reaches a build job, which runs the code of hundreds of crates and packages. A dry
  *       run also gives the apps the throwaway public key (`--config`), since the placeholder can't
  *       build with updater files. Outputs key (the secret key's path) and config-args.
- *   release.ts appimage-tools --triple <triple> --out <dir> [--after-build]
+ *   release.ts appimage-tools --triple <triple> --out <dir> [--after-build --bundle-dir <dir>]
  *       each Linux build job, before `tauri build`: downloads the tools the bundler makes the
  *       AppImage with, and the AppImage runtime, checks each against its pinned SHA-256 and puts
  *       them into the bundler's tools folder <out>, so it fetches none of them unchecked
  *       (appimage-tools.ts). Outputs runtime-file, for LDAI_RUNTIME_FILE. With --after-build,
- *       after `tauri build`: checks that <out> holds no tool the bundler fetched itself.
+ *       after `tauri build`: checks that <out> holds no tool the bundler fetched itself, and that
+ *       every AppImage in <bundle-dir>/appimage starts with the pinned runtime.
  *   release.ts collect --target <id> --version x.y.z --bundle-dir <dir> --out <dir>
  *       each build job: copies the target's files (targets.ts) into <out> under their release
  *       names. With ARTIFACT_PATHS (tauri-action's artifactPaths output) it also checks that
@@ -53,11 +54,11 @@ import { createReporter, parseOptions, type Reporter, requireOption } from './ac
 import {
   appImageArch,
   appImageTools,
+  checkAfterBuild,
   checkTauriCli,
   type Download,
   fetchAppImageTools,
   readTauriCliVersion,
-  unexpectedTools,
 } from './appimage-tools.ts'
 import { buildManifest, checkManifest, type Manifest } from './manifest.ts'
 import {
@@ -307,14 +308,10 @@ async function appImageToolsCommand(
   const out = requireOption(options, 'out')
   const tools = appImageTools(arch)
   if (options.get('after-build') === 'true') {
-    const fetched = unexpectedTools(out, tools)
-    if (fetched.length > 0) {
-      throw new Error(
-        `The bundler fetched tools of its own, unchecked: ${fetched.join(', ')} in ${out}. ` +
-          'Pin them in apps/desktop/release/appimage-tools.ts: this build must not be released.',
-      )
+    const bundleDir = requireOption(options, 'bundle-dir')
+    for (const name of checkAfterBuild({ out, tools, bundleDir })) {
+      reporter.info(`${name} was built with the checked tools only, behind the pinned runtime.`)
     }
-    reporter.info(`The ${arch} AppImage was built with the checked tools only.`)
     return
   }
   checkTauriCli(readTauriCliVersion())
