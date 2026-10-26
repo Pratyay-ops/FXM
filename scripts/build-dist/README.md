@@ -111,12 +111,12 @@ Locally: `VITE_FXM_JAMENDO_CLIENT_ID=<client_id> make dist`. `make dist` builds 
 
 The deploy jobs run in GitHub environments, `preview` for develop and `production` for main, and `deploy.sh` refuses any other branch, and any branch but the one its run was started for.
 
-**The secrets today.** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are repository secrets, and only the `preview` environment exists, with no branch rule (checked 2026-10-26; the first deploy created it). Repository secrets reach a workflow run on any branch, so the environments protect nothing yet: a pushed branch whose workflow asked for them could publish over the one origin FXM Connect trusts.
+**The secrets today.** `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` live only in the GitHub environments `preview`, which only `develop` may use, and `production`, which only `main` may use, with no repository copies (checked 2026-10-26). So only a run for `develop` or `main` can read them: a pushed branch whose workflow asked for them gets nothing, and can't publish over the one origin FXM Connect trusts.
 
-**Recommended owner setup:**
+**What is set up** (by the owner, on 2026-10-26):
 
-- a free Cloudflare account, and an API token with Account > Cloudflare Pages > Edit (both done);
-- the GitHub environments `preview`, limited to the branch `develop`, and `production`, limited to `main` (a required reviewer is optional, and then approves both the candidate and the promotion), each holding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with no repository copies of them. With the GitHub CLI (`scripts/run.sh gh …` in this repository):
+- a free Cloudflare account, and an API token with Account > Cloudflare Pages > Edit;
+- the GitHub environments `preview`, limited to the branch `develop`, and `production`, limited to `main`, each holding `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, with no repository copies of them. Neither has a required reviewer; one is optional, and on `production` would approve both the candidate and the promotion. A new fork sets them up with the GitHub CLI (`scripts/run.sh gh …` in the repository, with the fork's name in place of `Pratyay-ops/FXM`):
 
   ```sh
   policy='{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
@@ -132,8 +132,9 @@ The deploy jobs run in GitHub environments, `preview` for develop and `productio
   gh secret delete CLOUDFLARE_ACCOUNT_ID
   ```
 
-  An environment's secret wins over a repository secret of the same name, so the deploys keep working at every step;
-- `develop` protected, by required pull requests or restricted pushers: Cloudflare can't limit a token to one branch, so a develop run could still deploy production.
+  An environment's secret wins over a repository secret of the same name, so a repository that starts with repository secrets keeps deploying at every step.
+
+Still recommended: `develop` protected, by required pull requests or restricted pushers. It isn't yet (checked 2026-10-26), and Cloudflare can't limit a token to one branch, so a develop run could still deploy production.
 
 More about the deploy:
 
