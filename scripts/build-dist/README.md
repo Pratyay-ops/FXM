@@ -155,10 +155,30 @@ More about the deploy:
 The site turns on `AVAILABLE.lite` (`apps/site/src/config.ts`) only once Lite plays a song on the deployed site in Chromium (docs/PLAN.md, 2.8), and turns it off while Lite's kill switch is on. `e2e/lite.e2e.ts` is that check: in a browser without FXM Connect, the Lite self-test passes, a YouTube Music search returns songs, and a song reaches `playing` with its `currentTime` advancing for at least 10 s, within 10 YouTube requests. Every request the page makes to YouTube's hosts and googlevideo counts, and one past the budget is refused and fails the check; thumbnails are answered locally, the `player` requests of songs the app prefetches are refused before they reach YouTube, and every media element is muted. It reaches YouTube for real, so it runs only when asked, from a residential connection, and never retries:
 
 ```sh
-FXM_LIVE=1 FXM_DEPLOY_URL=https://develop.fxmusic.pages.dev scripts/run.sh pnpm --filter @fxm/deploy exec playwright test lite
+FXM_LIVE=1 FXM_DEPLOY_URL=https://develop.fxmusic.pages.dev scripts/run.sh pnpm --filter @fxm/deploy exec playwright test e2e/lite.e2e.ts
 ```
 
 It passed on **2026-10-26** (04:18 to 04:25 UTC) against `https://develop.fxmusic.pages.dev/app/`, which served stage 2.9's build, from a residential connection in India, in Playwright 1.64.0's Chromium 156.0.8078.4, headless, with `--mute-audio`, a temporary profile and no extension, on macOS 15.5 (arm64). Lite's kill switch was off. The app said "This browser passed Lite's check" and Diagnostics "Check passed"; searching "Blitzkrieg Bop Ramones" returned 20 songs; "Blitzkrieg Bop" played from googlevideo, muted, its `currentTime` going from 0.3 s to 12.4 s in 12.1 s; five requests reached YouTube (two `music/get_search_suggestions`, the self-test's and the search box's, one `search`, one `player` and one `videoplayback`), and no policy was violated. So `AVAILABLE.lite` is on. Once the check counted every request this way, it passed again against the develop preview on **2026-10-26** at 07:01 UTC, in the same browser and setup, in 17 s.
+
+### The embed on the deployed site
+
+The site's `AVAILABLE.embed` (`apps/site/src/config.ts`) and the app's `RELEASED.embed` (`apps/web/src/features/connect/config.ts`), which also gates the app's Share entry, stay off until a browser test shows the production embed playing in the Lite tier inside a page on another origin (stage 5.2). `e2e/embed.e2e.ts` is that check. It serves a page of its own at `http://127.0.0.1:6970`, another origin and another site than the deployment, which frames `FXM_DEPLOY_URL/embed/track/ytm:zFYEYRcjK2g` with the share dialog's code (`embedCode` in `apps/web/src/features/share/embed-code.ts`: the page's width, 232 px, `allow="autoplay"`, `loading="lazy"`) and pairs with the player through its postMessage API, as [the embed's README](../../apps/web/src/embed/README.md) shows. The song is "Creep" by Radiohead, which Radiohead - Topic publishes on YouTube Music, taken from the YouTube fixtures (`next-creep-song.json`, `stream/fixtures/visionos-song.json` in `packages/sources/src/youtube/`), so no request goes to a search. Inside the player's frame:
+
+- its origin is the deployment's, and the page is its only ancestor;
+- it is in the Lite tier: its controller's state says `tier: 'lite'` (read from the embed's React root, because the API's messages never name the tier), its `<html>` has no FXM Connect marker, it framed `/sandbox/innertube` in an opaque origin, every InnerTube request came from that document with `Origin: null`, and the free-sources install hint is not shown;
+- nothing plays until a click on its play button inside the frame, which is also the user gesture autoplay asks for;
+- one of its media elements plays from googlevideo, muted, its `currentTime` advancing at least 10 s;
+- it posts `fxm-embed:ready` (the track's ID and title, one track, `idle`) and then the `playing` state to the page, every message in protocol 1 with the documented `state` fields, and no `fxm-embed:error`;
+- no document (the page, the player, the player's sandbox) reports a Content-Security-Policy or Permissions-Policy violation.
+
+It keeps to the Lite check's budget: at most 10 requests to YouTube's hosts and googlevideo, and one past it is refused, which fails the check; thumbnails are answered locally, `player` requests for any other video (prefetches) are refused before they reach YouTube, and every media element is muted. It prints the date and time, the browser, Playwright, the OS, the connection (`FXM_CONNECTION` names it) and the requests by endpoint, and records them as annotations, which the JSON report keeps. It runs only when asked, from a residential connection, and never retries. Name the spec's file in the command: Playwright reads the filter as a regular expression over the whole path, so a bare `embed` or `lite` also selects every other check in a checkout whose path contains the word, as a worktree named after its branch can:
+
+```sh
+FXM_LIVE=1 FXM_DEPLOY_URL=https://fxmusic.pages.dev FXM_CONNECTION='residential, India' PLAYWRIGHT_JSON_OUTPUT_FILE=/tmp/embed-live.json \
+  scripts/run.sh pnpm --filter @fxm/deploy exec playwright test e2e/embed.e2e.ts --reporter=list,json
+```
+
+It passed on **2026-10-26** (11:44:12 to 11:44:25 UTC) against production, `https://fxmusic.pages.dev`, which served v0.1.0, from a residential broadband connection in India over Wi-Fi, in Playwright 1.64.0's Chromium 156.0.8078.4, headless, with `--mute-audio`, a temporary profile, no extension and service workers blocked, on macOS 15.5 (arm64). The player's frame had the origin `https://fxmusic.pages.dev`, under `http://127.0.0.1:6970`. It posted `ready` for "Creep" (`ytm:track:zFYEYRcjK2g`, one track, `idle`); its state said `tier: 'lite'`, its `<html>` had no FXM Connect marker, and its sandbox document ran in the origin `null`. After the click the page received `loading`, then `playing`; a media element of the frame played from a googlevideo host, muted, its `currentTime` going from 0.3 s to 10.4 s in 10.1 s, and the last position the page received was 10,596 ms (14 messages, one of them `ready`). Four requests reached YouTube: one `music/get_search_suggestions` (the Lite self-test), one `next` (the song's metadata) and one `player`, all three from the sandbox document with `Origin: null`, and one `videoplayback`, the media element's. No prefetch was refused, the one thumbnail host, `yt3.googleusercontent.com`, was answered locally, no document reported a policy violation, and the check took 13 s. Turning the two flags on is a separate change.
 
 ### Previews and FXM Connect
 
@@ -203,4 +223,5 @@ A copy on another origin runs without FXM Connect, which trusts only `https://fx
 | `src/deploy-script.test.ts` | `deploy.sh`'s tests, with stand-ins for wrangler and curl |
 | `e2e/deployed.e2e.ts` | The browser checks |
 | `e2e/lite.e2e.ts` | The live Lite check behind the site's `AVAILABLE.lite` (`FXM_LIVE=1` only) |
+| `e2e/embed.e2e.ts` | The live embed check behind the site's `AVAILABLE.embed` and the app's `RELEASED.embed` (`FXM_LIVE=1` only) |
 | `../build-dist-wrangler/` | wrangler, its lockfile and `deploy.sh` (CI only) |
