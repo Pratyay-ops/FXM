@@ -104,12 +104,21 @@ function songSearch(
 /** A song's title proper must be at least this similar to the station item's. */
 const MIN_TITLE = 0.8
 
+/** A song as another source names it, e.g. a station item: its title and its artists' names. */
+export interface SongName {
+  /** The title, as that source shows it. */
+  readonly title: string
+  /** The artists' names, main artist first. */
+  readonly artists: readonly string[]
+}
+
 /**
- * Whether a song found for a station item is the song the item names: by one of its artists
- * (by name: a tribute or karaoke act named after the artist does not count), with its title
- * proper and the same strong version tags (live, remix, acoustic...).
+ * Whether a song found for a station item (or any song another source names) is the song the
+ * item names: by one of its artists (by name: a tribute or karaoke act named after the artist
+ * does not count), with its title proper and the same strong version tags (live, remix,
+ * acoustic...).
  */
-export function namesSameSong(song: Track, item: LastfmStationTrack): boolean {
+export function namesSameSong(song: Track, item: SongName): boolean {
   const artists = song.artists.map((artist) => artist.name)
   if (!artists.some((name) => sameArtist(item.artists, name))) return false
   const wanted = readTitle(item.title, item.artists)
