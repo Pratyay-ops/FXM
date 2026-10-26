@@ -16,6 +16,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p . && tsc --noEmit -p tools",
     "inventory": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/inventory.ts",
+    "first-load": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/first-load.ts",
     "size": "node --experimental-strip-types --disable-warning=ExperimentalWarning tools/size.ts"
   },
   "peerDependencies": {

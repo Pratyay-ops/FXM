@@ -112,10 +112,11 @@ expect(findUntranslated(document.body, { ignore: [track.title, track.artist] }))
 scripts/run.sh pnpm --filter @fxm/i18n inventory                 # hard-coded strings per app and area (Markdown)
 scripts/run.sh pnpm --filter @fxm/i18n inventory --list home     # the strings of matching areas
 scripts/run.sh pnpm --filter @fxm/i18n inventory --json          # everything
+scripts/run.sh pnpm --filter @fxm/i18n first-load                # the web app's first load: its messages, what ids cost
 scripts/run.sh pnpm --filter @fxm/i18n size                      # what each entry adds to a bundle
 ```
 
-[`tools/strings.ts`](tools/strings.ts) decides what counts as a hard-coded user-facing string, [`tools/inventory.ts`](tools/inventory.ts) walks the apps. [`tools/size.ts`](tools/size.ts) bundles each entry with rolldown (Vite 8's bundler), minified, and compresses it with brotli at quality 4, as stage 8.5a's budgets measure; `tools/size.test.ts` holds the budgets.
+[`tools/strings.ts`](tools/strings.ts) decides what counts as a hard-coded user-facing string, [`tools/inventory.ts`](tools/inventory.ts) walks the apps. [`tools/first-load.ts`](tools/first-load.ts) follows `apps/web/src/main.tsx`'s static imports to the messages of the first load, finds those that one namespace per feature folder would pull in from lazy pages, and measures what each way of naming messages adds in brotli (docs/I18N.md, §3). [`tools/size.ts`](tools/size.ts) bundles each entry with rolldown (Vite 8's bundler), minified, and compresses it with brotli at quality 4, as stage 8.5a's budgets measure; `tools/size.test.ts` holds the budgets.
 
 | Entry | Minified | Brotli | Budget |
 |---|---|---|---|
