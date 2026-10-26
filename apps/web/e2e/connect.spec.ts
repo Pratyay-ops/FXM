@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test'
+import { RELEASED } from '../src/features/connect/config'
+import { TIER_INFO } from '../src/features/connect/tiers'
 
 // The tiers, the onboarding prompts and the Diagnostics self-test, end to end in a real browser
 // against the production build, with fakes for everything outside it:
@@ -14,6 +16,10 @@ import { type BrowserContext, expect, type Locator, type Page, test } from '@pla
 //   which the build includes because playwright.config.ts builds with VITE_FXM_FAKES=on.
 //
 // Every other request off this machine is refused, so the tests never reach the internet.
+//
+// What the pages say about the apps follows what is released (RELEASED in
+// src/features/connect/config.ts), and so do the expected words below, so a stage that releases an
+// app doesn't have to rewrite this test.
 
 const SANDBOX_DOCUMENT = readFileSync(
   fileURLToPath(new URL('../sandbox/innertube.html', import.meta.url)),
@@ -88,6 +94,30 @@ async function fakeYouTube(page: Page, lite: boolean, delayMs = 0) {
   })
   return innerTube
 }
+
+// The sentences of src/features/connect/explain.ts about the apps (howToGetMore, appsSentence),
+// worded here: this test can't import that module, whose @fxm/platform import pulls in a JSON file
+// that Node loads only with an import attribute. Its unit tests pin the same words.
+
+/** howToGetMore() for YouTube Music and Spotify, on a computer that can add FXM Connect. */
+const COMPUTER_INTRO = `For YouTube Music and Spotify, add the free FXM Connect extension${
+  RELEASED.desktop ? ', or use the desktop app' : ''
+}.`
+
+/** howToGetMore() for YouTube Music and Spotify, on Android. */
+const ANDROID_INTRO = RELEASED.android
+  ? 'For YouTube Music and Spotify, use the Android app, which has everything built in.'
+  : "YouTube Music and Spotify need FXM Connect, which browsers on Android can't add. The Android app is coming soon."
+
+/** appsSentence(): the apps, which need no extension, the ones not out yet as coming soon. */
+const APPS_SENTENCE =
+  RELEASED.desktop && RELEASED.android
+    ? 'The desktop and Android apps need no extension: they have everything built in.'
+    : RELEASED.desktop
+      ? 'The desktop app needs no extension: it has everything built in. The Android app is coming soon.'
+      : RELEASED.android
+        ? 'The Android app needs no extension: it has everything built in. The desktop app is coming soon.'
+        : 'The desktop and Android apps, which need no extension, are coming soon.'
 
 const status = (page: Page) => page.getByRole('region', { name: /^This (browser|app)$/ })
 const tierCards = (page: Page) => page.getByRole('region', { name: 'What works where' })
@@ -191,21 +221,33 @@ test.describe('the tiers', () => {
       .getByRole('button', { name: /^Add FXM Connect to / })
       .click()
     await expect(guide.locator('summary')).toBeFocused()
-    // The apps aren't out: named as coming soon, with no steps.
-    await expect(tierCards(page)).toContainText(
-      'FXM Connect, the desktop app (coming soon) or the Android app (coming soon).',
-    )
-    const android = page.locator('details', {
-      has: page.getByRole('heading', { name: /^Android app/ }),
-    })
-    await expect(android).toContainText('Not released yet')
+    // The tier card names the apps, those not out yet as coming soon, and only a released app's
+    // guide has steps.
+    await expect(tierCards(page)).toContainText(TIER_INFO.full.how)
+    const guideOf = (app: RegExp) =>
+      page.locator('details', { has: page.getByRole('heading', { name: app }) })
+    for (const [app, released] of [
+      [/^Desktop app/, RELEASED.desktop],
+      [/^Android app/, RELEASED.android],
+    ] as const) {
+      if (released) await expect(guideOf(app)).not.toContainText('Not released yet')
+      else await expect(guideOf(app)).toContainText('Not released yet')
+    }
+    if (RELEASED.desktop) {
+      // The guide is closed: its contents are in the page, not yet in the accessibility tree.
+      await expect(guideOf(/^Desktop app/)).toContainText('Open Anyway')
+      await expect(
+        guideOf(/^Desktop app/).getByRole('link', { name: 'install steps', includeHidden: true }),
+      ).toHaveAttribute('href', /\/apps\/desktop\/INSTALL\.md$/)
+    }
 
     await page.goto('./')
     const intro = page.getByRole('region', { name: 'This browser plays free music' })
-    await expect(intro).toContainText(
-      'For YouTube Music and Spotify, add the free FXM Connect extension.',
+    await expect(intro).toContainText(COMPUTER_INTRO)
+    // Never an app that isn't out.
+    await expect(intro).not.toContainText(
+      RELEASED.desktop ? /Android app|one of the apps/ : /desktop app|Android app|one of the apps/,
     )
-    await expect(intro).not.toContainText(/desktop app|Android app|one of the apps/)
   })
 })
 
@@ -250,17 +292,21 @@ test('notices a disabled FXM Connect and says what to do', async ({ context, pag
   await next.goto('./')
   const prompt = next.getByRole('region', { name: "FXM Connect isn't answering" })
   await expect(prompt).toContainText('It worked in this browser before')
-  // The apps aren't out, so the prompt doesn't offer them.
+  // The notice leaves the apps to the section it leads to.
   await expect(prompt).not.toContainText(/desktop app|Android app/)
   await prompt.getByRole('link', { name: 'What to do' }).click()
 
   const section = next.getByRole('region', { name: "FXM Connect isn't answering" })
   await expect(section).toContainText('worked in this browser before (version 0.1.0)')
   await expect(section).toContainText('turns it off whenever Developer mode is off')
-  await expect(section).toContainText(
-    'The desktop and Android apps, which need no extension, are coming soon.',
-  )
-  await expect(section.getByRole('button', { name: /Desktop app|Android app/ })).toHaveCount(0)
+  // The apps, which need no extension: a button to the guide of each that is out.
+  await expect(section).toContainText(APPS_SENTENCE)
+  for (const [name, released] of [
+    ['Desktop app', RELEASED.desktop],
+    ['Android app', RELEASED.android],
+  ] as const) {
+    await expect(section.getByRole('button', { name, exact: true })).toHaveCount(released ? 1 : 0)
+  }
   // Said once: the status card leaves the details to the section.
   await expect(status(next)).not.toContainText('worked in this browser before')
 
@@ -372,9 +418,7 @@ test.describe('on an Android phone', () => {
     await fakeYouTube(page, false)
     await page.goto('./')
     const intro = page.getByRole('region', { name: 'This browser plays free music' })
-    await expect(intro).toContainText(
-      "YouTube Music and Spotify need FXM Connect, which browsers on Android can't add. The Android app is coming soon.",
-    )
+    await expect(intro).toContainText(ANDROID_INTRO)
     await intro.getByRole('link', { name: 'See your options' }).click()
 
     await expect(status(page)).toContainText("YouTube Music isn't available in this browser")
