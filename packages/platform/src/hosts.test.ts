@@ -102,6 +102,7 @@ describe('the host table', () => {
       'i.ytimg.com': 'open',
       '*.ggpht.com': 'open',
       'i.scdn.co': 'open',
+      'www.google.com': 'open',
       'www.youtube.com': 'innertube',
       'music.youtube.com': 'innertube',
       'youtubei.googleapis.com': 'innertube',

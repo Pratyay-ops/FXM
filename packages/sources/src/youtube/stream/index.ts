@@ -14,6 +14,7 @@
  * @module
  */
 
+export * from './advanced'
 export {
   type BotCheckCause,
   type StreamBudget,

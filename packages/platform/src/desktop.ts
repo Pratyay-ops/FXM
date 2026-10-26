@@ -119,14 +119,15 @@ const BROWSER_AGENT_CLASSES: ReadonlySet<HostClass> = new Set([
 ])
 
 /**
- * Hosts of the `open` class that YouTube (Google) or Spotify run: their image servers. They get
- * a browser User-Agent too, so FXM's own never reaches Google or Spotify, which see the same IP
- * address's other requests with a browser's.
+ * Hosts of the `open` class that YouTube (Google) or Spotify run: their image servers, and
+ * BotGuard's `www.google.com` (stage 1.11). They get a browser User-Agent too, so FXM's own never
+ * reaches Google or Spotify, which see the same IP address's other requests with a browser's.
  */
 export const BROWSER_AGENT_HOSTS: ReadonlySet<string> = new Set([
   'i.ytimg.com',
   '*.ggpht.com',
   'i.scdn.co',
+  'www.google.com',
 ])
 
 /**

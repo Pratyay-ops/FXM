@@ -7,12 +7,9 @@ import { isYouTubeStreamOption, kindOfMimeType, parseStreamUrl, streamOptionsOf 
 
 type Json = { [key: string]: unknown }
 
-const [VISIONOS, , , MUXED] = BUNDLED_STREAM_CONFIG.rungs as [
-  StreamRungConfig,
-  StreamRungConfig,
-  StreamRungConfig,
-  StreamRungConfig,
-]
+const rung = (id: string) =>
+  BUNDLED_STREAM_CONFIG.rungs.find((entry) => entry.id === id) as StreamRungConfig
+const [VISIONOS, MUXED] = [rung('visionos'), rung('android-muxed')]
 const NOW = Date.UTC(2026, 9, 26)
 
 function options(response: unknown, rung = VISIONOS, videoId: string = VIDEOS.song) {

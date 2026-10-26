@@ -17,7 +17,9 @@ import { BUNDLED_STREAM_CONFIG, type StreamClientConfig, type StreamRungConfig }
 import { fakeStreamBudget, onPlayer, onPriming, PLAYER_FIXTURES, VIDEOS } from './fixtures/testing'
 import { callPlayer, playerPayload, STREAM_LANGUAGE } from './player'
 
-const [VISIONOS, IOS] = BUNDLED_STREAM_CONFIG.rungs as [StreamRungConfig, StreamRungConfig]
+const rung = (id: string) =>
+  BUNDLED_STREAM_CONFIG.rungs.find((entry) => entry.id === id) as StreamRungConfig
+const [VISIONOS, IOS] = [rung('visionos'), rung('ios')]
 const ISSUED = 'CgtJc3N1ZWRCeUZYTWZpeHR1cmUo'
 
 function setup(routes: Route[], tier = FULL) {

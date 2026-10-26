@@ -11,6 +11,7 @@ export {
   type PlaybackSource,
   type PlaySupport,
 } from './engine'
+export * from './engines/mse'
 export { formatTime } from './format-time'
 export * from './lifecycle'
 export {

@@ -48,6 +48,11 @@ export interface PlayerCallOptions {
    * replace `context`, which the request shape writes, or `videoId`.
    */
   readonly payload?: JsonRecord
+  /**
+   * More request headers, such as a client's `User-Agent` where the transport sends it (stage
+   * 1.11). The request shape's own headers win.
+   */
+  readonly headers?: Readonly<Record<string, string>>
 }
 
 /** The outcome of one `/player` call. */
@@ -121,6 +126,7 @@ async function send(
   ctx: ProviderContext,
   request: SimpleInnerTubeRequest,
   options: PlayerCallOptions,
+  headers: Readonly<Record<string, string>> = {},
 ): Promise<JsonRecord> {
   const what = describeRequest(request)
   let response: Response
@@ -128,6 +134,7 @@ async function send(
   try {
     response = await fetchWithTimeout(ctx.fetch, request.url, {
       ...request.init,
+      headers: { ...headers, ...request.init.headers },
       timeoutMs: options.timeoutMs,
       ...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
     })
@@ -239,7 +246,7 @@ export async function callPlayer(
       ...(lease.visitorData === undefined ? {} : { visitorData: lease.visitorData }),
       ...(options.payload === undefined ? {} : { payload: options.payload }),
     })
-    const json = await send(ctx, request, options)
+    const json = await send(ctx, request, options, options.headers)
     issued = at(json, 'responseContext', 'visitorData')
     return { json, sentVisitorData }
   } catch (error) {
