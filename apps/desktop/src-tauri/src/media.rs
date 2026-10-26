@@ -23,20 +23,32 @@
 //!   such URLs, at most [`MAX_REDIRECTS`]. Those hosts are in the HTTP plugin's scope already, so
 //!   page script reaches nothing here that it couldn't read through the plugin.
 //! - **`GET`, with the page's `Range`.** A custom scheme's answer is handed to the webview whole,
-//!   never streamed, so Rust fetches a file in blocks of [`CHUNK_BYTES`] (1 MiB), as ranged
+//!   never streamed, so Rust fetches a file in blocks of [`CHUNK_BYTES`] (256 KiB), as ranged
 //!   requests, and an answer never reaches past the block its range starts in: media elements
-//!   ask again for the rest, as with Tauri's own asset protocol. Blocks are kept for a while
-//!   ([`CACHE_BYTES`] in all, the least recently used go first), because media elements read
-//!   in small, overlapping ranges: WebKit reads an MP4 file's fragment headers one by one, 8
-//!   bytes at a time, which would otherwise each be a request to googlevideo. A request without
-//!   `Range` (WebKit asks for WebM files that way) gets the whole file, up to
-//!   [`MAX_WHOLE_BYTES`], from the same blocks.
+//!   ask again for the rest, as with Tauri's own asset protocol. The element gets nothing of a
+//!   block until all of it has arrived, when it starts and after a seek past what is kept, so
+//!   blocks are small: 256 KiB take 2 s at 1 Mbit/s, and arrive within the player's 15-second
+//!   stall timeout on any link faster than about 140 kbit/s, about what a 128 kbit/s stream
+//!   needs to play at all. Blocks are kept for a while ([`CACHE_BYTES`] in all, the least
+//!   recently used go first), because media elements read in small, overlapping ranges: WebKit
+//!   reads an MP4 file's fragment headers one by one, 8 bytes at a time, which would otherwise
+//!   each be a request to googlevideo. A request without `Range` (WebKit asks for WebM files
+//!   that way) gets the whole file, up to [`MAX_WHOLE_BYTES`], from the same blocks.
 //! - **googlevideo's status as it is.** A 403 reaches the element as a 403, so the player's
 //!   recovery (stage 2.3: re-resolve on 403, the probe rules of stage 1.4) sees what it sees
-//!   without this path. A failed connection is 502, a timeout 504.
+//!   without this path. A failed connection is 502. A request is given up with 504 when
+//!   googlevideo sends nothing for [`READ_TIMEOUT`] (15 s), its answer's head included, or after
+//!   [`REQUEST_TIMEOUT`] (2 minutes) in all: a slow link that keeps sending gets its block.
 //! - **Nothing of the page's but `Range` and `User-Agent`.** No cookies, `Origin` or `Referer`
 //!   reach googlevideo. The `User-Agent` is the webview's own, which googlevideo also gets when
 //!   the page plays its URLs directly.
+//! - **Never a page.** Tauri lets a document from any scheme the app registers call its IPC, with
+//!   the main window's capabilities (`is_local_url` in tauri's `webview/mod.rs`), so an answer
+//!   must never run as one. Every answer, errors included, carries
+//!   `Content-Security-Policy: default-src 'none'; sandbox` ([`ANSWER_CSP`]) and `nosniff`, which
+//!   media elements ignore, and a request for a page or a frame (its `Sec-Fetch-Dest`) gets 403
+//!   before anything is fetched. Media types, an empty body on errors and `nosniff` already keep
+//!   a webview from showing an answer as a page; the policy holds should one ever do so.
 //!
 //! The requests go through Rust's network, as the stream's resolution and probe did, so they
 //! leave from the same address the URL is bound to, through the same proxy settings
@@ -69,9 +81,12 @@ pub const STREAM_DOMAIN: &str = "googlevideo.com";
 /// The path of every stream URL.
 pub const STREAM_PATH: &str = "/videoplayback";
 
-/// The most bytes one answer to a ranged request carries: 1 MiB. The element asks for the rest
-/// in further requests.
-pub const CHUNK_BYTES: u64 = 1024 * 1024;
+/// The size of the blocks Rust fetches, and so the most bytes one answer to a ranged request
+/// carries: 256 KiB. The element asks for the rest in further requests. It waits for a whole
+/// block before it gets any of it (see the module documentation), so this is small enough to
+/// arrive within the player's 15-second stall timeout on a slow link, and large enough that the
+/// blocks fold WebKit's many small reads into a few requests: about 16 for a 4 MB song.
+pub const CHUNK_BYTES: u64 = 256 * 1024;
 
 /// The largest file a request without `Range` gets: 128 MiB, more than two hours of Opus 251.
 pub const MAX_WHOLE_BYTES: u64 = 128 * 1024 * 1024;
@@ -79,11 +94,30 @@ pub const MAX_WHOLE_BYTES: u64 = 128 * 1024 * 1024;
 /// How many bytes of googlevideo's blocks are kept: 32 MiB, a few songs.
 pub const CACHE_BYTES: usize = 32 * 1024 * 1024;
 
+// A block arrives within the player's 15-second stall timeout (packages/player) at 160 kbit/s, a
+// little more than a 128 kbit/s stream needs to play: see CHUNK_BYTES.
+const _: () = assert!(CHUNK_BYTES * 8 < 15 * 160_000);
+
 /// How long connecting to googlevideo may take.
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// How long one request to googlevideo may take, body included.
-pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long googlevideo may send nothing, from the request to its answer's head and then
+/// between any two reads of the body: a request that gets no byte for that long has stalled.
+pub const READ_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// How long one request to googlevideo may take in all, body included: only a cap for a server
+/// that trickles. A block that arrives slower (256 KiB in 2 minutes, about 17 kbit/s) couldn't
+/// keep any stream playing anyway.
+pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// The `Content-Security-Policy` of every answer: nothing may load or run, should a webview ever
+/// show one as a page (see the module documentation). Media elements ignore it.
+pub const ANSWER_CSP: &str = "default-src 'none'; sandbox";
+
+/// The `Sec-Fetch-Dest` values of the requests the scheme serves: media elements', and `empty`,
+/// which no webview is known to send them but which is no page either. A request without the
+/// header is served too: not every webview sends it to a custom scheme.
+pub const MEDIA_DESTINATIONS: &[&str] = &["audio", "video", "empty"];
 
 /// How many redirects one request may follow, each to a stream URL.
 pub const MAX_REDIRECTS: usize = 5;
@@ -245,7 +279,9 @@ pub struct MediaPolicy {
     pub max_whole_bytes: u64,
     /// How many bytes of blocks are kept: [`CACHE_BYTES`].
     pub cache_bytes: usize,
-    /// How long one request to googlevideo may take: [`REQUEST_TIMEOUT`].
+    /// How long googlevideo may send nothing: [`READ_TIMEOUT`].
+    pub read_timeout: Duration,
+    /// How long one request to googlevideo may take in all: [`REQUEST_TIMEOUT`].
     pub request_timeout: Duration,
     /// The origins that get CORS headers: [`APP_ORIGINS`], plus [`DEV_ORIGIN`] in debug builds.
     pub origins: Vec<String>,
@@ -264,6 +300,7 @@ impl Default for MediaPolicy {
             chunk_bytes: CHUNK_BYTES,
             max_whole_bytes: MAX_WHOLE_BYTES,
             cache_bytes: CACHE_BYTES,
+            read_timeout: READ_TIMEOUT,
             request_timeout: REQUEST_TIMEOUT,
             origins,
         }
@@ -431,9 +468,12 @@ impl MediaProxy {
                 attempt.stop()
             }
         });
+        // An idle timeout, not a total one: a slow link that keeps sending gets its block, and
+        // the total only caps a server that trickles.
         let mut builder = reqwest::Client::builder()
             .redirect(redirects)
-            .connect_timeout(CONNECT_TIMEOUT.min(policy.request_timeout))
+            .connect_timeout(CONNECT_TIMEOUT.min(policy.read_timeout))
+            .read_timeout(policy.read_timeout)
             .timeout(policy.request_timeout)
             .https_only(policy.https_only)
             // The bytes exactly as googlevideo sends them, as for the probe.
@@ -482,11 +522,7 @@ impl MediaProxy {
         };
         let mut response = response.expect("a response of valid parts");
         let headers = response.headers_mut();
-        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-        headers.insert(
-            header::X_CONTENT_TYPE_OPTIONS,
-            HeaderValue::from_static("nosniff"),
-        );
+        never_a_page(headers);
         headers.insert(header::VARY, HeaderValue::from_static("Origin"));
         if let Some(origin) = cors {
             headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
@@ -515,6 +551,12 @@ impl MediaProxy {
             return Err(Failure::Refused(
                 StatusCode::METHOD_NOT_ALLOWED,
                 "only GET requests",
+            ));
+        }
+        if !is_media_request(request.headers()) {
+            return Err(Failure::Refused(
+                StatusCode::FORBIDDEN,
+                "not a media element's request",
             ));
         }
         let target = target_of(request.uri().path())
@@ -814,13 +856,38 @@ pub fn serves_webview(label: &str) -> bool {
     label == crate::MAIN_WINDOW
 }
 
+/// Whether a request may be a media element's: its `Sec-Fetch-Dest`, if it sends one, is one of
+/// [`MEDIA_DESTINATIONS`]. A request for a page or a frame (`document`, `iframe`, …) is not.
+pub fn is_media_request(headers: &HeaderMap) -> bool {
+    headers.get_all("sec-fetch-dest").iter().all(|value| {
+        value
+            .to_str()
+            .is_ok_and(|destination| MEDIA_DESTINATIONS.contains(&destination))
+    })
+}
+
+/// The headers that keep every answer from running as a page, and from being kept: see the
+/// module documentation.
+fn never_a_page(headers: &mut HeaderMap) {
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(ANSWER_CSP),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+}
+
 /// A 403 for a webview that may not use the scheme, or a 503 when the proxy couldn't be built.
 fn refusal(status: StatusCode) -> Response<Vec<u8>> {
-    Response::builder()
+    let mut response = Response::builder()
         .status(status)
-        .header(header::CACHE_CONTROL, "no-store")
         .body(Vec::new())
-        .expect("a static response")
+        .expect("a static response");
+    never_a_page(response.headers_mut());
+    response
 }
 
 /// The scheme's handler for `tauri::Builder::register_asynchronous_uri_scheme_protocol`: answers
@@ -1078,11 +1145,10 @@ mod tests {
 
     // --- A local googlevideo -----------------------------------------------------------------
 
-    /// The bytes of the test file: 2.5 MiB and 7 bytes, so it spans three test chunks and a bit.
+    /// The bytes of the test file: two and a half test chunks and 7 bytes, so it spans three.
     fn file() -> Vec<u8> {
-        (0..(2 * 1024 * 1024 + 512 * 1024 + 7))
-            .map(|index: u32| (index % 251) as u8)
-            .collect()
+        let length = 2 * TEST_CHUNK + TEST_CHUNK / 2 + 7;
+        (0..length).map(|index| (index % 251) as u8).collect()
     }
 
     /// A request the server received: its request line and its headers, in lower case.
@@ -1109,7 +1175,9 @@ mod tests {
     /// - `/short` announces a range and sends less, then closes;
     /// - `/html` serves the file's ranges as `text/html`;
     /// - `/stingy` serves at most 1000 bytes of any range asked for;
-    /// - `/slow` answers after 3 s.
+    /// - `/slow` answers after 3 s;
+    /// - `/trickle` serves a range's body in [`TRICKLE_PIECES`] pieces, [`TRICKLE_GAP`] apart;
+    /// - `/stall` sends half a range's body, then nothing for [`STALL`].
     fn serve() -> (u16, Arc<Mutex<Vec<Seen>>>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a local port");
         let port = listener.local_addr().expect("an address").port();
@@ -1186,9 +1254,18 @@ mod tests {
             format!("HTTP/1.1 {line}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
                 .into_bytes()
         };
+        let mut pacing = Pacing::AtOnce;
         let response = match (path, range) {
             ("/videoplayback", Some(range)) => partial("audio/webm", range),
             ("/videoplayback", None) => whole("audio/webm"),
+            ("/trickle", Some(range)) => {
+                pacing = Pacing::Trickle;
+                partial("audio/webm", range)
+            }
+            ("/stall", Some(range)) => {
+                pacing = Pacing::Stall;
+                partial("audio/webm", range)
+            }
             ("/html", Some(range)) => partial("text/html", range),
             ("/stingy", Some(ByteRange::From { first, last })) => {
                 let last = last.unwrap_or(u64::MAX).min(first + 999);
@@ -1213,8 +1290,7 @@ mod tests {
             }
             _ => status("404 Not Found"),
         };
-        let _ = stream.write_all(&response);
-        let _ = stream.flush();
+        write_paced(&mut stream, &response, pacing);
         // The answer ends here, which the client sees at once (a short body fails then, on every
         // system); the socket closes once the client is done, or after a moment.
         let _ = stream.shutdown(Shutdown::Write);
@@ -1223,8 +1299,56 @@ mod tests {
         let _ = stream.read_to_end(&mut rest);
     }
 
-    /// The test chunk: 1 MiB, as in the app.
-    const TEST_CHUNK: u64 = 1024 * 1024;
+    /// How the test server sends an answer's body.
+    #[derive(Debug, Clone, Copy)]
+    enum Pacing {
+        /// All at once.
+        AtOnce,
+        /// In [`TRICKLE_PIECES`] pieces, [`TRICKLE_GAP`] apart: slowly, but steadily.
+        Trickle,
+        /// Half of it, then nothing for [`STALL`], then the rest.
+        Stall,
+    }
+
+    /// `/trickle` sends a body in 12 pieces, 250 ms apart: 3 s in all.
+    const TRICKLE_PIECES: usize = 12;
+    const TRICKLE_GAP: Duration = Duration::from_millis(250);
+
+    /// `/stall` stops sending for 2 s halfway through a body.
+    const STALL: Duration = Duration::from_secs(2);
+
+    /// Writes `response`, its head at once and its body as `pacing` says.
+    fn write_paced(stream: &mut TcpStream, response: &[u8], pacing: Pacing) {
+        let head = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .map_or(response.len(), |end| end + 4);
+        let (head, body) = response.split_at(head);
+        let _ = stream.write_all(head);
+        match pacing {
+            Pacing::AtOnce => {
+                let _ = stream.write_all(body);
+            }
+            Pacing::Trickle => {
+                for piece in body.chunks(body.len().div_ceil(TRICKLE_PIECES).max(1)) {
+                    let _ = stream.flush();
+                    thread::sleep(TRICKLE_GAP);
+                    let _ = stream.write_all(piece);
+                }
+            }
+            Pacing::Stall => {
+                let (first, rest) = body.split_at(body.len() / 2);
+                let _ = stream.write_all(first);
+                let _ = stream.flush();
+                thread::sleep(STALL);
+                let _ = stream.write_all(rest);
+            }
+        }
+        let _ = stream.flush();
+    }
+
+    /// The test chunk: the app's.
+    const TEST_CHUNK: u64 = CHUNK_BYTES;
 
     /// Local URLs on 127.0.0.1 over plain HTTP, the test server's.
     fn local(url: &Url) -> bool {
@@ -1239,7 +1363,8 @@ mod tests {
             chunk_bytes: TEST_CHUNK,
             max_whole_bytes: 8 * 1024 * 1024,
             cache_bytes: 8 * 1024 * 1024,
-            request_timeout: Duration::from_secs(10),
+            read_timeout: Duration::from_secs(10),
+            request_timeout: Duration::from_secs(30),
             origins: APP_ORIGINS.iter().map(|&origin| origin.into()).collect(),
         }
     }
@@ -1529,7 +1654,7 @@ mod tests {
     fn refuses_a_whole_file_over_the_limit_without_fetching_the_rest() {
         let (port, seen) = serve();
         let proxy = proxy(MediaPolicy {
-            max_whole_bytes: 2 * 1024 * 1024,
+            max_whole_bytes: 2 * TEST_CHUNK,
             ..policy()
         });
         let target = format!("http://127.0.0.1:{port}/videoplayback");
@@ -1626,15 +1751,110 @@ mod tests {
     }
 
     #[test]
-    fn times_out_with_504() {
+    fn times_out_with_504_when_no_answer_comes() {
         let (port, _) = serve();
         let proxy = proxy(MediaPolicy {
-            request_timeout: Duration::from_millis(500),
+            read_timeout: Duration::from_millis(500),
             ..policy()
         });
         let target = format!("http://127.0.0.1:{port}/slow");
         let response = send(&proxy, &request(&target, &[("range", "bytes=0-")]));
         assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
+    #[test]
+    fn serves_a_block_that_arrives_slowly_but_steadily() {
+        // A slow link: the block takes 3 s, three times the read timeout, in pieces 250 ms apart.
+        // A timeout on the whole request of that length would have cut it short.
+        let (port, _) = serve();
+        let proxy = proxy(MediaPolicy {
+            read_timeout: Duration::from_secs(1),
+            ..policy()
+        });
+        let target = format!("http://127.0.0.1:{port}/trickle");
+        let started = std::time::Instant::now();
+        let response = send(&proxy, &request(&target, &[("range", "bytes=0-")]));
+        assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(response.body().as_slice(), &file()[..TEST_CHUNK as usize]);
+        assert!(started.elapsed() > Duration::from_secs(1));
+    }
+
+    #[test]
+    fn gives_up_with_504_on_a_stall_or_past_the_cap() {
+        let (port, _) = serve();
+        // Half the block, then nothing for longer than the read timeout.
+        let stalled = proxy(MediaPolicy {
+            read_timeout: Duration::from_millis(500),
+            ..policy()
+        });
+        let target = format!("http://127.0.0.1:{port}/stall");
+        let response = send(&stalled, &request(&target, &[("range", "bytes=0-")]));
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+        assert!(response.body().is_empty());
+        // Steady, but slower than the cap on the whole request allows.
+        let capped = proxy(MediaPolicy {
+            read_timeout: Duration::from_secs(1),
+            request_timeout: Duration::from_secs(1),
+            ..policy()
+        });
+        let target = format!("http://127.0.0.1:{port}/trickle");
+        let response = send(&capped, &request(&target, &[("range", "bytes=0-")]));
+        assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    }
+
+    #[test]
+    fn no_answer_can_run_as_a_page() {
+        let (port, seen) = serve();
+        let proxy = proxy(policy());
+        let stream = format!("http://127.0.0.1:{port}/videoplayback");
+        let forbidden = format!("http://127.0.0.1:{port}/forbidden");
+        let answers = [
+            send(&proxy, &request(&stream, &[("range", "bytes=0-9")])),
+            send(&proxy, &request(&forbidden, &[("range", "bytes=0-")])),
+            send(
+                &proxy,
+                &request("https://example.com/", &[("range", "bytes=0-")]),
+            ),
+            refusal(StatusCode::FORBIDDEN),
+            refusal(StatusCode::SERVICE_UNAVAILABLE),
+        ];
+        let statuses: Vec<u16> = answers
+            .iter()
+            .map(|answer| answer.status().as_u16())
+            .collect();
+        assert_eq!(statuses, [206, 403, 403, 403, 503]);
+        for answer in &answers {
+            assert_eq!(header(answer, "content-security-policy"), Some(ANSWER_CSP));
+            assert_eq!(header(answer, "x-content-type-options"), Some("nosniff"));
+            assert_eq!(header(answer, "cache-control"), Some("no-store"));
+        }
+        assert_eq!(seen.lock().unwrap().len(), 2, "example.com was never asked");
+    }
+
+    #[test]
+    fn refuses_a_request_for_a_page_or_a_frame_before_any_fetch() {
+        let (port, seen) = serve();
+        let proxy = proxy(policy());
+        let target = format!("http://127.0.0.1:{port}/videoplayback");
+        let ask = |destination: &str| {
+            let headers = [("range", "bytes=0-9"), ("sec-fetch-dest", destination)];
+            send(&proxy, &request(&target, &headers))
+        };
+        for destination in [
+            "document", "iframe", "frame", "embed", "object", "script", "",
+        ] {
+            let response = ask(destination);
+            assert_eq!(response.status(), StatusCode::FORBIDDEN, "{destination}");
+            assert!(response.body().is_empty(), "{destination}");
+        }
+        assert!(seen.lock().unwrap().is_empty());
+        for destination in MEDIA_DESTINATIONS {
+            assert_eq!(
+                ask(destination).status(),
+                StatusCode::PARTIAL_CONTENT,
+                "{destination}"
+            );
+        }
     }
 
     #[test]
