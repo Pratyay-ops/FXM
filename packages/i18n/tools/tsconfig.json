@@ -1,0 +1,10 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    "types": ["node"],
+    // Node runs these files directly (--experimental-strip-types), which needs the extensions.
+    "allowImportingTsExtensions": true
+  },
+  "include": ["."]
+}

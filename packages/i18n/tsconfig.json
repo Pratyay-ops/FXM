@@ -1,8 +1,8 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    // The DOM for navigator and the document's attributes; no Node types, so the runtime can't lean
-    // on Node by accident.
+    // The DOM for navigator, the document's attributes and the test helpers; no Node types, so the
+    // runtime can't lean on Node by accident (tools/ has its own program).
     "lib": ["es2023", "dom", "dom.iterable"]
   },
   "include": ["src"]
