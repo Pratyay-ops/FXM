@@ -28,12 +28,12 @@ The token and the shared secret go in text fields that show dots until the user 
 
 ## How plays arrive
 
-The play recorder of stage 3.1 (`features/signals/play-recorder.ts`) announces each play as it starts and each play it records, through `features/signals/play-events.ts`. `startScrobbling` listens there and hands them to the scrobbler (`playListenerFor`):
+The play recorder of stage 3.1 (`features/signals/play-recorder.ts`), which the app's player connects where it is created (`features/now-playing/playback.ts`), announces each play as it starts and each play it records as it ends, through `features/signals/play-events.ts`. `startScrobbling` listens there and hands them to the scrobbler (`playListenerFor`):
 
 - a start sends "now playing" after 3 seconds;
 - a recorded play is queued for each service whose rules it meets (half the track or 4 minutes heard; on Last.fm, a track longer than 30 seconds), then the queues are sent. A play from a radio tells Last.fm the user didn't choose it.
 
-A listening history imported from another service (stage 3.6) goes straight to the library, so it is never scrobbled. Nothing scrobbles until the app's player is connected with `connectPlayRecorder(player)` (stages 2.3 and 2.5).
+A listening history imported from another service (stage 3.6) goes straight to the library, so it is never scrobbled. Neither is a play that a page killed in the background cut short: the recorder's checkpoints put it in the library on the next start, but announce nothing, since that page announced the plays it finished.
 
 ## Sending
 

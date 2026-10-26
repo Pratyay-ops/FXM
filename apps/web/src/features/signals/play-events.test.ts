@@ -2,7 +2,8 @@ import { formatId } from '@fxm/core'
 import { Player } from '@fxm/player'
 import { FakeEngine, FakeResolver, testTrack } from '@fxm/player/testing'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { NewPlay } from '../../db/repo'
+import { getLibrary, type NewPlay } from '../../db/repo'
+import { setupTestPlayback } from '../now-playing/testing'
 import { announcePlayEnded, announcePlayStarted, onPlays, type PlayStarted } from './play-events'
 import { connectPlayRecorder } from './play-recorder'
 
@@ -89,6 +90,33 @@ describe('the play recorder', () => {
       playedAt: T0,
       playedMs: 120_000,
       skipped: true,
+    })
+    expect(heard.started.map((play) => play.track.title)).toEqual(['a', 'b'])
+  })
+})
+
+describe('the app’s player', () => {
+  it('announces its plays, as it records them, for scrobbling to follow', async () => {
+    let clock = T0
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const { player, engine } = setupTestPlayback({ recordPlays: true })
+    const heard = listen()
+    await player.setQueue([a, b])
+    expect(heard.started).toEqual([{ track: a, startedAt: T0 }])
+    for (let ms = 0; ms < 179_750; ms += 250) {
+      clock += 250
+      engine.progress(engine.positionMs + 250)
+    }
+    engine.end()
+
+    await vi.waitFor(async () => expect(await getLibrary().history()).toHaveLength(1))
+    expect(heard.ended).toHaveLength(1)
+    expect(heard.ended[0]).toMatchObject({
+      track: a,
+      playedAt: T0,
+      playedMs: 179_750,
+      completed: true,
+      skipped: false,
     })
     expect(heard.started.map((play) => play.track.title)).toEqual(['a', 'b'])
   })
