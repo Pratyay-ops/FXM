@@ -1,12 +1,12 @@
 # The library database
 
-FXM keeps the library on the device, in IndexedDB, through [Dexie](https://dexie.org) 4: a database named `fxm`. Nothing here leaves the device except in a backup file the user saves.
+FXM keeps the library on the device, in IndexedDB, through [Dexie](https://dexie.org) 4: a database named `fxm`. Nothing here leaves the device except in a backup file the user saves, or in their sync gist once they turn sync on (`features/sync`).
 
 | File | What it holds |
 |---|---|
 | `types.ts` | One record type per table, the IDs of the built-in playlists, the match-cache and import vocabulary |
 | `database.ts` | The versioned schema, the migrations and `openDatabase()` |
-| `repo.ts` | The repository: **the only code that reads or writes the tables**, backups included (`snapshot()` and `restore()`) |
+| `repo.ts` | The repository: **the only code that reads or writes the tables**, backups included (`snapshot()` and `restore()`), except that library sync borrows the tables it carries for one transaction at a time (`syncTransaction()`) |
 | `hooks.ts` | React hooks that run the repository's reads as live queries |
 | `ordering.ts` | Pure functions over saved orders: moves and reconciling. Shuffle order uses `fisherYatesShuffle` from `@fxm/core` with an injectable random source |
 | `match-cache.ts` | Pure rules of the match cache: keys, confirmation, expiry, pins |
@@ -14,7 +14,7 @@ FXM keeps the library on the device, in IndexedDB, through [Dexie](https://dexie
 | `validate.ts` | Guards that clean records from outside the app (backups, later imports). Tracks, candidates, signals and play contexts go through the cleaners of `@fxm/core` that also restore a saved queue; this file adds the library's limits |
 | `backup.ts` | The backup file: its format, export, and validation before the repository restores it |
 
-Pages read through `hooks.ts` and write through `getLibrary()` (the app's repository), which doesn't expose the database. Tests make their own repository on a database of their own with `testRepo()` from `src/test/library-fixtures.ts` (it also hands them the database, to look at what is stored), or reset the app's with `resetLibrary()`, which the test setup does after every test.
+Pages read through `hooks.ts` and write through `getLibrary()` (the app's repository), which doesn't expose the database. Library sync (`features/sync/library-io.ts`) reads this device's library, merges the other devices' changes and writes the result in one transaction, so a change made meanwhile is never overwritten: `syncTransaction()` runs its work in one transaction on every table but import progress. Tests make their own repository on a database of their own with `testRepo()` from `src/test/library-fixtures.ts` (it also hands them the database, to look at what is stored), or reset the app's with `resetLibrary()`, which the test setup does after every test.
 
 ## Tables
 

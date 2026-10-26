@@ -7,6 +7,7 @@
 import { type EntityId, entityKey, formatId } from '@fxm/core'
 import type {
   FollowRecord,
+  HistoryEntry,
   LikeRecord,
   MatchCacheRecord,
   OrderRecord,
@@ -14,7 +15,6 @@ import type {
   TrackRecord,
 } from '../../../db/types'
 import { LIKED_PLAYLIST_ID, PLAYLISTS_ORDER_ID } from '../../../db/types'
-import type { HistoryEntry } from '../../../db/validate'
 import { track } from '../../../test/library-fixtures'
 import { emptySnapshot, normalizeSnapshot, type SyncSnapshot } from '../snapshot'
 

@@ -240,8 +240,8 @@ describe('Settings › Sync', { timeout: 30_000 }, () => {
     useSyncStore.setState({ auto: false })
     const record = (await library.getPlaylistView(mix))?.playlist
     if (record === undefined) throw new Error('missing')
-    await library.db.playlists.put(
-      conflictCopyOf({ ...record, name: 'Party', trackIds: [track(2).id] }),
+    await library.syncTransaction('rw', (tables) =>
+      tables.playlists.put(conflictCopyOf({ ...record, name: 'Party', trackIds: [track(2).id] })),
     )
     const { user } = renderApp('/settings')
     const sync = await section()
@@ -454,7 +454,7 @@ describe('Settings › Sync', { timeout: 30_000 }, () => {
     const main = within(screen.getByRole('main'))
     await user.click(await main.findByRole('button', { name: 'Clear history' }))
     expect(
-      await screen.findByRole('dialog', { name: 'Clear listening history?' }),
+      await screen.findByRole('alertdialog', { name: 'Clear listening history?' }),
     ).toHaveAccessibleDescription(/Sync clears the plays of the last 90 days on your other devices/)
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
 

@@ -1,4 +1,4 @@
-import { formatId, type JsonObject } from '@fxm/core'
+import { formatId, type JsonObject, type QueueContext } from '@fxm/core'
 import { describe, expect, it } from 'vitest'
 import type { LibraryRepo } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID, LIKED_PLAYLIST_ID } from '../../db/types'
@@ -773,9 +773,9 @@ describe('what sync carries', () => {
     const github = createFakeGitHub({ [TOKEN]: { login: 'octo' } })
     const a = clocked(github, () => NOW)
     const b = clocked(github, () => NOW)
-    const context = {
+    const context: QueueContext = {
       type: 'search',
-      id: 'my very private search',
+      query: 'my very private search',
       title: 'my very private search',
     }
     await a.repo.recordPlay({

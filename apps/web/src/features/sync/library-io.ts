@@ -2,25 +2,20 @@
  * Sync's access to the library database: reading the synced part as a snapshot, writing a
  * merge back, and the edits that settle a conflict.
  *
- * Like the backup import (`db/backup.ts`), these work on the repository's database in one
- * transaction each, so a change lands whole or not at all. A merge reads this device's library
- * and writes the result in the **same** transaction, so a like or a move made in another tab
- * meanwhile is never overwritten: it waits, then the next sync carries it. Only the records
- * the merge changed are written, and nothing sync doesn't carry is touched (Downloads, import
- * progress, the matching engine's own decisions, undo orders that still apply).
+ * Like a backup's restore, each runs in one transaction (the repository's `syncTransaction`), so
+ * a change lands whole or not at all. A merge reads this device's library and writes the result
+ * in the **same** transaction, so a like or a move made in another tab meanwhile is never
+ * overwritten: it waits, then the next sync carries it. Only the records the merge changed are
+ * written, and nothing sync doesn't carry is touched (Downloads, import progress, the matching
+ * engine's own decisions, undo orders that still apply).
  *
  * @module
  */
 
-import { type EntityId, formatId, type JsonObject } from '@fxm/core'
+import { type EntityId, formatId, type JsonObject, type QueueContext } from '@fxm/core'
 import { sameOrder } from '../../db/ordering'
-import { LibraryError, type LibraryRepo, randomUuid } from '../../db/repo'
-import {
-  DOWNLOADS_PLAYLIST_ID,
-  PLAYLISTS_ORDER_ID,
-  type PlayContext,
-  type PlaylistRecord,
-} from '../../db/types'
+import { LibraryError, type LibraryRepo, randomUuid, type SyncedTables } from '../../db/repo'
+import { DOWNLOADS_PLAYLIST_ID, PLAYLISTS_ORDER_ID, type PlaylistRecord } from '../../db/types'
 import { canonicalJson } from './canonical'
 import {
   conflictOriginalOf,
@@ -39,21 +34,6 @@ import {
   snapshotFromRows,
 } from './snapshot'
 
-/** The library tables sync reads and writes: every one but import progress. */
-function syncedTables(repo: LibraryRepo) {
-  const { db } = repo
-  return [
-    db.tracks,
-    db.likes,
-    db.playlists,
-    db.orders,
-    db.follows,
-    db.history,
-    db.settings,
-    db.matchCache,
-  ]
-}
-
 /**
  * Reads the synced part of the library (see `snapshot.ts`) and no more: the plays that started
  * at `historySince` or later (all of them without it, through the index), the pins of the match
@@ -68,8 +48,7 @@ export async function readLibrarySnapshot(
     tracks: wanted = [],
   }: { historySince?: number; tracks?: readonly EntityId<'track'>[] } = {},
 ): Promise<SyncSnapshot> {
-  const { db } = repo
-  const rows = await db.transaction('r', syncedTables(repo), async () => {
+  const rows = await repo.syncTransaction('r', async (db) => {
     const playlists = (await db.playlists.toArray()).filter(
       (playlist) => playlist.id !== DOWNLOADS_PLAYLIST_ID,
     )
@@ -123,8 +102,7 @@ export async function mergeIntoLibrary(
     checkRemovals?: (removed: RemovalCounts, local: SyncSnapshot) => void
   },
 ): Promise<LibraryMerge> {
-  const { db } = repo
-  return db.transaction('rw', syncedTables(repo), async () => {
+  return repo.syncTransaction('rw', async (db) => {
     const local = await readLibrarySnapshot(repo, input.appSettings, {
       ...(input.historySince === undefined ? {} : { historySince: input.historySince }),
       // So that the merge compares the gist's tracks with those cached here.
@@ -139,7 +117,7 @@ export async function mergeIntoLibrary(
       historyDeletionsSince: input.historyDeletionsSince,
     })
     input.checkRemovals?.(countRemovals(local, result.snapshot), local)
-    const changed = await writeChanges(repo, local, result.snapshot, input.historySince)
+    const changed = await writeChanges(db, local, result.snapshot, input.historySince)
     return { ...result, local, changed }
   })
 }
@@ -167,12 +145,11 @@ function diff<T>(
  * started before `historySince` weren't merged and stay as they are.
  */
 async function writeChanges(
-  repo: LibraryRepo,
+  db: SyncedTables,
   local: SyncSnapshot,
   merged: SyncSnapshot,
   historySince: number | undefined,
 ): Promise<number> {
-  const { db } = repo
   let changed = 0
 
   // Tracks are a cache: the merge never removes one. `local` holds the cached versions of the
@@ -229,7 +206,7 @@ async function writeChanges(
     ...history.deletes,
     ...history.puts.map(historyKey).filter((key) => localPlays.has(key)),
   ])
-  const contexts = new Map<string, PlayContext>()
+  const contexts = new Map<string, QueueContext>()
   if (gone.size > 0) {
     const ids: number[] = []
     const rows =
@@ -274,23 +251,23 @@ async function writeChanges(
 
 // --- Settling a conflict ---------------------------------------------------------------------
 
-async function requireCopy(repo: LibraryRepo, copyId: EntityId<'playlist'>) {
-  const copy = await repo.db.playlists.get(copyId)
+async function requireCopy(db: SyncedTables, copyId: EntityId<'playlist'>) {
+  const copy = await db.playlists.get(copyId)
   if (copy === undefined) throw new LibraryError('not-found', 'That version is gone already')
   return copy
 }
 
 /** Replaces `from` with `to` in the order of the playlists list (or drops it, without `to`). */
 async function replaceInOrder(
-  repo: LibraryRepo,
+  db: SyncedTables,
   from: EntityId<'playlist'>,
   to: EntityId<'playlist'> | undefined,
   now: number,
 ): Promise<void> {
-  const record = await repo.db.orders.get(PLAYLISTS_ORDER_ID)
+  const record = await db.orders.get(PLAYLISTS_ORDER_ID)
   if (record === undefined) return
   const order = record.order.flatMap((id) => (id !== from ? [id] : to === undefined ? [] : [to]))
-  await repo.db.orders.put({ id: PLAYLISTS_ORDER_ID, order, updatedAt: now })
+  await db.orders.put({ id: PLAYLISTS_ORDER_ID, order, updatedAt: now })
 }
 
 /**
@@ -303,9 +280,8 @@ export async function keepOtherVersion(
   now = Date.now(),
 ): Promise<EntityId<'playlist'>> {
   const originalId = conflictOriginalOf(copyId)
-  const { db } = repo
-  return db.transaction('rw', [db.playlists, db.orders], async () => {
-    const copy = await requireCopy(repo, copyId)
+  return repo.syncTransaction('rw', async (db) => {
+    const copy = await requireCopy(db, copyId)
     const original = originalId === undefined ? undefined : await db.playlists.get(originalId)
     if (originalId === undefined || original === undefined) return copyId
     const next: PlaylistRecord = {
@@ -320,7 +296,7 @@ export async function keepOtherVersion(
     if (copy.artwork !== undefined) next.artwork = copy.artwork
     await db.playlists.put(next)
     await db.playlists.delete(copyId)
-    await replaceInOrder(repo, copyId, undefined, now)
+    await replaceInOrder(db, copyId, undefined, now)
     return original.id
   })
 }
@@ -334,13 +310,12 @@ export async function keepBothVersions(
   copyId: EntityId<'playlist'>,
   { now = Date.now(), uuid = randomUuid }: { now?: number; uuid?: () => string } = {},
 ): Promise<EntityId<'playlist'>> {
-  const { db } = repo
   const id = formatId('local', 'playlist', uuid())
-  return db.transaction('rw', [db.playlists, db.orders], async () => {
-    const copy = await requireCopy(repo, copyId)
+  return repo.syncTransaction('rw', async (db) => {
+    const copy = await requireCopy(db, copyId)
     await db.playlists.put({ ...copy, id, updatedAt: now })
     await db.playlists.delete(copyId)
-    await replaceInOrder(repo, copyId, id, now)
+    await replaceInOrder(db, copyId, id, now)
     return id
   })
 }
@@ -356,7 +331,7 @@ export interface PlaylistConflict {
  * device sees them, because the copies sync like any playlist.
  */
 export async function listConflicts(repo: LibraryRepo): Promise<PlaylistConflict[]> {
-  const playlists = await repo.db.playlists.toArray()
+  const playlists = await repo.syncTransaction('r', (db) => db.playlists.toArray())
   const byId = new Map(playlists.map((playlist) => [playlist.id, playlist]))
   const conflicts: PlaylistConflict[] = []
   for (const playlist of playlists) {

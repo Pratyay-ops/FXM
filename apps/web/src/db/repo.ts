@@ -2,7 +2,8 @@
  * The library repository: the only code that reads and writes the library database. Pages read
  * through the hooks in `hooks.ts`, which run these reads as live queries; everything else,
  * backups included (`backup.ts` validates the file, then calls `restore`), calls the methods
- * directly. The database itself is not part of the repository's API.
+ * directly. The database itself is not part of the repository's API: only library sync borrows
+ * the tables it carries, for one transaction at a time (`syncTransaction`).
  *
  * Every write runs in one IndexedDB transaction, so a change either lands whole or not at all,
  * and every order change is a single write of one record (see `ordering.ts`).
@@ -1179,6 +1180,30 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
       )
     },
 
+    /**
+     * Library sync only (stage 8.4, `features/sync/library-io.ts`): runs `work` in one
+     * transaction on the tables sync carries, every one but import progress. Sync reads this
+     * device's library, merges the other devices' changes and writes what changed in that one
+     * transaction, so a change made meanwhile, in another tab too, waits for it and is never
+     * overwritten. Everything else reads and writes through the methods above.
+     */
+    async syncTransaction<T>(
+      mode: 'r' | 'rw',
+      work: (tables: SyncedTables) => Promise<T>,
+    ): Promise<T> {
+      const tables: SyncedTables = {
+        tracks: db.tracks,
+        likes: db.likes,
+        playlists: db.playlists,
+        orders: db.orders,
+        follows: db.follows,
+        history: db.history,
+        settings: db.settings,
+        matchCache: db.matchCache,
+      }
+      return db.transaction(mode, Object.values(tables), () => work(tables))
+    },
+
     /** Empties every table, then recreates the built-in playlists. */
     async clearLibrary(): Promise<void> {
       await db.transaction(
@@ -1195,6 +1220,12 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
 /** The library repository. */
 export type LibraryRepo = ReturnType<typeof createLibraryRepo>
+
+/** The tables library sync carries: every one but import progress (`syncTransaction`). */
+export type SyncedTables = Pick<
+  FxmDatabase,
+  'tracks' | 'likes' | 'playlists' | 'orders' | 'follows' | 'history' | 'settings' | 'matchCache'
+>
 
 /** `tracks` without repeats of the same entity (by `entityKey`), first one kept. */
 function dedupeTracks(tracks: readonly Track[]): Track[] {

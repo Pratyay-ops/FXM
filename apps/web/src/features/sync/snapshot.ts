@@ -25,20 +25,19 @@
  * @module
  */
 
-import { entityKey, type JsonObject, type JsonValue } from '@fxm/core'
+import { entityKey, type JsonObject, type JsonValue, type QueueContext } from '@fxm/core'
 import {
   DOWNLOADS_PLAYLIST_ID,
   type FollowRecord,
+  type HistoryEntry,
   type LikeRecord,
   type MatchCacheRecord,
   type OrderRecord,
-  type PlayContext,
   type PlaylistRecord,
   type SettingRecord,
   type TrackRecord,
 } from '../../db/types'
 import {
-  type HistoryEntry,
   sanitizeFollowRecord,
   sanitizeHistoryRecord,
   sanitizeLikeRecord,
@@ -98,7 +97,7 @@ export function isSyncedSettingKey(key: string): boolean {
  * Whether a play's context stays on its device: a search's holds the query, which other devices
  * don't need and the gist must not carry.
  */
-export function isPrivatePlayContext(context: PlayContext | undefined): boolean {
+export function isPrivatePlayContext(context: QueueContext | undefined): boolean {
   return context?.type === 'search'
 }
 

@@ -43,7 +43,7 @@ GitHub sends the whole gist back after every update (the API returns gist object
 `merge.ts` is a three-way merge: besides the two libraries it compares both with the base.
 
 - A change on one side only wins, and so does a deletion on one side only: a deleted playlist or an unliked song doesn't come back.
-- When both sides changed the same record, the **backup import's rules** decide: likes, follows and plays here stay; the most recently saved track metadata wins; a pin wins, then the newer decision.
+- When both sides changed the same record, the **backup import's rules** (`db/merge.ts`) decide: likes, follows and plays here stay; the most recently saved track metadata wins; a pin wins, then the newer decision.
 - **Playlists changed on both sides** are combined when the changes don't collide: songs added on either side, each where it was added; a song removed on one side; a rename on one side and a reorder on the other. When they collide (two different renames, two different reorders), **both versions are kept**: this device's stays, and the other side's becomes a copy named "… (other version)". Liked songs never collides: the newer order leads.
 - A playlist **deleted on one side and changed on the other** is kept, and the device that kept it shows a notice with "Delete it". Only its content counts as a change: saving it unchanged, which moves only its `updatedAt`, doesn't.
 - **The first sync** on a device, without a base, is the backup import's merge: everything in either library stays (plus the copies when a playlist differs). A setting still at its default takes the synced value.
@@ -98,7 +98,7 @@ One sync runs at a time across tabs (Web Locks; a lock within the tab where they
 | `snapshot.ts` | What sync carries, cleaned with the backup's guards; the history window, the used tracks, the `sync.` settings, private play contexts |
 | `merge.ts` | The three-way merge, conflict copies, and how much a merge removes |
 | `gist-format.ts` | The manifest and parts: encoding, size limits, long playlists in pieces, checks |
-| `library-io.ts` | Reading the library and writing a merge in one transaction; settling conflicts |
+| `library-io.ts` | Reading the library and writing a merge in one transaction (the repository's `syncTransaction`); settling conflicts |
 | `base-store.ts` | The bases, in IndexedDB, checked on the way in |
 | `engine.ts` | One sync, creating, rewriting and deleting a gist, finding one |
 | `sync-store.ts` | What the device remembers: token, gist, status, notices |

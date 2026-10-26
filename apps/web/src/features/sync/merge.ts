@@ -9,7 +9,7 @@
  * - A deletion made on one side only (the record is in the base, and the other side still has
  *   it unchanged) is kept: a deleted playlist or an unliked song doesn't come back.
  * - When both sides changed the same record, the **backup import's merge rules** decide
- *   (`db/backup.ts`): local likes, follows and plays stay; the most recently saved track
+ *   (`db/merge.ts`): local likes, follows and plays stay; the most recently saved track
  *   metadata wins; a pin wins, then the newer decision. A playlist changed on both sides is
  *   combined when its changes don't collide (songs added on both sides, a rename on one side
  *   and a reorder on the other), and **kept twice** when they do (two renames, two reorders):
