@@ -237,8 +237,12 @@ jobs:
         run: make android-setup
 
       # make dist (for its notices), the web app, cap sync, the APK's third-party notices and
-      # Gradle's assembleRelease, with no key anywhere in this job.
+      # Gradle's assembleRelease, with no key anywhere in this job. With the Jamendo switch of
+      # the deploy's make dist (deploy.yml), as the bundles job has it: the Android app offers
+      # Jamendo where the website does, and its notices are the website's.
       - name: Build the unsigned release APKs
+        env:
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: apps/mobile/scripts/release-apk.sh build dist/android-unsigned
 
       # Not a release-* artifact: only android-sign reads it, and nothing publishes it. Kept as

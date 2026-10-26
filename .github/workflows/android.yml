@@ -128,9 +128,12 @@ jobs:
             exit 1
           fi
 
-      # The dry run: the release job's build, then its signing with a key made for this run only.
+      # The dry run: the release job's build, with its Jamendo switch (release.yml), then its
+      # signing with a key made for this run only.
       - name: Build the unsigned release APKs (dry run)
         if: inputs.release
+        env:
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: apps/mobile/scripts/release-apk.sh build dist/android-unsigned
 
       # A key made for this step in a private temporary folder, and deleted after it.
