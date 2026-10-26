@@ -124,7 +124,7 @@ Every command is a change to a record in the `DownloadStore`, and only a **start
 
 ## Offline playback
 
-`createOfflineStore({ store, storage })` is the stream lifecycle's `OfflineStore`. For a track with a completed download whose audio may play in the catalog mode, it returns a `verified`, not IP-bound stream of the stored file at the storage's playback URL (a `blob:` URL in a browser). The same file keeps its URL, so a copy that failed to play is skipped. The mode rule is the playback policy's: a download of an official video's own audio (made in Music + Video mode) never plays in Music mode, while a downloaded song stands in for its music video there.
+`createOfflineStore({ store, storage })` is the stream lifecycle's `OfflineStore`. For a track with a completed download whose audio may play in the catalog mode, it returns a `verified`, not IP-bound stream of the stored file at the storage's playback URL (a `blob:` URL in a browser), with the loudness the stream had when it was downloaded (`format.loudness`, e.g. YouTube's `loudnessDb`; stage 8.1), so loudness normalization plays the copy at the stream's level; a malformed value is dropped (`sanitizeStreamLoudness`) without making the record invalid. The same file keeps its URL, so a copy that failed to play is skipped. The mode rule is the playback policy's: a download of an official video's own audio (made in Music + Video mode) never plays in Music mode, while a downloaded song stands in for its music video there.
 
 ## Storage contract
 

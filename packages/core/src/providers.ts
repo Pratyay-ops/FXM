@@ -10,6 +10,7 @@
  * @module
  */
 
+import type { StreamLoudness } from './effects/loudness'
 import type { EntityId, SourceId } from './ids'
 import type { MatchSourceExtras, MatchVerdict } from './matching/types'
 import type { CatalogMode } from './mode'
@@ -455,6 +456,12 @@ export interface StreamOption {
   downloadAllowed?: boolean
   /** Headers the request must send, e.g. a `Referer`. */
   requestHeaders?: Record<string, string>
+  /**
+   * How loud the audio is, when the source says (stage 8.1): YouTube's `loudnessDb`, or the
+   * ReplayGain or R128 tags of a local file or a download. Loudness normalization turns the track
+   * to the user's target level with it (`loudnessGainDb`); without it, the track plays as it is.
+   */
+  loudness?: StreamLoudness
   /**
    * Protocol-specific data the player needs besides the URL, as JSON so that it can cross a
    * worker or native bridge. For `sabr` it holds the session parameters, such as the ustreamer

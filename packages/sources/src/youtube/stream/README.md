@@ -85,6 +85,7 @@ Every `StreamOption` from the ladder is a `YouTubeStreamOption` (`isYouTubeStrea
 | `ipBound` | Whether the URL carries the IP address it was resolved from (`ip`, or `ip` in `sparams`): true for YouTube |
 | `fullLength` | The probe (above) |
 | `label` | The codec (`Opus`, `AAC`), or for a muxed video where the audio comes from: `AAC from 360p video` for itag 18 (its `qualityLabel`) |
+| `loudness` | The format's `loudnessDb`, how far above YouTube's -14 LUFS reference it is, as core's `loudnessFromYouTube` reads it: loudness normalization (stage 8.1) turns the song down by that much, as YouTube does. ANDROID's itag 18 has none ([CLEAN-ROOM.md](CLEAN-ROOM.md#loudness-stage-81)) |
 
 **Order.** Best first by core's `compareStreams`: tier, audio before muxed video, then the higher **average** bitrate. Only options of exactly equal rank are then ordered by the codec `prefs.download.format` needs no conversion for (Opus or AAC), then by the rung's own order (Opus 251, then AAC 140, ...); with real bitrates that almost never happens. Choosing what the player can decode (`canPlayType`, e.g. AAC on older Macs) is the playback policy's job, before `pickStream`.
 
