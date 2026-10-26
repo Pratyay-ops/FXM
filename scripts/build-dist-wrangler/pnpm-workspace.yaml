@@ -1,0 +1,5 @@
+# Makes this folder its own pnpm root, so the main workspace never installs wrangler.
+minimumReleaseAge: 20160
+allowBuilds:
+  esbuild: false
+  workerd: false

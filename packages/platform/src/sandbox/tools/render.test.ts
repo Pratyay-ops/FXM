@@ -64,6 +64,8 @@ async function runDocument(
   }
   const attributes = new Map<string, string>()
   const window = {
+    // A sandboxed document's own origin is opaque.
+    origin: 'null',
     location: { href: `${FXM}/sandbox/${SANDBOX_DOCUMENT_FILES[kind].file}#${TOKEN}` },
     document: {
       documentElement: {
@@ -82,7 +84,7 @@ async function runDocument(
     AbortController,
     TextEncoder,
   }
-  runInNewContext(script ?? '', window)
+  runInNewContext(script ?? '', Object.assign(window, { self: window }))
   const { port1, port2 } = new MessageChannel()
   const ready = new Promise<unknown>((resolve) => {
     port1.addEventListener('message', (event) => resolve(event.data), { once: true })
@@ -164,6 +166,39 @@ describe('the generated script', () => {
     ).toMatchObject({ code: 'redirect' })
     expect(document.fetch.mock.calls.map(([, init]) => init.redirect)).toEqual(['manual', 'manual'])
     document.close()
+  })
+
+  // Pages also serves each document at percent-encoded paths that no `_headers` rule matches
+  // (stage 2.8). No sandbox policy applies there, so the document has FXM's origin.
+  it.each(KINDS)('%s does nothing where its origin is not opaque', async (kind) => {
+    const [script] = inlineScripts(await committed(kind))
+    const posted: unknown[] = []
+    const listeners: unknown[] = []
+    const attributes = new Map<string, string>()
+    const window = {
+      origin: FXM,
+      location: { href: `${FXM}/sandbox/${SANDBOX_DOCUMENT_FILES[kind].file}#${TOKEN}` },
+      document: {
+        documentElement: {
+          setAttribute: (name: string, value: string) => attributes.set(name, value),
+          removeAttribute: (name: string) => attributes.delete(name),
+        },
+      },
+      parent: { postMessage: (message: unknown) => posted.push(message) },
+      addEventListener: (_type: string, listener: unknown) => listeners.push(listener),
+      removeEventListener: () => undefined,
+      fetch: vi.fn(),
+      setTimeout,
+      clearTimeout,
+      URL,
+      AbortController,
+      TextEncoder,
+    }
+    runInNewContext(script ?? '', Object.assign(window, { self: window }))
+    expect(posted).toEqual([])
+    expect(listeners).toEqual([])
+    expect(attributes.size).toBe(0)
+    expect(window.fetch).not.toHaveBeenCalled()
   })
 })
 
