@@ -42,6 +42,7 @@ export {
   type ExportRequest,
   type ExportResult,
   exportAudio,
+  withSourceTags,
 } from './exporter'
 export { demuxMp4Audio, type Mp4AudioTrack, type Mp4Sample } from './mp4/demux'
 export { writeM4a } from './mp4/write'
@@ -72,6 +73,11 @@ export {
   type SaveRequest,
   type SaveTarget,
 } from './save'
+export {
+  conversionNote,
+  SOURCE_BITRATE_TAG,
+  SOURCE_CODEC_TAG,
+} from './tags/fields'
 export { writeFlacTags } from './tags/flac'
 export { buildId3v2, stripId3v2, writeMp3Tags } from './tags/id3v2'
 export { type OggTagResult, writeOggTags } from './tags/ogg'
@@ -80,6 +86,7 @@ export { type TrackTagExtras, tagsFromTrack } from './track-tags'
 export {
   ConvertError,
   type ConvertErrorCode,
+  type ConvertedFrom,
   type CoverArt,
   type ExportTags,
   isConvertError,

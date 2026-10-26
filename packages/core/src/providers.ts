@@ -30,6 +30,7 @@ import type {
   Codec,
   Container,
   FullLengthCheck,
+  LossySource,
   QualityPrefs,
   QualityTier,
   StreamMedia,
@@ -473,6 +474,13 @@ export interface StreamOption {
    * to the user's target level with it (`loudnessGainDb`); without it, the track plays as it is.
    */
   loudness?: StreamLoudness
+  /**
+   * The lossy audio this file was converted from, when the file records it: a FLAC, ALAC or WAV
+   * that FXM's Save to device made from YouTube's Opus, say (stage 4.2 tags it). Its `tier` is
+   * then no better than the source's (`convertedTier`), never `lossless`, and labels name the
+   * source. Absent for everything else.
+   */
+  convertedFrom?: LossySource
   /**
    * Protocol-specific data the player needs besides the URL, as JSON so that it can cross a
    * worker or native bridge. For `sabr` it holds the session parameters, such as the ustreamer

@@ -4,19 +4,30 @@
  * stereos among them), so FXM writes it rather than 2.4.
  *
  * Frames: TIT2 title, TPE1 artists, TALB album, TRCK track, TPOS disc, TYER year, TSRC ISRC,
- * USLT lyrics, SYLT synced lyrics (milliseconds), APIC front cover.
+ * USLT lyrics, SYLT synced lyrics (milliseconds), APIC front cover, and for a file converted
+ * from lossy audio COMM (a note for people) and TXXX frames FXM_SOURCE_CODEC and
+ * FXM_SOURCE_BITRATE.
  *
  * @module
  */
 
 import { ByteWriter, concat, hasAscii, latin1, readSyncsafe, utf16WithBom } from '../bytes'
 import type { ExportTags } from '../types'
-import { joinedArtists, plainLyrics, positive, releaseYear } from './fields'
+import {
+  conversionNote,
+  joinedArtists,
+  plainLyrics,
+  positive,
+  releaseYear,
+  sourceFields,
+} from './fields'
 
 const UTF16 = 1
 const TERMINATOR_UTF16 = new Uint8Array([0, 0])
 /** ISO 639-2 for "undetermined": FXM doesn't know the language of the lyrics. */
 const LANGUAGE = 'und'
+/** ISO 639-2 for English, the language of FXM's own notes. */
+const ENGLISH = 'eng'
 
 function frame(id: string, body: Uint8Array): Uint8Array {
   // ID3v2.3 frame sizes are plain 32-bit integers (2.4 made them syncsafe).
@@ -37,6 +48,33 @@ function lyricsFrame(text: string): Uint8Array {
       .bytes(utf16WithBom(''))
       .bytes(TERMINATOR_UTF16)
       .bytes(utf16WithBom(text))
+      .finish(),
+  )
+}
+
+/** A comment (COMM) with no short description: FXM's note on a converted file. */
+function commentFrame(text: string): Uint8Array {
+  return frame(
+    'COMM',
+    new ByteWriter()
+      .u8(UTF16)
+      .ascii(ENGLISH)
+      .bytes(utf16WithBom(''))
+      .bytes(TERMINATOR_UTF16)
+      .bytes(utf16WithBom(text))
+      .finish(),
+  )
+}
+
+/** A user-defined text frame (TXXX): a description that names it, and its value. */
+function userTextFrame(description: string, value: string): Uint8Array {
+  return frame(
+    'TXXX',
+    new ByteWriter()
+      .u8(UTF16)
+      .bytes(utf16WithBom(description))
+      .bytes(TERMINATOR_UTF16)
+      .bytes(utf16WithBom(value))
       .finish(),
   )
 }
@@ -78,6 +116,7 @@ function frames(tags: ExportTags): Uint8Array[] {
   const track = positive(tags.trackNumber)
   const disc = positive(tags.discNumber)
   const lyrics = plainLyrics(tags)
+  const note = conversionNote(tags)
   const list = [
     textFrame('TIT2', tags.title),
     textFrame('TPE1', joinedArtists(tags)),
@@ -91,6 +130,8 @@ function frames(tags: ExportTags): Uint8Array[] {
       ? syncedLyricsFrame(tags.syncedLyrics)
       : undefined,
     tags.cover === undefined ? undefined : pictureFrame(tags.cover),
+    note === undefined ? undefined : commentFrame(note),
+    ...sourceFields(tags).map(([name, value]) => userTextFrame(name, value)),
   ]
   return list.filter((item): item is Uint8Array => item !== undefined)
 }

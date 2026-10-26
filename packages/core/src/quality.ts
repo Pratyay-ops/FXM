@@ -112,6 +112,38 @@ export function tierOf({ codec, bitrateKbps }: AudioQuality): QualityTier {
   return 'low'
 }
 
+/** Whether `codec` loses information (Opus, AAC, MP3, Vorbis), e.g. to validate a tag. */
+export function isLossyCodec(codec: unknown): codec is LossyCodec {
+  return typeof codec === 'string' && Object.hasOwn(LOSSY_TIER_THRESHOLDS, codec)
+}
+
+/**
+ * The lossy audio a file was converted from: a FLAC, ALAC or WAV that FXM's Save to device made
+ * from YouTube's Opus, say (stage 4.2 records it in the file's tags). A conversion adds nothing
+ * the source lacked, so such a file is only as good as its source, and never lossless.
+ */
+export interface LossySource {
+  /** The source's codec. */
+  readonly codec: LossyCodec
+  /** The source's average bitrate in kbps, when known. */
+  readonly bitrateKbps?: number
+}
+
+/**
+ * The tier of a file converted from lossy audio: the lower of the file's own tier and its
+ * source's. A FLAC made from Opus at 160 kbps is `high`, as its source, never `lossless`; an MP3
+ * at 128 kbps made from the same Opus stays `normal`, as it is.
+ */
+export function convertedTier(file: AudioQuality, source: LossySource): QualityTier {
+  const own = tierOf(file)
+  const from = tierOf(
+    source.bitrateKbps === undefined
+      ? { codec: source.codec }
+      : { codec: source.codec, bitrateKbps: source.bitrateKbps },
+  )
+  return compareTiers(own, from) >= 0 ? own : from
+}
+
 /** Position of a tier in {@link QUALITY_TIERS}; an unknown tier ranks below `low`. */
 function tierRank(tier: QualityTier): number {
   const rank = QUALITY_TIERS.indexOf(tier)
