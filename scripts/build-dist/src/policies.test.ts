@@ -27,10 +27,10 @@ const PLAN_APP_POLICY =
 /** The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm). */
 const LATER_CONNECT_HOSTS = ['https://api.listenbrainz.org', 'https://ws.audioscrobbler.com']
 
-/** The `/app/*` policy today: the plan's, with the hosts later stages added. */
+/** The `/app/*` policy today: the plan's, with the hosts later stages added after its own. */
 const APP_POLICY = PLAN_APP_POLICY.replace(
-  'https://lrclib.net;',
-  `https://lrclib.net ${LATER_CONNECT_HOSTS.join(' ')};`,
+  "; frame-src 'self';",
+  ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
 )
 
 describe('csp helpers', () => {
@@ -85,13 +85,14 @@ describe('the web app policy', () => {
         appPolicy([HASH], {
           services: [
             ...APP_SERVICES,
-            { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
+            // A host no shipped stage uses yet: 3.2's, once the app calls its providers.
+            { privacyName: 'Cover Art Archive', connect: ['https://coverartarchive.org'] },
           ],
           scriptExtras: [WASM_UNSAFE_EVAL],
         }),
       ),
     )
-    expect(policy.get('connect-src')?.at(-1)).toBe('https://sponsor.ajay.app')
+    expect(policy.get('connect-src')?.at(-1)).toBe('https://coverartarchive.org')
     expect(policy.get('script-src')).toEqual(["'self'", HASH, WASM_UNSAFE_EVAL])
   })
 
