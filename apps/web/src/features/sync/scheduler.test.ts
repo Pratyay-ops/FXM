@@ -114,28 +114,34 @@ describe('createSyncScheduler', () => {
     expect(runs.map((run) => run.at)).toEqual([3_600_000])
   })
 
-  it('backs off after failures, as long as GitHub asks when it does', async () => {
+  it('retries after failures by itself, backing off, as long as GitHub asks when it does', async () => {
     const { time, runs, scheduler } = setup([
       { ok: false, fatal: false },
       { ok: false, fatal: false },
       { ok: false, fatal: false, retryAfterMs: 10 * 60_000 },
     ])
     scheduler.trigger('start')
+    await time.advance(60 * 60_000)
+    // 30 s, then 60 s, then the 10 minutes GitHub asked for; then it worked, and stops.
+    expect(runs).toEqual([
+      { trigger: 'start', at: 0 },
+      { trigger: 'start', at: 30_000 },
+      { trigger: 'start', at: 90_000 },
+      { trigger: 'start', at: 690_000 },
+    ])
+  })
+
+  it('lets changes during a backoff wait for it', async () => {
+    const { time, runs, scheduler } = setup([{ ok: false, fatal: false }])
+    scheduler.trigger('start')
     await time.advance(0)
-    // Changes during the backoff wait for it.
     scheduler.changed('edit')
     await time.advance(29_000)
     expect(runs).toHaveLength(1)
     await time.advance(1000)
+    expect(runs.map((run) => run.at)).toEqual([0, 30_000])
+    await time.advance(60 * 60_000)
     expect(runs).toHaveLength(2)
-    scheduler.changed('edit')
-    await time.advance(60_000)
-    expect(runs).toHaveLength(3)
-    scheduler.changed('edit')
-    await time.advance(9 * 60_000)
-    expect(runs).toHaveLength(3)
-    await time.advance(60_000)
-    expect(runs).toHaveLength(4)
   })
 
   it('forgets the backoff when the device is back online', async () => {

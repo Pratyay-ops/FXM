@@ -9,8 +9,9 @@
  * - **Background changes** (plays, the track cache, pins) wait longer, ten quiet minutes and
  *   at most an hour: GitHub sends the whole gist back after each push, and a song played every
  *   few minutes would otherwise mean a push every few minutes.
- * - **Failures** back off: 30 seconds, doubling up to 30 minutes, or as long as GitHub asks.
- *   A failure only the user can fix (a revoked token, a deleted gist) stops automatic sync.
+ * - **Failures** are retried after a backoff: 30 seconds, doubling up to 30 minutes, or as long
+ *   as GitHub asks, whether or not anything else asks for a sync meanwhile. A failure only the
+ *   user can fix (a revoked token, a deleted gist) stops automatic sync.
  *
  * Runs never overlap: a trigger during a run runs once more afterwards.
  *
@@ -135,6 +136,9 @@ export function createSyncScheduler(options: SchedulerOptions): SyncScheduler {
     } else {
       failures++
       blockedUntil = now() + Math.max(result.retryAfterMs ?? 0, backoffMs(failures))
+      // Try again once the wait is over (`plan` waits for it), unless a trigger that came
+      // during the run asks for a sync anyway.
+      again ??= trigger
     }
     if (again !== undefined) {
       const next = again
