@@ -125,6 +125,8 @@ Only the two signing jobs name the `windows-signing` environment and read its se
 | Release, with `WINDOWS_CERTIFICATE` in the `windows-signing` environment | That certificate, in both signing jobs | Every file signed by it, checked, and trusted by Windows |
 | Release without it | None: `windows-sign-app` finds no certificate, and the bundling and second signing are skipped | `windows-build`'s unsigned installers, with a notice in the run; the check makes sure nothing is signed |
 
+A dry run on 2026-10-26 (run 40286470087) showed the five jobs working on GitHub's Windows runners, in 11 minutes, 3 of them after the build. The hook collected the two copies of `fxm.exe` and the five plugins, whose SHA-256 matched the pins; each signing job imported its throwaway certificate from a PKCS #12 file and signed, with timestamps from Certum's server; `tauri bundle` took every signed copy and left the uninstaller, WiX's libraries and the installers as they were; and the check found 9 files signed by their jobs' certificates: the two installers, the `fxm.exe` inside each and the five plugins. Before the split, one job's `tauri build` signed all of them, with the certificate in the store while the build ran.
+
 ### Setting up the certificate
 
 1. Make the environment, limited to `main`, so that only release runs can read its secrets. Adding the owner as a required reviewer also makes each release wait for the owner's approval, twice: once for each signing job, before it gets the certificate.
