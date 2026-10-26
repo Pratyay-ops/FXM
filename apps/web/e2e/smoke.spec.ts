@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url'
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Locator, type Page, test } from '@playwright/test'
 
 // Paths are relative to the /app/ base URL (see playwright.config.ts).
 const PAGES = [
@@ -14,6 +14,7 @@ const PAGES = [
   'playlist/liked',
   'playlist/local:playlist:liked',
   'now-playing',
+  'import',
   'settings',
   'connect',
   'no-such-page',
@@ -23,12 +24,42 @@ const PAGES = [
 const LIBRARY_BACKUP = fileURLToPath(new URL('./fixtures/library-backup.json', import.meta.url))
 const ROAD_TRIP = 'playlist/local:playlist:6f1c2d3e-0000-4000-8000-000000000001'
 
+/** A library backup with two imports: one with songs to review, one paused (fictional songs). */
+const IMPORT_BACKUP = fileURLToPath(new URL('./fixtures/import-backup.json', import.meta.url))
+const IMPORT_TO_REVIEW = 'import/6f1c2d3e-0000-4000-8000-0000000000b1'
+const IMPORT_PAUSED = 'import/6f1c2d3e-0000-4000-8000-0000000000b2'
+
+/** A data download's playlists file with long playlist names (made up for the test). */
+const EXPORT_PLAYLISTS = {
+  name: 'Playlist1.json',
+  mimeType: 'application/json',
+  buffer: Buffer.from(
+    JSON.stringify({
+      playlists: ['Songs for the very long train ride through the mountains', 'Kitchen radio'].map(
+        (name, index) => ({
+          name,
+          items: [
+            {
+              track: {
+                trackName: `A rather long song title number ${index + 1} (Extended Version)`,
+                artistName: 'Neon Harbor',
+                albumName: 'Coastline',
+                trackUri: `spotify:track:fxm${String(index + 1).padStart(19, '0')}`,
+              },
+            },
+          ],
+        }),
+      ),
+    }),
+  ),
+}
+
 /** Restores the fixture library through the Backup dialog, replacing what is there. */
-async function restoreLibrary(page: Page) {
+async function restoreLibrary(page: Page, file = LIBRARY_BACKUP) {
   await page.goto('library')
   await page.getByRole('main').getByRole('button', { name: 'Backup' }).click()
   const dialog = page.getByRole('dialog', { name: 'Back up your library' })
-  await dialog.getByLabel('Choose a backup file').setInputFiles(LIBRARY_BACKUP)
+  await dialog.getByLabel('Choose a backup file').setInputFiles(file)
   await dialog.getByRole('radio', { name: /Replace/ }).check()
   await dialog.getByRole('button', { name: 'Replace my library' }).click()
   await expect(page.getByText('Library replaced from the backup')).toBeVisible()
@@ -51,6 +82,27 @@ function songOrder(page: Page, name: string) {
     .evaluateAll((buttons) =>
       buttons.map((button) => button.getAttribute('aria-label')?.replace('More options for ', '')),
     )
+}
+
+/**
+ * Starts recording what happens to `button`: each change of its label, `disabled` and
+ * `aria-disabled`, and each time it loses focus. Returns a function that reads the record.
+ */
+async function recordButton(button: Locator): Promise<() => Promise<string[]>> {
+  await button.evaluate((element) => {
+    const changes: string[] = []
+    Object.assign(window, { fxmButtonChanges: changes })
+    new MutationObserver((records) => {
+      for (const { attributeName } of records) {
+        if (attributeName) changes.push(`${attributeName}=${element.getAttribute(attributeName)}`)
+      }
+    }).observe(element, { attributeFilter: ['aria-label', 'disabled', 'aria-disabled'] })
+    element.addEventListener('blur', () => changes.push('blur'))
+  })
+  return () =>
+    button
+      .page()
+      .evaluate(() => (window as unknown as { fxmButtonChanges: string[] }).fxmButtonChanges)
 }
 
 const GREETING = /^Good (morning|afternoon|evening)$/
@@ -335,6 +387,28 @@ test('confirms a sidebar action on any page', async ({ page }) => {
   await expect(sidebar.getByRole('link', { name: /Late night \(copy\)/ })).toBeVisible()
 })
 
+test('keeps focus on Resume while the import starts and pauses again', async ({ page }) => {
+  await restoreLibrary(page, IMPORT_BACKUP)
+  // On the card in the list, then on the import's own page.
+  for (const path of ['import', IMPORT_PAUSED]) {
+    await page.goto(path)
+    const toggle = page.getByRole('button', { name: /^(Resume|Pause) importing Evening walk$/ })
+    await expect(toggle).toHaveAccessibleName('Resume importing Evening walk')
+    const changes = await recordButton(toggle)
+    await toggle.focus()
+
+    await page.keyboard.press('Enter')
+
+    // The button shows that the import is starting. Then the import pauses again by itself:
+    // songs can't be found in this build yet.
+    await expect.poll(changes, { message: path }).not.toEqual([])
+    await expect(toggle).toBeEnabled()
+    await expect(toggle).toHaveAccessibleName('Resume importing Evening walk')
+    await expect(toggle, path).toBeFocused()
+    expect(await changes(), path).not.toContain('blur')
+  }
+})
+
 test.describe('on a short desktop window', () => {
   test.use({ viewport: { width: 1280, height: 680 } })
 
@@ -362,6 +436,21 @@ test.describe('on a 320 px phone', () => {
       await expect(page.getByRole('heading', { level: 1 })).toBeAttached()
       expect(await horizontalOverflow(page), path).toBeLessThanOrEqual(0)
     }
+  })
+
+  test('fits the import preview and the review list on the screen', async ({ page }) => {
+    await page.goto('import')
+    await page.getByLabel('Choose ZIP or JSON files').setInputFiles(EXPORT_PLAYLISTS)
+    await expect(page.getByRole('heading', { name: 'Ready to import' })).toBeVisible()
+    expect(await horizontalOverflow(page), 'export preview').toBeLessThanOrEqual(0)
+
+    await restoreLibrary(page, IMPORT_BACKUP)
+    await page.goto(IMPORT_TO_REVIEW)
+    await expect(page.getByRole('heading', { level: 3 }).first()).toBeVisible()
+    expect(await horizontalOverflow(page), 'review list').toBeLessThanOrEqual(0)
+    await page.goto('import')
+    await expect(page.getByRole('region', { name: 'Your imports' })).toBeVisible()
+    expect(await horizontalOverflow(page), 'imports').toBeLessThanOrEqual(0)
   })
 
   test('keeps keyboard focus clear of the mini player and tab bar', async ({ page }) => {

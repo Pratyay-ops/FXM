@@ -56,6 +56,7 @@ describe('privacyProblems', () => {
       'SponsorBlock',
       'ListenBrainz',
       'Last.fm',
+      'GitHub',
     ])
     expect(privacyProblems(RULES, page)).toEqual([
       "the privacy page doesn't list Jamendo, whose hosts the policies allow: add it to apps/site/src/pages/privacy.astro",

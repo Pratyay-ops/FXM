@@ -80,6 +80,8 @@ export const APP_SERVICES: readonly Service[] = [
   // 8.2: scrobbling, once the user connects an account in Settings. Only the write APIs.
   { privacyName: 'ListenBrainz', connect: ['https://api.listenbrainz.org'] },
   { privacyName: 'Last.fm', connect: ['https://ws.audioscrobbler.com'] },
+  // 8.4: library sync, only once the user turns it on, with a secret gist on their account.
+  { privacyName: 'GitHub', connect: ['https://api.github.com'] },
 ]
 
 /**
