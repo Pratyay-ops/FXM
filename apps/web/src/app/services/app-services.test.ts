@@ -241,7 +241,8 @@ describe('the Full tier (FXM Connect)', () => {
 
   it("offers Spotify with the platform's own user-host document, as the app's platform has it", async () => {
     // The app hands in stage 2.7's platform, which brings the sandbox documents itself: the
-    // services get no sandbox of their own, and must still find the user-host document.
+    // services get no sandbox of their own, only `reachesUserHosts` (as `index.ts` passes it), and
+    // the secret must still go through the platform's user-host document.
     const setup = setUp('full', { userHost: missingSecret, sandboxOnPlatformOnly: true })
     await setup.ready()
     expect(setup.platformOptions()?.sandbox).toBeUndefined()
@@ -260,12 +261,12 @@ describe('the Full tier (FXM Connect)', () => {
     const off = setUp('full')
     await off.ready()
     // No user-host document: Spotify can't be read in this browser, so there is no provider.
-    expect(await off.services.spotify()).toBeUndefined()
+    expect(await off.services.spotifyIfReadable()).toBeUndefined()
 
     for (const optedIn of [false, true]) {
       const setup = setUp('full', { userHost: missingSecret, spotifyAccount: () => optedIn })
       await setup.ready()
-      const spotify = await setup.services.spotify()
+      const spotify = await setup.services.spotifyIfReadable()
       expect(spotify?.id).toBe('spotify')
       // As if FXM Connect's Spotify login were on: whether the account may be used follows the
       // opt-in, before any request.

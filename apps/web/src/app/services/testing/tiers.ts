@@ -69,7 +69,8 @@ export interface TierSetup {
   readonly userHost?: (url: string) => Response
   /**
    * Gives the sandbox to the platform only, as the app does: it hands in stage 2.7's platform,
-   * which brings its own sandbox, and passes the services no `sandbox` option.
+   * which brings its own sandbox, passes the services no `sandbox` option, and tells them whether
+   * that platform reaches the user's hosts (`reachesUserHosts`, as `index.ts` does).
    */
   readonly sandboxOnPlatformOnly?: boolean
   /** Whether the user connected their Spotify account (`AppServicesOptions.spotifyAccount`). */
@@ -183,6 +184,7 @@ export function servicesOnTier(tier: Tier, setup: TierSetup = {}): TierServices 
     updates: false,
     catalogMode: () => mode,
     ...(sandbox === undefined || setup.sandboxOnPlatformOnly ? {} : { sandbox }),
+    ...(setup.sandboxOnPlatformOnly ? { reachesUserHosts: sandbox?.userHost !== undefined } : {}),
     ...(setup.spotifyAccount === undefined ? {} : { spotifyAccount: setup.spotifyAccount }),
     ...(setup.library === undefined ? {} : { library: setup.library }),
     ...(setup.importYouTube === undefined ? {} : { importYouTube: setup.importYouTube }),

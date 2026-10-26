@@ -107,7 +107,7 @@ export function loadAppSpotifyAccountServices(
     const { getAppServices } = await import('../../app/services')
     const app = getAppServices()
     const platform = await app.start()
-    const shared = platform === undefined ? undefined : await app.spotify()
+    const shared = platform === undefined ? undefined : await app.spotifyIfReadable()
     if (platform !== undefined && shared !== undefined) return servicesFrom(platform, shared)
     const [{ getAppPlatform }, { createSpotifyProvider, SPOTIFY_SECRET_SOURCE_HOSTS }] =
       await Promise.all([import('../connect/app-platform'), import('@fxm/sources/spotify')])

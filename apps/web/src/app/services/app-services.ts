@@ -267,11 +267,11 @@ export interface AppServices {
   /** The lyrics provider (stage 1.8), loaded on first use. Call it with {@link context}. */
   lyrics(): Promise<LyricsProvider>
   /**
-   * The Spotify provider, loaded on first use, once the platform is ready: `undefined` where
-   * Spotify can't be read (see `canReadSpotify`). Stage 3.5's account feature uses it, so the app
-   * has one Spotify provider, whose `isAccountEnabled` is the account's opt-in.
+   * {@link AppServices.spotify}, loaded once the platform is ready: `undefined` where Spotify
+   * can't be read (see `canReadSpotify`). Stage 3.5's account feature uses it, so the app has one
+   * Spotify provider, whose `isAccountEnabled` is the account's opt-in.
    */
-  spotify(): Promise<SpotifyProvider | undefined>
+  spotifyIfReadable(): Promise<SpotifyProvider | undefined>
   /**
    * Connects the app's player: the lifecycle follows it (prefetching, Smart Replace), the ladder
    * learns which URLs started playing, and the catalog pages' play buttons drive it. Returns a
@@ -731,7 +731,7 @@ export function createAppServices(options: AppServicesOptions = {}): AppServices
     },
     context,
     lyrics: () => lrclib.load(),
-    async spotify() {
+    async spotifyIfReadable() {
       await start()
       return spotifyRegistered ? spotify.load() : undefined
     },

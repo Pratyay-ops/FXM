@@ -36,7 +36,7 @@ The Spotify TOTP secret, which every token request needs, comes from the communi
 
 ## Wiring (`start.ts`, `services.ts`)
 
-`main.tsx` calls `startSpotifyAccount()`: it gives Home its view of the account and loads nothing unless the account is connected. The app has one Spotify provider, the composition root's (stage 2.9, `app/services/app-services.ts`): it is created with `isAccountEnabled: spotifyAccountOptedIn`, reads the secret through the platform's user-host document in a browser (`secret-fetch.ts`, shared with this folder), and serves search and the account alike. The runtime takes it with the root's `spotify()`; only where the root has none (it couldn't start) does `loadAppSpotifyAccountServices()` build a provider of its own over the app's platform (`getAppPlatform()`, stage 2.7). Another shell, or a test, can hand in services with `setAppSpotifyAccountServices`.
+`main.tsx` calls `startSpotifyAccount()`: it gives Home its view of the account and loads nothing unless the account is connected. The app has one Spotify provider, the composition root's (stage 2.9, `app/services/app-services.ts`): it is created with `isAccountEnabled: spotifyAccountOptedIn`, reads the secret through the platform's user-host document in a browser (`secret-fetch.ts`, shared with this folder), and serves search and the account alike. The runtime takes it with the root's `spotifyIfReadable()`; only where the root has none (it couldn't start) does `loadAppSpotifyAccountServices()` build a provider of its own over the app's platform (`getAppPlatform()`, stage 2.7). Another shell, or a test, can hand in services with `setAppSpotifyAccountServices`.
 
 | Touch-point | Today | Later |
 |---|---|---|
