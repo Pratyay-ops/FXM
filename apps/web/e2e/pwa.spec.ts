@@ -10,7 +10,6 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import {
   type BrowserContext,
   type CDPSession,
@@ -20,11 +19,14 @@ import {
   type Page,
   test,
 } from '@playwright/test'
+import { APP_DIR } from './target'
 
 // The installable web app in Chromium: installability, launches, the service worker (offline
 // shell, what it stores, updates), where the update toast goes, and Window Controls Overlay.
-// One test at a time, because the update tests publish new versions of dist/sw.js, which this
-// run built.
+// One test at a time, because the update tests publish new versions of the served sw.js
+// (apps/web/dist/sw.js, which this run built, or make dist's dist/pages/app/sw.js). The offline
+// shell and the update toast are critical flows (tagged @flow), so they also run against
+// `make dist` (e2e/flows/).
 test.describe.configure({ mode: 'serial' })
 test.use({ serviceWorkers: 'allow' })
 
@@ -39,7 +41,7 @@ const SCREENSHOTS = Boolean(process.env.FXM_SCREENSHOTS)
 const INSTALLS =
   !SCREENSHOTS && (process.platform === 'linux' || process.env.FXM_E2E_INSTALL === '1')
 
-const SW_FILE = fileURLToPath(new URL('../dist/sw.js', import.meta.url))
+const SW_FILE = join(APP_DIR, 'sw.js')
 const UPDATE_TEXT = 'A new version of FXM is ready.'
 const GREETING = /^Good (morning|afternoon|evening)$/
 /** What the app shell is made of: the page, its code and styles, the manifest and the icons. */
@@ -335,7 +337,7 @@ test.describe('in Chromium', () => {
     )
   })
 
-  test('the service worker controls /app/, and the shell opens offline', async ({
+  test('the service worker controls /app/, and the shell opens offline', { tag: '@flow' }, async ({
     page,
     context,
   }) => {
@@ -429,7 +431,7 @@ test.describe('in Chromium', () => {
       return version
     }
 
-    test('waits for the user, then reloads into it', async ({ page }) => {
+    test('waits for the user, then reloads into it', { tag: '@flow' }, async ({ page }) => {
       const version = await newVersionWaits(page)
       await markPage(page, 'old version')
 

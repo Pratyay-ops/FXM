@@ -4,7 +4,8 @@ import { FIXTURES, installFakeConnect, stubNetwork } from './fake-services'
 
 // Downloads (stage 4.1) through the app's real composition (src/app/services), in a real
 // browser: the queue, the Origin Private File System and the providers run for real, and only
-// the network is fake (fake-services.ts). Nothing reaches the internet.
+// the network is fake (fake-services.ts). Nothing reaches the internet. A critical flow (tagged
+// @flow), so it also runs against `make dist` (e2e/flows/).
 
 /** Where each download stands, from the `fxm-downloads` database: its song and status. */
 function downloads(page: Page): Promise<{ title: string; status: string; error?: string }[]> {
@@ -47,9 +48,9 @@ function isTransfer(request: { url(): string; headers(): Record<string, string> 
   )
 }
 
-test('a YouTube download left unfinished continues when FXM Connect answers late', async ({
-  context,
-}) => {
+test('a YouTube download left unfinished continues when FXM Connect answers late', {
+  tag: '@flow',
+}, async ({ context }) => {
   test.setTimeout(60_000)
   const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(1.5) })
 

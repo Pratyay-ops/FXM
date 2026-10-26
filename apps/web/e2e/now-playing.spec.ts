@@ -3,7 +3,8 @@ import { LONG_CREDITS, seedNowPlaying } from './now-playing-seed'
 
 // Now playing in a real browser, with a saved queue (see now-playing-seed.ts). Nothing plays:
 // the stream resolver arrives with stage 2.3, so these check what works without it, and that
-// a song that can't play says so.
+// a song that can't play says so. The queue's restore, synced lyrics and reordering are critical
+// flows (tagged @flow), so they also run against `make dist` (e2e/flows/).
 
 /** The titles of the songs up next, in order. */
 function upNext(page: Page) {
@@ -34,9 +35,9 @@ test.describe('with a saved queue', () => {
     await seedNowPlaying(page)
   })
 
-  test('puts the saved queue back, with the match, the review and synced lyrics', async ({
-    page,
-  }) => {
+  test('puts the saved queue back, with the match, the review and synced lyrics', {
+    tag: '@flow',
+  }, async ({ page }) => {
     await page.goto('now-playing')
 
     await expect(page.getByRole('heading', { level: 2, name: 'Neon Harbor' })).toBeVisible()
@@ -50,7 +51,7 @@ test.describe('with a saved queue', () => {
     ).toBeAttached()
   })
 
-  test('seeks to a lyric line', async ({ page }) => {
+  test('seeks to a lyric line', { tag: '@flow' }, async ({ page }) => {
     await page.goto('now-playing')
     const line = page.getByRole('button', { name: 'Salt in the static, a song on repeat' })
 
@@ -82,9 +83,9 @@ test.describe('with a saved queue', () => {
     // Rows near a covered edge make the list scroll while the pointer rests there.
     test.use({ viewport: { width: 1280, height: 1100 } })
 
-    test('reorders the queue by dragging a handle, and keeps the order across a reload', async ({
-      page,
-    }) => {
+    test('reorders the queue by dragging a handle, and keeps the order across a reload', {
+      tag: '@flow',
+    }, async ({ page }) => {
       await page.goto('now-playing?tab=queue')
       // The page loads lazily: wait for the list rather than read it once.
       await expect.poll(() => upNext(page)).toEqual(SEEDED_ORDER)
@@ -115,7 +116,7 @@ test.describe('with a saved queue', () => {
     })
   })
 
-  test('reorders the queue from the keyboard', async ({ page }) => {
+  test('reorders the queue from the keyboard', { tag: '@flow' }, async ({ page }) => {
     await page.goto('now-playing?tab=queue')
     const handle = page.getByRole('button', { name: 'Move Hollow Street', exact: true })
 

@@ -8,17 +8,21 @@
  *   recorded VISIONOS answer rewritten for the video asked for (its ID, and URLs that expire six
  *   hours from now);
  * - googlevideo: ranged GETs as a file of the URL's `clen` (zeros), so end-of-file probes pass,
- *   and a request from the start of the file (what a media element sends) with `audio`;
+ *   and a request from the start of the file (what a media element sends) with `audio`; a URL
+ *   without `clen` (itag 18's) as a file of `audio`'s length, which its probe reads from
+ *   `Content-Range`;
  * - Internet Archive: a recorded search, recorded items by identifier (others are unknown), and
  *   `audio` for every file download;
  * - MusicBrainz: nothing found, as for a Spotify track no recording links;
  * - when the fixtures have them: other InnerTube searches by their filter's `params`, a radio
- *   (`next` with `RDAMVM…`), `browse` pages by `browseId`, and ListenBrainz's labs answers by
- *   endpoint (`acr-lookup/json`, `similar-artists/json`).
+ *   (`next` with `RDAMVM…`), an artist's radio (`next` with `RDEM…`), a track's own page (`next`
+ *   with only its `videoId`), `browse` pages by `browseId`, and ListenBrainz's labs answers by
+ *   endpoint (`acr-lookup/json`, `similar-artists/json`), and `/player` answers of other clients
+ *   (ANDROID's itag 18).
  *
  * Anything else is refused with a network error, like a host that does not answer. Both the
- * Vitest tests and the Playwright test (`e2e/playback.spec.ts`) use it, so it imports nothing:
- * the fixtures are passed in.
+ * Vitest tests and the Playwright tests (`e2e/playback.spec.ts`, `e2e/flows/`) use it, so it
+ * imports nothing: the fixtures are passed in.
  *
  * @module
  */
@@ -29,6 +33,11 @@ export interface FakeNetworkFixtures {
   readonly songs: unknown
   /** A VISIONOS `/player` answer for a song; rewritten for the video each request asks for. */
   readonly player: unknown
+  /**
+   * `/player` answers by client (`context.client.clientName`), such as ANDROID's with itag 18,
+   * rewritten the same way; clients without one get `player`.
+   */
+  readonly players?: Readonly<Record<string, unknown>>
   /** An Internet Archive search (`advancedsearch.php`). */
   readonly archiveSearch: unknown
   /** Internet Archive items (`/metadata/<identifier>`), by identifier. */
@@ -37,6 +46,10 @@ export interface FakeNetworkFixtures {
   readonly searches?: Readonly<Record<string, unknown>>
   /** A radio, the answer to every `next` call for a `RDAMVM…` playlist. */
   readonly radio?: unknown
+  /** An artist's radio, the answer to every `next` call for a `RDEM…` playlist. */
+  readonly artistRadio?: unknown
+  /** Tracks' own pages (`next` for a video without a playlist), by `videoId`. */
+  readonly tracks?: Readonly<Record<string, unknown>>
   /** `browse` answers by `browseId`: artist pages, playlists. */
   readonly browse?: Readonly<Record<string, unknown>>
   /** ListenBrainz's labs API, by endpoint: `acr-lookup/json`, `similar-artists/json`. */
@@ -216,8 +229,16 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
       }
       case 'next': {
         const playlistId = typeof body.playlistId === 'string' ? body.playlistId : ''
-        if (fixtures.radio === undefined || !playlistId.startsWith('RDAMVM')) break
-        return json(fixtures.radio)
+        const answer =
+          playlistId === ''
+            ? fixtures.tracks?.[String(body.videoId)]
+            : playlistId.startsWith('RDAMVM')
+              ? fixtures.radio
+              : playlistId.startsWith('RDEM')
+                ? fixtures.artistRadio
+                : undefined
+        if (answer === undefined) break
+        return json(answer)
       }
       case 'browse': {
         const page = fixtures.browse?.[String(body.browseId)]
@@ -229,7 +250,9 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
       case 'player': {
         const videoId = String(body.videoId)
         players.push(videoId)
-        return json(playerFor(fixtures.player, videoId, now()))
+        const context = isRecord(body.context) ? body.context : {}
+        const client = isRecord(context.client) ? String(context.client.clientName) : ''
+        return json(playerFor(fixtures.players?.[client] ?? fixtures.player, videoId, now()))
       }
       default:
         break
@@ -242,7 +265,9 @@ export function createFakeNetwork(options: FakeNetworkOptions): FakeNetwork {
     // A media element asks from the start of the file: give it something it can play.
     if (range === undefined || (range[0] === 0 && range[1] === undefined))
       return media(audio, range)
-    const length = Number(url.searchParams.get('clen') ?? Number.NaN)
+    // itag 18's URLs carry no `clen`: googlevideo says the length in `Content-Range`.
+    const clen = url.searchParams.get('clen')
+    const length = clen === null ? audio.length : Number(clen)
     if (!Number.isFinite(length)) return new Response(null, { status: 403, headers: CORS })
     const first = range[0]
     const last = Math.min(range[1] ?? length - 1, length - 1)

@@ -195,7 +195,9 @@ test('skips to the page content without breaking Back', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Go back' })).toBeEnabled()
 })
 
-test('keeps the catalog mode and theme across a reload', async ({ page }) => {
+// Settings and the library's saved order are critical flows (tagged @flow), so they also run
+// against `make dist` (e2e/flows/).
+test('keeps the catalog mode and theme across a reload', { tag: '@flow' }, async ({ page }) => {
   await page.goto('settings')
   await page.locator('label', { hasText: /^Music \+ Video$/ }).click()
   await page.locator('label', { hasText: /^Light$/ }).click()
@@ -209,7 +211,9 @@ test('keeps the catalog mode and theme across a reload', async ({ page }) => {
   await expect(page.getByRole('link', { name: /Catalog mode: Music \+ Video/ })).toBeVisible()
 })
 
-test('keeps a custom order made by keyboard and by the menu across a reload', async ({ page }) => {
+test('keeps a custom order made by keyboard and by the menu across a reload', {
+  tag: '@flow',
+}, async ({ page }) => {
   await restoreLibrary(page)
   await page.goto(ROAD_TRIP)
   await expect(page.getByRole('heading', { level: 1, name: 'Road trip' })).toBeVisible()

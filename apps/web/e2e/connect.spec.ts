@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { type BrowserContext, expect, type Locator, type Page, test } from '@playwright/test'
+import { SERVES_SANDBOX } from './target'
 
 // The tiers, the onboarding prompts and the Diagnostics self-test, end to end in a real browser
 // against the production build, with fakes for everything outside it:
@@ -14,6 +15,9 @@ import { type BrowserContext, expect, type Locator, type Page, test } from '@pla
 //   which the build includes because playwright.config.ts builds with VITE_FXM_FAKES=on.
 //
 // Every other request off this machine is refused, so the tests never reach the internet.
+//
+// The tiers are critical flows (tagged @flow), so they also run against `make dist` served like
+// Cloudflare Pages (e2e/flows/), which serves the deployed sandbox document with its own policy.
 
 const SANDBOX_DOCUMENT = readFileSync(
   fileURLToPath(new URL('../sandbox/innertube.html', import.meta.url)),
@@ -56,21 +60,24 @@ async function addFakeConnect(target: Page | BrowserContext, version = '0.1.0') 
 }
 
 /**
- * Serves the Lite sandbox document and answers InnerTube, as YouTube does or doesn't, after
- * `delayMs` (a slow Lite check).
+ * Serves the Lite sandbox document where the server doesn't (`vite preview`), and answers
+ * InnerTube, as YouTube does or doesn't, after `delayMs` (a slow Lite check).
  */
 async function fakeYouTube(page: Page, lite: boolean, delayMs = 0) {
   const innerTube: string[] = []
-  // Routes run newest first: the catch-all goes in first.
-  await page.route(/^https?:\/\/(?!localhost[:/])/, (route) => route.abort())
-  await page.route('**/sandbox/innertube.html', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'text/html; charset=utf-8',
-      headers: { 'content-security-policy': 'sandbox allow-scripts' },
-      body: SANDBOX_DOCUMENT,
-    }),
-  )
+  // Routes run newest first: the catch-all goes in first. It spares this machine, which serves
+  // the app as localhost (`vite preview`) or 127.0.0.1 (make dist).
+  await page.route(/^https?:\/\/(?!(?:localhost|127\.0\.0\.1)[:/])/, (route) => route.abort())
+  if (!SERVES_SANDBOX) {
+    await page.route('**/sandbox/innertube.html', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'text/html; charset=utf-8',
+        headers: { 'content-security-policy': 'sandbox allow-scripts' },
+        body: SANDBOX_DOCUMENT,
+      }),
+    )
+  }
   await page.route(/^https:\/\/(?:www|music)\.youtube\.com\/youtubei\/v1\//, async (route) => {
     const request = route.request()
     innerTube.push(
@@ -147,7 +154,7 @@ async function layoutShiftOf(page: Page, selector: string): Promise<number> {
   )
 }
 
-test.describe('the tiers', () => {
+test.describe('the tiers', { tag: '@flow' }, () => {
   test('Full with FXM Connect: no Lite self-test, no notice', async ({ page }) => {
     const innerTube = await fakeYouTube(page, true)
     await addFakeConnect(page)

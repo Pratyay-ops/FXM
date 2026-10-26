@@ -1,7 +1,19 @@
-import { readFileSync } from 'node:fs'
 import { expect, type Page, test } from '@playwright/test'
 import { createFakeNetwork, wavTone } from '../src/app/services/testing/fake-network'
-import { type ConnectRecord, FIXTURES, installFakeConnect, stubNetwork } from './fake-services'
+import {
+  type ConnectRecord,
+  FIXTURES,
+  installFakeConnect,
+  refuseLite,
+  stubNetwork,
+} from './fake-services'
+import {
+  type MediaRecord,
+  serveSandbox,
+  titles,
+  trackMediaElements,
+  waitUntilPlaying,
+} from './playing'
 
 // Search, play and the next track in a real browser, through the app's real composition
 // (src/app/services): platform, providers, stream lifecycle, player and <audio>. Only the network
@@ -10,35 +22,18 @@ import { type ConnectRecord, FIXTURES, installFakeConnect, stubNetwork } from '.
 // really plays. Nothing reaches the internet.
 //
 // The Lite tier runs the real sandbox document of stage 1.10 (apps/web/sandbox/innertube.html),
-// which the deploy serves at /sandbox/ and `vite preview` doesn't, so its test serves it. The
-// shell never waits for the services: with an FXM Connect that answers late, it paints at once
+// which the deploy serves at /sandbox/ and `vite preview` doesn't, so its test serves it there.
+// The shell never waits for the services: with an FXM Connect that answers late, it paints at once
 // and says it is connecting, rather than offering the install.
-
-/** The Lite tier's sandbox document, as the deploy serves it at `/sandbox/innertube.html`. */
-const SANDBOX_DOCUMENT = readFileSync(new URL('../sandbox/innertube.html', import.meta.url), 'utf8')
-
-/**
- * Serves the sandbox document as the deploy does, with its header: a page without FXM Connect
- * then runs the Lite self-test and, with InnerTube answering its opaque origin (the fake network
- * allows every origin), gets the Lite tier.
- */
-async function serveSandbox(page: Page): Promise<void> {
-  await page.route('**/sandbox/innertube.html', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'text/html; charset=utf-8',
-      headers: { 'content-security-policy': 'sandbox allow-scripts' },
-      body: SANDBOX_DOCUMENT,
-    }),
-  )
-}
+//
+// These are critical flows (tagged @flow), so they also run against `make dist` served like
+// Cloudflare Pages (e2e/flows/), where the deployed sandbox document comes with its own policy.
 
 /** Each stream plays this long, so a track ends by itself within the test. */
 const TRACK_SECONDS = 1.5
 
 /** What the page's init scripts record, read with `page.evaluate`. */
-interface PageRecord extends ConnectRecord {
-  fxmMedia: Set<HTMLMediaElement>
+interface PageRecord extends ConnectRecord, MediaRecord {
   /** When `#root` first got content, as `performance.now()`. */
   fxmFirstRender?: number
   /** Whether the install pitch ("Get FXM Connect") ever showed. */
@@ -62,63 +57,7 @@ async function watchShell(page: Page): Promise<void> {
   })
 }
 
-/**
- * Keeps a reference to every media element the page plays: the player's `<audio>` elements are
- * never attached to the document, so they can't be found in it.
- */
-async function trackMediaElements(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    const played = new Set<HTMLMediaElement>()
-    ;(window as unknown as PageRecord).fxmMedia = played
-    const play = HTMLMediaElement.prototype.play
-    HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
-      played.add(this)
-      return play.call(this)
-    }
-  })
-}
-
-/**
- * What the page plays: the title in the system media controls, and the URL an `<audio>` element
- * is playing (it is past its start and not paused), else `null`.
- */
-function nowPlaying(page: Page): Promise<{ title: string | null; url: string | null }> {
-  return page.evaluate(() => {
-    const played = (window as unknown as PageRecord).fxmMedia
-    const playing = [...played].find((media) => !media.paused && media.currentTime > 0)
-    return {
-      title: navigator.mediaSession.metadata?.title ?? null,
-      url: playing?.currentSrc ?? null,
-    }
-  })
-}
-
-/** Waits until the page plays `title` from `host`, and returns the URL it plays. */
-async function waitUntilPlaying(page: Page, title: string | undefined, host: string) {
-  let url = ''
-  await expect
-    .poll(
-      async () => {
-        const now = await nowPlaying(page)
-        url = now.url ?? ''
-        return { title: now.title, host: now.url === null ? null : new URL(now.url).hostname }
-      },
-      { timeout: 10_000 },
-    )
-    .toEqual({ title, host })
-  return new URL(url)
-}
-
-/** The titles of the songs a results list shows, in order. */
-async function titles(page: Page, list: string): Promise<string[]> {
-  const labels = await page
-    .getByRole('list', { name: list })
-    .getByRole('button', { name: /^Play / })
-    .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label') ?? ''))
-  return labels.map((label) => label.replace(/^Play /u, '').replace(/ by .*$/u, ''))
-}
-
-test.describe('the Full tier (FXM Connect)', () => {
+test.describe('the Full tier (FXM Connect)', { tag: '@flow' }, () => {
   test('searches YouTube Music, plays a song, then the next ones', async ({ page }) => {
     const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(TRACK_SECONDS) })
     await stubNetwork(page, network)
@@ -200,25 +139,31 @@ test.describe('the Full tier (FXM Connect)', () => {
 
     await page.goto('./')
 
-    // A first visit with FXM Connect: Home asks what the user likes, once the tier is known.
+    // A first visit with FXM Connect: Home asks what the user likes, once the tier is known. Where
+    // the server serves the sandbox document (make dist), Lite's check may pass first, and Home
+    // asks the same then.
     await expect(page.getByRole('heading', { name: 'What do you like to listen to?' })).toBeVisible(
       { timeout: 15_000 },
     )
-    expect(await page.evaluate(() => (window as unknown as PageRecord).fxmPongAt)).toBeDefined()
-    // Meanwhile it showed a placeholder, never the Free tier's install pitch.
+    await expect
+      .poll(() => page.evaluate(() => (window as unknown as PageRecord).fxmPongAt))
+      .toBeDefined()
+    // Meanwhile it showed a placeholder, never an install pitch.
     expect(await page.evaluate(() => (window as unknown as PageRecord).fxmSawInstallPitch)).toBe(
       false,
     )
   })
 })
 
-test.describe('the Free tier (no FXM Connect)', () => {
+test.describe('the Free tier (no FXM Connect)', { tag: '@flow' }, () => {
   // A phone, where FXM Connect can't always help, and the source chips scroll sideways.
   test.use({ viewport: { width: 375, height: 667 } })
 
   test('plays Internet Archive tracks, then the next one', async ({ page }) => {
     const network = createFakeNetwork({ fixtures: FIXTURES, audio: wavTone(TRACK_SECONDS) })
     await stubNetwork(page, network)
+    // Lite's check fails here, as where YouTube doesn't answer the sandbox document.
+    await refuseLite(page)
     await trackMediaElements(page)
 
     await page.goto('search?q=nine%20inch%20nails%20ghosts')
@@ -244,14 +189,14 @@ test.describe('the Free tier (no FXM Connect)', () => {
     // The next one, when the first ends by itself.
     const secondUrl = await waitUntilPlaying(page, second, 'archive.org')
     expect(secondUrl.pathname).not.toBe(firstUrl.pathname)
-    // This page can't reach YouTube, so it never tried.
+    // This page can't reach YouTube, so beyond Lite's check, which YouTube refused, it never tried.
     expect(network.requests.filter((request) => /youtube|googlevideo/u.test(request.url))).toEqual(
       [],
     )
   })
 })
 
-test.describe('the Lite tier (no FXM Connect, the sandbox documents)', () => {
+test.describe('the Lite tier (no FXM Connect, the sandbox documents)', { tag: '@flow' }, () => {
   test('searches YouTube Music through the sandbox, plays a song, then the next one', async ({
     page,
   }) => {
