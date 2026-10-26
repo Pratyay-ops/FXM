@@ -13,13 +13,19 @@
 //!   and Rust moves it into the folder itself, under a name no other file has: a file of the same
 //!   name, FXM's or the user's, is never replaced.
 //! - **The index** (`downloads.json` in the app's config folder) maps each opaque name to its file,
-//!   and keeps the folder the user chose. Only files FXM wrote are in it, so the commands never
-//!   list, read or delete any other file in the folder.
+//!   and keeps the folder the user chose. Only files FXM wrote are in it, and the commands list,
+//!   read and delete the files it names only, never any other file in the folder.
+//! - **Never through a link.** The hidden folder must be a real folder, not a link or a junction
+//!   put in its place, and files open without following a link at their name, so neither a
+//!   download nor a delete lands outside the folder.
 //! - **Choosing another folder** applies to the downloads that start from then on: downloads made
 //!   before stay where they are and keep playing.
 //! - **Saved copies** (`save_begin`, `save_write`, `save_end`), a download converted to another
 //!   format by stage 4.2, go into the folder too, under their own names, and are the user's from
 //!   then on: the index doesn't keep them.
+//! - **A page that loads again** (a reload, or Tauri's reload after the webview's content process
+//!   crashed) finds no file open: the files the last page left open for writing are closed, and
+//!   its copies half saved deleted.
 //!
 //! Offline playback reads a complete file through the `fxm-download:` scheme
 //! (`fxm-download://localhost/<name>`, `http://fxm-download.localhost/<name>` on Windows), which
@@ -35,17 +41,19 @@
 //! `not-focused` and `dialog`.
 
 use std::{
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, hash_map::RandomState},
     ffi::OsStr,
+    fmt::Display,
     fs::{self, File, OpenOptions},
+    hash::BuildHasher,
     io::{self, Read, Seek, SeekFrom, Write},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     sync::{
         Arc, Mutex, MutexGuard, PoisonError,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use base64::Engine as _;
@@ -55,6 +63,7 @@ use tauri::{
     Manager, Runtime, State, Url, WebviewWindow,
     http::{Method, Request, Response, StatusCode, header},
     plugin::{Builder, TauriPlugin},
+    webview::PageLoadEvent,
 };
 
 use crate::{MAIN_WINDOW, user_hosts::CommandError};
@@ -102,8 +111,21 @@ pub const EXTENSIONS: &[&str] = &[
 /// an identifier of its own but the same default folder).
 const UNFINISHED_SAVE_AGE: Duration = Duration::from_secs(60 * 60);
 
+/// How long a file on its way that the index doesn't know must have stood still before a start
+/// deletes it: a download whose entry went with a damaged index. A week, as another FXM with an
+/// index of its own (on another computer sharing the folder, say) may keep a paused download
+/// there.
+const ORPHAN_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+
+/// How many names a copy's temporary file tries before FXM gives up.
+const TEMP_ATTEMPTS: usize = 16;
+
 /// The longest name, in characters, a file gets before its number and extension.
 const MAX_STEM_CHARS: usize = 150;
+
+/// The longest name, in bytes of UTF-8, a file gets with its number and extension: what ext4,
+/// btrfs and XFS allow. APFS and NTFS count UTF-16 units, never more than the UTF-8 bytes.
+const MAX_NAME_BYTES: usize = 255;
 
 /// How many files of one name FXM tries (`Name (2).mp3` up to this) before it gives up.
 const MAX_NAME_NUMBER: u32 = 999;
@@ -111,11 +133,18 @@ const MAX_NAME_NUMBER: u32 = 999;
 /// A file's name when its title leaves nothing usable.
 const FALLBACK_STEM: &str = "FXM download";
 
+/// What follows a device name that starts a file's name: `CON (track).mp3`.
+const DEVICE_MARKER: &str = " (track)";
+
 /// Names Windows reserves for devices, whatever their extension.
 const DEVICE_NAMES: &[&str] = &[
     "con", "prn", "aux", "nul", "com0", "com1", "com2", "com3", "com4", "com5", "com6", "com7",
     "com8", "com9", "lpt0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
 ];
+
+/// The device names Windows also reads with a superscript digit. Never an opaque name, which is
+/// ASCII, so only file names need them.
+const SUPERSCRIPT_DEVICE_NAMES: &[&str] = &["com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³"];
 
 /// The folder picker's title.
 const PICKER_TITLE: &str = "Choose where FXM saves downloads";
@@ -142,11 +171,30 @@ fn check_name(name: &str) -> Result<(), CommandError> {
     }
 }
 
+/// `text` cut at a character boundary to at most `chars` characters and `bytes` bytes.
+fn shortened(text: &str, chars: usize, bytes: usize) -> &str {
+    let end = text
+        .char_indices()
+        .take(chars)
+        .map(|(index, character)| index + character.len_utf8())
+        .take_while(|&end| end <= bytes)
+        .last()
+        .unwrap_or(0);
+    &text[..end]
+}
+
+/// Whether Windows reserves `name`, the part of a file's name before its first dot, for a device.
+fn is_device_name(name: &str) -> bool {
+    let name = name.trim_end().to_lowercase();
+    DEVICE_NAMES.contains(&name.as_str()) || SUPERSCRIPT_DEVICE_NAMES.contains(&name.as_str())
+}
+
 /// A file name the web app asked for, made safe as one name inside the downloads folder: its stem
 /// without the characters file systems refuse, control characters, leading dots (hidden files)
-/// and trailing dots and spaces (which Windows drops), at most [`MAX_STEM_CHARS`] characters, and
-/// never a device name; its extension one of [`EXTENSIONS`]. Returns the stem and the extension,
-/// in lower case.
+/// and trailing dots and spaces (which Windows drops), short enough that the name with any number
+/// FXM gives it (`Name (999).webm`) fits in [`MAX_NAME_BYTES`] and at most [`MAX_STEM_CHARS`]
+/// characters, and never starting with a device name; its extension one of [`EXTENSIONS`].
+/// Returns the stem and the extension, in lower case.
 pub fn safe_file_name(requested: &str) -> Result<(String, String), CommandError> {
     let bad = || {
         CommandError::new(
@@ -169,24 +217,21 @@ pub fn safe_file_name(requested: &str) -> Result<(String, String), CommandError>
             }
         })
         .collect();
-    let mut stem: String = replaced.split_whitespace().collect::<Vec<_>>().join(" ");
-    if stem.chars().count() > MAX_STEM_CHARS {
-        stem = stem.chars().take(MAX_STEM_CHARS).collect();
-    }
-    let stem = stem
+    let collapsed = replaced.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Room for the number, the extension and the device marker, whichever the name gets.
+    let budget =
+        MAX_NAME_BYTES - format!(" ({MAX_NAME_NUMBER}).{extension}").len() - DEVICE_MARKER.len();
+    let stem = shortened(&collapsed, MAX_STEM_CHARS, budget)
         .trim_start_matches(['.', ' '])
         .trim_end_matches(['.', ' ']);
-    let stem = if stem.trim().is_empty() {
-        FALLBACK_STEM.to_owned()
+    let stem = if stem.is_empty() { FALLBACK_STEM } else { stem };
+    // Windows reserves a device name whatever follows its first dot (`CON.mp3`, `con.live.mp3`),
+    // so the marker goes right after it.
+    let (first, rest) = stem.split_at(stem.find('.').unwrap_or(stem.len()));
+    let stem = if is_device_name(first) {
+        format!("{}{DEVICE_MARKER}{rest}", first.trim_end())
     } else {
-        stem.trim().to_owned()
-    };
-    // Windows reserves a device name whatever follows its first dot: `CON.mp3`, `con.live.mp3`.
-    let first = stem.split('.').next().unwrap_or_default().trim_end();
-    let stem = if DEVICE_NAMES.contains(&first.to_ascii_lowercase().as_str()) {
-        format!("{stem} (track)")
-    } else {
-        stem
+        stem.to_owned()
     };
     Ok((stem, extension))
 }
@@ -279,6 +324,112 @@ fn is_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
 }
 
+/// Whether `path` is a real folder: not a link or a Windows junction to one, nor nothing.
+fn is_real_folder(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_dir())
+}
+
+/// Whether `path`, from the index, names one of FXM's files that exists: a regular file, and for
+/// a file on its way, one in a real [`PARTIAL_FOLDER`], never in a folder a link put there.
+fn is_fxm_file(path: &Path) -> bool {
+    is_file(path) && (!is_partial(path) || path.parent().is_some_and(is_real_folder))
+}
+
+/// The [`PARTIAL_FOLDER`] of `folder`, created first when `create` is set. Only a real folder: a
+/// link or a junction put in its place would send FXM's files, and its deletes, somewhere else.
+fn partial_folder(folder: &Path, create: bool) -> Result<PathBuf, CommandError> {
+    let partial = folder.join(PARTIAL_FOLDER);
+    if create {
+        match fs::create_dir(&partial) {
+            Ok(()) => {}
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(io_error(error, "create the folder for downloads")),
+        }
+    }
+    match fs::symlink_metadata(&partial) {
+        Ok(metadata) if metadata.is_dir() => Ok(partial),
+        Ok(_) => Err(CommandError::new(
+            "storage",
+            format!(
+                "Something that is not FXM's folder has the name {PARTIAL_FOLDER} in the downloads folder"
+            ),
+        )),
+        Err(error) => Err(io_error(error, "open the folder for downloads")),
+    }
+}
+
+/// Opens the regular file at `path` with `options`, never through a link at its name: on Unix
+/// with `O_NOFOLLOW`, so a link put there doesn't open, and everywhere by checking, once open,
+/// that the name is a regular file and so is what opened. Refuses a folder too.
+fn open_file(path: &Path, options: &mut OpenOptions) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    let file = options.open(path)?;
+    if file.metadata()?.is_file() && is_file(path) {
+        Ok(file)
+    } else {
+        Err(io::Error::other("the file is a link or a folder"))
+    }
+}
+
+/// Whether `path` still names the regular file `file` is, rather than a link or another file put
+/// in its place since it was opened.
+fn is_same_file(file: &File, path: &Path) -> bool {
+    let (Ok(opened), Ok(named)) = (file.metadata(), fs::symlink_metadata(path)) else {
+        return false;
+    };
+    if !named.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        opened.dev() == named.dev() && opened.ino() == named.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        opened.len() == named.len()
+            && opened.modified().ok() == named.modified().ok()
+            && opened.created().ok() == named.created().ok()
+    }
+}
+
+/// 64 bits that no other process can predict: std seeds its hashers' keys from the system's
+/// random source, and each new one differs.
+fn random_u64() -> u64 {
+    RandomState::new().hash_one(SystemTime::now())
+}
+
+/// Whether `path` can be the file of the download named `name`, as FXM writes them: an absolute
+/// path, without `.` or `..`, to `<folder>/.fxm-partial/<name>`, or to a file whose name doesn't
+/// start with a dot and has an audio extension ([`EXTENSIONS`]). A damaged or edited index that
+/// names any other file is never trusted with it.
+fn is_index_path(name: &str, path: &Path) -> bool {
+    let plain = path.is_absolute()
+        && path.components().all(|component| {
+            matches!(
+                component,
+                Component::Prefix(_) | Component::RootDir | Component::Normal(_)
+            )
+        });
+    let Some(file_name) = path.file_name().and_then(OsStr::to_str) else {
+        return false;
+    };
+    if !plain {
+        false
+    } else if is_partial(path) {
+        file_name == name
+    } else {
+        !file_name.starts_with('.')
+            && file_name.rsplit_once('.').is_some_and(|(stem, extension)| {
+                !stem.is_empty() && EXTENSIONS.contains(&extension)
+            })
+    }
+}
+
 /// What `downloads.json` holds.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Stored {
@@ -300,6 +451,34 @@ struct Save {
     stem: String,
     extension: String,
     file: Arc<Mutex<File>>,
+}
+
+/// What a page left open, taken from [`Downloads`] by [`Downloads::release_all`].
+#[must_use]
+pub struct Released {
+    writers: Vec<Arc<Mutex<File>>>,
+    saves: Vec<Save>,
+}
+
+impl Released {
+    /// Whether the page left nothing open.
+    pub fn is_empty(&self) -> bool {
+        self.writers.is_empty() && self.saves.is_empty()
+    }
+
+    /// Makes what was written to the files survive a crash, and deletes the copies half saved.
+    pub fn close(self) {
+        for writer in self.writers {
+            let _ = writer
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .sync_data();
+        }
+        for save in self.saves {
+            drop(save.file);
+            let _ = fs::remove_file(&save.temp);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -358,20 +537,46 @@ pub struct Downloads {
     picking: AtomicBool,
 }
 
+/// Reads `downloads.json`. A missing file is an empty index. A damaged one is set aside as
+/// `downloads.json.damaged`, where the next save can't overwrite it, and FXM starts afresh.
+fn read_state(file: &Path) -> Stored {
+    let parsed = match fs::read(file) {
+        Ok(bytes) => serde_json::from_slice::<Stored>(&bytes).map_err(|error| error.to_string()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Stored::default(),
+        Err(error) => Err(error.to_string()),
+    };
+    parsed.unwrap_or_else(|error| {
+        set_aside(file, &error);
+        Stored::default()
+    })
+}
+
+/// Moves the damaged index `file` aside, and says so where someone can read it.
+fn set_aside(file: &Path, error: &dyn Display) {
+    let aside = file.with_extension("json.damaged");
+    match fs::rename(file, &aside) {
+        Ok(()) => eprintln!(
+            "FXM could not read its list of downloads ({error}) and moved it to {}",
+            aside.display()
+        ),
+        Err(failed) => {
+            eprintln!("FXM could not read its list of downloads ({error}) nor move it: {failed}")
+        }
+    }
+}
+
 impl Downloads {
-    /// Loads the choice of folder and the index from `state_file`. A missing or damaged file gives
-    /// the default folder and an empty index, and entries that aren't FXM's names or absolute
-    /// paths are dropped. Copies left half saved by an FXM that stopped go once they are an hour
-    /// old.
+    /// Loads the choice of folder and the index from `state_file`. A missing file gives the
+    /// default folder and an empty index, and so does a damaged one, which is set aside
+    /// ([`read_state`]). Entries that aren't FXM's names, or whose path isn't one FXM writes
+    /// ([`is_index_path`]), are dropped. Copies left half saved by an FXM that stopped go once
+    /// they are an hour old, and files on their way that the index doesn't know once a week old.
     pub fn load(state_file: PathBuf, default_folder: Option<PathBuf>) -> Self {
-        let stored = fs::read(&state_file)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<Stored>(&bytes).ok())
-            .unwrap_or_default();
+        let stored = read_state(&state_file);
         let files = stored
             .files
             .into_iter()
-            .filter(|(name, path)| is_safe_name(name) && path.is_absolute())
+            .filter(|(name, path)| is_safe_name(name) && is_index_path(name, path))
             .collect();
         let chosen = stored.folder.filter(|folder| folder.is_absolute());
         let downloads = Self {
@@ -384,7 +589,7 @@ impl Downloads {
             }),
             picking: AtomicBool::new(false),
         };
-        downloads.delete_unfinished_saves();
+        downloads.tidy_partial_folder();
         downloads
     }
 
@@ -433,20 +638,8 @@ impl Downloads {
         Ok(default)
     }
 
-    /// Where the file named `name` is, if it exists: its entry in the index, else a file of that
-    /// name in the current folder's [`PARTIAL_FOLDER`] that the index lost.
-    fn locate(&self, inner: &Inner, name: &str) -> Option<PathBuf> {
-        if let Some(path) = inner.files.get(name)
-            && is_file(path)
-        {
-            return Some(path.clone());
-        }
-        let partial = self.current_folder(inner)?.join(PARTIAL_FOLDER).join(name);
-        is_file(&partial).then_some(partial)
-    }
-
-    /// Writes the choice of folder and the index to a temporary file, then renames it over the old
-    /// one.
+    /// Writes the choice of folder and the index to a temporary file, makes it survive a crash,
+    /// then renames it over the old one.
     fn save(&self, inner: &Inner) -> Result<(), CommandError> {
         let Some(file) = &self.state_file else {
             return Ok(());
@@ -456,7 +649,7 @@ impl Downloads {
             folder: inner.chosen.clone(),
             files: inner.files.clone(),
         };
-        let failed = |error: &dyn std::fmt::Display| {
+        let failed = |error: &dyn Display| {
             CommandError::new(
                 "storage",
                 format!("FXM could not save its list of downloads: {error}"),
@@ -467,29 +660,50 @@ impl Downloads {
             fs::create_dir_all(folder).map_err(|error| failed(&error))?;
         }
         let partial = file.with_extension("json.partial");
-        fs::write(&partial, json).map_err(|error| failed(&error))?;
+        File::create(&partial)
+            .and_then(|mut temp| {
+                temp.write_all(&json)?;
+                temp.sync_all()
+            })
+            .map_err(|error| failed(&error))?;
         fs::rename(&partial, file).map_err(|error| failed(&error))
     }
 
-    /// Deletes copies left half saved in the current folder by an FXM that stopped, once they are
-    /// older than [`UNFINISHED_SAVE_AGE`].
-    fn delete_unfinished_saves(&self) {
+    /// Deletes, in the current folder's [`PARTIAL_FOLDER`], the copies left half saved by an FXM
+    /// that stopped, once older than [`UNFINISHED_SAVE_AGE`], and the files on their way that the
+    /// index doesn't know, once they stood still for [`ORPHAN_AGE`]. Regular files only, in a real
+    /// folder ([`partial_folder`]).
+    fn tidy_partial_folder(&self) {
         let inner = self.lock();
-        let Some(folder) = self.current_folder(&inner) else {
+        let Some(Ok(partial)) = self
+            .current_folder(&inner)
+            .map(|folder| partial_folder(&folder, false))
+        else {
             return;
         };
-        let Ok(entries) = fs::read_dir(folder.join(PARTIAL_FOLDER)) else {
+        let Ok(entries) = fs::read_dir(partial) else {
             return;
         };
         for entry in entries.flatten() {
+            let file_name = entry.file_name();
+            let Some(file_name) = file_name.to_str() else {
+                continue;
+            };
+            let age = if file_name.starts_with('.') && file_name.ends_with(SAVE_SUFFIX) {
+                UNFINISHED_SAVE_AGE
+            } else if is_safe_name(file_name) && !inner.files.contains_key(file_name) {
+                ORPHAN_AGE
+            } else {
+                continue;
+            };
             let path = entry.path();
             let stale = fs::symlink_metadata(&path)
                 .ok()
                 .filter(|metadata| metadata.is_file())
                 .and_then(|metadata| metadata.modified().ok())
                 .and_then(|modified| modified.elapsed().ok())
-                .is_some_and(|age| age >= UNFINISHED_SAVE_AGE);
-            if stale && entry.file_name().to_string_lossy().ends_with(SAVE_SUFFIX) {
+                .is_some_and(|elapsed| elapsed >= age);
+            if stale {
                 let _ = fs::remove_file(path);
             }
         }
@@ -542,15 +756,13 @@ impl Downloads {
                 format!("{name} is already open for writing"),
             ));
         }
-        let path = match self.locate(&inner, name) {
+        let path = match locate(&inner, name) {
             Some(path) => path,
             None => {
-                let partial = self.writing_folder(&inner)?.join(PARTIAL_FOLDER);
-                fs::create_dir_all(&partial)
-                    .map_err(|error| io_error(error, "create the folder for downloads"))?;
-                let path = partial.join(name);
-                // Never written through: a link or a folder put where the file goes.
-                if taken(&path) {
+                let path = partial_folder(&self.writing_folder(&inner)?, true)?.join(name);
+                // A regular file of that name is a download whose entry a damaged index lost: it
+                // continues where it ends. A link or a folder put there is never written through.
+                if taken(&path) && !is_file(&path) {
                     return Err(CommandError::new(
                         "storage",
                         format!("Something that is not a download has the name {name}"),
@@ -570,13 +782,15 @@ impl Downloads {
                 return Err(error);
             }
         }
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&path)
-            .map_err(|error| io_error(error, "open the download"))?;
+        let file = open_file(
+            &path,
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false),
+        )
+        .map_err(|error| io_error(error, "open the download"))?;
         let size = file
             .metadata()
             .map_err(|error| io_error(error, "read the download's size"))?
@@ -644,30 +858,25 @@ impl Downloads {
                 format!("{name} is open for writing"),
             ));
         }
-        let mut paths: Vec<PathBuf> = inner.files.get(name).cloned().into_iter().collect();
-        if let Some(folder) = self.current_folder(&inner) {
-            paths.push(folder.join(PARTIAL_FOLDER).join(name));
+        let Some(path) = inner.files.get(name).cloned() else {
+            return Ok(());
+        };
+        // Only the file the index names, and never through a link put in its place.
+        if is_fxm_file(&path) {
+            fs::remove_file(&path).map_err(|error| io_error(error, "delete the download"))?;
         }
-        for path in paths {
-            if is_file(&path) {
-                fs::remove_file(&path).map_err(|error| io_error(error, "delete the download"))?;
-            }
-        }
-        if inner.files.remove(name).is_some() {
-            self.save(&inner)?;
-        }
-        Ok(())
+        inner.files.remove(name);
+        self.save(&inner)
     }
 
-    /// FXM's files that exist, by their opaque names, sorted: those on their way (from the index,
-    /// and any the index lost in the current folder's [`PARTIAL_FOLDER`]) and those complete.
-    /// Entries whose file is gone leave the index.
+    /// FXM's files that exist, by their opaque names, sorted: those on their way and those
+    /// complete. Only the index's files ([`is_fxm_file`]): entries whose file is gone leave it.
     pub fn list(&self) -> Result<Listing, CommandError> {
         let mut inner = self.lock();
         let mut listing = Listing::default();
         let mut gone = Vec::new();
         for (name, path) in &inner.files {
-            if !is_file(path) {
+            if !is_fxm_file(path) {
                 if !inner.writers.contains_key(name) {
                     gone.push(name.clone());
                 }
@@ -675,19 +884,6 @@ impl Downloads {
                 listing.partial.push(name.clone());
             } else {
                 listing.named.push(name.clone());
-            }
-        }
-        if let Some(folder) = self.current_folder(&inner)
-            && let Ok(entries) = fs::read_dir(folder.join(PARTIAL_FOLDER))
-        {
-            for entry in entries.flatten() {
-                let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-                    continue;
-                };
-                if is_safe_name(&name) && !inner.files.contains_key(&name) && is_file(&entry.path())
-                {
-                    listing.partial.push(name);
-                }
             }
         }
         if !gone.is_empty() {
@@ -713,19 +909,18 @@ impl Downloads {
                 .map(|metadata| Some(metadata.len()))
                 .map_err(|error| io_error(error, "read the download's size"));
         }
-        Ok(self
-            .locate(&inner, name)
-            .and_then(|path| fs::metadata(path).ok())
+        Ok(locate(&inner, name)
+            .and_then(|path| fs::symlink_metadata(path).ok())
             .map(|metadata| metadata.len()))
     }
 
     /// The whole of the file `name`.
     pub fn read(&self, name: &str) -> Result<Vec<u8>, CommandError> {
         check_name(name)?;
-        let path = self
-            .locate(&self.lock(), name)
+        let path = locate(&self.lock(), name)
             .ok_or_else(|| CommandError::new("not-found", format!("FXM has no file {name}")))?;
-        let mut file = File::open(&path).map_err(|error| io_error(error, "read the download"))?;
+        let mut file = open_file(&path, OpenOptions::new().read(true))
+            .map_err(|error| io_error(error, "read the download"))?;
         let length = file
             .metadata()
             .map_err(|error| io_error(error, "read the download"))?
@@ -752,8 +947,7 @@ impl Downloads {
                 format!("{name} is open for writing"),
             ));
         }
-        let current = self
-            .locate(&inner, name)
+        let current = locate(&inner, name)
             .ok_or_else(|| CommandError::new("not-found", format!("FXM has no file {name}")))?;
         let file_name = |path: &Path| {
             path.file_name()
@@ -784,7 +978,7 @@ impl Downloads {
         if !is_safe_name(name) {
             return None;
         }
-        self.locate(&self.lock(), name)
+        locate(&self.lock(), name)
     }
 
     /// Starts saving a copy named `requested` ([`safe_file_name`]) in the current folder.
@@ -792,14 +986,10 @@ impl Downloads {
         let (stem, extension) = safe_file_name(requested)?;
         let mut inner = self.lock();
         let folder = self.writing_folder(&inner)?;
-        let partial = folder.join(PARTIAL_FOLDER);
-        fs::create_dir_all(&partial)
-            .map_err(|error| io_error(error, "create the folder for downloads"))?;
+        let partial = partial_folder(&folder, true)?;
         inner.next_save += 1;
         let id = inner.next_save;
-        // The process in the name, so two FXMs saving at once never share a file.
-        let temp = partial.join(format!(".{}-{id}{SAVE_SUFFIX}", std::process::id()));
-        let file = File::create(&temp).map_err(|error| io_error(error, "start the copy"))?;
+        let (temp, file) = new_temp_file(&partial, id)?;
         let file_name = free_name(&folder, &stem, &extension);
         inner.saves.insert(
             id,
@@ -832,15 +1022,23 @@ impl Downloads {
             self.lock().saves.remove(&id).ok_or_else(|| {
                 CommandError::new("not-open", format!("No copy {id} is being saved"))
             })?;
-        let synced = save
-            .file
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .sync_data();
+        let (synced, ours) = {
+            let file = save.file.lock().unwrap_or_else(PoisonError::into_inner);
+            (file.sync_data(), is_same_file(&file, &save.temp))
+        };
         drop(save.file);
+        // Something put in the copy's place since is neither kept nor deleted.
         if !keep {
-            let _ = fs::remove_file(&save.temp);
+            if ours {
+                let _ = fs::remove_file(&save.temp);
+            }
             return Ok(None);
+        }
+        if !ours {
+            return Err(CommandError::new(
+                "storage",
+                "The copy was replaced while FXM saved it",
+            ));
         }
         if let Err(error) = synced {
             let _ = fs::remove_file(&save.temp);
@@ -863,6 +1061,18 @@ impl Downloads {
             .map(|name| name.to_string_lossy().into_owned()))
     }
 
+    /// Forgets every file open for writing and every copy being saved: the page that opened them
+    /// is gone, as when the main window's page loads again (a reload, or Tauri's reload after the
+    /// webview's content process crashed). Nobody would close them, and the next page's `open` of
+    /// a download it continues would find the file busy. Answers them for [`Released::close`].
+    pub fn release_all(&self) -> Released {
+        let mut inner = self.lock();
+        Released {
+            writers: inner.writers.drain().map(|(_, writer)| writer).collect(),
+            saves: inner.saves.drain().map(|(_, save)| save).collect(),
+        }
+    }
+
     /// Marks the folder picker open, or says it is open already. Dropping the guard closes it.
     fn begin_picking(&self) -> Result<PickerGuard<'_>, CommandError> {
         if self.picking.swap(true, Ordering::AcqRel) {
@@ -873,6 +1083,33 @@ impl Downloads {
         }
         Ok(PickerGuard(&self.picking))
     }
+}
+
+/// Where FXM's file named `name` is, if it exists: the index's entry, when it names a regular
+/// file ([`is_fxm_file`]). Never a file the index doesn't know.
+fn locate(inner: &Inner, name: &str) -> Option<PathBuf> {
+    inner
+        .files
+        .get(name)
+        .filter(|path| is_fxm_file(path))
+        .cloned()
+}
+
+/// Creates the temporary file of the copy `id` in `partial`, under a new name no other process
+/// can guess, so that no link or file put there beforehand is ever written through or truncated.
+fn new_temp_file(partial: &Path, id: u64) -> Result<(PathBuf, File), CommandError> {
+    for _ in 0..TEMP_ATTEMPTS {
+        let temp = partial.join(format!(".{id}-{:016x}{SAVE_SUFFIX}", random_u64()));
+        match open_file(&temp, OpenOptions::new().write(true).create_new(true)) {
+            Ok(file) => return Ok((temp, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(io_error(error, "start the copy")),
+        }
+    }
+    Err(CommandError::new(
+        "storage",
+        "FXM found no free name to start the copy",
+    ))
 }
 
 /// The open folder picker: dropping it lets the next one open.
@@ -974,16 +1211,16 @@ pub fn byte_range(header: Option<&str>, length: u64) -> ByteRange {
 }
 
 /// The `Content-Type` to serve: the type the web app asked for when it is audio, an MP4 or WebM
-/// video or plain bytes, optionally with a `codecs` parameter, and plain bytes otherwise. Never a
-/// type a webview would render as a page.
+/// video or plain bytes, with its `codecs` parameter if it has one, and plain bytes otherwise.
+/// Never a type a webview would render as a page, and always a valid header value.
 pub fn content_type(requested: Option<&str>) -> String {
     const PLAIN: &str = "application/octet-stream";
-    let Some(requested) = requested.map(str::trim) else {
+    let Some(requested) = requested else {
         return PLAIN.to_owned();
     };
     let (essence, parameters) = match requested.split_once(';') {
         Some((essence, parameters)) => (essence.trim(), Some(parameters.trim())),
-        None => (requested, None),
+        None => (requested.trim(), None),
     };
     let token = |text: &str| {
         !text.is_empty()
@@ -996,19 +1233,24 @@ pub fn content_type(requested: Option<&str>) -> String {
         Some(("video", "mp4" | "webm")) | Some(("application", "octet-stream")) => true,
         _ => false,
     };
-    let parameters_ok = parameters.is_none_or(|parameters| {
-        parameters.strip_prefix("codecs=").is_some_and(|codecs| {
+    // `Some(codecs)` for a parameter FXM keeps, `None` for one it refuses.
+    let codecs = match parameters {
+        None => Some(""),
+        Some(parameters) => parameters.strip_prefix("codecs=").and_then(|codecs| {
             let codecs = codecs.strip_prefix('"').unwrap_or(codecs);
             let codecs = codecs.strip_suffix('"').unwrap_or(codecs);
             codecs
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || b"., +-".contains(&byte))
-        })
-    });
-    if essence_ok && parameters_ok {
-        requested.to_owned()
-    } else {
-        PLAIN.to_owned()
+                .then_some(codecs.trim())
+        }),
+    };
+    // Built again from the parts checked, so nothing else the request carried, a control
+    // character next to the `;` say, reaches the header.
+    match codecs {
+        Some("") if essence_ok => essence.to_owned(),
+        Some(codecs) if essence_ok => format!("{essence}; codecs=\"{codecs}\""),
+        _ => PLAIN.to_owned(),
     }
 }
 
@@ -1040,7 +1282,7 @@ pub fn respond(
     let Some(path) = downloads.playback_path(name) else {
         return status(StatusCode::NOT_FOUND);
     };
-    let Ok(mut file) = File::open(&path) else {
+    let Ok(mut file) = open_file(&path, OpenOptions::new().read(true)) else {
         return status(StatusCode::NOT_FOUND);
     };
     let Ok(length) = file.metadata().map(|metadata| metadata.len()) else {
@@ -1079,21 +1321,26 @@ pub fn respond(
                 .header(header::CONTENT_RANGE, format!("bytes */{length}"))
                 .header(header::CACHE_CONTROL, "no-store")
                 .body(Vec::new())
-                .expect("a static response");
+                .unwrap_or_else(|_| status(StatusCode::INTERNAL_SERVER_ERROR));
         }
     };
     let builder = builder.header(header::CONTENT_LENGTH, count);
-    if head {
-        return builder.body(Vec::new()).expect("a valid response");
-    }
-    let mut body = Vec::with_capacity(usize::try_from(count).unwrap_or(0));
-    let read = file
-        .seek(SeekFrom::Start(start))
-        .and_then(|_| (&mut file).take(count).read_to_end(&mut body));
-    match read {
-        Ok(_) => builder.body(body).expect("a valid response"),
-        Err(_) => status(StatusCode::INTERNAL_SERVER_ERROR),
-    }
+    let body = if head {
+        Vec::new()
+    } else {
+        let mut body = Vec::with_capacity(usize::try_from(count).unwrap_or(0));
+        let read = file
+            .seek(SeekFrom::Start(start))
+            .and_then(|_| (&mut file).take(count).read_to_end(&mut body));
+        if read.is_err() {
+            return status(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+        body
+    };
+    // A header the builder refuses answers 500 rather than leaving the request unanswered.
+    builder
+        .body(body)
+        .unwrap_or_else(|_| status(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 // --- Commands ----------------------------------------------------------------------------------
@@ -1326,6 +1573,21 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             app.manage(shared);
             Ok(())
         })
+        // A new page in the main window (a reload, or Tauri's after the webview's content process
+        // crashed): what the last page left open is nobody's now. `Started` comes on the main
+        // thread as the top frame commits, before the main thread takes any call of the new page,
+        // so the files are free by then; flushing them waits for the disk on another thread.
+        .on_page_load(|webview, payload| {
+            if webview.label() == MAIN_WINDOW
+                && matches!(payload.event(), PageLoadEvent::Started)
+                && let Some(downloads) = webview.try_state::<Shared>()
+            {
+                let released = downloads.release_all();
+                if !released.is_empty() {
+                    tauri::async_runtime::spawn_blocking(move || released.close());
+                }
+            }
+        })
         .register_asynchronous_uri_scheme_protocol(SCHEME, |context, request, responder| {
             let app = context.app_handle().clone();
             let webview = context.webview_label().to_owned();
@@ -1467,7 +1729,11 @@ mod tests {
             (".mp3", (FALLBACK_STEM, "mp3")),
             ("   .mp4", (FALLBACK_STEM, "mp4")),
             ("CON.mp3", ("CON (track)", "mp3")),
-            ("aux.live.flac", ("aux.live (track)", "flac")),
+            // Windows reserves `aux.live.flac` too: the marker goes after the device name.
+            ("aux.live.flac", ("aux (track).live", "flac")),
+            ("nul .x.wav", ("nul (track).x", "wav")),
+            ("COM².mp3", ("COM² (track)", "mp3")),
+            ("Console.mp3", ("Console", "mp3")),
             ("日本語 - タイトル.m4a", ("日本語 - タイトル", "m4a")),
         ];
         for (requested, (stem, extension)) in cases {
@@ -1477,9 +1743,26 @@ mod tests {
                 "{requested:?}"
             );
         }
-        let long = format!("{}.mp3", "é".repeat(400));
-        let (stem, _) = safe_file_name(&long).unwrap();
-        assert_eq!(stem.chars().count(), MAX_STEM_CHARS);
+        // Long names: at most MAX_STEM_CHARS characters, and in bytes short enough for the
+        // longest name FXM gives, with a number or a device marker, whatever the script.
+        let ascii = format!("{}.mp3", "a".repeat(400));
+        assert_eq!(safe_file_name(&ascii).unwrap().0.len(), MAX_STEM_CHARS);
+        for character in ["é", "日", "🎵"] {
+            let (stem, extension) =
+                safe_file_name(&format!("{}.webm", character.repeat(400))).unwrap();
+            let longest = format!("{stem}{DEVICE_MARKER} ({MAX_NAME_NUMBER}).{extension}");
+            assert!(
+                longest.len() <= MAX_NAME_BYTES,
+                "{character}: {}",
+                longest.len()
+            );
+            assert!(
+                stem.len() > MAX_NAME_BYTES - 30,
+                "{character}: {}",
+                stem.len()
+            );
+            assert!(stem.chars().all(|found| found.to_string() == character));
+        }
         for refused in [
             "no extension",
             "song.exe",
@@ -1680,7 +1963,7 @@ mod tests {
     }
 
     #[test]
-    fn the_list_has_fxms_files_only_and_forgets_those_gone() {
+    fn the_list_has_the_indexs_files_only_and_forgets_those_gone() {
         let temp = TempFolder::new("list");
         let downloads = downloads_in(&temp);
         let folder = default_folder_of(&temp);
@@ -1692,22 +1975,69 @@ mod tests {
         // The user deletes a download's file, and keeps music of their own next to them.
         fs::remove_file(folder.join("Deleted.mp3")).unwrap();
         fs::write(folder.join("Theirs.mp3"), b"x").unwrap();
-        // Left in the hidden folder without an entry, say after a crash: FXM's, so listed.
+        // In the hidden folder without an entry: another FXM's (with an index of its own, sharing
+        // the folder), or one whose entry a damaged index lost. Not this FXM's to list or delete.
         fs::write(folder.join(PARTIAL_FOLDER).join("orphan"), b"x").unwrap();
-        // Not a download name, so never listed.
         fs::write(folder.join(PARTIAL_FOLDER).join("not a name"), b"x").unwrap();
         fs::write(folder.join(PARTIAL_FOLDER).join(".1.saving"), b"x").unwrap();
         assert_eq!(
             downloads.list().unwrap(),
             Listing {
-                partial: vec!["orphan".into(), "partial".into()],
+                partial: vec!["partial".into()],
                 named: vec!["named".into()],
             }
         );
         assert!(!downloads.lock().files.contains_key("deleted"));
-        // The orphan can be deleted, as the download manager's tidy-up does.
         downloads.remove("orphan").unwrap();
-        assert!(!folder.join(PARTIAL_FOLDER).join("orphan").exists());
+        assert_eq!(downloads.read("orphan").unwrap_err().code, "not-found");
+        assert_eq!(downloads.size("orphan").unwrap(), None);
+        assert!(folder.join(PARTIAL_FOLDER).join("orphan").exists());
+    }
+
+    #[test]
+    fn a_download_whose_entry_was_lost_continues_where_its_file_ends() {
+        let temp = TempFolder::new("lost-entry");
+        let downloads = downloads_in(&temp);
+        let partial = default_folder_of(&temp).join(PARTIAL_FOLDER);
+        fs::create_dir_all(&partial).unwrap();
+        fs::write(partial.join("abc"), b"12345").unwrap();
+        // The download manager still has its record, and opens the file to continue it.
+        assert_eq!(downloads.open("abc").unwrap(), 5);
+        downloads.write("abc", 5, b"6").unwrap();
+        downloads.close("abc").unwrap();
+        assert_eq!(downloads.read("abc").unwrap(), b"123456");
+        assert_eq!(downloads.list().unwrap().partial, ["abc"]);
+    }
+
+    #[test]
+    fn files_the_index_lost_go_once_they_stood_still_for_a_week() {
+        let temp = TempFolder::new("orphans");
+        let state = temp.path().join(STATE_FILE);
+        let default = default_folder_of(&temp);
+        let downloads = Downloads::load(state.clone(), Some(default.clone()));
+        download(&downloads, "known", b"1");
+        drop(downloads);
+        let partial = default.join(PARTIAL_FOLDER);
+        let age = |name: &str, age: Duration| {
+            File::options()
+                .write(true)
+                .open(partial.join(name))
+                .unwrap()
+                .set_modified(SystemTime::now() - age)
+                .unwrap();
+        };
+        for name in ["old", "recent", "not a name", "known"] {
+            if name != "known" {
+                fs::write(partial.join(name), b"x").unwrap();
+            }
+        }
+        for name in ["old", "not a name", "known"] {
+            age(name, ORPHAN_AGE + Duration::from_secs(60));
+        }
+        age("recent", ORPHAN_AGE - Duration::from_secs(60 * 60));
+        let restarted = Downloads::load(state, Some(default.clone()));
+        assert_eq!(entries(&partial), ["known", "not a name", "recent"]);
+        assert_eq!(restarted.list().unwrap().partial, ["known"]);
     }
 
     #[test]
@@ -1743,31 +2073,59 @@ mod tests {
     }
 
     #[test]
-    fn a_damaged_index_loads_as_what_is_still_valid() {
+    fn a_damaged_index_is_set_aside_rather_than_overwritten() {
         let temp = TempFolder::new("damaged");
         let state = temp.path().join(STATE_FILE);
-        fs::write(&state, "not json").unwrap();
+        fs::write(&state, "{\"version\":1,\"folder\":\"/Volumes/Mus").unwrap();
         let downloads = Downloads::load(state.clone(), Some(default_folder_of(&temp)));
         assert!(downloads.lock().files.is_empty());
-        let absolute = temp.path().join("x.mp3");
+        // The next save writes a new index; the damaged one stays for whoever can mend it.
+        download(&downloads, "abc", b"x");
+        assert!(state.exists());
+        assert_eq!(
+            fs::read_to_string(state.with_extension("json.damaged")).unwrap(),
+            "{\"version\":1,\"folder\":\"/Volumes/Mus"
+        );
+    }
+
+    #[test]
+    fn an_index_naming_other_files_is_never_trusted_with_them() {
+        let temp = TempFolder::new("untrusted");
+        let state = temp.path().join(STATE_FILE);
+        let music = temp.path().join("music");
+        let partial = music.join(PARTIAL_FOLDER);
+        fs::create_dir_all(&partial).unwrap();
+        let secret = temp.path().join("id_ed25519");
+        fs::write(&secret, b"secret").unwrap();
         fs::write(
             &state,
             serde_json::json!({
                 "version": 1,
                 "folder": "relative/folder",
                 "files": {
-                    "good": absolute,
-                    "../bad": absolute,
-                    "relative": "x.mp3",
+                    "song": music.join("Song.mp3"),
+                    "partial": partial.join("partial"),
+                    "../bad": music.join("Song.mp3"),
+                    "relative": "Song.mp3",
+                    "key": secret,
+                    "hidden": music.join(".Song.mp3"),
+                    "noStem": music.join(".mp3"),
+                    "upper": music.join("Song.MP3"),
+                    "elsewhere": partial.join("other"),
+                    "dotted": music.join("x").join("..").join("Song.mp3"),
                 },
             })
             .to_string(),
         )
         .unwrap();
         let downloads = Downloads::load(state, Some(default_folder_of(&temp)));
-        let inner = downloads.lock();
-        assert_eq!(inner.files.keys().collect::<Vec<_>>(), ["good"]);
-        assert_eq!(inner.chosen, None);
+        {
+            let inner = downloads.lock();
+            assert_eq!(inner.files.keys().collect::<Vec<_>>(), ["partial", "song"]);
+            assert_eq!(inner.chosen, None);
+        }
+        assert_eq!(downloads.remove("key").map_err(|error| error.code), Ok(()));
+        assert_eq!(fs::read(&secret).unwrap(), b"secret");
     }
 
     #[test]
@@ -1871,7 +2229,10 @@ mod tests {
         download(&downloads, "abc", b"a download on its way");
         drop(downloads);
         let partial = default.join(PARTIAL_FOLDER);
-        let saving = format!(".{}-{}{SAVE_SUFFIX}", std::process::id(), started.id);
+        let saving = entries(&partial)
+            .into_iter()
+            .find(|name| name.ends_with(SAVE_SUFFIX))
+            .unwrap();
         // A copy saved just now may be another FXM's, still on its way: it stays.
         let restarted = Downloads::load(state.clone(), Some(default.clone()));
         assert_eq!(entries(&partial), [saving.as_str(), "abc"]);
@@ -1880,7 +2241,7 @@ mod tests {
             .write(true)
             .open(partial.join(&saving))
             .unwrap()
-            .set_modified(std::time::SystemTime::now() - 2 * UNFINISHED_SAVE_AGE)
+            .set_modified(SystemTime::now() - 2 * UNFINISHED_SAVE_AGE)
             .unwrap();
         drop(restarted);
         let later = Downloads::load(state, Some(default.clone()));
@@ -1993,6 +2354,7 @@ mod tests {
             "audio/",
             "video/quicktime",
             "audio/mpeg\r\nX-Evil: 1",
+            "audio/mpeg; codecs=\"opus\"\r\nX-Evil: 1",
         ] {
             assert_eq!(
                 content_type(Some(refused)),
@@ -2001,6 +2363,46 @@ mod tests {
             );
         }
         assert_eq!(content_type(None), "application/octet-stream");
+        // What comes back is built from the parts checked: never a character the request carried
+        // around them, which would make the header invalid.
+        for (requested, served) in [
+            ("audio/mpeg\n;codecs=opus", "audio/mpeg; codecs=\"opus\""),
+            ("audio/mpeg;\ncodecs=opus", "audio/mpeg; codecs=\"opus\""),
+            ("audio/mpeg\u{b};codecs=opus", "audio/mpeg; codecs=\"opus\""),
+            (" audio/mpeg\t", "audio/mpeg"),
+            (
+                "audio/webm; codecs=\" opus \"",
+                "audio/webm; codecs=\"opus\"",
+            ),
+            ("audio/webm; codecs=\"\"", "audio/webm"),
+        ] {
+            let found = content_type(Some(requested));
+            assert_eq!(found, served, "{requested:?}");
+            assert!(
+                header::HeaderValue::from_str(&found).is_ok(),
+                "{requested:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_scheme_answers_every_type_the_page_asks_for() {
+        let temp = TempFolder::new("scheme-types");
+        let downloads = downloads_in(&temp);
+        download(&downloads, "abc", b"bytes");
+        for query in [
+            "audio%2Fmpeg%0A%3Bcodecs%3Dopus",
+            "audio%2Fmpeg%0B%3Bcodecs%3Dopus",
+        ] {
+            let uri = format!("fxm-download://localhost/abc?type={query}");
+            let response = get(&downloads, &uri, None, MAIN_WINDOW);
+            assert_eq!(response.status(), StatusCode::OK, "{query}");
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                "audio/mpeg; codecs=\"opus\""
+            );
+            assert_eq!(response.body(), b"bytes");
+        }
     }
 
     fn get(
@@ -2146,11 +2548,206 @@ mod tests {
     #[test]
     fn the_partial_folder_is_hidden_and_saves_are_never_download_names() {
         assert!(PARTIAL_FOLDER.starts_with('.'));
-        assert!(!is_safe_name(&format!(
-            ".{}-1{SAVE_SUFFIX}",
-            std::process::id()
-        )));
         assert!(is_partial(Path::new("/music/FXM/.fxm-partial/abc")));
         assert!(!is_partial(Path::new("/music/FXM/Song.mp3")));
+        let temp = TempFolder::new("temp-names");
+        let partial = partial_folder(temp.path(), true).unwrap();
+        let (first, _) = new_temp_file(&partial, 1).unwrap();
+        let (second, _) = new_temp_file(&partial, 1).unwrap();
+        assert_ne!(first, second);
+        for temp in [first, second] {
+            let name = temp.file_name().unwrap().to_str().unwrap();
+            // The copy's number, then 64 random bits: nothing another account could guess.
+            let random = name
+                .strip_prefix(".1-")
+                .and_then(|rest| rest.strip_suffix(SAVE_SUFFIX))
+                .unwrap_or_default();
+            assert_eq!(random.len(), 16, "{name}");
+            assert!(
+                random.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                "{name}"
+            );
+            assert!(!is_safe_name(name));
+        }
+    }
+
+    #[test]
+    fn a_page_that_loads_again_finds_its_files_free() {
+        let temp = TempFolder::new("release");
+        let downloads = downloads_in(&temp);
+        let partial = default_folder_of(&temp).join(PARTIAL_FOLDER);
+        downloads.open("abc").unwrap();
+        downloads.write("abc", 0, b"kept").unwrap();
+        let copy = downloads.save_begin("Song.mp3").unwrap();
+        downloads.save_write(copy.id, 0, b"half").unwrap();
+        let released = downloads.release_all();
+        assert!(!released.is_empty());
+        released.close();
+        // The next page continues the download where the last one left it...
+        assert_eq!(downloads.open("abc").unwrap(), 4);
+        downloads.close("abc").unwrap();
+        // ... and the copy that page was saving is gone.
+        assert_eq!(
+            downloads.save_write(copy.id, 4, b"x").unwrap_err().code,
+            "not-open"
+        );
+        assert_eq!(entries(&partial), ["abc"]);
+        assert!(downloads.release_all().is_empty());
+    }
+
+    #[test]
+    fn long_names_fit_the_file_system() {
+        let temp = TempFolder::new("long-names");
+        let downloads = downloads_in(&temp);
+        let folder = default_folder_of(&temp);
+        for (index, title) in ["日本語のタイトル".repeat(40), "🎵".repeat(150)]
+            .iter()
+            .enumerate()
+        {
+            for copy in 0..2 {
+                let name = format!("long-{index}-{copy}");
+                download(&downloads, &name, b"x");
+                let named = downloads.name(&name, &format!("{title}.webm")).unwrap();
+                assert!(named.len() <= MAX_NAME_BYTES, "{}", named.len());
+                assert!(folder.join(&named).is_file(), "{named}");
+                assert_eq!(downloads.read(&name).unwrap(), b"x");
+            }
+            let copy = downloads.save_begin(&format!("{title}.flac")).unwrap();
+            let saved = downloads.save_end(copy.id, true).unwrap().unwrap();
+            assert!(folder.join(&saved).is_file(), "{saved}");
+        }
+    }
+
+    #[test]
+    fn a_name_names_the_file_opened_until_something_takes_its_place() {
+        let temp = TempFolder::new("same-file");
+        let (path, other) = (temp.path().join("a"), temp.path().join("other"));
+        fs::write(&path, b"a").unwrap();
+        fs::write(&other, b"another").unwrap();
+        let file = File::open(&path).unwrap();
+        assert!(is_same_file(&file, &path));
+        assert!(!is_same_file(&file, &other));
+        assert!(!is_same_file(&file, &temp.path().join("missing")));
+        assert!(!is_same_file(&file, temp.path()));
+    }
+
+    /// A folder outside the downloads folder with what a link put in FXM's way could reach.
+    #[cfg(unix)]
+    fn outside_with_secrets(temp: &TempFolder) -> PathBuf {
+        let outside = temp.path().join("outside");
+        fs::create_dir(&outside).unwrap();
+        for name in ["id_ed25519", "abc", ".1-0123456789abcdef.saving"] {
+            fs::write(outside.join(name), b"secret").unwrap();
+            File::options()
+                .write(true)
+                .open(outside.join(name))
+                .unwrap()
+                .set_modified(SystemTime::now() - 2 * ORPHAN_AGE)
+                .unwrap();
+        }
+        outside
+    }
+
+    #[cfg(unix)]
+    fn secrets_survive(outside: &Path) {
+        assert_eq!(
+            entries(outside),
+            [".1-0123456789abcdef.saving", "abc", "id_ed25519"]
+        );
+        for name in entries(outside) {
+            assert_eq!(fs::read(outside.join(&name)).unwrap(), b"secret", "{name}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_in_place_of_the_hidden_folder_is_never_followed() {
+        let temp = TempFolder::new("linked-partial");
+        let outside = outside_with_secrets(&temp);
+        let state = temp.path().join(STATE_FILE);
+        let default = default_folder_of(&temp);
+        fs::create_dir_all(&default).unwrap();
+        std::os::unix::fs::symlink(&outside, default.join(PARTIAL_FOLDER)).unwrap();
+        // Neither the start's tidy-up nor any command reaches through it.
+        let downloads = Downloads::load(state, Some(default.clone()));
+        assert_eq!(downloads.list().unwrap(), Listing::default());
+        for name in ["id_ed25519", "abc"] {
+            assert_eq!(downloads.read(name).unwrap_err().code, "not-found");
+            assert_eq!(downloads.size(name).unwrap(), None);
+            downloads.remove(name).unwrap();
+            let uri = format!("fxm-download://localhost/{name}");
+            assert_eq!(
+                get(&downloads, &uri, None, MAIN_WINDOW).status(),
+                StatusCode::NOT_FOUND
+            );
+        }
+        assert_eq!(downloads.open("abc").unwrap_err().code, "storage");
+        assert_eq!(downloads.open("new").unwrap_err().code, "storage");
+        assert_eq!(
+            downloads.save_begin("Song.mp3").unwrap_err().code,
+            "storage"
+        );
+        assert_eq!(downloads.list().unwrap(), Listing::default());
+        secrets_survive(&outside);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_hidden_folder_swapped_for_a_link_later_is_never_followed() {
+        let temp = TempFolder::new("swapped-partial");
+        let outside = outside_with_secrets(&temp);
+        let downloads = downloads_in(&temp);
+        let default = default_folder_of(&temp);
+        download(&downloads, "abc", b"mine");
+        // Someone who can write to the folder moves FXM's hidden folder away and links theirs.
+        fs::rename(default.join(PARTIAL_FOLDER), temp.path().join("moved")).unwrap();
+        std::os::unix::fs::symlink(&outside, default.join(PARTIAL_FOLDER)).unwrap();
+        assert_eq!(downloads.read("abc").unwrap_err().code, "not-found");
+        assert_eq!(
+            downloads.name("abc", "Song.mp3").unwrap_err().code,
+            "not-found"
+        );
+        assert_eq!(downloads.list().unwrap(), Listing::default());
+        downloads.remove("abc").unwrap();
+        assert_eq!(downloads.open("abc").unwrap_err().code, "storage");
+        secrets_survive(&outside);
+        assert_eq!(
+            fs::read(temp.path().join("moved").join("abc")).unwrap(),
+            b"mine"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_download_swapped_for_a_link_is_never_opened_through() {
+        let temp = TempFolder::new("swapped-file");
+        let outside = outside_with_secrets(&temp);
+        let downloads = downloads_in(&temp);
+        let partial = default_folder_of(&temp).join(PARTIAL_FOLDER);
+        download(&downloads, "abc", b"mine");
+        fs::remove_file(partial.join("abc")).unwrap();
+        std::os::unix::fs::symlink(outside.join("abc"), partial.join("abc")).unwrap();
+        assert_eq!(downloads.open("abc").unwrap_err().code, "storage");
+        assert_eq!(downloads.read("abc").unwrap_err().code, "not-found");
+        downloads.remove("abc").unwrap();
+        assert!(fs::symlink_metadata(partial.join("abc")).is_ok());
+        // Even when the link appears only after FXM looked: the file never opens through it.
+        let link = partial.join("abc");
+        for options in [
+            OpenOptions::new().read(true).clone(),
+            OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(false)
+                .clone(),
+        ] {
+            assert!(open_file(&link, &mut options.clone()).is_err());
+        }
+        assert!(!is_same_file(
+            &File::open(outside.join("abc")).unwrap(),
+            &link
+        ));
+        secrets_survive(&outside);
     }
 }

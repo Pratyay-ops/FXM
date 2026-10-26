@@ -164,15 +164,44 @@ interface Listing {
   named: string[]
 }
 
-function strings(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === 'string')
-    : []
+function fileNames(value: unknown, which: string): string[] {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+    throw new TypeError(`The downloads folder listed no ${which} files`)
+  }
+  return value
 }
 
+/**
+ * The answer of `list`, checked: a malformed one throws rather than reading as an empty folder,
+ * which would have the manager's tidy-up mark every completed download as missing.
+ */
 function parseListing(value: unknown): Listing {
-  const raw = (typeof value === 'object' && value !== null ? value : {}) as Record<string, unknown>
-  return { partial: strings(raw.partial), named: strings(raw.named) }
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('The downloads folder answered no list')
+  }
+  const raw = value as Record<string, unknown>
+  return { partial: fileNames(raw.partial, 'partial'), named: fileNames(raw.named, 'named') }
+}
+
+/**
+ * The bytes of `read`'s answer, however the IPC delivered them, as `@fxm/platform` reads a raw
+ * response: an `ArrayBuffer`, a view of one, or an array of bytes (Tauri's `postMessage`
+ * fallback). Anything else throws, rather than reaching a `Blob` as text.
+ */
+function answerBytes(answer: unknown): Uint8Array<ArrayBuffer> {
+  if (answer instanceof ArrayBuffer) return new Uint8Array(answer)
+  if (ArrayBuffer.isView(answer)) {
+    const copy = new Uint8Array(answer.byteLength)
+    copy.set(new Uint8Array(answer.buffer, answer.byteOffset, answer.byteLength))
+    return copy
+  }
+  if (
+    Array.isArray(answer) &&
+    answer.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+  ) {
+    return Uint8Array.from(answer as number[])
+  }
+  throw new TypeError('The downloads folder answered with something other than bytes')
 }
 
 /** Options for {@link createDesktopDownloadStorage}. */
@@ -203,6 +232,11 @@ export interface DesktopDownloadStorage extends DownloadStorage {
   name(
     record: Pick<DownloadRecord, 'status' | 'file' | 'format' | 'track'>,
   ): Promise<string | undefined>
+  /**
+   * The files still in the hidden `.fxm-partial` folder, by their opaque names: downloads on
+   * their way, and completed ones still waiting for their human name (FXM quit in between).
+   */
+  pending(): Promise<string[]>
 }
 
 /**
@@ -216,19 +250,28 @@ export function createDesktopDownloadStorage(
   const bindings = loadOnce(options.bindings ?? loadDownloadBindings)
   const timeoutMs = options.timeoutMs ?? DOWNLOAD_CALL_TIMEOUT_MS
 
-  /** The plugin's answer to `name`, with its errors as storage errors, within the timeout. */
-  function ask<T>(name: Parameters<typeof command>[0], args: Record<string, unknown> = {}) {
+  /**
+   * The plugin's answer to `name`, with its errors as storage errors, within the timeout. An
+   * answer that comes after the timeout goes to `late`, if given.
+   */
+  function ask<T>(
+    name: Parameters<typeof command>[0],
+    args: Record<string, unknown> = {},
+    late?: (value: T) => void,
+  ) {
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(storageUnavailableError('The downloads folder stopped answering')),
-        timeoutMs,
-      )
+      let timedOut = false
+      const timer = setTimeout(() => {
+        timedOut = true
+        reject(storageUnavailableError('The downloads folder stopped answering'))
+      }, timeoutMs)
       bindings()
         .then(({ invoke }) => invoke<T>(command(name), args))
         .then(
           (value) => {
             clearTimeout(timer)
-            resolve(value)
+            if (timedOut) late?.(value)
+            else resolve(value)
           },
           (error: unknown) => {
             clearTimeout(timer)
@@ -236,6 +279,10 @@ export function createDesktopDownloadStorage(
           },
         )
     })
+  }
+
+  async function listing(): Promise<Listing> {
+    return parseListing(await ask<unknown>(DOWNLOAD_COMMANDS.list))
   }
 
   async function size(file: string): Promise<number | undefined> {
@@ -256,7 +303,11 @@ export function createDesktopDownloadStorage(
 
     async open(file): Promise<DownloadWriter> {
       assertSafeFileName(file)
-      await ask<number>(DOWNLOAD_COMMANDS.open, { file })
+      // An open answered only after the timeout leaves Rust a writer that no one holds, which
+      // would keep the file busy until FXM restarts: it is closed then.
+      await ask<number>(DOWNLOAD_COMMANDS.open, { file }, () => {
+        ask(DOWNLOAD_COMMANDS.close, { file }).catch(() => {})
+      })
       let closed = false
       const check = () => {
         if (closed) throw new DOMException(`${file} was closed`, 'InvalidStateError')
@@ -299,23 +350,28 @@ export function createDesktopDownloadStorage(
     },
 
     async list() {
-      const listing = parseListing(await ask<unknown>(DOWNLOAD_COMMANDS.list))
-      if (listing.named.length === 0) return listing.partial
-      const named = new Set((await options.rows()).flatMap((row) => row.file ?? []))
-      return [...listing.partial, ...listing.named.filter((file) => named.has(file))]
+      const { partial, named } = await listing()
+      if (named.length === 0) return partial
+      const known = new Set((await options.rows()).flatMap((row) => row.file ?? []))
+      return [...partial, ...named.filter((file) => known.has(file))]
+    },
+
+    async pending() {
+      return (await listing()).partial
     },
 
     size,
 
     async read(file, type) {
       assertSafeFileName(file)
+      let answer: unknown
       try {
-        const bytes = await ask<ArrayBuffer>(DOWNLOAD_COMMANDS.read, { file })
-        return new Blob([bytes], { type })
+        answer = await ask<unknown>(DOWNLOAD_COMMANDS.read, { file })
       } catch (error) {
         if (error instanceof DOMException && error.name === 'NotFoundError') return undefined
         throw error
       }
+      return new Blob([answerBytes(answer)], { type })
     },
 
     async playbackUrl(file, type) {
@@ -329,10 +385,12 @@ export function createDesktopDownloadStorage(
       if (record.status !== 'completed' || record.file === undefined) return undefined
       if (record.format === undefined) return undefined
       assertSafeFileName(record.file)
-      return ask<string>(DOWNLOAD_COMMANDS.name, {
+      const answer = await ask<unknown>(DOWNLOAD_COMMANDS.name, {
         file: record.file,
         fileName: downloadFileName(record.track, record.format),
       })
+      if (typeof answer !== 'string') throw new TypeError('The downloads folder named no file')
+      return answer
     },
   }
 }
@@ -344,24 +402,36 @@ export interface ConnectDesktopDownloadsOptions {
 }
 
 /**
- * Names each download as it completes, in the manager that runs the queue, and at once every
- * completed download still waiting for its name (FXM quit between the two). Returns a function
- * that stops it.
+ * Names each download as it completes, in the manager that runs the queue, and at once the
+ * completed downloads still waiting for their name (FXM quit between the two): those whose file
+ * is still in `.fxm-partial`, from one listing, one after another. Returns a function that stops
+ * it.
  */
 export function connectDesktopDownloads(
   manager: Pick<DownloadManager, 'on' | 'list'>,
-  storage: Pick<DesktopDownloadStorage, 'name'>,
+  storage: Pick<DesktopDownloadStorage, 'name' | 'pending'>,
   options: ConnectDesktopDownloadsOptions = {},
 ): () => void {
   const onError = options.onError ?? ((error: unknown) => console.error(error))
-  const name = (record: DownloadRecord) => {
+  let stopped = false
+  const stop = manager.on('completed', (record) => {
     storage.name(record).catch(onError)
+  })
+  const nameWaiting = async () => {
+    const [records, pending] = await Promise.all([manager.list(), storage.pending()])
+    const waiting = new Set(pending)
+    for (const record of records) {
+      if (stopped) return
+      const { file } = record
+      if (record.status !== 'completed' || file === undefined || !waiting.has(file)) continue
+      await storage.name(record).catch(onError)
+    }
   }
-  const stop = manager.on('completed', name)
-  manager.list().then((records) => {
-    for (const record of records) if (record.status === 'completed') name(record)
-  }, onError)
-  return stop
+  nameWaiting().catch(onError)
+  return () => {
+    stopped = true
+    stop()
+  }
 }
 
 /** Options for {@link createDesktopDownloadNetwork}. */

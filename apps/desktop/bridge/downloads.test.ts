@@ -46,6 +46,9 @@ const DESKTOP: NetworkCapabilities = {
 
 const bytes = (...values: number[]) => new Uint8Array(values)
 
+/** Lets the event loop run: calls that were going to happen have happened. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 20))
+
 function decodeBase64(data: string): Uint8Array {
   return Uint8Array.from(atob(data), (character) => character.charCodeAt(0))
 }
@@ -65,6 +68,8 @@ function fakePlugin() {
   const saves = new Map<number, { fileName: string; bytes: Uint8Array }>()
   const failures = new Map<string, unknown>()
   const held = new Set<string>()
+  const waiting = new Map<string, (() => void)[]>()
+  const answers = new Map<string, unknown>()
   const calls: { command: string; args: Record<string, unknown> }[] = []
   let folder: { path: string; chosen: boolean } | undefined = {
     path: '/Users/me/Music/FXM',
@@ -97,12 +102,17 @@ function fakePlugin() {
     const prefix = `plugin:${DOWNLOADS_PLUGIN}|`
     if (!command.startsWith(prefix)) throw new Error(`${command} not allowed`)
     const name = command.slice(prefix.length)
-    if (held.has(name)) return new Promise(() => {})
+    if (held.has(name)) {
+      await new Promise<void>((resolve) =>
+        waiting.set(name, [...(waiting.get(name) ?? []), resolve]),
+      )
+    }
     const failure = failures.get(name)
     if (failure !== undefined) {
       failures.delete(name)
       throw failure
     }
+    if (answers.has(name)) return answers.get(name)
     switch (name) {
       case DOWNLOAD_COMMANDS.folder:
         if (folder === undefined) throw refusal('no-folder')
@@ -210,9 +220,19 @@ function fakePlugin() {
     failNext(command: string, error: unknown) {
       failures.set(command, error)
     },
-    /** Makes every call of `command` hang. */
+    /** Makes every call of `command` hang, until {@link release}. */
     hold(command: string) {
       held.add(command)
+    },
+    /** Answers the calls of `command` held so far, and no longer holds the next. */
+    release(command: string) {
+      held.delete(command)
+      for (const resolve of waiting.get(command) ?? []) resolve()
+      waiting.delete(command)
+    },
+    /** Makes every call of `command` answer `answer`, as a faulty or other IPC might. */
+    answer(command: string, answer: unknown) {
+      answers.set(command, answer)
     },
     setFolder(next: typeof folder) {
       folder = next
@@ -335,6 +355,41 @@ describe('downloads in the desktop app', () => {
     )
   })
 
+  it('names at start the downloads still waiting only, from one listing, one at a time', async () => {
+    const first = desktop()
+    managers.push(first.manager)
+    const songs = ['Creep', 'Karma Police', 'No Surprises'].map((title) =>
+      testTrack(title, { artists: [{ name: 'Radiohead' }] }),
+    )
+    for (const song of songs) first.serve(song)
+    await first.manager.start()
+    for (const song of songs) await first.manager.enqueue(song)
+    await first.manager.idle()
+    // One was named before FXM quit; two still wait in `.fxm-partial`.
+    const [named] = await first.manager.list()
+    if (named !== undefined) await first.storage.name(named)
+    await first.manager.stop()
+    const plugin = first.plugin
+    const again = desktop({ store: first.store, plugin })
+    managers.push(again.manager)
+    await again.manager.start()
+    const namings = () => plugin.callsOf(DOWNLOAD_COMMANDS.name).length
+    const listings = () => plugin.callsOf(DOWNLOAD_COMMANDS.list).length
+    const [names, lists] = [namings(), listings()]
+    plugin.hold(DOWNLOAD_COMMANDS.name)
+    connectDesktopDownloads(again.manager, again.storage)
+    await vi.waitFor(() => expect(namings()).toBe(names + 1))
+    await flush()
+    // The next waits for this one.
+    expect(namings()).toBe(names + 1)
+    plugin.release(DOWNLOAD_COMMANDS.name)
+    await vi.waitFor(() =>
+      expect([...plugin.files.values()].every((file) => file.named !== undefined)).toBe(true),
+    )
+    expect(namings()).toBe(names + 2)
+    expect(listings()).toBe(lists + 1)
+  })
+
   it('never lets the tidy-up delete a named file that no record knows', async () => {
     const first = desktop()
     managers.push(first.manager)
@@ -363,6 +418,33 @@ describe('downloads in the desktop app', () => {
     await wiped.manager.start()
     expect(plugin.files.has('file-1')).toBe(true)
     expect(plugin.files.has('lost-record')).toBe(true)
+  })
+
+  it('skips the tidy-up on a malformed list rather than mark every download missing', async () => {
+    const first = desktop()
+    managers.push(first.manager)
+    first.serve(creep)
+    connectDesktopDownloads(first.manager, first.storage)
+    await first.manager.start()
+    await first.manager.enqueue(creep)
+    await first.manager.idle()
+    await vi.waitFor(() => expect(first.plugin.files.get('file-1')?.named).toBeDefined())
+    await first.manager.stop()
+    for (const malformed of [
+      null,
+      {},
+      { partial: [], named: 'file-1' },
+      { partial: [1], named: [] },
+    ]) {
+      first.plugin.answer(DOWNLOAD_COMMANDS.list, malformed)
+      await expect(first.storage.list()).rejects.toBeInstanceOf(TypeError)
+      await expect(first.storage.pending()).rejects.toBeInstanceOf(TypeError)
+    }
+    const again = desktop({ store: first.store, plugin: first.plugin })
+    managers.push(again.manager)
+    await again.manager.start()
+    expect(await again.record(creep)).toMatchObject({ status: 'completed', file: 'file-1' })
+    expect(first.plugin.files.has('file-1')).toBe(true)
   })
 
   it('removes a download’s named file when the user removes the download', async () => {
@@ -497,6 +579,55 @@ describe('the desktop download storage', () => {
       file: 'a',
       fileName: 'Radiohead - Creep.m4a',
     })
+    plugin.answer(DOWNLOAD_COMMANDS.name, 42)
+    await expect(storage.name(record)).rejects.toBeInstanceOf(TypeError)
+  })
+
+  it('reads the bytes however the IPC delivers them, and nothing else', async () => {
+    const plugin = fakePlugin()
+    const storage = storageOver(plugin)
+    const answers: unknown[] = [
+      bytes(1, 2, 3).buffer,
+      bytes(0, 1, 2, 3, 4).subarray(1, 4),
+      new DataView(bytes(9, 1, 2, 3).buffer, 1),
+      // Tauri's postMessage fallback.
+      [1, 2, 3],
+    ]
+    for (const answer of answers) {
+      plugin.answer(DOWNLOAD_COMMANDS.read, answer)
+      const blob = await storage.read('a', 'audio/mpeg')
+      expect(blob?.type).toBe('audio/mpeg')
+      expect(new Uint8Array((await blob?.arrayBuffer()) ?? new ArrayBuffer(0))).toEqual(
+        bytes(1, 2, 3),
+      )
+    }
+    for (const answer of ['1,2,3', { 0: 1 }, [1, 256], [1.5], [-1], null]) {
+      plugin.answer(DOWNLOAD_COMMANDS.read, answer)
+      await expect(storage.read('a', 'audio/mpeg'), JSON.stringify(answer)).rejects.toBeInstanceOf(
+        TypeError,
+      )
+    }
+  })
+
+  it('closes a file whose open the app answers only after the call gave up', async () => {
+    const plugin = fakePlugin()
+    const storage = storageOver(plugin, 1000)
+    plugin.hold(DOWNLOAD_COMMANDS.open)
+    vi.useFakeTimers()
+    const opening = storage.open('late').catch((error: unknown) => error)
+    try {
+      await vi.advanceTimersByTimeAsync(1000)
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(isStorageUnavailableError(await opening)).toBe(true)
+    // Rust opens it after all: the writer no one holds is closed, and the file is free again.
+    plugin.release(DOWNLOAD_COMMANDS.open)
+    await vi.waitFor(() => expect(plugin.callsOf(DOWNLOAD_COMMANDS.close)).toHaveLength(1))
+    expect(plugin.callsOf(DOWNLOAD_COMMANDS.close)[0]?.args).toEqual({ file: 'late' })
+    expect(plugin.open.has('late')).toBe(false)
+    const writer = await storage.open('late')
+    await writer.close()
   })
 
   it('speaks the storage errors the manager acts on', async () => {

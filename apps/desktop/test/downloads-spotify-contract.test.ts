@@ -186,6 +186,14 @@ describe('the downloads plugin and the bridge agree on', () => {
     expect(rustConst(downloadsRs, 'PARTIAL_FOLDER')).toMatch(/^\./)
     expect(rustConst(downloadsRs, 'SAVE_SUFFIX')).toMatch(/^\./)
   })
+
+  it('freeing what a page left open when the main window’s page loads again', () => {
+    // The bridge's storage lives as long as its page: a reload leaves Rust's writers to no one.
+    expect(downloadsRs).toMatch(
+      /webview\.label\(\) == MAIN_WINDOW\s*&& matches!\(payload\.event\(\), PageLoadEvent::Started\)/,
+    )
+    expect(downloadsRs).toMatch(/let released = downloads\.release_all\(\);/)
+  })
 })
 
 describe('the Spotify login plugin and the bridge agree on', () => {

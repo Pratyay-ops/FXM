@@ -64,6 +64,11 @@ tauri-plugin-opener = "2.7.1"
 tauri-plugin-single-instance = "2.5.3"
 tauri-plugin-window-state = "2.5.0"
 
+# O_NOFOLLOW, so a download never opens through a link put where its file goes
+# (src/downloads.rs, stage 7.4). Already in the dependency tree through tauri.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
 # The macOS version, which decides between Opus and AAC (src/environment.rs), and the
 # notification that the window has left full screen, which the close button waits for before it
 # hides the window (src/fullscreen.rs). All already in the dependency tree through tauri.

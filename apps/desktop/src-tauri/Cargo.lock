@@ -1379,6 +1379,7 @@ dependencies = [
  "gio",
  "hyper-util",
  "keyring",
+ "libc",
  "libloading",
  "objc2",
  "objc2-app-kit",
