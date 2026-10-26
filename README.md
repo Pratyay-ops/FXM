@@ -7,7 +7,7 @@
 - **Play practically any song** from YouTube Music, ad-free, streamed straight to your device. There are two modes:
   - **Music:** songs only, from any source: YouTube Music's clean album audio, free music from Internet Archive (Jamendo coming soon), and your own files.
   - **Music + Video:** also any YouTube video (covers, live sets, remixes), played as music.
-- **Spotify built in, switchable.** Search Spotify's catalog and see related artists. Song radio from Spotify's catalog (coming soon). Connect your account for a read-only sync of your recommendations, liked songs and playlists (coming soon): FXM never changes your Spotify account. Turn Spotify off any time.
+- **Spotify built in, switchable.** Search Spotify's catalog and see related artists. Song radio from Spotify's catalog (coming soon). Connect your account for a read-only sync of your recommendations, liked songs and playlists: FXM never changes your Spotify account. Turn Spotify off any time.
 - **Your library, on your device.** Likes, playlists in an order you choose, your listening history and backups, plus your own music files, synced lyrics from LRCLIB, and scrobbling to Last.fm and ListenBrainz once you connect an account. If you turn on sync, a copy also goes to a secret gist on your own GitHub account, so your other devices can read it.
 - **Made for you (coming soon).** A home feed, daily mixes and endless radio, computed on your device from YouTube Music radio, Spotify, Last.fm and ListenBrainz.
 - **Download any track (coming soon)** as Original, FLAC, ALAC, WAV, MP3, AAC or Opus, with tags and cover art. You get real lossless audio where the source has it (Internet Archive, Jamendo), and conversions are labelled honestly.
