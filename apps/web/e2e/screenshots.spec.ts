@@ -50,7 +50,10 @@ async function restoreLibrary(page: Page) {
   await expect(page.getByText('Library replaced from the backup')).toBeVisible()
 }
 
-/** The library's interactive states: a sort view, select mode, a row menu, the backup dialog. */
+/**
+ * The library's interactive states: a sort view, select mode, a row menu, a confirmation
+ * toast, the list of playlists sorted (with the sidebar's note), the backup dialog.
+ */
 async function captureLibraryStates(page: Page, prefix: string) {
   await page.goto('playlist/local:playlist:6f1c2d3e-0000-4000-8000-000000000001')
   const main = page.getByRole('main')
@@ -66,7 +69,15 @@ async function captureLibraryStates(page: Page, prefix: string) {
   await main.getByRole('button', { name: 'More options for Gravity Letters' }).click()
   await page.getByRole('menu').waitFor()
   await page.screenshot({ path: `screenshots/${prefix}-playlist-menu.png` })
-  await page.keyboard.press('Escape')
+  await page.getByRole('menuitem', { name: 'Move to top' }).click()
+  await page.getByText('Moved Gravity Letters to position 1 of 8').waitFor()
+  await page.screenshot({ path: `screenshots/${prefix}-playlist-toast.png` })
+  await page.goto('library')
+  await main.getByRole('button', { name: 'Sort: Custom order' }).click()
+  await page.getByRole('menuitemradio', { name: 'Name' }).click()
+  await main.getByText('Sorted by name, A to Z.').waitFor()
+  await page.screenshot({ path: `screenshots/${prefix}-library-sorted.png` })
+  await main.getByRole('button', { name: 'Show custom order' }).click()
   await page.goto('library')
   await page.getByRole('main').getByRole('button', { name: 'Backup' }).click()
   await page.getByRole('dialog', { name: 'Back up your library' }).waitFor()
@@ -96,8 +107,15 @@ async function seedSettings(page: Page, catalogMode: CatalogMode, theme: Theme) 
   )
 }
 
-/** Waits for the part of the shell that loads just after it: the sidebar's playlists. */
+/**
+ * Waits for the parts of the shell that load just after it: the sidebar's playlists and, when a
+ * song is queued, the like button (a disabled stand-in until the library loads; it stays off
+ * while nothing plays).
+ */
 async function waitForShell(page: Page) {
+  if ((await page.getByRole('link', { name: /^Open now playing: / }).count()) > 0) {
+    await expect(page.getByRole('button', { name: 'Like' }).first()).toBeEnabled()
+  }
   if ((page.viewportSize()?.width ?? 0) >= 768) {
     await page.getByRole('region', { name: 'Your playlists' }).getByRole('link').first().waitFor()
   }
@@ -294,8 +312,7 @@ async function captureNowPlaying(page: Page, prefix: string) {
 
   await page.goto('now-playing')
   await page.getByRole('button', { name: 'Hold the light a little longer' }).first().waitFor()
-  // A song is loaded: the like button loads the library just after the page.
-  await expect(page.getByRole('button', { name: 'Like' }).first()).toBeEnabled()
+  await waitForShell(page)
   await shoot('now-playing')
   await scrollToPanels()
   await shoot('now-playing-lyrics')
@@ -306,6 +323,7 @@ async function captureNowPlaying(page: Page, prefix: string) {
 
   await page.goto('now-playing?tab=queue')
   await page.getByRole('heading', { name: 'Next up' }).waitFor()
+  await waitForShell(page)
   await scrollToPanels()
   await shoot('now-playing-queue')
   await page.getByRole('button', { name: 'Move Winter Radio', exact: true }).click()

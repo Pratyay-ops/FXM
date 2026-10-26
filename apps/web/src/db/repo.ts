@@ -1,7 +1,8 @@
 /**
  * The library repository: the only code that reads and writes the library database. Pages read
- * through the hooks in `hooks.ts`, which run these reads as live queries; everything else
- * calls the methods directly.
+ * through the hooks in `hooks.ts`, which run these reads as live queries; everything else,
+ * backups included (`backup.ts` validates the file, then calls `restore`), calls the methods
+ * directly. The database itself is not part of the repository's API.
  *
  * Every write runs in one IndexedDB transaction, so a change either lands whole or not at all,
  * and every order change is a single write of one record (see `ordering.ts`). Transaction
@@ -31,12 +32,16 @@ import {
   type ListeningSignal,
   type ListeningSignalTrack,
   type Playlist,
+  type PlaySignal,
   parseId,
+  playContextOf,
+  type QueueContext,
   type RandomSource,
   type Track,
 } from '@fxm/core'
 import { Dexie } from 'dexie'
 import {
+  AFFINITY_MODEL_SETTING,
   type AffinityTables,
   addedAtOf,
   affinityScores,
@@ -62,6 +67,7 @@ import {
   pinnedRecord,
   recordFromDecision,
 } from './match-cache'
+import { mergePlaylist, playKey, prefersIncomingMatch, unionOrder } from './merge'
 import { type MoveTarget, moveKeys, reconcileOrder, sameOrder } from './ordering'
 import {
   DB_NAME,
@@ -72,6 +78,7 @@ import {
   type ImportProgressRecord,
   isLocalPlaylistId,
   LIKED_PLAYLIST_ID,
+  type LibraryTables,
   type LikeRecord,
   MATCH_TTL_MS,
   MAX_DESCRIPTION_LENGTH,
@@ -79,8 +86,9 @@ import {
   type MatchCacheRecord,
   type OrderUndo,
   PLAYLISTS_ORDER_ID,
-  type PlayContext,
   type PlaylistRecord,
+  type RestoreMode,
+  type SettingRecord,
   type StreamInfo,
   type SystemPlaylist,
   type TrackRecord,
@@ -208,8 +216,8 @@ export interface NewPlay {
   completed: boolean
   /** Whether the user skipped the rest of it. */
   skipped: boolean
-  /** Where it started from. */
-  context?: PlayContext
+  /** Where it started: the queue's context, e.g. an album, a radio or Liked songs. */
+  context?: QueueContext
   /** What actually played. */
   stream?: StreamInfo
   /** The import it comes from (an import-progress ID), for a play from another service. */
@@ -581,43 +589,140 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
     })
   }
 
-  /** Likes `track` unless it already is. Returns the like's signal, or nothing. */
-  async function likeInTransaction(
-    track: Track,
-    likedAt: number,
-  ): Promise<ListeningSignal | undefined> {
-    const key = entityKey(track.id)
-    if ((await db.likes.get(key)) !== undefined) return undefined
-    await db.likes.put({ key, trackId: track.id, likedAt })
-    const liked = await requirePlaylist(LIKED_PLAYLIST_ID)
-    const rest = (await likedOrder(liked)).filter((id) => keyOf(id) !== key)
-    await db.playlists.put(withOrder(liked, [track.id, ...rest]))
-    return { type: 'like', at: likedAt, track }
+  /**
+   * Likes the tracks that aren't liked yet, all at `likedAt`: they go to the top of Liked
+   * songs, in the given order, and each new like counts in the listening affinity. However many
+   * there are, the likes are read once, written in one bulk write, and Liked songs is one write
+   * of its record. Returns how many were new. Call inside a transaction that includes `tracks`
+   * and `affinity`, once the tracks are cached.
+   */
+  async function likeAll(tracks: readonly Track[], likedAt: number): Promise<number> {
+    const likes = await db.likes.toArray()
+    const liked = new Set(likes.map((like) => like.key))
+    const fresh = dedupeTracks(tracks).filter((track) => !liked.has(entityKey(track.id)))
+    if (fresh.length === 0) return 0
+    const record = await requirePlaylist(LIKED_PLAYLIST_ID)
+    // The order before the new likes: they go in front of it, as given.
+    const order = await likedOrder(record, likes)
+    await db.likes.bulkPut(
+      fresh.map((track) => ({ key: entityKey(track.id), trackId: track.id, likedAt })),
+    )
+    await db.playlists.put(withOrder(record, [...fresh.map((track) => track.id), ...order]))
+    await signal(fresh.map((track) => ({ type: 'like', at: likedAt, track })))
+    return fresh.length
   }
 
   /**
-   * Removes the like of `trackId`, if there is one. Returns the unlike's signal, which takes
-   * back what that like added.
+   * Removes the likes of `trackIds`, and takes back what each added to the listening affinity:
+   * the likes are read once and deleted in one bulk delete, and Liked songs is one write of its
+   * record. Returns how many there were. Call inside a transaction that includes `tracks` and
+   * `affinity`.
    */
-  async function unlikeInTransaction(
-    trackId: EntityId<'track'>,
-  ): Promise<ListeningSignal | undefined> {
-    const key = entityKey(trackId)
-    const like = await db.likes.get(key)
-    if (like === undefined) return undefined
-    await db.likes.delete(key)
-    const liked = await requirePlaylist(LIKED_PLAYLIST_ID)
-    const rest = (await likedOrder(liked)).filter((id) => keyOf(id) !== key)
-    await db.playlists.put(withOrder(liked, rest))
-    return { type: 'unlike', at: now(), likedAt: like.likedAt, track: trackRef(like.trackId) }
+  async function unlikeAll(trackIds: readonly EntityId<'track'>[]): Promise<number> {
+    const removing = new Set(trackIds.map(keyOf))
+    const likes = await db.likes.toArray()
+    const gone = likes.filter((like) => removing.has(like.key))
+    if (gone.length === 0) return 0
+    // Removing every like ("Select all", then Remove) is one request instead of one per like.
+    if (gone.length === likes.length) await db.likes.clear()
+    else await db.likes.bulkDelete(gone.map((like) => like.key))
+    const record = await requirePlaylist(LIKED_PLAYLIST_ID)
+    const kept = likes.filter((like) => !removing.has(like.key))
+    await db.playlists.put(withOrder(record, await likedOrder(record, kept)))
+    const at = now()
+    await signal(
+      gone.map((like) => ({
+        type: 'unlike',
+        at,
+        likedAt: like.likedAt,
+        track: trackRef(like.trackId),
+      })),
+    )
+    return gone.length
+  }
+
+  /** Writes a backup's rows over an emptied library. Call inside the restore transaction. */
+  async function writeReplaced(tables: LibraryTables): Promise<void> {
+    for (const name of TABLE_NAMES) await db.table(name).clear()
+    await db.tracks.bulkPut(tables.tracks)
+    await db.likes.bulkPut(tables.likes)
+    await db.playlists.bulkPut(tables.playlists)
+    await db.orders.bulkPut(tables.orders)
+    await db.follows.bulkPut(tables.follows)
+    // Rows without an ID get a new one.
+    await db.history.bulkPut(tables.history as HistoryRecord[])
+    await db.settings.bulkPut(tables.settings)
+    await db.matchCache.bulkPut(tables.matchCache)
+    await db.importProgress.bulkPut(tables.importProgress)
+  }
+
+  /**
+   * Adds a backup's rows to the library, keeping everything here (rules in `merge.ts`). Call
+   * inside the restore transaction.
+   */
+  async function writeMerged(tables: LibraryTables): Promise<void> {
+    // Tracks: the most recently saved metadata wins.
+    const tracksHere = await db.tracks.bulkGet(tables.tracks.map((row) => row.id))
+    await db.tracks.bulkPut(
+      tables.tracks.filter((row, index) => {
+        const here = tracksHere[index]
+        return here === undefined || row.updatedAt > here.updatedAt
+      }),
+    )
+    // Likes, follows and reserved settings: what is here stays; the backup adds the rest.
+    await db.likes.bulkAdd(await missingRows(db.likes, tables.likes, (row) => row.key))
+    await db.follows.bulkAdd(await missingRows(db.follows, tables.follows, (row) => row.key))
+    await db.settings.bulkAdd(await missingRows(db.settings, tables.settings, (row) => row.key))
+    // Playlists: new ones are added; one that exists in both merges, the newer edit leading.
+    for (const incoming of tables.playlists) {
+      const here = await db.playlists.get(incoming.id)
+      await db.playlists.put(here === undefined ? incoming : mergePlaylist(here, incoming))
+    }
+    // The list of playlists: this order first, then the backup's playlists it lacks.
+    const order = await db.orders.get(PLAYLISTS_ORDER_ID)
+    const incomingOrder = tables.orders.find((row) => row.id === PLAYLISTS_ORDER_ID)
+    if (incomingOrder !== undefined) {
+      await db.orders.put({
+        id: PLAYLISTS_ORDER_ID,
+        order: unionOrder(order?.order ?? [], incomingOrder.order),
+        updatedAt: Math.max(order?.updatedAt ?? 0, incomingOrder.updatedAt),
+      })
+    }
+    // History: a play that is here already is not added twice.
+    const seen = new Set<string>()
+    await db.history.each((entry) => {
+      seen.add(playKey(entry))
+    })
+    const plays = tables.history
+      .filter((entry) => {
+        const key = playKey(entry)
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+      .map(({ id: _id, ...entry }) => entry)
+    await db.history.bulkAdd(plays)
+    // Match cache: a pin wins, then the newer decision.
+    const matchesHere = await db.matchCache.bulkGet(tables.matchCache.map((row) => row.key))
+    await db.matchCache.bulkPut(
+      tables.matchCache.filter((row, index) => {
+        const here = matchesHere[index]
+        return here === undefined || prefersIncomingMatch(here, row)
+      }),
+    )
+    // Imports: the more recent progress wins.
+    const importsHere = await db.importProgress.bulkGet(tables.importProgress.map((row) => row.id))
+    await db.importProgress.bulkPut(
+      tables.importProgress.filter((row, index) => {
+        const here = importsHere[index]
+        return here === undefined || row.updatedAt > here.updatedAt
+      }),
+    )
   }
 
   const affinity: AffinityReader = affinityTableReader(db.affinity, now)
 
   return {
-    /** The database this repository works on. */
-    db,
-
     /** The repository's clock, as epoch milliseconds: every time it stores comes from it. */
     now,
 
@@ -636,6 +741,26 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
       return (await db.tracks.get(id))?.track
     },
 
+    /**
+     * Refreshes the cached metadata of the tracks the library already holds, e.g. after the
+     * local-files feature (stage 4.4) read a file's tags again. Tracks it doesn't hold, and
+     * tracks whose metadata didn't change, are left alone, so lists don't re-render for nothing.
+     * Like any save, a change of artists, tags or kind moves their listening affinity. Returns
+     * how many it updated.
+     */
+    async refreshTracks(tracks: readonly Track[]): Promise<number> {
+      if (tracks.length === 0) return 0
+      return db.transaction('rw', [db.tracks, db.affinity], async () => {
+        const cached = await db.tracks.bulkGet(tracks.map((track) => track.id))
+        const changed = tracks.filter((track, index) => {
+          const old = cached[index]
+          return old !== undefined && JSON.stringify(old.track) !== JSON.stringify(track)
+        })
+        await putTracks(changed)
+        return changed.length
+      })
+    },
+
     // --- Likes -------------------------------------------------------------------------
 
     /** Whether `trackId` (or the same entity under another YouTube prefix) is liked. */
@@ -650,10 +775,7 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
     async like(track: Track): Promise<boolean> {
       return db.transaction('rw', [db.tracks, db.likes, db.playlists, db.affinity], async () => {
         await putTracks([track])
-        const liked = await likeInTransaction(track, now())
-        if (liked === undefined) return false
-        await signal([liked])
-        return true
+        return (await likeAll([track], now())) > 0
       })
     },
 
@@ -663,24 +785,20 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
      */
     async unlike(trackId: EntityId<'track'>): Promise<boolean> {
       return db.transaction('rw', [db.likes, db.playlists, db.tracks, db.affinity], async () => {
-        const unliked = await unlikeInTransaction(trackId)
-        if (unliked === undefined) return false
-        await signal([unliked])
-        return true
+        if ((await db.likes.get(entityKey(trackId))) === undefined) return false
+        return (await unlikeAll([trackId])) > 0
       })
     },
 
     /** Likes `track`, or removes its like. Returns whether it is liked now. */
     async toggleLike(track: Track): Promise<boolean> {
       return db.transaction('rw', [db.tracks, db.likes, db.playlists, db.affinity], async () => {
-        const unliked = await unlikeInTransaction(track.id)
-        if (unliked !== undefined) {
-          await signal([unliked])
+        if ((await db.likes.get(entityKey(track.id))) !== undefined) {
+          await unlikeAll([track.id])
           return false
         }
         await putTracks([track])
-        const liked = await likeInTransaction(track, now())
-        if (liked !== undefined) await signal([liked])
+        await likeAll([track], now())
         return true
       })
     },
@@ -895,15 +1013,9 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
         const unique = dedupeTracks(tracks)
         await putTracks(unique)
         if (playlistId === LIKED_PLAYLIST_ID) {
-          const likes: ListeningSignal[] = []
-          const at = now()
-          // Liked one after another, so the first track ends up on top.
-          for (const track of [...unique].reverse()) {
-            const liked = await likeInTransaction(track, at)
-            if (liked !== undefined) likes.push(liked)
-          }
-          await signal(likes)
-          return { added: likes.length, skipped: tracks.length - likes.length }
+          // New likes go to the top, the first track first.
+          const added = await likeAll(unique, now())
+          return { added, skipped: tracks.length - added }
         }
         const record = await requirePlaylist(playlistId)
         const present = new Set(record.trackIds.map(keyOf))
@@ -936,15 +1048,7 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
         throw new LibraryError('protected', 'Delete the download to remove it from Downloads')
       }
       return db.transaction('rw', [db.playlists, db.likes, db.tracks, db.affinity], async () => {
-        if (playlistId === LIKED_PLAYLIST_ID) {
-          const unlikes: ListeningSignal[] = []
-          for (const id of trackIds) {
-            const unliked = await unlikeInTransaction(id)
-            if (unliked !== undefined) unlikes.push(unliked)
-          }
-          await signal(unlikes)
-          return unlikes.length
-        }
+        if (playlistId === LIKED_PLAYLIST_ID) return unlikeAll(trackIds)
         const record = await requirePlaylist(playlistId)
         const removing = new Set(trackIds.map(keyOf))
         const kept = record.trackIds.filter((id) => !removing.has(keyOf(id)))
@@ -1377,6 +1481,53 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
     // --- The whole library -------------------------------------------------------------------
 
+    /**
+     * Every row of every table but the derived affinity (and its model version in `settings`),
+     * read in one transaction, so a backup is a consistent snapshot. `backup.ts` wraps it into
+     * the backup file.
+     */
+    async snapshot(): Promise<LibraryTables> {
+      return db.transaction(
+        'r',
+        TABLE_NAMES.map((name) => db.table(name)),
+        async () => ({
+          tracks: await db.tracks.toArray(),
+          likes: await db.likes.toArray(),
+          playlists: await db.playlists.toArray(),
+          orders: await db.orders.toArray(),
+          follows: await db.follows.toArray(),
+          history: await db.history.toArray(),
+          settings: (await db.settings.toArray()).filter(isPortableSetting),
+          matchCache: await db.matchCache.toArray(),
+          importProgress: await db.importProgress.toArray(),
+        }),
+      )
+    },
+
+    /**
+     * Writes rows a backup brought, already validated by `backup.ts`, in one transaction, so a
+     * failure leaves the library as it was. `replace` makes the library exactly `tables`,
+     * custom orders, undo orders and play IDs included; `merge` keeps everything here and adds
+     * the rest (the rules are in `merge.ts`). The built-in playlists exist afterwards either way,
+     * and the listening affinity is rebuilt from the library that results, in the same
+     * transaction. No time after the repository's clock gets in: plays that start later are left
+     * out, and likes and playlist entries dated later count from now.
+     */
+    async restore(tables: LibraryTables, mode: RestoreMode): Promise<void> {
+      const at = now()
+      const rows = importable(tables, at)
+      await db.transaction(
+        'rw',
+        TABLE_NAMES.map((name) => db.table(name)),
+        async () => {
+          if (mode === 'replace') await writeReplaced(rows)
+          else await writeMerged(rows)
+          await ensureSystemRecords(db, at)
+          await rebuildAffinity(affinityTables, at)
+        },
+      )
+    },
+
     /** Empties every table, then recreates the built-in playlists. */
     async clearLibrary(): Promise<void> {
       await db.transaction(
@@ -1393,11 +1544,6 @@ export function createLibraryRepo(db: FxmDatabase, deps: Partial<RepoDeps> = {})
 
 /** The library repository. */
 export type LibraryRepo = ReturnType<typeof createLibraryRepo>
-
-/** The identity of a play: the same track (by `entityKey`) starting at the same time. */
-function playKey(entry: Pick<HistoryRecord, 'trackId' | 'playedAt'>): string {
-  return `${entityKey(entry.trackId)}|${entry.playedAt}`
-}
 
 /**
  * Why {@link LibraryRepo.recordPlays} would refuse `play` at `now`, for people, or `undefined`
@@ -1463,10 +1609,16 @@ function saysMore(play: Omit<HistoryRecord, 'id'>, than: Omit<HistoryRecord, 'id
   return verdict(play) && !verdict(than)
 }
 
-/** The play signal of a history entry, with a stand-in track the repository scores itself. */
+/**
+ * The play signal of a history entry, with a stand-in track the repository scores itself. The
+ * signal keeps the stored form of the queue's context (`playContextOf`).
+ */
 function playSignal(entry: Omit<HistoryRecord, 'id'>): ListeningSignal {
-  const { trackId, playedAt, importId: _import, ...play } = entry
-  return { type: 'play', at: playedAt, track: trackRef(trackId), ...play }
+  const { trackId, playedAt, importId: _import, context, ...play } = entry
+  const signal: PlaySignal = { type: 'play', at: playedAt, track: trackRef(trackId), ...play }
+  const playContext = playContextOf(context)
+  if (playContext !== undefined) signal.context = playContext
+  return signal
 }
 
 /** A stand-in for a signal's track: the repository scores it with the cached metadata. */
@@ -1480,6 +1632,27 @@ function negated(entry: AffinityEntry): AffinityEntry {
   return { ...rest, score: -entry.score, skips: -entry.skips, plays: -entry.plays }
 }
 
+/** Whether a setting belongs in a backup: all but the affinity's own, which is rebuilt. */
+function isPortableSetting(row: SettingRecord): boolean {
+  return row.key !== AFFINITY_MODEL_SETTING
+}
+
+/**
+ * A backup's tables as they may enter the library at `now`: without plays that start after
+ * `now`, and without the affinity's model version, which the rebuild writes. The listening
+ * affinity must never hold a time after the library's clock, and a play moved to now would be a
+ * new play every time the same backup is merged again, so such plays stay out. Likes and
+ * playlist entries dated after `now` count from now (the rebuild after the restore brings them
+ * back).
+ */
+function importable(tables: LibraryTables, now: number): LibraryTables {
+  return {
+    ...tables,
+    history: tables.history.filter((entry) => entry.playedAt <= now),
+    settings: tables.settings.filter(isPortableSetting),
+  }
+}
+
 /** `tracks` without repeats of the same entity (by `entityKey`), first one kept. */
 function dedupeTracks(tracks: readonly Track[]): Track[] {
   const seen = new Set<string>()
@@ -1491,7 +1664,18 @@ function dedupeTracks(tracks: readonly Track[]): Track[] {
   })
 }
 
-let current: LibraryRepo | undefined
+/** The rows of `rows` whose key `table` doesn't have yet, each key once. */
+async function missingRows<T>(
+  table: { bulkGet(keys: string[]): PromiseLike<unknown[]> },
+  rows: readonly T[],
+  keyOf: (row: T) => string,
+): Promise<T[]> {
+  const unique = new Map(rows.map((row) => [keyOf(row), row]))
+  const existing = await table.bulkGet([...unique.keys()])
+  return [...unique.values()].filter((_, index) => existing[index] === undefined)
+}
+
+let current: { repo: LibraryRepo; db: FxmDatabase } | undefined
 
 /**
  * The app's library, on the `fxm` database. Opened on first use, when engine decisions older
@@ -1500,13 +1684,14 @@ let current: LibraryRepo | undefined
  */
 export function getLibrary(): LibraryRepo {
   if (current === undefined) {
-    current = createLibraryRepo(openDatabase())
+    const db = openDatabase()
+    current = { repo: createLibraryRepo(db), db }
     // Housekeeping only: reads already ignore expired decisions, and the affinity stays
     // usable until the rebuild lands.
-    current.pruneMatchCache().catch(() => {})
-    current.maintainAffinity().catch(() => {})
+    current.repo.pruneMatchCache().catch(() => {})
+    current.repo.maintainAffinity().catch(() => {})
   }
-  return current
+  return current.repo
 }
 
 /**
@@ -1516,6 +1701,7 @@ export function getLibrary(): LibraryRepo {
 export async function resetLibrary(deps: Partial<RepoDeps> = {}): Promise<LibraryRepo> {
   current?.db.close()
   await Dexie.delete(DB_NAME)
-  current = createLibraryRepo(openDatabase(), deps)
-  return current
+  const db = openDatabase()
+  current = { repo: createLibraryRepo(db, deps), db }
+  return current.repo
 }

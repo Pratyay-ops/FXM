@@ -12,7 +12,7 @@ import {
   Trash,
   UserRound,
 } from 'lucide-react'
-import { useId, useState } from 'react'
+import { lazy, Suspense, useId, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { EmptyState } from '../../components/ui/empty-state'
@@ -37,22 +37,31 @@ import {
 } from '../../db/types'
 import { BackupDialog } from './backup-dialog'
 import { CoverArt } from './cover-art'
+import { failureText } from './failure'
 import { artistNames, artworkUrl, countLabel, playedLabel, totalDuration } from './format'
 import { EmptyList, trackListKind } from './local-playlist-page'
 import { followPath, playlistPath } from './paths'
-import { AddToPlaylistDialog, failureText, usePlaylistDialogs } from './playlist-dialogs'
+import { AddToPlaylistDialog, usePlaylistDialogs } from './playlist-dialogs'
 import { PlaylistList, useUnfollow } from './playlist-list'
-import { StatusToast, showStatus } from './status'
+import { showStatus } from './status'
 import { TrackList } from './track-list'
 import { Dialog, DialogActions } from './ui/dialog'
 import { Menu } from './ui/menu'
+import { neighborAfterRemoval, rowControl, useFocusAfterRemoval } from './use-focus-after-removal'
 
-type LibraryTab = 'playlists' | 'liked' | 'downloads' | 'artists' | 'albums' | 'recent'
+// Local files (stage 4.4) load when their tab opens: the tag reader and their database stay out
+// of the Library's first download.
+const LocalFilesPanel = lazy(() =>
+  import('../local-files/local-files-panel').then((m) => ({ default: m.LocalFilesPanel })),
+)
+
+type LibraryTab = 'playlists' | 'liked' | 'downloads' | 'local' | 'artists' | 'albums' | 'recent'
 
 const TABS: readonly TabItem<LibraryTab>[] = [
   { value: 'playlists', label: 'Playlists' },
   { value: 'liked', label: 'Liked songs' },
   { value: 'downloads', label: 'Downloads' },
+  { value: 'local', label: 'Local files' },
   { value: 'artists', label: 'Artists' },
   { value: 'albums', label: 'Albums' },
   { value: 'recent', label: 'Recently played' },
@@ -137,12 +146,16 @@ function BuiltInPanel({ id }: { id: EntityId<'playlist'> }) {
   return (
     <div className="space-y-4">
       {rows.length > 0 && (
-        <p className="text-sm text-text-muted">
-          {countLabel(rows.length, 'song')}
-          {duration && ` · ${duration}`} ·{' '}
+        <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-text-muted">
+          <span>
+            {countLabel(rows.length, 'song')}
+            {duration && ` · ${duration}`}
+          </span>
+          <span aria-hidden="true">·</span>
+          {/* A full-height target on touch screens, though it reads as a link in the line. */}
           <Link
             to={playlistPath(id)}
-            className="font-semibold text-text underline-offset-2 hover:underline"
+            className="inline-flex h-touch items-center rounded-md font-semibold text-text underline-offset-2 hover:underline lg:h-8 lg:pointer-coarse:h-touch"
           >
             Open as playlist
           </Link>
@@ -174,15 +187,20 @@ const FOLLOW_EMPTY: Record<
   },
 }
 
-function FollowCard({ follow }: { follow: FollowRecord }) {
-  const repo = useLibrary()
+function FollowCard({
+  follow,
+  onUnfollow,
+}: {
+  follow: FollowRecord
+  onUnfollow: (follow: FollowRecord) => void
+}) {
   const kind = follow.kind === 'artist' ? 'artist' : 'album'
   const subtitle =
     kind === 'artist'
       ? 'Artist'
       : (follow.artists?.map((artist) => artist.name).join(', ') ?? 'Album')
   return (
-    <li className="relative min-w-0">
+    <li data-row={follow.key} className="relative min-w-0">
       <Link
         to={followPath(kind, follow.id)}
         className="block rounded-lg p-2 hover:bg-text/5 focus-visible:outline-offset-0"
@@ -210,11 +228,7 @@ function FollowCard({ follow }: { follow: FollowRecord }) {
               id: 'unfollow',
               label: kind === 'artist' ? 'Unfollow' : 'Remove from your library',
               icon: Trash,
-              onSelect: () =>
-                repo.unfollow(follow.id).then(
-                  () => showStatus(`Removed ${follow.name} from your library`),
-                  (error: unknown) => showStatus(failureText(error)),
-                ),
+              onSelect: () => onUnfollow(follow),
             },
           ]}
         >
@@ -225,8 +239,33 @@ function FollowCard({ follow }: { follow: FollowRecord }) {
   )
 }
 
+const NO_KEYS: readonly string[] = []
+
 function FollowsPanel({ kind }: { kind: Exclude<FollowKind, 'playlist'> }) {
   const live = useFollows(kind)
+  const repo = useLibrary()
+  const keys = useMemo(
+    () => (live.status === 'ready' ? live.data.map((follow) => follow.key) : NO_KEYS),
+    [live],
+  )
+  const listRef = useRef<HTMLUListElement>(null)
+  const focusAfter = useFocusAfterRemoval(keys)
+  const unfollow = (follow: FollowRecord) => {
+    // The card goes, and its menu button with it: the next card's gets focus, or the panel.
+    const neighbor = neighborAfterRemoval(keys, new Set([follow.key]))
+    const panel = listRef.current?.closest<HTMLElement>('[role="tabpanel"]')
+    focusAfter.expect(
+      [follow.key],
+      () => rowControl(listRef.current, neighbor, 'button[aria-haspopup="menu"]') ?? panel,
+    )
+    repo.unfollow(follow.id).then(
+      () => showStatus(`Removed ${follow.name} from your library`),
+      (error: unknown) => {
+        focusAfter.cancel()
+        showStatus(failureText(error))
+      },
+    )
+  }
   if (live.status !== 'ready') return <LiveState live={live} />
   if (live.data.length === 0) {
     return (
@@ -241,11 +280,12 @@ function FollowsPanel({ kind }: { kind: Exclude<FollowKind, 'playlist'> }) {
   }
   return (
     <ul
+      ref={listRef}
       aria-label={kind === 'artist' ? 'Artists you follow' : 'Saved albums'}
       className="-mx-2 grid grid-cols-2 gap-x-2 gap-y-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
     >
       {live.data.map((follow) => (
-        <FollowCard key={follow.key} follow={follow} />
+        <FollowCard key={follow.key} follow={follow} onUnfollow={unfollow} />
       ))}
     </ul>
   )
@@ -318,45 +358,58 @@ function RecentPanel() {
   const repo = useLibrary()
   const [adding, setAdding] = useState<Track[] | null>(null)
   const [clearing, setClearing] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  // After clearing, the button that opened the dialog is gone with the list: the tab panel,
+  // which then shows the empty state, gets focus.
+  const afterClear = useRef<HTMLElement | null>(null)
   if (live.status !== 'ready') return <LiveState live={live} />
-  if (live.data.length === 0) {
-    return (
-      <EmptyState
-        icon={Clock}
-        title="Nothing played yet"
-        description="Songs you play show up here, most recent first. Your listening history stays on this device."
-        headingLevel={3}
-        className="rounded-2xl border border-dashed border-border"
-      />
-    )
-  }
   return (
-    <div className="space-y-3">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          className={buttonClasses({ variant: 'ghost' })}
-          onClick={() => setClearing(true)}
-        >
-          <Trash aria-hidden="true" />
-          Clear history
-        </button>
-      </div>
-      <ol aria-label="Recently played" className="-mx-1">
-        {live.data.map((row) => (
-          <RecentRowItem key={row.id} row={row} onAdd={(track) => setAdding([track])} />
-        ))}
-      </ol>
+    <div ref={root} className="space-y-3">
+      {live.data.length === 0 ? (
+        <EmptyState
+          icon={Clock}
+          title="Nothing played yet"
+          description="Songs you play show up here, most recent first. Your listening history stays on this device."
+          headingLevel={3}
+          className="rounded-2xl border border-dashed border-border"
+        />
+      ) : (
+        <>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className={buttonClasses({ variant: 'ghost' })}
+              onClick={() => setClearing(true)}
+            >
+              <Trash aria-hidden="true" />
+              Clear history
+            </button>
+          </div>
+          <ol aria-label="Recently played" className="-mx-1">
+            {live.data.map((row) => (
+              <RecentRowItem key={row.id} row={row} onAdd={(track) => setAdding([track])} />
+            ))}
+          </ol>
+        </>
+      )}
       <AddToPlaylistDialog tracks={adding} onClose={() => setAdding(null)} />
       <Dialog
         open={clearing}
         onClose={() => setClearing(false)}
+        alert
+        finalFocus={() => {
+          const target = afterClear.current
+          afterClear.current = null
+          return target
+        }}
         title="Clear listening history?"
         description="Recently played starts over, and recommendations forget what you played. Your playlists and likes stay."
       >
         <DialogActions>
+          {/* Focus starts on Cancel: an extra Enter clears nothing. */}
           <button
             type="button"
+            data-autofocus=""
             className={buttonClasses({ variant: 'ghost' })}
             onClick={() => setClearing(false)}
           >
@@ -364,9 +417,9 @@ function RecentPanel() {
           </button>
           <button
             type="button"
-            data-autofocus=""
             className={buttonClasses({ variant: 'danger' })}
             onClick={() => {
+              afterClear.current = root.current?.closest<HTMLElement>('[role="tabpanel"]') ?? null
               repo.clearHistory().then(
                 () => showStatus('Cleared your listening history'),
                 (error: unknown) => showStatus(failureText(error)),
@@ -382,7 +435,10 @@ function RecentPanel() {
   )
 }
 
-/** The Library: playlists, Liked songs, Downloads, artists, albums and recently played. */
+/**
+ * The Library: playlists, Liked songs, Downloads, local files (stage 4.4), artists, albums and
+ * recently played.
+ */
 export function LibraryPage() {
   const [params, setParams] = useSearchParams()
   const requested = params.get('tab')
@@ -422,12 +478,16 @@ export function LibraryPage() {
         {tab === 'playlists' && <PlaylistsPanel onCreate={dialogs.create} />}
         {tab === 'liked' && <BuiltInPanel id={LIKED_PLAYLIST_ID} />}
         {tab === 'downloads' && <BuiltInPanel id={DOWNLOADS_PLAYLIST_ID} />}
+        {tab === 'local' && (
+          <Suspense fallback={<ListSkeleton />}>
+            <LocalFilesPanel />
+          </Suspense>
+        )}
         {tab === 'artists' && <FollowsPanel kind="artist" />}
         {tab === 'albums' && <FollowsPanel kind="album" />}
         {tab === 'recent' && <RecentPanel />}
       </TabPanel>
       <BackupDialog open={backup} onClose={() => setBackup(false)} />
-      <StatusToast />
       {dialogs.dialogs}
     </div>
   )

@@ -1,20 +1,33 @@
-import type { EntityId } from '@fxm/core'
+import { type EntityId, formatId, parseId } from '@fxm/core'
 import { Download, Heart, ListMusic, type LucideIcon } from 'lucide-react'
 import type { PlaylistSummary } from '../../db/repo'
-import type { FollowKind } from '../../db/types'
+import { type FollowKind, isLocalPlaylistId } from '../../db/types'
+import { albumPath, artistPath, playlistPath as sourcePlaylistPath } from '../search/catalog/links'
 import { countLabel } from './format'
 
 /**
- * The route of a playlist: `/playlist/<id>`. Colons stay readable (`local:playlist:…`);
- * anything else unusual in an ID is escaped.
+ * The route of a playlist. A playlist of this library opens with its whole ID, colons kept
+ * readable (`/playlist/local:playlist:…`); anything else unusual in it is escaped. A playlist
+ * followed from a source opens the playlist page from search, which names it by source and
+ * native ID (`/playlist/ytm:PL…`, see `features/search/catalog/links.ts`).
  */
 export function playlistPath(id: EntityId<'playlist'>): string {
+  if (!isLocalPlaylistId(id)) return sourcePlaylistPath(id)
   return `/playlist/${encodeURIComponent(id).replaceAll('%3A', ':')}`
 }
 
-/** The route of a followed artist or saved album. */
-export function followPath(kind: Exclude<FollowKind, 'playlist'>, id: string): string {
-  return `/${kind}/${encodeURIComponent(id).replaceAll('%3A', ':')}`
+/**
+ * The route of a followed artist or saved album: its page from search, which names it by source
+ * and native ID (`/artist/ytm:UC…`, `/album/ytm:MPREb_…`).
+ */
+export function followPath(
+  kind: Exclude<FollowKind, 'playlist'>,
+  id: EntityId<FollowKind>,
+): string {
+  const { source, nativeId } = parseId(id)
+  return kind === 'artist'
+    ? artistPath(formatId(source, 'artist', nativeId))
+    : albumPath(formatId(source, 'album', nativeId))
 }
 
 /** The icon a playlist's placeholder artwork shows. */

@@ -1,4 +1,4 @@
-import { testTrack, testTracks } from '@fxm/player/testing'
+import { testTracks } from '@fxm/player/testing'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
@@ -49,26 +49,31 @@ describe('the like button', () => {
 
     await act(() => player.setQueue(testTracks('a'), { autoplay: false }))
 
-    // The library's like button loads just after: until then it is a disabled stand-in.
+    // The library's like button loads just after: a disabled stand-in until then.
     await waitFor(() => expect(screen.getByRole('button', { name: 'Like' })).toBeEnabled())
   })
 
-  it('likes the current track, and follows the queue to the next one', async () => {
+  it('saves the current track in the library, and follows the queue', async () => {
     const { player } = setupTestPlayback()
-    await player.setQueue(testTracks('a', 'b'), { autoplay: false })
+    const [first, second] = testTracks('a', 'b')
+    if (!first || !second) throw new Error('two test tracks')
+    await player.setQueue([first, second], { autoplay: false })
     const user = userEvent.setup()
     render(<LikeButton />)
-    const like = () => screen.getByRole('button', { name: 'Like' })
-    await waitFor(() => expect(like()).toBeEnabled())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Like' })).toBeEnabled())
 
-    await user.click(like())
+    await user.click(screen.getByRole('button', { name: 'Like', pressed: false }))
 
-    await waitFor(() => expect(like()).toHaveAttribute('aria-pressed', 'true'))
-    expect(await getLibrary().isLiked(testTrack('a').id)).toBe(true)
-    expect(await getLibrary().isLiked(testTrack('b').id)).toBe(false)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Like' })).toHaveAttribute('aria-pressed', 'true'),
+    )
+    expect(await getLibrary().isLiked(first.id)).toBe(true)
 
     await act(() => player.next())
 
-    await waitFor(() => expect(like()).toHaveAttribute('aria-pressed', 'false'))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Like' })).toHaveAttribute('aria-pressed', 'false'),
+    )
+    expect(await getLibrary().isLiked(second.id)).toBe(false)
   })
 })

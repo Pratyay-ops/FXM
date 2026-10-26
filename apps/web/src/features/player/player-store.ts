@@ -6,23 +6,11 @@ import { getPlayer, subscribePlayer } from '../now-playing/playback'
 export type { RepeatMode } from '@fxm/core'
 
 /**
- * What the player showed before real playback arrived (stages 2.2 and 2.5).
- *
- * @deprecated The bars show the queue's current item now. Kept for stage 2.6's placeholder
- * like button, until the like button takes the current track instead.
- */
-export const PLACEHOLDER_TRACK = {
-  title: 'Track title',
-  artist: 'Artist name',
-  seed: 'fxm-now-playing',
-} as const
-
-/**
  * The player bar's view of the app's player (`features/now-playing/playback.ts`): what the
  * controls show, in the units they show it, and actions that drive the player. The player is
  * the source of truth; this store follows every change it makes. Call the actions straight from
- * event handlers, so playback starts inside the user's gesture. Likes live in the library
- * (`features/library/use-track-like.ts`).
+ * event handlers, so playback starts inside the user's gesture. Likes live in the library (stage
+ * 2.6): the like button reads and saves the current track's there.
  */
 export interface PlayerUiState {
   /** Whether a track is playing or selected; the controls are disabled without one. */
