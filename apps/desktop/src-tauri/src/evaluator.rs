@@ -11,10 +11,11 @@
 //!
 //! What the window's page can't do:
 //!
-//! - call a plugin command: no capability names its window (`capabilities/default.json` grants
-//!   the plugins to `main` only). The app registers no command of its own, which any local page
-//!   could call without an access-control manifest; `apps/desktop/test/evaluator.test.ts` fails
-//!   if one appears without one;
+//! - call a command: no capability names its webview (`capabilities/default.json` grants the
+//!   plugins and the app's own commands to `main`'s only). Tauri checks the app's own commands
+//!   (`src/user_hosts.rs`) against the capabilities because `build.rs` lists them in an
+//!   access-control manifest; without one, any local page could call them, and
+//!   `apps/desktop/test/evaluator.test.ts` fails if an app command appears without one;
 //! - leave its document: the window allows no navigation away from it and opens no new window,
 //!   and `eval` refuses a window that shows anything else;
 //! - outlive the app: it is destroyed with the main window, so closing that window still quits.

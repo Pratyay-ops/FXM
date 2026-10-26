@@ -39,6 +39,13 @@ const PLUGINS = ['single-instance', 'window-state', 'http', 'opener']
 /** The app's own Rust commands (src/user_hosts.rs). */
 const COMMANDS = ['user_hosts', 'approve_user_host', 'revoke_user_host', 'user_host_fetch']
 
+/**
+ * The app's own plugin, built into its crate (`InlinedPlugin` in build.rs): stage 1.11's isolated
+ * evaluator (src/evaluator.rs), with the commands the web app calls.
+ */
+const EVALUATOR_PLUGIN = 'fxm-evaluator'
+const EVALUATOR_COMMANDS = ['open', 'eval', 'close']
+
 /** The scope entry of a host in the platform's host table, which is FXM's network allow-list. */
 const scopeEntry = (rule: HostRule) => `https://${rule.host}${rule.pathPrefix ?? '/'}*`
 
@@ -256,8 +263,8 @@ describe('capabilities', () => {
 
   it('applies to the main window’s own webview only, not to every webview in that window', () => {
     // A capability matched by window applies to every webview of the window, so a child webview
-    // such as stage 1.11's evaluator would get all of it. The main window's webview has the
-    // window's label.
+    // would get all of it. The main window's webview has the window's label; stage 1.11's
+    // evaluator is a window of its own, whose label no capability names.
     expect(capability.webviews).toEqual([config.app.windows[0]?.label])
     expect(capability.windows).toBeUndefined()
   })
@@ -266,7 +273,7 @@ describe('capabilities', () => {
     expect(capability.permissions).toEqual([
       'core:default',
       'opener:default',
-      'fxm-evaluator:default',
+      `${EVALUATOR_PLUGIN}:default`,
       ...COMMANDS.map((command) => `allow-${command.replaceAll('_', '-')}`),
       { identifier: 'http:default', allow: expect.any(Array) },
     ])
@@ -421,6 +428,21 @@ describe('src/lib.rs', () => {
       const crate = `tauri_plugin_${plugin.replaceAll('-', '_')}`
       expect(libRs, plugin).toMatch(new RegExp(String.raw`\.plugin\(\s*${crate}::`))
     }
+  })
+
+  it('registers exactly those plugins and the app’s own evaluator', () => {
+    const registered = [...libRs.matchAll(/\.plugin\(\s*(\w+)::/g)].map(([, module]) => module)
+    const crates = PLUGINS.map((plugin) => `tauri_plugin_${plugin.replaceAll('-', '_')}`)
+    expect(registered.sort()).toEqual([...crates, 'evaluator'].sort())
+  })
+
+  it('registers the evaluator plugin that build.rs declares, with its commands', () => {
+    expect(libRs).toMatch(/\.plugin\(\s*evaluator::init\(\)\s*\)/)
+    expect(buildRs).toMatch(
+      new RegExp(String.raw`\.plugin\(\s*"${EVALUATOR_PLUGIN}",\s*evaluator\s*\)`),
+    )
+    const declared = /InlinedPlugin::new\(\)\s*\.commands\(&\[([^\]]*)\]\)/.exec(buildRs)?.[1]
+    expect(rustStrings(declared)).toEqual(EVALUATOR_COMMANDS)
   })
 })
 
