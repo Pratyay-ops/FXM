@@ -147,7 +147,8 @@ export function subscribeLocalPlayer(listener: () => void): () => void {
 
 /**
  * Tests only: replaces the app's player with one built from `next`, which plays local files and
- * refuses everything else (`Unsupported`, as where the app's music services don't run).
+ * refuses everything else (`Unsupported`, as where the app's music services don't run), and,
+ * like `setupTestPlayback`, keeps no listening history.
  */
 export function configureLocalPlayer(next: LocalPlayerOptions): Player {
   testEngine = next.engine
@@ -155,6 +156,7 @@ export function configureLocalPlayer(next: LocalPlayerOptions): Player {
   const { player } = configurePlayback({
     ...(engine === undefined ? {} : { createEngine: () => engine }),
     policy: withLocalFilesFirst(createPendingPolicy(), next.files),
+    recordPlays: false,
     ...(next.mediaSession === undefined ? {} : { mediaSession: next.mediaSession }),
     ...(next.player === undefined ? {} : { player: next.player }),
   })
