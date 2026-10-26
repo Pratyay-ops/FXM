@@ -400,7 +400,7 @@ The app looks for a newer version and installs it once the user agrees (`src/upd
 
 ### The updater key
 
-A minisign key pair (Ed25519), made with the Tauri CLI. Every app carries the public key, which is committed in `tauri.conf.json`; the secret key signs every release, and only the release workflow's sign job gets it. **Until the owner commits FXM's public key, `tauri.conf.json` holds a placeholder: every release stops at its first job (`release.ts check`), and no build looks for updates.**
+A minisign key pair (Ed25519), made with the Tauri CLI. Every app carries the public key, which is committed in `tauri.conf.json`; the secret key signs every release, and only the release workflow's sign job gets it, from the `desktop-updater` environment, once the owner has approved the run. **Until the owner commits FXM's public key, `tauri.conf.json` holds a placeholder: every release stops at its first job (`release.ts check`), and no build looks for updates.**
 
 1. Make the pair outside the repository, with a password, which the CLI asks for twice. It never overwrites an existing key without `--force`. Give it an absolute path: `pnpm exec` runs in `apps/desktop`.
 
@@ -411,20 +411,31 @@ A minisign key pair (Ed25519), made with the Tauri CLI. Every app carries the pu
 
    It writes the secret key to `fxm-desktop-updater.key`, readable by you only, and the public key to `fxm-desktop-updater.key.pub`, each as one line of base64.
 2. Put the public key, the content of `fxm-desktop-updater.key.pub`, in `plugins > updater > pubkey` in `src-tauri/tauri.conf.json` in place of the placeholder, and commit it (`chore(desktop): trust the updater key`).
-3. Give the release workflow the secret key and its password as the secrets `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` of the `desktop-updater` environment, limited to the `main` branch, so that only release runs can read them:
+3. Set up the `desktop-updater` environment once, before adding the key: only runs on `main` may use it, and you approve each one, so every release waits for you before its sign job gets the key. Neither a pushed branch with a changed workflow nor a pull request merged into `main` by mistake, or by a tool, can then sign anything. On GitHub, open **Settings → Environments → New environment**, name it `desktop-updater` and click **Configure environment**; under **Deployment branches and tags**, choose **Selected branches and tags** and add a rule for the branch `main`; under **Required reviewers**, add yourself, and leave **Prevent self-review** off so that you can approve your own releases. Or, from the repository folder:
 
    ```sh
-   scripts/run.sh gh api -X PUT repos/Pratyay-ops/FXM/environments/desktop-updater \
-     -F 'deployment_branch_policy[protected_branches]=false' \
-     -F 'deployment_branch_policy[custom_branch_policies]=true'
+   owner_id=$(scripts/run.sh gh api users/Pratyay-ops --jq .id)
+   scripts/run.sh gh api -X PUT repos/Pratyay-ops/FXM/environments/desktop-updater --input - <<EOF
+   {
+     "reviewers": [{ "type": "User", "id": $owner_id }],
+     "prevent_self_review": false,
+     "deployment_branch_policy": { "protected_branches": false, "custom_branch_policies": true }
+   }
+   EOF
    scripts/run.sh gh api -X POST repos/Pratyay-ops/FXM/environments/desktop-updater/deployment-branch-policies \
      -f name=main -f type=branch
+   ```
+
+   The sign job names the environment, so a release run would create it empty, with neither rule, if it didn't exist yet. Keep `main` protected and admin rights to yourself, as [Protect the store keys](../extension/README.md#protect-the-store-keys) says for the `stores` environment: whoever can push to `main` directly, or change the environment, can get around both rules.
+4. Add the secret key and its password as secrets of that environment, never as repository secrets, which a workflow run from any pushed branch can read:
+
+   ```sh
    scripts/run.sh gh secret set TAURI_SIGNING_PRIVATE_KEY --env desktop-updater < ~/FXM-keys/fxm-desktop-updater.key
    scripts/run.sh gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --env desktop-updater
    ```
 
-   Repository secrets of the same names work too (`gh secret set` without `--env`), but every workflow run on every branch can read those.
-4. Keep the secret key and its password offline too, in a password manager. Without them, no installed app can be updated any more, and their users would have to install the next version by hand. Whoever has both can sign updates that every installed FXM accepts, wherever they manage to publish them.
+   `release.yml` passes both names on to `desktop-release.yml`, as GitHub needs for an environment's secret to reach a called workflow's job, and the sign job, which names the environment, gets the environment's values. When a release run reaches it, GitHub asks you to approve (**Review deployments** on the run's page): the sign job, and so the release, waits until you do.
+5. Keep the secret key and its password offline too, in a password manager. Without them, no installed app can be updated any more, and their users would have to install the next version by hand. Whoever has both can sign updates that every installed FXM accepts, wherever they manage to publish them.
 
 `release.ts sign` refuses a key whose public key isn't the one in `tauri.conf.json`, since the apps would refuse every update it signs. Changing keys therefore takes one release signed with the old key whose apps carry the new public key, which needs a one-off change to that check; it hasn't been needed.
 

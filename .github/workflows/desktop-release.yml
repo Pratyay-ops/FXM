@@ -25,8 +25,10 @@ name: Desktop release
 #           checks every signature against the public key the apps carry
 #           (apps/desktop/release/release.ts). It installs nothing, so no third-party code ever
 #           sees the key: the secrets TAURI_SIGNING_PRIVATE_KEY and
-#           TAURI_SIGNING_PRIVATE_KEY_PASSWORD, which release.yml passes on, or the
-#           desktop-updater environment's (apps/desktop/README.md, "Updates")
+#           TAURI_SIGNING_PRIVATE_KEY_PASSWORD of the desktop-updater environment, which only
+#           runs on main can use and whose every run the owner approves. release.yml passes
+#           them on by name, as GitHub needs for an environment's secret to reach this job
+#           (apps/desktop/README.md, "The updater key")
 #
 # Builds start from a clean runner, without caches, as in release.yml.
 
@@ -280,8 +282,8 @@ jobs:
     needs: [check, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # For a release, the updater key's environment: give it only the main branch, and no other
-    # run can read the key. A dry run uses none.
+    # For a release, the updater key's environment: only runs on main can use it, and each waits
+    # here for the owner's approval before the key reaches this job. A dry run uses none.
     environment: ${{ inputs.release && 'desktop-updater' || '' }}
     permissions:
       contents: read

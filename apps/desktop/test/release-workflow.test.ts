@@ -213,6 +213,8 @@ describe('release.yml', () => {
     expect(desktopJob).toMatch(/sha: \$\{\{ needs\.plan\.outputs\.sha \}\}/)
     expect(desktopJob).toMatch(/version: \$\{\{ needs\.plan\.outputs\.version \}\}/)
     expect(desktopJob).toMatch(/release: true/)
+    // By name: GitHub hands the desktop-updater environment's secrets to the called workflow's
+    // sign job only when the caller passes them, even though they exist in the environment alone.
     const secrets = [...desktopJob.matchAll(/^ {6}(\w+): \$\{\{ secrets\.(\w+) \}\}$/gm)]
     expect(secrets.map(([, name, secret]) => [name, secret])).toEqual([
       ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY'],

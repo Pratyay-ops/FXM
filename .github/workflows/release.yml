@@ -23,9 +23,11 @@ name: Release
 #                   (apps/extension/store/edge.ts)
 #
 # The desktop job signs with the updater key, the secrets TAURI_SIGNING_PRIVATE_KEY and
-# TAURI_SIGNING_PRIVATE_KEY_PASSWORD, from the repository or from the desktop-updater environment
-# (apps/desktop/README.md, "Updates"). Without them, or while tauri.conf.json carries the
-# placeholder instead of the updater's public key, it fails, and nothing is published.
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD of the desktop-updater environment, which only runs on main
+# can use and whose every run the owner approves (apps/desktop/README.md, "The updater key"). The
+# job passes both on by name, as GitHub needs for an environment's secret to reach a called
+# workflow's job; they are never repository secrets. Without them, or while tauri.conf.json
+# carries the placeholder instead of the updater's public key, it fails, and nothing is published.
 #
 # The store jobs (firefox, firefox-listed and edge) use secrets that the owner adds to the
 # `stores` environment, which only runs on main can use (apps/extension/README.md, "Store

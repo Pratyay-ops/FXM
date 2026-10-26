@@ -410,7 +410,8 @@ export async function main(
       const secretKey = env.TAURI_SIGNING_PRIVATE_KEY?.trim() ?? ''
       if (!throwaway && secretKey === '') {
         throw new Error(
-          `TAURI_SIGNING_PRIVATE_KEY is not set: add the updater key to the repository's secrets (${KEY_HELP})`,
+          'TAURI_SIGNING_PRIVATE_KEY is not set: add the updater key to the secrets of the ' +
+            `desktop-updater environment, and approve the run (${KEY_HELP})`,
         )
       }
       const { manifest, keyId } = signRelease({
