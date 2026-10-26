@@ -47,7 +47,7 @@ hyper-util = { version = "0.1.21", features = ["client-proxy", "client-proxy-sys
 # directly rather than through tauri-plugin-dialog, whose script would replace window.alert and
 # window.confirm in every page with IPC calls the app doesn't allow. The features are the ones
 # tauri-plugin-dialog used: GTK 3 on Linux, modern task dialogs on Windows.
-rfd = { version = "0.16.0", default-features = false, features = [
+rfd = { version = "0.17.2", default-features = false, features = [
   "gtk3",
   "common-controls-v6",
 ] }
