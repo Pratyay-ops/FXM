@@ -37,18 +37,19 @@ export interface InProcessEvaluator extends Evaluator {
 export function createInProcessEvaluator(
   options: InProcessEvaluatorOptions = {},
 ): InProcessEvaluator {
+  const { kind = 'in-process', origin = 'about:', ...evaluatorOptions } = options
   const runtime = createEvaluatorRuntime()
   const requests: EvaluatorRequest[] = []
   const roundTrip = (value: unknown): unknown => JSON.parse(JSON.stringify(value))
   const evaluator = createEvaluator(
-    options.kind ?? 'in-process',
+    kind,
     {
       async open() {
         return {
           channel: EVALUATOR_CHANNEL,
           type: 'ready',
           version: EVALUATOR_PROTOCOL_VERSION,
-          origin: options.origin ?? 'about:',
+          origin,
         }
       },
       async send(request) {
@@ -57,7 +58,7 @@ export function createInProcessEvaluator(
       },
       close() {},
     },
-    options,
+    { ...evaluatorOptions, origin },
   )
   return Object.assign(evaluator, {
     get requests() {

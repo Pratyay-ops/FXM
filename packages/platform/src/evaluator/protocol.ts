@@ -18,9 +18,16 @@ export const EVALUATOR_CHANNEL = 'fxm-evaluator'
 
 /**
  * The protocol version the document announces. A host refuses a document of another version:
- * an app and an `eval.html` from different builds would misread each other.
+ * an app and an `eval.html` from different builds would misread each other. Version 2: a framed
+ * document echoes its nonce and hands its parent a `MessagePort` with its hello.
  */
-export const EVALUATOR_PROTOCOL_VERSION = 1
+export const EVALUATOR_PROTOCOL_VERSION = 2
+
+/**
+ * A nonce the web host puts in the fragment of the document's URL (`eval.html#<nonce>`), and
+ * which the document echoes in its hello: 16 to 128 URL-safe characters.
+ */
+export const EVALUATOR_NONCE = /^[\w-]{16,128}$/u
 
 /** The longest script, argument list or interpreter a message may carry, in UTF-16 units. */
 export const MAX_EVALUATOR_TEXT = 8_000_000
@@ -169,12 +176,17 @@ export type EvaluatorHello = {
   /** Its {@link EVALUATOR_PROTOCOL_VERSION}. */
   readonly version: number
   /**
-   * The origin of the document's URL, e.g. `https://fxm-music.pages.dev` for `eval.html` on the
+   * The origin of the document's URL, e.g. `https://fxmusic.pages.dev` for `eval.html` on the
    * web (which is still an opaque origin to the browser), `fxm-eval://localhost` on desktop, or
    * `https://www.youtube.com` on Android, whose evaluator WebView loads the document with that
    * base URL. Scripts that look at where they run, such as BotGuard, see this location.
    */
   readonly origin: string
+  /**
+   * The {@link EVALUATOR_NONCE} of the document's URL, for a framed document: it tells the web
+   * host that this hello comes from the document it loaded, not from one that replaced it.
+   */
+  readonly nonce?: string
 }
 
 type Json = Readonly<Record<string, unknown>>
@@ -335,6 +347,16 @@ export function parseEvaluatorHello(value: unknown): EvaluatorHello | undefined 
   if (!isObject(value) || own(value, 'channel') !== EVALUATOR_CHANNEL) return undefined
   const version = own(value, 'version')
   const origin = own(value, 'origin')
+  const nonce = own(value, 'nonce')
   if (own(value, 'type') !== 'ready' || !isId(version) || !isText(origin, 200)) return undefined
-  return { channel: EVALUATOR_CHANNEL, type: 'ready', version, origin }
+  if (nonce !== undefined && !(typeof nonce === 'string' && EVALUATOR_NONCE.test(nonce))) {
+    return undefined
+  }
+  return {
+    channel: EVALUATOR_CHANNEL,
+    type: 'ready',
+    version,
+    origin,
+    ...(nonce === undefined ? {} : { nonce }),
+  }
 }

@@ -1,35 +1,43 @@
 /**
  * Matching responses with the requests that wait for them, for ports whose channel delivers
- * answers as separate events (`postMessage`).
+ * answers as separate events (a `MessagePort`).
  *
  * @module
  */
 
 import { requestIdOf } from './protocol'
 
-/** How long an unanswered request is remembered, in milliseconds; a longer wait has timed out. */
-const FORGET_AFTER_MS = 5 * 60_000
+/** A request waiting for its answer. */
+interface Waiting {
+  resolve(value: unknown): void
+  reject(error: unknown): void
+}
 
 /** Requests waiting for their answers. */
 export class Inbox {
-  readonly #waiting = new Map<
-    number,
-    { readonly since: number; resolve(value: unknown): void; reject(error: unknown): void }
-  >()
-  readonly #now: () => number
+  readonly #waiting = new Map<number, Waiting>()
 
-  constructor(now: () => number = Date.now) {
-    this.#now = now
-  }
-
-  /** Waits for the answer to request `id`. */
-  wait(id: number): Promise<unknown> {
-    const now = this.#now()
-    for (const [key, entry] of this.#waiting) {
-      if (now - entry.since > FORGET_AFTER_MS) this.#waiting.delete(key)
-    }
+  /** Waits for the answer to request `id`, until `signal` aborts. */
+  wait(id: number, signal?: AbortSignal): Promise<unknown> {
+    if (signal?.aborted) return Promise.reject(signal.reason)
     return new Promise((resolve, reject) => {
-      this.#waiting.set(id, { since: now, resolve, reject })
+      const waiting: Waiting = {
+        resolve(value) {
+          signal?.removeEventListener('abort', onAbort)
+          resolve(value)
+        },
+        reject(error) {
+          signal?.removeEventListener('abort', onAbort)
+          reject(error)
+        },
+      }
+      const onAbort = () => {
+        if (this.#waiting.get(id) !== waiting) return
+        this.#waiting.delete(id)
+        waiting.reject(signal?.reason)
+      }
+      this.#waiting.set(id, waiting)
+      signal?.addEventListener('abort', onAbort, { once: true })
     })
   }
 

@@ -5,7 +5,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-QPa8zSotPUxdp2vjYkdbPBCRcNNEwF+CM5cft2Lm8FM=' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-3bTzoqUiWTILw2Toci+TdhNaibQMkgSo1rVLOmra0qA=' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>FXM evaluator</title>
 </head>
@@ -17,15 +17,11 @@
 	function trustedParentOrigin(window) {
 		return new URL(window.location.href).origin;
 	}
-	function isTrustedParentMessage(event, window) {
-		if (window.parent === window || event.source !== window.parent) return false;
-		const origin = trustedParentOrigin(window);
-		return origin !== "null" && event.origin === origin;
-	}
 
 //#endregion
 //#region src/evaluator/protocol.ts
 	const EVALUATOR_CHANNEL = "fxm-evaluator";
+	const EVALUATOR_NONCE = /^[\w-]{16,128}$/u;
 	const MAX_EVALUATOR_TEXT = 8e6;
 	const MAX_CONTENT_BINDINGS = 16;
 	const EVALUATOR_METHODS = [
@@ -546,26 +542,35 @@
 		const url = new URL(href);
 		return url.host === "" ? url.protocol : `${url.protocol}//${url.host}`;
 	}
+	function nonceOf(href) {
+		const nonce = new URL(href).hash.slice(1);
+		return EVALUATOR_NONCE.test(nonce) ? nonce : void 0;
+	}
 	function startEvaluatorDocument(window, runtime = createEvaluatorRuntime()) {
 		const stringify = JSON.stringify;
 		const parse = JSON.parse;
 		const hello = {
 			channel: EVALUATOR_CHANNEL,
 			type: "ready",
-			version: 1,
+			version: 2,
 			origin: documentOrigin(window.location.href)
 		};
 		if (window.parent !== window && typeof window.parent === "object" && window.parent !== null) {
 			const parent = window.parent;
 			const post = parent.postMessage.bind(parent);
-			const origin = trustedParentOrigin(window);
-			window.addEventListener("message", (event) => {
-				if (!isTrustedParentMessage(event, window)) return;
+			const channel = new MessageChannel();
+			const port = channel.port1;
+			const answer = port.postMessage.bind(port);
+			port.onmessage = (event) => {
 				runtime.handle(event.data).then((response) => {
-					if (response !== void 0) post(response, origin);
+					if (response !== void 0) answer(response);
 				});
-			});
-			post(hello, origin);
+			};
+			const nonce = nonceOf(window.location.href);
+			post({
+				...hello,
+				...nonce === void 0 ? {} : { nonce }
+			}, trustedParentOrigin(window), [channel.port2]);
 			return "framed";
 		}
 		const answers = /* @__PURE__ */ new Map();

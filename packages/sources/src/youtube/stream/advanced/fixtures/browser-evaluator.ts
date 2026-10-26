@@ -60,7 +60,7 @@ export async function launchBrowserEvaluator(): Promise<BrowserEvaluator> {
     run: async (script) => JSON.stringify((await page.evaluate(script)) ?? null),
   })
   return {
-    evaluator: createEvaluator('android', port),
+    evaluator: createEvaluator('android', port, { origin: 'https://www.youtube.com' }),
     close: () => browser.close(),
   }
 }

@@ -2,9 +2,37 @@ import { describe, expect, it } from 'vitest'
 import { createFakeClock } from '../testing/fake-clock'
 import { createCapacitorEvaluator } from './capacitor'
 import { startEvaluatorDocument } from './document'
+import { createEvaluator } from './evaluator'
 import { createMailboxPort, HELLO_SCRIPT, receiveScript, takeScript } from './mailbox'
-import { EVALUATOR_CHANNEL } from './protocol'
+import { EVALUATOR_CHANNEL, EVALUATOR_PROTOCOL_VERSION } from './protocol'
 import { createTauriEvaluator } from './tauri'
+
+const YOUTUBE = 'https://www.youtube.com'
+
+/** What a runner answers for the mailbox's hello at `origin`. */
+const helloText = (origin = YOUTUBE) =>
+  JSON.stringify(
+    JSON.stringify({
+      channel: EVALUATOR_CHANNEL,
+      type: 'ready',
+      version: EVALUATOR_PROTOCOL_VERSION,
+      origin,
+    }),
+  )
+
+/** A runner for a document that takes every request and never answers, recording each read. */
+function silentDocument(options: { ready?: () => boolean } = {}) {
+  const scripts: string[] = []
+  return {
+    scripts,
+    reads: () => scripts.length,
+    async run(script: string): Promise<string> {
+      scripts.push(script)
+      if (script === HELLO_SCRIPT) return options.ready?.() === false ? 'null' : helloText()
+      return script.includes('.receive(') ? '"accepted"' : 'null'
+    },
+  }
+}
 
 /**
  * A native webview stand-in: a top-level window running the real evaluator document, and a
@@ -96,6 +124,94 @@ describe('the mailbox port', () => {
     expect(await opened).toMatchObject({ evaluatorCode: 'closed' })
   })
 
+  it('stops reading the mailbox once the evaluator stops waiting for an answer', async () => {
+    const clock = createFakeClock()
+    const document = silentDocument()
+    const port = createMailboxPort({ run: document.run, clock, pollMs: 10, maxPollMs: 40 })
+    const controller = new AbortController()
+    const request = {
+      channel: EVALUATOR_CHANNEL,
+      id: 7,
+      method: 'evaluate',
+      params: { source: 'return 1', args: null },
+    } as const
+    const answer = port.send(request, controller.signal).catch((error: unknown) => error)
+    await clock.advanceAsync(100)
+    const reads = document.reads()
+    expect(reads).toBeGreaterThan(2)
+    controller.abort(new Error('timed out'))
+    expect(await answer).toMatchObject({ message: 'timed out' })
+    await clock.advanceAsync(10_000)
+    expect(document.reads()).toBe(reads)
+  })
+
+  it('reads nothing more after a call times out, and the next call starts a new document', async () => {
+    const clock = createFakeClock()
+    const document = silentDocument()
+    let starts = 0
+    let stops = 0
+    const port = createMailboxPort({
+      run: document.run,
+      start: async () => {
+        starts += 1
+      },
+      stop: () => {
+        stops += 1
+      },
+      clock,
+      pollMs: 10,
+      maxPollMs: 40,
+    })
+    const evaluator = createEvaluator('android', port, { clock, timeoutMs: 500, origin: YOUTUBE })
+    await evaluator.ready()
+    const call = evaluator.evaluate('await new Promise(() => {})').catch((error: unknown) => error)
+    await clock.advanceAsync(500)
+    expect(await call).toMatchObject({ code: 'Network', evaluatorCode: 'timeout' })
+    expect(stops).toBe(1)
+    const reads = document.reads()
+    await clock.advanceAsync(10_000)
+    expect(document.reads()).toBe(reads)
+    await evaluator.ready()
+    expect(starts).toBe(2)
+  })
+
+  it('stops reading the hello after a failed start, and starts a new document on retry', async () => {
+    const clock = createFakeClock()
+    let ready = false
+    const document = silentDocument({ ready: () => ready })
+    let starts = 0
+    let stops = 0
+    const port = createMailboxPort({
+      run: document.run,
+      start: async () => {
+        starts += 1
+      },
+      stop: () => {
+        stops += 1
+      },
+      clock,
+      pollMs: 10,
+      maxPollMs: 40,
+    })
+    const evaluator = createEvaluator('android', port, {
+      clock,
+      openTimeoutMs: 1_000,
+      origin: YOUTUBE,
+    })
+    const first = evaluator.ready().catch((error: unknown) => error)
+    await clock.advanceAsync(1_000)
+    expect(await first).toMatchObject({ code: 'Unsupported', evaluatorCode: 'unavailable' })
+    expect(stops).toBe(1)
+    const reads = document.reads()
+    await clock.advanceAsync(10_000)
+    expect(document.reads()).toBe(reads)
+    ready = true
+    const second = evaluator.ready()
+    await clock.advanceAsync(10)
+    expect(await second).toMatchObject({ origin: YOUTUBE })
+    expect(starts).toBe(2)
+  })
+
   it('reports a document that does not take a request', async () => {
     const port = createMailboxPort({
       run: async (script) => (script === HELLO_SCRIPT ? '"{}"' : '"refused"'),
@@ -126,7 +242,7 @@ describe('the desktop evaluator', () => {
     })
     expect(await evaluator.ready()).toEqual({
       kind: 'desktop',
-      version: 1,
+      version: 2,
       origin: 'fxm-eval://localhost',
     })
     expect(await evaluator.evaluate('return args.length', [1, 2, 3])).toBe(3)

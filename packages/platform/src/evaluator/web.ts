@@ -6,14 +6,21 @@
  * it is the only document of FXM's web deployment whose policy allows `'unsafe-eval'`. The app's
  * own policy never does.
  *
- * The app talks to it with `postMessage`. It accepts answers only from that iframe, and only while
- * the iframe's origin really is opaque (`'null'`): a document that answers with a real origin was
- * not sandboxed, and the evaluator refuses to use it.
+ * The host is tied to the one document it loaded:
+ *
+ * - it loads `eval.html#<nonce>`, with a new random nonce for every start, and takes only the
+ *   hello that echoes it, from its iframe, with an opaque origin (`'null'`: a document that
+ *   answers with a real origin was not sandboxed, and the host refuses it);
+ * - that hello hands over the document's end of a `MessageChannel`, and every request and answer
+ *   goes over that channel, never through the window: a document that replaces it, after a
+ *   navigation of the frame, has neither the nonce nor the channel;
+ * - the frame's `load` events are counted: a second one means its document was replaced (by a
+ *   script in it or by an ancestor page), and the host stops it at once and starts a new one on
+ *   the next call. A policy can't forbid a document to navigate itself; the host can only see it.
  *
  * @module
  */
 
-import type { Clock } from '../clock'
 import {
   type CreateEvaluatorOptions,
   createEvaluator,
@@ -33,7 +40,7 @@ export interface SandboxHostWindow {
   readonly document: Document
   /** The page's origin, which the evaluator document's URL defaults to. */
   readonly location: { readonly origin: string }
-  /** Listens for the document's messages. */
+  /** Listens for the document's hello. */
   addEventListener(type: 'message', listener: (event: MessageEvent) => void): void
   /** Stops listening. */
   removeEventListener(type: 'message', listener: (event: MessageEvent) => void): void
@@ -47,31 +54,62 @@ export interface SandboxEvaluatorOptions extends CreateEvaluatorOptions {
   url?: string
 }
 
+/** A random nonce for the document's URL: 128 bits, as hexadecimal. */
+function randomNonce(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
+}
+
+/** A document the port started. */
+interface FrameDocument {
+  readonly frame: HTMLIFrameElement
+  /** The document's end of its channel, once its hello came. */
+  port?: MessagePort
+  /** Removes the listeners. */
+  release(): void
+}
+
+/** The document's URL for `options`, without a fragment. */
+function documentUrl(options: Pick<SandboxEvaluatorOptions, 'window' | 'url'>): URL {
+  const window = options.window ?? (globalThis as unknown as { window: SandboxHostWindow }).window
+  const url = new URL(options.url ?? EVALUATOR_DOCUMENT_PATH, window.location.origin)
+  url.hash = ''
+  return url
+}
+
 /** The port of {@link createSandboxEvaluator}, for tests and other hosts. */
 export function createSandboxPort(
-  options: Pick<SandboxEvaluatorOptions, 'window' | 'url'> & { clock?: Clock } = {},
+  options: Pick<SandboxEvaluatorOptions, 'window' | 'url'> = {},
 ): EvaluatorPort {
   const window = options.window ?? (globalThis as unknown as { window: SandboxHostWindow }).window
-  const url = options.url ?? new URL(EVALUATOR_DOCUMENT_PATH, window.location.origin).href
-  const inbox = new Inbox(options.clock === undefined ? Date.now : () => options.clock?.now() ?? 0)
-  let frame: HTMLIFrameElement | undefined
-  let listener: ((event: MessageEvent) => void) | undefined
-  let started: Promise<unknown> | undefined
+  const url = documentUrl(options)
+  const inbox = new Inbox()
+  let current: FrameDocument | undefined
 
-  function close(): void {
-    if (listener !== undefined) window.removeEventListener('message', listener)
-    listener = undefined
-    frame?.remove()
-    frame = undefined
-    started = undefined
-    inbox.rejectAll(new EvaluatorError('closed', 'The evaluator was stopped'))
+  /** Stops the running document, rejecting what waits for it with `reason`. */
+  function stop(reason: unknown): void {
+    const running = current
+    current = undefined
+    if (running !== undefined) {
+      running.release()
+      running.port?.close()
+      running.frame.remove()
+    }
+    inbox.rejectAll(reason)
   }
 
   return {
-    open() {
-      if (started !== undefined) return started
-      close()
-      started = new Promise<unknown>((resolve, reject) => {
+    open(signal) {
+      stop(new EvaluatorError('closed', 'The evaluator document was restarted'))
+      return new Promise<unknown>((resolve, reject) => {
+        if (signal?.aborted) {
+          reject(signal.reason)
+          return
+        }
+        const nonce = randomNonce()
+        const src = new URL(url)
+        src.hash = nonce
         const iframe = window.document.createElement('iframe')
         iframe.setAttribute('sandbox', 'allow-scripts')
         iframe.setAttribute('referrerpolicy', 'no-referrer')
@@ -80,45 +118,92 @@ export function createSandboxPort(
         iframe.setAttribute('tabindex', '-1')
         iframe.hidden = true
         iframe.style.display = 'none'
-        let ready = false
-        listener = (event: MessageEvent) => {
-          if (frame === undefined || event.source !== frame.contentWindow) return
-          if (event.origin !== 'null') {
-            const error = new EvaluatorError(
-              'unavailable',
-              `The evaluator document runs with the origin ${event.origin}, not an opaque one: it is not sandboxed`,
-            )
-            close()
-            reject(error)
-            return
-          }
-          if (!ready) {
-            if (parseEvaluatorHello(event.data) === undefined) return
-            ready = true
-            resolve(event.data)
-            return
-          }
-          inbox.deliver(event.data)
+        let settled = false
+        let loads = 0
+        const loaded: FrameDocument = {
+          frame: iframe,
+          release() {
+            window.removeEventListener('message', onMessage)
+            iframe.removeEventListener('load', onLoad)
+            signal?.removeEventListener('abort', onAbort)
+          },
         }
-        window.addEventListener('message', listener)
-        iframe.src = url
-        frame = iframe
+        const fail = (error: unknown) => {
+          if (current === loaded) stop(error)
+          if (settled) return
+          settled = true
+          reject(error)
+        }
+        const onMessage = (event: MessageEvent) => {
+          if (current !== loaded || event.source !== iframe.contentWindow) return
+          // Once connected, the document speaks only through its channel: a channel anything
+          // else in the frame offers is closed.
+          if (loaded.port !== undefined) {
+            for (const offered of event.ports) offered.close()
+            return
+          }
+          if (event.origin !== 'null') {
+            fail(
+              new EvaluatorError(
+                'unavailable',
+                `The evaluator document runs with the origin ${event.origin}, not an opaque one: it is not sandboxed`,
+              ),
+            )
+            return
+          }
+          const hello = parseEvaluatorHello(event.data)
+          // Another document's hello, or no hello at all.
+          if (hello === undefined || hello.nonce !== nonce) {
+            for (const offered of event.ports) offered.close()
+            return
+          }
+          const [port] = event.ports
+          if (port === undefined || event.ports.length !== 1) {
+            fail(new EvaluatorError('unavailable', 'The evaluator document opened no channel'))
+            return
+          }
+          loaded.port = port
+          port.onmessage = (message: MessageEvent) => inbox.deliver(message.data)
+          settled = true
+          signal?.removeEventListener('abort', onAbort)
+          resolve(event.data)
+        }
+        const onLoad = () => {
+          loads += 1
+          // The first load is the document's own; another one is a document that replaced it.
+          if (loads > 1) {
+            fail(
+              new EvaluatorError(
+                'closed',
+                'The evaluator document was replaced: something navigated its frame',
+              ),
+            )
+          }
+        }
+        const onAbort = () => fail(signal?.reason)
+        window.addEventListener('message', onMessage)
+        iframe.addEventListener('load', onLoad)
+        signal?.addEventListener('abort', onAbort, { once: true })
+        iframe.src = src.href
+        current = loaded
         ;(window.document.body ?? window.document.documentElement).append(iframe)
       })
-      started.catch(() => {})
-      return started
     },
-    send(request) {
-      const target = frame?.contentWindow
-      if (target === undefined || target === null) {
+    send(request, signal) {
+      const port = current?.port
+      if (port === undefined) {
         return Promise.reject(new EvaluatorError('closed', 'The evaluator document is not running'))
       }
-      const answer = inbox.wait(request.id)
-      // The document's origin is opaque, so no other target origin can be named.
-      target.postMessage(request, '*')
+      const answer = inbox.wait(request.id, signal)
+      port.postMessage(request)
       return answer
     },
-    close,
+    close() {
+      stop(new EvaluatorError('closed', 'The evaluator was stopped'))
+    },
+    alive() {
+      return current?.port !== undefined
+    },
   }
 }
 
@@ -132,13 +217,13 @@ export function createSandboxPort(
  * ```
  */
 export function createSandboxEvaluator(options: SandboxEvaluatorOptions = {}): Evaluator {
-  return createEvaluator(
-    'web',
-    createSandboxPort({
-      ...(options.window === undefined ? {} : { window: options.window }),
-      ...(options.url === undefined ? {} : { url: options.url }),
-      ...(options.clock === undefined ? {} : { clock: options.clock }),
-    }),
-    options,
-  )
+  const { window, url, ...evaluatorOptions } = options
+  const where = {
+    ...(window === undefined ? {} : { window }),
+    ...(url === undefined ? {} : { url }),
+  }
+  return createEvaluator('web', createSandboxPort(where), {
+    ...evaluatorOptions,
+    origin: documentUrl(where).origin,
+  })
 }

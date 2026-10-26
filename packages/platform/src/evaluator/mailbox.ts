@@ -9,6 +9,10 @@
  * The document needs no bridge object, no IPC and no network for this: the host reads from it,
  * it never calls out.
  *
+ * Every read of the mailbox is a round trip through the native bridge, so the port reads only
+ * while someone waits: a poll ends with its answer, when the evaluator stops waiting (its signal:
+ * a timeout or the caller's cancellation), or when the document is stopped.
+ *
  * @module
  */
 
@@ -27,7 +31,10 @@ export type ScriptRunner = (script: string) => Promise<string>
 export interface MailboxPortOptions {
   /** Runs a script in the evaluator's webview. */
   run: ScriptRunner
-  /** Creates the webview and loads the document, before the first read. */
+  /**
+   * Creates the webview, destroying any earlier one, and loads the document, before the first
+   * read.
+   */
   start?: () => Promise<void>
   /** Destroys the webview. */
   stop?: () => void
@@ -85,53 +92,61 @@ export function createMailboxPort(options: MailboxPortOptions): EvaluatorPort {
   const clock = options.clock ?? systemClock
   const firstDelay = options.pollMs ?? 5
   const longestDelay = options.maxPollMs ?? 100
+  /** Counts the documents: a poll for an earlier one stops. */
   let generation = 0
-  let started: Promise<unknown> | undefined
 
-  function sleep(ms: number): Promise<void> {
+  function closed(): EvaluatorError {
+    return new EvaluatorError('closed', 'The evaluator was stopped')
+  }
+
+  /** Waits `ms`, or less when `signal` aborts. */
+  function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
     return new Promise((resolve) => {
-      clock.setTimeout(resolve, ms)
+      const timer = clock.setTimeout(done, ms)
+      function done() {
+        clock.clearTimeout(timer)
+        signal?.removeEventListener('abort', done)
+        resolve()
+      }
+      signal?.addEventListener('abort', done, { once: true })
     })
   }
 
-  /** Reads with `script` until it gives something, while this generation lasts. */
-  async function poll(script: string, signal: AbortSignal | undefined): Promise<unknown> {
-    const mine = generation
+  /** Reads with `script` until it gives something, while document `mine` runs and `signal` holds. */
+  async function poll(
+    script: string,
+    mine: number,
+    signal: AbortSignal | undefined,
+  ): Promise<unknown> {
     let delay = firstDelay
     for (;;) {
       signal?.throwIfAborted()
-      if (mine !== generation) throw new EvaluatorError('closed', 'The evaluator was stopped')
+      if (mine !== generation) throw closed()
       const value = messageOf(await options.run(script))
       if (value !== null) return value
-      await sleep(delay)
+      await sleep(delay, signal)
       delay = Math.min(delay * 2, longestDelay)
     }
   }
 
   return {
-    open(signal) {
-      if (started !== undefined) return started
+    async open(signal) {
       generation += 1
-      const attempt = (async () => {
-        await options.start?.()
-        return poll(HELLO_SCRIPT, signal)
-      })()
-      started = attempt
-      attempt.catch(() => {
-        if (started === attempt) started = undefined
-      })
-      return attempt
+      const mine = generation
+      await options.start?.()
+      return poll(HELLO_SCRIPT, mine, signal)
     },
     async send(request, signal) {
+      const mine = generation
+      signal?.throwIfAborted()
       const accepted = scriptValue(await options.run(receiveScript(request)))
       if (accepted !== 'accepted') {
         throw new EvaluatorError('unavailable', 'The evaluator document did not take the request')
       }
-      return poll(takeScript(request.id), signal)
+      return poll(takeScript(request.id), mine, signal)
     },
     close() {
       generation += 1
-      started = undefined
       options.stop?.()
     },
   }

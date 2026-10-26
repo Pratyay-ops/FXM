@@ -10,6 +10,7 @@
  */
 
 export {
+  CAPACITOR_EVALUATOR_ORIGIN,
   CAPACITOR_EVALUATOR_PLUGIN,
   type CapacitorEvaluatorOptions,
   type CapacitorEvaluatorPlugin,
@@ -28,6 +29,7 @@ export {
   type EvaluatorFailure,
   type EvaluatorInfo,
   type EvaluatorKind,
+  type EvaluatorOrigin,
   type EvaluatorPort,
   isEvaluatorError,
 } from './evaluator'
@@ -39,11 +41,12 @@ export {
   type ScriptRunner,
   takeScript,
 } from './mailbox'
-export { isTrustedParentMessage, trustedParentOrigin } from './messages'
+export { trustedParentOrigin } from './messages'
 export {
   EVALUATOR_CHANNEL,
   EVALUATOR_ERROR_CODES,
   EVALUATOR_METHODS,
+  EVALUATOR_NONCE,
   EVALUATOR_PROTOCOL_VERSION,
   type EvaluatorErrorCode,
   type EvaluatorHello,
@@ -56,6 +59,7 @@ export {
 } from './protocol'
 export {
   createTauriEvaluator,
+  TAURI_EVALUATOR_ORIGIN,
   TAURI_EVALUATOR_PLUGIN,
   type TauriEvaluatorOptions,
   type TauriInvoke,

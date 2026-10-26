@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildEvaluatorDocument,
+  documentSha256,
+  EVALUATOR_ANDROID_PIN_FILE,
   EVALUATOR_DOCUMENT_FILE,
   evaluatorHeaderPolicy,
+  renderAndroidPin,
   renderEvaluatorDocument,
   scriptHashOf,
 } from './build'
@@ -20,6 +23,10 @@ const committed = fs.readFileSync(
   new URL(`../../../../${EVALUATOR_DOCUMENT_FILE}`, import.meta.url),
   'utf8',
 )
+const androidPin = fs.readFileSync(
+  new URL(`../../../../${EVALUATOR_ANDROID_PIN_FILE}`, import.meta.url),
+  'utf8',
+)
 
 /** The policies and the inline script of an HTML document. */
 function partsOf(html: string) {
@@ -33,6 +40,15 @@ describe('the evaluator document', () => {
     const built = await buildEvaluatorDocument()
     expect(committed).toBe(built.html)
   }, 60_000)
+
+  it('is pinned by the Android plugin, which loads no other document', async () => {
+    expect(androidPin).toBe(renderAndroidPin(await documentSha256(committed)))
+    // printf 'abc' | openssl dgst -sha256
+    expect(await documentSha256('abc')).toBe(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    )
+    expect(await documentSha256('a\r\nb')).toBe(await documentSha256('a\nb'))
+  })
 
   it('runs only its one inline script, allowed by hash, and allows no connections', async () => {
     const { meta, scripts } = partsOf(committed)

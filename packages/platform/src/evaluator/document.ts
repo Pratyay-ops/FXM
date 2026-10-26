@@ -2,9 +2,12 @@
  * The evaluator document's channels: how `eval.html` receives requests and answers them. The
  * document picks one when it starts:
  *
- * - **Framed** (the web): the app frames `/sandbox/eval.html` in a sandboxed iframe and talks to
- *   it with `postMessage`. The document acts only on messages from its parent and from the FXM
- *   origin (`messages.ts`), and replies only to that origin.
+ * - **Framed** (the web): the app frames `/sandbox/eval.html#<nonce>` in a sandboxed iframe. The
+ *   document creates a `MessageChannel` and sends its hello, with the nonce of its URL and one
+ *   end of the channel, to its parent at the FXM origin only (`messages.ts`). From then on it
+ *   hears requests only on its end of that channel and answers there: whatever else reaches its
+ *   window is ignored, and a document that replaces it (a navigation of the frame) has neither
+ *   the channel nor the nonce.
  * - **Mailbox** (a top-level document: desktop and Android): a native webview loads the document
  *   by itself. The document exposes `window.__fxmEvaluator`, and the host drives it through the
  *   webview's own script evaluation (Tauri's `eval_with_callback`, Android's
@@ -14,9 +17,10 @@
  * @module
  */
 
-import { type FramedWindow, isTrustedParentMessage, trustedParentOrigin } from './messages'
+import { type FramedWindow, trustedParentOrigin } from './messages'
 import {
   EVALUATOR_CHANNEL,
+  EVALUATOR_NONCE,
   EVALUATOR_PROTOCOL_VERSION,
   type EvaluatorHello,
   requestIdOf,
@@ -45,11 +49,11 @@ export interface EvaluatorMailbox {
   take(id: number): string | null
 }
 
-/** The parts of the document's `window` the channels use. */
-export interface EvaluatorDocumentWindow extends FramedWindow {
-  /** Listens for messages from the parent (framed documents). */
-  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void
-}
+/**
+ * The parts of the document's `window` the channels use: its parent, and its URL, whose fragment
+ * carries the web host's nonce.
+ */
+export type EvaluatorDocumentWindow = FramedWindow
 
 /** Which channel the document chose. */
 export type EvaluatorDocumentChannel = 'framed' | 'mailbox'
@@ -62,6 +66,17 @@ export type EvaluatorDocumentChannel = 'framed' | 'mailbox'
 export function documentOrigin(href: string): string {
   const url = new URL(href)
   return url.host === '' ? url.protocol : `${url.protocol}//${url.host}`
+}
+
+/** The nonce in the fragment of `href`, if it is one. */
+function nonceOf(href: string): string | undefined {
+  const nonce = new URL(href).hash.slice(1)
+  return EVALUATOR_NONCE.test(nonce) ? nonce : undefined
+}
+
+/** A parent window that takes messages with transferred ports. */
+interface ParentWindow {
+  postMessage(message: unknown, targetOrigin: string, transfer?: Transferable[]): void
 }
 
 /**
@@ -82,16 +97,21 @@ export function startEvaluatorDocument(
   }
 
   if (window.parent !== window && typeof window.parent === 'object' && window.parent !== null) {
-    const parent = window.parent as { postMessage(message: unknown, targetOrigin: string): void }
+    const parent = window.parent as ParentWindow
     const post = parent.postMessage.bind(parent)
-    const origin = trustedParentOrigin(window)
-    window.addEventListener('message', (event) => {
-      if (!isTrustedParentMessage(event, window)) return
+    const channel = new MessageChannel()
+    const port = channel.port1
+    const answer = port.postMessage.bind(port)
+    // Only the parent that got the other end can reach this one: requests come from nowhere else.
+    port.onmessage = (event: MessageEvent) => {
       void runtime.handle(event.data).then((response) => {
-        if (response !== undefined) post(response, origin)
+        if (response !== undefined) answer(response)
       })
-    })
-    post(hello, origin)
+    }
+    const nonce = nonceOf(window.location.href)
+    post({ ...hello, ...(nonce === undefined ? {} : { nonce }) }, trustedParentOrigin(window), [
+      channel.port2,
+    ])
     return 'framed'
   }
 

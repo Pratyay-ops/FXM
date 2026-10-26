@@ -1,36 +1,42 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import {
   documentOrigin,
   type EvaluatorMailbox,
   MAILBOX_GLOBAL,
   startEvaluatorDocument,
 } from './document'
-import { isTrustedParentMessage } from './messages'
+import { trustedParentOrigin } from './messages'
 import { EVALUATOR_CHANNEL, EVALUATOR_PROTOCOL_VERSION } from './protocol'
 
-const FXM = 'https://fxm-music.pages.dev'
-const EVAL_URL = `${FXM}/sandbox/eval.html`
+const FXM = 'https://fxmusic.pages.dev'
+const NONCE = '0123456789abcdef0123456789abcdef'
+const EVAL_URL = `${FXM}/sandbox/eval.html#${NONCE}`
+
+/** Ports the tests opened, closed after each test so that none keeps Node running. */
+const ports: MessagePort[] = []
+
+afterEach(() => {
+  for (const port of ports.splice(0)) port.close()
+})
 
 /** A framed document's window, with a parent that records what it was sent. */
 function framedWindow(href = EVAL_URL) {
-  const posted: Array<{ message: unknown; origin: string }> = []
-  const listeners: Array<(event: MessageEvent) => void> = []
+  const posted: Array<{ message: unknown; origin: string; transfer: MessagePort[] }> = []
   const parent = {
-    postMessage(message: unknown, origin: string) {
-      posted.push({ message, origin })
+    postMessage(message: unknown, origin: string, transfer: MessagePort[] = []) {
+      ports.push(...transfer)
+      posted.push({ message, origin, transfer })
     },
   }
-  const window = {
-    parent,
-    location: { href },
-    addEventListener(_type: 'message', listener: (event: MessageEvent) => void) {
-      listeners.push(listener)
-    },
-  }
-  const dispatch = (data: unknown, origin = FXM, source: unknown = parent) => {
-    for (const listener of listeners) listener({ data, origin, source } as MessageEvent)
-  }
-  return { window, parent, posted, dispatch }
+  return { window: { parent, location: { href } }, parent, posted }
+}
+
+/** Sends `message` on `port` and resolves with the next answer on it. */
+function exchange(port: MessagePort, message: unknown): Promise<unknown> {
+  return new Promise((resolve) => {
+    port.onmessage = (event: MessageEvent) => resolve(event.data)
+    port.postMessage(message)
+  })
 }
 
 /** Lets the runtime's promise chains finish. */
@@ -52,52 +58,55 @@ describe('the evaluator document', () => {
   })
 
   describe('framed', () => {
-    it('announces itself to the FXM origin and answers its parent there', async () => {
-      const { window, posted, dispatch } = framedWindow()
+    it('announces itself with its nonce and a channel, to the FXM origin only', () => {
+      const { window, posted } = framedWindow()
       expect(startEvaluatorDocument(window)).toBe('framed')
-      expect(posted[0]).toEqual({
-        message: {
-          channel: EVALUATOR_CHANNEL,
-          type: 'ready',
-          version: EVALUATOR_PROTOCOL_VERSION,
-          origin: FXM,
-        },
-        origin: FXM,
-      })
-      dispatch(request(1))
-      await settle()
-      expect(posted[1]).toEqual({
-        message: { channel: EVALUATOR_CHANNEL, id: 1, ok: true, result: 8 },
-        origin: FXM,
-      })
-    })
-
-    it('ignores messages from another origin or another window', async () => {
-      const { window, posted, dispatch } = framedWindow()
-      startEvaluatorDocument(window)
-      dispatch(request(1), 'https://evil.example')
-      dispatch(request(2), 'null')
-      dispatch(request(3), FXM, {})
-      await settle()
       expect(posted).toHaveLength(1)
+      expect(posted[0]?.message).toEqual({
+        channel: EVALUATOR_CHANNEL,
+        type: 'ready',
+        version: EVALUATOR_PROTOCOL_VERSION,
+        origin: FXM,
+        nonce: NONCE,
+      })
+      expect(posted[0]?.origin).toBe(FXM)
+      expect(posted[0]?.transfer).toHaveLength(1)
     })
-  })
 
-  describe('the message checks', () => {
-    it('accept only the parent, from the origin the document was served from', () => {
-      const { window, parent } = framedWindow()
-      expect(isTrustedParentMessage({ source: parent, origin: FXM }, window)).toBe(true)
+    it('answers requests on its channel', async () => {
+      const { window, posted } = framedWindow()
+      startEvaluatorDocument(window)
+      const port = posted[0]?.transfer[0] as MessagePort
+      expect(await exchange(port, request(1))).toEqual({
+        channel: EVALUATOR_CHANNEL,
+        id: 1,
+        ok: true,
+        result: 8,
+      })
+      expect(await exchange(port, { channel: EVALUATOR_CHANNEL, id: 2, method: 'nope' })).toEqual({
+        channel: EVALUATOR_CHANNEL,
+        id: 2,
+        ok: false,
+        error: { code: 'bad-request', message: 'The request is malformed' },
+      })
+    })
+
+    it('leaves out a nonce its URL does not carry', () => {
+      for (const href of [`${FXM}/sandbox/eval.html`, `${FXM}/sandbox/eval.html#short`]) {
+        const { window, posted } = framedWindow(href)
+        startEvaluatorDocument(window)
+        expect(posted[0]?.message).not.toHaveProperty('nonce')
+      }
+    })
+
+    it('talks to the origin it was served from', () => {
+      expect(trustedParentOrigin({ parent: {}, location: { href: EVAL_URL } })).toBe(FXM)
       expect(
-        isTrustedParentMessage({ source: parent, origin: 'https://other.example' }, window),
-      ).toBe(false)
-      expect(isTrustedParentMessage({ source: window, origin: FXM }, window)).toBe(false)
-      const top = { parent: undefined as unknown, location: { href: EVAL_URL } }
-      top.parent = top
-      expect(isTrustedParentMessage({ source: top, origin: FXM }, top)).toBe(false)
-      const opaque = framedWindow('about:blank')
-      expect(isTrustedParentMessage({ source: opaque.parent, origin: 'null' }, opaque.window)).toBe(
-        false,
-      )
+        trustedParentOrigin({
+          parent: {},
+          location: { href: 'http://localhost:6010/sandbox/eval.html' },
+        }),
+      ).toBe('http://localhost:6010')
     })
   })
 
@@ -106,8 +115,7 @@ describe('the evaluator document', () => {
       const window: Record<string, unknown> & {
         parent: unknown
         location: { href: string }
-        addEventListener: () => void
-      } = { parent: undefined, location: { href }, addEventListener: vi.fn() }
+      } = { parent: undefined, location: { href } }
       window.parent = window
       return window
     }

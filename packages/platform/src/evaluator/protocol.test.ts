@@ -86,6 +86,12 @@ describe('the evaluator protocol', () => {
     expect(
       parseEvaluatorHello({ channel: EVALUATOR_CHANNEL, type: 'ready', version: 1 }),
     ).toBeUndefined()
+    const framed = { channel: EVALUATOR_CHANNEL, type: 'ready', version: 2, origin: 'https://a.b' }
+    const nonce = '0123456789abcdef0123456789abcdef'
+    expect(parseEvaluatorHello({ ...framed, nonce })).toEqual({ ...framed, nonce })
+    for (const bad of ['short', 'has spaces in it, sixteen+', 5]) {
+      expect(parseEvaluatorHello({ ...framed, nonce: bad })).toBeUndefined()
+    }
   })
 
   it('accepts only plain JSON values', () => {

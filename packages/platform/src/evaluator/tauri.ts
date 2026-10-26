@@ -4,11 +4,14 @@
  * cannot allow `'unsafe-eval'` for the evaluator alone. Instead, the app's `fxm-evaluator` plugin
  * (`apps/desktop/src-tauri/src/evaluator.rs`) opens a second, hidden webview window on a custom
  * URI scheme, `fxm-eval://localhost/eval.html`, whose Rust handler serves `eval.html` with its
- * own policy. That window is granted no Tauri capabilities, so its page cannot call any command.
+ * own policy. No capability names that window, so its page can call no plugin command, and the
+ * app registers no command of its own (`apps/desktop/test/evaluator.test.ts` fails if one comes
+ * without an access-control manifest). It can't navigate away from its document.
  *
- * The main window drives it through three plugin commands: `open` creates the window, `eval`
- * runs a script in it and answers the result as JSON text (`eval_with_callback`), and `close`
- * destroys it. The protocol on top is the mailbox of `mailbox.ts`.
+ * The main window drives it through three plugin commands: `open` creates a new window (and
+ * destroys any earlier one), `eval` runs a script in it and answers the result as JSON text
+ * (`eval_with_callback`), and `close` destroys it. The protocol on top is the mailbox of
+ * `mailbox.ts`.
  *
  * @module
  */
@@ -18,6 +21,12 @@ import { createMailboxPort, type MailboxPortOptions } from './mailbox'
 
 /** The desktop plugin that hosts the evaluator. */
 export const TAURI_EVALUATOR_PLUGIN = 'fxm-evaluator'
+
+/**
+ * Where the desktop's evaluator document runs: its own scheme. Windows' webview names the same
+ * place `http://fxm-eval.localhost` (`https://` where the app asks for it).
+ */
+export const TAURI_EVALUATOR_ORIGIN = 'fxm-eval://localhost'
 
 /** Tauri's `invoke` from `@tauri-apps/api/core`, injected so this package needs no Tauri code. */
 export type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
@@ -49,5 +58,9 @@ export function createTauriEvaluator(options: TauriEvaluatorOptions): Evaluator 
     ...(options.maxPollMs === undefined ? {} : { maxPollMs: options.maxPollMs }),
     ...(options.clock === undefined ? {} : { clock: options.clock }),
   })
-  return createEvaluator('desktop', port, options)
+  return createEvaluator('desktop', port, {
+    ...options,
+    origin: TAURI_EVALUATOR_ORIGIN,
+    alsoAccept: ['http://fxm-eval.localhost', 'https://fxm-eval.localhost'],
+  })
 }
