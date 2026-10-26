@@ -10,7 +10,7 @@ import {
   SquareArrowOutUpRight,
   Trash2,
 } from 'lucide-react'
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { iconButtonClasses } from '../../components/ui/icon-button'
@@ -24,7 +24,7 @@ import { failureText } from '../library/playlist-dialogs'
 import { showStatus } from '../library/status'
 import { Dialog, DialogActions } from '../library/ui/dialog'
 import { Menu, type MenuItem } from '../library/ui/menu'
-import { focusImportTitle, focusWhenReady, importTitleId } from './focus'
+import { focusImportTitle, focusWhenReady, importTitleId, useFocusTitleWhenGone } from './focus'
 import {
   canPause,
   canResume,
@@ -97,6 +97,12 @@ export function ImportProgress({ record }: { record: ImportProgressRecord }) {
   )
 }
 
+/**
+ * How a button looks while its action runs. It is only `aria-disabled` then, not `disabled`:
+ * browsers move focus off a button they disable, to the top of the document.
+ */
+const WORKING_CLASSES = 'aria-disabled:pointer-events-none aria-disabled:opacity-50'
+
 /** Whether an import's playlist has no songs: then stopping it offers to delete the playlist. */
 async function playlistIsEmpty(record: ImportProgressRecord): Promise<boolean> {
   if (record.playlistId === undefined) return false
@@ -132,7 +138,7 @@ function StopImportDialog({
     onClose()
   }
   const confirm = async () => {
-    if (action === null) return
+    if (action === null || busy) return
     setBusy(true)
     setError('')
     try {
@@ -186,8 +192,8 @@ function StopImportDialog({
         <button
           type="button"
           data-autofocus=""
-          disabled={busy}
-          className={buttonClasses({ variant: 'danger' })}
+          aria-disabled={busy || undefined}
+          className={buttonClasses({ variant: 'danger', className: WORKING_CLASSES })}
           onClick={confirm}
         >
           {cancel ? 'Cancel import' : 'Remove'}
@@ -197,10 +203,16 @@ function StopImportDialog({
   )
 }
 
-/** Runs an import action, saying so when it fails, and tells whether one is under way. */
+/**
+ * Runs an import action, saying so when it fails, and tells whether one is under way. One at a
+ * time: an action started while another runs is ignored.
+ */
 function useAction() {
   const [working, setWorking] = useState(false)
+  const busy = useRef(false)
   const run = async (work: () => Promise<unknown>, after?: () => void) => {
+    if (busy.current) return
+    busy.current = true
     setWorking(true)
     try {
       await work()
@@ -208,6 +220,7 @@ function useAction() {
     } catch (error) {
       showStatus(actionFailureText(error))
     } finally {
+      busy.current = false
       setWorking(false)
     }
   }
@@ -303,8 +316,9 @@ export function ImportMenu({
 
 /**
  * What an import offers in its state: one Pause/Resume button (the same element, so focus stays
- * on it as it changes), and Retry for failed songs. After an action that takes its button away,
- * focus moves to the import's title.
+ * on it as it changes), and Retry for failed songs. While an action runs, both stay focusable and
+ * ignore presses. After an action that takes its button away (Retry), or when a focused button
+ * goes away by itself (Pause once the import finishes), focus moves to the import's title.
  */
 export function ImportControls({
   record,
@@ -322,6 +336,7 @@ export function ImportControls({
   afterToggle?: ReactNode
 }) {
   const { working, run } = useAction()
+  const keepFocus = useFocusTitleWhenGone(record.id)
   const label = record.label
   const history = record.kind === HISTORY_IMPORT_KIND
   const pausable = canPause(record, status)
@@ -350,11 +365,12 @@ export function ImportControls({
       {(pausable || resumable) && (
         <button
           key="toggle"
+          ref={keepFocus}
           type="button"
-          disabled={working}
+          aria-disabled={working || undefined}
           className={buttonClasses({
             variant: resumable && resumeIsMain ? 'primary' : 'secondary',
-            className: 'h-9 px-4',
+            className: cn('h-9 px-4', WORKING_CLASSES),
           })}
           aria-label={pausable ? `Pause importing ${label}` : `Resume importing ${label}`}
           onClick={toggle}
@@ -367,9 +383,13 @@ export function ImportControls({
       {canRetry && (
         <button
           key="retry"
+          ref={keepFocus}
           type="button"
-          disabled={working}
-          className={buttonClasses({ variant: 'secondary', className: 'h-9 px-4' })}
+          aria-disabled={working || undefined}
+          className={buttonClasses({
+            variant: 'secondary',
+            className: cn('h-9 px-4', WORKING_CLASSES),
+          })}
           aria-label={`Try the ${countLabel(record.failed, 'failed song')} of ${label} again`}
           onClick={retry}
         >

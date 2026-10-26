@@ -15,7 +15,7 @@ The work is done by `@fxm/sources/import` (see [its README](../../../../../packa
 | `runner.ts` | Starts, runs, pauses, resumes, cancels and reviews imports (below) |
 | `locks.ts` | One tab per import, with Web Locks |
 | `hooks.ts` | Where imports stand in this tab and others, and whether songs can be found here |
-| `focus.ts` | Where keyboard focus goes after an action took its button away |
+| `focus.ts` | Where keyboard focus goes after an action took its button away, or when a focused button goes away by itself (Pause once the import finishes) |
 | `sink.ts` | Where a running import's decisions go in the library |
 | `files.ts` | Reading the picked files, and why reading failed, in words |
 | `format.ts` | Words for kinds, statuses, counts and what an input left out |
