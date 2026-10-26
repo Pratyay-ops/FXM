@@ -34,10 +34,11 @@ export function showFeedback(message: string): void {
 }
 
 /**
- * The confirmation toast, above the player bar (or the phone's mini player and tab bar). The
- * shell renders it once, for every page: the catalog pages and the library (stage 2.6) both
- * confirm here. The live region is always in the page, so screen readers announce each new
- * message.
+ * The confirmation toast, above the player bar (or the phone's mini player and tab bar), and
+ * above the installable app's update toast while that waits there (`--update-toast-space`,
+ * features/pwa/update-toast.tsx). The shell renders it once, for every page: the catalog pages
+ * and the library (stage 2.6) both confirm here. The live region is always in the page, so
+ * screen readers announce each new message.
  */
 export function FeedbackToast() {
   const message = useFeedbackStore((state) => state.message)
@@ -47,7 +48,7 @@ export function FeedbackToast() {
   return (
     <div
       role="status"
-      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--shell-bottom)+0.75rem)] z-50 flex justify-center px-4"
+      className="pointer-events-none fixed inset-x-0 bottom-[calc(var(--shell-bottom)+0.75rem+var(--update-toast-space,0px))] z-50 flex justify-center px-4"
     >
       {/* A new key per message restarts the timer, also for the same text twice. */}
       {message && <Toast key={serial} message={message} until={until} onTimeout={dismiss} />}

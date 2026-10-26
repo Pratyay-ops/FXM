@@ -505,6 +505,26 @@ test.describe('in Chromium', () => {
       expect(await controllerVersion(page)).toBe(version)
     })
 
+    test("the app's confirmations show above the toast, not over it", async ({ page }) => {
+      await newVersionWaits(page, 'settings')
+      // Any action the app's toast confirms: a playlist duplicated from the sidebar.
+      const sidebar = page.getByRole('region', { name: 'Your playlists' })
+      await sidebar.getByRole('link', { name: /Liked songs/ }).hover()
+      await sidebar.getByRole('button', { name: 'More options for Liked songs' }).click()
+      await page.getByRole('menuitem', { name: 'Duplicate' }).click()
+      const confirmation = page.getByRole('status').getByText('Created Liked songs (copy)')
+      await expect(confirmation).toBeVisible()
+
+      const toast = page.getByRole('region', { name: 'App update' })
+      // Polled: the confirmation slides in from a little lower.
+      await expect
+        .poll(async () => {
+          const above = await box(confirmation)
+          return above.y + above.height <= (await box(toast)).y
+        })
+        .toBe(true)
+    })
+
     test.describe('on a phone', () => {
       test.use({ viewport: { width: 320, height: 720 }, hasTouch: true })
 

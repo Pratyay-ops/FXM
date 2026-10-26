@@ -1,9 +1,41 @@
 import { RefreshCw } from 'lucide-react'
-import { useRef } from 'react'
+import { type RefObject, useLayoutEffect, useRef } from 'react'
 import { buttonClasses } from '../../components/ui/button'
 import { cn } from '../../lib/cn'
+import { useMediaQuery } from '../../lib/use-media-query'
 import { moveFocus } from './focus'
 import { usePwaStore } from './pwa-store'
+
+/**
+ * The room the toast takes above the player, its height plus a gap, kept on <html> while it
+ * shows there. The app's confirmation toast (`FeedbackToast` in features/search/feedback.tsx)
+ * shows in the same spot and rises by as much, so neither covers the other.
+ */
+export const TOAST_SPACE_PROPERTY = '--update-toast-space'
+
+/** Phones (Tailwind's `max-md`), where a full-screen page puts the toast at the top instead. */
+export const PHONE_QUERY = '(width < 48rem)'
+
+/**
+ * Keeps {@link TOAST_SPACE_PROPERTY} on <html> while `active`, following the toast's height,
+ * which grows when its buttons wrap (a narrow window, or large text).
+ */
+function useSpaceAbovePlayer(toast: RefObject<HTMLElement | null>, active: boolean): void {
+  useLayoutEffect(() => {
+    const element = toast.current
+    if (!active || element === null) return
+    const root = document.documentElement
+    const update = () =>
+      root.style.setProperty(TOAST_SPACE_PROPERTY, `calc(${element.offsetHeight}px + 0.5rem)`)
+    update()
+    const resize = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update)
+    resize?.observe(element)
+    return () => {
+      resize?.disconnect()
+      root.style.removeProperty(TOAST_SPACE_PROPERTY)
+    }
+  }, [toast, active])
+}
 
 /**
  * Offers a waiting new version of FXM, above the player. The app never reloads by itself,
@@ -11,14 +43,18 @@ import { usePwaStore } from './pwa-store'
  * Escape) keeps this one, and the new version starts the next time FXM opens.
  *
  * It is a landmark ("App update"), so screen reader users can jump to it. When "Not now" or
- * Escape removes it, focus goes back to where it came from (or to the page).
+ * Escape removes it, focus goes back to where it came from (or to the page). Confirmations
+ * shown meanwhile appear above it ({@link TOAST_SPACE_PROPERTY}).
  */
 export function UpdateToast({ fullScreen = false }: { fullScreen?: boolean }) {
   const show = usePwaStore((state) => state.updateReady && !state.updateDismissed)
   const applyUpdate = usePwaStore((state) => state.applyUpdate)
+  const phone = useMediaQuery(PHONE_QUERY)
   const toast = useRef<HTMLElement>(null)
   /** The element focus came from when it entered the toast. */
   const cameFrom = useRef<Element | null>(null)
+  // On a phone's Now Playing the toast sits at the top, away from the confirmations.
+  useSpaceAbovePlayer(toast, show && !(fullScreen && phone))
 
   const dismiss = () => {
     const hadFocus = toast.current?.contains(document.activeElement) ?? false
