@@ -22,6 +22,10 @@
  * Settings → About reads the third-party notices that the app carries with
  * `readThirdPartyNotices` (stage 7.5).
  *
+ * Web Audio (the equalizer of stage 8.1) reads googlevideo streams through the shell's
+ * `fxm-media:` scheme: `readableStreamUrl(stream)` (`media.ts`, stage 7.6) is the URL a
+ * `crossorigin="anonymous"` element loads instead of the stream's own.
+ *
  * @module
  */
 
@@ -35,6 +39,7 @@ import { connectTray, type TrayPlayer } from './tray'
 
 export * from './engine'
 export * from './keep-awake'
+export * from './media'
 export * from './network'
 export * from './notices'
 export * from './options'

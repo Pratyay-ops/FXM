@@ -1,10 +1,30 @@
-import type { NetworkCapabilities, ProviderContext, StreamOption } from '@fxm/core'
+import {
+  type AudioCandidate,
+  DEFAULT_QUALITY_PREFS,
+  formatId,
+  type NetworkCapabilities,
+  type ProviderContext,
+  type SearchResults,
+  type StreamOption,
+  type Track,
+} from '@fxm/core'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  describeRun,
+  type ReadableRun,
+  readableCandidates,
+  readablePath,
+  runVerdict,
+  samplePlan,
+  streamLabel,
+} from '../smoke/readable'
+import {
   DEAD_PROXY,
+  Inconclusive,
   type MediaPlayer,
   Pending,
   PROBE_BYTES,
+  type ReadablePath,
   runSmoke,
   type SmokeOptions,
   type SmokeReport,
@@ -14,15 +34,7 @@ import {
   swJsDataVisitorData,
   verifiedStream,
 } from '../smoke/steps'
-import {
-  FALLBACK_CLIENT_VERSION,
-  interimYouTube,
-  MUSIC_PAGE_URL,
-  MUSIC_SEARCH_URL,
-  pageClientVersion,
-  plainMusicSearch,
-  videoIds,
-} from '../smoke/youtube'
+import { smokeYouTube, songCandidate, type YouTubeParts } from '../smoke/youtube'
 
 const FULL: NetworkCapabilities = {
   youtube: 'full',
@@ -323,62 +335,246 @@ describe('runSmoke', () => {
   })
 })
 
-describe('the interim YouTube Music search', () => {
-  const PAGE = `<script>ytcfg.set({"INNERTUBE_CLIENT_NAME":"WEB_REMIX","INNERTUBE_CLIENT_VERSION":"1.20261021.03.00"});</script>`
-  const RESULTS = {
-    contents: {
-      tabbedSearchResultsRenderer: {
-        tabs: [
-          { musicShelf: [{ videoId: VIDEO_ID }, { playlistItemData: { videoId: 'XFkzRNyygfk' } }] },
-          { videoId: VIDEO_ID },
-        ],
-      },
-    },
+describe('the YouTube Music search and stream ladder (stages 1.3 and 1.4)', () => {
+  const track: Track = {
+    id: formatId('ytm', 'track', VIDEO_ID),
+    source: 'ytm',
+    title: 'Creep',
+    artists: [{ name: 'Radiohead' }],
+    artwork: [],
+    kind: 'song',
   }
 
-  it('reads the client version from YouTube Music’s page', () => {
-    expect(pageClientVersion(PAGE)).toBe('1.20261021.03.00')
-    expect(pageClientVersion('<html></html>')).toBeUndefined()
-  })
-
-  it('finds every videoId once, in order', () => {
-    expect(videoIds(RESULTS)).toEqual([VIDEO_ID, 'XFkzRNyygfk'])
-    expect(videoIds({ videoId: 'short' })).toEqual([])
-  })
-
-  it('sends one WEB_REMIX search in the simple shape', async () => {
-    const { ctx, fetch } = context((url) =>
-      url === MUSIC_PAGE_URL ? new Response(PAGE) : Response.json(RESULTS),
+  function parts(results: SearchResults = { tracks: { items: [track] } }) {
+    const search = vi.fn(async () => results)
+    const resolve = vi.fn(async (_candidate: AudioCandidate) => [stream('verified')])
+    const load = vi.fn(
+      async (): Promise<YouTubeParts> =>
+        ({ music: { search }, audio: { resolve } }) as unknown as YouTubeParts,
     )
-    expect(await plainMusicSearch('Radiohead Creep', ctx)).toEqual({
+    return { load, search, resolve }
+  }
+
+  it('finds the first song of a YouTube Music search', async () => {
+    const { load, search } = parts()
+    const youtube = smokeYouTube(load)
+    const { ctx } = context()
+    expect(await youtube.search('Radiohead Creep', ctx)).toEqual({
       videoId: VIDEO_ID,
-      title: '2 results, client 1.20261021.03.00',
+      title: 'Creep – Radiohead',
     })
-    const search = fetch.mock.calls.find(([url]) => url === MUSIC_SEARCH_URL)
-    expect(search?.[1]?.method).toBe('POST')
-    expect(search?.[1]?.headers).toBeUndefined()
-    expect(JSON.parse(String(search?.[1]?.body))).toEqual({
-      context: {
-        client: { clientName: 'WEB_REMIX', clientVersion: '1.20261021.03.00', hl: 'en', gl: 'US' },
+    expect(search).toHaveBeenCalledWith('Radiohead Creep', { types: ['track'] }, ctx)
+  })
+
+  it('fails when the search finds no song', async () => {
+    const youtube = smokeYouTube(parts({ tracks: { items: [] } }).load)
+    await expect(youtube.search('x', context().ctx)).rejects.toThrow('found no songs')
+  })
+
+  it('resolves the song’s own audio with the default quality, loading the stages once', async () => {
+    const { load, resolve } = parts()
+    const youtube = smokeYouTube(load)
+    const { ctx } = context()
+    await youtube.search('Radiohead Creep', ctx)
+    expect(await youtube.resolve(VIDEO_ID, ctx)).toEqual([stream('verified')])
+    expect(resolve).toHaveBeenCalledWith(songCandidate(VIDEO_ID), ctx, DEFAULT_QUALITY_PREFS)
+    expect(songCandidate(VIDEO_ID)).toMatchObject({ source: 'ytm', ref: VIDEO_ID, kind: 'song' })
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the readable audio path (stage 7.6)', () => {
+  const aac: StreamOption = {
+    ...stream('verified'),
+    url: 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=140',
+    codec: 'aac',
+    container: 'm4a',
+  }
+  const muxed: StreamOption = {
+    ...aac,
+    url: 'https://rr1---sn-x.googlevideo.com/videoplayback?itag=18',
+    container: 'mp4',
+    media: 'muxed-video',
+  }
+
+  const run = (overrides: Partial<ReadableRun> = {}): ReadableRun => ({
+    label: 'Opus in WebM',
+    startedMs: 812.4,
+    playedS: 6.2,
+    durationS: 238.6,
+    ended: true,
+    peak: 0.62,
+    contextState: 'running',
+    expected: 'samples',
+    muted: false,
+    direct: 'refused',
+    plainStartedMs: 640.2,
+    plainDurationS: 238.6,
+    ...overrides,
+  })
+
+  it('checks one verified googlevideo audio stream of each container', () => {
+    const archive = { ...stream('verified'), url: 'https://archive.org/download/x/x.mp3' }
+    expect(
+      readableCandidates([
+        muxed,
+        stream('capped'),
+        stream('verified'),
+        { ...stream('verified'), url: `${stream('verified').url}&second` },
+        aac,
+        archive,
+        { ...aac, protocol: 'sabr' },
+      ]),
+    ).toEqual([stream('verified'), aac, muxed])
+    expect(readableCandidates([stream('unverified')])).toEqual([])
+  })
+
+  it('names streams by codec and container', () => {
+    expect(streamLabel(stream('verified'))).toBe('Opus in WebM')
+    expect(streamLabel(aac)).toBe('AAC in M4A')
+    expect(streamLabel(muxed)).toBe('AAC in MP4 video')
+  })
+
+  it('expects samples where the path should work, and unmutes only where muting silences them', () => {
+    // WebView2 hands Web Audio a muted element's samples scaled by 0: unmuted, and samples.
+    expect(samplePlan('windows', stream('verified'))).toEqual({ expected: 'samples', muted: false })
+    expect(samplePlan('windows', aac)).toEqual({ expected: 'samples', muted: false })
+    // WebKit reads muted MP4, and plays WebM past the graph: muted, and silence from WebM.
+    expect(samplePlan('macos', aac)).toEqual({ expected: 'samples', muted: true })
+    expect(samplePlan('macos', muxed)).toEqual({ expected: 'samples', muted: true })
+    expect(samplePlan('macos', stream('verified'))).toEqual({ expected: 'silence', muted: true })
+    // Nobody has checked WebKitGTK, nor a system the shell didn't name: muted, and unknown.
+    for (const os of ['linux', undefined]) {
+      expect(samplePlan(os, aac)).toEqual({ expected: 'unknown', muted: true })
+      expect(samplePlan(os, stream('verified'))).toEqual({ expected: 'unknown', muted: true })
+    }
+  })
+
+  it('passes a run whose samples Web Audio read, or whose silence is what it should read', () => {
+    expect(runVerdict(run(), 6).verdict).toBe('passed')
+    expect(runVerdict(run({ expected: 'unknown', muted: true }), 6).verdict).toBe('passed')
+    const webmOnMac = run({ peak: 0, expected: 'silence', muted: true })
+    expect(runVerdict(webmOnMac, 6)).toEqual({
+      verdict: 'passed',
+      why: 'silence, as expected: WebKit plays WebM past Web Audio',
+    })
+  })
+
+  it('fails a run that didn’t play to its end, or whose samples Web Audio didn’t read', () => {
+    expect(runVerdict(run({ playedS: 2 }), 6).verdict).toBe('failed')
+    expect(runVerdict(run({ ended: false }), 6).verdict).toBe('failed')
+    // Silence from MP4 on macOS, or from anything on Windows: the path doesn't work there.
+    expect(runVerdict(run({ peak: 0 }), 6)).toEqual({
+      verdict: 'failed',
+      why: 'Web Audio read only silence where it should read samples',
+    })
+  })
+
+  it('leaves silence inconclusive where nobody knows what to expect, or the context never ran', () => {
+    expect(runVerdict(run({ peak: 0, expected: 'unknown', muted: true }), 6)).toEqual({
+      verdict: 'inconclusive',
+      why: 'silence from a muted element, which this webview may hand Web Audio as silence',
+    })
+    expect(runVerdict(run({ peak: 0, contextState: 'suspended' }), 6)).toEqual({
+      verdict: 'inconclusive',
+      why: 'Web Audio heard nothing: its context was suspended',
+    })
+  })
+
+  it('describes a run with its verdict', () => {
+    expect(describeRun(run())).toBe(
+      'Opus in WebM: passed (Web Audio read its samples): started 812 ms after loading, played ' +
+        '6.2 s, then its end after a seek (238.6 s in all); Web Audio read samples up to 0.62 ' +
+        '(context running, element unmuted); its own URL in such an element: refused, as ' +
+        'googlevideo sends no CORS headers; in a plain element it started 640 ms after loading ' +
+        '(238.6 s in all)',
+    )
+    const { plainStartedMs: _, ...neverStarted } = run()
+    expect(describeRun(neverStarted)).toContain('in a plain element it didn’t start')
+    expect(describeRun(run({ peak: 0, direct: 'played', muted: true }))).toContain(
+      'Web Audio read only silence (context running, element muted)',
+    )
+  })
+
+  it('checks every stream in turn, and reports each before it fails', async () => {
+    const probe = vi.fn(async (option: StreamOption) => run({ label: streamLabel(option) }))
+    const detail = await readablePath(probe).check([stream('verified'), aac])
+    expect(probe.mock.calls.map(([option]) => option.url)).toEqual([
+      stream('verified').url,
+      aac.url,
+    ])
+    expect(detail).toContain('Opus in WebM: passed')
+    expect(detail).toContain('. AAC in M4A: passed')
+    // A WebM failure hides nothing of the AAC run after it.
+    const webmFails = readablePath(async (option) => {
+      if (option.container === 'webm') throw new Error('starting: media error 4: ')
+      return run({ label: streamLabel(option) })
+    })
+    const failure = webmFails.check([stream('verified'), aac])
+    await expect(failure).rejects.toThrow(
+      'Opus in WebM: failed (starting: media error 4: ). AAC in M4A: passed',
+    )
+    const silent = readablePath(async () => run({ peak: 0 }))
+    await expect(silent.check([aac])).rejects.toThrow('failed (Web Audio read only silence')
+    await expect(readablePath(probe).check([stream('unverified')])).rejects.toThrow(
+      'no verified googlevideo stream',
+    )
+  })
+
+  it('is inconclusive when a stream was and none failed', async () => {
+    const unknown = readablePath(async (option) =>
+      run({ label: streamLabel(option), peak: 0, expected: 'unknown', muted: true }),
+    )
+    const outcome = unknown.check([stream('verified'), aac])
+    await expect(outcome).rejects.toBeInstanceOf(Inconclusive)
+    await expect(outcome).rejects.toThrow('Opus in WebM: inconclusive')
+  })
+
+  it('runs right after the probe, on everything the resolve found', async () => {
+    const check = vi.fn(async (_options: readonly StreamOption[]) => 'played through fxm-media')
+    const readable: ReadablePath = { check }
+    const report = await runSmoke(options({ readable }))
+    expect(report.ok).toBe(true)
+    expect(report.steps.slice(4, 7).map((step) => [step.name, step.status])).toEqual([
+      ['VISIONOS URL passes the end-of-file probe', 'passed'],
+      ['Web Audio reads it through fxm-media', 'passed'],
+      ['the track plays to the end', 'passed'],
+    ])
+    expect(check).toHaveBeenCalledWith([stream('capped'), stream('verified')])
+  })
+
+  it('fails the run when the readable path fails, and waits without a verified stream', async () => {
+    const readable: ReadablePath = {
+      check: async () => {
+        throw new Error('media error 4')
       },
-      query: 'Radiohead Creep',
+    }
+    const failed = await runSmoke(options({ readable }))
+    expect(failed.ok).toBe(false)
+    expect(stepNamed(failed, 'Web Audio reads it through fxm-media')).toMatchObject({
+      status: 'failed',
+      detail: 'media error 4',
+    })
+    const waiting = await runSmoke(
+      options({ readable, youtube: youtube({ resolve: async () => [stream('capped')] }) }),
+    )
+    expect(stepNamed(waiting, 'Web Audio reads it through fxm-media')).toMatchObject({
+      status: 'pending',
+      detail: 'waits for a verified stream',
     })
   })
 
-  it('falls back to a known client version, and fails on an error or no results', async () => {
-    const empty = context((url) =>
-      url === MUSIC_PAGE_URL ? new Response('', { status: 500 }) : Response.json({}),
-    )
-    await expect(plainMusicSearch('x', empty.ctx)).rejects.toThrow('found nothing')
-    const body = empty.fetch.mock.calls.find(([url]) => url === MUSIC_SEARCH_URL)?.[1]?.body
-    expect(JSON.parse(String(body)).context.client.clientVersion).toBe(FALLBACK_CLIENT_VERSION)
-    const refused = context((url) =>
-      url === MUSIC_PAGE_URL ? new Response(PAGE) : new Response('', { status: 403 }),
-    )
-    await expect(plainMusicSearch('x', refused.ctx)).rejects.toThrow('403')
-  })
-
-  it('leaves the resolve to stage 1.4', async () => {
-    await expect(interimYouTube.resolve(VIDEO_ID, context().ctx)).rejects.toBeInstanceOf(Pending)
+  it('reports an inconclusive check as such, without failing the run', async () => {
+    const readable: ReadablePath = {
+      check: async () => {
+        throw new Inconclusive('Opus in WebM: inconclusive (silence from a muted element …)')
+      },
+    }
+    const report = await runSmoke(options({ readable }))
+    expect(report.ok).toBe(true)
+    expect(stepNamed(report, 'Web Audio reads it through fxm-media')).toMatchObject({
+      status: 'inconclusive',
+      detail: 'Opus in WebM: inconclusive (silence from a muted element …)',
+    })
   })
 })

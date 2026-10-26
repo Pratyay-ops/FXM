@@ -4,10 +4,12 @@
  * goes through the app's real native networking: `createPlatform()` and `createDesktopFetch()`
  * over Tauri's HTTP plugin. The last of its own steps calls the plugin through Tauri's IPC directly
  * instead, as any page script can, to check the isolation hook; `extraSteps`, such as stage 7.3's
- * playback steps, run after it.
+ * playback steps, run after it. Stage 7.6's readable audio path (`readable`) is checked right
+ * after the probe, on the streams it verified.
  *
  * A step that needs a stage which hasn't merged yet throws {@link Pending}, and the report says
- * so instead of failing.
+ * so instead of failing. A step whose result shows neither a pass nor a failure throws
+ * {@link Inconclusive}, which doesn't fail the run either.
  *
  * @module
  */
@@ -15,8 +17,11 @@
 import type { NetworkCapabilities, ProviderContext, StreamOption } from '@fxm/core'
 import { fxmUserAgent } from '@fxm/platform'
 
-/** How a step ended. */
-export type StepStatus = 'passed' | 'failed' | 'pending'
+/**
+ * How a step ended. `inconclusive`: it ran, but what it found shows neither that it works nor
+ * that it doesn't (stage 7.6's readable path, where nobody has checked what to expect).
+ */
+export type StepStatus = 'passed' | 'failed' | 'pending' | 'inconclusive'
 
 /** One step of the report. */
 export interface StepResult {
@@ -32,7 +37,7 @@ export interface StepResult {
 
 /** What the hidden window reports to the app, which prints it and exits. */
 export interface SmokeReport {
-  /** Whether no step failed. Pending steps don't count against it. */
+  /** Whether no step failed. Pending and inconclusive steps don't count against it. */
   readonly ok: boolean
   /** Every step, in order. */
   readonly steps: readonly StepResult[]
@@ -41,6 +46,11 @@ export interface SmokeReport {
 /** Thrown by a step whose stage hasn't merged yet. */
 export class Pending extends Error {
   override readonly name = 'Pending'
+}
+
+/** Thrown by a step whose result is neither a pass nor a failure: see {@link StepStatus}. */
+export class Inconclusive extends Error {
+  override readonly name = 'Inconclusive'
 }
 
 /**
@@ -70,6 +80,14 @@ export interface SmokeYouTube {
 export interface MediaPlayer {
   /** Resolves when the media element reaches `ended`, with the media's duration in seconds. */
   playToEnd(url: string, options: { readonly timeoutMs: number }): Promise<{ durationS: number }>
+}
+
+/**
+ * Stage 7.6's check of the readable audio path: plays streams the resolve found from the shell's
+ * `fxm-media:` scheme through Web Audio (`readable.ts`). Resolves with the step's detail.
+ */
+export interface ReadablePath {
+  check(options: readonly StreamOption[]): Promise<string>
 }
 
 /** Tauri's `invoke`: calls a command through the app's IPC, as any page script can. */
@@ -102,6 +120,11 @@ export interface SmokeOptions {
    * without `createDesktopFetch()`.
    */
   readonly invoke: Invoke
+  /**
+   * Stage 7.6's readable audio path, checked on the verified streams right after the probe step;
+   * no such step without it.
+   */
+  readonly readable?: ReadablePath
   /** How long one track may take to play to its end. Default: 10 minutes. */
   readonly playTimeoutMs?: number
   /** The clock, in milliseconds. Default: `performance.now`. */
@@ -185,7 +208,12 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
       record({ name, status: 'passed', detail, ms: now() - started })
       return value
     } catch (error) {
-      const status = error instanceof Pending ? 'pending' : 'failed'
+      const status =
+        error instanceof Pending
+          ? 'pending'
+          : error instanceof Inconclusive
+            ? 'inconclusive'
+            : 'failed'
       record({ name, status, detail: message(error), ms: now() - started })
       return undefined
     }
@@ -232,7 +260,7 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
     return [found, `${JSON.stringify(options.query)}: ${found.title ?? ''} (${found.videoId})`]
   })
 
-  const stream = await step(
+  const resolved = await step(
     'VISIONOS URL passes the end-of-file probe',
     song === undefined
       ? waiting('the search')
@@ -243,9 +271,23 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeReport> {
             const seen = found.map((option) => `${option.codec} ${option.fullLength}`)
             throw new Error(`no stream passed the probe: ${seen.join(', ') || 'none'}`)
           }
-          return [verified, `${verified.codec} in ${verified.container}, ${verified.media}`]
+          return [
+            { stream: verified, found },
+            `${verified.codec} in ${verified.container}, ${verified.media}`,
+          ]
         },
   )
+  const stream = resolved?.stream
+
+  const { readable } = options
+  if (readable !== undefined) {
+    await step(
+      'Web Audio reads it through fxm-media',
+      resolved === undefined
+        ? waiting('a verified stream')
+        : async () => [true, await readable.check(resolved.found)],
+    )
+  }
 
   await step(
     'the track plays to the end',

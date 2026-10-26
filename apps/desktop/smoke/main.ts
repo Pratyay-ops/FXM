@@ -1,7 +1,8 @@
 /**
  * The smoke test's page, in the hidden window of the smoke build. It runs the steps through the
  * app's real native networking and sends each step's result, then the report, to the app, which
- * prints them and exits.
+ * prints them and exits. Stage 7.6 put in the real YouTube Music search and stream ladder
+ * (`youtube.ts`) and the readable audio path's check (`readable.ts`).
  *
  * @module
  */
@@ -15,8 +16,9 @@ import { type PlaybackEnvironment, runPlaybackSteps } from './playback-steps'
 import { htmlAudioPlayer } from './player'
 import { FREE_PLAYLIST, youtubeSongs } from './playlists'
 import { appQueuePlayer, type PlaybackSample } from './queue-player'
+import { readablePath, webAudioProbe } from './readable'
 import { runSmoke, type SmokeReport } from './steps'
-import { interimYouTube } from './youtube'
+import { smokeYouTube } from './youtube'
 
 /** The events `src-tauri/src/smoke.rs` prints: a line of progress, and the final report. */
 const LOG_EVENT = 'fxm-smoke-log'
@@ -76,7 +78,10 @@ async function smoke(): Promise<SmokeReport> {
     return await runSmoke({
       context: () => platform.context({ mode: 'music', priority: 'interactive' }),
       capabilities: platform.capabilities.current,
-      youtube: interimYouTube,
+      youtube: smokeYouTube(),
+      // Stage 7.6: the verified streams through fxm-media and Web Audio, with what to expect on
+      // this system.
+      readable: readablePath(webAudioProbe({ os: async () => (await desktop.ready)?.os })),
       player: htmlAudioPlayer(),
       query: 'Radiohead Creep',
       freeTrack: FREE_TRACK,

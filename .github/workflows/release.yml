@@ -53,6 +53,9 @@ name: Release
 # job passes both on by name, as GitHub needs for an environment's secret to reach a called
 # workflow's job; they are never repository secrets. Without them, or while tauri.conf.json
 # carries the placeholder instead of the updater's public key, it fails, and nothing is published.
+# It signs the Windows files with the certificate in the windows-signing environment's secrets
+# WINDOWS_CERTIFICATE and WINDOWS_CERTIFICATE_PASSWORD, which the job passes on by name as well;
+# without them the Windows files are unsigned (docs/CODE-SIGNING.md).
 #
 # Every job builds the commit the run was started for (plan's sha is always github.sha), which
 # is also the commit the attestations name. Re-running is safe: a published release stops at
@@ -343,6 +346,8 @@ jobs:
     secrets:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
 
   publish:
     name: Publish ${{ needs.plan.outputs.tag }}

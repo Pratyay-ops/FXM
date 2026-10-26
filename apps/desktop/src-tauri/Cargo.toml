@@ -65,6 +65,10 @@ tauri-plugin-window-state = "2.5.0"
 # (src/updater.rs). Both are the plugin's own: minisign-verify is its signature check.
 base64 = "0.22.1"
 minisign-verify = "0.3.0"
+# The readable audio path (stage 7.6, src/media.rs): decodes the stream URL in the path of the
+# fxm-media: scheme, which Tauri's convertFileSrc percent-encodes. Already in the dependency tree
+# through url.
+percent-encoding = "2.3.2"
 
 # The macOS version, which decides between Opus and AAC (src/environment.rs), and the
 # notification that the window has left full screen, which the close button waits for before it

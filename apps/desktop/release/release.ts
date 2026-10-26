@@ -37,8 +37,39 @@
  *       updater will. The key must be the one whose public key tauri.conf.json holds, which the
  *       release's apps carry. A dry run signs with a throwaway key instead (--throwaway-key).
  *
+ * Windows code signing (stage 7.6), in five jobs that keep the certificate's key away from the
+ * build's code (windows-signing.ts explains them):
+ *
+ *   release.ts windows-hook-config --mode <collect|swap> --dir <dir> --out <dir>
+ *       jobs windows-build (collect) and windows-bundle (swap): the Tauri config that hooks
+ *       Tauri's signing to `windows-hook`, with <dir> as its folder. Outputs config-args.
+ *   release.ts windows-hook --mode <collect|swap> --dir <dir> --file <path>
+ *       run by Tauri's signing, for each file it would sign: collects fxm.exe and the NSIS
+ *       plugins, or puts their signed copies in their place. Signs nothing.
+ *   release.ts windows-collected --dir <dir>
+ *       job windows-build: checks what the hook collected, as windows-sign-app will.
+ *   release.ts windows-signing --mode <release|dry-run> [--certificate yes] [--unsigned yes]
+ *       job windows-sign-app: how to sign, given whether the windows-signing environment holds a
+ *       certificate: `throwaway` for a dry run (`none` with --unsigned, from desktop.yml's
+ *       windows-unsigned), `certificate` or `none` for a release. Outputs signing.
+ *   release.ts windows-sign --phase app --dir <dir> --out <dir> --thumbprint <sha1>
+ *                           [--timestamp-url <url>]
+ *       job windows-sign-app: checks the collected files and signs copies of them in <out>.
+ *   release.ts windows-swapped --dir <dir>
+ *       job windows-bundle: checks that every signed file went into the installers.
+ *   release.ts windows-sign --phase installers --dir <dir> --version x.y.z --thumbprint <sha1>
+ *                           [--timestamp-url <url>]
+ *       job windows-sign-installers: checks the two installers in <dir> and signs them there.
+ *   release.ts windows-signatures --signing <how> [--thumbprint <sha1>] [--app-thumbprint <sha1>]
+ *                                 --report <file>
+ *       job windows-check: checks the signatures that PowerShell read from the installers and the
+ *       files inside them (Get-AuthenticodeSignature, as JSON): the installers signed by
+ *       --thumbprint, fxm.exe and the plugins by --app-thumbprint, each timestamped, or nothing
+ *       signed at all for `none`.
+ *
  * The sign job installs nothing: it runs Node and this repository's own files, so no third-party
- * code ever sees the updater key (`minisign.ts` signs with Node's crypto).
+ * code ever sees the updater key (`minisign.ts` signs with Node's crypto). The Windows signing
+ * jobs run the same, PowerShell and the Windows SDK's signtool.
  *
  * Node runs this file directly (type stripping), which is why the imports spell out `.ts`.
  *
@@ -93,6 +124,21 @@ import {
   shippedCrates,
 } from './notices.ts'
 import { MANIFEST_NAME, type ReleaseTarget, TARGETS, type TargetId, targetById } from './targets.ts'
+import {
+  checkWindowsSignatures,
+  chooseWindowsSigning,
+  collectedProblems,
+  parseHookMode,
+  parseSignatureReport,
+  parseWindowsSigning,
+  readCollected,
+  runHook,
+  signApp,
+  signInstallers,
+  swapProblems,
+  type WindowsSignOptions,
+  writeHookConfig,
+} from './windows-signing.ts'
 
 /** apps/desktop. */
 export const APP_DIR = fileURLToPath(new URL('..', import.meta.url))
@@ -181,6 +227,18 @@ export type Mode = 'release' | 'dry-run'
 export function parseMode(value: string): Mode {
   if (value === 'release' || value === 'dry-run') return value
   throw new Error(`--mode must be release or dry-run, got "${value}"`)
+}
+
+/**
+ * An option that a workflow sets from a condition, `yes` or empty (`--certificate yes`,
+ * `--certificate ''`), or leaves out. Anything else is a mistake, never a no.
+ */
+export function yesOption(options: ReadonlyMap<string, string>, name: string): boolean {
+  const value = options.get(name) ?? ''
+  if (value !== '' && value !== 'yes') {
+    throw new Error(`--${name} must be yes or empty, got "${value}"`)
+  }
+  return value === 'yes'
 }
 
 export interface CheckOptions {
@@ -458,16 +516,26 @@ async function appImageToolsCommand(
   reporter.output('runtime-file', runtimeFile)
 }
 
-/**
- * Runs a subcommand. In tests, `download` replaces the network for `appimage-tools`, and
- * `metadata` replaces `cargo metadata` for `notices`.
- */
+/** What `main` runs outside this file, which tests replace. */
+export interface MainTools {
+  /** The network, for `appimage-tools`. Default: appimage-tools.ts's, with fetch. */
+  readonly download?: Download
+  /** `cargo metadata`, for `notices`. Default: cargo's, through scripts/run.sh. */
+  readonly metadata?: MetadataSource
+  /** signtool, for `windows-sign`. Default: the Windows SDK's (`runSigntool`). */
+  readonly signtool?: WindowsSignOptions['run']
+  /** The wait between signtool's attempts. */
+  readonly wait?: WindowsSignOptions['wait']
+}
+
+/** Runs a subcommand. */
 export async function main(
   argv: readonly string[],
   env: NodeJS.ProcessEnv,
   reporter: Reporter,
-  { download, metadata = cargoMetadata }: { download?: Download; metadata?: MetadataSource } = {},
+  tools: MainTools = {},
 ) {
+  const { download, metadata = cargoMetadata } = tools
   const [command, ...rest] = argv
   const options = parseOptions(rest)
   switch (command) {
@@ -550,9 +618,130 @@ export async function main(
       )
       return
     }
+    case 'windows-signing': {
+      const mode = parseMode(requireOption(options, 'mode'))
+      const signing = chooseWindowsSigning(
+        mode,
+        yesOption(options, 'certificate'),
+        yesOption(options, 'unsigned'),
+      )
+      reporter.output('signing', signing)
+      if (signing === 'none') {
+        reporter.notice(
+          'Windows signing',
+          mode === 'release'
+            ? 'The windows-signing environment holds no certificate (WINDOWS_CERTIFICATE), so ' +
+                "this release's Windows files are unsigned (docs/CODE-SIGNING.md)."
+            : 'This dry run leaves the Windows files unsigned (windows-unsigned), as a release ' +
+                'without a certificate does (docs/CODE-SIGNING.md).',
+        )
+      } else {
+        reporter.info(
+          `Windows files: signed with ${signing === 'throwaway' ? 'a throwaway' : 'the release'} certificate`,
+        )
+      }
+      return
+    }
+    case 'windows-hook-config': {
+      const configArgs = writeHookConfig(
+        requireOption(options, 'out'),
+        parseHookMode(requireOption(options, 'mode')),
+        requireOption(options, 'dir'),
+      )
+      reporter.output('config-args', configArgs)
+      return
+    }
+    case 'windows-hook': {
+      reporter.info(
+        runHook(
+          parseHookMode(requireOption(options, 'mode')),
+          requireOption(options, 'dir'),
+          requireOption(options, 'file'),
+        ),
+      )
+      return
+    }
+    case 'windows-collected': {
+      const dir = requireOption(options, 'dir')
+      const files = readCollected(dir)
+      const problems = collectedProblems(dir, files)
+      reporter.summary(
+        [
+          '### Windows files to sign',
+          '',
+          '| File | Kind | SHA-256 |',
+          '|---|---|---|',
+          ...files.map((file) => `| \`${file.name}\` | ${file.kind} | \`${file.sha256}\` |`),
+        ].join('\n'),
+      )
+      if (problems.length > 0) {
+        throw new Error(`The files to sign don't hold:\n${problems.join('\n')}`)
+      }
+      reporter.info(`Windows: ${files.length} files to sign, as expected`)
+      return
+    }
+    case 'windows-sign': {
+      const sign: WindowsSignOptions = {
+        thumbprint: requireOption(options, 'thumbprint'),
+        timestampUrl: options.get('timestamp-url') ?? '',
+        ...(tools.signtool === undefined ? {} : { run: tools.signtool }),
+        ...(tools.wait === undefined ? {} : { wait: tools.wait }),
+      }
+      const phase = requireOption(options, 'phase')
+      if (phase === 'app') {
+        const files = signApp(requireOption(options, 'dir'), requireOption(options, 'out'), sign)
+        reporter.info(`Signed ${files.map((file) => file.name).join(', ')}`)
+      } else if (phase === 'installers') {
+        const names = signInstallers(
+          requireOption(options, 'dir'),
+          requireOption(options, 'version'),
+          sign,
+        )
+        reporter.info(`Signed ${names.join(', ')}`)
+      } else {
+        throw new Error(`--phase must be app or installers, got "${phase}"`)
+      }
+      return
+    }
+    case 'windows-swapped': {
+      const { problems, left } = swapProblems(requireOption(options, 'dir'))
+      if (problems.length > 0) throw new Error(problems.join('\n'))
+      reporter.info(
+        `Windows: every signed file went into the installers; left as built: ${left.join(', ')}`,
+      )
+      return
+    }
+    case 'windows-signatures': {
+      const signing = parseWindowsSigning(requireOption(options, 'signing'))
+      const signatures = parseSignatureReport(
+        readFileSync(requireOption(options, 'report'), 'utf8'),
+      )
+      const problems = checkWindowsSignatures(signatures, signing, {
+        installers: options.get('thumbprint'),
+        app: options.get('app-thumbprint'),
+      })
+      reporter.summary(
+        [
+          `### Windows signatures (${signing})`,
+          '',
+          '| File | Status | Signer | Timestamp |',
+          '|---|---|---|---|',
+          ...signatures.map(
+            (s) =>
+              `| \`${s.file}\` | ${s.status} | ${s.signer ?? ''} | ${s.timestamped ? 'yes' : 'no'} |`,
+          ),
+        ].join('\n'),
+      )
+      if (problems.length > 0)
+        throw new Error(`The Windows signatures don't hold:\n${problems.join('\n')}`)
+      reporter.info(`Windows signatures: ${signatures.length} files, as expected (${signing})`)
+      return
+    }
     default:
       throw new Error(
-        'usage: release.ts <check|build-key|appimage-tools|notices|collect|sign> [options]',
+        'usage: release.ts <check|build-key|appimage-tools|notices|collect|sign|' +
+          'windows-hook-config|windows-hook|windows-collected|windows-signing|windows-sign|' +
+          'windows-swapped|windows-signatures> [options]',
       )
   }
 }

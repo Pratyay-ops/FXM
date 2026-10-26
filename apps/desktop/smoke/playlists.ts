@@ -3,7 +3,7 @@
  *
  * - {@link FREE_PLAYLIST}: three public-domain recordings on Internet Archive, about 9 minutes in
  *   all, which play today;
- * - {@link youtubeSongs}: three YouTube Music songs, which wait for stage 1.4's resolver.
+ * - {@link youtubeSongs}: three YouTube Music songs, which still wait for a stream source.
  *
  * @module
  */
@@ -100,7 +100,10 @@ export const FREE_PLAYLIST: SmokePlaylist = {
 /**
  * Three YouTube Music songs and the YouTube resolver: the real done-when, through stage 1.4's
  * ladder and its end-of-file probe. Stage 1.4 had not merged when 7.3 was built, so this waits.
- * Once it has, along these lines (with stage 1.3's provider for the search):
+ * Stages 1.3 and 1.4 have merged since (`youtube.ts` uses them), but the stream lifecycle needs
+ * them as a `StreamSource`, whose adapter lives in the web app
+ * (`youtubeStreamSource` in `apps/web/src/app/services/youtube.ts`), not in a package this
+ * test can import. Once it moves into one, along these lines:
  *
  * ```ts
  * export async function youtubeSongs(query: string, ctx: ProviderContext) {
@@ -111,5 +114,5 @@ export const FREE_PLAYLIST: SmokePlaylist = {
  * ```
  */
 export async function youtubeSongs(): Promise<SmokePlaylist> {
-  throw new Pending('needs stage 1.4’s VISIONOS resolver, which has not merged yet')
+  throw new Pending('needs the ytm stream source, which only the web app has so far')
 }

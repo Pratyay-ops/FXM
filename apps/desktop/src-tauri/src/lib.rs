@@ -18,6 +18,10 @@
 //! Updates (stage 7.5): release builds look for a newer version on GitHub Releases and offer it
 //! ([`updater`]), through tauri-plugin-updater, which only Rust uses. They also carry the
 //! third-party notices among their resources, which Settings → About shows ([`notices`]).
+//!
+//! The readable audio path (stage 7.6): the [`media`] scheme, `fxm-media:`, serves googlevideo
+//! streams to the main window's `<audio>` elements through Rust, with CORS headers for the app,
+//! so Web Audio can read YouTube audio for the equalizer.
 
 use tauri::Manager;
 use tauri_plugin_window_state::StateFlags;
@@ -26,6 +30,7 @@ pub mod environment;
 mod evaluator;
 #[cfg(target_os = "macos")]
 mod fullscreen;
+pub mod media;
 pub mod network;
 pub mod notices;
 pub mod playback;
@@ -69,12 +74,21 @@ pub fn run() {
         .plugin(evaluator::init())
         // Updates (src/updater.rs). Only Rust calls it: the web app's capability grants none of
         // its commands.
-        .plugin(tauri_plugin_updater::Builder::new().build());
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // googlevideo streams for the main window's <audio>, readable by Web Audio (src/media.rs).
+        .register_asynchronous_uri_scheme_protocol(
+            media::SCHEME,
+            media::handler(media::MediaProxy::new(media::MediaPolicy::default())),
+        );
     // macOS: Tauri's default app menu, with Window > FXM (⌘0) to bring a hidden window back.
     #[cfg(target_os = "macos")]
     let builder = builder
         .menu(window::app_menu)
         .on_menu_event(|app, event| window::on_menu_event(app, event.id().as_ref()));
+    // macOS: the smoke build runs unattended, often while someone works at the Mac, so it never
+    // takes the focus from the app in front, and (in setup) shows no Dock icon or menu bar.
+    #[cfg(all(target_os = "macos", feature = "smoke"))]
+    let builder = builder.activate_ignoring_other_apps(false);
     let app = builder
         .setup(|app| {
             let file = app.path().app_config_dir()?.join(user_hosts::FILE_NAME);
@@ -95,6 +109,8 @@ pub fn run() {
             // The live smoke test's build only (apps/desktop/smoke).
             #[cfg(feature = "smoke")]
             smoke::listen(app.handle());
+            #[cfg(all(target_os = "macos", feature = "smoke"))]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             Ok(())
         })
         .on_window_event(window::on_window_event)

@@ -4,7 +4,8 @@ name: Desktop
 # code and uploads the bundles as workflow artifacts. The release builds are desktop-release.yml's,
 # which release.yml calls. Started by hand with release-dry-run, this runs that instead, as a dry
 # run: the installers of all five targets, signed with a throwaway key, as workflow artifacts,
-# with no release and no tag (apps/desktop/README.md, "Releases").
+# with no release and no tag (apps/desktop/README.md, "Releases"). With windows-unsigned as well,
+# it signs no Windows file, as a release without a certificate.
 #
 # The path filters list everything the jobs build or run: the desktop app, the web app it
 # embeds and the packages that web app bundles, the Makefile targets and scripts behind
@@ -51,6 +52,10 @@ on:
     inputs:
       release-dry-run:
         description: Build the release installers (desktop-release.yml) as a dry run, without publishing
+        type: boolean
+        default: false
+      windows-unsigned:
+        description: With release-dry-run, sign no Windows file, as a release without a certificate
         type: boolean
         default: false
 
@@ -232,3 +237,4 @@ jobs:
       contents: read
     with:
       sha: ${{ github.sha }}
+      windows-unsigned: ${{ inputs.windows-unsigned }}
