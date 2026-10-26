@@ -4,16 +4,16 @@ The web app's side of stage 4.1: where downloads are stored, which tab runs the 
 
 | File | What it holds |
 |---|---|
-| `runtime.ts` | The app's downloads, created on first use (`getDownloads`): the manager over the `fxm-downloads` database and the Origin Private File System, the Downloads playlist kept in step, `startDownloads` (the tab with the Web Lock runs the queue), `getOfflineStore` for the player, `resetDownloads` for tests |
+| `runtime.ts` | The app's downloads, created on first use (`getDownloads`): the manager over the `fxm-downloads` database and the Origin Private File System (in the Android app, the app's own storage), the Downloads playlist kept in step, `startDownloads` (the tab with the Web Lock runs the queue; in the Android app, with the background service), `getOfflineStore` for the player, `resetDownloads` for tests |
 | `download-db.ts` | The `fxm-downloads` IndexedDB database (Dexie) and the `DownloadStore` on it |
 | `opfs/` | The `DownloadStorage` on the Origin Private File System: `storage.ts` on the page, `worker.ts` and `handler.ts` in a dedicated worker that writes through sync access handles, `protocol.ts` for their messages |
 | `environment.ts` | The one place where downloads meet stages that hadn't merged (the provider context of 1.2, whose `fetch` draws on the request budget at the `bulk` priority; the sources, matching engine and match cache behind the resolver), and the stand-in until then |
 | `persistence.ts` | `navigator.storage.estimate()`, `persisted()` and `persist()` for the usage meter |
 | `hooks.ts` | Live reads of the downloads, availability per track, storage numbers |
-| `actions.ts` | What buttons and menus do, with their confirmations |
+| `actions.ts` | What buttons and menus do, with their confirmations; in the Android app, "Save to Music folder" and the one-time notification question |
 | `download-button.tsx` | A download button for any track: download, progress, pause, resume, retry, remove |
 | `downloads-panel.tsx` | The download manager in the library's Downloads tab |
-| `menu.ts` | The download entry of track-list menus |
+| `menu.ts` | The download entry of track-list menus, and "Save to Music folder" in the Android app |
 | `format.ts`, `progress.tsx` | Sizes, states, errors; the progress ring and bar |
 | `testing.ts`, `opfs/fake-opfs.ts` | Test setup: fakes for the network, the resolver and the file system |
 
@@ -25,6 +25,17 @@ The web app's side of stage 4.1: where downloads are stored, which tab runs the 
 - **Room for the library.** Downloads share the browser's quota with the library, so a download that would leave less than the smaller of 10 % of the quota and 200 MB for the rest of FXM fails as `storage-full` (checked when a file opens and every 8 MiB written), and the queue pauses before the library's own writes can fail.
 - **Records** live in their own IndexedDB database, `fxm-downloads`, apart from the library's `fxm`: downloads describe files on this device, so they stay out of library backups. The Downloads playlist (in the library, stage 2.6) holds their order.
 - **Persistence.** The first download asks the browser to keep FXM's data when space runs low (`navigator.storage.persist()`), from the click, where Firefox can ask the user and Chromium decides by itself. The Downloads tab shows whether it agreed, with a button to ask again, and a usage meter: what downloads take, what the rest of FXM takes, and what is free for FXM (`navigator.storage.estimate()`).
+
+## In the Android app
+
+Stage 6.4. Where the `FxmDownloads` plugin is on the Capacitor bridge, the app's downloads use it ([`@fxm/downloads`' native side](../../../../../packages/downloads/src/native/README.md), [the Android module](../../../../../apps/mobile/android/fxm-downloads/README.md)); the queue, its records and the UI stay the same:
+
+- **Files** live in the app's own storage, not in the browser's. Support is tried the same way (the plugin's `info`), and the storage card shows the room left for downloads on the phone (what Android's low-storage reserve leaves free) instead of the browser's quota, and says that FXM keeps the downloads: the system never deletes them for space, so there is no "Keep my downloads".
+- **In the background.** `startDownloads` reports the queue to the app whenever it changes (`connectBackgroundDownloads`), and a `dataSync` foreground service with a progress notification keeps the app, and the queue in its page, running while it has work, also with the screen off. On Android 13 and later the first download asks once to show notifications (`NOTIFICATIONS_ASKED_KEY` remembers it); refused, downloads run all the same.
+- **Save to Music folder.** Track lists offer it for finished downloads: a copy in Music/FXM, where every music app finds it, named `Artist - Title`. A download of a video file (YouTube's itag 18) says it can't be saved yet: its audio must be taken out first (stage 4.2).
+- **Offline playback** uses the same offline store; the playback URL of a file is the WebView URL Capacitor serves it at, which the native player (Media3) plays from the device.
+
+Until the composition root wires the download environment to the app's platform context and stream sources (`environment.ts`, the 4.1 row of [its README](../../app/services/README.md#where-the-other-stages-plug-in)), nothing is offered for download in the app either: the pending environment reports the free tier.
 
 ## One tab runs the queue
 
@@ -48,4 +59,4 @@ Nothing is offered where the bytes are unreadable (YouTube audio needs FXM Conne
 
 ## Testing
 
-`setupDownloads()` from `testing.ts` gives the app's downloads an in-memory storage, a `FakeMediaServer` as the network and a `FakeDownloadResolver`, for a tier the test picks, and runs the queue; the test setup resets everything after each test. OPFS is tested against `opfs/fake-opfs.ts`, with the worker's handler run in-process and through a fake worker.
+`setupDownloads()` from `testing.ts` gives the app's downloads an in-memory storage, a `FakeMediaServer` as the network and a `FakeDownloadResolver`, for a tier the test picks, and runs the queue; with `android: true` the files go to a fake `FxmDownloads` plugin instead (`android.test.tsx`: the app's storage, the background reports, the notification question, Save to Music, the storage card). The test setup resets everything after each test. OPFS is tested against `opfs/fake-opfs.ts`, with the worker's handler run in-process and through a fake worker.

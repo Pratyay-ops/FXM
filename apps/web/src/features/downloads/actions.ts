@@ -6,14 +6,34 @@
  * @module
  */
 
-import type { EntityId, Track } from '@fxm/core'
-import { downloadId } from '@fxm/downloads'
+import { type EntityId, isFxmError, type Track } from '@fxm/core'
+import { downloadId, exportDownloadToMusic } from '@fxm/downloads'
 import { getLibrary } from '../../db/repo'
 import { DOWNLOADS_PLAYLIST_ID } from '../../db/types'
 import { countLabel } from '../library/format'
 import { showStatus } from '../library/status'
 import { requestStoragePersistence } from './persistence'
 import { getDownloads } from './runtime'
+
+/** Where the app remembers that it asked to show download notifications (Android). */
+export const NOTIFICATIONS_ASKED_KEY = 'fxm-download-notifications-asked'
+
+/**
+ * In the Android app, asks once for the notification permission (Android 13+), from the click
+ * that starts the first download, so the progress notification of the background service shows.
+ * The downloads run either way.
+ */
+function askForDownloadNotifications(): void {
+  const { plugin } = getDownloads()
+  if (plugin === undefined) return
+  try {
+    if (localStorage.getItem(NOTIFICATIONS_ASKED_KEY) !== null) return
+    localStorage.setItem(NOTIFICATIONS_ASKED_KEY, '1')
+  } catch {
+    // Storage blocked: ask now, as if for the first time.
+  }
+  void plugin.requestNotifications().catch(() => {})
+}
 
 /** The track a removal needs: its ID, and its title for the confirmation. */
 export type RemovableTrack = Pick<Track, 'id'> & { title?: string | undefined }
@@ -22,6 +42,7 @@ export type RemovableTrack = Pick<Track, 'id'> & { title?: string | undefined }
 export async function downloadTracks(tracks: readonly Track[]): Promise<void> {
   // First, while the click still counts as the user's: the browser may ask.
   void requestStoragePersistence()
+  askForDownloadNotifications()
   const [only] = tracks
   try {
     const { queued, present, skipped } = await getDownloads().manager.enqueueAll(tracks)
@@ -111,4 +132,25 @@ export async function resumeAllDownloads(): Promise<void> {
   await getDownloads()
     .manager.resumeAll()
     .catch(() => undefined)
+}
+
+/**
+ * In the Android app, saves a copy of the finished download of `track` to Music/FXM, where every
+ * music app finds it. Call it from the click: on Android 9 and older the app asks for the
+ * permission it needs.
+ */
+export async function saveDownloadToMusic(track: Pick<Track, 'id' | 'title'>): Promise<void> {
+  const { plugin, manager } = getDownloads()
+  if (plugin === undefined) return
+  try {
+    const record = await manager.get(track)
+    if (record === undefined) {
+      showStatus(`“${track.title}” isn’t downloaded on this device`)
+      return
+    }
+    const { path } = await exportDownloadToMusic(plugin, record)
+    showStatus(`Saved “${track.title}” to ${path}`)
+  } catch (error) {
+    showStatus(isFxmError(error) ? error.message : 'Couldn’t save the song to Music')
+  }
 }

@@ -9,10 +9,13 @@
 import type { NetworkCapabilities, ProviderContext, Track } from '@fxm/core'
 import { createMemoryDownloadStorage, type MemoryDownloadStorage } from '@fxm/downloads'
 import {
+  createFakeFxmDownloads,
   downloadCandidate,
   downloadStream,
   FakeDownloadResolver,
+  type FakeFxmDownloads,
   FakeMediaServer,
+  FakeNetwork,
   testBytes,
 } from '@fxm/downloads/testing'
 import { useSettingsStore } from '../settings/settings-store'
@@ -39,6 +42,11 @@ export interface SetupDownloadsOptions {
   run?: boolean
   /** Whether the browser can store downloads. Default: true. */
   supported?: boolean
+  /**
+   * Whether FXM runs in the Android app: the downloads then go to the app's own storage through
+   * a fake `FxmDownloads` plugin (`plugin` in the result), not to the memory storage.
+   */
+  android?: boolean
 }
 
 /**
@@ -74,16 +82,28 @@ export async function setupDownloads(options: SetupDownloadsOptions = {}) {
       }
     },
   }
+  const plugin: FakeFxmDownloads | undefined = options.android
+    ? createFakeFxmDownloads()
+    : undefined
+  // In the Android app a network the test switches; in a browser the browser's own.
+  const network = plugin === undefined ? undefined : new FakeNetwork()
   await resetDownloads({
     environment,
-    storage,
-    supported: options.supported ?? true,
+    ...(plugin === undefined
+      ? { storage, supported: options.supported ?? true, plugin: null }
+      : { plugin }),
+    ...(network === undefined ? {} : { network }),
     manager: { chunkBytes: 1024, retryDelaysMs: [1], progressIntervalMs: 0 },
   })
   if (options.run !== false) startDownloads()
   return {
     server,
+    /** The memory storage, outside the Android app. */
     storage,
+    /** The fake `FxmDownloads` plugin, in the Android app. */
+    plugin,
+    /** The network the test switches, in the Android app. */
+    network,
     resolver,
     downloads: getDownloads(),
     /** Gives `track`'s file `size` bytes. */
