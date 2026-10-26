@@ -154,21 +154,54 @@ STUB
   chmod +x "$1"
 }
 
+write_pnpm_stub() {
+  cat >"$1" <<'STUB'
+#!/usr/bin/env bash
+# Stand-in for pnpm (scripts/release-test.sh): logs every call to $PNPM_STUB_DIR/calls.log, with
+# the make level it runs at (MAKELEVEL: 0 outside make, 1 in a recipe of a make that no other
+# make started, and so on). make dist's command replaces dist/pages with a copy of
+# $PNPM_STUB_DIR/pages, modes and dates included; FXM Connect's build writes its two zips, named
+# with its package.json's version. While $PNPM_STUB_DIR/no-match exists, it does what pnpm does
+# when a filter matches no package: nothing, successfully.
+set -euo pipefail
+state=${PNPM_STUB_DIR:?}
+printf '%s (make level %s)\n' "$*" "${MAKELEVEL:-0}" >>"$state/calls.log"
+[ ! -e "$state/no-match" ] || exit 0
+case " $* " in
+  *" --filter @fxm/deploy dist "*)
+    rm -rf dist/pages
+    mkdir -p dist
+    cp -Rp "$state/pages" dist/pages
+    ;;
+  *" --filter @fxm/extension build "*)
+    version=$(node -p 'require("./apps/extension/package.json").version')
+    mkdir -p apps/extension/dist
+    for browser in chromium firefox; do
+      echo "$browser" >"apps/extension/dist/fxm-connect-$browser-$version.zip"
+    done
+    ;;
+  *) echo "pnpm stub: unexpected call: $*" >&2 && exit 2 ;;
+esac
+STUB
+  chmod +x "$1"
+}
+
 package_json() { # <file> <name> <version>
   mkdir -p "$(dirname "$1")"
   printf '{\n  "name": "%s",\n  "version": "%s",\n  "private": true\n}\n' "$2" "$3" >"$1"
 }
 
 # new_repo <name>: a repository like FXM's, as far as the release scripts look, with this
-# checkout's scripts and an origin. Prints its path. The stub's state is in <name>/gh.
+# checkout's Makefile and scripts and an origin. Prints its path. The stub's state is in
+# <name>/gh.
 new_repo() {
   local root=$tmp/$1 work=$tmp/$1/work
   mkdir -p "$root/gh" "$work/scripts" "$work/.tools/bin" "$work/packages/core/src"
   git init -q --bare -b main "$root/origin.git"
   git init -q -b main "$work"
-  cp "$FXM_ROOT"/scripts/{env.sh,lib.sh,install-git-cliff.sh} "$FXM_ROOT"/scripts/release-*.sh \
-    "$work/scripts/"
-  cp "$FXM_ROOT/cliff.toml" "$work/"
+  cp "$FXM_ROOT"/scripts/{env.sh,lib.sh,run.sh,install-git-cliff.sh} \
+    "$FXM_ROOT"/scripts/release-*.sh "$work/scripts/"
+  cp "$FXM_ROOT/Makefile" "$FXM_ROOT/cliff.toml" "$work/"
   # The repository's changelog without its release sections, which every release adds to.
   awk '/^## \[/ { exit } { print }' "$FXM_ROOT/CHANGELOG.md" >"$work/CHANGELOG.md"
   ln -s "$cliff" "$work/.tools/bin/git-cliff"
@@ -536,7 +569,7 @@ echo "release-collect.sh"
 work=$(new_repo collect)
 pristine=$tmp/collect/pristine
 mkdir -p "$pristine/release-bundles"
-for app in web site connect-chromium connect-firefox; do
+for app in web connect-chromium connect-firefox; do
   echo "$app" >"$pristine/release-bundles/fxm-$app-0.1.0.zip"
 done
 # new_case: a fresh copy of the pristine artifacts in $case_dir/artifacts, to collect into
@@ -552,8 +585,8 @@ collect() { run "$work" scripts/release-collect.sh 0.1.0 "$case_dir/artifacts" "
 new_case
 collect
 expect "gathers the artifacts' files into one folder" \
-  test "$status" -eq 0 -a "$(find "$case_dir/out" -type f | wc -l | tr -d ' ')" = 4
-expect "unchanged" test "$(cat "$case_dir/out/fxm-site-0.1.0.zip")" = site
+  test "$status" -eq 0 -a "$(find "$case_dir/out" -type f | wc -l | tr -d ' ')" = 3
+expect "unchanged" test "$(cat "$case_dir/out/fxm-web-0.1.0.zip")" = web
 # refuses_file <description> <file to add to release-bundles> <message>
 refuses_file() {
   new_case
@@ -605,6 +638,76 @@ collect
 expect "refuses a folder that isn't empty" \
   test "$status" -ne 0 -a -n "$(grep 'is not empty' <<<"$out")"
 
+echo "release-build.sh"
+if ! command -v zip >/dev/null 2>&1 || ! command -v unzip >/dev/null 2>&1; then
+  fxm_warn "Skipped: these tests need zip and unzip (preinstalled on macOS and GitHub's runners)"
+else
+  work=$(new_repo build)
+  export PNPM_STUB_DIR=$tmp/build/pnpm
+  mkdir -p "$PNPM_STUB_DIR"
+  : >"$PNPM_STUB_DIR/calls.log"
+  write_pnpm_stub "$work/.tools/bin/pnpm"
+  # What make dist composes, in small, with modes and dates that must not reach the zip.
+  pages=$PNPM_STUB_DIR/pages
+  mkdir -p "$pages/.well-known" "$pages/app/assets" "$pages/sandbox"
+  for file in index.html Z.html _headers third-party-notices.txt .well-known/security.txt \
+    app/index.html app/assets/b.js app/assets/a.js sandbox/innertube.html; do
+    echo "$file" >"$pages/$file"
+  done
+  chmod 0600 "$pages/_headers"
+  chmod 0755 "$pages/app/assets/a.js"
+  build() { run "$work" scripts/release-build.sh "${1:-dist/release}"; }
+  build
+  expect "refuses to build until every package has the release version" \
+    test "$status" -ne 0 -a -n "$(grep 'every package needs the release version' <<<"$out")"
+  (cd "$work" && scripts/release-version.sh 0.1.0 >/dev/null)
+  GIT_COMMITTER_DATE=2026-10-25T12:30:42Z git -C "$work" commit -q -am "chore(release): v0.1.0"
+  zip=$work/dist/release/fxm-web-0.1.0.zip
+  build
+  expect "builds the release files" test "$status" -eq 0
+  # Run by make itself, one level below this test (make release-check is a level of its own), so
+  # the call is whatever the Makefile's dist recipe makes it, as in the deploy workflow.
+  made_dist="--filter @fxm/deploy dist.* (make level $((${MAKELEVEL:-0} + 1)))\$"
+  expect "with make dist itself, once" \
+    test "$(grep -c -- "$made_dist" "$PNPM_STUB_DIR/calls.log")" = 1
+  no_own_builds() {
+    lacks "$PNPM_STUB_DIR/calls.log" @fxm/site && lacks "$PNPM_STUB_DIR/calls.log" @fxm/web
+  }
+  expect "instead of building the site and the app on their own" no_own_builds
+  expect "into the web zip and FXM Connect's two" \
+    test "$(ls "$work/dist/release" 2>/dev/null | tr '\n' ' ')" = \
+    "fxm-connect-chromium-0.1.0.zip fxm-connect-firefox-0.1.0.zip fxm-web-0.1.0.zip "
+  sorted=(.well-known/security.txt Z.html _headers app/assets/a.js app/assets/b.js app/index.html
+    index.html sandbox/innertube.html third-party-notices.txt)
+  expect "the web zip holds exactly dist/pages, dot folders included, sorted by name" \
+    test "$(unzip -Z1 "$zip" 2>/dev/null | tr '\n' ' ')" = "${sorted[*]} "
+  # zipinfo's lines: mode, version, system, size, text or binary plus a hyphen when the entry has
+  # no extra field (uid, gid, more dates), method, date.time and name.
+  entry='^-rw-r--r-- .* [tb]- [a-zA-Z0-9]+ 20261025\.123042 '
+  expect "every file 0644, without extra fields and dated with the release commit's time" \
+    test "$(unzip -Z -T "$zip" 2>/dev/null | grep -cE "$entry")" = 9
+  cp "$zip" "$tmp/build/first.zip" 2>/dev/null || true
+  chmod 0640 "$pages/index.html"
+  TZ=UTC find "$pages" -exec touch -t 200001020304.05 {} +
+  build
+  expect "the same files make the same zip, whatever their modes and dates" \
+    cmp -s "$zip" "$tmp/build/first.zip"
+  touch "$PNPM_STUB_DIR/no-match"
+  build
+  expect "never zips the dist/pages of an earlier make dist" test "$status" -ne 0 -a ! -e "$zip"
+  rm "$PNPM_STUB_DIR/no-match"
+  mv "$pages/third-party-notices.txt" "$tmp/build/notices.txt"
+  build
+  expect "refuses a dist/pages without the third-party notices" \
+    test "$status" -ne 0 -a ! -e "$zip" -a -n "$(grep 'third-party-notices.txt' <<<"$out")"
+  mv "$tmp/build/notices.txt" "$pages/third-party-notices.txt"
+  calls=$(wc -l <"$PNPM_STUB_DIR/calls.log" | tr -d ' ')
+  build dist/pages/release
+  expect "refuses a release folder inside dist/pages, which make dist replaces" \
+    test "$status" -ne 0 -a -n "$(grep 'inside a folder that make dist replaces' <<<"$out")" \
+    -a "$(wc -l <"$PNPM_STUB_DIR/calls.log" | tr -d ' ')" = "$calls"
+fi
+
 echo "release-build.sh --checksums and release-publish.sh"
 work=$(new_repo publish)
 export GH_STUB_DIR=$tmp/publish/gh
@@ -632,7 +735,7 @@ expect "refuses a folder among the files" \
   test "$status" -ne 0 -a -n "$(grep 'is not a plain file' <<<"$out")"
 expect "and leaves SHA256SUMS as it was" cmp -s "$files/SHA256SUMS" "$copy/SHA256SUMS"
 copy_files with-link
-ln -s fxm-web-0.1.0.zip "$copy/fxm-site-0.1.0.zip"
+ln -s fxm-web-0.1.0.zip "$copy/fxm-connect-firefox-0.1.0.zip"
 run "$work" scripts/release-build.sh --checksums "$copy"
 expect "and a link" test "$status" -ne 0 -a -n "$(grep 'is not a plain file' <<<"$out")"
 printf '### Features\n\n- **core:** Add a thing\n' >"$tmp/publish/notes.md"
@@ -647,7 +750,9 @@ expect "with every file, SHA256SUMS included" test "$(sort "$GH_STUB_DIR/release
   tr '\n' ' ')" = "SHA256SUMS fxm-connect-chromium-0.1.0.zip fxm-web-0.1.0.zip "
 expect "with the notes" has "$GH_STUB_DIR/release-notes.md" "- **core:** Add a thing"
 expect "and a table of the files from the catalog" has "$GH_STUB_DIR/release-notes.md" \
-  "| \`fxm-web-0.1.0.zip\` | The web app for self-hosting"
+  "| \`fxm-web-0.1.0.zip\` | The website and web app for self-hosting"
+expect "and where the self-hosting steps are" has "$GH_STUB_DIR/release-notes.md" \
+  "(https://github.com/test/fxm/blob/v0.1.0/scripts/build-dist/README.md#self-hosting)"
 expect "that ends with SHA256SUMS" \
   test "$(grep '^| `' "$GH_STUB_DIR/release-notes.md" | tail -1 | cut -d'`' -f2)" = SHA256SUMS
 expect "and how to verify them against the release workflow on main" \
