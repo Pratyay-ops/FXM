@@ -93,6 +93,15 @@ export const routes: RouteObject[] = [
               })),
           },
           {
+            // The Android app's own third-party notices, from Settings → About (stage 6.6).
+            path: 'settings/notices',
+            handle: page('Third-party notices'),
+            lazy: () =>
+              import('../features/settings/notices-page').then((m) => ({
+                Component: m.NoticesPage,
+              })),
+          },
+          {
             path: 'connect',
             handle: page('FXM Connect'),
             lazy: () =>

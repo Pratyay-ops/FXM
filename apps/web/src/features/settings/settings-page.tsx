@@ -1,6 +1,7 @@
 import { APP_NAME, APP_TAGLINE, APP_VERSION } from '@fxm/core'
 import { ExternalLink } from 'lucide-react'
 import { useId } from 'react'
+import { Link } from 'react-router'
 import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
@@ -18,6 +19,7 @@ import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsor
 import { SyncSettings } from '../sync/sync-settings'
 import { CatalogModeControl } from './catalog-mode-control'
 import { AutoMatchSetting } from './matching-setting'
+import { NOTICES_ROUTE, showsBundledNotices } from './notices'
 import { CATALOG_MODE_DESCRIPTIONS, THEME_OPTIONS } from './options'
 import { QualitySection } from './quality-section'
 import { SettingRow, SettingsSection } from './settings-layout'
@@ -28,11 +30,17 @@ export const REPOSITORY_URL = 'https://github.com/Pratyay-ops/FXM'
 /** FXM's site, where its privacy page, disclaimer and the bundled code's notices are. */
 export const SITE_URL = 'https://fxmusic.pages.dev'
 
+/**
+ * The website's third-party notices, of the code make dist deploys. The Android app shows the
+ * notices its APK carries instead, on a page of its own (notices.ts).
+ */
+export const SITE_NOTICES_URL = `${SITE_URL}/third-party-notices.txt`
+
 /** The legal pages Settings → About links to. */
 export const LEGAL_LINKS = [
   { href: `${SITE_URL}/privacy`, label: 'Privacy' },
   { href: `${SITE_URL}/disclaimer`, label: 'Disclaimer' },
-  { href: `${SITE_URL}/third-party-notices.txt`, label: 'Third-party notices' },
+  { href: SITE_NOTICES_URL, label: 'Third-party notices' },
 ] as const
 
 /** The non-affiliation notice (R.4), in one line. */
@@ -52,6 +60,7 @@ export function SettingsPage() {
   const spotifyHelpId = useId()
   const installLabelId = useId()
   const installHelpId = useId()
+  const ownNotices = showsBundledNotices()
 
   return (
     <div className="max-w-3xl space-y-8 pt-2 md:pt-4">
@@ -169,9 +178,16 @@ export function SettingsPage() {
           <ul aria-label="Legal" className="flex flex-wrap gap-x-6">
             {LEGAL_LINKS.map((link) => (
               <li key={link.href}>
-                <ExternalTextLink href={link.href} className={standaloneLinkClasses}>
-                  {link.label}
-                </ExternalTextLink>
+                {ownNotices && link.href === SITE_NOTICES_URL ? (
+                  // The notices of what the APK bundles, shown in the app (stage 6.6).
+                  <Link to={NOTICES_ROUTE} className={standaloneLinkClasses}>
+                    {link.label}
+                  </Link>
+                ) : (
+                  <ExternalTextLink href={link.href} className={standaloneLinkClasses}>
+                    {link.label}
+                  </ExternalTextLink>
+                )}
               </li>
             ))}
           </ul>
