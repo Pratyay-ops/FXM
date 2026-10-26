@@ -7,7 +7,7 @@ import { track } from '../../test/library-fixtures'
 import { renderApp } from '../../test/render'
 import { useFeedbackStore } from '../search/feedback'
 import { downloadTracks, NOTIFICATIONS_ASKED_KEY, saveDownloadToMusic } from './actions'
-import { useSaveToMusicMenuItem } from './menu'
+import { useSaveMenuItem, useSaveToMusicMenuItem } from './menu'
 import { getDownloads, getOfflineStore, startDownloads } from './runtime'
 import { fakeMediaUrl, setupDownloads } from './testing'
 
@@ -97,6 +97,20 @@ describe('downloads in the Android app', () => {
     expect(result.current({ id: track(2).id, track: track(2) })).toBeUndefined()
     expect(result.current({ id: formatId('ytm', 'track', 'none') })).toBeUndefined()
     expect(downloadId(track(1))).toBe(done.id)
+  })
+
+  it('offer no “Save to device…”, which the WebView would drop', async () => {
+    const { downloads } = await setupDownloads({ android: true, run: false })
+    const done = { ...newDownloadRecord(track(1), 1), status: 'completed' as const, file: 'a' }
+    await downloads.store.update(done.id, () => done)
+    const { result } = renderHook(() => ({
+      save: useSaveMenuItem(() => {}),
+      music: useSaveToMusicMenuItem(),
+    }))
+    const row = { id: track(1).id, track: track(1) }
+    // Once the statuses are read, a finished download gets "Save to Music folder" alone.
+    await waitFor(() => expect(result.current.music(row)).toMatchObject({ id: 'save-to-music' }))
+    expect(result.current.save(row)).toBeUndefined()
   })
 
   it('show the room on the device, and that FXM keeps them', async () => {

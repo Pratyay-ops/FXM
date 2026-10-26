@@ -1,7 +1,7 @@
 /**
  * Download entries for the menus of track lists: "Download", "Cancel download" and "Remove
  * download", depending on where the track's download stands and whether it can be downloaded
- * here; "Save to device…" for a finished one, and in the Android app "Save to Music folder" too.
+ * here; for a finished one "Save to device…", or in the Android app "Save to Music folder".
  *
  * @module
  */
@@ -74,16 +74,22 @@ export function useDownloadMenuItem(): DownloadMenuItem {
 
 /**
  * The "Save to device…" entry of a row's menu: only for a song downloaded on this device, whose
- * file can be saved in another format (stage 4.2). `onSave` opens the save dialog.
+ * file can be saved in another format (stage 4.2). `onSave` opens the save dialog. Not in the
+ * Android app yet: it has no device saver of its own (`setDeviceSaver`), and its WebView drops
+ * the browser saver's download (Capacitor gives it no download listener), so the copy would go
+ * nowhere while the dialog said it was saved. There, "Save to Music folder" keeps a copy.
  */
 export function useSaveMenuItem(
   onSave: (track: Track) => void,
 ): (row: DownloadMenuRow) => MenuItem | undefined {
   const statuses = useDownloadStatuses()
+  const saves = getDownloads().plugin === undefined
   return useCallback(
     (row) => {
       const { track } = row
-      if (track === undefined || statuses?.get(downloadId(row)) !== 'completed') return undefined
+      if (!saves || track === undefined || statuses?.get(downloadId(row)) !== 'completed') {
+        return undefined
+      }
       return {
         id: 'save-to-device',
         label: 'Save to device…',
@@ -91,7 +97,7 @@ export function useSaveMenuItem(
         onSelect: () => onSave(track),
       }
     },
-    [statuses, onSave],
+    [saves, statuses, onSave],
   )
 }
 

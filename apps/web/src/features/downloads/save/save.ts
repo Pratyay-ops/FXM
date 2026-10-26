@@ -6,7 +6,9 @@
  * Two pieces can be replaced: the converter (the worker running FXM's ffmpeg core) and the
  * device saver (the browser's file picker or downloads). The desktop app (stage 7.4) and the
  * Android app are to set their own saver with {@link setDeviceSaver}, so a saved file goes
- * through a native dialog or into the device's music library; neither does yet.
+ * through a native dialog or into the device's music library; neither does yet. The browser's
+ * saver can't save in the Android app (its WebView drops downloads), so until the app has its
+ * own, its track lists don't offer Save to device (`useSaveMenuItem` in `../menu.ts`).
  *
  * @module
  */
