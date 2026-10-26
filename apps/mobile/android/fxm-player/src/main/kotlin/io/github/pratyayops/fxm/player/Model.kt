@@ -28,6 +28,11 @@ data class Source(
    * when it did not say; then it counts as resolved on the network current when it arrived.
    */
   val network: Int? = null,
+  /**
+   * Names the bytes the URL serves, or `null`: two sources with the same key serve the same file
+   * ([StreamIdentity]). Opaque here; the web app sets it from what it knows about the stream.
+   */
+  val fileKey: String? = null,
 )
 
 /** What the media notification, the lock screen and other system controls show for an entry. */
@@ -42,9 +47,16 @@ data class Metadata(
 
 /**
  * One item of the native queue: a queue item of the web app's player (`uid`) with a resolved
- * [Source]. [id] is chosen by the web app and unique among the entries it has sent.
+ * [Source]. [id] is chosen by the web app and unique among the entries it has sent. [data] is the
+ * web app's own data for the entry, opaque here and returned with it in the [Session].
  */
-data class Entry(val id: String, val uid: Long, val source: Source, val metadata: Metadata)
+data class Entry(
+  val id: String,
+  val uid: Long,
+  val source: Source,
+  val metadata: Metadata,
+  val data: String? = null,
+)
 
 /**
  * An [Entry] in the player's playlist. [key] names the bytes it plays: the playlist item's URI is

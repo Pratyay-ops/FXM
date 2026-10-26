@@ -9,30 +9,23 @@ import org.junit.Test
 
 class SourcesTest {
   @Test
-  fun `stream URLs of the same file serve the same bytes`() {
-    assertTrue(StreamIdentity.sameBytes(streamUrl(), streamUrl()))
+  fun `sources with the same file key serve the same bytes`() {
+    val first = Source(streamUrl(sig = 1), fileKey = "googlevideo:251:1:4000000:")
     // A fresh resolution: new signature, the same format and file.
-    assertTrue(StreamIdentity.sameBytes(streamUrl(sig = 1), streamUrl(sig = 2)))
-    // itag 18 has no clen; itag and lmt still name the file.
-    assertTrue(StreamIdentity.sameBytes(streamUrl(itag = 18, clen = null, sig = 1), streamUrl(itag = 18, clen = null, sig = 2)))
-    assertTrue(StreamIdentity.sameBytes("https://archive.org/download/x/a.flac", "https://archive.org/download/x/a.flac"))
+    assertTrue(StreamIdentity.sameBytes(first, Source(streamUrl(sig = 2), fileKey = "googlevideo:251:1:4000000:")))
+    assertTrue(StreamIdentity.sameBytes(first, first.copy(headers = mapOf("Referer" to "r"))))
+    // Equal URLs always do, with or without a key.
+    assertTrue(StreamIdentity.sameBytes(Source("https://archive.org/download/x/a.flac"), Source("https://archive.org/download/x/a.flac")))
   }
 
   @Test
-  fun `another format or file serves other bytes`() {
-    assertFalse(StreamIdentity.sameBytes(streamUrl(itag = 251), streamUrl(itag = 140)))
-    assertFalse(StreamIdentity.sameBytes(streamUrl(lmt = "1"), streamUrl(lmt = "2")))
-    assertFalse(StreamIdentity.sameBytes(streamUrl(clen = 1), streamUrl(clen = 2)))
-    assertFalse(StreamIdentity.sameBytes("${streamUrl(sig = 1)}&dur=2.0", "${streamUrl(sig = 2)}&dur=3.0"))
-    assertTrue(StreamIdentity.sameBytes("${streamUrl(sig = 1)}&dur=2.0", "${streamUrl(sig = 2)}&dur=2.0"))
-    assertFalse(StreamIdentity.sameBytes("https://archive.org/a.flac", "https://archive.org/b.flac"))
-    // Without the fields that name the file, only equal URLs count.
-    val bare = "https://rr1---sn-fxmtest.googlevideo.com/videoplayback?itag=251"
-    assertFalse(StreamIdentity.sameBytes(bare, "$bare&sig=2"))
-    // Not googlevideo, however it is spelled.
-    val lookalike = streamUrl().replace("googlevideo.com", "googlevideo.com.example.test")
-    assertFalse(StreamIdentity.sameBytes(lookalike, lookalike.replace("sig=1", "sig=2")))
-    assertFalse(StreamIdentity.sameBytes("not a url", "not a url either"))
+  fun `another file, or a URL without a key, serves other bytes`() {
+    val first = Source(streamUrl(sig = 1), fileKey = "googlevideo:251:1:4000000:")
+    assertFalse(StreamIdentity.sameBytes(first, Source(streamUrl(itag = 140, sig = 2), fileKey = "googlevideo:140:1:3000000:")))
+    // Native code reads nothing out of the URLs themselves.
+    assertFalse(StreamIdentity.sameBytes(Source(streamUrl(sig = 1)), Source(streamUrl(sig = 2))))
+    assertFalse(StreamIdentity.sameBytes(first, Source(streamUrl(sig = 2))))
+    assertFalse(StreamIdentity.sameBytes(Source("https://archive.org/a.flac"), Source("https://archive.org/b.flac")))
   }
 
   @Test

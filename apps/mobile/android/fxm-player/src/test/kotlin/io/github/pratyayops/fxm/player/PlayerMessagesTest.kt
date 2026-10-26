@@ -64,6 +64,35 @@ class PlayerMessagesTest {
   }
 
   @Test
+  fun `an entry keeps the web app's data and file key, opaque`() {
+    val json =
+      entryJson(
+        "e1",
+        "source" to source("fileKey" to "googlevideo:251:1:4000000:", "kind" to "http"),
+        "data" to "{\"codec\":\"opus\"}",
+      )
+    val entry = PlayerMessages.entry(json)
+    assertEquals("googlevideo:251:1:4000000:", entry.source.fileKey)
+    assertEquals("{\"codec\":\"opus\"}", entry.data)
+    val back = PlayerMessages.entryJson(entry)
+    assertEquals("{\"codec\":\"opus\"}", back.getString("data"))
+    assertEquals(entry, PlayerMessages.entry(back))
+    // An empty key names nothing.
+    assertNull(PlayerMessages.source(source("fileKey" to "")).fileKey)
+  }
+
+  @Test
+  fun `data, file keys and source kinds are checked`() {
+    bad { PlayerMessages.entry(entryJson("e", "data" to 5)) }
+    bad { PlayerMessages.entry(entryJson("e", "data" to "x".repeat(PlayerMessages.MAX_ENTRY_DATA_CHARS + 1))) }
+    bad { PlayerMessages.source(source("fileKey" to 7)) }
+    bad { PlayerMessages.source(source("fileKey" to "k".repeat(PlayerMessages.MAX_FILE_KEY_CHARS + 1))) }
+    // Offline copies are another kind, which this version does not play yet.
+    assertTrue(bad { PlayerMessages.source(source("kind" to "file")) }.contains("kind"))
+    bad { PlayerMessages.source(source("ipBound" to "yes")) }
+  }
+
+  @Test
   fun `optional fields have defaults`() {
     val entry =
       PlayerMessages.entry(

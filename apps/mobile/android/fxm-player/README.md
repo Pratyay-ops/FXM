@@ -27,10 +27,10 @@ web app (WebView)                       this module (same process)
 | `PlaybackService.kt` | The `MediaSessionService`: ExoPlayer, the media session and notification, the ticker that reports the state |
 | `ExoPort.kt` | The coordinator's `PlayerPort` over ExoPlayer, and the playlist items |
 | `DataSources.kt` | `EntryResolver` (the `ResolvingDataSource` resolver: current URL and per-URL headers) and `LoadErrorPolicy` |
-| `SourceTable.kt`, `EntryUris.kt`, `StreamIdentity.kt` | Slot keys to URLs and headers; which URLs serve the same bytes |
-| `SessionPlayer.kt` | What the system controls see: next and previous go to the coordinator; the playlist, repeat, shuffle and speed are the web app's |
+| `SourceTable.kt`, `EntryUris.kt`, `StreamIdentity.kt` | Slot keys to URLs and headers; which sources serve the same bytes (an equal URL or the web app's file key) |
+| `SessionPlayer.kt` | What the system controls see: next and previous go to the coordinator, stop pauses; the playlist, repeat, shuffle and speed are the web app's |
 | `FxmPlayerPlugin.kt`, `PlayerMessages.kt` | The Capacitor plugin and its messages |
-| `WebViewRecovery.kt`, `RestartPolicy.kt` | Bringing the web app back after its renderer died |
+| `WebViewRecovery.kt`, `RendererRecovery.kt`, `RestartPolicy.kt` | Bringing the web app back after its renderer died: the Android glue, the decisions (testable on the JVM) and the back-off |
 | `NetworkWatcher.kt`, `NetworkChanges.kt` | Which network callbacks change the network |
 | `Failures.kt` | Media3's errors as the web app's `EngineError` types, with the HTTP status |
 
@@ -41,7 +41,7 @@ The web app owns the queue and resolves every stream; native code never resolves
 - It **loads** the current item, paused until it plays, and keeps the **upcoming** items queued here.
 - Media3 **moves on by itself** at a track boundary and reports the `transition`; the web app's player follows and adopts the entry instead of loading it again.
 - A **failure** goes to the web app with its type and HTTP status (`error`); its stream lifecycle decides what to resolve (a fresh URL on 403, the fallback rung, another format) and loads it at the same position.
-- The system's **next and previous** (notification, lock screen, headset, Bluetooth) go to the web app (`command`), which acknowledges them and acts: it knows shuffle, repeat and "previous restarts after 3 s". Play, pause and seeking are Media3's own and reach the web app as state.
+- The system's **next and previous** (notification, lock screen, headset, Bluetooth) go to the web app (`command`), which acknowledges them and acts: it knows shuffle, repeat and "previous restarts after 3 s". While paused, the web app then loads the entry queued for the new item, paused, so the notification shows it and its play button plays it. Play, pause and seeking are Media3's own and reach the web app as state; a play while the web app's player is paused makes it play. A stop (a car, a Bluetooth device, a headset's stop key) pauses: ExoPlayer's own stop would drop the buffer and go idle without a failure.
 - An upcoming URL that is **about to expire**, or bound to an **earlier network**, is asked for afresh (`request`); the web app resolves it again and queues it under the same id.
 
 When the web app does not answer, Media3 carries on alone: after 30 s it skips a failed entry (after 4 failures in a row it stops), after 8 s it acts on a next or previous itself (previous restarts the track), and when its queue runs out while the web app has more, it asks `WebViewRecovery` to bring the web app back. Without the web app attached it does all of that at once.
@@ -50,7 +50,7 @@ When the web app does not answer, Media3 carries on alone: after 30 s it skips a
 
 Each queued entry is a **slot** with a key; the playlist item's URI is `fxm-entry://slot/<key>`. Media3 opens it through `ResolvingDataSource`, whose resolver (`EntryResolver`) looks the key up in `SourceTable` on every connection and returns the entry's current URL with its per-URL headers (`StreamOption.requestHeaders`). So:
 
-- A **fresh URL for the same file** (same `itag` and `lmt`, and `clen` and `dur` where both have them: `StreamIdentity`) only updates the table. The next connection, after a seek or a reconnect, uses it at the same byte offset.
+- A **fresh URL for the same file** (an equal URL, or the same `fileKey`: `StreamIdentity`) only updates the table. The next connection, after a seek or a reconnect, uses it at the same byte offset. The web app sets the key from what it knows about the stream (for googlevideo URLs, `itag`, `lmt`, `clen` and `dur`), so this module reads nothing out of any service's URLs, and a change there needs no new APK.
 - **Another file** for an entry (another format, the fallback rung) gets a new slot, so Media3 prepares it again instead of reading the new file at the old offsets.
 - A URI that is not a slot, e.g. one a media controller sends, is refused: Media3 fetches nothing but FXM's entries.
 
@@ -69,15 +69,15 @@ Each queued entry is a **slot** with a key; the playlist item's URI is `fxm-entr
 | Method | Takes | Does |
 |---|---|---|
 | `attach` | — | Attaches the page: events start. Resolves with the session: the entries, the state, a failure nothing replaced, the snapshot and the network |
-| `load` | `entry`, `startAtMs`, `upcoming`, `hasMore`, `repeat` | Plays `entry` from `startAtMs`, paused until `play`, with `upcoming` queued after it. An entry already queued with the same bytes is skipped to, keeping its buffer |
-| `setUpcoming` | `upcoming`, `hasMore`, `repeat` | Replaces the entries after the current one; unchanged ones keep their slot and buffer |
+| `load` | `entry`, `startAtMs`, `upcoming`, `hasMore`, `repeat` | Plays `entry` from `startAtMs`, paused until `play`, with `upcoming` queued after it. An entry already queued after the current one, with the same id and bytes, is skipped to, keeping its buffer |
+| `setUpcoming` | `upcoming`, `hasMore`, `repeat` | Replaces the entries after the current one; the unchanged leading entries (same ids and bytes, in order) keep their slot and buffer, everything after the first change gets new slots |
 | `play`, `pause`, `seek` (`positionMs`), `setVolume` (`volume`, 0 to 1) | | As named |
 | `ack` | — | Takes over a system control's next or previous |
 | `saveSnapshot` | `data` (a string up to 4 Mi characters, or `null`) | Keeps the web app's queue for when it attaches again |
 | `release` | — | Stops and forgets the queue |
 | `crashRendererForTesting` | — | Debug builds only: crashes the WebView's renderer (`chrome://crash`) for [check 2](#checks-on-a-device) |
 
-An entry is `{ id, uid, source: { url, headers?, expiresAt?, ipBound, network? }, metadata: { title, artists, album?, artworkUrl?, durationMs? } }`: an id the web app chooses (`[A-Za-z0-9._:-]{1,100}`), the queue item's uid, an HTTPS URL, and what the notification shows. At most 50 upcoming entries. Malformed messages are rejected with `BAD_REQUEST`; `UNAVAILABLE` means the service could not be bound.
+An entry is `{ id, uid, source: { kind?, url, headers?, expiresAt?, ipBound?, network?, fileKey? }, metadata: { title, artists, album?, artworkUrl?, durationMs? }, data? }`: an id the web app chooses (`[A-Za-z0-9._:-]{1,100}`), the queue item's uid, an HTTPS URL, and what the notification shows. `kind` is `http` (the default) and reserved for file sources (stage 6.4); other kinds are refused. `fileKey` (at most 200 characters) names the bytes the URL serves. `data` (at most 16 Ki characters) is the web app's own, opaque here and returned in the session: the web app keeps the entry's stream there, so a recreated page takes the entry over without resolving it again. At most 50 upcoming entries. Malformed messages are rejected with `BAD_REQUEST`; `UNAVAILABLE` means the service could not be bound, `INTERNAL` that the player failed.
 
 | Event | Payload |
 |---|---|
@@ -94,6 +94,7 @@ An entry is `{ id, uid, source: { url, headers?, expiresAt?, ipBound, network? }
 - **Not exported.** Only FXM binds to the service: the plugin with its own action, to reach the coordinator. The notification, the lock screen, Bluetooth and headsets reach the session through the platform's media session, as Android routes them. Media notifications need no `POST_NOTIFICATIONS` permission.
 - **The notification** is Media3's default, with FXM's mark as its small icon (`res/drawable/fxm_notification_icon.xml`, drawn by `apps/mobile/scripts/icons.ts`); tapping it opens the app. Its artwork comes through fxm-http's client too, so only from hosts on FXM's table: YouTube Music's album art on `*.googleusercontent.com` is not on it yet, and those tracks show none until it is.
 - **Swiping the app away** keeps playback going while it plays (Media3's default). The page is gone then, so Media3 plays what it has queued and stops; reopening the app attaches again.
+- **Offline copies** don't play here yet: the plugin takes only HTTPS sources, so on Android downloaded tracks stream online until stage 6.4 adds file sources (the reserved `kind`).
 
 ## Tests
 
@@ -101,7 +102,7 @@ An entry is `{ id, uid, source: { url, headers?, expiresAt?, ipBound, network? }
 make android-test   # the JVM tests of fxm-http and fxm-player, offline, no device
 ```
 
-The coordinator is plain Kotlin behind a `PlayerPort`, so its tests (`CoordinatorTest`) drive it with a fake player, a fake clock and a fake scheduler: loading and queueing, skipping to a queued entry, fresh URLs for the same file and for another, track boundaries and repeat one, failures the web app acts on or does not, the native fallbacks and the stop after 4 failures, the system's next and previous, network changes, expiring URLs, sessions and snapshots. `PlayerMessagesTest`, `SourcesTest` and `PoliciesTest` cover the messages, slot URIs, the header rules, `StreamIdentity`, the restart back-off, `NetworkChanges` and the failure types. The Media3 and Android glue (`PlaybackService`, `ExoPort`, `SessionPlayer`, `NetworkWatcher`, the plugin) is compiled by `make apk` and checked on a device. `apps/mobile/android-project.test.ts` checks the service declaration, the shared client, the renderer handling and that both sides use the same names and limits.
+The coordinator is plain Kotlin behind a `PlayerPort`, so its tests (`CoordinatorTest`) drive it with a fake player, a fake clock and a fake scheduler: loading and queueing, skipping to a queued entry, fresh URLs for the same file (by file key) and for another, track boundaries and repeat one, failures the web app acts on or does not, the native fallbacks and the stop after 4 failures, the system's next and previous, network changes, expiring URLs, sessions (with the entries' data) and snapshots. `RecoveryTest` covers when the page comes back after a renderer death (at once on screen, and when the app is opened while a restart waits). `PlayerMessagesTest`, `SourcesTest` and `PoliciesTest` cover the messages, slot URIs, the header rules, `StreamIdentity`, the restart back-off, `NetworkChanges` and the failure types. The Media3 and Android glue (`PlaybackService`, `ExoPort`, `SessionPlayer`, `NetworkWatcher`, `WebViewRecovery`, the plugin) is compiled by `make apk` and checked on a device. `apps/mobile/android-project.test.ts` checks the service declaration, the shared client, the renderer handling and that both sides use the same names and limits.
 
 ## Versions
 
@@ -112,9 +113,9 @@ Media3 1.11.1 (released 2026-09-11; it needs compileSdk 36). Its OkHttp data sou
 The JVM tests cover the logic, `make apk` the build. What only a device shows, for the owner (the stage's "done when" is the first three). They need the web app to use the native engine, which the stage wiring the player into the web app does (see [`@fxm/player`'s native README](../../../../packages/player/src/native/README.md#using-it)), and a resolver for YouTube songs (1.4).
 
 1. **30 minutes with the screen off.** Play an album or a playlist, lock the phone and leave it. Playback continues across at least 6 track boundaries without gaps or stops. Meanwhile `scripts/run.sh adb shell dumpsys activity processes` lists the app's process in a foreground-service state, not as cached, which is what keeps Android 14's freezer away.
-2. **Killing the WebView's renderer.** While playing, open `chrome://inspect` on a computer with the phone connected, inspect the app's WebView and run `Capacitor.Plugins.FxmPlayer.crashRendererForTesting()` in its console (debug builds only; it loads `chrome://crash`, as Android documents for testing renderer deaths). On an emulator or a rooted phone, `scripts/run.sh adb shell kill <pid>` of the app's `sandboxed_process` does the same. Playback continues, the app does not crash, and the page reloads within seconds (or when you open the app, after repeated deaths) showing the track that plays.
+2. **Killing the WebView's renderer.** While playing, open `chrome://inspect` on a computer with the phone connected, inspect the app's WebView and run `Capacitor.Plugins.FxmPlayer.crashRendererForTesting()` in its console (debug builds only; it loads `chrome://crash`, as Android documents for testing renderer deaths). On an emulator or a rooted phone, `scripts/run.sh adb shell kill <pid>` of the app's `sandboxed_process` does the same. Playback continues, the app does not crash, and the page reloads within seconds showing the track that plays. After repeated deaths in the background it waits (30 s, 2 min, then 10 min), but opening the app reloads it at once.
 3. **After the native queue runs out.** Repeat 2 with a playlist longer than the queued items (5 tracks or 40 minutes): playback continues past them, because the reloaded page resolves more. With the app swiped away instead, playback stops after the queued tracks, by design.
-4. **The notification and lock screen.** Title, artist, artwork, play/pause, next, previous and seeking work, also from a Bluetooth headset; next follows shuffle and repeat.
+4. **The notification and lock screen.** Title, artist, artwork, play/pause, next, previous and seeking work, also from a Bluetooth headset; next follows shuffle and repeat. While paused, next from the lock screen shows the next track, and play then plays that track (not the old one), as the app shows. A headset's or car's stop pauses, and play resumes.
 5. **A network change.** Switch between Wi-Fi and mobile data while playing: the current track plays on (it is buffered), and the next one starts with a fresh URL.
 6. **An expired or refused URL.** Pause for over 6 hours, then play: playback resumes with a fresh URL at the same position.
 7. **A paused app in the background.** Pause from the notification, wait 15 minutes, press play on a Bluetooth headset. Whether Android lets Media3 return to the foreground from the background is device-dependent; Media3 reports a refusal through `onForegroundServiceStartNotAllowedException`.

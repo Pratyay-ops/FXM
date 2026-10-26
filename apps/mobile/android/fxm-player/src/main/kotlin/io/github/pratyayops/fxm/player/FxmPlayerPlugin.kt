@@ -69,9 +69,10 @@ class FxmPlayerPlugin : Plugin() {
     object : WebViewListener() {
       override fun onRenderProcessGone(webView: WebView?, detail: RenderProcessGoneDetail?): Boolean {
         gone = true
+        // The recovery first: detaching may ask it to bring the page back at once (Media3 ran out
+        // of entries while the web app has more), which needs to know the page is dead.
+        activity?.let(WebViewRecovery::onRendererGone)
         service?.let { it.coordinator.detach(link) }
-        val host = activity
-        if (host != null) WebViewRecovery.onRendererGone(host)
         // Handled: otherwise Android kills the whole process, and the player with it.
         return true
       }

@@ -123,7 +123,7 @@ class Coordinator(
     val queuedAt = slots.indexOfFirst { it.entry.id == entry.id }
     if (current >= 0 &&
       queuedAt > current &&
-      StreamIdentity.sameBytes(slots[queuedAt].entry.source.url, entry.source.url)
+      StreamIdentity.sameBytes(slots[queuedAt].entry.source, entry.source)
     ) {
       val slot = slots[queuedAt].copy(entry = entry, network = networkOf(entry.source))
       slots[queuedAt] = slot
@@ -149,8 +149,9 @@ class Coordinator(
   }
 
   /**
-   * Replaces the entries queued after the current one. Entries that stay, with the same bytes,
-   * keep their place and buffer; a fresh URL for them is used from their next request.
+   * Replaces the entries queued after the current one. The unchanged leading entries (the same
+   * ids and bytes, in the same order) keep their slot and buffer, and a fresh URL for them is used
+   * from their next request; everything after the first change gets new slots.
    */
   fun setUpcoming(upcoming: List<Entry>, hasMore: Boolean, repeat: Repeat) {
     this.hasMore = hasMore
@@ -356,7 +357,7 @@ class Coordinator(
     while (same < old.size &&
       same < upcoming.size &&
       old[same].entry.id == upcoming[same].id &&
-      StreamIdentity.sameBytes(old[same].entry.source.url, upcoming[same].source.url)
+      StreamIdentity.sameBytes(old[same].entry.source, upcoming[same].source)
     ) {
       val slot = old[same].copy(entry = upcoming[same], network = networkOf(upcoming[same].source))
       slots[current + 1 + same] = slot

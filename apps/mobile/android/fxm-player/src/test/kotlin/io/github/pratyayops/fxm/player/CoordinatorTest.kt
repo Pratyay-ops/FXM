@@ -76,6 +76,33 @@ class CoordinatorTest {
   }
 
   @Test
+  fun `only the web app's file key, never the URL itself, tells the same bytes`() {
+    coordinator.load(testEntry("a"), 0, listOf(testEntry("b", fileKey = null)), false, Repeat.OFF)
+    val old = port.items[1].key
+    port.ops.clear()
+    // A googlevideo-style URL without a key: native code does not read the URL.
+    coordinator.setUpcoming(listOf(testEntry("b", url = streamUrl(sig = 2), fileKey = null)), false, Repeat.OFF)
+    assertEquals(listOf("replaceFrom 1 b"), port.ops)
+    assertNotEquals(old, port.items[1].key)
+    // Any URL with the same key keeps the slot.
+    val keyed = port.items[1].key
+    port.ops.clear()
+    coordinator.setUpcoming(listOf(testEntry("b", url = "https://media.test/elsewhere", fileKey = fileKeyOf(streamUrl()))), false, Repeat.OFF)
+    coordinator.setUpcoming(listOf(testEntry("b", url = "https://media.test/again", fileKey = fileKeyOf(streamUrl()))), false, Repeat.OFF)
+    assertEquals(listOf("replaceFrom 1 b"), port.ops)
+    assertNotEquals(keyed, port.items[1].key)
+    assertEquals("https://media.test/again", table.requestFor(port.items[1].key).url)
+  }
+
+  @Test
+  fun `the session returns each entry's data as the web app sent it`() {
+    val entry = testEntry("a").copy(data = "{\"codec\":\"opus\"}")
+    coordinator.load(entry, 0, listOf(testEntry("b").copy(data = "b-data")), false, Repeat.OFF)
+    val session = coordinator.attach(link)
+    assertEquals(listOf("{\"codec\":\"opus\"}", "b-data"), session.entries.map { it.data })
+  }
+
+  @Test
   fun `another file for an upcoming entry replaces it, so Media3 prepares it again`() {
     coordinator.load(testEntry("a"), 0, listOf(testEntry("b")), false, Repeat.OFF)
     val old = port.items[1].key

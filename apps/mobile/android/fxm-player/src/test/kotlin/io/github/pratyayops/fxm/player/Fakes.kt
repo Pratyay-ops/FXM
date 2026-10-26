@@ -177,6 +177,12 @@ fun streamUrl(itag: Int = 251, lmt: String = "1700000000000000", sig: Int = 1, c
     (clen?.let { "&clen=$it" } ?: "") +
     "&sig=$sig"
 
+/** The file key the web app sends for a [streamUrl] (`streamFileKey` in @fxm/player). */
+fun fileKeyOf(url: String): String? =
+  Regex("itag=(\\d+)&lmt=(\\d+)(?:&clen=(\\d+))?").find(url)?.let {
+    "googlevideo:${it.groupValues[1]}:${it.groupValues[2]}:${it.groupValues[3]}:"
+  }
+
 fun testEntry(
   id: String,
   url: String = streamUrl(),
@@ -184,10 +190,11 @@ fun testEntry(
   ipBound: Boolean = true,
   network: Int? = null,
   title: String = id,
+  fileKey: String? = fileKeyOf(url),
 ): Entry =
   Entry(
     id = id,
     uid = id.fold(0L) { acc, char -> acc * 31 + char.code } and 0xffffL,
-    source = Source(url, emptyMap(), expiresAt, ipBound, network),
+    source = Source(url, emptyMap(), expiresAt, ipBound, network, fileKey),
     metadata = Metadata(title, listOf("$id artist")),
   )

@@ -159,6 +159,9 @@ describe('the Android project', () => {
       expect(messages).toContain(
         `const val MAX_UPCOMING = ${/FXM_PLAYER_MAX_UPCOMING = (\d+)/.exec(ts)?.[1]}`,
       )
+      expect(messages).toContain(
+        `const val MAX_ENTRY_DATA_CHARS = ${/FXM_PLAYER_MAX_ENTRY_DATA = ([\d_]+)/.exec(ts)?.[1]}`,
+      )
       const codes = /FXM_PLAYER_ERROR_CODES = \[([^\]]+)\]/.exec(ts)?.[1] ?? ''
       for (const code of codes.match(/'\w+'/g) ?? []) {
         expect(kotlin('FxmPlayerPlugin.kt')).toContain(`= "${code.slice(1, -1)}"`)

@@ -9,8 +9,9 @@ import com.google.common.util.concurrent.ListenableFuture
  * The player the media session shows to the system's controls: Media3's player, except that
  * "next" and "previous" go to the [Coordinator], which hands them to the web app (it owns the
  * queue: shuffle, repeat, "previous" restarting after 3 s) or, without it, skips natively. Next
- * is offered while the web app may have more than the native playlist holds. Controls cannot
- * change the playlist, repeat, shuffle or speed: the web app's player decides those.
+ * is offered while the web app may have more than the native playlist holds. "Stop" (a car, a
+ * Bluetooth device, a headset's stop key) pauses. Controls cannot change the playlist, repeat,
+ * shuffle or speed: the web app's player decides those.
  */
 class SessionPlayer(player: Player, private val controls: Controls) : ForwardingSimpleBasePlayer(player) {
   /** What the coordinator offers the system's controls. */
@@ -49,6 +50,12 @@ class SessionPlayer(player: Player, private val controls: Controls) : Forwarding
       }
       else -> super.handleSeek(mediaItemIndex, positionMs, seekCommand)
     }
+
+  /**
+   * A stop pauses: ExoPlayer's stop would drop what is buffered and go idle without a failure,
+   * which the web app's player cannot tell from playing on.
+   */
+  override fun handleStop(): ListenableFuture<*> = handleSetPlayWhenReady(false)
 
   /** The controls' availability changed ([Controls.canSkipForward]). */
   fun controlsChanged() {

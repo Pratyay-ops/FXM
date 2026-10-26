@@ -21,6 +21,12 @@ object PlayerMessages {
   /** The longest snapshot the web app may store: 4 Mi characters. */
   const val MAX_SNAPSHOT_CHARS = 4 * 1024 * 1024
 
+  /** The longest data the web app may attach to an entry. */
+  const val MAX_ENTRY_DATA_CHARS = 16_384
+
+  /** The longest [Source.fileKey]. */
+  const val MAX_FILE_KEY_CHARS = 200
+
   private val ID = Regex("[A-Za-z0-9._:-]{1,100}")
   private val TOKEN = Regex("[!#$%&'*+.^_`|~0-9A-Za-z-]+")
   private const val MAX_HEADERS = 32
@@ -34,7 +40,8 @@ object PlayerMessages {
     val id = json.opt("id") as? String
     if (id == null || !ID.matches(id)) throw bad("Invalid entry id")
     val uid = wholeNumber(json.opt("uid")) ?: throw bad("Invalid entry uid")
-    return Entry(id, uid, source(json.optJSONObject("source")), metadata(json.optJSONObject("metadata")))
+    val data = optionalString(json, "data", MAX_ENTRY_DATA_CHARS)
+    return Entry(id, uid, source(json.optJSONObject("source")), metadata(json.optJSONObject("metadata")), data)
   }
 
   /** At most [MAX_UPCOMING] entries with distinct ids. */
@@ -48,6 +55,11 @@ object PlayerMessages {
 
   fun source(json: JSONObject?): Source {
     if (json == null) throw bad("A source is missing")
+    // Only HTTPS sources so far; offline copies (stage 6.4) will be another kind.
+    when (json.opt("kind")) {
+      null, JSONObject.NULL, "http" -> {}
+      else -> throw bad("Unknown source kind")
+    }
     val url = json.opt("url") as? String
     if (url == null || url.toHttpUrlOrNull()?.scheme != "https") {
       throw bad("A source needs an absolute HTTPS URL")
@@ -69,7 +81,14 @@ object PlayerMessages {
     }
     val expiresAt = optionalNumber(json, "expiresAt")
     val network = optionalNumber(json, "network")?.let { if (it > Int.MAX_VALUE) null else it.toInt() }
-    return Source(url, headers, expiresAt, json.optBoolean("ipBound", false), network)
+    val ipBound =
+      when (val value = json.opt("ipBound")) {
+        null, JSONObject.NULL -> false
+        is Boolean -> value
+        else -> throw bad("ipBound must be a boolean")
+      }
+    val fileKey = optionalString(json, "fileKey", MAX_FILE_KEY_CHARS)?.takeIf { it.isNotEmpty() }
+    return Source(url, headers, expiresAt, ipBound, network, fileKey)
   }
 
   fun metadata(json: JSONObject?): Metadata {
@@ -167,17 +186,21 @@ object PlayerMessages {
         .put("ipBound", entry.source.ipBound)
     entry.source.expiresAt?.let { source.put("expiresAt", it) }
     entry.source.network?.let { source.put("network", it) }
+    entry.source.fileKey?.let { source.put("fileKey", it) }
     val artists = JSONArray()
     for (artist in entry.metadata.artists) artists.put(artist)
     val metadata = JSONObject().put("title", entry.metadata.title).put("artists", artists)
     entry.metadata.album?.let { metadata.put("album", it) }
     entry.metadata.artworkUrl?.let { metadata.put("artworkUrl", it) }
     entry.metadata.durationMs?.let { metadata.put("durationMs", it) }
-    return JSONObject()
-      .put("id", entry.id)
-      .put("uid", entry.uid)
-      .put("source", source)
-      .put("metadata", metadata)
+    val json =
+      JSONObject()
+        .put("id", entry.id)
+        .put("uid", entry.uid)
+        .put("source", source)
+        .put("metadata", metadata)
+    entry.data?.let { json.put("data", it) }
+    return json
   }
 
   private fun network(id: Int, cellular: Boolean): JSONObject =
@@ -189,6 +212,15 @@ object PlayerMessages {
 
   private fun text(value: Any?): String? =
     (value as? String)?.trim()?.takeIf { it.isNotEmpty() }?.take(MAX_TEXT)
+
+  /** An optional string of at most [max] characters; throws when it is something else. */
+  private fun optionalString(json: JSONObject, name: String, max: Int): String? {
+    val value = json.opt(name)
+    if (value == null || value == JSONObject.NULL) return null
+    if (value !is String) throw bad("$name must be a string")
+    if (value.length > max) throw bad("$name is too long")
+    return value
+  }
 
   /** A whole, non-negative number, or `null` when [value] is none. */
   private fun wholeNumber(value: Any?): Long? {
