@@ -399,6 +399,14 @@ commit "$work" "chore: pin a tool"
 commit "$work" "feat(tooling): add a make target"
 commit "$work" "fix(release): repair the release script"
 commit "$work" "fix(deploy): repair the deploy"
+# Integration and test work, whatever its type: what a merge broke, and the tests' fakes.
+commit "$work" "fix(web): follow the merged library's toast"
+commit "$work" "fix(platform): send update requests in develop's native HTTP shape"
+commit "$work" "fix(sources): drop a start time from fixtures"
+commit "$work" "fix(core): accept the platform fetch, with type tests"
+commit "$work" "fix(player): give test streams the fields core requires"
+commit "$work" "fix(web): keep the local files tests' plays out of the history"
+commit "$work" "feat(web): run the services on stage 2.7's app platform"
 # The same change twice, as when a stacked branch carries a copy of a commit.
 commit "$work" "fix(web): repair a thing"
 notes=$tmp/notes.md
@@ -424,6 +432,15 @@ leaves_out_internal_scopes() {
     lacks "$notes" "Repair the deploy"
 }
 expect "and the internal scopes, whatever their type" leaves_out_internal_scopes
+leaves_out_integration_work() {
+  local entry
+  for entry in "merged library's toast" "develop's native HTTP shape" "start time from fixtures" \
+    "with type tests" "test streams the fields" "tests' plays" "2.7's app platform"; do
+    lacks "$notes" "$entry" || return 1
+  done
+}
+expect "and integration and test work: merges, fixtures, type tests and the like" \
+  leaves_out_integration_work
 expect "skips docs(plan) bookkeeping" lacks "$notes" "Mark 1.1 done"
 expect "skips merge commits" lacks "$notes" "looks conventional"
 expect "skips the release commit" lacks "$notes" "0.0.9"
@@ -649,6 +666,8 @@ summary_first() {
 }
 expect "after the release's summary" summary_first
 expect "and the legal notice" has "$GH_STUB_DIR/pr-body.md" "not affiliated with or endorsed by"
+expect "with each paragraph on one line, as GitHub keeps line breaks" \
+  has "$GH_STUB_DIR/pr-body.md" "Merging this pull request with a merge commit releases FXM v0.1.0: the release workflow tags the merge commit, builds the release files and publishes the GitHub Release with the notes below. Afterwards, merge main back into develop."
 expect "prints the pull request URL" says "Release pull request: https://github.com/test/fxm/pull/7"
 expect "leaves a clean tree" test -z "$(git -C "$work" status --porcelain)"
 expect "never merges" lacks "$GH_STUB_DIR/calls.log" "pr merge"
@@ -1068,6 +1087,9 @@ expect "that ends with SHA256SUMS" \
 expect "and how to verify them against the release workflow on main" \
   has "$GH_STUB_DIR/release-notes.md" \
   "--cert-identity https://github.com/test/fxm/.github/workflows/release.yml@refs/heads/main"
+expect "with each paragraph on one line, as GitHub keeps line breaks" \
+  has "$GH_STUB_DIR/release-notes.md" \
+  "The first compares the file with its checksum. The second checks that FXM's release workflow, run for \`main\` on GitHub's own runners, built it."
 publish 0.1.0 "$sha"
 expect "a re-run leaves a published release alone" \
   test "$status" -eq 0 -a "$(grep -c '^release create' "$GH_STUB_DIR/calls.log")" = 1

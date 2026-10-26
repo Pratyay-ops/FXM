@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { comingSoon, joinList, unreleased } from './copy'
+import { comingSoon, joinList, platforms, unreleased } from './copy'
 
 describe('joinList', () => {
   it('joins with commas and a final "and"', () => {
@@ -45,5 +45,25 @@ describe('comingSoon', () => {
         ]),
       ),
     ).toBe('Converting downloads to FLAC, MP3 and other formats is coming soon.')
+  })
+})
+
+describe('platforms', () => {
+  it('names the web alone while neither app is out, with both apps coming soon', () => {
+    // Footer.astro, on every page: the privacy, disclaimer and 404 pages have no hero note.
+    expect(`a free, open-source music player ${platforms(false, false)}.`).toBe(
+      'a free, open-source music player for the web, with desktop and Android apps coming soon.',
+    )
+    // Hero.astro, whose note below says "coming soon" already.
+    expect(platforms(false, false, 'on the way')).toBe(
+      'for the web, with desktop and Android apps on the way',
+    )
+  })
+
+  it('names each app once it is out, and the other one as still to come', () => {
+    expect(platforms(true, false)).toBe('for the web and desktop, with an Android app coming soon')
+    expect(platforms(false, true)).toBe('for the web and Android, with a desktop app coming soon')
+    expect(platforms(true, true)).toBe('for the web, desktop and Android')
+    expect(platforms(true, true, 'on the way')).toBe('for the web, desktop and Android')
   })
 })
