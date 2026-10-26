@@ -631,6 +631,8 @@ summary_first() {
 }
 expect "after the release's summary" summary_first
 expect "and the legal notice" has "$GH_STUB_DIR/pr-body.md" "not affiliated with or endorsed by"
+expect "with each paragraph on one line, as GitHub keeps line breaks" \
+  has "$GH_STUB_DIR/pr-body.md" "Merging this pull request with a merge commit releases FXM v0.1.0: the release workflow tags the merge commit, builds the release files and publishes the GitHub Release with the notes below. Afterwards, merge main back into develop."
 expect "prints the pull request URL" says "Release pull request: https://github.com/test/fxm/pull/7"
 expect "leaves a clean tree" test -z "$(git -C "$work" status --porcelain)"
 expect "never merges" lacks "$GH_STUB_DIR/calls.log" "pr merge"
@@ -1033,6 +1035,9 @@ expect "that ends with SHA256SUMS" \
 expect "and how to verify them against the release workflow on main" \
   has "$GH_STUB_DIR/release-notes.md" \
   "--cert-identity https://github.com/test/fxm/.github/workflows/release.yml@refs/heads/main"
+expect "with each paragraph on one line, as GitHub keeps line breaks" \
+  has "$GH_STUB_DIR/release-notes.md" \
+  "The first compares the file with its checksum. The second checks that FXM's release workflow, run for \`main\` on GitHub's own runners, built it."
 publish 0.1.0 "$sha"
 expect "a re-run leaves a published release alone" \
   test "$status" -eq 0 -a "$(grep -c '^release create' "$GH_STUB_DIR/calls.log")" = 1
