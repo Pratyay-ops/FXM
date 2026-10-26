@@ -121,15 +121,16 @@ fxm_release_fit "$body" 115000 \
   echo "Install FXM Connect with the [steps in its README](https://github.com/$repo/blob/$tag/apps/extension/README.md#install)."
   echo
   if [ -n "$certificate" ]; then
-    echo "Install the Android app with the [steps in its guide](https://github.com/$repo/blob/$tag/apps/mobile/INSTALL.md)."
-    echo "The APKs are signed with FXM's key. Its certificate's SHA-256 fingerprint is:"
+    # One echo per paragraph here too: GitHub keeps the line breaks of a release's notes.
+    echo "Install the Android app with the [steps in its guide](https://github.com/$repo/blob/$tag/apps/mobile/INSTALL.md)." \
+      "The APKs are signed with FXM's key. Its certificate's SHA-256 fingerprint is:"
     echo
     echo '```text'
     echo "$certificate"
     echo '```'
     echo
-    echo "Android installs an update only when it is signed with the same key, and the guide shows"
-    echo "how to check the fingerprint before the first install."
+    echo "Android installs an update only when it is signed with the same key, and the guide shows" \
+      "how to check the fingerprint before the first install."
     echo
   fi
   echo "To host the website and web app yourself, serve \`fxm-web-$version.zip\` as the [self-hosting steps](https://github.com/$repo/blob/$tag/scripts/build-dist/README.md#self-hosting) describe."

@@ -1167,6 +1167,11 @@ expect "and the certificate's SHA-256, with colons" has "$GH_STUB_DIR/release-no
   "$(printf 'AB:%.0s' $(seq 31))AB"
 expect "and both APKs in the file table" \
   test "$(grep -c '^| `fxm-android-' "$GH_STUB_DIR/release-notes.md")" = 2
+android_paragraphs_ok() {
+  has "$GH_STUB_DIR/release-notes.md" "Install the Android app with the [steps in its guide](https://github.com/test/fxm/blob/v0.7.0/apps/mobile/INSTALL.md). The APKs are signed with FXM's key. Its certificate's SHA-256 fingerprint is:" &&
+    has "$GH_STUB_DIR/release-notes.md" "Android installs an update only when it is signed with the same key, and the guide shows how to check the fingerprint before the first install."
+}
+expect "with each Android paragraph on one line, as GitHub keeps line breaks" android_paragraphs_ok
 
 echo
 if [ "$failed" -eq 0 ]; then
