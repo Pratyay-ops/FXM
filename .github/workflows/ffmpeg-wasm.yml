@@ -6,15 +6,18 @@ name: ffmpeg core
 # as it builds everything a release ships.
 #
 # The checks fail the job when the WebAssembly file is 25 MiB or larger (Cloudflare Pages'
-# limit per file), when FFmpeg's configure reported a licence other than LGPL, or when the
-# files aren't the ones the build's manifest names (make ffmpeg-wasm-check). The core is then
-# tested end to end on generated audio (make ffmpeg-wasm-test).
+# limit per file), when FFmpeg's configure reported a licence other than LGPL, when the licence
+# texts of its parts are missing, or when the files aren't the ones the build's manifest names
+# (make ffmpeg-wasm-check). The core is then tested end to end on generated audio (make
+# ffmpeg-wasm-test).
 #
-# Building takes minutes, so make check never does it. Here the finished core is cached by the
-# recipe's hash (core-build.ts hashes tools/ffmpeg-wasm/recipe), so it is built only when the
-# recipe changes; the libraries (keyed by versions.sh, libs.sh and pkg-config.sh), emsdk and the
-# source tarballs have caches of their own, so a change to the converter only links again. A
-# failed job saves no cache.
+# Building takes minutes, so make check never does it. Here the finished core (about 1 MB) is
+# cached by the recipe's hash (core-build.ts hashes tools/ffmpeg-wasm/recipe). GitHub scopes a
+# cache to its branch: a run reads its own branch's caches and main's, not develop's. So each
+# branch builds a recipe's core once (about 4 minutes), until main holds its cache. emsdk, the
+# source tarballs and the built libraries (keyed by versions.sh, libs.sh and pkg-config.sh) are
+# about 800 MB: every run may restore them, but only main saves them, so stage branches don't
+# fill the repository's 10 GB of caches with copies. A failed job saves no cache.
 on:
   workflow_call:
     outputs:
@@ -69,9 +72,11 @@ jobs:
           path: ${{ steps.recipe.outputs.dir }}
           key: ffmpeg-core-${{ steps.recipe.outputs.hash }}
 
+      # Restored wherever main saved it; saved below on main only (about 800 MB).
       - name: Restore emsdk, the libraries and the sources
+        id: libs
         if: steps.built.outputs.cache-hit != 'true'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .tools/emsdk
@@ -82,6 +87,18 @@ jobs:
       - name: Build the core
         if: steps.built.outputs.cache-hit != 'true'
         run: FXM_FFMPEG_JOBS="$(nproc)" make ffmpeg-wasm
+
+      - name: Save emsdk, the libraries and the sources (main only)
+        if: >-
+          github.ref == 'refs/heads/main' && steps.built.outputs.cache-hit != 'true' &&
+          steps.libs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/emsdk
+            .tools/ffmpeg-wasm/downloads
+            .tools/ffmpeg-wasm/libs/${{ steps.recipe.outputs.libs }}
+          key: ffmpeg-libs-${{ runner.os }}-${{ steps.recipe.outputs.libs }}
 
       - name: Show the build log
         if: failure()
