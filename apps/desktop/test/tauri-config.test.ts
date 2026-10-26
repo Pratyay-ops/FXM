@@ -42,8 +42,16 @@ const COMMANDS = ['user_hosts', 'approve_user_host', 'revoke_user_host', 'user_h
 /** The scope entry of a host in the platform's host table, which is FXM's network allow-list. */
 const scopeEntry = (rule: HostRule) => `https://${rule.host}${rule.pathPrefix ?? '/'}*`
 
-/** Everything the http plugin may reach: exactly the hosts in the platform's host table. */
-const HTTP_SCOPE = HOST_RULES.map(scopeEntry)
+/**
+ * Entries of the host table that the scope leaves out: BotGuard's interpreter, which only stage
+ * 1.11's PO-token rungs fetch. Those need an evaluator document at YouTube's origin, which the
+ * desktop app's isn't (packages/sources/src/youtube/stream/advanced/README.md), so the app never
+ * asks for it. Adding it to the scope is a deliberate change for when it does.
+ */
+const LEFT_OUT_OF_SCOPE = ['https://www.google.com/js/th/*']
+
+/** Everything the http plugin may reach: the platform's host table, less those entries. */
+const HTTP_SCOPE = HOST_RULES.map(scopeEntry).filter((entry) => !LEFT_OUT_OF_SCOPE.includes(entry))
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
 const readJson = <T>(path: string) => JSON.parse(read(path)) as T
@@ -264,8 +272,13 @@ describe('capabilities', () => {
     ])
   })
 
-  it('lets the http plugin reach exactly the hosts in the platform’s host table', () => {
+  it('lets the http plugin reach exactly the platform’s host table, less the entries left out', () => {
     expect(http?.allow.map(({ url }) => url).sort()).toEqual([...HTTP_SCOPE].sort())
+  })
+
+  it('leaves out of the scope only entries the host table has', () => {
+    // So the list of exceptions can't outlive the host-table rows it stands for.
+    expect(HOST_RULES.map(scopeEntry)).toEqual(expect.arrayContaining(LEFT_OUT_OF_SCOPE))
   })
 
   it('narrows Last.fm to its station JSON, as the host table does', () => {

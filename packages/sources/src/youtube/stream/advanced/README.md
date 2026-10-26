@@ -40,7 +40,7 @@ The config states what the ladder checks itself (`requires`: the full tier for e
 | Platform | Rungs | Why not the others |
 |---|---|---|
 | Web with FXM Connect | None | A page can't set `User-Agent`, and the web's `eval.html` has an opaque origin, so BotGuard's attestation fails there (`GenerateIT` answers no integrity token for a document that isn't at YouTube's origin, measured below) |
-| Desktop | None yet | The evaluator webview is at `fxm-eval://localhost`, so attestation fails; stage 7.2's transport replaces a request's `User-Agent` on InnerTube calls |
+| Desktop | None yet | The evaluator webview is at `fxm-eval://localhost`, so attestation fails; stage 7.2's transport replaces a request's `User-Agent` on InnerTube calls. The app's HTTP scope leaves out BotGuard's interpreter (`www.google.com/js/th/`) until attestation can work there |
 | Android | `mweb`, `web-remix`, once stage 6.2's transport exists | The evaluator WebView loads `eval.html` with `https://www.youtube.com/` as its base URL. SABR needs a MediaSource engine; the TV rung needs its user agent, which 6.2's transport replaces too |
 
 ## How they work
