@@ -5,8 +5,11 @@ import { buttonClasses } from '../../components/ui/button'
 import { LogoMark } from '../../components/ui/logo'
 import { PageTitle } from '../../components/ui/page'
 import { SegmentedControl } from '../../components/ui/segmented-control'
+import { DiagnosticsSection } from '../connect/diagnostics'
+import { ConnectSettingsEntry } from '../connect/settings-entry'
 import { InstallAction, InstallHelp } from '../pwa/install-setting'
 import { isInstallableWebApp } from '../pwa/web-app'
+import { ScrobblingSettings } from '../scrobble/scrobbling-settings'
 import { SpotifySwitchControl, SpotifySwitchHelp } from '../search/spotify-setting'
 import { SponsorBlockCredit, SponsorBlockSetting } from '../sponsorblock/sponsorblock-setting'
 import { CatalogModeControl } from './catalog-mode-control'
@@ -91,6 +94,8 @@ export function SettingsPage() {
         </SettingRow>
       </SettingsSection>
 
+      <ScrobblingSettings />
+
       {/* Only the web build installs; the Android and desktop apps are installed already. */}
       {isInstallableWebApp() && (
         <SettingsSection title="App">
@@ -103,6 +108,10 @@ export function SettingsPage() {
           </SettingRow>
         </SettingsSection>
       )}
+
+      <ConnectSettingsEntry />
+
+      <DiagnosticsSection />
 
       <SettingsSection title="About">
         <div className="flex flex-col gap-5 p-4 sm:flex-row sm:items-center sm:p-5">

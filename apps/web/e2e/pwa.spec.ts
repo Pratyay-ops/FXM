@@ -548,6 +548,47 @@ test.describe('in Chromium', () => {
         .toBe(true)
     })
 
+    test("the toast sits above FXM Connect's notice, not over it", async ({ page, context }) => {
+      // FXM Connect worked in this browser once (a stand-in for its content script, as in
+      // e2e/connect.spec.ts), so the next visit's notice says it isn't answering (stage 2.7).
+      const earlier = await context.newPage()
+      await earlier.addInitScript(() => {
+        if (window !== window.top) return
+        const mark = () => document.documentElement.setAttribute('data-fxm-connect', '0.1.0')
+        if (document.documentElement !== null) mark()
+        else {
+          new MutationObserver((_records, observer) => {
+            if (document.documentElement === null) return
+            observer.disconnect()
+            mark()
+          }).observe(document, { childList: true })
+        }
+        window.addEventListener('message', (event) => {
+          if (event.source !== window || event.origin !== location.origin) return
+          if ((event.data as { type?: unknown } | null)?.type !== 'fxm-connect:ping') return
+          const pong = { type: 'fxm-connect:pong', version: '0.1.0', features: ['youtube'] }
+          window.postMessage(pong, location.origin)
+        })
+      })
+      await earlier.goto('connect')
+      await expect(earlier.getByRole('region', { name: 'This browser' })).toContainText('Full')
+      await earlier.close()
+
+      await newVersionWaits(page, 'library')
+      const notice = page.getByRole('region', { name: "FXM Connect isn't answering" })
+      await expect(notice).toBeVisible()
+
+      const toast = page.getByRole('region', { name: 'App update' })
+      // Polled: both slide in.
+      await expect
+        .poll(async () => {
+          const below = await box(notice)
+          const above = await box(toast)
+          return above.y + above.height <= below.y
+        })
+        .toBe(true)
+    })
+
     test.describe('on a phone', () => {
       test.use({ viewport: { width: 320, height: 720 }, hasTouch: true })
 

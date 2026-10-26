@@ -1,21 +1,22 @@
 ---
 import { AVAILABLE } from '../config'
+import { MUSIC_MODE, noExtensionHighlight, SPOTIFY_ACCOUNT } from '../lib/tiers'
 import ComingSoon from './ComingSoon.astro'
 import DownloadsDemo from './demos/DownloadsDemo.astro'
 import FeedDemo from './demos/FeedDemo.astro'
 import ModesDemo from './demos/ModesDemo.astro'
 import SpotifyDemo from './demos/SpotifyDemo.astro'
+import Experimental from './Experimental.astro'
 import Icon from './Icon.astro'
 
 const spotify = [
   { text: "Search Spotify's catalog", available: true },
   { text: 'Related artists', available: true },
   { text: 'Song radio', available: AVAILABLE.radio },
-  {
-    text: 'Connect your Spotify account to sync your recommendations, liked songs and playlists',
-    available: AVAILABLE.spotifyAccount,
-  },
+  { text: SPOTIFY_ACCOUNT, available: AVAILABLE.spotifyAccount },
 ]
+
+const noExtension = noExtensionHighlight(AVAILABLE.lite)
 
 const extras = [
   {
@@ -38,9 +39,10 @@ const extras = [
   },
   {
     icon: 'library',
-    title: 'Free music, no extension needed',
-    text: 'Without FXM Connect, the web app still plays free music from Internet Archive and Jamendo, and invites you to add the extension for YouTube Music and Spotify.',
+    title: noExtension.title,
+    text: noExtension.text,
     available: true,
+    experimental: noExtension.experimental,
   },
 ] as const
 ---
@@ -67,7 +69,7 @@ const extras = [
           <dl class="modes">
             <div>
               <dt>Music</dt>
-              <dd>Only songs from the YouTube Music catalog: clean album audio.</dd>
+              <dd>{MUSIC_MODE}</dd>
             </div>
             <div>
               <dt>Music + Video</dt>
@@ -149,6 +151,7 @@ const extras = [
           <h3>
             {extra.title}
             {!extra.available && <ComingSoon />}
+            {'experimental' in extra && extra.experimental && <Experimental />}
           </h3>
           <p>{extra.text}</p>
         </li>

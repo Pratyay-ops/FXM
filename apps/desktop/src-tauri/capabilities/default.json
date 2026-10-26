@@ -4,13 +4,21 @@
   "description": "What the FXM web app may do from the main window's own webview",
   "webviews": ["main"],
   "permissions": [
-    "core:default",
+    "core:app:default",
+    "core:event:default",
+    "core:image:default",
+    "core:path:default",
+    "core:resources:default",
+    "core:webview:default",
+    "core:window:default",
     "opener:default",
     "fxm-evaluator:default",
     "allow-user-hosts",
     "allow-approve-user-host",
     "allow-revoke-user-host",
     "allow-user-host-fetch",
+    "allow-set-now-playing",
+    "allow-desktop-environment",
     {
       "identifier": "http:default",
       "allow": [
