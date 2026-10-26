@@ -13,14 +13,22 @@ name: Deploy
 #                      branch, so a stage branch finds out before it merges. No secrets.
 #   deploy             develop: the preview. main: a release candidate at
 #                      main-candidate.fxmusic.pages.dev. Only these two branches deploy, each in
-#                      its GitHub environment (preview, production), which holds the Cloudflare
-#                      secrets. The job runs nothing but wrangler, pinned by its own lockfile in
+#                      its GitHub environment (preview, production). The Cloudflare secrets are
+#                      repository secrets for now, which a run on any branch could read; the
+#                      recommended setup limits each environment to its branch and moves the
+#                      secrets into the environments (scripts/build-dist/README.md, "Deploying").
+#                      The job runs nothing but wrangler, pinned by its own lockfile in
 #                      scripts/build-dist-wrangler, and restores no cache another run could
 #                      have written.
 #   verify             checks that deployment: every path's headers (check-headers.ts), and in
 #                      Chrome that the pages run under their policies and googlevideo requests
 #                      carry no Referer.
-#   promote            main only, once verify passed: the same folder to production.
+#   release            main only: while main's version has no GitHub Release (after a release
+#                      pull request's merge, or a failed release run), waits up to 30 minutes
+#                      for the release workflow to publish it, so the site never links to a
+#                      release that isn't out yet (scripts/release-wait.sh). A version that is
+#                      out passes after one request.
+#   promote            main only, once verify and release passed: the same folder to production.
 #   verify-production  main only: the header check of production.
 on:
   push:
@@ -74,10 +82,14 @@ jobs:
           name: ffmpeg-core
           path: ${{ runner.temp }}/ffmpeg-core
 
+      # Jamendo's public client_id, once the owner has registered one and confirmed Jamendo's
+      # terms (packages/sources/src/jamendo/README.md). While the repository variable is empty,
+      # the build leaves Jamendo out: the app, the site's copy and the /app/* policy.
       - name: Compose dist/pages
         env:
           FXM_FFMPEG_CORE_DIR: ${{ runner.temp }}/ffmpeg-core
           FXM_REQUIRE_FFMPEG_CORE: '1'
+          VITE_FXM_JAMENDO_CLIENT_ID: ${{ vars.FXM_JAMENDO_CLIENT_ID }}
         run: make dist
 
       # develop and main deploy; every other branch stops here.
@@ -222,9 +234,27 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  release:
+    name: Wait for the release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # It only reads the releases.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Wait for the version's GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release-wait.sh
+
   promote:
     name: Deploy the release to production
-    needs: verify
+    needs: [verify, release]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10

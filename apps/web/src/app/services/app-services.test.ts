@@ -170,8 +170,7 @@ describe('the Full tier (FXM Connect)', () => {
   it("tells the app once YouTube's code has loaded, with its config and ladder", async () => {
     const loaded: string[] = []
     const setup = setUp('full', {
-      onYouTube: (youtube) =>
-        loaded.push(`${typeof youtube.session.config.killSwitches}:${youtube.audio.id}`),
+      onYouTube: (youtube) => loaded.push(`${typeof youtube.killSwitches()}:${youtube.audio.id}`),
     })
     await setup.ready()
 
@@ -441,7 +440,8 @@ describe('the Lite tier (the sandbox documents of stage 1.10)', () => {
     const setup = setUp('lite')
     await setup.ready()
     const youtube = await setup.services.youtube.load()
-    const reported = vi.spyOn(youtube.audio, 'reportPlaybackSuccess')
+    // The live ladder calls the instance in use, whose method the spy replaces.
+    const reported = vi.spyOn(youtube.host.providers().audio, 'reportPlaybackSuccess')
     const { engine, player } = playerFor(setup)
     engine.startOnPlay = false
     play(setup, (await searchSongs(setup)).slice(0, 1))
@@ -548,6 +548,35 @@ function fakeLibrary() {
   } satisfies LibraryRepository
   return library
 }
+
+describe('local files (stage 4.4)', () => {
+  it('offers the music files on the device as a catalog only while there are any', async () => {
+    const localProvider = { id: 'local' } as unknown as MetadataProvider
+    let present: (value: boolean) => void = () => {}
+    const setup = setUp('free', {
+      local: {
+        localProvider,
+        watchLocalFiles: (listener) => {
+          present = listener
+          return () => {}
+        },
+      },
+    })
+    await setup.ready()
+    const local = () => setup.sources.getSnapshot().providers.get('local')
+
+    // No music added: search offers no "This device" that would find nothing.
+    expect(local()).toBeUndefined()
+    present(true)
+    expect(local()).toBe(localProvider)
+    expect(searchSourceIds(setup.sources.getSnapshot())).toContain('local')
+    present(true)
+    expect(local()).toBe(localProvider)
+    // The last folder removed.
+    present(false)
+    expect(local()).toBeUndefined()
+  })
+})
 
 describe('the library (stage 2.6)', () => {
   it('offers its playlists on the catalog pages, and keeps the matches the engine found', async () => {

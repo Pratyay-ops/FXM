@@ -25,7 +25,19 @@ export default defineConfig({
       name: 'chromium',
       // The full Chromium build in new headless mode renders like real Chrome; the
       // lighter headless shell can hang on screenshots in sandboxed environments.
-      use: { ...devices['Desktop Chrome'], channel: 'chromium' },
+      // Muted: the tests prove playback by media events and the position, never by ear.
+      // Offline: no host but this machine resolves, so a request a test didn't stub fails
+      // instead of reaching a music service (the tests' own routes answer before any lookup).
+      use: {
+        ...devices['Desktop Chrome'],
+        channel: 'chromium',
+        launchOptions: {
+          args: [
+            '--mute-audio',
+            '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1',
+          ],
+        },
+      },
     },
   ],
   webServer: {

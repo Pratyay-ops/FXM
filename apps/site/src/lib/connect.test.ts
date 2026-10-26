@@ -18,7 +18,10 @@ describe('before the signed Firefox add-on is out', () => {
 
   it('tells phone users that FXM Connect needs a desktop browser', () => {
     expect(phonesAnswer({ firefox: false, android: false })).toBe(
-      'On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive and Jamendo. FXM Connect needs a desktop browser, and the Android app is coming soon.',
+      'On phones and tablets, and in other browsers such as Safari, the web app plays free music from Internet Archive. FXM Connect needs a desktop browser, and the Android app is coming soon.',
+    )
+    expect(phonesAnswer({ firefox: false, android: false, jamendo: true })).toContain(
+      'the web app plays free music from Internet Archive and Jamendo.',
     )
     expect(phonesAnswer({ firefox: false, android: true })).toMatch(
       /FXM Connect needs a desktop browser; the Android app has everything built in\.$/,
@@ -27,6 +30,9 @@ describe('before the signed Firefox add-on is out', () => {
 
   it('points every phone and tablet to the free sources', () => {
     expect(noExtensionNote(false)).toBe(
+      'No extension, or on a phone or tablet? The web app still plays free music from Internet Archive.',
+    )
+    expect(noExtensionNote(false, { jamendo: true })).toBe(
       'No extension, or on a phone or tablet? The web app still plays free music from Internet Archive and Jamendo.',
     )
   })
@@ -52,7 +58,7 @@ describe('once the signed Firefox add-on is out', () => {
 
   it('tells phone users that Firefox 142 or later on Android can add FXM Connect', () => {
     expect(phonesAnswer({ firefox: true, android: false })).toBe(
-      'On Android, Firefox 142 or later can add FXM Connect too. In other phone browsers, on iPhone and iPad, and in browsers such as Safari, the web app plays free music from Internet Archive and Jamendo. The Android app is coming soon.',
+      'On Android, Firefox 142 or later can add FXM Connect too. In other phone browsers, on iPhone and iPad, and in browsers such as Safari, the web app plays free music from Internet Archive. The Android app is coming soon.',
     )
     expect(phonesAnswer({ firefox: true, android: true })).toMatch(
       /The Android app has everything built in\.$/,
@@ -65,7 +71,7 @@ describe('once the signed Firefox add-on is out', () => {
   it("points only phones that can't add FXM Connect to the free sources", () => {
     const note = noExtensionNote(true)
     expect(note).toBe(
-      'No extension, or on an iPhone, an iPad or a phone browser other than Firefox? The web app still plays free music from Internet Archive and Jamendo.',
+      'No extension, or on an iPhone, an iPad or a phone browser other than Firefox? The web app still plays free music from Internet Archive.',
     )
     expect(note).not.toContain('on a phone or tablet')
   })

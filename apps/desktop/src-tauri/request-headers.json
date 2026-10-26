@@ -8,11 +8,6 @@
       "mode": "override"
     },
     {
-      "url": "https://clienttoken.spotify.com/*",
-      "headers": { "Origin": "https://open.spotify.com" },
-      "mode": "override"
-    },
-    {
       "url": "https://api-partner.spotify.com/*",
       "headers": { "Origin": "https://open.spotify.com" },
       "mode": "override"

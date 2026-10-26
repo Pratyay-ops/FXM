@@ -192,7 +192,6 @@ describe('sendsBrowserAgent', () => {
     'lh3.googleusercontent.com',
     'yt3.googleusercontent.com',
     'open.spotify.com',
-    'clienttoken.spotify.com',
     'api-partner.spotify.com',
     'spclient.wg.spotify.com',
     'i.scdn.co',

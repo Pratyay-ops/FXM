@@ -3,6 +3,8 @@ import type { PlayerError } from '@fxm/player'
 import { CircleAlert, RotateCcw } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { buttonClasses } from '../../components/ui/button'
+import { canAddConnect, currentDevice } from '../connect/device'
+import { connectOrApps, howToGetMore } from '../connect/explain'
 import { getPlayer, usePlayerState } from './playback'
 import { isInView, isPhoneLayout, scrollBehavior } from './scroll'
 
@@ -31,9 +33,13 @@ export function describeProblem({ reason, error, item }: PlayerError): ProblemTe
         text: 'The source wants to check that a person is listening. Wait a while, then try again.',
       }
     }
+    const device = currentDevice()
     return {
       title: 'This song can’t play here',
-      text: 'This browser can’t reach its source. FXM Connect, the desktop app or the Android app can play more songs.',
+      // Where this browser can't add FXM Connect, what this device can do instead.
+      text: canAddConnect(device)
+        ? `This browser can’t reach its source. ${connectOrApps()} can play more songs.`
+        : `This browser can’t reach its source. ${howToGetMore(device, 'youtube')}`,
     }
   }
   return {

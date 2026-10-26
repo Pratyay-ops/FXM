@@ -1,11 +1,18 @@
 import { createHash } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EMBED_HEADERS } from '../../../apps/web/embed/headers.ts'
+import { pwaCspProblems } from '../../../apps/web/pwa/host.ts'
 import { parsePolicy, serializePolicy, sha256Source, UNSAFE_EVAL, WASM_UNSAFE_EVAL } from './csp.ts'
 import {
   APP_SCRIPT_EXTRAS,
   APP_SERVICES,
   appPolicy,
+  COMMON_HEADERS,
   isSandboxDocument,
+  offeredServices,
+  PERMISSIONS_POLICY,
+  PLAYER_FEATURES,
+  permissionsPolicyProblems,
   policyProblems,
   ruleFamily,
   SANDBOX_DOCUMENTS,
@@ -25,20 +32,39 @@ const PLAN_APP_POLICY =
   )
 
 /**
- * The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm) and
- * 8.4's library sync (GitHub).
+ * The hosts later stages added to `connect-src`: 8.2's scrobbling (ListenBrainz, Last.fm), 3.2's
+ * recommendations on Home (ListenBrainz's labs API, Last.fm's stations, the Cover Art Archive)
+ * and 8.4's library sync (GitHub).
  */
 const LATER_CONNECT_HOSTS = [
   'https://api.listenbrainz.org',
+  'https://labs.api.listenbrainz.org',
   'https://ws.audioscrobbler.com',
+  'https://www.last.fm',
   'https://api.github.com',
+  'https://coverartarchive.org',
 ]
 
-/** The `/embed/*` policy today: the plan's, with the hosts later stages added after its own. */
-const EMBED_POLICY = PLAN_APP_POLICY.replace(
+/** The hosts later stages added to `img-src`: the Cover Art Archive's covers (3.2). */
+const LATER_IMG_HOSTS = ['https://coverartarchive.org']
+
+/**
+ * What the app and the embed share today: the plan's policy, with the hosts later stages added
+ * after its own, and workers from the app's own origin only (no `blob:`, which nothing uses:
+ * WORKER_SOURCES).
+ */
+const SHARED_POLICY = PLAN_APP_POLICY.replace(
   "; frame-src 'self';",
   ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
-).replace(" frame-ancestors 'none';", '')
+)
+  .replace(
+    'https://*.jamendo.com; media-src',
+    `https://*.jamendo.com ${LATER_IMG_HOSTS.join(' ')}; media-src`,
+  )
+  .replace("worker-src 'self' blob:;", "worker-src 'self';")
+
+/** The `/embed/*` policy today: the shared one, without frame-ancestors. */
+const EMBED_POLICY = SHARED_POLICY.replace(" frame-ancestors 'none';", '')
 
 /**
  * What 4.2 adds for the app alone, after each service's hosts: the exact image hosts it fetches
@@ -51,14 +77,13 @@ const COVER_HOSTS = {
 }
 
 /**
- * The `/app/*` policy today: the plan's, with the hosts later stages added, and 4.2's
- * 'wasm-unsafe-eval' for the ffmpeg core and its cover hosts.
+ * The `/app/*` policy today: the shared one, with 4.2's 'wasm-unsafe-eval' for the ffmpeg core
+ * and its cover hosts.
  */
-const APP_POLICY = PLAN_APP_POLICY.replace(
-  "; frame-src 'self';",
-  ` ${LATER_CONNECT_HOSTS.join(' ')}; frame-src 'self';`,
+const APP_POLICY = SHARED_POLICY.replace(
+  `script-src 'self' ${HASH};`,
+  `script-src 'self' ${HASH} ${WASM_UNSAFE_EVAL};`,
 )
-  .replace(`script-src 'self' ${HASH};`, `script-src 'self' ${HASH} ${WASM_UNSAFE_EVAL};`)
   .replace(
     'https://*.googlevideo.com https://open.spotify.com',
     `https://*.googlevideo.com ${COVER_HOSTS.youtube} https://open.spotify.com`,
@@ -98,33 +123,43 @@ describe('csp helpers', () => {
   })
 })
 
+/** Every service, as a build with all of them (Jamendo's client_id included) offers them. */
+const ALL = { services: APP_SERVICES }
+
+/** The `/app/*` policy of a build without Jamendo's client_id: no Jamendo hosts. */
+const WITHOUT_JAMENDO = APP_POLICY.replaceAll(' https://*.jamendo.com', '')
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
 describe('the web app policy', () => {
   it('is the policy docs/PLAN.md specifies for /app/*, with the hosts later stages added', () => {
     expect(APP_POLICY).not.toBe(PLAN_APP_POLICY)
-    expect(serializePolicy(appPolicy([HASH]))).toBe(APP_POLICY)
+    expect(serializePolicy(appPolicy([HASH], ALL))).toBe(APP_POLICY)
   })
 
   it('stays under the plan’s estimates, far below 2,000 characters', () => {
     expect(PLAN_APP_POLICY.length).toBeLessThan(850)
     // The plan expects about 1,200 once the later stages' hosts are in.
-    expect(serializePolicy(appPolicy([HASH])).length).toBeLessThan(1_200)
+    expect(serializePolicy(appPolicy([HASH], ALL)).length).toBeLessThan(1_200)
   })
 
   it('lets only the app, never the embed, compile WebAssembly and fetch covers (4.2)', () => {
-    const app = parsePolicy(serializePolicy(appPolicy([HASH])))
+    const app = parsePolicy(serializePolicy(appPolicy([HASH], ALL)))
     expect(app.get('script-src')).toEqual(["'self'", HASH, WASM_UNSAFE_EVAL])
     expect(app.get('script-src')).not.toContain(UNSAFE_EVAL)
     expect(app.get('connect-src')).toEqual(
       expect.arrayContaining(['https://i.ytimg.com', 'https://i.scdn.co']),
     )
-    const embed = serializePolicy(appPolicy([HASH], { embeddable: true }))
+    const embed = serializePolicy(appPolicy([HASH], { ...ALL, embeddable: true }))
     expect(embed).toBe(EMBED_POLICY)
     expect(embed).not.toContain(WASM_UNSAFE_EVAL)
     expect(parsePolicy(embed).get('connect-src')).not.toContain('https://i.ytimg.com')
   })
 
   it('reads covers only from exact image hosts, keeping the wildcards to img-src', () => {
-    const app = parsePolicy(serializePolicy(appPolicy([HASH])))
+    const app = parsePolicy(serializePolicy(appPolicy([HASH], ALL)))
     const connect = app.get('connect-src') ?? []
     for (const wildcard of [
       'https://*.ytimg.com',
@@ -139,6 +174,18 @@ describe('the web app policy', () => {
     for (const service of APP_SERVICES) {
       for (const host of service.appConnect ?? []) expect(host, host).not.toContain('*')
     }
+  })
+
+  it('allows Jamendo only in a build with its client_id, as the web app offers it', () => {
+    vi.stubEnv('VITE_FXM_JAMENDO_CLIENT_ID', '')
+    expect(serializePolicy(appPolicy([HASH]))).toBe(WITHOUT_JAMENDO)
+    expect(offeredServices().map((service) => service.privacyName)).not.toContain('Jamendo')
+    vi.stubEnv('VITE_FXM_JAMENDO_CLIENT_ID', 'public-id')
+    expect(serializePolicy(appPolicy([HASH]))).toBe(APP_POLICY)
+    expect(offeredServices({ VITE_FXM_JAMENDO_CLIENT_ID: '  ' }).length).toBe(
+      APP_SERVICES.length - 1,
+    )
+    expect(offeredServices({ VITE_FXM_JAMENDO_CLIENT_ID: 'id' })).toEqual(APP_SERVICES)
   })
 
   it('takes later stages’ hosts and script sources from the lists', () => {
@@ -300,5 +347,53 @@ describe('the site policies', () => {
     expect(serializePolicy(STATIC_FILE_POLICY)).toBe(
       "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     )
+  })
+})
+
+describe('the app policy and the installable web app', () => {
+  it('allows what the PWA needs: its service worker, manifest, icons and shell download', () => {
+    expect(pwaCspProblems(serializePolicy(appPolicy([HASH])))).toEqual([])
+    expect(pwaCspProblems(serializePolicy(appPolicy([HASH], { embeddable: true })))).toEqual([])
+  })
+})
+
+describe('the headers of every response', () => {
+  it('cut a page off from a cross-site opener and turn off features FXM never uses', () => {
+    expect(COMMON_HEADERS).toEqual([
+      ['Referrer-Policy', 'no-referrer'],
+      ['X-Content-Type-Options', 'nosniff'],
+      ['Cross-Origin-Opener-Policy', 'same-origin'],
+      [
+        'Permissions-Policy',
+        'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), midi=()',
+      ],
+    ])
+  })
+
+  it('never turn off what the player may use', () => {
+    expect(PLAYER_FEATURES).toEqual([
+      'autoplay',
+      'fullscreen',
+      'picture-in-picture',
+      'screen-wake-lock',
+    ])
+    expect(permissionsPolicyProblems(PERMISSIONS_POLICY)).toEqual([])
+    for (const feature of PLAYER_FEATURES) expect(PERMISSIONS_POLICY).not.toContain(feature)
+  })
+
+  it("match the copy of the embed's rule that its browser tests send", () => {
+    for (const [name, value] of COMMON_HEADERS) {
+      expect(EMBED_HEADERS[name.toLowerCase()], name).toBe(value)
+    }
+  })
+
+  it('find a Permissions-Policy that turns off more, or allows something', () => {
+    expect(
+      permissionsPolicyProblems('camera=(), screen-wake-lock=(), clipboard-read=(), usb=*'),
+    ).toEqual([
+      'it turns off screen-wake-lock, which the player may use',
+      "it turns off clipboard-read, which isn't one of the features FXM never uses",
+      '"usb=*" doesn\'t turn a feature off (feature=())',
+    ])
   })
 })

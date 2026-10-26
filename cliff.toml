@@ -1,7 +1,8 @@
-# git-cliff configuration: CHANGELOG.md and the GitHub Release notes are generated from the
-# Conventional Commits (docs/WORKFLOW.md section 4). The release scripts run the pinned
-# git-cliff from .tools/bin (scripts/install-git-cliff.sh) with --offline, so nothing here
-# reaches the network. Preview the next release's notes with `make release-notes`.
+# git-cliff configuration for CHANGELOG.md, generated from the Conventional Commits
+# (docs/WORKFLOW.md section 4): every release, with every change, each message once. The release
+# notes in the pull request and the GitHub Release list only what people who use FXM notice
+# (cliff.notes.toml). The release scripts run the pinned git-cliff from .tools/bin
+# (scripts/install-git-cliff.sh) with --offline, so nothing here reaches the network.
 # Docs: https://git-cliff.org/docs/configuration
 
 [changelog]
@@ -14,7 +15,8 @@ don't edit it by hand: the configuration is in `cliff.toml`.
 """
 # One section per release, each starting with a blank line. Merge commits never reach the
 # template: they are not conventional (filter_unconventional), and the first parsers below skip
-# any that would be.
+# any that would be. Entries with the same message, such as a commit and its copy on a stacked
+# branch, are listed once. cliff.notes.toml has the same body, so keep the two in step.
 body = """
 
 {% if version -%}
@@ -31,7 +33,7 @@ body = """
 {% endif -%}
 {% for group, commits in commits | group_by(attribute="group") %}
   ### {{ group | striptags | trim }}
-  {% for commit in commits %}
+  {% for commit in commits | unique(attribute="message") %}
     - {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{% if commit.breaking %}**Breaking:** {% endif %}{{ commit.message | upper_first }} ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/Pratyay-ops/FXM/commit/{{ commit.id }}))
   {%- endfor %}
 {% endfor %}

@@ -33,9 +33,20 @@ export interface Service {
    * fetches, so it stays narrower than img-src).
    */
   readonly appConnect?: readonly string[]
+  /**
+   * The build variable without which the web app doesn't offer the service, such as Jamendo's
+   * public `client_id` (`VITE_FXM_JAMENDO_CLIENT_ID`): a build without it leaves the service's
+   * hosts out of the policies (offeredServices).
+   */
+  readonly requires?: string
 }
 
-/** YouTube's API hosts (InnerTube): the app with FXM Connect, and the Lite sandbox document. */
+/**
+ * YouTube's API hosts (InnerTube): the app with FXM Connect, and the Lite sandbox document.
+ * `youtubei.googleapis.com` is reserved: no client in the bundled YouTube config uses it today,
+ * but the signed config that the apps fetch from the site (stage 1.13) can move a client there
+ * without an app release, so the policies, FXM Connect and the platform's host table keep it.
+ */
 export const INNERTUBE_HOSTS = [
   'https://www.youtube.com',
   'https://music.youtube.com',
@@ -76,12 +87,13 @@ const SPOTIFY_COVER_HOSTS = ['https://i.scdn.co'] as const
  * policy. Only what shipped stages use (docs/PLAN.md, the notes on the `/app/*` rule). Stages
  * add theirs when they ship:
  *
- * - 1.11: the BotGuard hosts, once one of its rungs is on;
- * - 3.2's recommendation providers, once the app calls them: the hosts in the table in
- *   packages/sources/src/recommend/README.md. It leaves out the plan's `api.listenbrainz.org`
- *   and `lastfm.freetls.fastly.net`, which its providers don't contact (8.2's scrobbling, below,
- *   sends to `api.listenbrainz.org`), and adds Internet Archive's hosts, already here, for the
- *   Cover Art Archive's redirects.
+ * - 1.11: the BotGuard hosts, once one of its rungs is on.
+ *
+ * 3.2's recommendation providers, which Home calls since stage 2.9b wired it, added their hosts
+ * from the table in packages/sources/src/recommend/README.md: ListenBrainz's labs API, Last.fm's
+ * stations (FXM Connect only) and the Cover Art Archive (whose redirects go to Internet
+ * Archive's hosts, already here). Not iTunes Search, which the app doesn't call, nor the plan's
+ * `lastfm.freetls.fastly.net`, which no provider contacts.
  *
  * 4.2 lets the web app (not the embed) fetch the track covers it already shows from YouTube's
  * and Spotify's image hosts (`appConnect`: exact hosts, unlike img-src's wildcards), to embed
@@ -116,16 +128,48 @@ export const APP_SERVICES: readonly Service[] = [
     connect: ['https://archive.org', 'https://*.archive.org'],
     img: ['https://archive.org', 'https://*.archive.org'],
   },
-  { privacyName: 'Jamendo', connect: ['https://*.jamendo.com'], img: ['https://*.jamendo.com'] },
+  // 1.6: only in a build with FXM's public Jamendo client_id, which the deploy passes from the
+  // repository variable FXM_JAMENDO_CLIENT_ID (README.md, "Jamendo"). The web app registers Jamendo
+  // only then, and the site calls it coming soon until then.
+  {
+    privacyName: 'Jamendo',
+    connect: ['https://*.jamendo.com'],
+    img: ['https://*.jamendo.com'],
+    requires: 'VITE_FXM_JAMENDO_CLIENT_ID',
+  },
   { privacyName: 'LRCLIB', connect: ['https://lrclib.net'] },
   // 8.7: opt-in, and only for videos in Music + Video mode.
   { privacyName: 'SponsorBlock', connect: ['https://sponsor.ajay.app'] },
-  // 8.2: scrobbling, once the user connects an account in Settings. Only the write APIs.
-  { privacyName: 'ListenBrainz', connect: ['https://api.listenbrainz.org'] },
-  { privacyName: 'Last.fm', connect: ['https://ws.audioscrobbler.com'] },
+  // 8.2: scrobbling, once the user connects an account in Settings (the write APIs); 3.2:
+  // Home's recommendations (ListenBrainz's similar artists, Last.fm's stations).
+  {
+    privacyName: 'ListenBrainz',
+    connect: ['https://api.listenbrainz.org', 'https://labs.api.listenbrainz.org'],
+  },
+  { privacyName: 'Last.fm', connect: ['https://ws.audioscrobbler.com', 'https://www.last.fm'] },
   // 8.4: library sync, only once the user turns it on, with a secret gist on their account.
   { privacyName: 'GitHub', connect: ['https://api.github.com'] },
+  // 3.2: covers for Home's songs that come without one.
+  {
+    privacyName: 'Cover Art Archive',
+    connect: ['https://coverartarchive.org'],
+    img: ['https://coverartarchive.org'],
+  },
 ]
+
+/**
+ * The services a build offers: those of `services` whose `requires` variable the build's
+ * environment has (make dist's own, in which it also builds the web app), so the policies allow
+ * exactly what the app it ships can contact.
+ */
+export function offeredServices(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  services: readonly Service[] = APP_SERVICES,
+): Service[] {
+  return services.filter(
+    (service) => service.requires === undefined || Boolean(env[service.requires]?.trim()),
+  )
+}
 
 /**
  * Extra script-src sources for the web app, not the embed. 4.2's WASM_UNSAFE_EVAL lets the
@@ -167,9 +211,20 @@ const COMMON_DOCUMENT_DIRECTIVES: readonly Directive[] = [
 ]
 
 /**
+ * Where the web app's workers may come from: its own origin only. Every worker it starts is a
+ * file of its own build: the service worker (`/app/sw.js`), the downloads' storage worker and
+ * stage 4.2's conversion worker (`new Worker(new URL(…, import.meta.url))`). 4.2's ffmpeg core is
+ * built without threads (`--disable-pthreads`), so it starts no worker of its own, from a `blob:`
+ * URL or otherwise (checked on its branch, feat/4.2-convert, on 2026-10-26). docs/PLAN.md's policy
+ * row also allows `blob:`; a stage that needs a worker from a `blob:` URL adds it here, with why.
+ */
+export const WORKER_SOURCES: readonly string[] = [SELF]
+
+/**
  * The web app's policy (`/app/*`), or the embed's (`/embed/*`): the same without
  * `frame-ancestors`, because any site may embed the player, and without what only the app
- * needs (`scriptExtras`, `appConnect`): the embed converts and saves nothing.
+ * needs (`scriptExtras`, `appConnect`): the embed converts and saves nothing. Its hosts are those
+ * of the services this build offers (offeredServices) unless `services` says otherwise.
  */
 export function appPolicy(
   scriptHashes: readonly string[],
@@ -179,7 +234,7 @@ export function appPolicy(
     scriptExtras?: readonly string[]
   } = {},
 ): Policy {
-  const services = options.services ?? APP_SERVICES
+  const services = options.services ?? offeredServices()
   const extras = options.scriptExtras ?? APP_SCRIPT_EXTRAS
   for (const source of extras) {
     if (source === UNSAFE_EVAL || source === UNSAFE_INLINE) {
@@ -197,7 +252,7 @@ export function appPolicy(
   return [
     ['default-src', [SELF]],
     ['script-src', unique([SELF, ...scriptHashes, ...(app ? extras : [])])],
-    ['worker-src', [SELF, 'blob:']],
+    ['worker-src', [...WORKER_SOURCES]],
     ['style-src', [SELF, UNSAFE_INLINE]],
     ['img-src', [SELF, 'data:', 'blob:', ...img]],
     ['media-src', [SELF, 'blob:', 'https:']],
@@ -333,9 +388,64 @@ export function policyProblems(rulePath: string, value: string): string[] {
   return problems
 }
 
+/**
+ * The features the Permissions-Policy turns off: only ones FXM never uses. It turns off none
+ * that a player may use ({@link PLAYER_FEATURES}).
+ */
+export const UNUSED_FEATURES = [
+  'camera',
+  'microphone',
+  'geolocation',
+  'payment',
+  'usb',
+  'serial',
+  'bluetooth',
+  'hid',
+  'midi',
+] as const
+
+/**
+ * Features the player may use, which the Permissions-Policy must never turn off. The media keys
+ * go through the Media Session API, which no policy controls.
+ */
+export const PLAYER_FEATURES: readonly string[] = [
+  'autoplay',
+  'fullscreen',
+  'picture-in-picture',
+  'screen-wake-lock',
+]
+
+/** `camera=(), microphone=(), …`: each unused feature allowed to no origin. */
+export const PERMISSIONS_POLICY = UNUSED_FEATURES.map((feature) => `${feature}=()`).join(', ')
+
+/**
+ * Why a Permissions-Policy breaks FXM's promise (an empty list when it doesn't): it may only turn
+ * off features FXM never uses, and never one the player may use.
+ */
+export function permissionsPolicyProblems(value: string): string[] {
+  const problems: string[] = []
+  for (const item of value.split(',')) {
+    const feature = /^\s*([a-z-]+)=\(\s*\)\s*$/.exec(item)?.[1]
+    if (feature === undefined) {
+      problems.push(`"${item.trim()}" doesn't turn a feature off (feature=())`)
+    } else if (PLAYER_FEATURES.includes(feature)) {
+      problems.push(`it turns off ${feature}, which the player may use`)
+    } else if (!(UNUSED_FEATURES as readonly string[]).includes(feature)) {
+      problems.push(`it turns off ${feature}, which isn't one of the features FXM never uses`)
+    }
+  }
+  return problems
+}
+
 /** Sent with every response, next to its policy (docs/PLAN.md, header rules). */
 export const COMMON_HEADERS: readonly (readonly [name: string, value: string])[] = [
   // googlevideo requests from the page would otherwise carry Referer: https://fxmusic.pages.dev/
   ['Referrer-Policy', 'no-referrer'],
   ['X-Content-Type-Options', 'nosniff'],
+  // A page opened at top level keeps no tie to a page of another site that opened it, or that it
+  // opens: neither can reach the other's window. Browsers ignore it in frames, so the embed and
+  // the sandbox documents work inside other pages as before; the embed counts on it when a page
+  // opens a player in a new window (apps/web/src/embed/README.md).
+  ['Cross-Origin-Opener-Policy', 'same-origin'],
+  ['Permissions-Policy', PERMISSIONS_POLICY],
 ]

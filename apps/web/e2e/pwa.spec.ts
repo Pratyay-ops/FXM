@@ -572,6 +572,9 @@ test.describe('in Chromium', () => {
       })
       await earlier.goto('connect')
       await expect(earlier.getByRole('region', { name: 'This browser' })).toContainText('Full')
+      // Installed while a page shows: a service worker left installing with no page open runs
+      // in a background process, which a busy machine can starve past the test's timeout.
+      await waitForServiceWorker(earlier)
       await earlier.close()
 
       await newVersionWaits(page, 'library')
