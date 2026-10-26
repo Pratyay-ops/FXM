@@ -92,13 +92,13 @@ exists() {
   return 1
 }
 
-# The web zip is the folder Cloudflare Pages serves, built as the deploy workflow builds it, with
-# make dist's command: it composes the site, the app and the sandbox documents with _headers and
-# the third-party notices, and runs its licence, header and privacy checks
-# (scripts/build-dist/README.md). pnpm succeeds when its filter matches nothing, so the folder an
-# earlier make dist left goes first: only this build's can be zipped.
+# The web zip is the folder Cloudflare Pages serves, built by make dist itself, as the deploy
+# workflow builds it, so whatever its recipe runs, the release runs too. It composes the site, the
+# app and the sandbox documents with _headers and the third-party notices, and runs its licence,
+# header and privacy checks (scripts/build-dist/README.md). pnpm succeeds when its filter matches
+# nothing, so the folder an earlier make dist left goes first: only this build's can be zipped.
 rm -rf dist/pages
-pnpm --silent --filter @fxm/deploy dist
+make -s --no-print-directory dist
 # What every copy must carry: the site, the app, their headers, and the notices that the bundled
 # packages' licences (MIT, ISC and others) require.
 for file in index.html app/index.html _headers third-party-notices.txt; do

@@ -157,14 +157,15 @@ STUB
 write_pnpm_stub() {
   cat >"$1" <<'STUB'
 #!/usr/bin/env bash
-# Stand-in for pnpm (scripts/release-test.sh): logs every call to $PNPM_STUB_DIR/calls.log.
-# make dist's command replaces dist/pages with a copy of $PNPM_STUB_DIR/pages, modes and dates
-# included; FXM Connect's build writes its two zips, named with its package.json's version.
-# While $PNPM_STUB_DIR/no-match exists, it does what pnpm does when a filter matches no package:
-# nothing, successfully.
+# Stand-in for pnpm (scripts/release-test.sh): logs every call to $PNPM_STUB_DIR/calls.log, with
+# the make level it runs at (MAKELEVEL: 0 outside make, 1 in a recipe of a make that no other
+# make started, and so on). make dist's command replaces dist/pages with a copy of
+# $PNPM_STUB_DIR/pages, modes and dates included; FXM Connect's build writes its two zips, named
+# with its package.json's version. While $PNPM_STUB_DIR/no-match exists, it does what pnpm does
+# when a filter matches no package: nothing, successfully.
 set -euo pipefail
 state=${PNPM_STUB_DIR:?}
-printf '%s\n' "$*" >>"$state/calls.log"
+printf '%s (make level %s)\n' "$*" "${MAKELEVEL:-0}" >>"$state/calls.log"
 [ ! -e "$state/no-match" ] || exit 0
 case " $* " in
   *" --filter @fxm/deploy dist "*)
@@ -191,15 +192,16 @@ package_json() { # <file> <name> <version>
 }
 
 # new_repo <name>: a repository like FXM's, as far as the release scripts look, with this
-# checkout's scripts and an origin. Prints its path. The stub's state is in <name>/gh.
+# checkout's Makefile and scripts and an origin. Prints its path. The stub's state is in
+# <name>/gh.
 new_repo() {
   local root=$tmp/$1 work=$tmp/$1/work
   mkdir -p "$root/gh" "$work/scripts" "$work/.tools/bin" "$work/packages/core/src"
   git init -q --bare -b main "$root/origin.git"
   git init -q -b main "$work"
-  cp "$FXM_ROOT"/scripts/{env.sh,lib.sh,install-git-cliff.sh} "$FXM_ROOT"/scripts/release-*.sh \
-    "$work/scripts/"
-  cp "$FXM_ROOT/cliff.toml" "$FXM_ROOT/CHANGELOG.md" "$work/"
+  cp "$FXM_ROOT"/scripts/{env.sh,lib.sh,run.sh,install-git-cliff.sh} \
+    "$FXM_ROOT"/scripts/release-*.sh "$work/scripts/"
+  cp "$FXM_ROOT/Makefile" "$FXM_ROOT/cliff.toml" "$FXM_ROOT/CHANGELOG.md" "$work/"
   ln -s "$cliff" "$work/.tools/bin/git-cliff"
   write_gh_stub "$work/.tools/bin/gh"
   printf '/.tools/\n' >"$work/.gitignore"
@@ -661,8 +663,11 @@ else
   zip=$work/dist/release/fxm-web-0.1.0.zip
   build
   expect "builds the release files" test "$status" -eq 0
-  expect "with make dist, once" \
-    test "$(grep -c -- '--filter @fxm/deploy dist' "$PNPM_STUB_DIR/calls.log")" = 1
+  # Run by make itself, one level below this test (make release-check is a level of its own), so
+  # the call is whatever the Makefile's dist recipe makes it, as in the deploy workflow.
+  made_dist="--filter @fxm/deploy dist.* (make level $((${MAKELEVEL:-0} + 1)))\$"
+  expect "with make dist itself, once" \
+    test "$(grep -c -- "$made_dist" "$PNPM_STUB_DIR/calls.log")" = 1
   no_own_builds() {
     lacks "$PNPM_STUB_DIR/calls.log" @fxm/site && lacks "$PNPM_STUB_DIR/calls.log" @fxm/web
   }
